@@ -428,7 +428,15 @@ class TrendFollowStrategy:
                 all_trigger_dates.update(df.index[trigger_signal])
 
             if all_setup_dates or all_trigger_dates:
-                probe_start_date = pd.Timestamp('2024-06-01')
+                probe_start_date_naive = pd.Timestamp('2024-06-01')
+                # 检查df.index的时区，并对探针日期进行本地化
+                if df.index.tz is not None:
+                    probe_start_date = probe_start_date_naive.tz_localize(df.index.tz)
+                    print(f"      -> [探针信息] 数据索引时区为 '{df.index.tz}'，探针起始日期已适配。")
+                else:
+                    probe_start_date = probe_start_date_naive
+                    print(f"      -> [探针信息] 数据索引无时区，探针使用无时区日期。")
+
                 key_dates = sorted([d for d in list(all_setup_dates | all_trigger_dates) if d >= probe_start_date])
 
                 if key_dates:
