@@ -148,7 +148,7 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤3: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         print("--- [总指挥] 步骤4: 最终计分引擎启动 ---")
-        df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores)
+        df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         self._last_score_details_df = score_details_df
         print("--- [总指挥] 步骤5: 智能风险评审与出场决策引擎启动 ---")
         risk_factors = self._diagnose_risk_factors(df, params)
@@ -268,7 +268,7 @@ class TrendFollowStrategy:
         print("    - [斜率中心 V58.0] 所有斜率计算完成。")
         return df
 
-    def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series]) -> List[Dict]:
+    def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
         【V57.0 动态分级版 - 菜单设计师】
         """
@@ -282,7 +282,7 @@ class TrendFollowStrategy:
         score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
         score_energy_comp = setup_conditions.get('SETUP_SCORE_ENERGY_COMPRESSION', pd.Series(0, index=df.index))
-        setup_washout_reversal = trigger_events.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
+        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         
@@ -399,7 +399,8 @@ class TrendFollowStrategy:
         df: pd.DataFrame, 
         params: dict, 
         trigger_events: Dict[str, pd.Series], 
-        setup_scores: Dict[str, pd.Series]
+        setup_scores: Dict[str, pd.Series],
+        atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         【V62.2 探针过滤与事件驱动修复版】
@@ -410,7 +411,7 @@ class TrendFollowStrategy:
         
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
-        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
+        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
 
         # 获取全局风险状态，用于最终的信号过滤
         is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', pd.Series(0, index=df.index)) > 0
