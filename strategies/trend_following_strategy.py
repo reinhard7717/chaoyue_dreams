@@ -349,14 +349,14 @@ class TrendFollowStrategy:
             {
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
                 'setup': score_energy_comp > 60,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series), # 使用突破型触发器
                 'score': 230, 'precondition': robust_right_side_precondition,
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
             },
             {
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
                 'setup': setup_washout_reversal,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 使用企稳型触发器
                 'score': 260, 'precondition': True,
                 'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
             },
@@ -1284,50 +1284,44 @@ class TrendFollowStrategy:
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
+        # ▼▼▼ “突破阳线” ▼▼▼
         p_breakout = trigger_params.get('breakout_candle', {})
         if self._get_param_value(p_breakout.get('enabled'), True):
             min_body_ratio = self._get_param_value(p_breakout.get('min_body_ratio'), 0.4)
             boll_mid_col = 'Boll_Mid_21_2.0_D'
             
-            # 条件1: 必须是实体阳线，且实体不能太小
+            # 定义1: 必须是实体阳线
             is_strong_positive_candle = (
                 (df['close_D'] > df['open_D']) &
                 (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
             )
             
-            # 条件2: 收盘价必须突破布林带中轨
+            # 定义2: 收盘价必须突破布林带中轨
             is_breaking_boll_mid = df['close_D'] > df.get(boll_mid_col, df['close_D'])
             
-            # 条件3: 成交量必须温和放大 (可选)
-            volume_ratio = self._get_param_value(p_breakout.get('volume_ratio'), 1.1)
-            is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0) * volume_ratio
-
-            triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid & is_volume_ok
+            # 这个触发器专门用于底部企稳，不要求放量
+            triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
             
             signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
             dates_str = self._format_debug_dates(signal)
-            print(f"      -> '突破阳线' 务实型触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+            print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
 
-        # ▼▼▼ 能量释放专属触发器 ▼▼▼
+        # ▼▼▼ 能量释放 ▼▼▼
         p_energy = trigger_params.get('energy_release', {})
         if self._get_param_value(p_energy.get('enabled'), True):
-            # 条件1: 必须是实体阳线
             is_positive_day = df['close_D'] > df['open_D']
-            
-            # 条件2: 阳线实体部分要足够强壮
             body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
             body_ratio = (df['close_D'] - df['open_D']) / body_range
-            is_strong_body = body_ratio > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
-
-            # 条件3: 成交量必须显著放大，突破近期均量
+            is_strong_body = body_ratio.fillna(1.0) > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
             volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
             is_volume_spike = df['volume_D'] > df.get(vol_ma_col, 0) * volume_ratio
             
+            # 这个触发器专门用于平台突破，必须带量
             triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
             
             signal = triggers.get('TRIGGER_ENERGY_RELEASE', pd.Series([]))
             dates_str = self._format_debug_dates(signal)
-            print(f"      -> '能量释放' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
         for key in triggers:
             if triggers[key] is None:
