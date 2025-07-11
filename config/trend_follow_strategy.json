@@ -211,13 +211,12 @@
           "说明": "【V60.1 优化版】A级菜肴：健康主升浪。放宽了准入条件，以更好地捕捉真实市场中的上涨趋势。",
           "must_have": {
             "MA_STATE_PRICE_ABOVE_LONG_MA": 40,
-            "CAPITAL_STATE_CMF_BULLISH": 20,
-            "CHIP_STATE_MARKUP": 20
+            "MA_STATE_STABLE_BULLISH": 20
           },
           "bonus": {
-            "MA_STATE_STABLE_BULLISH": 30,
-            "CHIP_STATE_MARKUP": 20,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 15
+            "CHIP_STATE_MARKUP": 30,
+            "CAPITAL_STATE_INFLOW_CONFIRMED": 30,
+            "VOL_STATE_SHRINKING": 15
           }
         },
         "ENERGY_COMPRESSION": {
