@@ -356,7 +356,7 @@ class TrendFollowStrategy:
             {
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
                 'setup': setup_washout_reversal,
-                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 260, 'precondition': True,
                 'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
             },
