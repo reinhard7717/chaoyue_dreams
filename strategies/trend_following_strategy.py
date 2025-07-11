@@ -1285,6 +1285,27 @@ class TrendFollowStrategy:
         signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '突破阳线' 务实型触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+
+        # ▼▼▼ 能量释放专属触发器 ▼▼▼
+        p_energy = trigger_params.get('energy_release', {})
+        if self._get_param_value(p_energy.get('enabled'), True):
+            # 条件1: 必须是实体阳线
+            is_positive_day = df['close_D'] > df['open_D']
+            
+            # 条件2: 阳线实体部分要足够强壮
+            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            body_ratio = (df['close_D'] - df['open_D']) / body_range
+            is_strong_body = body_ratio > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
+
+            # 条件3: 成交量必须显著放大，突破近期均量
+            volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
+            is_volume_spike = df['volume_D'] > df.get(vol_ma_col, 0) * volume_ratio
+            
+            triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
+            
+            signal = triggers.get('TRIGGER_ENERGY_RELEASE', pd.Series([]))
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '能量释放' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
         for key in triggers:
             if triggers[key] is None:
