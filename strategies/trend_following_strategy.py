@@ -288,7 +288,6 @@ class TrendFollowStrategy:
         score_deep_accum = setup_conditions.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
         score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
-        score_energy_comp = setup_conditions.get('SETUP_SCORE_ENERGY_COMPRESSION', pd.Series(0, index=df.index))
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
@@ -373,8 +372,9 @@ class TrendFollowStrategy:
             # ▼▼▼ “能量压缩突破”剧本 ▼▼▼
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
-                'setup': score_energy_comp > 65, # 准备状态：能量被高度压缩
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 触发器：一根温和的企稳突破阳线
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                # 使用 'precondition' 来定义触发的、持续性的上下文背景
+                'precondition': atomic_states.get('OPP_STATE_ENERGY_WINDOW', default_series),
                 'score': 190, 'precondition': True,
                 'side': 'right',
                 'comment': 'B+级: 在波动率极度压缩后，出现的第一根企稳突破阳线，是潜在主升浪的“点火”信号。'
