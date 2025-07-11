@@ -424,7 +424,7 @@ class TrendFollowStrategy:
                 'cn_name': '【S+级】潜龙出海',
                 # 准备条件: 深度吸筹置信度 > 120 (例如: 必须项全满足 + 至少两个顶级加分项)
                 'setup': score_deep_accum > 120,
-                'trigger': trigger_events.get('CHIP_EVENT_IGNITION', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 400, # 给予最高的基础分
                 'precondition': True, # 左侧转右侧的临界点，放宽前提
                 'comment': 'S+级: 筹码、均线、资金、波动率四维共振后的首次点火，确定性极高。'
@@ -434,7 +434,7 @@ class TrendFollowStrategy:
                 'cn_name': '【S级】潜龙出海',
                 # 准备条件: 80 < 置信度 <= 120 (例如: 必须项全满足 + 一个关键加分项)
                 'setup': (score_deep_accum > 80) & (score_deep_accum <= 120),
-                'trigger': trigger_events.get('CHIP_EVENT_IGNITION', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 350,
                 'precondition': True,
                 'comment': 'S级: 核心条件具备，多重验证下的标准启动信号。'
@@ -444,7 +444,7 @@ class TrendFollowStrategy:
                 'cn_name': '【A+级】潜龙出海',
                 # 准备条件: 50 < 置信度 <= 80 (例如: 仅满足必须项)
                 'setup': (score_deep_accum > 50) & (score_deep_accum <= 80),
-                'trigger': trigger_events.get('CHIP_EVENT_IGNITION', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 280,
                 'precondition': True,
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
@@ -675,7 +675,7 @@ class TrendFollowStrategy:
                     is_winner_inc = winner_val > winner_prev_val
                     
                     # 【关键修复】使用 reindex 保证索引安全
-                    primary_state_series = atomic_states.get('CHIP_STATE_PRIMARY', pd.Series('N/A')).reindex(df.index, fill_value='N/A')
+                    primary_state_series = atomic_states.get('CHIP_STATE_PRIMARY', pd.Series('N/A', index=df.index)).reindex(df.index, fill_value='N/A')
                     prev_state = primary_state_series.shift(1).get(date, 'N/A')
                     was_in_setup = prev_state in ['ACCUMULATION', 'TRANSITION']
                     
@@ -1602,7 +1602,7 @@ class TrendFollowStrategy:
           2. 基于量价、K线形态、指标交叉等信息，计算出一系列布尔型的触发事件信号。
           3. 输出一个包含所有触发事件的字典 (e.g., {'TRIGGER_CHIP_IGNITION': pd.Series(...), ...})。
         """
-        print("    - [触发事件中心 V59.5] 启动，开始定义所有原子化触发事件...")
+        print("    - [触发事件中心 V59.9] 启动，开始定义所有原子化触发事件...")
         
         # 初始化一个字典来存储所有的触发事件
         triggers = {}
@@ -1719,6 +1719,23 @@ class TrendFollowStrategy:
         # 将“地天板”作为一个顶级的买入触发器
         triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = board_events.get('BOARD_EVENT_EARTH_HEAVEN', pd.Series(False, index=df.index))
         print(f"      -> '地天板' 触发事件定义完成，发现 {triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', pd.Series([])).sum()} 天。")
+
+        # ▼▼▼【代码修改 V59.9】: 新增务实的突破触发器 ▼▼▼
+        p_candle = self._get_params_block(params, 'trigger_event_params', {}).get('positive_candle', {})
+        min_body_ratio = self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
+        
+        # 条件a: 是一根实体占比较大的阳线
+        is_strong_positive_candle = (
+            (df['close_D'] > df['open_D']) &
+            ((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan) >= min_body_ratio)
+        )
+        
+        # 条件b: 突破了布林带中轨 (一个常见的盘整压力位)
+        boll_mid_col = 'BBM_21_2.0_D' # 假设布林带指标已计算
+        is_breaking_boll_mid = df['close_D'] > df.get(boll_mid_col, df['close_D'])
+
+        triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
+        print(f"      -> '突破阳线' 务实型触发器定义完成，发现 {triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([])).sum()} 天。")
 
         # --- 步骤4: 最终清洗与返回 ---
         # 确保所有返回的 Series 都已填充 NaN，避免下游出错
