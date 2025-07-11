@@ -1448,22 +1448,40 @@ class TrendFollowStrategy:
         # --- 3. 诊断“N字形态-整理期”状态 (N-Shape Consolidation) ---
         p_nshape = p.get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
-            # 事件：一根涨停或大阳线作为N字的第一笔（旗杆）
             rally_threshold = self._get_param_value(p_nshape.get('rally_threshold'), 0.097)
+            consolidation_days_max = self._get_param_value(p_nshape.get('consolidation_days_max'), 3)
+
+            # 1. 定义N字启动事件 (T日)
             n_shape_start_event = df['pct_change_D'] >= rally_threshold
             
-            # 破坏条件：跌破启动阳线的开盘价
-            start_day_open = df['open_D'].where(n_shape_start_event, np.nan).ffill()
-            break_condition = df['close_D'] < start_day_open
+            # 2. 获取启动日(T日)的关键价格：开盘价和最高价
+            rally_open = df['open_D'].where(n_shape_start_event, np.nan)
+            rally_high = df['high_D'].where(n_shape_start_event, np.nan)
             
-            persistence_days = self._get_param_value(p_nshape.get('consolidation_days_max'), 3)
-            # N字整理期从启动日的下一天开始，所以要对event进行shift
-            states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = self._create_persistent_state(
-                df,
-                entry_event=n_shape_start_event.shift(1).fillna(False),
-                persistence_days=persistence_days,
-                break_condition=break_condition
-            )
+            # 3. 向前填充，让后续的整理日知道T日的关键价格
+            rally_open_ffill = rally_open.ffill()
+            rally_high_ffill = rally_high.ffill()
+            
+            # 4. 定义整理期 (T+1, T+2, ...)
+            # 条件a: 必须在启动事件之后
+            is_after_rally = n_shape_start_event.cumsum() > 0
+            # 条件b: 整理期的收盘价必须高于启动日的开盘价 (核心风控)
+            is_holding_above_open = df['close_D'] > rally_open_ffill
+            # 条件c: 不能是新的启动日
+            is_not_new_rally = ~n_shape_start_event
+            
+            # 综合以上条件，得到一个潜在的整理期布尔信号
+            potential_consolidation = is_after_rally & is_holding_above_open & is_not_new_rally
+            
+            # 5. 使用状态机，确保整理期只持续N天
+            # 我们用一个技巧：计算自上次启动以来的天数
+            days_since_rally = potential_consolidation.groupby(n_shape_start_event.cumsum()).cumcount() + 1
+            # 最终的整理期状态
+            states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = potential_consolidation & (days_since_rally <= consolidation_days_max)
+            
+            # 6. 【关键输出】输出一个Series，只在整理期内包含固定的启动日高点
+            states['KLINE_N_SHAPE_RALLY_HIGH'] = rally_high_ffill.where(states['KLINE_STATE_N_SHAPE_CONSOLIDATION'])
+
             print(f"          -> 'N字形态整理期' 状态诊断完成，共激活 {states['KLINE_STATE_N_SHAPE_CONSOLIDATION'].sum()} 天。")
 
         print("        -> [诊断模块] K线组合形态诊断执行完毕。")
