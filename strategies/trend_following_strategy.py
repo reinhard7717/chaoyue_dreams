@@ -300,7 +300,7 @@ class TrendFollowStrategy:
                 'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视',
                 'setup': score_cap_pit > 80,
                 'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series),
-                'score': 320, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 320,
                 'side': 'left',
                 'comment': 'S级: 在市场极度恐慌、流动性枯竭的深渊中，捕捉到的第一个功能性强度反转信号，是最高赔率的史诗级机会。'
             },
@@ -308,7 +308,7 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_S_PLUS', 'cn_name': '【S+级】潜龙出海',
                 'setup': score_deep_accum > 120,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 400, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 400,
                 'side': 'right',
                 'comment': 'S+级: 筹码、均线、资金、波动率四维共振后的首次点火，确定性极高。'
             },
@@ -316,7 +316,7 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_S', 'cn_name': '【S级】潜龙出海',
                 'setup': (score_deep_accum > 80) & (score_deep_accum <= 120),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 350, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 350,
                 'side': 'right',
                 'comment': 'S级: 核心条件具备，多重验证下的标准启动信号。'
             },
@@ -324,7 +324,7 @@ class TrendFollowStrategy:
                 'name': 'PERFECT_STORM_A_PLUS', 'cn_name': '【A+级】潜龙出海',
                 'setup': (score_deep_accum > 50) & (score_deep_accum <= 80),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 280, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 280,
                 'side': 'right',
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
             },
@@ -332,7 +332,7 @@ class TrendFollowStrategy:
                 'name': 'PIT_REVERSAL_A_PLUS', 'cn_name': '【A+级】投降坑反转',
                 'setup': score_cap_pit > 80,
                 'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 290, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 290,
                 'side': 'left',
                 'comment': 'A+级: 在市场极度恐慌、筹码发散的“混乱之底”后，出现强力反转K线，是最高质量的左侧信号。'
             },
@@ -340,7 +340,7 @@ class TrendFollowStrategy:
                 'name': 'PIT_REVERSAL_A', 'cn_name': '【A级】投降坑反转',
                 'setup': (score_cap_pit > 50) & (score_cap_pit <= 80),
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 220, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 220,
                 'side': 'left',
                 'comment': 'A级: 出现投降迹象，并伴随企稳阳线，是高赔率的左侧博弈机会。'
             },
@@ -374,7 +374,7 @@ class TrendFollowStrategy:
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'precondition': atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series),
-                'score': 190, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 190,
                 'side': 'right',
                 'comment': 'B+级: 在“能量待爆发”的背景状态下(前提)，出现的第一根企稳突破阳线(事件)，是潜在主升浪的“点火”信号。'
             },
@@ -400,7 +400,7 @@ class TrendFollowStrategy:
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
                 'setup': setup_washout_reversal,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 260, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 260,
                 'side': 'left',
                 'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
             },
@@ -426,7 +426,7 @@ class TrendFollowStrategy:
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳',
                 'setup': score_bottoming_process > 50,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 190, # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
+                'score': 190,
                 'side': 'left',
                 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线，是高赔率的左侧博弈机会。'
             },
@@ -434,7 +434,6 @@ class TrendFollowStrategy:
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板',
                 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
                 'score': 380, 
-                # ▼▼▼【代码修正 V70.0】: 移除冲突的 'precondition': True ▼▼▼
                 'is_event_driven': True,
                 'side': 'left',
                 'comment': '市场情绪的极致反转，拥有最高优先级，解除所有限制。'
@@ -560,12 +559,10 @@ class TrendFollowStrategy:
             for playbook in playbook_definitions:
                 name = playbook['name']
                 cn_name = playbook.get('cn_name', name)
-                
-                # ▼▼▼【代码修正 V69.1】: 增加健壮性检查，避免对布尔值执行 .loc 操作 ▼▼▼
+
                 is_setup_today = playbook.get('setup', default_series).loc[date] if 'setup' in playbook and isinstance(playbook.get('setup'), pd.Series) else False
                 is_precondition_today = playbook.get('precondition', default_series).loc[date] if 'precondition' in playbook and isinstance(playbook.get('precondition'), pd.Series) else False
                 is_setup_or_precondition_today = is_setup_today or is_precondition_today
-                # ▲▲▲【代码修正 V69.1】▲▲▲
                 
                 is_trigger_today = playbook.get('trigger', default_series).loc[date] if 'trigger' in playbook else False
                 is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
