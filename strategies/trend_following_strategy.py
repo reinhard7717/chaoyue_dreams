@@ -272,9 +272,12 @@ class TrendFollowStrategy:
         """
         【V57.0 动态分级版 - 菜单设计师】
         """
-        print("    - [剧本定义中心 V57.0 动态分级版] 启动...")
+        print("    - [剧本定义中心 V62.1] 启动...")
+        # --- 步骤 1: 初始化和获取上下文 ---
         default_series = pd.Series(False, index=df.index)
         robust_right_side_precondition = df.get('robust_right_side_precondition', pd.Series(True, index=df.index))
+        
+        # --- 步骤 2: 获取所有准备状态的“置信度分数” ---
         score_deep_accum = setup_conditions.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
         score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
@@ -282,7 +285,10 @@ class TrendFollowStrategy:
         setup_washout_reversal = trigger_events.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
+        
         is_in_distribution_risk = setup_conditions.get('SETUP_DISTRIBUTION_RISK', pd.Series(False, index=df.index))
+        
+        # --- 步骤 3: 定义所有交易剧本 (Playbooks) ---
         playbook_definitions = [
             {
                 'name': 'PERFECT_STORM_S_PLUS', 'cn_name': '【S+级】潜龙出海',
@@ -370,9 +376,10 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板',
-                'setup': True,
                 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
-                'score': 380, 'precondition': True,
+                'score': 380, 
+                'precondition': True,
+                'is_event_driven': True, # 新增标志，表明这是纯事件驱动
                 'comment': '市场情绪的极致反转，拥有最高优先级。'
             },
         ]
@@ -393,112 +400,97 @@ class TrendFollowStrategy:
         setup_scores: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V62.1 全局探针与增强日志版】
-        - 核心升级 1 (全局探针): 废弃了之前硬编码的、针对特定剧本的探针。新的探针会自动扫描所有剧本的准备(setup)和触发(trigger)状态，并在任何一个状态被激活时，打印出当天所有剧本的详细情况，极大提升了调试效率和广度。
-        - 核心升级 2 (增强日志): 最终的剧本触发日志现在会明确打印出信号发生的具体日期，便于快速与K线图进行比对。
+        【V62.2 探针过滤与事件驱动修复版】
+        - 核心升级 1 (探针过滤): 全局探针增加起始日期过滤，只输出指定日期之后的日志，提升可读性。
+        - 核心升级 2 (事件驱动修复): 计分逻辑现在能识别 'is_event_driven' 标志，对此类剧本（如地天板）直接使用当天的trigger作为最终信号，修复了其无法触发的BUG。
         """
-        print("    - [计分引擎 V62.1 全局探针版] 启动，开始装配剧本并计算最终得分...")
+        print("    - [计分引擎 V62.2 探针过滤与事件驱动修复版] 启动...")
         
-        # --- 步骤 1: 初始化 ---
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
-
-        # --- 步骤 2: 获取所有剧本定义 ---
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
 
-        # ▼▼▼【代码修改 V62.1】: 升级为全局探针 ▼▼▼
-        # 1. 收集所有剧本的关键日期和状态序列
-        all_setup_dates = set()
-        all_trigger_dates = set()
-        playbook_details_map = {} # 使用字典存储每个剧本的setup和trigger series，避免重复获取
+        # --- 全局探针逻辑 ---
+        if self.verbose_logging:
+            all_setup_dates = set()
+            all_trigger_dates = set()
+            playbook_details_map = {}
 
-        for playbook in playbook_definitions:
-            name = playbook['name']
-            is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
-            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
-            
-            playbook_details_map[name] = {'setup': is_setup_valid, 'trigger': trigger_signal}
-            
-            # 收集所有有活动的日期
-            all_setup_dates.update(df.index[is_setup_valid])
-            all_trigger_dates.update(df.index[trigger_signal])
-
-        # 2. 如果有任何活动，并且开启了详细日志，则启动全局探针
-        if self.verbose_logging and (all_setup_dates or all_trigger_dates):
-            key_dates = sorted(list(all_setup_dates | all_trigger_dates))
-            print("\n" + "="*25 + " 全局剧本探针已启动 " + "="*25)
-            print(f"-> 发现准备状态日: {len(all_setup_dates)} 天 | 发现触发事件日: {len(all_trigger_dates)} 天 | 关键日期总数: {len(key_dates)}")
-            print("-" * 80)
-            # 打印表头
-            print(f"{'日期':<12} | {'剧本名称':<25} | {'Setup?':<8} | {'Trigger?':<10} | {'最终信号?':<10}")
-            print("-" * 80)
-
-            for date in key_dates:
-                has_activity_on_date = False # 标记当天是否有任何活动，用于控制日期打印
+            for playbook in playbook_definitions:
+                name = playbook['name']
+                # 对于事件驱动剧本，其setup不计入探针的“准备状态日”，避免干扰
+                is_setup_valid = pd.Series(False, index=df.index) if playbook.get('is_event_driven') else playbook.get('setup', pd.Series(False, index=df.index))
+                trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
                 
-                # 遍历所有剧本，检查在当前日期'date'的状态
-                for playbook in playbook_definitions:
-                    name = playbook['name']
-                    cn_name = playbook.get('cn_name', name)
-                    details = playbook_details_map[name]
-                    
-                    is_setup_on_date = details['setup'].get(date, False)
-                    is_trigger_on_date = details['trigger'].get(date, False)
-                    
-                    # 计算最终信号 (需要前一天的setup状态)
-                    was_setup_yesterday = details['setup'].shift(1).fillna(False).get(date, False)
-                    final_signal_on_date = was_setup_yesterday and is_trigger_on_date
+                playbook_details_map[name] = {'setup': is_setup_valid, 'trigger': trigger_signal, 'is_event_driven': playbook.get('is_event_driven', False)}
+                
+                all_setup_dates.update(df.index[is_setup_valid])
+                all_trigger_dates.update(df.index[trigger_signal])
 
-                    # 只要当天有任何一个状态为True，就打印该剧本的信息
-                    if is_setup_on_date or is_trigger_on_date or final_signal_on_date:
-                        # 如果这是当天打印的第一条信息，先打印日期
-                        if not has_activity_on_date:
-                            print(f"{str(date.date()):<12} | {'-'*65}")
-                            has_activity_on_date = True
-                        
-                        # 打印该剧本在当天的状态详情
-                        print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(final_signal_on_date):<10}")
+            if all_setup_dates or all_trigger_dates:
+                probe_start_date = pd.Timestamp('2024-06-01')
+                key_dates = sorted([d for d in list(all_setup_dates | all_trigger_dates) if d >= probe_start_date])
 
-            print("="*25 + " 全局剧本探针分析结束 " + "="*25 + "\n")
-        # ▲▲▲【代码修改 V62.1】▲▲▲
+                if key_dates:
+                    print("\n" + "="*25 + f" 全局剧本探针已启动 (从 {probe_start_date.date()} 开始) " + "="*25)
+                    print(f"-> 发现准备状态日: {len(all_setup_dates)} 天 | 发现触发事件日: {len(all_trigger_dates)} 天 | 筛选后关键日期: {len(key_dates)}")
+                    print("-" * 80)
+                    print(f"{'日期':<12} | {'剧本名称':<25} | {'Setup?':<8} | {'Trigger?':<10} | {'最终信号?':<10}")
+                    print("-" * 80)
 
-        # --- 步骤 3: 遍历所有剧本蓝图，进行装配和计分 ---
+                    for date in key_dates:
+                        has_activity_on_date = False
+                        for playbook in playbook_definitions:
+                            name = playbook['name']
+                            cn_name = playbook.get('cn_name', name)
+                            details = playbook_details_map[name]
+                            
+                            is_setup_on_date = details['setup'].get(date, False)
+                            is_trigger_on_date = details['trigger'].get(date, False)
+                            
+                            # 根据是否为事件驱动，计算最终信号
+                            if details['is_event_driven']:
+                                final_signal_on_date = is_trigger_on_date
+                            else:
+                                was_setup_yesterday = details['setup'].shift(1).fillna(False).get(date, False)
+                                final_signal_on_date = was_setup_yesterday and is_trigger_on_date
+
+                            if is_setup_on_date or is_trigger_on_date or final_signal_on_date:
+                                if not has_activity_on_date:
+                                    print(f"{str(date.date()):<12} | {'-'*65}")
+                                    has_activity_on_date = True
+                                print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(final_signal_on_date):<10}")
+                    print("="*25 + " 全局剧本探针分析结束 " + "="*25 + "\n")
+
+        # --- 计分逻辑 ---
         for playbook in playbook_definitions:
             name = playbook['name']
             cn_name = playbook.get('cn_name', name)
             
-            # 从之前构建的map中获取状态，提高效率
-            details = playbook_details_map[name]
-            is_setup_valid = details['setup']
-            trigger_signal = details['trigger']
+            is_setup_valid = playbook.get('setup', pd.Series(False, index=df.index))
+            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
             
-            # 核心时序逻辑：用昨天的准备状态，匹配今天的触发信号
-            yesterday_setup_valid = is_setup_valid.shift(1).fillna(False)
-            playbook_signal = yesterday_setup_valid & trigger_signal
+            if playbook.get('is_event_driven', False):
+                # 对于纯事件驱动的剧本，信号就是触发当天
+                playbook_signal = trigger_signal
+            else:
+                # 对于传统剧本，使用“昨日准备，今日触发”模型
+                yesterday_setup_valid = is_setup_valid.shift(1).fillna(False)
+                playbook_signal = yesterday_setup_valid & trigger_signal
             
             if playbook_signal.any():
-                # 获取剧本的基础分
                 base_score = playbook.get('score', 0)
-                
-                # 创建一个与df等长的Series，值为基础分，用于向量化操作
                 current_playbook_score = pd.Series(base_score, index=df.index)
-                
-                # 将该剧本的得分累加到最终总分上
                 final_score.loc[playbook_signal] += current_playbook_score.loc[playbook_signal]
-                
-                # 记录得分详情
                 score_details_df.loc[playbook_signal, name] = current_playbook_score.loc[playbook_signal]
                 
-                # ▼▼▼【代码修改 V62.1】: 增强剧本触发日志 ▼▼▼
                 triggered_dates_str = self._format_debug_dates(playbook_signal)
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
-                # ▲▲▲【代码修改 V62.1】▲▲▲
 
-        # --- 步骤 4: 最终处理和返回 ---
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V62.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V62.2] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
