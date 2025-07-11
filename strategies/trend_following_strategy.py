@@ -329,7 +329,7 @@ class TrendFollowStrategy:
                 'side': 'right',
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
             },
-            # ▼▼▼【代码修改 V65.0】: 适配新的“投降坑”评分逻辑，聚焦于识别“混乱之底” ▼▼▼
+            # ▼▼▼ “投降坑”评分逻辑，聚焦于识别“混乱之底” ▼▼▼
             {
                 'name': 'PIT_REVERSAL_A_PLUS', 'cn_name': '【A+级】投降坑反转',
                 'setup': score_cap_pit > 80, # 要求价格超卖+获利盘低+筹码发散全部满足
@@ -346,7 +346,6 @@ class TrendFollowStrategy:
                 'side': 'left',
                 'comment': 'A级: 出现投降迹象，并伴随企稳阳线，是高赔率的左侧博弈机会。'
             },
-            # ▲▲▲【代码修改 V65.0】▲▲▲
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪',
                 'setup': score_healthy_markup > 60,
@@ -370,6 +369,15 @@ class TrendFollowStrategy:
                 'score': 195,
                 'side': 'right',
                 'comment': 'B+级: 在均线粘合的平台整理区，股价精准回踩关键支撑线后企稳反弹，是潜在突破的左侧埋伏点。'
+            },
+            # ▼▼▼ “能量压缩突破”剧本 ▼▼▼
+            {
+                'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
+                'setup': score_energy_comp > 80, # 准备状态：能量被高度压缩
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 触发器：一根温和的企稳突破阳线
+                'score': 190, 'precondition': True,
+                'side': 'right',
+                'comment': 'B+级: 在波动率极度压缩后，出现的第一根企稳突破阳线，是潜在主升浪的“点火”信号。'
             },
             {
                 'name': 'TREND_CONTINUATION_B_PLUS', 'cn_name': '【B+级】趋势中继',
