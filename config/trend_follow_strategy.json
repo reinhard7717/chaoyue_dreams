@@ -287,6 +287,15 @@
           "enabled": true,
           "min_pct_change": { "value": 0.03, "说明": "反转确认阳线的最小日涨幅" }
         },
+        "breakout_candle": {
+          "enabled": true,
+          "min_body_ratio": { "value": 0.4, "说明": "突破阳线(企稳型)的最小实体占比" }
+        },
+        "energy_release": {
+          "enabled": true,
+          "min_body_ratio": { "value": 0.5, "说明": "能量释放(突破型)的最小实体占比" },
+          "volume_ratio": { "value": 1.5, "说明": "能量释放(突破型)的最小放量倍数" }
+        },
         "volume_spike_breakout": {
           "enabled": true,
           "volume_ratio": { "value": 2.0, "说明": "放量倍数" },
