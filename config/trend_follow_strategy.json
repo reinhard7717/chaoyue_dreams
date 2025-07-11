@@ -133,7 +133,7 @@
       "bias": {
         "enabled": true,
         "apply_on": ["D"],
-        "periods": [20],
+        "periods": [21],
         "说明": "【V41.9 新增】计算乖离率(BIAS)，为'BIAS超跌反转'剧本提供数据基础。"
       },
       "fibonacci_levels": {
