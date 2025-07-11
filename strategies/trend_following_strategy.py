@@ -734,7 +734,7 @@ class TrendFollowStrategy:
                     states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
 
                     # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
-                    debug_date = pd.to_datetime('2024-09-09', utc=True)
+                    debug_date = pd.to_datetime('2025-04-09', utc=True)
                     if debug_date in df.index:
                         value_on_date = df.loc[debug_date, conc_col]
                         is_triggered = value_on_date > scattered_threshold_ratio
