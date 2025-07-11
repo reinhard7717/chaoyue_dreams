@@ -822,7 +822,7 @@ class TrendFollowStrategy:
         # ▼▼▼ BIAS机会状态的诊断 ▼▼▼
         p_bias = self._get_params_block(params, 'playbook_specific_params', {}).get('bias_reversal_params', {})
         if self._get_param_value(p_bias.get('enabled'), True):
-            bias_period = self._get_param_value(p_bias.get('bias_period'), 20)
+            bias_period = self._get_param_value(p_bias.get('bias_period'), 55)
             bias_col = f'BIAS_{bias_period}_D'
             if bias_col in df.columns:
                 # 定义负向乖离机会状态

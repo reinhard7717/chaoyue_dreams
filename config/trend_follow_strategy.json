@@ -133,7 +133,7 @@
       "bias": {
         "enabled": true,
         "apply_on": ["D"],
-        "periods": [21],
+        "periods": [21,55],
         "说明": "【V41.9 新增】计算乖离率(BIAS)，为'BIAS超跌反转'剧本提供数据基础。"
       },
       "fibonacci_levels": {
@@ -445,7 +445,7 @@
         "说明": "【V41.9 新增】为特定、独立的交易剧本配置专属参数。",
         "bias_reversal_params": {
           "enabled": { "value": true, "说明": "启用'BIAS'相关状态诊断。" },
-          "bias_period": { "value": 21, "说明": "计算BIAS指标的周期。" },
+          "bias_period": { "value": 55, "说明": "此参数仅为文档说明，实际使用的列是BIAS_55_D。" },
           "oversold_threshold": { "value": -10.0, "说明": "定义'负向乖离'机会区的BIAS阈值。" },
           "overbought_threshold": { "value": 15.0, "说明": "定义'超买'风险区的BIAS阈值。" }
         },
