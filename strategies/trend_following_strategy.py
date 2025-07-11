@@ -54,7 +54,8 @@ class TrendFollowStrategy:
         
         if count > display_limit:
             # 如果日期太多，只显示前N个并附上总数
-            return f" -> 日期: {date_strings[:display_limit]}... (共 {count} 天)"
+            # return f" -> 日期: {date_strings[:display_limit]}... (共 {count} 天)"
+            return f" -> 日期: {date_strings[-display_limit:]}... (共 {count} 天)"
         else:
             # 否则全部显示
             return f" -> 日期: {date_strings}"
@@ -751,18 +752,18 @@ class TrendFollowStrategy:
                     states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
 
                     # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
-                    debug_date = pd.to_datetime('2025-04-09', utc=True)
-                    if debug_date in df.index:
-                        value_on_date = df.loc[debug_date, conc_col]
-                        is_triggered = value_on_date > scattered_threshold_ratio
-                        print("="*80)
-                        print(f"      -> [深度调试探针] 日期: {debug_date.date()}")
-                        print(f"      -> 筹码集中度(90%)列名: {conc_col}")
-                        print(f"      -> 当日实际计算值 (比率): {value_on_date:.4f}")
-                        print(f"      -> 设定的发散阈值 (百分比): > {scattered_threshold_pct}%")
-                        print(f"      -> 换算后的阈值 (比率): > {scattered_threshold_ratio}")
-                        print(f"      -> 是否触发'筹码发散'状态: {is_triggered}")
-                        print("="*80)
+                    # debug_date = pd.to_datetime('2025-04-09', utc=True)
+                    # if debug_date in df.index:
+                    #     value_on_date = df.loc[debug_date, conc_col]
+                    #     is_triggered = value_on_date > scattered_threshold_ratio
+                    #     print("="*80)
+                    #     print(f"      -> [深度调试探针] 日期: {debug_date.date()}")
+                    #     print(f"      -> 筹码集中度(90%)列名: {conc_col}")
+                    #     print(f"      -> 当日实际计算值 (比率): {value_on_date:.4f}")
+                    #     print(f"      -> 设定的发散阈值 (百分比): > {scattered_threshold_pct}%")
+                    #     print(f"      -> 换算后的阈值 (比率): > {scattered_threshold_ratio}")
+                    #     print(f"      -> 是否触发'筹码发散'状态: {is_triggered}")
+                    #     print("="*80)
                     # ▲▲▲【代码新增 V65.2】▲▲▲
 
 
