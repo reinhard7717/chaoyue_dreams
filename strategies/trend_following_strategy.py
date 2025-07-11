@@ -349,7 +349,7 @@ class TrendFollowStrategy:
             {
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
                 'setup': score_energy_comp > 60,
-                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
                 'score': 230, 'precondition': robust_right_side_precondition,
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
             },
@@ -634,15 +634,27 @@ class TrendFollowStrategy:
         p_struct = p.get('structure_params', {})
         if self._get_param_value(p_struct.get('enabled'), True):
             conc_col = 'CHIP_concentration_90pct_D'
-            conc_thresh = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-            if conc_col in df.columns:
-                states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh
+            if conc_col not in df.columns:
+                print(f"            -> [警告] 缺少列 '{conc_col}'，筹码结构诊断跳过。")
+            else:
+                # 原始的、基于绝对阈值的诊断
+                conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+                states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
                 signal = states['CHIP_STATE_HIGHLY_CONCENTRATED']
                 dates_str = self._format_debug_dates(signal)
-                print(f"            -> '筹码高度集中' 状态诊断完成 (阈值<{conc_thresh*100}%)，共激活 {signal.sum()} 天。{dates_str}")
-            else:
-                states['CHIP_STATE_HIGHLY_CONCENTRATED'] = pd.Series(False, index=df.index)
-                print(f"            -> [警告] 缺少列 '{conc_col}'，'筹码高度集中' 状态无法诊断。")
+                print(f"            -> '筹码高度集中 (绝对)' 状态诊断完成 (阈值<{conc_thresh_abs*100}%)，共激活 {signal.sum()} 天。{dates_str}")
+                # ▼▼▼ 动态相对压缩诊断 ▼▼▼
+                if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
+                    squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
+                    squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
+                    # 计算滚动分位数阈值
+                    squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
+                    # 判断当前集中度是否低于动态阈值
+                    states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
+                    signal = states['CHIP_STATE_CONCENTRATION_SQUEEZE']
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"            -> '筹码集中度压缩 (相对)' 状态诊断完成 (周期:{squeeze_window}, 分位:{squeeze_percentile})，共激活 {signal.sum()} 天。{dates_str}")
+
         states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
         states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
@@ -1272,19 +1284,29 @@ class TrendFollowStrategy:
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
-        p_candle = self._get_params_block(params, 'trigger_event_params', {}).get('positive_candle', {})
-        min_body_ratio = self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
-        is_strong_positive_candle = (
-            (df['close_D'] > df['open_D']) &
-            ((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan) >= min_body_ratio)
-        )
-        boll_mid_col = 'BBM_21_2.0_D'
-        is_breaking_boll_mid = df['close_D'] > df.get(boll_mid_col, df['close_D'])
-        triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
-        
-        signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '突破阳线' 务实型触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+        p_breakout = trigger_params.get('breakout_candle', {})
+        if self._get_param_value(p_breakout.get('enabled'), True):
+            min_body_ratio = self._get_param_value(p_breakout.get('min_body_ratio'), 0.4)
+            boll_mid_col = 'Boll_Mid_21_2.0_D'
+            
+            # 条件1: 必须是实体阳线，且实体不能太小
+            is_strong_positive_candle = (
+                (df['close_D'] > df['open_D']) &
+                (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
+            )
+            
+            # 条件2: 收盘价必须突破布林带中轨
+            is_breaking_boll_mid = df['close_D'] > df.get(boll_mid_col, df['close_D'])
+            
+            # 条件3: 成交量必须温和放大 (可选)
+            volume_ratio = self._get_param_value(p_breakout.get('volume_ratio'), 1.1)
+            is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0) * volume_ratio
+
+            triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid & is_volume_ok
+            
+            signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '突破阳线' 务实型触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         # ▼▼▼ 能量释放专属触发器 ▼▼▼
         p_energy = trigger_params.get('energy_release', {})

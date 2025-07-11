@@ -224,7 +224,7 @@
             "说明": "B+级菜肴：能量压缩。目标是找到突破的潜在候选者。",
             "any_of_must_have": {
                 "VOL_STATE_SQUEEZE_WINDOW": 40,
-                "CHIP_STATE_HIGHLY_CONCENTRATED": 40,
+                "CHIP_STATE_CONCENTRATION_SQUEEZE": 40,
                 "MA_STATE_CONVERGING": 30
             },
             "bonus": {
@@ -322,7 +322,10 @@
         },
         "structure_params": {
           "enabled": true,
-          "high_concentration_threshold": 0.15
+          "high_concentration_threshold": 0.15,
+          "enable_relative_squeeze": { "value": true, "说明": "是否启用基于历史分位数的动态筹码压缩诊断" },
+          "squeeze_window": { "value": 120, "说明": "计算筹码集中度分位数的滚动窗口期（约半年）" },
+          "squeeze_percentile": { "value": 0.2, "说明": "筹码集中度需要低于历史同期的哪个分位数才算'压缩' (0.2代表最低的20%)" }
         },
         "ignition_params": {
           "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度" }
