@@ -1012,6 +1012,9 @@ class TrendFollowStrategy:
         if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
             print(f"          -> [警告] 缺少均线列，均线状态诊断跳过。")
             return states
+        
+        # ▼▼▼【代码修改 V60.1】: 新增更宽松的宏观趋势判断条件 ▼▼▼
+        states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
 
         # 均线结构状态
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
