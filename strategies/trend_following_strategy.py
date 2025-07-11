@@ -733,7 +733,8 @@ class TrendFollowStrategy:
                     states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold
 
                     # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
-                    debug_date = pd.to_datetime('2024-09-09')
+                    print(f"      -> [探针自检] DataFrame 索引前5项: {df.index[:5]}")
+                    debug_date = pd.to_datetime('2024-09-09', utc=True) # 指定为UTC时区
                     if debug_date in df.index:
                         value_on_date = df.loc[debug_date, conc_col]
                         is_triggered = value_on_date > scattered_threshold
