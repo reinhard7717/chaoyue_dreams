@@ -412,6 +412,9 @@ class TrendFollowStrategy:
         score_details_df = pd.DataFrame(index=df.index)
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores)
 
+        # 获取全局风险状态，用于最终的信号过滤
+        is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', pd.Series(0, index=df.index)) > 0
+
         # --- 全局探针逻辑 ---
         if self.verbose_logging:
             all_setup_dates = set()
@@ -430,14 +433,7 @@ class TrendFollowStrategy:
                 all_trigger_dates.update(df.index[trigger_signal])
 
             if all_setup_dates or all_trigger_dates:
-                probe_start_date_naive = pd.Timestamp('2024-06-01')
-                # 检查df.index的时区，并对探针日期进行本地化
-                if df.index.tz is not None:
-                    probe_start_date = probe_start_date_naive.tz_localize(df.index.tz)
-                    print(f"      -> [探针信息] 数据索引时区为 '{df.index.tz}'，探针起始日期已适配。")
-                else:
-                    probe_start_date = probe_start_date_naive
-                    print(f"      -> [探针信息] 数据索引无时区，探针使用无时区日期。")
+                probe_start_date = pd.Timestamp('2024-06-01').tz_localize(df.index.tz) if df.index.tz else pd.Timestamp('2024-06-01')
 
                 key_dates = sorted([d for d in list(all_setup_dates | all_trigger_dates) if d >= probe_start_date])
 
@@ -454,21 +450,21 @@ class TrendFollowStrategy:
                             name = playbook['name']
                             cn_name = playbook.get('cn_name', name)
                             details = playbook_details_map[name]
-                            
-                            is_setup_on_date = details['setup'].get(date, False)
+                            # 对于事件驱动剧本，setup就是True，因为它不依赖准备状态
+                            is_setup_on_date = True if details['is_event_driven'] else details['setup'].get(date, False)
                             is_trigger_on_date = details['trigger'].get(date, False)
                             
-                            # 根据是否为事件驱动，计算最终信号
+                            # 计算最终信号 (应用风控前的原始信号)
                             if details['is_event_driven']:
                                 final_signal_on_date = is_trigger_on_date
                             else:
                                 was_setup_yesterday = details['setup'].shift(1).fillna(False).get(date, False)
                                 final_signal_on_date = was_setup_yesterday and is_trigger_on_date
-
-                            if is_setup_on_date or is_trigger_on_date or final_signal_on_date:
-                                if not has_activity_on_date:
-                                    print(f"{str(date.date()):<12} | {'-'*65}")
-                                    has_activity_on_date = True
+                            
+                            # 检查风控是否否决了信号
+                            is_risky_today = is_in_distribution_risk.get(date, False)
+                            if final_signal_on_date and is_risky_today:
+                                final_signal_on_date = False # 如果有风险，信号置为False
                                 print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(final_signal_on_date):<10}")
                     print("="*25 + " 全局剧本探针分析结束 " + "="*25 + "\n")
 
