@@ -751,7 +751,7 @@ class TrendFollowStrategy:
 
                     signal = states.get('CHIP_STATE_SCATTERED', default_series)
                     dates_str = self._format_debug_dates(signal)
-                    print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold}%)，共激活 {signal.sum()} 天。{dates_str}")
+                    print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold_pct}%)，共激活 {signal.sum()} 天。{dates_str}")
                 # ▲▲▲【代码新增 V65.0】▲▲▲
         states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
