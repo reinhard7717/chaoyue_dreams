@@ -1284,44 +1284,40 @@ class TrendFollowStrategy:
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
-        # ▼▼▼ “突破阳线” ▼▼▼
+        # --- 触发器 1: 突破阳线 (企稳型) ---
         p_breakout = trigger_params.get('breakout_candle', {})
         if self._get_param_value(p_breakout.get('enabled'), True):
-            min_body_ratio = self._get_param_value(p_breakout.get('min_body_ratio'), 0.4)
-            boll_mid_col = 'Boll_Mid_21_2.0_D'
-            
-            # 定义1: 必须是实体阳线
-            is_strong_positive_candle = (
-                (df['close_D'] > df['open_D']) &
-                (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
-            )
-            
-            # 定义2: 收盘价必须突破布林带中轨
-            is_breaking_boll_mid = df['close_D'] > df.get(boll_mid_col, df['close_D'])
-            
-            # 这个触发器专门用于底部企稳，不要求放量
-            triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
-            
-            signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+            boll_mid_col = 'BBM_21_2.0_D' # 修正为pandas_ta库的标准列名
+            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', boll_mid_col]
+            if all(col in df.columns for col in required_cols):
+                min_body_ratio = self._get_param_value(p_breakout.get('min_body_ratio'), 0.4)
+                is_strong_positive_candle = (
+                    (df['close_D'] > df['open_D']) &
+                    (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
+                )
+                is_breaking_boll_mid = df['close_D'] > df[boll_mid_col]
+                triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
+                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
+                print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            else:
+                print(f"      -> [警告] 缺少定义'突破阳线(企稳型)'所需的列 (如: {boll_mid_col})，跳过该触发器。")
 
-        # ▼▼▼ 能量释放 ▼▼▼
+        # --- 触发器 2: 能量释放 (突破型) ---
         p_energy = trigger_params.get('energy_release', {})
         if self._get_param_value(p_energy.get('enabled'), True):
-            is_positive_day = df['close_D'] > df['open_D']
-            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-            body_ratio = (df['close_D'] - df['open_D']) / body_range
-            is_strong_body = body_ratio.fillna(1.0) > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
-            volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
-            is_volume_spike = df['volume_D'] > df.get(vol_ma_col, 0) * volume_ratio
-            
-            # 这个触发器专门用于平台突破，必须带量
-            triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
-            
-            signal = triggers.get('TRIGGER_ENERGY_RELEASE', pd.Series([]))
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', vol_ma_col]
+            if all(col in df.columns for col in required_cols):
+                is_positive_day = df['close_D'] > df['open_D']
+                body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+                body_ratio = (df['close_D'] - df['open_D']) / body_range
+                is_strong_body = body_ratio.fillna(1.0) > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
+                volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
+                is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
+                triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
+                signal = triggers.get('TRIGGER_ENERGY_RELEASE', pd.Series([]))
+                print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            else:
+                print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
         
         for key in triggers:
             if triggers[key] is None:
