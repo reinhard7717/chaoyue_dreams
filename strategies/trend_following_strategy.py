@@ -502,7 +502,7 @@ class TrendFollowStrategy:
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
 
         # ==================== 步骤4: 全局剧本探针日志输出 ====================
-        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2024-06-01')
+        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2024-08-01')
         key_dates = df.index[(all_setups | all_triggers) & (df.index >= probe_start_date)].unique().sort_values()
 
         print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
