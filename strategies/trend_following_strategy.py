@@ -450,22 +450,29 @@ class TrendFollowStrategy:
                             name = playbook['name']
                             cn_name = playbook.get('cn_name', name)
                             details = playbook_details_map[name]
-                            # 对于事件驱动剧本，setup就是True，因为它不依赖准备状态
-                            is_setup_on_date = True if details['is_event_driven'] else details['setup'].get(date, False)
+                            
+                            is_setup_on_date = details['setup'].get(date, False)
                             is_trigger_on_date = details['trigger'].get(date, False)
                             
-                            # 计算最终信号 (应用风控前的原始信号)
                             if details['is_event_driven']:
                                 final_signal_on_date = is_trigger_on_date
                             else:
                                 was_setup_yesterday = details['setup'].shift(1).fillna(False).get(date, False)
                                 final_signal_on_date = was_setup_yesterday and is_trigger_on_date
                             
-                            # 检查风控是否否决了信号
-                            is_risky_today = is_in_distribution_risk.get(date, False)
-                            if final_signal_on_date and is_risky_today:
-                                final_signal_on_date = False # 如果有风险，信号置为False
-                                print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(final_signal_on_date):<10}")
+                            # 只要当天有任何一个状态为True，就打印该剧本的信息
+                            if is_setup_on_date or is_trigger_on_date or final_signal_on_date:
+                                if not has_activity_on_date:
+                                    print(f"{str(date.date()):<12} | {'-'*65}")
+                                    has_activity_on_date = True
+                                
+                                # 检查风控是否会否决信号，并据此更新最终信号的显示
+                                is_risky_today = is_in_distribution_risk.get(date, False)
+                                display_signal = final_signal_on_date
+                                if display_signal and is_risky_today:
+                                    display_signal = False # 仅用于显示，不改变实际信号
+
+                                print(f"{'':<12} | {cn_name:<25} | {str(is_setup_on_date):<8} | {str(is_trigger_on_date):<10} | {str(display_signal):<10}")
                     print("="*25 + " 全局剧本探针分析结束 " + "="*25 + "\n")
 
         # --- 计分逻辑 ---
