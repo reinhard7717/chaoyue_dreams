@@ -42,7 +42,7 @@ class TrendFollowStrategy:
         if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:
             return ""
         
-        start_date_filter = pd.to_datetime('2024-05-01')
+        start_date_filter = pd.to_datetime('2024-05-01', utc=True) # 修正后的代码
         active_dates = signal_series[signal_series & (signal_series.index >= start_date_filter)].index
         count = len(active_dates)
         
