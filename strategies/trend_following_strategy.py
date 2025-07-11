@@ -584,7 +584,7 @@ class TrendFollowStrategy:
         primary_state = pd.Series(np.select(conditions, choices, default='TRANSITION'), index=df.index)
         p_struct = p.get('structure_params', {})
         if self._get_param_value(p_struct.get('enabled'), True):
-            conc_col = 'CHIP_cost_concentration_90_D'
+            conc_col = 'CHIP_concentration_90pct_D'
             conc_thresh = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
             if conc_col in df.columns:
                 states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh
