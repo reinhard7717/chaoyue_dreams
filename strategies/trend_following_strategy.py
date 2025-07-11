@@ -275,9 +275,10 @@ class TrendFollowStrategy:
 
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
-        【V57.0 动态分级版 - 菜单设计师】
+        【V65.0 投降坑识别版】
+        - 核心升级: 适配了新的 'CAPITULATION_PIT' 评分逻辑，强化了投降坑反转剧本的定义。
         """
-        print("    - [剧本定义中心 V62.1] 启动...")
+        print("    - [剧本定义中心 V65.0 投降坑识别版] 启动...")
         # --- 步骤 1: 初始化和获取上下文 ---
         default_series = pd.Series(False, index=df.index)
         robust_right_side_precondition = df.get('robust_right_side_precondition', pd.Series(True, index=df.index))
@@ -320,22 +321,24 @@ class TrendFollowStrategy:
                 'side': 'right',
                 'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
             },
+            # ▼▼▼【代码修改 V65.0】: 适配新的“投降坑”评分逻辑，聚焦于识别“混乱之底” ▼▼▼
             {
                 'name': 'PIT_REVERSAL_A_PLUS', 'cn_name': '【A+级】投降坑反转',
-                'setup': score_cap_pit > 80,
+                'setup': score_cap_pit > 80, # 要求价格超卖+获利盘低+筹码发散全部满足
                 'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
                 'score': 290, 'precondition': True,
                 'side': 'left',
-                'comment': 'A+级: 在市场恐慌形成的“投降坑”中，出现日线级别动能企稳后的反转K线，可靠性高。'
+                'comment': 'A+级: 在市场极度恐慌、筹码发散的“混乱之底”后，出现强力反转K线，是最高质量的左侧信号。'
             },
             {
                 'name': 'PIT_REVERSAL_A', 'cn_name': '【A级】投降坑反转',
-                'setup': (score_cap_pit > 50) & (score_cap_pit <= 80),
-                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
+                'setup': (score_cap_pit > 50) & (score_cap_pit <= 80), # 要求价格超卖，且至少满足一个附加条件
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 使用更宽容的企稳型触发器
                 'score': 220, 'precondition': True,
                 'side': 'left',
-                'comment': 'A级: 出现投降坑，但动能尚未完全企稳，属于高风险高赔率的左侧博弈。'
+                'comment': 'A级: 出现投降迹象，并伴随企稳阳线，是高赔率的左侧博弈机会。'
             },
+            # ▲▲▲【代码修改 V65.0】▲▲▲
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪',
                 'setup': score_healthy_markup > 60,
@@ -410,16 +413,9 @@ class TrendFollowStrategy:
                 'comment': '市场情绪的极致反转，拥有最高优先级，解除所有限制。'
             },
         ]
-        # ▼▼▼【代码修改 V62.3】: 移除风控过滤，保持剧本定义纯净 ▼▼▼
-        # final_playbook_list = []
-        # for playbook in playbook_definitions:
-        #     modified_playbook = playbook.copy()
-        #     original_setup = modified_playbook.get('setup', pd.Series(False, index=df.index))
-        #     modified_playbook['setup'] = original_setup & ~is_in_distribution_risk
-        #     final_playbook_list.append(modified_playbook)
 
-        print(f"    - [剧本定义中心 V62.3] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
-        return playbook_definitions # 直接返回原始定义
+        print(f"    - [剧本定义中心 V65.0] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
+        return playbook_definitions
 
     def _calculate_entry_score(
         self, 
