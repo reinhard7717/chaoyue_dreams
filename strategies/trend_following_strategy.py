@@ -348,7 +348,7 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
-                'setup': score_energy_comp > 60,
+                'setup': score_energy_comp > 40,
                 'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series), # 使用突破型触发器
                 'score': 230, 'precondition': robust_right_side_precondition,
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
