@@ -298,6 +298,14 @@ class TrendFollowStrategy:
         # --- 步骤 3: 定义所有交易剧本 (Playbooks) ---
         playbook_definitions = [
             {
+                'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视',
+                'setup': score_cap_pit > 80, # 必须是评分最高的“投降坑”
+                'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series), # 使用专属的恐慌反转触发器
+                'score': 320, 'precondition': True,
+                'side': 'left',
+                'comment': 'S级: 在市场极度恐慌、流动性枯竭的深渊中，捕捉到的第一个功能性强度反转信号，是最高赔率的史诗级机会。'
+            },
+            {
                 'name': 'PERFECT_STORM_S_PLUS', 'cn_name': '【S+级】潜龙出海',
                 'setup': score_deep_accum > 120,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
@@ -1306,10 +1314,12 @@ class TrendFollowStrategy:
 
     def _define_trigger_events(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V57.0 触发事件引擎】
+        【V66.1 结构为王最终版】
+        - 新增 TRIGGER_PANIC_REVERSAL，专门捕捉恐慌坑后的“功能性”强反转K线。
         """
-        print("    - [触发事件中心 V59.9] 启动，开始定义所有原子化触发事件...")
+        print("    - [触发事件中心 V66.1 结构为王最终版] 启动，开始定义所有原子化触发事件...")
         triggers = {}
+        default_series = pd.Series(False, index=df.index) # 新增一个默认的空Series，用于后续代码健壮性
         trigger_params = self._get_params_block(params, 'trigger_event_params', {})
         if not self._get_param_value(trigger_params.get('enabled'), True):
             print("      -> 触发事件引擎被禁用，跳过。")
@@ -1326,7 +1336,7 @@ class TrendFollowStrategy:
             is_strong_body = body_ratio > self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
             triggers['TRIGGER_STRONG_POSITIVE_CANDLE'] = is_green & is_strong_body
             
-            signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', pd.Series([]))
+            signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
             
@@ -1337,7 +1347,7 @@ class TrendFollowStrategy:
             is_closing_strong = df['close_D'] > (df['high_D'] + df['low_D']) / 2
             triggers['TRIGGER_REVERSAL_CONFIRMATION_CANDLE'] = is_green & is_strong_rally & is_closing_strong
             
-            signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', pd.Series([]))
+            signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
             
@@ -1349,7 +1359,7 @@ class TrendFollowStrategy:
             is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(lookback).max()
             triggers['TRIGGER_VOLUME_SPIKE_BREAKOUT'] = is_volume_spike & is_price_breakout
             
-            signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', pd.Series([]))
+            signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> '放量突破近期高点' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
             
@@ -1363,7 +1373,7 @@ class TrendFollowStrategy:
                 is_positive_day = df['close_D'] > df['open_D']
                 triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
                 
-                signal = triggers.get('TRIGGER_PULLBACK_REBOUND', pd.Series([]))
+                signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
                 dates_str = self._format_debug_dates(signal)
                 print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
                 
@@ -1376,7 +1386,7 @@ class TrendFollowStrategy:
             is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0)
             triggers['TRIGGER_N_SHAPE_BREAKOUT'] = is_positive_day & is_breaking_consolidation & is_volume_ok
             
-            signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', pd.Series([]))
+            signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
             
@@ -1387,7 +1397,7 @@ class TrendFollowStrategy:
                 if all(c in df.columns for c in [pdi_col, mdi_col]):
                     triggers['TRIGGER_DMI_CROSS'] = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
                     
-                    signal = triggers.get('TRIGGER_DMI_CROSS', pd.Series([]))
+                    signal = triggers.get('TRIGGER_DMI_CROSS', default_series)
                     dates_str = self._format_debug_dates(signal)
                     print(f"      -> 'DMI金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
                     
@@ -1399,43 +1409,41 @@ class TrendFollowStrategy:
                     low_level = self._get_param_value(macd_p.get('low_level'), -0.5)
                     triggers['TRIGGER_MACD_LOW_CROSS'] = is_golden_cross & (df[macd_col] < low_level)
                     
-                    signal = triggers.get('TRIGGER_MACD_LOW_CROSS', pd.Series([]))
+                    signal = triggers.get('TRIGGER_MACD_LOW_CROSS', default_series)
                     dates_str = self._format_debug_dates(signal)
                     print(f"      -> 'MACD低位金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
                     
         box_states = self._diagnose_box_states(df, params)
         triggers['TRIGGER_BOX_BREAKOUT'] = box_states.get('BOX_EVENT_BREAKOUT', pd.Series(False, index=df.index))
         
-        signal = triggers.get('TRIGGER_BOX_BREAKOUT', pd.Series([]))
+        signal = triggers.get('TRIGGER_BOX_BREAKOUT', default_series)
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '箱体突破' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
         board_events = self._diagnose_board_patterns(df, params)
         triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = board_events.get('BOARD_EVENT_EARTH_HEAVEN', pd.Series(False, index=df.index))
         
-        signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', pd.Series([]))
+        signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
         dates_str = self._format_debug_dates(signal)
         print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
-        # --- 触发器 1: 突破阳线 (企稳型) ---
-        p_breakout = trigger_params.get('breakout_candle', {})
-        if self._get_param_value(p_breakout.get('enabled'), True):
-            boll_mid_col = 'BBM_21_2.0_D' # 修正为pandas_ta库的标准列名
+        p_breakout_stabilize = trigger_params.get('breakout_candle', {}) # 修正变量名以示区分
+        if self._get_param_value(p_breakout_stabilize.get('enabled'), True):
+            boll_mid_col = 'BBM_21_2.0_D'
             required_cols = ['open_D', 'high_D', 'low_D', 'close_D', boll_mid_col]
             if all(col in df.columns for col in required_cols):
-                min_body_ratio = self._get_param_value(p_breakout.get('min_body_ratio'), 0.4)
+                min_body_ratio = self._get_param_value(p_breakout_stabilize.get('min_body_ratio'), 0.4)
                 is_strong_positive_candle = (
                     (df['close_D'] > df['open_D']) &
                     (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
                 )
                 is_breaking_boll_mid = df['close_D'] > df[boll_mid_col]
                 triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
-                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', pd.Series([]))
+                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', default_series)
                 print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少定义'突破阳线(企稳型)'所需的列 (如: {boll_mid_col})，跳过该触发器。")
 
-        # --- 触发器 2: 能量释放 (突破型) ---
         p_energy = trigger_params.get('energy_release', {})
         if self._get_param_value(p_energy.get('enabled'), True):
             required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', vol_ma_col]
@@ -1447,17 +1455,34 @@ class TrendFollowStrategy:
                 volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
                 is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
                 triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
-                signal = triggers.get('TRIGGER_ENERGY_RELEASE', pd.Series([]))
+                signal = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
                 print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
         
+        # ▼▼▼ “恐慌反转(结构派)”专属触发器 ▼▼▼
+        p_panic = trigger_params.get('panic_reversal_params', {})
+        if self._get_param_value(p_panic.get('enabled'), True):
+            # 条件1: 结构性收复失地 (核心)
+            # 要求今天的收盘价，高于两天前的收盘价，代表着对前一个交易日K线的完全吞噬。
+            is_structure_recovered = df['close_D'] > df['close_D'].shift(2)
+            
+            # 条件2: 当日动能为正 (确认)
+            # 确保触发当天是上涨的，过滤掉高开低走的假信号。
+            is_positive_momentum = df['pct_change_D'] > 0
+            
+            triggers['TRIGGER_PANIC_REVERSAL'] = is_structure_recovered & is_positive_momentum
+            
+            signal = triggers.get('TRIGGER_PANIC_REVERSAL', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '恐慌反转(结构派)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+
         for key in triggers:
             if triggers[key] is None:
                 triggers[key] = pd.Series(False, index=df.index)
             else:
                 triggers[key] = triggers[key].fillna(False)
-        print("    - [触发事件中心 V59.5] 所有触发事件定义完成。")
+        print("    - [触发事件中心 V66.1] 所有触发事件定义完成。")
         return triggers
 
     def _calculate_risk_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:

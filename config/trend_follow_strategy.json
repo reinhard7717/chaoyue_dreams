@@ -280,6 +280,9 @@
       "trigger_event_params": {
         "enabled": true,
         "说明": "【V57.0】触发事件引擎的参数配置",
+        "panic_reversal_params": {
+          "enabled": { "value": true, "说明": "【V66.1 结构派】启用'恐慌反转'专属触发器。核心逻辑: close > close.shift(2) & pct_change > 0" }
+        },
         "positive_candle": {
           "enabled": true,
           "min_body_ratio": { "value": 0.6, "说明": "阳线实体占总振幅的最小比例" }
