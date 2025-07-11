@@ -373,7 +373,7 @@ class TrendFollowStrategy:
             # ▼▼▼ “能量压缩突破”剧本 ▼▼▼
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
-                'setup': score_energy_comp > 80, # 准备状态：能量被高度压缩
+                'setup': score_energy_comp > 65, # 准备状态：能量被高度压缩
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series), # 触发器：一根温和的企稳突破阳线
                 'score': 190, 'precondition': True,
                 'side': 'right',
