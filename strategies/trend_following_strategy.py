@@ -475,6 +475,20 @@ class TrendFollowStrategy:
             },
 
             # =================================================================================
+            # === 概念 3: 健康主升浪 (Healthy Markup) - 顺势而为 ===
+            # =================================================================================
+            {
+                'name': 'HEALTHY_MARKUP_A',
+                'cn_name': '【A级】健康主升浪',
+                # 准备条件: 健康主升浪置信度 > 60 (必须项满足)
+                'setup': score_healthy_markup > 60,
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
+                'score': 240,
+                'precondition': robust_right_side_precondition,
+                'comment': 'A级: 在均线多头排列、资金确认的趋势中，出现的回踩反弹，是可靠的顺势上车点。'
+            },
+
+            # =================================================================================
             # === 概念 3: 趋势中继 (Trend Continuation) - 基于健康主升浪分数动态分级 ===
             # =================================================================================
             {
@@ -628,7 +642,7 @@ class TrendFollowStrategy:
             playbook_signal = yesterday_setup_valid & trigger_signal
 
             # ▼▼▼【代码修改 V59.7】: PERFECT_STORM 专属探针 ▼▼▼
-            if name.startswith('PERFECT_STORM') and (is_setup_valid.any() or trigger_signal.any()):
+            if name.startswith('HEALTHY_MARKUP') and (is_setup_valid.any() or trigger_signal.any()):
                 print("\n" + "-"*20 + f" 探针启动: 正在深入分析剧本 '{cn_name}' " + "-"*20)
                 
                 # --- 准备探针所需的所有数据 ---
@@ -1654,17 +1668,21 @@ class TrendFollowStrategy:
             print(f"      -> '放量突破近期高点' 事件定义完成，发现 {triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', pd.Series([])).sum()} 天。")
 
         # 2.4 “回踩反弹”事件
-        p_pullback = trigger_params.get('pullback_rebound_trigger_params', {})
-        if self._get_param_value(p_pullback.get('enabled'), True):
-            support_ma_period = self._get_param_value(p_pullback.get('support_ma'), 21)
-            support_ma_col = f"EMA_{support_ma_period}_D"
+        p_rebound = self._get_params_block(params, 'trigger_event_params', {}).get('pullback_rebound_trigger_params', {})
+        if self._get_param_value(p_rebound.get('enabled'), True):
+            support_ma_period = self._get_param_value(p_rebound.get('support_ma'), 21)
+            support_ma_col = f'EMA_{support_ma_period}_D'
+            
             if support_ma_col in df.columns:
-                dipped_and_recovered = (df['low_D'] <= df[support_ma_col]) & (df['close_D'] > df[support_ma_col])
-                is_green_candle = df['close_D'] > df['open_D']
-                has_lower_shadow = (df['open_D'] - df['low_D']) > (df['high_D'] - df['low_D']) * 0.1 # 下影线至少占10%
-                is_volume_confirmed = df['volume_D'] > df.get(vol_ma_col, df['volume_D']) * self._get_param_value(p_pullback.get('min_rebound_volume_ratio'), 0.8)
-                triggers['TRIGGER_PULLBACK_REBOUND'] = dipped_and_recovered & is_green_candle & has_lower_shadow & is_volume_confirmed
-                print(f"      -> '回踩反弹' 事件定义完成，发现 {triggers.get('TRIGGER_PULLBACK_REBOUND', pd.Series([])).sum()} 天。")
+                # 条件a: 昨天K线的最低价触及或跌破了支撑均线
+                was_touching_support = df['low_D'].shift(1) <= df[support_ma_col].shift(1)
+                # 条件b: 今天收盘价回到了支撑均线上方
+                is_rebounded_above = df['close_D'] > df[support_ma_col]
+                # 条件c: 今天是阳线
+                is_positive_day = df['close_D'] > df['open_D']
+
+                triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
+                print(f"      -> '回踩反弹' 触发器定义完成，发现 {triggers.get('TRIGGER_PULLBACK_REBOUND', pd.Series([])).sum()} 天。")
 
         # 2.5 “N字形态突破”事件 (专用于N字板接力)
         p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
