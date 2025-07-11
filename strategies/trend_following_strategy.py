@@ -348,7 +348,7 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
-                'setup': score_energy_comp > 40,
+                'setup': score_energy_comp > 60,
                 'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series), # 使用突破型触发器
                 'score': 230, 'precondition': robust_right_side_precondition,
                 'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
@@ -403,84 +403,82 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V64.0 上下文回溯版】
-        - 核心革命: 彻底重构计分范式，从“昨日准备，今日触发”升级为“先触发，后回溯上下文”。
-        - 1. 定义一个非常宽松的“观察区”(SETUP_WATCHING)。
-        - 2. 当在观察区内发生触发事件时，不立即产生信号。
-        - 3. 而是回溯触发点之前的N天（上下文窗口），检查此窗口内是否曾满足过剧本的准备条件。
-        - 4. 只有“上下文”合格的触发，才被最终确认为有效信号。
-        - 这一修改极大地增强了策略对不同“股性”的适应能力。
+        【V64.2 上下文回溯与探针修复最终版】
+        - 核心革命: 采用“先触发，后回溯上下文”的新范式，极大增强策略适应性。
+        - 探针修复: 重新集成并适配了全局剧本探针日志，确保调试能力。
+        - 流程: 1.准备探针数据 -> 2.执行回溯逻辑生成最终信号 -> 3.计分 -> 4.输出探针日志。
         """
-        print("    - [计分引擎 V64.0 上下文回溯版] 启动...")
+        print("    - [计分引擎 V64.2 上下文回溯与探针修复最终版] 启动...")
         
         final_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
+        default_series = pd.Series(False, index=df.index)
+
+        # ==================== 步骤1: 准备探针与回溯所需数据 ====================
+        final_playbook_signals = {}
+        all_setups = default_series.copy()
+        all_triggers = default_series.copy()
+
+        for playbook in playbook_definitions:
+            # 预先计算所有setup和trigger的并集，用于确定探针的关键日期
+            setup_signal = playbook.get('setup', default_series)
+            trigger_signal = playbook.get('trigger', default_series)
+            all_setups = all_setups | setup_signal
+            all_triggers = all_triggers | trigger_signal
+
+        # ==================== 步骤2: 上下文回溯核心逻辑，生成最终信号 ====================
         
-        # 步骤1: 定义一个非常宽松的“观察区”
-        # 例如，只要股价在55日均线之上，就认为值得观察
+        # 定义宽松的“观察区”
         watching_ma_col = 'EMA_55_D'
         if watching_ma_col not in df.columns:
             print(f"      -> [严重警告] 缺少观察区所需均线 '{watching_ma_col}'，计分引擎可能无法正常工作。")
-            SETUP_WATCHING = pd.Series(False, index=df.index)
+            SETUP_WATCHING = default_series.copy()
         else:
             SETUP_WATCHING = df['close_D'] > df[watching_ma_col]
-        # 获取全局风险状态
-        is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', pd.Series(0, index=df.index)) > 0
-        # 获取回溯窗口期
+        
+        # 获取全局风险状态和回溯窗口
+        is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', default_series.copy()) > 0
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
-
         print(f"      -> 使用“触发后回溯”新范式，上下文回溯窗口: {context_window}天。")
 
-        # 步骤2: 遍历所有剧本，应用新逻辑
+        # 遍历所有剧本，应用新逻辑生成最终信号
         for playbook in playbook_definitions:
             name = playbook['name']
-            cn_name = playbook.get('cn_name', name)
-            trigger_signal = playbook.get('trigger', pd.Series(False, index=df.index))
+            trigger_signal = playbook.get('trigger', default_series)
             
             # 纯事件驱动的剧本，逻辑不变
             if playbook.get('is_event_driven', False):
                 playbook_signal = trigger_signal & ~is_in_distribution_risk
             else:
                 # 新范式逻辑
-                playbook_signal = pd.Series(False, index=df.index)
-                
-                # 找到所有在“观察区”内发生的“潜在触发日”
+                playbook_signal = default_series.copy()
                 potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
                 
-                if len(potential_trigger_indices) > 0:
-                    print(f"        -> 剧本 '{cn_name}' 发现 {len(potential_trigger_indices)} 个潜在触发日，开始上下文回溯...")
-
-                # 步骤3: 对每个潜在触发日，进行上下文回溯
+                # 对每个潜在触发日，进行上下文回溯
                 for date_index in potential_trigger_indices:
-                    # 获取当前日期的整数位置
                     loc = df.index.get_loc(date_index)
-                    if loc < context_window:
-                        continue # 如果历史数据不足，则跳过
+                    if loc < context_window: continue
                     
-                    # 定义回溯的上下文窗口
                     context_start_loc = loc - context_window
-                    context_end_loc = loc - 1 # 回溯窗口不包含触发当天
+                    context_end_loc = loc - 1 # 上下文窗口不包含触发当天
                     
-                    # 提取上下文窗口内的所有准备状态分数
-                    context_setup_scores = {
-                        key: series.iloc[context_start_loc : context_end_loc + 1]
-                        for key, series in setup_scores.items()
-                    }
-                    
-                    # 步骤4: 在上下文中检查准备条件是否曾被满足
-                    # 模拟剧本的 'setup' 条件，但在上下文窗口内进行评估
-                    setup_condition_series = playbook.get('setup', pd.Series(False, index=df.index))
-                    
-                    # 关键：检查在回溯窗口内，setup条件是否至少有一次为True
+                    setup_condition_series = playbook.get('setup', default_series)
                     was_setup_in_context = setup_condition_series.iloc[context_start_loc : context_end_loc + 1].any()
 
                     if was_setup_in_context:
-                        playbook_signal.loc[date_index] = True # 上下文合格，确认为有效信号
+                        playbook_signal.loc[date_index] = True
+            
+            final_playbook_signals[name] = playbook_signal.fillna(False)
 
-            # --- 后续计分逻辑保持不变 ---
+        # ==================== 步骤3: 根据最终信号进行计分 ====================
+        for playbook in playbook_definitions:
+            name = playbook['name']
+            cn_name = playbook.get('cn_name', name)
+            playbook_signal = final_playbook_signals.get(name, default_series)
+
             if playbook_signal.any():
                 base_score = playbook.get('score', 0)
                 current_playbook_score = pd.Series(base_score, index=df.index)
@@ -490,10 +488,42 @@ class TrendFollowStrategy:
                 triggered_dates_str = self._format_debug_dates(playbook_signal)
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
 
+        # ==================== 步骤4: 全局剧本探针日志输出 ====================
+        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2024-06-01')
+        key_dates = df.index[(all_setups | all_triggers) & (df.index >= probe_start_date)].unique().sort_values()
+
+        print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
+        print(f"-> 发现准备状态日: {all_setups[all_setups.index >= probe_start_date].sum()} 天 | 发现触发事件日: {all_triggers[all_triggers.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
+        print("--------------------------------------------------------------------------------")
+        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format("日期", "剧本名称", "Setup?", "Trigger?", "最终信号?"))
+        print("--------------------------------------------------------------------------------")
+
+        for date in key_dates:
+            has_output_for_date = False
+            for playbook in playbook_definitions:
+                name = playbook['name']
+                cn_name = playbook.get('cn_name', name)
+                
+                is_setup_today = playbook.get('setup', default_series).loc[date]
+                is_trigger_today = playbook.get('trigger', default_series).loc[date]
+                is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
+
+                if is_setup_today or is_trigger_today or is_final_signal_today:
+                    if not has_output_for_date:
+                        print(f"{date.strftime('%Y-%m-%d')}   | -----------------------------------------------------------------")
+                        has_output_for_date = True
+                    
+                    print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format(
+                        "", f"{cn_name}", str(is_setup_today), str(is_trigger_today), str(is_final_signal_today)
+                    ))
+
+        print("========================= 全局剧本探针分析结束 =========================")
+
+        # --- 最终收尾 ---
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V64.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V64.2] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
