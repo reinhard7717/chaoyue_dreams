@@ -223,7 +223,7 @@
         "ENERGY_COMPRESSION": {
             "说明": "B+级菜肴：能量压缩。目标是找到突破的潜在候选者。",
             "must_have": {
-                "VOL_STATE_SQUEEZE": 40
+                "VOL_STATE_SQUEEZE_WINDOW": 40
             },
             "bonus": {
                 "CHIP_STATE_ACCUMULATION": 30,
