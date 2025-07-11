@@ -565,6 +565,7 @@ class TrendFollowStrategy:
         print(f"\n--- [计分引擎 V64.9] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
+
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> pd.Series:
         """
         【V57.0 风险评分引擎】
@@ -609,50 +610,75 @@ class TrendFollowStrategy:
 
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V61.0 升维版】
+        【V65.0 投降坑识别版】
+        - 核心升级: 为'CAPITULATION_PIT'引入专属评分逻辑，使其能识别并重奖“筹码发散”的投降式崩盘。
         """
-        print("    - [准备状态中心 V61.0] 启动...")
+        print("    - [准备状态中心 V65.0 投降坑识别版] 启动...")
         setup_scores = {}
+        default_series = pd.Series(False, index=df.index)
         scoring_matrix = self._get_params_block(params, 'setup_scoring_matrix', {})
         for setup_name, rules in scoring_matrix.items():
             if not self._get_param_value(rules.get('enabled'), True):
                 continue
             print(f"          -> 正在评审 '{setup_name}'...")
-            current_score = pd.Series(0.0, index=df.index)
-            must_have_rules = rules.get('must_have', {})
-            must_have_passed = pd.Series(True, index=df.index)
-            for state, score in must_have_rules.items():
-                state_series = atomic_states.get(state, pd.Series(False, index=df.index))
-                current_score += state_series * score
-                must_have_passed &= state_series
-            any_of_rules = rules.get('any_of_must_have', {})
-            any_of_passed = pd.Series(False, index=df.index)
-            if any_of_rules:
-                any_of_score_component = pd.Series(0.0, index=df.index)
-                for state, score in any_of_rules.items():
-                    state_series = atomic_states.get(state, pd.Series(False, index=df.index))
-                    any_of_score_component.loc[state_series] = score
-                    any_of_passed |= state_series
-                current_score += any_of_score_component
+            
+            # ▼▼▼ 为“投降坑”设置专属评分逻辑 ▼▼▼
+            if setup_name == 'CAPITULATION_PIT':
+                p_cap_pit = self._get_params_block(params, 'setup_scoring_matrix', {}).get('CAPITULATION_PIT', {})
+                must_have_score = self._get_param_value(p_cap_pit.get('must_have_score'), 40)
+                bonus_score = self._get_param_value(p_cap_pit.get('bonus_score'), 25)
+                
+                # 核心条件：价格必须处于负向乖离的超卖区
+                must_have_conditions = atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', default_series)
+                
+                # 加分项：获利盘极低 + 筹码极度发散 (这才是投降的真正信号!)
+                bonus_conditions_1 = atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
+                bonus_conditions_2 = atomic_states.get('CHIP_STATE_SCATTERED', default_series)
+                
+                base_score = must_have_conditions.astype(int) * must_have_score
+                bonus_score_total = (bonus_conditions_1.astype(int) * bonus_score) + (bonus_conditions_2.astype(int) * bonus_score)
+                
+                final_score = (base_score + bonus_score_total).where(must_have_conditions, 0)
+                setup_scores[f'SETUP_SCORE_{setup_name}'] = final_score
             else:
-                any_of_passed = pd.Series(True, index=df.index)
-            bonus_rules = rules.get('bonus', {})
-            for state, score in bonus_rules.items():
-                state_series = atomic_states.get(state, pd.Series(False, index=df.index))
-                current_score += state_series * score
-            final_validity = must_have_passed & any_of_passed
-            setup_scores[f'SETUP_SCORE_{setup_name}'] = current_score.where(final_validity, 0)
-            max_score = setup_scores[f'SETUP_SCORE_{setup_name}'].max()
+                # 其他所有剧本使用通用评分逻辑
+                current_score = pd.Series(0.0, index=df.index)
+                must_have_rules = rules.get('must_have', {})
+                must_have_passed = pd.Series(True, index=df.index)
+                for state, score in must_have_rules.items():
+                    state_series = atomic_states.get(state, default_series)
+                    current_score += state_series * score
+                    must_have_passed &= state_series
+                any_of_rules = rules.get('any_of_must_have', {})
+                any_of_passed = pd.Series(False, index=df.index)
+                if any_of_rules:
+                    any_of_score_component = pd.Series(0.0, index=df.index)
+                    for state, score in any_of_rules.items():
+                        state_series = atomic_states.get(state, default_series)
+                        any_of_score_component.loc[state_series] = score
+                        any_of_passed |= state_series
+                    current_score += any_of_score_component
+                else:
+                    any_of_passed = pd.Series(True, index=df.index)
+                bonus_rules = rules.get('bonus', {})
+                for state, score in bonus_rules.items():
+                    state_series = atomic_states.get(state, default_series)
+                    current_score += state_series * score
+                final_validity = must_have_passed & any_of_passed
+                setup_scores[f'SETUP_SCORE_{setup_name}'] = current_score.where(final_validity, 0)
+
+            max_score = setup_scores.get(f'SETUP_SCORE_{setup_name}', pd.Series(0)).max()
             print(f"            -> '{setup_name}' 评审完成，最高置信度得分: {max_score:.0f}")
-        print("    - [准备状态中心 V61.0] 所有状态置信度评审完成。")
+        print("    - [准备状态中心 V65.0] 所有状态置信度评审完成。")
         return setup_scores
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V61.0 升维版】筹码分布与流动状态诊断
+        【V65.0 投降坑识别版】筹码分布与流动状态诊断
         """
         print("        -> [诊断模块] 正在执行筹码状态诊断...")
         states = {}
+        default_series = pd.Series(False, index=df.index) # 新增，确保在任何分支下都有默认值
         p = self._get_params_block(params, 'chip_feature_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码诊断模块被禁用，跳过。")
@@ -691,71 +717,71 @@ class TrendFollowStrategy:
             if conc_col not in df.columns:
                 print(f"            -> [警告] 缺少列 '{conc_col}'，筹码结构诊断跳过。")
             else:
-                # 原始的、基于绝对阈值的诊断
                 conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
                 states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
                 signal = states['CHIP_STATE_HIGHLY_CONCENTRATED']
                 dates_str = self._format_debug_dates(signal)
                 print(f"            -> '筹码高度集中 (绝对)' 状态诊断完成 (阈值<{conc_thresh_abs*100}%)，共激活 {signal.sum()} 天。{dates_str}")
-                # ▼▼▼ 动态相对压缩诊断 ▼▼▼
                 if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
                     squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
                     squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
-                    # 计算滚动分位数阈值
                     squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
-                    # 判断当前集中度是否低于动态阈值
                     states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
                     signal = states['CHIP_STATE_CONCENTRATION_SQUEEZE']
                     dates_str = self._format_debug_dates(signal)
                     print(f"            -> '筹码集中度压缩 (相对)' 状态诊断完成 (周期:{squeeze_window}, 分位:{squeeze_percentile})，共激活 {signal.sum()} 天。{dates_str}")
-
+                # ▼▼▼【代码新增 V65.0】: 新增“筹码发散”状态，用于识别投降坑 ▼▼▼
+                p_scattered = p.get('scattered_params', {})
+                if self._get_param_value(p_scattered.get('enabled'), True):
+                    scattered_threshold = self._get_param_value(p_scattered.get('threshold'), 30.0)
+                    states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold
+                    signal = states.get('CHIP_STATE_SCATTERED', default_series)
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold}%)，共激活 {signal.sum()} 天。{dates_str}")
+                # ▲▲▲【代码新增 V65.0】▲▲▲
         states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
         states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
         print("          -> 主状态诊断完成 (吸筹/拉升/派发/过渡)。")
         is_deep = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('deep_ratio'), 0.85))
         states['CHIP_STATE_ACCUMULATION_DEEP'] = states['CHIP_STATE_ACCUMULATION'] & is_deep
-        
         signal = states['CHIP_STATE_ACCUMULATION_DEEP']
         dates_str = self._format_debug_dates(signal)
         print(f"          -> “深度吸筹”子状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
         p_capit = p.get('capitulation_params', {})
-        total_winner_rate = df[required_cols['dynamic_winner_rate_short']] + df[required_cols['dynamic_winner_rate_long']]
-        is_washed_out = total_winner_rate < self._get_param_value(p_capit.get('winner_rate_threshold'), 8.0)
-        states['CHIP_STATE_PIT_OPPORTUNITY'] = is_washed_out & states['CHIP_STATE_ACCUMULATION']
-        
+        winner_rate_col = 'winner_rate_D' # 使用基础获利盘数据
+        if winner_rate_col in df.columns:
+            is_washed_out = df[winner_rate_col] < self._get_param_value(p_capit.get('winner_rate_threshold'), 8.0)
+            states['CHIP_STATE_LOW_PROFIT'] = is_washed_out # 将其定义为独立状态
+            states['CHIP_STATE_PIT_OPPORTUNITY'] = is_washed_out & states['CHIP_STATE_ACCUMULATION']
+        else:
+            print(f"          -> [警告] 缺少列 '{winner_rate_col}'，无法诊断获利盘相关状态。")
+            states['CHIP_STATE_LOW_PROFIT'] = default_series
+            states['CHIP_STATE_PIT_OPPORTUNITY'] = default_series
         signal = states['CHIP_STATE_PIT_OPPORTUNITY']
         dates_str = self._format_debug_dates(signal)
         print(f"          -> “投降坑机会”标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
         is_still_rising = df[required_cols['dynamic_slope_21d']] > 0
         is_decelerating = df[required_cols['dynamic_accel_21d']] < 0
         states['CHIP_RISK_EXHAUSTION'] = is_still_rising & is_decelerating
-        
         signal = states['CHIP_RISK_EXHAUSTION']
         dates_str = self._format_debug_dates(signal)
         print(f"          -> “趋势衰竭”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
         is_short_slope_down = df[required_cols['dynamic_slope_8d']] < 0
         is_mid_slope_up = df[required_cols['dynamic_slope_21d']] > 0
         states['CHIP_RISK_DIVERGENCE'] = is_short_slope_down & is_mid_slope_up & is_at_high
-        
         signal = states['CHIP_RISK_DIVERGENCE']
         dates_str = self._format_debug_dates(signal)
         print(f"          -> “斜率背离”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
         p_ignite = p.get('ignition_params', {})
         is_accelerating = df[required_cols['dynamic_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
-        winner_rate_col = required_cols['dynamic_winner_rate_short']
-        is_winner_rate_increasing = df[winner_rate_col] > df[winner_rate_col].shift(1)
+        winner_rate_col_dyn = required_cols['dynamic_winner_rate_short']
+        is_winner_rate_increasing = df[winner_rate_col_dyn] > df[winner_rate_col_dyn].shift(1)
         was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
         states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
-        
         signal = states['CHIP_EVENT_IGNITION']
         dates_str = self._format_debug_dates(signal)
         print(f"          -> “点火事件”诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
         for key in states:
             if states[key] is None:
                 states[key] = pd.Series(False, index=df.index)

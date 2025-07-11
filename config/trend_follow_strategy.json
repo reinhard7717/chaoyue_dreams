@@ -196,16 +196,9 @@
           }
         },
         "CAPITULATION_PIT": {
-          "说明": "A+级菜肴：投降坑。目标是找到高赔率的左侧反转点。",
-          "must_have": {
-            "CHIP_STATE_PIT_OPPORTUNITY": 60
-          },
-          "bonus": {
-            "MA_STATE_D_STABILIZING": 30,
-            "OSC_STATE_RSI_OVERSOLD": 20,
-            "CAPITAL_STATE_DIVERGENCE_WINDOW": 40 
-          },
-          "说明_CAPITULATION_PIT": "【V58.0 新增逻辑】如果投降坑发生在'资本底背离机会窗口'内，这是一个极强的加分项，表明有资金在下跌中承接。"
+          "enabled": { "value": true, "说明": "【V65.0 重构版】启用'投降坑'准备状态评分。专门识别价格超卖+获利盘低+筹码发散的'混乱之底'。" },
+          "must_have_score": { "value": 40, "说明": "满足核心条件(价格负向乖离)的基础分。" },
+          "bonus_score": { "value": 25, "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。" }
         },
         "HEALTHY_MARKUP": {
           "说明": "【V60.1 优化版】A级菜肴：健康主升浪。放宽了准入条件，以更好地捕捉真实市场中的上涨趋势。",
@@ -343,6 +336,10 @@
           "enable_relative_squeeze": { "value": true, "说明": "是否启用基于历史分位数的动态筹码压缩诊断" },
           "squeeze_window": { "value": 120, "说明": "计算筹码集中度分位数的滚动窗口期（约半年）" },
           "squeeze_percentile": { "value": 0.2, "说明": "筹码集中度需要低于历史同期的哪个分位数才算'压缩' (0.2代表最低的20%)" }
+        },
+        "scattered_params": {
+          "enabled": { "value": true, "说明": "启用筹码发散状态诊断。" },
+          "threshold": { "value": 30.0, "说明": "90%成本集中度高于此值(%)，视为筹码极度发散，是市场投降的信号之一。" }
         },
         "ignition_params": {
           "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度" }
