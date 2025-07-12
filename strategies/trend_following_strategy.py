@@ -305,44 +305,36 @@ class TrendFollowStrategy:
                 'comment': 'S级: 在市场极度恐慌、流动性枯竭的深渊中，捕捉到的第一个功能性强度反转信号，是最高赔率的史诗级机会。'
             },
             {
-                'name': 'PERFECT_STORM_S_PLUS', 'cn_name': '【S+级】潜龙出海',
-                'setup': score_deep_accum > 120,
+                'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海',
+                'type': 'setup_score', # 新剧本类型：准备计分型
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 400,
+                'setup_score_series': score_deep_accum, # 指定用于计分的准备分系列
+                'scoring_rules': {
+                    'min_setup_score_to_trigger': 51, # 准备分必须大于50才能被考虑
+                    'base_score': 200, # 基础分
+                    'score_multiplier': 1.5 # 每多1分准备分，最终得分增加1.5分
+                },
                 'side': 'right',
-                'comment': 'S+级: 筹码、均线、资金、波动率四维共振后的首次点火，确定性极高。'
+                'comment': '动态评级: 在深度吸筹(setup)的背景下突破。根据回溯期内最高的吸筹分数动态给分。'
             },
             {
-                'name': 'PERFECT_STORM_S', 'cn_name': '【S级】潜龙出海',
-                'setup': (score_deep_accum > 80) & (score_deep_accum <= 120),
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 350,
-                'side': 'right',
-                'comment': 'S级: 核心条件具备，多重验证下的标准启动信号。'
-            },
-            {
-                'name': 'PERFECT_STORM_A_PLUS', 'cn_name': '【A+级】潜龙出海',
-                'setup': (score_deep_accum > 50) & (score_deep_accum <= 80),
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 280,
-                'side': 'right',
-                'comment': 'A+级: 满足深度吸筹的核心定义，但缺乏额外共振确认，值得关注。'
-            },
-            {
-                'name': 'PIT_REVERSAL_A_PLUS', 'cn_name': '【A+级】投降坑反转',
-                'setup': score_cap_pit > 80,
-                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 290,
+                'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转',
+                'type': 'setup_score',
+                'trigger': (
+                    trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) |
+                    trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+                ),
+                'setup_score_series': score_cap_pit,
+                'scoring_rules': {
+                    'min_setup_score_to_trigger': 51,
+                    'base_score': 160,
+                    'score_multiplier': 1.0, # 准备分1:1计入总分
+                    'trigger_bonus': { # 革命性的新概念：触发器加分项
+                        'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50 # 如果由更高质量的触发器触发，额外加50分
+                    }
+                },
                 'side': 'left',
-                'comment': 'A+级: 在市场极度恐慌、筹码发散的“混乱之底”后，出现强力反转K线，是最高质量的左侧信号。'
-            },
-            {
-                'name': 'PIT_REVERSAL_A', 'cn_name': '【A级】投降坑反转',
-                'setup': (score_cap_pit > 50) & (score_cap_pit <= 80),
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 220,
-                'side': 'left',
-                'comment': 'A级: 出现投降迹象，并伴随企稳阳线，是高赔率的左侧博弈机会。'
+                'comment': '动态评级: 在投降坑(setup)后反转。根据坑的深度(准备分)和反转K线的强度(触发器)动态给分。'
             },
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪',
@@ -363,12 +355,27 @@ class TrendFollowStrategy:
                 'comment': 'A级: 在通过多维度验证的健康主升浪中，出现的回踩反弹，是可靠的加仓或上车点。'
             },
             {
-                'name': 'PLATFORM_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】平台支撑回踩',
+                'name': 'PLATFORM_SUPPORT_PULLBACK', 'cn_name': '【动态】平台支撑回踩',
+                'type': 'precondition_score',
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'precondition': atomic_states.get('MA_STATE_CONVERGING', default_series),
-                'score': 195,
+                'scoring_rules': {
+                    'base_score': 160,
+                    'min_score_to_trigger': 180,
+                    'conditions': { # 背景分：评估背景状态
+                        'MA_STATE_CONVERGING': 30,
+                        'CHIP_STATE_CONCENTRATION_SQUEEZE': 20
+                    },
+                    'event_conditions': { # 事件分：评估事件本身质量
+                        'MA_STATE_TOUCHING_SUPPORT_21': 10,
+                        'MA_STATE_TOUCHING_SUPPORT_34': 20,
+                        'MA_STATE_TOUCHING_SUPPORT_55': 35,
+                        'MA_STATE_TOUCHING_SUPPORT_89': 50,
+                        'MA_STATE_TOUCHING_SUPPORT_144': 65,
+                        'MA_STATE_TOUCHING_SUPPORT_233': 80
+                    }
+                },
                 'side': 'right',
-                'comment': 'B+级: 在均线粘合的平台整理区，股价精准回踩关键支撑线后企稳反弹，是潜在突破的左侧埋伏点。'
+                'comment': '动态评级: 在平台整理区回踩关键支撑。根据平台质量(背景分)和支撑级别(事件分)动态给分。'
             },
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
@@ -505,60 +512,21 @@ class TrendFollowStrategy:
             playbook_side = playbook.get('side', 'right')
             playbook_signal = default_series.copy()
             
-            # 根据剧本类型分流处理
             playbook_type = playbook.get('type')
 
-            if playbook_type == 'precondition_score':
-                # --- 模式新增: 前提条件动态计分型 ---
+            if playbook_type == 'setup_score':
+                # --- 模式: 准备工作动态计分型 ---
                 trigger_signal = playbook.get('trigger', default_series)
+                setup_score_series = playbook.get('setup_score_series', default_series)
                 rules = playbook.get('scoring_rules', {})
+                min_setup_score = rules.get('min_setup_score_to_trigger', 0)
                 base_score = rules.get('base_score', 0)
-                condition_rules = rules.get('conditions', {})
-                min_score = rules.get('min_score_to_trigger', 0)
+                multiplier = rules.get('score_multiplier', 1.0)
+                trigger_bonus_rules = rules.get('trigger_bonus', {}) # 获取触发器加分规则
 
-                # 计算前提条件的动态分数
-                precondition_score = pd.Series(0.0, index=df.index)
-                for state_name, score_value in condition_rules.items():
-                    state_series = atomic_states.get(state_name, default_series)
-                    precondition_score += state_series.astype(int) * score_value
-                
-                # 计算总分
-                total_playbook_score = base_score + precondition_score
-
-                # 判断信号是否有效
-                is_valid_signal = (total_playbook_score >= min_score) & trigger_signal & ~is_in_distribution_risk
-                
-                if playbook_side == 'right':
-                    playbook_signal = is_valid_signal & SETUP_WATCHING
-                else: # left side
-                    playbook_signal = is_valid_signal
-                
-                # 将动态分数加到最终得分中
-                final_score.loc[playbook_signal] += total_playbook_score.loc[playbook_signal]
-                score_details_df.loc[playbook_signal, name] = total_playbook_score.loc[playbook_signal]
-
-            elif 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
-                # --- 模式1: 前提驱动型 (布尔) ---
-                trigger_signal = playbook.get('trigger', default_series)
-                precondition_signal = playbook['precondition']
-                base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
-                if playbook_side == 'right':
-                    playbook_signal = base_signal & SETUP_WATCHING
-                else:
-                    playbook_signal = base_signal
-                
-                # 计分
-                if playbook_signal.any():
-                    score_to_add = playbook.get('score', 0)
-                    final_score.loc[playbook_signal] += score_to_add
-                    score_details_df.loc[playbook_signal, name] = score_to_add
-
-            elif 'setup' in playbook:
-                # --- 模式2: 准备驱动型 (上下文回溯) ---
-                trigger_signal = playbook.get('trigger', default_series)
                 if playbook_side == 'left':
                     potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
-                else:
+                else: # right side
                     potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
 
                 for date_index in potential_trigger_indices:
@@ -568,18 +536,81 @@ class TrendFollowStrategy:
                     context_start_loc = loc - context_window
                     context_end_loc = loc - 1
                     
-                    setup_condition_series = playbook.get('setup', default_series)
-                    was_setup_in_context = setup_condition_series.iloc[context_start_loc : context_end_loc + 1].any()
+                    max_setup_score_in_context = setup_score_series.iloc[context_start_loc : context_end_loc + 1].max()
 
-                    if was_setup_in_context:
+                    if max_setup_score_in_context >= min_setup_score:
                         playbook_signal.loc[date_index] = True
+                        
+                        # 计算触发器加分
+                        trigger_bonus_score = 0
+                        for trigger_name, bonus_value in trigger_bonus_rules.items():
+                            if trigger_events.get(trigger_name, default_series).loc[date_index]:
+                                trigger_bonus_score += bonus_value
+                        
+                        # 计算最终得分
+                        final_playbook_score = base_score + (max_setup_score_in_context * multiplier) + trigger_bonus_score
+                        final_score.loc[date_index] += final_playbook_score
+                        score_details_df.loc[date_index, name] = final_playbook_score
+
+            if playbook_type == 'precondition_score':
+                # --- 模式: 前提条件动态计分型 (已升级支持事件评分) ---
+                trigger_signal = playbook.get('trigger', default_series)
+                rules = playbook.get('scoring_rules', {})
+                base_score = rules.get('base_score', 0)
+                condition_rules = rules.get('conditions', {})
+                event_condition_rules = rules.get('event_conditions', {}) # 新增：获取事件评分规则
+                min_score = rules.get('min_score_to_trigger', 0)
+
+                # 计算背景分
+                precondition_score = pd.Series(0.0, index=df.index)
+                for state_name, score_value in condition_rules.items():
+                    state_series = atomic_states.get(state_name, default_series)
+                    precondition_score += state_series.astype(int) * score_value
                 
+                # ▼▼▼【代码新增 V74.0】: 计算事件分 ▼▼▼
+                event_score = pd.Series(0.0, index=df.index)
+                for state_name, score_value in event_condition_rules.items():
+                    state_series = atomic_states.get(state_name, default_series)
+                    event_score += state_series.astype(int) * score_value
+                # ▲▲▲【代码新增 V74.0】▲▲▲
+
+                # 计算总分
+                total_playbook_score = base_score + precondition_score + event_score
+            elif 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
+                # --- 模式1: 前提驱动型 (布尔) ---
+                trigger_signal = playbook.get('trigger', default_series)
+                precondition_signal = playbook['precondition']
+                base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
+                if playbook_side == 'right':
+                    playbook_signal = base_signal & SETUP_WATCHING
+                else:
+                    playbook_signal = base_signal
                 # 计分
                 if playbook_signal.any():
                     score_to_add = playbook.get('score', 0)
                     final_score.loc[playbook_signal] += score_to_add
                     score_details_df.loc[playbook_signal, name] = score_to_add
-
+            elif 'setup' in playbook:
+                # --- 模式2: 准备驱动型 (上下文回溯) ---
+                trigger_signal = playbook.get('trigger', default_series)
+                if playbook_side == 'left':
+                    potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
+                else:
+                    potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
+                for date_index in potential_trigger_indices:
+                    loc = df.index.get_loc(date_index)
+                    if loc < context_window: continue
+                    context_start_loc = loc - context_window
+                    context_end_loc = loc - 1
+                    setup_condition_series = playbook.get('setup', default_series)
+                    was_setup_in_context = setup_condition_series.iloc[context_start_loc : context_end_loc + 1].any()
+                    if was_setup_in_context:
+                        playbook_signal.loc[date_index] = True
+                # 计分
+                if playbook_signal.any():
+                    score_to_add = playbook.get('score', 0)
+                    final_score.loc[playbook_signal] += score_to_add
+                    score_details_df.loc[playbook_signal, name] = score_to_add
             elif playbook.get('is_event_driven', False):
                 # --- 模式3: 纯事件驱动型 ---
                 trigger_signal = playbook.get('trigger', default_series)
@@ -589,7 +620,6 @@ class TrendFollowStrategy:
                     score_to_add = playbook.get('score', 0)
                     final_score.loc[playbook_signal] += score_to_add
                     score_details_df.loc[playbook_signal, name] = score_to_add
-
             final_playbook_signals[name] = playbook_signal.fillna(False)
 
         # ==================== 步骤3: 根据最终信号进行计分 (逻辑不变) ====================
@@ -597,13 +627,11 @@ class TrendFollowStrategy:
             name = playbook['name']
             cn_name = playbook.get('cn_name', name)
             playbook_signal = final_playbook_signals.get(name, default_series)
-
             if playbook_signal.any():
                 base_score = playbook.get('score', 0)
                 current_playbook_score = pd.Series(base_score, index=df.index)
                 final_score.loc[playbook_signal] += current_playbook_score.loc[playbook_signal]
                 score_details_df.loc[playbook_signal, name] = current_playbook_score.loc[playbook_signal]
-                
                 triggered_dates_str = self._format_debug_dates(playbook_signal)
                 print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
 
@@ -937,70 +965,110 @@ class TrendFollowStrategy:
         return states
 
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """【V57.0 辅助模块】均线结构与动能状态诊断"""
+        """
+        【V74.0 三维评分版】均线结构与动能状态诊断
+        - 核心升级: 能够动态地为多条关键均线（如21, 34, 55, 89, 144, 233）诊断“触碰支撑”状态。
+        - 这为“平台支撑回踩”剧本的三维动态评分（背景分+事件分）提供了核心数据。
+        """
+        print("        -> [诊断模块] 正在执行均线状态诊断...")
         states = {}
+        default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'ma_state_params', {})
-        if not self._get_param_value(p.get('enabled'), False): return states
+        if not self._get_param_value(p.get('enabled'), False):
+            print("          -> 均线诊断模块被禁用，跳过。")
+            return states
+
+        # --- 1. 核心趋势状态诊断 ---
         short_p = self._get_param_value(p.get('short_ma'), 13)
         mid_p = self._get_param_value(p.get('mid_ma'), 34)
         long_p = self._get_param_value(p.get('long_ma'), 89)
-        support_p = self._get_param_value(p.get('support_ma'), 55) # 从配置读取关键支撑线
-        short_ma, mid_ma, long_ma, support_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D', f'EMA_{support_p}_D'
+        short_ma, mid_ma, long_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D'
+
         if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
-            print(f"          -> [警告] 缺少均线列，均线状态诊断跳过。")
+            print(f"          -> [警告] 缺少核心均线列({short_ma}, {mid_ma}, {long_ma})，部分均线状态诊断跳过。")
             return states
+
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
         states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
+        states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
+
+        # --- 2. 均线收敛/发散状态诊断 ---
         ma_spread = (df[short_ma] - df[long_ma]) / df[long_ma].replace(0, np.nan)
         ma_spread_zscore = (ma_spread - ma_spread.rolling(60).mean()) / ma_spread.rolling(60).std().replace(0, np.nan)
         states['MA_STATE_CONVERGING'] = ma_spread_zscore < self._get_param_value(p.get('converging_zscore'), -1.0)
         states['MA_STATE_DIVERGING'] = ma_spread_zscore > self._get_param_value(p.get('diverging_zscore'), 1.0)
-        states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
 
-        # ▼▼▼【代码新增 V67.0】: 定义“触碰关键支撑线”状态 ▼▼▼
-        is_touching = df['low_D'] <= df[support_ma]
-        is_closing_above = df['close_D'] >= df[support_ma]
-        states[f'MA_STATE_TOUCHING_SUPPORT_{support_p}'] = is_touching & is_closing_above
-        signal = states[f'MA_STATE_TOUCHING_SUPPORT_{support_p}']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '触碰{support_p}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-
+        # --- 3. 均线加速度状态诊断 (用于识别趋势拐点) ---
         lookback_period = 10
         accel_d_col = f'ACCEL_{lookback_period}_{long_ma}'
         if accel_d_col in df.columns:
             states['MA_STATE_D_STABILIZING'] = (df[accel_d_col].shift(1).fillna(0) < 0) & (df[accel_d_col] >= 0)
         else:
-            states['MA_STATE_D_STABILIZING'] = pd.Series(False, index=df.index)
+            states['MA_STATE_D_STABILIZING'] = default_series
             print(f"          -> [警告] 缺少日线加速度列 '{accel_d_col}'，'MA_STATE_D_STABILIZING' 无法计算。")
+
         simulated_w_ma_period = 105
         simulated_w_lookback = 25
         slope_w_simulated_col = f'SLOPE_{simulated_w_lookback}_EMA_{simulated_w_ma_period}_D'
-        if slope_w_simulated_col  in df.columns:
-            states['MA_STATE_W_STABILIZING'] = (df[slope_w_simulated_col ].shift(1).fillna(0) < 0) & (df[slope_w_simulated_col ] >= 0)
+        if slope_w_simulated_col in df.columns:
+            states['MA_STATE_W_STABILIZING'] = (df[slope_w_simulated_col].shift(1).fillna(0) < 0) & (df[slope_w_simulated_col] >= 0)
         else:
-            states['MA_STATE_W_STABILIZING'] = pd.Series(False, index=df.index)
-            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_simulated_col }'，'MA_STATE_W_STABILIZING' 无法计算。")
+            states['MA_STATE_W_STABILIZING'] = default_series
+            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_simulated_col}'，'MA_STATE_W_STABILIZING' 无法计算。")
+
+        # --- 4. 关键支撑均线触碰状态诊断 (为三维评分提供事件分) ---
+        # ▼▼▼【代码重构 V74.0】: 动态诊断对多条关键均线的触碰 ▼▼▼
+        key_support_mas = [21, 34, 55, 89, 144, 233] # 定义所有我们关心的均线级别
+        
+        for ma_period in key_support_mas:
+            ma_col = f'EMA_{ma_period}_D'
+            if ma_col in df.columns:
+                is_touching = df['low_D'] <= df[ma_col]
+                is_closing_above = df['close_D'] >= df[ma_col]
+                state_name = f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'
+                states[state_name] = is_touching & is_closing_above
+                
+                signal = states[state_name]
+                if signal.any(): # 只在有信号时打印，避免日志刷屏
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"          -> '触碰{ma_period}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            else:
+                # 即使缺少该均线，也创建一个全False的Series，保证后续逻辑的健壮性
+                states[f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'] = default_series
+                print(f"          -> [警告] 缺少均线列 '{ma_col}'，无法诊断其支撑状态。")
+        # ▲▲▲【代码重构 V74.0】▲▲▲
+
+        # --- 5. 老鸭头形态诊断 (一个独立的、持久化的状态) ---
         p_duck = self._get_params_block(params, 'duck_neck_params', {})
         if self._get_param_value(p_duck.get('enabled'), True):
-            short_ma_p = self._get_param_value(p_duck.get('short_ma'), 5)
-            mid_ma_p = self._get_param_value(p_duck.get('mid_ma'), 10)
-            long_ma_p = self._get_param_value(p_duck.get('long_ma'), 60)
-            short_ma = f'EMA_{short_ma_p}_D'
-            mid_ma = f'EMA_{mid_ma_p}_D'
-            long_ma = f'EMA_{long_ma_p}_D'
-            if all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
-                golden_cross_event = (df[short_ma] > df[mid_ma]) & (df[short_ma].shift(1) <= df[mid_ma].shift(1))
-                break_condition = (df[short_ma] < df[mid_ma])
+            duck_short_p = self._get_param_value(p_duck.get('short_ma'), 5)
+            duck_mid_p = self._get_param_value(p_duck.get('mid_ma'), 10)
+            duck_long_p = self._get_param_value(p_duck.get('long_ma'), 60)
+            duck_short_ma, duck_mid_ma, duck_long_ma = f'EMA_{duck_short_p}_D', f'EMA_{duck_mid_p}_D', f'EMA_{duck_long_p}_D'
+            
+            if all(c in df.columns for c in [duck_short_ma, duck_mid_ma, duck_long_ma]):
+                golden_cross_event = (df[duck_short_ma] > df[duck_mid_ma]) & (df[duck_short_ma].shift(1) <= df[duck_mid_ma].shift(1))
+                break_condition = (df[duck_short_ma] < df[duck_mid_ma])
                 persistence_days = self._get_param_value(p_duck.get('persistence_days'), 20)
                 states['MA_STATE_DUCK_NECK_FORMING'] = self._create_persistent_state(
                     df, entry_event=golden_cross_event, persistence_days=persistence_days, break_condition=break_condition
                 )
                 
-                signal = states['MA_STATE_DUCK_NECK_FORMING']
-                dates_str = self._format_debug_dates(signal)
-                print(f"          -> '老鸭颈形成中' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-                
+                signal = states.get('MA_STATE_DUCK_NECK_FORMING', default_series)
+                if signal.any():
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"          -> '老鸭颈形成中' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            else:
+                states['MA_STATE_DUCK_NECK_FORMING'] = default_series
+        
+        # --- 6. 最终数据清洗 ---
+        for key in states:
+            if states[key] is None:
+                states[key] = default_series
+            else:
+                states[key] = states[key].fillna(False)
+
         return states
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
