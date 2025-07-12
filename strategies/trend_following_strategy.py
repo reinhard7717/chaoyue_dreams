@@ -373,7 +373,11 @@ class TrendFollowStrategy:
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'precondition': atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series),
+                'precondition': (
+                    atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series) |
+                    atomic_states.get('CHIP_STATE_CONCENTRATION_SQUEEZE', default_series) |
+                    atomic_states.get('MA_STATE_CONVERGING', default_series)
+                ),
                 'score': 190,
                 'side': 'right',
                 'comment': 'B+级: 在“能量待爆发”的背景状态下(前提)，出现的第一根企稳突破阳线(事件)，是潜在主升浪的“点火”信号。'
