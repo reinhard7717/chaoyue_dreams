@@ -372,15 +372,19 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
+                'type': 'precondition_score', # 新增一个类型来标识这种特殊剧本
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'precondition': (
-                    atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series) |
-                    atomic_states.get('CHIP_STATE_CONCENTRATION_SQUEEZE', default_series) |
-                    atomic_states.get('MA_STATE_CONVERGING', default_series)
-                ),
-                'score': 190,
+                'scoring_rules': {
+                    'base_score': 150, # 只要触发，就有的基础分
+                    'conditions': {
+                        'VOL_STATE_SQUEEZE_WINDOW': 50,
+                        'CHIP_STATE_CONCENTRATION_SQUEEZE': 30,
+                        'MA_STATE_CONVERGING': 20
+                    },
+                    'min_score_to_trigger': 180 # 总分必须达到这个阈值才算有效信号
+                },
                 'side': 'right',
-                'comment': 'B+级: 在“能量待爆发”的背景状态下(前提)，出现的第一根企稳突破阳线(事件)，是潜在主升浪的“点火”信号。'
+                'comment': 'B+级: 在能量压缩背景下(波动率/筹码/均线)的突破。根据满足条件的多少动态给分。'
             },
             {
                 'name': 'TREND_CONTINUATION_B_PLUS', 'cn_name': '【B+级】趋势中继',
@@ -497,19 +501,61 @@ class TrendFollowStrategy:
 
         for playbook in playbook_definitions:
             name = playbook['name']
-            trigger_signal = playbook.get('trigger', default_series)
+            cn_name = playbook.get('cn_name', name)
             playbook_side = playbook.get('side', 'right')
             playbook_signal = default_series.copy()
+            
+            # 根据剧本类型分流处理
+            playbook_type = playbook.get('type')
 
-            if 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
+            if playbook_type == 'precondition_score':
+                # --- 模式新增: 前提条件动态计分型 ---
+                trigger_signal = playbook.get('trigger', default_series)
+                rules = playbook.get('scoring_rules', {})
+                base_score = rules.get('base_score', 0)
+                condition_rules = rules.get('conditions', {})
+                min_score = rules.get('min_score_to_trigger', 0)
+
+                # 计算前提条件的动态分数
+                precondition_score = pd.Series(0.0, index=df.index)
+                for state_name, score_value in condition_rules.items():
+                    state_series = atomic_states.get(state_name, default_series)
+                    precondition_score += state_series.astype(int) * score_value
+                
+                # 计算总分
+                total_playbook_score = base_score + precondition_score
+
+                # 判断信号是否有效
+                is_valid_signal = (total_playbook_score >= min_score) & trigger_signal & ~is_in_distribution_risk
+                
+                if playbook_side == 'right':
+                    playbook_signal = is_valid_signal & SETUP_WATCHING
+                else: # left side
+                    playbook_signal = is_valid_signal
+                
+                # 将动态分数加到最终得分中
+                final_score.loc[playbook_signal] += total_playbook_score.loc[playbook_signal]
+                score_details_df.loc[playbook_signal, name] = total_playbook_score.loc[playbook_signal]
+
+            elif 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
+                # --- 模式1: 前提驱动型 (布尔) ---
+                trigger_signal = playbook.get('trigger', default_series)
                 precondition_signal = playbook['precondition']
                 base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
                 if playbook_side == 'right':
                     playbook_signal = base_signal & SETUP_WATCHING
                 else:
                     playbook_signal = base_signal
-            
+                
+                # 计分
+                if playbook_signal.any():
+                    score_to_add = playbook.get('score', 0)
+                    final_score.loc[playbook_signal] += score_to_add
+                    score_details_df.loc[playbook_signal, name] = score_to_add
+
             elif 'setup' in playbook:
+                # --- 模式2: 准备驱动型 (上下文回溯) ---
+                trigger_signal = playbook.get('trigger', default_series)
                 if playbook_side == 'left':
                     potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
                 else:
@@ -527,9 +573,22 @@ class TrendFollowStrategy:
 
                     if was_setup_in_context:
                         playbook_signal.loc[date_index] = True
-            
+                
+                # 计分
+                if playbook_signal.any():
+                    score_to_add = playbook.get('score', 0)
+                    final_score.loc[playbook_signal] += score_to_add
+                    score_details_df.loc[playbook_signal, name] = score_to_add
+
             elif playbook.get('is_event_driven', False):
+                # --- 模式3: 纯事件驱动型 ---
+                trigger_signal = playbook.get('trigger', default_series)
                 playbook_signal = trigger_signal & ~is_in_distribution_risk
+                # 计分
+                if playbook_signal.any():
+                    score_to_add = playbook.get('score', 0)
+                    final_score.loc[playbook_signal] += score_to_add
+                    score_details_df.loc[playbook_signal, name] = score_to_add
 
             final_playbook_signals[name] = playbook_signal.fillna(False)
 
