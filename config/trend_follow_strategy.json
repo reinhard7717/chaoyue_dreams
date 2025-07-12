@@ -27,7 +27,7 @@
         "verbose_logging": { "value": true }
       },
       "strategy_info": {
-        "name": { "value": "matrix_trend_follow_v82", "说明": "策略唯一标识名称，已更新至V82。" }
+        "name": { "value": "家族竞争版_v82", "说明": "策略唯一标识名称，已更新至V82。" }
       },
       "setup_scoring_matrix": {
         "说明": "【V82.0 核心大脑】准备状态置信度矩阵。所有“准备状态”的评分逻辑已全部集中于此。",
