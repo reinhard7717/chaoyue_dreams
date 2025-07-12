@@ -111,10 +111,14 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V57.0 总指挥版】
+        【V80.0 总指挥版】
+        - 核心升级: 引入了最终的、分层的评分哲学。
+        - 1. 调用 V79.0 版本的 _calculate_entry_score 计算出“原始总分”。
+        - 2. 新增 _apply_final_score_adjustments 函数，作为“指挥棒模型”，对原始总分进行质量乘数调整。
+        - 3. 最终的交易决策基于调整后的分数 (adjusted_score)。
         """
         print("\n" + "="*60)
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V62.0】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V80.0】 ======")
         if df is None or df.empty:
             print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
@@ -129,10 +133,13 @@ class TrendFollowStrategy:
             df = df.rename(columns=rename_map)
         if 'close_D' in df.columns:
             df['pct_change_D'] = df['close_D'].pct_change()
+        
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
-        df = self._prepare_derived_features(df, params)
+        # 假设 _prepare_derived_features 存在，如果不存在，可以注释掉
+        # df = self._prepare_derived_features(df, params) 
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
+        
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
         atomic_states = {
             **self._diagnose_chip_states(df, params),
@@ -144,27 +151,44 @@ class TrendFollowStrategy:
             **self._diagnose_kline_patterns(df, params),
             **self._diagnose_board_patterns(df, params)
         }
-        # ▼▼▼ 将风险/机会因子也注入到原子状态中 ▼▼▼
-        # 这样做是为了让 setup 引擎能够访问到 OPP_STATE_NEGATIVE_DEVIATION
+        # 将风险/机会因子也注入到原子状态中
         risk_and_opp_factors = self._diagnose_risk_factors(df, params)
+        atomic_states.update(risk_and_opp_factors) # 合并，确保所有状态可用
 
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
+        
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
+        
         print("--- [总指挥] 步骤3: 触发事件定义引擎启动 ---")
-        trigger_events = self._define_trigger_events(df, params, atomic_states)
-        print("--- [总指挥] 步骤4: 最终计分引擎启动 ---")
+        # 假设 _define_trigger_events 存在，如果不存在，需要实现或用空字典代替
+        trigger_events = self._define_trigger_events(df, params, atomic_states) 
+        
+        print("--- [总指挥] 步骤4: 剧本家族计分引擎启动 ---")
+        # ▼▼▼  _calculate_entry_score 现在返回原始分数 ▼▼▼
+        # 确保您已经将 _calculate_entry_score 更新为 V79.0 "家族继承引擎" 版本
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
-        self._last_score_details_df = score_details_df
+        raw_total_score = df['entry_score'].copy() # 这是V79.0计算出的原始总分
+        
+        print("--- [总指挥] 步骤4.5: 指挥棒模型启动，进行最终得分调整 ---")
+        # ▼▼▼ 调用指挥棒模型 ▼▼▼
+        adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params)
+        df['entry_score_raw'] = raw_total_score # 保留原始分，便于分析
+        df['entry_score'] = adjusted_score # 使用调整后的分数作为最终得分
+        # 将调整细节合并到总细节中，便于分析
+        self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
+        
         print("--- [总指挥] 步骤5: 智能风险评审与出场决策引擎启动 ---")
-        # risk_factors = self._diagnose_risk_factors(df, params)
         risk_score = self._calculate_risk_score(df, params, risk_and_opp_factors)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
+        
         print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
-        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params')
+        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
+        # ▼▼▼ 使用调整后的分数进行决策 ▼▼▼
         df['signal_entry'] = df['entry_score'] >= score_threshold
-        print(f"====== 【战术引擎 V62.0】执行完毕 ======")
+        
+        print(f"====== 【战术引擎 V80.0】执行完毕 ======")
         print("="*60 + "\n")
         return df, {}
 
@@ -222,6 +246,53 @@ class TrendFollowStrategy:
             records.append(record)
         return records
 
+    def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V80.0 指挥棒模型】最终得分调整层
+        - 对已经计算出的原始总分，根据一系列“纯粹度”指标，进行乘数调整。
+        - 这如同总指挥对乐团的最终演绎进行微调，赋予信号艺术性。
+        """
+        print("    - [指挥棒模型 V80.0] 启动，开始对原始总分进行最终调整...")
+        
+        adjustment_params = self._get_params_block(params, 'final_score_adjustments', {})
+        if not self._get_param_value(adjustment_params.get('enabled'), False):
+            print("      -> 最终得分调整被禁用，返回原始分数。")
+            return raw_scores, pd.DataFrame(index=df.index)
+
+        total_multiplier = pd.Series(0.0, index=df.index)
+        adjustment_details_df = pd.DataFrame(index=df.index)
+        multiplier_rules = adjustment_params.get('multipliers', [])
+
+        for rule in multiplier_rules:
+            name = rule.get('name')
+            cn_name = rule.get('cn_name', name)
+            source_col = rule.get('source_column')
+            condition = rule.get('condition')
+            multiplier_value = rule.get('multiplier_value', 0)
+
+            if source_col not in df.columns:
+                print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的列'{source_col}'不存在，跳过。")
+                continue
+
+            mask = pd.Series(False, index=df.index)
+            if condition == 'is_lowest_percentile':
+                window = rule.get('window', 250)
+                percentile = rule.get('percentile', 0.1)
+                threshold = df[source_col].rolling(window=window, min_periods=window//2).quantile(percentile)
+                mask = df[source_col] < threshold
+            # 未来可以扩展更多条件，如 is_highest_percentile 等
+
+            # 应用乘数
+            total_multiplier.loc[mask] += multiplier_value
+            adjustment_details_df.loc[mask, name] = multiplier_value
+            
+            if mask.any():
+                print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
+
+        adjusted_score = raw_scores * (1 + total_multiplier)
+        print("    - [指挥棒模型 V80.0] 调整完成。")
+        return adjusted_score, adjustment_details_df
+
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【V58.0 归一化与动态任务版】
@@ -276,186 +347,161 @@ class TrendFollowStrategy:
 
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
-        【V70.0 逻辑净化版】
-        - 核心修正: 彻底移除了所有剧本定义中遗留的、与新逻辑冲突的 'precondition': True 键值对。
-        - 这解决了由于字典键重复定义导致 'precondition' 被错误地覆盖为布尔值的问题。
+        【V81.0 逻辑闭环版】
+        - 核心升级: 整合了之前被忽略的“逻辑孤岛”，使系统逻辑更完整、更强大。
+        - 1. 新增【A-级】资本逆行者 剧本，利用“资本底背离”信号捕捉左侧机会。
+        - 2. 为多个右侧突破剧本增加了“筹码点火”的触发器加成，提升信号确定性。
+        - 3. 清理了数据准备区中未被直接使用的变量，代码更精炼。
         """
-        print("    - [剧本定义中心 V70.0 逻辑净化版] 启动...")
-        # --- 步骤 1 & 2 不变 ---
+        print("    - [剧本定义中心 V81.0 逻辑闭环版] 启动...")
+        # --- 步骤 1: 准备数据 ---
         default_series = pd.Series(False, index=df.index)
-        robust_right_side_precondition = df.get('robust_right_side_precondition', pd.Series(True, index=df.index))
+        
+        # --- 获取准备分 (Setup Scores) ---
         score_deep_accum = setup_conditions.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
         score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
         score_energy_comp = setup_conditions.get('SETUP_SCORE_ENERGY_COMPRESSION', pd.Series(0, index=df.index))
-        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', pd.Series(False, index=df.index))
         score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
         score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         score_bottoming_process = setup_conditions.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
-        is_in_distribution_risk = setup_conditions.get('SETUP_DISTRIBUTION_RISK', pd.Series(False, index=df.index))
-        
-        # --- 步骤 3: 定义所有交易剧本 (Playbooks) ---
+
+        # --- 获取原子状态 (Atomic States) ---
+        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
+        capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        # 为了配合N字板接力剧本的改造，需要将布尔条件也放入atomic_states
+        setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
+        setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
+        # 为了配合剧本改造，需要将布尔条件也放入atomic_states
+        atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
+        atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
+
+        # --- 步骤 2: 定义所有交易剧本 (Playbooks) ---
         playbook_definitions = [
+            # --- 反转/逆势家族 (REVERSAL_CONTRARIAN) ---
             {
-                'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视',
-                'setup': score_cap_pit > 80,
+                'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup', 'setup': score_cap_pit > 80,
                 'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series),
-                'score': 320,
-                'side': 'left',
-                'comment': 'S级: 在市场极度恐慌、流动性枯竭的深渊中，捕捉到的第一个功能性强度反转信号，是最高赔率的史诗级机会。'
+                'score': 320, 'side': 'left', 'comment': 'S级: 市场极度恐慌后的第一个功能性反转。'
             },
             {
-                'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海',
-                'type': 'setup_score', # 新剧本类型：准备计分型
+                'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup_score', 'setup_score_series': score_cap_pit,
+                'trigger': (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)),
+                'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 160, 'score_multiplier': 1.0, 'trigger_bonus': {'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50}},
+                'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。'
+            },
+            {
+                'name': 'CAPITAL_DIVERGENCE_REVERSAL', 'cn_name': '【A-级】资本逆行者', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup', 
+                'setup': capital_divergence_window,
+                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
+                'score': 230, 
+                'side': 'left', 
+                'comment': 'A-级: 在价格下跌但资金持续流入的“底背离”机会窗口中，出现的第一个反转确认信号。'
+            },
+            {
+                'name': 'BEAR_TRAP_RALLY', 'cn_name': '【C+级】熊市反弹', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup',
+                'setup': setup_bottom_passivation,
+                'trigger': trigger_events.get('TRIGGER_TREND_STABILIZING', default_series),
+                'score': 180,
+                'side': 'left',
+                'comment': 'C+级: 熊市背景下，价格首次钝化，并由长期趋势企稳信号触发。'
+            },
+            {
+                'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup', 'setup': setup_washout_reversal,
                 'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'setup_score_series': score_deep_accum, # 指定用于计分的准备分系列
-                'scoring_rules': {
-                    'min_setup_score_to_trigger': 51, # 准备分必须大于50才能被考虑
-                    'base_score': 200, # 基础分
-                    'score_multiplier': 1.5 # 每多1分准备分，最终得分增加1.5分
+                'score': 260, 'side': 'left', 'comment': 'A级: 极端洗盘后的拉升前兆。'
+            },
+            {
+                'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳', 'family': 'REVERSAL_CONTRARIAN',
+                'type': 'setup', 'setup': score_bottoming_process > 50,
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'score': 190, 'side': 'left', 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线。'
+            },
+
+            # --- 趋势/动能家族 (TREND_MOMENTUM) ---
+            {
+                'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海', 'family': 'TREND_MOMENTUM',
+                'type': 'setup_score', 'setup_score_series': score_deep_accum,
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'scoring_rules': { 
+                    'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5,
+                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
                 },
-                'side': 'right',
-                'comment': '动态评级: 在深度吸筹(setup)的背景下突破。根据回溯期内最高的吸筹分数动态给分。'
+                'side': 'right', 'comment': '根据深度吸筹分数动态给分。若伴随筹码点火，则确定性更高。'
             },
             {
-                'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转',
-                'type': 'setup_score',
-                'trigger': (
-                    trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) |
-                    trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-                ),
-                'setup_score_series': score_cap_pit,
-                'scoring_rules': {
-                    'min_setup_score_to_trigger': 51,
-                    'base_score': 160,
-                    'score_multiplier': 1.0, # 准备分1:1计入总分
-                    'trigger_bonus': { # 革命性的新概念：触发器加分项
-                        'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50 # 如果由更高质量的触发器触发，额外加50分
-                    }
+                'name': 'ENERGY_COMPRESSION_BREAKOUT', 'cn_name': '【动态】能量压缩突破', 'family': 'TREND_MOMENTUM',
+                'type': 'precondition_score',
+                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
+                'scoring_rules': { 
+                    'base_score': 150, 'min_score_to_trigger': 180, 
+                    'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 
+                    'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1},
+                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
                 },
-                'side': 'left',
-                'comment': '动态评级: 在投降坑(setup)后反转。根据坑的深度(准备分)和反转K线的强度(触发器)动态给分。'
+                'side': 'right', 'comment': '根据当天前提和历史准备共同给分。若伴随筹码点火，则确定性更高。'
             },
             {
-                'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪',
-                'setup': score_healthy_markup > 60,
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 240, 
-                'precondition': robust_right_side_precondition, # 注意：这个precondition是旧的，现在由side='right'和SETUP_WATCHING处理，但保留它不会导致崩溃
-                'side': 'right',
-                'comment': 'A级: 在均线多头排列、资金确认的趋势中，出现的回踩反弹，是可靠的顺势上车点。'
-            },
-            {
-                'name': 'TREND_CONTINUATION_A', 'cn_name': '【A级】趋势中继',
-                'setup': score_healthy_markup > 80,
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 240, 
-                'precondition': robust_right_side_precondition,
-                'side': 'right',
-                'comment': 'A级: 在通过多维度验证的健康主升浪中，出现的回踩反弹，是可靠的加仓或上车点。'
-            },
-            {
-                'name': 'PLATFORM_SUPPORT_PULLBACK', 'cn_name': '【动态】平台支撑回踩',
+                'name': 'PLATFORM_SUPPORT_PULLBACK', 'cn_name': '【动态】平台支撑回踩', 'family': 'TREND_MOMENTUM',
                 'type': 'precondition_score',
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
+                'scoring_rules': { 'base_score': 160, 'min_score_to_trigger': 180, 'conditions': {'MA_STATE_CONVERGING': 30, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 20}, 'event_conditions': {'MA_STATE_TOUCHING_SUPPORT_21': 10, 'MA_STATE_TOUCHING_SUPPORT_34': 20, 'MA_STATE_TOUCHING_SUPPORT_55': 35, 'MA_STATE_TOUCHING_SUPPORT_89': 50, 'MA_STATE_TOUCHING_SUPPORT_144': 65, 'MA_STATE_TOUCHING_SUPPORT_233': 80}, 'setup_bonus': {'HEALTHY_MARKUP': 0.2}},
+                'side': 'right', 'comment': '根据平台质量、支撑级别和主升浪背景动态给分。'
+            },
+            {
+                'name': 'HEALTHY_BOX_BREAKOUT', 'cn_name': '【A-级】健康箱体突破', 'family': 'TREND_MOMENTUM',
+                'type': 'setup',
+                'setup': setup_healthy_box,
+                'trigger': trigger_events.get('BOX_EVENT_BREAKOUT', default_series),
+                'score': 220,
+                'side': 'right',
+                'comment': 'A-级: 在一个位于趋势均线上方的健康箱体内盘整后，发生的向上突破。'
+            },
+            {
+                'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪', 'family': 'TREND_MOMENTUM',
+                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
+                'type': 'precondition_score',
                 'scoring_rules': {
-                    'base_score': 160,
-                    'min_score_to_trigger': 180,
-                    'conditions': { # 背景分：评估背景状态
-                        'MA_STATE_CONVERGING': 30,
-                        'CHIP_STATE_CONCENTRATION_SQUEEZE': 20
-                    },
-                    'event_conditions': { # 事件分：评估事件本身质量
-                        'MA_STATE_TOUCHING_SUPPORT_21': 10,
-                        'MA_STATE_TOUCHING_SUPPORT_34': 20,
-                        'MA_STATE_TOUCHING_SUPPORT_55': 35,
-                        'MA_STATE_TOUCHING_SUPPORT_89': 50,
-                        'MA_STATE_TOUCHING_SUPPORT_144': 65,
-                        'MA_STATE_TOUCHING_SUPPORT_233': 80
+                    'base_score': 240, 'min_score_to_trigger': 240,
+                    'conditions': {
+                        'SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60': 0, # 基础条件
+                        'MA_STATE_DIVERGING': 20, # 加分项：趋势在加速
+                        'OSC_STATE_MACD_BULLISH': 15 # 加分项：中期动能健康
                     }
                 },
-                'side': 'right',
-                'comment': '动态评级: 在平台整理区回踩关键支撑。根据平台质量(背景分)和支撑级别(事件分)动态给分。'
             },
             {
-                'name': 'ENERGY_COMPRESSION_BREAKOUT_B_PLUS', 'cn_name': '【B+级】能量压缩突破',
-                'type': 'precondition_score', # 新增一个类型来标识这种特殊剧本
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'scoring_rules': {
-                    'base_score': 150, # 只要触发，就有的基础分
-                    'conditions': {
-                        'VOL_STATE_SQUEEZE_WINDOW': 50,
-                        'CHIP_STATE_CONCENTRATION_SQUEEZE': 30,
-                        'MA_STATE_CONVERGING': 20
-                    },
-                    'min_score_to_trigger': 180 # 总分必须达到这个阈值才算有效信号
-                },
-                'side': 'right',
-                'comment': 'B+级: 在能量压缩背景下(波动率/筹码/均线)的突破。根据满足条件的多少动态给分。'
-            },
-            {
-                'name': 'TREND_CONTINUATION_B_PLUS', 'cn_name': '【B+级】趋势中继',
-                'setup': (score_healthy_markup > 50) & (score_healthy_markup <= 80),
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 180, 
-                'precondition': robust_right_side_precondition,
-                'side': 'right',
-                'comment': 'B+级: 趋势尚可，但某些维度存在瑕疵，属于机会主义的趋势跟踪。'
-            },
-            {
-                'name': 'ENERGY_RELEASE_A', 'cn_name': '【A级】能量释放',
-                'setup': score_energy_comp > 40,
-                'trigger': trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series),
-                'score': 230, 
-                'precondition': robust_right_side_precondition,
-                'side': 'right',
-                'comment': 'A级: 在波动率和筹码双重压缩后的能量释放，突破成功率较高。'
-            },
-            {
-                'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转',
-                'setup': setup_washout_reversal,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 260,
-                'side': 'left',
-                'comment': 'A级: 在恐慌性的巨量阴线后，出现企稳反转信号，通常是主力极端洗盘后的拉升前兆。'
-            },
-            {
-                'name': 'N_SHAPE_CONTINUATION_A', 'cn_name': '【A级】N字板接力',
-                'setup': score_nshape_cont > 80,
+                'name': 'N_SHAPE_CONTINUATION_A', 'cn_name': '【A级】N字板接力', 'family': 'TREND_MOMENTUM',
                 'trigger': trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series),
-                'score': 250, 
-                'precondition': robust_right_side_precondition,
-                'side': 'right',
-                'comment': 'A级: 强势股在涨停或大阳线后，经过短暂、强势的整理，再次放量突破，是经典的趋势中继信号。'
+                'type': 'precondition_score',
+                'scoring_rules': {
+                    'base_score': 250, 'min_score_to_trigger': 250,
+                    'conditions': {'SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80': 0},
+                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
+                },
+                'side': 'right', 'comment': 'A级: 强势股的经典趋势中继信号。若伴随筹码点火，则确定性更高。'
             },
             {
-                'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩',
-                'setup': score_gap_support > 60,
+                'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩', 'family': 'TREND_MOMENTUM',
+                'type': 'setup', 'setup': score_gap_support > 60,
                 'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 190, 
-                'precondition': robust_right_side_precondition,
-                'side': 'right',
-                'comment': 'B+级: 股价回踩到前期跳空缺口获得支撑并反弹，是可靠的右侧交易机会。'
+                'score': 190, 'side': 'right', 'comment': 'B+级: 回踩前期跳空缺口获得支撑并反弹。'
             },
+
+            # --- 特殊事件家族 (SPECIAL_EVENT) ---
             {
-                'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳',
-                'setup': score_bottoming_process > 50,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 190,
-                'side': 'left',
-                'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线，是高赔率的左侧博弈机会。'
-            },
-            {
-                'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板',
-                'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
-                'score': 380, 
-                'is_event_driven': True,
-                'side': 'left',
-                'comment': '市场情绪的极致反转，拥有最高优先级，解除所有限制。'
+                'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板', 'family': 'SPECIAL_EVENT',
+                'type': 'event_driven', 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
+                'score': 380, 'side': 'left', 'comment': '市场情绪的极致反转。'
             },
         ]
 
-        print(f"    - [剧本定义中心 V70.0] 完成，共定义 {len(playbook_definitions)} 个纯净剧本。")
+        print(f"    - [剧本定义中心 V81.0] 完成，共定义 {len(playbook_definitions)} 个“元剧本”，逻辑已闭环。")
         return playbook_definitions
 
     def _calculate_entry_score(
@@ -467,258 +513,117 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V69.1 健壮性加固版】
-        - 核心修正: 优化了探针日志的逻辑，使其在获取 setup 或 precondition 状态时更加健壮，避免因剧本定义不含特定键而引发的 'bool' object has no attribute 'loc' 错误。
+        【V79.0 家族继承引擎版】
+        - 核心革命: 实现“胜者为王，败者为辅”的家族继承范式，这是逻辑的最终形态。
+        - 1. 基础分竞价: 家族内剧本仅凭 base_score 竞争“主剧本”地位。
+        - 2. 家族加分池: 所有被触发的剧本，无论胜败，其所有加分项都被汇入“家族加分池”。
+        - 3. 最终得分 = 主剧本的base_score + 家族加分池总和。
+        - 这既避免了基础分的重复计算，又聚合了所有有价值的信号，讲述了最完整的故事。
         """
-        print("    - [计分引擎 V69.1 健壮性加固版] 启动...")
+        print("    - [计分引擎 V79.0 家族继承引擎版] 启动...")
         
-        final_score = pd.Series(0.0, index=df.index)
-        score_details_df = pd.DataFrame(index=df.index)
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         default_series = pd.Series(False, index=df.index)
-
-        # ==================== 步骤1: 准备探针与回溯所需数据 ====================
-        final_playbook_signals = {}
-        all_setups = default_series.copy()
-        all_triggers = default_series.copy()
-        all_preconditions = default_series.copy()
-
-        for playbook in playbook_definitions:
-            if 'setup' in playbook:
-                all_setups |= playbook['setup']
-            if 'trigger' in playbook:
-                all_triggers |= playbook['trigger']
-            if 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
-                all_preconditions |= playbook['precondition']
-
-        # ==================== 步骤2: 上下文回溯与前提判断核心逻辑 ====================
-        
-        watching_ma_col = 'EMA_55_D'
-        if watching_ma_col not in df.columns:
-            print(f"      -> [严重警告] 缺少观察区所需均线 '{watching_ma_col}'，右侧交易剧本可能无法正常工作。")
-            SETUP_WATCHING = pd.Series(True, index=df.index)
-        else:
-            SETUP_WATCHING = df['close_D'] > df[watching_ma_col]
-        
-        is_in_distribution_risk = setup_scores.get('SETUP_SCORE_DISTRIBUTION_RISK', default_series.copy()) > 0
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
-        print(f"      -> 计分引擎已升级，支持'前提(precondition)'和'准备(setup)'两种模式。回溯窗口: {context_window}天。")
-
-        for playbook in playbook_definitions:
-            name = playbook['name']
-            cn_name = playbook.get('cn_name', name)
-            playbook_side = playbook.get('side', 'right')
-            playbook_signal = default_series.copy()
-            
-            playbook_type = playbook.get('type')
-
-            if playbook_type == 'setup_score':
-                # --- 模式: 准备工作动态计分型 ---
-                trigger_signal = playbook.get('trigger', default_series)
-                setup_score_series = playbook.get('setup_score_series', default_series)
-                rules = playbook.get('scoring_rules', {})
-                min_setup_score = rules.get('min_setup_score_to_trigger', 0)
-                base_score = rules.get('base_score', 0)
-                multiplier = rules.get('score_multiplier', 1.0)
-                trigger_bonus_rules = rules.get('trigger_bonus', {}) # 获取触发器加分规则
-
-                if playbook_side == 'left':
-                    potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
-                else: # right side
-                    potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
-
-                for date_index in potential_trigger_indices:
-                    loc = df.index.get_loc(date_index)
-                    if loc < context_window: continue
-                    
-                    context_start_loc = loc - context_window
-                    context_end_loc = loc - 1
-                    
-                    max_setup_score_in_context = setup_score_series.iloc[context_start_loc : context_end_loc + 1].max()
-
-                    if max_setup_score_in_context >= min_setup_score:
-                        playbook_signal.loc[date_index] = True
-                        
-                        # 计算触发器加分
-                        trigger_bonus_score = 0
-                        for trigger_name, bonus_value in trigger_bonus_rules.items():
-                            if trigger_events.get(trigger_name, default_series).loc[date_index]:
-                                trigger_bonus_score += bonus_value
-                        
-                        # 计算最终得分
-                        final_playbook_score = base_score + (max_setup_score_in_context * multiplier) + trigger_bonus_score
-                        final_score.loc[date_index] += final_playbook_score
-                        score_details_df.loc[date_index, name] = final_playbook_score
-
-            if playbook_type == 'precondition_score':
-                # --- 模式: 前提条件动态计分型 (已升级支持事件评分) ---
-                trigger_signal = playbook.get('trigger', default_series)
-                rules = playbook.get('scoring_rules', {})
-                base_score = rules.get('base_score', 0)
-                condition_rules = rules.get('conditions', {})
-                event_condition_rules = rules.get('event_conditions', {}) # 新增：获取事件评分规则
-                min_score = rules.get('min_score_to_trigger', 0)
-
-                # 计算背景分
-                precondition_score = pd.Series(0.0, index=df.index)
-                for state_name, score_value in condition_rules.items():
-                    state_series = atomic_states.get(state_name, default_series)
-                    precondition_score += state_series.astype(int) * score_value
-                
-                # ▼▼▼【代码新增 V74.0】: 计算事件分 ▼▼▼
-                event_score = pd.Series(0.0, index=df.index)
-                for state_name, score_value in event_condition_rules.items():
-                    state_series = atomic_states.get(state_name, default_series)
-                    event_score += state_series.astype(int) * score_value
-                # ▲▲▲【代码新增 V74.0】▲▲▲
-
-                # 计算总分
-                total_playbook_score = base_score + precondition_score + event_score
-            elif 'precondition' in playbook and isinstance(playbook['precondition'], pd.Series):
-                # --- 模式1: 前提驱动型 (布尔) ---
-                trigger_signal = playbook.get('trigger', default_series)
-                precondition_signal = playbook['precondition']
-                base_signal = trigger_signal & precondition_signal & ~is_in_distribution_risk
-                if playbook_side == 'right':
-                    playbook_signal = base_signal & SETUP_WATCHING
-                else:
-                    playbook_signal = base_signal
-                # 计分
-                if playbook_signal.any():
-                    score_to_add = playbook.get('score', 0)
-                    final_score.loc[playbook_signal] += score_to_add
-                    score_details_df.loc[playbook_signal, name] = score_to_add
-            elif 'setup' in playbook:
-                # --- 模式2: 准备驱动型 (上下文回溯) ---
-                trigger_signal = playbook.get('trigger', default_series)
-                if playbook_side == 'left':
-                    potential_trigger_indices = df.index[trigger_signal & ~is_in_distribution_risk]
-                else:
-                    potential_trigger_indices = df.index[trigger_signal & SETUP_WATCHING & ~is_in_distribution_risk]
-                for date_index in potential_trigger_indices:
-                    loc = df.index.get_loc(date_index)
-                    if loc < context_window: continue
-                    context_start_loc = loc - context_window
-                    context_end_loc = loc - 1
-                    setup_condition_series = playbook.get('setup', default_series)
-                    was_setup_in_context = setup_condition_series.iloc[context_start_loc : context_end_loc + 1].any()
-                    if was_setup_in_context:
-                        playbook_signal.loc[date_index] = True
-                # 计分
-                if playbook_signal.any():
-                    score_to_add = playbook.get('score', 0)
-                    final_score.loc[playbook_signal] += score_to_add
-                    score_details_df.loc[playbook_signal, name] = score_to_add
-            elif playbook.get('is_event_driven', False):
-                # --- 模式3: 纯事件驱动型 ---
-                trigger_signal = playbook.get('trigger', default_series)
-                playbook_signal = trigger_signal & ~is_in_distribution_risk
-                # 计分
-                if playbook_signal.any():
-                    score_to_add = playbook.get('score', 0)
-                    final_score.loc[playbook_signal] += score_to_add
-                    score_details_df.loc[playbook_signal, name] = score_to_add
-            final_playbook_signals[name] = playbook_signal.fillna(False)
-
-        # ==================== 步骤3: 根据最终信号进行计分 (逻辑不变) ====================
-        for playbook in playbook_definitions:
-            name = playbook['name']
-            cn_name = playbook.get('cn_name', name)
-            playbook_signal = final_playbook_signals.get(name, default_series)
-            if playbook_signal.any():
-                base_score = playbook.get('score', 0)
-                current_playbook_score = pd.Series(base_score, index=df.index)
-                final_score.loc[playbook_signal] += current_playbook_score.loc[playbook_signal]
-                score_details_df.loc[playbook_signal, name] = current_playbook_score.loc[playbook_signal]
-                triggered_dates_str = self._format_debug_dates(playbook_signal)
-                print(f"      -> ★★★ 剧本 '{cn_name}' 触发了 {playbook_signal.sum()} 天，贡献基础分: {base_score:.0f}。{triggered_dates_str} ★★★")
-
-        # ==================== 步骤4: 全局剧本探针日志输出 (增强版) ====================
-        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
         
-        # 为了探针，我们需要重新计算一次动态分数，但这只是为了日志，不影响最终结果
-        playbook_scores_for_probe = {}
+        # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
+        print("      -> 步骤1: 向量化预计算所有基础分和加分项...")
+        base_scores_df = pd.DataFrame(index=df.index)
+        bonus_scores_df = pd.DataFrame(index=df.index) # 存储所有加分项的总和
+
         for playbook in playbook_definitions:
-            if playbook.get('type') == 'precondition_score':
-                rules = playbook.get('scoring_rules', {})
-                base_score = rules.get('base_score', 0)
-                condition_rules = rules.get('conditions', {})
-                precondition_score = pd.Series(0.0, index=df.index)
-                for state_name, score_value in condition_rules.items():
-                    state_series = atomic_states.get(state_name, default_series)
-                    precondition_score += state_series.astype(int) * score_value
-                playbook_scores_for_probe[playbook['name']] = base_score + precondition_score
+            name = playbook['name']
+            rules = playbook.get('scoring_rules', {})
+            
+            # 通用过滤器
+            trigger_mask = playbook.get('trigger', default_series)
+            side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
+            valid_mask = trigger_mask & side_mask
 
-        # 筛选出所有需要关注的日期
-        all_conditions_for_probe = all_setups | all_triggers | all_preconditions
-        key_dates = df.index[all_conditions_for_probe & (df.index >= probe_start_date)].unique().sort_values()
+            # 计算基础分 (只在有效时才有分)
+            base_score = rules.get('base_score', playbook.get('score', 0))
+            base_scores_df[name] = valid_mask.astype(int) * base_score
 
-        print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
-        print(f"-> 发现准备/前提/触发日: {all_conditions_for_probe[all_conditions_for_probe.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
-        print("-----------------------------------------------------------------------------------------------------------------")
-        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format("日期", "剧本名称", "前提?", "触发?", "最终信号?", "详情/分数"))
-        print("-----------------------------------------------------------------------------------------------------------------")
+            # 计算该剧本的所有加分项总和
+            playbook_bonus = pd.Series(0.0, index=df.index)
+            if rules:
+                condition_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
+                event_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('event_conditions', {}).items())
+                setup_bonus = sum(setup_scores.get(f'SETUP_SCORE_{s}', default_series).rolling(window=context_window, min_periods=1).max().fillna(0) * v for s, v in rules.get('setup_bonus', {}).items())
+                trigger_bonus = sum(trigger_events.get(s, default_series).astype(int) * v for s, v in rules.get('trigger_bonus', {}).items())
+                
+                # 针对 setup_score 的特殊乘数加成
+                setup_multiplier_bonus = pd.Series(0.0, index=df.index)
+                if playbook.get('type') == 'setup_score':
+                    setup_score_series = playbook.get('setup_score_series', default_series)
+                    max_setup_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
+                    multiplier = rules.get('score_multiplier', 1.0)
+                    # 基础分已在base_score中计算，这里只计算乘数带来的额外加成
+                    setup_multiplier_bonus = max_setup_in_context * (multiplier - 1) if multiplier > 1 else pd.Series(0.0, index=df.index)
+
+                playbook_bonus = condition_bonus + event_bonus + setup_bonus + trigger_bonus + setup_multiplier_bonus
+            
+            bonus_scores_df[name] = playbook_bonus * valid_mask # 只有有效时，加分项才被考虑
+
+        # ==================== 步骤2: 向量化执行“家族继承”逻辑 ====================
+        print("      -> 步骤2: 向量化执行“家族继承”...")
+        families = {p['name']: p.get('family', 'UNCATEGORIZED') for p in playbook_definitions}
+        
+        # 2.1 基础分竞价，确立优胜者
+        base_scores_grouped = base_scores_df.groupby(by=families, axis=1)
+        family_winner_names = base_scores_grouped.idxmax()
+        
+        # 2.2 汇集家族加分池 (对每个家族，将所有成员的加分项相加)
+        bonus_scores_grouped = bonus_scores_df.groupby(by=families, axis=1)
+        family_bonus_pool = bonus_scores_grouped.sum()
+
+        # 2.3 计算优胜者的基础分
+        winner_base_scores = base_scores_grouped.max()
+
+        # 2.4 最终得分加冕 = 优胜者基础分 + 家族加分池
+        final_family_scores = winner_base_scores + family_bonus_pool
+        
+        # 最终总分是所有家族得分的总和
+        final_score = final_family_scores.sum(axis=1)
+
+        # ==================== 步骤3: 填充细节并进行日志输出 ====================
+        print("      -> 步骤3: 生成最终得分详情...")
+        score_details_df = pd.DataFrame(0.0, index=df.index, columns=base_scores_df.columns)
+        for family_name in final_family_scores.columns:
+            winner_names_series = family_winner_names[family_name]
+            family_total_score_series = final_family_scores[family_name]
+            
+            for playbook_name in winner_names_series.unique():
+                if pd.isna(playbook_name): continue
+                mask = (winner_names_series == playbook_name) & (family_total_score_series > 0)
+                # 记录的是整个家族的得分，归功于主剧本
+                score_details_df.loc[mask, playbook_name] = family_total_score_series[mask]
+
+        # ... (日志和收尾部分与V78.0类似，但现在能讲述更完整的故事) ...
+        print("\n--- 剧本触发详情 (家族继承模式) ---")
+        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
+        key_dates = df.index[final_score > 0]
+        key_dates = key_dates[key_dates >= probe_start_date]
 
         for date in key_dates:
-            has_output_for_date = False
-            for playbook in playbook_definitions:
-                name = playbook['name']
-                cn_name = playbook.get('cn_name', name)
-                playbook_type = playbook.get('type')
-                
-                is_trigger_today = playbook.get('trigger', default_series).loc[date] if 'trigger' in playbook else False
-                is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
-                
-                if playbook_type == 'precondition_score':
-                    # --- 动态给分剧本的专属探针 ---
-                    if is_trigger_today or is_final_signal_today: # 只在触发或最终出信号时显示
-                        if not has_output_for_date:
-                            print(f"{date.strftime('%Y-%m-%d')}   | ------------------------------------------------------------------------------------------------------")
-                            has_output_for_date = True
-                        
-                        rules = playbook.get('scoring_rules', {})
-                        min_score_to_trigger = rules.get('min_score_to_trigger', 0)
-                        total_score_today = playbook_scores_for_probe.get(name, default_series).loc[date]
-                        
-                        # 收集满足条件的前提
-                        satisfied_conditions = []
-                        condition_rules = rules.get('conditions', {})
-                        for state_name, score_value in condition_rules.items():
-                            if atomic_states.get(state_name, default_series).loc[date]:
-                                satisfied_conditions.append(f"{state_name.split('_')[-1]}(+{score_value})")
-                        
-                        details = f"得分:{total_score_today:.0f}/{min_score_to_trigger} ({', '.join(satisfied_conditions)})"
-                        
-                        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format(
-                            "", f"{cn_name}", "动态", str(is_trigger_today), str(is_final_signal_today), details
-                        ))
-
-                else:
-                    # --- 其他类型剧本的探针 (setup, precondition, event-driven) ---
-                    is_setup_today = playbook.get('setup', default_series).loc[date] if 'setup' in playbook and isinstance(playbook.get('setup'), pd.Series) else False
-                    is_precondition_today = playbook.get('precondition', default_series).loc[date] if 'precondition' in playbook and isinstance(playbook.get('precondition'), pd.Series) else False
-                    is_setup_or_precondition_today = is_setup_today or is_precondition_today
-
-                    if is_setup_or_precondition_today or is_trigger_today or is_final_signal_today:
-                        if not has_output_for_date:
-                            print(f"{date.strftime('%Y-%m-%d')}   | ------------------------------------------------------------------------------------------------------")
-                            has_output_for_date = True
-                        
-                        score_info = f"得分:{playbook.get('score', 0)}" if is_final_signal_today else ""
-                        
-                        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format(
-                            "", f"{cn_name}", str(is_setup_or_precondition_today), str(is_trigger_today), str(is_final_signal_today), score_info
-                        ))
-
+            print(f"{date.strftime('%Y-%m-%d')} | 最终总分: {final_score.loc[date]:.0f}")
+            winning_playbooks = score_details_df.loc[date][score_details_df.loc[date] > 0]
+            for name, score in winning_playbooks.items():
+                playbook_info = next((p for p in playbook_definitions if p['name'] == name), None)
+                if playbook_info:
+                    cn_name = playbook_info.get('cn_name', name)
+                    family = playbook_info.get('family', 'N/A')
+                    base_score = base_scores_df.loc[date, name]
+                    bonus_score = score - base_score
+                    print(f"             -> 家族[{family}]主剧本: '{cn_name}', 基础分:{base_score:.0f}, 家族加成:{bonus_score:.0f}, 家族总分:{score:.0f}")
         print("========================= 全局剧本探针分析结束 =========================")
 
-        # --- 最终收尾 ---
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V69.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V79.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
@@ -827,6 +732,182 @@ class TrendFollowStrategy:
             print(f"            -> '{setup_name}' 评审完成，最高置信度得分: {max_score:.0f}")
         print("    - [准备状态中心 V65.0] 所有状态置信度评审完成。")
         return setup_scores
+
+    def _define_trigger_events(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V66.1 结构为王最终版】
+        - 新增 TRIGGER_PANIC_REVERSAL，专门捕捉恐慌坑后的“功能性”强反转K线。
+        """
+        print("    - [触发事件中心 V66.1 结构为王最终版] 启动，开始定义所有原子化触发事件...")
+        triggers = {}
+        default_series = pd.Series(False, index=df.index) # 新增一个默认的空Series，用于后续代码健壮性
+        trigger_params = self._get_params_block(params, 'trigger_event_params', {})
+        if not self._get_param_value(trigger_params.get('enabled'), True):
+            print("      -> 触发事件引擎被禁用，跳过。")
+            return triggers
+        vol_ma_col = 'VOL_MA_21_D'
+        if 'CHIP_EVENT' in df.columns:
+            triggers['TRIGGER_CHIP_IGNITION'] = (df['CHIP_EVENT'] == 'IGNITION')
+            print(f"      -> '筹码点火' 事件定义完成，发现 {triggers['TRIGGER_CHIP_IGNITION'].sum()} 天。")
+
+        p_candle = trigger_params.get('positive_candle', {})
+        if self._get_param_value(p_candle.get('enabled'), True):
+            is_green = df['close_D'] > df['open_D']
+            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            body_ratio = (df['close_D'] - df['open_D']) / body_range
+            is_strong_body = body_ratio > self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
+            triggers['TRIGGER_STRONG_POSITIVE_CANDLE'] = is_green & is_strong_body
+            
+            signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            
+        p_reversal = trigger_params.get('reversal_confirmation_candle', {})
+        if self._get_param_value(p_reversal.get('enabled'), True):
+            is_green = df['close_D'] > df['open_D']
+            is_strong_rally = df['pct_change_D'] > self._get_param_value(p_reversal.get('min_pct_change'), 0.03)
+            is_closing_strong = df['close_D'] > (df['high_D'] + df['low_D']) / 2
+            triggers['TRIGGER_REVERSAL_CONFIRMATION_CANDLE'] = is_green & is_strong_rally & is_closing_strong
+            
+            signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            
+        p_breakout = trigger_params.get('volume_spike_breakout', {})
+        if self._get_param_value(p_breakout.get('enabled'), True) and vol_ma_col in df.columns:
+            volume_ratio = self._get_param_value(p_breakout.get('volume_ratio'), 2.0)
+            lookback = self._get_param_value(p_breakout.get('lookback_period'), 20)
+            is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
+            is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(lookback).max()
+            triggers['TRIGGER_VOLUME_SPIKE_BREAKOUT'] = is_volume_spike & is_price_breakout
+            
+            signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '放量突破近期高点' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            
+        p_rebound = self._get_params_block(params, 'trigger_event_params', {}).get('pullback_rebound_trigger_params', {})
+        if self._get_param_value(p_rebound.get('enabled'), True):
+            support_ma_period = self._get_param_value(p_rebound.get('support_ma'), 21)
+            support_ma_col = f'EMA_{support_ma_period}_D'
+            if support_ma_col in df.columns:
+                was_touching_support = df['low_D'].shift(1) <= df[support_ma_col].shift(1)
+                is_rebounded_above = df['close_D'] > df[support_ma_col]
+                is_positive_day = df['close_D'] > df['open_D']
+                triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
+                
+                signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                dates_str = self._format_debug_dates(signal)
+                print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+                
+        p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
+        if self._get_param_value(p_nshape.get('enabled'), True):
+            is_positive_day = df['close_D'] > df['open_D']
+            n_shape_consolidation_state = atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
+            consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
+            is_breaking_consolidation = df['close_D'] > consolidation_high.shift(1)
+            is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0)
+            triggers['TRIGGER_N_SHAPE_BREAKOUT'] = is_positive_day & is_breaking_consolidation & is_volume_ok
+            
+            signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            
+        p_cross = trigger_params.get('indicator_cross_params', {})
+        if self._get_param_value(p_cross.get('enabled'), True):
+            if self._get_param_value(p_cross.get('dmi_cross', {}).get('enabled'), True):
+                pdi_col, mdi_col = 'PDI_14_D', 'NDI_14_D'
+                if all(c in df.columns for c in [pdi_col, mdi_col]):
+                    triggers['TRIGGER_DMI_CROSS'] = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
+                    
+                    signal = triggers.get('TRIGGER_DMI_CROSS', default_series)
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"      -> 'DMI金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+                    
+            macd_p = p_cross.get('macd_cross', {})
+            if self._get_param_value(macd_p.get('enabled'), True):
+                macd_col, signal_col = 'MACD_13_34_8_D', 'MACDs_13_34_8_D'
+                if all(c in df.columns for c in [macd_col, signal_col]):
+                    is_golden_cross = (df[macd_col] > df[signal_col]) & (df[macd_col].shift(1) <= df[signal_col].shift(1))
+                    low_level = self._get_param_value(macd_p.get('low_level'), -0.5)
+                    triggers['TRIGGER_MACD_LOW_CROSS'] = is_golden_cross & (df[macd_col] < low_level)
+                    
+                    signal = triggers.get('TRIGGER_MACD_LOW_CROSS', default_series)
+                    dates_str = self._format_debug_dates(signal)
+                    print(f"      -> 'MACD低位金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+                    
+        box_states = self._diagnose_box_states(df, params)
+        triggers['TRIGGER_BOX_BREAKOUT'] = box_states.get('BOX_EVENT_BREAKOUT', pd.Series(False, index=df.index))
+        
+        signal = triggers.get('TRIGGER_BOX_BREAKOUT', default_series)
+        dates_str = self._format_debug_dates(signal)
+        print(f"      -> '箱体突破' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+        
+        board_events = self._diagnose_board_patterns(df, params)
+        triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = board_events.get('BOARD_EVENT_EARTH_HEAVEN', pd.Series(False, index=df.index))
+        
+        signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
+        dates_str = self._format_debug_dates(signal)
+        print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+        
+        p_breakout_stabilize = trigger_params.get('breakout_candle', {}) # 修正变量名以示区分
+        if self._get_param_value(p_breakout_stabilize.get('enabled'), True):
+            boll_mid_col = 'BBM_21_2.0_D'
+            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', boll_mid_col]
+            if all(col in df.columns for col in required_cols):
+                min_body_ratio = self._get_param_value(p_breakout_stabilize.get('min_body_ratio'), 0.4)
+                is_strong_positive_candle = (
+                    (df['close_D'] > df['open_D']) &
+                    (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
+                )
+                is_breaking_boll_mid = df['close_D'] > df[boll_mid_col]
+                triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
+                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+                print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            else:
+                print(f"      -> [警告] 缺少定义'突破阳线(企稳型)'所需的列 (如: {boll_mid_col})，跳过该触发器。")
+
+        p_energy = trigger_params.get('energy_release', {})
+        if self._get_param_value(p_energy.get('enabled'), True):
+            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', vol_ma_col]
+            if all(col in df.columns for col in required_cols):
+                is_positive_day = df['close_D'] > df['open_D']
+                body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+                body_ratio = (df['close_D'] - df['open_D']) / body_range
+                is_strong_body = body_ratio.fillna(1.0) > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
+                volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
+                is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
+                triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
+                signal = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
+                print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            else:
+                print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
+        
+        # ▼▼▼ “恐慌反转(结构派)”专属触发器 ▼▼▼
+        p_panic = trigger_params.get('panic_reversal_params', {})
+        if self._get_param_value(p_panic.get('enabled'), True):
+            # 条件1: 结构性收复失地 (核心)
+            # 要求今天的收盘价，高于两天前的收盘价，代表着对前一个交易日K线的完全吞噬。
+            is_structure_recovered = df['close_D'] > df['close_D'].shift(2)
+            
+            # 条件2: 当日动能为正 (确认)
+            # 确保触发当天是上涨的，过滤掉高开低走的假信号。
+            is_positive_momentum = df['pct_change_D'] > 0
+            
+            triggers['TRIGGER_PANIC_REVERSAL'] = is_structure_recovered & is_positive_momentum
+            
+            signal = triggers.get('TRIGGER_PANIC_REVERSAL', default_series)
+            dates_str = self._format_debug_dates(signal)
+            print(f"      -> '恐慌反转(结构派)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+
+        triggers['TRIGGER_TREND_STABILIZING'] = atomic_states.get('MA_STATE_D_STABILIZING', default_series)
+
+        for key in triggers:
+            if triggers[key] is None:
+                triggers[key] = pd.Series(False, index=df.index)
+            else:
+                triggers[key] = triggers[key].fillna(False)
+        print("    - [触发事件中心 V66.1] 所有触发事件定义完成。")
+        return triggers
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
@@ -1514,178 +1595,6 @@ class TrendFollowStrategy:
         print("    - [衍生特征中心 V58.0] 所有衍生特征准备完成。")
         return df
 
-    def _define_trigger_events(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V66.1 结构为王最终版】
-        - 新增 TRIGGER_PANIC_REVERSAL，专门捕捉恐慌坑后的“功能性”强反转K线。
-        """
-        print("    - [触发事件中心 V66.1 结构为王最终版] 启动，开始定义所有原子化触发事件...")
-        triggers = {}
-        default_series = pd.Series(False, index=df.index) # 新增一个默认的空Series，用于后续代码健壮性
-        trigger_params = self._get_params_block(params, 'trigger_event_params', {})
-        if not self._get_param_value(trigger_params.get('enabled'), True):
-            print("      -> 触发事件引擎被禁用，跳过。")
-            return triggers
-        vol_ma_col = 'VOL_MA_21_D'
-        if 'CHIP_EVENT' in df.columns:
-            triggers['TRIGGER_CHIP_IGNITION'] = (df['CHIP_EVENT'] == 'IGNITION')
-            print(f"      -> '筹码点火' 事件定义完成，发现 {triggers['TRIGGER_CHIP_IGNITION'].sum()} 天。")
-        p_candle = trigger_params.get('positive_candle', {})
-        if self._get_param_value(p_candle.get('enabled'), True):
-            is_green = df['close_D'] > df['open_D']
-            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-            body_ratio = (df['close_D'] - df['open_D']) / body_range
-            is_strong_body = body_ratio > self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
-            triggers['TRIGGER_STRONG_POSITIVE_CANDLE'] = is_green & is_strong_body
-            
-            signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
-        p_reversal = trigger_params.get('reversal_confirmation_candle', {})
-        if self._get_param_value(p_reversal.get('enabled'), True):
-            is_green = df['close_D'] > df['open_D']
-            is_strong_rally = df['pct_change_D'] > self._get_param_value(p_reversal.get('min_pct_change'), 0.03)
-            is_closing_strong = df['close_D'] > (df['high_D'] + df['low_D']) / 2
-            triggers['TRIGGER_REVERSAL_CONFIRMATION_CANDLE'] = is_green & is_strong_rally & is_closing_strong
-            
-            signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
-        p_breakout = trigger_params.get('volume_spike_breakout', {})
-        if self._get_param_value(p_breakout.get('enabled'), True) and vol_ma_col in df.columns:
-            volume_ratio = self._get_param_value(p_breakout.get('volume_ratio'), 2.0)
-            lookback = self._get_param_value(p_breakout.get('lookback_period'), 20)
-            is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
-            is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(lookback).max()
-            triggers['TRIGGER_VOLUME_SPIKE_BREAKOUT'] = is_volume_spike & is_price_breakout
-            
-            signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '放量突破近期高点' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
-        p_rebound = self._get_params_block(params, 'trigger_event_params', {}).get('pullback_rebound_trigger_params', {})
-        if self._get_param_value(p_rebound.get('enabled'), True):
-            support_ma_period = self._get_param_value(p_rebound.get('support_ma'), 21)
-            support_ma_col = f'EMA_{support_ma_period}_D'
-            if support_ma_col in df.columns:
-                was_touching_support = df['low_D'].shift(1) <= df[support_ma_col].shift(1)
-                is_rebounded_above = df['close_D'] > df[support_ma_col]
-                is_positive_day = df['close_D'] > df['open_D']
-                triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
-                
-                signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
-                dates_str = self._format_debug_dates(signal)
-                print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
-                
-        p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
-        if self._get_param_value(p_nshape.get('enabled'), True):
-            is_positive_day = df['close_D'] > df['open_D']
-            n_shape_consolidation_state = atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', pd.Series(False, index=df.index))
-            consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
-            is_breaking_consolidation = df['close_D'] > consolidation_high.shift(1)
-            is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0)
-            triggers['TRIGGER_N_SHAPE_BREAKOUT'] = is_positive_day & is_breaking_consolidation & is_volume_ok
-            
-            signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
-        p_cross = trigger_params.get('indicator_cross_params', {})
-        if self._get_param_value(p_cross.get('enabled'), True):
-            if self._get_param_value(p_cross.get('dmi_cross', {}).get('enabled'), True):
-                pdi_col, mdi_col = 'PDI_14_D', 'NDI_14_D'
-                if all(c in df.columns for c in [pdi_col, mdi_col]):
-                    triggers['TRIGGER_DMI_CROSS'] = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
-                    
-                    signal = triggers.get('TRIGGER_DMI_CROSS', default_series)
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"      -> 'DMI金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-                    
-            macd_p = p_cross.get('macd_cross', {})
-            if self._get_param_value(macd_p.get('enabled'), True):
-                macd_col, signal_col = 'MACD_13_34_8_D', 'MACDs_13_34_8_D'
-                if all(c in df.columns for c in [macd_col, signal_col]):
-                    is_golden_cross = (df[macd_col] > df[signal_col]) & (df[macd_col].shift(1) <= df[signal_col].shift(1))
-                    low_level = self._get_param_value(macd_p.get('low_level'), -0.5)
-                    triggers['TRIGGER_MACD_LOW_CROSS'] = is_golden_cross & (df[macd_col] < low_level)
-                    
-                    signal = triggers.get('TRIGGER_MACD_LOW_CROSS', default_series)
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"      -> 'MACD低位金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-                    
-        box_states = self._diagnose_box_states(df, params)
-        triggers['TRIGGER_BOX_BREAKOUT'] = box_states.get('BOX_EVENT_BREAKOUT', pd.Series(False, index=df.index))
-        
-        signal = triggers.get('TRIGGER_BOX_BREAKOUT', default_series)
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '箱体突破' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-        
-        board_events = self._diagnose_board_patterns(df, params)
-        triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = board_events.get('BOARD_EVENT_EARTH_HEAVEN', pd.Series(False, index=df.index))
-        
-        signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-        
-        p_breakout_stabilize = trigger_params.get('breakout_candle', {}) # 修正变量名以示区分
-        if self._get_param_value(p_breakout_stabilize.get('enabled'), True):
-            boll_mid_col = 'BBM_21_2.0_D'
-            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', boll_mid_col]
-            if all(col in df.columns for col in required_cols):
-                min_body_ratio = self._get_param_value(p_breakout_stabilize.get('min_body_ratio'), 0.4)
-                is_strong_positive_candle = (
-                    (df['close_D'] > df['open_D']) &
-                    (((df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(1.0) >= min_body_ratio)
-                )
-                is_breaking_boll_mid = df['close_D'] > df[boll_mid_col]
-                triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
-                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-                print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
-            else:
-                print(f"      -> [警告] 缺少定义'突破阳线(企稳型)'所需的列 (如: {boll_mid_col})，跳过该触发器。")
-
-        p_energy = trigger_params.get('energy_release', {})
-        if self._get_param_value(p_energy.get('enabled'), True):
-            required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', vol_ma_col]
-            if all(col in df.columns for col in required_cols):
-                is_positive_day = df['close_D'] > df['open_D']
-                body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-                body_ratio = (df['close_D'] - df['open_D']) / body_range
-                is_strong_body = body_ratio.fillna(1.0) > self._get_param_value(p_energy.get('min_body_ratio'), 0.5)
-                volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
-                is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
-                triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
-                signal = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
-                print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
-            else:
-                print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
-        
-        # ▼▼▼ “恐慌反转(结构派)”专属触发器 ▼▼▼
-        p_panic = trigger_params.get('panic_reversal_params', {})
-        if self._get_param_value(p_panic.get('enabled'), True):
-            # 条件1: 结构性收复失地 (核心)
-            # 要求今天的收盘价，高于两天前的收盘价，代表着对前一个交易日K线的完全吞噬。
-            is_structure_recovered = df['close_D'] > df['close_D'].shift(2)
-            
-            # 条件2: 当日动能为正 (确认)
-            # 确保触发当天是上涨的，过滤掉高开低走的假信号。
-            is_positive_momentum = df['pct_change_D'] > 0
-            
-            triggers['TRIGGER_PANIC_REVERSAL'] = is_structure_recovered & is_positive_momentum
-            
-            signal = triggers.get('TRIGGER_PANIC_REVERSAL', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '恐慌反转(结构派)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-
-        for key in triggers:
-            if triggers[key] is None:
-                triggers[key] = pd.Series(False, index=df.index)
-            else:
-                triggers[key] = triggers[key].fillna(False)
-        print("    - [触发事件中心 V66.1] 所有触发事件定义完成。")
-        return triggers
 
     def _calculate_risk_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """

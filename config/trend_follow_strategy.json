@@ -1,540 +1,170 @@
 {
   "file_name": "config/trend_follow_strategy.json",
-  "说明": "【A股日内与短线趋势策略优化版】这是一个完整的、多剧本驱动的趋势跟踪策略配置文件。它为日线（战术层）和分钟线（执行层）的交易决策提供全面的参数支持。本配置深度融合了A股市场的特性，如资金流分析、行业板块轮动和经典K线形态，并采用结构化的评分系统来量化交易机会。",
+  "说明": "【V82.0 同步重构版】这是一个与V82.0“完全潜能版”代码完全匹配的配置文件。它移除了所有冗余参数，并将配置结构与代码逻辑对齐，实现了最终的“代码即配置，配置即代码”。",
   "feature_engineering_params": {
-    "说明": "【数据工程层】定义本策略需要计算的所有技术指标。参数已针对不同时间周期的'使命'进行精细化调优：日线求稳，分钟线求快。",
+    "说明": "【数据工程层】定义本策略需要计算的所有技术指标。",
     "base_needed_bars": 500,
-    "说明_base_needed_bars": "请求的基础数据量（日线）。设置为500条（约2年）以确保长周期指标（如年线、长期筹码分布）计算的准确性。",
     "indicators": {
-      "说明": "定义需要计算的各项技术指标。'configs'列表允许为同一指标在不同时间级别上应用不同的参数。",
-      "cyq_perf": {
-        "enabled": true,
-        "说明": "【数据加载触发器】是否加载并融合CYQ筹码表现数据(StockCyqPerf)。启用后，日线数据中将包含CYQ_cost_95pct_D, CYQ_winner_rate_D等列。"
-      },
-      "ema": {
-        "enabled": true,
-        "apply_on": ["D", "M", "60", "30", "15", "5"],
-        "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233],
-        "说明": "【斐波那契均线系统】在所有关键周期上计算。日线55,89,144,233是核心趋势判断依据；分钟线5,8,13是短线攻击的信号线。"
-      },
-      "vol_ma": {
-        "enabled": true,
-        "apply_on": ["D","120", "60", "30", "15", "5"],
-        "periods": [21],
-        "说明": "计算各周期21单位的成交量均线，用于识别放量和缩量。"
-      },
-      "rsi": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [13],
-            "说明": "日线RSI(13)，用于判断中期超买（>75）和底背离。"
-          },
-          {
-            "apply_on": ["5"],
-            "periods": [9],
-            "说明": "5分钟RSI(9)，使用更快的周期，用于在分钟线级别捕捉超卖反转的点火信号。"
-          }
-        ]
-      },
-      "macd": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D", "60"],
-            "periods": [13, 34, 8],
-            "说明": "日线和60分钟线，使用较慢的斐波那契周期，判断宏观和战术环境的稳定性。"
-          },
-          {
-            "apply_on": ["30", "15"],
-            "periods": [12, 26, 9],
-            "说明": "30和15分钟线，使用经典参数，灵敏地捕捉攻击意图的启动。"
-          }
-        ]
-      },
+      "cyq_perf": { "enabled": true, "说明": "加载CYQ筹码表现数据。" },
+      "ema": { "enabled": true, "apply_on": ["D", "M", "60", "30", "15", "5"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
+      "vol_ma": { "enabled": true, "apply_on": ["D", "60", "30", "15", "5"], "periods": [21] },
+      "rsi": { "enabled": true, "apply_on": ["D"], "periods": [13] },
+      "macd": { "enabled": true, "apply_on": ["D"], "periods": [13, 34, 8] },
       "zscore": {
         "enabled": true,
-        "说明": "【A股特色】计算指定列的滚动Z-score标准化值。用于将无界指标（如MACD柱）转换为可比的、尺度无关的数值，极大提升了背离等模式识别的准确性。",
         "configs": [
-          {
-            "apply_on": ["D"],
-            "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D",
-            "window": 60,
-            "output_column_name": "MACD_HIST_ZSCORE_D",
-            "说明": "为日线MACD柱状图计算60日滚动Z-score。这是识别MACD背离的最佳实践。"
-          }
+          { "apply_on": ["D"], "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D", "window": 60, "output_column_name": "MACD_HIST_ZSCORE_D" }
         ]
       },
-      "dmi": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [14],
-            "说明": "日线DMI，使用经典14周期，判断中期趋势的强度（ADX）。"
-          },
-          {
-            "apply_on": ["30", "15"],
-            "periods": [13],
-            "说明": "30和15分钟DMI，使用稍快的13周期，捕捉日内动能的交叉转换。"
-          }
-        ]
-      },
-      "kdj": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["5"],
-            "periods": [9, 3, 3],
-            "说明": "5分钟KDJ，使用经典的快速参数(9,3,3)，专用于寻找精准的、可执行的分钟线级别买卖点（点火信号）。"
-          }
-        ]
-      },
-      "vwap": {
-        "enabled": true,
-        "apply_on": ["5", "15", "30"],
-        "说明": "【日内核心】计算分钟线级别的VWAP（日内成交量加权平均价），是A股日内交易最重要的多空分水岭和支撑/压力位。"
-      },
-      "atr": {
-        "enabled": true,
-        "说明": "平均真实波幅(ATR)，用于衡量市场波动性。'潜龙出海'剧本需要此指标。",
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [14]
-          }
-        ]
-      },
-      "boll_bands_and_width": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "periods": [21],
-        "std_dev": 2.0,
-        "说明": "计算21日布林带及宽度，用于识别盘整区（收口）和趋势启动（开口）。"
-      },
-      "cmf": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "periods": [21],
-        "说明": "计算21日蔡金资金流(Chaikin Money Flow)，判断资金是在流入还是流出。"
-      },
-      "obv": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "说明": "计算能量潮(On-Balance Volume)，用于验证价量关系，寻找价量背离。"
-      },
-      "advanced_fund_features": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "params": { "ma_periods": [3, 5, 10] },
-        "说明": "【A股特色】计算资金流和筹码的衍生特征，如主力净买入的移动平均趋势、收盘价相对筹码成本的偏离度等高阶因子。"
-      },
-      "bias": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "periods": [21,55],
-        "说明": "【V41.9 新增】计算乖离率(BIAS)，为'BIAS超跌反转'剧本提供数据基础。"
-      },
-      "fibonacci_levels": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "说明": "执行斐波那契空间分析，基于最近的重要高低点，自动计算关键的回撤支撑位和扩展目标位。"
-      }
+      "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0 },
+      "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21] },
+      "bias": { "enabled": true, "apply_on": ["D"], "periods": [55] }
     }
   },
   "strategy_params": {
     "trend_follow": {
-      "debug_params": {
-        "enabled": {
-          "value": true,
-          "说明": "是否启用调试模式的总开关。如果为false，所有调试相关的print语句将不会执行。"
-        },
-        "verbose_logging": {
-          "value": true,
-          "说明": "是否启用'啰嗦'或'详细'的日志记录。如果为true，策略执行的每一步，包括中间变量和判断结果，都会被打印出来，非常适合用于深度调试和理解策略逻辑。"
-        }
+      "strategy_info": {
+        "name": { "value": "matrix_trend_follow_v82", "说明": "策略唯一标识，已与代码版本同步。" }
       },
-      "hot_money_params": {
+      "debug_params": {
+        "enabled": { "value": true },
+        "verbose_logging": { "value": true }
+      },
+      "slope_params": {
         "enabled": true,
-        "说明": "控制是否启用游资席位信号的分析。启用后，IndicatorService会获取并处理游资数据。",
-        "coordination_threshold": 3,
-        "top_tier_list": [
-          "中信证券股份有限公司上海分公司",
-          "华泰证券股份有限公司总部",
-          "中国国际金融股份有限公司上海分公司",
-          "招商证券股份有限公司深圳招商证券大厦证券营业部",
-          "国泰君安证券股份有限公司上海分公司",
-          "东方财富证券股份有限公司拉萨团结路第二证券营业部"
-        ]
+        "说明": "【V58.0】斜率计算引擎参数。为所有诊断模块提供斜率和加速度数据。",
+        "series_to_slope": {
+          "close_D": [10, 20, 55],
+          "EMA_89_D": [10],
+          "net_mf_amount_D": [10, 20]
+        },
+        "auto_detect_patterns": { "value": [], "说明": "V82中所有需要的斜率已明确定义，不再需要自动发现。" },
+        "auto_detect_default_lookbacks": { "value": [10, 20] }
       },
       "setup_scoring_matrix": {
-        "说明": "【V57.0】准备状态置信度矩阵。定义每个SETUP的“必须项”和“加分项”及其分数。",
+        "说明": "【V82.0 核心】准备状态置信度矩阵。这是定义所有“准备工作”的核心，直接服务于剧本。",
         "DEEP_ACCUMULATION": {
-          "说明": "S级菜肴：深度吸筹区。目标是找到最可能成为主升浪起点的吸筹末期。",
-          "must_have": {
-            "MA_STATE_CONVERGING": 30
-          },
-          "any_of_must_have": {
-            "VOL_STATE_SQUEEZE_WINDOW": 50,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 50
-          },
-          "bonus": {
-            "MA_STATE_W_STABILIZING": 40,
-            "CAPITAL_STATE_SLOPE_CROSS": 40,
-            "CHIP_STATE_ACCUMULATION": 30,
-            "VOL_STATE_SQUEEZE": 20
-          }
-        },
-        "DUCK_HEAD":{
-          "说明": "老鸭头",
-          "must_have": {
-            "MA_STATE_DUCK_NECK_FORMING": 60
-          },
-          "bonus": {
-            "TRIGGER_VOLUME_SPIKE_BREAKOUT": 30
-          }
+          "说明": "S级准备：深度吸筹区。目标是找到主升浪起点。",
+          "must_have": { "MA_STATE_CONVERGING": 30 },
+          "any_of_must_have": { "VOL_STATE_SQUEEZE_WINDOW": 50, "CHIP_STATE_HIGHLY_CONCENTRATED": 50 },
+          "bonus": { "MA_STATE_W_STABILIZING": 40, "CAPITAL_EVENT_SLOPE_CROSS": 40, "CHIP_STATE_ACCUMULATION": 30 }
         },
         "CAPITULATION_PIT": {
-          "enabled": { "value": true, "说明": "【V65.0 重构版】启用'投降坑'准备状态评分。专门识别价格超卖+获利盘低+筹码发散的'混乱之底'。" },
-          "must_have_score": { "value": 40, "说明": "满足核心条件(价格负向乖离)的基础分。" },
-          "bonus_score": { "value": 25, "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。" }
+          "说明": "A级准备：投降坑。识别价格超卖+获利盘低+筹码发散的'混乱之底'。",
+          "enabled": true,
+          "must_have_score": { "value": 40, "说明": "核心条件(价格负向乖离)基础分。" },
+          "bonus_score": { "value": 25, "说明": "加分项(获利盘低、筹码发散)额外加分。" }
         },
         "HEALTHY_MARKUP": {
-          "说明": "【V60.1 优化版】A级菜肴：健康主升浪。放宽了准入条件，以更好地捕捉真实市场中的上涨趋势。",
-          "must_have": {
-            "MA_STATE_PRICE_ABOVE_LONG_MA": 40,
-            "MA_STATE_STABLE_BULLISH": 20
-          },
-          "bonus": {
-            "CHIP_STATE_MARKUP": 30,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 30,
-            "VOL_STATE_SHRINKING": 15
-          }
+          "说明": "A级准备：健康主升浪。定义趋势背景。",
+          "must_have": { "MA_STATE_PRICE_ABOVE_LONG_MA": 40, "MA_STATE_STABLE_BULLISH": 20 },
+          "bonus": { "CHIP_STATE_MARKUP": 30, "CAPITAL_STATE_INFLOW_CONFIRMED": 30, "VOL_STATE_SHRINKING": 15 }
         },
         "ENERGY_COMPRESSION": {
-            "说明": "B+级菜肴：能量压缩。目标是找到突破的潜在候选者。",
-            "any_of_must_have": {
-                "VOL_STATE_SQUEEZE_WINDOW": 40,
-                "CHIP_STATE_CONCENTRATION_SQUEEZE": 40,
-                "MA_STATE_CONVERGING": 30
-            },
-            "bonus": {
-                "CHIP_STATE_ACCUMULATION": 30,
-                "MA_STATE_CONVERGING": 20,
-                "VOL_STATE_SHRINKING": 10
-            }
-        },
-        "HEALTHY_PULLBACK": {
-          "说明": "A级菜肴：健康回踩。在强势行情中的标准上车/加仓点。",
-          "must_have": {
-            "MA_STATE_STABLE_BULLISH": 40,
-            "MA_STATE_TOUCHING_SUPPORT": 30
-          },
-          "bonus": {
-            "MA_STATE_PULLBACK_GENTLE": 20,
-            "VOL_STATE_SHRINKING": 15,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 25
-          }
-        },
-        "WASHOUT_REVERSAL": {
-          "说明": "A级菜肴：巨阴洗盘反转。识别主力极端洗盘后的反转机会。",
-          "must_have": {
-            "KLINE_EVENT_WASHOUT": 50
-          },
-          "bonus": {
-            "CHIP_STATE_ACCUMULATION": 30,
-            "OSC_STATE_RSI_OVERSOLD": 20
-          }
+            "说明": "B+级准备：能量压缩。为突破做准备。",
+            "any_of_must_have": { "VOL_STATE_SQUEEZE_WINDOW": 40, "CHIP_STATE_CONCENTRATION_SQUEEZE": 40 },
+            "bonus": { "CHIP_STATE_ACCUMULATION": 30, "MA_STATE_CONVERGING": 20 }
         },
         "N_SHAPE_CONTINUATION": {
-          "说明": "A级菜肴：N字板接力。捕捉强势股的趋势中继爆发点。",
-          "must_have": {
-            "KLINE_STATE_N_SHAPE_CONSOLIDATION": 60
-          },
-          "bonus": {
-            "MA_STATE_STABLE_BULLISH": 30,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 25
-          }
+          "说明": "A级准备：N字板接力。捕捉强势股的趋势中继。",
+          "must_have": { "KLINE_STATE_N_SHAPE_CONSOLIDATION": 60 },
+          "bonus": { "MA_STATE_STABLE_BULLISH": 30, "CAPITAL_STATE_INFLOW_CONFIRMED": 25 }
         },
         "GAP_SUPPORT_PULLBACK": {
-          "说明": "B+级菜肴：缺口支撑回踩。在强势趋势中寻找低风险的介入点。",
-          "must_have": {
-            "KLINE_STATE_GAP_SUPPORT_ACTIVE": 40
-          },
-          "bonus": {
-            "MA_STATE_STABLE_BULLISH": 20,
-            "VOL_STATE_SHRINKING": 15
-          }
+          "说明": "B+级准备：缺口支撑回踩。",
+          "must_have": { "KLINE_STATE_GAP_SUPPORT_ACTIVE": 40 },
+          "bonus": { "MA_STATE_STABLE_BULLISH": 20, "VOL_STATE_SHRINKING": 15 }
         },
         "BOTTOMING_PROCESS": {
-          "说明": "B级菜肴：底部企稳。捕捉因连续下跌导致价格严重偏离均线后，缩量盘整并出现企稳迹象的机会。",
-          "must_have": {
-            "OPP_STATE_NEGATIVE_DEVIATION": 60
-          },
-          "bonus": {
-            "VOL_STATE_SHRINKING": 20
-          }
+          "说明": "B级准备：底部企稳。捕捉连续下跌后的企稳迹象。",
+          "must_have": { "OPP_STATE_NEGATIVE_DEVIATION": 60 },
+          "bonus": { "VOL_STATE_SHRINKING": 20 }
+        },
+        "WASHOUT_REVERSAL": {
+          "说明": "A级准备：巨阴洗盘反转。",
+          "must_have": { "KLINE_EVENT_WASHOUT": 50 },
+          "bonus": { "CHIP_STATE_ACCUMULATION": 30, "OSC_STATE_RSI_OVERSOLD": 20 }
         }
       },
       "trigger_event_params": {
         "enabled": true,
-        "说明": "【V57.0】触发事件引擎的参数配置",
-        "panic_reversal_params": {
-          "enabled": { "value": true, "说明": "【V66.1 结构派】启用'恐慌反转'专属触发器。核心逻辑: close > close.shift(2) & pct_change > 0" }
-        },
-        "positive_candle": {
-          "enabled": true,
-          "min_body_ratio": { "value": 0.6, "说明": "阳线实体占总振幅的最小比例" }
-        },
-        "reversal_confirmation_candle": {
-          "enabled": true,
-          "min_pct_change": { "value": 0.03, "说明": "反转确认阳线的最小日涨幅" }
-        },
-        "breakout_candle": {
-          "enabled": true,
-          "min_body_ratio": { "value": 0.4, "说明": "突破阳线(企稳型)的最小实体占比" }
-        },
-        "energy_release": {
-          "enabled": true,
-          "min_body_ratio": { "value": 0.5, "说明": "能量释放(突破型)的最小实体占比" },
-          "volume_ratio": { "value": 1.5, "说明": "能量释放(突破型)的最小放量倍数" }
-        },
-        "volume_spike_breakout": {
-          "enabled": true,
-          "volume_ratio": { "value": 2.0, "说明": "放量倍数" },
-          "lookback_period": { "value": 20, "说明": "突破近期高点的回看周期" }
-        },
-        "pullback_rebound_trigger_params": {
-          "enabled": true,
-          "support_ma": { "value": 21, "说明": "回踩的关键支撑均线" },
-          "min_rebound_volume_ratio": { "value": 0.8, "说明": "反弹日成交量相对于均量的最小比例" }
-        },
-        "indicator_cross_params": {
-          "enabled": true,
-          "dmi_cross": { "enabled": true },
-          "macd_cross": {
-            "enabled": true,
-            "low_level": { "value": -0.5, "说明": "定义MACD金叉的'低位区'上限" }
-          }
-        }
+        "说明": "【V82.0 核心】触发事件引擎的参数配置。为剧本提供“点火”信号。",
+        "panic_reversal_params": { "enabled": true, "说明": "服务于'深渊凝视'剧本。" },
+        "reversal_confirmation_candle": { "enabled": true, "min_pct_change": 0.03, "说明": "服务于多个左侧反转剧本。" },
+        "breakout_candle": { "enabled": true, "min_body_ratio": 0.4, "说明": "泛用的突破/企稳阳线。" },
+        "pullback_rebound_trigger_params": { "enabled": true, "support_ma": 21, "说明": "服务于所有回踩类剧本。" }
       },
       "chip_feature_params": {
         "enabled": true,
-        "说明": "【V56.0】新版筹码诊断引擎的参数",
-        "distribution_params": {
-          "divergence_threshold": { "value": 0.01, "说明": "定义筹码发散的集中度斜率阈值" }
-        },
-        "accumulation_params": {
-          "lookback_days": { "value": 21, "说明": "判断持续吸筹的回看周期" },
-          "required_days_ratio": { "value": 0.6, "说明": "在回看期内，吸筹天数需达到的最小比例" },
-          "deep_ratio": { "value": 0.85, "说明": "定义“深度”吸筹的天数比例阈值" }
-        },
-        "capitulation_params": {
-          "winner_rate_threshold": { "value": 8.0, "说明": "定义“投降坑”的总获利盘比例上限(%)" }
-        },
-        "structure_params": {
-          "enabled": true,
-          "high_concentration_threshold": 0.15,
-          "enable_relative_squeeze": { "value": true, "说明": "是否启用基于历史分位数的动态筹码压缩诊断" },
-          "squeeze_window": { "value": 120, "说明": "计算筹码集中度分位数的滚动窗口期（约半年）" },
-          "squeeze_percentile": { "value": 0.2, "说明": "筹码集中度需要低于历史同期的哪个分位数才算'压缩' (0.2代表最低的20%)" }
-        },
-        "scattered_params": {
-          "enabled": { "value": true, "说明": "启用筹码发散状态诊断。" },
-          "threshold": { "value": 30.0, "说明": "90%成本集中度高于此值(%)，视为筹码极度发散，是市场投降的信号之一。" }
-        },
-        "ignition_params": {
-          "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度" }
-        }
+        "说明": "【V82.0】筹码诊断引擎参数。",
+        "accumulation_params": { "lookback_days": 21, "required_days_ratio": 0.6, "deep_ratio": 0.85 },
+        "capitulation_params": { "winner_rate_threshold": 8.0 },
+        "structure_params": { "enabled": true, "high_concentration_threshold": 0.15, "enable_relative_squeeze": true, "squeeze_window": 120, "squeeze_percentile": 0.2 },
+        "scattered_params": { "enabled": true, "threshold": 30.0 },
+        "ignition_params": { "accel_threshold": 0.01 }
       },
       "ma_state_params": {
         "enabled": true,
-        "说明": "均线结构与动能状态诊断参数",
-        "short_ma": 13,
-        "mid_ma": 34,
-        "long_ma": 89,
-        "support_ma": 55,
-        "converging_zscore": -1.0,
-        "diverging_zscore": 1.0
+        "说明": "【V82.0】均线诊断引擎参数。",
+        "short_ma": 13, "mid_ma": 34, "long_ma": 89,
+        "converging_zscore": -1.0, "diverging_zscore": 1.0
       },
       "oscillator_state_params": {
         "enabled": true,
-        "说明": "震荡指标状态诊断参数",
-        "rsi_overbought": 80,
-        "rsi_oversold": 25
+        "说明": "【V82.0】震荡器诊断引擎参数。",
+        "rsi_overbought": 80, "rsi_oversold": 25,
+        "bias_dynamic_threshold": { "window": 120, "quantile": 0.1, "说明": "为OPP_STATE_NEGATIVE_DEVIATION状态提供动态阈值。" }
       },
       "capital_state_params": {
         "enabled": true,
-        "cmf_bullish_threshold": 0.05,
-        "divergence_context": {
-          "说明": "【V58.0新增】用于资本背离机会窗口的参数",
-          "persistence_days": { "value": 15, "说明": "机会窗口的持续天数" },
-          "trend_ma_period": { "value": 55, "说明": "用于判断窗口是否失效的关键趋势均线" }
-        }
+        "说明": "【V82.0】资金流诊断引擎参数。",
+        "divergence_context": { "persistence_days": 15, "trend_ma_period": 55, "说明": "用于CAPITAL_STATE_DIVERGENCE_WINDOW持久化状态。" }
       },
       "volatility_state_params": {
         "enabled": true,
-        "squeeze_percentile": 0.1,
-        "shrinking_ratio": 0.8,
-        "squeeze_context": {
-          "说明": "【V58.1新增】用于能量待爆发窗口的参数",
-          "persistence_days": { "value": 10, "说明": "能量待爆发窗口的持续天数" },
-          "volume_break_ratio": { "value": 1.5, "说明": "成交量放大超过该倍数，则窗口关闭" }
-        }
-      },
-      "derived_feature_params": {
-        "enabled": true,
-        "说明": "【V58.0】衍生特征引擎的参数配置",
-        "capital_flow_params": {
-          "accumulation_period": { "value": 20, "说明": "计算主力资金累积的回看周期" }
-        },
-        "momentum_params": {
-          "zscore_period": { "value": 20, "说明": "计算主力资金Z-Score的回看周期" }
-        },
-        "divergence_params": {
-          "trend_period": { "value": 10, "说明": "计算价资确认趋势的回看周期" }
-        }
-      },
-      "strategy_info": {
-        "name": {
-          "value": "matrix_trend_follow_v39",
-          "说明": "本策略的唯一标识名称。该名称将被写入数据库的`strategy_name`字段，用于区分不同版本或不同策略产生的信号，便于后续进行策略表现分析和回测归因。"
-        }
-      },
-      "slope_params": {
-        "enabled": true,
-        "说明": "【V58.0】斜率计算引擎的参数配置",
-        "series_to_slope": {
-          "说明": "基础的、必须计算斜率的列及其回看周期列表。",
-          "close_D": [10, 20, 55],
-          "RSI_13_D": [5, 10],
-          "BBW_21_2.0_D": [10],
-          "CMF_21_D": [10],
-          "EMA_89_D": [10],
-          "EMA_105_D": [25]
-        },
-        "auto_detect_patterns": {
-          "value": ["net_mf_", "capital_price_"],
-          "说明": "自动发现列名中包含这些模式的新特征，并为其计算斜率。"
-        },
-        "auto_detect_default_lookbacks": {
-          "value": [10, 20],
-          "说明": "为自动发现的特征使用的默认回看周期。"
-        }
+        "说明": "【V82.0】波动率诊断引擎参数。",
+        "squeeze_percentile": 0.1, "shrinking_ratio": 0.8,
+        "squeeze_context": { "persistence_days": 10, "volume_break_ratio": 1.5, "说明": "用于VOL_STATE_SQUEEZE_WINDOW持久化状态。" }
       },
       "kline_pattern_params": {
         "enabled": true,
-        "说明": "【V59.0 新增】用于驱动 _diagnose_kline_patterns 诊断模块的参数。",
-        "washout_params": {
-          "enabled": true,
-          "washout_threshold": { "value": -0.07, "说明": "定义'大阴线'的最小跌幅" },
-          "washout_volume_ratio": { "value": 1.5, "说明": "定义'巨量'的成交量放大倍数" }
-        },
-        "gap_support_params": {
-          "enabled": true,
-          "persistence_days": { "value": 10, "说明": "向上跳空缺口保持有效的最长天数" }
-        },
-        "n_shape_params": {
-          "enabled": true,
-          "rally_threshold": { "value": 0.097, "说明": "定义N字启动的'大阳线/涨停'的最小涨幅" },
-          "consolidation_days_max": { "value": 3, "说明": "N字整理阶段的最大天数" }
-        }
+        "说明": "【V82.0】K线形态诊断引擎参数。",
+        "washout_params": { "enabled": true, "washout_threshold": -0.07, "washout_volume_ratio": 1.5 },
+        "gap_support_params": { "enabled": true, "persistence_days": 10 },
+        "n_shape_params": { "enabled": true, "rally_threshold": 0.097, "consolidation_days_max": 3 }
       },
-      "playbook_specific_params": {
-        "说明": "【V41.9 新增】为特定、独立的交易剧本配置专属参数。",
-        "bias_reversal_params": {
-          "enabled": { "value": true, "说明": "启用'BIAS'相关状态诊断。" },
-          "dynamic_threshold": {
-              "window": { "value": 120, "说明": "计算BIAS历史分位数的滚动窗口期（约半年）。" },
-              "quantile": { "value": 0.1, "说明": "BIAS值需要低于历史同期的哪个分位数才算'负向乖离' (0.1代表最低的10%)。" }
-          },
-          "oversold_threshold": { "value": -10.0, "说明": "定义'负向乖离'机会区的BIAS阈值。" },
-          "overbought_threshold": { "value": 15.0, "说明": "定义'超买'风险区的BIAS阈值。" }
-        },
-        "gap_support_params": {
-          "enabled": { "value": true, "说明": "启用'缺口支撑'状态和剧本。" },
-          "gap_check_days": { "value": 10, "说明": "向上跳空缺口保持有效的最长天数。" }
-        },
-        "earth_heaven_board_params": {
-          "enabled": { "value": true, "说明": "启用'地天板反转'剧本。" }
-        },
-        "n_shape_relay_params": {
-          "enabled": { "value": true, "说明": "启用'N字板接力'剧本。" },
-          "rally_threshold": { "value": 0.097, "说明": "定义'涨停/大阳线'的日涨幅阈值。" },
-          "body_rally_threshold": { "value": 0.05, "说明": "定义'大阳线'的实体最小涨幅。" },
-          "consolidation_days_max": { "value": 3, "说明": "N字整理阶段的最大天数。" },
-          "hold_above_key": { "value": "open_D", "说明": "整理期要求守住启动板的哪个价格之上 (open_D, close_D, low_D)。" }
-        },
-        "winner_rate_reversal_params": {
-          "enabled": { "value": true, "说明": "启用'获利盘洗净反转'剧本。" },
-          "washout_threshold": { "value": 10.0, "说明": "定义'获利盘洗净'的阈值(%)。" }
-        },
-        "fibonacci_pullback_params": {
-          "enabled": { "value": true, "说明": "启用'斐波那契引力区'剧本。" },
-          "peak_distance": { "value": 10, "说明": "寻找波峰/谷的最小间隔天数。" },
-          "peak_prominence": { "value": 0.05, "说明": "波峰/谷的最小显著性(相对价格范围的比例)。" },
-          "impulse_min_rise_pct": { "value": 0.25, "说明": "有效驱动浪的最小涨幅。" },
-          "impulse_min_duration": { "value": 10, "说明": "有效驱动浪的最短持续天数。" },
-          "impulse_min_adx": { "value": 20, "说明": "有效驱动浪期间的最低平均ADX值。" },
-          "retracement_levels": { "value": [0.382, 0.5, 0.618], "说明": "关注的斐波那契回撤水平。" },
-          "pullback_buffer": { "value": 0.015, "说明": "触及回撤位的价格缓冲范围。" }
-        },
-        "ma_acceleration_params": {
-          "enabled": { "value": true, "说明": "启用'趋势引爆'剧本。" },
-          "ma_period": { "value": 21, "说明": "用于判断加速的核心均线周期。" },
-          "volume_surge_ratio": { "value": 1.5, "说明": "定义'放量'的成交量放大倍数。" },
-          "min_adx_level": { "value": 20, "说明": "确认趋势状态的最低ADX值。" }
-        }
+      "dynamic_box_params": {
+        "enabled": true,
+        "说明": "【V82.0】箱体诊断引擎参数。",
+        "peak_distance": 10, "peak_prominence": 0.02
       },
-      "industry_context_params": {
-        "说明": "【行业协同-奖惩模块】A股核心逻辑：跟随市场热点。根据个股所属行业的强度排名，对最终得分进行动态调整。",
-        "enabled": { "value": false, "说明": "是否启用行业协同模块。" },
-        "weak_rank_threshold": { "value": 0.3, "说明": "定义'弱势行业'的强度排名分界线。行业排名后30%的股票将受到压制。" },
-        "weak_industry_penalty_multiplier": { "value": 0.7, "说明": "对'弱势行业'中的股票，总分乘以该乘数，降低其吸引力。" },
-        "strength_rank_multiplier": { "value": 0.5, "说明": "对非弱势行业的股票，根据其行业排名给予奖励。最终乘数 = 1 + (排名 * 此乘数)。排名越高，奖励越多。" },
-        "top_tier_rank_threshold": { "value": 0.9, "说明": "定义'龙头板块'的强度排名阈值。排名前10%的为市场核心热点。" },
-        "top_tier_bonus": { "value": 30, "说明": "对'龙头板块'中的股票，在应用完乘数奖励后，再给予固定的额外奖励，使其在竞争中拥有绝对优势。" }
+      "final_score_adjustments": {
+        "enabled": { "value": true, "说明": "【V80.0 指挥棒模型】最终得分调整层。" },
+        "multipliers": [
+          { "name": "CHIP_PURITY_MULTIPLIER", "cn_name": "【指挥棒】筹码至纯", "source_column": "CHIP_concentration_90pct_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.15 },
+          { "name": "VOLATILITY_SILENCE_MULTIPLIER", "cn_name": "【指挥棒】波动至静", "source_column": "BBW_21_2.0_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.10 }
+        ]
       }
     }
   },
   "exit_strategy_params": {
     "enabled": true,
-    "说明": "【V57.0】智能出场矩阵的专属参数配置。",
-    "divergence_exit_params": { "enabled": true },
-    "divergence_context": {
-      "说明": "【V58.1新增】用于顶背离高危窗口的参数",
-      "persistence_days": { "value": 5, "说明": "高危窗口的持续天数" },
-      "break_ma_period": { "value": 10, "说明": "跌破此均线则窗口关闭" }
-    },
+    "说明": "【V82.0】智能出场矩阵参数。",
+    "upthrust_distribution_params": { "enabled": true, "overextension_ma_period": 55, "overextension_threshold": 0.3, "upper_shadow_ratio": 0.6, "high_volume_quantile": 0.85 },
+    "volume_breakdown_params": { "enabled": true, "support_ma_period": 55, "volume_surge_ratio": 1.8, "main_force_dump_ratio": 0.1 },
+    "divergence_exit_params": { "enabled": true, "lookback_period": 20 },
     "exit_risk_scoring_matrix": {
-      "说明": "【V59.1 规范化版】风险置信度矩阵。键名统一为 RISK_EVENT_ (瞬时) 或 RISK_STATE_ (持续)。",
-      "RISK_EVENT_HEAVEN_EARTH_BOARD": { "value": 150, "说明": "天地板，市场恐慌的极致，最高优先级" },
-      "RISK_EVENT_STRUCTURE_BREAKDOWN": { "value": 100, "说明": "结构性破位事件，极度严重" },
-      "RISK_EVENT_UPTHRUST_DISTRIBUTION": { "value": 90, "说明": "主力高位派发事件，非常严重" },
-      "RISK_STATE_DIVERGENCE_WINDOW": { "value": 50, "说明": "处于顶背离后的高危窗口期，风险持续存在" },
-      "RISK_EVENT_TOP_DIVERGENCE": { "value": 20, "说明": "顶背离事件发生当天，额外加分，表示风险最新鲜" },
-      "RISK_STATE_BIAS_OVERBOUGHT": { "value": 25, "说明": "乖离率过高，常规风险" },
-      "RISK_STATE_RSI_OVERBOUGHT": { "value": 20, "说明": "RSI超买，常规风险" }
+      "说明": "风险置信度矩阵。键名与_diagnose_risk_factors的输出完全对应。",
+      "RISK_EVENT_UPTHRUST_DISTRIBUTION": { "value": 90 },
+      "RISK_EVENT_STRUCTURE_BREAKDOWN": { "value": 100 },
+      "RISK_EVENT_TOP_DIVERGENCE": { "value": 70 },
+      "RISK_STATE_BIAS_OVERBOUGHT": { "value": 25 },
+      "RISK_STATE_RSI_OVERBOUGHT": { "value": 20 }
     },
-
     "exit_threshold_params": {
-      "说明": "出场决策阈值。风险分数达到相应级别，则触发对应代码的出场信号。",
-      "CRITICAL": {
-        "level": 120,
-        "code": 99,
-        "说明": "临界风险，例如“结构崩溃”+“顶背离”同时发生，必须离场。"
-      },
-      "HIGH": {
-        "level": 80,
-        "code": 88,
-        "说明": "高风险，例如单独发生“结构崩溃”，或多个中等风险叠加。"
-      },
-      "MEDIUM": {
-        "level": 50,
-        "code": 77,
-        "说明": "中等风险，例如出现“顶背离”，可作为减仓或收紧移动止损的依据。"
-      }
+      "CRITICAL": { "level": 120, "code": 99 },
+      "HIGH": { "level": 80, "code": 88 },
+      "MEDIUM": { "level": 50, "code": 77 }
     }
   }
 }
