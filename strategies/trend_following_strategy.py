@@ -609,35 +609,80 @@ class TrendFollowStrategy:
 
         # ==================== 步骤4: 全局剧本探针日志输出 (增强版) ====================
         probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
-        key_dates = df.index[(all_setups | all_triggers | all_preconditions) & (df.index >= probe_start_date)].unique().sort_values()
+        
+        # 为了探针，我们需要重新计算一次动态分数，但这只是为了日志，不影响最终结果
+        playbook_scores_for_probe = {}
+        for playbook in playbook_definitions:
+            if playbook.get('type') == 'precondition_score':
+                rules = playbook.get('scoring_rules', {})
+                base_score = rules.get('base_score', 0)
+                condition_rules = rules.get('conditions', {})
+                precondition_score = pd.Series(0.0, index=df.index)
+                for state_name, score_value in condition_rules.items():
+                    state_series = atomic_states.get(state_name, default_series)
+                    precondition_score += state_series.astype(int) * score_value
+                playbook_scores_for_probe[playbook['name']] = base_score + precondition_score
+
+        # 筛选出所有需要关注的日期
+        all_conditions_for_probe = all_setups | all_triggers | all_preconditions
+        key_dates = df.index[all_conditions_for_probe & (df.index >= probe_start_date)].unique().sort_values()
 
         print("\n========================= 全局剧本探针已启动 (从 " + probe_start_date + " 开始) =========================")
-        print(f"-> 发现准备/前提日: {(all_setups | all_preconditions)[(all_setups | all_preconditions).index >= probe_start_date].sum()} 天 | 发现触发事件日: {all_triggers[all_triggers.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
-        print("--------------------------------------------------------------------------------")
-        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format("日期", "剧本名称", "Setup?", "Trigger?", "最终信号?"))
-        print("--------------------------------------------------------------------------------")
+        print(f"-> 发现准备/前提/触发日: {all_conditions_for_probe[all_conditions_for_probe.index >= probe_start_date].sum()} 天 | 筛选后关键日期: {len(key_dates)}")
+        print("-----------------------------------------------------------------------------------------------------------------")
+        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format("日期", "剧本名称", "前提?", "触发?", "最终信号?", "详情/分数"))
+        print("-----------------------------------------------------------------------------------------------------------------")
 
         for date in key_dates:
             has_output_for_date = False
             for playbook in playbook_definitions:
                 name = playbook['name']
                 cn_name = playbook.get('cn_name', name)
-
-                is_setup_today = playbook.get('setup', default_series).loc[date] if 'setup' in playbook and isinstance(playbook.get('setup'), pd.Series) else False
-                is_precondition_today = playbook.get('precondition', default_series).loc[date] if 'precondition' in playbook and isinstance(playbook.get('precondition'), pd.Series) else False
-                is_setup_or_precondition_today = is_setup_today or is_precondition_today
+                playbook_type = playbook.get('type')
                 
                 is_trigger_today = playbook.get('trigger', default_series).loc[date] if 'trigger' in playbook else False
                 is_final_signal_today = final_playbook_signals.get(name, default_series).loc[date]
+                
+                if playbook_type == 'precondition_score':
+                    # --- 动态给分剧本的专属探针 ---
+                    if is_trigger_today or is_final_signal_today: # 只在触发或最终出信号时显示
+                        if not has_output_for_date:
+                            print(f"{date.strftime('%Y-%m-%d')}   | ------------------------------------------------------------------------------------------------------")
+                            has_output_for_date = True
+                        
+                        rules = playbook.get('scoring_rules', {})
+                        min_score_to_trigger = rules.get('min_score_to_trigger', 0)
+                        total_score_today = playbook_scores_for_probe.get(name, default_series).loc[date]
+                        
+                        # 收集满足条件的前提
+                        satisfied_conditions = []
+                        condition_rules = rules.get('conditions', {})
+                        for state_name, score_value in condition_rules.items():
+                            if atomic_states.get(state_name, default_series).loc[date]:
+                                satisfied_conditions.append(f"{state_name.split('_')[-1]}(+{score_value})")
+                        
+                        details = f"得分:{total_score_today:.0f}/{min_score_to_trigger} ({', '.join(satisfied_conditions)})"
+                        
+                        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format(
+                            "", f"{cn_name}", "动态", str(is_trigger_today), str(is_final_signal_today), details
+                        ))
 
-                if is_setup_or_precondition_today or is_trigger_today or is_final_signal_today:
-                    if not has_output_for_date:
-                        print(f"{date.strftime('%Y-%m-%d')}   | -----------------------------------------------------------------")
-                        has_output_for_date = True
-                    
-                    print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12}".format(
-                        "", f"{cn_name}", str(is_setup_or_precondition_today), str(is_trigger_today), str(is_final_signal_today)
-                    ))
+                else:
+                    # --- 其他类型剧本的探针 (setup, precondition, event-driven) ---
+                    is_setup_today = playbook.get('setup', default_series).loc[date] if 'setup' in playbook and isinstance(playbook.get('setup'), pd.Series) else False
+                    is_precondition_today = playbook.get('precondition', default_series).loc[date] if 'precondition' in playbook and isinstance(playbook.get('precondition'), pd.Series) else False
+                    is_setup_or_precondition_today = is_setup_today or is_precondition_today
+
+                    if is_setup_or_precondition_today or is_trigger_today or is_final_signal_today:
+                        if not has_output_for_date:
+                            print(f"{date.strftime('%Y-%m-%d')}   | ------------------------------------------------------------------------------------------------------")
+                            has_output_for_date = True
+                        
+                        score_info = f"得分:{playbook.get('score', 0)}" if is_final_signal_today else ""
+                        
+                        print("{:<12} | {:<30} | {:<8} | {:<10} | {:<12} | {:<30}".format(
+                            "", f"{cn_name}", str(is_setup_or_precondition_today), str(is_trigger_today), str(is_final_signal_today), score_info
+                        ))
 
         print("========================= 全局剧本探针分析结束 =========================")
 
