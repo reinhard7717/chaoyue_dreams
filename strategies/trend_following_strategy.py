@@ -343,9 +343,13 @@ class TrendFollowStrategy:
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
         
         # ▼▼▼ 调用全新的、基于剧本的风险评分引擎 ▼▼▼
-        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策引擎启动 ---")
-        risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_factors)
-        self._probe_risk_score_details(risk_score, risk_details_df, params) # 调用探针
+        print("--- [总指挥] 步骤4: 风险准备状态与触发事件定义 ---")
+        risk_setups = self._diagnose_risk_setups(df, params)
+        risk_triggers = self._define_risk_triggers(df, params)
+        
+        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策 ---")
+        risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
+        self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
@@ -604,43 +608,6 @@ class TrendFollowStrategy:
             },
         ]
 
-    # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
-    def _get_risk_playbook_blueprints(self) -> List[Dict]:
-        """
-        【V91.0 新增】风险剧本蓝图知识库
-        - 职责: 定义所有“风险剧本”的静态属性（名称、家族、基础风险分等）。
-        - 特性: 与入场剧本蓝图对称，实现了离场逻辑的结构化。
-        """
-        return [
-            # --- 价量形态风险 (PRICE_VOLUME_RISK) ---
-            {
-                'name': 'UPTHRUST_DISTRIBUTION', 'cn_name': '【高危】高位放量长上影', 'family': 'PRICE_VOLUME_RISK',
-                'score': 90, 'comment': '经典的顶部派发信号，风险极高。'
-            },
-            # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
-            {
-                'name': 'STRUCTURE_BREAKDOWN', 'cn_name': '【极危】结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 100, 'comment': '跌破关键支撑，趋势可能发生逆转。'
-            },
-            # --- 指标背离与超买风险 (INDICATOR_RISK) ---
-            {
-                'name': 'TOP_DIVERGENCE_WINDOW', 'cn_name': '【预警】顶背离观察窗口', 'family': 'INDICATOR_RISK',
-                'score': 50, 'comment': '价格新高但指标未新高，进入风险观察期。'
-            },
-            {
-                'name': 'TOP_DIVERGENCE_CONFIRMED', 'cn_name': '【中危】顶背离确认', 'family': 'INDICATOR_RISK',
-                'score': 70, 'comment': '在顶背离窗口内出现破位K线，风险升级。'
-            },
-            {
-                'name': 'BIAS_OVERBOUGHT', 'cn_name': '【低危】乖离率超买', 'family': 'INDICATOR_RISK',
-                'score': 25, 'comment': '价格短期涨幅过大，有回调需求。'
-            },
-            {
-                'name': 'RSI_OVERBOUGHT', 'cn_name': '【低危】RSI超买', 'family': 'INDICATOR_RISK',
-                'score': 20, 'comment': '市场情绪过热。'
-            },
-        ]
-
     # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
@@ -735,31 +702,6 @@ class TrendFollowStrategy:
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
         print(f"    - [剧本水合引擎 V88.0] 完成，所有剧本已注入动态数据。")
-        return hydrated_playbooks
-
-    # ▼▼▼ 风险剧本的“水合”引擎 ▼▼▼
-    def _get_risk_playbook_definitions(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> List[Dict]:
-        """
-        【V91.0 新增】风险剧本水合引擎
-        - 职责: 接收静态的风险剧本“蓝图”，并用动态计算出的“原子风险因子”进行“水合”。
-        """
-        hydrated_playbooks = deepcopy(self.risk_playbook_blueprints)
-        default_series = pd.Series(False, index=df.index)
-
-        for playbook in hydrated_playbooks:
-            name = playbook['name']
-            # 在这里，我们将原子风险因子作为“触发器”注入到风险剧本中
-            # 这种设计下，风险剧本的 'trigger' 就是一个原子风险信号
-            if name == 'UPTHRUST_DISTRIBUTION':
-                playbook['trigger'] = risk_factors.get('RISK_EVENT_UPTHRUST_DISTRIBUTION', default_series)
-            elif name == 'STRUCTURE_BREAKDOWN':
-                # 预留: playbook['trigger'] = risk_factors.get('RISK_EVENT_STRUCTURE_BREAKDOWN', default_series)
-                pass
-            elif name == 'TOP_DIVERGENCE_WINDOW':
-                # 预留: playbook['trigger'] = risk_factors.get('RISK_STATE_DIVERGENCE_WINDOW', default_series)
-                pass
-            # ... 可以为其他风险剧本添加对应的触发器 ...
-            
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -924,69 +866,6 @@ class TrendFollowStrategy:
         print(f"\n--- [计分引擎 V87.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
-
-    def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> pd.Series:
-        """
-        【V91.0 风险剧本版】
-        - 核心升级: 重构为基于“风险剧本”的计分模式，与入场端逻辑对称。
-        """
-        print("    - [风险评分引擎 V92.0 探针支持版] 启动，开始量化每日风险...")
-        
-        # 步骤1: 水合风险剧本
-        risk_playbooks = self._get_risk_playbook_definitions(df, params, risk_factors)
-        
-        # 步骤2: 遍历所有水合后的风险剧本，计算总风险分
-        total_risk_score = pd.Series(0.0, index=df.index)
-        risk_details_df = pd.DataFrame(0.0, index=df.index, columns=[p['name'] for p in risk_playbooks])
-        default_series = pd.Series(False, index=df.index)
-
-        print("      -> 开始评估所有风险剧本...")
-        for playbook in risk_playbooks:
-            trigger_mask = playbook.get('trigger', default_series)
-            
-            if trigger_mask.any():
-                score = playbook.get('score', 0)
-                cn_name = playbook.get('cn_name', playbook['name'])
-                total_risk_score.loc[trigger_mask] += score
-                name = playbook['name']
-                risk_details_df.loc[trigger_mask, name] = score
-                print(f"        -> 风险剧本 '{cn_name}' 触发，在 {trigger_mask.sum()} 天风险分 +{score}")
-
-        df['risk_score'] = total_risk_score
-        print(f"    - [风险评分引擎 V92.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
-        return total_risk_score, risk_details_df
-
-    # ▼▼▼ 风险剧本探针函数 ▼▼▼
-    def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
-        """
-        【V92.1 修复版】
-        - 核心修复: 修正了探针的默认起始日期，确保能覆盖整个回测周期。
-        """
-        print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
-        
-        debug_params = self._get_params_block(params, 'debug_params', {})
-        # 优先使用配置的探针日期，如果未配置，则从总风险分的第一个非零日期开始
-        probe_start_date_config = self._get_param_value(debug_params.get('probe_start_date'))
-        
-        key_dates = total_risk_score.index[total_risk_score > 0]
-
-        if probe_start_date_config:
-             key_dates = key_dates[key_dates >= probe_start_date_config]
-
-        if key_dates.empty:
-            print("    -> 在指定探针期间内，未发现任何已触发的风险剧本。")
-        else:
-            risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
-            
-            print(f"    -> 发现 {len(key_dates)} 个风险日，详情如下:")
-            for date in key_dates:
-                total_score = total_risk_score.loc[date]
-                print(f"    {date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
-                
-                triggered_playbooks = risk_details_df.loc[date][risk_details_df.loc[date] > 0]
-                for name, score in triggered_playbooks.items():
-                    cn_name = risk_playbook_cn_map.get(name, name)
-                    print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
@@ -1738,6 +1617,7 @@ class TrendFollowStrategy:
         
         # --- 2. 市场结构风险 (Market Structure Risks) ---
         #    - 这类风险关注趋势线、关键支撑/阻力位的突破情况，代表着中长期趋势的改变。
+        risk_factors['RISK_EVENT_STRUCTURE_BREAKDOWN'] = self._diagnose_structure_breakdown(df, exit_params)
         
         # 预留位置：未来可以添加诊断“结构性破位”的模块
         # 例如：跌破重要的上升趋势线或关键的颈线位
@@ -1874,6 +1754,212 @@ class TrendFollowStrategy:
         print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
 
+    # 风险评分引擎
+    def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_setups: Dict[str, pd.Series], risk_triggers: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V93.0 终极架构版】
+        - 核心升级: 完全重构为基于“Setup + Trigger”的二维计分模式，与入场端对称。
+        """
+        print("    - [风险评分引擎 V93.0 终极版] 启动，开始量化每日风险...")
+        
+        risk_playbooks = self.risk_playbook_blueprints # 直接使用缓存的蓝图
+        
+        total_risk_score = pd.Series(0.0, index=df.index)
+        risk_details_df = pd.DataFrame(0.0, index=df.index, columns=[p['name'] for p in risk_playbooks])
+        default_series = pd.Series(False, index=df.index)
+
+        print("      -> 开始评估所有风险剧本...")
+        for playbook in risk_playbooks:
+            name = playbook['name']
+            score = playbook.get('score', 0)
+            
+            # 检查Setup条件是否满足
+            setup_conditions = playbook.get('setup', [])
+            setup_mask = pd.Series(False, index=df.index)
+            for sc in setup_conditions:
+                setup_mask |= risk_setups.get(sc, default_series)
+
+            # 检查Trigger条件是否满足
+            trigger_conditions = playbook.get('trigger', [])
+            trigger_mask = pd.Series(False, index=df.index)
+            for tc in trigger_conditions:
+                trigger_mask |= risk_triggers.get(tc, default_series)
+            
+            # 只有Setup和Trigger同时满足时，才计分
+            final_mask = setup_mask & trigger_mask
+            
+            if final_mask.any():
+                cn_name = playbook.get('cn_name', name)
+                total_risk_score.loc[final_mask] += score
+                risk_details_df.loc[final_mask, name] = score
+                print(f"        -> 风险剧本 '{cn_name}' 触发，在 {final_mask.sum()} 天风险分 +{score}")
+
+        df['risk_score'] = total_risk_score
+        print(f"    - [风险评分引擎 V93.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
+        return total_risk_score, risk_details_df
+
+    # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
+    def _get_risk_playbook_blueprints(self) -> List[Dict]:
+        """
+        【V91.0 新增】风险剧本蓝图知识库
+        - 职责: 定义所有“风险剧本”的静态属性（名称、家族、基础风险分等）。
+        - 特性: 与入场剧本蓝图对称，实现了离场逻辑的结构化。
+        """
+        return [
+            # --- 价量形态风险 (PRICE_VOLUME_RISK) ---
+            {
+                'name': 'UPTHRUST_DISTRIBUTION', 'cn_name': '【高危】高位放量长上影', 'family': 'PRICE_VOLUME_RISK',
+                'score': 90, 'comment': '经典的顶部派发信号，风险极高。'
+            },
+            # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
+            {
+                'name': 'STRUCTURE_BREAKDOWN', 'cn_name': '【极危】结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 100, 
+                'setup': ['RISK_SETUP_ANY'], # ANY表示任何情况下，只要触发器满足就执行
+                'trigger': ['RISK_TRIGGER_BREAKDOWN_CANDLE'],
+                'comment': '跌破关键支撑，趋势可能发生逆转。'
+            },
+            # --- 派发行为风险 (DISTRIBUTION_RISK) ---
+            {
+                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
+                'score': 90,
+                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'], # 必须先进入高风险区
+                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'], # 再出现上攻失败的K线
+                'comment': '高位区域内，上攻失败且放量，是经典的派发信号。'
+            },
+            # --- 指标背离与超买风险 (INDICATOR_RISK) ---
+            {
+                'name': 'TOP_DIVERGENCE_WINDOW', 'cn_name': '【预警】顶背离观察窗口', 'family': 'INDICATOR_RISK',
+                'score': 50, 'comment': '价格新高但指标未新高，进入风险观察期。'
+            },
+            {
+                'name': 'TOP_DIVERGENCE_CONFIRMED', 'cn_name': '【中危】顶背离确认', 'family': 'INDICATOR_RISK',
+                'score': 70, 'comment': '在顶背离窗口内出现破位K线，风险升级。'
+            },
+            {
+                'name': 'BIAS_OVERBOUGHT', 'cn_name': '【低危】乖离率超买', 'family': 'INDICATOR_RISK',
+                'score': 25, 'comment': '价格短期涨幅过大，有回调需求。'
+            },
+            {
+                'name': 'RSI_OVERBOUGHT', 'cn_name': '【低危】RSI超买', 'family': 'INDICATOR_RISK',
+                'score': 20, 'comment': '市场情绪过热。'
+            },
+        ]
+
+    # ▼▼▼ 风险剧本的“水合”引擎 ▼▼▼
+    def _get_risk_playbook_definitions(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> List[Dict]:
+        """
+        【V91.0 新增】风险剧本水合引擎
+        - 职责: 接收静态的风险剧本“蓝图”，并用动态计算出的“原子风险因子”进行“水合”。
+        """
+        hydrated_playbooks = deepcopy(self.risk_playbook_blueprints)
+        default_series = pd.Series(False, index=df.index)
+
+        for playbook in hydrated_playbooks:
+            name = playbook['name']
+            # 在这里，我们将原子风险因子作为“触发器”注入到风险剧本中
+            # 这种设计下，风险剧本的 'trigger' 就是一个原子风险信号
+            if name == 'UPTHRUST_DISTRIBUTION':
+                playbook['trigger'] = risk_factors.get('RISK_EVENT_UPTHRUST_DISTRIBUTION', default_series)
+            elif name == 'STRUCTURE_BREAKDOWN':
+                playbook['trigger'] = risk_factors.get('RISK_EVENT_STRUCTURE_BREAKDOWN', default_series)
+                pass
+            elif name == 'TOP_DIVERGENCE_WINDOW':
+                # 预留: playbook['trigger'] = risk_factors.get('RISK_STATE_DIVERGENCE_WINDOW', default_series)
+                pass
+            # ... 可以为其他风险剧本添加对应的触发器 ...
+            
+        return hydrated_playbooks
+
+    # ▼▼▼ 风险剧本探针函数 ▼▼▼
+    def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
+        """
+        【V92.1 修复版】
+        - 核心修复: 修正了探针的默认起始日期，确保能覆盖整个回测周期。
+        """
+        print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
+        
+        debug_params = self._get_params_block(params, 'debug_params', {})
+        # 优先使用配置的探针日期，如果未配置，则从总风险分的第一个非零日期开始
+        probe_start_date_config = self._get_param_value(debug_params.get('probe_start_date'))
+        
+        key_dates = total_risk_score.index[total_risk_score > 0]
+
+        if probe_start_date_config:
+             key_dates = key_dates[key_dates >= probe_start_date_config]
+
+        if key_dates.empty:
+            print("    -> 在指定探针期间内，未发现任何已触发的风险剧本。")
+        else:
+            risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
+            
+            print(f"    -> 发现 {len(key_dates)} 个风险日，详情如下:")
+            for date in key_dates:
+                total_score = total_risk_score.loc[date]
+                print(f"    {date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
+                
+                triggered_playbooks = risk_details_df.loc[date][risk_details_df.loc[date] > 0]
+                for name, score in triggered_playbooks.items():
+                    cn_name = risk_playbook_cn_map.get(name, name)
+                    print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
+
+    # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
+    def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V93.0 新增】定义所有“风险触发事件 (Risk Trigger)”。
+        - 职责: 识别那些可以确认风险的、具体的“行动信号”K线或事件。
+        """
+        print("    - [风险触发事件定义中心 V93.0] 启动...")
+        triggers = {}
+        exit_params = params.get('exit_strategy_params', {})
+
+        # Trigger 1: 结构性破位K线
+        p_break = exit_params.get('structure_breakdown_params', {})
+        ma_period = self._get_param_value(p_break.get('breakdown_ma_period'), 21)
+        min_pct = self._get_param_value(p_break.get('min_pct_change'), -0.03)
+        ma_col = f'EMA_{ma_period}_D'
+        if ma_col in df.columns:
+            cond1 = df['pct_change_D'] < min_pct
+            cond2 = df['volume_D'] > df['volume_D'].shift(1)
+            cond3 = df['close_D'] < df[ma_col]
+            triggers['RISK_TRIGGER_BREAKDOWN_CANDLE'] = cond1 & cond2 & cond3
+            print(f"      -> '结构性破位K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BREAKDOWN_CANDLE'])}")
+
+        # Trigger 2: 上攻失败K线
+        p_attack = exit_params.get('upthrust_distribution_params', {})
+        lookback = self._get_param_value(p_attack.get('attack_failed_lookback'), 5)
+        recent_high = df['high_D'].shift(1).rolling(window=lookback).max()
+        cond1 = (df['high_D'] < recent_high) & (df['close_D'] < df['open_D'])
+        cond2 = df['volume_D'] > df['volume_D'].shift(1)
+        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = cond1 & cond2
+        print(f"      -> '上攻失败K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+
+        return triggers
+
+    # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
+    def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V93.0 新增】诊断所有“风险准备状态 (Risk Setup)”。
+        - 职责: 识别市场是否进入了某种高风险的“背景”或“区域”。
+        """
+        print("    - [风险准备状态诊断中心 V93.0] 启动...")
+        setups = {}
+        exit_params = params.get('exit_strategy_params', {})
+        
+        # Setup 1: 永远为True的背景，用于定义那些不需要特定背景的风险
+        setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
+
+        # Setup 2: 高风险区域 (价格远高于均线)
+        p_over = exit_params.get('upthrust_distribution_params', {})
+        ma_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
+        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.1)
+        ma_col = f'EMA_{ma_period}_D'
+        if ma_col in df.columns:
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_col] - 1) > threshold
+            print(f"      -> '高风险区域' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+
+        return setups
+
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
         """
@@ -1912,6 +1998,45 @@ class TrendFollowStrategy:
         signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
         
         print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        return signal
+
+    # ▼▼▼ “结构性破位”风险诊断模块 ▼▼▼
+    def _diagnose_structure_breakdown(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
+        """
+        诊断“结构性破位”风险 (Structure Breakdown)。
+        这是一个非常重要的趋势终结信号。
+        """
+        p = exit_params.get('structure_breakdown_params', {})
+        if not self._get_param_value(p.get('enabled'), False):
+            return pd.Series(False, index=df.index)
+
+        # 1. 定义参数
+        breakdown_ma_period = self._get_param_value(p.get('breakdown_ma_period'), 21)
+        min_pct_change = self._get_param_value(p.get('min_pct_change'), -0.03)
+        high_volume_quantile = self._get_param_value(p.get('high_volume_quantile'), 0.75)
+        
+        ma_col = f'EMA_{breakdown_ma_period}_D'
+        
+        required_cols = ['open_D', 'close_D', 'pct_change_D', 'volume_D', ma_col]
+        if not all(col in df.columns for col in required_cols):
+            print("          -> [警告] 缺少诊断'结构性破位'所需列，跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 2. 计算各项条件
+        # 条件A: 是一根有分量的阴线
+        is_decisive_negative_candle = df['pct_change_D'] < min_pct_change
+        
+        # 条件B: 相对放量
+        volume_threshold = df['volume_D'].rolling(window=21).quantile(high_volume_quantile)
+        is_high_volume = df['volume_D'] > volume_threshold
+        
+        # 条件C: 跌破了关键均线
+        is_breaking_ma = df['close_D'] < df[ma_col]
+        
+        # 3. 组合所有条件
+        signal = is_decisive_negative_candle & is_high_volume & is_breaking_ma
+        
+        print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         return signal
 
     def _prepare_derived_features(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:

@@ -162,6 +162,13 @@
       "upper_shadow_ratio": 0.5, 
       "high_volume_quantile": 0.75 
     },
+    "structure_breakdown_params": {
+      "enabled": true,
+      "说明": "“结构性破位”信号的计算参数",
+      "breakdown_ma_period": 21,
+      "min_pct_change": -0.03,
+      "high_volume_quantile": 0.75
+    },
     "volume_breakdown_params": { 
         "enabled": true, 
         "说明": "“放量跌破”信号的计算参数",
