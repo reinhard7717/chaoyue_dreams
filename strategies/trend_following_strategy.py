@@ -462,7 +462,7 @@ class TrendFollowStrategy:
             # 为每个剧本注入其专属的动态数据
             if name == 'ABYSS_GAZE_S':
                 playbook['setup'] = score_cap_pit > 80
-                playbook['trigger'] = trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series)
+                playbook['trigger'] = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
             elif name == 'CAPITULATION_PIT_REVERSAL':
                 playbook['setup_score_series'] = score_cap_pit
                 playbook['trigger'] = (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series))
