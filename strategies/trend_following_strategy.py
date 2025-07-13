@@ -140,12 +140,13 @@ class TrendFollowStrategy:
         profit_target_partial = self._get_param_value(tracking_params.get('profit_target_partial'), 0.30)
         trailing_stop_pct = self._get_param_value(tracking_params.get('trailing_stop_pct'), 0.15)
         exit_code_partial = self._get_param_value(tracking_params.get('exit_code_partial'), 77)
+        exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
+        high_risk_code_threshold = self._get_param_value(exit_thresholds.get('HIGH', {}).get('code'), 88)
         exit_code_full = self._get_param_value(tracking_params.get('exit_code_full'), 99)
         life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
         life_line_ma_col = f'EMA_{life_line_ma_period}_D'
         print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
-        print(f"    - 清仓规则: 风险码 == {exit_code_full} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
-        
+        print(f"    - 清仓规则: 风险码 >= {high_risk_code_threshold} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
         # --- 2. 初始化状态列和变量 ---
         df['position_status'] = 0.0
         df['trade_action'] = ''
@@ -185,9 +186,9 @@ class TrendFollowStrategy:
                 should_full_exit = False
                 exit_price = row.close_D # 默认退出价格为当天收盘价
 
-                if row.exit_signal_code == exit_code_full:
+                if row.exit_signal_code >= high_risk_code_threshold:
                     should_full_exit = True
-                    exit_reason = f"高危风险码({exit_code_full})"
+                    exit_reason = f"高危风险码({row.exit_signal_code})"
                 elif row.close_D < highest_price_since_entry * (1 - trailing_stop_pct):
                     should_full_exit = True
                     exit_reason = f"移动止损(最高价{highest_price_since_entry:.2f}, 回撤>{trailing_stop_pct*100}%)"
@@ -284,7 +285,7 @@ class TrendFollowStrategy:
         - 2. 新增 _apply_final_score_adjustments 函数，作为“指挥棒模型”，对原始总分进行质量乘数调整。
         - 3. 最终的交易决策基于调整后的分数 (adjusted_score)。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V91.0】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V92.0】 ======")
         if df is None or df.empty:
             print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
@@ -346,7 +347,8 @@ class TrendFollowStrategy:
         
         # ▼▼▼ 调用全新的、基于剧本的风险评分引擎 ▼▼▼
         print("--- [总指挥] 步骤5: 风险剧本计分与出场决策引擎启动 ---")
-        risk_score = self._calculate_risk_score(df, params, risk_factors)
+        risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_factors)
+        self._probe_risk_score_details(risk_score, risk_details_df, params) # 调用探针
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
@@ -354,7 +356,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V91.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V92.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -799,7 +801,6 @@ class TrendFollowStrategy:
         had_recent_reversal = temp_reversal_score.rolling(window=context_window, min_periods=1).max() > 200
         atomic_states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
         print(f"      -> 宏观背景'近期有左侧信号'诊断完成，共激活 {had_recent_reversal.sum()} 天。")
-        # ▲▲▲【代码修改 V87.0】▲▲▲
 
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         
@@ -932,13 +933,14 @@ class TrendFollowStrategy:
         【V91.0 风险剧本版】
         - 核心升级: 重构为基于“风险剧本”的计分模式，与入场端逻辑对称。
         """
-        print("    - [风险评分引擎 V91.0 剧本版] 启动，开始量化每日风险...")
+        print("    - [风险评分引擎 V92.0 探针支持版] 启动，开始量化每日风险...")
         
         # 步骤1: 水合风险剧本
         risk_playbooks = self._get_risk_playbook_definitions(df, params, risk_factors)
         
         # 步骤2: 遍历所有水合后的风险剧本，计算总风险分
         total_risk_score = pd.Series(0.0, index=df.index)
+        risk_details_df = pd.DataFrame(0.0, index=df.index, columns=[p['name'] for p in risk_playbooks])
         default_series = pd.Series(False, index=df.index)
 
         print("      -> 开始评估所有风险剧本...")
@@ -949,11 +951,47 @@ class TrendFollowStrategy:
                 score = playbook.get('score', 0)
                 cn_name = playbook.get('cn_name', playbook['name'])
                 total_risk_score.loc[trigger_mask] += score
+                name = playbook['name']
+                risk_details_df.loc[trigger_mask, name] = score
                 print(f"        -> 风险剧本 '{cn_name}' 触发，在 {trigger_mask.sum()} 天风险分 +{score}")
 
         df['risk_score'] = total_risk_score
-        print(f"    - [风险评分引擎 V91.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
-        return total_risk_score
+        print(f"    - [风险评分引擎 V92.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
+        return total_risk_score, risk_details_df
+
+    # ▼▼▼ 风险剧本探针函数 ▼▼▼
+    def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
+        """
+        【V92.0 新增】风险剧本探针
+        - 职责: 打印详细的每日风险构成，解释风险分的来源。
+        """
+        print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
+        
+        # 从调试参数中获取探针的起始日期
+        debug_params = self._get_params_block(params, 'debug_params', {})
+        probe_start_date = self._get_param_value(debug_params.get('probe_start_date'), '2025-06-01')
+        
+        # 筛选出有风险分的日期
+        key_dates = total_risk_score.index[total_risk_score > 0]
+        key_dates = key_dates[key_dates >= probe_start_date]
+
+        if key_dates.empty:
+            print("    -> 在指定探针期间内，未发现任何已触发的风险剧本。")
+        else:
+            # 获取风险剧本的中文名映射
+            risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
+            
+            for date in key_dates:
+                total_score = total_risk_score.loc[date]
+                print(f"{date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
+                
+                # 获取当天所有被触发的风险剧本及其得分
+                triggered_playbooks = risk_details_df.loc[date][risk_details_df.loc[date] > 0]
+                for name, score in triggered_playbooks.items():
+                    cn_name = risk_playbook_cn_map.get(name, name)
+                    print(f"             -> 触发: '{cn_name}', 风险分 +{score:.0f}")
+        
+        print("="*60)
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
