@@ -1963,31 +1963,43 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V93.4 时空观版】
-        - 核心升级: 为风险触发器全面引入“斜率”和“回看”逻辑，使其具备时空观。
-          - 'ATTACK_FAILED_CANDLE': 升级为判断“近期多次”上攻失败。
-          - 'TRUE_BREAKDOWN_CANDLE': 升级为需要“动能确认”和“持续弱势”双重确认。
+        【V93.7 回归本质版】
+        - 核心升级: 重构“上攻失败”触发器，使其能同时捕捉“单日关键反转”和“多日反复失败”两种模式，
+                    并确保其为一次性事件。
         """
-        print("    - [风险触发事件定义中心 V93.4] 启动...")
+        print("    - [风险触发事件定义中心 V93.7] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
+        default_series = pd.Series(False, index=df.index)
 
-        # Trigger 1 (升级): 上攻失败K线 (ATTACK_FAILED_CANDLE)
+        # Trigger 1 (回归本质版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
         p_attack = exit_params.get('upthrust_distribution_params', {})
-        # ▼▼▼ 引入回看逻辑，判断近期失败次数 ▼▼▼
         attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
-        required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
         
+        # ▼▼▼【代码修改 V93.7】: 重新定义上攻失败触发器 ▼▼▼
+        # 步骤1: 定义“单日上攻失败”这个基础行为
         recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
-        is_attack_failed_today = (df['high_D'] < recent_high) & (df['close_D'] < df['open_D'])
-        
-        # 计算在过去N天内，失败的次数
-        failed_count_in_window = is_attack_failed_today.rolling(window=attack_lookback).sum()
+        is_single_day_failure = (df['high_D'] < recent_high) & (df['close_D'] < df['open_D'])
+
+        # 步骤2: 定义“关键反转日” (单日即触发)
+        # 关键反转 = 单日上攻失败 + 当天是阴线 + 收盘价低于当天波幅的一半 (弱势收盘)
+        is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
+        is_key_reversal_day = is_single_day_failure & is_weak_close
+
+        # 步骤3: 定义“反复失败” (累计触发)
+        # 我们沿用V93.6的“跨阈值”逻辑，但只针对基础的失败行为
+        required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
+        failed_count_in_window = is_single_day_failure.rolling(window=attack_lookback).sum()
         is_crossing_threshold = (failed_count_in_window >= required_count) & \
                                 (failed_count_in_window.shift(1).fillna(0) < required_count)
-        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = is_crossing_threshold
 
-        print(f"      -> '上攻失败(多次确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+        # 步骤4: 组合两种情况，任何一种满足都视为触发
+        final_trigger = is_key_reversal_day | is_crossing_threshold
+        
+        # 步骤5: 确保最终信号是一次性事件 (防止两种情况在相邻天触发导致重复)
+        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger & ~final_trigger.shift(1).fillna(False)
+        # ▲▲▲【代码修改 V93.7】▲▲▲
+        print(f"      -> '上攻失败(复合模式)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
         # Trigger 2 (保留): 急跌回调K线 (SHARP_PULLBACK_CANDLE)
         p_pullback = exit_params.get('structure_breakdown_params', {})
@@ -1999,36 +2011,27 @@ class TrendFollowStrategy:
             cond2 = df['volume_D'] > df['volume_D'].shift(1)
             cond3 = df['close_D'] < df[ma_col_pullback]
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = cond1 & cond2 & cond3
-            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', pd.Series(False, index=df.index)))}")
+            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', default_series))}")
 
-        # Trigger 3 (升级): 真实结构破位K线 (TRUE_BREAKDOWN_CANDLE)
+        # Trigger 3 (保留): 真实结构破位K线 (TRUE_BREAKDOWN_CANDLE)
         p_true_break = exit_params.get('true_breakdown_params', {})
-        # ▼▼▼ 引入斜率和回看双重确认 ▼▼▼
         breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
         conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
         conf_days = self._get_param_value(p_true_break.get('confirmation_lookback_days'), 2)
         slope_period = self._get_param_value(p_true_break.get('slope_lookback_period'), 5)
         slope_thresh = self._get_param_value(p_true_break.get('required_negative_slope'), -0.01)
-        
         conf_ma_col = f'EMA_{conf_ma_period}_D'
         slope_col = f'SLOPE_{slope_period}_close_D'
-
         if conf_ma_col in df.columns and slope_col in df.columns:
-            # 条件A: 价格创近期新低 (核心事件)
-            recent_low = df['low_D'].shift(1).rolling(window=breakdown_lookback).min()
-            is_breaking_low = df['close_D'] < recent_low
-            # 条件B: 动能确认 (短期价格斜率为负)
+            is_breaking_low = df['close_D'] < df['low_D'].shift(1).rolling(window=breakdown_lookback).min()
             is_momentum_down = df[slope_col] < slope_thresh
-            # 条件C: 弱势确认 (连续N天收在均线下方)
             is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
-            # 步骤1: 定义完整的“破位状态”
             is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
-            # 步骤2: 探测“首次进入”该状态的事件
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
-            print(f"      -> '真实结构破位(动能+持续弱势确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+            print(f"      -> '真实结构破位(事件驱动)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
         else:
             print(f"      -> [警告] 缺少 {conf_ma_col} 或 {slope_col}，无法诊断'真实结构破位'。")
-            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = pd.Series(False, index=df.index)
+            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
 
         return triggers
 
@@ -2058,7 +2061,7 @@ class TrendFollowStrategy:
             # 条件2: 上涨加速度放缓或为负 (动能)
             is_momentum_slowing = df[accel_col] < 0
             
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position & is_momentum_slowing
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position | is_momentum_slowing
             print(f"      -> '高风险区域(含动能衰竭)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
         else:
             print(f"      -> [警告] 缺少 {ma_col} 或 {accel_col}，无法诊断'高风险区域'。")
