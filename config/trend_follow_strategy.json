@@ -153,7 +153,8 @@
       },
       "intraday_execution_params": {
         "enabled": { "value": true, "说明": "【V104 新增】启用或禁用分钟级别的战术执行层。" },
-        "signal_name": { "value": "INTRADAY_RISK_ALERT", "说明": "盘中风险警报的名称。" }
+        "signal_name": { "value": "INTRADAY_RISK_ALERT", "说明": "盘中风险警报的名称。" },
+        "alert_playbook_name": { "value": "EXIT_UPTHRUST_REJECTION", "说明": "盘中风险警报触发时记录的剧本名称。" }
       }
     }
   },

@@ -24,6 +24,7 @@ PLAYBOOK_NAME_MAP = {
     'BEAR_TRAP_RALLY': '【C+级】熊市反弹',
     'WASHOUT_REVERSAL_A': '【A级】巨阴洗盘反转',
     'BOTTOM_STABILIZATION_B': '【B级】底部企稳',
+    'TREND_EMERGENCE_B_PLUS': '【B+级】右侧萌芽',
     'DEEP_ACCUMULATION_BREAKOUT': '潜龙出海',
     'ENERGY_COMPRESSION_BREAKOUT': '能量压缩突破',
     'PLATFORM_SUPPORT_PULLBACK': '平台支撑回踩',
@@ -83,6 +84,7 @@ PLAYBOOK_NAME_MAP = {
     'EXIT_LEVEL_1': '【一级预警】趋势减速',
     'EXIT_LEVEL_2': '【二级警报】短期转弱',
     'EXIT_LEVEL_3': '【三级警报】跌破日线支撑',
+    'EXIT_UPTHRUST_REJECTION': '冲高回落',
     
     # ==================================================================
     # ===                  兼容性/旧版ID (Legacy)                    ===

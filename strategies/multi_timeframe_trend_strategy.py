@@ -326,6 +326,10 @@ class MultiTimeframeTrendStrategy:
                     exec_params.get('signal_name'), 'INTRADAY_RISK_ALERT'
                 )
 
+                playbook_name = self.tactical_engine._get_param_value(
+                    exec_params.get('alert_playbook_name'), 'UNKNOWN_INTRADAY_ALERT'
+                )
+
                 record = {
                     "stock_code": stock_code,
                     "trade_time": alert_time.to_pydatetime(),
@@ -337,7 +341,7 @@ class MultiTimeframeTrendStrategy:
                     "exit_signal_code": 103,
                     "exit_severity_level": 3,
                     "exit_signal_reason": reason_str,
-                    "triggered_playbooks": ["EXIT_UPTHRUST_REJECTION"],
+                    "triggered_playbooks": [playbook_name],
                     "context_snapshot": sanitize_for_json({'close': alert_price, 'reason': reason_str}),
                 }
                 
