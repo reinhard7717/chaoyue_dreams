@@ -532,43 +532,36 @@ class TrendFollowStrategy:
     # 斜率计算中心
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V94.0 性能优化版】
-        - 核心升级: 采用“三阶段计算模式”，彻底重构斜率计算流程，大幅提升性能。
-          - 阶段一: 批量生成所有基础斜率。
-          - 阶段二: 批量生成所有加速度。
-          - 阶段三: 批量生成所有归一化斜率。
-        - 优势: 极大减少了Python层面的循环开销，充分利用向量化计算，并增加了重复计算检查，显著提高了执行效率和代码可读性。
+        【V114 精简优化版】
+        - 核心优化: 彻底移除了 auto_detect_patterns 逻辑，现在只计算在配置文件中被明确指定的斜率。
+                    这从根本上解决了因自动探测导致斜率计算量爆炸的问题，是本次性能优化的关键。
         """
-        print("    - [斜率中心 V94.0 性能优化版] 启动...")
+        print("    - [斜率中心 V114 精简优化版] 启动...")
         slope_params = self._get_params_block(params, 'slope_params', {})
         if not self._get_param_value(slope_params.get('enabled'), False):
             print("      -> 斜率计算被禁用，跳过。")
             return df
 
-        # --- 准备工作: 构建完整的计算任务清单 ---
+        # ▼▼▼【代码修改 V114】: 移除自动探测逻辑，只使用明确指定的系列 ▼▼▼
+        # --- 准备工作: 构建计算任务清单 ---
         series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
-        auto_detect_patterns = self._get_param_value(slope_params.get('auto_detect_patterns'), [])
-        auto_detect_lookbacks = self._get_param_value(slope_params.get('auto_detect_default_lookbacks'), [10, 20])
         
-        # 动态注入自动检测到的任务
-        for pattern in auto_detect_patterns:
-            for col in df.columns:
-                if pattern in col and col not in series_to_slope:
-                    series_to_slope[col] = auto_detect_lookbacks
-                    # print(f"      -> [动态注入] 发现新特征 '{col}'，已加入斜率计算任务。")
+        if not series_to_slope:
+            print("      -> [信息] 未在配置中指定任何需要计算斜率的序列，跳过。")
+            return df
+        # ▲▲▲【代码修改 V114】▲▲▲
 
-        # ▼▼▼【代码修改 V94.0】: 引入三阶段计算模式 ▼▼▼
         newly_created_slope_cols = []
 
         # --- 阶段一: 批量生成所有基础斜率 ---
-        print("      -> [阶段1/3] 开始批量生成基础斜率...")
+        print(f"      -> [阶段1/3] 开始批量生成 {sum(len(v) for v in series_to_slope.values())} 个基础斜率...")
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
+                print(f"        -> [警告] 配置的斜率源列 '{col_name}' 不存在，跳过。")
                 continue
             source_series = df[col_name].astype(float)
             for lookback in lookbacks:
                 slope_col_name = f'SLOPE_{lookback}_{col_name}'
-                # 优化点：如果列已存在，则跳过，避免重复计算
                 if slope_col_name in df.columns:
                     continue
                 
@@ -583,12 +576,12 @@ class TrendFollowStrategy:
                     slope_series = pd.Series(np.nan, index=df.index)
                 
                 df[slope_col_name] = slope_series.fillna(0)
-                newly_created_slope_cols.append((slope_col_name, lookback))
+                newly_created_slope_cols.append((slope_col_name, lookback, col_name)) # 增加原始列名
 
         # --- 阶段二: 批量生成所有加速度 (斜率的斜率) ---
         print(f"      -> [阶段2/3] 开始批量生成加速度 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
-        for slope_col_name, lookback in newly_created_slope_cols:
-            accel_col_name = f'ACCEL_{lookback}_{slope_col_name.replace(f"SLOPE_{lookback}_", "")}'
+        for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
+            accel_col_name = f'ACCEL_{lookback}_{original_col_name}'
             if accel_col_name in df.columns:
                 continue
 
@@ -607,18 +600,15 @@ class TrendFollowStrategy:
 
         # --- 阶段三: 批量生成所有归一化斜率 ---
         print(f"      -> [阶段3/3] 开始批量生成归一化斜率 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
-        for slope_col_name, lookback in newly_created_slope_cols:
-            norm_slope_col_name = f'SLOPE_NORM_{lookback}_{slope_col_name.replace(f"SLOPE_{lookback}_", "")}'
+        for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
+            norm_slope_col_name = f'SLOPE_NORM_{lookback}_{original_col_name}'
             if norm_slope_col_name in df.columns:
                 continue
             
-            # 使用向量化操作计算滚动标准差
-            slope_std = df[slope_col_name].rolling(window=lookback * 2).std()
-            # 使用 np.divide 进行安全的向量化除法
+            slope_std = df[slope_col_name].rolling(window=lookback * 2, min_periods=lookback).std()
             df[norm_slope_col_name] = np.divide(df[slope_col_name], slope_std, out=np.zeros_like(df[slope_col_name], dtype=float), where=slope_std!=0)
         
-        # ▲▲▲【代码修改 V94.0】▲▲▲
-        print("    - [斜率中心 V94.0] 所有斜率相关计算完成。")
+        print("    - [斜率中心 V114] 所有斜率相关计算完成。")
         return df
 
     # ▼▼▼ 剧本的静态“蓝图”知识库 ▼▼▼

@@ -120,12 +120,16 @@
       },
       "slope_params": {
         "enabled": true,
+        "说明": "【V114 精简优化版】移除了 auto_detect_patterns，只计算策略中明确需要的斜率。",
         "series_to_slope": {
-          "close_D": [5, 10, 20, 55], "RSI_13_D": [5, 10], "BBW_21_2.0_D": [10], "CMF_21_D": [10],
-          "EMA_13_D": [5], "EMA_89_D": [10], "EMA_105_D": [25]
-        },
-        "auto_detect_patterns": ["net_mf_", "capital_price_", "CHIP_"],
-        "auto_detect_default_lookbacks": [5, 10, 20, 21]
+          "close_D": [5],
+          "EMA_13_D": [5],
+          "EMA_55_D": [5],
+          "EMA_89_D": [10],
+          "EMA_105_D": [25],
+          "CHIP_peak_cost_D": [8, 21, 55],
+          "CHIP_concentration_90pct_D": [5]
+        }
       },
       "kline_pattern_params": {
         "enabled": true,
