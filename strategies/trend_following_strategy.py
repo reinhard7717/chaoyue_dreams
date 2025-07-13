@@ -310,25 +310,34 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V83.0 蓝图版】
-        - 核心修复: 不再调用任何计算函数，直接从 self.playbook_blueprints 读取剧本元信息，
-                    彻底与计算逻辑解耦，职责回归纯粹。
+        【V85.0 波段跟踪版】
+        - 核心升级: 不再基于零散的信号列，而是基于波段跟踪模拟器生成的 'trade_action' 列来创建记录。
+                    这使得每一条记录都代表一个明确的、有状态的交易动作（入场、减仓、清仓）。
         """
-        df_with_signals = result_df[
-            (result_df['signal_entry'] == True) | (result_df.get('exit_signal_code', 0) > 0)
-        ].copy()
-        if df_with_signals.empty:
+        # ▼▼▼ 筛选条件变更为 'trade_action' 列 ▼▼▼
+        if 'trade_action' not in result_df.columns or result_df['trade_action'].eq('').all():
+            # 如果没有波段跟踪列，或者该列为空，则说明没有发生任何交易动作
             return []
+        df_with_actions = result_df[result_df['trade_action'] != ''].copy()
+
+        if df_with_actions.empty:
+            return []
+        
         records = []
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
         name_param = strategy_info_block.get('name')
         strategy_name = self._get_param_value(name_param, 'unknown_strategy')
         timeframe = result_timeframe
         
-        # ▼▼▼ 直接从缓存的蓝图中获取名称映射 ▼▼▼
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         
-        for timestamp, row in df_with_signals.iterrows():
+        for timestamp, row in df_with_actions.iterrows():
+            trade_action = row.get('trade_action')
+            
+            # 根据交易动作，智能判断是入场还是出场信号
+            is_entry = trade_action == 'ENTRY'
+            is_exit = trade_action in ['PARTIAL_EXIT', 'FULL_EXIT']
+            
             triggered_playbooks_list = []
             triggered_playbooks_cn_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
@@ -337,12 +346,12 @@ class TrendFollowStrategy:
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
                 triggered_playbooks_cn_list = [ playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list ]
-            active_setups = []
-            setup_cols = [col for col in row.index if col.startswith('SETUP_') and row[col] is True]
-            active_setups = [s.replace('SETUP_', '') for s in setup_cols]
+            
+            active_setups = [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True]
             context_dict = {k: v for k, v in row.items() if pd.notna(v)}
             sanitized_context = sanitize_for_json(context_dict)
             pct_change = row.get('pct_change_D', row.get('pct_change', 0.0))
+            
             record = {
                 "stock_code": stock_code,
                 "trade_time": sanitize_for_json(timestamp),
@@ -351,8 +360,11 @@ class TrendFollowStrategy:
                 "close_price": sanitize_for_json(row.get('close_D')),
                 "pct_change": sanitize_for_json(pct_change),
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
-                "entry_signal": sanitize_for_json(row.get('signal_entry', False)),
-                "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 0)),
+                # ▼▼▼ 基于 trade_action 设置信号和记录 ▼▼▼
+                "entry_signal": is_entry,
+                "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 0)) if is_exit else 0,
+                "trade_action": trade_action, # 新增字段
+                "position_status": row.get('position_status', 0.0), # 新增字段
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": triggered_playbooks_cn_list,
                 "active_setups": active_setups,

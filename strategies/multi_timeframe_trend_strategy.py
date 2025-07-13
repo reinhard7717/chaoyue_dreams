@@ -347,20 +347,29 @@ class MultiTimeframeTrendStrategy:
         return df_merged
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        # 步骤1: 融合周线战略信号到日线数据 (逻辑不变)
+        """
+        【V85.0 波段跟踪集成版】
+        - 核心升级: 在战术引擎生成每日信号后，立即调用波段跟踪模拟器，将无状态信号转化为有状态的交易动作。
+        """
+        # 步骤1: 融合周线战略信号到日线数据
         strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
         df_daily_prepared = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
 
-        # 步骤2: 融合分钟线信号（如VWAP支撑）到日线数据 (逻辑不变)
-        # 这一步是关键，它为战术引擎准备好了所有跨周期数据
+        # 步骤2: 融合分钟线信号（如VWAP支撑）到日线数据
         df_daily_prepared = self._prepare_intraday_signals(all_dfs, self.tactical_config)
 
-        # 步骤3: 使用完全准备好的日线数据调用战术引擎
-        final_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
+        # 步骤3: 使用完全准备好的日线数据调用战术引擎，生成每日分析结果
+        daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
         
-        self.daily_analysis_df = final_df
-        if final_df is None or final_df.empty: return []
-        return self.tactical_engine.prepare_db_records(stock_code, final_df, atomic_signals, params=self.tactical_config, result_timeframe='D')
+        self.daily_analysis_df = daily_analysis_df # 缓存每日分析结果供其他引擎使用
+        if daily_analysis_df is None or daily_analysis_df.empty: return []
+
+        # ▼▼▼ 注入波段跟踪模拟器 ▼▼▼
+        # 步骤4: 调用波段跟踪模拟器，生成包含交易动作的最终DataFrame
+        df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
+        
+        # 步骤5: 使用带有交易动作的DataFrame来准备数据库记录
+        return self.tactical_engine.prepare_db_records(stock_code, df_with_tracking, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         df_copy = df.copy()
@@ -682,18 +691,17 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V6.12 精准日志控制版】
-        - 核心修改: 使用 stdout 重定向技术，在不影响全量数据计算的前提下，
-                    精确控制只输出目标时间段内的底层引擎日志，实现计算与日志的解耦。
+        【V85.0 波段跟踪集成版】
+        - 核心升级: 在调试模式下同样集成波段跟踪模拟器，并增加专门的日志输出，清晰展示每个交易动作。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V6.12 精准日志版)] ---") # 修改: 版本号
+        print(f"--- [历史回溯调试启动 (V85.0 波段跟踪版)] ---")
         print(f"  - 股票代码: {stock_code}")
         print(f"  - 目标时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            # 步骤 1: 获取全量历史数据，保持不变
+            # 步骤 1: 获取全量历史数据
             print(f"\n[步骤 1/4] 正在准备从最早到 {end_date} 的所有时间周期数据...")
             all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
                 stock_code, self.merged_config, trade_time=end_date
@@ -706,36 +714,39 @@ class MultiTimeframeTrendStrategy:
             # 步骤 2: 运行战略引擎和战术引擎，并捕获日志
             print("\n[步骤 2/4] 正在使用全量数据运行引擎 (日志将被捕获并过滤)...")
             
-            # 运行周线战略引擎（通常日志较少，直接运行）
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
             df_daily_prepared = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
-            
-            # 在调试模式下同样进行分钟线信号的预处理
             df_daily_prepared = self._prepare_intraday_signals(all_dfs, self.tactical_config)
             
             log_capture_buffer = io.StringIO()
             with redirect_stdout(log_capture_buffer):
-                final_df, _ = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
-            
-            # 获取捕获到的所有日志
+                # 运行战术引擎，得到每日分析结果
+                daily_analysis_df, _ = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
+                
+                # ▼▼▼【代码修改 V85.0】: 在调试模式下同样注入波段跟踪模拟器 ▼▼▼
+                if daily_analysis_df is not None and not daily_analysis_df.empty:
+                    df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
+                else:
+                    df_with_tracking = daily_analysis_df
+                # ▲▲▲【代码修改 V85.0】▲▲▲
+
             captured_logs = log_capture_buffer.getvalue()
 
-            if final_df is None or final_df.empty:
-                print("[信息] 战术引擎运行完成，但未生成任何分析结果。")
-                # 即使没有结果，也打印捕获的日志以供调试
+            if df_with_tracking is None or df_with_tracking.empty:
+                print("[信息] 引擎运行完成，但未生成任何分析结果。")
                 print("\n--- [捕获的底层引擎日志] ---\n" + captured_logs)
                 return
-            print("[成功] 战术引擎分析完成。")
+            print("[成功] 战术引擎及波段跟踪模拟完成。")
 
             # 步骤 3: 筛选目标时段的分析结果
             print(f"\n[步骤 3/4] 正在筛选目标时段 ({start_date} to {end_date}) 的分析结果...")
-            debug_period_df = final_df.loc[start_date:end_date].copy()
+            debug_period_df = df_with_tracking.loc[start_date:end_date].copy()
             if debug_period_df.empty:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到数据。")
                 return
             print(f"[成功] 筛选出 {len(debug_period_df)} 个交易日的分析数据。")
 
-            # ▼▼▼【代码修改 V6.12】: 打印过滤后的日志 ▼▼▼
+            # 步骤 4: 打印过滤后的日志和交易动作
             print("\n--- [底层引擎日志 (仅显示目标时段相关)] ---")
             # 生成一个从 start_date 开始的所有年份的正则表达式，以匹配多行日志块
             start_year = pd.to_datetime(start_date).year
@@ -765,8 +776,20 @@ class MultiTimeframeTrendStrategy:
                     print(line)
             print("--- [底层引擎日志结束] ---")
 
-
+            # ▼▼▼ 新增波段交易动作的调试输出 ▼▼▼
+            print("\n" + "="*30 + " [波段跟踪交易动作] " + "="*30)
+            trade_actions_in_period = debug_period_df[debug_period_df['trade_action'] != '']
+            if trade_actions_in_period.empty:
+                print("在指定时段内无交易动作发生。")
+            else:
+                for timestamp, row in trade_actions_in_period.iterrows():
+                    action_str = f"[{row.trade_action}]"
+                    price_str = f"价格: {row.close_D:.2f}"
+                    pos_str = f"仓位: {row.position_status*100:.0f}%"
+                    score_str = f"入场分: {row.entry_score:.0f}" if row.trade_action == 'ENTRY' else ""
+                    print(f"{timestamp.strftime('%Y-%m-%d')}: {action_str:<15} {price_str:<18} {pos_str:<12} {score_str}")
             print("=" * 80)
+
             print(f"--- [历史回溯调试完成] ---")
             print("=" * 80)
 
