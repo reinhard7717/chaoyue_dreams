@@ -126,8 +126,8 @@ class TrendFollowStrategy:
                 print(f"    - [警告] 在指定的开始日期 {start_date} 之后没有数据，波段跟踪模拟器跳过。")
                 return df
         
-        print("\n" + "="*60)
-        print(f"====== 开始执行【波段跟踪模拟器 V85.2】(回测始于: {df.index[0].date()}) ======")
+        # print("\n" + "="*60)
+        # print(f"====== 开始执行【波段跟踪模拟器 V85.2】(回测始于: {df.index[0].date()}) ======")
         
         # --- 1. 参数加载 ---
         tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
@@ -142,8 +142,8 @@ class TrendFollowStrategy:
         exit_code_full = self._get_param_value(tracking_params.get('exit_code_full'), 99)
         life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
         life_line_ma_col = f'EMA_{life_line_ma_period}_D'
-        print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
-        print(f"    - 清仓规则: 风险码 >= {high_risk_code_threshold} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
+        # print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
+        # print(f"    - 清仓规则: 风险码 >= {high_risk_code_threshold} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
         # --- 2. 初始化状态列和变量 ---
         df['position_status'] = 0.0
         df['trade_action'] = ''
@@ -154,12 +154,11 @@ class TrendFollowStrategy:
         highest_price_since_entry = 0.0
         partial_exit_done = False
 
-        # ▼▼▼【代码修改 V85.2】: 初始化绩效统计变量 ▼▼▼
+        # ▼▼▼ 初始化绩效统计变量 ▼▼▼
         total_trades = 0
         winning_trades = 0
         total_pnl = 1.0  # 使用乘法累积总盈亏，初始为1
         trade_details = [] # 记录每一笔交易详情
-        # ▲▲▲【代码修改 V85.2】▲▲▲
 
         # --- 3. 逐日迭代，模拟交易状态机 ---
         for row in df.itertuples():
@@ -175,7 +174,7 @@ class TrendFollowStrategy:
                     partial_exit_done = False
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'ENTRY'
-                    print(f"      -> {current_date.date()}: [入场] 价格: {entry_price:.2f}, 仓位: {position_size*100}%")
+                    # print(f"      -> {current_date.date()}: [入场] 价格: {entry_price:.2f}, 仓位: {position_size*100}%")
             
             else: # 如果在持仓中
                 highest_price_since_entry = max(highest_price_since_entry, row.high_D)
@@ -214,7 +213,7 @@ class TrendFollowStrategy:
                     position_size = 0.0
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'FULL_EXIT'
-                    print(f"      -> {current_date.date()}: [清仓] 价格: {exit_price:.2f}, 原因: {exit_reason}, 本次盈亏: {pnl_ratio*100:.2f}%")
+                    # print(f"      -> {current_date.date()}: [清仓] 价格: {exit_price:.2f}, 原因: {exit_reason}, 本次盈亏: {pnl_ratio*100:.2f}%")
                     continue
 
                 should_partial_exit = False
@@ -239,39 +238,39 @@ class TrendFollowStrategy:
         df['position_status'] = df['position_status'].ffill().fillna(0)
         
         # --- 4. 最终回测绩效报告 ---
-        print("\n" + "-"*25 + " 最终回测绩效报告 " + "-"*25)
+        # print("\n" + "-"*25 + " 最终回测绩效报告 " + "-"*25)
         
-        if total_trades > 0:
-            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
-            final_total_pnl_percent = (total_pnl - 1) * 100
+        # if total_trades > 0:
+        #     win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+        #     final_total_pnl_percent = (total_pnl - 1) * 100
             
-            print(f"    - 回测区间: {df.index[0].date()} to {df.index[-1].date()}")
-            print(f"    - 总交易次数: {total_trades}")
-            print(f"    - 胜率: {win_rate:.2f}% ({winning_trades}次盈利 / {total_trades - winning_trades}次亏损)")
-            print(f"    - 总盈亏比例: {final_total_pnl_percent:.2f}%")
+        #     print(f"    - 回测区间: {df.index[0].date()} to {df.index[-1].date()}")
+        #     print(f"    - 总交易次数: {total_trades}")
+        #     print(f"    - 胜率: {win_rate:.2f}% ({winning_trades}次盈利 / {total_trades - winning_trades}次亏损)")
+        #     print(f"    - 总盈亏比例: {final_total_pnl_percent:.2f}%")
             
-            # 计算更详细的指标
-            pnl_ratios = [t['pnl_ratio'] for t in trade_details]
-            avg_win = np.mean([p for p in pnl_ratios if p > 0]) * 100 if winning_trades > 0 else 0
-            avg_loss = np.mean([p for p in pnl_ratios if p <= 0]) * 100 if (total_trades - winning_trades) > 0 else 0
-            profit_factor = abs(sum(p for p in pnl_ratios if p > 0) / sum(p for p in pnl_ratios if p <= 0)) if sum(p for p in pnl_ratios if p <= 0) != 0 else float('inf')
+        #     # 计算更详细的指标
+        #     pnl_ratios = [t['pnl_ratio'] for t in trade_details]
+        #     avg_win = np.mean([p for p in pnl_ratios if p > 0]) * 100 if winning_trades > 0 else 0
+        #     avg_loss = np.mean([p for p in pnl_ratios if p <= 0]) * 100 if (total_trades - winning_trades) > 0 else 0
+        #     profit_factor = abs(sum(p for p in pnl_ratios if p > 0) / sum(p for p in pnl_ratios if p <= 0)) if sum(p for p in pnl_ratios if p <= 0) != 0 else float('inf')
             
-            print(f"    - 平均盈利: {avg_win:.2f}% | 平均亏损: {avg_loss:.2f}%")
-            print(f"    - 盈亏比 (Profit Factor): {profit_factor:.2f}")
-        else:
-            print("    - 在指定的回测区间内没有完成的交易。")
+        #     print(f"    - 平均盈利: {avg_win:.2f}% | 平均亏损: {avg_loss:.2f}%")
+        #     print(f"    - 盈亏比 (Profit Factor): {profit_factor:.2f}")
+        # else:
+        #     print("    - 在指定的回测区间内没有完成的交易。")
 
-        if in_position:
-            last_row = df.iloc[-1]
-            current_pnl = (last_row.close_D / entry_price - 1) * 100
-            print("\n" + "-"*28 + " 期末持仓报告 " + "-"*28)
-            print(f"    - 回测结束时，仍有持仓：")
-            print(f"    - 入场日期: {entry_date.date()} | 入场价格: {entry_price:.2f}")
-            print(f"    - 当前仓位: {position_size*100}%")
-            print(f"    - 当前浮动盈亏: {current_pnl:.2f}%")
+        # if in_position:
+        #     last_row = df.iloc[-1]
+        #     current_pnl = (last_row.close_D / entry_price - 1) * 100
+        #     print("\n" + "-"*28 + " 期末持仓报告 " + "-"*28)
+        #     print(f"    - 回测结束时，仍有持仓：")
+        #     print(f"    - 入场日期: {entry_date.date()} | 入场价格: {entry_price:.2f}")
+        #     print(f"    - 当前仓位: {position_size*100}%")
+        #     print(f"    - 当前浮动盈亏: {current_pnl:.2f}%")
         
         print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======")
-        print("="*60 + "\n")
+        # print("="*60 + "\n")
         return df
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
@@ -541,8 +540,8 @@ class TrendFollowStrategy:
             total_multiplier.loc[mask] += multiplier_value
             adjustment_details_df.loc[mask, name] = multiplier_value
             
-            if mask.any():
-                print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
+            # if mask.any():
+                # print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
 
         adjusted_score = raw_scores * (1 + total_multiplier)
         print("    - [指挥棒模型 V80.0] 调整完成。")
@@ -1017,7 +1016,7 @@ class TrendFollowStrategy:
         for setup_name, rules in scoring_matrix.items():
             if not self._get_param_value(rules.get('enabled'), True):
                 continue
-            print(f"          -> 正在评审 '{setup_name}'...")
+            # print(f"          -> 正在评审 '{setup_name}'...")
             
             # ▼▼▼ 为“投降坑”设置专属评分逻辑 ▼▼▼
             if setup_name == 'CAPITULATION_PIT':
@@ -1064,8 +1063,8 @@ class TrendFollowStrategy:
                 final_validity = must_have_passed & any_of_passed
                 setup_scores[f'SETUP_SCORE_{setup_name}'] = current_score.where(final_validity, 0)
 
-            max_score = setup_scores.get(f'SETUP_SCORE_{setup_name}', pd.Series(0)).max()
-            print(f"            -> '{setup_name}' 评审完成，最高置信度得分: {max_score:.0f}")
+            # max_score = setup_scores.get(f'SETUP_SCORE_{setup_name}', pd.Series(0)).max()
+            # print(f"            -> '{setup_name}' 评审完成，最高置信度得分: {max_score:.0f}")
         print("    - [准备状态中心 V65.0] 所有状态置信度评审完成。")
         return setup_scores
 
@@ -1094,9 +1093,9 @@ class TrendFollowStrategy:
             is_strong_body = body_ratio > self._get_param_value(p_candle.get('min_body_ratio'), 0.6)
             triggers['TRIGGER_STRONG_POSITIVE_CANDLE'] = is_green & is_strong_body
             
-            signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         # --- 步骤1: 定义标准的“反转确认阳线” (通用级) ---
         p_reversal = trigger_params.get('reversal_confirmation_candle', {})
@@ -1106,9 +1105,9 @@ class TrendFollowStrategy:
             is_closing_strong = df['close_D'] > (df['high_D'] + df['low_D']) / 2
             triggers['TRIGGER_REVERSAL_CONFIRMATION_CANDLE'] = is_green & is_strong_rally & is_closing_strong
             
-            signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         # --- 步骤2: 定义新增的“显性反转阳线” (精英级) ---
         p_dominant = trigger_params.get('dominant_reversal_candle', {}) # 允许未来在JSON中配置
@@ -1131,8 +1130,8 @@ class TrendFollowStrategy:
             # 最终的精英信号 = 高质量反转 AND (昨天不是阴线 OR 力量已压制)
             triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_signal & (~was_yesterday_red | is_power_recovered)
             
-            signal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-            print(f"      -> '显性反转阳线(精英级)' 事件定义完成，发现 {signal.sum()} 天。")
+            # signal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+            # print(f"      -> '显性反转阳线(精英级)' 事件定义完成，发现 {signal.sum()} 天。")
             
         p_breakout = trigger_params.get('volume_spike_breakout', {})
         if self._get_param_value(p_breakout.get('enabled'), True) and vol_ma_col in df.columns:
@@ -1142,9 +1141,9 @@ class TrendFollowStrategy:
             is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(lookback).max()
             triggers['TRIGGER_VOLUME_SPIKE_BREAKOUT'] = is_volume_spike & is_price_breakout
             
-            signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '放量突破近期高点' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"      -> '放量突破近期高点' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
             
         p_rebound = self._get_params_block(params, 'trigger_event_params', {}).get('pullback_rebound_trigger_params', {})
         if self._get_param_value(p_rebound.get('enabled'), True):
@@ -1156,9 +1155,9 @@ class TrendFollowStrategy:
                 is_positive_day = df['close_D'] > df['open_D']
                 triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
                 
-                signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
-                dates_str = self._format_debug_dates(signal)
-                print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
+                # signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                # dates_str = self._format_debug_dates(signal)
+                # print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         # ▼▼▼ 趋势延续触发器 ▼▼▼
         p_cont = trigger_params.get('trend_continuation_candle', {})
@@ -1168,8 +1167,8 @@ class TrendFollowStrategy:
             is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
             triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
             
-            signal = triggers.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-            print(f"      -> '趋势延续确认K线' 触发器定义完成 (周期:{lookback_period})，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            # signal = triggers.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+            # print(f"      -> '趋势延续确认K线' 触发器定义完成 (周期:{lookback_period})，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
 
         p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
@@ -1180,9 +1179,9 @@ class TrendFollowStrategy:
             is_volume_ok = df['volume_D'] > df.get(vol_ma_col, 0)
             triggers['TRIGGER_N_SHAPE_BREAKOUT'] = is_positive_day & is_breaking_consolidation & is_volume_ok
             
-            signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         p_cross = trigger_params.get('indicator_cross_params', {})
         if self._get_param_value(p_cross.get('enabled'), True):
@@ -1191,9 +1190,9 @@ class TrendFollowStrategy:
                 if all(c in df.columns for c in [pdi_col, mdi_col]):
                     triggers['TRIGGER_DMI_CROSS'] = (df[pdi_col] > df[mdi_col]) & (df[pdi_col].shift(1) <= df[mdi_col].shift(1))
                     
-                    signal = triggers.get('TRIGGER_DMI_CROSS', default_series)
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"      -> 'DMI金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+                    # signal = triggers.get('TRIGGER_DMI_CROSS', default_series)
+                    # dates_str = self._format_debug_dates(signal)
+                    # print(f"      -> 'DMI金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
                     
             macd_p = p_cross.get('macd_cross', {})
             if self._get_param_value(macd_p.get('enabled'), True):
@@ -1203,23 +1202,23 @@ class TrendFollowStrategy:
                     low_level = self._get_param_value(macd_p.get('low_level'), -0.5)
                     triggers['TRIGGER_MACD_LOW_CROSS'] = is_golden_cross & (df[macd_col] < low_level)
                     
-                    signal = triggers.get('TRIGGER_MACD_LOW_CROSS', default_series)
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"      -> 'MACD低位金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+                    # signal = triggers.get('TRIGGER_MACD_LOW_CROSS', default_series)
+                    # dates_str = self._format_debug_dates(signal)
+                    # print(f"      -> 'MACD低位金叉' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
                     
         box_states = self._diagnose_box_states(df, params)
         triggers['TRIGGER_BOX_BREAKOUT'] = box_states.get('BOX_EVENT_BREAKOUT', pd.Series(False, index=df.index))
         
-        signal = triggers.get('TRIGGER_BOX_BREAKOUT', default_series)
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '箱体突破' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = triggers.get('TRIGGER_BOX_BREAKOUT', default_series)
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"      -> '箱体突破' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
         board_events = self._diagnose_board_patterns(df, params)
         triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = board_events.get('BOARD_EVENT_EARTH_HEAVEN', pd.Series(False, index=df.index))
         
-        signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = triggers.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"      -> '地天板' 触发事件定义完成，发现 {signal.sum()} 天。{dates_str}")
         
         p_breakout_stabilize = trigger_params.get('breakout_candle', {}) # 修正变量名以示区分
         if self._get_param_value(p_breakout_stabilize.get('enabled'), True):
@@ -1233,8 +1232,8 @@ class TrendFollowStrategy:
                 )
                 is_breaking_boll_mid = df['close_D'] > df[boll_mid_col]
                 triggers['TRIGGER_BREAKOUT_CANDLE'] = is_strong_positive_candle & is_breaking_boll_mid
-                signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-                print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+                # signal = triggers.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+                # print(f"      -> '突破阳线(企稳型)' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少定义'突破阳线(企稳型)'所需的列 (如: {boll_mid_col})，跳过该触发器。")
 
@@ -1249,8 +1248,8 @@ class TrendFollowStrategy:
                 volume_ratio = self._get_param_value(p_energy.get('volume_ratio'), 1.5)
                 is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
                 triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
-                signal = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
-                print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+                # signal = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
+                # print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
 
@@ -1313,7 +1312,7 @@ class TrendFollowStrategy:
                 states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
                 signal = states['CHIP_STATE_HIGHLY_CONCENTRATED']
                 dates_str = self._format_debug_dates(signal)
-                print(f"            -> '筹码高度集中 (绝对)' 状态诊断完成 (阈值<{conc_thresh_abs*100}%)，共激活 {signal.sum()} 天。{dates_str}")
+                # print(f"            -> '筹码高度集中 (绝对)' 状态诊断完成 (阈值<{conc_thresh_abs*100}%)，共激活 {signal.sum()} 天。{dates_str}")
                 if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
                     squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
                     squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
@@ -1321,33 +1320,17 @@ class TrendFollowStrategy:
                     states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
                     signal = states['CHIP_STATE_CONCENTRATION_SQUEEZE']
                     dates_str = self._format_debug_dates(signal)
-                    print(f"            -> '筹码集中度压缩 (相对)' 状态诊断完成 (周期:{squeeze_window}, 分位:{squeeze_percentile})，共激活 {signal.sum()} 天。{dates_str}")
-                # ▼▼▼【代码新增 V65.0】: 新增“筹码发散”状态，用于识别投降坑 ▼▼▼
+                    # print(f"            -> '筹码集中度压缩 (相对)' 状态诊断完成 (周期:{squeeze_window}, 分位:{squeeze_percentile})，共激活 {signal.sum()} 天。{dates_str}")
+                # ▼▼▼ “筹码发散”状态，用于识别投降坑 ▼▼▼
                 p_scattered = p.get('scattered_params', {})
                 if self._get_param_value(p_scattered.get('enabled'), True):
                     scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
                     scattered_threshold_ratio = scattered_threshold_pct / 100.0 # 将百分比转换为比率
                     states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
 
-                    # ▼▼▼【代码新增 V65.2 深度调试探针】▼▼▼
-                    # debug_date = pd.to_datetime('2025-04-09', utc=True)
-                    # if debug_date in df.index:
-                    #     value_on_date = df.loc[debug_date, conc_col]
-                    #     is_triggered = value_on_date > scattered_threshold_ratio
-                    #     print("="*80)
-                    #     print(f"      -> [深度调试探针] 日期: {debug_date.date()}")
-                    #     print(f"      -> 筹码集中度(90%)列名: {conc_col}")
-                    #     print(f"      -> 当日实际计算值 (比率): {value_on_date:.4f}")
-                    #     print(f"      -> 设定的发散阈值 (百分比): > {scattered_threshold_pct}%")
-                    #     print(f"      -> 换算后的阈值 (比率): > {scattered_threshold_ratio}")
-                    #     print(f"      -> 是否触发'筹码发散'状态: {is_triggered}")
-                    #     print("="*80)
-                    # ▲▲▲【代码新增 V65.2】▲▲▲
-
-
                     signal = states.get('CHIP_STATE_SCATTERED', default_series)
                     dates_str = self._format_debug_dates(signal)
-                    print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold_pct}%)，共激活 {signal.sum()} 天。{dates_str}")
+                    # print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold_pct}%)，共激活 {signal.sum()} 天。{dates_str}")
                 # ▲▲▲【代码新增 V65.0】▲▲▲
         states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
@@ -1355,9 +1338,9 @@ class TrendFollowStrategy:
         print("          -> 主状态诊断完成 (吸筹/拉升/派发/过渡)。")
         is_deep = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('deep_ratio'), 0.85))
         states['CHIP_STATE_ACCUMULATION_DEEP'] = states['CHIP_STATE_ACCUMULATION'] & is_deep
-        signal = states['CHIP_STATE_ACCUMULATION_DEEP']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> “深度吸筹”子状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['CHIP_STATE_ACCUMULATION_DEEP']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> “深度吸筹”子状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
         p_capit = p.get('capitulation_params', {})
         winner_rate_col = 'winner_rate_D' # 使用基础获利盘数据
         if winner_rate_col in df.columns:
@@ -1368,30 +1351,30 @@ class TrendFollowStrategy:
             print(f"          -> [警告] 缺少列 '{winner_rate_col}'，无法诊断获利盘相关状态。")
             states['CHIP_STATE_LOW_PROFIT'] = default_series
             states['CHIP_STATE_PIT_OPPORTUNITY'] = default_series
-        signal = states['CHIP_STATE_PIT_OPPORTUNITY']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> “投降坑机会”标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['CHIP_STATE_PIT_OPPORTUNITY']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> “投降坑机会”标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
         is_still_rising = df[required_cols['dynamic_slope_21d']] > 0
         is_decelerating = df[required_cols['dynamic_accel_21d']] < 0
         states['CHIP_RISK_EXHAUSTION'] = is_still_rising & is_decelerating
-        signal = states['CHIP_RISK_EXHAUSTION']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> “趋势衰竭”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['CHIP_RISK_EXHAUSTION']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> “趋势衰竭”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
         is_short_slope_down = df[required_cols['dynamic_slope_8d']] < 0
         is_mid_slope_up = df[required_cols['dynamic_slope_21d']] > 0
         states['CHIP_RISK_DIVERGENCE'] = is_short_slope_down & is_mid_slope_up & is_at_high
-        signal = states['CHIP_RISK_DIVERGENCE']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> “斜率背离”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['CHIP_RISK_DIVERGENCE']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> “斜率背离”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
         p_ignite = p.get('ignition_params', {})
         is_accelerating = df[required_cols['dynamic_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
         winner_rate_col_dyn = required_cols['dynamic_winner_rate_short']
         is_winner_rate_increasing = df[winner_rate_col_dyn] > df[winner_rate_col_dyn].shift(1)
         was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
         states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
-        signal = states['CHIP_EVENT_IGNITION']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> “点火事件”诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['CHIP_EVENT_IGNITION']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> “点火事件”诊断完成，发现 {signal.sum()} 天。{dates_str}")
         for key in states:
             if states[key] is None:
                 states[key] = pd.Series(False, index=df.index)
@@ -1427,8 +1410,8 @@ class TrendFollowStrategy:
         # ▼▼▼ 使用斜率定义趋势萌芽，并增加日志 ▼▼▼
         if short_ma_slope_col in df.columns:
             states['MA_STATE_SHORT_SLOPE_POSITIVE'] = (df[short_ma_slope_col] > 0)
-            signal = states['MA_STATE_SHORT_SLOPE_POSITIVE']
-            print(f"          -> '短期均线斜率转正' 状态诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            # signal = states['MA_STATE_SHORT_SLOPE_POSITIVE']
+            # print(f"          -> '短期均线斜率转正' 状态诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         else:
             states['MA_STATE_SHORT_SLOPE_POSITIVE'] = default_series
 
@@ -1463,7 +1446,6 @@ class TrendFollowStrategy:
             print(f"          -> [警告] 缺少周线斜率列 '{slope_w_simulated_col}'，'MA_STATE_W_STABILIZING' 无法计算。")
 
         # --- 4. 关键支撑均线触碰状态诊断 (为三维评分提供事件分) ---
-        # ▼▼▼【代码重构 V74.0】: 动态诊断对多条关键均线的触碰 ▼▼▼
         key_support_mas = [21, 34, 55, 89, 144, 233] # 定义所有我们关心的均线级别
         
         for ma_period in key_support_mas:
@@ -1474,15 +1456,14 @@ class TrendFollowStrategy:
                 state_name = f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'
                 states[state_name] = is_touching & is_closing_above
                 
-                signal = states[state_name]
-                if signal.any(): # 只在有信号时打印，避免日志刷屏
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"          -> '触碰{ma_period}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+                # signal = states[state_name]
+                # if signal.any(): # 只在有信号时打印，避免日志刷屏
+                    # dates_str = self._format_debug_dates(signal)
+                    # print(f"          -> '触碰{ma_period}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             else:
                 # 即使缺少该均线，也创建一个全False的Series，保证后续逻辑的健壮性
                 states[f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'] = default_series
                 print(f"          -> [警告] 缺少均线列 '{ma_col}'，无法诊断其支撑状态。")
-        # ▲▲▲【代码重构 V74.0】▲▲▲
 
         # --- 5. 老鸭头形态诊断 (一个独立的、持久化的状态) ---
         p_duck = self._get_params_block(params, 'duck_neck_params', {})
@@ -1557,9 +1538,9 @@ class TrendFollowStrategy:
                 # 判断当前BIAS是否低于动态阈值
                 states['OPP_STATE_NEGATIVE_DEVIATION'] = df[bias_col] < dynamic_oversold_threshold
                 
-                signal = states.get('OPP_STATE_NEGATIVE_DEVIATION', pd.Series(False, index=df.index))
-                dates_str = self._format_debug_dates(signal)
-                print(f"          -> '价格负向乖离' 机会状态诊断完成 (基于{bias_col}动态分位数 窗口:{window}, 分位:{quantile})，共激活 {signal.sum()} 天。{dates_str}")
+                # signal = states.get('OPP_STATE_NEGATIVE_DEVIATION', pd.Series(False, index=df.index))
+                # dates_str = self._format_debug_dates(signal)
+                # print(f"          -> '价格负向乖离' 机会状态诊断完成 (基于{bias_col}动态分位数 窗口:{window}, 分位:{quantile})，共激活 {signal.sum()} 天。{dates_str}")
             else:
                 print(f"          -> [警告] 缺少列 '{bias_col}'，价格负向乖离状态无法诊断。")
         
@@ -1594,9 +1575,9 @@ class TrendFollowStrategy:
                 df, entry_event=bottom_divergence_event, persistence_days=persistence_days, break_condition=break_condition
             )
             
-            signal = states['CAPITAL_STATE_DIVERGENCE_WINDOW']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '资本底背离机会窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            # signal = states['CAPITAL_STATE_DIVERGENCE_WINDOW']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '资本底背离机会窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
         return states
 
@@ -1611,9 +1592,9 @@ class TrendFollowStrategy:
             squeeze_event = (df[bbw_col] < squeeze_threshold) & (df[bbw_col].shift(1) >= squeeze_threshold)
             states['VOL_EVENT_SQUEEZE'] = squeeze_event
             
-            signal = states['VOL_EVENT_SQUEEZE']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '波动率极度压缩' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = states['VOL_EVENT_SQUEEZE']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '波动率极度压缩' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
             
         vol_ma_col = 'VOL_MA_21_D'
         if 'volume_D' in df.columns and vol_ma_col in df.columns:
@@ -1628,9 +1609,9 @@ class TrendFollowStrategy:
                 persistence_days=persistence_days, break_condition=break_condition
             )
             
-            signal = states['VOL_STATE_SQUEEZE_WINDOW']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '能量待爆发窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            # signal = states['VOL_STATE_SQUEEZE_WINDOW']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '能量待爆发窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
         return states
 
@@ -1665,17 +1646,17 @@ class TrendFollowStrategy:
         is_above_top = df['close_D'] > box_top
         states['BOX_EVENT_BREAKOUT'] = is_valid_box & is_above_top & was_below_top
         
-        signal = states['BOX_EVENT_BREAKOUT']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '箱体向上突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['BOX_EVENT_BREAKOUT']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> '箱体向上突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         was_above_bottom = df['close_D'].shift(1) >= box_bottom.shift(1)
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
-        signal = states['BOX_EVENT_BREAKDOWN']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '箱体向下突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['BOX_EVENT_BREAKDOWN']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> '箱体向下突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         ma_params = self._get_params_block(params, 'ma_state_params', {})
         mid_ma_period = self._get_param_value(ma_params.get('mid_ma'), 55)
@@ -1688,9 +1669,9 @@ class TrendFollowStrategy:
         else:
             states['BOX_STATE_HEALTHY_CONSOLIDATION'] = is_valid_box & is_in_box
         
-        signal = states['BOX_STATE_HEALTHY_CONSOLIDATION']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '健康箱体盘整' 状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['BOX_STATE_HEALTHY_CONSOLIDATION']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> '健康箱体盘整' 状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         for key in states:
             if states[key] is None:
@@ -1818,9 +1799,9 @@ class TrendFollowStrategy:
             washout_event = is_large_decline & is_high_volume & is_near_low
             states['KLINE_EVENT_WASHOUT'] = washout_event
             
-            signal = states['KLINE_EVENT_WASHOUT']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '巨阴洗盘' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+            # signal = states['KLINE_EVENT_WASHOUT']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '巨阴洗盘' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
             
             counter = pd.Series(0, index=df.index)
             counter[washout_event] = window_days
@@ -1828,9 +1809,9 @@ class TrendFollowStrategy:
             days_in_window = counter.groupby(washout_event.cumsum()).cumcount()
             states['KLINE_STATE_WASHOUT_WINDOW'] = (days_in_window < window_days) & (counter > 0)
             
-            signal = states['KLINE_STATE_WASHOUT_WINDOW']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '巨阴反转观察窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            # signal = states['KLINE_STATE_WASHOUT_WINDOW']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '巨阴反转观察窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
         p_gap = p.get('gap_support_params', {})
         if self._get_param_value(p_gap.get('enabled'), True):
@@ -1842,9 +1823,9 @@ class TrendFollowStrategy:
                 df, entry_event=gap_up_event, persistence_days=persistence_days, break_condition=break_condition
             )
             
-            signal = states['KLINE_STATE_GAP_SUPPORT_ACTIVE']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> '缺口支撑有效' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            # signal = states['KLINE_STATE_GAP_SUPPORT_ACTIVE']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> '缺口支撑有效' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
         p_nshape = p.get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
@@ -1863,9 +1844,9 @@ class TrendFollowStrategy:
             states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = potential_consolidation & (days_since_rally <= consolidation_days_max)
             states['KLINE_N_SHAPE_RALLY_HIGH'] = rally_high_ffill.where(states['KLINE_STATE_N_SHAPE_CONSOLIDATION'])
             
-            signal = states['KLINE_STATE_N_SHAPE_CONSOLIDATION']
-            dates_str = self._format_debug_dates(signal)
-            print(f"          -> 'N字形态整理期' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
+            # signal = states['KLINE_STATE_N_SHAPE_CONSOLIDATION']
+            # dates_str = self._format_debug_dates(signal)
+            # print(f"          -> 'N字形态整理期' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
         print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
@@ -2045,7 +2026,7 @@ class TrendFollowStrategy:
         ma_long_col = f'EMA_{ma_long_period}_D'
         if ma_long_col in df.columns:
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_long_col] - 1) > threshold
-            print(f"      -> '高风险区域(纯位置)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+            # print(f"      -> '高风险区域(纯位置)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
         else:
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = default_series
 
@@ -2056,7 +2037,7 @@ class TrendFollowStrategy:
         is_under_short_term_pressure = df['close_D'] < df.get(ma_short_col, float('inf'))
         bearish_consolidation_state = is_in_bearish_territory & is_under_short_term_pressure
         setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = bearish_consolidation_state
-        print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
+        # print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
 
         # Setup 3: 熊市停滞区 (Bearish Stagnation Zone)
         p_stagnation = exit_params.get('stagnation_params', {})
@@ -2101,7 +2082,7 @@ class TrendFollowStrategy:
             stagnation_state = pure_stagnation_daily.rolling(window=persistence_window).sum() >= persistence_days
             
             setups['RISK_SETUP_BEARISH_STAGNATION'] = stagnation_state & ~stagnation_state.shift(1).fillna(False)
-            print(f"      -> '熊市停滞区(四重保险)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_STAGNATION'])}")
+            # print(f"      -> '熊市停滞区(四重保险)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_STAGNATION'])}")
         else:
             missing_cols = [c for c in required_cols if c not in df.columns]
             print(f"      -> [警告] 缺少 {missing_cols}，无法诊断'熊市停滞区'。")
@@ -2121,7 +2102,7 @@ class TrendFollowStrategy:
         default_series = pd.Series(False, index=df.index)
 
         triggers['RISK_TRIGGER_ANY'] = pd.Series(True, index=df.index)
-        print(f"      -> '任意(万能触发器)' 事件定义完成。")
+        # print(f"      -> '任意(万能触发器)' 事件定义完成。")
 
         # --- Trigger 1: 上攻失败K线 (ATTACK_FAILED_CANDLE) - 逻辑保持不变，但现在只会在互斥的Setup下触发 ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
@@ -2138,9 +2119,8 @@ class TrendFollowStrategy:
         is_attack_crossing_threshold = (attack_failed_count >= attack_req_count) & (attack_failed_count.shift(1).fillna(0) < attack_req_count)
         final_trigger_attack = is_key_upthrust_failure | is_attack_crossing_threshold
         triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger_attack & ~final_trigger_attack.shift(1).fillna(False)
-        print(f"      -> '上攻失败(高位派发专用)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+        # print(f"      -> '上攻失败(高位派发专用)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
-        # ▼▼▼【代码修改 V98.0】: 引入全新的“死猫反弹”结构化触发器 ▼▼▼
         # --- Trigger 2: 死猫式反弹 (DEAD_CAT_BOUNCE) - 专为下跌中继剧本服务 ---
         p_bounce = exit_params.get('failed_bounce_params', {})
         dead_cat_ma_period = self._get_param_value(p_bounce.get('dead_cat_ma_period'), 8) # 使用更灵敏的短期均线
@@ -2152,11 +2132,10 @@ class TrendFollowStrategy:
             is_persistently_weak = (df['close_D'] < df[dead_cat_ma_col]).rolling(window=dead_cat_days).sum() >= dead_cat_days
             # 触发信号：当这种持续弱势状态首次被确认时
             triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'] = is_persistently_weak & ~is_persistently_weak.shift(1).fillna(False)
-            print(f"      -> '死猫式反弹(结构化)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'])}")
+            # print(f"      -> '死猫式反弹(结构化)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'])}")
         else:
             print(f"      -> [警告] 缺少 {dead_cat_ma_col}，无法诊断'死猫式反弹'。")
             triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'] = default_series
-        # ▲▲▲【代码修改 V98.0】▲▲▲
 
         # --- Trigger 3 & 4: 保持不变 ---
         p_pullback = exit_params.get('structure_breakdown_params', {})
@@ -2168,7 +2147,7 @@ class TrendFollowStrategy:
             cond2 = df['volume_D'] > df['volume_D'].shift(1)
             cond3 = df['close_D'] < df[ma_col_pullback]
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = cond1 & cond2 & cond3
-            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', default_series))}")
+            # print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', default_series))}")
 
         p_true_break = exit_params.get('true_breakdown_params', {})
         breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
@@ -2184,7 +2163,7 @@ class TrendFollowStrategy:
             is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
             is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
-            print(f"      -> '真实结构破位(事件驱动)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+            # print(f"      -> '真实结构破位(事件驱动)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
         else:
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
             
@@ -2229,8 +2208,7 @@ class TrendFollowStrategy:
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
         
         signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
-        
-        print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        # print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         return signal
 
     # ▼▼▼ “结构性破位”风险诊断模块 ▼▼▼
@@ -2269,7 +2247,7 @@ class TrendFollowStrategy:
         # 3. 组合所有条件
         signal = is_decisive_negative_candle & is_high_volume & is_breaking_ma
         
-        print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        # print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         return signal
 
 

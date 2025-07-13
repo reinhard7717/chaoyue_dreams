@@ -550,67 +550,95 @@ class MultiTimeframeTrendStrategy:
         print(f"    - [总指挥信息] 已预处理VWAP支撑信号，发现 {df_daily['cond_vwap_support'].sum()} 个支撑日。")
         return df_daily
 
-    def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-        resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
-        if not resonance_params.get('enabled', False): return []
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
-        levels = resonance_params.get('levels', [])
-        if not levels: return []
-        trigger_tf = levels[-1]['tf']
-        if trigger_tf not in all_dfs or all_dfs[trigger_tf].empty: return []
-        df_aligned = all_dfs[trigger_tf].copy()
-        for level in levels[:-1]:
-            level_tf = level['tf']
-            if level_tf in all_dfs and not all_dfs[level_tf].empty:
-                df_right = all_dfs[level_tf].copy()
-                rename_map = {col: f"{col}_{level_tf}" for col in df_right.columns}
-                df_right.rename(columns=rename_map, inplace=True)
-                df_aligned = pd.merge_asof(left=df_aligned, right=df_right, left_index=True, right_index=True, direction='backward')
-            else: return []
-        dynamics_timeframes = ['60', '30']
-        df_aligned = self._calculate_trend_dynamics(df_aligned, dynamics_timeframes)
-        daily_score_threshold = self.tactical_config.get('entry_scoring_params', {}).get('score_threshold', 100)
-        daily_playbook_cols = [col for col in self.daily_analysis_df.columns if col.startswith('playbook_')]
-        daily_context_cols_to_merge = ['context_mid_term_bullish', 'entry_score'] + daily_playbook_cols
-        daily_context_df = self.daily_analysis_df[daily_context_cols_to_merge].copy()
-        is_bullish_trend = daily_context_df['context_mid_term_bullish']
-        is_reversal_day = daily_context_df['entry_score'] >= daily_score_threshold
-        daily_context_df['is_daily_trend_ok'] = is_bullish_trend | is_reversal_day
-        daily_context_df.rename(columns={'entry_score': 'daily_entry_score'}, inplace=True)
-        df_aligned = pd.merge_asof(left=df_aligned, right=daily_context_df, left_index=True, right_index=True, direction='backward')
-        df_aligned['is_daily_trend_ok'].fillna(False, inplace=True)
-        df_aligned['daily_entry_score'].fillna(0, inplace=True)
-        for col in daily_playbook_cols:
-            if col in df_aligned.columns: df_aligned[col].fillna(False, inplace=True)
-        final_signal = pd.Series(True, index=df_aligned.index)
-        final_signal &= df_aligned['is_daily_trend_ok']
-        final_signal &= df_aligned.get('trend_health_60', False)
-        final_signal &= df_aligned.get('trend_health_30', False)
-        final_signal &= (df_aligned.get('ema_accel_30', 0) >= 0)
-        if final_signal.sum() == 0: return []
-        for i, level in enumerate(levels):
-            level_tf, level_logic, level_conditions = level['tf'], level.get('logic', 'AND').upper(), level.get('conditions', [])
-            level_signal = pd.Series(True if level_logic == 'AND' else False, index=df_aligned.index)
-            for cond in level_conditions:
-                cond_signal = self._check_single_condition(df_aligned, cond, level_tf)
-                if level_logic == 'AND': level_signal &= cond_signal
-                else: level_signal |= cond_signal
-            final_signal &= level_signal
-        triggered_df = df_aligned[final_signal]
-        if triggered_df.empty: return []
-        db_records = []
-        for timestamp, row in triggered_df.iterrows():
-            resonance_playbook = resonance_params.get('signal_name', 'UNKNOWN_RESONANCE')
-            daily_playbooks = [col.replace('playbook_', '') for col in row.index if col.startswith('playbook_') and row[col] is True]
-            combined_playbooks = list(set([resonance_playbook] + daily_playbooks))
-            record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
-            record['triggered_playbooks'] = combined_playbooks
-            daily_score = sanitize_for_json(row.get('daily_entry_score', 0.0))
-            resonance_score = sanitize_for_json(resonance_params.get('score', 0.0))
-            total_score = daily_score + resonance_score
-            record['entry_score'] = total_score
-            db_records.append(record)
-        return db_records
+    def _run_intraday_risk_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V104.3 终局 · 解析版】
+        - 核心修复: 使用 _get_param_value 辅助函数来正确解析 strategy_name，
+                    确保其为字符串而非字典，解决 unhashable type: 'dict' 的TypeError。
+        """
+        # --- 步骤0: 加载参数并进行前置检查 ---
+        exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
+        if not self.tactical_engine._get_param_value(exec_params.get('enabled'), False):
+            return []
+        
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            logger.warning("日线分析结果(daily_analysis_df)为空，分钟级风险预警引擎跳过。")
+            return []
+        
+        # --- 步骤1: 从日线策略中，识别出所有的“冲高日” ---
+        p_attack = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        lookback_period = self.tactical_engine._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
+        
+        daily_df = self.daily_analysis_df
+        is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
+        
+        upthrust_days_df = daily_df[is_upthrust_day]
+        if upthrust_days_df.empty:
+            logger.info("    - [风险预警引擎] 在日线数据中未发现任何“冲高日”，无需启动盘中监控。")
+            return []
+        
+        logger.info(f"    - [风险预警引擎] 发现 {len(upthrust_days_df)} 个潜在的“冲高日”，将在次日启动盘中监控。")
+
+        alerts = []
+        # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
+        minute_tf = '5' 
+        minute_df = all_dfs.get(minute_tf)
+        if minute_df is None or minute_df.empty:
+            logger.warning(f"缺少{minute_tf}分钟数据，无法执行盘中风险预警。")
+            return []
+
+        for upthrust_date, upthrust_row in upthrust_days_df.iterrows():
+            alert_date = upthrust_date + pd.Timedelta(days=1)
+            
+            alert_day_minute_df = minute_df[minute_df.index.date == alert_date.date()].copy()
+            if alert_day_minute_df.empty:
+                continue
+
+            # --- 步骤3: 准备实时触发的阈值 ---
+            alert_day_open = alert_day_minute_df.iloc[0]['open']
+            upthrust_day_open = upthrust_row['open_D']
+
+            logger.info(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
+            logger.info(f"         - 触发阈值1 (低于今日开盘): {alert_day_open:.2f}")
+            logger.info(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
+
+            # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
+            triggered_minutes = alert_day_minute_df[
+                (alert_day_minute_df['close'] < alert_day_open) &
+                (alert_day_minute_df['close'] < upthrust_day_open)
+            ]
+
+            if not triggered_minutes.empty:
+                first_alert_minute = triggered_minutes.iloc[0]
+                alert_time = first_alert_minute.name
+                alert_price = first_alert_minute['close']
+                
+                reason_str = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
+                
+                # 修正: 使用 _get_param_value 辅助函数来正确解析 strategy_name
+                strategy_name = self.tactical_engine._get_param_value(
+                    exec_params.get('signal_name'), 'INTRADAY_RISK_ALERT'
+                )
+
+                record = {
+                    "stock_code": stock_code,
+                    "trade_time": alert_time.to_pydatetime(),
+                    "timeframe": minute_tf,
+                    "strategy_name": strategy_name, # 现在这里保证是字符串
+                    "close_price": sanitize_for_json(alert_price),
+                    "entry_score": 0.0,
+                    "entry_signal": False,
+                    "exit_signal_code": 103,
+                    "exit_severity_level": 3,
+                    "exit_signal_reason": reason_str,
+                    "triggered_playbooks": ["EXIT_UPTHRUST_REJECTION"],
+                    "context_snapshot": sanitize_for_json({'close': alert_price, 'reason': reason_str}),
+                }
+                
+                alerts.append(record)
+                logger.info(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {record['exit_signal_reason']}")
+        
+        return alerts
 
     # ▼▼▼【代码修改】: 止盈引擎重构，实现三级警报系统 ▼▼▼
     def _run_intraday_take_profit_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
