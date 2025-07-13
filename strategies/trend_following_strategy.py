@@ -1813,19 +1813,19 @@ class TrendFollowStrategy:
             },
             # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
             {
-                'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 120, # 给予最高级别的风险分
+                'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构破位(多重确认)', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 120,
                 'setup': ['RISK_SETUP_ANY'],
-                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'], # 使用新的、更严格的触发器
-                'comment': '收盘价创出近期新低，是趋势结构被破坏的强烈信号。'
+                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'],
+                'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
             },
             # --- 派发行为风险 (DISTRIBUTION_RISK) ---
             {
-                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
+                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发(多次确认)', 'family': 'DISTRIBUTION_RISK',
                 'score': 90,
                 'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'],
-                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'], # 使用修正后的、更灵敏的触发器
-                'comment': '高位区域内，出现上攻失败的K线形态，是经典的派发信号。'
+                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'],
+                'comment': '在[高位动能衰竭区]内, 出现[近期多次]上攻失败, 是经典的派发信号。'
             },
             # ---  回调预警风险 (PULLBACK_WARNING_RISK) ---
             {
