@@ -80,7 +80,8 @@
         "panic_reversal_params": { "enabled": { "value": true, "说明": "结构派恐慌反转触发器。" } },
         "reversal_confirmation_candle": { "enabled": true, "min_pct_change": { "value": 0.03, "说明": "反转确认阳线的最小日涨幅。" } },
         "breakout_candle": { "enabled": true, "min_body_ratio": { "value": 0.4, "说明": "突破阳线(企稳型)的最小实体占比。" } },
-        "pullback_rebound_trigger_params": { "enabled": true, "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" } }
+        "pullback_rebound_trigger_params": { "enabled": true, "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" } },
+        "trend_continuation_candle": { "enabled": { "value": true }, "lookback_period": { "value": 8, "说明": "判断收盘价是否创近期新高的回看周期。" } }
       },
       "chip_feature_params": {
         "enabled": true,

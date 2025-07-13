@@ -550,11 +550,15 @@ class TrendFollowStrategy:
     # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
-        【V83.0 水合引擎版】
-        - 职责: 接收静态的剧本“蓝图”，并用动态计算出的数据（如setup, trigger的布尔序列）进行“水合”，
-                生成一个可供计算引擎使用的、完整的、可执行的剧本列表。
+        【V85.1 右侧增强与结构优化版】
+        - 职责: 接收静态的剧本“蓝图”，并用动态计算出的数据进行“水合”。
+        - 核心升级:
+          1. 为“健康主升浪”(HEALTHY_MARKUP_A)剧本增加了新的“趋势延续确认K线”(TRIGGER_TREND_CONTINUATION_CANDLE)触发器，
+             使其能捕捉更多样的右侧买点，解决了“温和上涨无信号”的问题。
+          2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
+             使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
         """
-        print("    - [剧本水合引擎 V83.0] 启动，开始为蓝图注入动态数据...")
+        print("    - [剧本水合引擎 V85.1 右侧增强与结构优化版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
@@ -586,8 +590,8 @@ class TrendFollowStrategy:
             
             # 为每个剧本注入其专属的动态数据
             if name == 'ABYSS_GAZE_S':
-                playbook['setup'] = score_cap_pit > 80
                 playbook['trigger'] = trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+                playbook['setup'] = score_cap_pit > 80
             elif name == 'CAPITULATION_PIT_REVERSAL':
                 playbook['setup_score_series'] = score_cap_pit
                 playbook['trigger'] = (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series))
@@ -606,8 +610,17 @@ class TrendFollowStrategy:
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
                 playbook['setup_score_series'] = score_deep_accum
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-            elif name == 'ENERGY_COMPRESSION_BREAKOUT' or name == 'PLATFORM_SUPPORT_PULLBACK' or name == 'HEALTHY_MARKUP_A':
+            elif name == 'ENERGY_COMPRESSION_BREAKOUT':
+                # 修正：能量压缩突破使用更合适的突破型触发器
+                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'PLATFORM_SUPPORT_PULLBACK':
+                # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            elif name == 'HEALTHY_MARKUP_A':
+                # 核心升级：现在它能被两种形态触发：标准回踩反弹，或温和的趋势延续
+                trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+                playbook['trigger'] = trigger_rebound | trigger_continuation
             elif name == 'HEALTHY_BOX_BREAKOUT':
                 playbook['setup'] = setup_healthy_box
                 playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
@@ -618,17 +631,8 @@ class TrendFollowStrategy:
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
-            
-            # 为所有precondition_score类型的剧本注入trigger
-            if playbook['type'] == 'precondition_score':
-                 if name == 'ENERGY_COMPRESSION_BREAKOUT':
-                     playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-                 elif name == 'PLATFORM_SUPPORT_PULLBACK' or name == 'HEALTHY_MARKUP_A':
-                     playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
-                 elif name == 'N_SHAPE_CONTINUATION_A':
-                     playbook['trigger'] = trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
 
-        print(f"    - [剧本水合引擎 V83.0] 完成，所有剧本已注入动态数据。")
+        print(f"    - [剧本水合引擎 V85.1] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -962,7 +966,18 @@ class TrendFollowStrategy:
                 signal = triggers.get('TRIGGER_PULLBACK_REBOUND', default_series)
                 dates_str = self._format_debug_dates(signal)
                 print(f"      -> '回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{dates_str}")
-                
+
+        # ▼▼▼ 趋势延续触发器 ▼▼▼
+        p_cont = trigger_params.get('trend_continuation_candle', {})
+        if self._get_param_value(p_cont.get('enabled'), True):
+            lookback_period = self._get_param_value(p_cont.get('lookback_period'), 8)
+            is_positive_day = df['close_D'] > df['open_D']
+            is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
+            triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
+            
+            signal = triggers.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+            print(f"      -> '趋势延续确认K线' 触发器定义完成 (周期:{lookback_period})，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+
         p_nshape = self._get_params_block(params, 'kline_pattern_params', {}).get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
             is_positive_day = df['close_D'] > df['open_D']
@@ -975,7 +990,7 @@ class TrendFollowStrategy:
             signal = triggers.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> 'N字形态突破' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
+
         p_cross = trigger_params.get('indicator_cross_params', {})
         if self._get_param_value(p_cross.get('enabled'), True):
             if self._get_param_value(p_cross.get('dmi_cross', {}).get('enabled'), True):
