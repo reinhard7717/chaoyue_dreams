@@ -453,6 +453,104 @@ class MultiTimeframeTrendStrategy:
 
         return all_confirmations
 
+    def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V112 终局 · 闭环版】
+        - 核心功能: 监控那些在日线级别触发了“风险预备信号”的股票，在次日的分钟级别寻找确认卖点。
+        - 工作流程:
+          1. 遍历日线分析结果，找到所有触发了“风险预备信号”（如 SETUP_UPTHRUST_WATCH）的“预备日”。
+          2. 对每个“预备日”，获取其 **次日** 的分钟数据。
+          3. 在次日开盘后，监控价格是否跌破当日VWAP。
+          4. 首次满足条件时，生成一个高优先级的卖出警报，并停止当天监控。
+        """
+        all_alerts = []
+        # --- 步骤0: 加载配置和数据 ---
+        # 注意：我们复用 exit_strategy_params 中的 intraday_execution_params
+        exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
+        get_val = self.tactical_engine._get_param_value
+        
+        if not get_val(exec_params.get('enabled'), False):
+            return []
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            return []
+
+        # --- 步骤1: 识别所有触发了“风险预备信号”的“预备日” ---
+        # 预备信号通常以 'SETUP_' 开头
+        setup_cols = [col for col in self.daily_analysis_df.columns if col.startswith('SETUP_') and self.daily_analysis_df[col].any()]
+        if not setup_cols:
+            return []
+        
+        # 找出任何一个预备信号被触发的日期
+        setup_mask = self.daily_analysis_df[setup_cols].any(axis=1)
+        setup_days_df = self.daily_analysis_df[setup_mask]
+        if setup_days_df.empty:
+            return []
+            
+        logger.info(f"    - [风险预警任务] 发现 {len(setup_days_df)} 个风险预备日，启动次日盘中监控...")
+
+        # --- 步骤2: 遍历每个预备日，监控次日分钟行情 ---
+        minute_tf = str(get_val(exec_params.get('timeframe'), '30'))
+        minute_df = all_dfs.get(minute_tf)
+        if minute_df is None or minute_df.empty:
+            return []
+
+        rules = exec_params.get('rules', {})
+        
+        for setup_date, setup_row in setup_days_df.iterrows():
+            # 核心区别：风险预警监控的是 **次日**
+            monitoring_date = (setup_date + pd.Timedelta(days=1)).date()
+            alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
+            if alert_day_minute_df.empty: continue
+
+            # --- 步骤3: 应用分钟线确认逻辑 ---
+            # 我们只关注最核心的“跌破VWAP”规则
+            vwap_rule = rules.get('vwap_breakdown', {})
+            if not get_val(vwap_rule.get('enabled'), False):
+                continue
+
+            # 构建带后缀的列名
+            close_col = f'close_{minute_tf}'
+            vwap_col = f'VWAP_{minute_tf}'
+            if vwap_col not in alert_day_minute_df.columns or close_col not in alert_day_minute_df.columns:
+                continue
+
+            # 确认条件：价格首次跌破VWAP
+            triggered_minutes = alert_day_minute_df[
+                (alert_day_minute_df[close_col] < alert_day_minute_df[vwap_col]) &
+                (alert_day_minute_df[close_col].shift(1) >= alert_day_minute_df[vwap_col].shift(1))
+            ]
+
+            if not triggered_minutes.empty:
+                first_alert_minute = triggered_minutes.iloc[0]
+                alert_time = first_alert_minute.name
+                alert_price = first_alert_minute[close_col]
+                
+                # --- 步骤4: 生成卖出警报记录 ---
+                playbook_name = get_val(exec_params.get('playbook_name'), 'EXIT_INTRADAY_CONFIRMATION')
+                # 找出是哪个日线预备信号触发了本次监控
+                triggered_setup_playbooks = [col.replace('SETUP_', 'PB_') for col in setup_cols if setup_row[col]]
+
+                record = {
+                    "stock_code": stock_code,
+                    "trade_time": alert_time.to_pydatetime(),
+                    "timeframe": minute_tf,
+                    "strategy_name": get_val(exec_params.get('signal_name'), 'INTRADAY_RISK_ALERT'),
+                    "close_price": sanitize_for_json(alert_price),
+                    "entry_signal": False,
+                    "entry_score": 0.0,
+                    "exit_signal_code": get_val(vwap_rule.get('signal_code'), 901),
+                    "exit_severity_level": get_val(vwap_rule.get('severity_level'), 3),
+                    "exit_signal_reason": f"盘中跌破VWAP, 由日线信号 {','.join(triggered_setup_playbooks)} 触发监控",
+                    "triggered_playbooks": list(set(triggered_setup_playbooks + [playbook_name])),
+                    "context_snapshot": sanitize_for_json({'close': alert_price, 'vwap': first_alert_minute[vwap_col]}),
+                }
+                all_alerts.append(record)
+                logger.info(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name}")
+                # 当天只取第一个警报信号
+                continue 
+
+        return all_alerts
+
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         if not daily_records and not intraday_records:
             return daily_records or intraday_records
