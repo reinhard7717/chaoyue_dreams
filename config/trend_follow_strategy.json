@@ -153,24 +153,28 @@
   },
   "exit_strategy_params": {
     "enabled": true,
-    "说明": "【V82.0 净化版】智能出场矩阵。",
+    "说明": "【V91.0 风险剧本版】智能出场矩阵，所有风险评分逻辑已内聚到Python代码的风险剧本中。",
     "upthrust_distribution_params": { 
       "enabled": true, 
-      "说明": "“上攻乏力”信号",
+      "说明": "“上攻乏力”信号的计算参数",
       "overextension_ma_period": 55, 
       "overextension_threshold": 0.3, 
       "upper_shadow_ratio": 0.5, 
       "high_volume_quantile": 0.75 
     },
-    "volume_breakdown_params": { "enabled": true, "support_ma_period": 55, "volume_surge_ratio": 1.8, "main_force_dump_ratio": 0.1 },
-    "divergence_exit_params": { "enabled": true, "lookback_period": 20, "persistence_days": 5, "break_ma_period": 10 },
-    "exit_risk_scoring_matrix": {
-      "RISK_EVENT_STRUCTURE_BREAKDOWN": { "value": 100 },
-      "RISK_EVENT_UPTHRUST_DISTRIBUTION": { "value": 90 },
-      "RISK_STATE_DIVERGENCE_WINDOW": { "value": 50 },
-      "RISK_EVENT_TOP_DIVERGENCE": { "value": 20 },
-      "RISK_STATE_BIAS_OVERBOUGHT": { "value": 25 },
-      "RISK_STATE_RSI_OVERBOUGHT": { "value": 20 }
+    "volume_breakdown_params": { 
+        "enabled": true, 
+        "说明": "“放量跌破”信号的计算参数",
+        "support_ma_period": 55, 
+        "volume_surge_ratio": 1.8, 
+        "main_force_dump_ratio": 0.1 
+    },
+    "divergence_exit_params": { 
+        "enabled": true, 
+        "说明": "“指标背离”信号的计算参数",
+        "lookback_period": 20, 
+        "persistence_days": 5, 
+        "break_ma_period": 10 
     },
     "exit_threshold_params": {
       "CRITICAL": { "level": 120, "code": 99 },

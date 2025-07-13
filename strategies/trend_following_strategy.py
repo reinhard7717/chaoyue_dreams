@@ -31,9 +31,12 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        # ▼▼▼ 在初始化时缓存剧本蓝图 ▼▼▼
+        # ▼▼▼ 初始化时同时缓存入场和风险剧本蓝图 ▼▼▼
         self.playbook_blueprints = self._get_playbook_blueprints()
-        print(f"--- [战术策略 TrendFollowStrategy (V83.0 蓝图与水合架构)] 初始化完成，已缓存 {len(self.playbook_blueprints)} 个剧本蓝图。---")
+        self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
+        print(f"--- [战术策略 TrendFollowStrategy (V91.0 风险剧本架构)] 初始化完成 ---")
+        print(f"    -> 已缓存 {len(self.playbook_blueprints)} 个入场剧本蓝图。")
+        print(f"    -> 已缓存 {len(self.risk_playbook_blueprints)} 个风险剧本蓝图。")
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -281,8 +284,7 @@ class TrendFollowStrategy:
         - 2. 新增 _apply_final_score_adjustments 函数，作为“指挥棒模型”，对原始总分进行质量乘数调整。
         - 3. 最终的交易决策基于调整后的分数 (adjusted_score)。
         """
-        print("\n" + "="*60)
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V80.0】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V91.0】 ======")
         if df is None or df.empty:
             print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
@@ -316,8 +318,8 @@ class TrendFollowStrategy:
             **self._diagnose_board_patterns(df, params)
         }
         # 将风险/机会因子也注入到原子状态中
-        risk_and_opp_factors = self._diagnose_risk_factors(df, params)
-        atomic_states.update(risk_and_opp_factors)
+        risk_factors = self._diagnose_risk_factors(df, params)
+        atomic_states.update(risk_factors)
 
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
         
@@ -342,18 +344,17 @@ class TrendFollowStrategy:
         # 将调整细节合并到总细节中，便于分析
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
         
-        print("--- [总指挥] 步骤5: 智能风险评审与出场决策引擎启动 ---")
-        risk_score = self._calculate_risk_score(df, params, risk_and_opp_factors)
+        # ▼▼▼ 调用全新的、基于剧本的风险评分引擎 ▼▼▼
+        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策引擎启动 ---")
+        risk_score = self._calculate_risk_score(df, params, risk_factors)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
-        # ▼▼▼ 使用调整后的分数进行决策 ▼▼▼
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V80.0】执行完毕 ======")
-        print("="*60 + "\n")
+        print(f"====== 【战术引擎 V91.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -604,6 +605,43 @@ class TrendFollowStrategy:
             },
         ]
 
+    # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
+    def _get_risk_playbook_blueprints(self) -> List[Dict]:
+        """
+        【V91.0 新增】风险剧本蓝图知识库
+        - 职责: 定义所有“风险剧本”的静态属性（名称、家族、基础风险分等）。
+        - 特性: 与入场剧本蓝图对称，实现了离场逻辑的结构化。
+        """
+        return [
+            # --- 价量形态风险 (PRICE_VOLUME_RISK) ---
+            {
+                'name': 'UPTHRUST_DISTRIBUTION', 'cn_name': '【高危】高位放量长上影', 'family': 'PRICE_VOLUME_RISK',
+                'score': 90, 'comment': '经典的顶部派发信号，风险极高。'
+            },
+            # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
+            {
+                'name': 'STRUCTURE_BREAKDOWN', 'cn_name': '【极危】结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 100, 'comment': '跌破关键支撑，趋势可能发生逆转。'
+            },
+            # --- 指标背离与超买风险 (INDICATOR_RISK) ---
+            {
+                'name': 'TOP_DIVERGENCE_WINDOW', 'cn_name': '【预警】顶背离观察窗口', 'family': 'INDICATOR_RISK',
+                'score': 50, 'comment': '价格新高但指标未新高，进入风险观察期。'
+            },
+            {
+                'name': 'TOP_DIVERGENCE_CONFIRMED', 'cn_name': '【中危】顶背离确认', 'family': 'INDICATOR_RISK',
+                'score': 70, 'comment': '在顶背离窗口内出现破位K线，风险升级。'
+            },
+            {
+                'name': 'BIAS_OVERBOUGHT', 'cn_name': '【低危】乖离率超买', 'family': 'INDICATOR_RISK',
+                'score': 25, 'comment': '价格短期涨幅过大，有回调需求。'
+            },
+            {
+                'name': 'RSI_OVERBOUGHT', 'cn_name': '【低危】RSI超买', 'family': 'INDICATOR_RISK',
+                'score': 20, 'comment': '市场情绪过热。'
+            },
+        ]
+
     # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
@@ -700,6 +738,31 @@ class TrendFollowStrategy:
         print(f"    - [剧本水合引擎 V88.0] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
+    # ▼▼▼ 风险剧本的“水合”引擎 ▼▼▼
+    def _get_risk_playbook_definitions(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> List[Dict]:
+        """
+        【V91.0 新增】风险剧本水合引擎
+        - 职责: 接收静态的风险剧本“蓝图”，并用动态计算出的“原子风险因子”进行“水合”。
+        """
+        hydrated_playbooks = deepcopy(self.risk_playbook_blueprints)
+        default_series = pd.Series(False, index=df.index)
+
+        for playbook in hydrated_playbooks:
+            name = playbook['name']
+            # 在这里，我们将原子风险因子作为“触发器”注入到风险剧本中
+            # 这种设计下，风险剧本的 'trigger' 就是一个原子风险信号
+            if name == 'UPTHRUST_DISTRIBUTION':
+                playbook['trigger'] = risk_factors.get('RISK_EVENT_UPTHRUST_DISTRIBUTION', default_series)
+            elif name == 'STRUCTURE_BREAKDOWN':
+                # 预留: playbook['trigger'] = risk_factors.get('RISK_EVENT_STRUCTURE_BREAKDOWN', default_series)
+                pass
+            elif name == 'TOP_DIVERGENCE_WINDOW':
+                # 预留: playbook['trigger'] = risk_factors.get('RISK_STATE_DIVERGENCE_WINDOW', default_series)
+                pass
+            # ... 可以为其他风险剧本添加对应的触发器 ...
+            
+        return hydrated_playbooks
+
     def _calculate_entry_score(
         self, 
         df: pd.DataFrame, 
@@ -716,7 +779,7 @@ class TrendFollowStrategy:
         - 3. 状态记忆隔离: 继承V85.4的逻辑，通过'allow_memory'属性，对不同剧本应用不同的状态检查模式。
         - 这是计分引擎在经历了多次迭代后，达到的逻辑最完备、最符合实战的最终形态。
         """
-        # ▼▼▼【代码修改 V87.0】: 更新版本号和注释 ▼▼▼
+        # ▼▼▼ 更新版本号和注释 ▼▼▼
         print("    - [计分引擎 V87.0 最终版] 启动...")
         
         default_series = pd.Series(False, index=df.index)
@@ -724,7 +787,7 @@ class TrendFollowStrategy:
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
 
-        # ▼▼▼【代码修改 V87.0】: 预计算“近期有左侧信号”的宏观背景 ▼▼▼
+        # ▼▼▼ 预计算“近期有左侧信号”的宏观背景 ▼▼▼
         # 步骤0: 预计算宏观背景，并注入 atomic_states，供水合引擎使用
         temp_reversal_score = pd.Series(0.0, index=df.index)
         # 暂时只考虑“资本逆行者”作为有效的左侧信号源
@@ -866,23 +929,31 @@ class TrendFollowStrategy:
 
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> pd.Series:
         """
-        【V57.0 风险评分引擎】
+        【V91.0 风险剧本版】
+        - 核心升级: 重构为基于“风险剧本”的计分模式，与入场端逻辑对称。
         """
-        print("    - [风险评分引擎 V57.0] 启动，开始量化每日风险...")
-        risk_score = pd.Series(0.0, index=df.index)
-        risk_matrix = self._get_params_block(params, 'exit_risk_scoring_matrix', {})
-        if not risk_matrix:
-            print("      -> [警告] 未找到风险评分矩阵，风险分数为0。")
-            return risk_score
-        for factor_name, points in risk_matrix.items():
-            factor_signal = risk_factors.get(factor_name, pd.Series(False, index=df.index))
-            if factor_signal.any():
-                score_to_add = self._get_param_value(points, 0)
-                risk_score.loc[factor_signal] += score_to_add
-                print(f"      -> 风险因子 '{factor_name}' 触发，风险分 +{score_to_add}")
-        df['risk_score'] = risk_score
-        print(f"    - [风险评分引擎 V57.0] 风险评分完成，最高风险分: {risk_score.max():.0f}")
-        return risk_score
+        print("    - [风险评分引擎 V91.0 剧本版] 启动，开始量化每日风险...")
+        
+        # 步骤1: 水合风险剧本
+        risk_playbooks = self._get_risk_playbook_definitions(df, params, risk_factors)
+        
+        # 步骤2: 遍历所有水合后的风险剧本，计算总风险分
+        total_risk_score = pd.Series(0.0, index=df.index)
+        default_series = pd.Series(False, index=df.index)
+
+        print("      -> 开始评估所有风险剧本...")
+        for playbook in risk_playbooks:
+            trigger_mask = playbook.get('trigger', default_series)
+            
+            if trigger_mask.any():
+                score = playbook.get('score', 0)
+                cn_name = playbook.get('cn_name', playbook['name'])
+                total_risk_score.loc[trigger_mask] += score
+                print(f"        -> 风险剧本 '{cn_name}' 触发，在 {trigger_mask.sum()} 天风险分 +{score}")
+
+        df['risk_score'] = total_risk_score
+        print(f"    - [风险评分引擎 V91.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
+        return total_risk_score
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
