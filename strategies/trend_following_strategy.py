@@ -41,27 +41,24 @@ class TrendFollowStrategy:
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
         """
-        【V62.0 新增】一个用于增强调试日志的辅助函数。
-        - 功能: 从一个布尔型的Series中提取为True的日期，并格式化为字符串。
-        - 特性: 当日期过多时，会自动截断并显示总数，避免日志刷屏。
+        【V92.1 修复版】
+        - 核心修复: 恢复了显示具体日期的能力，对调试至关重要。
+        - 特性: 当日期不多时全部显示；日期过多时，显示最近的N个并附上总数。
         """
         if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:
             return ""
         
-        start_date_filter = pd.to_datetime('2025-03-01', utc=True) # 修正后的代码
-        active_dates = signal_series[signal_series & (signal_series.index >= start_date_filter)].index
+        active_dates = signal_series.index[signal_series]
         count = len(active_dates)
         
         if count == 0:
             return ""
             
-        # 将日期格式化为 'YYYY-MM-DD'
         date_strings = [d.strftime('%Y-%m-%d') for d in active_dates]
         
         if count > display_limit:
-            # 如果日期太多，只显示前N个并附上总数
-            # return f" -> 日期: {date_strings[:display_limit]}... (共 {count} 天)"
-            return f" -> 日期: {date_strings[-display_limit:]}... (共 {count} 天)"
+            # 如果日期太多，只显示最近的N个并附上总数
+            return f" -> 日期: [...{date_strings[-display_limit:]}] (共 {count} 天)"
         else:
             # 否则全部显示
             return f" -> 日期: {date_strings}"
@@ -962,36 +959,34 @@ class TrendFollowStrategy:
     # ▼▼▼ 风险剧本探针函数 ▼▼▼
     def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
         """
-        【V92.0 新增】风险剧本探针
-        - 职责: 打印详细的每日风险构成，解释风险分的来源。
+        【V92.1 修复版】
+        - 核心修复: 修正了探针的默认起始日期，确保能覆盖整个回测周期。
         """
         print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
         
-        # 从调试参数中获取探针的起始日期
         debug_params = self._get_params_block(params, 'debug_params', {})
-        probe_start_date = self._get_param_value(debug_params.get('probe_start_date'), '2025-06-01')
+        # 优先使用配置的探针日期，如果未配置，则从总风险分的第一个非零日期开始
+        probe_start_date_config = self._get_param_value(debug_params.get('probe_start_date'))
         
-        # 筛选出有风险分的日期
         key_dates = total_risk_score.index[total_risk_score > 0]
-        key_dates = key_dates[key_dates >= probe_start_date]
+
+        if probe_start_date_config:
+             key_dates = key_dates[key_dates >= probe_start_date_config]
 
         if key_dates.empty:
             print("    -> 在指定探针期间内，未发现任何已触发的风险剧本。")
         else:
-            # 获取风险剧本的中文名映射
             risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
             
+            print(f"    -> 发现 {len(key_dates)} 个风险日，详情如下:")
             for date in key_dates:
                 total_score = total_risk_score.loc[date]
-                print(f"{date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
+                print(f"    {date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
                 
-                # 获取当天所有被触发的风险剧本及其得分
                 triggered_playbooks = risk_details_df.loc[date][risk_details_df.loc[date] > 0]
                 for name, score in triggered_playbooks.items():
                     cn_name = risk_playbook_cn_map.get(name, name)
-                    print(f"             -> 触发: '{cn_name}', 风险分 +{score:.0f}")
-        
-        print("="*60)
+                    print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
