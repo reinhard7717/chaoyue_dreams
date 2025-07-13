@@ -563,7 +563,7 @@ class TrendFollowStrategy:
           2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
              使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
         """
-        print("    - [剧本水合引擎 V85.1 右侧增强与结构优化版] 启动...")
+        print("    - [剧本水合引擎 V85.2 蓝图修正版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
