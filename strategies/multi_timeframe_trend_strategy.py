@@ -258,14 +258,8 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_risk_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V104 终局 · 执行版】
-        - 核心革命: 将旧的通用止盈引擎，替换为针对“冲高回落”结构的分钟级实时风险预警引擎。
-        - 工作流程:
-          1. 检查日线分析结果（self.daily_analysis_df）是否存在。
-          2. 从日线结果中，识别出所有“冲高日”(Upthrust Day)。
-          3. 在其后的“戒备日”中，监控分钟线数据。
-          4. 将日线级别的确认条件，“翻译”成实时价格的触发条件。
-          5. 在条件满足的第一分钟，生成并返回高优先级警报。
+        【V104.1 终局 · 对齐版】
+        - 核心修复: 修正了对基础分钟周期列名的引用方式，使其与数据层的命名规范（无后缀）完全对齐，解决KeyError。
         """
         # --- 步骤0: 加载参数并进行前置检查 ---
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
@@ -280,7 +274,7 @@ class MultiTimeframeTrendStrategy:
         p_attack = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
         lookback_period = self.tactical_engine._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
         
-        daily_df = self.daily_analysis_df # 使用已缓存的日线分析结果
+        daily_df = self.daily_analysis_df
         is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
         
         upthrust_days_df = daily_df[is_upthrust_day]
@@ -292,7 +286,6 @@ class MultiTimeframeTrendStrategy:
 
         alerts = []
         # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
-        # 假设分钟线周期为5分钟，如果需要其他周期，可以参数化
         minute_tf = '5' 
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
@@ -307,7 +300,8 @@ class MultiTimeframeTrendStrategy:
                 continue
 
             # --- 步骤3: 准备实时触发的阈值 ---
-            alert_day_open = alert_day_minute_df.iloc[0][f'open_{minute_tf}']
+            # 修正: 基础分钟周期的列名没有后缀，直接使用 'open'
+            alert_day_open = alert_day_minute_df.iloc[0]['open']
             upthrust_day_open = upthrust_row['open_D']
 
             logger.info(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
@@ -315,23 +309,23 @@ class MultiTimeframeTrendStrategy:
             logger.info(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
 
             # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
+            # 修正: 基础分钟周期的列名没有后缀，直接使用 'close'
             triggered_minutes = alert_day_minute_df[
-                (alert_day_minute_df[f'close_{minute_tf}'] < alert_day_open) &
-                (alert_day_minute_df[f'close_{minute_tf}'] < upthrust_day_open)
+                (alert_day_minute_df['close'] < alert_day_open) &
+                (alert_day_minute_df['close'] < upthrust_day_open)
             ]
 
             if not triggered_minutes.empty:
                 first_alert_minute = triggered_minutes.iloc[0]
                 alert_time = first_alert_minute.name
-                alert_price = first_alert_minute[f'close_{minute_tf}']
+                # 修正: 基础分钟周期的列名没有后缀，直接使用 'close'
+                alert_price = first_alert_minute['close']
                 
-                # 使用 _prepare_intraday_db_record 来格式化记录
                 record = self._prepare_intraday_db_record(stock_code, alert_time, first_alert_minute, exec_params)
                 
-                # 填充风险警报的特定字段
                 record['entry_signal'] = False
-                record['exit_signal_code'] = 103 # 使用一个独特的代码代表此警报
-                record['exit_severity_level'] = 3 # 最高级别警报
+                record['exit_signal_code'] = 103
+                record['exit_severity_level'] = 3
                 record['exit_signal_reason'] = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
                 record['triggered_playbooks'] = ["EXIT_UPTHRUST_REJECTION"]
                 
