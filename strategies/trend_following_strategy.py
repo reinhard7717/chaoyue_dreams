@@ -567,7 +567,7 @@ class TrendFollowStrategy:
           2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
              使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
         """
-        print("    - [剧本水合引擎 V86.0 尖刀连版] 启动...")
+        print("    - [剧本水合引擎 V87.0 最终版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
@@ -589,6 +589,7 @@ class TrendFollowStrategy:
         setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
         setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
+        recent_reversal_context = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         
         # 动态布尔条件
         atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
@@ -618,9 +619,9 @@ class TrendFollowStrategy:
                 playbook['setup'] = score_bottoming_process > 50
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
             elif name == 'TREND_EMERGENCE_B_PLUS':
-                # Setup条件: 处于资本底背离后的观察窗口期内，并且短期均线已经上穿中期均线
-                playbook['setup'] = capital_divergence_window & ma_short_cross_mid
-                # Trigger条件: 任何一个温和的趋势延续K线
+                # Setup条件: 处于“近期有左侧信号”的宏观背景下，并且短期均线已经走好
+                playbook['setup'] = recent_reversal_context & ma_short_cross_mid
+                # Trigger条件: 温和的趋势延续K线
                 playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
                 playbook['setup_score_series'] = score_deep_accum
@@ -647,7 +648,7 @@ class TrendFollowStrategy:
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
-        print(f"    - [剧本水合引擎 V86.0] 完成，所有剧本已注入动态数据。")
+        print(f"    - [剧本水合引擎 V87.0] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -659,20 +660,36 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V79.0 家族继承引擎版】
-        - 核心革命: 实现“胜者为王，败者为辅”的家族继承范式，这是逻辑的最终形态。
-        - 1. 基础分竞价: 家族内剧本仅凭 base_score 竞争“主剧本”地位。
-        - 2. 家族加分池: 所有被触发的剧本，无论胜败，其所有加分项都被汇入“家族加分池”。
-        - 3. 最终得分 = 主剧本的base_score + 家族加分池总和。
-        - 这既避免了基础分的重复计算，又聚合了所有有价值的信号，讲述了最完整的故事。
+        【V87.0 最终版】
+        - 核心革命: 引入“宏观背景”预计算，并为“尖刀连”剧本豁免side检查，彻底解决“交接盲区”问题。
+        - 1. 预计算宏观背景: 在计分前，预先计算 'CONTEXT_RECENT_REVERSAL_SIGNAL' 状态，为“右侧萌芽”剧本提供正确的战场判断依据。
+        - 2. 豁免Side检查: 为“右侧萌芽”剧本特许在55日均线下方作战的权力，使其能真正填补战术真空。
+        - 3. 状态记忆隔离: 继承V85.4的逻辑，通过'allow_memory'属性，对不同剧本应用不同的状态检查模式。
+        - 这是计分引擎在经历了多次迭代后，达到的逻辑最完备、最符合实战的最终形态。
         """
-        print("    - [计分引擎 V85.3 状态记忆版] 启动...")
+        # ▼▼▼【代码修改 V87.0】: 更新版本号和注释 ▼▼▼
+        print("    - [计分引擎 V87.0 最终版] 启动...")
         
-        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         default_series = pd.Series(False, index=df.index)
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
+
+        # ▼▼▼【代码修改 V87.0】: 预计算“近期有左侧信号”的宏观背景 ▼▼▼
+        # 步骤0: 预计算宏观背景，并注入 atomic_states，供水合引擎使用
+        temp_reversal_score = pd.Series(0.0, index=df.index)
+        # 暂时只考虑“资本逆行者”作为有效的左侧信号源
+        reversal_setup = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        reversal_trigger = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+        temp_reversal_score[reversal_setup & reversal_trigger] = 230 # 给予一个基础分
+        
+        # 如果近期（context_window内）出现过得分 > 200 的左侧信号，则认为背景成立
+        had_recent_reversal = temp_reversal_score.rolling(window=context_window, min_periods=1).max() > 200
+        atomic_states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
+        print(f"      -> 宏观背景'近期有左侧信号'诊断完成，共激活 {had_recent_reversal.sum()} 天。")
+        # ▲▲▲【代码修改 V87.0】▲▲▲
+
+        playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         
         # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
         print("      -> 步骤1: 向量化预计算所有基础分和加分项...")
@@ -682,18 +699,23 @@ class TrendFollowStrategy:
         for playbook in playbook_definitions:
             name = playbook['name']
             rules = playbook.get('scoring_rules', {})
+            playbook_type = playbook.get('type')
             
             # 通用过滤器
             trigger_mask = playbook.get('trigger', default_series)
-            side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
-            valid_mask = trigger_mask & side_mask
+            
+            # ▼▼▼ 为“尖刀连”豁免side检查 ▼▼▼
+            # 核心修正：对于“右侧萌芽”剧本，我们不检查side_mask，因为它被特许在55均线下作战
+            if name == 'TREND_EMERGENCE_B_PLUS':
+                side_mask = pd.Series(True, index=df.index)
+            else:
+                side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
 
-            # ▼▼▼ 为 'setup' 类型剧本增加当天有效性检查 ▼▼▼
             setup_mask = pd.Series(True, index=df.index) # 默认为True
-            if playbook.get('type') == 'setup':
+            if playbook_type == 'setup':
+                # 对于 setup 类型，它的 setup 条件已经在水合时被计算好了
                 setup_mask = playbook.get('setup', default_series)
-            # ▼▼▼ 为 setup_score 的检查注入“记忆” ▼▼▼
-            elif playbook.get('type') == 'setup_score':
+            elif playbook_type == 'setup_score':
                 min_score_req = rules.get('min_setup_score_to_trigger', 0)
                 if min_score_req > 0:
                     setup_score_series = playbook.get('setup_score_series', default_series)
@@ -705,6 +727,7 @@ class TrendFollowStrategy:
                     else:
                         # 对于不允许记忆的剧本（如投降坑），只检查当天分数
                         setup_mask = setup_score_series >= min_score_req
+            
             valid_mask = trigger_mask & side_mask & setup_mask
 
             # 计算基础分 (只在有效时才有分)
@@ -721,7 +744,7 @@ class TrendFollowStrategy:
                 
                 # 针对 setup_score 的特殊乘数加成
                 setup_multiplier_bonus = pd.Series(0.0, index=df.index)
-                if playbook.get('type') == 'setup_score':
+                if playbook_type == 'setup_score':
                     setup_score_series = playbook.get('setup_score_series', default_series)
                     max_setup_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
                     multiplier = rules.get('score_multiplier', 1.0)
@@ -788,7 +811,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V85.3] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V87.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
