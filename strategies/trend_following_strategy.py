@@ -113,91 +113,111 @@ class TrendFollowStrategy:
         return df
 
     # 波段跟踪模拟器
-    def simulate_wave_tracking(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    def simulate_wave_tracking(self, df: pd.DataFrame, params: dict, start_date: str = '2025-05-01') -> pd.DataFrame:
         """
-        【V85.0 新增】波段跟踪模拟器
-        - 核心功能: 将无状态的每日信号，转换为有状态的持仓管理和交易生命周期模拟。
-        - 实现了分层的减仓与清仓逻辑，是策略从“信号生成”到“实战模拟”的关键一步。
+        【V85.2 绩效报告与区间控制版】
+        - 核心升级 1 (区间控制): 新增 start_date 参数，允许从指定日期开始回测和报告，聚焦关键时期。
+        - 核心升级 2 (绩效报告): 引入完整的绩效统计，在回测结束后生成包含总盈亏、胜率、交易次数等核心指标的最终报告。
         """
-        print("====== 开始执行【波段跟踪模拟器 V85.1 期末报告版】 ======")
+        # ▼▼▼【代码修改 V85.2】: 根据 start_date 过滤数据 ▼▼▼
+        if start_date:
+            df = df.loc[start_date:].copy()
+            if df.empty:
+                print(f"    - [警告] 在指定的开始日期 {start_date} 之后没有数据，波段跟踪模拟器跳过。")
+                return df
         
-        # --- 1. 从JSON配置中加载波段跟踪参数 ---
+        print("\n" + "="*60)
+        print(f"====== 开始执行【波段跟踪模拟器 V85.2】(回测始于: {df.index[0].date()}) ======")
+        
+        # --- 1. 参数加载 ---
         tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
         if not self._get_param_value(tracking_params.get('enabled'), False):
             print("    - [信息] 波段跟踪模拟器被禁用，跳过。")
             return df
-
         profit_target_partial = self._get_param_value(tracking_params.get('profit_target_partial'), 0.30)
         trailing_stop_pct = self._get_param_value(tracking_params.get('trailing_stop_pct'), 0.15)
         exit_code_partial = self._get_param_value(tracking_params.get('exit_code_partial'), 77)
         exit_code_full = self._get_param_value(tracking_params.get('exit_code_full'), 99)
         life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
         life_line_ma_col = f'EMA_{life_line_ma_period}_D'
-
         print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
         print(f"    - 清仓规则: 风险码 == {exit_code_full} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
-
-        # --- 2. 初始化状态列和变量 ---
-        df['position_status'] = 0.0  # 0: 无仓位, 0.5: 半仓, 1.0: 满仓
-        df['trade_action'] = ''      # 'ENTRY', 'PARTIAL_EXIT', 'FULL_EXIT'
         
+        # --- 2. 初始化状态列和变量 ---
+        df['position_status'] = 0.0
+        df['trade_action'] = ''
         in_position = False
         position_size = 0.0
         entry_price = 0.0
+        entry_date = None
         highest_price_since_entry = 0.0
         partial_exit_done = False
 
+        # ▼▼▼【代码修改 V85.2】: 初始化绩效统计变量 ▼▼▼
+        total_trades = 0
+        winning_trades = 0
+        total_pnl = 1.0  # 使用乘法累积总盈亏，初始为1
+        trade_details = [] # 记录每一笔交易详情
+        # ▲▲▲【代码修改 V85.2】▲▲▲
+
         # --- 3. 逐日迭代，模拟交易状态机 ---
-        # 使用 .itertuples() 以获得更好的性能
         for row in df.itertuples():
             current_date = row.Index
             
-            # 状态机核心逻辑
             if not in_position:
-                # 检查入场信号
                 if row.signal_entry:
                     in_position = True
                     position_size = 1.0
                     entry_price = row.close_D
+                    entry_date = current_date
                     highest_price_since_entry = row.close_D
                     partial_exit_done = False
-                    
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'ENTRY'
                     print(f"      -> {current_date.date()}: [入场] 价格: {entry_price:.2f}, 仓位: {position_size*100}%")
             
             else: # 如果在持仓中
-                # 3.1 更新波段最高价
                 highest_price_since_entry = max(highest_price_since_entry, row.high_D)
-                
-                # 3.2 定义清仓/减仓的理由
                 exit_reason = ""
-                
-                # 3.3 检查清仓条件 (优先级最高)
                 should_full_exit = False
+                exit_price = row.close_D # 默认退出价格为当天收盘价
+
                 if row.exit_signal_code == exit_code_full:
                     should_full_exit = True
                     exit_reason = f"高危风险码({exit_code_full})"
                 elif row.close_D < highest_price_since_entry * (1 - trailing_stop_pct):
                     should_full_exit = True
                     exit_reason = f"移动止损(最高价{highest_price_since_entry:.2f}, 回撤>{trailing_stop_pct*100}%)"
+                    # 移动止损的触发价格更精确
+                    exit_price = highest_price_since_entry * (1 - trailing_stop_pct)
                 elif partial_exit_done and row.close_D < getattr(row, life_line_ma_col, float('inf')):
-                    # 只有在减仓后，生命线失守才作为清仓条件
                     should_full_exit = True
                     exit_reason = f"失守生命线({life_line_ma_col})"
 
                 if should_full_exit:
+                    # ▼▼▼【代码修改 V85.2】: 在清仓时进行绩效统计 ▼▼▼
+                    pnl_ratio = (exit_price / entry_price) - 1
+                    total_pnl *= (1 + pnl_ratio)
+                    total_trades += 1
+                    if pnl_ratio > 0:
+                        winning_trades += 1
+                    
+                    trade_details.append({
+                        "entry_date": entry_date.date(), "exit_date": current_date.date(),
+                        "entry_price": entry_price, "exit_price": exit_price,
+                        "pnl_ratio": pnl_ratio, "reason": exit_reason
+                    })
+                    # ▲▲▲【代码修改 V85.2】▲▲▲
+
                     in_position = False
                     position_size = 0.0
-                    
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'FULL_EXIT'
-                    print(f"      -> {current_date.date()}: [清仓] 价格: {row.close_D:.2f}, 原因: {exit_reason}")
-                    continue # 当天清仓后，不再执行减仓逻辑
+                    print(f"      -> {current_date.date()}: [清仓] 价格: {exit_price:.2f}, 原因: {exit_reason}, 本次盈亏: {pnl_ratio*100:.2f}%")
+                    continue
 
-                # 3.4 检查减仓条件 (如果未清仓)
                 should_partial_exit = False
-                if not partial_exit_done: # 确保只减仓一次
+                if not partial_exit_done:
                     if row.close_D > entry_price * (1 + profit_target_partial):
                         should_partial_exit = True
                         exit_reason = f"目标利润(>{profit_target_partial*100}%)达成"
@@ -208,27 +228,49 @@ class TrendFollowStrategy:
                 if should_partial_exit:
                     position_size = 0.5
                     partial_exit_done = True
-                    
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'PARTIAL_EXIT'
                     print(f"      -> {current_date.date()}: [减仓] 价格: {row.close_D:.2f}, 仓位降至50%, 原因: {exit_reason}")
 
-                # 3.5 如果当天无操作，则继承前一天的仓位状态
                 if not should_full_exit and not should_partial_exit:
                     df.loc[current_date, 'position_status'] = position_size
-
-        # --- 4. 填充未持仓期间的仓位状态 ---
+        
         df['position_status'] = df['position_status'].ffill().fillna(0)
+        
+        # --- 4. 最终回测绩效报告 ---
+        print("\n" + "-"*25 + " 最终回测绩效报告 " + "-"*25)
+        
+        if total_trades > 0:
+            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+            final_total_pnl_percent = (total_pnl - 1) * 100
+            
+            print(f"    - 回测区间: {df.index[0].date()} to {df.index[-1].date()}")
+            print(f"    - 总交易次数: {total_trades}")
+            print(f"    - 胜率: {win_rate:.2f}% ({winning_trades}次盈利 / {total_trades - winning_trades}次亏损)")
+            print(f"    - 总盈亏比例: {final_total_pnl_percent:.2f}%")
+            
+            # 计算更详细的指标
+            pnl_ratios = [t['pnl_ratio'] for t in trade_details]
+            avg_win = np.mean([p for p in pnl_ratios if p > 0]) * 100 if winning_trades > 0 else 0
+            avg_loss = np.mean([p for p in pnl_ratios if p <= 0]) * 100 if (total_trades - winning_trades) > 0 else 0
+            profit_factor = abs(sum(p for p in pnl_ratios if p > 0) / sum(p for p in pnl_ratios if p <= 0)) if sum(p for p in pnl_ratios if p <= 0) != 0 else float('inf')
+            
+            print(f"    - 平均盈利: {avg_win:.2f}% | 平均亏损: {avg_loss:.2f}%")
+            print(f"    - 盈亏比 (Profit Factor): {profit_factor:.2f}")
+        else:
+            print("    - 在指定的回测区间内没有完成的交易。")
 
         if in_position:
             last_row = df.iloc[-1]
             current_pnl = (last_row.close_D / entry_price - 1) * 100
-            print(f"      -> [期末报告] 回测结束时，仍有持仓：")
-            print(f"         - 入场价格: {entry_price:.2f}")
-            print(f"         - 当前仓位: {position_size*100}%")
-            print(f"         - 当前浮动盈亏: {current_pnl:.2f}%")
+            print("\n" + "-"*28 + " 期末持仓报告 " + "-"*28)
+            print(f"    - 回测结束时，仍有持仓：")
+            print(f"    - 入场日期: {entry_date.date()} | 入场价格: {entry_price:.2f}")
+            print(f"    - 当前仓位: {position_size*100}%")
+            print(f"    - 当前浮动盈亏: {current_pnl:.2f}%")
         
-        print("====== 【波段跟踪模拟器 V85.1】执行完毕 ======")
+        print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======")
+        print("="*60 + "\n")
         return df
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
