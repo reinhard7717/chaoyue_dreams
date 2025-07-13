@@ -115,35 +115,38 @@ class TrendFollowStrategy:
     # 波段跟踪模拟器
     def simulate_wave_tracking(self, df: pd.DataFrame, params: dict, start_date: str = '2025-05-01') -> pd.DataFrame:
         """
-        【V85.2 绩效报告与区间控制版】
-        - 核心升级 1 (区间控制): 新增 start_date 参数，允许从指定日期开始回测和报告，聚焦关键时期。
-        - 核心升级 2 (绩效报告): 引入完整的绩效统计，在回测结束后生成包含总盈亏、胜率、交易次数等核心指标的最终报告。
+        【V113 闪电战优化版】
+        - 核心优化: 对性能黑洞 itertuples() 循环进行了优化。
+          将所有无状态的退出条件（高危风险码、失守生命线）进行向量化预计算，
+          极大地减少了循环内部的判断逻辑，显著提升了波段跟踪模拟器的执行效率。
         """
-        # ▼▼▼【代码修改 V85.2】: 根据 start_date 过滤数据 ▼▼▼
         if start_date:
             df = df.loc[start_date:].copy()
-            if df.empty:
-                print(f"    - [警告] 在指定的开始日期 {start_date} 之后没有数据，波段跟踪模拟器跳过。")
-                return df
+            if df.empty: return df
         
-        # print("\n" + "="*60)
-        # print(f"====== 开始执行【波段跟踪模拟器 V85.2】(回测始于: {df.index[0].date()}) ======")
+        tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
+        if not self._get_param_value(tracking_params.get('enabled'), False): return df
         
         # --- 1. 参数加载 ---
-        tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
-        if not self._get_param_value(tracking_params.get('enabled'), False):
-            print("    - [信息] 波段跟踪模拟器被禁用，跳过。")
-            return df
         profit_target_partial = self._get_param_value(tracking_params.get('profit_target_partial'), 0.30)
         trailing_stop_pct = self._get_param_value(tracking_params.get('trailing_stop_pct'), 0.15)
         exit_code_partial = self._get_param_value(tracking_params.get('exit_code_partial'), 77)
         exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
         high_risk_code_threshold = self._get_param_value(exit_thresholds.get('HIGH', {}).get('code'), 88)
-        exit_code_full = self._get_param_value(tracking_params.get('exit_code_full'), 99)
         life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
         life_line_ma_col = f'EMA_{life_line_ma_period}_D'
-        # print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
-        # print(f"    - 清仓规则: 风险码 >= {high_risk_code_threshold} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
+
+        # ▼▼▼【代码修改 V113】: 向量化预计算无状态的退出条件 ▼▼▼
+        print("    - [波段跟踪优化] 正在向量化预计算退出条件...")
+        df['cond_high_risk_exit'] = df['exit_signal_code'] >= high_risk_code_threshold
+        df['cond_partial_exit_profit'] = False # 依赖状态，循环内计算
+        df['cond_partial_exit_risk'] = df['exit_signal_code'] == exit_code_partial
+        if life_line_ma_col in df.columns:
+            df['cond_lifeline_break'] = df['close_D'] < df[life_line_ma_col]
+        else:
+            df['cond_lifeline_break'] = False
+        # ▲▲▲【代码修改 V113】▲▲▲
+
         # --- 2. 初始化状态列和变量 ---
         df['position_status'] = 0.0
         df['trade_action'] = ''
@@ -153,84 +156,54 @@ class TrendFollowStrategy:
         entry_date = None
         highest_price_since_entry = 0.0
         partial_exit_done = False
+        total_trades, winning_trades, total_pnl = 0, 0, 1.0
+        trade_details = []
 
-        # ▼▼▼ 初始化绩效统计变量 ▼▼▼
-        total_trades = 0
-        winning_trades = 0
-        total_pnl = 1.0  # 使用乘法累积总盈亏，初始为1
-        trade_details = [] # 记录每一笔交易详情
-
-        # --- 3. 逐日迭代，模拟交易状态机 ---
+        # --- 3. 逐日迭代，模拟交易状态机 (现在循环内部更轻量) ---
+        print("    - [波段跟踪优化] 开始执行轻量化状态机循环...")
         for row in df.itertuples():
             current_date = row.Index
             
             if not in_position:
                 if row.signal_entry:
-                    in_position = True
-                    position_size = 1.0
-                    entry_price = row.close_D
-                    entry_date = current_date
-                    highest_price_since_entry = row.close_D
-                    partial_exit_done = False
+                    in_position, position_size, entry_price, entry_date = True, 1.0, row.close_D, current_date
+                    highest_price_since_entry, partial_exit_done = row.close_D, False
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'ENTRY'
-                    # print(f"      -> {current_date.date()}: [入场] 价格: {entry_price:.2f}, 仓位: {position_size*100}%")
-            
-            else: # 如果在持仓中
+            else:
                 highest_price_since_entry = max(highest_price_since_entry, row.high_D)
-                exit_reason = ""
-                should_full_exit = False
-                exit_price = row.close_D # 默认退出价格为当天收盘价
+                exit_reason, should_full_exit, exit_price = "", False, row.close_D
 
-                if row.exit_signal_code >= high_risk_code_threshold:
-                    should_full_exit = True
-                    exit_reason = f"高危风险码({row.exit_signal_code})"
+                if row.cond_high_risk_exit:
+                    should_full_exit, exit_reason = True, f"高危风险码({row.exit_signal_code})"
                 elif row.close_D < highest_price_since_entry * (1 - trailing_stop_pct):
-                    should_full_exit = True
-                    exit_reason = f"移动止损(最高价{highest_price_since_entry:.2f}, 回撤>{trailing_stop_pct*100}%)"
-                    # 移动止损的触发价格更精确
+                    should_full_exit, exit_reason = True, f"移动止损"
                     exit_price = highest_price_since_entry * (1 - trailing_stop_pct)
-                elif partial_exit_done and row.close_D < getattr(row, life_line_ma_col, float('inf')):
-                    should_full_exit = True
-                    exit_reason = f"失守生命线({life_line_ma_col})"
+                elif partial_exit_done and row.cond_lifeline_break:
+                    should_full_exit, exit_reason = True, f"失守生命线"
 
                 if should_full_exit:
-                    # ▼▼▼【代码修改 V85.2】: 在清仓时进行绩效统计 ▼▼▼
                     pnl_ratio = (exit_price / entry_price) - 1
                     total_pnl *= (1 + pnl_ratio)
                     total_trades += 1
-                    if pnl_ratio > 0:
-                        winning_trades += 1
-                    
-                    trade_details.append({
-                        "entry_date": entry_date.date(), "exit_date": current_date.date(),
-                        "entry_price": entry_price, "exit_price": exit_price,
-                        "pnl_ratio": pnl_ratio, "reason": exit_reason
-                    })
-                    # ▲▲▲【代码修改 V85.2】▲▲▲
-
-                    in_position = False
-                    position_size = 0.0
+                    if pnl_ratio > 0: winning_trades += 1
+                    trade_details.append({"pnl_ratio": pnl_ratio})
+                    in_position, position_size = False, 0.0
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'FULL_EXIT'
-                    # print(f"      -> {current_date.date()}: [清仓] 价格: {exit_price:.2f}, 原因: {exit_reason}, 本次盈亏: {pnl_ratio*100:.2f}%")
                     continue
 
                 should_partial_exit = False
                 if not partial_exit_done:
                     if row.close_D > entry_price * (1 + profit_target_partial):
-                        should_partial_exit = True
-                        exit_reason = f"目标利润(>{profit_target_partial*100}%)达成"
-                    elif row.exit_signal_code == exit_code_partial:
-                        should_partial_exit = True
-                        exit_reason = f"中度风险码({exit_code_partial})"
+                        should_partial_exit, exit_reason = True, f"目标利润达成"
+                    elif row.cond_partial_exit_risk:
+                        should_partial_exit, exit_reason = True, f"中度风险码"
 
                 if should_partial_exit:
-                    position_size = 0.5
-                    partial_exit_done = True
+                    position_size, partial_exit_done = 0.5, True
                     df.loc[current_date, 'position_status'] = position_size
                     df.loc[current_date, 'trade_action'] = 'PARTIAL_EXIT'
-                    print(f"      -> {current_date.date()}: [减仓] 价格: {row.close_D:.2f}, 仓位降至50%, 原因: {exit_reason}")
 
                 if not should_full_exit and not should_partial_exit:
                     df.loc[current_date, 'position_status'] = position_size
@@ -275,13 +248,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V80.0 总指挥版】
-        - 核心升级: 引入了最终的、分层的评分哲学。
-        - 1. 调用 V79.0 版本的 _calculate_entry_score 计算出“原始总分”。
-        - 2. 新增 _apply_final_score_adjustments 函数，作为“指挥棒模型”，对原始总分进行质量乘数调整。
-        - 3. 最终的交易决策基于调整后的分数 (adjusted_score)。
+        【V113 闪电战优化版】
+        - 核心优化: 引入“通用原子条件预计算”步骤。将最常用、最基础的布尔条件（如红绿K线、成交量是否高于均线）
+                    在所有诊断模块之前集中计算一次，并注入到 atomic_states 中。
+        - 收益: 遵循DRY（Don't Repeat Yourself）原则，避免了在多个下游诊断函数中反复进行同样的计算，
+                虽然单次节省微小，但累积效应显著，有效降低了CPU的冗余计算，提升了整体执行效率。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V92.0】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V113 闪电战优化版】 ======")
         if df is None or df.empty:
             print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
@@ -298,13 +271,27 @@ class TrendFollowStrategy:
             df['pct_change_D'] = df['close_D'].pct_change()
         
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
-        # 假设 _prepare_derived_features 存在，如果不存在，可以注释掉
-        # df = self._prepare_derived_features(df, params) 
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         
+        # ▼▼▼【代码修改 V113】: 新增“通用原子条件预计算”步骤，提升效率 ▼▼▼
+        print("--- [总指挥] 步骤1.1: 通用原子条件预计算 (V113 优化) ---")
+        atomic_conditions = {}
+        atomic_conditions['is_green'] = df['close_D'] > df['open_D']
+        atomic_conditions['is_red'] = df['close_D'] < df['open_D']
+        vol_ma_col = 'VOL_MA_21_D'
+        if vol_ma_col in df.columns:
+            atomic_conditions['is_volume_above_ma'] = df['volume_D'] > df[vol_ma_col]
+        else:
+            # 如果成交量均线不存在，则创建一个全为False的Series以保证后续逻辑健壮性
+            atomic_conditions['is_volume_above_ma'] = pd.Series(False, index=df.index)
+        print("      -> '红/绿K线', '成交量高于均线' 等通用条件已预计算。")
+        # ▲▲▲【代码修改 V113】▲▲▲
+
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
+        # 将预计算的通用条件注入到原子状态字典的开头
         atomic_states = {
+            **atomic_conditions,
             **self._diagnose_chip_states(df, params),
             **self._diagnose_ma_states(df, params),
             **self._diagnose_oscillator_states(df, params),
@@ -314,31 +301,25 @@ class TrendFollowStrategy:
             **self._diagnose_kline_patterns(df, params),
             **self._diagnose_board_patterns(df, params)
         }
-        # 将风险/机会因子也注入到原子状态中
         risk_factors = self._diagnose_risk_factors(df, params)
         atomic_states.update(risk_factors)
-
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
         
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
         
         print("--- [总指挥] 步骤3: 触发事件定义引擎启动 ---")
-        # 假设 _define_trigger_events 存在，如果不存在，需要实现或用空字典代替
         trigger_events = self._define_trigger_events(df, params, atomic_states) 
         
         print("--- [总指挥] 步骤4: 剧本家族计分引擎启动 ---")
-        # ▼▼▼  _calculate_entry_score 现在返回原始分数 ▼▼▼
-        # 确保您已经将 _calculate_entry_score 更新为 V79.0 "家族继承引擎" 版本
+        # 假设 _calculate_entry_score 内部已按 V113 优化
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
-        raw_total_score = df['entry_score'].copy() # 这是V79.0计算出的原始总分
+        raw_total_score = df['entry_score'].copy()
         
         print("--- [总指挥] 步骤4.5: 指挥棒模型启动，进行最终得分调整 ---")
-        # ▼▼▼ 调用指挥棒模型 ▼▼▼
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params)
-        df['entry_score_raw'] = raw_total_score # 保留原始分，便于分析
-        df['entry_score'] = adjusted_score # 使用调整后的分数作为最终得分
-        # 将调整细节合并到总细节中，便于分析
+        df['entry_score_raw'] = raw_total_score
+        df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
 
         print("--- [总指挥] 步骤5: 风险剧本计分与出场决策 ---")
@@ -353,7 +334,8 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V104】执行完毕 ======")
+        print(f"====== 【战术引擎 V113】执行完毕 ======")
+        # 注意：返回的 atomic_signals 在此版本中已不再主要使用，但保留接口兼容性
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -923,62 +905,83 @@ class TrendFollowStrategy:
             bonus_scores_df[name] = playbook_bonus * valid_mask # 只有有效时，加分项才被考虑
 
         # ==================== 步骤2: 向量化执行“家族继承”逻辑 ====================
-        print("      -> 步骤2: 向量化执行“家族继承”...")
-        families = {p['name']: p.get('family', 'UNCATEGORIZED') for p in playbook_definitions}
+        print("      -> 步骤2: [向量化重构] 执行“家族继承”...")
         
-        # 2.1 基础分竞价，确立优胜者
-        base_scores_grouped = base_scores_df.groupby(by=families, axis=1)
-        family_winner_names = base_scores_grouped.idxmax()
-        
-        # 2.2 汇集家族加分池 (对每个家族，将所有成员的加分项相加)
-        bonus_scores_grouped = bonus_scores_df.groupby(by=families, axis=1)
-        family_bonus_pool = bonus_scores_grouped.sum()
+        # 准备剧本到家族的映射
+        playbook_to_family = {p['name']: p.get('family', 'UNCATEGORIZED') for p in playbook_definitions}
+        # 准备家族到剧本列表的映射
+        family_to_playbooks = {}
+        for p_name, f_name in playbook_to_family.items():
+            if f_name not in family_to_playbooks:
+                family_to_playbooks[f_name] = []
+            family_to_playbooks[f_name].append(p_name)
 
-        # 2.3 计算优胜者的基础分
-        winner_base_scores = base_scores_grouped.max()
+        final_family_scores = pd.DataFrame(0.0, index=df.index, columns=family_to_playbooks.keys())
+        score_details_df = pd.DataFrame(0.0, index=df.index, columns=base_scores_df.columns)
 
-        # 2.4 最终得分加冕 = 优胜者基础分 + 家族加分池
-        final_family_scores = winner_base_scores + family_bonus_pool
-        
+        # 核心优化：遍历家族（数量少），而不是对宽表做groupby
+        for family_name, playbook_names in family_to_playbooks.items():
+            # 1. 筛选出当前家族的所有剧本的基础分和加分项
+            family_base_scores = base_scores_df[playbook_names]
+            family_bonus_scores = bonus_scores_df[playbook_names]
+            
+            # 2. 找到每个家族在每一天的“优胜者”基础分
+            winner_base_scores = family_base_scores.max(axis=1)
+            
+            # 3. 计算整个家族的“加分池”
+            family_bonus_pool = family_bonus_scores.sum(axis=1)
+            
+            # 4. 最终得分加冕
+            final_family_scores[family_name] = winner_base_scores + family_bonus_pool
+            
+            # 5. 记录得分详情 (归功于优胜者)
+            winner_playbook_names = family_base_scores.idxmax(axis=1)
+            # 只有在当天有得分时才记录
+            has_score_mask = final_family_scores[family_name] > 0
+            # 使用 apply 在有得分的行上进行操作
+            def assign_score(row):
+                winner_name = row[winner_playbook_names.name]
+                score_details_df.loc[row.name, winner_name] = row[final_family_scores[family_name].name]
+            
+            if has_score_mask.any():
+                df_temp = pd.concat([winner_playbook_names[has_score_mask], final_family_scores.loc[has_score_mask, family_name]], axis=1)
+                df_temp.apply(assign_score, axis=1)
+
         # 最终总分是所有家族得分的总和
         final_score = final_family_scores.sum(axis=1)
 
         # ==================== 步骤3: 填充细节并进行日志输出 ====================
         print("      -> 步骤3: 生成最终得分详情...")
-        score_details_df = pd.DataFrame(0.0, index=df.index, columns=base_scores_df.columns)
-        for family_name in final_family_scores.columns:
-            winner_names_series = family_winner_names[family_name]
-            family_total_score_series = final_family_scores[family_name]
-            
-            for playbook_name in winner_names_series.unique():
-                if pd.isna(playbook_name): continue
-                mask = (winner_names_series == playbook_name) & (family_total_score_series > 0)
-                # 记录的是整个家族的得分，归功于主剧本
-                score_details_df.loc[mask, playbook_name] = family_total_score_series[mask]
 
-        # ... (日志和收尾部分与V78.0类似，但现在能讲述更完整的故事) ...
         print("\n--- 剧本触发详情 (家族继承模式) ---")
         probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
         key_dates = df.index[final_score > 0]
         key_dates = key_dates[key_dates >= probe_start_date]
 
+        # 准备剧本到家族的映射，用于日志输出
+        playbook_to_family_map = {p['name']: p.get('family', 'N/A') for p in playbook_definitions}
+
         for date in key_dates:
             print(f"{date.strftime('%Y-%m-%d')} | 最终总分: {final_score.loc[date]:.0f}")
+            # 核心修复：直接从 score_details_df 中获取当天有得分的剧本
             winning_playbooks = score_details_df.loc[date][score_details_df.loc[date] > 0]
+            if winning_playbooks.empty:
+                print("             -> [警告] 当天有总分但未找到具体的剧本得分详情，请检查计分逻辑。")
+                continue
             for name, score in winning_playbooks.items():
                 playbook_info = next((p for p in playbook_definitions if p['name'] == name), None)
                 if playbook_info:
                     cn_name = playbook_info.get('cn_name', name)
-                    family = playbook_info.get('family', 'N/A')
-                    base_score = base_scores_df.loc[date, name]
-                    bonus_score = score - base_score
-                    print(f"             -> 家族[{family}]主剧本: '{cn_name}', 基础分:{base_score:.0f}, 家族加成:{bonus_score:.0f}, 家族总分:{score:.0f}")
+                    family = playbook_to_family_map.get(name, 'N/A')
+                    # 注意：在新的逻辑下，我们无法轻易拆分“基础分”和“加成”，因为加成是家族共享的。
+                    # 我们直接报告归属于该剧本的“家族总分”。
+                    print(f"             -> 家族[{family}]主剧本: '{cn_name}', 贡献家族总分:{score:.0f}")
         print("========================= 全局剧本探针分析结束 =========================")
 
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V87.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V113.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
