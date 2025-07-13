@@ -341,13 +341,10 @@ class TrendFollowStrategy:
         df['entry_score'] = adjusted_score # 使用调整后的分数作为最终得分
         # 将调整细节合并到总细节中，便于分析
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
-        
-        # ▼▼▼ 调用全新的、基于剧本的风险评分引擎 ▼▼▼
-        print("--- [总指挥] 步骤4: 风险准备状态与触发事件定义 ---")
+
+        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策 ---")
         risk_setups = self._diagnose_risk_setups(df, params)
         risk_triggers = self._define_risk_triggers(df, params)
-        
-        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策 ---")
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
@@ -357,7 +354,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V92.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V104】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -366,13 +363,15 @@ class TrendFollowStrategy:
         - 核心升级: 不再基于零散的信号列，而是基于波段跟踪模拟器生成的 'trade_action' 列来创建记录。
                     这使得每一条记录都代表一个明确的、有状态的交易动作（入场、减仓、清仓）。
         """
-        # ▼▼▼ 筛选条件变更为 'trade_action' 列 ▼▼▼
-        if 'trade_action' not in result_df.columns or result_df['trade_action'].eq('').all():
-            # 如果没有波段跟踪列，或者该列为空，则说明没有发生任何交易动作
+        if 'signal_entry' not in result_df.columns or 'exit_signal_code' not in result_df.columns:
             return []
-        df_with_actions = result_df[result_df['trade_action'] != ''].copy()
+        
+        # 筛选出所有有信号的日子（买入或卖出）
+        df_with_signals = result_df[
+            (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
+        ].copy()
 
-        if df_with_actions.empty:
+        if df_with_signals.empty:
             return []
         
         records = []
@@ -383,7 +382,7 @@ class TrendFollowStrategy:
         
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         
-        for timestamp, row in df_with_actions.iterrows():
+        for timestamp, row in df_with_signals.iterrows():
             trade_action = row.get('trade_action')
             
             # 根据交易动作，智能判断是入场还是出场信号
@@ -410,13 +409,10 @@ class TrendFollowStrategy:
                 "timeframe": timeframe,
                 "strategy_name": strategy_name,
                 "close_price": sanitize_for_json(row.get('close_D')),
-                "pct_change": sanitize_for_json(pct_change),
+                "pct_change": sanitize_for_json(row.get('pct_change_D', 0.0)),
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
-                # ▼▼▼ 基于 trade_action 设置信号和记录 ▼▼▼
-                "entry_signal": is_entry,
-                "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 0)) if is_exit else 0,
-                "trade_action": trade_action, # 新增字段
-                "position_status": row.get('position_status', 0.0), # 新增字段
+                "entry_signal": bool(row.get('signal_entry', False)),
+                "exit_signal_code": int(row.get('exit_signal_code', 0)), # 确保打包
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": triggered_playbooks_cn_list,
                 "active_setups": active_setups,

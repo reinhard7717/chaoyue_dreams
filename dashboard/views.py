@@ -193,17 +193,14 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.7 增加删除功能支持】
+    【V104 终局 · 情报版】
+    - 核心升级: 完整处理日线和分钟线产生的卖出信号，并将其严重等级和原因传递给模板。
     """
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
-    
-    # ▼▼▼【代码修改】: 创建一个从股票代码到自选ID的映射 ▼▼▼
-    # 这是为了在后续处理中能方便地找到每只股票对应的FavoriteStock ID
     fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
-    # ▲▲▲【代码修改结束】▲▲▲
 
     if not fav_codes:
         return render(request, 'dashboard/fav_trend_following_list.html', {
@@ -212,6 +209,7 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
+    # 查询逻辑保持不变，它已经获取了所有需要的字段
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
@@ -233,8 +231,10 @@ def fav_trend_following_list(request):
         if state.entry_signal and (not summary['buy_state'] or state.trade_time > summary['buy_state'].trade_time):
             summary['buy_state'] = state
         
+        # ▼▼▼【代码修改 V104】: 确保最新的卖出信号被捕获 ▼▼▼
         if state.exit_signal_code > 0 and (not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time):
             summary['sell_state'] = state
+        # ▲▲▲【代码修改 V104】▲▲▲
             
         if not summary['latest_state'] or state.trade_time > summary['latest_state'].trade_time:
             summary['latest_state'] = state
@@ -253,11 +253,9 @@ def fav_trend_following_list(request):
 
         item = {
             'stock': summary['stock'],
-            # ▼▼▼【代码修改】: 从映射中获取并添加 favorite_id ▼▼▼
-            'favorite_id': fav_id_map.get(stock_code), # JS将使用这个ID来调用删除API
-            # ▲▲▲【代码修改结束】▲▲▲
+            'favorite_id': fav_id_map.get(stock_code),
             'buy_info': None,
-            'sell_info': None,
+            'sell_info': None, # 初始化 sell_info
             'latest_trade_time': latest_state.trade_time,
             'latest_score': latest_state.entry_score,
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
@@ -276,30 +274,36 @@ def fav_trend_following_list(request):
             item['status_class'] = 'status-holding'
             item['sort_priority'] = 2
 
+            # ▼▼▼【代码修改 V104】: 填充卖出信号详情，并更新状态 ▼▼▼
             if sell_state and sell_state.trade_time > buy_state.trade_time:
+                # 从数据库记录中提取风险信号详情
                 item['sell_info'] = {
                     'time': sell_state.trade_time,
                     'strategy_name': sell_state.strategy_name,
                     'time_level': sell_state.timeframe,
                     'severity_level': sell_state.exit_severity_level,
-                    'reason': sell_state.exit_signal_reason
+                    'reason': sell_state.exit_signal_reason or "风险预警", # 提供默认原因
+                    'code': sell_state.exit_signal_code,
                 }
                 
                 level = sell_state.exit_severity_level
+                # 根据风险等级，更新状态文本和样式
                 if level == 1:
                     item['swing_status'] = '一级预警'
                     item['status_class'] = 'status-alert-level-1'
                 elif level == 3:
                     item['swing_status'] = '三级警报'
                     item['status_class'] = 'status-alert-level-3'
-                else:
+                else: # 默认所有其他非零风险都视为二级
                     item['swing_status'] = '二级警报'
                     item['status_class'] = 'status-alert-level-2'
                 
-                item['sort_priority'] = 1
+                item['sort_priority'] = 1 # 给予最高排序优先级
+            # ▲▲▲【代码修改 V104】▲▲▲
         
         processed_list.append(item)
 
+    # 排序逻辑保持不变，它已经能正确处理新的 sort_priority
     processed_list.sort(key=lambda x: (
         x['sort_priority'],
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)
