@@ -1844,44 +1844,38 @@ class TrendFollowStrategy:
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
         """
-        诊断“高位放量长上影”派发风险 (Upthrust Distribution)。
-        这是一个非常重要的见顶信号。
+        【V91.2 函数调用修复版】
+        - 核心修复: 使用 numpy.maximum 替代错误的 pd.max，以正确计算上影线。
         """
         p = exit_params.get('upthrust_distribution_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             return pd.Series(False, index=df.index)
 
-        # 1. 定义参数
         overextension_ma_period = self._get_param_value(p.get('overextension_ma_period'), 55)
         overextension_threshold = self._get_param_value(p.get('overextension_threshold'), 0.3)
         upper_shadow_ratio = self._get_param_value(p.get('upper_shadow_ratio'), 0.5)
         high_volume_quantile = self._get_param_value(p.get('high_volume_quantile'), 0.75)
         
         ma_col = f'EMA_{overextension_ma_period}_D'
-        vol_ma_col = 'VOL_MA_21_D' # 使用21日均量作为参考
+        vol_ma_col = 'VOL_MA_21_D'
         
         required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col, vol_ma_col]
         if not all(col in df.columns for col in required_cols):
             print("          -> [警告] 缺少诊断'高位放量长上影'所需列，跳过。")
             return pd.Series(False, index=df.index)
 
-        # 2. 计算各项条件
-        # 条件A: 价格处于高位 (价格远高于长期均线)
         is_overextended = (df['close_D'] / df[ma_col] - 1) > overextension_threshold
-        
-        # 条件B: 出现长上影线
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        upper_shadow = (df['high_D'] - pd.max(df['open_D'], df['close_D']))
-        has_long_upper_shadow = (upper_shadow / total_range) >= upper_shadow_ratio
         
-        # 条件C: 相对放量 (成交量大于过去一段时间的75%分位数)
+        # ▼▼▼【代码修改 V91.2】: 使用 np.maximum 替代 pd.max ▼▼▼
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
+        # ▲▲▲【代码修改 V91.2】▲▲▲
+        
+        has_long_upper_shadow = (upper_shadow / total_range) >= upper_shadow_ratio
         volume_threshold = df['volume_D'].rolling(window=21).quantile(high_volume_quantile)
         is_high_volume = df['volume_D'] > volume_threshold
-        
-        # 条件D: 收盘疲软 (收盘价低于当天中间价)
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
         
-        # 3. 组合所有条件
         signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
         
         print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
