@@ -1891,10 +1891,10 @@ class TrendFollowStrategy:
         # 3. 应用时间过滤器
         if probe_start_date_str:
             try:
-                # 确保字符串能被正确转换为日期时间对象
-                start_date = pd.to_datetime(probe_start_date_str)
+                start_date = pd.to_datetime(probe_start_date_str, utc=True)
                 key_dates = key_dates[key_dates >= start_date]
             except Exception as e:
+                # 这个异常处理现在不太可能被触发，但保留它是个好习惯
                 print(f"      -> [警告] 探针起始日期 '{probe_start_date_str}' 格式错误，将显示所有风险日。错误: {e}")
 
         if key_dates.empty:
