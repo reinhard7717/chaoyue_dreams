@@ -154,7 +154,7 @@
   },
   "exit_strategy_params": {
     "enabled": true,
-    "说明": "【V91.0 风险剧本版】智能出场矩阵，所有风险评分逻辑已内聚到Python代码的风险剧本中。",
+    "说明": "【V97.1 风险剧本版】智能出场矩阵，新增了对'下跌中继'剧本的参数支持。",
     "upthrust_distribution_params": { 
       "enabled": true,
       "说明": "“上攻失败”信号的计算参数",
@@ -174,21 +174,21 @@
     },
     "structure_breakdown_params": {
       "enabled": true,
-      "说明": "“结构性破位”信号的计算参数",
+      "说明": "“急跌回调预警”信号的计算参数 (原结构性破位)",
       "breakdown_ma_period": 21,
       "min_pct_change": -0.03,
       "high_volume_quantile": 0.75
     },
     "volume_breakdown_params": { 
-        "enabled": true, 
-        "说明": "“放量跌破”信号的计算参数",
+        "enabled": false, 
+        "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
         "support_ma_period": 55, 
         "volume_surge_ratio": 1.8, 
         "main_force_dump_ratio": 0.1 
     },
     "divergence_exit_params": { 
-        "enabled": true, 
-        "说明": "“指标背离”信号的计算参数",
+        "enabled": false, 
+        "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
         "lookback_period": 20, 
         "persistence_days": 5, 
         "break_ma_period": 10 
@@ -197,6 +197,13 @@
       "CRITICAL": { "level": 120, "code": 99 },
       "HIGH": { "level": 80, "code": 88 },
       "MEDIUM": { "level": 50, "code": 77 }
+    },
+    "failed_bounce_params": {
+      "enabled": true,
+      "说明": "【V97.1 新增】“下跌中继(反弹失败)”剧本的专属参数",
+      "short_term_ma_period": 21,
+      "lookback_window": 5,
+      "required_count": 2
     }
   }
 }
