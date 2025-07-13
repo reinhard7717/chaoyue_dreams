@@ -17,7 +17,8 @@
       "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0 },
       "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21] },
       "bias": { "enabled": true, "apply_on": ["D"], "periods": [21, 55] },
-      "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } }
+      "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } },
+      "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] }
     }
   },
   "strategy_params": {
@@ -197,6 +198,13 @@
       "CRITICAL": { "level": 120, "code": 99 },
       "HIGH": { "level": 80, "code": 88 },
       "MEDIUM": { "level": 50, "code": 77 }
+    },
+    "stagnation_params": {
+      "enabled": true,
+      "说明": "【V100 新增】“熊市停滞”剧本的专属参数",
+      "atr_period": 14,
+      "low_vol_window": 120,
+      "low_vol_percentile": 0.1
     },
     "failed_bounce_params": {
       "enabled": true,

@@ -1852,8 +1852,14 @@ class TrendFollowStrategy:
         - 职责: 定义所有“风险剧本”的静态属性。
         - 修改: 根据V97的最终战术思想，精确化剧本定义，确保 setup 和 trigger 的名称与新架构匹配。
         """
-        # ▼▼▼【代码修改 V97.1】: 清理并精确化剧本定义，确保与新架构一致 ▼▼▼
         return [
+            {
+                'name': 'BEARISH_STAGNATION', 'cn_name': '【极危】熊市停滞(崩盘前兆)', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 120, # 给予最高级别的风险分
+                'setup': ['RISK_SETUP_BEARISH_STAGNATION'],
+                'trigger': ['RISK_TRIGGER_ANY'], # 使用一个永远为True的触发器，实现“进入即触发”
+                'comment': '在熊市趋势中，波动率和振幅萎缩至极限，是多头彻底放弃抵抗，即将崩盘的终极信号。'
+            },
             # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
             {
                 'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构破位(多重确认)', 'family': 'MARKET_STRUCTURE_RISK',
@@ -1962,10 +1968,10 @@ class TrendFollowStrategy:
         print("    - [风险准备状态诊断中心 V98.0] 启动...")
         setups = {}
         exit_params = params.get('exit_strategy_params', {})
+        default_series = pd.Series(False, index=df.index)
         
         setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
 
-        # ▼▼▼【代码修改 V98.0】: 重新定义Setup，使其逻辑互斥 ▼▼▼
         # Setup 1: 高风险区域 (Overextended Zone) - 只看位置
         p_over = exit_params.get('upthrust_distribution_params', {})
         ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
@@ -1989,13 +1995,35 @@ class TrendFollowStrategy:
             # 价格必须同时低于长、短期均线，这是一个明确的熊市信号
             is_in_bearish_territory = df['close_D'] < df[ma_long_col]
             is_under_short_term_pressure = df['close_D'] < df[ma_short_col]
+            bearish_consolidation_state = is_in_bearish_territory & is_under_short_term_pressure
             # 核心区别：不再与高风险区有任何逻辑重叠
             setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = is_in_bearish_territory & is_under_short_term_pressure
             print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
         else:
             print(f"      -> [警告] 缺少 {ma_long_col} 或 {ma_short_col}，无法诊断'熊市整理区'。")
-            setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = pd.Series(False, index=df.index)
-        # ▲▲▲【代码修改 V98.0】▲▲▲
+
+        # Setup 3: 熊市停滞区 (Bearish Stagnation Zone)
+        p_stagnation = exit_params.get('stagnation_params', {})
+        atr_period = self._get_param_value(p_stagnation.get('atr_period'), 14)
+        atr_col = f'ATR_{atr_period}_D' # 使用归一化的ATR (ATRp)
+        low_vol_window = self._get_param_value(p_stagnation.get('low_vol_window'), 120)
+        low_vol_percentile = self._get_param_value(p_stagnation.get('low_vol_percentile'), 0.1)
+
+        if atr_col in df.columns:
+            # 条件一：必须处于熊市整理的大背景下
+            # (我们直接复用上面计算好的 bearish_consolidation_state)
+            
+            # 条件二：波动率必须处于历史低位
+            low_vol_threshold = df[atr_col].rolling(window=low_vol_window, min_periods=low_vol_window//2).quantile(low_vol_percentile)
+            is_low_volatility = df[atr_col] < low_vol_threshold
+            
+            # 最终状态 = 熊市整理 AND 低波动率
+            stagnation_state = bearish_consolidation_state & is_low_volatility
+            setups['RISK_SETUP_BEARISH_STAGNATION'] = stagnation_state
+            print(f"      -> '熊市停滞区(崩盘前兆)' 状态诊断完成。{self._format_debug_dates(stagnation_state)}")
+        else:
+            print(f"      -> [警告] 缺少 {atr_col}，无法诊断'熊市停滞区'。")
+            setups['RISK_SETUP_BEARISH_STAGNATION'] = default_series
             
         return setups
 
@@ -2009,6 +2037,9 @@ class TrendFollowStrategy:
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
+
+        triggers['RISK_TRIGGER_ANY'] = pd.Series(True, index=df.index)
+        print(f"      -> '任意(万能触发器)' 事件定义完成。")
 
         # --- Trigger 1: 上攻失败K线 (ATTACK_FAILED_CANDLE) - 逻辑保持不变，但现在只会在互斥的Setup下触发 ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
