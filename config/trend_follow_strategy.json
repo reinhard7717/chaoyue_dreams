@@ -200,10 +200,10 @@
     },
     "failed_bounce_params": {
       "enabled": true,
-      "说明": "【V97.1 新增】“下跌中继(反弹失败)”剧本的专属参数",
+      "说明": "【V98.0 新增】“下跌中继(死猫反弹)”剧本的专属参数",
       "short_term_ma_period": 21,
-      "lookback_window": 5,
-      "required_count": 2
+      "dead_cat_ma_period": 8,
+      "dead_cat_days": 3
     }
   }
 }

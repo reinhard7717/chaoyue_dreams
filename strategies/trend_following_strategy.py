@@ -1956,105 +1956,96 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V97.1 架构兼容版】
-        - 核心功能: 诊断 '高风险区域' 和 '熊市整理区' 两种核心作战环境。
-        - 版本说明: 此函数逻辑在V96已满足要求，V97.1仅更新版本号以保持架构一致性。
+        【V98.0 终局版 - Setup互斥化】
+        - 核心革命: 重新定义Setup，使其逻辑互斥，从根本上解决剧本冲突问题。
         """
-        # ▼▼▼【代码修改 V97.1】: 更新版本号和日志信息 ▼▼▼
-        print("    - [风险准备状态诊断中心 V97.1] 启动...")
-        # ▲▲▲【代码修改 V97.1】▲▲▲
+        print("    - [风险准备状态诊断中心 V98.0] 启动...")
         setups = {}
         exit_params = params.get('exit_strategy_params', {})
         
         setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
 
-        # Setup 1: 高风险区域 (Overextended Zone)
+        # ▼▼▼【代码修改 V98.0】: 重新定义Setup，使其逻辑互斥 ▼▼▼
+        # Setup 1: 高风险区域 (Overextended Zone) - 只看位置
         p_over = exit_params.get('upthrust_distribution_params', {})
         ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
-        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.1)
+        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15) # 适当提高阈值，确保是真正的高位
         ma_long_col = f'EMA_{ma_long_period}_D'
-        accel_col = f'ACCEL_20_close_D'
         
-        if ma_long_col in df.columns and accel_col in df.columns:
-            is_high_position = (df['close_D'] / df[ma_long_col] - 1) > threshold
-            is_momentum_slowing = df[accel_col] < 0
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position | is_momentum_slowing
-            print(f"      -> '高风险区域(位置或动能)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+        if ma_long_col in df.columns:
+            # 只用价格远高于长期均线这一个条件，定义清晰，无歧义
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_long_col] - 1) > threshold
+            print(f"      -> '高风险区域(纯位置)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
         else:
-            print(f"      -> [警告] 缺少 {ma_long_col} 或 {accel_col}，无法诊断'高风险区域'。")
+            print(f"      -> [警告] 缺少 {ma_long_col}，无法诊断'高风险区域'。")
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = pd.Series(False, index=df.index)
 
-        # Setup 2: 熊市整理区 (Bearish Consolidation Zone)
+        # Setup 2: 熊市整理区 (Bearish Consolidation Zone) - 只看趋势
         p_bounce = exit_params.get('failed_bounce_params', {})
         ma_short_period = self._get_param_value(p_bounce.get('short_term_ma_period'), 21)
         ma_short_col = f'EMA_{ma_short_period}_D'
         
         if ma_long_col in df.columns and ma_short_col in df.columns:
+            # 价格必须同时低于长、短期均线，这是一个明确的熊市信号
             is_in_bearish_territory = df['close_D'] < df[ma_long_col]
             is_under_short_term_pressure = df['close_D'] < df[ma_short_col]
+            # 核心区别：不再与高风险区有任何逻辑重叠
             setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = is_in_bearish_territory & is_under_short_term_pressure
-            print(f"      -> '熊市整理区' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
+            print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
         else:
             print(f"      -> [警告] 缺少 {ma_long_col} 或 {ma_short_col}，无法诊断'熊市整理区'。")
             setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = pd.Series(False, index=df.index)
+        # ▲▲▲【代码修改 V98.0】▲▲▲
             
         return setups
 
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V97.1 触发器专业化版】
-        - 核心革命: 彻底重构本函数，为每个剧本的触发器创建独立的、量身定制的计算逻辑。
-                    解决了V96.0版本中因共享触发器导致的“左右互搏”和目标丢失问题。
+        【V98.0 终局版 - Trigger结构化】
+        - 核心革命: 为“下跌中继”引入全新的、基于结构化状态的'死猫反弹'触发器。
         """
-        # ▼▼▼【代码修改 V97.1】: 整体重构，实现触发器专业化 ▼▼▼
-        print("    - [风险触发事件定义中心 V97.1] 启动...")
+        print("    - [风险触发事件定义中心 V98.0] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
-        # --- 通用K线特征定义 ---
-        is_red_candle = df['close_D'] < df['open_D']
-        is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
-
-        # --- Trigger 1: 上攻失败K线 (ATTACK_FAILED_CANDLE) - 专为高位派发剧本服务 ---
+        # --- Trigger 1: 上攻失败K线 (ATTACK_FAILED_CANDLE) - 逻辑保持不变，但现在只会在互斥的Setup下触发 ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
         attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
         attack_req_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
-        
-        # 失败定义1: 关键上冲失败 (高确定性信号)
+        is_red_candle = df['close_D'] < df['open_D']
+        is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
         tried_to_break_out = df['high_D'] > df['high_D'].shift(1)
         is_key_upthrust_failure = tried_to_break_out & is_red_candle & is_weak_close
-        # 失败定义2: 动能衰竭失败 (低确定性信号)
         recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
         is_exhaustion_failure = (df['high_D'] <= recent_high) & is_weak_close
-        # 统一两种失败，用于累计
         is_any_attack_failure = is_key_upthrust_failure | is_exhaustion_failure
-        # 累计计数
         attack_failed_count = is_any_attack_failure.rolling(window=attack_lookback).sum()
-        is_attack_crossing_threshold = (attack_failed_count >= attack_req_count) & \
-                                       (attack_failed_count.shift(1).fillna(0) < attack_req_count)
-        # 最终触发器 = 高确定性单日信号 OR 累计信号
+        is_attack_crossing_threshold = (attack_failed_count >= attack_req_count) & (attack_failed_count.shift(1).fillna(0) < attack_req_count)
         final_trigger_attack = is_key_upthrust_failure | is_attack_crossing_threshold
         triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger_attack & ~final_trigger_attack.shift(1).fillna(False)
         print(f"      -> '上攻失败(高位派发专用)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
-        # --- Trigger 2: 反弹失败K线 (BOUNCE_FAILED_CANDLE) - 专为下跌中继剧本服务 ---
+        # ▼▼▼【代码修改 V98.0】: 引入全新的“死猫反弹”结构化触发器 ▼▼▼
+        # --- Trigger 2: 死猫式反弹 (DEAD_CAT_BOUNCE) - 专为下跌中继剧本服务 ---
         p_bounce = exit_params.get('failed_bounce_params', {})
-        bounce_lookback = self._get_param_value(p_bounce.get('lookback_window'), 5)
-        bounce_req_count = self._get_param_value(p_bounce.get('required_count'), 2)
+        dead_cat_ma_period = self._get_param_value(p_bounce.get('dead_cat_ma_period'), 8) # 使用更灵敏的短期均线
+        dead_cat_days = self._get_param_value(p_bounce.get('dead_cat_days'), 3) # 连续N天无法站上
+        dead_cat_ma_col = f'EMA_{dead_cat_ma_period}_D'
         
-        # 失败定义: 在下跌趋势中，任何弱势收盘都是反弹失败的迹象。
-        # 这里的逻辑更纯粹，只关心K线本身的强弱，因为大环境已经是熊市。
-        is_bounce_failure_today = is_weak_close
-        # 累计计数
-        bounce_failed_count = is_bounce_failure_today.rolling(window=bounce_lookback).sum()
-        is_bounce_crossing_threshold = (bounce_failed_count >= bounce_req_count) & \
-                                       (bounce_failed_count.shift(1).fillna(0) < bounce_req_count)
-        triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_bounce_crossing_threshold
-        print(f"      -> '反弹失败(下跌中继专用)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
+        if dead_cat_ma_col in df.columns:
+            # 结构化条件：连续N天收盘价都低于短期均线
+            is_persistently_weak = (df['close_D'] < df[dead_cat_ma_col]).rolling(window=dead_cat_days).sum() >= dead_cat_days
+            # 触发信号：当这种持续弱势状态首次被确认时
+            triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'] = is_persistently_weak & ~is_persistently_weak.shift(1).fillna(False)
+            print(f"      -> '死猫式反弹(结构化)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'])}")
+        else:
+            print(f"      -> [警告] 缺少 {dead_cat_ma_col}，无法诊断'死猫式反弹'。")
+            triggers['RISK_TRIGGER_DEAD_CAT_BOUNCE'] = default_series
+        # ▲▲▲【代码修改 V98.0】▲▲▲
 
-        # --- Trigger 3: 急跌回调K线 (SHARP_PULLBACK_CANDLE) - 保持不变 ---
+        # --- Trigger 3 & 4: 保持不变 ---
         p_pullback = exit_params.get('structure_breakdown_params', {})
         ma_period_pullback = self._get_param_value(p_pullback.get('breakdown_ma_period'), 21)
         min_pct = self._get_param_value(p_pullback.get('min_pct_change'), -0.03)
@@ -2066,7 +2057,6 @@ class TrendFollowStrategy:
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = cond1 & cond2 & cond3
             print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', default_series))}")
 
-        # --- Trigger 4: 真实结构破位K线 (TRUE_BREAKDOWN_CANDLE) - 保持不变 ---
         p_true_break = exit_params.get('true_breakdown_params', {})
         breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
         conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
@@ -2083,8 +2073,10 @@ class TrendFollowStrategy:
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
             print(f"      -> '真实结构破位(事件驱动)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
         else:
-            print(f"      -> [警告] 缺少 {conf_ma_col} 或 {slope_col}，无法诊断'真实结构破位'。")
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
+            
+        # 我们需要将旧的触发器重命名，以避免与蓝图冲突
+        triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = triggers.pop('RISK_TRIGGER_DEAD_CAT_BOUNCE')
             
         return triggers
     
