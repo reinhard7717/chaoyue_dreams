@@ -1859,6 +1859,14 @@ class TrendFollowStrategy:
                 'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'],
                 'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
             },
+            # --- 下跌中继(反弹失败) ---
+            {
+                'name': 'FAILED_BOUNCE_BREAKDOWN', 'cn_name': '【高危】下跌中继(反弹失败)', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 100, # 评分介于“上攻失败”和“真实破位”之间
+                'setup': ['RISK_SETUP_BEARISH_CONSOLIDATION'],
+                'trigger': ['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'],
+                'comment': '在下跌趋势中, 出现短期反弹无力、反复失败的迹象, 是即将开启新一轮下跌的危险信号。'
+            },
             # --- 派发行为风险 (DISTRIBUTION_RISK) ---
             {
                 'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发(多次确认)', 'family': 'DISTRIBUTION_RISK',
@@ -1960,53 +1968,95 @@ class TrendFollowStrategy:
                     cn_name = risk_playbook_cn_map.get(name, name)
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
 
+    # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
+    def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V96.0 战术维度升级版】
+        - 核心升级: 新增 'RISK_SETUP_BEARISH_CONSOLIDATION' 状态，用于定义“熊市整理区”，
+                    为新剧本 'FAILED_BOUNCE_BREAKDOWN' 提供精确的作战环境。
+        """
+        print("    - [风险准备状态诊断中心 V96.0] 启动...")
+        setups = {}
+        exit_params = params.get('exit_strategy_params', {})
+        
+        setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
+
+        # Setup 1: 高风险区域 (Overextended Zone)
+        p_over = exit_params.get('upthrust_distribution_params', {})
+        ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
+        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.1)
+        ma_long_col = f'EMA_{ma_long_period}_D'
+        accel_col = f'ACCEL_20_close_D'
+        
+        if ma_long_col in df.columns and accel_col in df.columns:
+            is_high_position = (df['close_D'] / df[ma_long_col] - 1) > threshold
+            is_momentum_slowing = df[accel_col] < 0
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position | is_momentum_slowing
+            print(f"      -> '高风险区域(位置或动能)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+        else:
+            print(f"      -> [警告] 缺少 {ma_long_col} 或 {accel_col}，无法诊断'高风险区域'。")
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = pd.Series(False, index=df.index)
+
+        # ▼▼▼【代码修改 V96.0】: 新增“熊市整理区”状态诊断 ▼▼▼
+        # Setup 2: 熊市整理区 (Bearish Consolidation Zone)
+        p_bounce = exit_params.get('failed_bounce_params', {}) # 假设未来在json中配置
+        ma_short_period = self._get_param_value(p_bounce.get('short_term_ma_period'), 21)
+        ma_short_col = f'EMA_{ma_short_period}_D'
+        
+        if ma_long_col in df.columns and ma_short_col in df.columns:
+            # 条件1: 价格明确处于长期熊市趋势中
+            is_in_bearish_territory = df['close_D'] < df[ma_long_col]
+            # 条件2: 短期也处于受压制状态
+            is_under_short_term_pressure = df['close_D'] < df[ma_short_col]
+            setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = is_in_bearish_territory & is_under_short_term_pressure
+            print(f"      -> '熊市整理区' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
+        else:
+            print(f"      -> [警告] 缺少 {ma_long_col} 或 {ma_short_col}，无法诊断'熊市整理区'。")
+            setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = pd.Series(False, index=df.index)
+        # ▲▲▲【代码修改 V96.0】▲▲▲
+            
+        return setups
+
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V95.0 统一战线版】
-        - 核心革命: 创建统一的失败信号(is_any_failure)，让累计器能同时计算两种失败模式，
-                    解决了混合信号顶部的识别问题。这是我们离场策略的最终、最完美形态。
+        【V96.0 战术维度升级版】
+        - 核心升级: 新增 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' 事件，通过复用成熟的“反复失败”逻辑，
+                    为新剧本提供精确的触发信号。
         """
-        print("    - [风险触发事件定义中心 V95.0] 启动...")
+        print("    - [风险触发事件定义中心 V96.0] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
-        # Trigger 1 (统一战线版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
+        # --- 通用失败逻辑定义 ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
         attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
         required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
-
-        # 步骤1: 定义通用的强弱判断标准
         is_red_candle = df['close_D'] < df['open_D']
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
-
-        # 步骤2: 定义高质量的“关键上冲失败” (Upthrust Failure)
         tried_to_break_out = df['high_D'] > df['high_D'].shift(1)
         is_key_upthrust_failure = tried_to_break_out & is_red_candle & is_weak_close
-
-        # 步骤3: 定义更普适的“动能衰竭失败” (Exhaustion Failure)
         recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
         is_exhaustion_failure = (df['high_D'] <= recent_high) & is_weak_close
-
-        # ▼▼▼【代码修改 V95.0】: 创建统一战线，合并所有失败信号用于计数 ▼▼▼
-        # 步骤4: 形成统一的失败信号，任何一种失败都算
         is_any_failure = is_key_upthrust_failure | is_exhaustion_failure
-
-        # 步骤5: 基于“统一失败信号”进行累计，判断是否“反复失败”
         failed_count_in_window = is_any_failure.rolling(window=attack_lookback).sum()
         is_crossing_threshold = (failed_count_in_window >= required_count) & \
                                 (failed_count_in_window.shift(1).fillna(0) < required_count)
 
-        # 步骤6: 最终触发器 = 高质量的单日信号(保证关键信号不延迟) OR 统一计数的累积
-        final_trigger = is_key_upthrust_failure | is_crossing_threshold
-        
-        # 步骤7: 确保最终信号是一次性事件
-        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger & ~final_trigger.shift(1).fillna(False)
-        # ▲▲▲【代码修改 V95.0】▲▲▲
+        # Trigger 1: 上攻失败K线 (用于高位派发)
+        final_trigger_attack = is_key_upthrust_failure | is_crossing_threshold
+        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger_attack & ~final_trigger_attack.shift(1).fillna(False)
         print(f"      -> '上攻失败(统一战线)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
-        # Trigger 2 (保留): 急跌回调K线 (SHARP_PULLBACK_CANDLE)
+        # ▼▼▼【代码修改 V96.0】: 新增“反弹失败”触发器 ▼▼▼
+        # Trigger 2: 反弹失败K线 (用于下跌中继)
+        # 我们直接复用上面已经计算好的 is_crossing_threshold，因为它完美描述了“短期反复失败”这一行为
+        triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_crossing_threshold
+        print(f"      -> '反弹失败(下跌中继)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
+        # ▲▲▲【代码修改 V96.0】▲▲▲
+
+        # Trigger 3: 急跌回调K线
         p_pullback = exit_params.get('structure_breakdown_params', {})
         ma_period_pullback = self._get_param_value(p_pullback.get('breakdown_ma_period'), 21)
         min_pct = self._get_param_value(p_pullback.get('min_pct_change'), -0.03)
@@ -2018,7 +2068,7 @@ class TrendFollowStrategy:
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = cond1 & cond2 & cond3
             print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', default_series))}")
 
-        # Trigger 3 (保留): 真实结构破位K线 (TRUE_BREAKDOWN_CANDLE)
+        # Trigger 4: 真实结构破位K线
         p_true_break = exit_params.get('true_breakdown_params', {})
         breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
         conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
@@ -2039,40 +2089,6 @@ class TrendFollowStrategy:
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
 
         return triggers
-
-    # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
-    def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """
-        【V93.4 时空观版】
-        - 核心升级: 为“高风险区域”状态增加了对价格上涨“加速度”的判断，使其能识别“涨不动”的疲态。
-        """
-        print("    - [风险准备状态诊断中心 V93.4] 启动...")
-        setups = {}
-        exit_params = params.get('exit_strategy_params', {})
-        
-        setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
-
-        # Setup: 高风险区域 (Overextended Zone)
-        p_over = exit_params.get('upthrust_distribution_params', {})
-        ma_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
-        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.1)
-        ma_col = f'EMA_{ma_period}_D'
-        # ▼▼▼ 引入加速度作为判断条件 ▼▼▼
-        accel_col = f'ACCEL_20_close_D' # 使用20日价格加速度
-        
-        if ma_col in df.columns and accel_col in df.columns:
-            # 条件1: 价格高于均线 (位置)
-            is_high_position = (df['close_D'] / df[ma_col] - 1) > threshold
-            # 条件2: 上涨加速度放缓或为负 (动能)
-            is_momentum_slowing = df[accel_col] < 0
-            
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position | is_momentum_slowing
-            print(f"      -> '高风险区域(含动能衰竭)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
-        else:
-            print(f"      -> [警告] 缺少 {ma_col} 或 {accel_col}，无法诊断'高风险区域'。")
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = pd.Series(False, index=df.index)
-
-        return setups
 
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
@@ -2152,6 +2168,8 @@ class TrendFollowStrategy:
         
         print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         return signal
+
+
 
     def _prepare_derived_features(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
