@@ -1813,19 +1813,27 @@ class TrendFollowStrategy:
             },
             # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
             {
-                'name': 'STRUCTURE_BREAKDOWN', 'cn_name': '【极危】结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 100, 
-                'setup': ['RISK_SETUP_ANY'], # ANY表示任何情况下，只要触发器满足就执行
-                'trigger': ['RISK_TRIGGER_BREAKDOWN_CANDLE'],
-                'comment': '跌破关键支撑，趋势可能发生逆转。'
+                'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构性破位', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 120, # 给予最高级别的风险分
+                'setup': ['RISK_SETUP_ANY'],
+                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'], # 使用新的、更严格的触发器
+                'comment': '收盘价创出近期新低，是趋势结构被破坏的强烈信号。'
             },
             # --- 派发行为风险 (DISTRIBUTION_RISK) ---
             {
                 'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
                 'score': 90,
-                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'], # 必须先进入高风险区
-                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'], # 再出现上攻失败的K线
-                'comment': '高位区域内，上攻失败且放量，是经典的派发信号。'
+                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'],
+                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'], # 使用修正后的、更灵敏的触发器
+                'comment': '高位区域内，出现上攻失败的K线形态，是经典的派发信号。'
+            },
+            # ---  回调预警风险 (PULLBACK_WARNING_RISK) ---
+            {
+                'name': 'SHARP_PULLBACK_WARNING', 'cn_name': '【中危】急跌回调预警', 'family': 'PULLBACK_WARNING_RISK',
+                'score': 75, # 给予一个中等级别的风险分
+                'setup': ['RISK_SETUP_ANY'],
+                'trigger': ['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'], # 使用被重命名的、原有的“破位”逻辑
+                'comment': '出现放量大阴线并跌破短期均线，是市场强度减弱的明确警告。'
             },
             # --- 指标背离与超买风险 (INDICATOR_RISK) ---
             {
@@ -1915,57 +1923,105 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V93.0 新增】定义所有“风险触发事件 (Risk Trigger)”。
-        - 职责: 识别那些可以确认风险的、具体的“行动信号”K线或事件。
+        【V93.4 时空观版】
+        - 核心升级: 为风险触发器全面引入“斜率”和“回看”逻辑，使其具备时空观。
+          - 'ATTACK_FAILED_CANDLE': 升级为判断“近期多次”上攻失败。
+          - 'TRUE_BREAKDOWN_CANDLE': 升级为需要“动能确认”和“持续弱势”双重确认。
         """
-        print("    - [风险触发事件定义中心 V93.0] 启动...")
+        print("    - [风险触发事件定义中心 V93.4] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
 
-        # Trigger 1: 结构性破位K线
-        p_break = exit_params.get('structure_breakdown_params', {})
-        ma_period = self._get_param_value(p_break.get('breakdown_ma_period'), 21)
-        min_pct = self._get_param_value(p_break.get('min_pct_change'), -0.03)
-        ma_col = f'EMA_{ma_period}_D'
-        if ma_col in df.columns:
+        # Trigger 1 (升级): 上攻失败K线 (ATTACK_FAILED_CANDLE)
+        p_attack = exit_params.get('upthrust_distribution_params', {})
+        # ▼▼▼ 引入回看逻辑，判断近期失败次数 ▼▼▼
+        attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
+        required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
+        
+        recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
+        is_attack_failed_today = (df['high_D'] < recent_high) & (df['close_D'] < df['open_D'])
+        
+        # 计算在过去N天内，失败的次数
+        failed_count_in_window = is_attack_failed_today.rolling(window=attack_lookback).sum()
+        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = failed_count_in_window >= required_count
+
+        print(f"      -> '上攻失败(多次确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+
+        # Trigger 2 (保留): 急跌回调K线 (SHARP_PULLBACK_CANDLE)
+        p_pullback = exit_params.get('structure_breakdown_params', {})
+        ma_period_pullback = self._get_param_value(p_pullback.get('breakdown_ma_period'), 21)
+        min_pct = self._get_param_value(p_pullback.get('min_pct_change'), -0.03)
+        ma_col_pullback = f'EMA_{ma_period_pullback}_D'
+        if ma_col_pullback in df.columns:
             cond1 = df['pct_change_D'] < min_pct
             cond2 = df['volume_D'] > df['volume_D'].shift(1)
-            cond3 = df['close_D'] < df[ma_col]
-            triggers['RISK_TRIGGER_BREAKDOWN_CANDLE'] = cond1 & cond2 & cond3
-            print(f"      -> '结构性破位K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BREAKDOWN_CANDLE'])}")
+            cond3 = df['close_D'] < df[ma_col_pullback]
+            triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = cond1 & cond2 & cond3
+            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers.get('RISK_TRIGGER_SHARP_PULLBACK_CANDLE', pd.Series(False, index=df.index)))}")
 
-        # Trigger 2: 上攻失败K线
-        p_attack = exit_params.get('upthrust_distribution_params', {})
-        lookback = self._get_param_value(p_attack.get('attack_failed_lookback'), 5)
-        recent_high = df['high_D'].shift(1).rolling(window=lookback).max()
-        cond1 = (df['high_D'] < recent_high) & (df['close_D'] < df['open_D'])
-        cond2 = df['volume_D'] > df['volume_D'].shift(1)
-        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = cond1 & cond2
-        print(f"      -> '上攻失败K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+        # Trigger 3 (升级): 真实结构破位K线 (TRUE_BREAKDOWN_CANDLE)
+        p_true_break = exit_params.get('true_breakdown_params', {})
+        # ▼▼▼ 引入斜率和回看双重确认 ▼▼▼
+        breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
+        conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
+        conf_days = self._get_param_value(p_true_break.get('confirmation_lookback_days'), 2)
+        slope_period = self._get_param_value(p_true_break.get('slope_lookback_period'), 5)
+        slope_thresh = self._get_param_value(p_true_break.get('required_negative_slope'), -0.01)
+        
+        conf_ma_col = f'EMA_{conf_ma_period}_D'
+        slope_col = f'SLOPE_{slope_period}_close_D'
+
+        if conf_ma_col in df.columns and slope_col in df.columns:
+            # 条件A: 价格创近期新低 (核心事件)
+            recent_low = df['low_D'].shift(1).rolling(window=breakdown_lookback).min()
+            is_breaking_low = df['close_D'] < recent_low
+            
+            # 条件B: 动能确认 (短期价格斜率为负)
+            is_momentum_down = df[slope_col] < slope_thresh
+            
+            # 条件C: 弱势确认 (连续N天收在均线下方)
+            is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
+            
+            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_breaking_low & is_momentum_down & is_persistently_weak
+            print(f"      -> '真实结构破位(动能+持续弱势确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+        # ▲▲▲【代码修改 V93.4】▲▲▲
+        else:
+            print(f"      -> [警告] 缺少 {conf_ma_col} 或 {slope_col}，无法诊断'真实结构破位'。")
+            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = pd.Series(False, index=df.index)
 
         return triggers
 
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V93.0 新增】诊断所有“风险准备状态 (Risk Setup)”。
-        - 职责: 识别市场是否进入了某种高风险的“背景”或“区域”。
+        【V93.4 时空观版】
+        - 核心升级: 为“高风险区域”状态增加了对价格上涨“加速度”的判断，使其能识别“涨不动”的疲态。
         """
-        print("    - [风险准备状态诊断中心 V93.0] 启动...")
+        print("    - [风险准备状态诊断中心 V93.4] 启动...")
         setups = {}
         exit_params = params.get('exit_strategy_params', {})
         
-        # Setup 1: 永远为True的背景，用于定义那些不需要特定背景的风险
         setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
 
-        # Setup 2: 高风险区域 (价格远高于均线)
+        # Setup: 高风险区域 (Overextended Zone)
         p_over = exit_params.get('upthrust_distribution_params', {})
         ma_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
         threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.1)
         ma_col = f'EMA_{ma_period}_D'
-        if ma_col in df.columns:
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_col] - 1) > threshold
-            print(f"      -> '高风险区域' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+        # ▼▼▼ 引入加速度作为判断条件 ▼▼▼
+        accel_col = f'ACCEL_20_close_D' # 使用20日价格加速度
+        
+        if ma_col in df.columns and accel_col in df.columns:
+            # 条件1: 价格高于均线 (位置)
+            is_high_position = (df['close_D'] / df[ma_col] - 1) > threshold
+            # 条件2: 上涨加速度放缓或为负 (动能)
+            is_momentum_slowing = df[accel_col] < 0
+            
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = is_high_position & is_momentum_slowing
+            print(f"      -> '高风险区域(含动能衰竭)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
+        else:
+            print(f"      -> [警告] 缺少 {ma_col} 或 {accel_col}，无法诊断'高风险区域'。")
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = pd.Series(False, index=df.index)
 
         return setups
 
