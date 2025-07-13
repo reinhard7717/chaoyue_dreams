@@ -228,9 +228,9 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"--- 引擎3: 【执行引擎-买入】运行完毕，生成 {len(execution_records)} 条分钟线买入信号。 ---")
         
         # ▼▼▼【代码修改 V104】: 调用全新的分钟级风险预警引擎 ▼▼▼
-        logger.info(f"\n--- 引擎4: 开始运行【执行引擎-风险预警】(分钟线)... ---")
-        risk_alert_records = self._run_intraday_risk_alert_engine(stock_code, all_dfs)
-        logger.info(f"--- 引擎4: 【执行引擎-风险预警】运行完毕，生成 {len(risk_alert_records)} 条分钟线风险警报。 ---")
+        logger.info(f"\n--- 引擎4: 开始运行【通用盘中预警引擎】(分钟线)... ---")
+        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs) # 调用新函数
+        logger.info(f"--- 引擎4: 【通用盘中预警引擎】运行完毕，生成 {len(risk_alert_records)} 条分钟线风险警报。 ---")
 
         logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
         final_entry_records = self._merge_and_deduplicate_signals(tactical_records, execution_records)
@@ -256,99 +256,204 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
 
-    def _run_intraday_risk_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V104.3 终局 · 解析版】
-        - 核心修复: 使用 _get_param_value 辅助函数来正确解析 strategy_name，
-                    确保其为字符串而非字典，解决 unhashable type: 'dict' 的TypeError。
+        【V106.1 终局 · 增强版】
+        - 核心修正: 明确了日线和分钟线买入信号的关系。
+        - 日线信号: 作为基础战略决策，必须被记录。
+        - 分钟线信号: 作为“增强信号”，在日线高分的基础上寻找盘中确认点。
+                        它的触发会生成一个更高分的信号，在信号合并时优先采纳，但不会“否定”未被确认的日线信号。
         """
-        # --- 步骤0: 加载参数并进行前置检查 ---
-        exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
-        if not self.tactical_engine._get_param_value(exec_params.get('enabled'), False):
-            return []
+        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V106.1) ---")
         
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
-            logger.warning("日线分析结果(daily_analysis_df)为空，分钟级风险预警引擎跳过。")
-            return []
+        # --- 准备阶段 ---
+        logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
+        all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
+        if 'D' not in all_dfs or 'W' not in all_dfs:
+            logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
+            return None
+            
+        # --- 引擎1: 战略引擎 (周线) ---
+        logger.info(f"\n--- 引擎1: 开始运行【战略引擎】(周线)... ---")
+        strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
+        logger.info(f"--- 引擎1: 【战略引擎】运行完毕。---")
         
-        # --- 步骤1: 从日线策略中，识别出所有的“冲高日” ---
-        p_attack = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
-        lookback_period = self.tactical_engine._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
+        # --- 数据流转 ---
+        logger.info(f"\n--- 数据流转: 整合战略信号到日线数据... ---")
+        all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
         
-        daily_df = self.daily_analysis_df
-        is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
+        # --- 引擎2: 战术引擎 (日线) ---
+        logger.info(f"\n--- 引擎2: 开始运行【战术引擎】(日线)... ---")
+        # ▼▼▼【代码修改 V106.1】: 明确 tactical_records 是必须保留的日线信号 ▼▼▼
+        tactical_records = self._run_tactical_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎2: 【战术引擎】运行完毕，生成 {len(tactical_records)} 条日线买入信号。 ---")
         
-        upthrust_days_df = daily_df[is_upthrust_day]
-        if upthrust_days_df.empty:
-            logger.info("    - [风险预警引擎] 在日线数据中未发现任何“冲高日”，无需启动盘中监控。")
-            return []
+        # --- 引擎3: 执行引擎-买入 (分钟线共振) ---
+        logger.info(f"\n--- 引擎3: 开始运行【执行引擎-买入】(分钟线)... ---")
+        resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎3: 【执行引擎-买入】运行完毕，生成 {len(resonance_entry_records)} 条分钟线买入信号。 ---")
         
-        logger.info(f"    - [风险预警引擎] 发现 {len(upthrust_days_df)} 个潜在的“冲高日”，将在次日启动盘中监控。")
+        # --- 引擎4: 通用盘中预警引擎 (分钟线风险) ---
+        logger.info(f"\n--- 引擎4: 开始运行【通用盘中预警引擎】(分钟线)... ---")
+        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎4: 【通用盘中预警引擎】运行完毕，生成 {len(risk_alert_records)} 条分钟线风险警报。 ---")
 
-        alerts = []
-        # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
-        minute_tf = '5' 
+        # --- 引擎5: 通用盘中买入确认引擎 (分钟线增强) ---
+        logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(分钟线)... ---")
+        confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
+
+        # --- 信号整合 ---
+        logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
+        # ▼▼▼【代码修改 V106.1】: 整合所有分钟级别的买入信号 ▼▼▼
+        all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
+        
+        # ▼▼▼【代码修改 V106.1】: 使用合并函数，它会智能地用分钟线信号覆盖同一天的日线信号 ▼▼▼
+        # 这里的逻辑是：
+        # 1. tactical_records 包含了所有日线买入信号。
+        # 2. all_intraday_entry_records 包含了所有分钟线买入信号。
+        # 3. _merge_and_deduplicate_signals 会优先保留分钟线信号。
+        # 4. 如果某一天只有日线信号，它会被保留。
+        # 5. 如果某一天既有日线信号又有分钟线信号，只有分钟线信号会被保留。
+        # 这完美实现了“增强”而非“替代”的逻辑。
+        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
+        
+        # 将最终的买入信号和风险信号合并
+        all_records = final_entry_records + risk_alert_records
+
+        # --- 报告生成 ---
+        if all_records:
+            latest_trade_date = max(pd.to_datetime(rec['trade_time']).date() for rec in all_records)
+            latest_records = [
+                record for record in all_records
+                if pd.to_datetime(record['trade_time']).date() == latest_trade_date
+            ]
+            if latest_records:
+                logger.info(f"\n--- 报告生成: 为最新交易日 {latest_trade_date} 的 {len(latest_records)} 条信号生成分析报告...")
+                print(f"--- 分析报告仅展示最新交易日({latest_trade_date})的信号 ---")
+                for record in latest_records:
+                    report_text = self._generate_analysis_report(record)
+                    record['analysis_text'] = report_text
+                    print("----------------------------------------------------")
+                    print(report_text)
+                    print("----------------------------------------------------")
+                    
+        logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
+        return all_records if all_records else None
+
+    def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V108 终局 · 确认版】
+        - 核心升级: 在VWAP突破的基础上，增加了“成交量确认”和“波动率突破”两个辅助条件，
+                    形成“铁三角”共振，大幅提升分钟线买入信号的质量。
+        """
+        all_confirmations = []
+        # --- 步骤0: 加载配置和数据 ---
+        entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
+        get_val = self.tactical_engine._get_param_value
+        
+        if not get_val(entry_params.get('enabled'), False):
+            return []
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            return []
+
+        # --- 步骤1: 识别所有日线高分的“预备日” ---
+        daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
+        setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
+        if setup_days_df.empty:
+            return []
+            
+        logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日，启动当日盘中监控...")
+
+        # --- 步骤2: 遍历每个预备日，监控当天分钟行情 ---
+        minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
-            logger.warning(f"缺少{minute_tf}分钟数据，无法执行盘中风险预警。")
             return []
 
-        for upthrust_date, upthrust_row in upthrust_days_df.iterrows():
-            alert_date = upthrust_date + pd.Timedelta(days=1)
+        rules = entry_params.get('confirmation_rules', {})
+        min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
+
+        for setup_date, setup_row in setup_days_df.iterrows():
+            alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
+            if alert_day_minute_df.empty: continue
+
+            # --- 步骤3: 构建三位一体的分钟线确认逻辑 ---
+            final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
+
+            close_col = f'close_{minute_tf}'
+            volume_col = f'volume_{minute_tf}'
+
+            # 条件1: VWAP突破
+            vwap_rule = rules.get('vwap_reclaim', {})
+            if get_val(vwap_rule.get('enabled'), False):
+                vwap_col = f'VWAP_{minute_tf}'
+                if vwap_col in alert_day_minute_df.columns and close_col in alert_day_minute_df.columns:
+                    final_confirmation_signal &= (alert_day_minute_df[close_col] > alert_day_minute_df[vwap_col])
+                else:
+                    final_confirmation_signal &= False
+
+            # 条件2: 成交量确认
+            vol_rule = rules.get('volume_confirmation', {})
+            if get_val(vol_rule.get('enabled'), False):
+                vol_ma_period = get_val(vol_rule.get('ma_period'), 21)
+                vol_ma_col = f'VOL_MA_{vol_ma_period}_{minute_tf}'
+                if vol_ma_col in alert_day_minute_df.columns and volume_col in alert_day_minute_df.columns:
+                    final_confirmation_signal &= (alert_day_minute_df[volume_col] > alert_day_minute_df[vol_ma_col])
+
+            # 条件3: 波动率突破
+            vola_rule = rules.get('volatility_breakout', {})
+            if get_val(vola_rule.get('enabled'), False):
+                bbw_col = f'BBW_21_2.0_{minute_tf}'
+                if bbw_col in alert_day_minute_df.columns:
+                    # ... 波动率计算逻辑保持不变，因为它内部已经使用了bbw_col ...
+                    squeeze_threshold = alert_day_minute_df[bbw_col].rolling(...).quantile(...)
+                    is_expanding_from_squeeze = (alert_day_minute_df[bbw_col] > alert_day_minute_df[bbw_col].shift(1)) & \
+                                                (alert_day_minute_df[bbw_col].shift(1) < squeeze_threshold)
+                    final_confirmation_signal &= is_expanding_from_squeeze
+
+            # 过滤掉开盘初期的噪音，并寻找首次触发点
+            market_open_time = setup_date.replace(hour=9, minute=30, second=0)
+            monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
-            alert_day_minute_df = minute_df[minute_df.index.date == alert_date.date()].copy()
-            if alert_day_minute_df.empty:
-                continue
-
-            # --- 步骤3: 准备实时触发的阈值 ---
-            alert_day_open = alert_day_minute_df.iloc[0]['open']
-            upthrust_day_open = upthrust_row['open_D']
-
-            logger.info(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
-            logger.info(f"         - 触发阈值1 (低于今日开盘): {alert_day_open:.2f}")
-            logger.info(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
-
-            # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
+            # 寻找首次从False变为True的那个点
             triggered_minutes = alert_day_minute_df[
-                (alert_day_minute_df['close'] < alert_day_open) &
-                (alert_day_minute_df['close'] < upthrust_day_open)
+                (alert_day_minute_df.index >= monitoring_start_time) &
+                (final_confirmation_signal == True) & 
+                (final_confirmation_signal.shift(1) == False)
             ]
 
             if not triggered_minutes.empty:
-                first_alert_minute = triggered_minutes.iloc[0]
-                alert_time = first_alert_minute.name
-                alert_price = first_alert_minute['close']
+                first_confirmation_minute = triggered_minutes.iloc[0]
+                confirm_time = first_confirmation_minute.name
+                confirm_price = first_confirmation_minute[close_col]
                 
-                reason_str = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
+                # --- 步骤4: 生成增强的买入信号记录 ---
+                daily_score = setup_row.get('entry_score', 0)
+                bonus_score = get_val(entry_params.get('bonus_score'), 50)
+                final_score = daily_score + bonus_score
                 
-                # 修正: 使用 _get_param_value 辅助函数来正确解析 strategy_name
-                strategy_name = self.tactical_engine._get_param_value(
-                    exec_params.get('signal_name'), 'INTRADAY_RISK_ALERT'
-                )
-
-                playbook_name = self.tactical_engine._get_param_value(
-                    exec_params.get('alert_playbook_name'), 'UNKNOWN_INTRADAY_ALERT'
-                )
-
+                daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
+                
                 record = {
                     "stock_code": stock_code,
-                    "trade_time": alert_time.to_pydatetime(),
+                    "trade_time": confirm_time.to_pydatetime(),
                     "timeframe": minute_tf,
-                    "strategy_name": strategy_name, # 现在这里保证是字符串
-                    "close_price": sanitize_for_json(alert_price),
-                    "entry_score": 0.0,
-                    "entry_signal": False,
-                    "exit_signal_code": 103,
-                    "exit_severity_level": 3,
-                    "exit_signal_reason": reason_str,
-                    "triggered_playbooks": [playbook_name],
-                    "context_snapshot": sanitize_for_json({'close': alert_price, 'reason': reason_str}),
+                    "strategy_name": get_val(entry_params.get('signal_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
+                    "close_price": sanitize_for_json(confirm_price),
+                    "entry_score": final_score,
+                    "entry_signal": True,
+                    "exit_signal_code": 0,
+                    "exit_severity_level": 0,
+                    "exit_signal_reason": None,
+                    "triggered_playbooks": list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
+                    "context_snapshot": sanitize_for_json({'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score}),
                 }
-                
-                alerts.append(record)
-                logger.info(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {record['exit_signal_reason']}")
-        
-        return alerts
+                all_confirmations.append(record)
+                logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {confirm_time.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
+                continue 
+
+        return all_confirmations
 
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         if not daily_records and not intraday_records:

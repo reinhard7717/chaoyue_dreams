@@ -606,11 +606,11 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V5.8 终极合并修复版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修复: 修正了V5.7版本中错误的合并逻辑，确保基础OHLCV列（如 high, close）也能被正确添加后缀（如 high_W, close_W），彻底解决下游策略的 'KeyError' 问题。
-        - 保持健壮: 保留了V5.7引入的对Series返回值的健壮处理和数据量预检功能。
+        【V110 终极规范版】根据配置为指定时间周期计算所有技术指标，并为所有列统一添加后缀。
+        - 核心升级: 为所有时间周期（包括分钟线）统一添加后缀，如 '_5', '_30', '_D'。
+        - 核心修复: 废弃了之前版本中对VWAP等指标的特殊处理，将其纳入统一的后缀添加流程，确保所有指标命名规则一致。
         """
-        # print(f"  [指标计算V5.8] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V110] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -620,17 +620,10 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
             return df
 
-        df_main = df.copy()
-        # base_cols = ['open', 'high', 'low', 'close', 'volume']
-        # df_for_calc = pd.DataFrame(index=df_main.index)
-        # for col in base_cols:
-        #     if col in df_main.columns:
-        #         df_for_calc[col] = df_main[col]
-        #     else:
-        #         df_for_calc[col] = np.nan 
-
-        df_for_calc = df_main.copy()
+        # 创建一个副本用于计算，避免修改原始传入的DataFrame
+        df_for_calc = df.copy()
         
+        # 定义指标计算方法的映射
         indicator_method_map = {
             'ema': self.calculate_ema, 'vol_ma': self.calculate_vol_ma, 'trix': self.calculate_trix,
             'coppock': self.calculate_coppock, 'rsi': self.calculate_rsi, 'macd': self.calculate_macd,
@@ -644,7 +637,7 @@ class IndicatorService:
         }
         
         def merge_results(result_data, target_df):
-            """健壮地合并结果，无论输入是Series还是DataFrame。"""
+            """健壮地合并指标计算结果（Series或DataFrame）到目标DataFrame。"""
             if result_data is None or result_data.empty: return
             if isinstance(result_data, pd.Series):
                 result_data = result_data.to_frame()
@@ -655,27 +648,34 @@ class IndicatorService:
             else:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
 
-        # --- 常规指标计算循环 (逻辑不变) ---
+        # --- 阶段一: 常规指标计算循环 ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             
+            # 跳过非指标项或禁用的指标
             if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore'] or not params.get('enabled', False): continue
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
+            # 复合指标在下一阶段处理
             if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']: continue
 
+            # 遍历该指标的所有配置项（例如，RSI可以有多个不同周期的配置）
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
+                # 检查当前配置是否适用于正在处理的时间周期
                 if timeframe_key not in sub_config.get("apply_on", []): continue
+                
                 try:
                     method_to_call = indicator_method_map[indicator_name]
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
 
+                    # VWAP的特殊处理：需要传递锚点
                     if indicator_name == 'vwap':
                         anchor = 'D' if timeframe_key.isdigit() else timeframe_key
                         kwargs['anchor'] = anchor
+                        # 注意：此处不再传递suffix，因为所有后缀将在最后统一添加
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
@@ -685,6 +685,7 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                         continue
                     
+                    # 处理多参数指标（如MACD, KDJ）和多周期配置
                     is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
@@ -699,7 +700,6 @@ class IndicatorService:
                         elif indicator_name == 'boll_bands_and_width':
                             kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
                         else:
-                            # 修正: 确保传递给 'period' 的是整数。如果 p_set 是列表(如[13])，则取其第一个元素；如果已经是整数(如13)，则直接使用。
                             kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
                         
                         result_df = await method_to_call(**kwargs_iter)
@@ -707,107 +707,68 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
-        # --- 复合指标计算循环 (逻辑不变) ---
+        # --- 阶段二: 复合指标计算循环 ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels'] and params.get('enabled', False):
                 if timeframe_key in params.get("apply_on", []):
                     try:
                         method_to_call = indicator_method_map[indicator_name]
+                        # 注意：此处传递空的suffix，因为后缀将统一添加
                         result_df = await method_to_call(df=df_for_calc, params=params, suffix='')
                         merge_results(result_df, df_for_calc)
                     except Exception as e:
                         logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
 
-        # ▼▼▼ 后处理阶段：计算Z-Score ▼▼▼
-        # 解释：Z-Score依赖于其他指标（如MACD）的计算结果，因此必须在所有常规指标计算完毕后执行。
+        # --- 阶段三: 后处理指标计算（如Z-Score） ---
         zscore_params = config.get('zscore')
         if zscore_params and zscore_params.get('enabled', False):
             for z_config in zscore_params.get('configs', []):
-                if timeframe_key not in z_config.get("apply_on", []):
-                    continue
-
+                if timeframe_key not in z_config.get("apply_on", []): continue
                 try:
                     source_pattern = z_config.get("source_column_pattern")
-                    output_col_name_final = z_config.get("output_column_name") # 这是最终想要的列名，如 MACD_HIST_ZSCORE_D
+                    output_col_name = z_config.get("output_column_name")
                     window = z_config.get("window", 60)
 
-                    if not all([source_pattern, output_col_name_final, window]):
-                        logger.warning(f"Z-score配置不完整，跳过: {z_config}")
-                        continue
-
-                    # 动态构建带后缀的源列名
-                    source_col_name_final = source_pattern
+                    # 动态构建源列名（不带后缀）
+                    source_col_name = source_pattern
                     if "{fast}" in source_pattern:
                         macd_cfg = config.get('macd', {})
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
-                        if macd_periods and len(macd_periods) == 3:
-                            source_col_name_final = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
-                        else:
-                            logger.warning(f"无法为Z-score找到周期为'{timeframe_key}'的MACD参数，跳过。")
-                            continue
+                        if macd_periods:
+                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                        else: continue
                     
-                    # 【核心修复】根据当前周期，移除列名中的后缀，得到在 df_for_calc 中实际使用的内部列名
-                    internal_suffix = f"_{timeframe_key}"
-                    internal_source_col = source_col_name_final.removesuffix(internal_suffix) if source_col_name_final.endswith(internal_suffix) else source_col_name_final
-                    internal_output_col = output_col_name_final.removesuffix(internal_suffix) if output_col_name_final.endswith(internal_suffix) else output_col_name_final
+                    # 移除日线后缀以匹配df_for_calc中的列名
+                    source_col_name = source_col_name.removesuffix(f"_{timeframe_key}")
+                    output_col_name = output_col_name.removesuffix(f"_{timeframe_key}")
 
-                    # 检查内部源列是否存在于 df_for_calc
-                    if internal_source_col not in df_for_calc.columns:
-                        logger.warning(f"Z-score计算失败：内部源列 '{internal_source_col}' 在临时DataFrame中不存在。请检查源指标是否已成功计算。")
-                        continue
-
-                    # 执行Z-score计算
-                    source_series = df_for_calc[internal_source_col]
-                    rolling_mean = source_series.rolling(window=window, min_periods=1).mean()
-                    rolling_std = source_series.rolling(window=window, min_periods=1).std()
-                    
-                    # 使用 np.divide 安全地处理除以0的情况
-                    zscore_result = np.divide(
-                        (source_series - rolling_mean), 
-                        rolling_std, 
-                        out=np.full_like(source_series, np.nan), 
-                        where=rolling_std!=0
-                    )
-                    
-                    # 将结果写入到内部DataFrame，使用不带后缀的列名
-                    df_for_calc[internal_output_col] = zscore_result
-                    
-                    print(f"    - [指标计算-ZScore] 已成功为列 '{internal_source_col}' 计算Z-score，临时输出到 '{internal_output_col}'。")
-
+                    if source_col_name in df_for_calc.columns:
+                        source_series = df_for_calc[source_col_name]
+                        rolling_mean = source_series.rolling(window=window).mean()
+                        rolling_std = source_series.rolling(window=window).std()
+                        zscore_result = np.divide((source_series - rolling_mean), rolling_std, out=np.full_like(source_series, np.nan), where=rolling_std!=0)
+                        df_for_calc[output_col_name] = zscore_result
+                    else:
+                        logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                 except Exception as e:
-                    logger.error(f"计算Z-score时出错 (配置: {z_config}): {e}", exc_info=True)
+                    logger.error(f"计算Z-score时出错: {e}", exc_info=True)
 
-        # 1. 确定后缀。日线、周线、月线加后缀，分钟线等保持原样。
-        suffix = f"_{timeframe_key}" if timeframe_key in ['D', 'W', 'M'] else ''
+        # --- 阶段四: 统一添加后缀并返回 ---
+        # ▼▼▼【代码修改 V110】: 统一为所有列添加后缀的核心逻辑 ▼▼▼
+        # 1. 定义后缀
+        suffix = f"_{timeframe_key}"
         
-        # 如果不需要加后缀（例如分钟线），直接返回包含所有计算结果的 df_for_calc
-        if not suffix:
-            return df_for_calc
-
-        # 2. 对于需要加后缀的周期（D, W, M）:
-        # 创建一个重命名的映射字典，为 df_for_calc 中的每一列都规划好带后缀的新名字。
-        # 这样可以确保数据的一致性，所有列都会被统一处理。
+        # 2. 为 df_for_calc 中的每一列（包括原始OHLCV和所有计算出的指标）都规划好带后缀的新名字。
         rename_map = {col: f"{col}{suffix}" for col in df_for_calc.columns}
         
         # 3. 应用重命名，生成最终的DataFrame
         final_df = df_for_calc.rename(columns=rename_map)
 
-        # 4. 调试输出，检查最终返回的数据是否符合预期
-        # debug_cols_to_check = [
-        #     f'close{suffix}', f'winner_rate{suffix}', f'weight_avg{suffix}', 
-        #     f'cost_85pct{suffix}', f'cost_95pct{suffix}'
-        # ]
-        # # 筛选出实际存在于final_df中的列进行打印，避免KeyError
-        # existing_debug_cols = [col for col in debug_cols_to_check if col in final_df.columns]
-
-        # if existing_debug_cols:
-        #     debug_df = final_df[(final_df.index >= '2024-11-01') & (final_df.index <= '2024-12-31')]
-        #     if not debug_df.empty:
-        #         print(f"\n--- [IndicatorService V6.0 最终输出 - 周期 {timeframe_key}] ---")
-        #         with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 220):
-        #             print(debug_df[existing_debug_cols])
-        #         print(f"--- [IndicatorService V6.0 最终输出结束 - 周期 {timeframe_key}] ---\n")
+        # 4. 调试打印
+        print(f"\n--- [IndicatorService V110 调试输出] 周期 '{timeframe_key}' 最终生成列名清单 (已添加后缀) ---")
+        print(final_df.columns.tolist())
+        print(f"--- [IndicatorService V110 调试输出结束] ---\n")
 
         return final_df
 
@@ -1058,7 +1019,7 @@ class IndicatorService:
             logger.error(f"计算 ATRN (period={period}) 时出错: {e}", exc_info=True)
             return None
 
-    async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close') -> Optional[pd.DataFrame]:
+    async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.1 标准化版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)
         - 核心修正: 对 pandas-ta 返回的 BBB% (带宽百分比) 列进行标准化，将其除以 100，转换为标准比率。
@@ -1074,31 +1035,18 @@ class IndicatorService:
                 # 使用 ta.bbands() 直接调用，返回一个新的DataFrame
                 return ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
 
-            bbands_df = await asyncio.to_thread(_sync_bbands)
-            if bbands_df is None or bbands_df.empty:
-                logger.warning(f"布林带 (周期 {period}) 计算结果为空。")
-                return None
+            bbands_df = await asyncio.to_thread(lambda: ta.bbands(close=df[close_col], length=period, std=std_dev, append=False))
+            if bbands_df is None or bbands_df.empty: return None
 
-            # ▼▼▼【核心修正】▼▼▼
-            # pandas-ta 返回的 'BBB' 列是百分比形式，我们需要将其转换为标准比率
-            # 1. 确定 pandas-ta 输出的原始列名
             bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
-            
-            # 2. 检查该列是否存在，然后进行标准化
             if bbw_source_col in bbands_df.columns:
-                # print(f"  [指标标准化] 检测到 pandas-ta 的 '{bbw_source_col}' 列。")
-                # print(f"  [指标标准化] 将其值除以 100.0 以从百分比转换为标准比率。")
-                # 核心操作：将百分比转换为比率
                 bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
-            # ▲▲▲【核心修正】▲▲▲
-
-            # 3. 现在可以安全地重命名了，重命名后的 'BBW' 列将包含正确的比率值
             rename_map = {
-                f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}',
-                f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}',
-                f'BBU_{period}_{std_dev:.1f}': f'BBU_{period}_{std_dev:.1f}',
-                bbw_source_col: f'BBW_{period}_{std_dev:.1f}', # 使用源列名进行重命名
-                f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}'
+                f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
+                f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}{suffix}',
+                f'BBU_{period}_{std_dev:.1f}': f'BBU_{period}_{std_dev:.1f}{suffix}',
+                bbw_source_col: f'BBW_{period}_{std_dev:.1f}{suffix}',
+                f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
             }
             
             result_df = bbands_df.rename(columns=rename_map)
@@ -1641,7 +1589,7 @@ class IndicatorService:
             logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None) -> Optional[pd.DataFrame]:
+    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None, suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.1 锚点修正版】计算 VWAP (成交量加权平均价)。
         - 修正了对分钟级别锚点（如 '30', '60'）的处理，将其转换为 pandas 可识别的频率字符串（如 '30T'）。
@@ -1660,28 +1608,23 @@ class IndicatorService:
         if anchor and str(anchor).isdigit():
             processed_anchor = f"{anchor}T"
             # print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
-        
-
         try:
-            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_vwap():
-                # ▼▼▼ 使用处理后的锚点 ▼▼▼
-                # 调用 pandas_ta 的 vwap 方法
-                return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=processed_anchor, append=False)
-                
+                return df.ta.vwap(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], anchor=processed_anchor, append=False)
             
             vwap_series = await asyncio.to_thread(_sync_vwap)
+            if vwap_series is None or vwap_series.empty: return None
+
+            # pandas-ta的vwap列名比较特殊，我们手动重命名以确保一致性
+            # 原始列名可能是 VWAP_D, VWAP_W, VWAP_30T 等
+            original_name = vwap_series.name
+            # 我们统一将其命名为 VWAP_{suffix}
+            new_name = f'VWAP{suffix}'
+            vwap_series.name = new_name
             
-            if vwap_series is None or vwap_series.empty:
-                return None
-            
-            # pandas_ta 会根据 anchor 自动生成列名，例如 VWAP_D, VWAP_W, VWAP_30T
-            # 我们直接使用它返回的 Series，其 name 就是列名
             return pd.DataFrame(vwap_series)
         except Exception as e:
-            # ▼▼▼ 在日志中也使用原始锚点，方便追溯 ▼▼▼
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
-            
             return None
 
     async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:

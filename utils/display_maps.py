@@ -84,7 +84,8 @@ PLAYBOOK_NAME_MAP = {
     'EXIT_LEVEL_1': '【一级预警】趋势减速',
     'EXIT_LEVEL_2': '【二级警报】短期转弱',
     'EXIT_LEVEL_3': '【三级警报】跌破日线支撑',
-    'EXIT_UPTHRUST_REJECTION': '冲高回落',
+    'EXIT_INTRADAY_UPTHRUST_REJECTION': '冲高回落',
+    'EXIT_INTRADAY_PULLBACK_FAILED': '急跌反弹失败',
     
     # ==================================================================
     # ===                  兼容性/旧版ID (Legacy)                    ===

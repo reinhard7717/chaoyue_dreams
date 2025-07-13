@@ -5,16 +5,16 @@
     "说明": "【数据工程层】定义本策略需要计算的所有技术指标。此部分结构保持稳定。",
     "base_needed_bars": 500,
     "indicators": {
-      "cyq_perf": { "enabled": true, "说明": "加载CYQ筹码表现数据。" },
-      "ema": { "enabled": true, "apply_on": ["D", "M", "60", "30", "15", "5"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
-      "vol_ma": { "enabled": true, "apply_on": ["D", "120", "60", "30", "15", "5"], "periods": [21] },
-      "rsi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13] }, { "apply_on": ["5"], "periods": [9] }] },
-      "macd": { "enabled": true, "configs": [{ "apply_on": ["D", "60"], "periods": [13, 34, 8] }, { "apply_on": ["30", "15"], "periods": [12, 26, 9] }] },
+      "cyq_perf": { "enabled": true },
+      "ema": { "enabled": true, "apply_on": ["D", "60", "30"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
+      "vol_ma": { "enabled": true, "apply_on": ["D", "5"], "periods": [21] },
+      "boll_bands_and_width": { "enabled": true, "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
+      "rsi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13] }] },
+      "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }] },
       "zscore": { "enabled": true, "configs": [{ "apply_on": ["D"], "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D", "window": 60, "output_column_name": "MACD_HIST_ZSCORE_D" }] },
-      "dmi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [14] }, { "apply_on": ["30", "15"], "periods": [13] }] },
-      "kdj": { "enabled": true, "configs": [{ "apply_on": ["5"], "periods": [9, 3, 3] }] },
-      "vwap": { "enabled": true, "apply_on": ["5", "15", "30"] },
-      "boll_bands_and_width": { "enabled": true, "apply_on": ["D"], "periods": [21], "std_dev": 2.0 },
+      "dmi": { "enabled": false },
+      "kdj": { "enabled": false },
+      "vwap": { "enabled": true, "apply_on": ["5", "30"] },
       "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21] },
       "bias": { "enabled": true, "apply_on": ["D"], "periods": [21, 55] },
       "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } },
@@ -151,10 +151,43 @@
         "exit_code_full": { "value": 99, "说明": "触发完全清仓的高危风险码。" },
         "life_line_ma": { "value": 21, "说明": "减仓后，作为趋势生命线的EMA周期。" }
       },
+      "intraday_entry_params": {
+        "enabled": { "value": true, "说明": "【V106.2 新增】启用或禁用分钟级别的买入确认引擎。" },
+        "daily_score_threshold": { "value": 100, "说明": "触发盘中监控所需的最低日线入场分数。" },
+        "timeframe": { "value": "5", "说明": "用于执行确认逻辑的分钟周期。" },
+        "confirmation_rules": {
+          "vwap_reclaim": { "enabled": { "value": true, "说明": "核心条件：价格重新站上当日VWAP。" } },
+          "volume_confirmation": {
+            "enabled": { "value": true, "说明": "辅助条件1：要求突破时成交量高于21周期均量。" },
+            "ma_period": { "value": 21, "说明": "成交量均线的周期。" }
+          },
+          "volatility_breakout": {
+            "enabled": { "value": true, "说明": "辅助条件2：要求突破发生在波动率从极度压缩开始扩张时。" },
+            "squeeze_window": { "value": 60, "说明": "判断波动率是否压缩的回看窗口期（单位：根K线）。" },
+            "squeeze_percentile": { "value": 0.2, "说明": "BBW低于过去N根K线的这个分位数，即视为'压缩状态'。" }
+          },
+          "min_time_after_open": { "value": 15, "说明": "开盘后至少等待N分钟再开始监控，以规避早盘的剧烈波动。" }
+        },
+        "signal_name": { "value": "INTRADAY_ENTRY_CONFIRMATION", "说明": "盘中买入确认信号的名称。" },
+        "playbook_name": { "value": "ENTRY_INTRADAY_CONFIRMATION", "说明": "触发时记录的剧本名称。" },
+        "bonus_score": { "value": 50, "说明": "盘中确认成功后，在日线分数基础上额外增加的奖励分。" }
+      },
       "intraday_execution_params": {
-        "enabled": { "value": true, "说明": "【V104 新增】启用或禁用分钟级别的战术执行层。" },
-        "signal_name": { "value": "INTRADAY_RISK_ALERT", "说明": "盘中风险警报的名称。" },
-        "alert_playbook_name": { "value": "EXIT_UPTHRUST_REJECTION", "说明": "盘中风险警报触发时记录的剧本名称。" }
+        "说明": "【V105 框架版】通用盘中预警引擎的配置中心",
+        "upthrust_rejection": {
+          "enabled": { "value": true, "说明": "启用'冲高回落'盘中预警" },
+          "setup_signal_name": { "value": "SETUP_UPTHRUST_WATCH", "说明": "对应的日线预备信号名称" },
+          "alert_playbook_name": { "value": "EXIT_INTRADAY_UPTHRUST_REJECTION", "说明": "触发时记录的剧本名称" },
+          "alert_code": { "value": 103, "说明": "信号代码" },
+          "severity_level": { "value": 3, "说明": "风险等级" }
+        },
+        "sharp_pullback_confirmation": {
+          "enabled": { "value": true, "说明": "启用'急跌反弹失败'盘中预警" },
+          "setup_signal_name": { "value": "SETUP_SHARP_PULLBACK_WATCH", "说明": "对应的日线预备信号名称" },
+          "alert_playbook_name": { "value": "EXIT_INTRADAY_PULLBACK_FAILED", "说明": "触发时记录的剧本名称" },
+          "alert_code": { "value": 104, "说明": "信号代码" },
+          "severity_level": { "value": 3, "说明": "风险等级" }
+        }
       }
     }
   },
