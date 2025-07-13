@@ -508,6 +508,10 @@ class TrendFollowStrategy:
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
+                'name': 'TREND_EMERGENCE_B_PLUS', 'cn_name': '【B+级】右侧萌芽', 'family': 'TREND_MOMENTUM',
+                'type': 'setup', 'score': 210, 'comment': 'B+级: 填补战术真空。在左侧反转后，短期均线走好但尚未站上长线时的首次介入机会。'
+            },
+            {
                 'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海', 'family': 'TREND_MOMENTUM',
                 'type': 'setup_score', 'side': 'right', 'comment': '根据深度吸筹分数动态给分。若伴随筹码点火，则确定性更高。',
                 'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
@@ -563,7 +567,7 @@ class TrendFollowStrategy:
           2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
              使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
         """
-        print("    - [剧本水合引擎 V85.2 蓝图修正版] 启动...")
+        print("    - [剧本水合引擎 V86.0 尖刀连版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
@@ -581,6 +585,7 @@ class TrendFollowStrategy:
 
         # 原子状态
         capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        ma_short_cross_mid = atomic_states.get('MA_STATE_SHORT_CROSS_MID', default_series)
         setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
         setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
@@ -612,6 +617,11 @@ class TrendFollowStrategy:
             elif name == 'BOTTOM_STABILIZATION_B':
                 playbook['setup'] = score_bottoming_process > 50
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'TREND_EMERGENCE_B_PLUS':
+                # Setup条件: 处于资本底背离后的观察窗口期内，并且短期均线已经上穿中期均线
+                playbook['setup'] = capital_divergence_window & ma_short_cross_mid
+                # Trigger条件: 任何一个温和的趋势延续K线
+                playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
                 playbook['setup_score_series'] = score_deep_accum
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
@@ -637,7 +647,7 @@ class TrendFollowStrategy:
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
-        print(f"    - [剧本水合引擎 V85.2] 完成，所有剧本已注入动态数据。")
+        print(f"    - [剧本水合引擎 V86.0] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -1245,6 +1255,7 @@ class TrendFollowStrategy:
 
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
+        states['MA_STATE_SHORT_CROSS_MID'] = (df[short_ma] > df[mid_ma]) # 短期趋势萌芽状态
         states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
         states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
 
