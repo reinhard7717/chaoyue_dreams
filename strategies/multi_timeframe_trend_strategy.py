@@ -341,9 +341,10 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V108 终局 · 确认版】
-        - 核心升级: 在VWAP突破的基础上，增加了“成交量确认”和“波动率突破”两个辅助条件，
-                    形成“铁三角”共振，大幅提升分钟线买入信号的质量。
+        【V112.1 终局 · 填补版】
+        - 核心修复: 解决了由于占位符导致的 'ValueError: window must be an integer'。
+                    现在会从配置中正确读取 'squeeze_window' 和 'squeeze_percentile' 参数，
+                    并将其传递给 .rolling() 和 .quantile() 函数，使波动率突破逻辑完整可用。
         """
         all_confirmations = []
         # --- 步骤0: 加载配置和数据 ---
@@ -378,7 +379,7 @@ class MultiTimeframeTrendStrategy:
 
             # --- 步骤3: 构建三位一体的分钟线确认逻辑 ---
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
-
+            
             close_col = f'close_{minute_tf}'
             volume_col = f'volume_{minute_tf}'
 
@@ -404,8 +405,17 @@ class MultiTimeframeTrendStrategy:
             if get_val(vola_rule.get('enabled'), False):
                 bbw_col = f'BBW_21_2.0_{minute_tf}'
                 if bbw_col in alert_day_minute_df.columns:
-                    # ... 波动率计算逻辑保持不变，因为它内部已经使用了bbw_col ...
-                    squeeze_threshold = alert_day_minute_df[bbw_col].rolling(...).quantile(...)
+                    # ▼▼▼【代码修改 V112.1】: 从配置中读取参数并替换占位符 ▼▼▼
+                    squeeze_window = get_val(vola_rule.get('squeeze_window'), 60)
+                    squeeze_percentile = get_val(vola_rule.get('squeeze_percentile'), 0.2)
+                    
+                    # 使用读取到的参数进行计算
+                    squeeze_threshold = alert_day_minute_df[bbw_col].rolling(
+                        window=squeeze_window, 
+                        min_periods=squeeze_window // 2
+                    ).quantile(squeeze_percentile)
+                    # ▲▲▲【代码修改 V112.1】▲▲▲
+                    
                     is_expanding_from_squeeze = (alert_day_minute_df[bbw_col] > alert_day_minute_df[bbw_col].shift(1)) & \
                                                 (alert_day_minute_df[bbw_col].shift(1) < squeeze_threshold)
                     final_confirmation_signal &= is_expanding_from_squeeze
@@ -414,7 +424,6 @@ class MultiTimeframeTrendStrategy:
             market_open_time = setup_date.replace(hour=9, minute=30, second=0)
             monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
-            # 寻找首次从False变为True的那个点
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
                 (final_confirmation_signal == True) & 
@@ -423,7 +432,6 @@ class MultiTimeframeTrendStrategy:
 
             if not triggered_minutes.empty:
                 first_confirmation_minute = triggered_minutes.iloc[0]
-                confirm_time = first_confirmation_minute.name
                 confirm_price = first_confirmation_minute[close_col]
                 
                 # --- 步骤4: 生成增强的买入信号记录 ---
@@ -435,7 +443,7 @@ class MultiTimeframeTrendStrategy:
                 
                 record = {
                     "stock_code": stock_code,
-                    "trade_time": confirm_time.to_pydatetime(),
+                    "trade_time": first_confirmation_minute.name.to_pydatetime(),
                     "timeframe": minute_tf,
                     "strategy_name": get_val(entry_params.get('signal_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
                     "close_price": sanitize_for_json(confirm_price),
@@ -448,7 +456,7 @@ class MultiTimeframeTrendStrategy:
                     "context_snapshot": sanitize_for_json({'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score}),
                 }
                 all_confirmations.append(record)
-                logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {confirm_time.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
+                logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {first_confirmation_minute.name.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
                 continue 
 
         return all_confirmations
