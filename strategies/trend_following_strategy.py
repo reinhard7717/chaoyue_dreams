@@ -1963,42 +1963,45 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V93.9 终极收官版】
-        - 核心修正: 对“动能衰竭失败”的定义进行微调 (high <= recent_high)，使其能捕捉到平台顶部无法突破的“平顶”形态，
-                    成功覆盖了`2025-06-13`这样的最后盲区。这是离场策略的最终形态。
+        【V94.0 最终定义版】
+        - 核心革命: 将“动能衰竭失败”的判断标准从K线颜色升级为收盘价在当日振幅中的位置(is_weak_close)，
+                    使其能识别包括十字星、长上影小阳线在内的更多顶部衰竭形态。这是离场策略的最终形态。
         """
-        print("    - [风险触发事件定义中心 V93.9] 启动...")
+        print("    - [风险触发事件定义中心 V94.0] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
-        # Trigger 1 (终极收官版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
+        # Trigger 1 (最终定义版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
         p_attack = exit_params.get('upthrust_distribution_params', {})
         attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
         required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
 
-        # 步骤1: 定义高质量的“关键上冲失败” (Upthrust Failure)
-        tried_to_break_out = df['high_D'] > df['high_D'].shift(1)
+        # 步骤1: 定义通用的强弱判断标准
         is_red_candle = df['close_D'] < df['open_D']
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
+
+        # 步骤2: 定义高质量的“关键上冲失败” (Upthrust Failure)
+        tried_to_break_out = df['high_D'] > df['high_D'].shift(1)
         is_key_upthrust_failure = tried_to_break_out & is_red_candle & is_weak_close
 
-        # 步骤2: 定义低质量的“动能衰竭失败” (Exhaustion Failure)，用于累计计数
+        # 步骤3: 定义更普适的“动能衰竭失败” (Exhaustion Failure)，用于累计计数
         recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
-        # ▼▼▼ 将 < 修改为 <=，以捕捉“平顶”形态 ▼▼▼
-        is_exhaustion_failure = (df['high_D'] <= recent_high) & is_red_candle
+        # ▼▼▼【代码修改 V94.0】: 使用 is_weak_close 替换 is_red_candle，识别更本质的衰竭 ▼▼▼
+        is_exhaustion_failure = (df['high_D'] <= recent_high) & is_weak_close
+        # ▲▲▲【代码修改 V94.0】▲▲▲
 
-        # 步骤3: 基于“动能衰竭失败”进行累计，判断是否“反复失败”
+        # 步骤4: 基于“动能衰竭失败”进行累计，判断是否“反复失败”
         failed_count_in_window = is_exhaustion_failure.rolling(window=attack_lookback).sum()
         is_crossing_threshold = (failed_count_in_window >= required_count) & \
                                 (failed_count_in_window.shift(1).fillna(0) < required_count)
 
-        # 步骤4: 最终触发器 = 高质量的单日信号 OR 低质量信号的累积
+        # 步骤5: 最终触发器 = 高质量的单日信号 OR 低质量信号的累积
         final_trigger = is_key_upthrust_failure | is_crossing_threshold
         
-        # 步骤5: 确保最终信号是一次性事件
+        # 步骤6: 确保最终信号是一次性事件
         triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger & ~final_trigger.shift(1).fillna(False)
-        print(f"      -> '上攻失败(收官模式)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+        print(f"      -> '上攻失败(最终定义)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
         # Trigger 2 (保留): 急跌回调K线 (SHARP_PULLBACK_CANDLE)
         p_pullback = exit_params.get('structure_breakdown_params', {})
