@@ -50,61 +50,6 @@ async def _get_all_relevant_stock_codes_for_processing():
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 
-# ▼▼▼ 将核心业务逻辑剥离到一个独立的、可复用的函数中 ▼▼▼
-def _execute_strategy_logic(stock_code: str, trade_date: str):
-    """
-    【V1.0 - 核心策略执行逻辑】
-    这是一个普通的同步函数，包含了策略分析和保存的完整流程。
-    它可以被任何Celery任务或代码直接调用。
-    """
-    logger.info(f"[{stock_code}] 开始执行核心策略逻辑 for date {trade_date}")
-    try:
-        # 1. 实例化总指挥策略和DAO
-        strategy_orchestrator = MultiTimeframeTrendStrategy()
-        strategies_dao = StrategiesDAO()
-
-        analysis_end_time = f"{trade_date} 16:00:00"
-
-        # 2. 调用总指挥的 run_for_stock 方法
-        db_records = async_to_sync(strategy_orchestrator.run_for_stock)(
-            stock_code=stock_code,
-            trade_time=analysis_end_time
-        )
-
-        if not db_records:
-            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号。")
-            return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
-
-        # 3. 保存到数据库
-        save_count = async_to_sync(strategies_dao.save_strategy_signals)(db_records)
-        logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
-        
-        # 4. 更新策略状态摘要
-        if save_count > 0:
-            unique_signal_types = set()
-            for record in db_records:
-                strategy_name = record.get('strategy_name')
-                timeframe = record.get('timeframe')
-                if strategy_name and timeframe:
-                    unique_signal_types.add((strategy_name, timeframe))
-            
-            logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
-
-            for strategy_name, timeframe in unique_signal_types:
-                logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
-                async_to_sync(strategies_dao.update_strategy_state)(
-                    stock_code=stock_code,
-                    strategy_name=strategy_name,
-                    timeframe=timeframe
-                )
-                logger.info(f"[{stock_code}] 策略 '{strategy_name}' ({timeframe}) 状态摘要更新完成。")
-
-        return {"status": "success", "saved_count": save_count}
-
-    except Exception as e:
-        logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
-        # 在函数内部处理异常并返回错误信息，而不是向上抛出
-        return {"status": "error", "reason": str(e)}
 
 # ▼▼▼ 为调试任务增加更详细的注释，解释同步调用的原因 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_single_stock_analysis', queue='debug_tasks')
@@ -193,6 +138,61 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
         logger.info("="*80)
         return {"status": "error", "stock_code": stock_code, "reason": str(e)}
 
+# ▼▼▼ 将核心业务逻辑剥离到一个独立的、可复用的函数中 ▼▼▼
+def _execute_strategy_logic(stock_code: str, trade_date: str):
+    """
+    【V1.0 - 核心策略执行逻辑】
+    这是一个普通的同步函数，包含了策略分析和保存的完整流程。
+    它可以被任何Celery任务或代码直接调用。
+    """
+    logger.info(f"[{stock_code}] 开始执行核心策略逻辑 for date {trade_date}")
+    try:
+        # 1. 实例化总指挥策略和DAO
+        strategy_orchestrator = MultiTimeframeTrendStrategy()
+        strategies_dao = StrategiesDAO()
+
+        analysis_end_time = f"{trade_date} 16:00:00"
+
+        # 2. 调用总指挥的 run_for_stock 方法
+        db_records = async_to_sync(strategy_orchestrator.run_for_stock)(
+            stock_code=stock_code,
+            trade_time=analysis_end_time
+        )
+
+        if not db_records:
+            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号。")
+            return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
+
+        # 3. 保存到数据库
+        save_count = async_to_sync(strategies_dao.save_strategy_signals)(db_records)
+        logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
+        
+        # 4. 更新策略状态摘要
+        if save_count > 0:
+            unique_signal_types = set()
+            for record in db_records:
+                strategy_name = record.get('strategy_name')
+                timeframe = record.get('timeframe')
+                if strategy_name and timeframe:
+                    unique_signal_types.add((strategy_name, timeframe))
+            
+            logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
+
+            for strategy_name, timeframe in unique_signal_types:
+                logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
+                async_to_sync(strategies_dao.update_strategy_state)(
+                    stock_code=stock_code,
+                    strategy_name=strategy_name,
+                    timeframe=timeframe
+                )
+                logger.info(f"[{stock_code}] 策略 '{strategy_name}' ({timeframe}) 状态摘要更新完成。")
+
+        return {"status": "success", "saved_count": save_count}
+
+    except Exception as e:
+        logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
+        # 在函数内部处理异常并返回错误信息，而不是向上抛出
+        return {"status": "error", "reason": str(e)}
 
 # ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')

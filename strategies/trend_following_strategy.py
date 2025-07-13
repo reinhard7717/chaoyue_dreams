@@ -1,5 +1,6 @@
 # 文件: strategies/trend_following_strategy.py
 # 版本: V62.0 - 增强调试日志版
+from copy import deepcopy
 import logging
 from decimal import Decimal
 from utils.data_sanitizer import sanitize_for_json
@@ -30,7 +31,9 @@ class TrendFollowStrategy:
         self._last_score_details_df = None
         self.debug_params = self._get_params_block(self.daily_params, 'debug_params')
         self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        print("--- [战术策略 TrendFollowStrategy (V62.0 增强调试日志版)] 初始化完成。---")
+        # ▼▼▼ 在初始化时缓存剧本蓝图 ▼▼▼
+        self.playbook_blueprints = self._get_playbook_blueprints()
+        print(f"--- [战术策略 TrendFollowStrategy (V83.0 蓝图与水合架构)] 初始化完成，已缓存 {len(self.playbook_blueprints)} 个剧本蓝图。---")
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -194,7 +197,9 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V42.0 修复版】
+        【V83.0 蓝图版】
+        - 核心修复: 不再调用任何计算函数，直接从 self.playbook_blueprints 读取剧本元信息，
+                    彻底与计算逻辑解耦，职责回归纯粹。
         """
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df.get('exit_signal_code', 0) > 0)
@@ -206,15 +211,17 @@ class TrendFollowStrategy:
         name_param = strategy_info_block.get('name')
         strategy_name = self._get_param_value(name_param, 'unknown_strategy')
         timeframe = result_timeframe
-        playbook_definitions = self._get_playbook_definitions(result_df, {}, {})
-        playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_definitions}
+        
+        # ▼▼▼ 直接从缓存的蓝图中获取名称映射 ▼▼▼
+        playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
             triggered_playbooks_cn_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks_with_scores = self._last_score_details_df.loc[timestamp]
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
-                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP')
+                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
                 triggered_playbooks_cn_list = [ playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list ]
             active_setups = []
@@ -233,16 +240,11 @@ class TrendFollowStrategy:
                 "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
                 "entry_signal": sanitize_for_json(row.get('signal_entry', False)),
                 "exit_signal_code": sanitize_for_json(row.get('exit_signal_code', 0)),
-                "is_right_side_trend": sanitize_for_json(row.get('robust_right_side_precondition', False)),
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": triggered_playbooks_cn_list,
                 "active_setups": active_setups,
                 "context_snapshot": sanitized_context,
             }
-            record.pop("is_long_term_bullish", None)
-            record.pop("is_mid_term_bullish", None)
-            record.pop("is_pullback_setup", None)
-            record.pop("pullback_target_price", None)
             records.append(record)
         return records
 
@@ -345,164 +347,164 @@ class TrendFollowStrategy:
         print("    - [斜率中心 V58.0] 所有斜率计算完成。")
         return df
 
-    def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_conditions: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
+    # ▼▼▼ 剧本的静态“蓝图”知识库 ▼▼▼
+    def _get_playbook_blueprints(self) -> List[Dict]:
         """
-        【V81.0 逻辑闭环版】
-        - 核心升级: 整合了之前被忽略的“逻辑孤岛”，使系统逻辑更完整、更强大。
-        - 1. 新增【A-级】资本逆行者 剧本，利用“资本底背离”信号捕捉左侧机会。
-        - 2. 为多个右侧突破剧本增加了“筹码点火”的触发器加成，提升信号确定性。
-        - 3. 清理了数据准备区中未被直接使用的变量，代码更精炼。
+        【V83.0 新增】剧本蓝图知识库
+        - 职责: 定义所有剧本的静态属性（名称、家族、评分规则等）。
+        - 特性: 这是一个纯粹的数据结构，不依赖任何动态数据，可以在初始化时被安全地缓存。
         """
-        print("    - [剧本定义中心 V81.0 逻辑闭环版] 启动...")
-        # --- 步骤 1: 准备数据 ---
-        default_series = pd.Series(False, index=df.index)
-        
-        # --- 获取准备分 (Setup Scores) ---
-        score_deep_accum = setup_conditions.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
-        score_cap_pit = setup_conditions.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
-        score_healthy_markup = setup_conditions.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
-        score_energy_comp = setup_conditions.get('SETUP_SCORE_ENERGY_COMPRESSION', pd.Series(0, index=df.index))
-        score_nshape_cont = setup_conditions.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
-        score_gap_support = setup_conditions.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
-        score_bottoming_process = setup_conditions.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
-
-        # --- 获取原子状态 (Atomic States) ---
-        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
-        capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        # 为了配合N字板接力剧本的改造，需要将布尔条件也放入atomic_states
-        setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-        setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
-        # 为了配合剧本改造，需要将布尔条件也放入atomic_states
-        atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
-        atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
-
-        # --- 步骤 2: 定义所有交易剧本 (Playbooks) ---
-        playbook_definitions = [
+        return [
             # --- 反转/逆势家族 (REVERSAL_CONTRARIAN) ---
             {
                 'name': 'ABYSS_GAZE_S', 'cn_name': '【S级】深渊凝视', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup', 'setup': score_cap_pit > 80,
-                'trigger': trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series),
-                'score': 320, 'side': 'left', 'comment': 'S级: 市场极度恐慌后的第一个功能性反转。'
+                'type': 'setup', 'score': 320, 'side': 'left', 'comment': 'S级: 市场极度恐慌后的第一个功能性反转。'
             },
             {
                 'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup_score', 'setup_score_series': score_cap_pit,
-                'trigger': (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)),
-                'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 160, 'score_multiplier': 1.0, 'trigger_bonus': {'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50}},
-                'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。'
+                'type': 'setup_score', 'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。',
+                'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 160, 'score_multiplier': 1.0, 'trigger_bonus': {'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50}}
             },
             {
                 'name': 'CAPITAL_DIVERGENCE_REVERSAL', 'cn_name': '【A-级】资本逆行者', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup', 
-                'setup': capital_divergence_window,
-                'trigger': trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series),
-                'score': 230, 
-                'side': 'left', 
-                'comment': 'A-级: 在价格下跌但资金持续流入的“底背离”机会窗口中，出现的第一个反转确认信号。'
+                'type': 'setup', 'score': 230, 'side': 'left', 'comment': 'A-级: 在“底背离”机会窗口中出现的反转确认。'
             },
             {
                 'name': 'BEAR_TRAP_RALLY', 'cn_name': '【C+级】熊市反弹', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup',
-                'setup': setup_bottom_passivation,
-                'trigger': trigger_events.get('TRIGGER_TREND_STABILIZING', default_series),
-                'score': 180,
-                'side': 'left',
-                'comment': 'C+级: 熊市背景下，价格首次钝化，并由长期趋势企稳信号触发。'
+                'type': 'setup', 'score': 180, 'side': 'left', 'comment': 'C+级: 熊市背景下，价格首次钝化，并由长期趋势企稳信号触发。'
             },
             {
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup', 'setup': setup_washout_reversal,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 260, 'side': 'left', 'comment': 'A级: 极端洗盘后的拉升前兆。'
+                'type': 'setup', 'score': 260, 'side': 'left', 'comment': 'A级: 极端洗盘后的拉升前兆。'
             },
             {
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup', 'setup': score_bottoming_process > 50,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'score': 190, 'side': 'left', 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线。'
+                'type': 'setup', 'score': 190, 'side': 'left', 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线。'
             },
-
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
                 'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海', 'family': 'TREND_MOMENTUM',
-                'type': 'setup_score', 'setup_score_series': score_deep_accum,
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'scoring_rules': { 
-                    'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5,
-                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
-                },
-                'side': 'right', 'comment': '根据深度吸筹分数动态给分。若伴随筹码点火，则确定性更高。'
+                'type': 'setup_score', 'side': 'right', 'comment': '根据深度吸筹分数动态给分。若伴随筹码点火，则确定性更高。',
+                'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
                 'name': 'ENERGY_COMPRESSION_BREAKOUT', 'cn_name': '【动态】能量压缩突破', 'family': 'TREND_MOMENTUM',
-                'type': 'precondition_score',
-                'trigger': trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series),
-                'scoring_rules': { 
-                    'base_score': 150, 'min_score_to_trigger': 180, 
-                    'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 
-                    'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1},
-                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
-                },
-                'side': 'right', 'comment': '根据当天前提和历史准备共同给分。若伴随筹码点火，则确定性更高。'
+                'type': 'precondition_score', 'side': 'right', 'comment': '根据当天前提和历史准备共同给分。若伴随筹码点火，则确定性更高。',
+                'scoring_rules': { 'base_score': 150, 'min_score_to_trigger': 180, 'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1}, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
                 'name': 'PLATFORM_SUPPORT_PULLBACK', 'cn_name': '【动态】平台支撑回踩', 'family': 'TREND_MOMENTUM',
-                'type': 'precondition_score',
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'scoring_rules': { 'base_score': 160, 'min_score_to_trigger': 180, 'conditions': {'MA_STATE_CONVERGING': 30, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 20}, 'event_conditions': {'MA_STATE_TOUCHING_SUPPORT_21': 10, 'MA_STATE_TOUCHING_SUPPORT_34': 20, 'MA_STATE_TOUCHING_SUPPORT_55': 35, 'MA_STATE_TOUCHING_SUPPORT_89': 50, 'MA_STATE_TOUCHING_SUPPORT_144': 65, 'MA_STATE_TOUCHING_SUPPORT_233': 80}, 'setup_bonus': {'HEALTHY_MARKUP': 0.2}},
-                'side': 'right', 'comment': '根据平台质量、支撑级别和主升浪背景动态给分。'
+                'type': 'precondition_score', 'side': 'right', 'comment': '根据平台质量、支撑级别和主升浪背景动态给分。',
+                'scoring_rules': { 'base_score': 160, 'min_score_to_trigger': 180, 'conditions': {'MA_STATE_CONVERGING': 30, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 20}, 'event_conditions': {'MA_STATE_TOUCHING_SUPPORT_21': 10, 'MA_STATE_TOUCHING_SUPPORT_34': 20, 'MA_STATE_TOUCHING_SUPPORT_55': 35, 'MA_STATE_TOUCHING_SUPPORT_89': 50, 'MA_STATE_TOUCHING_SUPPORT_144': 65, 'MA_STATE_TOUCHING_SUPPORT_233': 80}, 'setup_bonus': {'HEALTHY_MARKUP': 0.2}}
             },
             {
                 'name': 'HEALTHY_BOX_BREAKOUT', 'cn_name': '【A-级】健康箱体突破', 'family': 'TREND_MOMENTUM',
-                'type': 'setup',
-                'setup': setup_healthy_box,
-                'trigger': trigger_events.get('BOX_EVENT_BREAKOUT', default_series),
-                'score': 220,
-                'side': 'right',
-                'comment': 'A-级: 在一个位于趋势均线上方的健康箱体内盘整后，发生的向上突破。'
+                'type': 'setup', 'score': 220, 'side': 'right', 'comment': 'A-级: 在一个位于趋势均线上方的健康箱体内盘整后，发生的向上突破。'
             },
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪', 'family': 'TREND_MOMENTUM',
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'type': 'precondition_score',
-                'scoring_rules': {
-                    'base_score': 240, 'min_score_to_trigger': 240,
-                    'conditions': {
-                        'SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60': 0, # 基础条件
-                        'MA_STATE_DIVERGING': 20, # 加分项：趋势在加速
-                        'OSC_STATE_MACD_BULLISH': 15 # 加分项：中期动能健康
-                    }
-                },
+                'type': 'precondition_score', 'side': 'right', 'comment': 'A级: 在主升浪中回踩反弹，若趋势加速则得分更高。',
+                'scoring_rules': { 'base_score': 240, 'min_score_to_trigger': 240, 'conditions': { 'SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60': 0, 'MA_STATE_DIVERGING': 20, 'OSC_STATE_MACD_BULLISH': 15 } }
             },
             {
                 'name': 'N_SHAPE_CONTINUATION_A', 'cn_name': '【A级】N字板接力', 'family': 'TREND_MOMENTUM',
-                'trigger': trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series),
-                'type': 'precondition_score',
-                'scoring_rules': {
-                    'base_score': 250, 'min_score_to_trigger': 250,
-                    'conditions': {'SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80': 0},
-                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60}
-                },
-                'side': 'right', 'comment': 'A级: 强势股的经典趋势中继信号。若伴随筹码点火，则确定性更高。'
+                'type': 'precondition_score', 'side': 'right', 'comment': 'A级: 强势股的经典趋势中继信号。若伴随筹码点火，则确定性更高。',
+                'scoring_rules': { 'base_score': 250, 'min_score_to_trigger': 250, 'conditions': {'SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80': 0}, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
                 'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩', 'family': 'TREND_MOMENTUM',
-                'type': 'setup', 'setup': score_gap_support > 60,
-                'trigger': trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series),
-                'score': 190, 'side': 'right', 'comment': 'B+级: 回踩前期跳空缺口获得支撑并反弹。'
+                'type': 'setup', 'score': 190, 'side': 'right', 'comment': 'B+级: 回踩前期跳空缺口获得支撑并反弹。'
             },
-
             # --- 特殊事件家族 (SPECIAL_EVENT) ---
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板', 'family': 'SPECIAL_EVENT',
-                'type': 'event_driven', 'trigger': trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series),
-                'score': 380, 'side': 'left', 'comment': '市场情绪的极致反转。'
+                'type': 'event_driven', 'score': 380, 'side': 'left', 'comment': '市场情绪的极致反转。'
             },
         ]
 
-        print(f"    - [剧本定义中心 V81.0] 完成，共定义 {len(playbook_definitions)} 个“元剧本”，逻辑已闭环。")
-        return playbook_definitions
+    # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
+    def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
+        """
+        【V83.0 水合引擎版】
+        - 职责: 接收静态的剧本“蓝图”，并用动态计算出的数据（如setup, trigger的布尔序列）进行“水合”，
+                生成一个可供计算引擎使用的、完整的、可执行的剧本列表。
+        """
+        print("    - [剧本水合引擎 V83.0] 启动，开始为蓝图注入动态数据...")
+        
+        # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
+        hydrated_playbooks = deepcopy(self.playbook_blueprints)
+        
+        # 步骤2: 准备所有需要用到的动态数据
+        default_series = pd.Series(False, index=df.index)
+        
+        # 准备分
+        score_cap_pit = setup_scores.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
+        score_deep_accum = setup_scores.get('SETUP_SCORE_DEEP_ACCUMULATION', pd.Series(0, index=df.index))
+        score_nshape_cont = setup_scores.get('SETUP_SCORE_N_SHAPE_CONTINUATION', pd.Series(0, index=df.index))
+        score_gap_support = setup_scores.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
+        score_bottoming_process = setup_scores.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
+        score_healthy_markup = setup_scores.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
+
+        # 原子状态
+        capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
+        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
+        setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
+        
+        # 动态布尔条件
+        atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
+        atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
+
+        # 步骤3: 遍历蓝图，注入动态数据
+        for playbook in hydrated_playbooks:
+            name = playbook['name']
+            
+            # 为每个剧本注入其专属的动态数据
+            if name == 'ABYSS_GAZE_S':
+                playbook['setup'] = score_cap_pit > 80
+                playbook['trigger'] = trigger_events.get('TRIGGER_PANIC_REVERSAL', default_series)
+            elif name == 'CAPITULATION_PIT_REVERSAL':
+                playbook['setup_score_series'] = score_cap_pit
+                playbook['trigger'] = (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series))
+            elif name == 'CAPITAL_DIVERGENCE_REVERSAL':
+                playbook['setup'] = capital_divergence_window
+                playbook['trigger'] = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+            elif name == 'BEAR_TRAP_RALLY':
+                playbook['setup'] = setup_bottom_passivation
+                playbook['trigger'] = trigger_events.get('TRIGGER_TREND_STABILIZING', default_series)
+            elif name == 'WASHOUT_REVERSAL_A':
+                playbook['setup'] = setup_washout_reversal
+                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'BOTTOM_STABILIZATION_B':
+                playbook['setup'] = score_bottoming_process > 50
+                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'DEEP_ACCUMULATION_BREAKOUT':
+                playbook['setup_score_series'] = score_deep_accum
+                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'ENERGY_COMPRESSION_BREAKOUT' or name == 'PLATFORM_SUPPORT_PULLBACK' or name == 'HEALTHY_MARKUP_A':
+                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            elif name == 'HEALTHY_BOX_BREAKOUT':
+                playbook['setup'] = setup_healthy_box
+                playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
+            elif name == 'N_SHAPE_CONTINUATION_A':
+                playbook['trigger'] = trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
+            elif name == 'GAP_SUPPORT_PULLBACK_B_PLUS':
+                playbook['setup'] = score_gap_support > 60
+                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            elif name == 'EARTH_HEAVEN_BOARD':
+                playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
+            
+            # 为所有precondition_score类型的剧本注入trigger
+            if playbook['type'] == 'precondition_score':
+                 if name == 'ENERGY_COMPRESSION_BREAKOUT':
+                     playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+                 elif name == 'PLATFORM_SUPPORT_PULLBACK' or name == 'HEALTHY_MARKUP_A':
+                     playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                 elif name == 'N_SHAPE_CONTINUATION_A':
+                     playbook['trigger'] = trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
+
+        print(f"    - [剧本水合引擎 V83.0] 完成，所有剧本已注入动态数据。")
+        return hydrated_playbooks
 
     def _calculate_entry_score(
         self, 
