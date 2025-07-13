@@ -472,56 +472,96 @@ class TrendFollowStrategy:
         print("    - [指挥棒模型 V80.0] 调整完成。")
         return adjusted_score, adjustment_details_df
 
+    # 斜率计算中心
     def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V58.0 归一化与动态任务版】
+        【V94.0 性能优化版】
+        - 核心升级: 采用“三阶段计算模式”，彻底重构斜率计算流程，大幅提升性能。
+          - 阶段一: 批量生成所有基础斜率。
+          - 阶段二: 批量生成所有加速度。
+          - 阶段三: 批量生成所有归一化斜率。
+        - 优势: 极大减少了Python层面的循环开销，充分利用向量化计算，并增加了重复计算检查，显著提高了执行效率和代码可读性。
         """
-        print("    - [斜率中心 V58.0 归一化与动态任务版] 启动...")
+        print("    - [斜率中心 V94.0 性能优化版] 启动...")
         slope_params = self._get_params_block(params, 'slope_params', {})
         if not self._get_param_value(slope_params.get('enabled'), False):
             print("      -> 斜率计算被禁用，跳过。")
             return df
+
+        # --- 准备工作: 构建完整的计算任务清单 ---
         series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
         auto_detect_patterns = self._get_param_value(slope_params.get('auto_detect_patterns'), [])
         auto_detect_lookbacks = self._get_param_value(slope_params.get('auto_detect_default_lookbacks'), [10, 20])
+        
+        # 动态注入自动检测到的任务
         for pattern in auto_detect_patterns:
             for col in df.columns:
                 if pattern in col and col not in series_to_slope:
                     series_to_slope[col] = auto_detect_lookbacks
-                    print(f"      -> [动态注入] 发现新特征 '{col}'，已加入斜率计算任务。")
+                    # print(f"      -> [动态注入] 发现新特征 '{col}'，已加入斜率计算任务。")
+
+        # ▼▼▼【代码修改 V94.0】: 引入三阶段计算模式 ▼▼▼
+        newly_created_slope_cols = []
+
+        # --- 阶段一: 批量生成所有基础斜率 ---
+        print("      -> [阶段1/3] 开始批量生成基础斜率...")
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
-                print(f"      -> [警告] 列 '{col_name}' 不存在，跳过斜率计算。")
                 continue
             source_series = df[col_name].astype(float)
             for lookback in lookbacks:
-                min_p = max(2, lookback // 2)
                 slope_col_name = f'SLOPE_{lookback}_{col_name}'
+                # 优化点：如果列已存在，则跳过，避免重复计算
+                if slope_col_name in df.columns:
+                    continue
+                
+                min_p = max(2, lookback // 2)
                 linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
+                
                 if isinstance(linreg_result, pd.DataFrame):
                     slope_series = linreg_result.iloc[:, 0]
                 elif isinstance(linreg_result, pd.Series):
                     slope_series = linreg_result
                 else:
                     slope_series = pd.Series(np.nan, index=df.index)
+                
                 df[slope_col_name] = slope_series.fillna(0)
-                accel_col_name = f'ACCEL_{lookback}_{col_name}'
-                if not df[slope_col_name].dropna().empty:
-                    accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                    if isinstance(accel_linreg_result, pd.DataFrame):
-                        accel_series = accel_linreg_result.iloc[:, 0]
-                    elif isinstance(accel_linreg_result, pd.Series):
-                        accel_series = accel_linreg_result
-                    else:
-                        accel_series = pd.Series(np.nan, index=df.index)
-                    df[accel_col_name] = accel_series.fillna(0)
+                newly_created_slope_cols.append((slope_col_name, lookback))
+
+        # --- 阶段二: 批量生成所有加速度 (斜率的斜率) ---
+        print(f"      -> [阶段2/3] 开始批量生成加速度 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
+        for slope_col_name, lookback in newly_created_slope_cols:
+            accel_col_name = f'ACCEL_{lookback}_{slope_col_name.replace(f"SLOPE_{lookback}_", "")}'
+            if accel_col_name in df.columns:
+                continue
+
+            if not df[slope_col_name].dropna().empty:
+                min_p = max(2, lookback // 2)
+                accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
+                if isinstance(accel_linreg_result, pd.DataFrame):
+                    accel_series = accel_linreg_result.iloc[:, 0]
+                elif isinstance(accel_linreg_result, pd.Series):
+                    accel_series = accel_linreg_result
                 else:
-                    df[accel_col_name] = np.nan
-                norm_slope_col_name = f'SLOPE_NORM_{lookback}_{col_name}'
-                slope_std = df[slope_col_name].rolling(window=lookback * 2).std()
-                df[norm_slope_col_name] = np.divide(df[slope_col_name], slope_std, out=np.zeros_like(df[slope_col_name], dtype=float), where=slope_std!=0)
-            # print(f"        -> 完成对 '{col_name}' 的所有斜率计算 (周期: {lookbacks})。")
-        print("    - [斜率中心 V58.0] 所有斜率计算完成。")
+                    accel_series = pd.Series(np.nan, index=df.index)
+                df[accel_col_name] = accel_series.fillna(0)
+            else:
+                df[accel_col_name] = np.nan
+
+        # --- 阶段三: 批量生成所有归一化斜率 ---
+        print(f"      -> [阶段3/3] 开始批量生成归一化斜率 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
+        for slope_col_name, lookback in newly_created_slope_cols:
+            norm_slope_col_name = f'SLOPE_NORM_{lookback}_{slope_col_name.replace(f"SLOPE_{lookback}_", "")}'
+            if norm_slope_col_name in df.columns:
+                continue
+            
+            # 使用向量化操作计算滚动标准差
+            slope_std = df[slope_col_name].rolling(window=lookback * 2).std()
+            # 使用 np.divide 进行安全的向量化除法
+            df[norm_slope_col_name] = np.divide(df[slope_col_name], slope_std, out=np.zeros_like(df[slope_col_name], dtype=float), where=slope_std!=0)
+        
+        # ▲▲▲【代码修改 V94.0】▲▲▲
+        print("    - [斜率中心 V94.0] 所有斜率相关计算完成。")
         return df
 
     # ▼▼▼ 剧本的静态“蓝图”知识库 ▼▼▼
@@ -1943,7 +1983,9 @@ class TrendFollowStrategy:
         
         # 计算在过去N天内，失败的次数
         failed_count_in_window = is_attack_failed_today.rolling(window=attack_lookback).sum()
-        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = failed_count_in_window >= required_count
+        is_crossing_threshold = (failed_count_in_window >= required_count) & \
+                                (failed_count_in_window.shift(1).fillna(0) < required_count)
+        triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = is_crossing_threshold
 
         print(f"      -> '上攻失败(多次确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
@@ -1975,16 +2017,15 @@ class TrendFollowStrategy:
             # 条件A: 价格创近期新低 (核心事件)
             recent_low = df['low_D'].shift(1).rolling(window=breakdown_lookback).min()
             is_breaking_low = df['close_D'] < recent_low
-            
             # 条件B: 动能确认 (短期价格斜率为负)
             is_momentum_down = df[slope_col] < slope_thresh
-            
             # 条件C: 弱势确认 (连续N天收在均线下方)
             is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
-            
-            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_breaking_low & is_momentum_down & is_persistently_weak
+            # 步骤1: 定义完整的“破位状态”
+            is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
+            # 步骤2: 探测“首次进入”该状态的事件
+            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
             print(f"      -> '真实结构破位(动能+持续弱势确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
-        # ▲▲▲【代码修改 V93.4】▲▲▲
         else:
             print(f"      -> [警告] 缺少 {conf_ma_col} 或 {slope_col}，无法诊断'真实结构破位'。")
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = pd.Series(False, index=df.index)

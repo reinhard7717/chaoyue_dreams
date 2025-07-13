@@ -124,7 +124,7 @@
           "EMA_13_D": [5], "EMA_89_D": [10], "EMA_105_D": [25]
         },
         "auto_detect_patterns": ["net_mf_", "capital_price_", "CHIP_"],
-        "auto_detect_default_lookbacks": [5, 8, 10, 20, 21]
+        "auto_detect_default_lookbacks": [5, 10, 20, 21]
       },
       "kline_pattern_params": {
         "enabled": true,
