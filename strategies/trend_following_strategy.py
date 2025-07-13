@@ -544,6 +544,13 @@ class TrendFollowStrategy:
             side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
             valid_mask = trigger_mask & side_mask
 
+            # ▼▼▼ 为 'setup' 类型剧本增加当天有效性检查 ▼▼▼
+            setup_mask = pd.Series(True, index=df.index) # 默认为True
+            if playbook.get('type') == 'setup':
+                # 'setup' 键的值本身就是一个布尔序列，代表当天是否满足条件
+                setup_mask = playbook.get('setup', default_series)
+            valid_mask = trigger_mask & side_mask & setup_mask
+
             # 计算基础分 (只在有效时才有分)
             base_score = rules.get('base_score', playbook.get('score', 0))
             base_scores_df[name] = valid_mask.astype(int) * base_score
