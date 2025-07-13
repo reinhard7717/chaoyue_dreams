@@ -462,7 +462,7 @@ class TrendFollowStrategy:
             # 为每个剧本注入其专属的动态数据
             if name == 'ABYSS_GAZE_S':
                 playbook['setup'] = score_cap_pit > 80
-                playbook['trigger'] = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+                playbook['trigger'] = trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series)
             elif name == 'CAPITULATION_PIT_REVERSAL':
                 playbook['setup_score_series'] = score_cap_pit
                 playbook['trigger'] = (trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series) | trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series))
@@ -763,7 +763,8 @@ class TrendFollowStrategy:
             signal = triggers.get('TRIGGER_STRONG_POSITIVE_CANDLE', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> '强势阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
-            
+
+        # --- 步骤1: 定义标准的“反转确认阳线” (通用级) ---
         p_reversal = trigger_params.get('reversal_confirmation_candle', {})
         if self._get_param_value(p_reversal.get('enabled'), True):
             is_green = df['close_D'] > df['open_D']
@@ -774,6 +775,30 @@ class TrendFollowStrategy:
             signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
             dates_str = self._format_debug_dates(signal)
             print(f"      -> '反转确认阳线' 事件定义完成，发现 {signal.sum()} 天。{dates_str}")
+
+        # --- 步骤2: 定义新增的“显性反转阳线” (精英级) ---
+        p_dominant = trigger_params.get('dominant_reversal_candle', {}) # 允许未来在JSON中配置
+        if self._get_param_value(p_dominant.get('enabled'), True):
+            # 条件A: 必须首先是一个高质量的通用反转信号
+            base_reversal_signal = triggers.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+            
+            # 条件B: 今天的阳线实体，必须在力量上压制昨天的阴线实体
+            today_body_size = df['close_D'] - df['open_D']
+            yesterday_body_size = abs(df['close_D'].shift(1) - df['open_D'].shift(1))
+            
+            # 只有当昨天是阴线时，才进行此项比较
+            was_yesterday_red = df['close_D'].shift(1) < df['open_D'].shift(1)
+            
+            # 恢复比例，默认为0.5，即要求收复昨天实体的一半
+            recovery_ratio = self._get_param_value(p_dominant.get('recovery_ratio'), 0.5)
+            
+            is_power_recovered = today_body_size >= (yesterday_body_size * recovery_ratio)
+            
+            # 最终的精英信号 = 高质量反转 AND (昨天不是阴线 OR 力量已压制)
+            triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_signal & (~was_yesterday_red | is_power_recovered)
+            
+            signal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+            print(f"      -> '显性反转阳线(精英级)' 事件定义完成，发现 {signal.sum()} 天。")
             
         p_breakout = trigger_params.get('volume_spike_breakout', {})
         if self._get_param_value(p_breakout.get('enabled'), True) and vol_ma_col in df.columns:
@@ -883,23 +908,6 @@ class TrendFollowStrategy:
                 print(f"      -> '能量释放(突破型)' 专属事件定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
-        
-        # ▼▼▼ “恐慌反转(结构派)”专属触发器 ▼▼▼
-        p_panic = trigger_params.get('panic_reversal_params', {})
-        if self._get_param_value(p_panic.get('enabled'), True):
-            # 条件1: 结构性收复失地 (核心)
-            # 要求今天的收盘价，高于两天前的收盘价，代表着对前一个交易日K线的完全吞噬。
-            is_structure_recovered = df['close_D'] > df['close_D'].shift(2)
-            
-            # 条件2: 当日动能为正 (确认)
-            # 确保触发当天是上涨的，过滤掉高开低走的假信号。
-            is_positive_momentum = df['pct_change_D'] > 0
-            
-            triggers['TRIGGER_PANIC_REVERSAL'] = is_structure_recovered & is_positive_momentum
-            
-            signal = triggers.get('TRIGGER_PANIC_REVERSAL', default_series)
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '恐慌反转(结构派)' 专属事件定义完成，发现 {signal.sum()} 天。{dates_str}")
 
         triggers['TRIGGER_TREND_STABILIZING'] = atomic_states.get('MA_STATE_D_STABILIZING', default_series)
 
