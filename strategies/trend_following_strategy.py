@@ -907,47 +907,43 @@ class TrendFollowStrategy:
         # ==================== 步骤2: 向量化执行“家族继承”逻辑 ====================
         print("      -> 步骤2: [向量化重构] 执行“家族继承”...")
         
-        # 准备剧本到家族的映射
         playbook_to_family = {p['name']: p.get('family', 'UNCATEGORIZED') for p in playbook_definitions}
-        # 准备家族到剧本列表的映射
         family_to_playbooks = {}
         for p_name, f_name in playbook_to_family.items():
-            if f_name not in family_to_playbooks:
-                family_to_playbooks[f_name] = []
+            if f_name not in family_to_playbooks: family_to_playbooks[f_name] = []
             family_to_playbooks[f_name].append(p_name)
 
         final_family_scores = pd.DataFrame(0.0, index=df.index, columns=family_to_playbooks.keys())
         score_details_df = pd.DataFrame(0.0, index=df.index, columns=base_scores_df.columns)
 
-        # 核心优化：遍历家族（数量少），而不是对宽表做groupby
         for family_name, playbook_names in family_to_playbooks.items():
-            # 1. 筛选出当前家族的所有剧本的基础分和加分项
             family_base_scores = base_scores_df[playbook_names]
             family_bonus_scores = bonus_scores_df[playbook_names]
             
-            # 2. 找到每个家族在每一天的“优胜者”基础分
             winner_base_scores = family_base_scores.max(axis=1)
-            
-            # 3. 计算整个家族的“加分池”
             family_bonus_pool = family_bonus_scores.sum(axis=1)
-            
-            # 4. 最终得分加冕
             final_family_scores[family_name] = winner_base_scores + family_bonus_pool
             
-            # 5. 记录得分详情 (归功于优胜者)
             winner_playbook_names = family_base_scores.idxmax(axis=1)
-            # 只有在当天有得分时才记录
+            
+            # ▼▼▼ 核心修复 - 为Series锚定一个名字 ▼▼▼
+            winner_playbook_names.name = 'winner_playbook' 
+
             has_score_mask = final_family_scores[family_name] > 0
-            # 使用 apply 在有得分的行上进行操作
-            def assign_score(row):
-                winner_name = row[winner_playbook_names.name]
-                score_details_df.loc[row.name, winner_name] = row[final_family_scores[family_name].name]
             
             if has_score_mask.any():
                 df_temp = pd.concat([winner_playbook_names[has_score_mask], final_family_scores.loc[has_score_mask, family_name]], axis=1)
+                
+                # ▼▼▼ 在apply函数中使用锚定的名字 ▼▼▼
+                def assign_score(row):
+                    # 使用 'winner_playbook' 这个明确的列名来获取优胜者
+                    winner_name = row['winner_playbook']
+                    # 只有当 winner_name 有效时才进行赋值
+                    if pd.notna(winner_name):
+                        score_details_df.loc[row.name, winner_name] = row[family_name]
+
                 df_temp.apply(assign_score, axis=1)
 
-        # 最终总分是所有家族得分的总和
         final_score = final_family_scores.sum(axis=1)
 
         # ==================== 步骤3: 填充细节并进行日志输出 ====================
