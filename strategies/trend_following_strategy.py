@@ -1963,31 +1963,30 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V93.8 终极精炼版】
-        - 核心革命: 彻底重构“上攻失败”触发器，通过区分“关键上冲失败”和“动能衰竭失败”，
-                    在保证灵敏度的同时，极大地提升了信号的准确性，解决了V93.7的误报风暴。
+        【V93.9 终极收官版】
+        - 核心修正: 对“动能衰竭失败”的定义进行微调 (high <= recent_high)，使其能捕捉到平台顶部无法突破的“平顶”形态，
+                    成功覆盖了`2025-06-13`这样的最后盲区。这是离场策略的最终形态。
         """
-        print("    - [风险触发事件定义中心 V93.8] 启动...")
+        print("    - [风险触发事件定义中心 V93.9] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
-        # Trigger 1 (终极精炼版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
+        # Trigger 1 (终极收官版): 上攻失败K线 (ATTACK_FAILED_CANDLE)
         p_attack = exit_params.get('upthrust_distribution_params', {})
         attack_lookback = self._get_param_value(p_attack.get('attack_failed_lookback_window'), 5)
         required_count = self._get_param_value(p_attack.get('attack_failed_required_count'), 2)
 
         # 步骤1: 定义高质量的“关键上冲失败” (Upthrust Failure)
-        # 特征：尝试向上攻击(high > high.shift(1))，但被打了回来，收成弱势阴线。
         tried_to_break_out = df['high_D'] > df['high_D'].shift(1)
         is_red_candle = df['close_D'] < df['open_D']
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
         is_key_upthrust_failure = tried_to_break_out & is_red_candle & is_weak_close
 
         # 步骤2: 定义低质量的“动能衰竭失败” (Exhaustion Failure)，用于累计计数
-        # 特征：连向上攻击的意愿都没有，直接收阴线。
         recent_high = df['high_D'].shift(1).rolling(window=attack_lookback).max()
-        is_exhaustion_failure = (df['high_D'] < recent_high) & is_red_candle
+        # ▼▼▼ 将 < 修改为 <=，以捕捉“平顶”形态 ▼▼▼
+        is_exhaustion_failure = (df['high_D'] <= recent_high) & is_red_candle
 
         # 步骤3: 基于“动能衰竭失败”进行累计，判断是否“反复失败”
         failed_count_in_window = is_exhaustion_failure.rolling(window=attack_lookback).sum()
@@ -1999,7 +1998,7 @@ class TrendFollowStrategy:
         
         # 步骤5: 确保最终信号是一次性事件
         triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'] = final_trigger & ~final_trigger.shift(1).fillna(False)
-        print(f"      -> '上攻失败(精炼模式)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
+        print(f"      -> '上攻失败(收官模式)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_ATTACK_FAILED_CANDLE'])}")
 
         # Trigger 2 (保留): 急跌回调K线 (SHARP_PULLBACK_CANDLE)
         p_pullback = exit_params.get('structure_breakdown_params', {})
