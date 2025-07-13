@@ -343,7 +343,7 @@ class TrendFollowStrategy:
                 norm_slope_col_name = f'SLOPE_NORM_{lookback}_{col_name}'
                 slope_std = df[slope_col_name].rolling(window=lookback * 2).std()
                 df[norm_slope_col_name] = np.divide(df[slope_col_name], slope_std, out=np.zeros_like(df[slope_col_name], dtype=float), where=slope_std!=0)
-            print(f"        -> 完成对 '{col_name}' 的所有斜率计算 (周期: {lookbacks})。")
+            # print(f"        -> 完成对 '{col_name}' 的所有斜率计算 (周期: {lookbacks})。")
         print("    - [斜率中心 V58.0] 所有斜率计算完成。")
         return df
 
