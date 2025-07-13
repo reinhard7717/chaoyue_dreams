@@ -528,8 +528,13 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪', 'family': 'TREND_MOMENTUM',
-                'type': 'precondition_score', 'side': 'right', 'comment': 'A级: 在主升浪中回踩反弹，若趋势加速则得分更高。',
-                'scoring_rules': { 'base_score': 240, 'min_score_to_trigger': 240, 'conditions': { 'SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60': 0, 'MA_STATE_DIVERGING': 20, 'OSC_STATE_MACD_BULLISH': 15 } }
+                'type': 'setup_score', 'side': 'right', 'comment': 'A级: 在主升浪中回踩或延续，根据主升浪健康分动态加成。',
+                'scoring_rules': { 
+                    'min_setup_score_to_trigger': 60, # 要求主升浪健康分至少达到60
+                    'base_score': 240, 
+                    'score_multiplier': 1.2, # 允许根据健康分进行加成
+                    'conditions': { 'MA_STATE_DIVERGING': 20, 'OSC_STATE_MACD_BULLISH': 15 } 
+                }
             },
             {
                 'name': 'N_SHAPE_CONTINUATION_A', 'cn_name': '【A级】N字板接力', 'family': 'TREND_MOMENTUM',
@@ -617,10 +622,10 @@ class TrendFollowStrategy:
                 # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             elif name == 'HEALTHY_MARKUP_A':
-                # 核心升级：现在它能被两种形态触发：标准回踩反弹，或温和的趋势延续
+                playbook['setup_score_series'] = score_healthy_markup # 分配准备分序列
                 trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
                 trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-                playbook['trigger'] = trigger_rebound | trigger_continuation
+                playbook['trigger'] = trigger_rebound | trigger_continuation # 分配双重触发器
             elif name == 'HEALTHY_BOX_BREAKOUT':
                 playbook['setup'] = setup_healthy_box
                 playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
