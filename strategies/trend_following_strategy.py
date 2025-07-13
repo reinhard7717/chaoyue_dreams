@@ -547,8 +547,13 @@ class TrendFollowStrategy:
             # ▼▼▼ 为 'setup' 类型剧本增加当天有效性检查 ▼▼▼
             setup_mask = pd.Series(True, index=df.index) # 默认为True
             if playbook.get('type') == 'setup':
-                # 'setup' 键的值本身就是一个布尔序列，代表当天是否满足条件
                 setup_mask = playbook.get('setup', default_series)
+            elif playbook.get('type') == 'setup_score':
+                # 对于动态评分剧本，检查当天的准备分是否满足最低触发门槛
+                min_score_req = rules.get('min_setup_score_to_trigger', 0)
+                if min_score_req > 0:
+                    setup_score_series = playbook.get('setup_score_series', default_series)
+                    setup_mask = setup_score_series >= min_score_req
             valid_mask = trigger_mask & side_mask & setup_mask
 
             # 计算基础分 (只在有效时才有分)
