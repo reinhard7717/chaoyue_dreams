@@ -1021,7 +1021,6 @@ class MultiTimeframeTrendStrategy:
         print("=" * 80)
 
         try:
-            # ▼▼▼【代码修改 V111】: 步骤 1 和 2, 镜像复刻 run_for_stock 的全流程 ▼▼▼
             # 步骤 1: 获取全量历史数据
             print(f"\n[步骤 1/3] 正在准备从最早到 {end_date} 的所有时间周期数据...")
             all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
@@ -1056,23 +1055,24 @@ class MultiTimeframeTrendStrategy:
             final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
             all_records = final_entry_records + risk_alert_records
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
-            # ▲▲▲【代码修改 V111】▲▲▲
 
-            # ▼▼▼【代码修改 V111】: 步骤 3, 筛选并展示目标时段的全流程信号 ▼▼▼
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
             if not all_records:
                 print("[信息] 引擎未生成任何信号记录。")
                 return
 
-            # 筛选出在指定时间范围内的记录
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date).replace(hour=23, minute=59, second=59)
+            # 核心修复：在转换字符串日期时，明确指定 utc=True，使其成为时区感知的UTC时间戳，
+            #          从而可以与来自DataFrame索引的、同样是UTC-aware的 rec['trade_time'] 进行比较。
+            start_dt = pd.to_datetime(start_date, utc=True)
+            end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
             
-            debug_period_records = [
-                rec for rec in all_records 
-                if start_dt <= pd.to_datetime(rec['trade_time']) <= end_dt
-            ]
+            debug_period_records = []
+            for rec in all_records:
+                # 确保 rec['trade_time'] 也是 pandas Timestamp 对象以便比较
+                rec_time = pd.to_datetime(rec['trade_time'])
+                if start_dt <= rec_time <= end_dt:
+                    debug_period_records.append(rec)
 
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
@@ -1083,7 +1083,9 @@ class MultiTimeframeTrendStrategy:
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for record in debug_period_records:
-                time_str = record['trade_time'].strftime('%Y-%m-%d %H:%M:%S')
+                # 确保 trade_time 是 aware 的，以便正确格式化
+                time_obj = pd.to_datetime(record['trade_time'])
+                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z') # 增加%Z显示时区
                 tf = record['timeframe']
                 
                 if record.get('entry_signal'):
@@ -1099,9 +1101,6 @@ class MultiTimeframeTrendStrategy:
                     signal_type = f"卖出警报(L{severity})"
                     details = f"原因: {reason}"
                     print(f"{time_str} [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
-            
-            print("=" * 80)
-            # ▲▲▲【代码修改 V111】▲▲▲
 
             print(f"--- [历史回溯调试完成] ---")
             print("=" * 80)
