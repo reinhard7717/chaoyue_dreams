@@ -656,7 +656,7 @@ class TrendFollowStrategy:
         - 3. 最终得分 = 主剧本的base_score + 家族加分池总和。
         - 这既避免了基础分的重复计算，又聚合了所有有价值的信号，讲述了最完整的故事。
         """
-        print("    - [计分引擎 V79.0 家族继承引擎版] 启动...")
+        print("    - [计分引擎 V85.3 状态记忆版] 启动...")
         
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         default_series = pd.Series(False, index=df.index)
@@ -682,12 +682,14 @@ class TrendFollowStrategy:
             setup_mask = pd.Series(True, index=df.index) # 默认为True
             if playbook.get('type') == 'setup':
                 setup_mask = playbook.get('setup', default_series)
+            # ▼▼▼ 为 setup_score 的检查注入“记忆” ▼▼▼
             elif playbook.get('type') == 'setup_score':
-                # 对于动态评分剧本，检查当天的准备分是否满足最低触发门槛
                 min_score_req = rules.get('min_setup_score_to_trigger', 0)
                 if min_score_req > 0:
                     setup_score_series = playbook.get('setup_score_series', default_series)
-                    setup_mask = setup_score_series >= min_score_req
+                    # 核心修改：检查上下文窗口期内的最高分是否满足要求
+                    max_score_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
+                    setup_mask = max_score_in_context >= min_score_req
             valid_mask = trigger_mask & side_mask & setup_mask
 
             # 计算基础分 (只在有效时才有分)
@@ -771,7 +773,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V79.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V85.3] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
