@@ -567,7 +567,7 @@ class TrendFollowStrategy:
           2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
              使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
         """
-        print("    - [剧本水合引擎 V87.0 最终版] 启动...")
+        print("    - [剧本水合引擎 V88.0 最终决战版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
@@ -590,6 +590,7 @@ class TrendFollowStrategy:
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
         setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
         recent_reversal_context = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
+        ma_short_slope_positive = atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
         
         # 动态布尔条件
         atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
@@ -619,8 +620,8 @@ class TrendFollowStrategy:
                 playbook['setup'] = score_bottoming_process > 50
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
             elif name == 'TREND_EMERGENCE_B_PLUS':
-                # Setup条件: 处于“近期有左侧信号”的宏观背景下，并且短期均线已经走好
-                playbook['setup'] = recent_reversal_context & ma_short_cross_mid
+                # Setup条件: 处于“近期有左侧信号”的宏观背景下，并且短期均线斜率已转正
+                playbook['setup'] = recent_reversal_context & ma_short_slope_positive
                 # Trigger条件: 温和的趋势延续K线
                 playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
@@ -648,7 +649,7 @@ class TrendFollowStrategy:
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
-        print(f"    - [剧本水合引擎 V87.0] 完成，所有剧本已注入动态数据。")
+        print(f"    - [剧本水合引擎 V88.0] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -1271,10 +1272,18 @@ class TrendFollowStrategy:
         mid_p = self._get_param_value(p.get('mid_ma'), 34)
         long_p = self._get_param_value(p.get('long_ma'), 89)
         short_ma, mid_ma, long_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D'
+        short_ma_slope_col = f'SLOPE_5_{short_ma}' # 使用5日斜率判断短期拐头
 
         if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
             print(f"          -> [警告] 缺少核心均线列({short_ma}, {mid_ma}, {long_ma})，部分均线状态诊断跳过。")
             return states
+        # ▼▼▼ 使用斜率定义趋势萌芽，并增加日志 ▼▼▼
+        if short_ma_slope_col in df.columns:
+            states['MA_STATE_SHORT_SLOPE_POSITIVE'] = (df[short_ma_slope_col] > 0)
+            signal = states['MA_STATE_SHORT_SLOPE_POSITIVE']
+            print(f"          -> '短期均线斜率转正' 状态诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        else:
+            states['MA_STATE_SHORT_SLOPE_POSITIVE'] = default_series
 
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
