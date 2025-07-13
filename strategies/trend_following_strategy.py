@@ -317,7 +317,7 @@ class TrendFollowStrategy:
         }
         # 将风险/机会因子也注入到原子状态中
         risk_and_opp_factors = self._diagnose_risk_factors(df, params)
-        atomic_states.update(risk_and_opp_factors) # 合并，确保所有状态可用
+        atomic_states.update(risk_and_opp_factors)
 
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
         
@@ -1603,97 +1603,66 @@ class TrendFollowStrategy:
 
     def _diagnose_risk_factors(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V59.1 诊断模块 - 风险因子全景诊断版】
+        【V90.0 信号型离场版 - 风险诊断总指挥部】
+        - 核心职责: 作为所有“原子风险因子”的诊断中心。它统一调用各个具体的风险诊断模块，
+                    并将结果汇总成一个字典，供后续的风险评分引擎使用。
+        - 核心升级: 正式集成了第一个高级风险信号“高位放量长上影派发”，开启了主动型、信号型离场策略的新篇章。
         """
-        print("    - [风险诊断引擎 V59.1] 启动，开始诊断所有原子风险因子...")
-        risks = {}
+        # 打印引擎启动信息，并使用 V90.0 版本号
+        print("    - [风险诊断引擎 V90.0] 启动，开始诊断所有原子风险因子...")
+        
+        # 从主参数中获取出场策略的配置块
         exit_params = self._get_params_block(params, 'exit_strategy_params', {})
+        
+        # 检查出场策略是否被禁用，如果禁用则直接返回空字典，提高效率
         if not self._get_param_value(exit_params.get('enabled'), False):
             print("      -> 出场策略被禁用，风险诊断跳过。")
-            return risks
-        p = exit_params.get('upthrust_distribution_params', {})
-        if self._get_param_value(p.get('enabled'), True):
-            overextension_ma_col = f"EMA_{self._get_param_value(p.get('overextension_ma_period'), 55)}_D"
-            if all(c in df.columns for c in [overextension_ma_col, 'net_mf_amount_D']):
-                is_overextended = (df['close_D'] / df[overextension_ma_col] - 1) > self._get_param_value(p.get('overextension_threshold'), 0.3)
-                total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-                upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])) / total_range
-                has_long_upper_shadow = upper_shadow > self._get_param_value(p.get('upper_shadow_ratio'), 0.6)
-                is_high_volume = df['volume_D'] > df['volume_D'].rolling(30).quantile(self._get_param_value(p.get('high_volume_quantile'), 0.85))
-                is_main_force_selling = df['net_mf_amount_D'] < 0
-                risks['RISK_EVENT_UPTHRUST_DISTRIBUTION'] = is_overextended & has_long_upper_shadow & is_high_volume & is_main_force_selling
-                
-                signal = risks.get('RISK_EVENT_UPTHRUST_DISTRIBUTION', pd.Series([]))
-                dates_str = self._format_debug_dates(signal)
-                print(f"      -> '主力叛逃' 风险事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-                
-        p = exit_params.get('volume_breakdown_params', {})
-        if self._get_param_value(p.get('enabled'), True):
-            support_ma_col = f"EMA_{self._get_param_value(p.get('support_ma_period'), 55)}_D"
-            vol_ma_col = 'VOL_MA_21_D'
-            if all(c in df.columns for c in [support_ma_col, vol_ma_col, 'net_mf_amount_D', 'amount_D']):
-                is_ma_broken = (df['close_D'] < df[support_ma_col]) & (df['close_D'].shift(1) >= df[support_ma_col].shift(1))
-                is_volume_surge = df['volume_D'] > df[vol_ma_col] * self._get_param_value(p.get('volume_surge_ratio'), 1.8)
-                avg_amount_20d = df['amount_D'].rolling(20).mean()
-                is_main_force_dumping = df['net_mf_amount_D'] < -(avg_amount_20d * self._get_param_value(p.get('main_force_dump_ratio'), 0.1))
-                is_conviction_candle = (df['open_D'] - df['close_D']) > (df['high_D'] - df['low_D']) * 0.6
-                risks['RISK_EVENT_STRUCTURE_BREAKDOWN'] = is_ma_broken & is_volume_surge & is_main_force_dumping & is_conviction_candle
-                
-                signal = risks.get('RISK_EVENT_STRUCTURE_BREAKDOWN', pd.Series([]))
-                dates_str = self._format_debug_dates(signal)
-                print(f"      -> '结构崩溃' 风险事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-                
-        p_div = exit_params.get('divergence_exit_params', {})
-        if self._get_param_value(p_div.get('enabled'), True):
-            lookback = self._get_param_value(p_div.get('lookback_period'), 20)
-            price_is_new_high = df['close_D'] == df['close_D'].rolling(lookback).max()
-            rsi_not_new_high = df['RSI_13_D'] < df['RSI_13_D'].rolling(lookback).max().shift(1)
-            macd_z_not_new_high = df.get('MACD_HIST_ZSCORE_D', pd.Series(0, index=df.index)) < df.get('MACD_HIST_ZSCORE_D', pd.Series(0, index=df.index)).rolling(lookback).max().shift(1)
-            top_divergence_event = price_is_new_high & (rsi_not_new_high | macd_z_not_new_high)
-            risks['RISK_EVENT_TOP_DIVERGENCE'] = top_divergence_event
+            return {}
             
-            signal = risks.get('RISK_EVENT_TOP_DIVERGENCE', pd.Series([]))
-            dates_str = self._format_debug_dates(signal)
-            print(f"      -> '顶背离' 风险事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-            
-            p_context = exit_params.get('divergence_context', {})
-            persistence_days = self._get_param_value(p_context.get('persistence_days'), 5)
-            break_ma_period = self._get_param_value(p_context.get('break_ma_period'), 10)
-            break_ma_col = f'EMA_{break_ma_period}_D'
-            if break_ma_col in df.columns:
-                break_condition = df['close_D'] < df[break_ma_col]
-                risks['RISK_STATE_DIVERGENCE_WINDOW'] = self._create_persistent_state(
-                    df, entry_event=top_divergence_event, persistence_days=persistence_days, break_condition=break_condition
-                )
-                
-                signal = risks.get('RISK_STATE_DIVERGENCE_WINDOW', pd.Series([]))
-                dates_str = self._format_debug_dates(signal)
-                print(f"      -> '顶背离高危窗口' 持久化风险状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-                
-        p = exit_params.get('indicator_exit_params', {})
-        if self._get_param_value(p.get('enabled'), True):
-            risks['RISK_STATE_RSI_OVERBOUGHT'] = df.get('RSI_13_D', 50) > self._get_param_value(p.get('rsi_threshold'), 85)
-            risks['RISK_STATE_BIAS_OVERBOUGHT'] = df.get('BIAS_20_D', 0) > self._get_param_value(p.get('bias_threshold'), 20.0)
-            print(f"      -> '指标超买' (RSI/BIAS) 风险状态诊断完成。")
-        board_events = self._diagnose_board_patterns(df, params)
-        risks['RISK_EVENT_HEAVEN_EARTH_BOARD'] = board_events.get('BOARD_EVENT_HEAVEN_EARTH', pd.Series(False, index=df.index))
+        # 初始化一个空字典，用于存放所有诊断出的风险因子（布尔型Series）
+        risk_factors = {}
+        
+        # 创建一个默认的、全为False的Series，用于处理诊断模块未启用或失败的情况
+        default_series = pd.Series(False, index=df.index)
 
-        p_bias = self._get_params_block(params, 'playbook_specific_params', {}).get('bias_reversal_params', {})
-        if self._get_param_value(p_bias.get('enabled'), True):
-            bias_period = self._get_param_value(p_bias.get('bias_period'), 20)
-            bias_col = f'BIAS_{bias_period}_D'
-            if bias_col in df.columns:
-                overbought_threshold = self._get_param_value(p_bias.get('overbought_threshold'), 15.0)
-                risks['RISK_STATE_BIAS_OVERBOUGHT'] = df[bias_col] > overbought_threshold
+        # --- 1. 价量形态风险 (Price-Volume Pattern Risks) ---
+        #    - 这类风险关注K线和成交量的组合形态，通常是短期趋势反转的强烈信号。
         
-        signal = risks.get('RISK_EVENT_HEAVEN_EARTH_BOARD', pd.Series([]))
-        dates_str = self._format_debug_dates(signal)
-        print(f"      -> '天地板' 极端风险事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # 调用“高位放量长上影派发”诊断模块
+        # 这是我们建立的第一个主动型离场信号，用于捕捉主力冲高派发的行为
+        risk_factors['RISK_EVENT_UPTHRUST_DISTRIBUTION'] = self._diagnose_upthrust_distribution(df, params)
         
-        for key in risks:
-            risks[key] = risks[key].fillna(False)
-        print("    - [风险诊断引擎 V59.1] 所有风险因子诊断完成。")
-        return risks
+        # --- 2. 市场结构风险 (Market Structure Risks) ---
+        #    - 这类风险关注趋势线、关键支撑/阻力位的突破情况，代表着中长期趋势的改变。
+        
+        # 预留位置：未来可以添加诊断“结构性破位”的模块
+        # 例如：跌破重要的上升趋势线或关键的颈线位
+        # risk_factors['RISK_EVENT_STRUCTURE_BREAKDOWN'] = self._diagnose_structure_breakdown(df, params)
+        
+        # --- 3. 指标背离与超买风险 (Indicator Divergence & Overbought Risks) ---
+        #    - 这类风险通过观察RSI, MACD, BIAS等摆动指标，判断市场是否进入情绪过热或动能衰竭的状态。
+        
+        # 预留位置：未来可以添加诊断“顶背离”的模块
+        # risk_factors['RISK_STATE_DIVERGENCE_WINDOW'] = self._diagnose_top_divergence_window(df, params)
+        # risk_factors['RISK_EVENT_TOP_DIVERGENCE'] = self._diagnose_top_divergence_event(df, params)
+        
+        # 预留位置：未来可以添加诊断“乖离率过高”的模块
+        # risk_factors['RISK_STATE_BIAS_OVERBOUGHT'] = self._diagnose_bias_overbought(df, params)
+        
+        # 预留位置：未来可以添加诊断“RSI超买”的模块
+        # risk_factors['RISK_STATE_RSI_OVERBOUGHT'] = self._diagnose_rsi_overbought(df, params)
+        
+        # --- 4. 筹码分布风险 (Chip Distribution Risks) ---
+        #    - 这类风险关注筹码的分布状态，判断在高位是否存在筹码松动、派发的迹象。
+        
+        # 预留位置：未来可以添加诊断“高位筹码发散”的模块
+        # risk_factors['RISK_STATE_CHIP_SCATTERING_HIGH'] = self._diagnose_chip_scattering_high(df, params)
+        
+        # 打印引擎结束信息
+        print("    - [风险诊断引擎 V90.0] 所有风险因子诊断完成。")
+        
+        # 返回包含所有风险信号的字典
+        return risk_factors
 
     def _diagnose_board_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
@@ -1800,6 +1769,52 @@ class TrendFollowStrategy:
             
         print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
+
+    # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
+    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        诊断“高位放量长上影”派发风险 (Upthrust Distribution)。
+        这是一个非常重要的见顶信号。
+        """
+        p = self._get_params_block(params, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        if not self._get_param_value(p.get('enabled'), False):
+            return pd.Series(False, index=df.index)
+
+        # 1. 定义参数
+        overextension_ma_period = self._get_param_value(p.get('overextension_ma_period'), 55)
+        overextension_threshold = self._get_param_value(p.get('overextension_threshold'), 0.3)
+        upper_shadow_ratio = self._get_param_value(p.get('upper_shadow_ratio'), 0.5)
+        high_volume_quantile = self._get_param_value(p.get('high_volume_quantile'), 0.75)
+        
+        ma_col = f'EMA_{overextension_ma_period}_D'
+        vol_ma_col = 'VOL_MA_21_D' # 使用21日均量作为参考
+        
+        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col, vol_ma_col]
+        if not all(col in df.columns for col in required_cols):
+            print("          -> [警告] 缺少诊断'高位放量长上影'所需列，跳过。")
+            return pd.Series(False, index=df.index)
+
+        # 2. 计算各项条件
+        # 条件A: 价格处于高位 (价格远高于长期均线)
+        is_overextended = (df['close_D'] / df[ma_col] - 1) > overextension_threshold
+        
+        # 条件B: 出现长上影线
+        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - pd.max(df['open_D'], df['close_D']))
+        has_long_upper_shadow = (upper_shadow / total_range) >= upper_shadow_ratio
+        
+        # 条件C: 相对放量 (成交量大于过去一段时间的75%分位数)
+        volume_threshold = df['volume_D'].rolling(window=21).quantile(high_volume_quantile)
+        is_high_volume = df['volume_D'] > volume_threshold
+        
+        # 条件D: 收盘疲软 (收盘价低于当天中间价)
+        is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
+        
+        # 3. 组合所有条件
+        signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
+        
+        print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        return signal
 
     def _prepare_derived_features(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """

@@ -154,7 +154,14 @@
   "exit_strategy_params": {
     "enabled": true,
     "说明": "【V82.0 净化版】智能出场矩阵。",
-    "upthrust_distribution_params": { "enabled": true, "overextension_ma_period": 55, "overextension_threshold": 0.3, "upper_shadow_ratio": 0.6, "high_volume_quantile": 0.85 },
+    "upthrust_distribution_params": { 
+      "enabled": true, 
+      "说明": "“上攻乏力”信号",
+      "overextension_ma_period": 55, 
+      "overextension_threshold": 0.3, 
+      "upper_shadow_ratio": 0.5, 
+      "high_volume_quantile": 0.75 
+    },
     "volume_breakdown_params": { "enabled": true, "support_ma_period": 55, "volume_surge_ratio": 1.8, "main_force_dump_ratio": 0.1 },
     "divergence_exit_params": { "enabled": true, "lookback_period": 20, "persistence_days": 5, "break_ma_period": 10 },
     "exit_risk_scoring_matrix": {
