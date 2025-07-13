@@ -502,8 +502,8 @@ class IndicatorService:
             
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
 
-            if tf == 'D':
-                print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
+            # if tf == 'D':
+                # print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
                 # self._log_alignment_check(df_with_indicators)
             
             return tf, df_with_indicators
@@ -525,7 +525,7 @@ class IndicatorService:
                 else:
                     logger.warning(f"周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
 
-        print(f"--- [数据准备V7.7-日志增强版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        # print(f"--- [数据准备V7.7-日志增强版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     # ▼▼▼ 新增一个专门生成游资信号的函数 ▼▼▼
@@ -766,9 +766,9 @@ class IndicatorService:
         final_df = df_for_calc.rename(columns=rename_map)
 
         # 4. 调试打印
-        print(f"\n--- [IndicatorService V110 调试输出] 周期 '{timeframe_key}' 最终生成列名清单 (已添加后缀) ---")
-        print(final_df.columns.tolist())
-        print(f"--- [IndicatorService V110 调试输出结束] ---\n")
+        # print(f"\n--- [IndicatorService V110 调试输出] 周期 '{timeframe_key}' 最终生成列名清单 (已添加后缀) ---")
+        # print(final_df.columns.tolist())
+        # print(f"--- [IndicatorService V110 调试输出结束] ---\n")
 
         return final_df
 

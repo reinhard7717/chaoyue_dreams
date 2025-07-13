@@ -304,7 +304,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if is_incremental and last_metric_date:
             fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
 
-        # ▼▼▼【核心修正】: 修改 get_data 函数签名和内部调用方式 ▼▼▼
         def get_data(model, fields: tuple, date_field='trade_time'):
             """
             一个更健壮的数据获取辅助函数。
@@ -319,7 +318,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 qs = qs.filter(**filter_kwargs)
             # 使用 *fields 将元组解包为位置参数，正确调用 .values()
             return pd.DataFrame.from_records(qs.values(*fields))
-        # ▲▲▲【核心修正结束】▲▲▲
 
         # ▼▼▼【核心修正】: 更新对 get_data 函数的调用 ▼▼▼
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
@@ -414,13 +412,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
-
-
-
-
-
-
 
 
 
