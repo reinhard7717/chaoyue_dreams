@@ -112,6 +112,119 @@ class TrendFollowStrategy:
             print("      -> 所有数值列类型正常，无需转换。")
         return df
 
+    # 波段跟踪模拟器
+    def simulate_wave_tracking(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V85.0 新增】波段跟踪模拟器
+        - 核心功能: 将无状态的每日信号，转换为有状态的持仓管理和交易生命周期模拟。
+        - 实现了分层的减仓与清仓逻辑，是策略从“信号生成”到“实战模拟”的关键一步。
+        """
+        print("\n" + "="*60)
+        print("====== 开始执行【波段跟踪模拟器 V85.0】 ======")
+        
+        # --- 1. 从JSON配置中加载波段跟踪参数 ---
+        tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
+        if not self._get_param_value(tracking_params.get('enabled'), False):
+            print("    - [信息] 波段跟踪模拟器被禁用，跳过。")
+            return df
+
+        profit_target_partial = self._get_param_value(tracking_params.get('profit_target_partial'), 0.30)
+        trailing_stop_pct = self._get_param_value(tracking_params.get('trailing_stop_pct'), 0.15)
+        exit_code_partial = self._get_param_value(tracking_params.get('exit_code_partial'), 77)
+        exit_code_full = self._get_param_value(tracking_params.get('exit_code_full'), 99)
+        life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
+        life_line_ma_col = f'EMA_{life_line_ma_period}_D'
+
+        print(f"    - 减仓规则: 利润 > {profit_target_partial*100}% 或 风险码 == {exit_code_partial}")
+        print(f"    - 清仓规则: 风险码 == {exit_code_full} 或 从最高点回撤 > {trailing_stop_pct*100}% 或 失守{life_line_ma_col}")
+
+        # --- 2. 初始化状态列和变量 ---
+        df['position_status'] = 0.0  # 0: 无仓位, 0.5: 半仓, 1.0: 满仓
+        df['trade_action'] = ''      # 'ENTRY', 'PARTIAL_EXIT', 'FULL_EXIT'
+        
+        in_position = False
+        position_size = 0.0
+        entry_price = 0.0
+        highest_price_since_entry = 0.0
+        partial_exit_done = False
+
+        # --- 3. 逐日迭代，模拟交易状态机 ---
+        # 使用 .itertuples() 以获得更好的性能
+        for row in df.itertuples():
+            current_date = row.Index
+            
+            # 状态机核心逻辑
+            if not in_position:
+                # 检查入场信号
+                if row.signal_entry:
+                    in_position = True
+                    position_size = 1.0
+                    entry_price = row.close_D
+                    highest_price_since_entry = row.close_D
+                    partial_exit_done = False
+                    
+                    df.loc[current_date, 'position_status'] = position_size
+                    df.loc[current_date, 'trade_action'] = 'ENTRY'
+                    print(f"      -> {current_date.date()}: [入场] 价格: {entry_price:.2f}, 仓位: {position_size*100}%")
+            
+            else: # 如果在持仓中
+                # 3.1 更新波段最高价
+                highest_price_since_entry = max(highest_price_since_entry, row.high_D)
+                
+                # 3.2 定义清仓/减仓的理由
+                exit_reason = ""
+                
+                # 3.3 检查清仓条件 (优先级最高)
+                should_full_exit = False
+                if row.exit_signal_code == exit_code_full:
+                    should_full_exit = True
+                    exit_reason = f"高危风险码({exit_code_full})"
+                elif row.close_D < highest_price_since_entry * (1 - trailing_stop_pct):
+                    should_full_exit = True
+                    exit_reason = f"移动止损(最高价{highest_price_since_entry:.2f}, 回撤>{trailing_stop_pct*100}%)"
+                elif partial_exit_done and row.close_D < getattr(row, life_line_ma_col, float('inf')):
+                    # 只有在减仓后，生命线失守才作为清仓条件
+                    should_full_exit = True
+                    exit_reason = f"失守生命线({life_line_ma_col})"
+
+                if should_full_exit:
+                    in_position = False
+                    position_size = 0.0
+                    
+                    df.loc[current_date, 'position_status'] = position_size
+                    df.loc[current_date, 'trade_action'] = 'FULL_EXIT'
+                    print(f"      -> {current_date.date()}: [清仓] 价格: {row.close_D:.2f}, 原因: {exit_reason}")
+                    continue # 当天清仓后，不再执行减仓逻辑
+
+                # 3.4 检查减仓条件 (如果未清仓)
+                should_partial_exit = False
+                if not partial_exit_done: # 确保只减仓一次
+                    if row.close_D > entry_price * (1 + profit_target_partial):
+                        should_partial_exit = True
+                        exit_reason = f"目标利润(>{profit_target_partial*100}%)达成"
+                    elif row.exit_signal_code == exit_code_partial:
+                        should_partial_exit = True
+                        exit_reason = f"中度风险码({exit_code_partial})"
+
+                if should_partial_exit:
+                    position_size = 0.5
+                    partial_exit_done = True
+                    
+                    df.loc[current_date, 'position_status'] = position_size
+                    df.loc[current_date, 'trade_action'] = 'PARTIAL_EXIT'
+                    print(f"      -> {current_date.date()}: [减仓] 价格: {row.close_D:.2f}, 仓位降至50%, 原因: {exit_reason}")
+
+                # 3.5 如果当天无操作，则继承前一天的仓位状态
+                if not should_full_exit and not should_partial_exit:
+                    df.loc[current_date, 'position_status'] = position_size
+
+        # --- 4. 填充未持仓期间的仓位状态 ---
+        df['position_status'] = df['position_status'].ffill().fillna(0)
+        
+        print("====== 【波段跟踪模拟器 V85.0】执行完毕 ======")
+        print("="*60 + "\n")
+        return df
+
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
         【V80.0 总指挥版】

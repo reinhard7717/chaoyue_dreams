@@ -139,6 +139,14 @@
           { "name": "CHIP_PURITY_MULTIPLIER", "cn_name": "【指挥棒】筹码至纯", "source_column": "CHIP_concentration_90pct_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.15 },
           { "name": "VOLATILITY_SILENCE_MULTIPLIER", "cn_name": "【指挥棒】波动至静", "source_column": "BBW_21_2.0_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.10 }
         ]
+      },
+      "wave_tracking_params": {
+        "enabled": { "value": true, "说明": "【V85.0 波段跟踪】启用或禁用波段跟踪模拟器。" },
+        "profit_target_partial": { "value": 0.30, "说明": "触发部分减仓的利润目标比例。" },
+        "trailing_stop_pct": { "value": 0.15, "说明": "从波段最高点回撤多少比例触发移动止损/盈。" },
+        "exit_code_partial": { "value": 77, "说明": "触发部分减仓的中度风险码。" },
+        "exit_code_full": { "value": 99, "说明": "触发完全清仓的高危风险码。" },
+        "life_line_ma": { "value": 21, "说明": "减仓后，作为趋势生命线的EMA周期。" }
       }
     }
   },
