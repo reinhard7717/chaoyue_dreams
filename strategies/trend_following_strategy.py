@@ -1914,11 +1914,11 @@ class TrendFollowStrategy:
                 'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
             },
             {
-                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发(多次确认)', 'family': 'DISTRIBUTION_RISK',
+                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
                 'score': 90,
-                'setup': ['RISK_SETUP_IN_UPTREND'],
-                'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'],
-                'comment': '在[高位动能衰竭区]内, 出现[近期多次]上攻失败, 是经典的派发信号。'
+                'setup': ['RISK_SETUP_IN_UPTREND'], # 修正1: 使用正确的“上升趋势”准备状态
+                'trigger': ['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'], # 修正2: 使用正确的“当日冲高回落”触发器
+                'comment': '在[上升趋势]中, 出现[冲高回落K线], 是经典的派发信号。'
             },
             {
                 'name': 'SHARP_PULLBACK_WARNING', 'cn_name': '【中危】急跌回调预警', 'family': 'PULLBACK_WARNING_RISK',
@@ -2091,37 +2091,44 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V111.1 修复版】
-        - 核心修复: 移除了对不存在的旧触发器 'RISK_TRIGGER_DEAD_CAT_BOUNCE' 的 .pop() 操作，解决了KeyError。
-                    并为 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' 赋予了正确的、基于原子条件的定义。
+        【V115.1 武器补全版】
+        - 核心修复: 解决了因风险触发器定义不完整，导致 'ATTACK_FAILED_DISTRIBUTION' 剧本永不触发的问题。
+                    本版本同步了最新的触发器定义逻辑，新增了对 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' 的计算。
+                    这个触发器专门用于捕捉“当天创近期新高但最终收阴”的经典派发形态，是风险引擎的关键武器。
         """
-        print("    - [风险触发事件定义中心 V111.1] 启动...")
+        print("    - [风险触发事件定义中心 V115.1 武器补全版] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
         triggers['RISK_TRIGGER_ANY'] = pd.Series(True, index=df.index)
 
-        # --- 信号1: 冲高回落相关 ---
+        # --- 信号1: 冲高回落相关 (Upthrust & Rejection) ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
         lookback_period = self._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
+        
+        # 原子条件: 当天是否创了近期(lookback_period)新高
         is_upthrust_day = df['high_D'] > df['high_D'].shift(1).rolling(window=lookback_period).max()
+        # 原子条件: 当天是否收阴线
         is_rejection_candle = df['close_D'] < df['open_D']
+        # 原子条件: 当天是否吞没了昨日开盘价 (更强的拒绝信号)
         is_engulfing_rejection = df['close_D'] < df['open_D'].shift(1)
         
+        # 预备信号: 标记所有冲高的日子，供后续使用
         triggers['SETUP_UPTHRUST_WATCH'] = is_upthrust_day
-        # print(f"      -> '冲高观察(预备信号)' 事件定义完成。{self._format_debug_dates(triggers['SETUP_UPTHRUST_WATCH'])}")
         
+        # 触发器1: 冲高回落结构 (次日确认) - 原有逻辑
+        # 适用于前一天冲高，今天直接低开低走确认的场景
         triggers['RISK_TRIGGER_UPTHRUST_REJECTION'] = is_rejection_candle & is_engulfing_rejection & is_upthrust_day.shift(1).fillna(False)
-        # print(f"      -> '冲高回落结构(日线确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_UPTHRUST_REJECTION'])}")
         
-        # ▼▼▼ 为 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' 赋予正确定义 ▼▼▼
-        # 这个信号的本质是“上攻失败”，即尝试创近期新高（is_upthrust_day），但最终收跌（is_rejection_candle）。
-        # 这是一个非常经典的派发信号。
+        # ▼▼▼【代码修改 V115.1】: 新增“雷神之锤”触发器 ▼▼▼
+        # 触发器2: 上攻失败K线 (当日确认) - 新增逻辑
+        # 适用于当天创下新高，但被强大卖盘砸下，最终收成阴线。这是最经典的派发信号之一。
         triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_upthrust_day & is_rejection_candle
-        # print(f"      -> '上攻失败K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
+        print(f"      -> '上攻失败K线(当日确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
+        # ▲▲▲【代码修改 V115.1】▲▲▲
 
-        # --- 信号2: 急跌回调 ---
+        # --- 信号2: 急跌回调 (Sharp Pullback) ---
         p_pullback = exit_params.get('structure_breakdown_params', {})
         ma_period_pullback = self._get_param_value(p_pullback.get('breakdown_ma_period'), 21)
         min_pct = self._get_param_value(p_pullback.get('min_pct_change'), -0.03)
@@ -2133,12 +2140,10 @@ class TrendFollowStrategy:
             sharp_pullback_candle = cond1 & cond2 & cond3
             
             triggers['SETUP_SHARP_PULLBACK_WATCH'] = sharp_pullback_candle
-            # print(f"      -> '急跌观察(预备信号)' 事件定义完成。{self._format_debug_dates(triggers['SETUP_SHARP_PULLBACK_WATCH'])}")
-            
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = sharp_pullback_candle
-            # print(f"      -> '急跌回调K线(日线确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'])}")
+            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'])}")
 
-        # --- 信号3: 真实结构破位 ---
+        # --- 信号3: 真实结构破位 (True Structure Breakdown) ---
         p_true_break = exit_params.get('true_breakdown_params', {})
         breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
         conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
@@ -2153,10 +2158,11 @@ class TrendFollowStrategy:
             is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
             is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
-            # print(f"      -> '真实结构破位(事件驱动)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+            print(f"      -> '真实结构破位' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
         else:
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
 
+        print("    - [风险触发事件定义中心 V115.1] 所有触发事件定义完成。")
         return triggers
 
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
