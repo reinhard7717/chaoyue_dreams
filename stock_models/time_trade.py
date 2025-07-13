@@ -1020,9 +1020,6 @@ class StockCyqChipsCY(models.Model):
         verbose_name_plural = '每日筹码分布CY'
         db_table = 'stock_cyq_chips_cy'
         unique_together = ('stock', 'trade_time', 'price')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
 
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time} {self.price}"
@@ -1048,9 +1045,6 @@ class StockCyqChipsKC(models.Model):
         verbose_name_plural = '每日筹码分布KC'
         db_table = 'stock_cyq_chips_kc'
         unique_together = ('stock', 'trade_time', 'price')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
 
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time} {self.price}"
@@ -1076,9 +1070,6 @@ class StockCyqChipsBJ(models.Model):
         verbose_name_plural = '每日筹码分布BJ'
         db_table = 'stock_cyq_chips_bj'
         unique_together = ('stock', 'trade_time', 'price')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
 
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time} {self.price}"
@@ -1105,9 +1096,6 @@ class StockCyqPerf(models.Model):
         verbose_name_plural = '每日筹码及胜率'
         db_table = 'stock_cyq_perf'
         unique_together = ('stock', 'trade_time')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
 
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time}"

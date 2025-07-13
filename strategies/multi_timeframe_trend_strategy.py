@@ -1,6 +1,4 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
-# 版本: V6.7 - 分级止盈系统
-
 import io       # 导入 io
 import sys      # 导入 sys
 import re       # 导入 re
