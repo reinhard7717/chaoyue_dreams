@@ -135,6 +135,7 @@ class MultiTimeframeTrendStrategy:
             if indicator_name and params and params not in discovered[indicator_name]['configs']:
                 discovered[indicator_name]['configs'].append(params)
         return json.loads(json.dumps(discovered))
+
     def _discover_resonance_indicators(self, config: Dict) -> Dict:
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
         resonance_params = config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
@@ -156,6 +157,7 @@ class MultiTimeframeTrendStrategy:
                 if indicator_name and params and params not in discovered[indicator_name]['configs']:
                     discovered[indicator_name]['configs'].append(params)
         return json.loads(json.dumps(discovered))
+
     def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
         merged = deepcopy(tactical_fe)
         merged['base_needed_bars'] = max(
@@ -167,6 +169,7 @@ class MultiTimeframeTrendStrategy:
             strategic_fe.get('indicators', {})
         )
         return merged
+
     def _merge_indicators(self, base_indicators, new_indicators):
         merged = deepcopy(base_indicators)
         all_keys = set(merged.keys()) | set(new_indicators.keys())
@@ -200,8 +203,13 @@ class MultiTimeframeTrendStrategy:
             if not final_configs and 'enabled' in (base_cfg or new_cfg):
                  merged[key] = {'enabled': is_enabled, '说明': merged[key]['说明']}
         return merged
+
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-        logger.info(f"--- 开始为【{stock_code}】执行三级引擎分析 (V6.7) ---")
+        """
+        【V104 终局 · 执行版】
+        - 核心升级: 将旧的“执行引擎-止盈”替换为全新的“执行引擎-风险预警”，实现对特定结构风险的盘中实时狙击。
+        """
+        logger.info(f"--- 开始为【{stock_code}】执行四级引擎分析 (V104) ---")
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
         if 'D' not in all_dfs or 'W' not in all_dfs:
@@ -218,12 +226,18 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 引擎3: 开始运行【执行引擎-买入】(分钟线)... ---")
         execution_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎3: 【执行引擎-买入】运行完毕，生成 {len(execution_records)} 条分钟线买入信号。 ---")
-        logger.info(f"\n--- 引擎4: 开始运行【执行引擎-止盈】(分钟线)... ---")
-        take_profit_records = self._run_intraday_take_profit_engine(stock_code, all_dfs)
-        logger.info(f"--- 引擎4: 【执行引擎-止盈】运行完毕，生成 {len(take_profit_records)} 条分钟线止盈信号。 ---")
+        
+        # ▼▼▼【代码修改 V104】: 调用全新的分钟级风险预警引擎 ▼▼▼
+        logger.info(f"\n--- 引擎4: 开始运行【执行引擎-风险预警】(分钟线)... ---")
+        risk_alert_records = self._run_intraday_risk_alert_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎4: 【执行引擎-风险预警】运行完毕，生成 {len(risk_alert_records)} 条分钟线风险警报。 ---")
+
         logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
         final_entry_records = self._merge_and_deduplicate_signals(tactical_records, execution_records)
-        all_records = final_entry_records + take_profit_records
+        
+        # ▼▼▼【代码修改 V104】: 将风险警报合并到最终记录中 ▼▼▼
+        all_records = final_entry_records + risk_alert_records
+
         if all_records:
             latest_trade_date = max(pd.to_datetime(rec['trade_time']).date() for rec in all_records)
             latest_records = [
@@ -241,6 +255,91 @@ class MultiTimeframeTrendStrategy:
                     print("----------------------------------------------------")
         logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
         return all_records if all_records else None
+
+    def _run_intraday_risk_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V104 终局 · 执行版】
+        - 核心革命: 将旧的通用止盈引擎，替换为针对“冲高回落”结构的分钟级实时风险预警引擎。
+        - 工作流程:
+          1. 检查日线分析结果（self.daily_analysis_df）是否存在。
+          2. 从日线结果中，识别出所有“冲高日”(Upthrust Day)。
+          3. 在其后的“戒备日”中，监控分钟线数据。
+          4. 将日线级别的确认条件，“翻译”成实时价格的触发条件。
+          5. 在条件满足的第一分钟，生成并返回高优先级警报。
+        """
+        # --- 步骤0: 加载参数并进行前置检查 ---
+        exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
+        if not self.tactical_engine._get_param_value(exec_params.get('enabled'), False):
+            return []
+        
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            logger.warning("日线分析结果(daily_analysis_df)为空，分钟级风险预警引擎跳过。")
+            return []
+        
+        # --- 步骤1: 从日线策略中，识别出所有的“冲高日” ---
+        p_attack = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        lookback_period = self.tactical_engine._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
+        
+        daily_df = self.daily_analysis_df # 使用已缓存的日线分析结果
+        is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
+        
+        upthrust_days_df = daily_df[is_upthrust_day]
+        if upthrust_days_df.empty:
+            logger.info("    - [风险预警引擎] 在日线数据中未发现任何“冲高日”，无需启动盘中监控。")
+            return []
+        
+        logger.info(f"    - [风险预警引擎] 发现 {len(upthrust_days_df)} 个潜在的“冲高日”，将在次日启动盘中监控。")
+
+        alerts = []
+        # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
+        # 假设分钟线周期为5分钟，如果需要其他周期，可以参数化
+        minute_tf = '5' 
+        minute_df = all_dfs.get(minute_tf)
+        if minute_df is None or minute_df.empty:
+            logger.warning(f"缺少{minute_tf}分钟数据，无法执行盘中风险预警。")
+            return []
+
+        for upthrust_date, upthrust_row in upthrust_days_df.iterrows():
+            alert_date = upthrust_date + pd.Timedelta(days=1)
+            
+            alert_day_minute_df = minute_df[minute_df.index.date == alert_date.date()].copy()
+            if alert_day_minute_df.empty:
+                continue
+
+            # --- 步骤3: 准备实时触发的阈值 ---
+            alert_day_open = alert_day_minute_df.iloc[0][f'open_{minute_tf}']
+            upthrust_day_open = upthrust_row['open_D']
+
+            logger.info(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
+            logger.info(f"         - 触发阈值1 (低于今日开盘): {alert_day_open:.2f}")
+            logger.info(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
+
+            # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
+            triggered_minutes = alert_day_minute_df[
+                (alert_day_minute_df[f'close_{minute_tf}'] < alert_day_open) &
+                (alert_day_minute_df[f'close_{minute_tf}'] < upthrust_day_open)
+            ]
+
+            if not triggered_minutes.empty:
+                first_alert_minute = triggered_minutes.iloc[0]
+                alert_time = first_alert_minute.name
+                alert_price = first_alert_minute[f'close_{minute_tf}']
+                
+                # 使用 _prepare_intraday_db_record 来格式化记录
+                record = self._prepare_intraday_db_record(stock_code, alert_time, first_alert_minute, exec_params)
+                
+                # 填充风险警报的特定字段
+                record['entry_signal'] = False
+                record['exit_signal_code'] = 103 # 使用一个独特的代码代表此警报
+                record['exit_severity_level'] = 3 # 最高级别警报
+                record['exit_signal_reason'] = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
+                record['triggered_playbooks'] = ["EXIT_UPTHRUST_REJECTION"]
+                
+                alerts.append(record)
+                logger.info(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {record['exit_signal_reason']}")
+        
+        return alerts
+
     def _merge_and_deduplicate_signals(self, daily_records: List[Dict], intraday_records: List[Dict]) -> List[Dict]:
         if not daily_records and not intraday_records:
             return daily_records or intraday_records
@@ -274,6 +373,7 @@ class MultiTimeframeTrendStrategy:
             elif 'D' in signals:
                 final_records.append(signals['D'])
         return final_records
+
     def _run_strategic_engine(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         if df_weekly is None or df_weekly.empty:
             logger.warning("周线数据为空，战略引擎跳过。")

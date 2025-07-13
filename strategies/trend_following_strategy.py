@@ -425,6 +425,86 @@ class TrendFollowStrategy:
             records.append(record)
         return records
 
+    def generate_intraday_alerts(self, daily_df: pd.DataFrame, minute_df: pd.DataFrame, params: dict) -> List[Dict]:
+        """
+        【V104 终局 · 执行版】
+        - 核心革命: 建立一个独立的“战术执行层”，将日线策略的“战略确认”转化为分钟级别的“实时警报”。
+        - 工作流程:
+          1. 接收已经运行完V103日线策略的 `daily_df`。
+          2. 识别出所有“冲高日”(Upthrust Day)。
+          3. 在其后的“戒备日”(Alert Day)中，监控分钟线数据。
+          4. 将日线级别的确认条件，“翻译”成实时价格的触发条件。
+          5. 在条件满足的第一分钟，生成并返回警报。
+        """
+        print("\n" + "="*60)
+        print("====== 开始执行【战术执行层 V104】(分钟级实时警报) ======")
+
+        # --- 步骤0: 加载执行层参数 ---
+        exec_params = self._get_params_block(params, 'intraday_execution_params', {})
+        if not self._get_param_value(exec_params.get('enabled'), False):
+            print("    - [信息] 战术执行层被禁用，跳过。")
+            return []
+
+        # --- 步骤1: 从日线策略中，识别出所有的“冲高日” ---
+        # 我们需要重新计算V103的冲高日逻辑，以确保独立性
+        p_attack = self._get_params_block(params, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        lookback_period = self._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
+        is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
+        
+        upthrust_days_df = daily_df[is_upthrust_day]
+        if upthrust_days_df.empty:
+            print("    - [信息] 在日线数据中未发现任何“冲高日”，无需启动盘中监控。")
+            return []
+        
+        print(f"    - [战略确认] 发现 {len(upthrust_days_df)} 个潜在的“冲高日”，将在次日启动盘中监控。")
+
+        alerts = []
+        # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
+        for upthrust_date, upthrust_row in upthrust_days_df.iterrows():
+            alert_date = upthrust_date + pd.Timedelta(days=1)
+            
+            # 获取“戒备日”当天的分钟数据
+            alert_day_minute_df = minute_df[minute_df.index.date == alert_date.date()].copy()
+            if alert_day_minute_df.empty:
+                continue
+
+            # --- 步骤3: 准备实时触发的阈值 ---
+            # 阈值1: 戒备日当天的开盘价
+            alert_day_open = alert_day_minute_df.iloc[0]['open_M']
+            # 阈值2: 冲高日当天的开盘价
+            upthrust_day_open = upthrust_row['open_D']
+
+            print(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
+            print(f"         - 触发阈值1 (低于今日开盘): {alert_day_open:.2f}")
+            print(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
+
+            # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
+            triggered_minutes = alert_day_minute_df[
+                (alert_day_minute_df['close_M'] < alert_day_open) &
+                (alert_day_minute_df['close_M'] < upthrust_day_open)
+            ]
+
+            if not triggered_minutes.empty:
+                # 获取第一次触发警报的分钟
+                first_alert_minute = triggered_minutes.iloc[0]
+                alert_time = first_alert_minute.name
+                alert_price = first_alert_minute['close_M']
+                
+                alert_info = {
+                    "alert_time": alert_time,
+                    "alert_price": alert_price,
+                    "alert_type": "INTRADAY_UPTHRUST_REJECTION",
+                    "cn_name": "【盘中警报】冲高回落结构确认",
+                    "reason": f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})",
+                    "daily_setup_date": upthrust_date.date()
+                }
+                alerts.append(alert_info)
+                print(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {alert_info['reason']}")
+        
+        print("====== 【战术执行层 V104】执行完毕 ======")
+        print("="*60 + "\n")
+        return alerts
+
     def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
         【V80.0 指挥棒模型】最终得分调整层
@@ -2195,7 +2275,6 @@ class TrendFollowStrategy:
         
         print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         return signal
-
 
 
     def _prepare_derived_features(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
