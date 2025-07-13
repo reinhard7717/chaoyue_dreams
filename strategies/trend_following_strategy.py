@@ -487,7 +487,7 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup_score', 'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。',
+                'type': 'setup_score', 'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。', 'allow_memory': False,
                 'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 160, 'score_multiplier': 1.0, 'trigger_bonus': {'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50}}
             },
             {
@@ -500,7 +500,7 @@ class TrendFollowStrategy:
             },
             {
                 'name': 'WASHOUT_REVERSAL_A', 'cn_name': '【A级】巨阴洗盘反转', 'family': 'REVERSAL_CONTRARIAN',
-                'type': 'setup', 'score': 260, 'side': 'left', 'comment': 'A级: 极端洗盘后的拉升前兆。'
+                'type': 'setup', 'score': 260, 'side': 'left', 'comment': 'A级: 极端洗盘后的拉升前兆。', 'allow_memory': False
             },
             {
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳', 'family': 'REVERSAL_CONTRARIAN',
@@ -687,9 +687,14 @@ class TrendFollowStrategy:
                 min_score_req = rules.get('min_setup_score_to_trigger', 0)
                 if min_score_req > 0:
                     setup_score_series = playbook.get('setup_score_series', default_series)
-                    # 核心修改：检查上下文窗口期内的最高分是否满足要求
-                    max_score_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
-                    setup_mask = max_score_in_context >= min_score_req
+                    allow_memory = playbook.get('allow_memory', True) # 默认为允许记忆
+                    if allow_memory:
+                        # 对于允许记忆的剧本（如主升浪），检查近期最高分
+                        max_score_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
+                        setup_mask = max_score_in_context >= min_score_req
+                    else:
+                        # 对于不允许记忆的剧本（如投降坑），只检查当天分数
+                        setup_mask = setup_score_series >= min_score_req
             valid_mask = trigger_mask & side_mask & setup_mask
 
             # 计算基础分 (只在有效时才有分)
