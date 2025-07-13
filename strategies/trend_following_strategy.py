@@ -119,8 +119,7 @@ class TrendFollowStrategy:
         - 核心功能: 将无状态的每日信号，转换为有状态的持仓管理和交易生命周期模拟。
         - 实现了分层的减仓与清仓逻辑，是策略从“信号生成”到“实战模拟”的关键一步。
         """
-        print("\n" + "="*60)
-        print("====== 开始执行【波段跟踪模拟器 V85.0】 ======")
+        print("====== 开始执行【波段跟踪模拟器 V85.1 期末报告版】 ======")
         
         # --- 1. 从JSON配置中加载波段跟踪参数 ---
         tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
@@ -220,9 +219,16 @@ class TrendFollowStrategy:
 
         # --- 4. 填充未持仓期间的仓位状态 ---
         df['position_status'] = df['position_status'].ffill().fillna(0)
+
+        if in_position:
+            last_row = df.iloc[-1]
+            current_pnl = (last_row.close_D / entry_price - 1) * 100
+            print(f"      -> [期末报告] 回测结束时，仍有持仓：")
+            print(f"         - 入场价格: {entry_price:.2f}")
+            print(f"         - 当前仓位: {position_size*100}%")
+            print(f"         - 当前浮动盈亏: {current_pnl:.2f}%")
         
-        print("====== 【波段跟踪模拟器 V85.0】执行完毕 ======")
-        print("="*60 + "\n")
+        print("====== 【波段跟踪模拟器 V85.1】执行完毕 ======")
         return df
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
