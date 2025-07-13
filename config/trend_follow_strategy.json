@@ -120,7 +120,7 @@
         "enabled": true,
         "series_to_slope": {
           "close_D": [10, 20, 55], "RSI_13_D": [5, 10], "BBW_21_2.0_D": [10], "CMF_21_D": [10],
-          "EMA_89_D": [10], "EMA_105_D": [25]
+          "EMA_13_D": [5], "EMA_89_D": [10], "EMA_105_D": [25]
         },
         "auto_detect_patterns": ["net_mf_", "capital_price_"],
         "auto_detect_default_lookbacks": [10, 20]
