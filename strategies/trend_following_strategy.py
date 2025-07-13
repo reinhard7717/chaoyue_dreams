@@ -1683,7 +1683,7 @@ class TrendFollowStrategy:
         print("    - [风险诊断引擎 V90.0] 启动，开始诊断所有原子风险因子...")
         
         # 从主参数中获取出场策略的配置块
-        exit_params = self._get_params_block(params, 'exit_strategy_params', {})
+        exit_params = params.get('exit_strategy_params', {})
         
         # 检查出场策略是否被禁用，如果禁用则直接返回空字典，提高效率
         if not self._get_param_value(exit_params.get('enabled'), False):
@@ -1701,7 +1701,7 @@ class TrendFollowStrategy:
         
         # 调用“高位放量长上影派发”诊断模块
         # 这是我们建立的第一个主动型离场信号，用于捕捉主力冲高派发的行为
-        risk_factors['RISK_EVENT_UPTHRUST_DISTRIBUTION'] = self._diagnose_upthrust_distribution(df, params)
+        risk_factors['RISK_EVENT_UPTHRUST_DISTRIBUTION'] = self._diagnose_upthrust_distribution(df, exit_params)
         
         # --- 2. 市场结构风险 (Market Structure Risks) ---
         #    - 这类风险关注趋势线、关键支撑/阻力位的突破情况，代表着中长期趋势的改变。
@@ -1842,12 +1842,12 @@ class TrendFollowStrategy:
         return states
 
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
-    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
+    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
         """
         诊断“高位放量长上影”派发风险 (Upthrust Distribution)。
         这是一个非常重要的见顶信号。
         """
-        p = self._get_params_block(params, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        p = exit_params.get('upthrust_distribution_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             return pd.Series(False, index=df.index)
 
