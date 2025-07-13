@@ -258,8 +258,9 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_risk_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V104.1 终局 · 对齐版】
-        - 核心修复: 修正了对基础分钟周期列名的引用方式，使其与数据层的命名规范（无后缀）完全对齐，解决KeyError。
+        【V104.2 终局 · 职责版】
+        - 核心修复: 移除对不匹配的 _prepare_intraday_db_record 函数的调用。
+                    在引擎内部直接构建风险警报记录，确保职责单一和上下文正确，解决KeyError。
         """
         # --- 步骤0: 加载参数并进行前置检查 ---
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
@@ -300,7 +301,6 @@ class MultiTimeframeTrendStrategy:
                 continue
 
             # --- 步骤3: 准备实时触发的阈值 ---
-            # 修正: 基础分钟周期的列名没有后缀，直接使用 'open'
             alert_day_open = alert_day_minute_df.iloc[0]['open']
             upthrust_day_open = upthrust_row['open_D']
 
@@ -309,7 +309,6 @@ class MultiTimeframeTrendStrategy:
             logger.info(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
 
             # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
-            # 修正: 基础分钟周期的列名没有后缀，直接使用 'close'
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df['close'] < alert_day_open) &
                 (alert_day_minute_df['close'] < upthrust_day_open)
@@ -318,16 +317,24 @@ class MultiTimeframeTrendStrategy:
             if not triggered_minutes.empty:
                 first_alert_minute = triggered_minutes.iloc[0]
                 alert_time = first_alert_minute.name
-                # 修正: 基础分钟周期的列名没有后缀，直接使用 'close'
                 alert_price = first_alert_minute['close']
                 
-                record = self._prepare_intraday_db_record(stock_code, alert_time, first_alert_minute, exec_params)
-                
-                record['entry_signal'] = False
-                record['exit_signal_code'] = 103
-                record['exit_severity_level'] = 3
-                record['exit_signal_reason'] = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
-                record['triggered_playbooks'] = ["EXIT_UPTHRUST_REJECTION"]
+                # 修正: 直接在此处构建记录字典，不再调用外部函数
+                reason_str = f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})"
+                record = {
+                    "stock_code": stock_code,
+                    "trade_time": alert_time.to_pydatetime(),
+                    "timeframe": minute_tf,
+                    "strategy_name": exec_params.get('signal_name', 'INTRADAY_RISK_ALERT'),
+                    "close_price": sanitize_for_json(alert_price),
+                    "entry_score": 0.0,
+                    "entry_signal": False,
+                    "exit_signal_code": 103,
+                    "exit_severity_level": 3,
+                    "exit_signal_reason": reason_str,
+                    "triggered_playbooks": ["EXIT_UPTHRUST_REJECTION"],
+                    "context_snapshot": sanitize_for_json({'close': alert_price, 'reason': reason_str}),
+                }
                 
                 alerts.append(record)
                 logger.info(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {record['exit_signal_reason']}")
