@@ -1916,7 +1916,7 @@ class TrendFollowStrategy:
             {
                 'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发(多次确认)', 'family': 'DISTRIBUTION_RISK',
                 'score': 90,
-                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'],
+                'setup': ['RISK_SETUP_IN_UPTREND'],
                 'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'],
                 'comment': '在[高位动能衰竭区]内, 出现[近期多次]上攻失败, 是经典的派发信号。'
             },
@@ -2018,6 +2018,15 @@ class TrendFollowStrategy:
             # print(f"      -> '高风险区域(纯位置)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
         else:
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = default_series
+        
+        # ▼▼▼ “处于上升趋势”的准备状态 ▼▼▼
+        # 这个状态更通用，只要求价格在长期均线之上，表明一个基本的上升趋势。
+        if ma_long_col in df.columns:
+            setups['RISK_SETUP_IN_UPTREND'] = df['close_D'] > df[ma_long_col]
+            print(f"      -> '处于上升趋势' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_IN_UPTREND'])}")
+        else:
+            setups['RISK_SETUP_IN_UPTREND'] = default_series
+            print(f"      -> [警告] 缺少 {ma_long_col}，无法诊断'处于上升趋势'状态。")
 
         # 保险一：趋势确认
         ma_short_period = 21
