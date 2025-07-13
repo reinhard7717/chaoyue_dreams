@@ -180,13 +180,6 @@
       "min_pct_change": -0.03,
       "high_volume_quantile": 0.75
     },
-    "volume_breakdown_params": { 
-        "enabled": false, 
-        "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
-        "support_ma_period": 55, 
-        "volume_surge_ratio": 1.8, 
-        "main_force_dump_ratio": 0.1 
-    },
     "divergence_exit_params": { 
         "enabled": false, 
         "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
@@ -201,17 +194,16 @@
     },
     "stagnation_params": {
       "enabled": true,
-      "说明": "【V100 新增】“熊市停滞”剧本的专属参数",
+      "说明": "【V102 新增】“熊市停滞”剧本的四重保险参数",
       "atr_period": 14,
       "low_vol_window": 120,
-      "low_vol_percentile": 0.1
-    },
-    "failed_bounce_params": {
-      "enabled": true,
-      "说明": "【V98.0 新增】“下跌中继(死猫反弹)”剧本的专属参数",
-      "short_term_ma_period": 21,
-      "dead_cat_ma_period": 8,
-      "dead_cat_days": 3
+      "low_vol_percentile": 0.1,
+      "low_range_window": 60,
+      "low_range_percentile": 0.1,
+      "discriminator_capital_lookback": 5,
+      "discriminator_ma_slope_period": 5,
+      "persistence_lookback_window": 3,
+      "persistence_required_days": 2
     }
   }
 }

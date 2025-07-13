@@ -1855,27 +1855,18 @@ class TrendFollowStrategy:
         return [
             {
                 'name': 'BEARISH_STAGNATION', 'cn_name': '【极危】熊市停滞(崩盘前兆)', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 120, # 给予最高级别的风险分
+                'score': 120,
                 'setup': ['RISK_SETUP_BEARISH_STAGNATION'],
-                'trigger': ['RISK_TRIGGER_ANY'], # 使用一个永远为True的触发器，实现“进入即触发”
-                'comment': '在熊市趋势中，波动率和振幅萎缩至极限，是多头彻底放弃抵抗，即将崩盘的终极信号。'
+                'trigger': ['RISK_TRIGGER_ANY'],
+                'comment': '在熊市趋势中，波动、振幅、资金、动能四维共振，确认市场进入崩盘前的窒息状态。'
             },
-            # --- 市场结构风险 (MARKET_STRUCTURE_RISK) ---
             {
                 'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构破位(多重确认)', 'family': 'MARKET_STRUCTURE_RISK',
                 'score': 120,
-                'setup': ['RISK_SETUP_ANY'], # 确保是列表
-                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'], # 确保是列表
+                'setup': ['RISK_SETUP_ANY'],
+                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'],
                 'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
             },
-            {
-                'name': 'FAILED_BOUNCE_BREAKDOWN', 'cn_name': '【高危】下跌中继(反弹失败)', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 100,
-                'setup': ['RISK_SETUP_BEARISH_CONSOLIDATION'],
-                'trigger': ['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'],
-                'comment': '在下跌趋势中, 出现短期反弹无力、反复失败的迹象, 是即将开启新一轮下跌的危险信号。'
-            },
-            # --- 派发行为风险 (DISTRIBUTION_RISK) ---
             {
                 'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发(多次确认)', 'family': 'DISTRIBUTION_RISK',
                 'score': 90,
@@ -1883,7 +1874,6 @@ class TrendFollowStrategy:
                 'trigger': ['RISK_TRIGGER_ATTACK_FAILED_CANDLE'],
                 'comment': '在[高位动能衰竭区]内, 出现[近期多次]上攻失败, 是经典的派发信号。'
             },
-            # ---  回调预警风险 (PULLBACK_WARNING_RISK) ---
             {
                 'name': 'SHARP_PULLBACK_WARNING', 'cn_name': '【中危】急跌回调预警', 'family': 'PULLBACK_WARNING_RISK',
                 'score': 75,
@@ -1962,69 +1952,85 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V98.0 终局版 - Setup互斥化】
-        - 核心革命: 重新定义Setup，使其逻辑互斥，从根本上解决剧本冲突问题。
+        【V102 终局 · 知返版】
+        - 核心革命: 为'熊市停滞区'引入四重保险机制：趋势+表象+内在+时间。
         """
-        print("    - [风险准备状态诊断中心 V98.0] 启动...")
+        print("    - [风险准备状态诊断中心 V102] 启动...")
         setups = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
         
         setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
 
-        # Setup 1: 高风险区域 (Overextended Zone) - 只看位置
+        # Setup 1: 高风险区域 (Overextended Zone) - 逻辑不变
         p_over = exit_params.get('upthrust_distribution_params', {})
         ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
-        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15) # 适当提高阈值，确保是真正的高位
+        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15)
         ma_long_col = f'EMA_{ma_long_period}_D'
-        
         if ma_long_col in df.columns:
-            # 只用价格远高于长期均线这一个条件，定义清晰，无歧义
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_long_col] - 1) > threshold
             print(f"      -> '高风险区域(纯位置)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_OVEREXTENDED_ZONE'])}")
         else:
-            print(f"      -> [警告] 缺少 {ma_long_col}，无法诊断'高风险区域'。")
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = pd.Series(False, index=df.index)
+            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = default_series
 
-        # Setup 2: 熊市整理区 (Bearish Consolidation Zone) - 只看趋势
-        p_bounce = exit_params.get('failed_bounce_params', {})
-        ma_short_period = self._get_param_value(p_bounce.get('short_term_ma_period'), 21)
+        # 保险一：趋势确认
+        ma_short_period = 21
         ma_short_col = f'EMA_{ma_short_period}_D'
-        
-        if ma_long_col in df.columns and ma_short_col in df.columns:
-            # 价格必须同时低于长、短期均线，这是一个明确的熊市信号
-            is_in_bearish_territory = df['close_D'] < df[ma_long_col]
-            is_under_short_term_pressure = df['close_D'] < df[ma_short_col]
-            bearish_consolidation_state = is_in_bearish_territory & is_under_short_term_pressure
-            # 核心区别：不再与高风险区有任何逻辑重叠
-            setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = is_in_bearish_territory & is_under_short_term_pressure
-            print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
-        else:
-            print(f"      -> [警告] 缺少 {ma_long_col} 或 {ma_short_col}，无法诊断'熊市整理区'。")
+        is_in_bearish_territory = df['close_D'] < df.get(ma_long_col, float('inf'))
+        is_under_short_term_pressure = df['close_D'] < df.get(ma_short_col, float('inf'))
+        bearish_consolidation_state = is_in_bearish_territory & is_under_short_term_pressure
+        setups['RISK_SETUP_BEARISH_CONSOLIDATION'] = bearish_consolidation_state
+        print(f"      -> '熊市整理区(纯趋势)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_CONSOLIDATION'])}")
 
         # Setup 3: 熊市停滞区 (Bearish Stagnation Zone)
         p_stagnation = exit_params.get('stagnation_params', {})
+        
+        # 保险二：表象确认 (低波动 + 低振幅)
         atr_period = self._get_param_value(p_stagnation.get('atr_period'), 14)
-        atr_col = f'ATR_{atr_period}_D' # 使用归一化的ATR (ATRp)
+        atr_col = f'ATR_{atr_period}_D'
         low_vol_window = self._get_param_value(p_stagnation.get('low_vol_window'), 120)
         low_vol_percentile = self._get_param_value(p_stagnation.get('low_vol_percentile'), 0.1)
+        low_range_window = self._get_param_value(p_stagnation.get('low_range_window'), 60)
+        low_range_percentile = self._get_param_value(p_stagnation.get('low_range_percentile'), 0.1)
 
-        if atr_col in df.columns:
-            # 条件一：必须处于熊市整理的大背景下
-            # (我们直接复用上面计算好的 bearish_consolidation_state)
-            
-            # 条件二：波动率必须处于历史低位
+        # 保险三：内在确认 (资金流出 + 动能向下)
+        capital_lookback = self._get_param_value(p_stagnation.get('discriminator_capital_lookback'), 5)
+        capital_col = 'net_mf_amount_D'
+        slope_lookback = self._get_param_value(p_stagnation.get('discriminator_ma_slope_period'), 5)
+        slope_ma_period = 13
+        slope_ma_col = f'EMA_{slope_ma_period}_D'
+        slope_col = f'SLOPE_{slope_lookback}_{slope_ma_col}'
+
+        # 保险四：时间确认 (状态持久化)
+        persistence_window = self._get_param_value(p_stagnation.get('persistence_lookback_window'), 3)
+        persistence_days = self._get_param_value(p_stagnation.get('persistence_required_days'), 2)
+
+        required_cols = [atr_col, capital_col, slope_col]
+        if all(c in df.columns for c in required_cols):
+            # 计算保险二
             low_vol_threshold = df[atr_col].rolling(window=low_vol_window, min_periods=low_vol_window//2).quantile(low_vol_percentile)
             is_low_volatility = df[atr_col] < low_vol_threshold
+            daily_range_normalized = (df['high_D'] - df['low_D']) / df['close_D']
+            low_range_threshold = daily_range_normalized.rolling(window=low_range_window, min_periods=low_range_window//2).quantile(low_range_percentile)
+            is_narrow_range = daily_range_normalized < low_range_threshold
             
-            # 最终状态 = 熊市整理 AND 低波动率
-            stagnation_state = bearish_consolidation_state & is_low_volatility
-            setups['RISK_SETUP_BEARISH_STAGNATION'] = stagnation_state
-            print(f"      -> '熊市停滞区(崩盘前兆)' 状态诊断完成。{self._format_debug_dates(stagnation_state)}")
+            # 计算保险三
+            is_capital_absent = df[capital_col].rolling(window=capital_lookback).sum() < 0
+            is_momentum_down = df[slope_col] < 0
+            
+            # 组合前三道保险，得到“纯粹停滞”的单日信号
+            pure_stagnation_daily = bearish_consolidation_state & is_low_volatility & is_narrow_range & is_capital_absent & is_momentum_down
+            
+            # 应用第四道保险，要求状态持久
+            stagnation_state = pure_stagnation_daily.rolling(window=persistence_window).sum() >= persistence_days
+            
+            setups['RISK_SETUP_BEARISH_STAGNATION'] = stagnation_state & ~stagnation_state.shift(1).fillna(False)
+            print(f"      -> '熊市停滞区(四重保险)' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_BEARISH_STAGNATION'])}")
         else:
-            print(f"      -> [警告] 缺少 {atr_col}，无法诊断'熊市停滞区'。")
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"      -> [警告] 缺少 {missing_cols}，无法诊断'熊市停滞区'。")
             setups['RISK_SETUP_BEARISH_STAGNATION'] = default_series
-            
+
         return setups
 
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
