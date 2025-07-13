@@ -637,7 +637,7 @@ class TrendFollowStrategy:
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
-        print(f"    - [剧本水合引擎 V85.1] 完成，所有剧本已注入动态数据。")
+        print(f"    - [剧本水合引擎 V85.2] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
