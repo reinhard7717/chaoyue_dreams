@@ -1874,26 +1874,35 @@ class TrendFollowStrategy:
     # ▼▼▼ 风险剧本探针函数 ▼▼▼
     def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
         """
-        【V92.1 修复版】
-        - 核心修复: 修正了探针的默认起始日期，确保能覆盖整个回测周期。
+        【V93.1 探针时间限制版】
+        - 核心升级: 增加了可配置的时间限制，默认只显示指定日期之后的信息，使日志更聚焦。
         """
         print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
         
+        # ▼▼▼【代码修改 V93.1】: 增加时间限制逻辑 ▼▼▼
+        # 1. 从配置中获取探针的起始日期，并提供一个符合您需求的默认值
         debug_params = self._get_params_block(params, 'debug_params', {})
-        # 优先使用配置的探针日期，如果未配置，则从总风险分的第一个非零日期开始
-        probe_start_date_config = self._get_param_value(debug_params.get('probe_start_date'))
-        
-        key_dates = total_risk_score.index[total_risk_score > 0]
+        probe_start_date_str = self._get_param_value(debug_params.get('probe_start_date'), '2024-06-01')
+        print(f"    -> 探针时间范围: 从 {probe_start_date_str} 开始")
 
-        if probe_start_date_config:
-             key_dates = key_dates[key_dates >= probe_start_date_config]
+        # 2. 筛选出所有有风险分的日期
+        key_dates = total_risk_score.index[total_risk_score > 0]
+        
+        # 3. 应用时间过滤器
+        if probe_start_date_str:
+            try:
+                # 确保字符串能被正确转换为日期时间对象
+                start_date = pd.to_datetime(probe_start_date_str)
+                key_dates = key_dates[key_dates >= start_date]
+            except Exception as e:
+                print(f"      -> [警告] 探针起始日期 '{probe_start_date_str}' 格式错误，将显示所有风险日。错误: {e}")
 
         if key_dates.empty:
-            print("    -> 在指定探针期间内，未发现任何已触发的风险剧本。")
+            print(f"    -> 在 {probe_start_date_str} 之后，未发现任何已触发的风险剧本。")
         else:
             risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
             
-            print(f"    -> 发现 {len(key_dates)} 个风险日，详情如下:")
+            print(f"    -> 在指定时间范围内发现 {len(key_dates)} 个风险日，详情如下:")
             for date in key_dates:
                 total_score = total_risk_score.loc[date]
                 print(f"    {date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")

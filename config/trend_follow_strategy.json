@@ -24,7 +24,8 @@
     "trend_follow": {
       "debug_params": {
         "enabled": { "value": true },
-        "verbose_logging": { "value": true }
+        "verbose_logging": { "value": true },
+        "probe_start_date": "2024-06-01"
       },
       "strategy_info": {
         "name": { "value": "家族竞争版_v82", "说明": "策略唯一标识名称，已更新至V82。" }
