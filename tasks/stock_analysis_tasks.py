@@ -239,6 +239,82 @@ def analyze_all_stocks(self):
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
+# ▼▼▼ “阿尔法猎手”的Celery后台任务 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_stock', queue='debug_tasks')
+def run_alpha_hunter_for_stock(self, stock_code: str):
+    """
+    【V118.2 阿尔法猎手后台任务】
+    对单个股票运行全历史回测，自动发现策略未能捕捉的“黄金上涨波段”，并生成详细的情报档案。
+    这是一个计算密集型任务，应在专用的长时任务队列中运行。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [阿尔法猎手后台任务启动] ---")
+    logger.info(f"  - 股票代码: {stock_code}")
+    logger.info("="*80)
+
+    try:
+        # 1. 实例化总指挥策略
+        strategy_orchestrator = MultiTimeframeTrendStrategy()
+
+        # 2. 同步执行我们新创建的异步入口方法
+        async_to_sync(strategy_orchestrator.run_alpha_hunter)(stock_code=stock_code)
+
+        logger.info(f"--- [阿尔法猎手后台任务完成] ---")
+        logger.info(f"股票 [{stock_code}] 的策略盲点扫描执行完毕。")
+        logger.info("="*80)
+        return {"status": "success", "stock_code": stock_code}
+
+    except Exception as e:
+        logger.error(f"在执行阿尔法猎手任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        logger.info("="*80)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+# ▼▼▼ “全市场阿尔法扫描”的Celery调度任务 ▼▼▼
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_all_stocks', queue='celery')
+def run_alpha_hunter_for_all_stocks(self):
+    """
+    【V118.3 全市场阿尔法扫描调度器】
+    调度“阿尔法猎手”任务对所有相关股票进行全历史回测和策略盲点扫描。
+    这是一个顶层调度任务，它本身不进行计算，只负责将单个股票的扫描任务分发到工作队列中。
+    """
+    try:
+        logger.info("="*80)
+        logger.info("--- [全市场阿尔法扫描调度器启动] ---")
+        
+        # 1. 获取所有需要进行扫描的股票代码
+        #    我们复用现有的逻辑来获取自选股和非自选股列表
+        #    注意：_get_all_relevant_stock_codes_for_processing 需要在异步上下文中运行
+        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        
+        if not non_favorite_codes and not favorite_codes:
+            logger.warning("未找到任何股票数据，全市场扫描任务终止。")
+            return {"status": "failed", "reason": "no stocks found"}
+            
+        stock_count = len(favorite_codes) + len(non_favorite_codes)
+        logger.info(f"发现 {stock_count} 只股票待进行阿尔法扫描。")
+        
+        # 2. 将单个股票的扫描任务分发到专用的长时任务队列
+        #    我们使用之前创建的 run_alpha_hunter_for_stock 任务
+        
+        # --- 为自选股调度扫描任务 (可以优先分配到性能更好的队列) ---
+        for stock_code in favorite_codes:
+            run_alpha_hunter_for_stock.s(stock_code).set(queue='debug_tasks').apply_async()
+        
+        # --- 为非自选股调度扫描任务 ---
+        for stock_code in non_favorite_codes:
+            run_alpha_hunter_for_stock.s(stock_code).set(queue='debug_tasks').apply_async()
+        
+        logger.info(f"已为 {len(favorite_codes)} 只自选股调度 'run_alpha_hunter_for_stock' 任务到 'debug_tasks' 队列。")
+        logger.info(f"已为 {len(non_favorite_codes)} 只非自选股调度 'run_alpha_hunter_for_stock' 任务到 'debug_tasks' 队列。")
+        logger.info("--- [全市场阿尔法扫描调度器完成] ---")
+        logger.info("="*80)
+        
+        return {"status": "dispatched", "stock_count": stock_count}
+        
+    except Exception as e:
+        logger.error(f"调度全市场阿尔法扫描任务时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
+
 
 # ==============================================================================
 # 调度任务 (Dispatcher Task) - 此部分无需修改，保持原样
