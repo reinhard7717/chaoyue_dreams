@@ -685,24 +685,50 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117 解耦版】
-        - 核心简化: 移除了在此函数中调用战略引擎和准备分钟信号的逻辑。
-                    它的职责被简化为纯粹地运行日线战术引擎，并将分析结果缓存到 self.daily_analysis_df，
-                    供其他引擎独立使用。
+        【V117.33 数据流修复版】
+        - 核心修正: 确保战术引擎的输出(daily_analysis_df)与输入的日线数据(df_daily_prepared)
+                    拥有完全相同的时间索引，即使最新几天没有计算出任何分数。
+        - 新逻辑:
+          1. 在调用战术引擎后，获取其分析结果 daily_analysis_df。
+          2. 使用原始日线数据的索引，对 daily_analysis_df 进行 .reindex() 操作。
+          3. 这会强制为缺失的日期（如7月14日）补上空行，确保 self.daily_analysis_df
+             的时间范围与分钟线数据保持一致。
+        - 收益: 解决了因日线分析结果只到7月11日，导致后续分钟线引擎无法找到当天“预备日”的根本问题。
         """
         # 步骤1: 直接使用已经融合了战略信号的日线数据
         df_daily_prepared = all_dfs.get('D')
         if df_daily_prepared is None or df_daily_prepared.empty:
             return []
 
+        print(f"--- [引擎2-调试] 战术引擎接收到的日线数据时间范围到: {df_daily_prepared.index.max()}")
+
         # 步骤2: 使用完全准备好的日线数据调用战术引擎，生成每日分析结果
         daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
         
-        # 步骤3: 缓存每日分析结果供其他引擎使用
-        self.daily_analysis_df = daily_analysis_df 
-        if daily_analysis_df is None or daily_analysis_df.empty: return []
+        if daily_analysis_df is None or daily_analysis_df.empty:
+            print("--- [引擎2-调试] 战术引擎返回了空的分析结果。")
+            self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index) # 创建一个带索引的空df
+            return []
+        
+        print(f"--- [引擎2-调试] 战术引擎原始分析结果时间范围到: {daily_analysis_df.index.max()}")
+
+        # ▼▼▼【代码修改 V117.33】: 强制对齐日线分析结果的索引 ▼▼▼
+        # 使用原始日线数据的索引来“校准”分析结果的索引。
+        # 这能确保即使最新几天没有生成分数，self.daily_analysis_df 中也存在这些日期行（值为NaN）。
+        # 这是让后续分钟线引擎能够找到当天“预备日”的关键。
+        self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
+        # 对于 reindex 后产生的 NaN，用 0 填充 entry_score，用 False 填充布尔列，以避免后续操作出错
+        if 'entry_score' in self.daily_analysis_df.columns:
+            self.daily_analysis_df['entry_score'].fillna(0, inplace=True)
+        bool_cols = self.daily_analysis_df.select_dtypes(include='bool').columns
+        for col in bool_cols:
+            self.daily_analysis_df[col].fillna(False, inplace=True)
+        
+        print(f"--- [引擎2-调试] reindex后，最终 self.daily_analysis_df 时间范围到: {self.daily_analysis_df.index.max()}")
+        # ▲▲▲【代码修改 V117.33】▲▲▲
 
         # 步骤4: 调用波段跟踪模拟器，生成包含交易动作的最终DataFrame
+        # 注意：这里传递原始的、没有补全NaN的 daily_analysis_df，因为模拟器可能不需要未来的空行
         df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
         
         # 步骤5: 使用带有交易动作的DataFrame来准备数据库记录
