@@ -293,42 +293,22 @@ class MultiTimeframeTrendStrategy:
         risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎4: 【通用盘中预警引擎】运行完毕，生成 {len(risk_alert_records)} 条分钟线风险警报。 ---")
 
-        # --- 引擎5: 通用盘中买入确认引擎 (分钟线增强) ---
-        logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(获取增强包)... ---")
-        enhancement_map = self._run_intraday_entry_engine(stock_code, all_dfs)
-        logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，获取到 {len(enhancement_map)} 个增强包。 ---")
+        # --- 引擎5: 通用盘中买入确认引擎 (分钟线) ---
+        logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(分钟线)... ---")
+        confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
+        logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
 
-        # --- 最终阶段: 融合增强包，生成最终信号 ---
-        logger.info("\n--- 最终阶段: 原地更新日线信号并生成最终记录... ---")
+        # --- 最终阶段: 合并所有信号 ---
+        logger.info("\n--- 最终阶段: 合并所有信号记录... ---")
         
-        # 使用带索引的循环，直接在原始列表上修改
-        for i in range(len(tactical_records)):
-            # 获取原始记录的引用
-            record = tactical_records[i]
-            
-            if not record.get('entry_signal'):
-                continue # 只处理买入信号
-            
-            record_date = pd.to_datetime(record['trade_time']).date()
-            
-            # 检查当天是否有“增强包”
-            if record_date in enhancement_map:
-                package = enhancement_map[record_date]
-                original_score = record['entry_score']
-                
-                # 直接修改原始列表中的字典
-                tactical_records[i]['entry_score'] = package['entry_score']
-                tactical_records[i]['triggered_playbooks'] = package['triggered_playbooks']
-                tactical_records[i]['context_snapshot'].update(package['context_snapshot'])
-                
-                logger.info(f"    - [情报融合-原地更新] 日期 {record_date} 的日线信号已升级！分数从 {original_score:.0f} -> {tactical_records[i]['entry_score']:.0f}")
-
-        # 现在，tactical_records 列表本身已经被更新了
-        # 将分钟线“共振”信号(如果未来启用)与已更新的日线买入信号合并
-        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, resonance_entry_records)
-
-        # 将最终的买入信号与所有风险信号合并
-        all_records = final_entry_records + risk_alert_records
+        # 将所有买入信号（日线、分钟共振、分钟确认）合并
+        all_entry_records = tactical_records + resonance_entry_records + confirmation_entry_records
+        
+        # 注意：这里的去重逻辑现在变得至关重要，但我们之前的视图层重构已经解决了这个问题。
+        # 视图层会从所有信号中找到最新的那个。所以这里的简单合并是安全的。
+        
+        # 将所有买入信号与所有风险信号合并
+        all_records = all_entry_records + risk_alert_records
         
         logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
         
@@ -377,30 +357,33 @@ class MultiTimeframeTrendStrategy:
         # 对于那些没有被分钟线确认的日线信号，我们仍然保留它们
         return list(daily_lookup.values())
 
-    def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Dict[datetime.date, Dict[str, Any]]:
+    def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.12 架构重构版】
-        - 核心职责变更: 不再创建独立的信号记录，而是返回一个“增强包”字典。
-        - 输出: Dict[date, {'score': final_score, 'playbooks': playbooks, ...}]
-        - 收益: 实现了“单源情报”原则，从根本上解决了分数不更新的问题。
+        【V117.19 架构统一版】
+        - 核心革命: 彻底废弃“增强包”模式，回归独立的信号生成模式，与卖出引擎架构完全对齐。
+        - 工作流程:
+          1. 找到符合条件的分钟线买入点。
+          2. 直接调用 self._create_signal_record() 创建一个完整的、独立的分钟线买入信号记录。
+          3. 这个记录包含了所有信息：更高的分数、新的剧本、精确到分钟的时间戳。
+        - 收益: 彻底解决了因“原地更新”失败导致的分数不更新问题，简化了数据流，使系统更健壮、可预测。
         """
-        # all_confirmations 变量变更为 enhancement_map
-        enhancement_map = {}
+        # all_confirmations 变量变更为 all_confirmation_records
+        all_confirmation_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(entry_params.get('enabled'), False):
-            return enhancement_map
+            return all_confirmation_records
         
         if self.daily_analysis_df is None or self.daily_analysis_df.empty:
             logger.warning(f"[{stock_code}] 缺少日线分析结果(daily_analysis_df)，分钟线买入确认引擎跳过。")
-            return enhancement_map
+            return all_confirmation_records
 
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
         
         if setup_days_df.empty:
-            return enhancement_map
+            return all_confirmation_records
             
         logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日(得分>={daily_score_threshold})，启动当日盘中监控...")
 
@@ -408,12 +391,13 @@ class MultiTimeframeTrendStrategy:
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
             logger.warning(f"[{stock_code}] 缺少 {minute_tf} 分钟线数据，分钟线买入确认引擎跳过。")
-            return enhancement_map
+            return all_confirmation_records
 
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
         for setup_date, setup_row in setup_days_df.iterrows():
+            # ... (中段的分钟线信号判断逻辑完全不变) ...
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
             if alert_day_minute_df.empty:
                 continue
@@ -466,6 +450,7 @@ class MultiTimeframeTrendStrategy:
 
             if not triggered_minutes.empty:
                 first_confirmation_minute = triggered_minutes.iloc[0]
+                confirm_time = first_confirmation_minute.name # 精确到分钟的时间戳
                 confirm_price = first_confirmation_minute[close_col_m]
                 
                 daily_score = setup_row.get('entry_score', 0)
@@ -474,17 +459,24 @@ class MultiTimeframeTrendStrategy:
                 
                 daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
                 
-                enhancement_package = {
-                    "entry_score": final_score,
-                    "triggered_playbooks": list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
-                    "context_snapshot": {'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True},
-                }
-                enhancement_map[setup_date.date()] = enhancement_package
+                record = self._create_signal_record(
+                    stock_code=stock_code,
+                    trade_time=confirm_time, # 使用精确到分钟的时间
+                    timeframe=minute_tf,
+                    strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
+                    close_price=confirm_price,
+                    entry_score=final_score,
+                    entry_signal=True,
+                    triggered_playbooks=list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
+                    context_snapshot={'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True},
+                )
+                all_confirmation_records.append(record)
                 
-                logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {first_confirmation_minute.name.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
+                logger.info(f"         - [分钟线买入!] 日期: {setup_date.date()} | 时间: {confirm_time.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
+                # 使用 continue 是为了每天只取第一个确认信号
                 continue 
 
-        return enhancement_map
+        return all_confirmation_records
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
