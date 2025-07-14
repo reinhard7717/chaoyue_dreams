@@ -695,26 +695,13 @@ class TrendFollowStrategySignalLog(models.Model):
         db_table = "trend_follow_strategy_signal_log"
         ordering = ['-trade_time', 'stock']
         
-        # 解释: 整合了索引和唯一约束的定义。
         indexes = [
-            # 这个索引可以高效地查询特定策略和时间周期下的信号，并按时间排序。
-            models.Index(fields=['strategy_name', 'timeframe', 'trade_time']),
-            # 这个索引可以快速筛选出所有买入信号。
-            models.Index(fields=['entry_signal', 'trade_time']),
-            # 这个索引用于快速筛选符合特定趋势背景的记录。
-            models.Index(fields=['is_long_term_bullish', 'is_mid_term_bullish', 'trade_time']),
-            # 这个索引用于快速查找所有回撤预备信号。
-            models.Index(fields=['is_pullback_setup', 'trade_time']),
-        ]
-        constraints = [
-            # 解释: 使用 UniqueConstraint 替代旧的 unique_together，这是Django 5.0的推荐做法。
-            # 这个约束保证了同一股票、同一时间、同一策略和周期的信号只会被记录一次。
-            # 它自动创建的唯一索引 (stock, trade_time, strategy_name, timeframe)
-            # 已经覆盖了原先独立的 (stock, trade_time) 索引的功能，因此独立的索引被移除以避免冗余。
-            models.UniqueConstraint(
-                fields=['stock', 'trade_time', 'strategy_name', 'timeframe'], 
-                name='unique_signal_log_entry'
-            )
+            # 索引1: 为“最新卖出时间”子查询提供超高速支持 (绝对核心，必须保留)。
+            models.Index(fields=['stock', 'exit_signal_code', 'trade_time'], name='idx_stock_sell_time'),
+            # 索引2: 优化“最新买入信号”的初始查找和分组 (绝对核心，必须保留)。
+            models.Index(fields=['entry_signal', 'stock'], name='idx_entry_signal_stock'),
+            # 索引3: 加速最终结果的排序 (核心优化，建议保留)。
+            models.Index(fields=['trade_time', 'entry_score'], name='idx_trade_time_score'),
         ]
         
         verbose_name = "策略信号日志"
