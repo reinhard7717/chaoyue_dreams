@@ -79,8 +79,10 @@
                         <th class="actions">操作</th>
                     </tr>
                 </thead>
-                <tbody id="trend-table-body"> {# 给tbody一个ID方便JS选择 #}
-                    {% for item in page_obj.object_list %}
+                <tbody id="trend-table-body">
+                    {# ▼▼▼【代码修改 V117.21】: 修改循环变量 #}
+                    {% for item in items_for_display %}
+                    {# ▲▲▲【代码修改 V117.21】▲▲▲ #}
                     <tr>
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
@@ -129,7 +131,6 @@
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i"|default:"-" }}</td>
                         <td>{{ item.last_buy_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i"|default:"-" }}</td>
-                        {# ▼▼▼【代码修改 V117.20】: 增加判断，只有在持仓时才显示卖出信息 #}
                         <td>
                             {% if item.last_sell_time and item.last_buy_time and item.last_sell_time > item.last_buy_time %}
                                 {{ item.last_sell_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}
@@ -137,9 +138,7 @@
                                 -
                             {% endif %}
                         </td>
-                        {# ▲▲▲【代码修改 V117.20】▲▲▲ #}
                         <td class="actions">
-                            {# 默认渲染为“添加自选”按钮，JS会自动检查并更新状态 #}
                             <button class="btn btn-sm btn-outline add-to-favorites-btn" data-stock-code="{{ item.stock.stock_code }}">
                                 <span class="btn-icon">+</span>
                                 <span class="btn-text">添加自选</span>
