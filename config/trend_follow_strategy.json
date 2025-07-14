@@ -145,7 +145,13 @@
         "multipliers": [
           { "name": "CHIP_PURITY_MULTIPLIER", "cn_name": "【指挥棒】筹码至纯", "source_column": "CHIP_concentration_90pct_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.15 },
           { "name": "VOLATILITY_SILENCE_MULTIPLIER", "cn_name": "【指挥棒】波动至静", "source_column": "BBW_21_2.0_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.10 },
-          { "name": "BONUS_CHIP_CYCLE_TRANSITION", "cn_name": "【战略加成】筹码周期转换", "source_column": "EVENT_CHIP_CYCLE_TRANSITION", "condition": "is_true", "multiplier_value": 0.25 }
+          {
+            "name": "BONUS_HIGH_CONTROL_MARKUP",
+            "cn_name": "【战略加成】高控盘拉升",
+            "source_column": "STRATEGIC_SETUP_HIGH_CONTROL_MARKUP",
+            "condition": "is_true",
+            "multiplier_value": 0.35
+        }
         ]
       },
       "wave_tracking_params": {

@@ -1261,121 +1261,139 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V65.0 投降坑识别版】筹码分布与流动状态诊断
+        【V119.2 精准号角版】筹码分布与流动状态诊断
+        - 核心升级: 新增计算“高控盘拉升战略准备”(STRATEGIC_SETUP_HIGH_CONTROL_MARKUP)的复合状态。
+                    该状态结合了“筹码高度集中”和“首次进入拉升期”两个维度，为全局加成提供更精准的信号。
         """
         print("        -> [诊断模块] 正在执行筹码状态诊断...")
         states = {}
-        default_series = pd.Series(False, index=df.index) # 新增，确保在任何分支下都有默认值
+        default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'chip_feature_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码诊断模块被禁用，跳过。")
             return states
+        
+        # --- 1. 检查并准备所需列 ---
+        # 定义所有此模块需要的源数据列
         required_cols = {
-            'dynamic_concentration_slope': 'CHIP_concentration_90pct_slope_5d_D',
-            'dynamic_winner_rate_short': 'CHIP_winner_rate_short_term_D',
-            'dynamic_winner_rate_long': 'CHIP_winner_rate_long_term_D',
-            'dynamic_slope_8d': 'CHIP_peak_cost_slope_8d_D',
-            'dynamic_slope_21d': 'CHIP_peak_cost_slope_21d_D',
-            'dynamic_accel_21d': 'CHIP_peak_cost_accel_21d_D',
-            'base_close': 'close_D'
+            'concentration_90pct': 'CHIP_concentration_90pct_D',
+            'concentration_slope': 'CHIP_concentration_90pct_slope_5d_D',
+            'peak_cost_slope_21d': 'CHIP_peak_cost_slope_21d_D',
+            'peak_cost_slope_55d': 'CHIP_peak_cost_slope_55d_D',
+            'peak_cost_accel_21d': 'CHIP_peak_cost_accel_21d_D',
+            'peak_cost_slope_8d': 'CHIP_peak_cost_slope_8d_D',
+            'winner_rate_short': 'CHIP_winner_rate_short_term_D',
+            'close': 'close_D'
         }
+        # 检查数据完整性，如果缺少关键列则无法继续
         if not all(col in df.columns for col in required_cols.values()):
             missing = [k for k, v in required_cols.items() if v not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states
-        is_markup_base = (df[required_cols['dynamic_slope_21d']] > 0) & \
-                         (df.get('CHIP_peak_cost_slope_55d', 0) > 0)
+
+        # --- 2. 定义核心主状态 (吸筹/拉升/派发) ---
+        # 拉升状态: 筹码峰成本的中短期斜率均为正
+        is_markup_base = (df[required_cols['peak_cost_slope_21d']] > 0) & (df.get(required_cols['peak_cost_slope_55d'], 0) > 0)
+        
+        # 派发状态: 筹码在发散 且 股价处于高位
         p_dist = p.get('distribution_params', {})
-        is_distributing = df[required_cols['dynamic_concentration_slope']] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
-        is_at_high = df[required_cols['base_close']] > df[required_cols['base_close']].rolling(window=55).quantile(0.8)
+        is_distributing = df[required_cols['concentration_slope']] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
+        is_at_high = df[required_cols['close']] > df[required_cols['close']].rolling(window=55).quantile(0.8)
         is_distribution_base = is_distributing & is_at_high
+        
+        # 吸筹状态: 筹码在集中 且 股价未上涨
         p_accum = p.get('accumulation_params', {})
         lookback_accum = self._get_param_value(p_accum.get('lookback_days'), 21)
-        concentrating_days = (df[required_cols['dynamic_concentration_slope']] < 0).rolling(window=lookback_accum).sum()
+        concentrating_days = (df[required_cols['concentration_slope']] < 0).rolling(window=lookback_accum).sum()
         is_concentrating = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('required_days_ratio'), 0.6))
-        is_not_rising = df[required_cols['dynamic_slope_21d']] <= 0
+        is_not_rising = df[required_cols['peak_cost_slope_21d']] <= 0
         is_accumulation_base = is_concentrating & is_not_rising
+        
         conditions = [is_markup_base, is_distribution_base, is_accumulation_base]
         choices = ['MARKUP', 'DISTRIBUTION', 'ACCUMULATION']
         primary_state = pd.Series(np.select(conditions, choices, default='TRANSITION'), index=df.index)
-        p_struct = p.get('structure_params', {})
-        if self._get_param_value(p_struct.get('enabled'), True):
-            conc_col = 'CHIP_concentration_90pct_D'
-            if conc_col not in df.columns:
-                print(f"            -> [警告] 缺少列 '{conc_col}'，筹码结构诊断跳过。")
-            else:
-                conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-                states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
-                signal = states['CHIP_STATE_HIGHLY_CONCENTRATED']
-                dates_str = self._format_debug_dates(signal)
-                # print(f"            -> '筹码高度集中 (绝对)' 状态诊断完成 (阈值<{conc_thresh_abs*100}%)，共激活 {signal.sum()} 天。{dates_str}")
-                if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
-                    squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
-                    squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
-                    squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
-                    states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
-                    signal = states['CHIP_STATE_CONCENTRATION_SQUEEZE']
-                    dates_str = self._format_debug_dates(signal)
-                    # print(f"            -> '筹码集中度压缩 (相对)' 状态诊断完成 (周期:{squeeze_window}, 分位:{squeeze_percentile})，共激活 {signal.sum()} 天。{dates_str}")
-                # ▼▼▼ “筹码发散”状态，用于识别投降坑 ▼▼▼
-                p_scattered = p.get('scattered_params', {})
-                if self._get_param_value(p_scattered.get('enabled'), True):
-                    scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
-                    scattered_threshold_ratio = scattered_threshold_pct / 100.0 # 将百分比转换为比率
-                    states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
-
-                    signal = states.get('CHIP_STATE_SCATTERED', default_series)
-                    dates_str = self._format_debug_dates(signal)
-                    # print(f"            -> '筹码高度发散 (投降信号)' 状态诊断完成 (基于{conc_col} > {scattered_threshold_pct}%)，共激活 {signal.sum()} 天。{dates_str}")
-                # ▲▲▲【代码新增 V65.0】▲▲▲
-        states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
+        
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
+        states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
         print("          -> 主状态诊断完成 (吸筹/拉升/派发/过渡)。")
+
+        # --- 3. 定义“高控盘”状态 ---
+        p_struct = p.get('structure_params', {})
+        conc_col = required_cols['concentration_90pct']
+        # 使用一个更符合实战的阈值，例如20%，低于此值可认为高度控盘
+        high_control_threshold = self._get_param_value(p_struct.get('high_control_threshold'), 0.20)
+        states['CHIP_STATE_HIGH_CONTROL'] = df[conc_col] < high_control_threshold
+        
+        # --- 4. 定义“周期转换”事件 ---
+        is_markup_today = states['CHIP_STATE_MARKUP']
+        was_not_markup_yesterday = ~states['CHIP_STATE_MARKUP'].shift(1).fillna(True)
+        states['EVENT_CHIP_CYCLE_TRANSITION'] = is_markup_today & was_not_markup_yesterday
+
+        # --- 5. 【核心升级】计算全新的“高控盘拉升”战略准备状态 ---
+        # 条件1: 当天必须是“高控盘”状态
+        is_high_control = states['CHIP_STATE_HIGH_CONTROL']
+        # 条件2: 当天必须是“周期转换”事件发生日
+        is_cycle_transition = states['EVENT_CHIP_CYCLE_TRANSITION']
+        
+        # 最终的战略状态 = 高控盘 & 周期转换
+        states['STRATEGIC_SETUP_HIGH_CONTROL_MARKUP'] = is_high_control & is_cycle_transition
+        
+        # 打印日志，以便调试
+        signal = states['STRATEGIC_SETUP_HIGH_CONTROL_MARKUP']
+        if signal.any():
+            print(f"          -> 【战略号角】'高控盘拉升'状态激活 {signal.sum()} 天。")
+
+        # --- 6. 其他筹码子状态和风险诊断 (保持不变) ---
+        # 深度吸筹
         is_deep = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('deep_ratio'), 0.85))
         states['CHIP_STATE_ACCUMULATION_DEEP'] = states['CHIP_STATE_ACCUMULATION'] & is_deep
-        # signal = states['CHIP_STATE_ACCUMULATION_DEEP']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> “深度吸筹”子状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        
+        # 投降坑机会
         p_capit = p.get('capitulation_params', {})
         winner_rate_col = 'winner_rate_D' # 使用基础获利盘数据
         if winner_rate_col in df.columns:
             is_washed_out = df[winner_rate_col] < self._get_param_value(p_capit.get('winner_rate_threshold'), 8.0)
-            states['CHIP_STATE_LOW_PROFIT'] = is_washed_out # 将其定义为独立状态
+            states['CHIP_STATE_LOW_PROFIT'] = is_washed_out
             states['CHIP_STATE_PIT_OPPORTUNITY'] = is_washed_out & states['CHIP_STATE_ACCUMULATION']
         else:
-            print(f"          -> [警告] 缺少列 '{winner_rate_col}'，无法诊断获利盘相关状态。")
             states['CHIP_STATE_LOW_PROFIT'] = default_series
             states['CHIP_STATE_PIT_OPPORTUNITY'] = default_series
-        # signal = states['CHIP_STATE_PIT_OPPORTUNITY']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> “投降坑机会”标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        is_still_rising = df[required_cols['dynamic_slope_21d']] > 0
-        is_decelerating = df[required_cols['dynamic_accel_21d']] < 0
+            
+        # 筹码结构相关状态
+        if self._get_param_value(p_struct.get('enabled'), True):
+            conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+            states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
+            if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
+                squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
+                squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
+                squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
+                states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
+            p_scattered = p.get('scattered_params', {})
+            if self._get_param_value(p_scattered.get('enabled'), True):
+                scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
+                scattered_threshold_ratio = scattered_threshold_pct / 100.0
+                states['CHIP_STATE_SCATTERED'] = df[conc_col] > scattered_threshold_ratio
+
+        # 筹码风险诊断
+        is_still_rising = df[required_cols['peak_cost_slope_21d']] > 0
+        is_decelerating = df[required_cols['peak_cost_accel_21d']] < 0
         states['CHIP_RISK_EXHAUSTION'] = is_still_rising & is_decelerating
-        # signal = states['CHIP_RISK_EXHAUSTION']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> “趋势衰竭”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        is_short_slope_down = df[required_cols['dynamic_slope_8d']] < 0
-        is_mid_slope_up = df[required_cols['dynamic_slope_21d']] > 0
+        
+        is_short_slope_down = df[required_cols['peak_cost_slope_8d']] < 0
+        is_mid_slope_up = df[required_cols['peak_cost_slope_21d']] > 0
         states['CHIP_RISK_DIVERGENCE'] = is_short_slope_down & is_mid_slope_up & is_at_high
-        # signal = states['CHIP_RISK_DIVERGENCE']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> “斜率背离”风险标签诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        
+        # 点火事件
         p_ignite = p.get('ignition_params', {})
-        is_accelerating = df[required_cols['dynamic_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
-        winner_rate_col_dyn = required_cols['dynamic_winner_rate_short']
+        is_accelerating = df[required_cols['peak_cost_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
+        winner_rate_col_dyn = required_cols['winner_rate_short']
         is_winner_rate_increasing = df[winner_rate_col_dyn] > df[winner_rate_col_dyn].shift(1)
         was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
         states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
-        # signal = states['CHIP_EVENT_IGNITION']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> “点火事件”诊断完成，发现 {signal.sum()} 天。{dates_str}")
 
-        # ▼▼▼ 计算“筹码周期转换”事件 ▼▼▼
-        is_markup_today = states.get('CHIP_STATE_MARKUP', default_series)
-        was_not_markup_yesterday = ~states.get('CHIP_STATE_MARKUP', default_series).shift(1).fillna(True)
-        states['EVENT_CHIP_CYCLE_TRANSITION'] = is_markup_today & was_not_markup_yesterday
+        # --- 7. 最终数据清洗 ---
+        # 确保所有返回的Series都是布尔型，且没有NaN值
         for key in states:
             if states[key] is None:
                 states[key] = pd.Series(False, index=df.index)
