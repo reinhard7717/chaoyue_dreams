@@ -2382,14 +2382,16 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.10 终极瘦身版】
-        - 核心修复: 彻底解决因 `_last_score_details_df` 包含全量历史数据而导致报告臃肿的根本问题。
-        - 根本原因: 将小尺寸的 `result_df` 与大尺寸的 `_last_score_details_df` 合并，导致DataFrame膨胀。
-        - 解决方案: 在执行 `join` 操作之前，先使用 `result_df` 的索引对 `_last_score_details_df`
-                    进行精确的预过滤，确保两个待合并的DataFrame尺寸完全一致。
-        - 收益: 从根源上杜绝了数据膨胀的可能，确保情报档案绝对轻量。
+        【V118.11 终极纪律强制版】
+        - 核心修复: 解决了 apply_strategy 函数无视输入DataFrame尺寸、返回全量数据的根本问题。
+        - 根本原因: apply_strategy 未遵守接口约定，导致其输出的 result_df 尺寸远超预期。
+        - 解决方案: 在接收到 apply_strategy 的返回结果后，不再信任它，而是立刻使用
+                    我们预先准备好的、尺寸正确的 analysis_df 的索引，通过 reindex 方法，
+                    对返回的 result_df 进行强制性的、毁灭性的重塑。
+        - 收益: 无论 apply_strategy 内部逻辑如何，最终用于生成报告的数据尺寸都将被严格锁定，
+                从根源上保证情报档案的轻量化。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.10 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.11 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2434,13 +2436,25 @@ class TrendFollowStrategy:
             start_loc = df_full.index.get_loc(start_date)
             if start_loc < pre_days_lookback: continue
             
+            # 这是我们信任的、尺寸正确的“标准地图”
             analysis_df = df_full.iloc[start_loc - pre_days_lookback : start_loc + 1].copy()
             
             try:
-                result_df, _ = self.apply_strategy(analysis_df, params)
+                # 接收“叛逆”的 apply_strategy 返回的、可能尺寸错误的原始报告
+                result_df_raw, _ = self.apply_strategy(analysis_df, params)
             except Exception as e:
                 print(f"    -> [严重错误] 策略推演时发生异常: {e}")
                 continue
+
+            # ▼▼▼【核心修正 V118.11】强制纪律执行！▼▼▼
+            print(f"    - [纪律审查] 传入 apply_strategy 的 analysis_df 行数: {len(analysis_df)}")
+            print(f"    - [纪律审查] apply_strategy 返回的原始 result_df_raw 行数: {len(result_df_raw)}")
+            
+            # 【关键修复】无论原始报告多大，都强制用“标准地图”的索引对其进行重塑！
+            # reindex 会确保最终的 result_df 与 analysis_df 拥有完全相同的索引和尺寸。
+            result_df = result_df_raw.reindex(analysis_df.index).copy()
+            print(f"    - [纪律审查] 强制重塑后的 result_df 行数: {len(result_df)}")
+            # ▲▲▲【核心修正 V118.11】▲▲▲
 
             is_activated = False
             activation_start = start_date - pd.Timedelta(days=activation_window)
@@ -2454,29 +2468,11 @@ class TrendFollowStrategy:
                 missed_count += 1
                 print(f"    -> [错失良机!] 未能捕获此波段。正在生成情报档案...")
 
-                # ▼▼▼【核心修正 V118.10】釜底抽薪式瘦身 ▼▼▼
-                # 1. 准备基础报告，此时它的尺寸是正确的 (例如 61行)
                 final_report_df = result_df.copy()
-                
-                # --- 增加关键的调试日志 ---
-                print(f"    - [情报瘦身调试] analysis_df 行数: {len(analysis_df)}")
-                print(f"    - [情报瘦身调试] 初始 result_df 行数: {len(final_report_df)}")
-
-                # 2. 检查是否存在“幽灵档案”（全量评分细则）
                 if self._last_score_details_df is not None and not self._last_score_details_df.empty:
-                    print(f"    - [情报瘦身调试] 发现评分细则 _last_score_details_df，行数: {len(self._last_score_details_df)}")
-                    
-                    # 3. 【关键修复】在合并前，先对“幽灵档案”进行精确裁切！
-                    #    只保留与当前报告（final_report_df）索引匹配的行。
-                    scoped_score_details = self._last_score_details_df.loc[self._last_score_details_df.index.isin(final_report_df.index)]
-                    print(f"    - [情报瘦身调试] 裁切后的评分细则行数: {len(scoped_score_details)}")
-
-                    # 4. 将裁切后的、尺寸正确的评分细则合并到报告中
+                    scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                print(f"    - [情报瘦身调试] 合并评分后，最终报告 final_report_df 行数: {len(final_report_df)}")
-                
-                # 5. 构建目录并保存最终的、大小正确的报告
                 report_dir = os.path.join(output_dir_base, stock_code)
                 try:
                     os.makedirs(report_dir, exist_ok=True)
@@ -2491,20 +2487,18 @@ class TrendFollowStrategy:
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [报告生成] 已将精确的战场快照 ({len(final_report_df)}行) 保存至: {filepath}")
+                    print(f"    -> [报告生成] 已将严格符合纪律的快照 ({len(final_report_df)}行) 保存至: {filepath}")
                 except Exception as e:
                     print(f"    -> [错误] 保存JSON情报档案失败: {e}")
-                # ▲▲▲【核心修正 V118.10】▲▲▲
 
         # ... 总结报告 (逻辑不变) ...
-        print("\n" + "="*30 + " [阿尔法猎手 V118.10 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.11 总结] " + "="*30)
         print(f"    - 总计回测黄金波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
-
 
 
 
