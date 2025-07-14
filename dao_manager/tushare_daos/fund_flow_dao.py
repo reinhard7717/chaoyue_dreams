@@ -207,7 +207,7 @@ class FundFlowDao(BaseDAO):
                     if stock:
                         data_dict = self.data_format_process.set_fund_flow_data_ths(stock=stock, df_data=row)
                         data_dicts.append(data_dict)
-                print(f"{trade_date} 历史日级资金流向数据 - 同花顺，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
+                # print(f"{trade_date} 历史日级资金流向数据 - 同花顺，len(df): {len(df)}, len(data_dicts): {len(data_dicts)}")
             time.sleep(0.2)
             if len(df) < limit:
                 break
