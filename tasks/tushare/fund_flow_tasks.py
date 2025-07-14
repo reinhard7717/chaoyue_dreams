@@ -122,15 +122,17 @@ def save_fund_flow_daily_data(self):
     logger.info(f"任务启动: save_fund_flow_daily_data_today (编排者模式) - 准备分派并行子任务")
     print(f"调试信息：主任务 {self.request.id} 启动，准备分派当日资金流数据获取任务组。")
     try:
+        today_date = timezone.now().date()
         # [修改] 定义需要并行执行的所有异步数据保存方法名
         target_methods = [
-            'save_today_fund_flow_daily_data',
-            'save_today_fund_flow_daily_ths_data',
-            # 'save_today_fund_flow_daily_dc_data'
+            'save_history_fund_flow_daily_data_by_trade_date',
+            'save_history_fund_flow_daily_ths_data_by_trade_date',
+            'save_history_fund_flow_cnt_ths_data',
+            'save_history_fund_flow_industry_ths_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组任务签名
         task_signatures = [
-            execute_save_today_fund_flow_method.s(method_name=method)
+            execute_save_today_fund_flow_method.s(method_name=method,trade_date=today_date)
             for method in target_methods
         ]
         # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
