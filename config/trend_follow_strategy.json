@@ -156,25 +156,28 @@
         "life_line_ma": { "value": 21, "说明": "减仓后，作为趋势生命线的EMA周期。" }
       },
       "intraday_entry_params": {
-        "enabled": { "value": true, "说明": "【V106.2 新增】启用或禁用分钟级别的买入确认引擎。" },
-        "daily_score_threshold": { "value": 100, "说明": "触发盘中监控所需的最低日线入场分数。" },
-        "timeframe": { "value": "5", "说明": "用于执行确认逻辑的分钟周期。" },
+        "说明": "【V117.6 终极统一版】分钟级买入确认引擎配置",
+        "enabled": true,
+        "daily_score_threshold": 100,
+        "timeframe": "5",
         "confirmation_rules": {
-          "vwap_reclaim": { "enabled": { "value": true, "说明": "核心条件：价格重新站上当日VWAP。" } },
+          "vwap_reclaim": {
+            "enabled": true
+          },
           "volume_confirmation": {
-            "enabled": { "value": true, "说明": "辅助条件1：要求突破时成交量高于21周期均量。" },
-            "ma_period": { "value": 21, "说明": "成交量均线的周期。" }
+            "enabled": true,
+            "ma_period": 21
           },
           "volatility_breakout": {
-            "enabled": { "value": true, "说明": "辅助条件2：要求突破发生在波动率从极度压缩开始扩张时。" },
-            "squeeze_window": { "value": 60, "说明": "判断波动率是否压缩的回看窗口期（单位：根K线）。" },
-            "squeeze_percentile": { "value": 0.2, "说明": "BBW低于过去N根K线的这个分位数，即视为'压缩状态'。" }
+            "enabled": true,
+            "squeeze_window": 60,
+            "squeeze_percentile": 0.2
           },
-          "min_time_after_open": { "value": 15, "说明": "开盘后至少等待N分钟再开始监控，以规避早盘的剧烈波动。" }
+          "min_time_after_open": 15
         },
-        "signal_name": { "value": "INTRADAY_ENTRY_CONFIRMATION", "说明": "盘中买入确认信号的名称。" },
-        "playbook_name": { "value": "ENTRY_INTRADAY_CONFIRMATION", "说明": "触发时记录的剧本名称。" },
-        "bonus_score": { "value": 50, "说明": "盘中确认成功后，在日线分数基础上额外增加的奖励分。" }
+        "signal_name": "INTRADAY_ENTRY_CONFIRMATION",
+        "playbook_name": "ENTRY_INTRADAY_CONFIRMATION",
+        "bonus_score": 50
       },
       "intraday_execution_params": {
         "说明": "【V117.4 适配版】通用盘中预警引擎的配置中心",

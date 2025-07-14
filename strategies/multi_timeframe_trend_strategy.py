@@ -384,44 +384,36 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117 解耦版】
-        - 核心修复: 彻底解除了分钟线风险预警对日线引擎特定'SETUP_'信号的依赖。
-                    现在，该引擎会直接分析日线数据，独立判断哪些日子需要启动次日盘中监控，
-                    确保了风险监控的独立性和完整性，解决了因日线无特定信号而导致分钟线监控失效的问题。
-        - 工作流程:
-          1. 独立分析日线数据，识别出所有“创近期新高”的“风险预备日”。
-          2. 对每个“预备日”，获取其 **次日** 的分钟数据。
-          3. 在次日开盘后，监控价格是否首次跌破VWAP。
-          4. 满足条件时，生成一个高优先级的卖出警报，并停止当天监控。
+        【V117.5 最终修正版】
+        - 核心修复: 修正了读取配置文件路径的微小偏差。代码现在会正确地从 'rules' 容器内部
+                    查找具体的预警规则（如'upthrust_rejection'），解决了因路径错误导致规则
+                    被误判为禁用的问题。这是打通分钟线预警的最后一步。
         """
         all_alerts = []
-        # --- 步骤0: 加载配置和数据 ---
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
         get_val = self.tactical_engine._get_param_value
         
-        # 检查引擎是否启用
         if not get_val(exec_params.get('enabled'), False):
+            logger.info("    - [风险预警任务] 跳过，因为 'intraday_execution_params' 在配置中被禁用。")
             return []
         
-        # 直接获取原始日线数据进行独立分析
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             logger.warning(f"[{stock_code}] 缺少日线数据，分钟线风险预警引擎跳过。")
             return []
 
-        # --- 步骤1: 独立识别所有需要启动次日监控的“预备日” ---
-        # 我们将直接在这里计算“冲高回落”的预备条件，而不是依赖上游引擎
-        # 以“冲高回落”预警为例
-        upthrust_rejection_params = exec_params.get('upthrust_rejection', {})
+        # ▼▼▼【代码修改 V117.5】: 校准配置读取路径，先进入 'rules' 容器 ▼▼▼
+        rules_container = exec_params.get('rules', {})
+        upthrust_rejection_params = rules_container.get('upthrust_rejection', {})
+        # ▲▲▲【代码修改 V117.5】▲▲▲
+        
         if not get_val(upthrust_rejection_params.get('enabled'), False):
             logger.info("    - [风险预警任务] 跳过 'upthrust_rejection' 规则，因为它在配置中被禁用。")
-            return [] # 如果该特定预警被禁用，则直接返回
+            return []
 
-        # 从 exit_strategy_params 获取更底层的计算参数
         upthrust_calc_params = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
-        # 核心条件：当天创了近期新高
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
         
         setup_days_df = df_daily[is_upthrust_day]
@@ -430,28 +422,23 @@ class MultiTimeframeTrendStrategy:
             
         logger.info(f"    - [风险预警任务] 发现 {len(setup_days_df)} 个风险预备日，启动次日盘中监控...")
 
-        # --- 步骤2: 遍历每个预备日，监控次日分钟行情 ---
-        minute_tf = '30'  # 风险监控通常使用稍长周期以过滤噪音，此处固定为30分钟
+        minute_tf = str(get_val(exec_params.get('timeframe'), '30'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
             logger.warning(f"[{stock_code}] 缺少 {minute_tf} 分钟线数据，分钟线风险预警引擎跳过。")
             return []
 
         for setup_date, setup_row in setup_days_df.iterrows():
-            # 核心区别：风险预警监控的是 **次日**
             monitoring_date = (setup_date + pd.Timedelta(days=1)).date()
             alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
             if alert_day_minute_df.empty:
                 continue
 
-            # --- 步骤3: 应用分钟线确认逻辑 ---
-            # 确认条件：价格首次跌破VWAP
             close_col = f'close_{minute_tf}'
             vwap_col = f'VWAP_{minute_tf}'
             if vwap_col not in alert_day_minute_df.columns or close_col not in alert_day_minute_df.columns:
                 continue
 
-            # 寻找首次跌破的那个K线
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df[close_col] < alert_day_minute_df[vwap_col]) &
                 (alert_day_minute_df[close_col].shift(1) >= alert_day_minute_df[vwap_col].shift(1))
@@ -462,7 +449,6 @@ class MultiTimeframeTrendStrategy:
                 alert_time = first_alert_minute.name
                 alert_price = first_alert_minute[close_col]
                 
-                # --- 步骤4: 生成卖出警报记录 ---
                 playbook_name = get_val(upthrust_rejection_params.get('alert_playbook_name'), 'EXIT_INTRADAY_UPTHRUST_REJECTION')
                 alert_code = get_val(upthrust_rejection_params.get('alert_code'), 103)
                 severity_level = get_val(upthrust_rejection_params.get('severity_level'), 3)
@@ -483,7 +469,6 @@ class MultiTimeframeTrendStrategy:
                 }
                 all_alerts.append(record)
                 logger.info(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name}")
-                # 当天只取第一个警报信号，然后继续检查下一个预备日
                 continue 
 
         return all_alerts
