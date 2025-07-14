@@ -558,7 +558,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # c. 将时区感知的时间（北京时间）转换为UTC时区
                 df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
                 # d. 去除UTC时区信息，得到适合原生SQL的“天真UTC时间”
-                # df['trade_time'] = df['trade_time'].dt.tz_localize(None)
+                df['trade_time'] = df['trade_time'].dt.tz_localize(None)
 
                 # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类 (逻辑不变)
                 df['model_class'] = df['ts_code'].apply(lambda code: self.get_minute_model(code, time_level))
@@ -656,7 +656,7 @@ class StockTimeTradeDAO(BaseDAO):
 
                 # 3.4 去除UTC时区信息，使其变回“天真”的datetime对象。
                 #    这样，数据库驱动会将其作为正确的UTC时间值存入DATETIME字段。
-                # df['trade_time'] = df['trade_time'].dt.tz_localize(None)
+                df['trade_time'] = df['trade_time'].dt.tz_localize(None)
                 # --- 修改的代码行结束 ---
                 
                 # 4. 选择并重命名列以匹配模型
@@ -764,7 +764,7 @@ class StockTimeTradeDAO(BaseDAO):
         # d. 转换为UTC时间
         df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
         # e. 去除时区信息，得到适合原生SQL的“天真UTC时间”
-        # df['trade_time'] = df['trade_time'].dt.tz_localize(None)
+        df['trade_time'] = df['trade_time'].dt.tz_localize(None)
 
         # 2.3 向量化外键关联 (保持不变)
         unique_codes = list(df['ts_code'].unique())
