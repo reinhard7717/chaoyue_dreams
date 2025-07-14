@@ -179,6 +179,8 @@ class IndicatorService:
             trade_time=end_time_for_query
         )
 
+        print(f"end_time_for_query: {end_time_for_query}, df.count: {len(df)} .")
+
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取到数据。")
             return None
