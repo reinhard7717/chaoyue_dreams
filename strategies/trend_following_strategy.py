@@ -2382,16 +2382,14 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.9 归档协议优化版】
-        - 核心优化: 简化了情报档案的目录结构和命名规则。
-        - 解决方案:
-          1.  移除了以日期命名的第三级子目录。
-          2.  将报告文件名从固定的 'snapshot.json' 改为以起涨点日期动态命名，
-              格式为 'YYYY-MM-DD.json'。
-        - 最终结构: alpha_hunter_reports/{股票代码}/{起涨日期}.json
-        - 收益: 使情报档案结构更扁平、更直观，便于快速定位和分析。
+        【V118.10 终极瘦身版】
+        - 核心修复: 彻底解决因 `_last_score_details_df` 包含全量历史数据而导致报告臃肿的根本问题。
+        - 根本原因: 将小尺寸的 `result_df` 与大尺寸的 `_last_score_details_df` 合并，导致DataFrame膨胀。
+        - 解决方案: 在执行 `join` 操作之前，先使用 `result_df` 的索引对 `_last_score_details_df`
+                    进行精确的预过滤，确保两个待合并的DataFrame尺寸完全一致。
+        - 收益: 从根源上杜绝了数据膨胀的可能，确保情报档案绝对轻量。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.9 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.10 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2405,7 +2403,7 @@ class TrendFollowStrategy:
         print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
         print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 失手报告将保存至: '{output_dir_base}/' 目录")
 
-        # --- 步骤1: 识别所有“黄金上涨波段” (逻辑不变) ---
+        # ... 步骤1: 识别黄金上涨波段 (逻辑不变) ...
         print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
         df_full['cum_min'] = df_full['close_D'].cummin()
         df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
@@ -2428,7 +2426,7 @@ class TrendFollowStrategy:
             return
         print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个黄金上涨波段，准备逐一回测...")
 
-        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
+        # ... 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ...
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
@@ -2455,15 +2453,30 @@ class TrendFollowStrategy:
             else:
                 missed_count += 1
                 print(f"    -> [错失良机!] 未能捕获此波段。正在生成情报档案...")
+
+                # ▼▼▼【核心修正 V118.10】釜底抽薪式瘦身 ▼▼▼
+                # 1. 准备基础报告，此时它的尺寸是正确的 (例如 61行)
+                final_report_df = result_df.copy()
                 
-                report_df_full = result_df.copy()
-                if self._last_score_details_df is not None:
-                    report_df_full = report_df_full.join(self._last_score_details_df, how='left')
+                # --- 增加关键的调试日志 ---
+                print(f"    - [情报瘦身调试] analysis_df 行数: {len(analysis_df)}")
+                print(f"    - [情报瘦身调试] 初始 result_df 行数: {len(final_report_df)}")
+
+                # 2. 检查是否存在“幽灵档案”（全量评分细则）
+                if self._last_score_details_df is not None and not self._last_score_details_df.empty:
+                    print(f"    - [情报瘦身调试] 发现评分细则 _last_score_details_df，行数: {len(self._last_score_details_df)}")
+                    
+                    # 3. 【关键修复】在合并前，先对“幽灵档案”进行精确裁切！
+                    #    只保留与当前报告（final_report_df）索引匹配的行。
+                    scoped_score_details = self._last_score_details_df.loc[self._last_score_details_df.index.isin(final_report_df.index)]
+                    print(f"    - [情报瘦身调试] 裁切后的评分细则行数: {len(scoped_score_details)}")
+
+                    # 4. 将裁切后的、尺寸正确的评分细则合并到报告中
+                    final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                final_report_df = report_df_full.loc[analysis_df.index].copy()
+                print(f"    - [情报瘦身调试] 合并评分后，最终报告 final_report_df 行数: {len(final_report_df)}")
                 
-                # ▼▼▼【核心修正 V118.9】简化目录和文件名 ▼▼▼
-                # 1. 构建二级目录路径 (alpha_hunter_reports/{股票代码}/)
+                # 5. 构建目录并保存最终的、大小正确的报告
                 report_dir = os.path.join(output_dir_base, stock_code)
                 try:
                     os.makedirs(report_dir, exist_ok=True)
@@ -2471,11 +2484,9 @@ class TrendFollowStrategy:
                     print(f"    -> [错误] 创建报告目录 '{report_dir}' 失败: {e}")
                     continue
 
-                # 2. 定义以起涨点日期命名的文件路径
                 filename = f"{start_date.strftime('%Y-%m-%d')}.json"
                 filepath = os.path.join(report_dir, filename)
                 
-                # 3. 写入JSON文件
                 json_data = sanitize_for_json(final_report_df.to_dict(orient='index'))
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
@@ -2483,17 +2494,16 @@ class TrendFollowStrategy:
                     print(f"    -> [报告生成] 已将精确的战场快照 ({len(final_report_df)}行) 保存至: {filepath}")
                 except Exception as e:
                     print(f"    -> [错误] 保存JSON情报档案失败: {e}")
-                # ▲▲▲【核心修正 V118.9】▲▲▲
+                # ▲▲▲【核心修正 V118.10】▲▲▲
 
-        # --- 总结报告 (逻辑不变) ---
-        print("\n" + "="*30 + " [阿尔法猎手 V118.9 总结] " + "="*30)
+        # ... 总结报告 (逻辑不变) ...
+        print("\n" + "="*30 + " [阿尔法猎手 V118.10 总结] " + "="*30)
         print(f"    - 总计回测黄金波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
-
 
 
 
