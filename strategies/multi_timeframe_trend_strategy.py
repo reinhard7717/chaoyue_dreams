@@ -289,19 +289,60 @@ class MultiTimeframeTrendStrategy:
         confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
 
-        # ▼▼▼ 合并所有引擎的信号并返回 ▼▼▼
-        logger.info("\n--- 最终阶段: 合并与整理所有信号记录... ---")
-        # 合并所有分钟线买入信号
-        all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
-        # 将分钟线买入信号与日线买入信号进行去重合并 (分钟优先)
-        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
-        
-        # 将最终的买入信号与所有风险信号合并
+        logger.info("\n--- 最终阶段: 合并与融合所有信号记录... ---")
+        # 步骤1: 将分钟线“确认”信号融合进日线“买入”信号
+        fused_entry_records = self._fuse_intraday_confirmations(tactical_records, confirmation_entry_records)
+        # 步骤2: 将分钟线“共振”信号(如果未来启用)与融合后的买入信号合并
+        # 注意：这里的 _merge_and_deduplicate_signals 假设是处理不同策略名称的合并，我们暂时保留
+        final_entry_records = self._merge_and_deduplicate_signals(fused_entry_records, resonance_entry_records)
+        # 步骤3: 将最终的买入信号与所有风险信号合并
         all_records = final_entry_records + risk_alert_records
-        
         logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
         
         return all_records
+
+    # 情报融合中心
+    def _fuse_intraday_confirmations(self, daily_records: List[Dict], confirmation_records: List[Dict]) -> List[Dict]:
+        """
+        【V117.11 新增】情报融合中心。
+        - 核心职责: 将分钟线的“确认信号”融合进原始的“日线信号”记录中，而不是创建新纪录。
+        - 工作流程:
+          1. 以日线信号的日期为键，创建一个快速查找字典。
+          2. 遍历所有分钟线确认信号。
+          3. 如果找到对应日期的日线信号，则用分钟线确认信号的更高分数、新剧本等信息，
+             直接“覆盖升级”原始的日线记录。
+        - 收益: 确保了最终输出的信号是唯一的、经过分钟线增强的最终决策，解决了分数不更新的问题。
+        """
+        if not confirmation_records:
+            return daily_records
+
+        # 创建一个以日期为键的日线记录查找字典，提高效率
+        daily_lookup = {
+            pd.to_datetime(rec['trade_time']).date(): rec
+            for rec in daily_records if rec.get('entry_signal')
+        }
+        
+        fused_dates = set()
+
+        for conf_rec in confirmation_records:
+            conf_date = pd.to_datetime(conf_rec['trade_time']).date()
+            
+            # 如果在日线记录中找到了对应的日期
+            if conf_date in daily_lookup:
+                daily_rec_to_update = daily_lookup[conf_date]
+                
+                # 使用分钟确认信号的关键信息来“升级”日线信号
+                daily_rec_to_update['entry_score'] = conf_rec['entry_score']
+                daily_rec_to_update['triggered_playbooks'] = conf_rec['triggered_playbooks']
+                daily_rec_to_update['context_snapshot'] = conf_rec['context_snapshot']
+                # 可以在这里添加一个标记，表示此信号已被分钟线确认
+                daily_rec_to_update['context_snapshot']['intraday_confirmed'] = True
+                
+                fused_dates.add(conf_date)
+                logger.info(f"    - [情报融合] 日期 {conf_date} 的日线信号已被分钟线确认，分数已升级至 {conf_rec['entry_score']:.0f}。")
+
+        # 对于那些没有被分钟线确认的日线信号，我们仍然保留它们
+        return list(daily_lookup.values())
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
