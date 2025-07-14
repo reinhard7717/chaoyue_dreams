@@ -2382,20 +2382,30 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.2 异步兼容版】
-        - 核心修改: 将方法声明从 def 改为 async def，使其能被异步任务调度器正确调用。
+        【V118.9 归档协议优化版】
+        - 核心优化: 简化了情报档案的目录结构和命名规则。
+        - 解决方案:
+          1.  移除了以日期命名的第三级子目录。
+          2.  将报告文件名从固定的 'snapshot.json' 改为以起涨点日期动态命名，
+              格式为 'YYYY-MM-DD.json'。
+        - 最终结构: alpha_hunter_reports/{股票代码}/{起涨日期}.json
+        - 收益: 使情报档案结构更扁平、更直观，便于快速定位和分析。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.2 启动] " + "="*30)
-        # ... 此方法内部的所有其他代码保持与 V118.1 完全相同 ...
+        print("\n" + "="*30 + " [阿尔法猎手 V118.9 启动] " + "="*30)
+        
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
+
         min_duration = self._get_param_value(backtest_params.get('min_duration_days'), 3)
         min_total_gain = self._get_param_value(backtest_params.get('min_total_gain_pct'), 15.0) / 100.0
         pre_days_lookback = self._get_param_value(backtest_params.get('pre_days_lookback'), 30)
         activation_window = self._get_param_value(backtest_params.get('activation_window_days'), 2)
         output_dir_base = self._get_param_value(backtest_params.get('output_dir'), 'alpha_hunter_reports')
+        
         print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
-        print(f"    -> 失手报告将保存至: '{output_dir_base}/' 目录")
+        print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 失手报告将保存至: '{output_dir_base}/' 目录")
+
+        # --- 步骤1: 识别所有“黄金上涨波段” (逻辑不变) ---
         print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
         df_full['cum_min'] = df_full['close_D'].cummin()
         df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
@@ -2417,54 +2427,72 @@ class TrendFollowStrategy:
             print("    -> [扫描完成] 未发现符合条件的黄金上涨波段。")
             return
         print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个黄金上涨波段，准备逐一回测...")
+
+        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
             print(f"\n--- [猎手阶段2] 正在回测第 {i+1}/{len(golden_waves)} 个波段: {start_date.date()} ---")
             start_loc = df_full.index.get_loc(start_date)
             if start_loc < pre_days_lookback: continue
+            
             analysis_df = df_full.iloc[start_loc - pre_days_lookback : start_loc + 1].copy()
+            
             try:
                 result_df, _ = self.apply_strategy(analysis_df, params)
             except Exception as e:
                 print(f"    -> [严重错误] 策略推演时发生异常: {e}")
                 continue
+
             is_activated = False
             activation_start = start_date - pd.Timedelta(days=activation_window)
             activation_period_df = result_df.loc[activation_start : start_date]
+            
             if not activation_period_df.empty and activation_period_df['signal_entry'].any():
-                is_activated = True
                 success_count += 1
                 activation_date = activation_period_df[activation_period_df['signal_entry']].index[0]
                 print(f"    -> [捕获成功!] 策略在 {activation_date.date()} 成功激活信号。")
             else:
                 missed_count += 1
                 print(f"    -> [错失良机!] 未能捕获此波段。正在生成情报档案...")
-                report_dir = os.path.join(output_dir_base, stock_code, start_date.strftime('%Y-%m-%d'))
+                
+                report_df_full = result_df.copy()
+                if self._last_score_details_df is not None:
+                    report_df_full = report_df_full.join(self._last_score_details_df, how='left')
+                
+                final_report_df = report_df_full.loc[analysis_df.index].copy()
+                
+                # ▼▼▼【核心修正 V118.9】简化目录和文件名 ▼▼▼
+                # 1. 构建二级目录路径 (alpha_hunter_reports/{股票代码}/)
+                report_dir = os.path.join(output_dir_base, stock_code)
                 try:
                     os.makedirs(report_dir, exist_ok=True)
                 except OSError as e:
                     print(f"    -> [错误] 创建报告目录 '{report_dir}' 失败: {e}")
                     continue
-                report_df = result_df.copy()
-                if self._last_score_details_df is not None:
-                    report_df = report_df.join(self._last_score_details_df, how='left')
-                json_data = sanitize_for_json(report_df.to_dict(orient='index'))
-                filepath = os.path.join(report_dir, 'snapshot.json')
+
+                # 2. 定义以起涨点日期命名的文件路径
+                filename = f"{start_date.strftime('%Y-%m-%d')}.json"
+                filepath = os.path.join(report_dir, filename)
+                
+                # 3. 写入JSON文件
+                json_data = sanitize_for_json(final_report_df.to_dict(orient='index'))
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [报告生成] 已将完整的战场快照保存至: {filepath}")
+                    print(f"    -> [报告生成] 已将精确的战场快照 ({len(final_report_df)}行) 保存至: {filepath}")
                 except Exception as e:
                     print(f"    -> [错误] 保存JSON情报档案失败: {e}")
-        print("\n" + "="*30 + " [阿尔法猎手 V118.2 总结] " + "="*30)
+                # ▲▲▲【核心修正 V118.9】▲▲▲
+
+        # --- 总结报告 (逻辑不变) ---
+        print("\n" + "="*30 + " [阿尔法猎手 V118.9 总结] " + "="*30)
         print(f"    - 总计回测黄金波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
-
 
 
 
