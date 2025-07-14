@@ -2382,12 +2382,13 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.18 战役推演版】
-        - 核心升级 1: 捕获起涨点之后5天的数据，用于战后推演。
-        - 核心升级 2: 增加'analysis_period'列，区分'lookback'和'look_forward'数据。
-        - 核心升级 3: 在白名单中增加关键的斜率指标，增强分析维度。
+        【V118.19 情报重建修复版】
+        - 核心修复: 解决了因调用 apply_strategy 导致 'analysis_period' 列丢失的BUG。
+        - 解决方案: 在所有计算和合并操作完成后，从原始的 analysis_df 中提取
+                    'analysis_period' 列，并将其强制重新附加到 final_report_df 上，
+                    确保该关键信息在最终报告中存在。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.18 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.19 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2395,7 +2396,7 @@ class TrendFollowStrategy:
         min_duration = self._get_param_value(backtest_params.get('min_duration_days'), 3)
         min_total_gain = self._get_param_value(backtest_params.get('min_total_gain_pct'), 15.0) / 100.0
         pre_days_lookback = self._get_param_value(backtest_params.get('pre_days_lookback'), 30)
-        post_days_lookforward = 5 # 定义向后观察的天数
+        post_days_lookforward = 5
         activation_window = self._get_param_value(backtest_params.get('activation_window_days'), 2)
         output_dir_base = self._get_param_value(backtest_params.get('output_dir'), 'alpha_hunter_reports')
         
@@ -2439,22 +2440,12 @@ class TrendFollowStrategy:
             print(f"\n--- [猎手阶段2] 正在回测第 {i+1}/{len(golden_waves)} 个波段: {start_date.date()} ---")
             start_loc = df_full.index.get_loc(start_date)
             
-            # ▼▼▼【核心修正 V118.18】扩展数据捕获窗口 ▼▼▼
-            # 1. 计算包含向前和向后数据的完整窗口
             start_slice = start_loc - pre_days_lookback
             end_slice = min(start_loc + 1 + post_days_lookforward, len(df_full))
             if start_slice < 0: continue
             
-            # 2. 截取包含战前和战后数据的完整DataFrame
             analysis_df = df_full.iloc[start_slice:end_slice].copy()
             
-            # 3. 增加'analysis_period'列以区分数据
-            analysis_df['analysis_period'] = 'lookback'
-            # 使用.loc来安全地设置look_forward部分
-            forward_start_date = start_date + pd.Timedelta(days=1)
-            analysis_df.loc[analysis_df.index >= forward_start_date, 'analysis_period'] = 'look_forward'
-            # ▲▲▲【核心修正 V118.18】▲▲▲
-
             try:
                 result_df_raw, _ = self.apply_strategy(analysis_df, params)
             except Exception as e:
@@ -2480,19 +2471,25 @@ class TrendFollowStrategy:
                     scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                # ▼▼▼【核心修正 V118.18】扩充白名单 ▼▼▼
+                # ▼▼▼【核心修正 V118.19】重建丢失的 'analysis_period' 列 ▼▼▼
+                # 1. 在原始的、包含正确标注的 analysis_df 中准备好标注信息
+                period_info = analysis_df[['analysis_period']].copy()
+                period_info.loc[:start_date, 'analysis_period'] = 'lookback'
+                period_info.loc[start_date + pd.Timedelta(days=1):, 'analysis_period'] = 'look_forward'
+                
+                # 2. 将标注信息强制附加到最终报告上
+                final_report_df['analysis_period'] = period_info['analysis_period']
+                # ▲▲▲【核心修正 V118.19】▲▲▲
+
                 essential_columns_whitelist = [
                     'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
                     'signal_entry', 'entry_score', 'risk_score', 'EMA_21_D', 'EMA_55_D', 
                     'EMA_89_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
                     'CHIP_peak_cost_D', 'CHIP_winner_rate_short_term_D', 'CHIP_concentration_90pct_D',
                     'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
-                    # 新增关键斜率指标
                     'SLOPE_5_close_D', 'ACCEL_5_close_D', 'CHIP_concentration_90pct_slope_5d_D',
-                    # 新增的推演周期标记列
                     'analysis_period'
                 ]
-                # ▲▲▲【核心修正 V118.18】▲▲▲
                 
                 columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
                 final_report_df = final_report_df[columns_to_keep]
@@ -2525,7 +2522,7 @@ class TrendFollowStrategy:
                 except Exception as e:
                     print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
 
-        print("\n" + "="*30 + " [阿尔法猎手 V118.18 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.19 总结] " + "="*30)
         print(f"    - 总计分析波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
