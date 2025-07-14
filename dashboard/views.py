@@ -193,8 +193,9 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V104 终局 · 情报版】
-    - 核心升级: 完整处理日线和分钟线产生的卖出信号，并将其严重等级和原因传递给模板。
+    【V117.9 链路修复版】
+    - 核心修正: 调整了状态判断逻辑，确保始终基于最新的买入信号来判断后续的风险状态，
+                使得持仓状态的展示更加精确和符合交易直觉。
     """
     user_dao = UserDAO()
     
@@ -209,7 +210,6 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 查询逻辑保持不变，它已经获取了所有需要的字段
     state_list_qs = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes
     ).select_related('stock').order_by('stock__stock_code', '-trade_time')
@@ -222,22 +222,22 @@ def fav_trend_following_list(request):
                 'stock': state.stock,
                 'buy_state': None,
                 'sell_state': None,
-                'latest_state': None,
+                'latest_state': state, # 直接将第一条(最新的)记录设为latest_state
                 'playbooks': set()
             }
         
         summary = stock_summary[stock_code]
         
-        if state.entry_signal and (not summary['buy_state'] or state.trade_time > summary['buy_state'].trade_time):
+        # ▼▼▼【代码修改 V117.9】: 优化状态判断逻辑 ▼▼▼
+        # 寻找最新的买入信号
+        if state.entry_signal and not summary['buy_state']:
             summary['buy_state'] = state
         
-        # ▼▼▼【代码修改 V104】: 确保最新的卖出信号被捕获 ▼▼▼
-        if state.exit_signal_code > 0 and (not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time):
-            summary['sell_state'] = state
-        # ▲▲▲【代码修改 V104】▲▲▲
-            
-        if not summary['latest_state'] or state.trade_time > summary['latest_state'].trade_time:
-            summary['latest_state'] = state
+        # 如果已经找到了最新的买入信号，再寻找这个买入信号之后的最新的卖出信号
+        if summary['buy_state'] and state.exit_signal_code > 0 and state.trade_time > summary['buy_state'].trade_time:
+            if not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time:
+                 summary['sell_state'] = state
+        # ▲▲▲【代码修改 V117.9】▲▲▲
 
         if state.triggered_playbooks:
             summary['playbooks'].update(state.triggered_playbooks)
@@ -255,7 +255,7 @@ def fav_trend_following_list(request):
             'stock': summary['stock'],
             'favorite_id': fav_id_map.get(stock_code),
             'buy_info': None,
-            'sell_info': None, # 初始化 sell_info
+            'sell_info': None,
             'latest_trade_time': latest_state.trade_time,
             'latest_score': latest_state.entry_score,
             'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
@@ -274,36 +274,32 @@ def fav_trend_following_list(request):
             item['status_class'] = 'status-holding'
             item['sort_priority'] = 2
 
-            # ▼▼▼【代码修改 V104】: 填充卖出信号详情，并更新状态 ▼▼▼
-            if sell_state and sell_state.trade_time > buy_state.trade_time:
-                # 从数据库记录中提取风险信号详情
+            # sell_state 现在是基于最新的 buy_state 找到的，逻辑更可靠
+            if sell_state:
                 item['sell_info'] = {
                     'time': sell_state.trade_time,
                     'strategy_name': sell_state.strategy_name,
                     'time_level': sell_state.timeframe,
                     'severity_level': sell_state.exit_severity_level,
-                    'reason': sell_state.exit_signal_reason or "风险预警", # 提供默认原因
+                    'reason': sell_state.exit_signal_reason or "风险预警",
                     'code': sell_state.exit_signal_code,
                 }
                 
                 level = sell_state.exit_severity_level
-                # 根据风险等级，更新状态文本和样式
                 if level == 1:
                     item['swing_status'] = '一级预警'
                     item['status_class'] = 'status-alert-level-1'
                 elif level == 3:
                     item['swing_status'] = '三级警报'
                     item['status_class'] = 'status-alert-level-3'
-                else: # 默认所有其他非零风险都视为二级
+                else:
                     item['swing_status'] = '二级警报'
                     item['status_class'] = 'status-alert-level-2'
                 
-                item['sort_priority'] = 1 # 给予最高排序优先级
-            # ▲▲▲【代码修改 V104】▲▲▲
+                item['sort_priority'] = 1
         
         processed_list.append(item)
 
-    # 排序逻辑保持不变，它已经能正确处理新的 sort_priority
     processed_list.sort(key=lambda x: (
         x['sort_priority'],
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)

@@ -246,11 +246,12 @@ class MultiTimeframeTrendStrategy:
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V117 解耦版】
-        - 核心重构: 调整了引擎的执行顺序，确保战略信号首先被融合，然后所有引擎
-                    （日线和分钟线）都基于这份统一的、最完整的数据进行独立分析。
+        【V117.9 链路修复版】
+        - 核心修复: 增加了 return 语句。函数现在会收集所有五个引擎生成的信号记录，
+                    进行合并与去重，并最终返回一个统一的列表。这打通了策略执行与数据
+                    库保存之间的“情报断链”。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V117) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V117.9) ---")
         
         # --- 准备阶段 ---
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
@@ -259,7 +260,6 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
             return None
             
-        # ▼▼▼【代码修改 V117】: 调整引擎执行顺序 ▼▼▼
         # --- 引擎1: 战略引擎 (周线) ---
         logger.info(f"\n--- 引擎1: 开始运行【战略引擎】(周线)... ---")
         strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
@@ -288,7 +288,20 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(分钟线)... ---")
         confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
-        # ▲▲▲【代码修改 V117】▲▲▲
+
+        # ▼▼▼ 合并所有引擎的信号并返回 ▼▼▼
+        logger.info("\n--- 最终阶段: 合并与整理所有信号记录... ---")
+        # 合并所有分钟线买入信号
+        all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
+        # 将分钟线买入信号与日线买入信号进行去重合并 (分钟优先)
+        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
+        
+        # 将最终的买入信号与所有风险信号合并
+        all_records = final_entry_records + risk_alert_records
+        
+        logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
+        
+        return all_records
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
