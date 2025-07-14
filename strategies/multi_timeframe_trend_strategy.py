@@ -346,7 +346,7 @@ class MultiTimeframeTrendStrategy:
           - 完美解决了时序逻辑问题，确保了日线决策时间点正确地位于次日分钟线确认之前。
           - 使信号记录的时间戳更符合真实的交易决策流程。
         """
-        print("--- [引擎5-调试 V117.41] 进入入口信号决策中心 (决策时刻校准版) ---")
+        # print("--- [引擎5-调试 V117.41] 进入入口信号决策中心 (决策时刻校准版) ---")
         final_entry_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
@@ -374,7 +374,7 @@ class MultiTimeframeTrendStrategy:
 
             # 【核心修正】创建代表“决策时刻”的精确时间戳 (收盘后)
             decision_time = datetime.combine(setup_date, time(15, 0))
-            print(f"    -> 预备日 {setup_date}: 日线信号决策时刻校准为: {decision_time}")
+            # print(f"    -> 预备日 {setup_date}: 日线信号决策时刻校准为: {decision_time}")
 
             # 【逻辑优化1】使用校准后的决策时刻创建默认的日线信号记录
             default_daily_record = self._create_signal_record(
@@ -444,10 +444,10 @@ class MultiTimeframeTrendStrategy:
 
             final_entry_records.append(final_record_for_this_setup)
             
-            if minute_confirmation_found:
-                print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
-            else:
-                print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留校准后的日线信号。")
+            # if minute_confirmation_found:
+            #     print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
+            # else:
+            #     print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留校准后的日线信号。")
 
         print(f"--- [引擎5-调试 V117.41] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
         return final_entry_records
