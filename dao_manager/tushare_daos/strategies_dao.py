@@ -645,8 +645,8 @@ class StrategiesDAO(BaseDAO):
                     defaults=defaults_data
                 )
                 
-                action = "创建" if created else "更新"
-                print(f"调试信息: [DAO-SignalLog] 成功 {action} 信号: {stock_code} @ {item.get('trade_time')}, 分数: {item.get('entry_score')}")
+                # action = "创建" if created else "更新"
+                # print(f"调试信息: [DAO-SignalLog] 成功 {action} 信号: {stock_code} @ {item.get('trade_time')}, 分数: {item.get('entry_score')}")
                 saved_count += 1
 
             except Exception as e:
