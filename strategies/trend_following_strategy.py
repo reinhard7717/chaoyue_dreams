@@ -1723,7 +1723,9 @@ class TrendFollowStrategy:
         # risk_factors['RISK_STATE_RSI_OVERBOUGHT'] = self._diagnose_rsi_overbought(df, params)
         
         # --- 4. 筹码分布风险 (Chip Distribution Risks) ---
-        #    - 这类风险关注筹码的分布状态，判断在高位是否存在筹码松动、派发的迹象。
+        chip_states = self._diagnose_chip_states(df, params)
+        risk_factors['CHIP_RISK_EXHAUSTION'] = chip_states.get('CHIP_RISK_EXHAUSTION', pd.Series(False, index=df.index))
+        risk_factors['CHIP_RISK_DIVERGENCE'] = chip_states.get('CHIP_RISK_DIVERGENCE', pd.Series(False, index=df.index))
         
         # 预留位置：未来可以添加诊断“高位筹码发散”的模块
         # risk_factors['RISK_STATE_CHIP_SCATTERING_HIGH'] = self._diagnose_chip_scattering_high(df, params)
@@ -1912,6 +1914,13 @@ class TrendFollowStrategy:
                 'setup': ['RISK_SETUP_ANY'],
                 'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'],
                 'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
+            },
+            {
+                'name': 'CHIP_DISTRIBUTION_WARNING', 'cn_name': '【高危】筹码高位派发', 'family': 'DISTRIBUTION_RISK',
+                'score': 95,
+                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'], # 准备条件：股价处于高位的“超涨区”
+                'trigger': ['CHIP_RISK_DIVERGENCE', 'CHIP_RISK_EXHAUSTION'], # 触发条件：出现“筹码背离”或“趋势衰竭”
+                'comment': '在股价高位，出现筹码松动或派发迹象，是重要的离场预警。'
             },
             {
                 'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
