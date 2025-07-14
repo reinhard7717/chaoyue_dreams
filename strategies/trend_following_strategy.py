@@ -2382,16 +2382,15 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.13 “法证侦察”版】
-        - 核心目标: 不再猜测，而是通过代码定位导致文件臃肿的元凶列。
-        - 解决方案: 在保存文件前，加入一个“法证分析模块”。该模块会：
-          1. 遍历最终报告DataFrame的每一列。
-          2. 尝试将每一列单独转换为JSON，并计算其字符串长度（近似于文件大小）。
-          3. 打印一份详细的“法证报告”，列出每一列的名称和其预估的JSON大小。
-        - 收益: 这将为我们提供无可辩驳的证据，明确指出哪个或哪些列是“数据炸弹”，
-                为下一步的精确打击提供决定性情报。
+        【V118.14 “白名单审查”最终版】
+        - 核心修复: 基于“法证报告”的结论，彻底解决因保存过多指标列导致文件臃肿的问题。
+        - 根本原因: 将所有计算出的上百个指标全部写入JSON，导致“千刀万剐”式的文件体积膨胀。
+        - 解决方案: 建立一份“白名单”（essential_columns_whitelist），在保存前，只保留白名单上
+                    最核心的列（如OHLC、信号、核心分数等），其余所有列全部丢弃。
+        - 收益: 确保情报档案只包含用于复盘的最关键数据，文件体积将从400+KB骤降至10-20KB，
+                从根源上解决了问题，且对未来新增指标免疫。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.13 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.14 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2463,30 +2462,32 @@ class TrendFollowStrategy:
                     scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                # ▼▼▼【核心修正 V118.13】“法证侦察”模块启动！▼▼▼
-                print("\n" + "-"*20 + " [法证侦察模块启动] " + "-"*20)
-                print(f"开始对最终报告 (共 {len(final_report_df.columns)} 列) 进行载荷分析...")
-                column_sizes = []
-                for col in final_report_df.columns:
-                    try:
-                        # 尝试将单列转换为JSON并计算其大小
-                        col_json_str = final_report_df[[col]].to_json(orient='index', default_handler=str)
-                        size_kb = len(col_json_str.encode('utf-8')) / 1024
-                        column_sizes.append((col, size_kb))
-                    except Exception as e:
-                        column_sizes.append((col, f"序列化失败: {e}"))
+                # ▼▼▼【核心修正 V118.14】“白名单审查”模块启动！▼▼▼
+                print(f"    - [白名单审查] 准备对报告进行净化，原始列数: {len(final_report_df.columns)}")
                 
-                # 按大小降序排序，让元凶一目了然
-                column_sizes.sort(key=lambda x: x[1] if isinstance(x[1], (int, float)) else -1, reverse=True)
+                # 1. 定义“白名单”，只包含对复盘绝对必要的列。
+                essential_columns_whitelist = [
+                    # 核心K线数据
+                    'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
+                    # 核心信号与分数
+                    'signal_entry', 'entry_score', 'risk_score',
+                    # 关键均线 (用于观察趋势)
+                    'EMA_21_D', 'EMA_55_D', 'EMA_89_D',
+                    # 关键MACD (用于观察动能)
+                    'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
+                    # 关键筹码指标 (用于观察成本)
+                    'CHIP_peak_cost_D', 'CHIP_winner_rate_short_term_D', 'CHIP_concentration_90pct_D',
+                    # 关键资金流
+                    'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
+                ]
                 
-                print("\n--- [法证分析报告] ---")
-                for col, size in column_sizes:
-                    if isinstance(size, (int, float)):
-                        print(f"    - 列名: {col:<40} | 预估JSON大小: {size:,.2f} KB")
-                    else:
-                        print(f"    - 列名: {col:<40} | {size}")
-                print("--- [法证分析报告结束] ---\n")
-                # ▲▲▲【核心修正 V118.13】▲▲▲
+                # 2. 从报告的全部列中，筛选出白名单上存在的列
+                columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
+                
+                # 3. 执行净化！只保留白名单上的列
+                final_report_df = final_report_df[columns_to_keep]
+                print(f"    - [白名单审查] 净化完成，最终报告列数: {len(final_report_df.columns)}")
+                # ▲▲▲【核心修正 V118.14】▲▲▲
 
                 report_dir = os.path.join(output_dir_base, stock_code)
                 try:
@@ -2502,17 +2503,16 @@ class TrendFollowStrategy:
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [报告生成] 已将快照 ({len(final_report_df)}行) 保存至: {filepath}")
+                    print(f"    -> [报告生成] 已将净化后的快照 ({len(final_report_df)}行) 保存至: {filepath}")
                 except Exception as e:
                     print(f"    -> [错误] 保存JSON情报档案失败: {e}")
 
         # ... 总结报告 (逻辑不变) ...
-        print("\n" + "="*30 + " [阿尔法猎手 V118.13 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.14 总结] " + "="*30)
         print(f"    - 总计回测黄金波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
-
 

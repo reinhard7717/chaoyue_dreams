@@ -204,7 +204,7 @@
         "enabled": true,
         "min_duration_days": 3,
         "min_total_gain_pct": 15.0,
-        "pre_days_lookback": 60,
+        "pre_days_lookback": 30,
         "activation_window_days": 2,
         "output_dir": "alpha_hunter_reports"
       }
