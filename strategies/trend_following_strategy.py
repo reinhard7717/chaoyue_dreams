@@ -2504,8 +2504,13 @@ class TrendFollowStrategy:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
                     print(f"    -> [报告生成] 已将净化后的快照 ({len(final_report_df)}行) 保存至: {filepath}")
+
+                    # 在保存成功后，立刻调用解读函数！
+                    interpretation = await self.interpret_snapshot(filepath, params)
+                    print(interpretation) # 打印解读报告
+
                 except Exception as e:
-                    print(f"    -> [错误] 保存JSON情报档案失败: {e}")
+                    print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
 
         # ... 总结报告 (逻辑不变) ...
         print("\n" + "="*30 + " [阿尔法猎手 V118.14 总结] " + "="*30)
@@ -2515,4 +2520,102 @@ class TrendFollowStrategy:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
+
+    async def interpret_snapshot(self, filepath: str, params: dict) -> str:
+        """
+        【V118.15 智能参谋】
+        自动加载并解读指定的 "失手报告" JSON 文件，生成一份人类可读的诊断报告。
+
+        Args:
+            filepath (str): "失手报告" JSON 文件的完整路径。
+            params (dict): 策略参数字典，用于获取评分阈值等配置。
+
+        Returns:
+            str: 一份格式化的、包含上下文、状态和失败原因分析的诊断报告。
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if not data:
+                return "解读失败：JSON文件为空。"
+
+            df = pd.DataFrame.from_dict(data, orient='index')
+            df.index = pd.to_datetime(df.index)
+            
+            # 定位到起涨点当天的关键数据
+            last_day = df.iloc[-1]
+            last_date_str = last_day.name.strftime('%Y-%m-%d')
+
+            # --- 1. 上下文分析 (Context Analysis) ---
+            context_summary = []
+            # 趋势上下文
+            ema21 = last_day.get('EMA_21_D', 0)
+            ema55 = last_day.get('EMA_55_D', 0)
+            close = last_day.get('close_D', 0)
+            if close > ema21 > ema55:
+                context_summary.append("趋势处于强势区 (收盘价 > EMA21 > EMA55)。")
+            elif close < ema21 < ema55:
+                context_summary.append("趋势处于弱势区 (收盘价 < EMA21 < EMA55)。")
+            else:
+                context_summary.append("趋势处于震荡或整理区。")
+            
+            # 动能上下文
+            macd_h = last_day.get('MACDh_13_34_8_D', 0)
+            if macd_h > 0:
+                context_summary.append("动能为正 (MACD红柱)。")
+            else:
+                context_summary.append("动能为负 (MACD绿柱)。")
+
+            # --- 2. 状态诊断 (State Diagnosis) ---
+            # 假设原子状态列名均为大写
+            active_states = [col.replace('_score', '') for col, val in last_day.items() if isinstance(col, str) and col.isupper() and val > 0]
+            if active_states:
+                state_summary = f"当日激活的关键原子状态: {', '.join(active_states)}。"
+            else:
+                state_summary = "当日未激活任何关键的原子状态。"
+
+            # --- 3. 触发事件分析 (Trigger Event Analysis) ---
+            entry_score = last_day.get('entry_score', 0)
+            risk_score = last_day.get('risk_score', 0)
+            
+            # 从策略参数中获取最低入场分
+            # 注意：这里假设您的参数结构中有 'scoring_params' -> 'min_entry_score'
+            scoring_params = self._get_params_block(params, 'scoring_params', {})
+            min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7) # 假设默认0.7
+
+            trigger_summary = (
+                f"核心症结: 未能触发入场信号。\n"
+                f"        - 当日最终入场分: {entry_score:.2f} (风险分: {risk_score:.2f})\n"
+                f"        - 未能达到最低入场阈值: {min_entry_score:.2f}。"
+            )
+
+            # --- 4. 合成最终报告 ---
+            report = (
+                f"\n"
+                f"--- [智能参谋诊断报告 for {last_date_str}] ---\n"
+                f"  [市场上下文]: {' '.join(context_summary)}\n"
+                f"  [核心状态]: {state_summary}\n"
+                f"  [失败原因]: {trigger_summary}\n"
+                f"-------------------------------------------------"
+            )
+            return report
+
+        except FileNotFoundError:
+            return f"解读失败：找不到文件 {filepath}"
+        except Exception as e:
+            return f"解读时发生未知错误: {e}"
+
+
+
+
+
+
+
+
+
+
+
+
+
 
