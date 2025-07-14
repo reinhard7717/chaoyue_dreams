@@ -296,7 +296,7 @@ class MultiTimeframeTrendStrategy:
 
         # --- 引擎5: 通用盘中买入确认引擎 (分钟线) ---
         logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(分钟线)... ---")
-        confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
+        confirmation_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
 
         # --- 最终阶段: 合并所有信号 ---
@@ -358,7 +358,7 @@ class MultiTimeframeTrendStrategy:
         # 对于那些没有被分钟线确认的日线信号，我们仍然保留它们
         return list(daily_lookup.values())
 
-    def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
         【V117.37 架构优化版】
         - 核心升级: 调用 TradeCalendar.get_next_trade_date() 来获取监控目标日，取代了之前在DataFrame中查找的方式。
@@ -395,7 +395,7 @@ class MultiTimeframeTrendStrategy:
             setup_date = setup_date_ts.date() # 提取日期部分
 
             # ▼▼▼【代码修改 V117.37】: 调用新式武器获取下一个交易日 ▼▼▼
-            monitoring_date = TradeCalendar.get_next_trade_date(reference_date=setup_date)
+            monitoring_date = await TradeCalendar.get_next_trade_date(reference_date=setup_date)
             
             if monitoring_date is None:
                 print(f"\n--- [引擎5-调试] 预备日 {setup_date} 是最后一个已知交易日，无法监控次日，跳过。")
@@ -1093,7 +1093,7 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 引擎4 (分钟风险预警) 运行完毕，生成 {len(risk_alert_records)} 条记录。")
 
             print("  - 引擎5 (分钟买入确认) 启动...")
-            confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
+            confirmation_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
             print(f"  - 引擎5 (分钟买入确认) 运行完毕，生成 {len(confirmation_entry_records)} 条记录。")
 
             # ▼▼▼【代码修改 V117.25】: 使用与 run_for_stock 完全相同的合并逻辑 ▼▼▼
