@@ -89,7 +89,7 @@ async def _get_all_relevant_stock_codes_for_processing():
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
 # [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_today_fund_flow_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
-def execute_save_today_fund_flow_method(self, method_name: str):
+def execute_save_today_fund_flow_method(self, method_name: str, trade_date: str):
     """
     通用子任务：执行FundFlowDao中的指定异步方法来保存当日数据。
     此任务是原子化的，专注于单一的数据保存操作。
@@ -100,7 +100,7 @@ def execute_save_today_fund_flow_method(self, method_name: str):
     try:
         fund_flow_dao = FundFlowDao()
         # 使用getattr动态获取DAO实例的异步方法
-        save_method = getattr(fund_flow_dao, method_name)
+        save_method = getattr(fund_flow_dao, method_name, trade_date)
         # [关键修改] 在独立的子任务中正确使用 asyncio.run()
         asyncio.run(save_method())
         logger.info(f"子任务成功: {method_name}")
