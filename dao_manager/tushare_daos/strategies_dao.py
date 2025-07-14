@@ -587,73 +587,75 @@ class StrategiesDAO(BaseDAO):
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
         """
-        【V2.3 ORM对齐最终修复版】根据标准化的字典列表，批量创建或更新策略信号日志。
-        此版本通过提供完整的StockInfo对象实例来解决底层DAO无法识别stock_id的问题。
-        Args:
-            signals_data (List[Dict[str, Any]]): 
-                一个字典列表，每个字典都包含了所有需要存入 TrendFollowStrategySignalLog 模型的字段。
-                关键字段必须包括: stock_code, trade_time, timeframe, strategy_name 等。
-        Returns:
-            int: 成功创建或更新的记录数量。
+        【V117.14 终极可靠版】
+        - 核心重构: 彻底废弃了底层的原生UPSERT逻辑，回归到最经典、最可靠的“读取-修改-保存”模式。
+        - 工作流程:
+          1. 遍历每一条传入的信号记录。
+          2. 使用 stock_id, trade_time, strategy_name, timeframe 作为唯一键，尝试从数据库获取现有记录。
+          3. 如果记录存在，则用新数据更新现有记录的每一个字段。
+          4. 如果记录不存在，则创建一条新记录。
+        - 收益: 完美解决了因UPSERT覆盖不全导致的“分数更新失效”问题。确保了分钟线增强的信号
+                能够被正确、完整地更新到数据库中，保证了数据的绝对一致性。
         """
         if not signals_data:
             print("调试信息: [DAO-SignalLog] 传入的信号数据列表为空，不执行任何操作。")
             return 0
         
-        # print(f"调试信息: [DAO-SignalLog] 收到 {len(signals_data)} 条原始信号数据，准备进行批量保存。")
+        print(f"调试信息: [DAO-SignalLog V117.14] 收到 {len(signals_data)} 条信号，开始执行“读取-修改-保存”流程。")
 
-        # 步骤 1: 提取所有唯一的 stock_code
+        # 步骤 1: 批量获取所有需要的StockInfo对象，以备后用
         stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
         if not stock_codes:
             print("错误: [DAO-SignalLog] 信号数据中缺少 'stock_code' 字段，无法保存。")
             return 0
-
-        # 步骤 2: 【核心修改】使用 in_bulk 一次性获取所有 StockInfo 对象实例。
-        # in_bulk 返回一个以主键(这里是stock_code)为键，以对象实例为值的字典。
-        print(f"调试信息: [DAO-SignalLog] 批量获取 {len(stock_codes)} 个 StockInfo 对象实例...")
-        stocks_map = await sync_to_async(
-            lambda: StockInfo.objects.in_bulk(stock_codes)
-        )()
         
-        # 步骤 3: 预处理数据列表，用 StockInfo 对象替换 stock_code
-        processed_data = []
+        stocks_map = await sync_to_async(StockInfo.objects.in_bulk)(list(stock_codes))
+        
+        saved_count = 0
         for item in signals_data:
-            code = item.get('stock_code')
-            # 检查我们是否成功获取了该股票的对象实例
-            if code in stocks_map:
-                processed_item = item.copy()
-                # 【核心修改】将键名设置为模型字段名'stock'，值为获取到的对象实例
-                processed_item['stock'] = stocks_map[code]
-                # 移除不再需要的业务字段'stock_code'
-                del processed_item['stock_code']
-                processed_data.append(processed_item)
-            else:
-                print(f"警告: [DAO-SignalLog] 股票代码 {code} 在 StockInfo 表中不存在，该条信号将被跳过。")
+            stock_code = item.get('stock_code')
+            stock_instance = stocks_map.get(stock_code)
 
-        if not processed_data:
-            print("调试信息: [DAO-SignalLog] 经过预处理后，没有可供保存的有效信号数据。")
-            return 0
-        
-        print(f"调试信息: [DAO-SignalLog] 预处理完成，{len(processed_data)} 条数据将进行批量更新/插入。")
-        # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+            if not stock_instance:
+                print(f"警告: [DAO-SignalLog] 股票代码 {stock_code} 在 StockInfo 表中不存在，该条信号将被跳过。")
+                continue
 
-        # 调用底层的批量更新/插入方法。
-        # 底层方法现在会从 processed_item['stock'] 中正确地提取出主键值用于SQL语句。
-        result_stats = await self._save_all_to_db_native_upsert(
-            model_class=TrendFollowStrategySignalLog,
-            data_list=processed_data,
-            # unique_fields 仍然使用数据库列名，这是正确的，因为它用于构建原生SQL的
-            # ON DUPLICATE KEY UPDATE 部分，这部分直接与数据库列交互。
-            unique_fields=['stock_id', 'trade_time', 'strategy_name', 'timeframe']
-        )
-        
-        success_count = result_stats.get("创建/更新成功", 0)
-        total_attempted = result_stats.get("尝试处理", 0)
-        failed_count = result_stats.get("失败", 0)
+            # 步骤 2: 定义唯一键，并准备待更新/创建的数据
+            unique_key = {
+                'stock': stock_instance,
+                'trade_time': item.get('trade_time'),
+                'strategy_name': item.get('strategy_name'),
+                'timeframe': item.get('timeframe'),
+            }
+            
+            # 准备好所有要更新的字段
+            # 我们从 item 中提取所有模型中存在的字段
+            model_fields = {f.name for f in TrendFollowStrategySignalLog._meta.get_fields()}
+            defaults_data = {k: v for k, v in item.items() if k in model_fields}
+            
+            # 确保关键外键和非模型字段被正确处理
+            defaults_data['stock'] = stock_instance
+            if 'stock_code' in defaults_data:
+                del defaults_data['stock_code']
 
-        print(f"调试信息: [DAO-SignalLog] 批量保存完成。尝试: {total_attempted}, 成功: {success_count}, 失败: {failed_count}")
-        
-        return success_count
+            try:
+                # 步骤 3: 使用Django ORM的 aupdate_or_create，这是最安全、最推荐的方式
+                obj, created = await TrendFollowStrategySignalLog.objects.aupdate_or_create(
+                    **unique_key,
+                    defaults=defaults_data
+                )
+                
+                action = "创建" if created else "更新"
+                print(f"调试信息: [DAO-SignalLog] 成功 {action} 信号: {stock_code} @ {item.get('trade_time')}, 分数: {item.get('entry_score')}")
+                saved_count += 1
+
+            except Exception as e:
+                print(f"错误: [DAO-SignalLog] 在保存信号 {stock_code} 时发生异常: {e}")
+                import traceback
+                traceback.print_exc()
+
+        print(f"调试信息: [DAO-SignalLog V117.14] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
+        return saved_count
 
     async def update_strategy_state(self, stock_code: str, strategy_name: str, timeframe: str):
         """
