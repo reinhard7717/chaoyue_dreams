@@ -2382,13 +2382,12 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.17 时区同步修复版】
-        - 核心修复: 解决了因比较 "tz-aware" 和 "tz-naive" 时间戳导致的 TypeError。
-        - 根本原因: 手动创建的 cutoff_date 是无时区的，而来自数据帧的 start_date 是带时区的。
-        - 解决方案: 在进行比较前，首先检查数据帧索引的时区，然后将 cutoff_date 强制转换为
-                    与之相同的时区，确保两者格式统一。
+        【V118.18 战役推演版】
+        - 核心升级 1: 捕获起涨点之后5天的数据，用于战后推演。
+        - 核心升级 2: 增加'analysis_period'列，区分'lookback'和'look_forward'数据。
+        - 核心升级 3: 在白名单中增加关键的斜率指标，增强分析维度。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.17 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.18 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2396,13 +2395,14 @@ class TrendFollowStrategy:
         min_duration = self._get_param_value(backtest_params.get('min_duration_days'), 3)
         min_total_gain = self._get_param_value(backtest_params.get('min_total_gain_pct'), 15.0) / 100.0
         pre_days_lookback = self._get_param_value(backtest_params.get('pre_days_lookback'), 30)
+        post_days_lookforward = 5 # 定义向后观察的天数
         activation_window = self._get_param_value(backtest_params.get('activation_window_days'), 2)
         output_dir_base = self._get_param_value(backtest_params.get('output_dir'), 'alpha_hunter_reports')
         
         print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
-        print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 失手报告将保存至: '{output_dir_base}/' 目录")
+        print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 推演窗口: {post_days_lookforward} 天")
 
-        # --- 步骤1: 识别所有“黄金上涨波段” ---
+        # ... 步骤1: 识别黄金上涨波段 (逻辑不变) ...
         print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
         df_full['cum_min'] = df_full['close_D'].cummin()
         df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
@@ -2422,40 +2422,39 @@ class TrendFollowStrategy:
                 golden_waves.append({'start_date': wave_df.index[0], 'end_date': end_date, 'duration': duration, 'total_gain': total_gain})
         
         print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个原始黄金上涨波段。")
-        
-        # ▼▼▼【核心修正 V118.17】进行时区同步 ▼▼▼
-        # 1. 获取数据帧的时区信息 (可能是 'Asia/Shanghai' 或 None)
         target_tz = df_full.index.tz
-        
-        # 2. 创建一个初始的、无时区（naive）的截止日期
         cutoff_date_naive = pd.Timestamp('2024-01-01')
-        
-        # 3. 【关键修复】如果数据帧有时区，则将截止日期也转换为相同的时区
-        if target_tz:
-            cutoff_date = cutoff_date_naive.tz_localize(target_tz)
-        else:
-            cutoff_date = cutoff_date_naive # 如果数据帧本身也无时区，则保持一致
-        
-        # 4. 打印日志时，使用 .date() 避免显示时区，保持日志清爽
+        cutoff_date = cutoff_date_naive.tz_localize(target_tz) if target_tz else cutoff_date_naive
         print(f"    -> [时间过滤] 将只分析 {cutoff_date.date()} 之后启动的波段...")
         golden_waves = [wave for wave in golden_waves if wave['start_date'] >= cutoff_date]
-        # ▲▲▲【核心修正 V118.17】▲▲▲
-        
         if not golden_waves:
             print("    -> [过滤完成] 未发现符合时间条件的黄金上涨波段。")
             return
         print(f"    -> [过滤完成] 发现 {len(golden_waves)} 个符合条件的波段，准备逐一回测...")
 
-        # ... 后续代码与 V118.16 完全相同，无需修改 ...
+        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
             print(f"\n--- [猎手阶段2] 正在回测第 {i+1}/{len(golden_waves)} 个波段: {start_date.date()} ---")
             start_loc = df_full.index.get_loc(start_date)
-            if start_loc < pre_days_lookback: continue
             
-            analysis_df = df_full.iloc[start_loc - pre_days_lookback : start_loc + 1].copy()
+            # ▼▼▼【核心修正 V118.18】扩展数据捕获窗口 ▼▼▼
+            # 1. 计算包含向前和向后数据的完整窗口
+            start_slice = start_loc - pre_days_lookback
+            end_slice = min(start_loc + 1 + post_days_lookforward, len(df_full))
+            if start_slice < 0: continue
             
+            # 2. 截取包含战前和战后数据的完整DataFrame
+            analysis_df = df_full.iloc[start_slice:end_slice].copy()
+            
+            # 3. 增加'analysis_period'列以区分数据
+            analysis_df['analysis_period'] = 'lookback'
+            # 使用.loc来安全地设置look_forward部分
+            forward_start_date = start_date + pd.Timedelta(days=1)
+            analysis_df.loc[analysis_df.index >= forward_start_date, 'analysis_period'] = 'look_forward'
+            # ▲▲▲【核心修正 V118.18】▲▲▲
+
             try:
                 result_df_raw, _ = self.apply_strategy(analysis_df, params)
             except Exception as e:
@@ -2481,13 +2480,20 @@ class TrendFollowStrategy:
                     scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
+                # ▼▼▼【核心修正 V118.18】扩充白名单 ▼▼▼
                 essential_columns_whitelist = [
                     'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
                     'signal_entry', 'entry_score', 'risk_score', 'EMA_21_D', 'EMA_55_D', 
                     'EMA_89_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
                     'CHIP_peak_cost_D', 'CHIP_winner_rate_short_term_D', 'CHIP_concentration_90pct_D',
-                    'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
+                    'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
+                    # 新增关键斜率指标
+                    'SLOPE_5_close_D', 'ACCEL_5_close_D', 'CHIP_concentration_90pct_slope_5d_D',
+                    # 新增的推演周期标记列
+                    'analysis_period'
                 ]
+                # ▲▲▲【核心修正 V118.18】▲▲▲
+                
                 columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
                 final_report_df = final_report_df[columns_to_keep]
                 
@@ -2505,7 +2511,7 @@ class TrendFollowStrategy:
                 try:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [报告生成] 已将净化后的快照 ({len(final_report_df)}行) 保存至: {filepath}")
+                    print(f"    -> [报告生成] 已将包含推演数据的快照 ({len(final_report_df)}行) 保存至: {filepath}")
 
                     interpretation_dict = await self.interpret_snapshot(filepath, params)
                     
@@ -2514,12 +2520,12 @@ class TrendFollowStrategy:
                     interp_filepath = os.path.join(report_dir, interp_filename)
                     with open(interp_filepath, 'w', encoding='utf-8') as f:
                         json.dump(interpretation_dict, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [智能解读] 已将诊断报告保存至: {interp_filepath}")
+                    print(f"    -> [智能解读] 已将推演诊断报告保存至: {interp_filepath}")
 
                 except Exception as e:
                     print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
 
-        print("\n" + "="*30 + " [阿尔法猎手 V118.17 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.18 总结] " + "="*30)
         print(f"    - 总计分析波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
@@ -2529,15 +2535,10 @@ class TrendFollowStrategy:
 
     async def interpret_snapshot(self, filepath: str, params: dict) -> dict:
         """
-        【V118.16 智能参谋-归档版】
-        加载并解读 "失手报告" JSON 文件，并返回一个结构化的字典用于JSON序列化。
-
-        Args:
-            filepath (str): "失手报告" JSON 文件的完整路径。
-            params (dict): 策略参数字典，用于获取评分阈值等配置。
-
-        Returns:
-            dict: 一个包含完整诊断信息的结构化字典。
+        【V118.18 战役推演官】
+        - 核心升级 1: 修正原子状态识别逻辑，更精确。
+        - 核心升级 2: 增加“战后推演”模块，分析后续5天走势。
+        - 核心升级 3: 给出最终裁决：是“确认错失良机”还是“确认规避陷阱”。
         """
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
@@ -2549,10 +2550,18 @@ class TrendFollowStrategy:
             df = pd.DataFrame.from_dict(data, orient='index')
             df.index = pd.to_datetime(df.index)
             
-            last_day = df.iloc[-1]
+            # 1. 分离战前与战后数据
+            df_lookback = df[df['analysis_period'] == 'lookback']
+            df_look_forward = df[df['analysis_period'] == 'look_forward']
+            
+            if df_lookback.empty:
+                return {"error": "解读失败：报告中无lookback数据。", "source_file": filepath}
+
+            # 2. 对起涨点当天进行分析
+            last_day = df_lookback.iloc[-1]
             last_date_str = last_day.name.strftime('%Y-%m-%d')
 
-            # --- 1. 上下文分析 ---
+            # --- 上下文分析 ---
             ema21 = last_day.get('EMA_21_D', 0)
             ema55 = last_day.get('EMA_55_D', 0)
             close = last_day.get('close_D', 0)
@@ -2563,35 +2572,67 @@ class TrendFollowStrategy:
             macd_h = last_day.get('MACDh_13_34_8_D', 0)
             momentum_context = "动能为负 (MACD绿柱)" if macd_h <= 0 else "动能为正 (MACD红柱)"
 
-            # --- 2. 状态诊断 ---
-            active_states = [col.replace('_score', '') for col, val in last_day.items() if isinstance(col, str) and col.isupper() and isinstance(val, (int, float)) and val > 0]
+            # --- 状态诊断 (精确版) ---
+            # ▼▼▼【核心修正 V118.18】精确识别原子状态 ▼▼▼
+            active_states = [
+                col for col, val in last_day.items() 
+                if isinstance(col, str) and col.isupper() and '_D' not in col and 'score' not in col
+                and isinstance(val, (int, float)) and val > 0
+            ]
+            # ▲▲▲【核心修正 V118.18】▲▲▲
 
-            # --- 3. 触发事件分析 ---
+            # --- 触发事件分析 ---
             entry_score = last_day.get('entry_score', 0)
             risk_score = last_day.get('risk_score', 0)
             scoring_params = self._get_params_block(params, 'scoring_params', {})
             min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7)
 
-            # --- 4. 合成最终报告字典 ---
+            # --- 战后推演分析 (Post-Event Analysis) ---
+            post_event_analysis = {}
+            if not df_look_forward.empty:
+                forward_days = len(df_look_forward)
+                # 后续N日内的最高价
+                peak_high_forward = df_look_forward['high_D'].max()
+                # 后续N日最终收盘价
+                final_close_forward = df_look_forward['close_D'].iloc[-1]
+                
+                # 计算涨幅
+                peak_gain_pct = ((peak_high_forward / close) - 1) * 100
+                final_gain_pct = ((final_close_forward / close) - 1) * 100
+                
+                # 最终裁决
+                verdict = "确认规避陷阱"
+                if peak_gain_pct > 8.0: # 如果后续5日内最大涨幅超过8%，可认为是错失良机
+                    verdict = "确认错失良机"
+                
+                post_event_analysis = {
+                    "verdict": verdict,
+                    "forward_days_analyzed": forward_days,
+                    "peak_gain_in_period_pct": round(peak_gain_pct, 2),
+                    "final_gain_at_period_end_pct": round(final_gain_pct, 2),
+                    "summary": f"在后续{forward_days}天内, 股价最大涨幅达到{peak_gain_pct:.2f}%, 期末收盘涨幅为{final_gain_pct:.2f}%。"
+                }
+            else:
+                post_event_analysis = {"verdict": "数据不足，无法推演", "summary": "报告中无后续数据。"}
+
+            # --- 合成最终报告字典 ---
             interpretation_dict = {
                 "interpretation_details": {
                     "report_date": last_date_str,
                     "source_snapshot": os.path.basename(filepath),
-                    "status": "Missed Opportunity"
+                    "status": "Missed Opportunity Analysis"
                 },
-                "context_analysis": {
-                    "trend_summary": trend_context,
-                    "momentum_summary": momentum_context,
+                "pre_event_analysis": {
+                    "context_summary": f"趋势: {trend_context} | 动能: {momentum_context}",
+                    "active_atomic_states": active_states if active_states else "无",
+                    "trigger_failure_reason": {
+                        "conclusion": "未能达到最低入场阈值",
+                        "final_entry_score": round(entry_score, 4),
+                        "risk_score": round(risk_score, 4),
+                        "required_score": min_entry_score
+                    }
                 },
-                "state_diagnosis": {
-                    "active_atomic_states": active_states if active_states else "无"
-                },
-                "trigger_analysis": {
-                    "conclusion": "未能达到最低入场阈值",
-                    "final_entry_score": round(entry_score, 4),
-                    "risk_score": round(risk_score, 4),
-                    "required_score": min_entry_score
-                }
+                "post_event_analysis": post_event_analysis
             }
             return interpretation_dict
 
@@ -2599,7 +2640,6 @@ class TrendFollowStrategy:
             return {"error": "解读失败：找不到文件。", "source_file": filepath}
         except Exception as e:
             return {"error": f"解读时发生未知错误: {e}", "source_file": filepath}
-
 
 
 
