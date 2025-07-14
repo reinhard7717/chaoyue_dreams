@@ -1007,20 +1007,21 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V117.7 终极统一版】
-        - 核心修复: 解决了因不同引擎生成的 trade_time 数据类型不一致（datetime 和 str 混合）
-                    而导致的排序 TypeError。
-        - 解决方案: 在排序的 key 函数中，使用 pd.to_datetime() 强制将所有 trade_time 值
-                    转换为可比较的 pandas Timestamp 对象，确保了排序的健壮性。
+        【V117.25 逻辑统一版】
+        - 核心修复: 废弃了特殊的 _merge_and_deduplicate_signals 合并逻辑，
+                    改为采用与主方法 run_for_stock 完全相同的、简单的信号合并方式。
+        - 解决方案: 直接复制 run_for_stock 中的信号合并代码，确保调试方法
+                    100% 模拟生产环境的信号生成与合并流程。
+        - 收益: 保证了调试结果与生产环境的绝对一致性，让调试真正变得可靠。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V117.7 终极统一版)] ---")
+        print(f"--- [历史回溯调试启动 (V117.25 逻辑统一版)] ---")
         print(f"  - 股票代码: {stock_code}")
         print(f"  - 目标时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            # 步骤 1: 获取全量历史数据
+            # 步骤 1: 获取全量历史数据 (逻辑保持不变)
             print(f"\n[步骤 1/3] 正在准备从最早到 {end_date} 的所有时间周期数据...")
             all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
                 stock_code, self.merged_config, trade_time=end_date
@@ -1030,7 +1031,7 @@ class MultiTimeframeTrendStrategy:
                 return
             print("[成功] 所有原始数据和指标准备就绪。")
 
-            # 步骤 2: 完整运行所有五个引擎
+            # 步骤 2: 完整运行所有五个引擎 (逻辑保持不变)
             print("\n[步骤 2/3] 正在完整运行所有五个策略引擎...")
             
             print("  - 引擎1 (周线战略) 启动...")
@@ -1057,12 +1058,17 @@ class MultiTimeframeTrendStrategy:
             confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
             print(f"  - 引擎5 (分钟买入确认) 运行完毕，生成 {len(confirmation_entry_records)} 条记录。")
 
-            all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
-            final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
-            all_records = final_entry_records + risk_alert_records
+            # ▼▼▼【代码修改 V117.25】: 使用与 run_for_stock 完全相同的合并逻辑 ▼▼▼
+            # 将所有买入信号（日线、分钟共振、分钟确认）简单合并
+            all_entry_records = tactical_records + resonance_entry_records + confirmation_entry_records
+            
+            # 将所有买入信号与所有风险信号合并
+            all_records = all_entry_records + risk_alert_records
+            # ▲▲▲【代码修改 V117.25】▲▲▲
+            
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
 
-            # 步骤 3: 筛选并展示目标时段的信号
+            # 步骤 3: 筛选并展示目标时段的信号 (逻辑保持不变)
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
             if not all_records:
@@ -1074,7 +1080,13 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_records = []
             for rec in all_records:
+                # 强制将 trade_time 转为带时区的 datetime 对象，以进行安全比较
                 rec_time = pd.to_datetime(rec['trade_time'])
+                if not rec_time.tzinfo:
+                    rec_time = rec_time.tz_localize('UTC')
+                else:
+                    rec_time = rec_time.tz_convert('UTC')
+
                 if start_dt <= rec_time <= end_dt:
                     debug_period_records.append(rec)
 
@@ -1082,9 +1094,7 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
             
-            # ▼▼▼【代码修改 V117.7】: 强制类型转换，确保排序时所有时间都是可比较的datetime对象 ▼▼▼
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time']))
-            # ▲▲▲【代码修改 V117.7】▲▲▲
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for record in debug_period_records:
