@@ -414,6 +414,7 @@ class MultiTimeframeTrendStrategy:
         # 以“冲高回落”预警为例
         upthrust_rejection_params = exec_params.get('upthrust_rejection', {})
         if not get_val(upthrust_rejection_params.get('enabled'), False):
+            logger.info("    - [风险预警任务] 跳过 'upthrust_rejection' 规则，因为它在配置中被禁用。")
             return [] # 如果该特定预警被禁用，则直接返回
 
         # 从 exit_strategy_params 获取更底层的计算参数

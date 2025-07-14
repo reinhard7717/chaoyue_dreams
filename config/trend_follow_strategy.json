@@ -177,20 +177,24 @@
         "bonus_score": { "value": 50, "说明": "盘中确认成功后，在日线分数基础上额外增加的奖励分。" }
       },
       "intraday_execution_params": {
-        "说明": "【V105 框架版】通用盘中预警引擎的配置中心",
-        "upthrust_rejection": {
-          "enabled": { "value": true, "说明": "启用'冲高回落'盘中预警" },
-          "setup_signal_name": { "value": "SETUP_UPTHRUST_WATCH", "说明": "对应的日线预备信号名称" },
-          "alert_playbook_name": { "value": "EXIT_INTRADAY_UPTHRUST_REJECTION", "说明": "触发时记录的剧本名称" },
-          "alert_code": { "value": 103, "说明": "信号代码" },
-          "severity_level": { "value": 3, "说明": "风险等级" }
-        },
-        "sharp_pullback_confirmation": {
-          "enabled": { "value": true, "说明": "启用'急跌反弹失败'盘中预警" },
-          "setup_signal_name": { "value": "SETUP_SHARP_PULLBACK_WATCH", "说明": "对应的日线预备信号名称" },
-          "alert_playbook_name": { "value": "EXIT_INTRADAY_PULLBACK_FAILED", "说明": "触发时记录的剧本名称" },
-          "alert_code": { "value": 104, "说明": "信号代码" },
-          "severity_level": { "value": 3, "说明": "风险等级" }
+        "说明": "【V117.4 适配版】通用盘中预警引擎的配置中心",
+        
+        "enabled": true, 
+        "timeframe": "30",
+
+        "rules": {
+          "upthrust_rejection": {
+            "enabled": true,
+            "alert_playbook_name": "EXIT_INTRADAY_UPTHRUST_REJECTION",
+            "alert_code": 103,
+            "severity_level": 3
+          },
+          "sharp_pullback_confirmation": {
+            "enabled": true,
+            "alert_playbook_name": "EXIT_INTRADAY_PULLBACK_FAILED",
+            "alert_code": 104,
+            "severity_level": 3
+          }
         }
       }
     }
