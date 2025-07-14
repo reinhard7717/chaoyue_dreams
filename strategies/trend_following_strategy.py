@@ -2382,11 +2382,13 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.16 聚焦打击+情报归档版】
-        - 核心升级 1: 增加时间过滤器，只回测2024年1月1日之后的“黄金上涨波段”。
-        - 核心升级 2: 调用“智能参谋”后，不再打印，而是将返回的JSON对象写入对应的解读文件中。
+        【V118.17 时区同步修复版】
+        - 核心修复: 解决了因比较 "tz-aware" 和 "tz-naive" 时间戳导致的 TypeError。
+        - 根本原因: 手动创建的 cutoff_date 是无时区的，而来自数据帧的 start_date 是带时区的。
+        - 解决方案: 在进行比较前，首先检查数据帧索引的时区，然后将 cutoff_date 强制转换为
+                    与之相同的时区，确保两者格式统一。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.16 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.17 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2419,18 +2421,32 @@ class TrendFollowStrategy:
             if duration >= min_duration and total_gain >= min_total_gain:
                 golden_waves.append({'start_date': wave_df.index[0], 'end_date': end_date, 'duration': duration, 'total_gain': total_gain})
         
-        # ▼▼▼【核心修正 V118.16】增加时间过滤器 ▼▼▼
         print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个原始黄金上涨波段。")
-        cutoff_date = pd.Timestamp('2024-01-01')
+        
+        # ▼▼▼【核心修正 V118.17】进行时区同步 ▼▼▼
+        # 1. 获取数据帧的时区信息 (可能是 'Asia/Shanghai' 或 None)
+        target_tz = df_full.index.tz
+        
+        # 2. 创建一个初始的、无时区（naive）的截止日期
+        cutoff_date_naive = pd.Timestamp('2024-01-01')
+        
+        # 3. 【关键修复】如果数据帧有时区，则将截止日期也转换为相同的时区
+        if target_tz:
+            cutoff_date = cutoff_date_naive.tz_localize(target_tz)
+        else:
+            cutoff_date = cutoff_date_naive # 如果数据帧本身也无时区，则保持一致
+        
+        # 4. 打印日志时，使用 .date() 避免显示时区，保持日志清爽
         print(f"    -> [时间过滤] 将只分析 {cutoff_date.date()} 之后启动的波段...")
         golden_waves = [wave for wave in golden_waves if wave['start_date'] >= cutoff_date]
+        # ▲▲▲【核心修正 V118.17】▲▲▲
+        
         if not golden_waves:
             print("    -> [过滤完成] 未发现符合时间条件的黄金上涨波段。")
             return
         print(f"    -> [过滤完成] 发现 {len(golden_waves)} 个符合条件的波段，准备逐一回测...")
-        # ▲▲▲【核心修正 V118.16】▲▲▲
 
-        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
+        # ... 后续代码与 V118.16 完全相同，无需修改 ...
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
@@ -2485,18 +2501,14 @@ class TrendFollowStrategy:
                 filename = f"{start_date.strftime('%Y-%m-%d')}.json"
                 filepath = os.path.join(report_dir, filename)
                 
-                # ▼▼▼【核心修正 V118.16】保存解读报告 ▼▼▼
                 json_data = sanitize_for_json(final_report_df.to_dict(orient='index'))
                 try:
-                    # 1. 保存原始快照
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
                     print(f"    -> [报告生成] 已将净化后的快照 ({len(final_report_df)}行) 保存至: {filepath}")
 
-                    # 2. 调用智能参谋获取解读字典
                     interpretation_dict = await self.interpret_snapshot(filepath, params)
                     
-                    # 3. 构建解读报告的文件名并保存
                     base_name, _ = os.path.splitext(filename)
                     interp_filename = f"{base_name}_interpret_snapshot.json"
                     interp_filepath = os.path.join(report_dir, interp_filename)
@@ -2506,10 +2518,8 @@ class TrendFollowStrategy:
 
                 except Exception as e:
                     print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
-                # ▲▲▲【核心修正 V118.16】▲▲▲
 
-        # ... 总结报告 (逻辑不变) ...
-        print("\n" + "="*30 + " [阿尔法猎手 V118.16 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.17 总结] " + "="*30)
         print(f"    - 总计分析波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
