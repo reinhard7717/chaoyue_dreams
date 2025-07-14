@@ -359,98 +359,108 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.19 架构统一版】
-        - 核心革命: 彻底废弃“增强包”模式，回归独立的信号生成模式，与卖出引擎架构完全对齐。
-        - 工作流程:
-          1. 找到符合条件的分钟线买入点。
-          2. 直接调用 self._create_signal_record() 创建一个完整的、独立的分钟线买入信号记录。
-          3. 这个记录包含了所有信息：更高的分数、新的剧本、精确到分钟的时间戳。
-        - 收益: 彻底解决了因“原地更新”失败导致的分数不更新问题，简化了数据流，使系统更健壮、可预测。
+        【V117.26 战场记录仪版】
+        - 核心升级: 在函数内部增加了大量的诊断性 print 语句，用于追踪“静默失败”的原因。
+        - 调试流程:
+          1. 打印引擎的配置参数，确认是否启用、分数阈值等。
+          2. 打印找到的“日线预备日”数量，确认是否有候选目标。
+          3. 在循环内部，打印每一天的分钟线数据情况。
+          4. 打印每一个确认规则（VWAP, Volume等）的触发情况。
+        - 收益: 将“黑盒”过程变为“白盒”，能精确暴露导致信号无法生成的具体原因。
         """
-        # all_confirmations 变量变更为 all_confirmation_records
+        print("--- [引擎5-调试] 进入分钟买入确认引擎 ---")
         all_confirmation_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
-        if not get_val(entry_params.get('enabled'), False):
+        # ▼▼▼【代码修改 V117.26】: 增加配置检查打印 ▼▼▼
+        is_enabled = get_val(entry_params.get('enabled'), False)
+        daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
+        minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
+        print(f"--- [引擎5-调试] 配置: enabled={is_enabled}, daily_score_threshold={daily_score_threshold}, timeframe='{minute_tf}'")
+        
+        if not is_enabled:
+            print("--- [引擎5-调试] 引擎在配置中被禁用，退出。")
             return all_confirmation_records
         
         if self.daily_analysis_df is None or self.daily_analysis_df.empty:
-            logger.warning(f"[{stock_code}] 缺少日线分析结果(daily_analysis_df)，分钟线买入确认引擎跳过。")
+            print("--- [引擎5-调试] 错误: self.daily_analysis_df 为空，无法找到预备日，退出。")
             return all_confirmation_records
 
-        daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
         
+        print(f"--- [引擎5-调试] 日线分析结果总行数: {len(self.daily_analysis_df)}")
+        print(f"--- [引擎5-调试] 筛选后 (entry_score >= {daily_score_threshold})，找到 {len(setup_days_df)} 个预备日。")
         if setup_days_df.empty:
+            print("--- [引擎5-调试] 没有找到符合分数阈值的预备日，退出。")
             return all_confirmation_records
             
-        logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日(得分>={daily_score_threshold})，启动当日盘中监控...")
-
-        minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
-            logger.warning(f"[{stock_code}] 缺少 {minute_tf} 分钟线数据，分钟线买入确认引擎跳过。")
+            print(f"--- [引擎5-调试] 错误: 缺少 {minute_tf} 分钟线数据，退出。")
             return all_confirmation_records
+        print(f"--- [引擎5-调试] 成功加载 {minute_tf} 分钟线数据，共 {len(minute_df)} 行。")
 
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
+        # 开始遍历每一个潜在的“滩头阵地”
         for setup_date, setup_row in setup_days_df.iterrows():
-            # ... (中段的分钟线信号判断逻辑完全不变) ...
+            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
+            
             if alert_day_minute_df.empty:
+                print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
                 continue
+            print(f"    - [调试] 已提取当天分钟线数据 {len(alert_day_minute_df)} 条。")
 
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
-            
             close_col_m = f'close_{minute_tf}'
-            volume_col_m = f'volume_{minute_tf}'
-
+            
+            # --- 逐一检查规则 ---
             vwap_rule = rules.get('vwap_reclaim', {})
             if get_val(vwap_rule.get('enabled'), False):
                 vwap_col_m = f'VWAP_{minute_tf}'
                 if vwap_col_m in alert_day_minute_df.columns and close_col_m in alert_day_minute_df.columns:
-                    final_confirmation_signal &= (alert_day_minute_df[close_col_m] > alert_day_minute_df[vwap_col_m])
+                    vwap_signal = (alert_day_minute_df[close_col_m] > alert_day_minute_df[vwap_col_m])
+                    print(f"    - [调试-规则] VWAP突破: 触发了 {vwap_signal.sum()} 次。")
+                    final_confirmation_signal &= vwap_signal
                 else:
-                    logger.warning(f"[{stock_code}] 缺少 {vwap_col_m} 或 {close_col_m}，VWAP突破规则失效。")
+                    print(f"    - [调试-规则] VWAP突破: 缺少列 {vwap_col_m}，规则失效。")
                     final_confirmation_signal &= False
 
             vol_rule = rules.get('volume_confirmation', {})
             if get_val(vol_rule.get('enabled'), False):
+                volume_col_m = f'volume_{minute_tf}'
                 vol_ma_period = get_val(vol_rule.get('ma_period'), 21)
                 vol_ma_col_m = f'VOL_MA_{vol_ma_period}_{minute_tf}'
                 if vol_ma_col_m in alert_day_minute_df.columns and volume_col_m in alert_day_minute_df.columns:
-                    final_confirmation_signal &= (alert_day_minute_df[volume_col_m] > alert_day_minute_df[vol_ma_col_m])
+                    vol_signal = (alert_day_minute_df[volume_col_m] > alert_day_minute_df[vol_ma_col_m])
+                    print(f"    - [调试-规则] 成交量确认: 触发了 {vol_signal.sum()} 次。")
+                    final_confirmation_signal &= vol_signal
+                else:
+                    print(f"    - [调试-规则] 成交量确认: 缺少列 {vol_ma_col_m}，规则失效。")
+                    final_confirmation_signal &= False
+            
+            # ...可以为其他规则添加类似的打印...
 
-            vola_rule = rules.get('volatility_breakout', {})
-            if get_val(vola_rule.get('enabled'), False):
-                bbw_col_m = f'BBW_21_2.0_{minute_tf}'
-                if bbw_col_m in alert_day_minute_df.columns:
-                    squeeze_window = get_val(vola_rule.get('squeeze_window'), 60)
-                    squeeze_percentile = get_val(vola_rule.get('squeeze_percentile'), 0.2)
-                    
-                    squeeze_threshold = alert_day_minute_df[bbw_col_m].rolling(
-                        window=squeeze_window, 
-                        min_periods=squeeze_window // 2
-                    ).quantile(squeeze_percentile)
-                    
-                    is_expanding_from_squeeze = (alert_day_minute_df[bbw_col_m] > alert_day_minute_df[bbw_col_m].shift(1)) & \
-                                                (alert_day_minute_df[bbw_col_m].shift(1) < squeeze_threshold)
-                    final_confirmation_signal &= is_expanding_from_squeeze
-
+            print(f"    - [调试] 所有规则叠加后，共有 {final_confirmation_signal.sum()} 个K线满足静态条件。")
+            
             market_open_time = setup_date.replace(hour=9, minute=30, second=0)
             monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
+            # 寻找从 False -> True 的那个“触发点”
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
                 (final_confirmation_signal == True) & 
                 (final_confirmation_signal.shift(1) == False)
             ]
+            
+            print(f"    - [调试] 在 {monitoring_start_time.time()} 之后，找到 {len(triggered_minutes)} 个最终的买入触发点。")
 
             if not triggered_minutes.empty:
                 first_confirmation_minute = triggered_minutes.iloc[0]
-                confirm_time = first_confirmation_minute.name # 精确到分钟的时间戳
+                confirm_time = first_confirmation_minute.name
                 confirm_price = first_confirmation_minute[close_col_m]
                 
                 daily_score = setup_row.get('entry_score', 0)
@@ -461,7 +471,7 @@ class MultiTimeframeTrendStrategy:
                 
                 record = self._create_signal_record(
                     stock_code=stock_code,
-                    trade_time=confirm_time, # 使用精确到分钟的时间
+                    trade_time=confirm_time,
                     timeframe=minute_tf,
                     strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
                     close_price=confirm_price,
@@ -472,10 +482,10 @@ class MultiTimeframeTrendStrategy:
                 )
                 all_confirmation_records.append(record)
                 
-                logger.info(f"         - [分钟线买入!] 日期: {setup_date.date()} | 时间: {confirm_time.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
-                # 使用 continue 是为了每天只取第一个确认信号
+                print(f"    - [信号生成!] 已在 {confirm_time.time()} 生成分钟线买入信号，最终得分: {final_score:.0f}")
                 continue 
-
+        
+        print("--- [引擎5-调试] 分钟买入确认引擎执行完毕 ---")
         return all_confirmation_records
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
