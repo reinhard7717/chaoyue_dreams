@@ -227,7 +227,7 @@ class TradeCalendar(models.Model):
         return is_open
 
     @classmethod
-    def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+    async def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """
         查询指定日期之后的第一个交易日。
         :param reference_date: date, 查询的参考日期。如果为None，则默认为今天。
