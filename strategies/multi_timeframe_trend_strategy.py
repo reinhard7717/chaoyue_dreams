@@ -70,7 +70,49 @@ class MultiTimeframeTrendStrategy:
         self.daily_analysis_df = None
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
 
-    # ▼▼▼【代码修改】: 报告生成函数重大升级，以支持分级止盈 ▼▼▼
+    # ▼▼▼【 “军用标准战报”生成器 ▼▼▼
+    def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
+        """
+        【V117.8 新增】标准信号记录生成器 (军用标准战报协议)。
+        - 核心功能: 保证所有生成的信号记录具有统一、规范的结构和数据类型。
+        - 类型强制: 强制将 'trade_time' 转换为标准的 to_pydatetime() 对象，从根源上杜绝类型不一致问题。
+        - 结构统一: 为所有记录提供了一致的默认值，避免了 'KeyError'。
+        """
+        # 强制转换 trade_time
+        trade_time_input = kwargs.get('trade_time')
+        if trade_time_input is None:
+            raise ValueError("创建信号记录时必须提供 'trade_time'")
+        
+        # 使用 pd.to_datetime 兼容各种输入，然后转为标准的 python datetime
+        standard_trade_time = pd.to_datetime(trade_time_input).to_pydatetime()
+
+        # 定义一个标准的记录模板
+        record = {
+            "stock_code": None,
+            "trade_time": standard_trade_time,
+            "timeframe": "N/A",
+            "strategy_name": "UNKNOWN",
+            "close_price": 0.0,
+            "entry_score": 0.0,
+            "entry_signal": False,
+            "exit_signal_code": 0,
+            "exit_severity_level": 0,
+            "exit_signal_reason": None,
+            "triggered_playbooks": [],
+            "context_snapshot": {},
+            "analysis_text": None
+        }
+        
+        # 使用传入的参数覆盖模板的默认值
+        record.update(kwargs)
+        
+        # 确保关键数据被正确处理
+        record['close_price'] = sanitize_for_json(record['close_price'])
+        record['context_snapshot'] = sanitize_for_json(record['context_snapshot'])
+
+        return record
+
+    # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
         stock_code = record.get("stock_code", "N/A")
         trade_time = record.get("trade_time")
@@ -250,37 +292,29 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.1 健壮版】
-        - 核心逻辑: 保持“先有日线高分，再有分钟确认”的核心逻辑不变，因为这是合理的战略->战术流程。
-        - 健壮性增强:
-          1. 增加了更详细的日志输出，清晰展示每一步的决策过程（如找到多少预备日、使用哪个分钟周期等）。
-          2. 优化了变量命名，使其更具可读性（如 close_col_m, vwap_col_m）。
-          3. 增加了对关键数据（如分钟DF、特定列）的空值检查和警告，防止因数据缺失导致意外崩溃。
+        【V117.8 协议统一版】
+        - 核心重构: 废弃了手动创建字典的方式，转而调用 self._create_signal_record() 辅助函数
+                    来生成信号记录，确保了战报格式的绝对统一。
         """
         all_confirmations = []
-        # --- 步骤0: 加载配置和数据 ---
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(entry_params.get('enabled'), False):
             return []
         
-        # 依赖于日线引擎的分析结果，这是设计的核心
         if self.daily_analysis_df is None or self.daily_analysis_df.empty:
             logger.warning(f"[{stock_code}] 缺少日线分析结果(daily_analysis_df)，分钟线买入确认引擎跳过。")
             return []
 
-        # --- 步骤1: 识别所有日线高分的“预备日” ---
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
         
         if setup_days_df.empty:
-            # 这是一个正常情况，当天没有符合条件的日线信号
             return []
             
         logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日(得分>={daily_score_threshold})，启动当日盘中监控...")
 
-        # --- 步骤2: 准备分钟数据和规则参数 ---
         minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
@@ -290,20 +324,16 @@ class MultiTimeframeTrendStrategy:
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
-        # --- 步骤3: 遍历每个预备日，监控当天分钟行情 ---
         for setup_date, setup_row in setup_days_df.iterrows():
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
             if alert_day_minute_df.empty:
                 continue
 
-            # --- 步骤4: 构建三位一体的分钟线确认逻辑 ---
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
             
-            # 使用带后缀的分钟级别列名，增加代码清晰度
             close_col_m = f'close_{minute_tf}'
             volume_col_m = f'volume_{minute_tf}'
 
-            # 条件1: VWAP突破
             vwap_rule = rules.get('vwap_reclaim', {})
             if get_val(vwap_rule.get('enabled'), False):
                 vwap_col_m = f'VWAP_{minute_tf}'
@@ -311,9 +341,8 @@ class MultiTimeframeTrendStrategy:
                     final_confirmation_signal &= (alert_day_minute_df[close_col_m] > alert_day_minute_df[vwap_col_m])
                 else:
                     logger.warning(f"[{stock_code}] 缺少 {vwap_col_m} 或 {close_col_m}，VWAP突破规则失效。")
-                    final_confirmation_signal &= False # 如果缺少关键列，则该规则不通过
+                    final_confirmation_signal &= False
 
-            # 条件2: 成交量确认
             vol_rule = rules.get('volume_confirmation', {})
             if get_val(vol_rule.get('enabled'), False):
                 vol_ma_period = get_val(vol_rule.get('ma_period'), 21)
@@ -321,7 +350,6 @@ class MultiTimeframeTrendStrategy:
                 if vol_ma_col_m in alert_day_minute_df.columns and volume_col_m in alert_day_minute_df.columns:
                     final_confirmation_signal &= (alert_day_minute_df[volume_col_m] > alert_day_minute_df[vol_ma_col_m])
 
-            # 条件3: 波动率突破
             vola_rule = rules.get('volatility_breakout', {})
             if get_val(vola_rule.get('enabled'), False):
                 bbw_col_m = f'BBW_21_2.0_{minute_tf}'
@@ -338,11 +366,9 @@ class MultiTimeframeTrendStrategy:
                                                 (alert_day_minute_df[bbw_col_m].shift(1) < squeeze_threshold)
                     final_confirmation_signal &= is_expanding_from_squeeze
 
-            # --- 步骤5: 寻找首次触发点 ---
             market_open_time = setup_date.replace(hour=9, minute=30, second=0)
             monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
-            # 寻找信号从False变为True的那个瞬间
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
                 (final_confirmation_signal == True) & 
@@ -353,41 +379,35 @@ class MultiTimeframeTrendStrategy:
                 first_confirmation_minute = triggered_minutes.iloc[0]
                 confirm_price = first_confirmation_minute[close_col_m]
                 
-                # --- 步骤6: 生成增强的买入信号记录 ---
                 daily_score = setup_row.get('entry_score', 0)
                 bonus_score = get_val(entry_params.get('bonus_score'), 50)
                 final_score = daily_score + bonus_score
                 
-                # 从日线分析结果中提取触发的剧本
                 daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
                 
-                record = {
-                    "stock_code": stock_code,
-                    "trade_time": first_confirmation_minute.name.to_pydatetime(),
-                    "timeframe": minute_tf,
-                    "strategy_name": get_val(entry_params.get('signal_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                    "close_price": sanitize_for_json(confirm_price),
-                    "entry_score": final_score,
-                    "entry_signal": True,
-                    "exit_signal_code": 0,
-                    "exit_severity_level": 0,
-                    "exit_signal_reason": None,
-                    "triggered_playbooks": list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
-                    "context_snapshot": sanitize_for_json({'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score}),
-                }
+                record = self._create_signal_record(
+                    stock_code=stock_code,
+                    trade_time=first_confirmation_minute.name,
+                    timeframe=minute_tf,
+                    strategy_name=get_val(entry_params.get('signal_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
+                    close_price=confirm_price,
+                    entry_score=final_score,
+                    entry_signal=True,
+                    triggered_playbooks=list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
+                    context_snapshot={'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score},
+                )
+                
                 all_confirmations.append(record)
                 logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {first_confirmation_minute.name.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
-                # 当天只取第一个确认信号，然后继续检查下一个预备日
                 continue 
 
         return all_confirmations
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.5 最终修正版】
-        - 核心修复: 修正了读取配置文件路径的微小偏差。代码现在会正确地从 'rules' 容器内部
-                    查找具体的预警规则（如'upthrust_rejection'），解决了因路径错误导致规则
-                    被误判为禁用的问题。这是打通分钟线预警的最后一步。
+        【V117.8 协议统一版】
+        - 核心重构: 废弃了手动创建字典的方式，转而调用 self._create_signal_record() 辅助函数
+                    来生成信号记录，确保了战报格式的绝对统一。
         """
         all_alerts = []
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
@@ -402,10 +422,8 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"[{stock_code}] 缺少日线数据，分钟线风险预警引擎跳过。")
             return []
 
-        # ▼▼▼【代码修改 V117.5】: 校准配置读取路径，先进入 'rules' 容器 ▼▼▼
         rules_container = exec_params.get('rules', {})
         upthrust_rejection_params = rules_container.get('upthrust_rejection', {})
-        # ▲▲▲【代码修改 V117.5】▲▲▲
         
         if not get_val(upthrust_rejection_params.get('enabled'), False):
             logger.info("    - [风险预警任务] 跳过 'upthrust_rejection' 规则，因为它在配置中被禁用。")
@@ -453,20 +471,20 @@ class MultiTimeframeTrendStrategy:
                 alert_code = get_val(upthrust_rejection_params.get('alert_code'), 103)
                 severity_level = get_val(upthrust_rejection_params.get('severity_level'), 3)
 
-                record = {
-                    "stock_code": stock_code,
-                    "trade_time": alert_time.to_pydatetime(),
-                    "timeframe": minute_tf,
-                    "strategy_name": "INTRADAY_RISK_ALERT",
-                    "close_price": sanitize_for_json(alert_price),
-                    "entry_signal": False,
-                    "entry_score": 0.0,
-                    "exit_signal_code": alert_code,
-                    "exit_severity_level": severity_level,
-                    "exit_signal_reason": f"盘中跌破VWAP, 由前一日({setup_date.date()})创近期新高触发监控",
-                    "triggered_playbooks": [playbook_name],
-                    "context_snapshot": sanitize_for_json({'close': alert_price, 'vwap': first_alert_minute[vwap_col]}),
-                }
+                record = self._create_signal_record(
+                    stock_code=stock_code,
+                    trade_time=alert_time,
+                    timeframe=minute_tf,
+                    strategy_name="INTRADAY_RISK_ALERT",
+                    close_price=alert_price,
+                    entry_signal=False,
+                    exit_signal_code=alert_code,
+                    exit_severity_level=severity_level,
+                    exit_signal_reason=f"盘中跌破VWAP, 由前一日({setup_date.date()})创近期新高触发监控",
+                    triggered_playbooks=[playbook_name],
+                    context_snapshot={'close': alert_price, 'vwap': first_alert_minute[vwap_col]},
+                )
+
                 all_alerts.append(record)
                 logger.info(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name}")
                 continue 
@@ -683,6 +701,11 @@ class MultiTimeframeTrendStrategy:
         return df_daily
 
     def _run_intraday_resonance_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V117.8 协议统一版】
+        - 核心重构: 废弃了对 _prepare_intraday_db_record 的调用，转而直接使用
+                    self._create_signal_record()，并删除了冗余的辅助函数。
+        """
         resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False): return []
         if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
@@ -735,17 +758,33 @@ class MultiTimeframeTrendStrategy:
             resonance_playbook = resonance_params.get('signal_name', 'UNKNOWN_RESONANCE')
             daily_playbooks = [col.replace('playbook_', '') for col in row.index if col.startswith('playbook_') and row[col] is True]
             combined_playbooks = list(set([resonance_playbook] + daily_playbooks))
-            record = self._prepare_intraday_db_record(stock_code, timestamp, row, resonance_params)
-            record['triggered_playbooks'] = combined_playbooks
-            daily_score = sanitize_for_json(row.get('daily_entry_score', 0.0))
-            resonance_score = sanitize_for_json(resonance_params.get('score', 0.0))
+            daily_score = row.get('daily_entry_score', 0.0)
+            resonance_score = resonance_params.get('score', 0.0)
             total_score = daily_score + resonance_score
-            record['entry_score'] = total_score
+            
+            # ▼▼▼【代码修改 V117.8】: 直接调用标准生成器，不再使用 _prepare_intraday_db_record ▼▼▼
+            record = self._create_signal_record(
+                stock_code=stock_code,
+                trade_time=timestamp,
+                timeframe=trigger_tf,
+                strategy_name=resonance_params.get('signal_name', 'UNKNOWN_RESONANCE'),
+                close_price=row.get('close'),
+                entry_score=total_score,
+                entry_signal=True,
+                triggered_playbooks=combined_playbooks,
+                context_snapshot={'close': row.get('close'), 'daily_score': daily_score, 'resonance_score': resonance_score}
+            )
+            # ▲▲▲【代码修改 V117.8】▲▲▲
             db_records.append(record)
         return db_records
 
     # ▼▼▼【代码修改】: 止盈引擎重构，实现三级警报系统 ▼▼▼
     def _run_intraday_take_profit_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+        """
+        【V117.8 协议统一版】
+        - 核心重构: 废弃了手动创建字典的方式，转而调用 self._create_signal_record() 辅助函数
+                    来生成止盈信号记录，确保了战报格式的绝对统一。
+        """
         tp_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
         if not tp_params.get('enabled', False): return []
         
@@ -754,7 +793,6 @@ class MultiTimeframeTrendStrategy:
         
         df = all_dfs[tf].copy()
 
-        # 1. 数据融合：将日线和高阶分钟线数据融合到当前检查周期
         dynamics_timeframes = ['60', '30']
         for health_tf in dynamics_timeframes:
             if health_tf in all_dfs and not all_dfs[health_tf].empty:
@@ -763,18 +801,14 @@ class MultiTimeframeTrendStrategy:
                 df_right.rename(columns=rename_map, inplace=True)
                 df = pd.merge_asof(left=df, right=df_right, left_index=True, right_index=True, direction='backward')
         
-        # 融合日线关键支撑位
         daily_support_ma = 'EMA_55_D'
         if 'D' in all_dfs and daily_support_ma in all_dfs['D'].columns:
             df = pd.merge_asof(left=df, right=all_dfs['D'][[daily_support_ma]], left_index=True, right_index=True, direction='backward')
 
-        # 2. 计算趋势动态
         df = self._calculate_trend_dynamics(df, dynamics_timeframes, ema_period=34, slope_window=5)
 
-        # 3. 定义各级警报信号
         signals = []
         
-        # 警报等级 1: 趋势减速 (黄色预警)
         is_still_rising = df.get('ema_slope_30', 0) > 0
         is_decelerating = df.get('ema_accel_30', 0) < 0
         was_accelerating = df.get('ema_accel_30', 0).shift(1) >= 0
@@ -782,8 +816,7 @@ class MultiTimeframeTrendStrategy:
         if level_1_signal.any():
             signals.append({'level': 1, 'reason': '30分钟趋势加速度转负', 'signal': level_1_signal})
 
-        # 警报等级 2: 短期指标转弱 (橙色警报)
-        p = [12, 26, 9] # 假设使用15分钟MACD
+        p = [12, 26, 9]
         macd_col, signal_col = f'MACD_{p[0]}_{p[1]}_{p[2]}', f'MACDs_{p[0]}_{p[1]}_{p[2]}'
         if macd_col in df.columns and signal_col in df.columns:
             base_signal = (df[macd_col] < df[signal_col]) & (df[macd_col].shift(1) >= df[signal_col].shift(1))
@@ -792,19 +825,16 @@ class MultiTimeframeTrendStrategy:
             if level_2_signal.any():
                 signals.append({'level': 2, 'reason': f'{tf}分钟MACD死叉且30分钟趋势不健康', 'signal': level_2_signal})
 
-        # 警报等级 3: 跌破日线关键支撑 (红色警报)
         if daily_support_ma in df.columns:
             level_3_signal = (df['close'] < df[daily_support_ma]) & (df['close'].shift(1) >= df[daily_support_ma].shift(1))
             if level_3_signal.any():
                 signals.append({'level': 3, 'reason': f'价格跌破日线关键支撑({daily_support_ma})', 'signal': level_3_signal})
 
-        # 4. 合并与去重
         if not signals: return []
         
         df['exit_severity_level'] = 0
         df['exit_signal_reason'] = ''
         
-        # 按严重性从高到低应用信号，高级别信号会覆盖低级别信号
         for s in sorted(signals, key=lambda x: x['level'], reverse=True):
             df.loc[s['signal'], 'exit_severity_level'] = s['level']
             df.loc[s['signal'], 'exit_signal_reason'] = s['reason']
@@ -812,23 +842,22 @@ class MultiTimeframeTrendStrategy:
         triggered_df = df[df['exit_severity_level'] > 0].copy()
         if triggered_df.empty: return []
 
-        # 5. 准备数据库记录
         db_records = []
         for timestamp, row in triggered_df.iterrows():
-            record = {
-                "stock_code": stock_code,
-                "trade_time": timestamp.to_pydatetime(),
-                "timeframe": tf,
-                "strategy_name": tp_params.get('signal_name', 'INTRADAY_TAKE_PROFIT'),
-                "close_price": sanitize_for_json(row.get('close')),
-                "entry_score": 0.0,
-                "entry_signal": False,
-                "exit_signal_code": 100 + int(row.get('exit_severity_level', 0)), # 使用等级作为code的一部分
-                "exit_severity_level": sanitize_for_json(row.get('exit_severity_level')),
-                "exit_signal_reason": sanitize_for_json(row.get('exit_signal_reason')),
-                "triggered_playbooks": [f"EXIT_LEVEL_{int(row.get('exit_severity_level', 0))}"],
-                "context_snapshot": sanitize_for_json({'close': row.get('close'), 'reason': row.get('exit_signal_reason')}),
-            }
+            # ▼▼▼【代码修改 V117.8】: 使用新的“标准战报生成器”创建记录 ▼▼▼
+            record = self._create_signal_record(
+                stock_code=stock_code,
+                trade_time=timestamp,
+                timeframe=tf,
+                strategy_name=tp_params.get('signal_name', 'INTRADAY_TAKE_PROFIT'),
+                close_price=row.get('close'),
+                exit_signal_code=100 + int(row.get('exit_severity_level', 0)),
+                exit_severity_level=row.get('exit_severity_level'),
+                exit_signal_reason=row.get('exit_signal_reason'),
+                triggered_playbooks=[f"EXIT_LEVEL_{int(row.get('exit_severity_level', 0))}"],
+                context_snapshot={'close': row.get('close'), 'reason': row.get('exit_signal_reason')},
+            )
+            # ▲▲▲【代码修改 V117.8】▲▲▲
             db_records.append(record)
         return db_records
 
@@ -900,27 +929,6 @@ class MultiTimeframeTrendStrategy:
                                           (df[rsi_col].shift(shift_periods) < df[rsi_col].shift(shift_periods * 2))
                 return classic_reversal | is_turning_up_after_dip
         return pd.Series(False, index=df.index)
-
-    def _prepare_intraday_db_record(self, stock_code: str, timestamp: pd.Timestamp, row: pd.Series, params: dict) -> Dict[str, Any]:
-        # ... (此函数保持不变, 但注意在调用它的地方，要为新字段提供默认值) ...
-        signal_name = params.get('signal_name', 'UNKNOWN_RESONANCE')
-        trigger_tf = params['levels'][-1]['tf']
-        native_utc_datetime: datetime = timestamp.to_pydatetime()
-        record = {
-            "stock_code": stock_code,
-            "trade_time": native_utc_datetime,
-            "timeframe": trigger_tf,
-            "strategy_name": signal_name,
-            "close_price": sanitize_for_json(row.get('close')),
-            "entry_score": sanitize_for_json(params.get('score', 0.0)),
-            "entry_signal": True,
-            "exit_signal_code": 0,
-            "exit_severity_level": 0, # 为买入信号设置默认值
-            "exit_signal_reason": None, # 为买入信号设置默认值
-            "triggered_playbooks": [signal_name],
-            "context_snapshot": sanitize_for_json({'close': row.get('close')}),
-        }
-        return record
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
