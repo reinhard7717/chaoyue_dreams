@@ -153,7 +153,7 @@ def trend_following_list(request):
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
         key=get_playbook_priority
     )
-    print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}")
+    # print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}")
 
     # 步骤4: 聚合处理 (这里的逻辑现在是安全的，因为它处理的是净化后的数据)
     all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
