@@ -263,8 +263,8 @@ def fav_trend_following_list(request):
         stock_obj = next((fav.stock for fav in user_favorites if fav.stock.stock_code == fav_stock_code), None)
         if not stock_obj: continue
 
-        buy_log = buy_logs_map.get(stock_obj.id)
-        sell_log = sell_logs_map.get(stock_obj.id)
+        buy_log = buy_logs_map.get(stock_obj.stock_code)
+        sell_log = sell_logs_map.get(stock_obj.stock_code)
 
         # 初始化默认状态
         item = {
