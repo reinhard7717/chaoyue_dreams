@@ -399,7 +399,7 @@ class MultiTimeframeTrendStrategy:
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
-        print(f"--- [引擎5-调试] 发现 {len(setup_days_df)} 个日线高分预备日，将启动次日盘中监控...")
+        # print(f"--- [引擎5-调试] 发现 {len(setup_days_df)} 个日线高分预备日，将启动次日盘中监控...")
         for setup_date_ts, setup_row in setup_days_df.iterrows():
             # 从带时区的 pandas.Timestamp 中提取纯日期对象
             setup_date = setup_date_ts.date()
@@ -409,10 +409,10 @@ class MultiTimeframeTrendStrategy:
             
             # 如果返回None，说明预备日已经是最后一个已知交易日，无法监控次日
             if monitoring_date is None:
-                print(f"\n--- [引擎5-调试] 预备日 {setup_date} 是最后一个已知交易日，无法监控次日，跳过。")
+                # print(f"\n--- [引擎5-调试] 预备日 {setup_date} 是最后一个已知交易日，无法监控次日，跳过。")
                 continue
 
-            print(f"\n--- [引擎5-调试] 预备日: {setup_date} (分数: {setup_row.get('entry_score', 0):.0f}) -> 监控目标日: {monitoring_date} ---")
+            # print(f"\n--- [引擎5-调试] 预备日: {setup_date} (分数: {setup_row.get('entry_score', 0):.0f}) -> 监控目标日: {monitoring_date} ---")
             
             # 使用监控目标日(date对象)来筛选分钟线数据
             alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
@@ -420,7 +420,7 @@ class MultiTimeframeTrendStrategy:
             if alert_day_minute_df.empty:
                 # print(f"    - [调试] 警告: 未找到监控目标日 {monitoring_date} 的分钟线数据，跳过。")
                 continue
-            print(f"    - [调试] 已提取目标日分钟线数据 {len(alert_day_minute_df)} 条。")
+            # print(f"    - [调试] 已提取目标日分钟线数据 {len(alert_day_minute_df)} 条。")
 
             # 分钟线规则检查逻辑
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
@@ -474,7 +474,7 @@ class MultiTimeframeTrendStrategy:
                 )
                 all_confirmation_records.append(record)
                 
-                print(f"    - [信号生成!] 已在 {confirm_time.time()} 生成分钟线买入信号，最终得分: {final_score:.0f}")
+                # print(f"    - [信号生成!] 已在 {confirm_time.time()} 生成分钟线买入信号，最终得分: {final_score:.0f}")
                 # 每天只取第一个确认信号，然后检查下一个预备日
                 continue 
         
