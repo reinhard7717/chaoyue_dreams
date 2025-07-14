@@ -582,7 +582,7 @@ class StrategiesDAO(BaseDAO):
         df_merged.ffill(inplace=True)
         df_merged.set_index('trade_time', inplace=True)
         
-        print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
+        # print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
         return df_merged
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
@@ -716,7 +716,7 @@ class StrategiesDAO(BaseDAO):
                           如果数据库中没有找到匹配的数据，则返回一个空的DataFrame。
         """
         # --- 新增代码开始 ---
-        print(f"调试信息: [DAO] 开始获取高级筹码指标数据 -> 股票代码: {stock_code}, 截止日期: {trade_time_dt}, 数量: {limit}")
+        # print(f"调试信息: [DAO] 开始获取高级筹码指标数据 -> 股票代码: {stock_code}, 截止日期: {trade_time_dt}, 数量: {limit}")
 
         # 1. 构建基础查询集，根据股票代码过滤
         # Django ORM 的 afilter 方法是 filter 的异步版本
@@ -727,12 +727,12 @@ class StrategiesDAO(BaseDAO):
             # AdvancedChipMetrics 模型中的 trade_time 是 DateField，因此需要从 Timestamp 中提取 date 部分
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
-            print(f"调试信息: [DAO] 应用日期过滤器: trade_time <= {end_date}")
+            # print(f"调试信息: [DAO] 应用日期过滤器: trade_time <= {end_date}")
 
         # 3. 按交易日期降序排列，并限制返回的记录数量
         # 这样可以确保我们获取的是截止日期前最新的 `limit` 条数据
         queryset = queryset.order_by('-trade_time')[:limit]
-        print(f"调试信息: [DAO] 应用排序和限制: order_by('-trade_time')[:{limit}]")
+        # print(f"调试信息: [DAO] 应用排序和限制: order_by('-trade_time')[:{limit}]")
 
         # 4. 定义需要从数据库中查询的字段列表，提高查询效率
         field_names = [
@@ -751,7 +751,7 @@ class StrategiesDAO(BaseDAO):
         # 5. 异步执行查询，并将结果（字典列表）收集起来
         # 使用 `async for` 遍历异步查询集
         data_records = [item async for item in queryset.values(*field_names)]
-        print(f"调试信息: [DAO] 数据库查询完成，获取到 {len(data_records)} 条记录")
+        # print(f"调试信息: [DAO] 数据库查询完成，获取到 {len(data_records)} 条记录")
 
         # 6. 如果查询结果为空，直接返回一个空的 DataFrame
         if not data_records:
@@ -769,7 +769,7 @@ class StrategiesDAO(BaseDAO):
         # c. 按索引（时间）升序排列，这是时间序列分析的标准格式
         df = df.sort_index(ascending=True)
 
-        print(f"调试信息: [DAO] 成功创建并处理DataFrame，最终形状: {df.shape}")
+        # print(f"调试信息: [DAO] 成功创建并处理DataFrame，最终形状: {df.shape}")
         return df
 
 

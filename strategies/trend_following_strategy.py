@@ -136,8 +136,8 @@ class TrendFollowStrategy:
         life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
         life_line_ma_col = f'EMA_{life_line_ma_period}_D'
 
-        # ▼▼▼【代码修改 V113】: 向量化预计算无状态的退出条件 ▼▼▼
-        print("    - [波段跟踪优化] 正在向量化预计算退出条件...")
+        # ▼▼▼ 向量化预计算无状态的退出条件 ▼▼▼
+        # print("    - [波段跟踪优化] 正在向量化预计算退出条件...")
         df['cond_high_risk_exit'] = df['exit_signal_code'] >= high_risk_code_threshold
         df['cond_partial_exit_profit'] = False # 依赖状态，循环内计算
         df['cond_partial_exit_risk'] = df['exit_signal_code'] == exit_code_partial
@@ -145,7 +145,6 @@ class TrendFollowStrategy:
             df['cond_lifeline_break'] = df['close_D'] < df[life_line_ma_col]
         else:
             df['cond_lifeline_break'] = False
-        # ▲▲▲【代码修改 V113】▲▲▲
 
         # --- 2. 初始化状态列和变量 ---
         df['position_status'] = 0.0
@@ -2032,7 +2031,7 @@ class TrendFollowStrategy:
         # 这个状态更通用，只要求价格在长期均线之上，表明一个基本的上升趋势。
         if ma_long_col in df.columns:
             setups['RISK_SETUP_IN_UPTREND'] = df['close_D'] > df[ma_long_col]
-            print(f"      -> '处于上升趋势' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_IN_UPTREND'])}")
+            # print(f"      -> '处于上升趋势' 状态诊断完成。{self._format_debug_dates(setups['RISK_SETUP_IN_UPTREND'])}")
         else:
             setups['RISK_SETUP_IN_UPTREND'] = default_series
             print(f"      -> [警告] 缺少 {ma_long_col}，无法诊断'处于上升趋势'状态。")
@@ -2130,12 +2129,11 @@ class TrendFollowStrategy:
         # 适用于前一天冲高，今天直接低开低走确认的场景
         triggers['RISK_TRIGGER_UPTHRUST_REJECTION'] = is_rejection_candle & is_engulfing_rejection & is_upthrust_day.shift(1).fillna(False)
         
-        # ▼▼▼【代码修改 V115.1】: 新增“雷神之锤”触发器 ▼▼▼
+        # ▼▼▼ 新增“雷神之锤”触发器 ▼▼▼
         # 触发器2: 上攻失败K线 (当日确认) - 新增逻辑
         # 适用于当天创下新高，但被强大卖盘砸下，最终收成阴线。这是最经典的派发信号之一。
         triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_upthrust_day & is_rejection_candle
-        print(f"      -> '上攻失败K线(当日确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
-        # ▲▲▲【代码修改 V115.1】▲▲▲
+        # print(f"      -> '上攻失败K线(当日确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
 
         # --- 信号2: 急跌回调 (Sharp Pullback) ---
         p_pullback = exit_params.get('structure_breakdown_params', {})
@@ -2150,7 +2148,7 @@ class TrendFollowStrategy:
             
             triggers['SETUP_SHARP_PULLBACK_WATCH'] = sharp_pullback_candle
             triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = sharp_pullback_candle
-            print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'])}")
+            # print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'])}")
 
         # --- 信号3: 真实结构破位 (True Structure Breakdown) ---
         p_true_break = exit_params.get('true_breakdown_params', {})
@@ -2167,7 +2165,7 @@ class TrendFollowStrategy:
             is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
             is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
-            print(f"      -> '真实结构破位' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+            # print(f"      -> '真实结构破位' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
         else:
             triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
 

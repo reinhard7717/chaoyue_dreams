@@ -363,7 +363,7 @@ class IndicatorService:
         # 1. 从配置中解析需要哪些时间周期的数据
         required_tfs = self._discover_required_timeframes_from_config(config)
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
-        print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
+        # print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
         
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         
@@ -419,7 +419,7 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-            print("    - [数据任务] 已添加“旧筹码与资金流”获取任务。")
+            # print("    - [数据任务] 已添加“旧筹码与资金流”获取任务。")
 
         # 任务2: 获取新筹码(AdvancedChipMetrics)数据
         if needs_advanced_chip_data:
@@ -429,7 +429,7 @@ class IndicatorService:
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-            print("    - [数据任务] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
+            # print("    - [数据任务] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
         
         # 4. 并发执行所有数据获取任务
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
