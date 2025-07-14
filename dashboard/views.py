@@ -116,33 +116,46 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V3.1 最终排序修正】策略状态监控中心视图
-    - 核心修正: get_playbook_priority 函数逻辑已与模板完全同步，确保排序正确。
+    【V117.10 净化版】策略状态监控中心视图
+    - 核心修正: 增加了 .filter(latest_score__gt=0) 的查询条件。
+    - 收益: 实现了“关注点分离”。此页面现在只展示由高分买入信号产生的持仓状态，
+              彻底屏蔽了来自零分风险预警信号的“情报污染”，使其回归“机会池”的本质，
+              为用户提供一个干净、聚焦的决策环境。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V3.1 ---")
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V117.10 ---")
+    
+    # 步骤1: 定义“持仓中”的核心状态
     held_status_query = Q(last_buy_time__isnull=False) & (
         Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
     )
 
     selected_playbooks = request.GET.getlist('playbooks')
 
+    # 步骤2: 获取基础查询集，只包含“持仓中”的股票状态
     base_queryset = TrendFollowStrategyState.objects.filter(held_status_query)
+
+    # ▼▼▼【代码修改 V117.10】: 增加“净化”过滤器，只关注有买入价值的状态 ▼▼▼
+    # 这个过滤器至关重要，它排除了所有由零分风险信号产生的状态记录，
+    # 确保我们只聚合那些真正代表“买入机会”的信息。
+    base_queryset = base_queryset.filter(latest_score__gt=0)
+    # ▲▲▲【代码修改 V117.10】▲▲▲
 
     if selected_playbooks:
         for playbook in selected_playbooks:
             base_queryset = base_queryset.filter(active_playbooks__contains=playbook)
     
+    # 步骤3: 准备筛选器中的剧本列表 (这里的逻辑也受益于上面的净化)
     all_playbook_lists = TrendFollowStrategyState.objects.filter(
-        held_status_query
+        held_status_query, latest_score__gt=0 # 同样应用净化
     ).values_list('active_playbooks', flat=True)
     
-    # 此处调用已修正的 get_playbook_priority 函数，现在排序将完全正确
     unique_playbooks = sorted(
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
         key=get_playbook_priority
     )
-    print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}") # 调试信息
+    print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}")
 
+    # 步骤4: 聚合处理 (这里的逻辑现在是安全的，因为它处理的是净化后的数据)
     all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
 
     aggregated_results = OrderedDict()
@@ -171,7 +184,6 @@ def trend_following_list(request):
 
     final_list = list(aggregated_results.values())
     for item in final_list:
-        # 表格内的排序同样会使用修正后的函数，保持一致
         item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
         item['strategy_names'] = sorted(list(item['strategy_names']))
     
