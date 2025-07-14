@@ -226,6 +226,40 @@ class TradeCalendar(models.Model):
 
         return is_open
 
+    @classmethod
+    def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+        """
+        查询指定日期之后的第一个交易日。
+        :param reference_date: date, 查询的参考日期。如果为None，则默认为今天。
+        :param exchange: str, 交易所代码，默认为'SSE'。
+        :return: date, 下一个交易日；如果不存在（例如参考日期已是最后一个已知交易日）则返回None。
+        """
+        # 如果未提供参考日期，则使用当前服务器日期
+        if reference_date is None:
+            reference_date = timezone.now().date()
+        
+        # 调试信息
+        print(f"调试: get_next_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
+
+        # 查询数据库
+        # 筛选条件：
+        # 1. 交易所匹配
+        # 2. 是交易日 (is_open=True)
+        # 3. 日期在参考日期之后 (cal_date > reference_date)
+        # 按照日期升序排列，获取第一个，即为下一个交易日
+        trade_day = cls.objects.filter(
+            exchange=exchange,
+            is_open=True,
+            cal_date__gt=reference_date
+        ).order_by('cal_date').first()
+
+        if trade_day:
+            print(f"调试: 找到下一个交易日: {trade_day.cal_date}")
+            return trade_day.cal_date
+        else:
+            print(f"调试: 未找到 {reference_date} 之后的交易日")
+            return None
+
     class Meta:
         db_table = 'trade_calendar'
         verbose_name = '交易日历'

@@ -15,6 +15,7 @@ import numpy as np
 from scipy.signal import find_peaks
 
 from services.indicator_services import IndicatorService
+from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.weekly_trend_follow_strategy import WeeklyTrendFollowStrategy
 from utils.config_loader import load_strategy_config
@@ -359,58 +360,58 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.29 时区校准版】
-        - 核心修正: 在创建监控开始时间(monitoring_start_time)时，正确处理时区问题。
-        - 新逻辑:
-          1. 从UTC的setup_date中提取本地日期。
-          2. 使用本地日期创建一个“天真”的本地开盘时间。
-          3. 将这个“天真”的本地时间“本地化”为'Asia/Shanghai'时区。
-          4. 这样得到的 monitoring_start_time 就能与分钟线数据的索引进行正确比较。
-        - 收益: 解决了因时区不匹配导致监控时间判断错误，从而错过所有盘中信号的问题。
+        【V117.37 架构优化版】
+        - 核心升级: 调用 TradeCalendar.get_next_trade_date() 来获取监控目标日，取代了之前在DataFrame中查找的方式。
+        - 收益:
+          1. 逻辑更清晰，责任更明确，符合Django最佳实践。
+          2. 更健壮，不再依赖 all_dfs['D'] 的完整性，即使日线数据有缺失也能正确找到下一个交易日。
+          3. 性能可能更高，因为数据库查询经过优化，通常比在大型DataFrame中定位要快。
         """
-        print("--- [引擎5-调试] 进入分钟买入确认引擎 ---")
+        print("--- [引擎5-调试 V117.37] 进入分钟买入确认引擎 (DAO增强版) ---")
         all_confirmation_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
         is_enabled = get_val(entry_params.get('enabled'), False)
-        daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
-        minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
-        print(f"--- [引擎5-调试] 配置: enabled={is_enabled}, daily_score_threshold={daily_score_threshold}, timeframe='{minute_tf}'")
+        if not is_enabled: return all_confirmation_records
         
-        if not is_enabled:
-            print("--- [引擎5-调试] 引擎在配置中被禁用，退出。")
-            return all_confirmation_records
-        
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
-            print("--- [引擎5-调试] 错误: self.daily_analysis_df 为空，无法找到预备日，退出。")
-            return all_confirmation_records
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty: return all_confirmation_records
 
+        daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
         
-        print(f"--- [引擎5-调试] 日线分析结果总行数: {len(self.daily_analysis_df)}")
-        print(f"--- [引擎5-调试] 筛选后 (entry_score >= {daily_score_threshold})，找到 {len(setup_days_df)} 个预备日。")
-        if setup_days_df.empty:
-            print("--- [引擎5-调试] 没有找到符合分数阈值的预备日，退出。")
-            return all_confirmation_records
+        if setup_days_df.empty: return all_confirmation_records
             
+        minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
-        if minute_df is None or minute_df.empty:
-            print(f"--- [引擎5-调试] 错误: 缺少 {minute_tf} 分钟线数据，退出。")
-            return all_confirmation_records
-        print(f"--- [引擎5-调试] 成功加载 {minute_tf} 分钟线数据，共 {len(minute_df)} 行。")
-
+        if minute_df is None or minute_df.empty: return all_confirmation_records
+        
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
-        for setup_date, setup_row in setup_days_df.iterrows():
-            alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
+        print(f"--- [引擎5-调试] 发现 {len(setup_days_df)} 个日线高分预备日，将启动次日盘中监控...")
+        for setup_date_ts, setup_row in setup_days_df.iterrows():
+            # setup_date_ts 是一个带时区的 pandas.Timestamp
+            setup_date = setup_date_ts.date() # 提取日期部分
+
+            # ▼▼▼【代码修改 V117.37】: 调用新式武器获取下一个交易日 ▼▼▼
+            monitoring_date = TradeCalendar.get_next_trade_date(reference_date=setup_date)
+            
+            if monitoring_date is None:
+                print(f"\n--- [引擎5-调试] 预备日 {setup_date} 是最后一个已知交易日，无法监控次日，跳过。")
+                continue
+            # ▲▲▲【代码修改 V117.37】▲▲▲
+
+            print(f"\n--- [引擎5-调试] 预备日: {setup_date} (分数: {setup_row.get('entry_score', 0):.0f}) -> 监控目标日: {monitoring_date} ---")
+            
+            # 使用监控目标日来筛选分钟线数据
+            # 注意：minute_df.index.date 是 date 对象，monitoring_date 也是 date 对象，可以直接比较
+            alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
             
             if alert_day_minute_df.empty:
-                # print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
+                print(f"    - [调试] 警告: 未找到监控目标日 {monitoring_date} 的分钟线数据，跳过。")
                 continue
-            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
-            print(f"    - [调试] 已提取当天分钟线数据 {len(alert_day_minute_df)} 条。")
+            print(f"    - [调试] 已提取目标日分钟线数据 {len(alert_day_minute_df)} 条。")
 
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
             close_col_m = f'close_{minute_tf}'
