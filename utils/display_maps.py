@@ -59,6 +59,14 @@ PLAYBOOK_NAME_MAP = {
     'BASE_STRATEGIC_ACCEL': '【周策-王牌】估波曲线加速', # 来自 EVENT_STRATEGIC_ACCELERATING_W 的加分项
     'ACE_SIGNAL_BREAKOUT_TRIGGER': 'ACE信号突破',
 
+    'CHIP_PURITY_MULTIPLIER': '筹码至纯',
+    'VOLATILITY_SILENCE_MULTIPLIER': '波动至静',
+    'BONUS_HIGH_CONTROL_MARKUP': '高控盘拉升',
+
+
+    'INTRADAY_ENTRY_CONFIRMATION': '分钟级共振引擎',
+    'ENTRY_INTRADAY_CONFIRMATION':'分钟级买入确认',
+
     # ==================================================================
     # ===              协同/冲突规则 (Bonus & Penalty)               ===
     # ==================================================================
