@@ -176,7 +176,7 @@ class IndicatorService:
             stock_code=stock_code, 
             time_level=time_level, 
             limit=needed_bars, 
-            trade_time=trade_time
+            trade_time=end_time_for_query
         )
 
         if df is None or df.empty:
