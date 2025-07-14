@@ -166,7 +166,7 @@ class IndicatorService:
         # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
         end_time_for_query = trade_time
         # print(f"检查是否传入时间：{trade_time}, {type(trade_time)}")
-        if end_time_for_query is None:
+        if not end_time_for_query:
             # 使用带时区的当前时间，以避免任何时区混淆
             end_time_for_query = datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             print(f"    - [数据获取修正] trade_time 为 None，自动设置为当前时间: {end_time_for_query}")
