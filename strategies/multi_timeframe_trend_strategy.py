@@ -5,7 +5,7 @@ import re       # 导入 re
 from contextlib import redirect_stdout # 导入 redirect_stdout
 from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, time
 import json
 import logging
 from typing import Any, Dict, List, Optional, Set
@@ -359,12 +359,15 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.27 触发逻辑修正版】
-        - 核心修正: 废弃了过于严苛的 `(signal.shift(1) == False)` 动态触发条件。
-        - 新逻辑: 只要在监控时段内，找到第一个满足所有静态条件的K线，就立即生成信号。
-        - 收益: 解决了因股票持续强势导致无法形成“突破瞬间”而错过信号的问题，能更可靠地捕捉到盘中买点。
+        【V117.29 时区校准版】
+        - 核心修正: 在创建监控开始时间(monitoring_start_time)时，正确处理时区问题。
+        - 新逻辑:
+          1. 从UTC的setup_date中提取本地日期。
+          2. 使用本地日期创建一个“天真”的本地开盘时间。
+          3. 将这个“天真”的本地时间“本地化”为'Asia/Shanghai'时区。
+          4. 这样得到的 monitoring_start_time 就能与分钟线数据的索引进行正确比较。
+        - 收益: 解决了因时区不匹配导致监控时间判断错误，从而错过所有盘中信号的问题。
         """
-        # ... (函数开头的调试打印和配置检查保持不变) ...
         print("--- [引擎5-调试] 进入分钟买入确认引擎 ---")
         all_confirmation_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
@@ -401,18 +404,17 @@ class MultiTimeframeTrendStrategy:
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
         for setup_date, setup_row in setup_days_df.iterrows():
+            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
             
             if alert_day_minute_df.empty:
-                # print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
+                print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
                 continue
-            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             print(f"    - [调试] 已提取当天分钟线数据 {len(alert_day_minute_df)} 条。")
 
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
             close_col_m = f'close_{minute_tf}'
             
-            # ... (规则检查的打印逻辑保持不变) ...
             vwap_rule = rules.get('vwap_reclaim', {})
             if get_val(vwap_rule.get('enabled'), False):
                 vwap_col_m = f'VWAP_{minute_tf}'
@@ -439,32 +441,36 @@ class MultiTimeframeTrendStrategy:
 
             print(f"    - [调试] 所有规则叠加后，共有 {final_confirmation_signal.sum()} 个K线满足静态条件。")
             
-            market_open_time = setup_date.replace(hour=9, minute=30, second=0)
-            monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
+            # ▼▼▼【代码修改 V117.29】: 修正监控开始时间的时区问题 ▼▼▼
+            # 1. 从带时区的 setup_date (UTC) 中获取本地日期对象
+            local_date = setup_date.tz_convert('Asia/Shanghai').date()
             
-            # ▼▼▼【代码修改 V117.27】: 修正触发逻辑 ▼▼▼
-            # 旧逻辑: (final_confirmation_signal == True) & (final_confirmation_signal.shift(1) == False)
-            # 新逻辑: 直接找到第一个满足所有静态条件的K线
+            # 2. 使用本地日期创建“天真”的本地开盘时间
+            naive_market_open_time = datetime.combine(local_date, time(9, 30))
+            
+            # 3. 将“天真”时间本地化为正确的时区，使其成为“感知”时间
+            aware_market_open_time = pd.Timestamp(naive_market_open_time, tz='Asia/Shanghai')
+            
+            # 4. 计算最终的监控开始时间
+            monitoring_start_time = aware_market_open_time + pd.Timedelta(minutes=min_time_after_open)
+            print(f"    - [调试] 监控起始时间已校准为: {monitoring_start_time}")
+            # ▲▲▲【代码修改 V117.29】▲▲▲
+
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
                 (final_confirmation_signal == True)
             ]
-            # ▲▲▲【代码修改 V117.27】▲▲▲
             
             print(f"    - [调试] 在 {monitoring_start_time.time()} 之后，找到 {len(triggered_minutes)} 个满足条件的K线。")
 
             if not triggered_minutes.empty:
-                # 直接取第一个满足条件的K线作为信号点
                 first_confirmation_minute = triggered_minutes.iloc[0]
                 confirm_time = first_confirmation_minute.name
-                confirm_price = first_confirmation_minute[close_col_m]
-                
+                confirm_price = first_confirmation_minute[f'close_{minute_tf}']
                 daily_score = setup_row.get('entry_score', 0)
                 bonus_score = get_val(entry_params.get('bonus_score'), 50)
                 final_score = daily_score + bonus_score
-                
                 daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
-                
                 record = self._create_signal_record(
                     stock_code=stock_code,
                     trade_time=confirm_time,
@@ -477,9 +483,7 @@ class MultiTimeframeTrendStrategy:
                     context_snapshot={'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True},
                 )
                 all_confirmation_records.append(record)
-                
                 print(f"    - [信号生成!] 已在 {confirm_time.time()} 生成分钟线买入信号，最终得分: {final_score:.0f}")
-                # 使用 continue 是为了每天只取第一个确认信号
                 continue 
         
         print("--- [引擎5-调试] 分钟买入确认引擎执行完毕 ---")
