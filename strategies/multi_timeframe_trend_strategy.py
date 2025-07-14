@@ -1090,18 +1090,23 @@ class MultiTimeframeTrendStrategy:
 
     async def run_alpha_hunter(self, stock_code: str):
         """
-        【V118.2 新增】阿尔法猎手的异步调用入口。
-        - 职责: 准备阿尔法猎手所需的全部历史数据，然后调用并等待其完成。
-        - 这是Celery任务与核心策略逻辑之间的桥梁。
+        【V118.5 接口兼容性修复版】
+        - 核心修复: 移除了在调用 _prepare_base_data_and_indicators 时传递的
+                    未被支持的 'limit' 关键字参数。
+        - 解决方案: 完全依赖 IndicatorService 自身的默认数据获取逻辑，
+                    该逻辑已能提供足够用于回测的历史数据（如1000条）。
+        - 收益: 解决了 TypeError，并使代码与现有稳定接口保持一致，降低了维护风险。
         """
         print("=" * 80)
-        print(f"--- [总指挥] 阿尔法猎手任务启动 for {stock_code} ---")
+        print(f"--- [总指挥] 阿尔法猎手任务启动 for {stock_code} (V118.5 兼容版) ---")
         
-        # 1. 准备数据 (需要获取非常长的历史数据)
-        # 注意：limit需要足够大，以覆盖所有历史波段
-        print(f"    -> 正在为 {stock_code} 准备全量历史数据...")
+        # 1. 准备数据
+        # 【核心修改】不再传递 limit 参数，使用 IndicatorService 的默认行为
+        print(f"    -> 正在为 {stock_code} 准备全量历史数据 (使用默认长度)...")
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
-            stock_code, self.merged_config, limit=5000 
+            stock_code=stock_code,
+            config=self.merged_config
+            # 注意：这里不再有 trade_time 和 limit，让其使用默认值
         )
         
         if 'D' not in all_dfs or all_dfs['D'].empty:
@@ -1110,6 +1115,7 @@ class MultiTimeframeTrendStrategy:
 
         # 2. 调用战术引擎的阿尔法猎手方法
         # tactical_engine 是 TrendFollowStrategy 的实例
+        # 注意：alpha_hunter_backtest 仍然可以是 async def，这没有问题
         await self.tactical_engine.alpha_hunter_backtest(
             stock_code=stock_code,
             df_full=all_dfs['D'],
@@ -1118,4 +1124,3 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [总指挥] {stock_code} 的阿尔法猎手任务执行完毕。 ---")
         print("=" * 80)
-
