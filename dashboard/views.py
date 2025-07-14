@@ -116,77 +116,80 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V117.10 净化版】策略状态监控中心视图
-    - 核心修正: 增加了 .filter(latest_score__gt=0) 的查询条件。
-    - 收益: 实现了“关注点分离”。此页面现在只展示由高分买入信号产生的持仓状态，
-              彻底屏蔽了来自零分风险预警信号的“情报污染”，使其回归“机会池”的本质，
-              为用户提供一个干净、聚焦的决策环境。
+    【V117.17 终极重构版】
+    - 核心革命: 彻底废弃对 TrendFollowStrategyState 摘要表的依赖，回归最原始、最可靠的
+                TrendFollowStrategySignalLog 作为数据源。
+    - 工作流程:
+      1. 获取所有股票的最新“买入”信号。
+      2. 对于每一个买入信号，查找其后是否跟随了“卖出”信号。
+      3. 只筛选出那些“未卖出”或“卖出时间早于最新买入时间”的股票，即真正“持仓中”的股票。
+      4. 基于这些最新的、权威的买入信号记录，构建前端所需的所有信息。
+    - 收益: 从根本上解决了因状态摘要表聚合逻辑错误导致的数据不一致和分数不更新问题。
+            确保页面展示的每一条数据，都源自一个真实的、完整的、权威的信号事件。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V117.10 ---")
-    
-    # 步骤1: 定义“持仓中”的核心状态
-    held_status_query = Q(last_buy_time__isnull=False) & (
-        Q(last_sell_time__isnull=True) | Q(last_buy_time__gt=F('last_sell_time'))
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V117.17 ---")
+
+    # 步骤1: 获取所有股票的最新买入信号
+    # 使用 .values() 和 .annotate() 在数据库层面高效完成
+    latest_buy_signals = TrendFollowStrategySignalLog.objects.filter(
+        entry_signal=True
+    ).values('stock_id').annotate(
+        latest_buy_id=Max('id')
     )
+    latest_buy_ids = [item['latest_buy_id'] for item in latest_buy_signals]
 
+    # 步骤2: 获取这些最新买入信号的完整对象
+    # .select_related('stock') 优化数据库查询
+    buy_logs = TrendFollowStrategySignalLog.objects.filter(
+        id__in=latest_buy_ids
+    ).select_related('stock')
+
+    # 步骤3: 获取所有股票的最新卖出信号
+    latest_sell_signals = TrendFollowStrategySignalLog.objects.filter(
+        exit_signal_code__gt=0
+    ).values('stock_id').annotate(
+        latest_sell_time=Max('trade_time')
+    )
+    sell_time_map = {item['stock_id']: item['latest_sell_time'] for item in latest_sell_signals}
+
+    # 步骤4: 筛选出真正“持仓中”的股票
+    held_items = []
+    for buy_log in buy_logs:
+        last_sell_time = sell_time_map.get(buy_log.stock_id)
+        # 持仓条件：没有卖出记录，或者最新的卖出时间早于最新的买入时间
+        if last_sell_time is None or last_sell_time < buy_log.trade_time:
+            # 这是一个真正持仓中的股票，基于这条权威的买入日志构建前端所需数据
+            item = {
+                'stock': buy_log.stock,
+                'latest_trade_time': buy_log.trade_time, # 最新信号时间就是这次买入的时间
+                'latest_score': buy_log.entry_score,     # 分数就是这次买入的分数
+                'last_buy_time': buy_log.trade_time,     # 最新买入时间就是这次买入的时间
+                'last_sell_time': last_sell_time,        # 记录下（可能存在的）旧的卖出时间
+                'active_playbooks': sorted(buy_log.triggered_playbooks, key=get_playbook_priority),
+                'strategy_names': [buy_log.strategy_name], # 策略名就是这次买入的策略名
+            }
+            held_items.append(item)
+
+    # 步骤5: (可选) 剧本筛选逻辑
     selected_playbooks = request.GET.getlist('playbooks')
-
-    # 步骤2: 获取基础查询集，只包含“持仓中”的股票状态
-    base_queryset = TrendFollowStrategyState.objects.filter(held_status_query)
-
-    # ▼▼▼【代码修改 V117.10】: 增加“净化”过滤器，只关注有买入价值的状态 ▼▼▼
-    # 这个过滤器至关重要，它排除了所有由零分风险信号产生的状态记录，
-    # 确保我们只聚合那些真正代表“买入机会”的信息。
-    base_queryset = base_queryset.filter(latest_score__gt=0)
-    # ▲▲▲【代码修改 V117.10】▲▲▲
-
     if selected_playbooks:
-        for playbook in selected_playbooks:
-            base_queryset = base_queryset.filter(active_playbooks__contains=playbook)
-    
-    # 步骤3: 准备筛选器中的剧本列表 (这里的逻辑也受益于上面的净化)
-    all_playbook_lists = TrendFollowStrategyState.objects.filter(
-        held_status_query, latest_score__gt=0 # 同样应用净化
-    ).values_list('active_playbooks', flat=True)
-    
+        filtered_items = []
+        for item in held_items:
+            # 检查该持仓项的剧本是否包含所有被选中的剧本
+            if all(playbook in item['active_playbooks'] for playbook in selected_playbooks):
+                filtered_items.append(item)
+        final_list = filtered_items
+    else:
+        final_list = held_items
+        
+    # 步骤6: 准备筛选器中的剧本列表
+    all_playbook_lists = [item['active_playbooks'] for item in held_items]
     unique_playbooks = sorted(
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
         key=get_playbook_priority
     )
-    # print(f"--- [View] 筛选区剧本已按最终优先级排序: {unique_playbooks}")
 
-    # 步骤4: 聚合处理 (这里的逻辑现在是安全的，因为它处理的是净化后的数据)
-    all_held_states = base_queryset.select_related('stock').order_by('stock__stock_code')
-
-    aggregated_results = OrderedDict()
-    for state in all_held_states:
-        stock_code = state.stock.stock_code
-        if stock_code not in aggregated_results:
-            aggregated_results[stock_code] = {
-                'stock': state.stock,
-                'latest_trade_time': state.latest_trade_time,
-                'latest_score': state.latest_score,
-                'last_buy_time': state.last_buy_time,
-                'last_sell_time': state.last_sell_time,
-                'active_playbooks': [],
-                'strategy_names': set(),
-            }
-        
-        if state.active_playbooks:
-            aggregated_results[stock_code]['active_playbooks'].extend(state.active_playbooks)
-        aggregated_results[stock_code]['strategy_names'].add(state.strategy_name)
-
-        if state.latest_trade_time > aggregated_results[stock_code]['latest_trade_time']:
-            aggregated_results[stock_code]['latest_trade_time'] = state.latest_trade_time
-
-        if state.latest_score > aggregated_results[stock_code]['latest_score']:
-            aggregated_results[stock_code]['latest_score'] = state.latest_score
-
-    final_list = list(aggregated_results.values())
-    for item in final_list:
-        item['active_playbooks'] = sorted(list(set(item['active_playbooks'])), key=get_playbook_priority)
-        item['strategy_names'] = sorted(list(item['strategy_names']))
-    
+    # 步骤7: 排序和分页
     final_list.sort(key=lambda x: (x['latest_trade_time'], x['latest_score']), reverse=True)
     
     paginator = Paginator(final_list, 25)
@@ -205,12 +208,21 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V117.9 链路修复版】
-    - 核心修正: 调整了状态判断逻辑，确保始终基于最新的买入信号来判断后续的风险状态，
-                使得持仓状态的展示更加精确和符合交易直觉。
+    【V117.18 终极重构版】
+    - 核心革命: 与 trend_following_list 保持同步，彻底废弃旧的、基于循环和字典聚合的
+                复杂逻辑，回归最原始、最可靠的 TrendFollowStrategySignalLog 作为数据源。
+    - 工作流程:
+      1. 获取用户自选股列表。
+      2. 在自选股范围内，获取所有股票的最新“买入”信号。
+      3. 对于每一个买入信号，查找其后是否跟随了“卖出”信号。
+      4. 基于这些权威的买入和卖出信号，构建前端所需的所有持仓状态信息。
+    - 收益: 确保了自选股监控页面的数据与主监控中心完全一致，解决了所有潜在的数据
+            不一致和状态判断错误问题。
     """
+    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V117.18 ---")
     user_dao = UserDAO()
     
+    # 步骤1: 获取用户自选股列表
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
@@ -222,82 +234,80 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    state_list_qs = TrendFollowStrategySignalLog.objects.filter(
-        stock__stock_code__in=fav_codes
-    ).select_related('stock').order_by('stock__stock_code', '-trade_time')
+    # 步骤2: 在自选股范围内，获取所有股票的最新买入信号
+    latest_buy_signals = TrendFollowStrategySignalLog.objects.filter(
+        stock__stock_code__in=fav_codes,
+        entry_signal=True
+    ).values('stock_id').annotate(
+        latest_buy_id=Max('id')
+    )
+    latest_buy_ids = [item['latest_buy_id'] for item in latest_buy_signals]
+    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_buy_ids).select_related('stock')
+    buy_logs_map = {log.stock_id: log for log in buy_logs}
 
-    stock_summary = {}
-    for state in state_list_qs:
-        stock_code = state.stock.stock_code
-        if stock_code not in stock_summary:
-            stock_summary[stock_code] = {
-                'stock': state.stock,
-                'buy_state': None,
-                'sell_state': None,
-                'latest_state': state, # 直接将第一条(最新的)记录设为latest_state
-                'playbooks': set()
-            }
-        
-        summary = stock_summary[stock_code]
-        
-        # ▼▼▼【代码修改 V117.9】: 优化状态判断逻辑 ▼▼▼
-        # 寻找最新的买入信号
-        if state.entry_signal and not summary['buy_state']:
-            summary['buy_state'] = state
-        
-        # 如果已经找到了最新的买入信号，再寻找这个买入信号之后的最新的卖出信号
-        if summary['buy_state'] and state.exit_signal_code > 0 and state.trade_time > summary['buy_state'].trade_time:
-            if not summary['sell_state'] or state.trade_time > summary['sell_state'].trade_time:
-                 summary['sell_state'] = state
-        # ▲▲▲【代码修改 V117.9】▲▲▲
+    # 步骤3: 在自选股范围内，获取所有股票的最新卖出信号
+    latest_sell_signals = TrendFollowStrategySignalLog.objects.filter(
+        stock__stock_code__in=fav_codes,
+        exit_signal_code__gt=0
+    ).values('stock_id').annotate(
+        latest_sell_id=Max('id')
+    )
+    latest_sell_ids = [item['latest_sell_id'] for item in latest_sell_signals]
+    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_sell_ids).select_related('stock')
+    sell_logs_map = {log.stock_id: log for log in sell_logs}
 
-        if state.triggered_playbooks:
-            summary['playbooks'].update(state.triggered_playbooks)
-
+    # 步骤4: 遍历所有自选股，构建最终的展示列表
     processed_list = []
-    for stock_code, summary in stock_summary.items():
-        buy_state = summary['buy_state']
-        sell_state = summary['sell_state']
-        latest_state = summary['latest_state']
+    for fav_stock_code in fav_codes:
+        # 从预先查好的 stock 对象中获取，避免N+1查询
+        stock_obj = next((fav.stock for fav in user_favorites if fav.stock.stock_code == fav_stock_code), None)
+        if not stock_obj: continue
 
-        if not latest_state:
-            continue
+        buy_log = buy_logs_map.get(stock_obj.id)
+        sell_log = sell_logs_map.get(stock_obj.id)
 
+        # 初始化默认状态
         item = {
-            'stock': summary['stock'],
-            'favorite_id': fav_id_map.get(stock_code),
+            'stock': stock_obj,
+            'favorite_id': fav_id_map.get(fav_stock_code),
             'buy_info': None,
             'sell_info': None,
-            'latest_trade_time': latest_state.trade_time,
-            'latest_score': latest_state.entry_score,
-            'active_playbooks': sorted(list(summary['playbooks']), key=get_playbook_priority),
+            'latest_trade_time': None, # 将在后面填充
+            'latest_score': 0,
+            'active_playbooks': [],
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
             'sort_priority': 3,
         }
 
-        if buy_state:
+        # 如果存在买入信号
+        if buy_log:
+            # 检查是否持仓 (卖出信号不存在，或卖出时间早于买入时间)
+            is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
+            
+            item['latest_trade_time'] = buy_log.trade_time
+            item['latest_score'] = buy_log.entry_score
+            item['active_playbooks'] = sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
             item['buy_info'] = {
-                'time': buy_state.trade_time,
-                'strategy_name': buy_state.strategy_name,
-                'time_level': buy_state.timeframe
+                'time': buy_log.trade_time,
+                'strategy_name': buy_log.strategy_name,
+                'time_level': buy_log.timeframe
             }
-            item['swing_status'] = '持仓观察'
-            item['status_class'] = 'status-holding'
-            item['sort_priority'] = 2
 
-            # sell_state 现在是基于最新的 buy_state 找到的，逻辑更可靠
-            if sell_state:
+            if is_holding:
+                item['swing_status'] = '持仓观察'
+                item['status_class'] = 'status-holding'
+                item['sort_priority'] = 2
+            else: # 已卖出
                 item['sell_info'] = {
-                    'time': sell_state.trade_time,
-                    'strategy_name': sell_state.strategy_name,
-                    'time_level': sell_state.timeframe,
-                    'severity_level': sell_state.exit_severity_level,
-                    'reason': sell_state.exit_signal_reason or "风险预警",
-                    'code': sell_state.exit_signal_code,
+                    'time': sell_log.trade_time,
+                    'strategy_name': sell_log.strategy_name,
+                    'time_level': sell_log.timeframe,
+                    'severity_level': sell_log.exit_severity_level,
+                    'reason': sell_log.exit_signal_reason or "风险预警",
+                    'code': sell_log.exit_signal_code,
                 }
-                
-                level = sell_state.exit_severity_level
+                level = sell_log.exit_severity_level
                 if level == 1:
                     item['swing_status'] = '一级预警'
                     item['status_class'] = 'status-alert-level-1'
@@ -307,11 +317,26 @@ def fav_trend_following_list(request):
                 else:
                     item['swing_status'] = '二级警报'
                     item['status_class'] = 'status-alert-level-2'
-                
                 item['sort_priority'] = 1
         
+        # 如果没有买入信号，但有卖出信号，也展示最新的卖出状态
+        elif sell_log:
+            item['latest_trade_time'] = sell_log.trade_time
+            item['sell_info'] = {
+                'time': sell_log.trade_time,
+                'strategy_name': sell_log.strategy_name,
+                'time_level': sell_log.timeframe,
+                'severity_level': sell_log.exit_severity_level,
+                'reason': sell_log.exit_signal_reason or "风险预警",
+                'code': sell_log.exit_signal_code,
+            }
+            item['swing_status'] = '空仓预警'
+            item['status_class'] = 'status-alert-level-2' # 给一个默认的警报样式
+            item['sort_priority'] = 4 # 排在最后
+
         processed_list.append(item)
 
+    # 步骤5: 排序和分页
     processed_list.sort(key=lambda x: (
         x['sort_priority'],
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)
