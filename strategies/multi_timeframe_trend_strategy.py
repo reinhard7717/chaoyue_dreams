@@ -336,20 +336,18 @@ class MultiTimeframeTrendStrategy:
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.40 信号决策闭环版】
-        - 核心升级: 本函数现在是唯一的“入口信号决策中心”，负责生成最终的、无重复的入口信号列表。
+        【V117.41 决策时刻校准版】
+        - 核心修复: 解决了日线信号时间戳(00:00:00)与分钟线逻辑冲突的根本问题。
         - 新逻辑:
-        1. 遍历所有日线高分预备日。
-        2. 【逻辑优化1】对于每一个预备日，首先根据其日线数据创建一个“默认”的日线信号记录。
-        3. 尝试寻找次日的分钟线确认信号。
-        4. 如果找到分钟线确认，则生成一个“增强版”的分钟线信号记录，并用它替换掉“默认”的日线记录。
-        5. 【逻辑优化2】如果未找到分钟线确认（无论是规则不满足还是已到数据末尾），则保留并使用第2步创建的“默认”日线信号记录。
+          1. 当创建“保底”的日线信号记录时，不再使用原始的0点时间戳。
+          2. 而是将日线日期与交易日收盘时间(15:00)结合，生成一个更能代表“决策时刻”的精确时间戳。
+          3. 例如，2025-07-15的日线信号，其记录时间将是 2025-07-15 15:00:00。
         - 收益:
-        - 确保了每一个有价值的日线信号都会被记录，即使没有分钟线确认。
-        - 解决了信号重复的问题，输出的列表是干净、唯一的最终决策。
+          - 完美解决了时序逻辑问题，确保了日线决策时间点正确地位于次日分钟线确认之前。
+          - 使信号记录的时间戳更符合真实的交易决策流程。
         """
-        print("--- [引擎5-调试 V117.40] 进入入口信号决策中心 (信号闭环版) ---")
-        final_entry_records = [] # 用于存储最终的、唯一的入口信号
+        print("--- [引擎5-调试 V117.41] 进入入口信号决策中心 (决策时刻校准版) ---")
+        final_entry_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
@@ -370,12 +368,18 @@ class MultiTimeframeTrendStrategy:
         for setup_date_ts, setup_row in setup_days_df.iterrows():
             setup_date = setup_date_ts.date()
             daily_score = setup_row.get('entry_score', 0)
-            daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
-            
-            # 【逻辑优化1】首先创建默认的日线信号记录，作为保底
+            # 修正：从 self.daily_analysis_df 中获取剧本信息，而不是 setup_row
+            daily_playbooks_series = self.daily_analysis_df.loc[setup_date_ts]
+            daily_playbooks = [p for p in daily_playbooks_series.index if p.startswith('playbook_') and daily_playbooks_series[p] is True]
+
+            # 【核心修正】创建代表“决策时刻”的精确时间戳 (收盘后)
+            decision_time = datetime.combine(setup_date, time(15, 0))
+            print(f"    -> 预备日 {setup_date}: 日线信号决策时刻校准为: {decision_time}")
+
+            # 【逻辑优化1】使用校准后的决策时刻创建默认的日线信号记录
             default_daily_record = self._create_signal_record(
                 stock_code=stock_code,
-                trade_time=setup_date_ts, # 使用日线的时间戳
+                trade_time=decision_time, # 使用校准后的决策时刻
                 timeframe='D',
                 strategy_name=daily_playbooks[0] if daily_playbooks else "DAILY_ENTRY_SIGNAL",
                 close_price=setup_row.get('close_D', 0),
@@ -395,10 +399,21 @@ class MultiTimeframeTrendStrategy:
                 if monitoring_date:
                     alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
                     if not alert_day_minute_df.empty:
-                        # (此处省略分钟线规则检查逻辑，与之前版本相同)
                         final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
                         close_col_m = f'close_{minute_tf}'
-                        # ... VWAP, Volume rules ...
+                        vwap_rule = rules.get('vwap_reclaim', {})
+                        if get_val(vwap_rule.get('enabled'), False):
+                            vwap_col_m = f'VWAP_{minute_tf}'
+                            if vwap_col_m in alert_day_minute_df.columns and close_col_m in alert_day_minute_df.columns:
+                                final_confirmation_signal &= (alert_day_minute_df[close_col_m] > alert_day_minute_df[vwap_col_m])
+
+                        vol_rule = rules.get('volume_confirmation', {})
+                        if get_val(vol_rule.get('enabled'), False):
+                            volume_col_m = f'volume_{minute_tf}'
+                            vol_ma_period = get_val(vol_rule.get('ma_period'), 21)
+                            vol_ma_col_m = f'VOL_MA_{vol_ma_period}_{minute_tf}'
+                            if vol_ma_col_m in alert_day_minute_df.columns and volume_col_m in alert_day_minute_df.columns:
+                                final_confirmation_signal &= (alert_day_minute_df[volume_col_m] > alert_day_minute_df[vol_ma_col_m])
                         
                         naive_market_open_time = datetime.combine(monitoring_date, time(9, 30))
                         aware_market_open_time = pd.Timestamp(naive_market_open_time, tz='Asia/Shanghai')
@@ -414,7 +429,6 @@ class MultiTimeframeTrendStrategy:
                             bonus_score = get_val(entry_params.get('bonus_score'), 50)
                             final_score = daily_score + bonus_score
                             
-                            # 创建“增强版”的分钟线信号记录
                             confirmation_record = self._create_signal_record(
                                 stock_code=stock_code,
                                 trade_time=confirm_time,
@@ -426,18 +440,16 @@ class MultiTimeframeTrendStrategy:
                                 triggered_playbooks=list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
                                 context_snapshot={'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True, 'setup_date': setup_date.strftime('%Y-%m-%d')},
                             )
-                            # 用增强版记录替换默认记录
                             final_record_for_this_setup = confirmation_record
 
-            # 【逻辑优化2】将最终决策（无论是日线还是分钟线）添加到结果列表
             final_entry_records.append(final_record_for_this_setup)
             
-            # if minute_confirmation_found:
-                # print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
-            # else:
-                # print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留原始日线信号。")
+            if minute_confirmation_found:
+                print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
+            else:
+                print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留校准后的日线信号。")
 
-        print(f"--- [引擎5-调试 V117.40] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
+        print(f"--- [引擎5-调试 V117.41] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
         return final_entry_records
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
