@@ -601,7 +601,7 @@ class StrategiesDAO(BaseDAO):
             print("调试信息: [DAO-SignalLog] 传入的信号数据列表为空，不执行任何操作。")
             return 0
         
-        print(f"调试信息: [DAO-SignalLog V117.14] 收到 {len(signals_data)} 条信号，开始执行“读取-修改-保存”流程。")
+        # print(f"调试信息: [DAO-SignalLog V117.14] 收到 {len(signals_data)} 条信号，开始执行“读取-修改-保存”流程。")
 
         # 步骤 1: 批量获取所有需要的StockInfo对象，以备后用
         stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
