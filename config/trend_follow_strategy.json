@@ -206,7 +206,7 @@
         "min_total_gain_pct": 15.0,
         "pre_days_lookback": 60,
         "activation_window_days": 2,
-        "output_dir": "/data/alpha_hunter_reports"
+        "output_dir": "alpha_hunter_reports"
       }
     }
   },
