@@ -208,6 +208,6 @@ class KlinePatternRecognizer:
         df['kline_c_bearish_separating_lines'] = prev1['is_green'] & is_red & is_marubozu & \
                                                   (abs(op - prev1['op']) / op < 0.001)
 
-        print(f"    [调试-K线识别器]: 已完成所有形态分析，为DataFrame添加了新的布尔列。")
+        # print(f"    [调试-K线识别器]: 已完成所有形态分析，为DataFrame添加了新的布尔列。")
         return df
 

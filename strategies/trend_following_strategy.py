@@ -276,7 +276,7 @@ class TrendFollowStrategy:
         df = self.pattern_recognizer.identify_all(df)
         
         # ▼▼▼【代码修改 V113】: 新增“通用原子条件预计算”步骤，提升效率 ▼▼▼
-        print("--- [总指挥] 步骤1.1: 通用原子条件预计算 (V113 优化) ---")
+        # print("--- [总指挥] 步骤1.1: 通用原子条件预计算 (V113 优化) ---")
         atomic_conditions = {}
         atomic_conditions['is_green'] = df['close_D'] > df['open_D']
         atomic_conditions['is_red'] = df['close_D'] < df['open_D']
@@ -286,7 +286,7 @@ class TrendFollowStrategy:
         else:
             # 如果成交量均线不存在，则创建一个全为False的Series以保证后续逻辑健壮性
             atomic_conditions['is_volume_above_ma'] = pd.Series(False, index=df.index)
-        print("      -> '红/绿K线', '成交量高于均线' 等通用条件已预计算。")
+        # print("      -> '红/绿K线', '成交量高于均线' 等通用条件已预计算。")
         # ▲▲▲【代码修改 V113】▲▲▲
 
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
@@ -1069,7 +1069,7 @@ class TrendFollowStrategy:
         【V66.1 结构为王最终版】
         - 新增 TRIGGER_PANIC_REVERSAL，专门捕捉恐慌坑后的“功能性”强反转K线。
         """
-        print("    - [触发事件中心 V66.1 结构为王最终版] 启动，开始定义所有原子化触发事件...")
+        # print("    - [触发事件中心 V66.1 结构为王最终版] 启动，开始定义所有原子化触发事件...")
         triggers = {}
         default_series = pd.Series(False, index=df.index) # 新增一个默认的空Series，用于后续代码健壮性
         trigger_params = self._get_params_block(params, 'trigger_event_params', {})
@@ -1256,7 +1256,7 @@ class TrendFollowStrategy:
                 triggers[key] = pd.Series(False, index=df.index)
             else:
                 triggers[key] = triggers[key].fillna(False)
-        print("    - [触发事件中心 V66.1] 所有触发事件定义完成。")
+        # print("    - [触发事件中心 V66.1] 所有触发事件定义完成。")
         return triggers
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -1316,7 +1316,7 @@ class TrendFollowStrategy:
         states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
         states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
         states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
-        print("          -> 主状态诊断完成 (吸筹/拉升/派发/过渡)。")
+        # print("          -> 主状态诊断完成 (吸筹/拉升/派发/过渡)。")
 
         # --- 3. 定义“高控盘”状态 ---
         p_struct = p.get('structure_params', {})
@@ -1399,7 +1399,7 @@ class TrendFollowStrategy:
                 states[key] = pd.Series(False, index=df.index)
             else:
                 states[key] = states[key].fillna(False)
-        print("        -> [诊断模块] 筹码状态诊断执行完毕。")
+        # print("        -> [诊断模块] 筹码状态诊断执行完毕。")
         return states
 
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -1408,7 +1408,7 @@ class TrendFollowStrategy:
         - 核心升级: 能够动态地为多条关键均线（如21, 34, 55, 89, 144, 233）诊断“触碰支撑”状态。
         - 这为“平台支撑回踩”剧本的三维动态评分（背景分+事件分）提供了核心数据。
         """
-        print("        -> [诊断模块] 正在执行均线状态诊断...")
+        # print("        -> [诊断模块] 正在执行均线状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'ma_state_params', {})
@@ -1518,7 +1518,7 @@ class TrendFollowStrategy:
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """【V64.5 最终融合版】震荡指标状态诊断中心"""
-        print("        -> [诊断模块] 正在执行震荡指标状态诊断...")
+        # print("        -> [诊断模块] 正在执行震荡指标状态诊断...")
         states = {}
         p = self._get_params_block(params, 'oscillator_state_params', {})
         if not self._get_param_value(p.get('enabled'), False): return states
@@ -1563,7 +1563,7 @@ class TrendFollowStrategy:
             else:
                 print(f"          -> [警告] 缺少列 '{bias_col}'，价格负向乖离状态无法诊断。")
         
-        print("        -> [诊断模块] 震荡指标状态诊断执行完毕。")
+        # print("        -> [诊断模块] 震荡指标状态诊断执行完毕。")
         return states
 
     def _diagnose_capital_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -1638,7 +1638,7 @@ class TrendFollowStrategy:
         """
         【V57.0 诊断模块 - 箱体状态诊断引擎】
         """
-        print("        -> [诊断模块] 正在执行箱体状态诊断...")
+        # print("        -> [诊断模块] 正在执行箱体状态诊断...")
         states = {}
         box_params = self._get_params_block(params, 'dynamic_box_params', {})
         if not self._get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -1697,7 +1697,7 @@ class TrendFollowStrategy:
                 states[key] = pd.Series(False, index=df.index)
             else:
                 states[key] = states[key].fillna(False)
-        print("        -> [诊断模块] 箱体状态诊断执行完毕。")
+        # print("        -> [诊断模块] 箱体状态诊断执行完毕。")
         return states
 
     def _diagnose_risk_factors(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -1770,7 +1770,7 @@ class TrendFollowStrategy:
         """
         【V58.0 诊断模块 - 板形态诊断引擎】
         """
-        print("        -> [诊断模块] 正在执行板形态诊断...")
+        # print("        -> [诊断模块] 正在执行板形态诊断...")
         states = {}
         p = self._get_params_block(params, 'board_pattern_params', {})
         if not self._get_param_value(p.get('enabled'), False):
@@ -1786,16 +1786,16 @@ class TrendFollowStrategy:
         is_limit_down_low = df['low_D'] <= limit_down_price * (1 + price_buffer)
         states['BOARD_EVENT_EARTH_HEAVEN'] = is_limit_down_low & is_limit_up_close
         
-        signal = states['BOARD_EVENT_EARTH_HEAVEN']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '地天板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['BOARD_EVENT_EARTH_HEAVEN']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> '地天板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         is_limit_down_close = df['close_D'] <= limit_down_price * (1 + price_buffer)
         states['BOARD_EVENT_HEAVEN_EARTH'] = is_limit_up_high & is_limit_down_close
         
-        signal = states['BOARD_EVENT_HEAVEN_EARTH']
-        dates_str = self._format_debug_dates(signal)
-        print(f"          -> '天地板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
+        # signal = states['BOARD_EVENT_HEAVEN_EARTH']
+        # dates_str = self._format_debug_dates(signal)
+        # print(f"          -> '天地板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         return states
 
@@ -1803,7 +1803,7 @@ class TrendFollowStrategy:
         """
         【V60.3 状态持久化修复版】
         """
-        print("        -> [诊断模块] 正在执行K线组合形态诊断...")
+        # print("        -> [诊断模块] 正在执行K线组合形态诊断...")
         states = {}
         p = self._get_params_block(params, 'kline_pattern_params', {})
         if not self._get_param_value(p.get('enabled'), False):
@@ -1869,7 +1869,7 @@ class TrendFollowStrategy:
             # dates_str = self._format_debug_dates(signal)
             # print(f"          -> 'N字形态整理期' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             
-        print("        -> [诊断模块] K线组合形态诊断执行完毕。")
+        # print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
 
     # 风险评分引擎
