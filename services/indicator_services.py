@@ -164,22 +164,12 @@ class IndicatorService:
         # ▼▼▼【代码修改 V117.28】: 确保获取实时数据 ▼▼▼
         # 如果 trade_time 未提供（例如在实时触发的场景），则使用当前时间作为查询终点。
         # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
-        end_time_for_query = trade_time
-        print(f"检查是否传入时间：{trade_time}, {type(trade_time)}")
-        if not end_time_for_query:
-            # 使用带时区的当前时间，以避免任何时区混淆
-            end_time_for_query = datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            print(f"    - [数据获取修正] trade_time 为 None，自动设置为当前时间: {end_time_for_query}")
-
-        # print(f"    [底层数据获取] 正在为 {stock_code} 获取 {time_level} 级别数据，请求 {needed_bars} 条...")
         df = await self.indicator_dao.get_history_ohlcv_df(
             stock_code=stock_code, 
             time_level=time_level, 
             limit=needed_bars, 
-            trade_time=end_time_for_query
+            trade_time=trade_time # 直接传递，不做任何处理
         )
-
-        print(f"end_time_for_query: {end_time_for_query}, df.count: {len(df)} .")
 
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取到数据。")
