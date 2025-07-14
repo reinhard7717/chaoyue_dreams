@@ -689,6 +689,11 @@ class TrendFollowStrategy:
                 'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩', 'family': 'TREND_MOMENTUM',
                 'type': 'setup', 'score': 190, 'side': 'right', 'comment': 'B+级: 回踩前期跳空缺口获得支撑并反弹。'
             },
+            {
+                'name': 'CHIP_CYCLE_TRANSITION_B', 'cn_name': '【B级】筹码周期转换', 'family': 'TREND_MOMENTUM',
+                'type': 'event_driven', 'score': 180, 'side': 'right', 
+                'comment': 'B级: 捕捉从“吸筹/过渡”阶段，首次转入“拉升”阶段的关键节点。'
+            },
             # --- 特殊事件家族 (SPECIAL_EVENT) ---
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板', 'family': 'SPECIAL_EVENT',
@@ -773,6 +778,11 @@ class TrendFollowStrategy:
             elif name == 'PLATFORM_SUPPORT_PULLBACK':
                 # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            elif name == 'CHIP_CYCLE_TRANSITION_B':
+                # 触发条件：当天是“拉升”状态，而昨天不是“拉升”状态
+                is_markup_today = atomic_states.get('CHIP_STATE_MARKUP', default_series)
+                was_not_markup_yesterday = ~atomic_states.get('CHIP_STATE_MARKUP', default_series).shift(1).fillna(True)
+                playbook['trigger'] = is_markup_today & was_not_markup_yesterday
             elif name == 'HEALTHY_MARKUP_A':
                 playbook['setup_score_series'] = score_healthy_markup # 分配准备分序列
                 trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)

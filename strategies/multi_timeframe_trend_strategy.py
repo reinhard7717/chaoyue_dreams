@@ -432,10 +432,10 @@ class MultiTimeframeTrendStrategy:
             # 【逻辑优化2】将最终决策（无论是日线还是分钟线）添加到结果列表
             final_entry_records.append(final_record_for_this_setup)
             
-            if minute_confirmation_found:
-                print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
-            else:
-                print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留原始日线信号。")
+            # if minute_confirmation_found:
+                # print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
+            # else:
+                # print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留原始日线信号。")
 
         print(f"--- [引擎5-调试 V117.40] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
         return final_entry_records
