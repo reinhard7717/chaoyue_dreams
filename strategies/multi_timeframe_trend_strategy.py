@@ -92,11 +92,11 @@ class MultiTimeframeTrendStrategy:
         if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
             # 如果是天真的，假定为本地时间并进行本地化，然后转为UTC
             standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime()
-            print(f"调试信息: [create_signal] 发现天真时间 {ts}, 已转换为UTC: {standard_trade_time}")
+            # print(f"调试信息: [create_signal] 发现天真时间 {ts}, 已转换为UTC: {standard_trade_time}")
         else:
             # 如果已经带时区，直接转换为UTC
             standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
-            print(f"调试信息: [create_signal] 发现带时区时间 {ts}, 已转换为UTC: {standard_trade_time}")
+            # print(f"调试信息: [create_signal] 发现带时区时间 {ts}, 已转换为UTC: {standard_trade_time}")
 
         record = {
             "stock_code": None,

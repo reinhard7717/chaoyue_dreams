@@ -86,7 +86,6 @@
                             {% endif %}
                         </td>
                         <td>
-                            {# ▼▼▼【代码修改 V104】: 优先展示风险信号，否则展示最新动态 ▼▼▼ #}
                             {% if item.sell_info %}
                                 <div class="signal-details">
                                     {# 根据风险等级显示不同的图标和样式 #}
@@ -108,7 +107,6 @@
                                 <br>
                                 <small>分数: {{ item.latest_score|floatformat:0 }}</small>
                             {% endif %}
-                            {# ▲▲▲【代码修改 V104】▲▲▲ #}
                         </td>
                         <td>
                             {# 激活剧本的展示逻辑保持不变 #}
