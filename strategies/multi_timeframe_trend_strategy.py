@@ -924,15 +924,14 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V117.2 同步版】
-        - 核心修复: 完全重构此方法的内部流程，使其与 V117 版的 `run_for_stock` 函数保持100%的逻辑一致。
-        - 流程同步:
-          1. 明确增加了在战术引擎运行前，先独立执行“战略引擎”和“周线信号注入日线”的步骤。
-          2. 确保了所有后续引擎（日线和分钟线）都是在包含了周线战略信号的、最完整的数据基础上运行。
-        - 收益: 保证了调试回溯的结果能够精确反映实战部署的逻辑，消除了因流程不同步导致的分析偏差。
+        【V117.7 终极统一版】
+        - 核心修复: 解决了因不同引擎生成的 trade_time 数据类型不一致（datetime 和 str 混合）
+                    而导致的排序 TypeError。
+        - 解决方案: 在排序的 key 函数中，使用 pd.to_datetime() 强制将所有 trade_time 值
+                    转换为可比较的 pandas Timestamp 对象，确保了排序的健壮性。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V117.2 同步版)] ---")
+        print(f"--- [历史回溯调试启动 (V117.7 终极统一版)] ---")
         print(f"  - 股票代码: {stock_code}")
         print(f"  - 目标时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -948,48 +947,39 @@ class MultiTimeframeTrendStrategy:
                 return
             print("[成功] 所有原始数据和指标准备就绪。")
 
-            # 步骤 2: 完整运行所有五个引擎，严格遵循 run_for_stock 的新流程
+            # 步骤 2: 完整运行所有五个引擎
             print("\n[步骤 2/3] 正在完整运行所有五个策略引擎...")
             
-            # ▼▼▼【代码修改 V117.2】: 严格复刻 run_for_stock 的新流程 ▼▼▼
-            # 引擎 1: 战略引擎 (周线)
             print("  - 引擎1 (周线战略) 启动...")
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
             print(f"  - 引擎1 (周线战略) 运行完毕，生成 {len(strategic_signals_df)} 条周线分析记录。")
 
-            # 数据流转: 战略信号注入日线
             print("  - [数据流转] 开始将周线战略信号注入日线数据...")
             all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
             print("  - [数据流转] 完成。")
 
-            # 引擎 2: 战术引擎 (日线)
             print("  - 引擎2 (日线战术) 启动...")
             tactical_records = self._run_tactical_engine(stock_code, all_dfs)
             print(f"  - 引擎2 (日线战术) 运行完毕，生成 {len(tactical_records)} 条日线信号记录。")
 
-            # 引擎 3: 分钟共振买入引擎
             print("  - 引擎3 (分钟共振买入) 启动...")
             resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
             print(f"  - 引擎3 (分钟共振买入) 运行完毕，生成 {len(resonance_entry_records)} 条记录。")
 
-            # 引擎 4: 分钟风险预警引擎
             print("  - 引擎4 (分钟风险预警) 启动...")
             risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
             print(f"  - 引擎4 (分钟风险预警) 运行完毕，生成 {len(risk_alert_records)} 条记录。")
 
-            # 引擎 5: 分钟买入确认引擎
             print("  - 引擎5 (分钟买入确认) 启动...")
             confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
             print(f"  - 引擎5 (分钟买入确认) 运行完毕，生成 {len(confirmation_entry_records)} 条记录。")
-            # ▲▲▲【代码修改 V117.2】▲▲▲
 
-            # 合并所有记录
             all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
             final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
             all_records = final_entry_records + risk_alert_records
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
 
-            # 步骤 3: 筛选并展示目标时段的信号 (此部分逻辑不变)
+            # 步骤 3: 筛选并展示目标时段的信号
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
             if not all_records:
@@ -1009,7 +999,9 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
             
-            debug_period_records.sort(key=lambda x: x['trade_time'])
+            # ▼▼▼【代码修改 V117.7】: 强制类型转换，确保排序时所有时间都是可比较的datetime对象 ▼▼▼
+            debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time']))
+            # ▲▲▲【代码修改 V117.7】▲▲▲
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for record in debug_period_records:
@@ -1038,7 +1030,6 @@ class MultiTimeframeTrendStrategy:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
             traceback.print_exc()
-
 
 
 
