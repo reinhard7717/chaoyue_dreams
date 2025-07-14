@@ -73,23 +73,34 @@ class MultiTimeframeTrendStrategy:
     # ▼▼▼【 “军用标准战报”生成器 ▼▼▼
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
         """
-        【V117.8 新增】标准信号记录生成器 (军用标准战报协议)。
-        - 核心功能: 保证所有生成的信号记录具有统一、规范的结构和数据类型。
-        - 类型强制: 强制将 'trade_time' 转换为标准的 to_pydatetime() 对象，从根源上杜绝类型不一致问题。
-        - 结构统一: 为所有记录提供了一致的默认值，避免了 'KeyError'。
+        【V117.15 时区校准版】标准信号记录生成器。
+        - 核心修复: 强制将所有 trade_time 转换为带时区的 UTC 时间。
+        - 工作流程:
+          1. 使用 pd.to_datetime 将任何输入转为 pandas Timestamp。
+          2. 如果时间戳是“天真”的(naive)，则假定它是本地时间('Asia/Shanghai')并进行“本地化”。
+          3. 最终，使用 .tz_convert('UTC') 将其统一转换为UTC时间。
+          4. 调用 .to_pydatetime() 得到一个标准的、带时区的Python datetime对象。
+        - 收益: 从根源上统一了整个系统的时间标准，确保与数据库的UTC存储完全兼容。
         """
-        # 强制转换 trade_time
         trade_time_input = kwargs.get('trade_time')
         if trade_time_input is None:
             raise ValueError("创建信号记录时必须提供 'trade_time'")
         
-        # 使用 pd.to_datetime 兼容各种输入，然后转为标准的 python datetime
-        standard_trade_time = pd.to_datetime(trade_time_input).to_pydatetime()
+        # ▼▼▼ 强制时区校准为UTC ▼▼▼
+        ts = pd.to_datetime(trade_time_input)
+        # 检查时间是否是“天真”的
+        if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
+            # 如果是天真的，假定为本地时间并进行本地化，然后转为UTC
+            standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime()
+            print(f"调试信息: [create_signal] 发现天真时间 {ts}, 已转换为UTC: {standard_trade_time}")
+        else:
+            # 如果已经带时区，直接转换为UTC
+            standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
+            print(f"调试信息: [create_signal] 发现带时区时间 {ts}, 已转换为UTC: {standard_trade_time}")
 
-        # 定义一个标准的记录模板
         record = {
             "stock_code": None,
-            "trade_time": standard_trade_time,
+            "trade_time": standard_trade_time, # 现在这里永远是UTC时间
             "timeframe": "N/A",
             "strategy_name": "UNKNOWN",
             "close_price": 0.0,
@@ -103,10 +114,8 @@ class MultiTimeframeTrendStrategy:
             "analysis_text": None
         }
         
-        # 使用传入的参数覆盖模板的默认值
         record.update(kwargs)
         
-        # 确保关键数据被正确处理
         record['close_price'] = sanitize_for_json(record['close_price'])
         record['context_snapshot'] = sanitize_for_json(record['context_snapshot'])
 

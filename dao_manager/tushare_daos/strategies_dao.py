@@ -620,10 +620,13 @@ class StrategiesDAO(BaseDAO):
                 print(f"警告: [DAO-SignalLog] 股票代码 {stock_code} 在 StockInfo 表中不存在，该条信号将被跳过。")
                 continue
 
-            # 步骤 2: 定义唯一键，并准备待更新/创建的数据
+            # 准备唯一键。这里的 trade_time 已经是标准的UTC时间。
+            trade_time_utc = item.get('trade_time')
+            # print(f"调试信息: [DAO-save] 准备保存/更新的记录，时间戳: {trade_time_utc}, 类型: {type(trade_time_utc)}, 时区: {trade_time_utc.tzinfo}")
+
             unique_key = {
                 'stock': stock_instance,
-                'trade_time': item.get('trade_time'),
+                'trade_time': trade_time_utc,
                 'strategy_name': item.get('strategy_name'),
                 'timeframe': item.get('timeframe'),
             }
