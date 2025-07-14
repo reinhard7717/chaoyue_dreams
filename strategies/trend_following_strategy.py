@@ -318,7 +318,7 @@ class TrendFollowStrategy:
         raw_total_score = df['entry_score'].copy()
         
         print("--- [总指挥] 步骤4.5: 指挥棒模型启动，进行最终得分调整 ---")
-        adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params)
+        adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
@@ -483,13 +483,13 @@ class TrendFollowStrategy:
         print("="*60 + "\n")
         return alerts
 
-    def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict) -> Tuple[pd.Series, pd.DataFrame]:
+    def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict, atomic_states: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V80.0 指挥棒模型】最终得分调整层
-        - 对已经计算出的原始总分，根据一系列“纯粹度”指标，进行乘数调整。
-        - 这如同总指挥对乐团的最终演绎进行微调，赋予信号艺术性。
+        【V119.1 战略号角版】最终得分调整层
+        - 核心升级: 增加对 'is_true' 条件的处理，使其能响应由 atomic_states 提供的事件型信号，
+                    实现了“战略号角”式的全局加成功能。
         """
-        print("    - [指挥棒模型 V80.0] 启动，开始对原始总分进行最终调整...")
+        print("    - [指挥棒模型 V119.1 战略号角版] 启动，开始对原始总分进行最终调整...")
         
         adjustment_params = self._get_params_block(params, 'final_score_adjustments', {})
         if not self._get_param_value(adjustment_params.get('enabled'), False):
@@ -499,6 +499,7 @@ class TrendFollowStrategy:
         total_multiplier = pd.Series(0.0, index=df.index)
         adjustment_details_df = pd.DataFrame(index=df.index)
         multiplier_rules = adjustment_params.get('multipliers', [])
+        default_series = pd.Series(False, index=df.index)
 
         for rule in multiplier_rules:
             name = rule.get('name')
@@ -507,27 +508,32 @@ class TrendFollowStrategy:
             condition = rule.get('condition')
             multiplier_value = rule.get('multiplier_value', 0)
 
-            if source_col not in df.columns:
-                print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的列'{source_col}'不存在，跳过。")
-                continue
-
             mask = pd.Series(False, index=df.index)
             if condition == 'is_lowest_percentile':
+                if source_col not in df.columns:
+                    print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的列'{source_col}'在DataFrame中不存在，跳过。")
+                    continue
                 window = rule.get('window', 250)
                 percentile = rule.get('percentile', 0.1)
                 threshold = df[source_col].rolling(window=window, min_periods=window//2).quantile(percentile)
                 mask = df[source_col] < threshold
-            # 未来可以扩展更多条件，如 is_highest_percentile 等
+            
+            # 新增的 is_true 条件处理逻辑
+            elif condition == 'is_true':
+                if source_col not in atomic_states:
+                    print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的事件'{source_col}'在atomic_states中不存在，跳过。")
+                    continue
+                mask = atomic_states.get(source_col, default_series)
 
             # 应用乘数
             total_multiplier.loc[mask] += multiplier_value
             adjustment_details_df.loc[mask, name] = multiplier_value
             
-            # if mask.any():
-                # print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
+            if mask.any():
+                print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
 
         adjusted_score = raw_scores * (1 + total_multiplier)
-        print("    - [指挥棒模型 V80.0] 调整完成。")
+        print("    - [指挥棒模型 V119.1] 调整完成。")
         return adjusted_score, adjustment_details_df
 
     # 斜率计算中心
@@ -689,11 +695,6 @@ class TrendFollowStrategy:
                 'name': 'GAP_SUPPORT_PULLBACK_B_PLUS', 'cn_name': '【B+级】缺口支撑回踩', 'family': 'TREND_MOMENTUM',
                 'type': 'setup', 'score': 190, 'side': 'right', 'comment': 'B+级: 回踩前期跳空缺口获得支撑并反弹。'
             },
-            {
-                'name': 'CHIP_CYCLE_TRANSITION_B', 'cn_name': '【B级】筹码周期转换', 'family': 'TREND_MOMENTUM',
-                'type': 'event_driven', 'score': 180, 'side': 'right', 
-                'comment': 'B级: 捕捉从“吸筹/过渡”阶段，首次转入“拉升”阶段的关键节点。'
-            },
             # --- 特殊事件家族 (SPECIAL_EVENT) ---
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板', 'family': 'SPECIAL_EVENT',
@@ -778,11 +779,6 @@ class TrendFollowStrategy:
             elif name == 'PLATFORM_SUPPORT_PULLBACK':
                 # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
-            elif name == 'CHIP_CYCLE_TRANSITION_B':
-                # 触发条件：当天是“拉升”状态，而昨天不是“拉升”状态
-                is_markup_today = atomic_states.get('CHIP_STATE_MARKUP', default_series)
-                was_not_markup_yesterday = ~atomic_states.get('CHIP_STATE_MARKUP', default_series).shift(1).fillna(True)
-                playbook['trigger'] = is_markup_today & was_not_markup_yesterday
             elif name == 'HEALTHY_MARKUP_A':
                 playbook['setup_score_series'] = score_healthy_markup # 分配准备分序列
                 trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
@@ -1375,6 +1371,11 @@ class TrendFollowStrategy:
         # signal = states['CHIP_EVENT_IGNITION']
         # dates_str = self._format_debug_dates(signal)
         # print(f"          -> “点火事件”诊断完成，发现 {signal.sum()} 天。{dates_str}")
+
+        # ▼▼▼ 计算“筹码周期转换”事件 ▼▼▼
+        is_markup_today = states.get('CHIP_STATE_MARKUP', default_series)
+        was_not_markup_yesterday = ~states.get('CHIP_STATE_MARKUP', default_series).shift(1).fillna(True)
+        states['EVENT_CHIP_CYCLE_TRANSITION'] = is_markup_today & was_not_markup_yesterday
         for key in states:
             if states[key] is None:
                 states[key] = pd.Series(False, index=df.index)
