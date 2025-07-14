@@ -404,12 +404,12 @@ class MultiTimeframeTrendStrategy:
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
         for setup_date, setup_row in setup_days_df.iterrows():
-            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
             
             if alert_day_minute_df.empty:
-                print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
+                # print(f"    - [调试] 警告: 未找到 {setup_date.date()} 的分钟线数据，跳过此天。")
                 continue
+            print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             print(f"    - [调试] 已提取当天分钟线数据 {len(alert_day_minute_df)} 条。")
 
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
