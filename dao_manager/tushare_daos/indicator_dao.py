@@ -198,8 +198,8 @@ class IndicatorDAO(BaseDAO):
                 if trade_time_dt:
                     print(f"    - [DAO查询] 应用时间过滤器: trade_time <= {trade_time_dt}")
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            else:
-                print(f"    - [DAO查询] 未提供trade_time，将获取最新的 {limit} 条数据。")
+            # else:
+                # print(f"    - [DAO查询] 未提供trade_time，将获取最新的 {limit} 条数据。")
 
             # ... 后续的字段选择、排序、查询、转换逻辑保持不变 ...
             fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount'] if time_level_str == "d" else ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
