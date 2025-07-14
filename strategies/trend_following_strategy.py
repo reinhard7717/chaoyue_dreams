@@ -2382,15 +2382,11 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.14 “白名单审查”最终版】
-        - 核心修复: 基于“法证报告”的结论，彻底解决因保存过多指标列导致文件臃肿的问题。
-        - 根本原因: 将所有计算出的上百个指标全部写入JSON，导致“千刀万剐”式的文件体积膨胀。
-        - 解决方案: 建立一份“白名单”（essential_columns_whitelist），在保存前，只保留白名单上
-                    最核心的列（如OHLC、信号、核心分数等），其余所有列全部丢弃。
-        - 收益: 确保情报档案只包含用于复盘的最关键数据，文件体积将从400+KB骤降至10-20KB，
-                从根源上解决了问题，且对未来新增指标免疫。
+        【V118.16 聚焦打击+情报归档版】
+        - 核心升级 1: 增加时间过滤器，只回测2024年1月1日之后的“黄金上涨波段”。
+        - 核心升级 2: 调用“智能参谋”后，不再打印，而是将返回的JSON对象写入对应的解读文件中。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.14 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.16 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2404,7 +2400,7 @@ class TrendFollowStrategy:
         print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
         print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 失手报告将保存至: '{output_dir_base}/' 目录")
 
-        # ... 步骤1: 识别黄金上涨波段 (逻辑不变) ...
+        # --- 步骤1: 识别所有“黄金上涨波段” ---
         print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
         df_full['cum_min'] = df_full['close_D'].cummin()
         df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
@@ -2422,12 +2418,19 @@ class TrendFollowStrategy:
             total_gain = (wave_df.iloc[-1]['close_D'] / wave_df.iloc[0]['close_D']) - 1
             if duration >= min_duration and total_gain >= min_total_gain:
                 golden_waves.append({'start_date': wave_df.index[0], 'end_date': end_date, 'duration': duration, 'total_gain': total_gain})
+        
+        # ▼▼▼【核心修正 V118.16】增加时间过滤器 ▼▼▼
+        print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个原始黄金上涨波段。")
+        cutoff_date = pd.Timestamp('2024-01-01')
+        print(f"    -> [时间过滤] 将只分析 {cutoff_date.date()} 之后启动的波段...")
+        golden_waves = [wave for wave in golden_waves if wave['start_date'] >= cutoff_date]
         if not golden_waves:
-            print("    -> [扫描完成] 未发现符合条件的黄金上涨波段。")
+            print("    -> [过滤完成] 未发现符合时间条件的黄金上涨波段。")
             return
-        print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个黄金上涨波段，准备逐一回测...")
+        print(f"    -> [过滤完成] 发现 {len(golden_waves)} 个符合条件的波段，准备逐一回测...")
+        # ▲▲▲【核心修正 V118.16】▲▲▲
 
-        # ... 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ...
+        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
@@ -2462,33 +2465,16 @@ class TrendFollowStrategy:
                     scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                # ▼▼▼【核心修正 V118.14】“白名单审查”模块启动！▼▼▼
-                print(f"    - [白名单审查] 准备对报告进行净化，原始列数: {len(final_report_df.columns)}")
-                
-                # 1. 定义“白名单”，只包含对复盘绝对必要的列。
                 essential_columns_whitelist = [
-                    # 核心K线数据
                     'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
-                    # 核心信号与分数
-                    'signal_entry', 'entry_score', 'risk_score',
-                    # 关键均线 (用于观察趋势)
-                    'EMA_21_D', 'EMA_55_D', 'EMA_89_D',
-                    # 关键MACD (用于观察动能)
-                    'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
-                    # 关键筹码指标 (用于观察成本)
+                    'signal_entry', 'entry_score', 'risk_score', 'EMA_21_D', 'EMA_55_D', 
+                    'EMA_89_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
                     'CHIP_peak_cost_D', 'CHIP_winner_rate_short_term_D', 'CHIP_concentration_90pct_D',
-                    # 关键资金流
                     'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D'
                 ]
-                
-                # 2. 从报告的全部列中，筛选出白名单上存在的列
                 columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
-                
-                # 3. 执行净化！只保留白名单上的列
                 final_report_df = final_report_df[columns_to_keep]
-                print(f"    - [白名单审查] 净化完成，最终报告列数: {len(final_report_df.columns)}")
-                # ▲▲▲【核心修正 V118.14】▲▲▲
-
+                
                 report_dir = os.path.join(output_dir_base, stock_code)
                 try:
                     os.makedirs(report_dir, exist_ok=True)
@@ -2499,113 +2485,110 @@ class TrendFollowStrategy:
                 filename = f"{start_date.strftime('%Y-%m-%d')}.json"
                 filepath = os.path.join(report_dir, filename)
                 
+                # ▼▼▼【核心修正 V118.16】保存解读报告 ▼▼▼
                 json_data = sanitize_for_json(final_report_df.to_dict(orient='index'))
                 try:
+                    # 1. 保存原始快照
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(json_data, f, ensure_ascii=False, indent=4)
                     print(f"    -> [报告生成] 已将净化后的快照 ({len(final_report_df)}行) 保存至: {filepath}")
 
-                    # 在保存成功后，立刻调用解读函数！
-                    interpretation = await self.interpret_snapshot(filepath, params)
-                    print(interpretation) # 打印解读报告
+                    # 2. 调用智能参谋获取解读字典
+                    interpretation_dict = await self.interpret_snapshot(filepath, params)
+                    
+                    # 3. 构建解读报告的文件名并保存
+                    base_name, _ = os.path.splitext(filename)
+                    interp_filename = f"{base_name}_interpret_snapshot.json"
+                    interp_filepath = os.path.join(report_dir, interp_filename)
+                    with open(interp_filepath, 'w', encoding='utf-8') as f:
+                        json.dump(interpretation_dict, f, ensure_ascii=False, indent=4)
+                    print(f"    -> [智能解读] 已将诊断报告保存至: {interp_filepath}")
 
                 except Exception as e:
                     print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
+                # ▲▲▲【核心修正 V118.16】▲▲▲
 
         # ... 总结报告 (逻辑不变) ...
-        print("\n" + "="*30 + " [阿尔法猎手 V118.14 总结] " + "="*30)
-        print(f"    - 总计回测黄金波段数: {len(golden_waves)}")
+        print("\n" + "="*30 + " [阿尔法猎手 V118.16 总结] " + "="*30)
+        print(f"    - 总计分析波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
             capture_rate = (success_count / len(golden_waves)) * 100
             print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
         print("="*74)
 
-    async def interpret_snapshot(self, filepath: str, params: dict) -> str:
+    async def interpret_snapshot(self, filepath: str, params: dict) -> dict:
         """
-        【V118.15 智能参谋】
-        自动加载并解读指定的 "失手报告" JSON 文件，生成一份人类可读的诊断报告。
+        【V118.16 智能参谋-归档版】
+        加载并解读 "失手报告" JSON 文件，并返回一个结构化的字典用于JSON序列化。
 
         Args:
             filepath (str): "失手报告" JSON 文件的完整路径。
             params (dict): 策略参数字典，用于获取评分阈值等配置。
 
         Returns:
-            str: 一份格式化的、包含上下文、状态和失败原因分析的诊断报告。
+            dict: 一个包含完整诊断信息的结构化字典。
         """
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             if not data:
-                return "解读失败：JSON文件为空。"
+                return {"error": "解读失败：JSON文件为空。", "source_file": filepath}
 
             df = pd.DataFrame.from_dict(data, orient='index')
             df.index = pd.to_datetime(df.index)
             
-            # 定位到起涨点当天的关键数据
             last_day = df.iloc[-1]
             last_date_str = last_day.name.strftime('%Y-%m-%d')
 
-            # --- 1. 上下文分析 (Context Analysis) ---
-            context_summary = []
-            # 趋势上下文
+            # --- 1. 上下文分析 ---
             ema21 = last_day.get('EMA_21_D', 0)
             ema55 = last_day.get('EMA_55_D', 0)
             close = last_day.get('close_D', 0)
-            if close > ema21 > ema55:
-                context_summary.append("趋势处于强势区 (收盘价 > EMA21 > EMA55)。")
-            elif close < ema21 < ema55:
-                context_summary.append("趋势处于弱势区 (收盘价 < EMA21 < EMA55)。")
-            else:
-                context_summary.append("趋势处于震荡或整理区。")
+            trend_context = "震荡或整理区"
+            if close > ema21 > ema55: trend_context = "强势区 (收盘价 > EMA21 > EMA55)"
+            elif close < ema21 < ema55: trend_context = "弱势区 (收盘价 < EMA21 < EMA55)"
             
-            # 动能上下文
             macd_h = last_day.get('MACDh_13_34_8_D', 0)
-            if macd_h > 0:
-                context_summary.append("动能为正 (MACD红柱)。")
-            else:
-                context_summary.append("动能为负 (MACD绿柱)。")
+            momentum_context = "动能为负 (MACD绿柱)" if macd_h <= 0 else "动能为正 (MACD红柱)"
 
-            # --- 2. 状态诊断 (State Diagnosis) ---
-            # 假设原子状态列名均为大写
-            active_states = [col.replace('_score', '') for col, val in last_day.items() if isinstance(col, str) and col.isupper() and val > 0]
-            if active_states:
-                state_summary = f"当日激活的关键原子状态: {', '.join(active_states)}。"
-            else:
-                state_summary = "当日未激活任何关键的原子状态。"
+            # --- 2. 状态诊断 ---
+            active_states = [col.replace('_score', '') for col, val in last_day.items() if isinstance(col, str) and col.isupper() and isinstance(val, (int, float)) and val > 0]
 
-            # --- 3. 触发事件分析 (Trigger Event Analysis) ---
+            # --- 3. 触发事件分析 ---
             entry_score = last_day.get('entry_score', 0)
             risk_score = last_day.get('risk_score', 0)
-            
-            # 从策略参数中获取最低入场分
-            # 注意：这里假设您的参数结构中有 'scoring_params' -> 'min_entry_score'
             scoring_params = self._get_params_block(params, 'scoring_params', {})
-            min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7) # 假设默认0.7
+            min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7)
 
-            trigger_summary = (
-                f"核心症结: 未能触发入场信号。\n"
-                f"        - 当日最终入场分: {entry_score:.2f} (风险分: {risk_score:.2f})\n"
-                f"        - 未能达到最低入场阈值: {min_entry_score:.2f}。"
-            )
-
-            # --- 4. 合成最终报告 ---
-            report = (
-                f"\n"
-                f"--- [智能参谋诊断报告 for {last_date_str}] ---\n"
-                f"  [市场上下文]: {' '.join(context_summary)}\n"
-                f"  [核心状态]: {state_summary}\n"
-                f"  [失败原因]: {trigger_summary}\n"
-                f"-------------------------------------------------"
-            )
-            return report
+            # --- 4. 合成最终报告字典 ---
+            interpretation_dict = {
+                "interpretation_details": {
+                    "report_date": last_date_str,
+                    "source_snapshot": os.path.basename(filepath),
+                    "status": "Missed Opportunity"
+                },
+                "context_analysis": {
+                    "trend_summary": trend_context,
+                    "momentum_summary": momentum_context,
+                },
+                "state_diagnosis": {
+                    "active_atomic_states": active_states if active_states else "无"
+                },
+                "trigger_analysis": {
+                    "conclusion": "未能达到最低入场阈值",
+                    "final_entry_score": round(entry_score, 4),
+                    "risk_score": round(risk_score, 4),
+                    "required_score": min_entry_score
+                }
+            }
+            return interpretation_dict
 
         except FileNotFoundError:
-            return f"解读失败：找不到文件 {filepath}"
+            return {"error": "解读失败：找不到文件。", "source_file": filepath}
         except Exception as e:
-            return f"解读时发生未知错误: {e}"
-
+            return {"error": f"解读时发生未知错误: {e}", "source_file": filepath}
 
 
 
