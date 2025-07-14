@@ -1,4 +1,5 @@
 import datetime
+from asgiref.sync import sync_to_async
 from django.utils import timezone
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -227,7 +228,7 @@ class TradeCalendar(models.Model):
         return is_open
 
     @classmethod
-    async def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+    def get_next_trade_date(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
         """
         查询指定日期之后的第一个交易日。
         :param reference_date: date, 查询的参考日期。如果为None，则默认为今天。
@@ -259,6 +260,20 @@ class TradeCalendar(models.Model):
         else:
             print(f"调试: 未找到 {reference_date} 之后的交易日")
             return None
+
+    @classmethod
+    async def get_next_trade_date_async(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+        """
+        【异步版】查询指定日期之后的第一个交易日。
+        这是 get_next_trade_date 的异步版本，通过 sync_to_async 包装器，
+        使其可以在异步上下文中被安全地调用。
+        """
+        # 将同步的类方法调用包装成一个可等待的异步函数
+        get_next_date_func = sync_to_async(cls.get_next_trade_date, thread_sensitive=True)
+        
+        # 使用 await 来执行这个异步函数
+        next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
+        return next_date
 
     class Meta:
         db_table = 'trade_calendar'

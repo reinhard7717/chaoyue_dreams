@@ -395,7 +395,7 @@ class MultiTimeframeTrendStrategy:
             setup_date = setup_date_ts.date() # 提取日期部分
 
             # ▼▼▼【代码修改 V117.37】: 调用新式武器获取下一个交易日 ▼▼▼
-            monitoring_date = await TradeCalendar.get_next_trade_date(reference_date=setup_date)
+            monitoring_date = await TradeCalendar.get_next_trade_date_async(reference_date=setup_date)
             
             if monitoring_date is None:
                 print(f"\n--- [引擎5-调试] 预备日 {setup_date} 是最后一个已知交易日，无法监控次日，跳过。")
