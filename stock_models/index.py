@@ -240,7 +240,7 @@ class TradeCalendar(models.Model):
             reference_date = timezone.now().date()
         
         # 调试信息
-        print(f"调试: get_next_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
+        # print(f"调试: get_next_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
 
         # 查询数据库
         # 筛选条件：
@@ -255,7 +255,7 @@ class TradeCalendar(models.Model):
         ).order_by('cal_date').first()
 
         if trade_day:
-            print(f"调试: 找到下一个交易日: {trade_day.cal_date}")
+            # print(f"调试: 找到下一个交易日: {trade_day.cal_date}")
             return trade_day.cal_date
         else:
             print(f"调试: 未找到 {reference_date} 之后的交易日")
