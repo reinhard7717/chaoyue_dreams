@@ -311,57 +311,45 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        【修复版】获取同花顺概念板块成分列表并保存
-        
+        【重构修复版】获取同花顺概念板块成分列表并保存
         修复点:
-        1.  **解决外键约束错误**: 在组装数据前，主动移除API返回数据中可能冲突的'ts_code'字段，强制使用本地数据库的ths_index对象作为外键来源。
+        1.  **根本解决外键约束错误**: 通过修改底层的_save_all_to_db_native_upsert方法，正确处理to_field非主键的场景。
         2.  (保留已有优化) 消除N+1查询, 修复逻辑Bug, 移除冗余查询, 批量保存, 异步优化。
         """
         # --- 1. 初始化和准备 ---
         API_CALL_DELAY_SECONDS = 0.3
         final_result = {}
         data_to_save = []
-        
         # --- 2. 获取所有概念板块信息 ---
         ths_index_list = await self.get_ths_index_list()
         if not ths_index_list:
             logger.warning("数据库中未找到任何同花顺概念板块信息，任务结束。")
             return {"status": "warning", "message": "No ThsIndex found."}
-        
         logger.info(f"开始处理 {len(ths_index_list)} 个同花顺概念板块...")
-
         # --- 3. 循环调用API，收集原始数据和所有需要的股票代码 ---
         all_raw_members = []
         all_stock_codes = set()
-
         for i, ths_index in enumerate(ths_index_list):
             print(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
             try:
                 # 【代码修改】明确指定需要的字段，减少不必要的数据传输
                 df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,name,weight,in_date,out_date,is_new")
-                
                 if df is None or df.empty:
                     logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
                     await asyncio.sleep(API_CALL_DELAY_SECONDS)
                     continue
-                
                 for row in df.itertuples(index=False):
                     all_raw_members.append((ths_index, row))
                     all_stock_codes.add(row.con_code)
-
             except Exception as e:
                 logger.error(f"获取板块 [{ths_index.name}] 成分股时发生API错误: {e}", exc_info=True)
-            
             await asyncio.sleep(API_CALL_DELAY_SECONDS)
-
         logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
-
         # --- 4. (核心优化) 一次性从数据库获取所有需要的股票信息 ---
         print("正在一次性获取所有涉及的股票信息...")
         stock_queryset = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
         stock_map = {stock.stock_code: stock async for stock in stock_queryset}
         print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
-
         # --- 5. 组装最终数据并批量保存 ---
         print("开始组装最终数据并准备写入数据库...")
         for ths_index, row_data in all_raw_members:
@@ -369,25 +357,19 @@ class IndustryDao(BaseDAO):
             if not stock:
                 # logger.warning(f"在数据库中未找到股票代码为 {row_data.con_code} 的信息，该成分股将被忽略。")
                 continue
-            
             cleaned_row_data = {field: getattr(row_data, field) for field in row_data._fields}
             df_temp = pd.Series(cleaned_row_data).replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
-            
-            # 【代码修改】这是解决问题的关键步骤
-            # 将API返回的行数据转为字典
             api_data_dict = df_temp.to_dict()
-            # 主动移除字典中的'ts_code'键。这样下游函数就不会误用它。
-            # 我们强制它必须使用我们传入的 ths_index 对象。
-            api_data_dict.pop('ts_code', None) 
-            
+            # 【代码保留】这个步骤依然是好的实践，可以防止API返回的ts_code意外污染数据。
+            # 虽然根本问题在下游修复了，但保留此防御性编程措施没有坏处。
+            api_data_dict.pop('ts_code', None)
             # 现在传递给处理函数的数据是干净的，不包含冲突的外键信息
             ths_index_member_dict = self.data_format_process.set_ths_index_member_data(
                 ths_index=ths_index, # 这个是我们数据库里的对象，是“可信”的
-                stock=stock, 
+                stock=stock,
                 df_data=api_data_dict # 这个是API数据，但已经移除了冲突键
             )
             data_to_save.append(ths_index_member_dict)
-
             if len(data_to_save) >= BATCH_SAVE_SIZE:
                 print(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
                 final_result = await self._save_all_to_db_native_upsert(
@@ -397,7 +379,6 @@ class IndustryDao(BaseDAO):
                 )
                 print(f"批量写入完成。")
                 data_to_save.clear()
-
         if data_to_save:
             print(f"正在保存最后剩余的 {len(data_to_save)} 条数据...")
             final_result = await self._save_all_to_db_native_upsert(
@@ -406,7 +387,6 @@ class IndustryDao(BaseDAO):
                 unique_fields=['ths_index', 'stock']
             )
             print(f"最后的批量写入完成。")
-
         logger.info("同花顺概念板块成分保存任务全部完成。")
         return final_result
 

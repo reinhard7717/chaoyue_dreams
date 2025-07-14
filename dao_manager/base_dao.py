@@ -636,16 +636,14 @@ class BaseDAO(Generic[T]):
     # ==================== 批量保存方法 ====================
     async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=5000):
         """
-        【V22 - 终极性能版】的入口方法。
-        此方法作为上层调用接口，负责数据准备和分批，其逻辑保持不变。
-        它将调用优化后的 process_batch_async。
+        【V23 - 修复to_field版】的入口方法。
+        此方法作为上层调用接口，负责数据准备和分批。
         """
         # 1. 初始检查和准备
         if not data_list:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         total_records = len(data_list)
         failed_count = 0
-
         # 2. 字段元数据分析
         all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
         unique_field_set = set(unique_fields)
@@ -654,19 +652,16 @@ class BaseDAO(Generic[T]):
                 unique_field_set.add(field_name[:-3])
         pk_name = model_class._meta.pk.name
         update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
-
         fk_fields_map = {}
         for f in model_class._meta.fields:
             if isinstance(f, models.ForeignKey):
                 target_field_name = f.target_field.name
                 fk_fields_map[f.name] = target_field_name
-
         # 3. 准备数据记录
         prepared_data_list = []
         failed_records = []
         for record in data_list:
             try:
-                # 假设 _sanitize_for_json 和 _prepare_model_instance 已存在
                 sanitized_record = self._sanitize_for_json(record)
                 instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
                 prepared_data_list.append(instance_data)
@@ -677,19 +672,24 @@ class BaseDAO(Generic[T]):
         if not prepared_data_list:
             logger.warning("所有记录在准备阶段均失败，不执行数据库操作。")
             return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": 0}
-
         # 4. 将准备好的数据转换为DataFrame
         df = pd.DataFrame(prepared_data_list)
-
         # 5. 转换关系字段列
         for field in model_class._meta.get_fields():
             if field.is_relation and not field.auto_created:
                 field_name = field.name
                 column_name = field.column
                 if field_name in df.columns:
-                    df[column_name] = df[field_name].apply(lambda x: x.pk if pd.notna(x) else None)
+                    # 【代码修改】这是解决外键约束错误的核心。
+                    # 之前: lambda x: x.pk (错误地假设总是关联主键)
+                    # 现在: lambda x: getattr(x, field.target_field.name)
+                    # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
+                    target_field_name = field.target_field.name
+                    print(f"调试信息: 正在转换外键字段 '{field_name}' (列: '{column_name}')。将使用关联模型的 '{target_field_name}' 字段作为值。")
+                    df[column_name] = df[field_name].apply(
+                        lambda x: getattr(x, target_field_name) if pd.notna(x) else None
+                    )
                     df = df.drop(columns=[field_name])
-
         # 6. 调用下游异步批处理方法
         try:
             success_count = await self.process_batch_async(
@@ -703,7 +703,6 @@ class BaseDAO(Generic[T]):
             logger.error(f"调用 process_batch_async 时发生未知错误: {e}", exc_info=True)
             failed_count += len(df)
             success_count = 0
-
         # 7. 返回结果
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
 

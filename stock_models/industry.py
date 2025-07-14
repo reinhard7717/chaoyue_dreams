@@ -242,7 +242,11 @@ class ThsIndexMember(models.Model):
             models.UniqueConstraint(fields=['ths_index', 'stock'], name='unique_index_stock')
         ]
     def __str__(self):
-        return f"{self.ths_index.ts_code}-{self.ths_index.name}-{self.stock}"
+        # 增加健壮性检查，防止关联对象不存在时报错
+        ths_index_name = self.ths_index.name if self.ths_index else "N/A"
+        ths_index_code = self.ths_index.ts_code if self.ths_index else "N/A"
+        return f"{ths_index_code}-{ths_index_name}-{self.stock}"
+
 
 # 同花顺板块指数行情
 class ThsIndexDaily(models.Model):
