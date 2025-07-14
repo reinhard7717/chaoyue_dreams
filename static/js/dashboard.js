@@ -357,10 +357,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
     // =========================================================================
     function initializeFavTrendListPage() {
-        // ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-        console.log('--- [JS] 正在初始化【自选股监控】页面功能 (initializeFavTrendListPage) ---');
-        // ▲▲▲【代码修改结束】▲▲▲
-
         const tableBody = document.getElementById('fav-trend-table-body');
         if (!tableBody) {
             console.error('[JS] 错误：在自选股监控页面未找到 ID 为 "fav-trend-table-body" 的元素。');
@@ -386,9 +382,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // 处理移除按钮
             if (removeButton) {
-                // ▼▼▼【代码修改】: 增加调试日志 ▼▼▼
-                console.log('[JS] 移除按钮被点击。');
-                // ▲▲▲【代码修改结束】▲▲▲
                 const favoriteId = removeButton.dataset.id;
                 const stockCode = removeButton.dataset.stockCode;
                 const stockName = removeButton.dataset.stockName;
@@ -442,9 +435,30 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // =========================================================================
+    // === 全局功能 (例如: 搜索框) ============================================
+    // =========================================================================
+    function initializeGlobalSearch() {
+        // 根据错误信息，我们假设页面上可能有一个ID为'searchInput'的元素
+        const searchInput = document.getElementById('searchInput');
+        console.log('[JS] 正在检查全局搜索框 #searchInput...');
+
+        // 这是关键的保护性检查：仅当元素存在时，才为其添加事件监听器
+        if (searchInput) {
+            console.log('[JS] 找到了 #searchInput 元素，正在为其绑定事件。');
+            searchInput.addEventListener('keyup', function(event) {
+                // 在这里实现你的搜索逻辑
+                // 例如：const query = event.target.value;
+                // console.log('搜索内容:', query);
+            });
+        } else {
+            // 如果元素不存在，我们只在控制台打印一条信息，而不会报错
+            console.log('[JS] 未在当前页面找到 #searchInput 元素，跳过事件绑定。');
+        }
+    }
+
+    // =========================================================================
     // === 页面路由和启动 ======================================================
     // =========================================================================
-    // ▼▼▼【代码修改】: 将路由逻辑从多个if改为if/else if结构，并增加调试日志 ▼▼▼
     console.log('[JS] DOMContentLoaded 事件触发，开始页面路由判断...');
     if (document.getElementById('favorites-tbody')) {
         console.log('[JS] 检测到 "favorites-tbody"，判定为【主控台】页面。');
