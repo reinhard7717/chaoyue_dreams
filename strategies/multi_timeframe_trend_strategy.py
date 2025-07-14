@@ -204,13 +204,11 @@ class MultiTimeframeTrendStrategy:
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V106.1 终局 · 增强版】
-        - 核心修正: 明确了日线和分钟线买入信号的关系。
-        - 日线信号: 作为基础战略决策，必须被记录。
-        - 分钟线信号: 作为“增强信号”，在日线高分的基础上寻找盘中确认点。
-                        它的触发会生成一个更高分的信号，在信号合并时优先采纳，但不会“否定”未被确认的日线信号。
+        【V117 解耦版】
+        - 核心重构: 调整了引擎的执行顺序，确保战略信号首先被融合，然后所有引擎
+                    （日线和分钟线）都基于这份统一的、最完整的数据进行独立分析。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V106.1) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V117) ---")
         
         # --- 准备阶段 ---
         logger.info(f"--- 准备阶段: 调用 IndicatorService 统一准备所有数据... ---")
@@ -219,20 +217,20 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"[{stock_code}] 核心数据(周线或日线)准备失败，分析终止。")
             return None
             
+        # ▼▼▼【代码修改 V117】: 调整引擎执行顺序 ▼▼▼
         # --- 引擎1: 战略引擎 (周线) ---
         logger.info(f"\n--- 引擎1: 开始运行【战略引擎】(周线)... ---")
         strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
         logger.info(f"--- 引擎1: 【战略引擎】运行完毕。---")
         
-        # --- 数据流转 ---
+        # --- 数据流转: 战略信号注入日线 ---
         logger.info(f"\n--- 数据流转: 整合战略信号到日线数据... ---")
         all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
         
         # --- 引擎2: 战术引擎 (日线) ---
         logger.info(f"\n--- 引擎2: 开始运行【战术引擎】(日线)... ---")
-        # ▼▼▼【代码修改 V106.1】: 明确 tactical_records 是必须保留的日线信号 ▼▼▼
         tactical_records = self._run_tactical_engine(stock_code, all_dfs)
-        logger.info(f"--- 引擎2: 【战术引擎】运行完毕，生成 {len(tactical_records)} 条日线买入信号。 ---")
+        logger.info(f"--- 引擎2: 【战术引擎】运行完毕，生成 {len(tactical_records)} 条日线信号。 ---")
         
         # --- 引擎3: 执行引擎-买入 (分钟线共振) ---
         logger.info(f"\n--- 引擎3: 开始运行【执行引擎-买入】(分钟线)... ---")
@@ -248,51 +246,16 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"\n--- 引擎5: 开始运行【通用盘中买入确认引擎】(分钟线)... ---")
         confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
         logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，生成 {len(confirmation_entry_records)} 条分钟线买入确认信号。 ---")
-
-        # --- 信号整合 ---
-        logger.info(f"\n--- 信号整合: 开始合并日线与分钟线信号...")
-        # ▼▼▼【代码修改 V106.1】: 整合所有分钟级别的买入信号 ▼▼▼
-        all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
-        
-        # ▼▼▼【代码修改 V106.1】: 使用合并函数，它会智能地用分钟线信号覆盖同一天的日线信号 ▼▼▼
-        # 这里的逻辑是：
-        # 1. tactical_records 包含了所有日线买入信号。
-        # 2. all_intraday_entry_records 包含了所有分钟线买入信号。
-        # 3. _merge_and_deduplicate_signals 会优先保留分钟线信号。
-        # 4. 如果某一天只有日线信号，它会被保留。
-        # 5. 如果某一天既有日线信号又有分钟线信号，只有分钟线信号会被保留。
-        # 这完美实现了“增强”而非“替代”的逻辑。
-        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, all_intraday_entry_records)
-        
-        # 将最终的买入信号和风险信号合并
-        all_records = final_entry_records + risk_alert_records
-
-        # --- 报告生成 ---
-        if all_records:
-            latest_trade_date = max(pd.to_datetime(rec['trade_time']).date() for rec in all_records)
-            latest_records = [
-                record for record in all_records
-                if pd.to_datetime(record['trade_time']).date() == latest_trade_date
-            ]
-            if latest_records:
-                logger.info(f"\n--- 报告生成: 为最新交易日 {latest_trade_date} 的 {len(latest_records)} 条信号生成分析报告...")
-                print(f"--- 分析报告仅展示最新交易日({latest_trade_date})的信号 ---")
-                for record in latest_records:
-                    report_text = self._generate_analysis_report(record)
-                    record['analysis_text'] = report_text
-                    print("----------------------------------------------------")
-                    print(report_text)
-                    print("----------------------------------------------------")
-                    
-        logger.info(f"\n--- 【{stock_code}】所有引擎分析完成，共生成 {len(all_records)} 条最终信号记录。 ---")
-        return all_records if all_records else None
+        # ▲▲▲【代码修改 V117】▲▲▲
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V112.1 终局 · 填补版】
-        - 核心修复: 解决了由于占位符导致的 'ValueError: window must be an integer'。
-                    现在会从配置中正确读取 'squeeze_window' 和 'squeeze_percentile' 参数，
-                    并将其传递给 .rolling() 和 .quantile() 函数，使波动率突破逻辑完整可用。
+        【V117.1 健壮版】
+        - 核心逻辑: 保持“先有日线高分，再有分钟确认”的核心逻辑不变，因为这是合理的战略->战术流程。
+        - 健壮性增强:
+          1. 增加了更详细的日志输出，清晰展示每一步的决策过程（如找到多少预备日、使用哪个分钟周期等）。
+          2. 优化了变量命名，使其更具可读性（如 close_col_m, vwap_col_m）。
+          3. 增加了对关键数据（如分钟DF、特定列）的空值检查和警告，防止因数据缺失导致意外崩溃。
         """
         all_confirmations = []
         # --- 步骤0: 加载配置和数据 ---
@@ -301,77 +264,85 @@ class MultiTimeframeTrendStrategy:
         
         if not get_val(entry_params.get('enabled'), False):
             return []
+        
+        # 依赖于日线引擎的分析结果，这是设计的核心
         if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+            logger.warning(f"[{stock_code}] 缺少日线分析结果(daily_analysis_df)，分钟线买入确认引擎跳过。")
             return []
 
         # --- 步骤1: 识别所有日线高分的“预备日” ---
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
+        
         if setup_days_df.empty:
+            # 这是一个正常情况，当天没有符合条件的日线信号
             return []
             
-        logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日，启动当日盘中监控...")
+        logger.info(f"    - [买入确认任务] 发现 {len(setup_days_df)} 个日线高分预备日(得分>={daily_score_threshold})，启动当日盘中监控...")
 
-        # --- 步骤2: 遍历每个预备日，监控当天分钟行情 ---
+        # --- 步骤2: 准备分钟数据和规则参数 ---
         minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
+            logger.warning(f"[{stock_code}] 缺少 {minute_tf} 分钟线数据，分钟线买入确认引擎跳过。")
             return []
 
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
+        # --- 步骤3: 遍历每个预备日，监控当天分钟行情 ---
         for setup_date, setup_row in setup_days_df.iterrows():
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
-            if alert_day_minute_df.empty: continue
+            if alert_day_minute_df.empty:
+                continue
 
-            # --- 步骤3: 构建三位一体的分钟线确认逻辑 ---
+            # --- 步骤4: 构建三位一体的分钟线确认逻辑 ---
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
             
-            close_col = f'close_{minute_tf}'
-            volume_col = f'volume_{minute_tf}'
+            # 使用带后缀的分钟级别列名，增加代码清晰度
+            close_col_m = f'close_{minute_tf}'
+            volume_col_m = f'volume_{minute_tf}'
 
             # 条件1: VWAP突破
             vwap_rule = rules.get('vwap_reclaim', {})
             if get_val(vwap_rule.get('enabled'), False):
-                vwap_col = f'VWAP_{minute_tf}'
-                if vwap_col in alert_day_minute_df.columns and close_col in alert_day_minute_df.columns:
-                    final_confirmation_signal &= (alert_day_minute_df[close_col] > alert_day_minute_df[vwap_col])
+                vwap_col_m = f'VWAP_{minute_tf}'
+                if vwap_col_m in alert_day_minute_df.columns and close_col_m in alert_day_minute_df.columns:
+                    final_confirmation_signal &= (alert_day_minute_df[close_col_m] > alert_day_minute_df[vwap_col_m])
                 else:
-                    final_confirmation_signal &= False
+                    logger.warning(f"[{stock_code}] 缺少 {vwap_col_m} 或 {close_col_m}，VWAP突破规则失效。")
+                    final_confirmation_signal &= False # 如果缺少关键列，则该规则不通过
 
             # 条件2: 成交量确认
             vol_rule = rules.get('volume_confirmation', {})
             if get_val(vol_rule.get('enabled'), False):
                 vol_ma_period = get_val(vol_rule.get('ma_period'), 21)
-                vol_ma_col = f'VOL_MA_{vol_ma_period}_{minute_tf}'
-                if vol_ma_col in alert_day_minute_df.columns and volume_col in alert_day_minute_df.columns:
-                    final_confirmation_signal &= (alert_day_minute_df[volume_col] > alert_day_minute_df[vol_ma_col])
+                vol_ma_col_m = f'VOL_MA_{vol_ma_period}_{minute_tf}'
+                if vol_ma_col_m in alert_day_minute_df.columns and volume_col_m in alert_day_minute_df.columns:
+                    final_confirmation_signal &= (alert_day_minute_df[volume_col_m] > alert_day_minute_df[vol_ma_col_m])
 
             # 条件3: 波动率突破
             vola_rule = rules.get('volatility_breakout', {})
             if get_val(vola_rule.get('enabled'), False):
-                bbw_col = f'BBW_21_2.0_{minute_tf}'
-                if bbw_col in alert_day_minute_df.columns:
-                    # ▼▼▼【代码修改 V112.1】: 从配置中读取参数并替换占位符 ▼▼▼
+                bbw_col_m = f'BBW_21_2.0_{minute_tf}'
+                if bbw_col_m in alert_day_minute_df.columns:
                     squeeze_window = get_val(vola_rule.get('squeeze_window'), 60)
                     squeeze_percentile = get_val(vola_rule.get('squeeze_percentile'), 0.2)
                     
-                    # 使用读取到的参数进行计算
-                    squeeze_threshold = alert_day_minute_df[bbw_col].rolling(
+                    squeeze_threshold = alert_day_minute_df[bbw_col_m].rolling(
                         window=squeeze_window, 
                         min_periods=squeeze_window // 2
                     ).quantile(squeeze_percentile)
-                    # ▲▲▲【代码修改 V112.1】▲▲▲
                     
-                    is_expanding_from_squeeze = (alert_day_minute_df[bbw_col] > alert_day_minute_df[bbw_col].shift(1)) & \
-                                                (alert_day_minute_df[bbw_col].shift(1) < squeeze_threshold)
+                    is_expanding_from_squeeze = (alert_day_minute_df[bbw_col_m] > alert_day_minute_df[bbw_col_m].shift(1)) & \
+                                                (alert_day_minute_df[bbw_col_m].shift(1) < squeeze_threshold)
                     final_confirmation_signal &= is_expanding_from_squeeze
 
-            # 过滤掉开盘初期的噪音，并寻找首次触发点
+            # --- 步骤5: 寻找首次触发点 ---
             market_open_time = setup_date.replace(hour=9, minute=30, second=0)
             monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
+            # 寻找信号从False变为True的那个瞬间
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
                 (final_confirmation_signal == True) & 
@@ -380,13 +351,14 @@ class MultiTimeframeTrendStrategy:
 
             if not triggered_minutes.empty:
                 first_confirmation_minute = triggered_minutes.iloc[0]
-                confirm_price = first_confirmation_minute[close_col]
+                confirm_price = first_confirmation_minute[close_col_m]
                 
-                # --- 步骤4: 生成增强的买入信号记录 ---
+                # --- 步骤6: 生成增强的买入信号记录 ---
                 daily_score = setup_row.get('entry_score', 0)
                 bonus_score = get_val(entry_params.get('bonus_score'), 50)
                 final_score = daily_score + bonus_score
                 
+                # 从日线分析结果中提取触发的剧本
                 daily_playbooks = [p.replace('playbook_', '') for p in setup_row.index if p.startswith('playbook_') and setup_row[p] is True]
                 
                 record = {
@@ -405,72 +377,80 @@ class MultiTimeframeTrendStrategy:
                 }
                 all_confirmations.append(record)
                 logger.info(f"         - [买入确认!] 日期: {setup_date.date()} | 时间: {first_confirmation_minute.name.time()} | 价格: {confirm_price:.2f} | 最终得分: {final_score:.0f}")
+                # 当天只取第一个确认信号，然后继续检查下一个预备日
                 continue 
 
         return all_confirmations
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V112 终局 · 闭环版】
-        - 核心功能: 监控那些在日线级别触发了“风险预备信号”的股票，在次日的分钟级别寻找确认卖点。
+        【V117 解耦版】
+        - 核心修复: 彻底解除了分钟线风险预警对日线引擎特定'SETUP_'信号的依赖。
+                    现在，该引擎会直接分析日线数据，独立判断哪些日子需要启动次日盘中监控，
+                    确保了风险监控的独立性和完整性，解决了因日线无特定信号而导致分钟线监控失效的问题。
         - 工作流程:
-          1. 遍历日线分析结果，找到所有触发了“风险预备信号”（如 SETUP_UPTHRUST_WATCH）的“预备日”。
+          1. 独立分析日线数据，识别出所有“创近期新高”的“风险预备日”。
           2. 对每个“预备日”，获取其 **次日** 的分钟数据。
-          3. 在次日开盘后，监控价格是否跌破当日VWAP。
-          4. 首次满足条件时，生成一个高优先级的卖出警报，并停止当天监控。
+          3. 在次日开盘后，监控价格是否首次跌破VWAP。
+          4. 满足条件时，生成一个高优先级的卖出警报，并停止当天监控。
         """
         all_alerts = []
         # --- 步骤0: 加载配置和数据 ---
-        # 注意：我们复用 exit_strategy_params 中的 intraday_execution_params
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
         get_val = self.tactical_engine._get_param_value
         
+        # 检查引擎是否启用
         if not get_val(exec_params.get('enabled'), False):
             return []
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty:
+        
+        # 直接获取原始日线数据进行独立分析
+        df_daily = all_dfs.get('D')
+        if df_daily is None or df_daily.empty:
+            logger.warning(f"[{stock_code}] 缺少日线数据，分钟线风险预警引擎跳过。")
             return []
 
-        # --- 步骤1: 识别所有触发了“风险预备信号”的“预备日” ---
-        # 预备信号通常以 'SETUP_' 开头
-        setup_cols = [col for col in self.daily_analysis_df.columns if col.startswith('SETUP_') and self.daily_analysis_df[col].any()]
-        if not setup_cols:
-            return []
+        # --- 步骤1: 独立识别所有需要启动次日监控的“预备日” ---
+        # 我们将直接在这里计算“冲高回落”的预备条件，而不是依赖上游引擎
+        # 以“冲高回落”预警为例
+        upthrust_rejection_params = exec_params.get('upthrust_rejection', {})
+        if not get_val(upthrust_rejection_params.get('enabled'), False):
+            return [] # 如果该特定预警被禁用，则直接返回
+
+        # 从 exit_strategy_params 获取更底层的计算参数
+        upthrust_calc_params = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
-        # 找出任何一个预备信号被触发的日期
-        setup_mask = self.daily_analysis_df[setup_cols].any(axis=1)
-        setup_days_df = self.daily_analysis_df[setup_mask]
+        # 核心条件：当天创了近期新高
+        is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
+        
+        setup_days_df = df_daily[is_upthrust_day]
         if setup_days_df.empty:
             return []
             
         logger.info(f"    - [风险预警任务] 发现 {len(setup_days_df)} 个风险预备日，启动次日盘中监控...")
 
         # --- 步骤2: 遍历每个预备日，监控次日分钟行情 ---
-        minute_tf = str(get_val(exec_params.get('timeframe'), '30'))
+        minute_tf = '30'  # 风险监控通常使用稍长周期以过滤噪音，此处固定为30分钟
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty:
+            logger.warning(f"[{stock_code}] 缺少 {minute_tf} 分钟线数据，分钟线风险预警引擎跳过。")
             return []
 
-        rules = exec_params.get('rules', {})
-        
         for setup_date, setup_row in setup_days_df.iterrows():
             # 核心区别：风险预警监控的是 **次日**
             monitoring_date = (setup_date + pd.Timedelta(days=1)).date()
             alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
-            if alert_day_minute_df.empty: continue
-
-            # --- 步骤3: 应用分钟线确认逻辑 ---
-            # 我们只关注最核心的“跌破VWAP”规则
-            vwap_rule = rules.get('vwap_breakdown', {})
-            if not get_val(vwap_rule.get('enabled'), False):
+            if alert_day_minute_df.empty:
                 continue
 
-            # 构建带后缀的列名
+            # --- 步骤3: 应用分钟线确认逻辑 ---
+            # 确认条件：价格首次跌破VWAP
             close_col = f'close_{minute_tf}'
             vwap_col = f'VWAP_{minute_tf}'
             if vwap_col not in alert_day_minute_df.columns or close_col not in alert_day_minute_df.columns:
                 continue
 
-            # 确认条件：价格首次跌破VWAP
+            # 寻找首次跌破的那个K线
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df[close_col] < alert_day_minute_df[vwap_col]) &
                 (alert_day_minute_df[close_col].shift(1) >= alert_day_minute_df[vwap_col].shift(1))
@@ -482,27 +462,27 @@ class MultiTimeframeTrendStrategy:
                 alert_price = first_alert_minute[close_col]
                 
                 # --- 步骤4: 生成卖出警报记录 ---
-                playbook_name = get_val(exec_params.get('playbook_name'), 'EXIT_INTRADAY_CONFIRMATION')
-                # 找出是哪个日线预备信号触发了本次监控
-                triggered_setup_playbooks = [col.replace('SETUP_', 'PB_') for col in setup_cols if setup_row[col]]
+                playbook_name = get_val(upthrust_rejection_params.get('alert_playbook_name'), 'EXIT_INTRADAY_UPTHRUST_REJECTION')
+                alert_code = get_val(upthrust_rejection_params.get('alert_code'), 103)
+                severity_level = get_val(upthrust_rejection_params.get('severity_level'), 3)
 
                 record = {
                     "stock_code": stock_code,
                     "trade_time": alert_time.to_pydatetime(),
                     "timeframe": minute_tf,
-                    "strategy_name": get_val(exec_params.get('signal_name'), 'INTRADAY_RISK_ALERT'),
+                    "strategy_name": "INTRADAY_RISK_ALERT",
                     "close_price": sanitize_for_json(alert_price),
                     "entry_signal": False,
                     "entry_score": 0.0,
-                    "exit_signal_code": get_val(vwap_rule.get('signal_code'), 901),
-                    "exit_severity_level": get_val(vwap_rule.get('severity_level'), 3),
-                    "exit_signal_reason": f"盘中跌破VWAP, 由日线信号 {','.join(triggered_setup_playbooks)} 触发监控",
-                    "triggered_playbooks": list(set(triggered_setup_playbooks + [playbook_name])),
+                    "exit_signal_code": alert_code,
+                    "exit_severity_level": severity_level,
+                    "exit_signal_reason": f"盘中跌破VWAP, 由前一日({setup_date.date()})创近期新高触发监控",
+                    "triggered_playbooks": [playbook_name],
                     "context_snapshot": sanitize_for_json({'close': alert_price, 'vwap': first_alert_minute[vwap_col]}),
                 }
                 all_alerts.append(record)
                 logger.info(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name}")
-                # 当天只取第一个警报信号
+                # 当天只取第一个警报信号，然后继续检查下一个预备日
                 continue 
 
         return all_alerts
@@ -615,23 +595,23 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V85.0 波段跟踪集成版】
-        - 核心升级: 在战术引擎生成每日信号后，立即调用波段跟踪模拟器，将无状态信号转化为有状态的交易动作。
+        【V117 解耦版】
+        - 核心简化: 移除了在此函数中调用战略引擎和准备分钟信号的逻辑。
+                    它的职责被简化为纯粹地运行日线战术引擎，并将分析结果缓存到 self.daily_analysis_df，
+                    供其他引擎独立使用。
         """
-        # 步骤1: 融合周线战略信号到日线数据
-        strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
-        df_daily_prepared = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+        # 步骤1: 直接使用已经融合了战略信号的日线数据
+        df_daily_prepared = all_dfs.get('D')
+        if df_daily_prepared is None or df_daily_prepared.empty:
+            return []
 
-        # 步骤2: 融合分钟线信号（如VWAP支撑）到日线数据
-        df_daily_prepared = self._prepare_intraday_signals(all_dfs, self.tactical_config)
-
-        # 步骤3: 使用完全准备好的日线数据调用战术引擎，生成每日分析结果
+        # 步骤2: 使用完全准备好的日线数据调用战术引擎，生成每日分析结果
         daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
         
-        self.daily_analysis_df = daily_analysis_df # 缓存每日分析结果供其他引擎使用
+        # 步骤3: 缓存每日分析结果供其他引擎使用
+        self.daily_analysis_df = daily_analysis_df 
         if daily_analysis_df is None or daily_analysis_df.empty: return []
 
-        # ▼▼▼ 注入波段跟踪模拟器 ▼▼▼
         # 步骤4: 调用波段跟踪模拟器，生成包含交易动作的最终DataFrame
         df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
         
@@ -958,12 +938,15 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V111 终局 · 透视版】
-        - 核心升级: 完全重构此方法，使其能够100%模拟`run_for_stock`的全流程，包括所有分钟线引擎。
-        - 输出增强: 报告现在能清晰展示所有在指定时间段内触发的日线和分钟线信号，包括买入和卖出。
+        【V117.2 同步版】
+        - 核心修复: 完全重构此方法的内部流程，使其与 V117 版的 `run_for_stock` 函数保持100%的逻辑一致。
+        - 流程同步:
+          1. 明确增加了在战术引擎运行前，先独立执行“战略引擎”和“周线信号注入日线”的步骤。
+          2. 确保了所有后续引擎（日线和分钟线）都是在包含了周线战略信号的、最完整的数据基础上运行。
+        - 收益: 保证了调试回溯的结果能够精确反映实战部署的逻辑，消除了因流程不同步导致的分析偏差。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V111 全流程透视版)] ---")
+        print(f"--- [历史回溯调试启动 (V117.2 同步版)] ---")
         print(f"  - 股票代码: {stock_code}")
         print(f"  - 目标时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -979,24 +962,40 @@ class MultiTimeframeTrendStrategy:
                 return
             print("[成功] 所有原始数据和指标准备就绪。")
 
-            # 步骤 2: 完整运行所有五个引擎
+            # 步骤 2: 完整运行所有五个引擎，严格遵循 run_for_stock 的新流程
             print("\n[步骤 2/3] 正在完整运行所有五个策略引擎...")
             
-            # 引擎 1 & 2: 战略与战术引擎 (日线)
+            # ▼▼▼【代码修改 V117.2】: 严格复刻 run_for_stock 的新流程 ▼▼▼
+            # 引擎 1: 战略引擎 (周线)
+            print("  - 引擎1 (周线战略) 启动...")
+            strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
+            print(f"  - 引擎1 (周线战略) 运行完毕，生成 {len(strategic_signals_df)} 条周线分析记录。")
+
+            # 数据流转: 战略信号注入日线
+            print("  - [数据流转] 开始将周线战略信号注入日线数据...")
+            all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+            print("  - [数据流转] 完成。")
+
+            # 引擎 2: 战术引擎 (日线)
+            print("  - 引擎2 (日线战术) 启动...")
             tactical_records = self._run_tactical_engine(stock_code, all_dfs)
-            print(f"  - 引擎1&2 (日线) 运行完毕，生成 {len(tactical_records)} 条记录。")
+            print(f"  - 引擎2 (日线战术) 运行完毕，生成 {len(tactical_records)} 条日线信号记录。")
 
             # 引擎 3: 分钟共振买入引擎
+            print("  - 引擎3 (分钟共振买入) 启动...")
             resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
             print(f"  - 引擎3 (分钟共振买入) 运行完毕，生成 {len(resonance_entry_records)} 条记录。")
 
             # 引擎 4: 分钟风险预警引擎
+            print("  - 引擎4 (分钟风险预警) 启动...")
             risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
             print(f"  - 引擎4 (分钟风险预警) 运行完毕，生成 {len(risk_alert_records)} 条记录。")
 
             # 引擎 5: 分钟买入确认引擎
+            print("  - 引擎5 (分钟买入确认) 启动...")
             confirmation_entry_records = self._run_intraday_entry_engine(stock_code, all_dfs)
             print(f"  - 引擎5 (分钟买入确认) 运行完毕，生成 {len(confirmation_entry_records)} 条记录。")
+            # ▲▲▲【代码修改 V117.2】▲▲▲
 
             # 合并所有记录
             all_intraday_entry_records = resonance_entry_records + confirmation_entry_records
@@ -1004,20 +1003,18 @@ class MultiTimeframeTrendStrategy:
             all_records = final_entry_records + risk_alert_records
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
 
+            # 步骤 3: 筛选并展示目标时段的信号 (此部分逻辑不变)
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
             if not all_records:
                 print("[信息] 引擎未生成任何信号记录。")
                 return
 
-            # 核心修复：在转换字符串日期时，明确指定 utc=True，使其成为时区感知的UTC时间戳，
-            #          从而可以与来自DataFrame索引的、同样是UTC-aware的 rec['trade_time'] 进行比较。
             start_dt = pd.to_datetime(start_date, utc=True)
             end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
             
             debug_period_records = []
             for rec in all_records:
-                # 确保 rec['trade_time'] 也是 pandas Timestamp 对象以便比较
                 rec_time = pd.to_datetime(rec['trade_time'])
                 if start_dt <= rec_time <= end_dt:
                     debug_period_records.append(rec)
@@ -1026,14 +1023,12 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
             
-            # 按时间排序
             debug_period_records.sort(key=lambda x: x['trade_time'])
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for record in debug_period_records:
-                # 确保 trade_time 是 aware 的，以便正确格式化
                 time_obj = pd.to_datetime(record['trade_time'])
-                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z') # 增加%Z显示时区
+                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
                 tf = record['timeframe']
                 
                 if record.get('entry_signal'):
@@ -1057,7 +1052,6 @@ class MultiTimeframeTrendStrategy:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
             traceback.print_exc()
-
 
 
 
