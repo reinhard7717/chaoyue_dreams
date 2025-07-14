@@ -359,21 +359,17 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.26 战场记录仪版】
-        - 核心升级: 在函数内部增加了大量的诊断性 print 语句，用于追踪“静默失败”的原因。
-        - 调试流程:
-          1. 打印引擎的配置参数，确认是否启用、分数阈值等。
-          2. 打印找到的“日线预备日”数量，确认是否有候选目标。
-          3. 在循环内部，打印每一天的分钟线数据情况。
-          4. 打印每一个确认规则（VWAP, Volume等）的触发情况。
-        - 收益: 将“黑盒”过程变为“白盒”，能精确暴露导致信号无法生成的具体原因。
+        【V117.27 触发逻辑修正版】
+        - 核心修正: 废弃了过于严苛的 `(signal.shift(1) == False)` 动态触发条件。
+        - 新逻辑: 只要在监控时段内，找到第一个满足所有静态条件的K线，就立即生成信号。
+        - 收益: 解决了因股票持续强势导致无法形成“突破瞬间”而错过信号的问题，能更可靠地捕捉到盘中买点。
         """
+        # ... (函数开头的调试打印和配置检查保持不变) ...
         print("--- [引擎5-调试] 进入分钟买入确认引擎 ---")
         all_confirmation_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
-        # ▼▼▼【代码修改 V117.26】: 增加配置检查打印 ▼▼▼
         is_enabled = get_val(entry_params.get('enabled'), False)
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
@@ -404,7 +400,6 @@ class MultiTimeframeTrendStrategy:
         rules = entry_params.get('confirmation_rules', {})
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
 
-        # 开始遍历每一个潜在的“滩头阵地”
         for setup_date, setup_row in setup_days_df.iterrows():
             print(f"\n--- [引擎5-调试] 正在检查预备日: {setup_date.date()} (日线分数: {setup_row.get('entry_score', 0):.0f}) ---")
             alert_day_minute_df = minute_df[minute_df.index.date == setup_date.date()].copy()
@@ -417,7 +412,7 @@ class MultiTimeframeTrendStrategy:
             final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
             close_col_m = f'close_{minute_tf}'
             
-            # --- 逐一检查规则 ---
+            # ... (规则检查的打印逻辑保持不变) ...
             vwap_rule = rules.get('vwap_reclaim', {})
             if get_val(vwap_rule.get('enabled'), False):
                 vwap_col_m = f'VWAP_{minute_tf}'
@@ -441,24 +436,25 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print(f"    - [调试-规则] 成交量确认: 缺少列 {vol_ma_col_m}，规则失效。")
                     final_confirmation_signal &= False
-            
-            # ...可以为其他规则添加类似的打印...
 
             print(f"    - [调试] 所有规则叠加后，共有 {final_confirmation_signal.sum()} 个K线满足静态条件。")
             
             market_open_time = setup_date.replace(hour=9, minute=30, second=0)
             monitoring_start_time = market_open_time + pd.Timedelta(minutes=min_time_after_open)
             
-            # 寻找从 False -> True 的那个“触发点”
+            # ▼▼▼【代码修改 V117.27】: 修正触发逻辑 ▼▼▼
+            # 旧逻辑: (final_confirmation_signal == True) & (final_confirmation_signal.shift(1) == False)
+            # 新逻辑: 直接找到第一个满足所有静态条件的K线
             triggered_minutes = alert_day_minute_df[
                 (alert_day_minute_df.index >= monitoring_start_time) &
-                (final_confirmation_signal == True) & 
-                (final_confirmation_signal.shift(1) == False)
+                (final_confirmation_signal == True)
             ]
+            # ▲▲▲【代码修改 V117.27】▲▲▲
             
-            print(f"    - [调试] 在 {monitoring_start_time.time()} 之后，找到 {len(triggered_minutes)} 个最终的买入触发点。")
+            print(f"    - [调试] 在 {monitoring_start_time.time()} 之后，找到 {len(triggered_minutes)} 个满足条件的K线。")
 
             if not triggered_minutes.empty:
+                # 直接取第一个满足条件的K线作为信号点
                 first_confirmation_minute = triggered_minutes.iloc[0]
                 confirm_time = first_confirmation_minute.name
                 confirm_price = first_confirmation_minute[close_col_m]
@@ -483,6 +479,7 @@ class MultiTimeframeTrendStrategy:
                 all_confirmation_records.append(record)
                 
                 print(f"    - [信号生成!] 已在 {confirm_time.time()} 生成分钟线买入信号，最终得分: {final_score:.0f}")
+                # 使用 continue 是为了每天只取第一个确认信号
                 continue 
         
         print("--- [引擎5-调试] 分钟买入确认引擎执行完毕 ---")

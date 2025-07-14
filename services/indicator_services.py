@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import json
+import pytz
 from scipy.signal import find_peaks, peak_prominences
 import traceback
 import warnings
@@ -160,6 +161,15 @@ class IndicatorService:
         Returns:
             Optional[pd.DataFrame]: 包含原始 OHLCV 数据的 DataFrame，如果获取失败则为 None。
         """
+        # ▼▼▼【代码修改 V117.28】: 确保获取实时数据 ▼▼▼
+        # 如果 trade_time 未提供（例如在实时触发的场景），则使用当前时间作为查询终点。
+        # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
+        end_time_for_query = trade_time
+        if end_time_for_query is None:
+            # 使用带时区的当前时间，以避免任何时区混淆
+            end_time_for_query = datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"    - [数据获取修正] trade_time 为 None，自动设置为当前时间: {end_time_for_query}")
+
         # print(f"    [底层数据获取] 正在为 {stock_code} 获取 {time_level} 级别数据，请求 {needed_bars} 条...")
         df = await self.indicator_dao.get_history_ohlcv_df(
             stock_code=stock_code, 
