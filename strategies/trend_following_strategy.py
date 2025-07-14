@@ -159,7 +159,7 @@ class TrendFollowStrategy:
         trade_details = []
 
         # --- 3. 逐日迭代，模拟交易状态机 (现在循环内部更轻量) ---
-        print("    - [波段跟踪优化] 开始执行轻量化状态机循环...")
+        # print("    - [波段跟踪优化] 开始执行轻量化状态机循环...")
         for row in df.itertuples():
             current_date = row.Index
             
@@ -553,7 +553,7 @@ class TrendFollowStrategy:
         newly_created_slope_cols = []
 
         # --- 阶段一: 批量生成所有基础斜率 ---
-        print(f"      -> [阶段1/3] 开始批量生成 {sum(len(v) for v in series_to_slope.values())} 个基础斜率...")
+        # print(f"      -> [阶段1/3] 开始批量生成 {sum(len(v) for v in series_to_slope.values())} 个基础斜率...")
         for col_name, lookbacks in series_to_slope.items():
             if col_name not in df.columns:
                 print(f"        -> [警告] 配置的斜率源列 '{col_name}' 不存在，跳过。")
@@ -578,7 +578,7 @@ class TrendFollowStrategy:
                 newly_created_slope_cols.append((slope_col_name, lookback, col_name)) # 增加原始列名
 
         # --- 阶段二: 批量生成所有加速度 (斜率的斜率) ---
-        print(f"      -> [阶段2/3] 开始批量生成加速度 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
+        # print(f"      -> [阶段2/3] 开始批量生成加速度 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
         for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
             accel_col_name = f'ACCEL_{lookback}_{original_col_name}'
             if accel_col_name in df.columns:
@@ -598,7 +598,7 @@ class TrendFollowStrategy:
                 df[accel_col_name] = np.nan
 
         # --- 阶段三: 批量生成所有归一化斜率 ---
-        print(f"      -> [阶段3/3] 开始批量生成归一化斜率 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
+        # print(f"      -> [阶段3/3] 开始批量生成归一化斜率 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
         for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
             norm_slope_col_name = f'SLOPE_NORM_{lookback}_{original_col_name}'
             if norm_slope_col_name in df.columns:
@@ -936,32 +936,32 @@ class TrendFollowStrategy:
         final_score = final_family_scores.sum(axis=1)
 
         # ==================== 步骤3: 填充细节并进行日志输出 ====================
-        print("      -> 步骤3: 生成最终得分详情...")
+        # print("      -> 步骤3: 生成最终得分详情...")
 
-        print("\n--- 剧本触发详情 (家族继承模式) ---")
-        probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
-        key_dates = df.index[final_score > 0]
-        key_dates = key_dates[key_dates >= probe_start_date]
+        # print("\n--- 剧本触发详情 (家族继承模式) ---")
+        # probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
+        # key_dates = df.index[final_score > 0]
+        # key_dates = key_dates[key_dates >= probe_start_date]
 
-        # 准备剧本到家族的映射，用于日志输出
-        playbook_to_family_map = {p['name']: p.get('family', 'N/A') for p in playbook_definitions}
+        # # 准备剧本到家族的映射，用于日志输出
+        # playbook_to_family_map = {p['name']: p.get('family', 'N/A') for p in playbook_definitions}
 
-        for date in key_dates:
-            print(f"{date.strftime('%Y-%m-%d')} | 最终总分: {final_score.loc[date]:.0f}")
-            # 核心修复：直接从 score_details_df 中获取当天有得分的剧本
-            winning_playbooks = score_details_df.loc[date][score_details_df.loc[date] > 0]
-            if winning_playbooks.empty:
-                print("             -> [警告] 当天有总分但未找到具体的剧本得分详情，请检查计分逻辑。")
-                continue
-            for name, score in winning_playbooks.items():
-                playbook_info = next((p for p in playbook_definitions if p['name'] == name), None)
-                if playbook_info:
-                    cn_name = playbook_info.get('cn_name', name)
-                    family = playbook_to_family_map.get(name, 'N/A')
-                    # 注意：在新的逻辑下，我们无法轻易拆分“基础分”和“加成”，因为加成是家族共享的。
-                    # 我们直接报告归属于该剧本的“家族总分”。
-                    print(f"             -> 家族[{family}]主剧本: '{cn_name}', 贡献家族总分:{score:.0f}")
-        print("========================= 全局剧本探针分析结束 =========================")
+        # for date in key_dates:
+        #     print(f"{date.strftime('%Y-%m-%d')} | 最终总分: {final_score.loc[date]:.0f}")
+        #     # 核心修复：直接从 score_details_df 中获取当天有得分的剧本
+        #     winning_playbooks = score_details_df.loc[date][score_details_df.loc[date] > 0]
+        #     if winning_playbooks.empty:
+        #         print("             -> [警告] 当天有总分但未找到具体的剧本得分详情，请检查计分逻辑。")
+        #         continue
+        #     for name, score in winning_playbooks.items():
+        #         playbook_info = next((p for p in playbook_definitions if p['name'] == name), None)
+        #         if playbook_info:
+        #             cn_name = playbook_info.get('cn_name', name)
+        #             family = playbook_to_family_map.get(name, 'N/A')
+        #             # 注意：在新的逻辑下，我们无法轻易拆分“基础分”和“加成”，因为加成是家族共享的。
+        #             # 我们直接报告归属于该剧本的“家族总分”。
+        #             print(f"             -> 家族[{family}]主剧本: '{cn_name}', 贡献家族总分:{score:.0f}")
+        # print("========================= 全局剧本探针分析结束 =========================")
 
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)

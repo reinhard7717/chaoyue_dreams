@@ -482,14 +482,14 @@ class IndicatorService:
             if tf == 'D':
                 # 融合旧筹码和资金流数据
                 if df_legacy_supplemental is not None and not df_legacy_supplemental.empty:
-                    print("    - [数据融合] 正在将“旧筹码与资金流”数据合并到日线...")
+                    # print("    - [数据融合] 正在将“旧筹码与资金流”数据合并到日线...")
                     df_legacy_std = self._standardize_df_index_to_utc(df_legacy_supplemental)
                     df = pd.merge(df, df_legacy_std, left_index=True, right_index=True, how='left')
                     df[list(df_legacy_std.columns)] = df[list(df_legacy_std.columns)].ffill()
                 
                 # 融合新筹码(AdvancedChipMetrics)数据
                 if df_advanced_chips is not None and not df_advanced_chips.empty:
-                    print("    - [数据融合] 正在将“新筹码(AdvancedChipMetrics)”数据合并到日线...")
+                    # print("    - [数据融合] 正在将“新筹码(AdvancedChipMetrics)”数据合并到日线...")
                     df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
                     
                     # 为新筹码指标列添加 'CHIP_' 前缀，以避免与旧数据列名冲突
@@ -610,7 +610,7 @@ class IndicatorService:
         - 核心升级: 为所有时间周期（包括分钟线）统一添加后缀，如 '_5', '_30', '_D'。
         - 核心修复: 废弃了之前版本中对VWAP等指标的特殊处理，将其纳入统一的后缀添加流程，确保所有指标命名规则一致。
         """
-        print(f"  [指标计算V110] 开始为周期 '{timeframe_key}' 计算指标...")
+        # print(f"  [指标计算V110] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df

@@ -290,11 +290,13 @@ class MultiTimeframeTrendStrategy:
         logger.info(f"--- 引擎5: 【通用盘中买入确认引擎】运行完毕，获取到 {len(enhancement_map)} 个增强包。 ---")
 
         # --- 最终阶段: 融合增强包，生成最终信号 ---
-        logger.info("\n--- 最终阶段: 融合增强包并生成最终信号记录... ---")
+        logger.info("\n--- 最终阶段: 原地更新日线信号并生成最终记录... ---")
         
-        final_entry_records = []
-        # 遍历原始的日线信号记录
-        for record in tactical_records:
+        # 使用带索引的循环，直接在原始列表上修改
+        for i in range(len(tactical_records)):
+            # 获取原始记录的引用
+            record = tactical_records[i]
+            
             if not record.get('entry_signal'):
                 continue # 只处理买入信号
             
@@ -305,18 +307,16 @@ class MultiTimeframeTrendStrategy:
                 package = enhancement_map[record_date]
                 original_score = record['entry_score']
                 
-                # 使用增强包的信息升级原始记录
-                record['entry_score'] = package['entry_score']
-                record['triggered_playbooks'] = package['triggered_playbooks']
-                record['context_snapshot'].update(package['context_snapshot'])
+                # 直接修改原始列表中的字典
+                tactical_records[i]['entry_score'] = package['entry_score']
+                tactical_records[i]['triggered_playbooks'] = package['triggered_playbooks']
+                tactical_records[i]['context_snapshot'].update(package['context_snapshot'])
                 
-                logger.info(f"    - [情报融合] 日期 {record_date} 的日线信号已升级！分数从 {original_score:.0f} -> {record['entry_score']:.0f}")
-            
-            final_entry_records.append(record)
+                logger.info(f"    - [情报融合-原地更新] 日期 {record_date} 的日线信号已升级！分数从 {original_score:.0f} -> {tactical_records[i]['entry_score']:.0f}")
 
-        # 将分钟线“共振”信号(如果未来启用)与融合后的买入信号合并
-        # 注意：这里的 _merge_and_deduplicate_signals 假设是处理不同策略名称的合并，我们暂时保留
-        final_entry_records = self._merge_and_deduplicate_signals(final_entry_records, resonance_entry_records)
+        # 现在，tactical_records 列表本身已经被更新了
+        # 将分钟线“共振”信号(如果未来启用)与已更新的日线买入信号合并
+        final_entry_records = self._merge_and_deduplicate_signals(tactical_records, resonance_entry_records)
 
         # 将最终的买入信号与所有风险信号合并
         all_records = final_entry_records + risk_alert_records
