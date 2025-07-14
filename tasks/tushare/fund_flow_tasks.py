@@ -114,7 +114,7 @@ def execute_save_today_fund_flow_method(self, method_name: str):
 
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
-def save_fund_flow_daily_data(self):
+def save_fund_flow_daily_data_today(self):
     """
     [修改] 调度器任务（编排者）：
     负责并行分派获取当日三种渠道资金流数据的子任务。
