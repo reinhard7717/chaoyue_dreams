@@ -1040,7 +1040,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        ==================== 步骤3: 【探针调用点】(默认禁用) ====================
+        # ==================== 步骤3: 【探针调用点】(默认禁用) ====================
         probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
         self._probe_entry_score_details(
             df=df,
