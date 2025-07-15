@@ -143,8 +143,30 @@
       "final_score_adjustments": {
         "enabled": { "value": true, "说明": "【V80.0 指挥棒模型】最终得分调整层。" },
         "multipliers": [
-          { "name": "CHIP_PURITY_MULTIPLIER", "cn_name": "【指挥棒】筹码至纯", "source_column": "CHIP_concentration_90pct_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.15 },
-          { "name": "VOLATILITY_SILENCE_MULTIPLIER", "cn_name": "【指挥棒】波动至静", "source_column": "BBW_21_2.0_D", "condition": "is_lowest_percentile", "window": 250, "percentile": 0.05, "multiplier_value": 0.10 },
+          {
+            "name": "CHIP_PURITY_MULTIPLIER",
+            "cn_name": "【质量加成】筹码高度纯净",
+            "source_column": "CHIP_concentration_90pct_D",
+            "condition": "is_lowest_percentile",
+            "window": 250,
+            "percentile": 0.1,
+            "absolute_threshold": 0.15,
+            "multiplier_value": 0.2
+          },
+          {
+              "name": "VOLATILITY_SILENCE_MULTIPLIER",
+              "cn_name": "【质量加成】波动极度沉寂",
+              "source_column": "BBW_21_2.0_D",
+              "condition": "is_lowest_percentile",
+              "window": 120,
+              "percentile": 0.1,
+              "adaptive_threshold_config": {
+                  "enabled": true,
+                  "median_window": 250,
+                  "multiplier": 0.5
+              },
+              "multiplier_value": 0.15
+          },
           {
             "name": "BONUS_HIGH_CONTROL_MARKUP",
             "cn_name": "【战略加成】高控盘拉升",

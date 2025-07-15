@@ -483,13 +483,15 @@ class TrendFollowStrategy:
         print("="*60 + "\n")
         return alerts
 
+    # 最终得分调整层
     def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict, atomic_states: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V119.1 战略号角版】最终得分调整层
-        - 核心升级: 增加对 'is_true' 条件的处理，使其能响应由 atomic_states 提供的事件型信号，
-                    实现了“战略号角”式的全局加成功能。
+        【V119.4 自适应阈值版】最终得分调整层
+        - 核心升级: 引入“自适应绝对阈值”机制。对于波动率这类指标，不再使用固定阈值，
+                    而是根据其自身的长期中位数动态计算阈值（例如，低于长期中位数的50%）。
+                    这使得策略能更好地适应不同股票和不同市场周期的波动特性。
         """
-        print("    - [指挥棒模型 V119.1 战略号角版] 启动，开始对原始总分进行最终调整...")
+        print("    - [指挥棒模型 V119.4 自适应阈值版] 启动，开始对原始总分进行最终调整...")
         
         adjustment_params = self._get_params_block(params, 'final_score_adjustments', {})
         if not self._get_param_value(adjustment_params.get('enabled'), False):
@@ -513,12 +515,39 @@ class TrendFollowStrategy:
                 if source_col not in df.columns:
                     print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的列'{source_col}'在DataFrame中不存在，跳过。")
                     continue
+                
+                # 保险一：相对条件 (近期收缩)
                 window = rule.get('window', 250)
                 percentile = rule.get('percentile', 0.1)
-                threshold = df[source_col].rolling(window=window, min_periods=window//2).quantile(percentile)
-                mask = df[source_col] < threshold
+                threshold_relative = df[source_col].rolling(window=window, min_periods=window//2).quantile(percentile)
+                mask_relative = df[source_col] < threshold_relative
+                
+                # 保险二：绝对条件 (现在支持固定或自适应)
+                mask_absolute = pd.Series(True, index=df.index) # 默认绝对条件为真
+                
+                # 检查是否有自适应阈值配置
+                adaptive_config = rule.get('adaptive_threshold_config', {})
+                if self._get_param_value(adaptive_config.get('enabled'), False):
+                    median_window = self._get_param_value(adaptive_config.get('median_window'), 250)
+                    multiplier = self._get_param_value(adaptive_config.get('multiplier'), 0.5)
+                    
+                    # 计算长期中位数作为波动中枢
+                    long_term_median = df[source_col].rolling(window=median_window, min_periods=median_window//2).median()
+                    # 计算自适应绝对阈值
+                    threshold_absolute_adaptive = long_term_median * multiplier
+                    
+                    mask_absolute = df[source_col] < threshold_absolute_adaptive
+                    print(f"      -> 规则'{cn_name}'启用自适应双重保险: 相对分位 & 自适应阈值(<长期中枢*{multiplier})")
+
+                # 如果没有自适应配置，则检查固定阈值 (保持旧逻辑兼容性)
+                elif rule.get('absolute_threshold') is not None:
+                    absolute_threshold = rule.get('absolute_threshold')
+                    mask_absolute = df[source_col] < absolute_threshold
+                    print(f"      -> 规则'{cn_name}'启用固定双重保险: 相对分位 & 固定阈值(<{absolute_threshold})")
+
+                # 最终的掩码是两个条件的交集
+                mask = mask_relative & mask_absolute
             
-            # 新增的 is_true 条件处理逻辑
             elif condition == 'is_true':
                 if source_col not in atomic_states:
                     print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的事件'{source_col}'在atomic_states中不存在，跳过。")
@@ -533,7 +562,7 @@ class TrendFollowStrategy:
                 print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
 
         adjusted_score = raw_scores * (1 + total_multiplier)
-        print("    - [指挥棒模型 V119.1] 调整完成。")
+        print("    - [指挥棒模型 V119.4] 调整完成。")
         return adjusted_score, adjustment_details_df
 
     # 斜率计算中心
