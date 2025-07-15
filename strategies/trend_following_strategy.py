@@ -306,6 +306,33 @@ class TrendFollowStrategy:
         risk_factors = self._diagnose_risk_factors(df, params)
         atomic_states.update(risk_factors)
         print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
+
+        print("--- [总指挥] 步骤1.6: 战略背景审查模块启动 ---")
+        default_series = pd.Series(False, index=df.index)
+        
+        # 条件1: 均线系统必须处于无可争议的多头排列
+        ma_health_check = atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        
+        # 条件2: 筹码结构必须处于“拉升”状态 (即中长期成本斜率为正)
+        chip_health_check = atomic_states.get('CHIP_STATE_MARKUP', default_series)
+        
+        # 条件3: 长期均线(如89日线)的斜率必须为正，确认大方向向上
+        long_ma_slope_col = 'SLOPE_21_EMA_89_D' # 使用21日窗口计算89日线的斜率
+        if long_ma_slope_col not in df.columns:
+            print(f"      -> [警告] 缺少长期均线斜率列 '{long_ma_slope_col}'，将使用备用检查。")
+            # 备用检查：至少要求价格在长期均线之上
+            trend_direction_check = atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+        else:
+            trend_direction_check = df[long_ma_slope_col] > 0
+
+        # 最终的“健康通行证” = 均线健康 & 筹码健康 & 趋势方向健康
+        atomic_states['CONTEXT_OVERALL_TREND_HEALTHY'] = ma_health_check & chip_health_check & trend_direction_check
+        
+        signal = atomic_states['CONTEXT_OVERALL_TREND_HEALTHY']
+        if signal.any():
+            print(f"      -> '整体趋势健康' 战略背景审查完成，共 {signal.sum()} 天获得“开火许可”。{self._format_debug_dates(signal)}")
+        else:
+            print(f"      -> '整体趋势健康' 战略背景审查完成，没有任何一天获得“开火许可”。")
         
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
@@ -798,6 +825,9 @@ class TrendFollowStrategy:
         setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
         recent_reversal_context = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         ma_short_slope_positive = atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
+
+        # 获取战略背景审查结果
+        is_trend_healthy = atomic_states.get('CONTEXT_OVERALL_TREND_HEALTHY', default_series)
         
         # 动态布尔条件
         atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
@@ -841,10 +871,10 @@ class TrendFollowStrategy:
                 # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             elif name == 'HEALTHY_MARKUP_A':
-                playbook['setup_score_series'] = score_healthy_markup # 分配准备分序列
+                playbook['setup_score_series'] = score_healthy_markup
                 trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
                 trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-                playbook['trigger'] = trigger_rebound | trigger_continuation # 分配双重触发器
+                playbook['trigger'] = (trigger_rebound | trigger_continuation) & is_trend_healthy
             elif name == 'HEALTHY_BOX_BREAKOUT':
                 playbook['setup'] = setup_healthy_box
                 playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
@@ -856,11 +886,11 @@ class TrendFollowStrategy:
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
             elif name == 'CHIP_PLATFORM_PULLBACK':
-                # 准备条件：一个稳固的筹码平台已经形成
+                # 准备条件1：一个稳固的筹码平台已经形成
                 setup_platform_formed = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-                # 健康度检查：平台必须在长期均线之上
-                setup_healthy_location = df['PLATFORM_PRICE_STABLE'] > df.get('EMA_55_D', 0)
-                playbook['setup'] = setup_platform_formed & setup_healthy_location
+                # 准备条件2：必须通过“整体趋势健康”的战略背景审查
+                setup_healthy_trend = is_trend_healthy
+                playbook['setup'] = setup_platform_formed & setup_healthy_trend
                 # 触发条件：发生平台回踩并反弹的事件
                 playbook['trigger'] = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
 
