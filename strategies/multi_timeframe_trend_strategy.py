@@ -248,14 +248,19 @@ class MultiTimeframeTrendStrategy:
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V117.40 信号流重构版】
-        - 核心重构: 调整了信号合并逻辑，以适应新的“入口信号决策中心”。
+        【V144.0 情报一体化架构版】
+        - 核心重构: 彻底修复了因“双轨制”信号处理逻辑而导致“低分买入信号”被
+                    完全丢弃的灾难性架构缺陷。
         - 新逻辑:
-        1. 正常运行引擎2(`_run_tactical_engine`)，但其返回的记录中，只保留“非入口信号”（如卖出信号）。
-        2. 运行引擎5(`_run_intraday_entry_engine`)，它现在是所有“入口信号”的唯一来源。
-        3. 将引擎5的入口信号，与其他引擎的非入口信号、风险信号等合并，形成最终列表。
+          1. 正常运行“VIP通道”(_run_intraday_entry_engine)获取高分精加工信号。
+          2. 记录下这些高分信号的日期。
+          3. 从“普通通道”(_run_tactical_engine)生成的全部信号中，筛选出那些
+             日期未被VIP通道处理过的“普通买入信号”。
+          4. 将【高分信号】+【普通买入信号】+【所有非买入信号】合并，确保无一遗漏。
+        - 收益: 保证了所有级别的买入信号都能被正确记录，彻底解决了部分信号
+                神秘失踪的问题。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V117.40) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V144.0) ---")
         
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
         if 'D' not in all_dfs or 'W' not in all_dfs: return None
@@ -263,22 +268,31 @@ class MultiTimeframeTrendStrategy:
         strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
         all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
         
-        # 运行引擎2，主要目的是填充 self.daily_analysis_df，并获取非入口信号
+        # 步骤1: 运行战术引擎，获取所有信号的“草稿”
         tactical_records_all = self._run_tactical_engine(stock_code, all_dfs)
-        # 【逻辑修改】只保留战术引擎中的非入口信号（例如，未来可能加入的日线级别卖出信号）
-        non_entry_tactical_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
         
-        # 运行引擎3 (分钟共振)
-        resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
-        
-        # 运行引擎4 (风险预警)
-        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-
-        # 【核心】运行引擎5，它现在是所有入口信号的唯一来源
+        # 步骤2: 运行“VIP通道”，获取精加工的高分入口信号
         final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
+        
+        # 步骤3: 记录下被VIP通道处理过的日期
+        processed_dates = {pd.to_datetime(rec['trade_time']).date() for rec in final_entry_records}
 
-        # 合并所有信号：最终入口信号 + 分钟共振信号 + 风险信号 + 其他日线信号
-        all_records = final_entry_records + resonance_entry_records + risk_alert_records + non_entry_tactical_records
+        # 步骤4: 从“草稿”中，筛选出未被VIP通道处理的“普通买入信号”
+        other_entry_records = [
+            rec for rec in tactical_records_all 
+            if rec.get('entry_signal') and pd.to_datetime(rec['trade_time']).date() not in processed_dates
+        ]
+
+        # 步骤5: 从“草稿”中，筛选出所有的“非买入信号”
+        non_entry_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
+        
+        # 运行其他引擎 (风险预警等)
+        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
+        resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs) # 假设这也是一种入口信号
+
+        # 步骤6: 合并所有信号，确保无一遗漏
+        # 优先级：精加工信号 > 共振信号 > 普通入口信号 > 风险信号 > 其他非入口信号
+        all_records = final_entry_records + resonance_entry_records + other_entry_records + risk_alert_records + non_entry_records
         
         logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
         return all_records
