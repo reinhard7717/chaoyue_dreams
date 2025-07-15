@@ -186,7 +186,7 @@
       },
       "intraday_entry_params": {
         "说明": "【V117.6 终极统一版】分钟级买入确认引擎配置",
-        "enabled": true,
+        "enabled": false,
         "daily_score_threshold": 100,
         "timeframe": "5",
         "confirmation_rules": {
