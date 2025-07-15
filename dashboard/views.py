@@ -176,6 +176,7 @@ def trend_following_list(request):
             'last_sell_time': log.latest_sell_time,
             'active_playbooks': sorted(log.triggered_playbooks, key=get_playbook_priority),
             'strategy_names': [log.strategy_name],
+            'stable_platform_price': log.stable_platform_price,
         })
 
     # ▼▼▼【代码修改 V117.22】: 复用已注解并过滤的 held_queryset ▼▼▼
@@ -204,21 +205,16 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V117.18 终极重构版】
-    - 核心革命: 与 trend_following_list 保持同步，彻底废弃旧的、基于循环和字典聚合的
-                复杂逻辑，回归最原始、最可靠的 TrendFollowStrategySignalLog 作为数据源。
-    - 工作流程:
-      1. 获取用户自选股列表。
-      2. 在自选股范围内，获取所有股票的最新“买入”信号。
-      3. 对于每一个买入信号，查找其后是否跟随了“卖出”信号。
-      4. 基于这些权威的买入和卖出信号，构建前端所需的所有持仓状态信息。
-    - 收益: 确保了自选股监控页面的数据与主监控中心完全一致，解决了所有潜在的数据
-            不一致和状态判断错误问题。
+    【V135.0 战情显示一致性版】
+    - 核心革命: 修正了后端视图的数据准备逻辑。
+    - 新逻辑:
+      1. 当一个头寸不再被持有时，无论原因(告警或解除)，都强制填充 item['sell_info']。
+      2. 为“警报解除”的状态提供了更明确的文本 '空仓等待 (风险已解除)'。
+    - 收益: 为前端模板提供了完整、无歧义的数据，从根源上解决了显示矛盾的问题。
     """
-    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V117.18 ---")
+    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V135.0 ---")
     user_dao = UserDAO()
     
-    # 步骤1: 获取用户自选股列表
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
     fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
@@ -230,7 +226,6 @@ def fav_trend_following_list(request):
             'total_count': 0,
         })
 
-    # 步骤2: 在自选股范围内，获取所有股票的最新买入信号
     latest_buy_signals = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes,
         entry_signal=True
@@ -241,10 +236,9 @@ def fav_trend_following_list(request):
     buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_buy_ids).select_related('stock')
     buy_logs_map = {log.stock_id: log for log in buy_logs}
 
-    # 步骤3: 在自选股范围内，获取所有股票的最新卖出信号
     latest_sell_signals = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes,
-        exit_signal_code__gt=0
+        entry_signal=False
     ).values('stock_id').annotate(
         latest_sell_id=Max('id')
     )
@@ -252,49 +246,47 @@ def fav_trend_following_list(request):
     sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_sell_ids).select_related('stock')
     sell_logs_map = {log.stock_id: log for log in sell_logs}
 
-    # 步骤4: 遍历所有自选股，构建最终的展示列表
     processed_list = []
     for fav_stock_code in fav_codes:
-        # 从预先查好的 stock 对象中获取，避免N+1查询
         stock_obj = next((fav.stock for fav in user_favorites if fav.stock.stock_code == fav_stock_code), None)
         if not stock_obj: continue
 
-        buy_log = buy_logs_map.get(stock_obj.stock_code)
-        sell_log = sell_logs_map.get(stock_obj.stock_code)
+        buy_log = buy_logs_map.get(stock_obj.id)
+        sell_log = sell_logs_map.get(stock_obj.id)
 
-        # 初始化默认状态
         item = {
             'stock': stock_obj,
             'favorite_id': fav_id_map.get(fav_stock_code),
             'buy_info': None,
             'sell_info': None,
-            'latest_trade_time': None, # 将在后面填充
+            'latest_trade_time': None,
             'latest_score': 0,
             'active_playbooks': [],
             'swing_status': '等待建仓',
             'status_class': 'status-wait',
             'sort_priority': 3,
+            
         }
 
-        # 如果存在买入信号
         if buy_log:
-            # 检查是否持仓 (卖出信号不存在，或卖出时间早于买入时间)
             is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
             
             item['latest_trade_time'] = buy_log.trade_time
             item['latest_score'] = buy_log.entry_score
-            item['active_playbooks'] = sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
+            item['active_playbooks'] = sorted(buy_log.triggered_playbooks_cn or buy_log.triggered_playbooks, key=get_playbook_priority)
             item['buy_info'] = {
                 'time': buy_log.trade_time,
                 'strategy_name': buy_log.strategy_name,
-                'time_level': buy_log.timeframe
+                'time_level': buy_log.timeframe,
+                'stable_platform_price': buy_log.stable_platform_price,
             }
 
             if is_holding:
                 item['swing_status'] = '持仓观察'
                 item['status_class'] = 'status-holding'
                 item['sort_priority'] = 2
-            else: # 已卖出
+            else: # 已平仓 (无论是告警还是解除)
+                # 【核心修正】无论如何，只要不是持仓状态，就填充sell_info
                 item['sell_info'] = {
                     'time': sell_log.trade_time,
                     'strategy_name': sell_log.strategy_name,
@@ -303,20 +295,26 @@ def fav_trend_following_list(request):
                     'reason': sell_log.exit_signal_reason or "风险预警",
                     'code': sell_log.exit_signal_code,
                 }
-                level = sell_log.exit_severity_level
-                if level == 1:
-                    item['swing_status'] = '一级预警'
-                    item['status_class'] = 'status-alert-level-1'
-                elif level == 3:
-                    item['swing_status'] = '三级警报'
-                    item['status_class'] = 'status-alert-level-3'
+                
+                if sell_log.exit_signal_code > 0:
+                    level = sell_log.exit_severity_level
+                    if level == 1:
+                        item['swing_status'] = '一级预警'
+                        item['status_class'] = 'status-alert-level-1'
+                    elif level == 3:
+                        item['swing_status'] = '三级警报'
+                        item['status_class'] = 'status-alert-level-3'
+                    else:
+                        item['swing_status'] = '二级警报'
+                        item['status_class'] = 'status-alert-level-2'
+                    item['sort_priority'] = 1
                 else:
-                    item['swing_status'] = '二级警报'
-                    item['status_class'] = 'status-alert-level-2'
-                item['sort_priority'] = 1
+                    # 【核心修正】为解除状态提供更明确的文本
+                    item['swing_status'] = '空仓等待 (风险已解除)'
+                    item['status_class'] = 'status-wait'
+                    item['sort_priority'] = 3
         
-        # 如果没有买入信号，但有卖出信号，也展示最新的卖出状态
-        elif sell_log:
+        elif sell_log and sell_log.exit_signal_code > 0:
             item['latest_trade_time'] = sell_log.trade_time
             item['sell_info'] = {
                 'time': sell_log.trade_time,
@@ -327,12 +325,11 @@ def fav_trend_following_list(request):
                 'code': sell_log.exit_signal_code,
             }
             item['swing_status'] = '空仓预警'
-            item['status_class'] = 'status-alert-level-2' # 给一个默认的警报样式
-            item['sort_priority'] = 4 # 排在最后
+            item['status_class'] = 'status-alert-level-2'
+            item['sort_priority'] = 4
 
         processed_list.append(item)
 
-    # 步骤5: 排序和分页
     processed_list.sort(key=lambda x: (
         x['sort_priority'],
         -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)

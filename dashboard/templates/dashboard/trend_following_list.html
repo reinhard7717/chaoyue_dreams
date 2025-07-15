@@ -80,9 +80,7 @@
                     </tr>
                 </thead>
                 <tbody id="trend-table-body">
-                    {# ▼▼▼【代码修改 V117.21】: 修改循环变量 #}
                     {% for item in items_for_display %}
-                    {# ▲▲▲【代码修改 V117.21】▲▲▲ #}
                     <tr>
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
@@ -94,6 +92,12 @@
                             {% for name in item.strategy_names %}
                                 <li class="strategy-tag">{{ name|playbook_display }}</li>
                             {% endfor %}
+                            {% if item.stable_platform_price %}
+                            <div class="platform-price-info">
+                                <span class="icon" title="以此价格为关键支撑/压力">🛡️</span>
+                                平台支撑: {{ item.stable_platform_price|floatformat:2 }}
+                            </div>
+                            {% endif %}
                             </ul>
                         </td>
                         <td>

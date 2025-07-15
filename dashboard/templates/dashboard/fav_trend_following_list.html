@@ -19,11 +19,13 @@
         display: inline-block;
         min-width: 80px;
     }
+    
     .status-holding { background-color: #43a047; } /* 持仓观察 (绿色) */
     .status-wait { background-color: #757575; } /* 等待建仓 (灰色) */
     .status-alert-level-1 { background-color: #fdd835; color: #424242; } /* 一级预警 (黄色) */
     .status-alert-level-2 { background-color: #fb8c00; } /* 二级警报 (橙色) */
     .status-alert-level-3 { background-color: #e53935; } /* 三级警报 (红色) */
+    .signal-details .reason-resolved { color: #43a047; } /* “风险已解除”状态的专属样式，使用和持仓一样的绿色，代表安全 */
 
     .signal-details { font-size: 0.9em; }
     .signal-details .reason { font-weight: bold; }
@@ -81,6 +83,12 @@
                                 <strong>买入于: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }})</small>
+                                {% if item.buy_info.stable_platform_price %}
+                                <div class="platform-price-info">
+                                    <span class="icon" title="以此价格为关键支撑/压力">🛡️</span>
+                                    平台支撑: {{ item.buy_info.stable_platform_price|floatformat:2 }}
+                                </div>
+                                {% endif %}
                             {% else %}
                                 -
                             {% endif %}
@@ -93,8 +101,11 @@
                                         <span class="reason reason-level-1">⚠️ {{ item.sell_info.reason|playbook_display }}</span>
                                     {% elif item.sell_info.severity_level == 3 %}
                                         <span class="reason reason-level-3">🚨 {{ item.sell_info.reason|playbook_display }}</span>
-                                    {% else %}
+                                    {% elif item.sell_info.severity_level > 0 %}
                                         <span class="reason reason-level-2">🟠 {{ item.sell_info.reason|playbook_display }}</span>
+                                    {% else %}
+                                        {# 这是新的分支，用于显示风险已解除的信号 #}
+                                        <span class="reason reason-resolved">✅ {{ item.sell_info.reason|playbook_display }}</span>
                                     {% endif %}
                                     <br>
                                     <span class="time-info">
