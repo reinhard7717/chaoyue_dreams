@@ -625,7 +625,7 @@ class StrategiesDAO(BaseDAO):
                 continue
             
             key_tuple = (
-                stock_instance.id,
+                stock_instance.stock_code,
                 item.get('trade_time'),
                 item.get('strategy_name'),
                 item.get('timeframe')
