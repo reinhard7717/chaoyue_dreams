@@ -906,60 +906,56 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V150.0 “黑匣子”终极探针版】
-        - 核心升级: 遵从将军指令，停止一切猜测性修复。本版本内置了一个高精度诊断探针。
-        - 工作模式:
-          1. 新增 probe_dates 参数，用于指定需要剖析的关键日期。
-          2. 当计算到指定日期时，探针会详细打印出当天所有剧本的每一个决策环节、
-             每一个关键变量的值和每一个mask的布尔结果。
-          3. 这将为我们提供一份无可辩驳的“黑匣子”数据，以定位问题的最终根源。
+        【V152.1 探针模块化版】
+        - 核心重构: 遵循将军指令，将所有“黑匣子”探针逻辑，封装到独立的
+                    `_probe_entry_score_details` 函数中。
+        - 新结构: 本函数回归其核心职责——计分。在函数末尾保留了对探针模块的调用接口，
+                  但默认保持注释状态，以便在需要时快速激活进行诊断。
         """
-        print("    - [计分引擎 V150.0 “黑匣子”探针版] 启动...")
-        
-        # 探针配置: 指定需要深入调查的日期
-        probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
+        print("    - [计分引擎 V151.0 战地记忆版] 启动...") # 核心逻辑版本号保持V151
         
         default_series = pd.Series(False, index=df.index)
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
 
-        # --- 步骤0: 预计算宏观背景与“战术覆盖”触发器 ---
-        temp_reversal_score = pd.Series(0.0, index=df.index)
-        reversal_setup = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        reversal_trigger = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
-        temp_reversal_score[reversal_setup & reversal_trigger] = 230
-        had_recent_reversal = temp_reversal_score.rolling(window=context_window, min_periods=1).max() > 200
-        atomic_states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
-        
+        # --- 步骤0: 定义重大事件并创建“战地记忆” ---
         p_violent = self._get_params_block(params, 'trigger_event_params', {}).get('violent_reversal_trigger', {})
         pct_change_thresh = self._get_param_value(p_violent.get('min_pct_change'), 0.04)
-        vol_multiplier = self._get_param_value(p_violent.get('volume_multiplier'), 2.0)
+        vol_multiplier = self._get_param_value(p_violent.get('volume_multiplier'), 1.8)
         is_strong_rally = df['pct_change_D'] > pct_change_thresh
         is_huge_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * vol_multiplier
         trigger_violent_reversal = is_strong_rally & is_huge_volume
+        
+        persistence_days = self._get_param_value(p_violent.get('persistence_days'), 3)
+        break_condition = df['close_D'] < df.get('EMA_5_D', df['close_D']) 
+        CONTEXT_VIOLENT_REVERSAL_WINDOW = self._create_persistent_state(
+            df, entry_event=trigger_violent_reversal, persistence_days=persistence_days, break_condition=break_condition
+        )
+        atomic_states['CONTEXT_VIOLENT_REVERSAL_WINDOW'] = CONTEXT_VIOLENT_REVERSAL_WINDOW
         
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         
         # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
         base_scores_df = pd.DataFrame(index=df.index)
         bonus_scores_df = pd.DataFrame(index=df.index)
-        
-        # 为了探针，创建一些中间DataFrame来存储mask结果
-        intermediate_masks = {}
+        intermediate_masks = {} # 为探针模块准备数据
 
         for playbook in playbook_definitions:
             name = playbook['name']
             rules = playbook.get('scoring_rules', {})
             playbook_type = playbook.get('type')
             
-            trigger_mask = playbook.get('trigger', default_series)
+            original_trigger_mask = playbook.get('trigger', default_series)
+            is_core_trend_playbook = name in ['HEALTHY_MARKUP_A', 'TREND_EMERGENCE_B_PLUS']
+            contextual_trigger_mask = CONTEXT_VIOLENT_REVERSAL_WINDOW if is_core_trend_playbook else default_series
+            trigger_mask = original_trigger_mask | contextual_trigger_mask
+
             side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
 
             setup_mask = pd.Series(True, index=df.index)
             if playbook_type == 'setup':
                 setup_mask = playbook.get('setup', default_series)
-            
             elif playbook_type == 'setup_score':
                 min_score_req = rules.get('min_setup_score_to_trigger', 0)
                 if min_score_req > 0:
@@ -967,10 +963,9 @@ class TrendFollowStrategy:
                     allow_memory = playbook.get('allow_memory', True)
                     if allow_memory:
                         max_score_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
-                        setup_mask = (max_score_in_context >= min_score_req) | trigger_violent_reversal
+                        setup_mask = (max_score_in_context >= min_score_req) | CONTEXT_VIOLENT_REVERSAL_WINDOW
                     else:
                         setup_mask = setup_score_series >= min_score_req
-            
             elif playbook_type == 'precondition_score':
                 min_score_req = rules.get('min_score_to_trigger', 0)
                 precondition_score = pd.Series(0.0, index=df.index)
@@ -980,12 +975,14 @@ class TrendFollowStrategy:
 
             valid_mask = trigger_mask & side_mask & setup_mask
             
-            # 存储所有中间mask以供探针使用
             intermediate_masks[name] = {
                 'trigger_mask': trigger_mask,
                 'side_mask': side_mask,
                 'setup_mask': setup_mask,
-                'valid_mask': valid_mask
+                'valid_mask': valid_mask,
+                'playbook_type': playbook_type,
+                'scoring_rules': rules,
+                'setup_score_series': playbook.get('setup_score_series', default_series)
             }
 
             base_score = rules.get('base_score', playbook.get('score', 0))
@@ -993,7 +990,6 @@ class TrendFollowStrategy:
 
             playbook_bonus = pd.Series(0.0, index=df.index)
             if rules:
-                # ... (bonus calculation logic remains the same) ...
                 condition_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
                 event_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('event_conditions', {}).items())
                 setup_bonus = sum(setup_scores.get(f'SETUP_SCORE_{s}', default_series).rolling(window=context_window, min_periods=1).max().fillna(0) * v for s, v in rules.get('setup_bonus', {}).items())
@@ -1038,8 +1034,47 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        # ==================== 步骤3: 【黑匣子探针】启动 ====================
+        # ==================== 步骤3: 【探针调用点】(默认禁用) ====================
+        # probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
+        # self._probe_entry_score_details(
+        #     df=df,
+        #     probe_dates=probe_dates,
+        #     final_score=final_score,
+        #     intermediate_masks=intermediate_masks,
+        #     playbook_definitions=playbook_definitions,
+        #     trigger_violent_reversal=trigger_violent_reversal,
+        #     setup_scores=setup_scores,
+        #     context_window=context_window,
+        #     atomic_states=atomic_states
+        # )
+        
+        print(f"\n--- [计分引擎 V151.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        
+        return df, score_details_df
+
+    # ▼▼▼ 固化“黑匣子”探针为独立模块 ▼▼▼
+    def _probe_entry_score_details(
+        self, 
+        df: pd.DataFrame, 
+        probe_dates: List[str], 
+        final_score: pd.Series, 
+        intermediate_masks: Dict, 
+        playbook_definitions: List[Dict], 
+        trigger_violent_reversal: pd.Series, 
+        setup_scores: Dict[str, pd.Series], 
+        context_window: int,
+        atomic_states: Dict[str, pd.Series] # 修正1: 增加缺失的 atomic_states 参数
+    ):
+        """
+        【V152.1 “探针后勤补给”修正版】
+        - 核心修正: 修复了因函数签名缺少 atomic_states 参数，以及函数内部未定义
+                    default_series 而导致的 NameError 崩溃问题。
+        """
         print("\n" + "="*25 + " [黑匣子探针启动] " + "="*25)
+        
+        # 修正2: 在函数内部定义其所需的 default_series
+        default_series = pd.Series(False, index=df.index)
+
         for probe_date_str in probe_dates:
             try:
                 probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
@@ -1049,32 +1084,35 @@ class TrendFollowStrategy:
                 
                 print(f"\n\n--- [探针] 正在剖析日期: {probe_date_str} ---")
                 
-                # 打印当天的关键全局变量
                 print("\n[全局关键变量]")
                 print(f"  - 当日收盘价 (close_D): {df.loc[probe_ts, 'close_D']:.2f}")
-                print(f"  - 55日均线 (EMA_55_D): {df.loc[probe_ts, 'EMA_55_D']:.2f}")
+                ema55_col = 'EMA_55_D'
+                if ema55_col in df.columns:
+                    print(f"  - 55日均线 ({ema55_col}): {df.loc[probe_ts, ema55_col]:.2f}")
+                else:
+                    print(f"  - 55日均线 ({ema55_col}): 未找到")
                 print(f"  - 暴力反转信号 (trigger_violent_reversal): {trigger_violent_reversal.loc[probe_ts]}")
                 
-                # 遍历所有剧本，打印其当天的详细决策过程
                 for playbook in playbook_definitions:
                     name = playbook['name']
                     p_type = playbook.get('type')
-                    masks = intermediate_masks[name]
+                    masks = intermediate_masks.get(name, {})
                     
                     print(f"\n--- 剖析剧本: [{name}] (类型: {p_type}) ---")
-                    print(f"  - 触发条件 (trigger_mask): {masks['trigger_mask'].loc[probe_ts]}")
-                    print(f"  - 站位条件 (side_mask): {masks['side_mask'].loc[probe_ts]}")
-                    print(f"  - 准备条件 (setup_mask): {masks['setup_mask'].loc[probe_ts]}")
+                    print(f"  - 触发条件 (trigger_mask): {masks.get('trigger_mask', default_series).loc[probe_ts]}")
+                    print(f"  - 站位条件 (side_mask): {masks.get('side_mask', default_series).loc[probe_ts]}")
+                    print(f"  - 准备条件 (setup_mask): {masks.get('setup_mask', default_series).loc[probe_ts]}")
                     
-                    # 为 setup_score 类型提供更详细的诊断
                     if p_type == 'setup_score':
                         rules = playbook.get('scoring_rules', {})
                         min_req = rules.get('min_setup_score_to_trigger', 0)
-                        score_series = playbook.get('setup_score_series', default_series)
+                        # 此处使用 playbook.get('setup_score_series', default_series) 是安全的，因为 playbook 来自 intermediate_masks
+                        score_series = masks.get('setup_score_series', default_series)
                         max_score = score_series.rolling(window=context_window, min_periods=1).max().loc[probe_ts]
-                        print(f"    -> 诊断(setup_score): 要求最低分>{min_req}, 近期最高分是{max_score:.2f}。豁免信号: {trigger_violent_reversal.loc[probe_ts]}")
+                        reversal_window_active = atomic_states.get('CONTEXT_VIOLENT_REVERSAL_WINDOW', default_series).loc[probe_ts]
+                        print(f"    -> 诊断(setup_score): 要求最低分>{min_req}, 近期最高分是{max_score:.2f}。豁免信号: {reversal_window_active}")
 
-                    print(f"  - [最终决策] 剧本是否激活 (valid_mask): {masks['valid_mask'].loc[probe_ts]}")
+                    print(f"  - [最终决策] 剧本是否激活 (valid_mask): {masks.get('valid_mask', default_series).loc[probe_ts]}")
 
                 print("\n[当日最终得分]")
                 print(f"  - 总分 (final_score): {final_score.loc[probe_ts]:.2f}")
@@ -1083,8 +1121,6 @@ class TrendFollowStrategy:
             except Exception as e:
                 print(f"\n--- [探针错误] 在处理日期 {probe_date_str} 时发生错误: {e} ---")
         print("\n" + "="*27 + " [黑匣子探针结束] " + "="*27 + "\n")
-
-        return df, score_details_df
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
