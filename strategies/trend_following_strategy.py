@@ -906,20 +906,27 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V152.1 探针模块化版】
-        - 核心重构: 遵循将军指令，将所有“黑匣子”探针逻辑，封装到独立的
-                    `_probe_entry_score_details` 函数中。
-        - 新结构: 本函数回归其核心职责——计分。在函数末尾保留了对探针模块的调用接口，
-                  但默认保持注释状态，以便在需要时快速激活进行诊断。
+        【V152.2 “坚不可摧的记忆核心”最终版】
+        - 核心诊断: 黑匣子日志最终确认，V151依赖的 `_create_persistent_state` 
+                    未能成功将“战术优势窗口”延续到第二天，导致记忆失效。
+        - 核心重构: 彻底废弃复杂的持久化状态函数，采用最简单、最可靠的数学方法
+                    来构建“战地记忆”。
+        - 新逻辑:
+          1. 将“暴力反转”的布尔信号转为 1/0 的整数信号。
+          2. 使用 `.rolling(3).max()` 对该信号进行滚动计算。只要过去3天内有过1，
+             结果就为1。这创造了一个绝对可靠的、持续3天的“战术优势窗口”。
+          3. 将这个“坚不可摧”的记忆窗口，正确地应用到核心趋势剧本的触发器和
+             豁免条件上。
+        - 收益: 这是针对“单日失忆症”问题的最终、最稳健的解决方案。
         """
-        print("    - [计分引擎 V151.0 战地记忆版] 启动...") # 核心逻辑版本号保持V151
+        print("    - [计分引擎 V152.2 坚不可摧的记忆核心] 启动...")
         
         default_series = pd.Series(False, index=df.index)
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
 
-        # --- 步骤0: 定义重大事件并创建“战地记忆” ---
+        # --- 步骤0: 定义重大事件并创建“坚不可摧的记忆核心” ---
         p_violent = self._get_params_block(params, 'trigger_event_params', {}).get('violent_reversal_trigger', {})
         pct_change_thresh = self._get_param_value(p_violent.get('min_pct_change'), 0.04)
         vol_multiplier = self._get_param_value(p_violent.get('volume_multiplier'), 1.8)
@@ -927,11 +934,10 @@ class TrendFollowStrategy:
         is_huge_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * vol_multiplier
         trigger_violent_reversal = is_strong_rally & is_huge_volume
         
+        # 【核心修正】使用最可靠的 rolling().max() 创建持续3天的战术优势窗口
         persistence_days = self._get_param_value(p_violent.get('persistence_days'), 3)
-        break_condition = df['close_D'] < df.get('EMA_5_D', df['close_D']) 
-        CONTEXT_VIOLENT_REVERSAL_WINDOW = self._create_persistent_state(
-            df, entry_event=trigger_violent_reversal, persistence_days=persistence_days, break_condition=break_condition
-        )
+        reversal_signal_int = trigger_violent_reversal.astype(int)
+        CONTEXT_VIOLENT_REVERSAL_WINDOW = (reversal_signal_int.rolling(window=persistence_days, min_periods=1).max() == 1)
         atomic_states['CONTEXT_VIOLENT_REVERSAL_WINDOW'] = CONTEXT_VIOLENT_REVERSAL_WINDOW
         
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
@@ -939,7 +945,7 @@ class TrendFollowStrategy:
         # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
         base_scores_df = pd.DataFrame(index=df.index)
         bonus_scores_df = pd.DataFrame(index=df.index)
-        intermediate_masks = {} # 为探针模块准备数据
+        intermediate_masks = {}
 
         for playbook in playbook_definitions:
             name = playbook['name']
@@ -1035,20 +1041,20 @@ class TrendFollowStrategy:
         score_details_df.fillna(0, inplace=True)
         
         # ==================== 步骤3: 【探针调用点】(默认禁用) ====================
-        probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
-        self._probe_entry_score_details(
-            df=df,
-            probe_dates=probe_dates,
-            final_score=final_score,
-            intermediate_masks=intermediate_masks,
-            playbook_definitions=playbook_definitions,
-            trigger_violent_reversal=trigger_violent_reversal,
-            setup_scores=setup_scores,
-            context_window=context_window,
-            atomic_states=atomic_states
-        )
+        # probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
+        # self._probe_entry_score_details(
+        #     df=df,
+        #     probe_dates=probe_dates,
+        #     final_score=final_score,
+        #     intermediate_masks=intermediate_masks,
+        #     playbook_definitions=playbook_definitions,
+        #     trigger_violent_reversal=trigger_violent_reversal,
+        #     setup_scores=setup_scores,
+        #     context_window=context_window,
+        #     atomic_states=atomic_states
+        # )
         
-        print(f"\n--- [计分引擎 V151.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V152.2] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
