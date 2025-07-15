@@ -353,13 +353,13 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V141.0 波段周期关联版】
-        - 核心重构: 彻底废弃了导致信息丢失的“固定天数战术窗口”逻辑。
+        【V142.0 上下文持久化版】
+        - 核心重构: 彻底废弃所有复杂的关联判断逻辑，回归最简单、最正确的本源。
         - 新逻辑:
-          采用更智能的“波段周期关联”：一个平台只对其形成后的“第一个”买入信号有效。
-          通过比较“最新平台时间”和“上一个买入信号时间”来确保关联的唯一性和正确性。
-        - 收益: 从根本上解决了 stable_platform_price 丢失的问题，确保了每一个买入信号
-                都能且仅能关联到其所属波段周期的那个有效平台。
+          一个平台的上下文从形成起就持续有效，直到被更新的平台取代。
+          因此，对于任何一个买入信号，我们只需向前查找离它最近的那个平台价格即可。
+        - 收益: 彻底根除了因逻辑过度复杂化而导致的所有信息丢失问题。
+                这是针对此问题的最终、最稳健的解决方案。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
@@ -379,9 +379,6 @@ class TrendFollowStrategy:
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         
         has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
-        
-        # 预先计算所有买入信号的时间点，用于后续判断
-        all_buy_signal_times = result_df[result_df['signal_entry'] == True].index
 
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
@@ -394,19 +391,10 @@ class TrendFollowStrategy:
             platform_price = None
             # 只为买入信号计算平台价格关联
             if has_platform_col and row.get('signal_entry', False):
-                # 1. 找到在当前信号之前，最后一个有效的平台及其时间
+                # 【终极简化逻辑】向前回溯，找到最后一个非空的平台价格即可。
                 platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
                 if not platform_series_before.empty:
-                    last_platform_time = platform_series_before.index[-1]
-                    last_platform_price = platform_series_before.iloc[-1]
-
-                    # 2. 找到在当前信号之前，上一个买入信号的时间
-                    previous_buy_times = all_buy_signal_times[all_buy_signal_times < timestamp]
-                    previous_buy_time = previous_buy_times[-1] if not previous_buy_times.empty else pd.Timestamp.min.tz_localize('UTC')
-
-                    # 3. 核心判断：只有当这个平台是在上一个买入信号之后形成的，它才属于当前这个波段周期
-                    if last_platform_time > previous_buy_time:
-                        platform_price = last_platform_price
+                    platform_price = platform_series_before.iloc[-1]
 
             context_snapshot = {
                 'close': row.get(f'close_{result_timeframe}'),
@@ -425,7 +413,7 @@ class TrendFollowStrategy:
                 "entry_score": row.get('entry_score', 0.0),
                 "entry_signal": bool(row.get('signal_entry', False)),
                 "exit_signal_code": int(row.get('exit_signal_code', 0)),
-                "stable_platform_price": platform_price, # 使用新逻辑计算出的价格
+                "stable_platform_price": platform_price,
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": [playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list],
                 "active_setups": [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True],
