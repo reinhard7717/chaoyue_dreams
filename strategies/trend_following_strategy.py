@@ -785,21 +785,23 @@ class TrendFollowStrategy:
     # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
     def _get_playbook_definitions(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> List[Dict]:
         """
-        【V85.1 右侧增强与结构优化版】
-        - 职责: 接收静态的剧本“蓝图”，并用动态计算出的数据进行“水合”。
-        - 核心升级:
-          1. 为“健康主升浪”(HEALTHY_MARKUP_A)剧本增加了新的“趋势延续确认K线”(TRIGGER_TREND_CONTINUATION_CANDLE)触发器，
-             使其能捕捉更多样的右侧买点，解决了“温和上涨无信号”的问题。
-          2. 优化了代码结构，将原本分散和重复的触发器分配逻辑进行了整合，移除了冗余的 `if playbook['type'] == 'precondition_score'` 代码块，
-             使每个剧本的触发器分配都在唯一的 `if/elif` 分支中完成，逻辑更清晰。
+        【V127.0 统一交战规则版】
+        - 核心重构: 不再对每个右侧剧本单独添加审查逻辑，而是在函数末尾设立一个
+                    “最终审查关卡”。该关卡会强制为所有 'side: right' 的剧本的触发器
+                    增加 '& ~is_trend_deteriorating' 的战略安全审查。
+        - 收益: 这是一个系统性的、无死角的解决方案。它确保了未来无论增加何种类型的
+                右侧剧本，都会被自动纳入战略审查体系，从根本上杜绝了“逻辑短路”和
+                “审计遗漏”的问题。
         """
-        print("    - [剧本水合引擎 V88.0 最终决战版] 启动...")
+        print("    - [剧本水合引擎 V127.0 统一交战规则版] 启动...")
         
         # 步骤1: 深度复制蓝图，以防修改缓存的原始版本
         hydrated_playbooks = deepcopy(self.playbook_blueprints)
         
         # 步骤2: 准备所有需要用到的动态数据
         default_series = pd.Series(False, index=df.index)
+        
+        # 从中央情报库获取最高指令
         is_trend_deteriorating = atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
         
         # 准备分
@@ -809,28 +811,27 @@ class TrendFollowStrategy:
         score_gap_support = setup_scores.get('SETUP_SCORE_GAP_SUPPORT_PULLBACK', pd.Series(0, index=df.index))
         score_bottoming_process = setup_scores.get('SETUP_SCORE_BOTTOMING_PROCESS', pd.Series(0, index=df.index))
         score_healthy_markup = setup_scores.get('SETUP_SCORE_HEALTHY_MARKUP', pd.Series(0, index=df.index))
+        # 【新增】获取平台质量分
+        score_platform_quality = setup_scores.get('SETUP_SCORE_PLATFORM_QUALITY', pd.Series(0, index=df.index))
 
         # 原子状态
         capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        ma_short_cross_mid = atomic_states.get('MA_STATE_SHORT_CROSS_MID', default_series)
         setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
         setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
         setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
         recent_reversal_context = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         ma_short_slope_positive = atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
-
-        # 获取战略背景审查结果
         is_trend_healthy = atomic_states.get('CONTEXT_OVERALL_TREND_HEALTHY', default_series)
         
         # 动态布尔条件
         atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
         atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
 
-        # 步骤3: 遍历蓝图，注入动态数据
+        # --- 步骤3: 为每个剧本注入其专属的动态数据 (水合过程) ---
         for playbook in hydrated_playbooks:
             name = playbook['name']
             
-            # 为每个剧本注入其专属的动态数据
+            # 左侧剧本逻辑
             if name == 'ABYSS_GAZE_S':
                 playbook['trigger'] = trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series)
                 playbook['setup'] = score_cap_pit > 80
@@ -849,48 +850,61 @@ class TrendFollowStrategy:
             elif name == 'BOTTOM_STABILIZATION_B':
                 playbook['setup'] = score_bottoming_process > 50
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            
+            # 右侧剧本逻辑 (只分配基础的setup和trigger，不在此处加审查)
+            elif name == 'TREND_EMERGENCE_B_PLUS':
+                playbook['setup'] = recent_reversal_context & ma_short_slope_positive
+                playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+            
+            elif name == 'PLATFORM_SUPPORT_PULLBACK':
+                playbook['setup_score_series'] = score_platform_quality
+                trigger_ma_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                trigger_chip_rebound = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
+                playbook['trigger'] = trigger_ma_rebound | trigger_chip_rebound
+
             elif name == 'HEALTHY_MARKUP_A':
                 playbook['setup_score_series'] = score_healthy_markup
                 trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
                 trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-                playbook['trigger'] = (trigger_rebound | trigger_continuation) & is_trend_healthy & ~is_trend_deteriorating
-            elif name == 'TREND_EMERGENCE_B_PLUS':
-                # Setup条件: 处于“近期有左侧信号”的宏观背景下，并且短期均线斜率已转正
-                playbook['setup'] = recent_reversal_context & ma_short_slope_positive & ~is_trend_deteriorating
-                # Trigger条件: 温和的趋势延续K线
-                playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-            elif name == 'GAP_SUPPORT_PULLBACK_B_PLUS':
-                playbook['setup'] = score_gap_support > 60 & ~is_trend_deteriorating
-                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                playbook['trigger'] = trigger_rebound | trigger_continuation
+            
             elif name == 'HEALTHY_BOX_BREAKOUT':
-                playbook['setup'] = setup_healthy_box & ~is_trend_deteriorating
+                playbook['setup'] = setup_healthy_box
                 playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
+            
+            elif name == 'GAP_SUPPORT_PULLBACK_B_PLUS':
+                playbook['setup'] = (score_gap_support > 60)
+                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            
+            elif name == 'CHIP_PLATFORM_PULLBACK':
+                setup_platform_formed = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+                playbook['setup'] = setup_platform_formed & is_trend_healthy
+                playbook['trigger'] = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
+
+            elif name == 'ENERGY_COMPRESSION_BREAKOUT':
+                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
                 playbook['setup_score_series'] = score_deep_accum
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-            elif name == 'ENERGY_COMPRESSION_BREAKOUT':
-                # 修正：能量压缩突破使用更合适的突破型触发器
-                playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-            elif name == 'PLATFORM_SUPPORT_PULLBACK':
-                # 平台支撑回踩使用标准的回踩反弹触发器
-                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             
-           
             elif name == 'N_SHAPE_CONTINUATION_A':
                 playbook['trigger'] = trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
             
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
-            elif name == 'CHIP_PLATFORM_PULLBACK':
-                # 准备条件1：一个稳固的筹码平台已经形成
-                setup_platform_formed = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-                # 准备条件2：必须通过“整体趋势健康”的战略背景审查
-                setup_healthy_trend = is_trend_healthy
-                playbook['setup'] = setup_platform_formed & setup_healthy_trend
-                # 触发条件：发生平台回踩并反弹的事件
-                playbook['trigger'] = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
 
-        print(f"    - [剧本水合引擎 V88.0] 完成，所有剧本已注入动态数据。")
+        # --- 步骤4: 【核心修正】统一交战规则 - 为所有右侧剧本强制增加战略审查 ---
+        print("      -> 正在执行“统一交战规则”最终审查...")
+        for playbook in hydrated_playbooks:
+            if playbook.get('side') == 'right':
+                # 从剧本中获取已经分配好的原始触发器
+                original_trigger = playbook.get('trigger', default_series)
+                # 将原始触发器与“趋势未恶化”的最高指令进行“与”运算，生成最终的安全触发器
+                playbook['trigger'] = original_trigger & ~is_trend_deteriorating
+        print("      -> “统一交战规则”审查完毕，所有右侧进攻性操作已被置于战略监控之下。")
+
+        print(f"    - [剧本水合引擎 V127.0] 完成。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
