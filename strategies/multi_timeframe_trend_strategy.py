@@ -681,21 +681,17 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V120.7 情报下放版】
-        - 核心升级: 在日线战术引擎运行完毕后，立刻将计算出的关键日线级情报
-                    (特别是 'PLATFORM_PRICE_STABLE')，通过 merge_asof 的方式，
-                    “下放”并合并到 all_dfs 中的所有分钟级别 DataFrame 中。
-        - 收益: 确保了所有后续的盘中引擎（如风险预警、共振交易）都能访问到
-                最新的、最关键的日线级战略支撑/压力位信息。
+        【V131.0 职责分离版】
+        - 核心重构: 彻底移除了对波段跟踪模拟器(simulate_wave_tracking)的调用。
+        - 收益: 使实盘引擎的职责更纯粹，只负责生成信号和下放情报，不再执行任何
+                与实时决策无关的回测分析，提升了实盘运行效率和代码清晰度。
         """
-        # 步骤1: 直接使用已经融合了战略信号的日线数据
         df_daily_prepared = all_dfs.get('D')
         if df_daily_prepared is None or df_daily_prepared.empty:
             return []
 
         print(f"--- [引擎2-调试] 战术引擎接收到的日线数据时间范围到: {df_daily_prepared.index.max()}")
 
-        # 步骤2: 使用完全准备好的日线数据调用战术引擎，生成每日分析结果
         daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
         
         if daily_analysis_df is None or daily_analysis_df.empty:
@@ -705,7 +701,6 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [引擎2-调试] 战术引擎原始分析结果时间范围到: {daily_analysis_df.index.max()}")
 
-        # 步骤3: 强制对齐日线分析结果的索引 (逻辑不变)
         self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
         if 'entry_score' in self.daily_analysis_df.columns:
             self.daily_analysis_df['entry_score'].fillna(0, inplace=True)
@@ -715,37 +710,34 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [引擎2-调试] reindex后，最终 self.daily_analysis_df 时间范围到: {self.daily_analysis_df.index.max()}")
 
-        # --- 【核心新增】情报下放：将日线关键信息合并到分钟线 ---
-        # 定义需要下放到分钟线引擎的日线级情报列
+        db_records = self.tactical_engine.prepare_db_records(
+            stock_code, 
+            self.daily_analysis_df,
+            atomic_signals, 
+            params=self.tactical_config, 
+            result_timeframe='D'
+        )
+        print(f"    -> [战报记录] 已基于完整分析结果生成 {len(db_records)} 条数据库记录。")
+
+        # 情报下放逻辑保持不变
         cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
-        # 筛选出实际存在于日线分析结果中的列
         existing_cols_to_broadcast = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
         
         if existing_cols_to_broadcast:
             print(f"    -> [情报下放] 准备将日线情报 {existing_cols_to_broadcast} 下发至分钟线...")
-            # 创建一个只包含待下放情报的DataFrame
             broadcast_df = self.daily_analysis_df[existing_cols_to_broadcast].copy()
-            
-            # 遍历所有时间周期的数据
             for tf, df_intraday in all_dfs.items():
-                # 只对分钟线数据进行操作 (避免重复操作日线和周线)
                 if tf.isdigit():
-                    # 使用 merge_asof 将日线情报合并到分钟线
                     all_dfs[tf] = pd.merge_asof(
                         left=df_intraday.sort_index(),
                         right=broadcast_df.sort_index(),
                         left_index=True,
                         right_index=True,
-                        direction='backward' # 使用前一个交易日的日线数据填充当天所有分钟线
+                        direction='backward'
                     )
-                    # print(f"      - 情报已成功注入 {tf} 分钟数据。")
-        # --- 情报下放完成 ---
-
-        # 步骤4: 调用波段跟踪模拟器 (逻辑不变)
-        df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
+                    print(f"      - 情报已成功注入 {tf} 分钟数据。")
         
-        # 步骤5: 使用带有交易动作的DataFrame来准备数据库记录 (逻辑不变)
-        return self.tactical_engine.prepare_db_records(stock_code, df_with_tracking, atomic_signals, params=self.tactical_config, result_timeframe='D')
+        return db_records
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         df_copy = df.copy()
@@ -1057,12 +1049,14 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V117.40 信号流重构版】
-        - 核心重构: 与 run_for_stock 方法保持完全一致的信号合并逻辑。
+        【V131.0 职责分离版】
+        - 核心升级: 将波段跟踪模拟器(simulate_wave_tracking)的调用移至此函数。
+        - 收益: 确保了绩效回测只在调试和研究模式下运行，与实盘决策流程完全分离。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V117.40 信号流重构版)] ---")
-        # ... (打印股票代码和时段) ...
+        print(f"--- [历史回溯调试启动 (V131.0 职责分离版)] ---")
+        print(f"    -> 股票代码: {stock_code}")
+        print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
@@ -1075,26 +1069,25 @@ class MultiTimeframeTrendStrategy:
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
             all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
 
-            # 运行引擎2，主要目的是填充 self.daily_analysis_df，并获取非入口信号
             tactical_records_all = self._run_tactical_engine(stock_code, all_dfs)
-            # 【逻辑修改】只保留战术引擎中的非入口信号
             non_entry_tactical_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
 
-            # 运行引擎3 (分钟共振)
-            resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs)
-            
-            # 运行引擎4 (风险预警)
             risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-
-            # 【核心】运行引擎5，它现在是所有入口信号的唯一来源
             final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
 
-            # 【逻辑修改】合并所有信号
-            all_records = final_entry_records + resonance_entry_records + risk_alert_records + non_entry_tactical_records
-
+            all_records = final_entry_records + risk_alert_records + non_entry_tactical_records
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
 
-            # 步骤 3: 筛选并展示目标时段的信号 (逻辑保持不变)
+            # --- 【核心新增】步骤 2.5: [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
+            print("\n" + "="*25 + " [绩效回测模拟启动] " + "="*25)
+            # 确保 self.daily_analysis_df 存在且不为空
+            if self.daily_analysis_df is not None and not self.daily_analysis_df.empty:
+                self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.tactical_config, start_date=start_date)
+            else:
+                print("    -> [警告] 日线分析结果为空，无法执行波段跟踪模拟。")
+            print("="*60 + "\n")
+            # --- 绩效回测结束 ---
+
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
             if not all_records:
@@ -1106,7 +1099,6 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_records = []
             for rec in all_records:
-                # 强制将 trade_time 转为带时区的 datetime 对象，以进行安全比较
                 rec_time = pd.to_datetime(rec['trade_time'])
                 if not rec_time.tzinfo:
                     rec_time = rec_time.tz_localize('UTC')
@@ -1130,17 +1122,17 @@ class MultiTimeframeTrendStrategy:
                 
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    playbooks = record.get('triggered_playbooks', [])
+                    playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
-                    print(f"{time_str} [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
+                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
                 
                 elif record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
                     reason = record.get('exit_signal_reason', 'N/A')
                     signal_type = f"卖出警报(L{severity})"
                     details = f"原因: {reason}"
-                    print(f"{time_str} [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
+                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
 
             print(f"--- [历史回溯调试完成] ---")
             print("=" * 80)
