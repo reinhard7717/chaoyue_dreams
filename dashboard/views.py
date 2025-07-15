@@ -219,20 +219,28 @@ def fav_trend_following_list(request):
     if not fav_codes:
         return render(request, 'dashboard/fav_trend_following_list.html', {'page_title': '自选股持仓监控', 'page_obj': None, 'total_count': 0})
 
-    # 步骤1: 获取每个自选股的最新“买入”信号
-    latest_buy_subquery = TrendFollowStrategySignalLog.objects.filter(
-        stock_id=OuterRef('stock_id'),
+    # 步骤1.1: 获取每个自选股的最新“买入”信号ID
+    latest_buy_signal_ids = TrendFollowStrategySignalLog.objects.filter(
+        stock__stock_code__in=fav_codes,
         entry_signal=True
-    ).order_by('-trade_time').values('id')[:1]
-    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_buy_subquery), stock__stock_code__in=fav_codes).select_related('stock')
+    ).values('stock_id').annotate(
+        latest_id=Max('id')
+    ).values_list('latest_id', flat=True)
+    
+    # 步骤1.2: 根据ID列表获取完整的买入信号对象
+    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_buy_signal_ids)).select_related('stock')
     buy_logs_map = {log.stock_id: log for log in buy_logs}
 
-    # 步骤2: 获取每个自选股的最新“退出类”信号 (包括告警和解除)
-    latest_sell_subquery = TrendFollowStrategySignalLog.objects.filter(
-        stock_id=OuterRef('stock_id'),
+    # 步骤2.1: 获取每个自选股的最新“退出类”信号ID
+    latest_sell_signal_ids = TrendFollowStrategySignalLog.objects.filter(
+        stock__stock_code__in=fav_codes,
         entry_signal=False
-    ).order_by('-trade_time').values('id')[:1]
-    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_sell_subquery), stock__stock_code__in=fav_codes).select_related('stock')
+    ).values('stock_id').annotate(
+        latest_id=Max('id')
+    ).values_list('latest_id', flat=True)
+
+    # 步骤2.2: 根据ID列表获取完整的退出信号对象
+    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_sell_signal_ids)).select_related('stock')
     sell_logs_map = {log.stock_id: log for log in sell_logs}
 
     # 步骤3: 遍历所有自选股，构建最终的展示列表
