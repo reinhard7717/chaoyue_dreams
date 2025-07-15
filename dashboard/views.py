@@ -205,14 +205,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V135.0 战情显示一致性版】
-    - 核心革命: 修正了后端视图的数据准备逻辑。
-    - 新逻辑:
-      1. 当一个头寸不再被持有时，无论原因(告警或解除)，都强制填充 item['sell_info']。
-      2. 为“警报解除”的状态提供了更明确的文本 '空仓等待 (风险已解除)'。
-    - 收益: 为前端模板提供了完整、无歧义的数据，从根源上解决了显示矛盾的问题。
+    【V137.0 标准化战报接收版】
+    - 核心重构: 再次重构视图逻辑，使其能完美处理新的、统一的“标准化战报”。
+    - 收益: 彻底解决所有状态显示不一致、信息丢失的问题。
     """
-    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V135.0 ---")
+    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.0 ---")
     user_dao = UserDAO()
     
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
@@ -220,131 +217,90 @@ def fav_trend_following_list(request):
     fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
 
     if not fav_codes:
-        return render(request, 'dashboard/fav_trend_following_list.html', {
-            'page_title': '自选股持仓监控',
-            'page_obj': None,
-            'total_count': 0,
-        })
+        return render(request, 'dashboard/fav_trend_following_list.html', {'page_title': '自选股持仓监控', 'page_obj': None, 'total_count': 0})
 
-    latest_buy_signals = TrendFollowStrategySignalLog.objects.filter(
-        stock__stock_code__in=fav_codes,
+    # 步骤1: 获取每个自选股的最新“买入”信号
+    latest_buy_subquery = TrendFollowStrategySignalLog.objects.filter(
+        stock_id=OuterRef('stock_id'),
         entry_signal=True
-    ).values('stock_id').annotate(
-        latest_buy_id=Max('id')
-    )
-    latest_buy_ids = [item['latest_buy_id'] for item in latest_buy_signals]
-    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_buy_ids).select_related('stock')
+    ).order_by('-trade_time').values('id')[:1]
+    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_buy_subquery), stock__stock_code__in=fav_codes).select_related('stock')
     buy_logs_map = {log.stock_id: log for log in buy_logs}
 
-    latest_sell_signals = TrendFollowStrategySignalLog.objects.filter(
-        stock__stock_code__in=fav_codes,
+    # 步骤2: 获取每个自选股的最新“退出类”信号 (包括告警和解除)
+    latest_sell_subquery = TrendFollowStrategySignalLog.objects.filter(
+        stock_id=OuterRef('stock_id'),
         entry_signal=False
-    ).values('stock_id').annotate(
-        latest_sell_id=Max('id')
-    )
-    latest_sell_ids = [item['latest_sell_id'] for item in latest_sell_signals]
-    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=latest_sell_ids).select_related('stock')
+    ).order_by('-trade_time').values('id')[:1]
+    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_sell_subquery), stock__stock_code__in=fav_codes).select_related('stock')
     sell_logs_map = {log.stock_id: log for log in sell_logs}
 
+    # 步骤3: 遍历所有自选股，构建最终的展示列表
     processed_list = []
-    for fav_stock_code in fav_codes:
-        stock_obj = next((fav.stock for fav in user_favorites if fav.stock.stock_code == fav_stock_code), None)
+    for fav in user_favorites:
+        stock_obj = fav.stock
         if not stock_obj: continue
 
         buy_log = buy_logs_map.get(stock_obj.stock_code)
         sell_log = sell_logs_map.get(stock_obj.stock_code)
 
-        item = {
-            'stock': stock_obj,
-            'favorite_id': fav_id_map.get(fav_stock_code),
-            'buy_info': None,
-            'sell_info': None,
-            'latest_trade_time': None,
-            'latest_score': 0,
-            'active_playbooks': [],
-            'swing_status': '等待建仓',
-            'status_class': 'status-wait',
-            'sort_priority': 3,
-            
-        }
+        # 默认状态
+        item = {'stock': stock_obj, 'favorite_id': fav.id, 'buy_info': None, 'sell_info': None, 'swing_status': '等待建仓', 'status_class': 'status-wait', 'sort_priority': 4}
 
         if buy_log:
-            is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
-            
-            item['latest_trade_time'] = buy_log.trade_time
-            item['latest_score'] = buy_log.entry_score
-            item['active_playbooks'] = sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
             item['buy_info'] = {
                 'time': buy_log.trade_time,
                 'strategy_name': buy_log.strategy_name,
                 'time_level': buy_log.timeframe,
                 'stable_platform_price': buy_log.stable_platform_price,
+                'score': buy_log.entry_score,
+                'playbooks': sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
             }
-
+            
+            is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
+            
             if is_holding:
                 item['swing_status'] = '持仓观察'
                 item['status_class'] = 'status-holding'
-                item['sort_priority'] = 2
-            else: # 已平仓 (无论是告警还是解除)
-                # 【核心修正】无论如何，只要不是持仓状态，就填充sell_info
+                item['sort_priority'] = 1
+            else: # 已平仓 (最新的退出信号在买入之后)
                 item['sell_info'] = {
                     'time': sell_log.trade_time,
-                    'strategy_name': sell_log.strategy_name,
+                    'reason': sell_log.exit_signal_reason,
                     'time_level': sell_log.timeframe,
-                    'severity_level': sell_log.exit_severity_level,
-                    'reason': sell_log.exit_signal_reason or "风险预警",
-                    'code': sell_log.exit_signal_code,
+                    'severity_level': sell_log.exit_severity_level
                 }
-                
                 if sell_log.exit_signal_code > 0:
-                    level = sell_log.exit_severity_level
-                    if level == 1:
-                        item['swing_status'] = '一级预警'
-                        item['status_class'] = 'status-alert-level-1'
-                    elif level == 3:
-                        item['swing_status'] = '三级警报'
-                        item['status_class'] = 'status-alert-level-3'
-                    else:
-                        item['swing_status'] = '二级警报'
-                        item['status_class'] = 'status-alert-level-2'
-                    item['sort_priority'] = 1
+                    item['swing_status'] = f'{sell_log.exit_severity_level}级警报'
+                    item['status_class'] = f'status-alert-level-{sell_log.exit_severity_level}'
+                    item['sort_priority'] = 2
                 else:
-                    # 【核心修正】为解除状态提供更明确的文本
-                    item['swing_status'] = '空仓等待 (风险已解除)'
+                    item['swing_status'] = '风险已解除'
                     item['status_class'] = 'status-wait'
                     item['sort_priority'] = 3
-        
-        elif sell_log and sell_log.exit_signal_code > 0:
-            item['latest_trade_time'] = sell_log.trade_time
+        elif sell_log: # 无买入信号，但有历史卖出信号
             item['sell_info'] = {
                 'time': sell_log.trade_time,
-                'strategy_name': sell_log.strategy_name,
+                'reason': sell_log.exit_signal_reason,
                 'time_level': sell_log.timeframe,
-                'severity_level': sell_log.exit_severity_level,
-                'reason': sell_log.exit_signal_reason or "风险预警",
-                'code': sell_log.exit_signal_code,
+                'severity_level': sell_log.exit_severity_level
             }
             item['swing_status'] = '空仓预警'
-            item['status_class'] = 'status-alert-level-2'
+            item['status_class'] = f'status-alert-level-{sell_log.exit_severity_level or 2}'
             item['sort_priority'] = 4
 
         processed_list.append(item)
 
-    processed_list.sort(key=lambda x: (
-        x['sort_priority'],
-        -(x['latest_trade_time'].timestamp() if x['latest_trade_time'] else 0)
-    ))
-
+    # 步骤4: 排序和分页
+    processed_list.sort(key=lambda x: (x['sort_priority'], -(x['buy_info']['time'].timestamp() if x.get('buy_info') and x['buy_info'].get('time') else 0)))
     paginator = Paginator(processed_list, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = paginator.get_page(request.GET.get('page'))
 
-    context = {
-        'page_title': '自选股持仓监控',
-        'page_obj': page_obj,
-        'total_count': len(processed_list),
-    }
+    context = {'page_title': '自选股持仓监控', 'page_obj': page_obj, 'total_count': len(processed_list)}
     return render(request, 'dashboard/fav_trend_following_list.html', context)
+
+
+
 
 # --- DRF API 视图 ---
 
