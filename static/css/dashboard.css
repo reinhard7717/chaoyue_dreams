@@ -563,3 +563,7 @@ section h2 .icon {
     color: #3f51b5; /* 使用一种独特的颜色以示区分 */
     font-weight: bold;
 }
+.platform-price-info .icon {
+    display: inline-block;
+    transform: translateY(1px);
+}

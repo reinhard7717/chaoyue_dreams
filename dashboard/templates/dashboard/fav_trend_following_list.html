@@ -8,7 +8,6 @@
 
 {% block extra_head %}
 <style>
-    /* 样式保持不变，它已经定义了所有需要的状态样式 */
     .status-tag {
         padding: 4px 10px;
         border-radius: 15px;
@@ -19,19 +18,18 @@
         display: inline-block;
         min-width: 80px;
     }
-    
     .status-holding { background-color: #43a047; } /* 持仓观察 (绿色) */
-    .status-wait { background-color: #757575; } /* 等待建仓 (灰色) */
+    .status-wait { background-color: #757575; } /* 等待建仓 / 风险已解除 (灰色) */
     .status-alert-level-1 { background-color: #fdd835; color: #424242; } /* 一级预警 (黄色) */
     .status-alert-level-2 { background-color: #fb8c00; } /* 二级警报 (橙色) */
     .status-alert-level-3 { background-color: #e53935; } /* 三级警报 (红色) */
-    .signal-details .reason-resolved { color: #43a047; } /* “风险已解除”状态的专属样式，使用和持仓一样的绿色，代表安全 */
 
     .signal-details { font-size: 0.9em; }
     .signal-details .reason { font-weight: bold; }
     .signal-details .reason-level-1 { color: #c49102; }
     .signal-details .reason-level-2 { color: #fb8c00; }
     .signal-details .reason-level-3 { color: #e53935; }
+    .signal-details .reason-resolved { color: #43a047; }
     .signal-details .time-info { color: #616161; font-size: 0.9em; }
 </style>
 {% endblock %}
@@ -61,7 +59,7 @@
                         <th style="width: 15%;">股票</th>
                         <th style="width: 15%;">持仓状态</th>
                         <th style="width: 25%;">建仓信号</th>
-                        <th style="width: 25%;">最新动态 / 风险信号</th> {# 表头文本更新 #}
+                        <th style="width: 25%;">最新动态 / 风险信号</th>
                         <th style="width: 15%;">激活剧本</th>
                         <th style="width: 5%;">操作</th>
                     </tr>
@@ -75,7 +73,6 @@
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
-                            {# 状态标签现在由视图动态生成，此处无需修改 #}
                             <span class="status-tag {{ item.status_class }}">{{ item.swing_status }}</span>
                         </td>
                         <td>
@@ -96,7 +93,6 @@
                         <td>
                             {% if item.sell_info %}
                                 <div class="signal-details">
-                                    {# 根据风险等级显示不同的图标和样式 #}
                                     {% if item.sell_info.severity_level == 1 %}
                                         <span class="reason reason-level-1">⚠️ {{ item.sell_info.reason|playbook_display }}</span>
                                     {% elif item.sell_info.severity_level == 3 %}
@@ -104,7 +100,6 @@
                                     {% elif item.sell_info.severity_level > 0 %}
                                         <span class="reason reason-level-2">🟠 {{ item.sell_info.reason|playbook_display }}</span>
                                     {% else %}
-                                        {# 这是新的分支，用于显示风险已解除的信号 #}
                                         <span class="reason reason-resolved">✅ {{ item.sell_info.reason|playbook_display }}</span>
                                     {% endif %}
                                     <br>
@@ -112,19 +107,21 @@
                                         {{ item.sell_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }} ({{ item.sell_info.time_level }})
                                     </span>
                                 </div>
-                            {% else %}
-                                {# 如果没有卖出信号，则显示最新的买入信号分数 #}
-                                <strong>最新: {{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
+                            {% elif item.buy_info %}
+                                {# ▼▼▼【代码修改 V139.0】: 修正变量引用，修复情报链路 ▼▼▼ #}
+                                <strong>最新: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
-                                <small>分数: {{ item.latest_score|floatformat:0 }}</small>
+                                <small>分数: {{ item.buy_info.score|floatformat:0 }}</small>
+                                {# ▲▲▲【代码修改 V139.0】▲▲▲ #}
+                            {% else %}
+                                -
                             {% endif %}
                         </td>
                         <td>
-                            {# 激活剧本的展示逻辑保持不变 #}
-                            {% if item.active_playbooks %}
+                            {% if item.buy_info.playbooks %}
                                 <div class="playbook-container">
-                                    <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
-                                    {% for playbook in item.active_playbooks %}
+                                    <ul class="playbook-list {% if item.buy_info.playbooks|length > 3 %}collapsible{% endif %}">
+                                    {% for playbook in item.buy_info.playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
                                             {% if 'ROCKET' in playbook %}
                                                 <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
@@ -140,11 +137,11 @@
                                         {% endwith %}
                                     {% endfor %}
                                     </ul>
-                                    {% if item.active_playbooks|length > 3 %}
+                                    {% if item.buy_info.playbooks|length > 3 %}
                                         <a href="#" class="toggle-playbooks" 
-                                           data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
+                                           data-text-expand="显示更多 (共 {{ item.buy_info.playbooks|length }} 条)" 
                                            data-text-collapse="收起">
-                                            显示更多 (共 {{ item.active_playbooks|length }} 条)
+                                            显示更多 (共 {{ item.buy_info.playbooks|length }} 条)
                                         </a>
                                     {% endif %}
                                 </div>
@@ -171,7 +168,21 @@
         </div>
         
         <div class="pagination">
-            {# 分页逻辑保持不变 #}
+            <span class="step-links">
+                {% if page_obj.has_previous %}
+                    <a href="?page=1">&laquo; 首页</a>
+                    <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
+                {% endif %}
+        
+                <span class="current">
+                    第 {{ page_obj.number }} 页, 共 {{ page_obj.paginator.num_pages }} 页
+                </span>
+        
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}">下一页</a>
+                    <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+                {% endif %}
+            </span>
         </div>
     </section>
 </div>
