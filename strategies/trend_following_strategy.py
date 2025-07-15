@@ -2083,6 +2083,13 @@ class TrendFollowStrategy:
         """
         return [
             {
+                'name': 'PLATFORM_BREAKDOWN_CRITICAL', 'cn_name': '【极危】筹码平台破位', 'family': 'MARKET_STRUCTURE_RISK',
+                'score': 130, # 给予极高的风险分值
+                'setup': ['RISK_SETUP_PLATFORM_FORMED'], # 准备条件：一个稳固的平台已经形成
+                'trigger': ['RISK_TRIGGER_PLATFORM_BREAKDOWN'], # 触发条件：价格有效跌破平台
+                'comment': '价格有效跌破由筹码峰形成的稳固平台，这是市场结构被破坏的强烈信号，极易引发踩踏。'
+            },
+            {
                 'name': 'BEARISH_STAGNATION', 'cn_name': '【极危】熊市停滞(崩盘前兆)', 'family': 'MARKET_STRUCTURE_RISK',
                 'score': 120,
                 'setup': ['RISK_SETUP_BEARISH_STAGNATION'],
@@ -2257,6 +2264,8 @@ class TrendFollowStrategy:
             missing_cols = [c for c in required_cols if c not in df.columns]
             print(f"      -> [警告] 缺少 {missing_cols}，无法诊断'熊市停滞区'。")
             setups['RISK_SETUP_BEARISH_STAGNATION'] = default_series
+        
+        setups['RISK_SETUP_PLATFORM_FORMED'] = df.get('PLATFORM_STATE_STABLE_FORMED', default_series)
 
         return setups
 
@@ -2274,6 +2283,17 @@ class TrendFollowStrategy:
         default_series = pd.Series(False, index=df.index)
 
         triggers['RISK_TRIGGER_ANY'] = pd.Series(True, index=df.index)
+
+        # ▼▼▼ 平台破位风险触发器 ▼▼▼
+        platform_price_col = 'PLATFORM_PRICE_STABLE'
+        if platform_price_col in df.columns:
+            # 定义“有效跌破”：收盘价低于平台价格
+            is_breakdown = df['close_D'] < df[platform_price_col]
+            # 确认破位：前一天的收盘价还在平台之上或附近
+            was_above_yesterday = df['close_D'].shift(1).fillna(df[platform_price_col]) >= df[platform_price_col]
+            triggers['RISK_TRIGGER_PLATFORM_BREAKDOWN'] = is_breakdown & was_above_yesterday
+        else:
+            triggers['RISK_TRIGGER_PLATFORM_BREAKDOWN'] = default_series
 
         # --- 信号1: 冲高回落相关 (Upthrust & Rejection) ---
         p_attack = exit_params.get('upthrust_distribution_params', {})
