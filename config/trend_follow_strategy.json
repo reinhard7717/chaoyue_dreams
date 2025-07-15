@@ -100,7 +100,7 @@
         "ignition_params": { "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度。" } }
       },
       "ma_state_params": {
-        "enabled": true, "short_ma": 13, "mid_ma": 34, "long_ma": 89,
+        "enabled": true, "short_ma": 13, "mid_ma": 21, "long_ma": 55,
         "converging_zscore": -1.0, "diverging_zscore": 1.0
       },
       "oscillator_state_params": {
