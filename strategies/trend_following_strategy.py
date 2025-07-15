@@ -347,6 +347,21 @@ class TrendFollowStrategy:
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
+
+        # ▼▼▼【探针 V140.0 - 1号】: 检查平台价格是否在分析结果中生成 ▼▼▼
+        print("\n" + "="*20 + " [探针 1/3] 分析结果DataFrame检查 " + "="*20)
+        if 'PLATFORM_PRICE_STABLE' in df.columns:
+            platform_data = df['PLATFORM_PRICE_STABLE'].dropna()
+            if not platform_data.empty:
+                print(f"    [成功] 'PLATFORM_PRICE_STABLE' 列存在，并包含 {len(platform_data)} 个非空值。")
+                print("    [数据抽样] 最后5个有效平台价格:")
+                print(platform_data.tail(5))
+            else:
+                print("    [警告] 'PLATFORM_PRICE_STABLE' 列存在，但所有值都为空！请检查 _calculate_stable_platform 逻辑。")
+        else:
+            print("    [致命错误] 'PLATFORM_PRICE_STABLE' 列不存在于最终的分析DataFrame中！")
+        print("="*70 + "\n")
+        # ▲▲▲【探针 V140.0 - 1号】▲▲▲
         
         print(f"====== 【战术引擎 V124.0】执行完毕 ======")
         return df, {}
@@ -409,6 +424,17 @@ class TrendFollowStrategy:
                 if last_known_platform_price is not None:
                     platform_price = last_known_platform_price
             # --- 修正结束 ---
+
+            # ▼▼▼【探针 V140.0 - 2号】: 实时监控每条记录的平台价格提取情况 ▼▼▼
+            if row.get('signal_entry', False): # 只在买入信号时打印，避免刷屏
+                print("-" * 60)
+                print(f"    [探针 2/3] 正在为 {stock_code} 创建 {timestamp.date()} 的买入信号记录...")
+                if platform_price is not None:
+                    print(f"        [成功] 成功提取到平台价格: {platform_price}")
+                else:
+                    print(f"        [失败] 未能提取到平台价格 (platform_price is None)。请检查“战术窗口”逻辑或源数据。")
+                print("-" * 60)
+            # ▲▲▲【探针 V140.0 - 2号】▲▲▲
 
             context_snapshot = {
                 'close': row.get(f'close_{result_timeframe}'),

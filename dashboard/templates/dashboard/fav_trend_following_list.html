@@ -108,11 +108,9 @@
                                     </span>
                                 </div>
                             {% elif item.buy_info %}
-                                {# ▼▼▼【代码修改 V139.0】: 修正变量引用，修复情报链路 ▼▼▼ #}
                                 <strong>最新: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>分数: {{ item.buy_info.score|floatformat:0 }}</small>
-                                {# ▲▲▲【代码修改 V139.0】▲▲▲ #}
                             {% else %}
                                 -
                             {% endif %}
@@ -137,7 +135,7 @@
                                         {% endwith %}
                                     {% endfor %}
                                     </ul>
-                                    {% if item.buy_info.playbooks|length > 3 %}
+                                    {% if item.buy_info.playbooks|length > 4 %}
                                         <a href="#" class="toggle-playbooks" 
                                            data-text-expand="显示更多 (共 {{ item.buy_info.playbooks|length }} 条)" 
                                            data-text-collapse="收起">

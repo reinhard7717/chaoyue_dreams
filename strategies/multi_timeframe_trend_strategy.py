@@ -716,6 +716,28 @@ class MultiTimeframeTrendStrategy:
         )
         print(f"    -> [战报记录] 已基于完整分析结果生成 {len(db_records)} 条数据库记录。")
 
+        # ▼▼▼【探针 V140.0 - 3号】: 检查收到的记录列表 ▼▼▼
+        print("\n" + "="*20 + " [探针 3/3] 记录交接检查 " + "="*20)
+        if db_records:
+            print(f"    [信息] 战术引擎返回了 {len(db_records)} 条记录。")
+            # 只检查买入信号
+            buy_records = [rec for rec in db_records if rec.get('entry_signal')]
+            if buy_records:
+                print("    [数据抽样] 正在检查返回的买入信号记录...")
+                for i, rec in enumerate(buy_records[:3]): # 最多检查前3条
+                    rec_time = pd.to_datetime(rec['trade_time']).date()
+                    rec_platform_price = rec.get('stable_platform_price')
+                    if rec_platform_price is not None:
+                        print(f"        - 记录 {i+1} ({rec_time}): 平台价格存在 -> {rec_platform_price}")
+                    else:
+                        print(f"        - 记录 {i+1} ({rec_time}): [致命错误] 平台价格在此处已丢失！")
+            else:
+                print("    [信息] 返回的记录中不包含买入信号。")
+        else:
+            print("    [信息] 战术引擎未返回任何记录。")
+        print("="*70 + "\n")
+        # ▲▲▲【探针 V140.0 - 3号】▲▲▲
+
         # 情报下放逻辑保持不变
         cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
         existing_cols_to_broadcast = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
