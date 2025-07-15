@@ -731,9 +731,17 @@ class TrendFollowStrategy:
                 'scoring_rules': { 'base_score': 150, 'min_score_to_trigger': 180, 'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1}, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
-                'name': 'PLATFORM_SUPPORT_PULLBACK', 'cn_name': '【动态】平台支撑回踩', 'family': 'TREND_MOMENTUM',
-                'type': 'precondition_score', 'side': 'right', 'comment': '根据平台质量、支撑级别和主升浪背景动态给分。',
-                'scoring_rules': { 'base_score': 160, 'min_score_to_trigger': 180, 'conditions': {'MA_STATE_CONVERGING': 30, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 20}, 'event_conditions': {'MA_STATE_TOUCHING_SUPPORT_21': 10, 'MA_STATE_TOUCHING_SUPPORT_34': 20, 'MA_STATE_TOUCHING_SUPPORT_55': 35, 'MA_STATE_TOUCHING_SUPPORT_89': 50, 'MA_STATE_TOUCHING_SUPPORT_144': 65, 'MA_STATE_TOUCHING_SUPPORT_233': 80}, 'setup_bonus': {'HEALTHY_MARKUP': 0.2}}
+                'name': 'PLATFORM_SUPPORT_PULLBACK', 
+                'cn_name': '【动态】多维支撑回踩', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'setup_score', 
+                'side': 'right', 
+                'comment': '根据平台质量(筹码结构、趋势背景)和支撑级别(均线/筹码峰)进行动态评分。',
+                'scoring_rules': {
+                    'min_setup_score_to_trigger': 50,  # 要求平台质量分至少达到50
+                    'base_score': 180,                 # 给予一个稳健的基础分
+                    'score_multiplier': 1.2            # 允许根据平台质量分进行加成
+                }
             },
             {
                 'name': 'HEALTHY_BOX_BREAKOUT', 'cn_name': '【A-级】健康箱体突破', 'family': 'TREND_MOMENTUM',
@@ -1089,10 +1097,10 @@ class TrendFollowStrategy:
 
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V65.0 投降坑识别版】
-        - 核心升级: 为'CAPITULATION_PIT'引入专属评分逻辑，使其能识别并重奖“筹码发散”的投降式崩盘。
+        【V126.0 智能火炮版 - 质量评估】
+        - 核心升级: 新增 'PLATFORM_QUALITY' 的准备分计算逻辑。
         """
-        print("    - [准备状态中心 V65.0 投降坑识别版] 启动...")
+        print("    - [准备状态中心 V126.0] 启动...")
         setup_scores = {}
         default_series = pd.Series(False, index=df.index)
         scoring_matrix = self._get_params_block(params, 'setup_scoring_matrix', {})
@@ -1101,7 +1109,7 @@ class TrendFollowStrategy:
                 continue
             # print(f"          -> 正在评审 '{setup_name}'...")
             
-            # ▼▼▼ 为“投降坑”设置专属评分逻辑 ▼▼▼
+            # ▼▼▼ “投降坑” 专属评分逻辑 ▼▼▼
             if setup_name == 'CAPITULATION_PIT':
                 p_cap_pit = self._get_params_block(params, 'setup_scoring_matrix', {}).get('CAPITULATION_PIT', {})
                 must_have_score = self._get_param_value(p_cap_pit.get('must_have_score'), 40)
@@ -1119,6 +1127,22 @@ class TrendFollowStrategy:
                 
                 final_score = (base_score + bonus_score_total).where(must_have_conditions, 0)
                 setup_scores[f'SETUP_SCORE_{setup_name}'] = final_score
+            #  “平台质量” 专属评分逻辑
+            elif setup_name == 'PLATFORM_QUALITY':
+                print("          -> 正在评审 '平台质量(PLATFORM_QUALITY)'...")
+                p_quality = self._get_params_block(params, 'setup_scoring_matrix', {}).get('PLATFORM_QUALITY', {})
+                # 必须条件：一个稳固的筹码平台已经形成
+                must_have_cond = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+                # 基础分
+                base_score = must_have_cond.astype(int) * self._get_param_value(p_quality.get('base_score'), 40)
+                # 加分项
+                bonus_score = pd.Series(0.0, index=df.index)
+                bonus_rules = p_quality.get('bonus', {})
+                for state, score in bonus_rules.items():
+                    state_series = atomic_states.get(state, default_series)
+                    bonus_score += state_series.astype(int) * score
+                # 最终质量分 = (基础分 + 加分项)，且必须满足 must_have_cond
+                setup_scores[f'SETUP_SCORE_{setup_name}'] = (base_score + bonus_score).where(must_have_cond, 0)
             else:
                 # 其他所有剧本使用通用评分逻辑
                 current_score = pd.Series(0.0, index=df.index)
