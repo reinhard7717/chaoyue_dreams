@@ -342,23 +342,26 @@ class MultiTimeframeTrendStrategy:
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.42 情报链路修复版】
-        - 核心修复: 解决了日线“保底”信号中“激活剧本”列表为空的致命BUG。
+        【V148.0 情报链路完整性修复版】
+        - 核心修复: 解决了因本函数在重新生成信号记录时，未进行剧本名称的
+                    中英文翻译，导致最终报告无法显示剧本名称的BUG。
         - 新逻辑:
-          1. 不再尝试从 `setup_row` (即 daily_analysis_df 的一行) 中提取剧本信息。
-          2. 转而直接查询权威的情报源: `self.tactical_engine._last_score_details_df`。
-          3. 对于每一个高分预备日，从得分详情表中找到当天所有得分大于0的剧本，并将其名称作为激活列表。
-        - 收益:
-          - 确保了每一个日线信号，无论是保底还是增强版，都包含了完整、准确的触发剧本列表。
-          - 修复了信号记录中关键信息丢失的问题。
+          1. 在函数内部，主动获取战术引擎的剧本蓝图。
+          2. 创建一个中英文名称的映射字典 (playbook_cn_name_map)。
+          3. 在提取出英文剧本列表后，立刻使用映射字典生成中文剧本列表。
+          4. 将中、英文两个列表同时传递给 _create_signal_record 生成器。
+        - 收益: 确保了所有经此模块处理的“精加工”信号，都包含完整的中英文剧本信息。
         """
-        # print("--- [引擎5-调试 V117.42] 进入入口信号决策中心 (情报链路修复版) ---")
         final_entry_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(entry_params.get('enabled'), False): return []
         if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
+
+        # 【新增】获取剧本蓝图并创建名称映射字典
+        playbook_blueprints = self.tactical_engine.playbook_blueprints
+        playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
 
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold]
@@ -375,18 +378,18 @@ class MultiTimeframeTrendStrategy:
             setup_date = setup_date_ts.date()
             daily_score = setup_row.get('entry_score', 0)
             
-            # 【核心修正】从正确的情报源 (_last_score_details_df) 获取激活的剧本列表
             daily_playbooks = []
             if self.tactical_engine._last_score_details_df is not None and setup_date_ts in self.tactical_engine._last_score_details_df.index:
                 score_details_for_day = self.tactical_engine._last_score_details_df.loc[setup_date_ts]
-                triggered_playbooks_series = score_details_for_day[score_details_for_day > 0]
-                daily_playbooks = triggered_playbooks_series.index.tolist()
-                # print(f"    -> 预备日 {setup_date}: 从得分详情表中成功提取激活剧本: {daily_playbooks}")
-            else:
-                print(f"    -> [警告] 预备日 {setup_date}: 未能在得分详情表中找到对应的记录。")
+                playbooks_with_scores = score_details_for_day[score_details_for_day > 0]
+                # 过滤掉非剧本的得分项
+                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
+                daily_playbooks = [ item for item in playbooks_with_scores.index if not item.startswith(excluded_prefixes) ]
+
+            # 【新增】生成中文剧本列表
+            daily_playbooks_cn = [playbook_cn_name_map.get(item, item) for item in daily_playbooks]
 
             platform_price_on_setup_day = setup_row.get('PLATFORM_PRICE_STABLE', None)
-
             decision_time = datetime.combine(setup_date, time(16, 0))
 
             default_daily_record = self._create_signal_record(
@@ -397,8 +400,9 @@ class MultiTimeframeTrendStrategy:
                 close_price=setup_row.get('close_D', 0),
                 entry_score=daily_score,
                 entry_signal=True,
-                triggered_playbooks=daily_playbooks, # 现在这里将包含正确的剧本列表
-                stable_platform_price=platform_price_on_setup_day, # 【核心新增】传递平台价格
+                triggered_playbooks=daily_playbooks,
+                triggered_playbooks_cn=daily_playbooks_cn, # 【新增】传递中文剧本列表
+                stable_platform_price=platform_price_on_setup_day,
                 context_snapshot={'close': setup_row.get('close_D', 0), 'daily_score': daily_score, 'intraday_confirmed': False},
             )
 
@@ -411,6 +415,7 @@ class MultiTimeframeTrendStrategy:
                 if monitoring_date:
                     alert_day_minute_df = minute_df[minute_df.index.date == monitoring_date].copy()
                     if not alert_day_minute_df.empty:
+                        # ... 分钟线确认逻辑保持不变 ...
                         final_confirmation_signal = pd.Series(True, index=alert_day_minute_df.index)
                         close_col_m = f'close_{minute_tf}'
                         vwap_rule = rules.get('vwap_reclaim', {})
@@ -441,6 +446,10 @@ class MultiTimeframeTrendStrategy:
                             bonus_score = get_val(entry_params.get('bonus_score'), 50)
                             final_score = daily_score + bonus_score
                             
+                            # 【新增】为分钟线确认信号也生成中英文剧本列表
+                            confirmed_playbooks = list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')]))
+                            confirmed_playbooks_cn = [playbook_cn_name_map.get(item, item) for item in confirmed_playbooks]
+
                             confirmation_record = self._create_signal_record(
                                 stock_code=stock_code,
                                 trade_time=confirm_time,
@@ -449,7 +458,8 @@ class MultiTimeframeTrendStrategy:
                                 close_price=confirm_price,
                                 entry_score=final_score,
                                 entry_signal=True,
-                                triggered_playbooks=list(set(daily_playbooks + [get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')])),
+                                triggered_playbooks=confirmed_playbooks,
+                                triggered_playbooks_cn=confirmed_playbooks_cn, # 【新增】传递中文剧本列表
                                 stable_platform_price=platform_price_on_setup_day,
                                 context_snapshot={'close': confirm_price, 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True, 'setup_date': setup_date.strftime('%Y-%m-%d')},
                             )
@@ -457,12 +467,6 @@ class MultiTimeframeTrendStrategy:
 
             final_entry_records.append(final_record_for_this_setup)
 
-            # if minute_confirmation_found:
-            #     print(f"    -> [决策] 预备日 {setup_date}: 已找到次日分钟线确认，生成增强版信号。")
-            # else:
-            #     print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留校准后的日线信号。")
-
-        # print(f"--- [引擎5-调试 V117.42] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
         return final_entry_records
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -1060,18 +1064,12 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V148.0 情报黑洞修复版】
-        - 核心重构: 彻底修复了因情报汇总逻辑错误，导致买入信号的“剧本名称”
-                    被完全丢弃的灾难性BUG。
-        - 新逻辑:
-          1. 首先获取由战术引擎生成的、包含完整信息(含剧本)的原始信号清单。
-          2. 运行分钟线引擎，获取可能存在的、时间更精确的“精加工”买入信号。
-          3. 智能合并：保留所有“精加工”信号，并从原始清单中补全那些未被
-             精加工模块处理的“普通买入信号”，确保信息完整性。
-        - 收益: 保证了最终输出的所有买入信号，都包含了其触发的剧本名称。
+        【V131.0 职责分离版】
+        - 核心升级: 将波段跟踪模拟器(simulate_wave_tracking)的调用移至此函数。
+        - 收益: 确保了绩效回测只在调试和研究模式下运行，与实盘决策流程完全分离。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V148.0 情报黑洞修复版)] ---")
+        print(f"--- [历史回溯调试启动 (V131.0 职责分离版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -1086,38 +1084,24 @@ class MultiTimeframeTrendStrategy:
             strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
             all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
 
-            # 步骤A: 运行战术引擎，获取最完整的原始信号清单 (包含剧本名称)
             tactical_records_all = self._run_tactical_engine(stock_code, all_dfs)
-            
-            # 步骤B: 运行分钟线引擎，获取“精加工”的买入信号
-            final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
-            
-            # 步骤C: 记录被“精加工”模块处理过的日期
-            processed_dates = {pd.to_datetime(rec['trade_time']).date() for rec in final_entry_records}
+            non_entry_tactical_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
 
-            # 步骤D: 从原始清单中，拯救那些未被处理的“普通买入信号”
-            other_entry_records = [
-                rec for rec in tactical_records_all 
-                if rec.get('entry_signal') and pd.to_datetime(rec['trade_time']).date() not in processed_dates
-            ]
-
-            # 步骤E: 从原始清单中，获取所有非买入信号
-            non_entry_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
-
-            # 运行其他引擎
             risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
+            final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
 
-            # 步骤F: 智能合并，形成完整战报
-            all_records = final_entry_records + other_entry_records + risk_alert_records + non_entry_records
+            all_records = final_entry_records + risk_alert_records + non_entry_tactical_records
             print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
 
-            # --- [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
+            # --- 【核心新增】步骤 2.5: [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
             print("\n" + "="*25 + " [绩效回测模拟启动] " + "="*25)
+            # 确保 self.daily_analysis_df 存在且不为空
             if self.daily_analysis_df is not None and not self.daily_analysis_df.empty:
                 self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.tactical_config, start_date=start_date)
             else:
                 print("    -> [警告] 日线分析结果为空，无法执行波段跟踪模拟。")
             print("="*60 + "\n")
+            # --- 绩效回测结束 ---
 
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
@@ -1153,21 +1137,15 @@ class MultiTimeframeTrendStrategy:
                 
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # 现在这里的 record 百分之百包含了剧本信息
                     playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
                 
                 elif record.get('exit_signal_code', 0) > 0:
-                    # 卖出信号的逻辑保持不变
-                    severity_map = {
-                        1: 'L1', 2: 'L2', 3: 'L3', 4: 'L4', 5: 'L5'
-                    }
-                    # 尝试从记录中获取更详细的卖出信息
-                    severity_level = record.get('severity_level', 'N/A')
-                    reason = record.get('reason', '未提供原因')
-                    signal_type = f"卖出警报({severity_level})"
+                    severity = record.get('exit_severity_level', 0)
+                    reason = record.get('exit_signal_reason', 'N/A')
+                    signal_type = f"卖出警报(L{severity})"
                     details = f"原因: {reason}"
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
 
