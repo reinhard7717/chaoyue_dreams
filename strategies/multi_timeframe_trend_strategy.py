@@ -371,7 +371,7 @@ class MultiTimeframeTrendStrategy:
             else:
                 print(f"    -> [警告] 预备日 {setup_date}: 未能在得分详情表中找到对应的记录。")
 
-            platform_price_on_setup_day = setup_row.get('stable_platform_price', None)
+            platform_price_on_setup_day = setup_row.get('PLATFORM_PRICE_STABLE', None)
 
             decision_time = datetime.combine(setup_date, time(16, 0))
 
