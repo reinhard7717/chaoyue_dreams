@@ -378,7 +378,7 @@ class MultiTimeframeTrendStrategy:
             else:
                 print(f"    -> [警告] 预备日 {setup_date}: 未能在得分详情表中找到对应的记录。")
 
-            decision_time = datetime.combine(setup_date, time(15, 0))
+            decision_time = datetime.combine(setup_date, time(16, 0))
 
             default_daily_record = self._create_signal_record(
                 stock_code=stock_code,
