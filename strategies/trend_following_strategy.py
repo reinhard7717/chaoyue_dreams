@@ -1566,16 +1566,17 @@ class TrendFollowStrategy:
     # ▼▼▼ “平台引力”侦察模块 ▼▼▼
     def _diagnose_platform_states(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V120.5 新增】筹码平台状态诊断引擎
-        - 核心职责: 识别稳固的筹码平台，并将其核心价格作为一个新列 'PLATFORM_PRICE_STABLE' 附加到DataFrame中。
-        - 工作流程:
-          1. 计算筹码峰成本(peak_cost)在特定窗口期内的滚动标准差。
-          2. 当标准差低于一个极小的阈值时，认为平台已形成且稳定。
-          3. 将此时的 peak_cost 值记录到 'PLATFORM_PRICE_STABLE' 列中，并向前填充，
-             代表该平台价格在后续的有效期。
-        - 返回: 一个包含新列的DataFrame 和 一个包含平台状态的字典。
+        【V129.0 平台时效性与相关性版】
+        - 核心重构: 彻底重写平台诊断逻辑，引入“时效性”和“相关性”双重约束。
+        - 新逻辑:
+          1. (稳定性) 保持原有逻辑：计算筹码成本的归一化标准差，判断成本是否稳定。
+          2. (相关性) 新增约束：要求当前收盘价必须在平台成本的一定范围(如±5%)内，
+             确保平台对当前价格有实际的“引力作用”。
+          3. (时效性) 废除ffill()：只有在当天同时满足“稳定性”和“相关性”时，
+             才认为平台有效，并记录其价格。这从根本上解决了平台“永不过期”的问题。
+        - 收益: 使得“稳固筹码平台”成为一个真正稀缺、高价值的战术信号，极大地提升了其可靠性。
         """
-        print("        -> [诊断模块 V120.5] 正在执行筹码平台状态诊断...")
+        print("        -> [诊断模块 V129.0] 正在执行筹码平台状态诊断...")
         states = {}
         df_copy = df.copy()
         default_series = pd.Series(False, index=df_copy.index)
@@ -1588,41 +1589,43 @@ class TrendFollowStrategy:
             return df_copy, states
 
         cost_col = 'CHIP_peak_cost_D'
-        if cost_col not in df_copy.columns:
-            print(f"          -> [警告] 缺少列 '{cost_col}'，无法诊断平台状态。")
+        close_col = 'close_D'
+        if cost_col not in df_copy.columns or close_col not in df_copy.columns:
+            print(f"          -> [警告] 缺少列 '{cost_col}' 或 '{close_col}'，无法诊断平台状态。")
             df_copy['PLATFORM_PRICE_STABLE'] = np.nan
             states['PLATFORM_STATE_STABLE_FORMED'] = default_series
             return df_copy, states
 
-        # 参数获取
+        # --- 参数获取 ---
         stability_window = self._get_param_value(p.get('stability_window'), 10)
-        # 使用相对标准差（变异系数）作为阈值，更具适应性
-        stability_threshold = self._get_param_value(p.get('stability_threshold_ratio'), 0.01) # 1%的波动
+        stability_threshold = self._get_param_value(p.get('stability_threshold_ratio'), 0.01)
+        # 新增：价格相关性阈值
+        relevance_threshold = self._get_param_value(p.get('price_relevance_threshold'), 0.05) # 价格偏离平台成本5%即认为无关
 
-        # 计算滚动标准差和均值
+        # --- 过滤一: 稳定性 (Stability) ---
         rolling_std = df_copy[cost_col].rolling(window=stability_window).std()
         rolling_mean = df_copy[cost_col].rolling(window=stability_window).mean()
-
-        # 计算归一化标准差（变异系数），避免价格尺度影响
         normalized_std = (rolling_std / rolling_mean).fillna(1.0)
-
-        # 判断平台是否稳定
-        is_stable = normalized_std < stability_threshold
-
-        # 将稳定的平台价格记录下来，并向前填充，代表平台的持续性
-        df_copy['PLATFORM_PRICE_STABLE'] = df_copy[cost_col].where(is_stable)
-        df_copy['PLATFORM_PRICE_STABLE'].ffill(inplace=True)
+        is_cost_stable = normalized_std < stability_threshold
         
-        # 如果平台价格长时间未更新，则使其失效
-        platform_age = df_copy['PLATFORM_PRICE_STABLE'].groupby((df_copy['PLATFORM_PRICE_STABLE'] != df_copy['PLATFORM_PRICE_STABLE'].shift()).cumsum()).cumcount()
-        max_age = self._get_param_value(p.get('max_age'), 20) # 平台价格超过20天未更新则失效
-        df_copy.loc[platform_age > max_age, 'PLATFORM_PRICE_STABLE'] = np.nan
+        # --- 过滤二: 相关性 (Relevance) ---
+        # 计算价格与平台成本的偏离度
+        price_deviation_ratio = abs(df_copy[close_col] / df_copy[cost_col] - 1)
+        is_price_relevant = price_deviation_ratio < relevance_threshold
 
-        # 定义平台形成的状态
-        states['PLATFORM_STATE_STABLE_FORMED'] = df_copy['PLATFORM_PRICE_STABLE'].notna()
+        # --- 过滤三: 时效性 (Timeliness) ---
+        # 最终的平台形成状态 = 稳定性 AND 相关性
+        # 只有在当天同时满足这两个条件，才认为平台是“活的”
+        is_platform_alive = is_cost_stable & is_price_relevant
+        
+        # 不再使用ffill()，只在平台“存活”的当天记录其价格
+        df_copy['PLATFORM_PRICE_STABLE'] = df_copy[cost_col].where(is_platform_alive, np.nan)
+        
+        # 状态字典也基于“存活”状态
+        states['PLATFORM_STATE_STABLE_FORMED'] = is_platform_alive.fillna(False)
         
         if states['PLATFORM_STATE_STABLE_FORMED'].any():
-            print(f"          -> '稳固筹码平台'已识别，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
+            print(f"          -> '稳固筹码平台'已识别 (已加入时效与相关性约束)，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
 
         return df_copy, states
 

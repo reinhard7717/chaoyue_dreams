@@ -549,10 +549,11 @@ class MultiTimeframeTrendStrategy:
                     final_reason = f"[威胁解除] 曾于{alert_time.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
                     final_alert_code = 0  # 将风险码置为0，表示无效警报
                     final_severity = 0    # 严重等级也置为0
-                    print(f"         - [战情更新] 日期: {monitoring_date} | 威胁已于 {reclaim_time.time()} 解除。")
+                    # print(f"         - [战情更新] 日期: {monitoring_date} | 威胁已于 {reclaim_time.time()} 解除。")
                 else:
                     # 如果直到收盘都未收复，保留原始警报
-                    print(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name} (威胁未解除)")
+                    # print(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name} (威胁未解除)")
+                    pass
 
                 # 无论是否解除，都创建一条记录，以便追踪战况
                 record = self._create_signal_record(
