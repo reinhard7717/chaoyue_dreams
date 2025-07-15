@@ -347,38 +347,22 @@ class TrendFollowStrategy:
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
-
-        # ▼▼▼【探针 V140.0 - 1号】: 检查平台价格是否在分析结果中生成 ▼▼▼
-        print("\n" + "="*20 + " [探针 1/3] 分析结果DataFrame检查 " + "="*20)
-        if 'PLATFORM_PRICE_STABLE' in df.columns:
-            platform_data = df['PLATFORM_PRICE_STABLE'].dropna()
-            if not platform_data.empty:
-                print(f"    [成功] 'PLATFORM_PRICE_STABLE' 列存在，并包含 {len(platform_data)} 个非空值。")
-                print("    [数据抽样] 最后5个有效平台价格:")
-                print(platform_data.tail(5))
-            else:
-                print("    [警告] 'PLATFORM_PRICE_STABLE' 列存在，但所有值都为空！请检查 _calculate_stable_platform 逻辑。")
-        else:
-            print("    [致命错误] 'PLATFORM_PRICE_STABLE' 列不存在于最终的分析DataFrame中！")
-        print("="*70 + "\n")
-        # ▲▲▲【探针 V140.0 - 1号】▲▲▲
         
         print(f"====== 【战术引擎 V124.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V133.0 战术窗口版】
-        - 核心重构: 为“上下文回溯”机制增加了严格的“战术窗口”约束。
+        【V141.0 波段周期关联版】
+        - 核心重构: 彻底废弃了导致信息丢失的“固定天数战术窗口”逻辑。
         - 新逻辑:
-          在为信号生成记录时，不再是无限制地向前回溯。而是只在信号发生前的
-          一个固定窗口期内（如5天）查找最后一个有效的平台价格。
-        - 收益: 解决了“时空错乱”问题。确保了信号只与其战术上紧密相关的平台
-                进行关联，避免了将派发期信号错误地关联到遥远的吸筹期平台。
+          采用更智能的“波段周期关联”：一个平台只对其形成后的“第一个”买入信号有效。
+          通过比较“最新平台时间”和“上一个买入信号时间”来确保关联的唯一性和正确性。
+        - 收益: 从根本上解决了 stable_platform_price 丢失的问题，确保了每一个买入信号
+                都能且仅能关联到其所属波段周期的那个有效平台。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
-            print(f"    - [错误] prepare_db_records: result_df 中缺少关键列: {required_cols}，无法生成记录。")
             return []
         
         df_with_signals = result_df[
@@ -396,10 +380,8 @@ class TrendFollowStrategy:
         
         has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
         
-        # 定义战术窗口期（天数）
-        context_window_days = self._get_param_value(
-            self._get_params_block(params, 'db_record_params', {}).get('context_window_days'), 5
-        )
+        # 预先计算所有买入信号的时间点，用于后续判断
+        all_buy_signal_times = result_df[result_df['signal_entry'] == True].index
 
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
@@ -409,32 +391,22 @@ class TrendFollowStrategy:
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
 
-            # --- 【核心修正】带有“战术窗口”约束的上下文回溯逻辑 ---
             platform_price = None
-            if has_platform_col:
-                # 计算窗口的起始时间
-                window_start_time = timestamp - pd.Timedelta(days=context_window_days)
-                
-                # 只在定义的“战术窗口”内进行切片
-                platform_series_in_window = result_df.loc[window_start_time:timestamp, 'PLATFORM_PRICE_STABLE']
-                
-                # 从这个有限的窗口中，找到最后一个非空值
-                last_known_platform_price = platform_series_in_window.dropna().iloc[-1] if not platform_series_in_window.dropna().empty else None
-                
-                if last_known_platform_price is not None:
-                    platform_price = last_known_platform_price
-            # --- 修正结束 ---
+            # 只为买入信号计算平台价格关联
+            if has_platform_col and row.get('signal_entry', False):
+                # 1. 找到在当前信号之前，最后一个有效的平台及其时间
+                platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
+                if not platform_series_before.empty:
+                    last_platform_time = platform_series_before.index[-1]
+                    last_platform_price = platform_series_before.iloc[-1]
 
-            # ▼▼▼【探针 V140.0 - 2号】: 实时监控每条记录的平台价格提取情况 ▼▼▼
-            if row.get('signal_entry', False): # 只在买入信号时打印，避免刷屏
-                print("-" * 60)
-                print(f"    [探针 2/3] 正在为 {stock_code} 创建 {timestamp.date()} 的买入信号记录...")
-                if platform_price is not None:
-                    print(f"        [成功] 成功提取到平台价格: {platform_price}")
-                else:
-                    print(f"        [失败] 未能提取到平台价格 (platform_price is None)。请检查“战术窗口”逻辑或源数据。")
-                print("-" * 60)
-            # ▲▲▲【探针 V140.0 - 2号】▲▲▲
+                    # 2. 找到在当前信号之前，上一个买入信号的时间
+                    previous_buy_times = all_buy_signal_times[all_buy_signal_times < timestamp]
+                    previous_buy_time = previous_buy_times[-1] if not previous_buy_times.empty else pd.Timestamp.min.tz_localize('UTC')
+
+                    # 3. 核心判断：只有当这个平台是在上一个买入信号之后形成的，它才属于当前这个波段周期
+                    if last_platform_time > previous_buy_time:
+                        platform_price = last_platform_price
 
             context_snapshot = {
                 'close': row.get(f'close_{result_timeframe}'),
@@ -453,7 +425,7 @@ class TrendFollowStrategy:
                 "entry_score": row.get('entry_score', 0.0),
                 "entry_signal": bool(row.get('signal_entry', False)),
                 "exit_signal_code": int(row.get('exit_signal_code', 0)),
-                "stable_platform_price": platform_price,
+                "stable_platform_price": platform_price, # 使用新逻辑计算出的价格
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": [playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list],
                 "active_setups": [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True],
