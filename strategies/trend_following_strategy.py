@@ -275,7 +275,7 @@ class TrendFollowStrategy:
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         
-        # ▼▼▼【代码修改 V113】: 新增“通用原子条件预计算”步骤，提升效率 ▼▼▼
+        # ▼▼▼ “通用原子条件预计算”步骤，提升效率 ▼▼▼
         # print("--- [总指挥] 步骤1.1: 通用原子条件预计算 (V113 优化) ---")
         atomic_conditions = {}
         atomic_conditions['is_green'] = df['close_D'] > df['open_D']
@@ -287,9 +287,9 @@ class TrendFollowStrategy:
             # 如果成交量均线不存在，则创建一个全为False的Series以保证后续逻辑健壮性
             atomic_conditions['is_volume_above_ma'] = pd.Series(False, index=df.index)
         # print("      -> '红/绿K线', '成交量高于均线' 等通用条件已预计算。")
-        # ▲▲▲【代码修改 V113】▲▲▲
 
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
+        df, platform_states = self._diagnose_platform_states(df, params)
         # 将预计算的通用条件注入到原子状态字典的开头
         atomic_states = {
             **atomic_conditions,
@@ -300,7 +300,8 @@ class TrendFollowStrategy:
             **self._diagnose_volatility_states(df, params),
             **self._diagnose_box_states(df, params),
             **self._diagnose_kline_patterns(df, params),
-            **self._diagnose_board_patterns(df, params)
+            **self._diagnose_board_patterns(df, params),
+            **platform_states
         }
         risk_factors = self._diagnose_risk_factors(df, params)
         atomic_states.update(risk_factors)
@@ -683,6 +684,11 @@ class TrendFollowStrategy:
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
+                'name': 'CHIP_PLATFORM_PULLBACK', 'cn_name': '【S-级】筹码平台回踩', 'family': 'TREND_MOMENTUM',
+                'type': 'setup', 'score': 330, 'side': 'right', 
+                'comment': 'S-级: 股价回踩由筹码峰形成的、位于趋势线上方的稳固平台，并获得支撑。这是极高质量的“空中加油”信号。'
+            },
+            {
                 'name': 'TREND_EMERGENCE_B_PLUS', 'cn_name': '【B+级】右侧萌芽', 'family': 'TREND_MOMENTUM',
                 'type': 'setup', 'score': 210, 'comment': 'B+级: 填补战术真空。在左侧反转后，短期均线走好但尚未站上长线时的首次介入机会。'
             },
@@ -832,6 +838,14 @@ class TrendFollowStrategy:
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
+            elif name == 'CHIP_PLATFORM_PULLBACK':
+                # 准备条件：一个稳固的筹码平台已经形成
+                setup_platform_formed = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+                # 健康度检查：平台必须在长期均线之上
+                setup_healthy_location = df['PLATFORM_PRICE_STABLE'] > df.get('EMA_55_D', 0)
+                playbook['setup'] = setup_platform_formed & setup_healthy_location
+                # 触发条件：发生平台回踩并反弹的事件
+                playbook['trigger'] = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
 
         print(f"    - [剧本水合引擎 V88.0] 完成，所有剧本已注入动态数据。")
         return hydrated_playbooks
@@ -1287,6 +1301,25 @@ class TrendFollowStrategy:
             else:
                 print(f"      -> [警告] 缺少定义'能量释放(突破型)'所需的列 (如: {vol_ma_col})，跳过该触发器。")
 
+        # ▼▼▼ 平台回踩触发器 ▼▼▼
+        p_platform_rebound = trigger_params.get('platform_pullback_trigger_params', {})
+        if self._get_param_value(p_platform_rebound.get('enabled'), True):
+            platform_price_col = 'PLATFORM_PRICE_STABLE'
+            if platform_price_col in df.columns:
+                # 条件1: 价格回踩到平台价格附近
+                proximity_ratio = self._get_param_value(p_platform_rebound.get('proximity_ratio'), 0.01) # 允许1%的误差
+                is_touching_platform = df['low_D'] <= df[platform_price_col] * (1 + proximity_ratio)
+                # 条件2: 收盘价重新站上平台价格
+                is_closing_above = df['close_D'] > df[platform_price_col]
+                # 条件3: 当天是阳线，确认反弹意图
+                is_positive_day = df['close_D'] > df['open_D']
+                triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day
+                signal = triggers.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
+                if signal.any():
+                    print(f"      -> '筹码平台回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+            else:
+                print(f"      -> [警告] 缺少 '{platform_price_col}' 列，无法定义平台回踩触发器。")
+
         triggers['TRIGGER_TREND_STABILIZING'] = atomic_states.get('MA_STATE_D_STABILIZING', default_series)
 
         for key in triggers:
@@ -1456,6 +1489,70 @@ class TrendFollowStrategy:
             else:
                 states[key] = states[key].fillna(False)
         return states
+
+    # ▼▼▼ “平台引力”侦察模块 ▼▼▼
+    def _diagnose_platform_states(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
+        """
+        【V120.5 新增】筹码平台状态诊断引擎
+        - 核心职责: 识别稳固的筹码平台，并将其核心价格作为一个新列 'PLATFORM_PRICE_STABLE' 附加到DataFrame中。
+        - 工作流程:
+          1. 计算筹码峰成本(peak_cost)在特定窗口期内的滚动标准差。
+          2. 当标准差低于一个极小的阈值时，认为平台已形成且稳定。
+          3. 将此时的 peak_cost 值记录到 'PLATFORM_PRICE_STABLE' 列中，并向前填充，
+             代表该平台价格在后续的有效期。
+        - 返回: 一个包含新列的DataFrame 和 一个包含平台状态的字典。
+        """
+        print("        -> [诊断模块 V120.5] 正在执行筹码平台状态诊断...")
+        states = {}
+        df_copy = df.copy()
+        default_series = pd.Series(False, index=df_copy.index)
+
+        p = self._get_params_block(params, 'platform_state_params', {})
+        if not self._get_param_value(p.get('enabled'), True):
+            print("          -> 筹码平台诊断模块被禁用，跳过。")
+            df_copy['PLATFORM_PRICE_STABLE'] = np.nan
+            states['PLATFORM_STATE_STABLE_FORMED'] = default_series
+            return df_copy, states
+
+        cost_col = 'CHIP_peak_cost_D'
+        if cost_col not in df_copy.columns:
+            print(f"          -> [警告] 缺少列 '{cost_col}'，无法诊断平台状态。")
+            df_copy['PLATFORM_PRICE_STABLE'] = np.nan
+            states['PLATFORM_STATE_STABLE_FORMED'] = default_series
+            return df_copy, states
+
+        # 参数获取
+        stability_window = self._get_param_value(p.get('stability_window'), 10)
+        # 使用相对标准差（变异系数）作为阈值，更具适应性
+        stability_threshold = self._get_param_value(p.get('stability_threshold_ratio'), 0.01) # 1%的波动
+
+        # 计算滚动标准差和均值
+        rolling_std = df_copy[cost_col].rolling(window=stability_window).std()
+        rolling_mean = df_copy[cost_col].rolling(window=stability_window).mean()
+
+        # 计算归一化标准差（变异系数），避免价格尺度影响
+        normalized_std = (rolling_std / rolling_mean).fillna(1.0)
+
+        # 判断平台是否稳定
+        is_stable = normalized_std < stability_threshold
+
+        # 将稳定的平台价格记录下来，并向前填充，代表平台的持续性
+        df_copy['PLATFORM_PRICE_STABLE'] = df_copy[cost_col].where(is_stable)
+        df_copy['PLATFORM_PRICE_STABLE'].ffill(inplace=True)
+        
+        # 如果平台价格长时间未更新，则使其失效
+        platform_age = df_copy['PLATFORM_PRICE_STABLE'].groupby((df_copy['PLATFORM_PRICE_STABLE'] != df_copy['PLATFORM_PRICE_STABLE'].shift()).cumsum()).cumcount()
+        max_age = self._get_param_value(p.get('max_age'), 20) # 平台价格超过20天未更新则失效
+        df_copy.loc[platform_age > max_age, 'PLATFORM_PRICE_STABLE'] = np.nan
+
+        # 定义平台形成的状态
+        states['PLATFORM_STATE_STABLE_FORMED'] = df_copy['PLATFORM_PRICE_STABLE'].notna()
+        
+        if states['PLATFORM_STATE_STABLE_FORMED'].any():
+            print(f"          -> '稳固筹码平台'已识别，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
+
+        return df_copy, states
+
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V74.0 三维评分版】均线结构与动能状态诊断
