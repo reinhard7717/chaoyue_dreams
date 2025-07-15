@@ -196,7 +196,7 @@ class IndicatorDAO(BaseDAO):
             if trade_time: # 只有当 trade_time 真实存在时，才添加时间过滤
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
-                    print(f"    - [DAO查询] 应用时间过滤器: trade_time <= {trade_time_dt}")
+                    # print(f"    - [DAO查询] 应用时间过滤器: trade_time <= {trade_time_dt}")
                     qs = qs.filter(trade_time__lte=trade_time_dt)
             # else:
                 # print(f"    - [DAO查询] 未提供trade_time，将获取最新的 {limit} 条数据。")

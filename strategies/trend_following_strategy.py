@@ -2440,13 +2440,13 @@ class TrendFollowStrategy:
 
     async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
         """
-        【V118.19 情报重建修复版】
+        【V118.20 情报重建修复版】
         - 核心修复: 解决了因调用 apply_strategy 导致 'analysis_period' 列丢失的BUG。
         - 解决方案: 在所有计算和合并操作完成后，从原始的 analysis_df 中提取
                     'analysis_period' 列，并将其强制重新附加到 final_report_df 上，
                     确保该关键信息在最终报告中存在。
         """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.19 启动] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.20 启动] " + "="*30)
         
         backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
         if not self._get_param_value(backtest_params.get('enabled'), False): return
@@ -2461,7 +2461,6 @@ class TrendFollowStrategy:
         print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
         print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 推演窗口: {post_days_lookforward} 天")
 
-        # ... 步骤1: 识别黄金上涨波段 (逻辑不变) ...
         print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
         df_full['cum_min'] = df_full['close_D'].cummin()
         df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
@@ -2491,7 +2490,6 @@ class TrendFollowStrategy:
             return
         print(f"    -> [过滤完成] 发现 {len(golden_waves)} 个符合条件的波段，准备逐一回测...")
 
-        # --- 步骤2, 3, 4: 模拟推演、评估并生成情报档案 ---
         success_count, missed_count = 0, 0
         for i, wave in enumerate(golden_waves):
             start_date = wave['start_date']
@@ -2504,6 +2502,14 @@ class TrendFollowStrategy:
             
             analysis_df = df_full.iloc[start_slice:end_slice].copy()
             
+            # 【修复点 A】在调用策略前，先在原始的 analysis_df 上创建好 analysis_period 列
+            analysis_df['analysis_period'] = 'lookback'
+            # 找到起涨点在当前切片中的位置
+            start_date_in_slice_loc = analysis_df.index.get_loc(start_date)
+            # 将起涨点之后的所有行标记为 'look_forward'
+            if start_date_in_slice_loc + 1 < len(analysis_df):
+                analysis_df.iloc[start_date_in_slice_loc + 1:, analysis_df.columns.get_loc('analysis_period')] = 'look_forward'
+
             try:
                 result_df_raw, _ = self.apply_strategy(analysis_df, params)
             except Exception as e:
@@ -2529,15 +2535,12 @@ class TrendFollowStrategy:
                     scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
                     final_report_df = final_report_df.join(scoped_score_details, how='left')
                 
-                # ▼▼▼【核心修正 V118.19】重建丢失的 'analysis_period' 列 ▼▼▼
-                # 1. 在原始的、包含正确标注的 analysis_df 中准备好标注信息
-                period_info = analysis_df[['analysis_period']].copy()
-                period_info.loc[:start_date, 'analysis_period'] = 'lookback'
-                period_info.loc[start_date + pd.Timedelta(days=1):, 'analysis_period'] = 'look_forward'
-                
-                # 2. 将标注信息强制附加到最终报告上
-                final_report_df['analysis_period'] = period_info['analysis_period']
-                # ▲▲▲【核心修正 V118.19】▲▲▲
+                # 【修复点 B】从原始的 analysis_df 中提取 'analysis_period' 列并强制合并
+                if 'analysis_period' in analysis_df.columns:
+                    final_report_df['analysis_period'] = analysis_df['analysis_period']
+                else:
+                    # 作为备用方案，如果 analysis_df 也没有，则创建一个默认的
+                    final_report_df['analysis_period'] = 'unknown'
 
                 essential_columns_whitelist = [
                     'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
@@ -2549,6 +2552,11 @@ class TrendFollowStrategy:
                     'analysis_period'
                 ]
                 
+                # 动态添加所有得分详情列到白名单
+                if self._last_score_details_df is not None:
+                    score_detail_cols = [col for col in self._last_score_details_df.columns if col in final_report_df.columns]
+                    essential_columns_whitelist.extend(score_detail_cols)
+
                 columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
                 final_report_df = final_report_df[columns_to_keep]
                 
@@ -2580,7 +2588,7 @@ class TrendFollowStrategy:
                 except Exception as e:
                     print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
 
-        print("\n" + "="*30 + " [阿尔法猎手 V118.19 总结] " + "="*30)
+        print("\n" + "="*30 + " [阿尔法猎手 V118.20 总结] " + "="*30)
         print(f"    - 总计分析波段数: {len(golden_waves)}")
         print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
         if len(golden_waves) > 0:
