@@ -248,19 +248,17 @@ class MultiTimeframeTrendStrategy:
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V144.0 情报一体化架构版】
-        - 核心重构: 彻底修复了因“双轨制”信号处理逻辑而导致“低分买入信号”被
-                    完全丢弃的灾难性架构缺陷。
+        【V161.0 指挥链修复版】
+        - 核心诊断: 发现总指挥部存在灾难性的逻辑缺陷。它将日线信号错误地归类为
+                    “普通买入信号”，而在最终的调试报告流程中，这一类别被完全遗漏，
+                    导致所有日线买入信号“被消失”。
+        - 核心重构: 彻底简化信号汇总逻辑，确保无一遗漏。
         - 新逻辑:
-          1. 正常运行“VIP通道”(_run_intraday_entry_engine)获取高分精加工信号。
-          2. 记录下这些高分信号的日期。
-          3. 从“普通通道”(_run_tactical_engine)生成的全部信号中，筛选出那些
-             日期未被VIP通道处理过的“普通买入信号”。
-          4. 将【高分信号】+【普通买入信号】+【所有非买入信号】合并，确保无一遗漏。
-        - 收益: 保证了所有级别的买入信号都能被正确记录，彻底解决了部分信号
-                神秘失踪的问题。
+          1. 运行所有引擎（战术、风险、分钟确认等）。
+          2. 将所有引擎返回的记录，【不加任何筛选和区分】，全部合并到一个列表中。
+          3. 这种简单粗暴的方式，从根本上杜绝了因复杂分类而导致战报被遗漏的风险。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V144.0) ---")
+        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V161.0) ---")
         
         all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
         if 'D' not in all_dfs or 'W' not in all_dfs: return None
@@ -268,34 +266,40 @@ class MultiTimeframeTrendStrategy:
         strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
         all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
         
-        # 步骤1: 运行战术引擎，获取所有信号的“草稿”
-        tactical_records_all = self._run_tactical_engine(stock_code, all_dfs)
-        
-        # 步骤2: 运行“VIP通道”，获取精加工的高分入口信号
-        final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
-        
-        # 步骤3: 记录下被VIP通道处理过的日期
-        processed_dates = {pd.to_datetime(rec['trade_time']).date() for rec in final_entry_records}
-
-        # 步骤4: 从“草稿”中，筛选出未被VIP通道处理的“普通买入信号”
-        other_entry_records = [
-            rec for rec in tactical_records_all 
-            if rec.get('entry_signal') and pd.to_datetime(rec['trade_time']).date() not in processed_dates
-        ]
-
-        # 步骤5: 从“草稿”中，筛选出所有的“非买入信号”
-        non_entry_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
-        
-        # 运行其他引擎 (风险预警等)
+        # 步骤1: 运行所有引擎，获取各自的信号记录
+        tactical_records = self._run_tactical_engine(stock_code, all_dfs)
         risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-        resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs) # 假设这也是一种入口信号
-
-        # 步骤6: 合并所有信号，确保无一遗漏
-        # 优先级：精加工信号 > 共振信号 > 普通入口信号 > 风险信号 > 其他非入口信号
-        all_records = final_entry_records + resonance_entry_records + other_entry_records + risk_alert_records + non_entry_records
+        # intraday_entry_engine 已经被禁用，会返回空列表，但保留调用以维持结构
+        intraday_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
+        
+        # 步骤2: 【核心修正】将所有记录直接合并，不再进行任何复杂的筛选和分类
+        all_records = tactical_records + risk_alert_records + intraday_entry_records
         
         logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
         return all_records
+        
+        # # 步骤3: 记录下被VIP通道处理过的日期
+        # processed_dates = {pd.to_datetime(rec['trade_time']).date() for rec in final_entry_records}
+
+        # # 步骤4: 从“草稿”中，筛选出未被VIP通道处理的“普通买入信号”
+        # other_entry_records = [
+        #     rec for rec in tactical_records_all 
+        #     if rec.get('entry_signal') and pd.to_datetime(rec['trade_time']).date() not in processed_dates
+        # ]
+
+        # # 步骤5: 从“草稿”中，筛选出所有的“非买入信号”
+        # non_entry_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
+        
+        # # 运行其他引擎 (风险预警等)
+        # risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
+        # resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs) # 假设这也是一种入口信号
+
+        # # 步骤6: 合并所有信号，确保无一遗漏
+        # # 优先级：精加工信号 > 共振信号 > 普通入口信号 > 风险信号 > 其他非入口信号
+        # all_records = final_entry_records + resonance_entry_records + other_entry_records + risk_alert_records + non_entry_records
+        
+        # logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
+        # return all_records
 
     # 情报融合中心
     def _fuse_intraday_confirmations(self, daily_records: List[Dict], confirmation_records: List[Dict]) -> List[Dict]:
@@ -1064,58 +1068,46 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V131.0 职责分离版】
-        - 核心升级: 将波段跟踪模拟器(simulate_wave_tracking)的调用移至此函数。
-        - 收益: 确保了绩效回测只在调试和研究模式下运行，与实盘决策流程完全分离。
+        【V161.0 指挥链修复版】
+        - 核心修正: 不再自行拼接信号，而是直接调用 `run_for_stock` 获取总指挥部
+                    汇总的、最完整的信号列表，确保看到的是最终的、无遗漏的战报。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V131.0 职责分离版)] ---")
+        print(f"--- [历史回溯调试启动 (V161.0 指挥链修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            print(f"\n[步骤 1/3] 正在准备从最早到 {end_date} 的所有时间周期数据...")
-            all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time=end_date)
-            if 'D' not in all_dfs or all_dfs['D'].empty: return
+            # 【核心修正】直接调用 run_for_stock 获取所有信号
+            print(f"\n[步骤 1/3] 正在调用总指挥部 (run_for_stock) 获取完整信号列表...")
+            all_records = await self.run_for_stock(stock_code, trade_time=end_date)
             
-            print("\n[步骤 2/3] 正在完整运行所有五个策略引擎...")
-            
-            strategic_signals_df = self._run_strategic_engine(all_dfs.get('W'))
-            all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+            if all_records is None:
+                print("[错误] 总指挥部未能返回任何信号记录。")
+                return
 
-            tactical_records_all = self._run_tactical_engine(stock_code, all_dfs)
-            non_entry_tactical_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
+            print(f"[成功] 总指挥部运行完毕，共返回 {len(all_records)} 条原始信号记录。")
 
-            risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-            final_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
-
-            all_records = final_entry_records + risk_alert_records + non_entry_tactical_records
-            print(f"[成功] 所有引擎运行完毕，共生成 {len(all_records)} 条原始信号记录。")
-
-            # --- 【核心新增】步骤 2.5: [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
-            print("\n" + "="*25 + " [绩效回测模拟启动] " + "="*25)
-            # 确保 self.daily_analysis_df 存在且不为空
+            # --- [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
+            print("\n[步骤 2/3] [调试专属] 正在执行波段跟踪模拟器...")
             if self.daily_analysis_df is not None and not self.daily_analysis_df.empty:
+                # 注意：simulate_wave_tracking 需要日线数据，它在 run_for_stock 中被计算和缓存
                 self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.tactical_config, start_date=start_date)
             else:
                 print("    -> [警告] 日线分析结果为空，无法执行波段跟踪模拟。")
-            print("="*60 + "\n")
             # --- 绩效回测结束 ---
 
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
-            if not all_records:
-                print("[信息] 引擎未生成任何信号记录。")
-                return
-
             start_dt = pd.to_datetime(start_date, utc=True)
             end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
             
             debug_period_records = []
             for rec in all_records:
+                # 确保时间是可比较的 timezone-aware 对象
                 rec_time = pd.to_datetime(rec['trade_time'])
-                if not rec_time.tzinfo:
+                if rec_time.tzinfo is None:
                     rec_time = rec_time.tz_localize('UTC')
                 else:
                     rec_time = rec_time.tz_convert('UTC')
@@ -1125,6 +1117,7 @@ class MultiTimeframeTrendStrategy:
 
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
+                print("=" * 80)
                 return
 
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
@@ -1137,6 +1130,7 @@ class MultiTimeframeTrendStrategy:
                 
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
+                    # 优先使用中文剧本名
                     playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
