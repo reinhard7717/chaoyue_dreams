@@ -528,7 +528,7 @@ class StrategiesDAO(BaseDAO):
         - 数据丰富: 提取了更多有价值的资金流和筹码字段。
         - 健壮合并: 使用 'outer' 合并，并统一使用 ffill() 填充，确保数据连续性。
         """
-        print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
+        # print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
         
         FundFlowModel = self.get_fund_flow_model_by_code(stock_code)
         if not FundFlowModel:

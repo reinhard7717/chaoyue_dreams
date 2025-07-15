@@ -209,7 +209,7 @@ class IndicatorDAO(BaseDAO):
             
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             
-            print(f"    - [DAO查询结果] 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
+            # print(f"    - [DAO查询结果] 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
                 return None

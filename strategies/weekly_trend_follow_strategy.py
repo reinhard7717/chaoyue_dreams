@@ -198,7 +198,7 @@ class WeeklyTrendFollowStrategy:
                             # 将 'coppock_stabilizing' 转换为 'PLAYBOOK_COPPOCK_STABILIZING_W'
                             col_name = f"playbook_{signal_suffix.upper()}_W"
                             context_df[col_name] = result_series
-                            print(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'")
+                            # print(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'")
                     elif isinstance(results, pd.Series):
                         if 'score' in playbook_name:
                             col_name = 'washout_score_W'
@@ -209,7 +209,7 @@ class WeeklyTrendFollowStrategy:
                             base_name = playbook_name.replace('_playbook', '').upper()
                             col_name = f"playbook_{base_name}_W"
                         
-                        print(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...")
+                        # print(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...")
                         context_df[col_name] = results
                 else:
                     print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
