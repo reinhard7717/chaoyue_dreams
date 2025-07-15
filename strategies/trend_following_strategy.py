@@ -1035,18 +1035,18 @@ class TrendFollowStrategy:
         score_details_df.fillna(0, inplace=True)
         
         # ==================== 步骤3: 【探针调用点】(默认禁用) ====================
-        # probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
-        # self._probe_entry_score_details(
-        #     df=df,
-        #     probe_dates=probe_dates,
-        #     final_score=final_score,
-        #     intermediate_masks=intermediate_masks,
-        #     playbook_definitions=playbook_definitions,
-        #     trigger_violent_reversal=trigger_violent_reversal,
-        #     setup_scores=setup_scores,
-        #     context_window=context_window,
-        #     atomic_states=atomic_states
-        # )
+        probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
+        self._probe_entry_score_details(
+            df=df,
+            probe_dates=probe_dates,
+            final_score=final_score,
+            intermediate_masks=intermediate_masks,
+            playbook_definitions=playbook_definitions,
+            trigger_violent_reversal=trigger_violent_reversal,
+            setup_scores=setup_scores,
+            context_window=context_window,
+            atomic_states=atomic_states
+        )
         
         print(f"\n--- [计分引擎 V151.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         

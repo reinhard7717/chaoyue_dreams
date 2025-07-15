@@ -66,7 +66,7 @@ class WeeklyTrendFollowStrategy:
             context_df['filter_trend_is_healthy_W'] = True
 
         # --- 步骤 3: 信号合成层 (引入洗盘豁免) ---
-        print("\n---【合成-右侧信号】---")
+        # print("\n---【合成-右侧信号】---")
         
         # === 3.1 新增：建立“洗盘豁免”状态 ===
         washout_params = self.playbook_params.get('washout_score_playbook', {})
@@ -76,8 +76,8 @@ class WeeklyTrendFollowStrategy:
             # 检查过去N周内，是否曾出现过一次得分超过豁免阈值的洗盘
             had_recent_strong_washout = (context_df['washout_score_W'].rolling(window=immunity_window).max().shift(1) >= immunity_threshold)
             context_df['state_washout_immunity_W'] = had_recent_strong_washout.fillna(False)
-            print(f"【洗盘豁免】已启用。豁免分数阈值: {immunity_threshold}, 豁免窗口: {immunity_window}周。")
-            print(f"【洗盘豁免】最近一周豁免状态: {'[激活]' if context_df['state_washout_immunity_W'].iloc[-1] else '[未激活]'}")
+            # print(f"【洗盘豁免】已启用。豁免分数阈值: {immunity_threshold}, 豁免窗口: {immunity_window}周。")
+            # print(f"【洗盘豁免】最近一周豁免状态: {'[激活]' if context_df['state_washout_immunity_W'].iloc[-1] else '[未激活]'}")
         else:
             context_df['state_washout_immunity_W'] = pd.Series(False, index=context_df.index)
             print("【洗盘豁免】未启用 (缺少 washout_score_W 列)。")
@@ -138,11 +138,11 @@ class WeeklyTrendFollowStrategy:
             is_ignition_enhancer_event = context_df[valid_enhancers].any(axis=1)
             # 如果有增强信号，也可以触发突破观察（即使没有经典突破形态）
             context_df['signal_breakout_trigger_W'] |= (is_ignition_enhancer_event & context_df['filter_trend_is_healthy_W'])
-            print(f"【右侧】点火增强信号源: {valid_enhancers}")
-            print(f"【右侧】增强后最终突破观察信号周数: {context_df['signal_breakout_trigger_W'].sum()}")
+            # print(f"【右侧】点火增强信号源: {valid_enhancers}")
+            # print(f"【右侧】增强后最终突破观察信号周数: {context_df['signal_breakout_trigger_W'].sum()}")
 
         # --- 步骤 4: 状态节点判读 (修改) ---
-        print("\n---【状态节点判读】---")
+        # print("\n---【状态节点判读】---")
         context_df['state_node_bottoming_W'] = context_df['signal_potential_bottom_zone_W']
         
         # 点火期信号源：均线加速拐头、TRIX金叉、Coppock加速
@@ -156,7 +156,7 @@ class WeeklyTrendFollowStrategy:
         
         context_df['state_node_main_ascent_W'] = context_df['state_trend_accelerating_W']
         context_df['state_node_topping_W'] = context_df['state_trend_stable_rising_W'] & (context_df.get('rejection_signal_W', 0) < 0)
-        print(f"【状态节点】筑底区: {context_df['state_node_bottoming_W'].sum()}周 | 点火期: {context_df['state_node_ignition_W'].sum()}周 | 主升段: {context_df['state_node_main_ascent_W'].sum()}周 | 滞涨区: {context_df['state_node_topping_W'].sum()}周")
+        # print(f"【状态节点】筑底区: {context_df['state_node_bottoming_W'].sum()}周 | 点火期: {context_df['state_node_ignition_W'].sum()}周 | 主升段: {context_df['state_node_main_ascent_W'].sum()}周 | 滞涨区: {context_df['state_node_topping_W'].sum()}周")
 
         return context_df
     
@@ -164,9 +164,9 @@ class WeeklyTrendFollowStrategy:
         """
         【V3.5 命名规范化版】动态遍历JSON配置，并确保输出的剧本名称为大写，与日线策略对齐。
         """
-        print("\n" + "="*80)
-        print(f"---【周线战略层(V3.5 命名规范化) - 检查最新一周: {df.index[-1].date()}】---")
-        print("="*80)
+        # print("\n" + "="*80)
+        # print(f"---【周线战略层(V3.5 命名规范化) - 检查最新一周: {df.index[-1].date()}】---")
+        # print("="*80)
         
         context_df = df.copy()
         
@@ -212,7 +212,7 @@ class WeeklyTrendFollowStrategy:
                         # print(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...")
                         context_df[col_name] = results
                 else:
-                    print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
+                    # print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
                     print("    - 结论: [未启用]")
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
@@ -236,11 +236,11 @@ class WeeklyTrendFollowStrategy:
         【V3.1 升级剧本】: 识别指定周线均线是否处于“有效”上升状态。
         - 核心修改: 引入斜率阈值，过滤掉几乎走平的“伪上涨”状态。
         """
-        print(f"\n--- 剧本检查: [{params.get('说明', '均线处于上升状态')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '均线处于上升状态')}] ---")
         target_ma_period = params.get('ma_period', 21)
         # 新增斜率阈值参数，要求均线每周至少上涨0.1%才算有效上涨
         slope_threshold_pct = params.get('slope_threshold_pct', 0.1) 
-        print(f"    - 配置参数: ma_period={target_ma_period}, slope_threshold_pct={slope_threshold_pct}%")
+        # print(f"    - 配置参数: ma_period={target_ma_period}, slope_threshold_pct={slope_threshold_pct}%")
         
         ema_col = f'EMA_{target_ma_period}_W'
         close_col = 'close_W'
@@ -278,11 +278,11 @@ class WeeklyTrendFollowStrategy:
         - 核心修改: 引入二阶斜率（加速度）作为判断条件。
                      要求拐头不仅是方向改变，还必须是“加速”的，以提高信号质量。
         """
-        print(f"\n--- 剧本检查: [{params.get('说明', '均线拐头向上事件')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '均线拐头向上事件')}] ---")
         target_ma_period = params.get('ma_period', 21)
         # 新增加速度阈值参数，如果JSON中没有，则默认为0
         accel_threshold = params.get('accel_threshold', 0) 
-        print(f"    - 配置参数: ma_period={target_ma_period}, accel_threshold={accel_threshold}")
+        # print(f"    - 配置参数: ma_period={target_ma_period}, accel_threshold={accel_threshold}")
         
         ema_col = f'EMA_{target_ma_period}_W'
         close_col = 'close_W'
@@ -322,12 +322,12 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_early_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：捕捉周线趋势反转的早期“上拐”信号"""
-        print(f"\n--- 剧本检查: [{params.get('说明', '早期上升趋势')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '早期上升趋势')}] ---")
         
         # 从传递的params中读取周期，如果未定义则使用默认值10和20
         short_ma_period = params.get('short_ma', 10)
         mid_ma_period = params.get('mid_ma', 20)
-        print(f"    - 配置参数: short_ma={short_ma_period}, mid_ma={mid_ma_period}")
+        # print(f"    - 配置参数: short_ma={short_ma_period}, mid_ma={mid_ma_period}")
 
         # 使用读取到的周期构建列名
         short_ma_col = f'EMA_{short_ma_period}_W'
@@ -360,7 +360,7 @@ class WeeklyTrendFollowStrategy:
 
     def _playbook_classic_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：经典高点突破"""
-        print(f"\n--- 剧本检查: [{params.get('说明', '经典高点突破')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '经典高点突破')}] ---")
         lookback_weeks, volume_multiplier = params.get('lookback_weeks', 26), params.get('volume_multiplier', 1.5)
         if not self._check_dependencies(df, ['high_W', 'volume_W', 'close_W'], log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
@@ -375,9 +375,9 @@ class WeeklyTrendFollowStrategy:
         av_last = avg_volume.iloc[-1]
         pb_last = is_price_breakout.iloc[-1]
         vb_last = is_volume_breakout.iloc[-1]
-        print(f"    - 条件1 (价格突破): {'[✓]' if pb_last else '[✗]'} (收盘价: {last.get('close_W', float('nan')):.2f} vs 前{lookback_weeks}周高点: {ph_last:.2f})")
-        print(f"    - 条件2 (放量突破): {'[✓]' if vb_last else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(av_last * volume_multiplier):.0f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        # print(f"    - 条件1 (价格突破): {'[✓]' if pb_last else '[✗]'} (收盘价: {last.get('close_W', float('nan')):.2f} vs 前{lookback_weeks}周高点: {ph_last:.2f})")
+        # print(f"    - 条件2 (放量突破): {'[✓]' if vb_last else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(av_last * volume_multiplier):.0f})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
 
     def _playbook_check_ma_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -386,13 +386,13 @@ class WeeklyTrendFollowStrategy:
         - 核心修改: 增加 tolerance_pct 参数，允许价格在支撑均线下方有小幅波动，
                      以容忍市场噪音和毛刺，避免因轻微跌破而被错误过滤。
         """
-        print(f"\n--- 剧本检查: [{params.get('说明', '均线多头排列')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '均线多头排列')}] ---")
         short_ma = params.get('short_ma', 13)
         mid_ma = params.get('mid_ma', 21)
         long_ma = params.get('long_ma', 55)
         # 新增：从JSON获取容忍度参数，默认为1%，即允许股价跌破支撑均线1%
         tolerance_pct = params.get('tolerance_pct', 0.01)
-        print(f"    - 配置参数: short={short_ma}, mid={mid_ma}, long={long_ma}, tolerance_pct={tolerance_pct*100}%")
+        # print(f"    - 配置参数: short={short_ma}, mid={mid_ma}, long={long_ma}, tolerance_pct={tolerance_pct*100}%")
 
         short_col, mid_col, long_col = f'EMA_{short_ma}_W', f'EMA_{mid_ma}_W', f'EMA_{long_ma}_W'
         if not self._check_dependencies(df, [short_col, mid_col, long_col, 'close_W'], log_details=True):
@@ -412,15 +412,15 @@ class WeeklyTrendFollowStrategy:
         ma_last = ma_aligned.iloc[-1]
         pas_last = price_above_support_zone.iloc[-1]
         
-        print(f"    - 条件1 (均线多头): {'[✓]' if ma_last else '[✗]'} (EMA{short_ma}: {last.get(short_col, 0):.2f} > EMA{mid_ma}: {last.get(mid_col, 0):.2f} > EMA{long_ma}: {last.get(long_col, 0):.2f})")
-        print(f"    - 条件2 (股价在支撑容忍区上): {'[✓]' if pas_last else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} > 支撑区下轨: {support_level_with_tolerance.iloc[-1]:.2f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        # print(f"    - 条件1 (均线多头): {'[✓]' if ma_last else '[✗]'} (EMA{short_ma}: {last.get(short_col, 0):.2f} > EMA{mid_ma}: {last.get(mid_col, 0):.2f} > EMA{long_ma}: {last.get(long_col, 0):.2f})")
+        # print(f"    - 条件2 (股价在支撑容忍区上): {'[✓]' if pas_last else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} > 支撑区下轨: {support_level_with_tolerance.iloc[-1]:.2f})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         
         return final_signal.fillna(False)
     
     def _playbook_oversold_rebound_bias(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：利用BIAS指标捕捉周线级别的超跌反弹机会"""
-        print(f"\n--- 剧本检查: [{params.get('说明', 'BIAS超跌反弹')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', 'BIAS超跌反弹')}] ---")
         bias_period = params.get('bias_period', 20)
         bias_col = f'BIAS_{bias_period}_W'
         if not self._check_dependencies(df, [bias_col], log_details=True):
@@ -435,9 +435,9 @@ class WeeklyTrendFollowStrategy:
         prev = df.iloc[-2]
         wo_last = was_oversold.iloc[-1]
         ir_last = is_rebounding.iloc[-1]
-        print(f"    - 条件1 (上周曾超卖): {'[✓]' if wo_last else '[✗]'} (上周BIAS: {prev.get(bias_col, 0):.2f} < 阈值: {oversold_threshold})")
-        print(f"    - 条件2 (本周正反弹): {'[✓]' if ir_last else '[✗]'} (本周BIAS: {last.get(bias_col, 0):.2f} > 阈值: {rebound_trigger})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        # print(f"    - 条件1 (上周曾超卖): {'[✓]' if wo_last else '[✗]'} (上周BIAS: {prev.get(bias_col, 0):.2f} < 阈值: {oversold_threshold})")
+        # print(f"    - 条件2 (本周正反弹): {'[✓]' if ir_last else '[✗]'} (本周BIAS: {last.get(bias_col, 0):.2f} > 阈值: {rebound_trigger})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
 
     def _playbook_calculate_washout_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -465,13 +465,13 @@ class WeeklyTrendFollowStrategy:
         washout_score += washout_bull_trap.astype(int)
         washout_score += washout_volume_contraction.astype(int)
         last_support = support_level.iloc[-1]
-        print(f"    - 使用的支撑位: {last_support:.2f}")
-        print(f"    - 模式1 (日内洗盘): {'[+1分]' if washout_intraday.iloc[-1] else '[+0分]'}")
-        print(f"    - 模式2 (日间洗盘): {'[+1分]' if washout_interday.iloc[-1] else '[+0分]'}")
-        print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
-        print(f"    - 模式4 (诱多陷阱): {'[+1分]' if washout_bull_trap.iloc[-1] else '[+0分]'}")
-        print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
-        print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
+        # print(f"    - 使用的支撑位: {last_support:.2f}")
+        # print(f"    - 模式1 (日内洗盘): {'[+1分]' if washout_intraday.iloc[-1] else '[+0分]'}")
+        # print(f"    - 模式2 (日间洗盘): {'[+1分]' if washout_interday.iloc[-1] else '[+0分]'}")
+        # print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
+        # print(f"    - 模式4 (诱多陷阱): {'[+1分]' if washout_bull_trap.iloc[-1] else '[+0分]'}")
+        # print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
+        # print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
         return washout_score.fillna(0)
 
     def _get_weekly_support_level(self, df: pd.DataFrame, params: dict) -> Optional[pd.Series]:
@@ -535,16 +535,16 @@ class WeeklyTrendFollowStrategy:
         c2 = is_long_upper_shadow.iloc[-1]
         c3 = is_high_volume.iloc[-1]
         c4 = is_closing_lower.iloc[-1]
-        print(f"    - 条件1 (触及压力): {'[✓]' if c1 else '[✗]'} (最高价: {last.get('high_W', 0):.2f} vs 压力: {last.get(resistance_col, 0):.2f})")
-        print(f"    - 条件2 (长上影线): {'[✓]' if c2 else '[✗]'}")
-        print(f"    - 条件3 (放出大量): {'[✓]' if c3 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
-        print(f"    - 条件4 (收盘偏低): {'[✓]' if c4 else '[✗]'}")
-        print(f"    - 小结: [{source_name}] {'触发' if final_signal.iloc[-1] else '未触发'}")
+        # print(f"    - 条件1 (触及压力): {'[✓]' if c1 else '[✗]'} (最高价: {last.get('high_W', 0):.2f} vs 压力: {last.get(resistance_col, 0):.2f})")
+        # print(f"    - 条件2 (长上影线): {'[✓]' if c2 else '[✗]'}")
+        # print(f"    - 条件3 (放出大量): {'[✓]' if c3 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
+        # print(f"    - 条件4 (收盘偏低): {'[✓]' if c4 else '[✗]'}")
+        # print(f"    - 小结: [{source_name}] {'触发' if final_signal.iloc[-1] else '未触发'}")
         return final_signal.fillna(False)
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：专业箱体突破"""
-        print(f"\n--- 剧本检查: [{params.get('说明', '专业箱体突破')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '专业箱体突破')}] ---")
         quantile_level = params.get('bbw_quantile', 0.3)
         boll_period = params.get('boll_period', 20)
         boll_std = self.indicator_cfg.get('boll_bands_and_width', {}).get('std_dev', 2.0)
@@ -578,10 +578,10 @@ class WeeklyTrendFollowStrategy:
         c1 = was_in_consolidation.iloc[last_idx]
         c2 = is_price_breakout.iloc[last_idx]
         c3 = is_volume_breakout.iloc[last_idx]
-        print(f"    - 条件1 (前一周处于盘整期): {'[✓]' if c1 else '[✗]'} (前周BBW: {prev_bbw:.4f} vs 动态阈值: {prev_bbw_thresh:.4f})")
-        print(f"    - 条件2 (价格突破箱顶): {'[✓]' if c2 else '[✗]'} (本周收盘: {curr_close:.2f} vs 前周箱顶: {prev_box_high:.2f})")
-        print(f"    - 条件3 (成交量突破): {'[✓]' if c3 else '[✗]'} (本周成交量: {curr_vol:.0f} vs 阈值: {(prev_box_avg_vol * volume_multiplier):.0f})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[last_idx] else '未触发'}]")
+        # print(f"    - 条件1 (前一周处于盘整期): {'[✓]' if c1 else '[✗]'} (前周BBW: {prev_bbw:.4f} vs 动态阈值: {prev_bbw_thresh:.4f})")
+        # print(f"    - 条件2 (价格突破箱顶): {'[✓]' if c2 else '[✗]'} (本周收盘: {curr_close:.2f} vs 前周箱顶: {prev_box_high:.2f})")
+        # print(f"    - 条件3 (成交量突破): {'[✓]' if c3 else '[✗]'} (本周成交量: {curr_vol:.0f} vs 阈值: {(prev_box_avg_vol * volume_multiplier):.0f})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[last_idx] else '未触发'}]")
         return final_signal.fillna(False)
 
     def _playbook_trix_golden_cross(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -589,7 +589,7 @@ class WeeklyTrendFollowStrategy:
         【V3.2 升级剧本】: 识别周线TRIX“强力金叉”。
         - 核心修改: 增加TRIX线自身斜率的判断，要求金叉时必须是“加速向上”的。
         """
-        print(f"\n--- 剧本检查: [{params.get('说明', 'TRIX金叉')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', 'TRIX金叉')}] ---")
         trix_cfg = self.indicator_cfg.get('trix', {})
         trix_periods = next((c.get('periods') for c in trix_cfg.get('configs', []) if 'W' in c.get('apply_on', [])), None)
         if not trix_periods or len(trix_periods) < 2:
@@ -598,7 +598,7 @@ class WeeklyTrendFollowStrategy:
         
         trix_len, signal_len = trix_periods[0], trix_periods[1]
         slope_threshold = params.get('slope_threshold', 0.01) # 从JSON获取斜率阈值
-        print(f"    - 配置参数: trix_len={trix_len}, signal_len={signal_len}, slope_threshold={slope_threshold}")
+        # print(f"    - 配置参数: trix_len={trix_len}, signal_len={signal_len}, slope_threshold={slope_threshold}")
 
         trix_col = f'TRIX_{trix_len}_{signal_len}_W'
         trix_signal_col = f'TRIXs_{trix_len}_{signal_len}_W'
@@ -620,9 +620,9 @@ class WeeklyTrendFollowStrategy:
         c1_last = condition1_is_golden_cross.iloc[-1]
         c2_last = condition2_is_strong_momentum.iloc[-1]
         
-        print(f"    - 条件1 (发生金叉): {'[✓]' if c1_last else '[✗]'}")
-        print(f"    - 条件2 (动能强劲): {'[✓]' if c2_last else '[✗]'} (TRIX斜率: {trix_slope.iloc[-1]:.4f} > 阈值: {slope_threshold})")
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        # print(f"    - 条件1 (发生金叉): {'[✓]' if c1_last else '[✗]'}")
+        # print(f"    - 条件2 (动能强劲): {'[✓]' if c2_last else '[✗]'} (TRIX斜率: {trix_slope.iloc[-1]:.4f} > 阈值: {slope_threshold})")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         
         return final_signal.fillna(False)
     
@@ -633,7 +633,7 @@ class WeeklyTrendFollowStrategy:
           1. coppock_stabilizing (左侧): 捕捉深水区“跌势衰竭，首次拐头”的瞬间。
           2. coppock_accelerating (右侧): 捕捉拐头后“上涨加速，动能确认”的瞬间。
         """
-        print(f"\n--- 剧本检查: [{params.get('说明', 'Coppock双信号反转')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', 'Coppock双信号反转')}] ---")
         coppock_cfg = self.indicator_cfg.get('coppock', {})
         coppock_periods = next((c.get('periods') for c in coppock_cfg.get('configs', []) if 'W' in c.get('apply_on', [])), None)
         if not coppock_periods or len(coppock_periods) < 3:
@@ -643,7 +643,7 @@ class WeeklyTrendFollowStrategy:
         p1, p2, p3 = coppock_periods[0], coppock_periods[1], coppock_periods[2]
         deep_value_threshold = params.get('deep_value_threshold', -100)
         accel_threshold = params.get('accel_threshold', 10) # 上涨加速度阈值
-        print(f"    - 配置参数: deep_value={deep_value_threshold}, accel_threshold={accel_threshold}")
+        # print(f"    - 配置参数: deep_value={deep_value_threshold}, accel_threshold={accel_threshold}")
 
         coppock_col = f'COPP_{p1}_{p2}_{p3}_W'
         if not self._check_dependencies(df, [coppock_col], log_details=True):
@@ -672,11 +672,11 @@ class WeeklyTrendFollowStrategy:
         last_idx = -1
         s_stab_last = signal_stabilizing.iloc[last_idx]
         s_accel_last = signal_accelerating.iloc[last_idx]
-        print(f"    - [左侧信号: 企稳]")
-        print(f"      - 条件1 (深水区拐头): {'[✓]' if s_stab_last else '[✗]'} (上周值: {df[coppock_col].shift(1).iloc[last_idx]:.2f} < {deep_value_threshold} AND 发生拐头)")
-        print(f"    - [右侧信号: 加速]")
-        print(f"      - 条件1 (上涨加速): {'[✓]' if s_accel_last else '[✗]'} (加速度: {acceleration.iloc[last_idx]:.2f} > {accel_threshold} AND 首次满足)")
-        print(f"    - 结论: 左侧信号=[{'触发' if s_stab_last else '未触发'}], 右侧信号=[{'触发' if s_accel_last else '未触发'}]")
+        # print(f"    - [左侧信号: 企稳]")
+        # print(f"      - 条件1 (深水区拐头): {'[✓]' if s_stab_last else '[✗]'} (上周值: {df[coppock_col].shift(1).iloc[last_idx]:.2f} < {deep_value_threshold} AND 发生拐头)")
+        # print(f"    - [右侧信号: 加速]")
+        # print(f"      - 条件1 (上涨加速): {'[✓]' if s_accel_last else '[✗]'} (加速度: {acceleration.iloc[last_idx]:.2f} > {accel_threshold} AND 首次满足)")
+        # print(f"    - 结论: 左侧信号=[{'触发' if s_stab_last else '未触发'}], 右侧信号=[{'触发' if s_accel_last else '未触发'}]")
 
         return {
             'coppock_stabilizing': signal_stabilizing.fillna(False),
@@ -685,7 +685,7 @@ class WeeklyTrendFollowStrategy:
    
     def _playbook_ace_signal_breakout_trigger(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """【新增剧本】: 王牌突破信号，结合年度高点突破、放量和TRIX确认。"""
-        print(f"\n--- 剧本检查: [{params.get('说明', '王牌突破信号')}] ---")
+        # print(f"\n--- 剧本检查: [{params.get('说明', '王牌突破信号')}] ---")
         
         lookback_weeks = params.get('lookback_weeks', 52)
         volume_multiplier = params.get('volume_multiplier', 2.0)
@@ -728,12 +728,12 @@ class WeeklyTrendFollowStrategy:
         c2 = is_volume_breakout.iloc[-1]
         c3 = is_trix_ok.iloc[-1]
         
-        print(f"    - 条件1 (突破年线): {'[✓]' if c1 else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} vs 前{lookback_weeks}周高点: {period_high.iloc[-1]:.2f})")
-        print(f"    - 条件2 (2倍放量): {'[✓]' if c2 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
-        if trix_confirm:
-            print(f"    - 条件3 (TRIX确认): {'[✓]' if c3 else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} > 信号线: {last.get(trix_signal_col, 0):.2f})")
+        # print(f"    - 条件1 (突破年线): {'[✓]' if c1 else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} vs 前{lookback_weeks}周高点: {period_high.iloc[-1]:.2f})")
+        # print(f"    - 条件2 (2倍放量): {'[✓]' if c2 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
+        # if trix_confirm:
+        #     print(f"    - 条件3 (TRIX确认): {'[✓]' if c3 else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} > 信号线: {last.get(trix_signal_col, 0):.2f})")
         
-        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         
         return final_signal.fillna(False)
 
