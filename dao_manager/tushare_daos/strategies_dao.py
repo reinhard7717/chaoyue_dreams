@@ -563,9 +563,9 @@ class StrategiesDAO(BaseDAO):
         # 4. 合并两个DataFrame
         # ▼▼▼ 统一和健壮的合并与填充逻辑 ▼▼▼
         if not df_flow.empty:
-            df_flow['trade_time'] = pd.to_datetime(df_flow['trade_time'])
+            df_flow['trade_time'] = pd.to_datetime(df_flow['trade_time'], utc=True)
         if not df_cyq.empty:
-            df_cyq['trade_time'] = pd.to_datetime(df_cyq['trade_time'])
+            df_cyq['trade_time'] = pd.to_datetime(df_cyq['trade_time'], utc=True)
 
         if df_flow.empty:
             df_merged = df_cyq
@@ -768,7 +768,7 @@ class StrategiesDAO(BaseDAO):
 
         # 8. 数据后处理，使其更适合进行时间序列分析
         # a. 将 'trade_time' 列转换为 pandas 的 datetime 类型
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         # b. 将 'trade_time' 设置为 DataFrame 的索引
         df = df.set_index('trade_time')
         # c. 按索引（时间）升序排列，这是时间序列分析的标准格式

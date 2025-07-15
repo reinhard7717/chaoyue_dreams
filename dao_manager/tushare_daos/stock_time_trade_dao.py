@@ -216,7 +216,7 @@ class StockTimeTradeDAO(BaseDAO):
                 continue
 
             # 4. 向量化转换日期格式
-            df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
+            df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True).dt.date
             
             # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
             df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
@@ -552,7 +552,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 4. 向量化转换日期时间格式，并进行精确时区处理
                 #    这是适配原生SQL批量插入的关键步骤，必须手动将本地时间转为UTC。
                 # a. 将字符串转换为“天真”的datetime对象
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
                 # b. 将“天真”时间本地化为北京时间，使其变为“时区感知”
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
                 # c. 将时区感知的时间（北京时间）转换为UTC时区
@@ -646,7 +646,7 @@ class StockTimeTradeDAO(BaseDAO):
                 #    由于使用了原生SQL批量插入，Django的自动时区转换会失效，需要在此手动处理。
 
                 # 3.1 将字符串转换为“天真”的datetime对象
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
 
                 # 3.2 将“天真”时间本地化为北京时间（'Asia/Shanghai'），使其变为“时区感知”
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
@@ -743,7 +743,7 @@ class StockTimeTradeDAO(BaseDAO):
 
         # a. 【防御性转换】使用 `errors='coerce'`。
         #    如果 'time' 字段的格式不是 '%Y-%m-%d %H:%M:%S'，则转换结果为 NaT (Not a Time)，而不是抛出异常。
-        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+        df['trade_time'] = pd.to_datetime(df['time'], utc=True, format='%Y-%m-%d %H:%M:%S', errors='coerce')
 
         # b. 【数据清洗】丢弃所有转换失败的行（即 trade_time 为 NaT 的行）。
         #    这是我们的核心防御机制，确保只有格式正确的数据进入后续流程。
@@ -903,7 +903,7 @@ class StockTimeTradeDAO(BaseDAO):
             df.dropna(subset=['trade_date', 'stock'], inplace=True)
             if not df.empty:
                 # 4. 向量化转换日期
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
+                df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True).dt.date
                 # 5. 选择列以匹配模型字段，替代set_time_trade_week_data
                 final_df = df[[
                     "stock", "trade_time", "open", "high", "low", "close", "pre_close", 
@@ -1061,7 +1061,7 @@ class StockTimeTradeDAO(BaseDAO):
                 df['vol'] = pd.to_numeric(df['vol'], errors='coerce').astype('Int64')
 
                 # 步骤 e: 转换日期格式
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
+                df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True).dt.date
                 
                 # 步骤 f: 准备用于数据库操作的数据
                 # 选择最终需要的列
@@ -1274,7 +1274,7 @@ class StockTimeTradeDAO(BaseDAO):
 
             if not df.empty:
                 # 4. 向量化转换日期
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
+                df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True).dt.date
                 
                 # 5. 显式地选择和重命名列，替代set_stock_daily_basic_data方法
                 #    这里假设ORM模型字段与API返回字段名一致，除了 stock 和 trade_time
@@ -1405,7 +1405,7 @@ class StockTimeTradeDAO(BaseDAO):
             df.dropna(subset=['ts_code', 'trade_date', 'stock'], inplace=True)
             if not df.empty:
                 # 4. 向量化转换日期格式
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
+                df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True).dt.date
                 # 5. 选择并重命名列以匹配模型字段
                 #    这里假设模型字段与df列名大部分一致，只需添加 stock 和 trade_time
                 #    如果模型字段名不同，需要使用 .rename() 方法
@@ -1485,7 +1485,7 @@ class StockTimeTradeDAO(BaseDAO):
         if combined_df.empty:
             return
         combined_df['stock'] = stock
-        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], utc=True).dt.date
         final_df = combined_df[[
             "stock", "trade_time", "his_low", "his_high", "cost_5pct", "cost_15pct",
             "cost_50pct", "cost_85pct", "cost_95pct", "weight_avg", "winner_rate"
@@ -1612,7 +1612,7 @@ class StockTimeTradeDAO(BaseDAO):
                 
                 if not combined_df.empty:
                     combined_df['stock'] = stock
-                    combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+                    combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], utc=True).dt.date
                     final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
                     data_dicts_for_stock = final_df.to_dict('records')
 
@@ -1708,7 +1708,7 @@ class StockTimeTradeDAO(BaseDAO):
         if combined_df.empty:
             return
         combined_df['stock'] = stock
-        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], utc=True).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
         # [修改] 在保存前，根据股票代码动态选择目标数据表Model

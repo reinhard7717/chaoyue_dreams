@@ -189,7 +189,7 @@ class IndicatorService:
                 time_col = 'trade_time'
             
             if time_col:
-                df[time_col] = pd.to_datetime(df[time_col])
+                df[time_col] = pd.to_datetime(df[time_col], utc=True)
                 df.set_index(time_col, inplace=True)
                 # print(f"    [底层数据获取] 已将 '{time_col}' 列设置为 DatetimeIndex。")
             else:
@@ -331,7 +331,7 @@ class IndicatorService:
         # --- 步骤 3: 如果启用，则执行行业数据注入 (此部分逻辑不变) ---
         print(f"    - [配置信息] 检测到行业协同已启用，开始获取行业强度...")
         
-        current_trade_date = pd.to_datetime(trade_time).date() if trade_time else datetime.datetime.now().date()
+        current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
         industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
         stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
         stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
@@ -418,7 +418,7 @@ class IndicatorService:
         # 任务1: 获取旧筹码和资金流数据
         if needs_legacy_supplemental_data:
             async def _fetch_legacy_supplemental_tagged(stock_code, trade_time, limit):
-                trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+                trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
@@ -427,7 +427,7 @@ class IndicatorService:
         # 任务2: 获取新筹码(AdvancedChipMetrics)数据
         if needs_advanced_chip_data:
             async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
-                trade_time_dt = pd.to_datetime(trade_time) if trade_time else None
+                trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
                 # 假设您在 StrategiesDAO 中有一个方法来获取这个数据
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
@@ -555,7 +555,7 @@ class IndicatorService:
             print("    - [游资信号引擎] 无游资数据，返回空DataFrame。")
             return pd.DataFrame()
 
-        hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'])
+        hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'], utc=True)
         
         # 按交易日期聚合，计算每日的游资行为
         daily_summary = {}

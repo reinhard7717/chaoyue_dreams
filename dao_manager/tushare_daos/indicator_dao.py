@@ -222,7 +222,7 @@ class IndicatorDAO(BaseDAO):
                 logger.error(f"查询结果缺少 'trade_time' 列: {stock_code} {time_level_str}")
                 return None
             
-            df['trade_time'] = pd.to_datetime(df['trade_time'], errors='coerce')
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
             
@@ -445,7 +445,7 @@ class IndicatorDAO(BaseDAO):
         ).order_by('trade_time')
         df = pd.DataFrame(list(qs.values()))
         if not df.empty:
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
         return df
 
@@ -460,7 +460,7 @@ class IndicatorDAO(BaseDAO):
         ).order_by('trade_time')
         df = pd.DataFrame(list(qs.values()))
         if not df.empty:
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
         return df
 
@@ -488,7 +488,7 @@ class IndicatorDAO(BaseDAO):
         
         # 后续数据处理逻辑保持不变
         if not df.empty:
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'close': 'market_close'}, inplace=True)
             
@@ -526,7 +526,7 @@ class IndicatorDAO(BaseDAO):
             # 将查询结果转换为DataFrame
             df = pd.DataFrame.from_records(queryset)
             # 将trade_time转换为datetime类型以便合并
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df = df.set_index('trade_time')
             # 为列名添加前缀和后缀，以符合策略框架的规范
             df = df.rename(columns={

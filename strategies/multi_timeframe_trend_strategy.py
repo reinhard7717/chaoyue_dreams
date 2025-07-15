@@ -88,7 +88,7 @@ class MultiTimeframeTrendStrategy:
             raise ValueError("创建信号记录时必须提供 'trade_time'")
         
         # ▼▼▼ 强制时区校准为UTC ▼▼▼
-        ts = pd.to_datetime(trade_time_input)
+        ts = pd.to_datetime(trade_time_input, utc=True)
         # 检查时间是否是“天真”的
         if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
             # 如果是天真的，假定为本地时间并进行本地化，然后转为UTC
@@ -308,14 +308,14 @@ class MultiTimeframeTrendStrategy:
 
         # 创建一个以日期为键的日线记录查找字典，提高效率
         daily_lookup = {
-            pd.to_datetime(rec['trade_time']).date(): rec
+            pd.to_datetime(rec['trade_time'], utc=True).date(): rec
             for rec in daily_records if rec.get('entry_signal')
         }
         
         fused_dates = set()
 
         for conf_rec in confirmation_records:
-            conf_date = pd.to_datetime(conf_rec['trade_time']).date()
+            conf_date = pd.to_datetime(conf_rec['trade_time'], utc=True).date()
             
             # 如果在日线记录中找到了对应的日期
             if conf_date in daily_lookup:
@@ -550,7 +550,7 @@ class MultiTimeframeTrendStrategy:
         def get_trade_date(trade_time_value: Any) -> Optional[datetime.date]:
             try:
                 if isinstance(trade_time_value, str):
-                    return pd.to_datetime(trade_time_value).date()
+                    return pd.to_datetime(trade_time_value, utc=True).date()
                 elif hasattr(trade_time_value, 'date'):
                     return trade_time_value.date()
                 else:
@@ -1072,8 +1072,8 @@ class MultiTimeframeTrendStrategy:
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
-            
-            debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time']))
+
+            debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for record in debug_period_records:

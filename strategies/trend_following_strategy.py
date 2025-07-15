@@ -712,7 +712,7 @@ class TrendFollowStrategy:
                     'min_setup_score_to_trigger': 60, # 要求主升浪健康分至少达到60
                     'base_score': 240, 
                     'score_multiplier': 1.2, # 允许根据健康分进行加成
-                    'conditions': { 'MA_STATE_DIVERGING': 20, 'OSC_STATE_MACD_BULLISH': 15 } 
+                    'conditions': { 'MA_STATE_DIVERGING': 20, 'OSC_STATE_MACD_BULLISH': 15, 'MA_STATE_PRICE_ABOVE_SHORT_MA': 0 } 
                 }
             },
             {
@@ -728,6 +728,15 @@ class TrendFollowStrategy:
             {
                 'name': 'EARTH_HEAVEN_BOARD', 'cn_name': '【S+】地天板', 'family': 'SPECIAL_EVENT',
                 'type': 'event_driven', 'score': 380, 'side': 'left', 'comment': '市场情绪的极致反转。'
+            },
+            {
+                'name': 'FAULT_REBIRTH_S', 
+                'cn_name': '【S级】断层新生', 
+                'family': 'SPECIAL_EVENT',
+                'type': 'event_driven', 
+                'score': 350, 
+                'side': 'left', 
+                'comment': 'S级: 识别因成本断层导致的筹码结构重置，是极高价值的特殊事件信号。'
             },
         ]
 
@@ -1305,6 +1314,7 @@ class TrendFollowStrategy:
         # --- 1. 检查并准备所需列 ---
         # 定义所有此模块需要的源数据列
         required_cols = {
+            'peak_cost': 'CHIP_peak_cost_D', # 新增，用于计算断崖
             'concentration_90pct': 'CHIP_concentration_90pct_D',
             'concentration_slope': 'CHIP_concentration_90pct_slope_5d_D',
             'peak_cost_slope_21d': 'CHIP_peak_cost_slope_21d_D',
@@ -1319,6 +1329,27 @@ class TrendFollowStrategy:
             missing = [k for k, v in required_cols.items() if v not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states
+        
+        # --- 【新增模块】诊断“断层新生”事件 ---
+        p_fault = p.get('fault_rebirth_params', {})
+        if self._get_param_value(p_fault.get('enabled'), True):
+            cost_col = required_cols['peak_cost']
+            # 条件1: 成本断崖
+            cost_pct_change = df[cost_col].pct_change()
+            cost_drop_threshold = self._get_param_value(p_fault.get('cost_drop_threshold'), -0.10) # 成本一日内下跌超过10%
+            is_cost_cliff = cost_pct_change <= cost_drop_threshold
+            
+            # 条件2: 集中度斜率在此后转为负值（开始重新吸筹）
+            conc_slope_col = required_cols['concentration_slope']
+            is_re_accumulating = (conc_slope_col < 0) & (conc_slope_col.shift(1) > 0)
+            
+            # “断层新生”事件 = 成本断崖日，或断崖后首次出现重新吸筹信号的几日内
+            fault_rebirth_event = is_cost_cliff | is_re_accumulating.rolling(window=3).max().fillna(False)
+            states['CHIP_EVENT_FAULT_REBIRTH'] = fault_rebirth_event
+            if fault_rebirth_event.any():
+                print(f"          -> 【事件雷达】捕获到'断层新生'事件 {fault_rebirth_event.sum()} 天。{self._format_debug_dates(fault_rebirth_event)}")
+        else:
+            states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
 
         # --- 2. 定义核心主状态 (吸筹/拉升/派发) ---
         # 拉升状态: 筹码峰成本的中短期斜率均为正
@@ -1975,6 +2006,13 @@ class TrendFollowStrategy:
                 'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
             },
             {
+                'name': 'TREND_DECAY_WARNING', 'cn_name': '【高危】趋势衰减预警', 'family': 'TREND_RISK',
+                'score': 85,
+                'setup': ['RISK_SETUP_IN_UPTREND'], # 准备条件：必须是发生在一次上升趋势之后
+                'trigger': ['RISK_TRIGGER_TREND_DECAY'], # 触发条件：趋势衰减的复合信号
+                'comment': '在上升趋势后，价格首次有效跌破短期生命线(如EMA21)，且动能指标确认走弱，是趋势可能终结的重要信号。'
+            },
+            {
                 'name': 'CHIP_DISTRIBUTION_WARNING', 'cn_name': '【高危】筹码高位派发', 'family': 'DISTRIBUTION_RISK',
                 'score': 95,
                 'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'], # 准备条件：股价处于高位的“超涨区”
@@ -1996,31 +2034,6 @@ class TrendFollowStrategy:
                 'comment': '出现放量大阴线并跌破短期均线，是市场强度减弱的明确警告。'
             },
         ]
-
-    # ▼▼▼ 风险剧本的“水合”引擎 ▼▼▼
-    def _get_risk_playbook_definitions(self, df: pd.DataFrame, params: dict, risk_factors: Dict[str, pd.Series]) -> List[Dict]:
-        """
-        【V91.0 新增】风险剧本水合引擎
-        - 职责: 接收静态的风险剧本“蓝图”，并用动态计算出的“原子风险因子”进行“水合”。
-        """
-        hydrated_playbooks = deepcopy(self.risk_playbook_blueprints)
-        default_series = pd.Series(False, index=df.index)
-
-        for playbook in hydrated_playbooks:
-            name = playbook['name']
-            # 在这里，我们将原子风险因子作为“触发器”注入到风险剧本中
-            # 这种设计下，风险剧本的 'trigger' 就是一个原子风险信号
-            if name == 'UPTHRUST_DISTRIBUTION':
-                playbook['trigger'] = risk_factors.get('RISK_EVENT_UPTHRUST_DISTRIBUTION', default_series)
-            elif name == 'STRUCTURE_BREAKDOWN':
-                playbook['trigger'] = risk_factors.get('RISK_EVENT_STRUCTURE_BREAKDOWN', default_series)
-                pass
-            elif name == 'TOP_DIVERGENCE_WINDOW':
-                # 预留: playbook['trigger'] = risk_factors.get('RISK_STATE_DIVERGENCE_WINDOW', default_series)
-                pass
-            # ... 可以为其他风险剧本添加对应的触发器 ...
-            
-        return hydrated_playbooks
 
     # ▼▼▼ 风险剧本探针函数 ▼▼▼
     def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):

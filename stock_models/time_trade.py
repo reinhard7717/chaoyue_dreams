@@ -1284,7 +1284,7 @@ class StockTimeTrade(models.Model):
             df = pd.DataFrame(data_list)
             if df.empty:
                 continue
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             for col in ['open_price', 'high_price', 'low_price', 'close_price', 'turnover']:
                 if col in df.columns:
