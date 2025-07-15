@@ -342,14 +342,21 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V85.0 波段跟踪版】
-        - 核心升级: 不再基于零散的信号列，而是基于波段跟踪模拟器生成的 'trade_action' 列来创建记录。
-                    这使得每一条记录都代表一个明确的、有状态的交易动作（入场、减仓、清仓）。
+        【V120.8 效率优化与情报固化版】
+        - 核心升级 1 (效率): 放弃了对整个row进行序列化的方式来创建context_snapshot，
+                           改为只提取少数关键指标（如得分、风险、平台价），大幅减少了数据处理量和JSON大小。
+        - 核心升级 2 (情报固化): 将日线级别计算出的 'PLATFORM_PRICE_STABLE' (稳固平台价格)
+                                 正式写入数据库记录，键为 'stable_platform_price'。
+        - 继承逻辑: 完全保留了V85.0版本中提取中文剧本、激活的Setup等优秀功能。
+        - 优化: 代码结构更清晰，循环体更轻量，可读性更高。
         """
-        if 'signal_entry' not in result_df.columns or 'exit_signal_code' not in result_df.columns:
+        # 检查关键列是否存在，如果不存在则提前返回，避免后续错误
+        required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
+        if not all(col in result_df.columns for col in required_cols):
+            print(f"    - [错误] prepare_db_records: result_df 中缺少关键列: {required_cols}，无法生成记录。")
             return []
         
-        # 筛选出所有有信号的日子（买入或卖出）
+        # 步骤1: 筛选出所有有明确信号的K线，并复制以避免SettingWithCopyWarning
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
         ].copy()
@@ -357,49 +364,59 @@ class TrendFollowStrategy:
         if df_with_signals.empty:
             return []
         
+        # 步骤2: 在循环外预先准备好不会变化的数据，提升效率
         records = []
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
-        name_param = strategy_info_block.get('name')
-        strategy_name = self._get_param_value(name_param, 'unknown_strategy')
-        timeframe = result_timeframe
+        strategy_name = self._get_param_value(strategy_info_block.get('name'), 'unknown_strategy')
         
+        # 创建剧本英文名到中文名的映射字典
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         
+        # 检查平台价格列是否存在
+        has_platform_col = 'PLATFORM_PRICE_STABLE' in df_with_signals.columns
+
+        # 步骤3: 遍历信号行，创建记录字典
         for timestamp, row in df_with_signals.iterrows():
-            trade_action = row.get('trade_action')
-            
-            # 根据交易动作，智能判断是入场还是出场信号
-            is_entry = trade_action == 'ENTRY'
-            is_exit = trade_action in ['PARTIAL_EXIT', 'FULL_EXIT']
-            
+            # 提取激活的剧本（保留V85.0的精细化提取逻辑）
             triggered_playbooks_list = []
-            triggered_playbooks_cn_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks_with_scores = self._last_score_details_df.loc[timestamp]
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
+                # 排除所有非剧本的加分项/状态项
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
-                triggered_playbooks_cn_list = [ playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list ]
-            
-            active_setups = [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True]
-            context_dict = {k: v for k, v in row.items() if pd.notna(v)}
-            sanitized_context = sanitize_for_json(context_dict)
-            pct_change = row.get('pct_change_D', row.get('pct_change', 0.0))
-            
+
+            # 【情报固化】提取平台价格
+            platform_price = None
+            if has_platform_col and pd.notna(row['PLATFORM_PRICE_STABLE']):
+                platform_price = row['PLATFORM_PRICE_STABLE']
+
+            # 【效率优化】创建精简的上下文快照
+            context_snapshot = {
+                'close': row.get(f'close_{result_timeframe}'),
+                'entry_score': row.get('entry_score', 0.0),
+                'risk_score': row.get('risk_score', 0.0), # 假设风险分已存在
+                'stable_platform_price': platform_price, # 将平台价也加入快照
+            }
+
+            # 构建最终的记录字典
             record = {
                 "stock_code": stock_code,
-                "trade_time": sanitize_for_json(timestamp),
-                "timeframe": timeframe,
+                "trade_time": timestamp,
+                "timeframe": result_timeframe,
                 "strategy_name": strategy_name,
-                "close_price": sanitize_for_json(row.get('close_D')),
-                "pct_change": sanitize_for_json(row.get('pct_change_D', 0.0)),
-                "entry_score": sanitize_for_json(row.get('entry_score', 0.0)),
+                "close_price": row.get(f'close_{result_timeframe}'),
+                "pct_change": row.get(f'pct_change_{result_timeframe}', 0.0),
+                "entry_score": row.get('entry_score', 0.0),
                 "entry_signal": bool(row.get('signal_entry', False)),
-                "exit_signal_code": int(row.get('exit_signal_code', 0)), # 确保打包
+                "exit_signal_code": int(row.get('exit_signal_code', 0)),
+                # 数据库模型字段
+                "stable_platform_price": platform_price,
+                # 用于分析和展示的JSON字段
                 "triggered_playbooks": triggered_playbooks_list,
-                "triggered_playbooks_cn": triggered_playbooks_cn_list,
-                "active_setups": active_setups,
-                "context_snapshot": sanitized_context,
+                "triggered_playbooks_cn": [playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list],
+                "active_setups": [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True],
+                "context_snapshot": sanitize_for_json(context_snapshot),
             }
             records.append(record)
         return records

@@ -164,7 +164,6 @@ class MultiTimeframeTrendStrategy:
         
         return "\n".join(report_parts)
 
-    # ... (从 _discover_take_profit_indicators 到 _run_tactical_engine 的所有函数保持不变) ...
     def _discover_take_profit_indicators(self, config: Dict) -> Dict:
         discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
         tp_params = config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
@@ -651,15 +650,12 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.33 数据流修复版】
-        - 核心修正: 确保战术引擎的输出(daily_analysis_df)与输入的日线数据(df_daily_prepared)
-                    拥有完全相同的时间索引，即使最新几天没有计算出任何分数。
-        - 新逻辑:
-          1. 在调用战术引擎后，获取其分析结果 daily_analysis_df。
-          2. 使用原始日线数据的索引，对 daily_analysis_df 进行 .reindex() 操作。
-          3. 这会强制为缺失的日期（如7月14日）补上空行，确保 self.daily_analysis_df
-             的时间范围与分钟线数据保持一致。
-        - 收益: 解决了因日线分析结果只到7月11日，导致后续分钟线引擎无法找到当天“预备日”的根本问题。
+        【V120.7 情报下放版】
+        - 核心升级: 在日线战术引擎运行完毕后，立刻将计算出的关键日线级情报
+                    (特别是 'PLATFORM_PRICE_STABLE')，通过 merge_asof 的方式，
+                    “下放”并合并到 all_dfs 中的所有分钟级别 DataFrame 中。
+        - 收益: 确保了所有后续的盘中引擎（如风险预警、共振交易）都能访问到
+                最新的、最关键的日线级战略支撑/压力位信息。
         """
         # 步骤1: 直接使用已经融合了战略信号的日线数据
         df_daily_prepared = all_dfs.get('D')
@@ -673,17 +669,13 @@ class MultiTimeframeTrendStrategy:
         
         if daily_analysis_df is None or daily_analysis_df.empty:
             print("--- [引擎2-调试] 战术引擎返回了空的分析结果。")
-            self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index) # 创建一个带索引的空df
+            self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
             return []
         
         print(f"--- [引擎2-调试] 战术引擎原始分析结果时间范围到: {daily_analysis_df.index.max()}")
 
-        # ▼▼▼【代码修改 V117.33】: 强制对齐日线分析结果的索引 ▼▼▼
-        # 使用原始日线数据的索引来“校准”分析结果的索引。
-        # 这能确保即使最新几天没有生成分数，self.daily_analysis_df 中也存在这些日期行（值为NaN）。
-        # 这是让后续分钟线引擎能够找到当天“预备日”的关键。
+        # 步骤3: 强制对齐日线分析结果的索引 (逻辑不变)
         self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
-        # 对于 reindex 后产生的 NaN，用 0 填充 entry_score，用 False 填充布尔列，以避免后续操作出错
         if 'entry_score' in self.daily_analysis_df.columns:
             self.daily_analysis_df['entry_score'].fillna(0, inplace=True)
         bool_cols = self.daily_analysis_df.select_dtypes(include='bool').columns
@@ -691,13 +683,37 @@ class MultiTimeframeTrendStrategy:
             self.daily_analysis_df[col].fillna(False, inplace=True)
         
         print(f"--- [引擎2-调试] reindex后，最终 self.daily_analysis_df 时间范围到: {self.daily_analysis_df.index.max()}")
-        # ▲▲▲【代码修改 V117.33】▲▲▲
 
-        # 步骤4: 调用波段跟踪模拟器，生成包含交易动作的最终DataFrame
-        # 注意：这里传递原始的、没有补全NaN的 daily_analysis_df，因为模拟器可能不需要未来的空行
+        # --- 【核心新增】情报下放：将日线关键信息合并到分钟线 ---
+        # 定义需要下放到分钟线引擎的日线级情报列
+        cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
+        # 筛选出实际存在于日线分析结果中的列
+        existing_cols_to_broadcast = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
+        
+        if existing_cols_to_broadcast:
+            print(f"    -> [情报下放] 准备将日线情报 {existing_cols_to_broadcast} 下发至分钟线...")
+            # 创建一个只包含待下放情报的DataFrame
+            broadcast_df = self.daily_analysis_df[existing_cols_to_broadcast].copy()
+            
+            # 遍历所有时间周期的数据
+            for tf, df_intraday in all_dfs.items():
+                # 只对分钟线数据进行操作 (避免重复操作日线和周线)
+                if tf.isdigit():
+                    # 使用 merge_asof 将日线情报合并到分钟线
+                    all_dfs[tf] = pd.merge_asof(
+                        left=df_intraday.sort_index(),
+                        right=broadcast_df.sort_index(),
+                        left_index=True,
+                        right_index=True,
+                        direction='backward' # 使用前一个交易日的日线数据填充当天所有分钟线
+                    )
+                    print(f"      - 情报已成功注入 {tf} 分钟数据。")
+        # --- 情报下放完成 ---
+
+        # 步骤4: 调用波段跟踪模拟器 (逻辑不变)
         df_with_tracking = self.tactical_engine.simulate_wave_tracking(daily_analysis_df, self.tactical_config)
         
-        # 步骤5: 使用带有交易动作的DataFrame来准备数据库记录
+        # 步骤5: 使用带有交易动作的DataFrame来准备数据库记录 (逻辑不变)
         return self.tactical_engine.prepare_db_records(stock_code, df_with_tracking, atomic_signals, params=self.tactical_config, result_timeframe='D')
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:

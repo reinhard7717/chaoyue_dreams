@@ -661,6 +661,7 @@ class TrendFollowStrategySignalLog(models.Model):
     # 解释: 使用DecimalField替代FloatField以保证金融数据计算的精确性。
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
     entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
+    stable_platform_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="[趋势策略]识别出的稳固筹码平台价格")
     
     # --- 信号类型 (细分) ---
     entry_signal = models.BooleanField(default=False, help_text="是否为最终的买入信号 (得分超过阈值)")
