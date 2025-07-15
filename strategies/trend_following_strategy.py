@@ -906,80 +906,88 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V87.0 最终版】
-        - 核心革命: 引入“宏观背景”预计算，并为“尖刀连”剧本豁免side检查，彻底解决“交接盲区”问题。
-        - 1. 预计算宏观背景: 在计分前，预先计算 'CONTEXT_RECENT_REVERSAL_SIGNAL' 状态，为“右侧萌芽”剧本提供正确的战场判断依据。
-        - 2. 豁免Side检查: 为“右侧萌芽”剧本特许在55日均线下方作战的权力，使其能真正填补战术真空。
-        - 3. 状态记忆隔离: 继承V85.4的逻辑，通过'allow_memory'属性，对不同剧本应用不同的状态检查模式。
-        - 这是计分引擎在经历了多次迭代后，达到的逻辑最完备、最符合实战的最终形态。
+        【V149.0 脑梗疏通版】
+        - 核心重构: 修复了计分引擎中两个并存的、导致在关键反转点(如07-09)失声的致命缺陷。
+        - 缺陷1 (“幽灵剧本”): 引擎完全缺失处理 `type: 'precondition_score'` 剧本的逻辑。
+        - 缺陷2 (“健康悖论”): `HEALTHY_MARKUP_A` 等剧本要求“整体趋势健康”作为前置条件，
+                           导致在趋势反转的当天，永远无法满足自身触发条件。
+        - 新逻辑:
+          1. [补全逻辑] 新增了 `elif playbook_type == 'precondition_score':` 分支，
+             让能量压缩、N字板等剧本能够被正确计分。
+          2. [打破悖论] 引入“暴力反转”(`trigger_violent_reversal`)作为最高优先级战术指令。
+             当它触发时，直接豁免 `HEALTHY_MARKUP_A` 等剧本对“健康分”的前置要求，
+             确保在战局转折点，系统能够果断出击。
         """
-        # ▼▼▼ 更新版本号和注释 ▼▼▼
-        print("    - [计分引擎 V87.0 最终版] 启动...")
+        print("    - [计分引擎 V149.0 脑梗疏通版] 启动...")
         
         default_series = pd.Series(False, index=df.index)
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
 
-        # ▼▼▼ 预计算“近期有左侧信号”的宏观背景 ▼▼▼
-        # 步骤0: 预计算宏观背景，并注入 atomic_states，供水合引擎使用
+        # --- 步骤0: 预计算宏观背景与“战术覆盖”触发器 ---
         temp_reversal_score = pd.Series(0.0, index=df.index)
-        # 暂时只考虑“资本逆行者”作为有效的左侧信号源
         reversal_setup = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
         reversal_trigger = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
-        temp_reversal_score[reversal_setup & reversal_trigger] = 230 # 给予一个基础分
-        
-        # 如果近期（context_window内）出现过得分 > 200 的左侧信号，则认为背景成立
+        temp_reversal_score[reversal_setup & reversal_trigger] = 230
         had_recent_reversal = temp_reversal_score.rolling(window=context_window, min_periods=1).max() > 200
         atomic_states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
-        print(f"      -> 宏观背景'近期有左侧信号'诊断完成，共激活 {had_recent_reversal.sum()} 天。")
-
+        
+        p_violent = self._get_params_block(params, 'trigger_event_params', {}).get('violent_reversal_trigger', {})
+        pct_change_thresh = self._get_param_value(p_violent.get('min_pct_change'), 0.04)
+        vol_multiplier = self._get_param_value(p_violent.get('volume_multiplier'), 2.0)
+        is_strong_rally = df['pct_change_D'] > pct_change_thresh
+        is_huge_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * vol_multiplier
+        trigger_violent_reversal = is_strong_rally & is_huge_volume
+        
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
         
         # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
         print("      -> 步骤1: 向量化预计算所有基础分和加分项...")
         base_scores_df = pd.DataFrame(index=df.index)
-        bonus_scores_df = pd.DataFrame(index=df.index) # 存储所有加分项的总和
+        bonus_scores_df = pd.DataFrame(index=df.index)
 
         for playbook in playbook_definitions:
             name = playbook['name']
             rules = playbook.get('scoring_rules', {})
             playbook_type = playbook.get('type')
             
-            # 通用过滤器
             trigger_mask = playbook.get('trigger', default_series)
-            
-            # ▼▼▼ 为“尖刀连”豁免side检查 ▼▼▼
-            # 核心修正：对于“右侧萌芽”剧本，我们不检查side_mask，因为它被特许在55均线下作战
-            if name == 'TREND_EMERGENCE_B_PLUS':
-                side_mask = pd.Series(True, index=df.index)
-            else:
-                side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
+            side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
 
-            setup_mask = pd.Series(True, index=df.index) # 默认为True
+            setup_mask = pd.Series(True, index=df.index)
             if playbook_type == 'setup':
-                # 对于 setup 类型，它的 setup 条件已经在水合时被计算好了
                 setup_mask = playbook.get('setup', default_series)
+            
             elif playbook_type == 'setup_score':
                 min_score_req = rules.get('min_setup_score_to_trigger', 0)
                 if min_score_req > 0:
                     setup_score_series = playbook.get('setup_score_series', default_series)
-                    allow_memory = playbook.get('allow_memory', True) # 默认为允许记忆
+                    allow_memory = playbook.get('allow_memory', True)
                     if allow_memory:
-                        # 对于允许记忆的剧本（如主升浪），检查近期最高分
                         max_score_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
-                        setup_mask = max_score_in_context >= min_score_req
+                        # 【核心修正2: 打破悖论】如果发生暴力反转，则豁免对健康分的要求
+                        setup_mask = (max_score_in_context >= min_score_req) | trigger_violent_reversal
                     else:
-                        # 对于不允许记忆的剧本（如投降坑），只检查当天分数
                         setup_mask = setup_score_series >= min_score_req
             
+            # 【核心修正1: 补全逻辑】为 'precondition_score' 类型增加处理分支
+            elif playbook_type == 'precondition_score':
+                min_score_req = rules.get('min_score_to_trigger', 0)
+                # 这种类型需要动态计算一个“前提分”
+                precondition_score = pd.Series(0.0, index=df.index)
+                # 累加所有满足的条件分
+                precondition_score += sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
+                # 累加所有满足的准备分加成
+                precondition_score += sum(setup_scores.get(f'SETUP_SCORE_{s}', default_series).rolling(window=context_window, min_periods=1).max().fillna(0) * v for s, v in rules.get('setup_bonus', {}).items())
+                # 只有当动态计算的“前提分”满足最低要求时，setup_mask才为True
+                setup_mask = precondition_score >= min_score_req
+
             valid_mask = trigger_mask & side_mask & setup_mask
 
-            # 计算基础分 (只在有效时才有分)
             base_score = rules.get('base_score', playbook.get('score', 0))
             base_scores_df[name] = valid_mask.astype(int) * base_score
 
-            # 计算该剧本的所有加分项总和
             playbook_bonus = pd.Series(0.0, index=df.index)
             if rules:
                 condition_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
@@ -987,18 +995,16 @@ class TrendFollowStrategy:
                 setup_bonus = sum(setup_scores.get(f'SETUP_SCORE_{s}', default_series).rolling(window=context_window, min_periods=1).max().fillna(0) * v for s, v in rules.get('setup_bonus', {}).items())
                 trigger_bonus = sum(trigger_events.get(s, default_series).astype(int) * v for s, v in rules.get('trigger_bonus', {}).items())
                 
-                # 针对 setup_score 的特殊乘数加成
                 setup_multiplier_bonus = pd.Series(0.0, index=df.index)
                 if playbook_type == 'setup_score':
                     setup_score_series = playbook.get('setup_score_series', default_series)
                     max_setup_in_context = setup_score_series.rolling(window=context_window, min_periods=1).max()
                     multiplier = rules.get('score_multiplier', 1.0)
-                    # 基础分已在base_score中计算，这里只计算乘数带来的额外加成
                     setup_multiplier_bonus = max_setup_in_context * (multiplier - 1) if multiplier > 1 else pd.Series(0.0, index=df.index)
 
                 playbook_bonus = condition_bonus + event_bonus + setup_bonus + trigger_bonus + setup_multiplier_bonus
             
-            bonus_scores_df[name] = playbook_bonus * valid_mask # 只有有效时，加分项才被考虑
+            bonus_scores_df[name] = playbook_bonus * valid_mask
 
         # ==================== 步骤2: 向量化执行“家族继承”逻辑 ====================
         print("      -> 步骤2: [向量化重构] 执行“家族继承”...")
@@ -1021,8 +1027,6 @@ class TrendFollowStrategy:
             final_family_scores[family_name] = winner_base_scores + family_bonus_pool
             
             winner_playbook_names = family_base_scores.idxmax(axis=1)
-            
-            # ▼▼▼ 核心修复 - 为Series锚定一个名字 ▼▼▼
             winner_playbook_names.name = 'winner_playbook' 
 
             has_score_mask = final_family_scores[family_name] > 0
@@ -1030,11 +1034,8 @@ class TrendFollowStrategy:
             if has_score_mask.any():
                 df_temp = pd.concat([winner_playbook_names[has_score_mask], final_family_scores.loc[has_score_mask, family_name]], axis=1)
                 
-                # ▼▼▼ 在apply函数中使用锚定的名字 ▼▼▼
                 def assign_score(row):
-                    # 使用 'winner_playbook' 这个明确的列名来获取优胜者
                     winner_name = row['winner_playbook']
-                    # 只有当 winner_name 有效时才进行赋值
                     if pd.notna(winner_name):
                         score_details_df.loc[row.name, winner_name] = row[family_name]
 
@@ -1042,38 +1043,10 @@ class TrendFollowStrategy:
 
         final_score = final_family_scores.sum(axis=1)
 
-        # ==================== 步骤3: 填充细节并进行日志输出 ====================
-        # print("      -> 步骤3: 生成最终得分详情...")
-
-        # print("\n--- 剧本触发详情 (家族继承模式) ---")
-        # probe_start_date = self._get_param_value(params.get('probe_start_date'), '2025-06-01')
-        # key_dates = df.index[final_score > 0]
-        # key_dates = key_dates[key_dates >= probe_start_date]
-
-        # # 准备剧本到家族的映射，用于日志输出
-        # playbook_to_family_map = {p['name']: p.get('family', 'N/A') for p in playbook_definitions}
-
-        # for date in key_dates:
-        #     print(f"{date.strftime('%Y-%m-%d')} | 最终总分: {final_score.loc[date]:.0f}")
-        #     # 核心修复：直接从 score_details_df 中获取当天有得分的剧本
-        #     winning_playbooks = score_details_df.loc[date][score_details_df.loc[date] > 0]
-        #     if winning_playbooks.empty:
-        #         print("             -> [警告] 当天有总分但未找到具体的剧本得分详情，请检查计分逻辑。")
-        #         continue
-        #     for name, score in winning_playbooks.items():
-        #         playbook_info = next((p for p in playbook_definitions if p['name'] == name), None)
-        #         if playbook_info:
-        #             cn_name = playbook_info.get('cn_name', name)
-        #             family = playbook_to_family_map.get(name, 'N/A')
-        #             # 注意：在新的逻辑下，我们无法轻易拆分“基础分”和“加成”，因为加成是家族共享的。
-        #             # 我们直接报告归属于该剧本的“家族总分”。
-        #             print(f"             -> 家族[{family}]主剧本: '{cn_name}', 贡献家族总分:{score:.0f}")
-        # print("========================= 全局剧本探针分析结束 =========================")
-
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"\n--- [计分引擎 V113.1] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"\n--- [计分引擎 V149.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
