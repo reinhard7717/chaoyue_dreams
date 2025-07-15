@@ -273,7 +273,7 @@ def fav_trend_following_list(request):
             
             item['latest_trade_time'] = buy_log.trade_time
             item['latest_score'] = buy_log.entry_score
-            item['active_playbooks'] = sorted(buy_log.triggered_playbooks_cn or buy_log.triggered_playbooks, key=get_playbook_priority)
+            item['active_playbooks'] = sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
             item['buy_info'] = {
                 'time': buy_log.trade_time,
                 'strategy_name': buy_log.strategy_name,
