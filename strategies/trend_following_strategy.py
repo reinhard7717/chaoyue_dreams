@@ -1853,68 +1853,73 @@ class TrendFollowStrategy:
 
     def _diagnose_box_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V57.0 诊断模块 - 箱体状态诊断引擎】
+        【V147.0 实战化地形识别版】
+        - 核心重构: 彻底废弃了过于学术化、无法识别平坦整理区的 find_peaks 算法。
+        - 新逻辑:
+          采用更贴近实战的“振幅比率”法。只要股价在过去N天内的振幅
+          (rolling_high - rolling_low) / rolling_low 小于一个阈值(如5%)，
+          就认为形成了一个有效的“战术平台”或“箱体”。
+        - 收益: 能够精准识别各种形态的盘整区，特别是像06-25至06-27日那种
+                极其平坦的“空中加油”平台，从根本上解决了因此类平台无法被识别
+                而错失突破信号的问题。
         """
-        # print("        -> [诊断模块] 正在执行箱体状态诊断...")
+        print("        -> [诊断模块 V147.0] 正在执行箱体状态诊断(实战化地形识别版)...")
         states = {}
+        default_series = pd.Series(False, index=df.index)
         box_params = self._get_params_block(params, 'dynamic_box_params', {})
         if not self._get_param_value(box_params.get('enabled'), False) or df.empty:
             print("          -> 箱体诊断模块被禁用或数据为空，跳过。")
             return states
-        peak_distance = self._get_param_value(box_params.get('peak_distance'), 10)
-        peak_prominence = self._get_param_value(box_params.get('peak_prominence'), 0.02)
-        price_range = df['high_D'].max() - df['low_D'].min()
-        absolute_prominence = price_range * peak_prominence if price_range > 0 else 0.01
-        peak_indices, _ = find_peaks(df['close_D'], distance=peak_distance, prominence=absolute_prominence)
-        trough_indices, _ = find_peaks(-df['close_D'], distance=peak_distance, prominence=absolute_prominence)
-        last_peak_price = pd.Series(np.nan, index=df.index)
-        if len(peak_indices) > 0:
-            last_peak_price.iloc[peak_indices] = df['close_D'].iloc[peak_indices]
-        last_peak_price.ffill(inplace=True)
-        last_trough_price = pd.Series(np.nan, index=df.index)
-        if len(trough_indices) > 0:
-            last_trough_price.iloc[trough_indices] = df['close_D'].iloc[trough_indices]
-        last_trough_price.ffill(inplace=True)
-        box_top = last_peak_price
-        box_bottom = last_trough_price
-        is_valid_box = (box_top.notna()) & (box_bottom.notna()) & (box_top > box_bottom)
+
+        # --- 新逻辑参数 ---
+        lookback_window = self._get_param_value(box_params.get('lookback_window'), 8)
+        max_amplitude_ratio = self._get_param_value(box_params.get('max_amplitude_ratio'), 0.05) # 振幅小于5%
+
+        # --- 步骤1: 计算滚动窗口内的高点、低点和振幅 ---
+        rolling_high = df['high_D'].rolling(window=lookback_window).max()
+        rolling_low = df['low_D'].rolling(window=lookback_window).min()
+        
+        # 计算振幅比率，分母使用rolling_low避免除以0，且更符合涨跌幅定义
+        amplitude_ratio = (rolling_high - rolling_low) / rolling_low.replace(0, np.nan)
+
+        # --- 步骤2: 识别有效的“箱体”/“平台” ---
+        # 只要近期振幅足够小，就认为是一个有效的箱体
+        is_valid_box = (amplitude_ratio < max_amplitude_ratio).fillna(False)
+        
+        # 箱体的顶部和底部就是滚动窗口的高点和低点
+        box_top = rolling_high
+        box_bottom = rolling_low
+
+        # --- 步骤3: 定义突破与跌破事件 (逻辑不变，但基于新的箱体定义) ---
         was_below_top = df['close_D'].shift(1) <= box_top.shift(1)
         is_above_top = df['close_D'] > box_top
         states['BOX_EVENT_BREAKOUT'] = is_valid_box & is_above_top & was_below_top
-        
-        # signal = states['BOX_EVENT_BREAKOUT']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> '箱体向上突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         was_above_bottom = df['close_D'].shift(1) >= box_bottom.shift(1)
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
-        # signal = states['BOX_EVENT_BREAKDOWN']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> '箱体向下突破' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
+        # --- 步骤4: 诊断“健康箱体盘整”状态 (逻辑不变) ---
         ma_params = self._get_params_block(params, 'ma_state_params', {})
         mid_ma_period = self._get_param_value(ma_params.get('mid_ma'), 55)
         mid_ma_col = f"EMA_{mid_ma_period}_D"
+        
         is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         if mid_ma_col in df.columns:
             box_midpoint = (box_top + box_bottom) / 2
             is_box_above_ma = box_midpoint > df[mid_ma_col]
             states['BOX_STATE_HEALTHY_CONSOLIDATION'] = is_valid_box & is_in_box & is_box_above_ma
         else:
+            # 如果没有参考均线，则只要在箱体内就算
             states['BOX_STATE_HEALTHY_CONSOLIDATION'] = is_valid_box & is_in_box
         
-        # signal = states['BOX_STATE_HEALTHY_CONSOLIDATION']
-        # dates_str = self._format_debug_dates(signal)
-        # print(f"          -> '健康箱体盘整' 状态诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
+        # --- 步骤5: 清理与返回 ---
         for key in states:
-            if states[key] is None:
+            if key not in states or states[key] is None:
                 states[key] = pd.Series(False, index=df.index)
             else:
                 states[key] = states[key].fillna(False)
-        # print("        -> [诊断模块] 箱体状态诊断执行完毕。")
+        
         return states
 
     def _diagnose_risk_factors(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -2293,88 +2298,108 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V115.1 武器补全版】
-        - 核心修复: 解决了因风险触发器定义不完整，导致 'ATTACK_FAILED_DISTRIBUTION' 剧本永不触发的问题。
-                    本版本同步了最新的触发器定义逻辑，新增了对 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' 的计算。
-                    这个触发器专门用于捕捉“当天创近期新高但最终收阴”的经典派发形态，是风险引擎的关键武器。
+        【V146.0 风险模型校准版】
+        - 核心修复: 彻底重写了 'RISK_TRIGGER_BOUNCE_FAILED_CANDLE' (上攻失败) 的触发逻辑。
+                    旧逻辑过于敏感，会将健康的突破后盘整误判为高风险事件。
+        - 新逻辑:
+          1. (上攻失败) 不仅要求创近期新高后收阴，还必须有足够长的上影线，代表明确的卖压。
+          2. (趋势衰减) 定义为收盘价有效跌破短期生命线(如EMA21)，且动能指标确认走弱。
+          3. (结构破位) 定义为创近期新低，并伴有下跌动能确认。
+          4. (平台破位) 定义为收盘价有效跌破已形成的稳定筹码平台。
+        - 收益: 大幅提升了风险模型的准确性，使其能精准识别真实风险，避免因“过度防御”
+                而错失类似06-24日的有效突破信号。
         """
-        print("    - [风险触发事件定义中心 V115.1 武器补全版] 启动...")
+        print("    - [风险触发事件定义中心 V146.0 风险模型校准版] 启动...")
         triggers = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
 
         triggers['RISK_TRIGGER_ANY'] = pd.Series(True, index=df.index)
 
-        # ▼▼▼ 平台破位风险触发器 ▼▼▼
-        platform_price_col = 'PLATFORM_PRICE_STABLE'
+        # --- 触发器1: 平台破位 (Platform Breakdown) ---
+        platform_price_col = 'PLATFORM_PRICE_STABLE' # 修正了此处可能存在的语法错误
         if platform_price_col in df.columns:
-            # 定义“有效跌破”：收盘价低于平台价格
-            is_breakdown = df['close_D'] < df[platform_price_col]
-            # 确认破位：前一天的收盘价还在平台之上或附近
-            was_above_yesterday = df['close_D'].shift(1).fillna(df[platform_price_col]) >= df[platform_price_col]
-            triggers['RISK_TRIGGER_PLATFORM_BREAKDOWN'] = is_breakdown & was_above_yesterday
+            # 价格有效跌破已形成的稳定平台价格
+            triggers['RISK_TRIGGER_PLATFORM_BREAKDOWN'] = df['close_D'] < df[platform_price_col]
         else:
             triggers['RISK_TRIGGER_PLATFORM_BREAKDOWN'] = default_series
 
-        # --- 信号1: 冲高回落相关 (Upthrust & Rejection) ---
-        p_attack = exit_params.get('upthrust_distribution_params', {})
-        lookback_period = self._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
-        
-        # 原子条件: 当天是否创了近期(lookback_period)新高
-        is_upthrust_day = df['high_D'] > df['high_D'].shift(1).rolling(window=lookback_period).max()
-        # 原子条件: 当天是否收阴线
-        is_rejection_candle = df['close_D'] < df['open_D']
-        # 原子条件: 当天是否吞没了昨日开盘价 (更强的拒绝信号)
-        is_engulfing_rejection = df['close_D'] < df['open_D'].shift(1)
-        
-        # 预备信号: 标记所有冲高的日子，供后续使用
-        triggers['SETUP_UPTHRUST_WATCH'] = is_upthrust_day
-        
-        # 触发器1: 冲高回落结构 (次日确认) - 原有逻辑
-        # 适用于前一天冲高，今天直接低开低走确认的场景
-        triggers['RISK_TRIGGER_UPTHRUST_REJECTION'] = is_rejection_candle & is_engulfing_rejection & is_upthrust_day.shift(1).fillna(False)
-        
-        # ▼▼▼ 新增“雷神之锤”触发器 ▼▼▼
-        # 触发器2: 上攻失败K线 (当日确认) - 新增逻辑
-        # 适用于当天创下新高，但被强大卖盘砸下，最终收成阴线。这是最经典的派发信号之一。
-        triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_upthrust_day & is_rejection_candle
-        # print(f"      -> '上攻失败K线(当日确认)' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'])}")
-
-        # --- 信号2: 急跌回调 (Sharp Pullback) ---
-        p_pullback = exit_params.get('structure_breakdown_params', {})
-        ma_period_pullback = self._get_param_value(p_pullback.get('breakdown_ma_period'), 21)
-        min_pct = self._get_param_value(p_pullback.get('min_pct_change'), -0.03)
-        ma_col_pullback = f'EMA_{ma_period_pullback}_D'
-        if ma_col_pullback in df.columns:
-            cond1 = df['pct_change_D'] < min_pct
-            cond2 = df['volume_D'] > df['volume_D'].shift(1)
-            cond3 = df['close_D'] < df[ma_col_pullback]
-            sharp_pullback_candle = cond1 & cond2 & cond3
+        # --- 触发器2: 上攻失败/冲高回落 (Bounce Failed) ---
+        p_failed_bounce = exit_params.get('bounce_failed_candle_params', {})
+        if self._get_param_value(p_failed_bounce.get('enabled'), True):
+            lookback = self._get_param_value(p_failed_bounce.get('lookback_days'), 5)
             
-            triggers['SETUP_SHARP_PULLBACK_WATCH'] = sharp_pullback_candle
-            triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = sharp_pullback_candle
-            # print(f"      -> '急跌回调K线' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'])}")
+            # 条件A: 当天创下N日新高
+            is_new_high_today = df['high_D'] >= df['high_D'].shift(1).rolling(window=lookback, min_periods=min(lookback, 2)).max()
+            
+            # 条件B: 当天是阴线 (收盘价低于开盘价)
+            is_red_candle = df['close_D'] < df['open_D']
+            
+            # 条件C: 具有明显的上影线 (上影线长度占总振幅的比例 > 阈值)
+            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            # 健壮地计算上影线长度
+            upper_shadow_len = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
+            upper_shadow_ratio = upper_shadow_len / body_range
+            min_shadow_ratio = self._get_param_value(p_failed_bounce.get('min_upper_shadow_ratio'), 0.4)
+            has_long_upper_shadow = upper_shadow_ratio > min_shadow_ratio
 
-        # --- 信号3: 真实结构破位 (True Structure Breakdown) ---
-        p_true_break = exit_params.get('true_breakdown_params', {})
-        breakdown_lookback = self._get_param_value(p_true_break.get('lookback_period'), 20)
-        conf_ma_period = self._get_param_value(p_true_break.get('confirmation_ma_period'), 21)
-        conf_days = self._get_param_value(p_true_break.get('confirmation_lookback_days'), 2)
-        slope_period = self._get_param_value(p_true_break.get('slope_lookback_period'), 5)
-        slope_thresh = self._get_param_value(p_true_break.get('required_negative_slope'), -0.01)
-        conf_ma_col = f'EMA_{conf_ma_period}_D'
-        slope_col = f'SLOPE_{slope_period}_close_D'
-        if conf_ma_col in df.columns and slope_col in df.columns:
-            is_breaking_low = df['close_D'] < df['low_D'].shift(1).rolling(window=breakdown_lookback).min()
-            is_momentum_down = df[slope_col] < slope_thresh
-            is_persistently_weak = (df['close_D'] < df[conf_ma_col]).rolling(window=conf_days).sum() >= conf_days
-            is_in_breakdown_state = is_breaking_low & is_momentum_down & is_persistently_weak
-            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_in_breakdown_state & ~is_in_breakdown_state.shift(1).fillna(False)
-            # print(f"      -> '真实结构破位' 事件定义完成。{self._format_debug_dates(triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'])}")
+            # 最终触发器 = 创了新高 AND 是阴线 AND 有长上影线
+            triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = is_new_high_today & is_red_candle & has_long_upper_shadow
         else:
-            triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
+            triggers['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'] = default_series
 
-        print("    - [风险触发事件定义中心 V115.1] 所有触发事件定义完成。")
+        # --- 触发器3: 趋势衰减 (Trend Decay) ---
+        p_decay = exit_params.get('trend_decay_params', {})
+        if self._get_param_value(p_decay.get('enabled'), True):
+            ma_period = self._get_param_value(p_decay.get('ma_period'), 21)
+            ma_col = f'EMA_{ma_period}_D'
+            macd_h_col = 'MACDh_13_34_8_D'
+            if ma_col in df.columns and macd_h_col in df.columns:
+                # 条件A: 收盘价有效跌破短期生命线
+                is_breaking_ma = df['close_D'] < df[ma_col]
+                # 条件B: MACD柱状线翻绿或持续为绿，确认动能走弱
+                is_macd_weak = df[macd_h_col] < 0
+                triggers['RISK_TRIGGER_TREND_DECAY'] = is_breaking_ma & is_macd_weak
+            else:
+                triggers['RISK_TRIGGER_TREND_DECAY'] = default_series
+        
+        # --- 触发器4: 真实结构破位 (True Structure Breakdown) ---
+        p_breakdown = exit_params.get('true_breakdown_params', {})
+        if self._get_param_value(p_breakdown.get('enabled'), True):
+            lookback = self._get_param_value(p_breakdown.get('lookback_days'), 21)
+            # 条件A: 创近期新低
+            is_new_low = df['close_D'] <= df['low_D'].shift(1).rolling(window=lookback, min_periods=min(lookback, 2)).min()
+            # 条件B: 下跌动能为负 (例如长期均线斜率为负)
+            long_ma_slope_col = 'SLOPE_21_EMA_89_D'
+            if long_ma_slope_col in df.columns:
+                is_momentum_negative = df[long_ma_slope_col] < 0
+                triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = is_new_low & is_momentum_negative
+            else:
+                triggers['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'] = default_series
+        
+        # --- 触发器5: 急跌回调 (Sharp Pullback) ---
+        p_pullback = exit_params.get('sharp_pullback_params', {})
+        if self._get_param_value(p_pullback.get('enabled'), True):
+            pct_change_thresh = self._get_param_value(p_pullback.get('pct_change_threshold'), -0.04)
+            vol_multiplier = self._get_param_value(p_pullback.get('volume_multiplier'), 1.2)
+            vol_ma_col = 'VOL_MA_21_D'
+            if vol_ma_col in df.columns:
+                # 条件A: 跌幅足够大
+                is_large_decline = df['pct_change_D'] < pct_change_thresh
+                # 条件B: 成交量放大
+                is_volume_high = df['volume_D'] > df[vol_ma_col] * vol_multiplier
+                triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = is_large_decline & is_volume_high
+            else:
+                triggers['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'] = default_series
+
+        # --- 清理与返回 ---
+        for key in triggers:
+            if key not in triggers or triggers[key] is None:
+                triggers[key] = pd.Series(False, index=df.index)
+            else:
+                triggers[key] = triggers[key].fillna(False)
+        
+        print("    - [风险触发事件定义中心 V146.0] 所有风险触发器已校准并定义完成。")
         return triggers
 
     # ▼▼▼ “上攻乏力”风险诊断模块 ▼▼▼
