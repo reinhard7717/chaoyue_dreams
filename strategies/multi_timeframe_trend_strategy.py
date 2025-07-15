@@ -456,9 +456,16 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V117.8 协议统一版】
-        - 核心重构: 废弃了手动创建字典的方式，转而调用 self._create_signal_record() 辅助函数
-                    来生成信号记录，确保了战报格式的绝对统一。
+        【V128.0 动态战情更新版】
+        - 核心升级: 彻底重构VWAP警报逻辑，引入“状态机”概念。
+        - 新逻辑:
+          1. 找出所有“跌破VWAP”的初步警报时刻。
+          2. 对于每个初步警报，向后追踪当天的分钟线数据。
+          3. 如果在当天收盘前，价格重新站回VWAP之上，则更新原始警报记录，
+             将其标记为“威胁已解除”，并将风险码置为0。
+          4. 如果直到收盘都未能收复，则保留原始警报。
+        - 收益: 解决了警报发出后无法根据后续行情动态更新或撤销的问题，
+                使得最终的风险警报能更准确地反映收盘时的真实状态。
         """
         all_alerts = []
         exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
@@ -508,37 +515,60 @@ class MultiTimeframeTrendStrategy:
             if vwap_col not in alert_day_minute_df.columns or close_col not in alert_day_minute_df.columns:
                 continue
 
-            triggered_minutes = alert_day_minute_df[
-                (alert_day_minute_df[close_col] < alert_day_minute_df[vwap_col]) &
-                (alert_day_minute_df[close_col].shift(1) >= alert_day_minute_df[vwap_col].shift(1))
-            ]
+            # 找出所有“首次跌破”的时刻
+            is_breaking_down = (alert_day_minute_df[close_col] < alert_day_minute_df[vwap_col])
+            first_breakdown_signal = is_breaking_down & ~is_breaking_down.shift(1).fillna(False)
+            
+            triggered_minutes = alert_day_minute_df[first_breakdown_signal]
 
             if not triggered_minutes.empty:
-                first_alert_minute = triggered_minutes.iloc[0]
-                alert_time = first_alert_minute.name
-                alert_price = first_alert_minute[close_col]
+                first_alert_minute_row = triggered_minutes.iloc[0]
+                alert_time = first_alert_minute_row.name
+                alert_price = first_alert_minute_row[close_col]
                 
                 playbook_name = get_val(upthrust_rejection_params.get('alert_playbook_name'), 'EXIT_INTRADAY_UPTHRUST_REJECTION')
                 alert_code = get_val(upthrust_rejection_params.get('alert_code'), 103)
                 severity_level = get_val(upthrust_rejection_params.get('severity_level'), 3)
 
+                # --- 步骤2: 战情动态跟踪 ---
+                # 检查在警报发出后，当天是否重新站回VWAP
+                df_after_alert = alert_day_minute_df[alert_day_minute_df.index > alert_time]
+                is_reclaimed = (df_after_alert[close_col] > df_after_alert[vwap_col])
+                reclaim_minutes = df_after_alert[is_reclaimed]
+
+                final_reason = f"盘中跌破VWAP, 由前一日({setup_date.date()})创近期新高触发监控"
+                final_alert_code = alert_code
+                final_severity = severity_level
+
+                if not reclaim_minutes.empty:
+                    # 如果找到了收复的时刻
+                    first_reclaim_row = reclaim_minutes.iloc[0]
+                    reclaim_time = first_reclaim_row.name
+                    
+                    # --- 步骤3: 更新警报状态为“威胁已解除” ---
+                    final_reason = f"[威胁解除] 曾于{alert_time.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
+                    final_alert_code = 0  # 将风险码置为0，表示无效警报
+                    final_severity = 0    # 严重等级也置为0
+                    print(f"         - [战情更新] 日期: {monitoring_date} | 威胁已于 {reclaim_time.time()} 解除。")
+                else:
+                    # 如果直到收盘都未收复，保留原始警报
+                    print(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name} (威胁未解除)")
+
+                # 无论是否解除，都创建一条记录，以便追踪战况
                 record = self._create_signal_record(
                     stock_code=stock_code,
-                    trade_time=alert_time,
+                    trade_time=alert_time, # 记录原始警报时间
                     timeframe=minute_tf,
                     strategy_name="INTRADAY_RISK_ALERT",
                     close_price=alert_price,
                     entry_signal=False,
-                    exit_signal_code=alert_code,
-                    exit_severity_level=severity_level,
-                    exit_signal_reason=f"盘中跌破VWAP, 由前一日({setup_date.date()})创近期新高触发监控",
+                    exit_signal_code=final_alert_code,
+                    exit_severity_level=final_severity,
+                    exit_signal_reason=final_reason,
                     triggered_playbooks=[playbook_name],
-                    context_snapshot={'close': alert_price, 'vwap': first_alert_minute[vwap_col]},
+                    context_snapshot={'close': alert_price, 'vwap': first_alert_minute_row[vwap_col], 'reclaimed': not reclaim_minutes.empty},
                 )
-
                 all_alerts.append(record)
-                logger.info(f"         - [风险警报!] 日期: {monitoring_date} | 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 规则: {playbook_name}")
-                continue 
 
         return all_alerts
 

@@ -685,7 +685,7 @@ class BaseDAO(Generic[T]):
                     # 现在: lambda x: getattr(x, field.target_field.name)
                     # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
                     target_field_name = field.target_field.name
-                    print(f"调试信息: 正在转换外键字段 '{field_name}' (列: '{column_name}')。将使用关联模型的 '{target_field_name}' 字段作为值。")
+                    # print(f"调试信息: 正在转换外键字段 '{field_name}' (列: '{column_name}')。将使用关联模型的 '{target_field_name}' 字段作为值。")
                     df[column_name] = df[field_name].apply(
                         lambda x: getattr(x, target_field_name) if pd.notna(x) else None
                     )
