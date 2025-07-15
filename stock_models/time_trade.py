@@ -1117,7 +1117,6 @@ class AdvancedChipMetrics(models.Model):
     peak_volume = models.BigIntegerField(verbose_name='主筹码峰成交量(股)', null=True, blank=True, help_text="主筹码峰位置的绝对成交股数")
 
     # --- 2. 筹码峰动态指标 (斐波那契周期) ---
-    # ▼▼▼【核心修正】: 将斜率指标完全替换为斐波那契周期 ▼▼▼
     peak_cost_slope_5d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本5日斜率')
     peak_cost_slope_8d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本8日斜率')
     peak_cost_slope_13d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本13日斜率')
@@ -1130,12 +1129,10 @@ class AdvancedChipMetrics(models.Model):
     peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="短期趋势的动量变化")
     peak_cost_accel_21d = models.FloatField(verbose_name='筹码峰成本21日加速度', null=True, blank=True, help_text="中期趋势的健康度变化")
 
-
     # --- 3. 筹码集中度与稳定性指标 ---
     concentration_90pct = models.FloatField(verbose_name='90%筹码集中度', null=True, blank=True, help_text="包含90%筹码的最小价格区间宽度 / 平均成本")
     concentration_90pct_slope_5d = models.FloatField(verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中，正值表示发散")
     peak_stability = models.FloatField(verbose_name='筹码峰稳定性', null=True, blank=True, help_text="主筹码峰的突出程度(prominence) / 平均占比，值越大越稳定")
-
 
     winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例")
     winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例")

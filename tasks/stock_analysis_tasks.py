@@ -352,13 +352,12 @@ def schedule_precompute_advanced_chips(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V4.4.1 - ORM调用修正版】
-    - 修正了 get_data 辅助函数中对 Django ORM .values() 方法的错误调用方式。
-    - 斜率计算周期采用斐波那契数列。
-    - 加速度计算采用5日和21日两个代表性周期。
+    【执行器 V4.4.2 - 获利盘计算修正版】
+    - 修正了因 `prev_20d_close` 计算时机过晚，导致获利盘指标 (`winner_rate_*`) 无法计算的问题。
+    - 将 `prev_20d_close` 的计算提前至数据合并后、特征计算前。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V4.4.1, 模式: {mode})...")
+    # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V4.4.2, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -378,7 +377,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         
         fetch_start_date = None
         if is_incremental and last_metric_date:
-            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
+            # [修改] 稍微多获取一些数据以确保shift(20)的准确性
+            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
 
         def get_data(model, fields: tuple, date_field='trade_time'):
             """
@@ -395,7 +395,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             # 使用 *fields 将元组解包为位置参数，正确调用 .values()
             return pd.DataFrame.from_records(qs.values(*fields))
 
-        # ▼▼▼【核心修正】: 更新对 get_data 函数的调用 ▼▼▼
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
         cyq_chips_data = get_data(chip_model, fields=('trade_time', 'price', 'percent'))
         if cyq_chips_data.empty:
@@ -417,32 +416,52 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         perf_data = get_data(StockCyqPerf, fields=('trade_time', 'weight_avg', 'his_high'))
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
         perf_data = perf_data.rename(columns={'his_high': 'close_price', 'weight_avg': 'weight_avg_cost'})
-        # ▲▲▲【核心修正结束】▲▲▲
 
-        # --- 步骤 3, 4, 5, 6: 合并、计算、存储 (此部分逻辑不变) ---
+        # --- 步骤 3, 4, 5, 6: 合并、计算、存储 ---
         merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
         if merged_df.empty:
             logger.warning(f"[{stock_code}] 数据源内连接后结果为空，任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
+        
+        # [新增] 核心修改：提前计算 prev_20d_close
+        # 1. 必须先按日期排序，确保 .shift() 的正确性
+        merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
+        # 2. 计算20日前收盘价，并将其添加到 merged_df 中
+        # 我们需要先提取每日唯一的收盘价，计算shift，然后再合并回去
+        daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
+        daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
+        # 将计算好的 prev_20d_close 合并回主DataFrame
+        merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
+        
         grouped_data = merged_df.groupby('trade_time')
         all_metrics_list = []
         for trade_date, daily_full_df in grouped_data:
             if is_incremental and last_metric_date and trade_date <= last_metric_date:
                 continue
+            
+            # 现在 context_data 中会包含 'prev_20d_close' (可能是NaN)
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
+            
+            # 传递给计算器，计算器现在可以正确计算获利盘了
             calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
+            
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
+                # [新增] 将 prev_20d_close 也加入到待保存的指标中
+                daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
+
         if not all_metrics_list:
             logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
             return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
+            
         new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
         final_metrics_df = new_metrics_df
+        
         if is_incremental and last_metric_date:
             past_metrics_df = pd.DataFrame.from_records(
                 AdvancedChipMetrics.objects.filter(
@@ -453,8 +472,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             ).set_index('trade_time')
             if not past_metrics_df.empty:
                 final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
+                
         slope_periods = [5, 8, 13, 21, 34, 55, 89, 144]
         accel_periods = [5, 21]
+        
         if 'peak_cost' in final_metrics_df.columns:
             for period in slope_periods:
                 slope = final_metrics_df['peak_cost'].rolling(window=period, min_periods=2).apply(
@@ -463,22 +484,25 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 final_metrics_df[f'peak_cost_slope_{period}d'] = slope
             for period in accel_periods:
                 final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
+                
         if 'concentration_90pct' in final_metrics_df.columns:
             final_metrics_df['concentration_90pct_slope_5d'] = final_metrics_df['concentration_90pct'].rolling(5).mean().diff()
-        close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time').sort_index()
-        final_metrics_df['prev_20d_close'] = close_prices['close_price'].shift(20)
+       
         records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
         records_to_create = []
+        
         for trade_date, row in records_to_save_df.iterrows():
             record_data = row.dropna().to_dict()
             if 'id' in record_data: del record_data['id']
             if 'stock_id' in record_data: del record_data['stock_id']
             records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
+            
         with transaction.atomic():
             if not is_incremental:
                 logger.info(f"[{stock_code}] 全量模式：删除所有旧数据...")
                 AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
             AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
+            
         logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
         return {"status": "success", "processed_days": len(records_to_create)}
 
@@ -488,7 +512,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 
 
 
