@@ -176,7 +176,7 @@ def _execute_strategy_logic(stock_code: str, trade_date: str):
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
             
-            logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
+            # logger.info(f"[{stock_code}] 检测到 {len(unique_signal_types)} 种唯一的信号类型需要更新状态: {unique_signal_types}")
 
             for strategy_name, timeframe in unique_signal_types:
                 # logger.info(f"[{stock_code}] 准备更新策略状态摘要 for strategy '{strategy_name}' on timeframe '{timeframe}'...")
