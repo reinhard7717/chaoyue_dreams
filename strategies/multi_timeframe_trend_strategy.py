@@ -345,7 +345,7 @@ class MultiTimeframeTrendStrategy:
           - 确保了每一个日线信号，无论是保底还是增强版，都包含了完整、准确的触发剧本列表。
           - 修复了信号记录中关键信息丢失的问题。
         """
-        print("--- [引擎5-调试 V117.42] 进入入口信号决策中心 (情报链路修复版) ---")
+        # print("--- [引擎5-调试 V117.42] 进入入口信号决策中心 (情报链路修复版) ---")
         final_entry_records = []
         entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
@@ -451,7 +451,7 @@ class MultiTimeframeTrendStrategy:
             # else:
             #     print(f"    -> [决策] 预备日 {setup_date}: 未找到次日分钟线确认，保留校准后的日线信号。")
 
-        print(f"--- [引擎5-调试 V117.42] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
+        # print(f"--- [引擎5-调试 V117.42] 入口信号决策中心执行完毕，共生成 {len(final_entry_records)} 条最终入口信号。 ---")
         return final_entry_records
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -738,7 +738,7 @@ class MultiTimeframeTrendStrategy:
                         right_index=True,
                         direction='backward' # 使用前一个交易日的日线数据填充当天所有分钟线
                     )
-                    print(f"      - 情报已成功注入 {tf} 分钟数据。")
+                    # print(f"      - 情报已成功注入 {tf} 分钟数据。")
         # --- 情报下放完成 ---
 
         # 步骤4: 调用波段跟踪模拟器 (逻辑不变)

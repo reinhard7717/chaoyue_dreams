@@ -690,7 +690,7 @@ class StrategiesDAO(BaseDAO):
             import traceback
             traceback.print_exc()
 
-        print(f"调试信息: [DAO-SignalLog V120.9] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
+        # print(f"调试信息: [DAO-SignalLog V120.9] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
         return saved_count
     async def update_strategy_state(self, stock_code: str, strategy_name: str, timeframe: str):
         """

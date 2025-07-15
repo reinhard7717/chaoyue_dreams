@@ -895,7 +895,7 @@ class TrendFollowStrategy:
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
 
         # --- 步骤4: 【核心修正】统一交战规则 - 为所有右侧剧本强制增加战略审查 ---
-        print("      -> 正在执行“统一交战规则”最终审查...")
+        # print("      -> 正在执行“统一交战规则”最终审查...")
         for playbook in hydrated_playbooks:
             if playbook.get('side') == 'right':
                 # 从剧本中获取已经分配好的原始触发器
@@ -904,7 +904,7 @@ class TrendFollowStrategy:
                 playbook['trigger'] = original_trigger & ~is_trend_deteriorating
         print("      -> “统一交战规则”审查完毕，所有右侧进攻性操作已被置于战略监控之下。")
 
-        print(f"    - [剧本水合引擎 V127.0] 完成。")
+        # print(f"    - [剧本水合引擎 V127.0] 完成。")
         return hydrated_playbooks
 
     def _calculate_entry_score(
@@ -1091,7 +1091,7 @@ class TrendFollowStrategy:
         """
         【V57.0 出场决策引擎】
         """
-        print("    - [出场决策引擎 V57.0] 启动，开始根据风险分做出决策...")
+        # print("    - [出场决策引擎 V57.0] 启动，开始根据风险分做出决策...")
         threshold_params = self._get_params_block(params, 'exit_threshold_params', {})
         if not threshold_params:
             return pd.Series(0, index=df.index)
