@@ -1299,13 +1299,17 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V120.3 数据净化版】筹码分布与流动状态诊断
-        - 核心修复: 在函数入口处，对所有需要进行数值计算的筹码相关列，
-                    使用 pd.to_numeric(errors='coerce') 进行强制类型转换。
-                    这能将任何非数值型（如字符串）的污染数据转换为NaN，
-                    从而避免 TypeError，并确保后续计算的健壮性。
+        【V120.4 雷达校准版】筹码分布与流动状态诊断
+        - 核心修复: 彻底重写了“断层新生”(FAULT_REBIRTH)的识别逻辑，修复了其错误地将
+                    常见“重新吸筹”识别为罕见事件的致命BUG。
+        - 新逻辑:
+          1. 首先识别出“成本断崖”这一罕见事件 (is_cost_cliff)。
+          2. 以此事件为起点，创建一个为期N天(如5天)的“断层新生观察窗口”(FAULT_REBIRTH_WINDOW)。
+          3. 识别“重新吸筹”的确认信号 (is_re_accumulating)。
+          4. 最终的“断层新生”事件，必须是“重新吸筹”信号且发生在“观察窗口”之内。
+        - 收益: 确保了该事件的罕见性和高价值性，避免了假警报对系统的干扰。
         """
-        print("        -> [诊断模块 V120.3] 正在执行筹码状态诊断...")
+        print("        -> [诊断模块 V120.4] 正在执行筹码状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'chip_feature_params', {})
@@ -1325,48 +1329,57 @@ class TrendFollowStrategy:
             'close': 'close_D'
         }
         
-        # 检查数据完整性
         if not all(col in df.columns for col in required_cols.values()):
             missing = [k for k, v in required_cols.items() if v not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states
 
-        # --- 【核心修复】在计算前强制进行数据净化 ---
-        df_copy = df.copy() # 创建副本以避免修改原始DataFrame
+        df_copy = df.copy()
         numeric_cols_to_clean = [
-            required_cols['peak_cost'],
-            required_cols['concentration_90pct'],
-            required_cols['concentration_slope'],
-            required_cols['peak_cost_slope_21d'],
-            required_cols['peak_cost_slope_55d'],
-            required_cols['peak_cost_accel_21d'],
-            required_cols['peak_cost_slope_8d'],
-            required_cols['winner_rate_short'],
+            required_cols['peak_cost'], required_cols['concentration_90pct'],
+            required_cols['concentration_slope'], required_cols['peak_cost_slope_21d'],
+            required_cols['peak_cost_slope_55d'], required_cols['peak_cost_accel_21d'],
+            required_cols['peak_cost_slope_8d'], required_cols['winner_rate_short'],
         ]
         for col in numeric_cols_to_clean:
             if col in df_copy.columns:
-                # 使用 errors='coerce' 会将无法转换的值变为NaN，而不是报错
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         
-        # --- 【新增模块】诊断“断层新生”事件 ---
+        # --- 【核心修正】重写“断层新生”事件诊断逻辑 ---
         p_fault = p.get('fault_rebirth_params', {})
         if self._get_param_value(p_fault.get('enabled'), True):
+            # 1. 定义“成本断崖”触发事件
             cost_col = required_cols['peak_cost']
             cost_pct_change = df_copy[cost_col].pct_change()
             cost_drop_threshold = self._get_param_value(p_fault.get('cost_drop_threshold'), -0.10)
-            is_cost_cliff = cost_pct_change <= cost_drop_threshold
+            is_cost_cliff = (cost_pct_change <= cost_drop_threshold).fillna(False)
+
+            # 2. 创建一个在“成本断崖”后持续N天的“观察窗口”
+            window_days = self._get_param_value(p_fault.get('observation_window_days'), 5)
+            # 使用持久化状态函数，当成本断崖发生时，窗口激活并持续5天
+            fault_rebirth_window = self._create_persistent_state(
+                df_copy, entry_event=is_cost_cliff, persistence_days=window_days
+            )
+            states['CHIP_STATE_FAULT_REBIRTH_WINDOW'] = fault_rebirth_window # 可以选择性地暴露这个状态
+
+            # 3. 定义“重新吸筹”确认信号
+            conc_slope_col = df_copy[required_cols['concentration_slope']]
+            is_re_accumulating = (conc_slope_col < 0) & (conc_slope_col.shift(1).fillna(0) > 0)
+
+            # 4. 最终事件 = 成本断崖日本身，或在观察窗口内出现的首次重新吸筹信号
+            is_confirmed_in_window = is_re_accumulating & fault_rebirth_window
+            # 找到每个窗口内的第一个确认信号
+            first_confirmation_in_window = is_confirmed_in_window & ~is_confirmed_in_window.shift(1).fillna(False)
+
+            final_fault_event = is_cost_cliff | first_confirmation_in_window
+            states['CHIP_EVENT_FAULT_REBIRTH'] = final_fault_event
             
-            conc_slope_col = df_copy[required_cols['concentration_slope']] # 使用净化后的列
-            is_re_accumulating = (conc_slope_col < 0) & (conc_slope_col.shift(1) > 0)
-            
-            fault_rebirth_event = is_cost_cliff | is_re_accumulating.rolling(window=3).max().fillna(False)
-            states['CHIP_EVENT_FAULT_REBIRTH'] = fault_rebirth_event
-            if fault_rebirth_event.any():
-                print(f"          -> 【事件雷达】捕获到'断层新生'事件 {fault_rebirth_event.sum()} 天。{self._format_debug_dates(fault_rebirth_event)}")
+            if final_fault_event.any():
+                print(f"          -> 【雷达校准完毕】捕获到'断层新生'事件 {final_fault_event.sum()} 天。{self._format_debug_dates(final_fault_event)}")
         else:
             states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
 
-        # --- 常规状态诊断 (现在使用净化后的 df_copy) ---
+        # --- 常规状态诊断 (逻辑保持不变, 使用净化后的 df_copy) ---
         is_markup_base = (df_copy[required_cols['peak_cost_slope_21d']] > 0) & (df_copy.get(required_cols['peak_cost_slope_55d'], 0) > 0)
         p_dist = p.get('distribution_params', {})
         is_distributing = df_copy[required_cols['concentration_slope']] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
@@ -1443,7 +1456,6 @@ class TrendFollowStrategy:
             else:
                 states[key] = states[key].fillna(False)
         return states
-
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V74.0 三维评分版】均线结构与动能状态诊断
