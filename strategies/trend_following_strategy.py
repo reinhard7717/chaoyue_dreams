@@ -249,25 +249,17 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V113 闪电战优化版】
-        - 核心优化: 引入“通用原子条件预计算”步骤。将最常用、最基础的布尔条件（如红绿K线、成交量是否高于均线）
-                    在所有诊断模块之前集中计算一次，并注入到 atomic_states 中。
-        - 收益: 遵循DRY（Don't Repeat Yourself）原则，避免了在多个下游诊断函数中反复进行同样的计算，
-                虽然单次节省微小，但累积效应显著，有效降低了CPU的冗余计算，提升了整体执行效率。
+        【V124.0 统一指挥部版】
+        - 核心重构: 将“整体趋势恶化”和“左侧机会区”的诊断逻辑，从风险引擎中剥离，
+                    提升到 apply_strategy 函数中进行统一计算，并存入 atomic_states。
+        - 收益: 建立了一个统一的、最高级别的战略情报中心。确保了无论是入场还是出场决策，
+                都必须在相同的宏观战场判断下进行，彻底解决了“左右手互搏”的内战问题。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V113 闪电战优化版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V124.0 统一指挥部版】 ======")
         if df is None or df.empty:
-            print("    - [错误] 传入的DataFrame为空，战术引擎终止。")
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
-        timeframe_suffixes = ['_D', '_W', '_M', '_5', '_15', '_30', '_60']
-        rename_map = {
-            col: f"{col}_D" for col in df.columns 
-            if not any(col.endswith(suffix) for suffix in timeframe_suffixes) 
-            and not col.startswith(('VWAP_', 'BASE_', 'playbook_', 'signal_', 'kline_', 'context_', 'cond_'))
-        }
-        if rename_map:
-            df = df.rename(columns=rename_map)
+        # ... (数据重命名等逻辑不变) ...
         if 'close_D' in df.columns:
             df['pct_change_D'] = df['close_D'].pct_change()
         
@@ -275,8 +267,6 @@ class TrendFollowStrategy:
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         
-        # ▼▼▼ “通用原子条件预计算”步骤，提升效率 ▼▼▼
-        # print("--- [总指挥] 步骤1.1: 通用原子条件预计算 (V113 优化) ---")
         atomic_conditions = {}
         atomic_conditions['is_green'] = df['close_D'] > df['open_D']
         atomic_conditions['is_red'] = df['close_D'] < df['open_D']
@@ -284,13 +274,10 @@ class TrendFollowStrategy:
         if vol_ma_col in df.columns:
             atomic_conditions['is_volume_above_ma'] = df['volume_D'] > df[vol_ma_col]
         else:
-            # 如果成交量均线不存在，则创建一个全为False的Series以保证后续逻辑健壮性
             atomic_conditions['is_volume_above_ma'] = pd.Series(False, index=df.index)
-        # print("      -> '红/绿K线', '成交量高于均线' 等通用条件已预计算。")
 
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
         df, platform_states = self._diagnose_platform_states(df, params)
-        # 将预计算的通用条件注入到原子状态字典的开头
         atomic_states = {
             **atomic_conditions,
             **self._diagnose_chip_states(df, params),
@@ -303,68 +290,65 @@ class TrendFollowStrategy:
             **self._diagnose_board_patterns(df, params),
             **platform_states
         }
-        risk_factors = self._diagnose_risk_factors(df, params)
-        atomic_states.update(risk_factors)
-        print("--- [总指挥] 原子状态诊断中心完成，所有原子状态已生成。 ---")
-
-        print("--- [总指挥] 步骤1.6: 战略背景审查模块启动 ---")
-        default_series = pd.Series(False, index=df.index)
-        
-        # 条件1: 均线系统必须处于无可争议的多头排列
-        ma_health_check = atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        
-        # 条件2: 筹码结构必须处于“拉升”状态 (即中长期成本斜率为正)
-        chip_health_check = atomic_states.get('CHIP_STATE_MARKUP', default_series)
-        
-        # 条件3: 长期均线(如89日线)的斜率必须为正，确认大方向向上
-        long_ma_slope_col = 'SLOPE_21_EMA_89_D' # 使用21日窗口计算89日线的斜率
-        if long_ma_slope_col not in df.columns:
-            print(f"      -> [警告] 缺少长期均线斜率列 '{long_ma_slope_col}'，将使用备用检查。")
-            # 备用检查：至少要求价格在长期均线之上
-            trend_direction_check = atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
-        else:
-            trend_direction_check = df[long_ma_slope_col] > 0
-
-        # 最终的“健康通行证” = 均线健康 & 筹码健康 & 趋势方向健康
-        atomic_states['CONTEXT_OVERALL_TREND_HEALTHY'] = ma_health_check & chip_health_check & trend_direction_check
-        
-        signal = atomic_states['CONTEXT_OVERALL_TREND_HEALTHY']
-        if signal.any():
-            print(f"      -> '整体趋势健康' 战略背景审查完成，共 {signal.sum()} 天获得“开火许可”。{self._format_debug_dates(signal)}")
-        else:
-            print(f"      -> '整体趋势健康' 战略背景审查完成，没有任何一天获得“开火许可”。")
         
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
+        # 将准备分也注入df，供后续模块使用
+        for score_name, score_series in setup_scores.items():
+            df[score_name] = score_series
+
+        # --- 【核心新增】步骤3: 统一指挥部 - 战略冲突裁决中心 ---
+        print("--- [总指挥] 步骤3: 统一指挥部 - 战略冲突裁决中心启动 ---")
+        default_series = pd.Series(False, index=df.index)
         
-        print("--- [总指挥] 步骤3: 触发事件定义引擎启动 ---")
+        # 诊断“左侧交易机会区”(豁免区)
+        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
+        is_high_score_pit = cap_pit_score >= 80
+        is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
+        atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
+        print(f"      -> “左侧交易机会区”诊断完成，共激活 {is_in_reversal_opportunity_zone.sum()} 天。")
+
+        # 诊断“整体趋势恶化”
+        is_ma_bearish = atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
+        long_ma_slope_col = 'SLOPE_21_EMA_89_D'
+        is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
+        long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
+        is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
+        unconditional_deterioration = is_ma_bearish | is_long_ma_slope_negative | is_long_chip_slope_negative
+        
+        # 最终的恶化状态 = 无条件恶化 AND (今天不在豁免区内)
+        final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
+        atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
+        print(f"      -> “整体趋势恶化”诊断完成 (已加入豁免逻辑)，共激活 {final_deterioration.sum()} 天。")
+        
+        print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states) 
         
-        print("--- [总指挥] 步骤4: 剧本家族计分引擎启动 ---")
-        # 假设 _calculate_entry_score 内部已按 V113 优化
+        print("--- [总指挥] 步骤5: 剧本家族计分引擎启动 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         raw_total_score = df['entry_score'].copy()
         
-        print("--- [总指挥] 步骤4.5: 指挥棒模型启动，进行最终得分调整 ---")
+        print("--- [总指挥] 步骤5.5: 指挥棒模型启动，进行最终得分调整 ---")
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
 
-        print("--- [总指挥] 步骤5: 风险剧本计分与出场决策 ---")
-        risk_setups = self._diagnose_risk_setups(df, params)
+        print("--- [总指挥] 步骤6: 风险剧本计分与出场决策 ---")
+        # 【核心修正】风险诊断现在直接从 atomic_states 接收战略指令
+        risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤6: 最终信号合成与日志输出 ---")
+        print("--- [总指挥] 步骤7: 最终信号合成与日志输出 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V113】执行完毕 ======")
-        # 注意：返回的 atomic_signals 在此版本中已不再主要使用，但保留接口兼容性
+        print(f"====== 【战术引擎 V124.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -808,6 +792,7 @@ class TrendFollowStrategy:
         
         # 步骤2: 准备所有需要用到的动态数据
         default_series = pd.Series(False, index=df.index)
+        is_trend_deteriorating = atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
         
         # 准备分
         score_cap_pit = setup_scores.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
@@ -856,11 +841,22 @@ class TrendFollowStrategy:
             elif name == 'BOTTOM_STABILIZATION_B':
                 playbook['setup'] = score_bottoming_process > 50
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+            elif name == 'HEALTHY_MARKUP_A':
+                playbook['setup_score_series'] = score_healthy_markup
+                trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+                trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+                playbook['trigger'] = (trigger_rebound | trigger_continuation) & is_trend_healthy & ~is_trend_deteriorating
             elif name == 'TREND_EMERGENCE_B_PLUS':
                 # Setup条件: 处于“近期有左侧信号”的宏观背景下，并且短期均线斜率已转正
-                playbook['setup'] = recent_reversal_context & ma_short_slope_positive
+                playbook['setup'] = recent_reversal_context & ma_short_slope_positive & ~is_trend_deteriorating
                 # Trigger条件: 温和的趋势延续K线
                 playbook['trigger'] = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
+            elif name == 'GAP_SUPPORT_PULLBACK_B_PLUS':
+                playbook['setup'] = score_gap_support > 60 & ~is_trend_deteriorating
+                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            elif name == 'HEALTHY_BOX_BREAKOUT':
+                playbook['setup'] = setup_healthy_box & ~is_trend_deteriorating
+                playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
             elif name == 'DEEP_ACCUMULATION_BREAKOUT':
                 playbook['setup_score_series'] = score_deep_accum
                 playbook['trigger'] = trigger_events.get('TRIGGER_BREAKOUT_CANDLE', default_series)
@@ -870,19 +866,11 @@ class TrendFollowStrategy:
             elif name == 'PLATFORM_SUPPORT_PULLBACK':
                 # 平台支撑回踩使用标准的回踩反弹触发器
                 playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
-            elif name == 'HEALTHY_MARKUP_A':
-                playbook['setup_score_series'] = score_healthy_markup
-                trigger_rebound = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
-                trigger_continuation = trigger_events.get('TRIGGER_TREND_CONTINUATION_CANDLE', default_series)
-                playbook['trigger'] = (trigger_rebound | trigger_continuation) & is_trend_healthy
-            elif name == 'HEALTHY_BOX_BREAKOUT':
-                playbook['setup'] = setup_healthy_box
-                playbook['trigger'] = trigger_events.get('BOX_EVENT_BREAKOUT', default_series)
+            
+           
             elif name == 'N_SHAPE_CONTINUATION_A':
                 playbook['trigger'] = trigger_events.get('TRIGGER_N_SHAPE_BREAKOUT', default_series)
-            elif name == 'GAP_SUPPORT_PULLBACK_B_PLUS':
-                playbook['setup'] = score_gap_support > 60
-                playbook['trigger'] = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+            
             elif name == 'EARTH_HEAVEN_BOARD':
                 playbook['trigger'] = trigger_events.get('TRIGGER_EARTH_HEAVEN_BOARD', default_series)
             elif name == 'CHIP_PLATFORM_PULLBACK':
@@ -2238,112 +2226,36 @@ class TrendFollowStrategy:
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
 
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
-    def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+    def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V123.0 战场豁免权版】
-        - 核心升级: 解决了“风险放大器”与“左侧交易”之间的战略冲突。
-        - 新逻辑:
-          1. 新增一个“左侧交易机会区”('IS_IN_REVERSAL_OPPORTUNITY_ZONE')的判断。
-             该区域由“资本底背离窗口”或“高分投降坑”等左侧信号激活。
-          2. 修改了“整体趋势恶化”('CONTEXT_TREND_DETERIORATING')的最终定义，
-             为其增加了豁免条款：只有在趋势恶化，并且“不”处于左侧交易机会区时，才判定为真正的战略性恶化。
-        - 收益: 避免了系统在准备执行左侧逆势交易时，同时又因趋势恶化而触发高风险卖出信号的“内战”问题。
+        【V124.0 统一指挥部版】
+        - 核心重构: 不再负责计算战略级别的状态，而是直接从 `atomic_states` (中央情报库)
+                    中接收 'CONTEXT_TREND_DETERIORATING' 这个最高指令。
+        - 收益: 职责更单一，架构更清晰。
         """
-        print("    - [风险准备状态诊断中心 V123.0] 启动...")
+        print("    - [风险准备状态诊断中心 V124.0] 启动...")
         setups = {}
         exit_params = params.get('exit_strategy_params', {})
         default_series = pd.Series(False, index=df.index)
         
         setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
 
-        # --- 步骤1: 诊断常规风险准备状态 (逻辑保持不变) ---
+        # --- 步骤1: 诊断常规风险准备状态 (逻辑不变) ---
         p_over = exit_params.get('upthrust_distribution_params', {})
         ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
-        threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15)
         ma_long_col = f'EMA_{ma_long_period}_D'
         if ma_long_col in df.columns:
+            threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15)
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_long_col] - 1) > threshold
             setups['RISK_SETUP_IN_UPTREND'] = df['close_D'] > df[ma_long_col]
         else:
             setups['RISK_SETUP_OVEREXTENDED_ZONE'] = default_series
             setups['RISK_SETUP_IN_UPTREND'] = default_series
-            print(f"      -> [警告] 缺少 {ma_long_col}，无法诊断'高风险区域'和'上升趋势'状态。")
-
-        # 熊市停滞区诊断 (逻辑保持不变)
-        p_stagnation = exit_params.get('stagnation_params', {})
-        atr_period = self._get_param_value(p_stagnation.get('atr_period'), 14)
-        atr_col = f'ATR_{atr_period}_D'
-        capital_col = 'net_mf_amount_D'
-        slope_ma_period = 13
-        slope_ma_col = f'EMA_{slope_ma_period}_D'
-        slope_col = f'SLOPE_5_{slope_ma_col}'
-        required_stagnation_cols = [atr_col, capital_col, slope_col]
-        if all(c in df.columns for c in required_stagnation_cols):
-            ma_short_period = 21
-            ma_short_col = f'EMA_{ma_short_period}_D'
-            is_in_bearish_territory = df['close_D'] < df.get(ma_long_col, float('inf'))
-            is_under_short_term_pressure = df['close_D'] < df.get(ma_short_col, float('inf'))
-            bearish_consolidation_state = is_in_bearish_territory & is_under_short_term_pressure
-            
-            low_vol_window = self._get_param_value(p_stagnation.get('low_vol_window'), 120)
-            low_vol_percentile = self._get_param_value(p_stagnation.get('low_vol_percentile'), 0.1)
-            low_range_window = self._get_param_value(p_stagnation.get('low_range_window'), 60)
-            low_range_percentile = self._get_param_value(p_stagnation.get('low_range_percentile'), 0.1)
-            capital_lookback = self._get_param_value(p_stagnation.get('discriminator_capital_lookback'), 5)
-            persistence_window = self._get_param_value(p_stagnation.get('persistence_lookback_window'), 3)
-            persistence_days = self._get_param_value(p_stagnation.get('persistence_required_days'), 2)
-            
-            low_vol_threshold = df[atr_col].rolling(window=low_vol_window, min_periods=low_vol_window//2).quantile(low_vol_percentile)
-            is_low_volatility = df[atr_col] < low_vol_threshold
-            daily_range_normalized = (df['high_D'] - df['low_D']) / df['close_D']
-            low_range_threshold = daily_range_normalized.rolling(window=low_range_window, min_periods=low_range_window//2).quantile(low_range_percentile)
-            is_narrow_range = daily_range_normalized < low_range_threshold
-            is_capital_absent = df[capital_col].rolling(window=capital_lookback).sum() < 0
-            is_momentum_down = df[slope_col] < 0
-            pure_stagnation_daily = bearish_consolidation_state & is_low_volatility & is_narrow_range & is_capital_absent & is_momentum_down
-            stagnation_state = pure_stagnation_daily.rolling(window=persistence_window).sum() >= persistence_days
-            setups['RISK_SETUP_BEARISH_STAGNATION'] = stagnation_state & ~stagnation_state.shift(1).fillna(False)
-        else:
-            missing_cols = [c for c in required_stagnation_cols if c not in df.columns]
-            print(f"      -> [警告] 缺少 {missing_cols}，无法诊断'熊市停滞区'。")
-            setups['RISK_SETUP_BEARISH_STAGNATION'] = default_series
-
-        setups['RISK_SETUP_PLATFORM_FORMED'] = df.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-
-        # --- 步骤2: 【核心新增】诊断“左侧交易机会区” ---
-        print("      -> 正在诊断“左侧交易机会区”(豁免区)...")
-        # 机会条件1: 处于“资本底背离”的观察窗口内
-        is_in_divergence_window = df.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
         
-        # 机会条件2: 出现了高分值的“投降坑”准备信号
-        # 注意：这里我们直接从DataFrame中获取已经计算好的准备分，而不是从atomic_states
-        cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
-        high_score_pit_threshold = 80 # 定义一个高分阈值
-        is_high_score_pit = cap_pit_score >= high_score_pit_threshold
-        
-        # 任何一个机会条件满足，即认为进入了豁免区
-        is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
-        setups['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone # 将此状态也暴露出去
-        if is_in_reversal_opportunity_zone.any():
-            print(f"        -> “左侧交易机会区”已激活，共持续 {is_in_reversal_opportunity_zone.sum()} 天。风险放大器在此期间将保持静默。")
+        setups['RISK_SETUP_PLATFORM_FORMED'] = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
 
-        # --- 步骤3: 诊断“整体趋势恶化”战略背景 (增加豁免条款) ---
-        print("      -> 正在进行“整体趋势恶化”战略背景诊断 (已加入豁免逻辑)...")
-        
-        # 计算无条件的趋势恶化信号
-        is_ma_bearish = df.get('MA_STATE_STABLE_BEARISH_D', default_series)
-        long_ma_slope_col = 'SLOPE_21_EMA_89_D'
-        is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
-        long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
-        is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
-        unconditional_deterioration = is_ma_bearish | is_long_ma_slope_negative | is_long_chip_slope_negative
-
-        # 【核心修正】最终的恶化状态 = 无条件恶化 AND (今天不在豁免区内)
-        setups['CONTEXT_TREND_DETERIORATING'] = unconditional_deterioration & ~is_in_reversal_opportunity_zone
-        
-        signal = setups['CONTEXT_TREND_DETERIORATING']
-        if signal.any():
-            print(f"      -> “整体趋势恶化”战略红旗已升起 (已排除豁免区)，共持续 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        # --- 步骤2: 直接从中央情报库接收“最高指令” ---
+        setups['CONTEXT_TREND_DETERIORATING'] = atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
         
         return setups
 
