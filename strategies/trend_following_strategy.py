@@ -249,17 +249,16 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V124.0 统一指挥部版】
-        - 核心重构: 将“整体趋势恶化”和“左侧机会区”的诊断逻辑，从风险引擎中剥离，
-                    提升到 apply_strategy 函数中进行统一计算，并存入 atomic_states。
-        - 收益: 建立了一个统一的、最高级别的战略情报中心。确保了无论是入场还是出场决策，
-                都必须在相同的宏观战场判断下进行，彻底解决了“左右手互搏”的内战问题。
+        【V155.0 生命线校准版】
+        - 核心修正: 采纳将军建议，将判断长期趋势恶化的斜率指标，从89日均线斜率，
+                    全面校准为更灵敏、更具实战意义的55日均线斜率。
+        - 收益: 这是一个釜底抽薪式的修正，它使得战略评估系统本身变得更准确，
+                不再需要复杂的豁免规则来“打补丁”，从根本上解决了“战略惯性”问题。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V124.0 统一指挥部版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V155.0 生命线校准版】 ======")
         if df is None or df.empty:
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
-        # ... (数据重命名等逻辑不变) ...
         if 'close_D' in df.columns:
             df['pct_change_D'] = df['close_D'].pct_change()
         
@@ -293,34 +292,33 @@ class TrendFollowStrategy:
         
         print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
         setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
-        # 将准备分也注入df，供后续模块使用
         for score_name, score_series in setup_scores.items():
             df[score_name] = score_series
 
-        # --- 【核心新增】步骤3: 统一指挥部 - 战略冲突裁决中心 ---
-        print("--- [总指挥] 步骤3: 统一指挥部 - 战略冲突裁决中心启动 ---")
+        print("--- [总指挥] 步骤3: 统一指挥部 - 战略评估中心启动 ---")
         default_series = pd.Series(False, index=df.index)
         
-        # 诊断“左侧交易机会区”(豁免区)
+        # 3.1 定义常规的“左侧交易机会区”(用于豁免常规下跌)
         is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
         cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         is_high_score_pit = cap_pit_score >= 80
         is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
         atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
-        print(f"      -> “左侧交易机会区”诊断完成，共激活 {is_in_reversal_opportunity_zone.sum()} 天。")
-
-        # 诊断“整体趋势恶化”
+        
+        # 3.2 定义基于【55日生命线】的“无条件恶化”状态
+        # MA_STATE_STABLE_BEARISH 现在已经基于55日线（来自_diagnose_ma_states的修正）
         is_ma_bearish = atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-        long_ma_slope_col = 'SLOPE_21_EMA_89_D'
+        # 【核心修正】将斜率判断基准从89日改为55日
+        long_ma_slope_col = 'SLOPE_21_EMA_55_D'
         is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
         long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
         is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
         unconditional_deterioration = is_ma_bearish | is_long_ma_slope_negative | is_long_chip_slope_negative
         
-        # 最终的恶化状态 = 无条件恶化 AND (今天不在豁免区内)
+        # 3.3 【最终战略评估】: 趋势恶化 = 无条件恶化 AND (不在豁免区内)
         final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
         atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
-        print(f"      -> “整体趋势恶化”诊断完成 (已加入豁免逻辑)，共激活 {final_deterioration.sum()} 天。")
+        print(f"      -> “整体趋势恶化”诊断完成 (基于55日生命线)，共激活 {final_deterioration.sum()} 天。")
         
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states) 
@@ -336,7 +334,6 @@ class TrendFollowStrategy:
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
 
         print("--- [总指挥] 步骤6: 风险剧本计分与出场决策 ---")
-        # 【核心修正】风险诊断现在直接从 atomic_states 接收战略指令
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
@@ -348,7 +345,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V124.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V155.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -1672,9 +1669,9 @@ class TrendFollowStrategy:
 
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V74.0 三维评分版】均线结构与动能状态诊断
-        - 核心升级: 能够动态地为多条关键均线（如21, 34, 55, 89, 144, 233）诊断“触碰支撑”状态。
-        - 这为“平台支撑回踩”剧本的三维动态评分（背景分+事件分）提供了核心数据。
+        【V155.0 生命线校准版】
+        - 核心修正: 采纳将军建议，将定义核心趋势状态的长期均线(long_ma)基准，
+                    从过于迟钝的89日，全面校准为市场公认的55日“生命线”。
         """
         # print("        -> [诊断模块] 正在执行均线状态诊断...")
         states = {}
@@ -1687,42 +1684,36 @@ class TrendFollowStrategy:
         # --- 1. 核心趋势状态诊断 ---
         short_p = self._get_param_value(p.get('short_ma'), 13)
         mid_p = self._get_param_value(p.get('mid_ma'), 34)
-        long_p = self._get_param_value(p.get('long_ma'), 89)
+        # 【核心修正】将长期均线基准从89日改为55日
+        long_p = self._get_param_value(p.get('long_ma'), 55)
         short_ma, mid_ma, long_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D'
-        short_ma_slope_col = f'SLOPE_5_{short_ma}' # 使用5日斜率判断短期拐头
+        short_ma_slope_col = f'SLOPE_5_{short_ma}'
 
         if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
             print(f"          -> [警告] 缺少核心均线列({short_ma}, {mid_ma}, {long_ma})，部分均线状态诊断跳过。")
             return states
-        # ▼▼▼ 使用斜率定义趋势萌芽，并增加日志 ▼▼▼
         if short_ma_slope_col in df.columns:
             states['MA_STATE_SHORT_SLOPE_POSITIVE'] = (df[short_ma_slope_col] > 0)
-            # signal = states['MA_STATE_SHORT_SLOPE_POSITIVE']
-            # print(f"          -> '短期均线斜率转正' 状态诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
         else:
             states['MA_STATE_SHORT_SLOPE_POSITIVE'] = default_series
 
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
-        states['MA_STATE_SHORT_CROSS_MID'] = (df[short_ma] > df[mid_ma]) # 短期趋势萌芽状态
+        states['MA_STATE_SHORT_CROSS_MID'] = (df[short_ma] > df[mid_ma])
         states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
         states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
 
-        # --- 2. 均线收敛/发散状态诊断 ---
+        # ... 其他逻辑保持不变 ...
         ma_spread = (df[short_ma] - df[long_ma]) / df[long_ma].replace(0, np.nan)
         ma_spread_zscore = (ma_spread - ma_spread.rolling(60).mean()) / ma_spread.rolling(60).std().replace(0, np.nan)
         states['MA_STATE_CONVERGING'] = ma_spread_zscore < self._get_param_value(p.get('converging_zscore'), -1.0)
         states['MA_STATE_DIVERGING'] = ma_spread_zscore > self._get_param_value(p.get('diverging_zscore'), 1.0)
-
-        # --- 3. 均线加速度状态诊断 (用于识别趋势拐点) ---
         lookback_period = 10
         accel_d_col = f'ACCEL_{lookback_period}_{long_ma}'
         if accel_d_col in df.columns:
             states['MA_STATE_D_STABILIZING'] = (df[accel_d_col].shift(1).fillna(0) < 0) & (df[accel_d_col] >= 0)
         else:
             states['MA_STATE_D_STABILIZING'] = default_series
-            print(f"          -> [警告] 缺少日线加速度列 '{accel_d_col}'，'MA_STATE_D_STABILIZING' 无法计算。")
-
         simulated_w_ma_period = 105
         simulated_w_lookback = 25
         slope_w_simulated_col = f'SLOPE_{simulated_w_lookback}_EMA_{simulated_w_ma_period}_D'
@@ -1730,11 +1721,7 @@ class TrendFollowStrategy:
             states['MA_STATE_W_STABILIZING'] = (df[slope_w_simulated_col].shift(1).fillna(0) < 0) & (df[slope_w_simulated_col] >= 0)
         else:
             states['MA_STATE_W_STABILIZING'] = default_series
-            print(f"          -> [警告] 缺少周线斜率列 '{slope_w_simulated_col}'，'MA_STATE_W_STABILIZING' 无法计算。")
-
-        # --- 4. 关键支撑均线触碰状态诊断 (为三维评分提供事件分) ---
-        key_support_mas = [21, 34, 55, 89, 144, 233] # 定义所有我们关心的均线级别
-        
+        key_support_mas = [21, 34, 55, 89, 144, 233]
         for ma_period in key_support_mas:
             ma_col = f'EMA_{ma_period}_D'
             if ma_col in df.columns:
@@ -1742,24 +1729,14 @@ class TrendFollowStrategy:
                 is_closing_above = df['close_D'] >= df[ma_col]
                 state_name = f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'
                 states[state_name] = is_touching & is_closing_above
-                
-                # signal = states[state_name]
-                # if signal.any(): # 只在有信号时打印，避免日志刷屏
-                    # dates_str = self._format_debug_dates(signal)
-                    # print(f"          -> '触碰{ma_period}日线支撑' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             else:
-                # 即使缺少该均线，也创建一个全False的Series，保证后续逻辑的健壮性
                 states[f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'] = default_series
-                print(f"          -> [警告] 缺少均线列 '{ma_col}'，无法诊断其支撑状态。")
-
-        # --- 5. 老鸭头形态诊断 (一个独立的、持久化的状态) ---
         p_duck = self._get_params_block(params, 'duck_neck_params', {})
         if self._get_param_value(p_duck.get('enabled'), True):
             duck_short_p = self._get_param_value(p_duck.get('short_ma'), 5)
             duck_mid_p = self._get_param_value(p_duck.get('mid_ma'), 10)
             duck_long_p = self._get_param_value(p_duck.get('long_ma'), 60)
             duck_short_ma, duck_mid_ma, duck_long_ma = f'EMA_{duck_short_p}_D', f'EMA_{duck_mid_p}_D', f'EMA_{duck_long_p}_D'
-            
             if all(c in df.columns for c in [duck_short_ma, duck_mid_ma, duck_long_ma]):
                 golden_cross_event = (df[duck_short_ma] > df[duck_mid_ma]) & (df[duck_short_ma].shift(1) <= df[duck_mid_ma].shift(1))
                 break_condition = (df[duck_short_ma] < df[duck_mid_ma])
@@ -1767,21 +1744,13 @@ class TrendFollowStrategy:
                 states['MA_STATE_DUCK_NECK_FORMING'] = self._create_persistent_state(
                     df, entry_event=golden_cross_event, persistence_days=persistence_days, break_condition=break_condition
                 )
-                
-                signal = states.get('MA_STATE_DUCK_NECK_FORMING', default_series)
-                if signal.any():
-                    dates_str = self._format_debug_dates(signal)
-                    print(f"          -> '老鸭颈形成中' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
             else:
                 states['MA_STATE_DUCK_NECK_FORMING'] = default_series
-        
-        # --- 6. 最终数据清洗 ---
         for key in states:
             if states[key] is None:
                 states[key] = default_series
             else:
                 states[key] = states[key].fillna(False)
-
         return states
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
