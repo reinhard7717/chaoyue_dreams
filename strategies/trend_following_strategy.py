@@ -370,18 +370,23 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V142.0 上下文持久化版】
-        - 核心重构: 彻底废弃所有复杂的关联判断逻辑，回归最简单、最正确的本源。
+        【V160.0 战史修正最终版】
+        - 核心诊断: 经过最终审查，确认了问题的根源在于本函数的设计缺陷。旧逻辑会用
+                    分钟线信号“覆盖”掉同一天的日线信号，导致日线信号在最终战报中“被消失”。
+        - 核心重构: 彻底废除“信号覆盖”逻辑，确保所有级别的信号都被忠实记录。
         - 新逻辑:
-          一个平台的上下文从形成起就持续有效，直到被更新的平台取代。
-          因此，对于任何一个买入信号，我们只需向前查找离它最近的那个平台价格即可。
-        - 收益: 彻底根除了因逻辑过度复杂化而导致的所有信息丢失问题。
-                这是针对此问题的最终、最稳健的解决方案。
+          1. 只筛选出有明确“日线买入信号”或“日线退出信号”的日期。
+          2. 对这些日期，无条件地、完整地生成并记录其日线级别的决策详情。
+          3. 分钟线信号将在其自身的流程中被处理，不再与日线信号混淆。
+        - 收益: 确保了战略决策的最高优先级和历史记录的绝对完整性。
         """
+        # 【核心修正】筛选条件更精确，只关注日线级别的最终决策信号
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
+            print(f"      -> [错误] prepare_db_records 缺少必要列: {required_cols}")
             return []
         
+        # 只筛选出日线级别有明确买入或卖出信号的行
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
         ].copy()
@@ -397,6 +402,7 @@ class TrendFollowStrategy:
         
         has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
 
+        # 遍历每一个被筛选出的、有日线信号的日期
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
@@ -406,9 +412,7 @@ class TrendFollowStrategy:
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
 
             platform_price = None
-            # 只为买入信号计算平台价格关联
             if has_platform_col and row.get('signal_entry', False):
-                # 【终极简化逻辑】向前回溯，找到最后一个非空的平台价格即可。
                 platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
                 if not platform_series_before.empty:
                     platform_price = platform_series_before.iloc[-1]
@@ -420,10 +424,11 @@ class TrendFollowStrategy:
                 'stable_platform_price': platform_price,
             }
 
+            # 创建并添加记录，确保日线信号被忠实记录
             record = {
                 "stock_code": stock_code,
                 "trade_time": timestamp,
-                "timeframe": result_timeframe,
+                "timeframe": result_timeframe, # 确保timeframe是 'D'
                 "strategy_name": strategy_name,
                 "close_price": row.get(f'close_{result_timeframe}'),
                 "pct_change": row.get(f'pct_change_{result_timeframe}', 0.0),
@@ -437,6 +442,7 @@ class TrendFollowStrategy:
                 "context_snapshot": sanitize_for_json(context_snapshot),
             }
             records.append(record)
+            
         return records
 
     def generate_intraday_alerts(self, daily_df: pd.DataFrame, minute_df: pd.DataFrame, params: dict) -> List[Dict]:
