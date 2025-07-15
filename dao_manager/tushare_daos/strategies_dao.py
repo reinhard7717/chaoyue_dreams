@@ -640,7 +640,7 @@ class StrategiesDAO(BaseDAO):
             ))
 
         # 一次性查询所有已存在的记录
-        existing_records_qs = TrendFollowStrategySignalLog.objects.filter(reduce(or_, lookup_keys))
+        existing_records_qs = TrendFollowStrategySignalLog.objects.filter(reduce(operator.or_, lookup_keys))
         existing_records_map = {
             (r.stock_id, r.trade_time, r.strategy_name, r.timeframe): r
             async for r in existing_records_qs
