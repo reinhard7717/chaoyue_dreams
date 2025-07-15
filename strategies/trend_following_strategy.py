@@ -249,13 +249,20 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V155.0 生命线校准版】
-        - 核心修正: 采纳将军建议，将判断长期趋势恶化的斜率指标，从89日均线斜率，
-                    全面校准为更灵敏、更具实战意义的55日均线斜率。
-        - 收益: 这是一个釜底抽薪式的修正，它使得战略评估系统本身变得更准确，
-                不再需要复杂的豁免规则来“打补丁”，从根本上解决了“战略惯性”问题。
+        【V158.0 多维情报最终版】
+        - 核心诊断: 遵照将军最终指示，确认问题的根源在于战略评估过分依赖单一、滞后的
+                    `SLOPE_21_EMA_55_D` 指标，完全忽视了更灵敏的短周期斜率和关键的
+                    “加速度”信号，导致战略判断严重失真。
+        - 核心重构: 彻底改组战略参谋部。废除单一指标决策，建立基于“多维情报”的
+                    联合指挥体系。
+        - 新逻辑:
+          1. 引入“先锋部队”（13日线5日斜率）和“战场动能”（55日线21日斜率的加速度）两个新维度。
+          2. 只有当“主力部队趋势”、“先锋部队趋势”、“战场动能”这三个核心维度
+             【同时】指向负面时，才最终判定“整体趋势恶化”。
+          3. 任何一个维度的改善（如短线斜率转正、或长线斜率减速），都足以否决悲观判断。
+        - 收益: 实现了将军“校准瞄准镜”的战略意图，使战略评估真正做到了稳健与敏锐的统一。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V155.0 生命线校准版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V158.0 多维情报最终版】 ======")
         if df is None or df.empty:
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
@@ -298,27 +305,40 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤3: 统一指挥部 - 战略评估中心启动 ---")
         default_series = pd.Series(False, index=df.index)
         
-        # 3.1 定义常规的“左侧交易机会区”(用于豁免常规下跌)
         is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
         cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         is_high_score_pit = cap_pit_score >= 80
         is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
         atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
         
-        # 3.2 定义基于【55日生命线】的“无条件恶化”状态
-        # MA_STATE_STABLE_BEARISH 现在已经基于55日线（来自_diagnose_ma_states的修正）
-        is_ma_bearish = atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-        # 【核心修正】将斜率判断基准从89日改为55日
+        # --- 【核心修正】建立“多维情报”联合指挥部 ---
+        # 1. 主力部队（中期趋势）: 55日均线的21日斜率
         long_ma_slope_col = 'SLOPE_21_EMA_55_D'
         is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
+        
+        # 2. 先锋部队（短期趋势）: 13日均线的5日斜率
+        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
+        is_short_ma_slope_negative = df.get(short_ma_slope_col, 0) < 0 if short_ma_slope_col in df.columns else default_series
+        
+        # 3. 战场动能（趋势加速度）: 55日均线21日斜率的加速度
+        long_ma_accel_col = 'ACCEL_21_EMA_55_D'
+        is_long_ma_accel_negative = df.get(long_ma_accel_col, 0) < 0 if long_ma_accel_col in df.columns else default_series
+
+        # 4. 筹码重心（辅助判断）
         long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
         is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
-        unconditional_deterioration = is_ma_bearish | is_long_ma_slope_negative | is_long_chip_slope_negative
+
+        # 最终裁决：只有当最核心的趋势、动能指标【同时】恶化时，才拉响警报
+        unconditional_deterioration = (
+            is_long_ma_slope_negative & 
+            is_short_ma_slope_negative & 
+            is_long_ma_accel_negative &
+            is_long_chip_slope_negative
+        )
         
-        # 3.3 【最终战略评估】: 趋势恶化 = 无条件恶化 AND (不在豁免区内)
         final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
         atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
-        print(f"      -> “整体趋势恶化”诊断完成 (基于55日生命线)，共激活 {final_deterioration.sum()} 天。")
+        print(f"      -> “整体趋势恶化”诊断完成 (基于多维情报原则)，共激活 {final_deterioration.sum()} 天。")
         
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states) 
@@ -345,7 +365,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V155.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V158.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
