@@ -353,21 +353,19 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V120.8 效率优化与情报固化版】
-        - 核心升级 1 (效率): 放弃了对整个row进行序列化的方式来创建context_snapshot，
-                           改为只提取少数关键指标（如得分、风险、平台价），大幅减少了数据处理量和JSON大小。
-        - 核心升级 2 (情报固化): 将日线级别计算出的 'PLATFORM_PRICE_STABLE' (稳固平台价格)
-                                 正式写入数据库记录，键为 'stable_platform_price'。
-        - 继承逻辑: 完全保留了V85.0版本中提取中文剧本、激活的Setup等优秀功能。
-        - 优化: 代码结构更清晰，循环体更轻量，可读性更高。
+        【V133.0 战术窗口版】
+        - 核心重构: 为“上下文回溯”机制增加了严格的“战术窗口”约束。
+        - 新逻辑:
+          在为信号生成记录时，不再是无限制地向前回溯。而是只在信号发生前的
+          一个固定窗口期内（如5天）查找最后一个有效的平台价格。
+        - 收益: 解决了“时空错乱”问题。确保了信号只与其战术上紧密相关的平台
+                进行关联，避免了将派发期信号错误地关联到遥远的吸筹期平台。
         """
-        # 检查关键列是否存在，如果不存在则提前返回，避免后续错误
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
             print(f"    - [错误] prepare_db_records: result_df 中缺少关键列: {required_cols}，无法生成记录。")
             return []
         
-        # 步骤1: 筛选出所有有明确信号的K线，并复制以避免SettingWithCopyWarning
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
         ].copy()
@@ -375,42 +373,50 @@ class TrendFollowStrategy:
         if df_with_signals.empty:
             return []
         
-        # 步骤2: 在循环外预先准备好不会变化的数据，提升效率
         records = []
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
         strategy_name = self._get_param_value(strategy_info_block.get('name'), 'unknown_strategy')
         
-        # 创建剧本英文名到中文名的映射字典
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         
-        # 检查平台价格列是否存在
-        has_platform_col = 'PLATFORM_PRICE_STABLE' in df_with_signals.columns
+        has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
+        
+        # 定义战术窗口期（天数）
+        context_window_days = self._get_param_value(
+            self._get_params_block(params, 'db_record_params', {}).get('context_window_days'), 5
+        )
 
-        # 步骤3: 遍历信号行，创建记录字典
         for timestamp, row in df_with_signals.iterrows():
-            # 提取激活的剧本（保留V85.0的精细化提取逻辑）
             triggered_playbooks_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                 playbooks_with_scores = self._last_score_details_df.loc[timestamp]
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
-                # 排除所有非剧本的加分项/状态项
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
 
-            # 【情报固化】提取平台价格
+            # --- 【核心修正】带有“战术窗口”约束的上下文回溯逻辑 ---
             platform_price = None
-            if has_platform_col and pd.notna(row['PLATFORM_PRICE_STABLE']):
-                platform_price = row['PLATFORM_PRICE_STABLE']
+            if has_platform_col:
+                # 计算窗口的起始时间
+                window_start_time = timestamp - pd.Timedelta(days=context_window_days)
+                
+                # 只在定义的“战术窗口”内进行切片
+                platform_series_in_window = result_df.loc[window_start_time:timestamp, 'PLATFORM_PRICE_STABLE']
+                
+                # 从这个有限的窗口中，找到最后一个非空值
+                last_known_platform_price = platform_series_in_window.dropna().iloc[-1] if not platform_series_in_window.dropna().empty else None
+                
+                if last_known_platform_price is not None:
+                    platform_price = last_known_platform_price
+            # --- 修正结束 ---
 
-            # 【效率优化】创建精简的上下文快照
             context_snapshot = {
                 'close': row.get(f'close_{result_timeframe}'),
                 'entry_score': row.get('entry_score', 0.0),
-                'risk_score': row.get('risk_score', 0.0), # 假设风险分已存在
-                'stable_platform_price': platform_price, # 将平台价也加入快照
+                'risk_score': row.get('risk_score', 0.0),
+                'stable_platform_price': platform_price,
             }
 
-            # 构建最终的记录字典
             record = {
                 "stock_code": stock_code,
                 "trade_time": timestamp,
@@ -421,9 +427,7 @@ class TrendFollowStrategy:
                 "entry_score": row.get('entry_score', 0.0),
                 "entry_signal": bool(row.get('signal_entry', False)),
                 "exit_signal_code": int(row.get('exit_signal_code', 0)),
-                # 数据库模型字段
                 "stable_platform_price": platform_price,
-                # 用于分析和展示的JSON字段
                 "triggered_playbooks": triggered_playbooks_list,
                 "triggered_playbooks_cn": [playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list],
                 "active_setups": [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True],
