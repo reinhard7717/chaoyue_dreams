@@ -914,18 +914,13 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V162.0 四层火力评分引擎】
-        - 核心重构: 废弃“剧本家族竞争”模式，采用全新的“四层火力”评分体系。
-        - 新逻辑:
-          1. 基础分: 对所有有利的原子状态(atomic_states)进行无差别加总，评估静态健康度。
-          2. 触发分: 对所有触发的进攻信号(trigger_events)进行无差别加总，评估动态强度。
-          3. 共振加成: 对配置文件中定义的“梦幻组合”(如筹码+量能)给予巨额额外加分。
-          4. 剧本分: 调用旧的计分逻辑得出原始剧本分，再乘以一个权重(如0.5)使其降级为
-                     “战术确认”加成，不再是总分主体。
-        - 收益: 能够将多维度优势共振的极品标的，用压倒性的高分凸显出来，彻底解决
-                优质标的与普通标的得分差距过小的问题。
+        【V164.0 信号净化版】
+        - 核心修正: 遵照将军指示，在生成得分详情(score_details_df)时，不再添加
+                    "BASE_", "TRIG_", "RESO_" 等冗余前缀。
+        - 收益: 确保了最终输出的得分详情列名，与JSON配置文件中的信号名称完全一致，
+                使数据更纯净，逻辑更清晰。
         """
-        print("    - [计分引擎 V162.0 四层火力版] 启动...")
+        print("    - [计分引擎 V164.0 信号净化版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         if not self._get_param_value(scoring_params.get('enabled'), False):
@@ -943,7 +938,8 @@ class TrendFollowStrategy:
             if state_name == '说明': continue
             mask = atomic_states.get(state_name, default_series)
             base_score_total.loc[mask] += score
-            score_details_df.loc[mask, f"BASE_{state_name}"] = score
+            # 【核心修正】直接使用 state_name 作为列名，不再加 "BASE_" 前缀
+            score_details_df.loc[mask, state_name] = score
 
         # --- 第2层: 触发分 (Trigger Score) ---
         trigger_score_total = pd.Series(0.0, index=df.index)
@@ -953,7 +949,8 @@ class TrendFollowStrategy:
             if event_name == '说明': continue
             mask = trigger_events.get(event_name, default_series)
             trigger_score_total.loc[mask] += score
-            score_details_df.loc[mask, f"TRIG_{event_name}"] = score
+            # 【核心修正】直接使用 event_name 作为列名，不再加 "TRIG_" 前缀
+            score_details_df.loc[mask, event_name] = score
 
         # --- 第3层: 共振加成 (Resonance Bonus) ---
         resonance_score_total = pd.Series(0.0, index=df.index)
@@ -967,22 +964,20 @@ class TrendFollowStrategy:
             
             resonance_mask = pd.Series(True, index=df.index)
             for cond in conditions:
-                # 条件可能来自 atomic_states 或 trigger_events
                 cond_mask = atomic_states.get(cond, trigger_events.get(cond, default_series))
                 resonance_mask &= cond_mask
             
             resonance_score_total.loc[resonance_mask] += bonus_score
-            score_details_df.loc[resonance_mask, f"RESO_{rule_name}"] = bonus_score
+            # 【核心修正】直接使用 rule_name 作为列名，不再加 "RESO_" 前缀
+            score_details_df.loc[resonance_mask, rule_name] = bonus_score
 
         # --- 第4层: 剧本分 (Playbook Score) - 降权处理 ---
-        playbook_weight = self._get_param_value(scoring_params.get('playbook_score_weight'), 0.5)
+        playbook_weight = self._get_param_value(scoring_params.get('playbook_score_weight'), 0.4)
         print(f"      -> [火力层4/4] 正在计算剧本分 (权重: {playbook_weight})...")
-        # 调用旧的计分逻辑来获取原始剧本分
         _, raw_playbook_details = self._calculate_entry_score_legacy(df, params, trigger_events, setup_scores, atomic_states)
         raw_playbook_score = raw_playbook_details.sum(axis=1)
         playbook_score_total = (raw_playbook_score * playbook_weight).round(0)
         
-        # 将降权后的剧本分详情合并
         weighted_playbook_details = (raw_playbook_details * playbook_weight).round(0)
         score_details_df = pd.concat([score_details_df, weighted_playbook_details], axis=1)
 
@@ -991,7 +986,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V162.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V164.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
