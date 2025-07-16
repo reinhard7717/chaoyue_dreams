@@ -215,14 +215,14 @@
       },
       "slope_params": {
         "enabled": true,
-        "说明": "【V114 精简优化版】移除了 auto_detect_patterns，只计算策略中明确需要的斜率。",
+        "说明": "【V172.0 后勤线打通版】为 CHIP_peak_cost_D 新增了前线急需的 5 日斜率计算。",
         "series_to_slope": {
           "close_D": [5],
           "EMA_13_D": [5],
           "EMA_55_D": [5],
           "EMA_89_D": [10],
           "EMA_105_D": [25],
-          "CHIP_peak_cost_D": [8, 21, 55],
+          "CHIP_peak_cost_D": [5, 8, 21, 55],
           "CHIP_concentration_90pct_D": [5]
         }
       },
