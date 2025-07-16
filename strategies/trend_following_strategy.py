@@ -249,150 +249,72 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V172.0 版本强制同步最终版】
-        - 核心修正: 经过最终审查，确认V171版本的代码逻辑是正确的。此版本仅为
-                    增加一个明确的版本号打印，以确保运行的代码和分析的日志
-                    是100%同步的，彻底解决“版本错乱”问题。
-        - 收益: 确保了所有防御工事都被正确部署，评分系统将如预期般对风险进行扣分。
+        【V175.0 混合战争引擎版】
+        - 核心重构: 为适配混合战争评分引擎，本函数现在会同时生成“阵地”和“动能”两类信号，
+                    并将它们全部注入 atomic_states，供下游使用。
         """
-        # 【V172.0 新增】强制版本号打印，用于最终确认
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V172.0 版本强制同步最终版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V175.0 混合战争引擎版】 ======")
         print("======================================================================")
 
-        if df is None or df.empty:
-            return pd.DataFrame(), {}
+        if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
-        if 'close_D' in df.columns:
-            df['pct_change_D'] = df['close_D'].pct_change()
         
-        print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
+        print("--- [总指挥] 步骤1: 核心数据引擎启动 (斜率与模式识别) ---")
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         
-        atomic_conditions = {}
-        atomic_conditions['is_green'] = df['close_D'] > df['open_D']
-        atomic_conditions['is_red'] = df['close_D'] < df['open_D']
-        vol_ma_col = 'VOL_MA_21_D'
-        if vol_ma_col in df.columns:
-            atomic_conditions['is_volume_above_ma'] = df['volume_D'] > df[vol_ma_col]
-        else:
-            atomic_conditions['is_volume_above_ma'] = pd.Series(False, index=df.index)
-
-        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 ---")
+        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (混合战争模式) ---")
         df, platform_states = self._diagnose_platform_states(df, params)
+        
+        # 【V175 新增】同时诊断“阵地”与“动能”两类状态
+        trend_dynamics_states = self._diagnose_trend_dynamics(df, params)
+        positional_ma_states = self._diagnose_ma_states(df, params) # 恢复旧的阵地状态诊断
+
         atomic_states = {
-            **atomic_conditions,
             **self._diagnose_chip_states(df, params),
-            **self._diagnose_ma_states(df, params),
-            **self._diagnose_oscillator_states(df, params),
             **self._diagnose_capital_states(df, params),
             **self._diagnose_volatility_states(df, params),
-            **self._diagnose_box_states(df, params),
-            **self._diagnose_kline_patterns(df, params),
-            **self._diagnose_board_patterns(df, params),
-            **platform_states
+            **platform_states,
+            **trend_dynamics_states,
+            **positional_ma_states # 将阵地状态也注入情报池
         }
         
-        print("--- [总指挥] 步骤2: 准备状态评审引擎启动 ---")
-        setup_scores = self._calculate_setup_conditions(df, params, atomic_states)
-        for score_name, score_series in setup_scores.items():
-            df[score_name] = score_series
-
-        print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
-        default_series = pd.Series(False, index=df.index)
+        # 【V175 简化】只保留最高价值的触发器和非重复的风险信号
+        trigger_events = {}
+        trigger_events['TRIGGER_CHIP_IGNITION'] = atomic_states.get('CHIP_EVENT_IGNITION', pd.Series(False, index=df.index))
+        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
+        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
+        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
-        # --- 3.1 战略趋势评估 ---
-        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
-        is_high_score_pit = cap_pit_score >= 80
-        is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
-        atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
-        
-        long_ma_slope_col = 'SLOPE_21_EMA_55_D'
-        is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
-        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
-        is_short_ma_slope_negative = df.get(short_ma_slope_col, 0) < 0 if short_ma_slope_col in df.columns else default_series
-        long_ma_accel_col = 'ACCEL_21_EMA_55_D'
-        is_long_ma_accel_negative = df.get(long_ma_accel_col, 0) < 0 if long_ma_accel_col in df.columns else default_series
-        long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
-        is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
-        unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
-        final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
-        atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
-        print(f"      -> [风险-战略] “整体趋势恶化”已定义，激活 {final_deterioration.sum()} 天。")
-        
-        # --- 3.2 【最终确认】构建完整的“纵深防御”与“精锐打击”信号矩阵 ---
-        print("      -> 正在构建完整的信号矩阵...")
-        cost_slope_5d_col = 'SLOPE_5_CHIP_peak_cost_D'
-        if cost_slope_5d_col in df.columns:
-            atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
-            print(f"        -> [风险-成本] “5日成本下移”已定义，激活 {atomic_states['COST_SLOPE_5D_NEGATIVE'].sum()} 天。")
-        ema21_col = 'EMA_21_D'
-        if ema21_col in df.columns:
-            atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df[ema21_col]
-            print(f"        -> [风险-价格] “跌破战术均线”已定义，激活 {atomic_states['PRICE_BELOW_EMA21'].sum()} 天。")
+        atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
+        atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df.get('EMA_21_D', np.inf)
+        atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
         is_falling_day = df['close_D'] < df['close_D'].shift(1)
         is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.2
         atomic_states['DISTRIBUTION_DAY'] = is_falling_day & is_high_volume
-        print(f"        -> [风险-量价] “放量下跌派发”已定义，激活 {atomic_states['DISTRIBUTION_DAY'].sum()} 天。")
-        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
-        total_range = df['high_D'] - df['low_D']
-        atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
-        print(f"        -> [风险-形态] “长上影线冲高回落”已定义，激活 {atomic_states['KLINE_UPTHRUST_REJECTION'].sum()} 天。")
-        platform_price_col = 'PLATFORM_PRICE_STABLE'
-        if platform_price_col in df.columns:
-            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df[platform_price_col].notna())
-            print(f"        -> [风险-结构] “筹码平台破位(状态)”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
-        ema5_col = 'EMA_5_D'
-        if ema5_col in df.columns and ema21_col in df.columns:
-            atomic_states['EMA_DEATH_CROSS'] = df[ema5_col] < df[ema21_col]
-            print(f"        -> [风险-趋势] “短期均线死叉(状态)”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
-        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
-        if conc_slope_col in df.columns:
-            atomic_states['CHIP_RAPID_CONCENTRATION'] = df[conc_slope_col] < -0.005
-            print(f"        -> [精锐加分] “筹码加速集中”已定义，激活 {atomic_states['CHIP_RAPID_CONCENTRATION'].sum()} 天。")
-            atomic_states['CHIP_DISPERSION_RISK'] = df[conc_slope_col] > 0
-            print(f"        -> [精锐减分] “筹码开始发散”已定义，激活 {atomic_states['CHIP_DISPERSION_RISK'].sum()} 天。")
-        winner_rate_col = 'winner_rate_D'
-        if winner_rate_col in df.columns:
-            is_extreme_winner_rate = df[winner_rate_col] > 98
-            is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
-            atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
-            print(f"        -> [精锐减分] “极高获利盘滞涨”已定义，激活 {atomic_states['RISK_EXTREME_PROFIT_TAKING'].sum()} 天。")
-        atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'] = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
-        print(f"        -> [共振催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
+        atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
 
-        print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
-        trigger_events = self._define_trigger_events(df, params, atomic_states) 
-        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
-        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
-        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
-        print(f"        -> [精锐触发] “压缩后突破”已定义，激活 {trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'].sum()} 天。")
-
-        print("--- [总指挥] 步骤5: 启动【V172.0 全面校准】评分引擎 ---")
-        df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
-        raw_total_score = df['entry_score'].copy()
+        print("--- [总指挥] 步骤5: 启动【V175.0 混合战争】评分引擎 ---")
+        df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
         
+        raw_total_score = df['entry_score'].copy()
         print("--- [总指挥] 步骤5.5: 指挥棒模型启动，进行最终得分调整 ---")
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
-
         print("--- [总指挥] 步骤6: 风险剧本计分与出场决策 ---")
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
-        
         print("--- [总指挥] 步骤7: 最终信号合成与日志输出 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
-        
-        print(f"====== 【战术引擎 V172.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V175.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -952,112 +874,82 @@ class TrendFollowStrategy:
         df: pd.DataFrame, 
         params: dict, 
         trigger_events: Dict[str, pd.Series], 
-        setup_scores: Dict[str, pd.Series],
+        setup_scores: Dict[str, pd.Series], # 此参数在V175中已不使用，但保留签名兼容性
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V169.0 协同作战网络版】
-        - 核心升级: 重构了共振分的计算逻辑，使其能够处理包含“催化剂”和“战术否决”
-                    的复杂规则，将决策从二维平面升级到三维立体。
-        - 收益: 评分系统现在能识别“好上加好”的绝佳战机，并规避“金玉其外”的共振陷阱，
-                决策的智能化和精准度大幅提升。
+        【V175.0 混合战争引擎版】
+        - 核心重构: 计分逻辑被一分为二：
+          1. 计算独立的“阵地分”和“动能分”。
+          2. 根据JSON配置中的权重，对二者进行加权求和。
+          3. 在加权总分的基础上，再叠加上触发分等其他加成。
+        - 收益: 实现了对“静态位置”和“动态趋势”的平衡评估，决策更全面、更稳健。
         """
-        print("    - [计分引擎 V169.0 协同作战网络版] 启动...")
+        print("    - [计分引擎 V175.0 混合战争版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
-        if not self._get_param_value(scoring_params.get('enabled'), False):
-            return self._calculate_entry_score_legacy(df, params, trigger_events, setup_scores, atomic_states)
-
         score_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
-        # --- 第1层: 基础分 (Base Score) ---
-        base_score_total = pd.Series(0.0, index=df.index)
-        base_conditions = scoring_params.get('base_conditions', {})
-        print("      -> [火力层1/5] 正在计算基础分...")
-        for state_name, score in base_conditions.items():
-            if state_name == '说明': continue
+        # --- 步骤1: 计算“阵地分” (Positional Score) ---
+        print("      -> [火力层1/3] 正在计算“阵地分”...")
+        positional_params = scoring_params.get('positional_scoring', {})
+        total_positional_score = pd.Series(0.0, index=df.index)
+        # 加分项
+        for state_name, score in positional_params.get('positive_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
-            base_score_total.loc[mask] += score
+            total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
+        # 扣分项
+        for state_name, score in positional_params.get('negative_signals', {}).items():
+            mask = atomic_states.get(state_name, default_series)
+            total_positional_score.loc[mask] += score
+            score_details_df.loc[mask, state_name] = score
+        
+        score_details_df['SCORE_POSITIONAL_RAW'] = total_positional_score
 
-        # --- 第2层: 触发分 (Trigger Score) ---
+        # --- 步骤2: 计算“动能分” (Dynamic Score) ---
+        print("      -> [火力层2/3] 正在计算“动能分”...")
+        dynamic_params = scoring_params.get('dynamic_scoring', {})
+        total_dynamic_score = pd.Series(0.0, index=df.index)
+        # 加分项
+        for state_name, score in dynamic_params.get('positive_signals', {}).items():
+            mask = atomic_states.get(state_name, default_series)
+            total_dynamic_score.loc[mask] += score
+            score_details_df.loc[mask, state_name] = score
+        # 扣分项
+        for state_name, score in dynamic_params.get('negative_signals', {}).items():
+            mask = atomic_states.get(state_name, default_series)
+            total_dynamic_score.loc[mask] += score
+            score_details_df.loc[mask, state_name] = score
+            
+        score_details_df['SCORE_DYNAMIC_RAW'] = total_dynamic_score
+
+        # --- 步骤3: 混合加权与最终汇总 ---
+        print("      -> [火力层3/3] 正在执行混合加权与最终汇总...")
+        weights = scoring_params.get('hybrid_scoring_weights', {})
+        weight_pos = weights.get('positional_weight', 0.4)
+        weight_dyn = weights.get('dynamic_weight', 0.6)
+        print(f"        -> 权重分配: 阵地分({weight_pos*100}%) | 动能分({weight_dyn*100}%)")
+
+        # 核心加权逻辑
+        weighted_base_score = (total_positional_score * weight_pos) + (total_dynamic_score * weight_dyn)
+        
+        # 在加权分数基础上，增加触发分
         trigger_score_total = pd.Series(0.0, index=df.index)
         trigger_event_scores = scoring_params.get('trigger_events', {})
-        print("      -> [火力层2/5] 正在计算触发分...")
         for event_name, score in trigger_event_scores.items():
             if event_name == '说明': continue
             mask = trigger_events.get(event_name, default_series)
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
 
-        # --- 第3层: 共振加成 (Resonance Bonus) - 【V169.0 核心升级】 ---
-        resonance_score_total = pd.Series(0.0, index=df.index)
-        resonance_rules = scoring_params.get('resonance_rules', {}).get('rules', [])
-        print("      -> [火力层3/5] 正在执行协同作战网络（共振）分析...")
-        for rule in resonance_rules:
-            rule_name = rule.get('name')
-            base_conditions = rule.get('base_conditions', rule.get('conditions', [])) # 兼容旧版
-            bonus_score = rule.get('bonus_score', 0)
-            catalyst_conditions = rule.get('catalyst_conditions', [])
-            catalyst_bonus = rule.get('catalyst_bonus', 0)
-            veto_conditions = rule.get('veto_conditions', [])
-            
-            if not base_conditions: continue
-
-            # 1. 计算基础共振掩码
-            base_resonance_mask = pd.Series(True, index=df.index)
-            for cond in base_conditions:
-                cond_mask = atomic_states.get(cond, trigger_events.get(cond, default_series))
-                base_resonance_mask &= cond_mask
-            
-            # 2. 计算战术否决掩码
-            veto_mask = pd.Series(False, index=df.index)
-            if veto_conditions:
-                for cond in veto_conditions:
-                    cond_mask = atomic_states.get(cond, trigger_events.get(cond, default_series))
-                    veto_mask |= cond_mask
-            
-            # 3. 应用否决规则，得到最终有效的基础共振
-            final_base_mask = base_resonance_mask & ~veto_mask
-            resonance_score_total.loc[final_base_mask] += bonus_score
-            score_details_df.loc[final_base_mask, f"{rule_name}_base"] = bonus_score
-
-            # 4. 计算并应用催化剂加成
-            if catalyst_conditions and catalyst_bonus > 0:
-                catalyst_mask = pd.Series(True, index=df.index)
-                for cond in catalyst_conditions:
-                    cond_mask = atomic_states.get(cond, trigger_events.get(cond, default_series))
-                    catalyst_mask &= cond_mask
-                
-                # 催化剂必须在有效的基础共振上才能生效
-                final_catalyst_mask = final_base_mask & catalyst_mask
-                resonance_score_total.loc[final_catalyst_mask] += catalyst_bonus
-                score_details_df.loc[final_catalyst_mask, f"{rule_name}_catalyst"] = catalyst_bonus
-
-        # --- 第4层: 剧本分 (Playbook Score) ---
-        playbook_weight = self._get_param_value(scoring_params.get('playbook_score_weight'), 0.4)
-        print(f"      -> [火力层4/5] 正在计算剧本分 (权重: {playbook_weight})...")
-        _, raw_playbook_details = self._calculate_entry_score_legacy(df, params, trigger_events, setup_scores, atomic_states)
-        playbook_score_total = (raw_playbook_details.sum(axis=1) * playbook_weight).round(0)
-        score_details_df = pd.concat([score_details_df, (raw_playbook_details * playbook_weight).round(0)], axis=1)
-
-        # --- 第5层: 负分层 (Negative Score) ---
-        negative_score_total = pd.Series(0.0, index=df.index)
-        negative_conditions = scoring_params.get('negative_conditions', {})
-        print("      -> [火力层5/5] 正在计算战术否决（扣分项）...")
-        for state_name, score in negative_conditions.items():
-            if state_name == '说明': continue
-            mask = atomic_states.get(state_name, default_series)
-            negative_score_total.loc[mask] += score
-            score_details_df.loc[mask, state_name] = score
-
-        # --- 最终汇总 ---
-        final_score = base_score_total + trigger_score_total + resonance_score_total + playbook_score_total + negative_score_total
+        # 最终总分
+        final_score = weighted_base_score + trigger_score_total
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V169.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V175.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
@@ -1859,6 +1751,68 @@ class TrendFollowStrategy:
             else:
                 states[key] = states[key].fillna(False)
         return states
+
+    # 动态惯性引擎
+    def _diagnose_trend_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V174.0 动态惯性引擎】
+        - 核心职责: 基于趋势的“斜率”和“加速度”，生成高维度的动态原子状态。
+        - 产出: 返回一个包含 DYN_... 信号的字典，供评分引擎使用。
+        """
+        print("        -> [诊断模块 V174.0] 正在执行动态惯性诊断...")
+        dynamics_states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 获取核心的斜率和加速度数据 ---
+        # 长期趋势的速度和加速度
+        long_slope_col = 'SLOPE_55_EMA_55_D'
+        long_accel_col = 'ACCEL_55_EMA_55_D'
+        # 短期趋势的速度
+        short_slope_col = 'SLOPE_13_EMA_13_D'
+
+        if not all(c in df.columns for c in [long_slope_col, long_accel_col, short_slope_col]):
+            print("          -> [错误] 动态惯性诊断缺少必要的斜率/加速度列，跳过。")
+            return {}
+
+        long_slope = df[long_slope_col]
+        long_accel = df[long_accel_col]
+        short_slope = df[short_slope_col]
+
+        # --- 2. 定义基础布尔条件 ---
+        is_long_slope_positive = long_slope > 0
+        is_long_slope_negative = long_slope < 0
+        is_long_accel_positive = long_accel > 0
+        is_long_accel_negative = long_accel < 0
+        
+        is_short_slope_positive = short_slope > 0
+        is_short_slope_negative = short_slope < 0
+        
+        # --- 3. 组合生成高维度动态状态 ---
+        # 【S级进攻】健康加速: 长短期趋势同向看涨，且长期趋势在加速
+        dynamics_states['DYN_TREND_HEALTHY_ACCELERATING'] = is_long_slope_positive & is_short_slope_positive & is_long_accel_positive
+        
+        # 【A级进攻】成熟稳定: 长短期趋势同向看涨，但长期趋势已不再加速（减速或匀速）
+        dynamics_states['DYN_TREND_MATURE_STABLE'] = is_long_slope_positive & is_short_slope_positive & ~is_long_accel_positive
+
+        # 【B级进攻】底部反转: 长期趋势仍向下，但短期趋势已率先加速向上
+        dynamics_states['DYN_TREND_BOTTOM_REVERSING'] = is_long_slope_negative & is_short_slope_positive & (df[short_slope_col] > df[short_slope_col].shift(1))
+
+        # 【S级风险】动能衰减: 长期趋势虽向上，但已开始减速，且短期趋势已逆转
+        dynamics_states['DYN_TREND_WEAKENING_DECELERATING'] = is_long_slope_positive & is_long_accel_negative & is_short_slope_negative
+
+        # 【A级风险】下跌加速: 长短期趋势同向看跌，且下跌在加速
+        dynamics_states['DYN_TREND_BEARISH_ACCELERATING'] = is_long_slope_negative & is_short_slope_negative & is_long_accel_negative
+
+        # 【B级风险】顶部背离: 价格创近期新高，但长短期斜率均在下降
+        is_new_high = df['high_D'] >= df['high_D'].shift(1).rolling(window=10).max()
+        is_slope_weakening = (long_slope < long_slope.shift(1)) & (short_slope < short_slope.shift(1))
+        dynamics_states['DYN_TREND_TOPPING_DIVERGENCE'] = is_new_high & is_slope_weakening
+
+        # --- 4. 打印调试信息 ---
+        for name, series in dynamics_states.items():
+            print(f"          -> “{name}” 已定义，激活 {series.sum()} 天。")
+            
+        return dynamics_states
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """【V64.5 最终融合版】震荡指标状态诊断中心"""
