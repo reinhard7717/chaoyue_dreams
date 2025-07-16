@@ -417,10 +417,10 @@ class WeeklyContextEngine:
         av_last = avg_volume.iloc[-1]
         pb_last = is_price_breakout.iloc[-1]
         vb_last = is_volume_breakout.iloc[-1]
-        # print(f"    - 条件1 (价格突破): {'[✓]' if pb_last else '[✗]'} (收盘价: {last.get('close_W', float('nan')):.2f} vs 前{lookback_weeks}周高点: {ph_last:.2f})")
-        # print(f"    - 条件2 (放量突破): {'[✓]' if vb_last else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(av_last * volume_multiplier):.0f})")
-        # print(f"    - 条件3 (趋势动能支持): {'[✓]' if is_trend_supportive.iloc[-1] else '[✗]'} (斜率: {df[slope_col].iloc[-1]:.4f} > 阈值: {slope_threshold})")
-        # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
+        print(f"    - 条件1 (价格突破): {'[✓]' if pb_last else '[✗]'} (收盘价: {last.get('close_W', float('nan')):.2f} vs 前{lookback_weeks}周高点: {ph_last:.2f})")
+        print(f"    - 条件2 (放量突破): {'[✓]' if vb_last else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(av_last * volume_multiplier):.0f})")
+        print(f"    - 条件3 (趋势动能支持): {'[✓]' if is_trend_supportive.iloc[-1] else '[✗]'} (斜率: {df[slope_col].iloc[-1]:.4f} > 阈值: {slope_threshold})")
+        print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
 
     def _playbook_check_ma_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -510,13 +510,13 @@ class WeeklyContextEngine:
         washout_score += washout_bull_trap.astype(int)
         washout_score += washout_volume_contraction.astype(int)
         last_support = support_level.iloc[-1]
-        # print(f"    - 使用的支撑位: {last_support:.2f}")
-        # print(f"    - 模式1 (日内洗盘): {'[+1分]' if washout_intraday.iloc[-1] else '[+0分]'}")
-        # print(f"    - 模式2 (日间洗盘): {'[+1分]' if washout_interday.iloc[-1] else '[+0分]'}")
-        # print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
-        # print(f"    - 模式4 (诱多陷阱): {'[+1分]' if washout_bull_trap.iloc[-1] else '[+0分]'}")
-        # print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
-        # print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
+        print(f"    - 使用的支撑位: {last_support:.2f}")
+        print(f"    - 模式1 (日内洗盘): {'[+1分]' if washout_intraday.iloc[-1] else '[+0分]'}")
+        print(f"    - 模式2 (日间洗盘): {'[+1分]' if washout_interday.iloc[-1] else '[+0分]'}")
+        print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
+        print(f"    - 模式4 (诱多陷阱): {'[+1分]' if washout_bull_trap.iloc[-1] else '[+0分]'}")
+        print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
+        print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
         return washout_score.fillna(0)
 
     def _get_weekly_support_level(self, df: pd.DataFrame, params: dict) -> Optional[pd.Series]:
