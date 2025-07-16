@@ -130,7 +130,8 @@ def trend_following_list(request):
     # 步骤2: 定义子查询
     latest_sell_time_subquery = TrendFollowStrategySignalLog.objects.filter(
         stock_id=OuterRef('stock_id'),
-        exit_signal_code__gt=0
+        exit_signal_code__gt=0,
+        timeframe='D'
     ).order_by('-trade_time').values('trade_time')[:1]
 
     # 步骤3: 注解QuerySet
