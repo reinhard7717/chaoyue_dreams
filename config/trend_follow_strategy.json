@@ -80,6 +80,20 @@
       },
       "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } },
       "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] }
+    },
+    "slope_params": {
+      "enabled": true,
+      "说明": "【V181.0 后勤线总动员版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
+      "series_to_slope": {
+        "close_D": [5],
+        "EMA_13_D": [5, 13],
+        "EMA_55_D": [21, 55],
+        "EMA_89_D": [10],
+        "EMA_105_D": [25],
+        "CHIP_peak_cost_D": [5, 8, 21, 55],
+        "CHIP_concentration_90pct_D": [5],
+        "EMA_21_W": [5, 13]
+      }
     }
   },
   "weekly_context_params": {
@@ -290,20 +304,6 @@
       "volatility_state_params": {
         "enabled": true, "squeeze_percentile": 0.1, "shrinking_ratio": 0.8,
         "squeeze_context": { "persistence_days": 10, "volume_break_ratio": 1.5 }
-      },
-      "slope_params": {
-        "enabled": true,
-        "说明": "【V181.0 后勤线总动员版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
-        "series_to_slope": {
-          "close_D": [5],
-          "EMA_13_D": [5, 13],
-          "EMA_55_D": [21, 55],
-          "EMA_89_D": [10],
-          "EMA_105_D": [25],
-          "CHIP_peak_cost_D": [5, 8, 21, 55],
-          "CHIP_concentration_90pct_D": [5],
-          "EMA_21_W": [5, 13]
-        }
       },
       "kline_pattern_params": {
         "enabled": true,
