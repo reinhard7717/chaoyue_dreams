@@ -44,8 +44,6 @@ def _load_dynamic_scoring_map() -> dict:
         logger.error(f"加载动态评分项中文名时发生错误: {e}", exc_info=True)
         # 在发生错误时返回一个空字典，确保程序不会崩溃
         return {}
-# ▲▲▲【代码新增 V165.0】▲▲▲
-
 
 # 核心策略名称映射 (保持不变)
 STRATEGY_NAME_MAP = {
@@ -82,6 +80,8 @@ PLAYBOOK_NAME_MAP = {
     'BONUS_HIGH_CONTROL_MARKUP': '高控盘拉升',
     'INTRADAY_ENTRY_CONFIRMATION': '分钟级共振引擎',
     'ENTRY_INTRADAY_CONFIRMATION':'分钟级买入确认',
+
+    'CHIP_DYNAMICS_MULTIPLIER': '【筹码】火力放大',
     # ... 此处省略其他旧的映射，以保持简洁 ...
     'EXIT_LEVEL_1': '【一级预警】趋势减速',
     'EXIT_LEVEL_2': '【二级警报】短期转弱',
