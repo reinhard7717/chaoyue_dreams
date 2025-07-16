@@ -259,6 +259,8 @@ class TrendFollowStrategy:
 
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
+        if 'close_D' in df.columns:
+            df['pct_change_D'] = df['close_D'].pct_change()
         
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
         df = self._calculate_trend_slopes(df, params)
