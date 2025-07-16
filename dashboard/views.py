@@ -87,31 +87,24 @@ def get_playbook_priority(playbook_name):
         return 99 # 返回一个很大的值，使其排在最后
 
     playbook_name_upper = playbook_name.upper()
-    
-    # ▼▼▼【代码修改】: 统一判断逻辑 ▼▼▼
     # 优先级 0: 火箭信号 (与模板逻辑一致)
     if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
         return 0
-    
     # 优先级 1: 王牌信号 (修正为与模板逻辑一致，检查'王牌')
     if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌' in playbook_name:
         return 1
-        
     # 优先级 2: 专家信号 (修正为与模板逻辑一致，检查'专家')
     if '专家' in playbook_name:
         return 2
-        
     # 优先级 4: 加分项 (逻辑保持不变)
     if '【加分】' in playbook_name or '资金流入' in playbook_name:
         return 4
-        
     # 优先级 5: 基础形态 (逻辑保持不变)
     if 'MA20' in playbook_name_upper or '均线' in playbook_name:
         return 5
-        
     # 默认优先级
     return 3
-    # ▲▲▲【代码修改结束】▲▲▲
+
 
 @login_required
 def trend_following_list(request):
@@ -126,9 +119,10 @@ def trend_following_list(request):
 
     # 步骤1: 定义基础数据集
     latest_buy_signals = TrendFollowStrategySignalLog.objects.filter(
-        entry_signal=True
+        entry_signal=True,
+        timeframe='D'  # 增加的筛选条件
     ).values('stock_id').annotate(
-        latest_buy_id=Max('id')
+        latest_buy_id=Max('id'),
     )
     latest_buy_ids = [item['latest_buy_id'] for item in latest_buy_signals]
     base_queryset = TrendFollowStrategySignalLog.objects.filter(id__in=latest_buy_ids)
