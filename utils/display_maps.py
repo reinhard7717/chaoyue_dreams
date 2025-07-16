@@ -88,6 +88,14 @@ PLAYBOOK_NAME_MAP = {
     'EXIT_LEVEL_3': '【三级警报】跌破日线支撑',
     'EXIT_INTRADAY_UPTHRUST_REJECTION': '冲高回落',
     'EXIT_INTRADAY_PULLBACK_FAILED': '急跌反弹失败',
+
+    'TRIGGER_DOMINANT_REVERSAL': '显性反转阳线',
+    'TRIGGER_BREAKOUT_CANDLE': '突破阳线(企稳型)',
+    'TRIGGER_PLATFORM_PULLBACK_REBOUND': '筹码平台回踩反弹',
+    'FINAL_MULTIPLIER': '火力放大器',
+    '': '',
+    '': '',
+    '': '',
 }
 
 # ▼▼▼【代码修改 V165.0】: 合并静态与动态词典，生成最终的显示映射 ▼▼▼
