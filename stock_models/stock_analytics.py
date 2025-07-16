@@ -698,9 +698,9 @@ class TrendFollowStrategySignalLog(models.Model):
         
         indexes = [
             # 索引1: 为“最新卖出时间”子查询提供超高速支持 (绝对核心，必须保留)。
-            models.Index(fields=['stock', 'exit_signal_code', 'trade_time'], name='idx_stock_sell_time'),
+            models.Index(fields=['stock', 'timeframe', 'exit_signal_code', 'trade_time'], name='idx_stock_tf_sell_time'),
             # 索引2: 优化“最新买入信号”的初始查找和分组 (绝对核心，必须保留)。
-            models.Index(fields=['entry_signal', 'stock'], name='idx_entry_signal_stock'),
+            models.Index(fields=['entry_signal', 'timeframe', 'stock'], name='idx_entry_tf_stock'),
             # 索引3: 加速最终结果的排序 (核心优化，建议保留)。
             models.Index(fields=['trade_time', 'entry_score'], name='idx_trade_time_score'),
         ]
