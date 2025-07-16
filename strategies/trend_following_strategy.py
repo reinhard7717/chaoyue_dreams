@@ -948,13 +948,13 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V178.0 自适应瞄准镜版】
-        - 核心升级: 火力放大器不再使用斜率的原始值，而是计算其在历史窗口内的“分位数排名”。
-                    这彻底解决了不同股票之间“量纲”不同的问题，实现了真正的自适应。
-        - 收益: 无论股票股性如何，只要其筹码动态在自身历史上表现优异，就能获得巨大加成，
-                从而实现对“真龙头”的决定性识别。
+        【V179.0 联合作战加成版】
+        - 核心修正: 彻底废除“乘数相乘”的错误逻辑。火力放大器现在采用“加法”模型。
+                    最终乘数 = 1.0 + 筹码贡献值 + 成本贡献值。
+        - 收益: 解决了因单一负面指标导致整体分数被过度压制的问题。现在系统能
+                正确地综合评估多个动态指标，给予真正优秀的目标应得的高额加成。
         """
-        print("    - [计分引擎 V178.0 自适应瞄准镜版] 启动...")
+        print("    - [计分引擎 V179.0 联合作战加成版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
@@ -993,41 +993,44 @@ class TrendFollowStrategy:
         
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
-        # --- 步骤4: 【V178核心】启动带自适应瞄准镜的火力放大器 ---
-        print("      -> [火力层4/4] 正在启动“自适应瞄准镜”火力放大器...")
+        # --- 步骤4: 【V179核心】启动“联合作战加成”火力放大器 ---
+        print("      -> [火力层4/4] 正在启动“联合作战加成”火力放大器...")
         amp_params = scoring_params.get('chip_dynamics_amplifier', {})
+        # ▼▼▼【代码修改 V179.0】: 初始化基准为1.0，后续采用加法 ▼▼▼
         final_multiplier = pd.Series(1.0, index=df.index)
         
         if amp_params.get('enabled', False):
             window = self._get_param_value(amp_params.get('lookback_window'), 250)
             
-            # --- 瞄准镜1: 筹码集中度斜率 ---
+            # --- 兵种1: 筹码集中度斜率 ---
             conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
             if conc_slope_col in df.columns:
-                # 计算历史分位数 (越小越好)
                 conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                conc_multiplier = pd.Series(1.0, index=df.index)
+                conc_tier_multiplier = pd.Series(1.0, index=df.index)
                 rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
                 for rule in sorted(rules, key=lambda x: x['percentile_upper']):
                     mask = conc_rank <= rule['percentile_upper']
-                    conc_multiplier[mask] = rule['multiplier']
-                final_multiplier *= conc_multiplier
-                score_details_df['AMP_CONC_MULTIPLIER'] = conc_multiplier
-                print(f"        -> [瞄准镜-筹码] 校准完成。")
+                    conc_tier_multiplier[mask] = rule['multiplier']
+                
+                # ▼▼▼【代码修改 V179.0】: 计算贡献值(bonus/penalty)并“加”到最终乘数上 ▼▼▼
+                final_multiplier += (conc_tier_multiplier - 1.0)
+                score_details_df['AMP_CONC_CONTRIBUTION'] = (conc_tier_multiplier - 1.0)
+                print(f"        -> [兵种-筹码] 贡献值计算完成。")
 
-            # --- 瞄准镜2: 成本峰斜率 ---
+            # --- 兵种2: 成本峰斜率 ---
             cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
             if cost_slope_col in df.columns:
-                # 计算历史分位数 (越大越好)
                 cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                cost_multiplier = pd.Series(1.0, index=df.index)
+                cost_tier_multiplier = pd.Series(1.0, index=df.index)
                 rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
                 for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=True):
                     mask = cost_rank >= rule['percentile_lower']
-                    cost_multiplier[mask] = rule['multiplier']
-                final_multiplier *= cost_multiplier
-                score_details_df['AMP_COST_MULTIPLIER'] = cost_multiplier
-                print(f"        -> [瞄准镜-成本] 校准完成。")
+                    cost_tier_multiplier[mask] = rule['multiplier']
+
+                # ▼▼▼【代码修改 V179.0】: 计算贡献值(bonus/penalty)并“加”到最终乘数上 ▼▼▼
+                final_multiplier += (cost_tier_multiplier - 1.0)
+                score_details_df['AMP_COST_CONTRIBUTION'] = (cost_tier_multiplier - 1.0)
+                print(f"        -> [兵种-成本] 贡献值计算完成。")
 
             # --- 应用安全限制 ---
             cap_params = amp_params.get('final_multiplier_cap', {})
@@ -1042,7 +1045,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V178.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V179.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
