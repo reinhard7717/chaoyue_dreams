@@ -257,6 +257,13 @@ class TrendFollowStrategy:
         print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V175.0 混合战争引擎版】 ======")
         print("======================================================================")
 
+        if 'close_D' in df.columns:
+            df['pct_change_D'] = df['close_D'].pct_change()
+        else:
+            # 如果连收盘价都没有，后续计算无意义，直接返回空值避免崩溃
+            print("[严重错误] 输入的DataFrame缺少'close_D'列，无法继续执行策略。")
+            return pd.DataFrame(), {}
+
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
         
