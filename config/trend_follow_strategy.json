@@ -120,13 +120,33 @@
         },
         "chip_dynamics_amplifier": {
           "enabled": true,
-          "说明": "【V177.0 火力放大器】基于筹码动态斜率，生成一个最终得分乘数。",
-          "concentration_amplifier_factor": { "value": 30, "说明": "筹码集中度斜率的放大系数 (斜率为负时)" },
-          "cost_basis_amplifier_factor": { "value": 5, "说明": "成本峰斜率的放大系数 (斜率为正时)" },
-          "concentration_dampener_factor": { "value": 50, "说明": "筹码发散度的衰减系数 (斜率为正时)" },
-          "cost_basis_dampener_factor": { "value": 8, "说明": "成本下移的衰减系数 (斜率为负时)" },
-          "max_multiplier": { "value": 2.5, "说明": "增益乘数的最大上限" },
-          "min_multiplier": { "value": 0.3, "说明": "衰减乘数的最小下限" }
+          "说明": "【V178.0 自适应瞄准镜版】基于筹码动态斜率的“历史分位数”，生成最终得分乘数。",
+          "lookback_window": { "value": 250, "说明": "计算历史分位数的回看窗口期。" },
+          
+          "concentration_slope_rules": {
+            "说明": "筹码集中度斜率(越小越好)的乘数规则",
+            "tiers": [
+              { "percentile_upper": 0.1, "multiplier": 1.8, "cn_name": "【筹码】极速集中" },
+              { "percentile_upper": 0.3, "multiplier": 1.4, "cn_name": "【筹码】加速集中" },
+              { "percentile_upper": 0.7, "multiplier": 1.0, "cn_name": "【筹码】常态波动" },
+              { "percentile_upper": 1.1, "multiplier": 0.6, "cn_name": "【筹码风险】开始发散" }
+            ]
+          },
+
+          "cost_basis_slope_rules": {
+            "说明": "成本峰斜率(越大越好)的乘数规则",
+            "tiers": [
+              { "percentile_lower": 0.9, "multiplier": 1.8, "cn_name": "【成本】极速拉升" },
+              { "percentile_lower": 0.7, "multiplier": 1.4, "cn_name": "【成本】加速拉升" },
+              { "percentile_lower": 0.3, "multiplier": 1.0, "cn_name": "【成本】常态波动" },
+              { "percentile_lower": -0.1, "multiplier": 0.6, "cn_name": "【成本风险】重心下移" }
+            ]
+          },
+
+          "final_multiplier_cap": {
+            "max": 3.0,
+            "min": 0.4
+          }
         }
       },
       "setup_scoring_matrix": {
