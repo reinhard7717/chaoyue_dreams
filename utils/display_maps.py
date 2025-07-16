@@ -93,8 +93,8 @@ PLAYBOOK_NAME_MAP = {
     'TRIGGER_BREAKOUT_CANDLE': '突破阳线(企稳型)',
     'TRIGGER_PLATFORM_PULLBACK_REBOUND': '筹码平台回踩反弹',
     'FINAL_MULTIPLIER': '火力放大器',
-    '': '',
-    '': '',
+    'TRIGGER_ENERGY_RELEASE': '能量释放(突破型)',
+    'VOL_BREAKOUT_FROM_SQUEEZE': '突破盘整区',
     '': '',
 }
 
