@@ -944,68 +944,55 @@ class TrendFollowStrategy:
         df: pd.DataFrame, 
         params: dict, 
         trigger_events: Dict[str, pd.Series], 
-        setup_scores: Dict[str, pd.Series], # 此参数在V175中已不使用，但保留签名兼容性
+        setup_scores: Dict[str, pd.Series],
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V175.0 混合战争引擎版】
-        - 核心重构: 计分逻辑被一分为二：
-          1. 计算独立的“阵地分”和“动能分”。
-          2. 根据JSON配置中的权重，对二者进行加权求和。
-          3. 在加权总分的基础上，再叠加上触发分等其他加成。
-        - 收益: 实现了对“静态位置”和“动态趋势”的平衡评估，决策更全面、更稳健。
+        【V177.0 火力放大器版】
+        - 核心升级: 引入“筹码动态火力放大器”。不再满足于对筹码信号进行简单的布尔判断，
+                    而是直接利用其斜率的“量级”，生成一个最终得分乘数。
+        - 收益: 能够极大地拉开“优秀筹码结构”与“恶劣筹码结构”股票之间的得分差距，
+                实现决定性的区分度。
         """
-        print("    - [计分引擎 V175.0 混合战争版] 启动...")
+        print("    - [计分引擎 V177.0 火力放大器版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
         # --- 步骤1: 计算“阵地分” (Positional Score) ---
-        print("      -> [火力层1/3] 正在计算“阵地分”...")
+        print("      -> [火力层1/4] 正在计算“阵地分”...")
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
-        # 加分项
         for state_name, score in positional_params.get('positive_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
-        # 扣分项
         for state_name, score in positional_params.get('negative_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
         
-        score_details_df['SCORE_POSITIONAL_RAW'] = total_positional_score
-
         # --- 步骤2: 计算“动能分” (Dynamic Score) ---
-        print("      -> [火力层2/3] 正在计算“动能分”...")
+        print("      -> [火力层2/4] 正在计算“动能分”...")
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         total_dynamic_score = pd.Series(0.0, index=df.index)
-        # 加分项
         for state_name, score in dynamic_params.get('positive_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
-        # 扣分项
         for state_name, score in dynamic_params.get('negative_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
             
-        score_details_df['SCORE_DYNAMIC_RAW'] = total_dynamic_score
-
-        # --- 步骤3: 混合加权与最终汇总 ---
-        print("      -> [火力层3/3] 正在执行混合加权与最终汇总...")
+        # --- 步骤3: 混合加权与触发分叠加 ---
+        print("      -> [火力层3/4] 正在执行混合加权与触发分叠加...")
         weights = scoring_params.get('hybrid_scoring_weights', {})
         weight_pos = weights.get('positional_weight', 0.4)
         weight_dyn = weights.get('dynamic_weight', 0.6)
-        print(f"        -> 权重分配: 阵地分({weight_pos*100}%) | 动能分({weight_dyn*100}%)")
-
-        # 核心加权逻辑
         weighted_base_score = (total_positional_score * weight_pos) + (total_dynamic_score * weight_dyn)
         
-        # 在加权分数基础上，增加触发分
         trigger_score_total = pd.Series(0.0, index=df.index)
         trigger_event_scores = scoring_params.get('trigger_events', {})
         for event_name, score in trigger_event_scores.items():
@@ -1013,13 +1000,49 @@ class TrendFollowStrategy:
             mask = trigger_events.get(event_name, default_series)
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
+        
+        base_plus_trigger_score = weighted_base_score + trigger_score_total
 
-        # 最终总分
-        final_score = weighted_base_score + trigger_score_total
+        # --- 步骤4: 【V177核心】启动火力放大器 ---
+        print("      -> [火力层4/4] 正在启动“筹码动态火力放大器”...")
+        amp_params = scoring_params.get('chip_dynamics_amplifier', {})
+        chip_multiplier = pd.Series(1.0, index=df.index)
+        
+        if amp_params.get('enabled', False):
+            conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+            cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
+            
+            if conc_slope_col in df.columns and cost_slope_col in df.columns:
+                # 1. 筹码集中度放大/衰减
+                conc_amp_factor = self._get_param_value(amp_params.get('concentration_amplifier_factor'), 30)
+                conc_damp_factor = self._get_param_value(amp_params.get('concentration_dampener_factor'), 50)
+                
+                conc_slope = df[conc_slope_col]
+                chip_multiplier += np.where(conc_slope < 0, conc_slope.abs() * conc_amp_factor, -conc_slope * conc_damp_factor)
+
+                # 2. 成本峰斜率放大/衰减
+                cost_amp_factor = self._get_param_value(amp_params.get('cost_basis_amplifier_factor'), 5)
+                cost_damp_factor = self._get_param_value(amp_params.get('cost_basis_dampener_factor'), 8)
+                
+                cost_slope = df[cost_slope_col]
+                chip_multiplier += np.where(cost_slope > 0, cost_slope * cost_amp_factor, cost_slope.abs() * -cost_damp_factor)
+
+                # 3. 应用安全限制
+                max_mult = self._get_param_value(amp_params.get('max_multiplier'), 2.5)
+                min_mult = self._get_param_value(amp_params.get('min_multiplier'), 0.3)
+                chip_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
+                
+                score_details_df['CHIP_DYNAMICS_MULTIPLIER'] = chip_multiplier
+                print(f"        -> 火力放大器已激活。最终乘数范围: [{chip_multiplier.min():.2f}, {chip_multiplier.max():.2f}]")
+            else:
+                print("        -> [警告] 火力放大器所需斜率列不存在，跳过。")
+        
+        # --- 最终汇总 ---
+        final_score = base_plus_trigger_score * chip_multiplier
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V175.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V177.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
