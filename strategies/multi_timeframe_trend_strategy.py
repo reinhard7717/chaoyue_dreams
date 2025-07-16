@@ -263,7 +263,7 @@ class MultiTimeframeTrendStrategy:
         - 收益: 确保了所有经此模块处理的“精加工”信号，都包含完整的中英文剧本信息。
         """
         final_entry_records = []
-        entry_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_entry_params', {})
+        entry_params = self.tactical_engine._get_params_block(self.strategic_engine, 'intraday_entry_params', {})
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(entry_params.get('enabled'), False): return []
@@ -393,7 +393,7 @@ class MultiTimeframeTrendStrategy:
                 使得最终的风险警报能更准确地反映收盘时的真实状态。
         """
         all_alerts = []
-        exec_params = self.tactical_engine._get_params_block(self.tactical_config, 'intraday_execution_params', {})
+        exec_params = self.tactical_engine._get_params_block(self.strategic_engine, 'intraday_execution_params', {})
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(exec_params.get('enabled'), False):
@@ -412,7 +412,7 @@ class MultiTimeframeTrendStrategy:
             logger.info("    - [风险预警任务] 跳过 'upthrust_rejection' 规则，因为它在配置中被禁用。")
             return []
 
-        upthrust_calc_params = self.tactical_engine._get_params_block(self.tactical_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        upthrust_calc_params = self.tactical_engine._get_params_block(self.strategic_engine, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
@@ -617,7 +617,7 @@ class MultiTimeframeTrendStrategy:
 
         print(f"--- [引擎2-调试] 战术引擎接收到的日线数据时间范围到: {df_daily_prepared.index.max()}")
 
-        daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.tactical_config)
+        daily_analysis_df, atomic_signals = self.tactical_engine.apply_strategy(df_daily_prepared, self.strategic_engine)
         
         if daily_analysis_df is None or daily_analysis_df.empty:
             print("--- [引擎2-调试] 战术引擎返回了空的分析结果。")
@@ -639,7 +639,7 @@ class MultiTimeframeTrendStrategy:
             stock_code, 
             self.daily_analysis_df,
             atomic_signals, 
-            params=self.tactical_config, 
+            params=self.strategic_engine, 
             result_timeframe='D'
         )
         print(f"    -> [战报记录] 已基于完整分析结果生成 {len(db_records)} 条数据库记录。")
@@ -748,7 +748,7 @@ class MultiTimeframeTrendStrategy:
         - 核心重构: 废弃了对 _prepare_intraday_db_record 的调用，转而直接使用
                     self._create_signal_record()，并删除了冗余的辅助函数。
         """
-        resonance_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
+        resonance_params = self.strategic_engine.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         if not resonance_params.get('enabled', False): return []
         if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
         levels = resonance_params.get('levels', [])
@@ -766,7 +766,7 @@ class MultiTimeframeTrendStrategy:
             else: return []
         dynamics_timeframes = ['60', '30']
         df_aligned = self._calculate_trend_dynamics(df_aligned, dynamics_timeframes)
-        daily_score_threshold = self.tactical_config.get('entry_scoring_params', {}).get('score_threshold', 100)
+        daily_score_threshold = self.strategic_engine.get('entry_scoring_params', {}).get('score_threshold', 100)
         daily_playbook_cols = [col for col in self.daily_analysis_df.columns if col.startswith('playbook_')]
         daily_context_cols_to_merge = ['context_mid_term_bullish', 'entry_score'] + daily_playbook_cols
         daily_context_df = self.daily_analysis_df[daily_context_cols_to_merge].copy()
@@ -827,7 +827,7 @@ class MultiTimeframeTrendStrategy:
         - 核心重构: 废弃了手动创建字典的方式，转而调用 self._create_signal_record() 辅助函数
                     来生成止盈信号记录，确保了战报格式的绝对统一。
         """
-        tp_params = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
+        tp_params = self.strategic_engine.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
         if not tp_params.get('enabled', False): return []
         
         tf = tp_params.get('timeframe')
@@ -906,7 +906,7 @@ class MultiTimeframeTrendStrategy:
     def _check_single_condition(self, df: pd.DataFrame, cond: Dict, tf: str) -> pd.Series:
         # ... (此函数保持不变) ...
         cond_type = cond['type']
-        resonance_config = self.tactical_config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
+        resonance_config = self.strategic_engine.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
         trigger_tf_str = resonance_config.get('levels', [{}])[-1].get('tf')
         suffix = f'_{tf}' if tf != trigger_tf_str else ''
         try:
@@ -999,7 +999,7 @@ class MultiTimeframeTrendStrategy:
             print("\n[步骤 2/3] [调试专属] 正在执行波段跟踪模拟器...")
             if self.daily_analysis_df is not None and not self.daily_analysis_df.empty:
                 # 注意：simulate_wave_tracking 需要日线数据，它在 run_for_stock 中被计算和缓存
-                self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.tactical_config, start_date=start_date)
+                self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.strategic_engine, start_date=start_date)
             else:
                 print("    -> [警告] 日线分析结果为空，无法执行波段跟踪模拟。")
             # --- 绩效回测结束 ---
