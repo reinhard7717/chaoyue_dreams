@@ -906,15 +906,18 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V180.0 最终同步版 - 计分引擎】
-        - 核心: 采用V179的“联合作战加成”逻辑，确保分数能正确反映多维度情报。
+        【V182.0 决战版 - 计分引擎】
+        - 核心修正: 1. 确保高价值DYN信号被计入动能分。2. 火力放大器采用更激进的“优势火力”
+                    (max)逻辑，由最强的动态指标主导最终的火力加成。
+        - 收益: 真正实现对龙头的决定性识别，分数将拉开巨大差距。
         """
-        print("    - [计分引擎 V180.0 联合作战加成版] 启动...")
+        print("    - [计分引擎 V182.0 决战版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
+        # --- 步骤1 & 2: 计算“阵地分”和“动能分” (使用V182的JSON配置) ---
         print("      -> [火力层1/4 & 2/4] 正在计算“阵地分”与“动能分”...")
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
@@ -930,6 +933,7 @@ class TrendFollowStrategy:
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
 
+        # --- 步骤3: 混合加权与触发分叠加 (逻辑不变) ---
         print("      -> [火力层3/4] 正在执行混合加权与触发分叠加...")
         weights = scoring_params.get('hybrid_scoring_weights', {})
         weight_pos = weights.get('positional_weight', 0.4)
@@ -946,49 +950,53 @@ class TrendFollowStrategy:
         
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
-        print("      -> [火力层4/4] 正在启动“自适应瞄准镜”火力放大器...")
+        # --- 步骤4: 【V182核心】启动“优势火力”放大器 ---
+        print("      -> [火力层4/4] 正在启动“优势火力”放大器...")
         amp_params = scoring_params.get('chip_dynamics_amplifier', {})
-        final_multiplier = pd.Series(1.0, index=df.index)
         
         if amp_params.get('enabled', False):
             window = self._get_param_value(amp_params.get('lookback_window'), 250)
             
+            # 计算兵种1(筹码)的乘数
             conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+            conc_multiplier = pd.Series(1.0, index=df.index)
             if conc_slope_col in df.columns:
                 conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                conc_tier_multiplier = pd.Series(1.0, index=df.index)
                 rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
                 for rule in sorted(rules, key=lambda x: x['percentile_upper']):
-                    mask = conc_rank <= rule['percentile_upper']
-                    conc_tier_multiplier[mask] = rule['multiplier']
-                final_multiplier += (conc_tier_multiplier - 1.0)
-                score_details_df['AMP_CONC_CONTRIBUTION'] = (conc_tier_multiplier - 1.0)
-                print(f"        -> [兵种-筹码] 贡献值计算完成。")
+                    conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
+                print(f"        -> [兵种-筹码] 乘数计算完成。")
 
+            # 计算兵种2(成本)的乘数
             cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
+            cost_multiplier = pd.Series(1.0, index=df.index)
             if cost_slope_col in df.columns:
                 cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                cost_tier_multiplier = pd.Series(1.0, index=df.index)
                 rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
                 for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=True):
-                    mask = cost_rank >= rule['percentile_lower']
-                    cost_tier_multiplier[mask] = rule['multiplier']
-                final_multiplier += (cost_tier_multiplier - 1.0)
-                score_details_df['AMP_COST_CONTRIBUTION'] = (cost_tier_multiplier - 1.0)
-                print(f"        -> [兵种-成本] 贡献值计算完成。")
+                    cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
+                print(f"        -> [兵种-成本] 乘数计算完成。")
 
+            # ▼▼▼【代码修改 V182.0】: 采用“优势火力”逻辑，取最大值！ ▼▼▼
+            final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
+            
+            # 应用安全限制
             cap_params = amp_params.get('final_multiplier_cap', {})
             max_mult = cap_params.get('max', 3.0)
             min_mult = cap_params.get('min', 0.4)
             final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
+            
             score_details_df['FINAL_MULTIPLIER'] = final_multiplier
             print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
-        
-        final_score = base_plus_trigger_score * final_multiplier
+            
+            final_score = base_plus_trigger_score * final_multiplier
+        else:
+            final_score = base_plus_trigger_score
+
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V180.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V182.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 

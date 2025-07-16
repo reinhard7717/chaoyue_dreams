@@ -33,7 +33,7 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V176.0 继承性发展版】恢复所有信号，并将其归类至'阵地'与'动能'加权体系。",
+        "说明": "【V182.0 决战版】将高价值的DYN信号正式列装，并更新火力放大器配置。",
         
         "hybrid_scoring_weights": {
           "说明": "混合战争权重分配 (阵地40%, 动能60%)",
@@ -42,72 +42,48 @@
         },
 
         "metadata": {
-          "说明": "【信号元数据词典】V176版，恢复并分类所有信号",
+          "说明": "【信号元数据词典】V182版",
           "comment_positional": "--- 阵地信号 (Positional) ---",
           "MA_STATE_PRICE_ABOVE_LONG_MA":  { "cn_name": "【阵地】股价站上生命线" },
           "MA_STATE_STABLE_BULLISH":       { "cn_name": "【阵地】均线多头排列" },
-          "CONTEXT_STRATEGIC_BOTTOMING_W": { "cn_name": "【阵地】周线战略性企稳" },
           "PLATFORM_STATE_STABLE_FORMED":  { "cn_name": "【阵地】稳固筹码平台" },
-          "BOX_STATE_HEALTHY_CONSOLIDATION":{ "cn_name": "【阵地】健康箱体盘整" },
           "CHIP_STATE_HIGHLY_CONCENTRATED":{ "cn_name": "【阵地】筹码高度集中" },
-          "CHIP_STATE_ACCUMULATION":       { "cn_name": "【阵地】吸筹阶段" },
-          "CAPITAL_STATE_DIVERGENCE_WINDOW":{ "cn_name": "【阵地】底背离机会窗口" },
           "PLATFORM_FAILURE":              { "cn_name": "【阵地风险】筹码平台破位" },
-          "PRICE_BELOW_EMA21":             { "cn_name": "【阵地风险】跌破战术均线" },
           "CONTEXT_TREND_DETERIORATING":   { "cn_name": "【阵地风险】整体趋势恶化" },
 
           "comment_dynamic": "--- 动能信号 (Dynamic) ---",
-          "MA_STATE_DIVERGING":            { "cn_name": "【动能】均线发散" },
-          "MA_STATE_SHORT_SLOPE_POSITIVE": { "cn_name": "【动能】短期均线向上" },
-          "VOL_STATE_SQUEEZE_WINDOW":      { "cn_name": "【动能】能量压缩窗口" },
-          "CHIP_STATE_MARKUP":             { "cn_name": "【动能】主升浪（拉升）" },
-          "CAPITAL_STATE_INFLOW_CONFIRMED":{ "cn_name": "【动能】主力资金流入" },
-          "CAPITAL_STATE_CMF_BULLISH":     { "cn_name": "【动能】CMF指标看涨" },
-          "CHIP_RAPID_CONCENTRATION":      { "cn_name": "【动能】筹码加速集中" },
-          "COST_SLOPE_5D_NEGATIVE":        { "cn_name": "【动能风险】5日成本下移" },
-          "DISTRIBUTION_DAY":              { "cn_name": "【动能风险】放量下跌派发" },
-          "KLINE_UPTHRUST_REJECTION":      { "cn_name": "【动能风险】长上影线冲高回落" },
-          "EMA_DEATH_CROSS":               { "cn_name": "【动能风险】短期均线死叉" },
-          "CHIP_DISPERSION_RISK":          { "cn_name": "【动能风险】筹码开始发散" },
-          "RISK_EXTREME_PROFIT_TAKING":    { "cn_name": "【动能风险】极高获利盘滞涨" },
+          "DYN_TREND_HEALTHY_ACCELERATING": { "cn_name": "【动能S级】健康加速" },
+          "DYN_TREND_MATURE_STABLE":        { "cn_name": "【动能A级】成熟稳定" },
+          "CHIP_RAPID_CONCENTRATION":       { "cn_name": "【动能】筹码加速集中" },
+          "DYN_TREND_WEAKENING_DECELERATING": { "cn_name": "【动能风险S级】动能衰减" },
+          "DYN_TREND_BEARISH_ACCELERATING":   { "cn_name": "【动能风险A级】下跌加速" },
+          "CHIP_DISPERSION_RISK":           { "cn_name": "【动能风险】筹码开始发散" },
 
-          "comment_trigger": "--- 触发信号 (Trigger) ---",
-          "TRIGGER_DOMINANT_REVERSAL":     { "cn_name": "【触发】显性反转阳线" },
-          "TRIGGER_CHIP_IGNITION":         { "cn_name": "【触发】筹码点火" },
-          "TRIGGER_ENERGY_RELEASE":        { "cn_name": "【触发】能量释放阳线" },
-          "TRIGGER_BREAKOUT_CANDLE":       { "cn_name": "【触发】企稳突破阳线" },
-          "TRIGGER_PLATFORM_PULLBACK_REBOUND":{ "cn_name": "【触发】平台回踩反弹" },
-          "TRIGGER_EARTH_HEAVEN_BOARD":    { "cn_name": "【触发】地天板" },
-          "TRIGGER_PULLBACK_REBOUND":      { "cn_name": "【触发】均线回踩反弹" },
-          "VOL_BREAKOUT_FROM_SQUEEZE":     { "cn_name": "【触发】压缩后突破" }
+          "comment_trigger": "--- 触发信号 (Trigger) ---"
         },
 
         "positional_scoring": {
           "说明": "【阵地分】评估静态战场态势，总分贡献权重 40%",
           "positive_signals": {
             "MA_STATE_STABLE_BULLISH": 50, "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
-            "CONTEXT_STRATEGIC_BOTTOMING_W": 60, "PLATFORM_STATE_STABLE_FORMED": 70,
-            "BOX_STATE_HEALTHY_CONSOLIDATION": 40, "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
-            "CHIP_STATE_ACCUMULATION": 30, "CAPITAL_STATE_DIVERGENCE_WINDOW": 40
+            "PLATFORM_STATE_STABLE_FORMED": 70, "CHIP_STATE_HIGHLY_CONCENTRATED": 60
           },
           "negative_signals": {
-            "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250,
-            "PRICE_BELOW_EMA21": -100
+            "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250
           }
         },
 
         "dynamic_scoring": {
           "说明": "【动能分】评估动态趋势和主力行为，总分贡献权重 60%",
           "positive_signals": {
-            "MA_STATE_DIVERGING": 40, "MA_STATE_SHORT_SLOPE_POSITIVE": 20,
-            "VOL_STATE_SQUEEZE_WINDOW": 30, "CHIP_STATE_MARKUP": 40,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 30, "CAPITAL_STATE_CMF_BULLISH": 20,
+            "DYN_TREND_HEALTHY_ACCELERATING": 250,
+            "DYN_TREND_MATURE_STABLE": 150,
             "CHIP_RAPID_CONCENTRATION": 70
           },
           "negative_signals": {
-            "RISK_EXTREME_PROFIT_TAKING": -150, "COST_SLOPE_5D_NEGATIVE": -150,
-            "EMA_DEATH_CROSS": -120, "CHIP_DISPERSION_RISK": -100,
-            "KLINE_UPTHRUST_REJECTION": -80, "DISTRIBUTION_DAY": -180
+            "DYN_TREND_WEAKENING_DECELERATING": -300,
+            "DYN_TREND_BEARISH_ACCELERATING": -200,
+            "CHIP_DISPERSION_RISK": -150
           }
         },
         
@@ -115,38 +91,30 @@
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
           "TRIGGER_DOMINANT_REVERSAL": 80, "TRIGGER_CHIP_IGNITION": 120,
           "TRIGGER_ENERGY_RELEASE": 70, "TRIGGER_BREAKOUT_CANDLE": 60,
-          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80, "TRIGGER_EARTH_HEAVEN_BOARD": 200,
-          "TRIGGER_PULLBACK_REBOUND": 50, "VOL_BREAKOUT_FROM_SQUEEZE": 120
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80, "VOL_BREAKOUT_FROM_SQUEEZE": 120
         },
+
         "chip_dynamics_amplifier": {
           "enabled": true,
-          "说明": "【V178.0 自适应瞄准镜版】基于筹码动态斜率的“历史分位数”，生成最终得分乘数。",
-          "lookback_window": { "value": 250, "说明": "计算历史分位数的回看窗口期。" },
-          
+          "说明": "【V182.0 优势火力版】采用更激进的max()逻辑，由最强的信号主导火力。",
+          "lookback_window": { "value": 250 },
           "concentration_slope_rules": {
-            "说明": "筹码集中度斜率(越小越好)的乘数规则",
             "tiers": [
-              { "percentile_upper": 0.1, "multiplier": 1.8, "cn_name": "【筹码】极速集中" },
-              { "percentile_upper": 0.3, "multiplier": 1.4, "cn_name": "【筹码】加速集中" },
-              { "percentile_upper": 0.7, "multiplier": 1.0, "cn_name": "【筹码】常态波动" },
-              { "percentile_upper": 1.1, "multiplier": 0.6, "cn_name": "【筹码风险】开始发散" }
+              { "percentile_upper": 0.1, "multiplier": 1.8 },
+              { "percentile_upper": 0.3, "multiplier": 1.4 },
+              { "percentile_upper": 0.7, "multiplier": 1.0 },
+              { "percentile_upper": 1.1, "multiplier": 0.6 }
             ]
           },
-
           "cost_basis_slope_rules": {
-            "说明": "成本峰斜率(越大越好)的乘数规则",
             "tiers": [
-              { "percentile_lower": 0.9, "multiplier": 1.8, "cn_name": "【成本】极速拉升" },
-              { "percentile_lower": 0.7, "multiplier": 1.4, "cn_name": "【成本】加速拉升" },
-              { "percentile_lower": 0.3, "multiplier": 1.0, "cn_name": "【成本】常态波动" },
-              { "percentile_lower": -0.1, "multiplier": 0.6, "cn_name": "【成本风险】重心下移" }
+              { "percentile_lower": 0.9, "multiplier": 1.8 },
+              { "percentile_lower": 0.7, "multiplier": 1.4 },
+              { "percentile_lower": 0.3, "multiplier": 1.0 },
+              { "percentile_lower": -0.1, "multiplier": 0.6 }
             ]
           },
-
-          "final_multiplier_cap": {
-            "max": 3.0,
-            "min": 0.4
-          }
+          "final_multiplier_cap": { "max": 3.0, "min": 0.4 }
         }
       },
       "setup_scoring_matrix": {
