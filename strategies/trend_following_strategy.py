@@ -249,18 +249,15 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V176.0 继承性发展版】
-        - 核心修正: 恢复了所有原子状态的诊断逻辑，确保为“混合战争”评分引擎提供
-                    最全面的“阵地”与“动能”情报。
+        【V180.0 最终同步版】
+        - 核心: 确保调用链完整，为V179计分引擎提供所有必需的高维度动态情报。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V176.0 继承性发展版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V180.0 最终同步版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
-        if 'close_D' in df.columns:
-            df['pct_change_D'] = df['close_D'].pct_change()
         
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
         df = self._calculate_trend_slopes(df, params)
@@ -269,7 +266,7 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (恢复完整功能) ---")
         df, platform_states = self._diagnose_platform_states(df, params)
         
-        # 【V176 核心恢复】调用所有诊断模块，生成完整情报池
+        # 【V180 核心】调用所有诊断模块，生成完整情报池
         atomic_states = {
             **self._diagnose_chip_states(df, params),
             **self._diagnose_ma_states(df, params),
@@ -279,103 +276,62 @@ class TrendFollowStrategy:
             **self._diagnose_box_states(df, params),
             **self._diagnose_kline_patterns(df, params),
             **self._diagnose_board_patterns(df, params),
-            **platform_states
+            **platform_states,
+            # 【V180 核心】确保调用了高维度动态诊断模块
+            **self._diagnose_trend_dynamics(df, params) 
         }
         
         print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
+        # 【V180 核心】恢复完整的风险信号定义
         default_series = pd.Series(False, index=df.index)
-        
-        # --- 3.1 战略趋势评估 ---
-        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
-        is_high_score_pit = cap_pit_score >= 80
-        is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
-        atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
-        
-        long_ma_slope_col = 'SLOPE_21_EMA_55_D'
-        is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
-        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
-        is_short_ma_slope_negative = df.get(short_ma_slope_col, 0) < 0 if short_ma_slope_col in df.columns else default_series
-        long_ma_accel_col = 'ACCEL_21_EMA_55_D'
-        is_long_ma_accel_negative = df.get(long_ma_accel_col, 0) < 0 if long_ma_accel_col in df.columns else default_series
-        long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
-        is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
-        unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
-        final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
-        atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
-        print(f"      -> [风险-战略] “整体趋势恶化”已定义，激活 {final_deterioration.sum()} 天。")
-        
-        # --- 3.2 【最终确认】构建完整的“纵深防御”与“精锐打击”信号矩阵 ---
-        print("      -> 正在构建完整的信号矩阵...")
-        cost_slope_5d_col = 'SLOPE_5_CHIP_peak_cost_D'
-        if cost_slope_5d_col in df.columns:
-            atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
-            print(f"        -> [风险-成本] “5日成本下移”已定义，激活 {atomic_states['COST_SLOPE_5D_NEGATIVE'].sum()} 天。")
-        ema21_col = 'EMA_21_D'
-        if ema21_col in df.columns:
-            atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df[ema21_col]
-            print(f"        -> [风险-价格] “跌破战术均线”已定义，激活 {atomic_states['PRICE_BELOW_EMA21'].sum()} 天。")
+        atomic_states['CONTEXT_TREND_DETERIORATING'] = self._define_context_trend_deteriorating(df, atomic_states)
+        atomic_states['COST_SLOPE_5D_NEGATIVE'] = df.get('SLOPE_5_CHIP_peak_cost_D', 0) < 0
+        atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df.get('EMA_21_D', np.inf)
         is_falling_day = df['close_D'] < df['close_D'].shift(1)
         is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.2
         atomic_states['DISTRIBUTION_DAY'] = is_falling_day & is_high_volume
-        print(f"        -> [风险-量价] “放量下跌派发”已定义，激活 {atomic_states['DISTRIBUTION_DAY'].sum()} 天。")
         upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
         total_range = df['high_D'] - df['low_D']
         atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
-        print(f"        -> [风险-形态] “长上影线冲高回落”已定义，激活 {atomic_states['KLINE_UPTHRUST_REJECTION'].sum()} 天。")
-        platform_price_col = 'PLATFORM_PRICE_STABLE'
-        if platform_price_col in df.columns:
-            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df[platform_price_col].notna())
-            print(f"        -> [风险-结构] “筹码平台破位(状态)”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
-        ema5_col = 'EMA_5_D'
-        if ema5_col in df.columns and ema21_col in df.columns:
-            atomic_states['EMA_DEATH_CROSS'] = df[ema5_col] < df[ema21_col]
-            print(f"        -> [风险-趋势] “短期均线死叉(状态)”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
-        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
-        if conc_slope_col in df.columns:
-            atomic_states['CHIP_RAPID_CONCENTRATION'] = df[conc_slope_col] < -0.005
-            print(f"        -> [精锐加分] “筹码加速集中”已定义，激活 {atomic_states['CHIP_RAPID_CONCENTRATION'].sum()} 天。")
-            atomic_states['CHIP_DISPERSION_RISK'] = df[conc_slope_col] > 0
-            print(f"        -> [精锐减分] “筹码开始发散”已定义，激活 {atomic_states['CHIP_DISPERSION_RISK'].sum()} 天。")
-        winner_rate_col = 'winner_rate_D'
-        if winner_rate_col in df.columns:
-            is_extreme_winner_rate = df[winner_rate_col] > 98
-            is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
-            atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
-            print(f"        -> [精锐减分] “极高获利盘滞涨”已定义，激活 {atomic_states['RISK_EXTREME_PROFIT_TAKING'].sum()} 天。")
-        atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'] = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
-        print(f"        -> [共振催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
+        atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
+        atomic_states['EMA_DEATH_CROSS'] = df.get('EMA_5_D', np.inf) < df.get('EMA_21_D', -np.inf)
+        atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
+        is_extreme_winner_rate = df.get('winner_rate_D', 0) > 98
+        is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
+        atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
+        atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
 
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
-        # 【V176 核心恢复】调用完整的触发器定义函数
         trigger_events = self._define_trigger_events(df, params, atomic_states)
-        # 额外补充V168的精锐触发
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
 
-        print("--- [总指挥] 步骤5: 启动【V176.0 继承性发展】评分引擎 ---")
+        print("--- [总指挥] 步骤5: 启动【V180.0 最终同步版】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
         
         raw_total_score = df['entry_score'].copy()
-        print("--- [总指挥] 步骤5.5: 指挥棒模型启动，进行最终得分调整 ---")
+        print("--- [总指挥] 步骤5.5: 指挥棒模型启动...")
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
+        
         print("--- [总指挥] 步骤6: 风险剧本计分与出场决策 ---")
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
+        
         print("--- [总指挥] 步骤7: 最终信号合成与日志输出 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
-        print(f"====== 【战术引擎 V175.0】执行完毕 ======")
+        
+        print(f"====== 【战术引擎 V180.0】执行完毕 ======")
         return df, {}
-    
+
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
         default_series = pd.Series(False, index=df.index)
@@ -948,19 +904,15 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V179.0 联合作战加成版】
-        - 核心修正: 彻底废除“乘数相乘”的错误逻辑。火力放大器现在采用“加法”模型。
-                    最终乘数 = 1.0 + 筹码贡献值 + 成本贡献值。
-        - 收益: 解决了因单一负面指标导致整体分数被过度压制的问题。现在系统能
-                正确地综合评估多个动态指标，给予真正优秀的目标应得的高额加成。
+        【V180.0 最终同步版 - 计分引擎】
+        - 核心: 采用V179的“联合作战加成”逻辑，确保分数能正确反映多维度情报。
         """
-        print("    - [计分引擎 V179.0 联合作战加成版] 启动...")
+        print("    - [计分引擎 V180.0 联合作战加成版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1 & 2: 计算“阵地分”和“动能分” (逻辑不变) ---
         print("      -> [火力层1/4 & 2/4] 正在计算“阵地分”与“动能分”...")
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
@@ -976,7 +928,6 @@ class TrendFollowStrategy:
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
 
-        # --- 步骤3: 混合加权与触发分叠加 (逻辑不变) ---
         print("      -> [火力层3/4] 正在执行混合加权与触发分叠加...")
         weights = scoring_params.get('hybrid_scoring_weights', {})
         weight_pos = weights.get('positional_weight', 0.4)
@@ -993,16 +944,13 @@ class TrendFollowStrategy:
         
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
-        # --- 步骤4: 【V179核心】启动“联合作战加成”火力放大器 ---
-        print("      -> [火力层4/4] 正在启动“联合作战加成”火力放大器...")
+        print("      -> [火力层4/4] 正在启动“自适应瞄准镜”火力放大器...")
         amp_params = scoring_params.get('chip_dynamics_amplifier', {})
-        # ▼▼▼【代码修改 V179.0】: 初始化基准为1.0，后续采用加法 ▼▼▼
         final_multiplier = pd.Series(1.0, index=df.index)
         
         if amp_params.get('enabled', False):
             window = self._get_param_value(amp_params.get('lookback_window'), 250)
             
-            # --- 兵种1: 筹码集中度斜率 ---
             conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
             if conc_slope_col in df.columns:
                 conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
@@ -1011,13 +959,10 @@ class TrendFollowStrategy:
                 for rule in sorted(rules, key=lambda x: x['percentile_upper']):
                     mask = conc_rank <= rule['percentile_upper']
                     conc_tier_multiplier[mask] = rule['multiplier']
-                
-                # ▼▼▼【代码修改 V179.0】: 计算贡献值(bonus/penalty)并“加”到最终乘数上 ▼▼▼
                 final_multiplier += (conc_tier_multiplier - 1.0)
                 score_details_df['AMP_CONC_CONTRIBUTION'] = (conc_tier_multiplier - 1.0)
                 print(f"        -> [兵种-筹码] 贡献值计算完成。")
 
-            # --- 兵种2: 成本峰斜率 ---
             cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
             if cost_slope_col in df.columns:
                 cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
@@ -1026,13 +971,10 @@ class TrendFollowStrategy:
                 for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=True):
                     mask = cost_rank >= rule['percentile_lower']
                     cost_tier_multiplier[mask] = rule['multiplier']
-
-                # ▼▼▼【代码修改 V179.0】: 计算贡献值(bonus/penalty)并“加”到最终乘数上 ▼▼▼
                 final_multiplier += (cost_tier_multiplier - 1.0)
                 score_details_df['AMP_COST_CONTRIBUTION'] = (cost_tier_multiplier - 1.0)
                 print(f"        -> [兵种-成本] 贡献值计算完成。")
 
-            # --- 应用安全限制 ---
             cap_params = amp_params.get('final_multiplier_cap', {})
             max_mult = cap_params.get('max', 3.0)
             min_mult = cap_params.get('min', 0.4)
@@ -1040,12 +982,11 @@ class TrendFollowStrategy:
             score_details_df['FINAL_MULTIPLIER'] = final_multiplier
             print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
         
-        # --- 最终汇总 ---
         final_score = base_plus_trigger_score * final_multiplier
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V179.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V180.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
