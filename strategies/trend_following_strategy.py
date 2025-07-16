@@ -249,20 +249,15 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V158.0 多维情报最终版】
-        - 核心诊断: 遵照将军最终指示，确认问题的根源在于战略评估过分依赖单一、滞后的
-                    `SLOPE_21_EMA_55_D` 指标，完全忽视了更灵敏的短周期斜率和关键的
-                    “加速度”信号，导致战略判断严重失真。
-        - 核心重构: 彻底改组战略参谋部。废除单一指标决策，建立基于“多维情报”的
-                    联合指挥体系。
-        - 新逻辑:
-          1. 引入“先锋部队”（13日线5日斜率）和“战场动能”（55日线21日斜率的加速度）两个新维度。
-          2. 只有当“主力部队趋势”、“先锋部队趋势”、“战场动能”这三个核心维度
-             【同时】指向负面时，才最终判定“整体趋势恶化”。
-          3. 任何一个维度的改善（如短线斜率转正、或长线斜率减速），都足以否决悲观判断。
-        - 收益: 实现了将军“校准瞄准镜”的战略意图，使战略评估真正做到了稳健与敏锐的统一。
+        【V162.0 四层火力适配版】
+        - 核心升级: 本函数现在正式调用 V162.0 "四层火力"评分引擎 (_calculate_entry_score)。
+        - 流程:
+          1. 准备所有原子状态、准备分、触发事件等“弹药”。
+          2. 将所有“弹药”送入新的计分引擎。
+          3. 新引擎将根据“基础分”、“触发分”、“共振加成”和“降权剧本分”四层火力
+             计算出最终得分，旨在将最优质的标的用压倒性的高分凸显出来。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V158.0 多维情报最终版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V162.0 四层火力版】 ======")
         if df is None or df.empty:
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
@@ -311,31 +306,20 @@ class TrendFollowStrategy:
         is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
         atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
         
-        # --- 【核心修正】建立“多维情报”联合指挥部 ---
-        # 1. 主力部队（中期趋势）: 55日均线的21日斜率
         long_ma_slope_col = 'SLOPE_21_EMA_55_D'
         is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
-        
-        # 2. 先锋部队（短期趋势）: 13日均线的5日斜率
         short_ma_slope_col = 'SLOPE_5_EMA_13_D'
         is_short_ma_slope_negative = df.get(short_ma_slope_col, 0) < 0 if short_ma_slope_col in df.columns else default_series
-        
-        # 3. 战场动能（趋势加速度）: 55日均线21日斜率的加速度
         long_ma_accel_col = 'ACCEL_21_EMA_55_D'
         is_long_ma_accel_negative = df.get(long_ma_accel_col, 0) < 0 if long_ma_accel_col in df.columns else default_series
-
-        # 4. 筹码重心（辅助判断）
         long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
         is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
-
-        # 最终裁决：只有当最核心的趋势、动能指标【同时】恶化时，才拉响警报
         unconditional_deterioration = (
             is_long_ma_slope_negative & 
             is_short_ma_slope_negative & 
             is_long_ma_accel_negative &
             is_long_chip_slope_negative
         )
-        
         final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
         atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
         print(f"      -> “整体趋势恶化”诊断完成 (基于多维情报原则)，共激活 {final_deterioration.sum()} 天。")
@@ -343,7 +327,8 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states) 
         
-        print("--- [总指挥] 步骤5: 剧本家族计分引擎启动 ---")
+        # 【核心调用点】调用全新的“四层火力”评分引擎
+        print("--- [总指挥] 步骤5: 启动【V162.0 四层火力】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         raw_total_score = df['entry_score'].copy()
         
@@ -365,7 +350,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V158.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V162.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
@@ -929,59 +914,124 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V152.2 “坚不可摧的记忆核心”最终版】
-        - 核心诊断: 黑匣子日志最终确认，V151依赖的 `_create_persistent_state` 
-                    未能成功将“战术优势窗口”延续到第二天，导致记忆失效。
-        - 核心重构: 彻底废弃复杂的持久化状态函数，采用最简单、最可靠的数学方法
-                    来构建“战地记忆”。
+        【V162.0 四层火力评分引擎】
+        - 核心重构: 废弃“剧本家族竞争”模式，采用全新的“四层火力”评分体系。
         - 新逻辑:
-          1. 将“暴力反转”的布尔信号转为 1/0 的整数信号。
-          2. 使用 `.rolling(3).max()` 对该信号进行滚动计算。只要过去3天内有过1，
-             结果就为1。这创造了一个绝对可靠的、持续3天的“战术优势窗口”。
-          3. 将这个“坚不可摧”的记忆窗口，正确地应用到核心趋势剧本的触发器和
-             豁免条件上。
-        - 收益: 这是针对“单日失忆症”问题的最终、最稳健的解决方案。
+          1. 基础分: 对所有有利的原子状态(atomic_states)进行无差别加总，评估静态健康度。
+          2. 触发分: 对所有触发的进攻信号(trigger_events)进行无差别加总，评估动态强度。
+          3. 共振加成: 对配置文件中定义的“梦幻组合”(如筹码+量能)给予巨额额外加分。
+          4. 剧本分: 调用旧的计分逻辑得出原始剧本分，再乘以一个权重(如0.5)使其降级为
+                     “战术确认”加成，不再是总分主体。
+        - 收益: 能够将多维度优势共振的极品标的，用压倒性的高分凸显出来，彻底解决
+                优质标的与普通标的得分差距过小的问题。
         """
-        print("    - [计分引擎 V152.2 坚不可摧的记忆核心] 启动...")
+        print("    - [计分引擎 V162.0 四层火力版] 启动...")
         
+        scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
+        if not self._get_param_value(scoring_params.get('enabled'), False):
+            print("      -> 四层火力评分引擎被禁用，使用旧版计分逻辑。")
+            return self._calculate_entry_score_legacy(df, params, trigger_events, setup_scores, atomic_states)
+
+        score_details_df = pd.DataFrame(index=df.index)
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 第1层: 基础分 (Base Score) ---
+        base_score_total = pd.Series(0.0, index=df.index)
+        base_conditions = scoring_params.get('base_conditions', {})
+        print("      -> [火力层1/4] 正在计算基础分...")
+        for state_name, score in base_conditions.items():
+            if state_name == '说明': continue
+            mask = atomic_states.get(state_name, default_series)
+            base_score_total.loc[mask] += score
+            score_details_df.loc[mask, f"BASE_{state_name}"] = score
+
+        # --- 第2层: 触发分 (Trigger Score) ---
+        trigger_score_total = pd.Series(0.0, index=df.index)
+        trigger_event_scores = scoring_params.get('trigger_events', {})
+        print("      -> [火力层2/4] 正在计算触发分...")
+        for event_name, score in trigger_event_scores.items():
+            if event_name == '说明': continue
+            mask = trigger_events.get(event_name, default_series)
+            trigger_score_total.loc[mask] += score
+            score_details_df.loc[mask, f"TRIG_{event_name}"] = score
+
+        # --- 第3层: 共振加成 (Resonance Bonus) ---
+        resonance_score_total = pd.Series(0.0, index=df.index)
+        resonance_rules = scoring_params.get('resonance_rules', {}).get('rules', [])
+        print("      -> [火力层3/4] 正在计算共振加成...")
+        for rule in resonance_rules:
+            rule_name = rule.get('name')
+            conditions = rule.get('conditions', [])
+            bonus_score = rule.get('bonus_score', 0)
+            if not conditions: continue
+            
+            resonance_mask = pd.Series(True, index=df.index)
+            for cond in conditions:
+                # 条件可能来自 atomic_states 或 trigger_events
+                cond_mask = atomic_states.get(cond, trigger_events.get(cond, default_series))
+                resonance_mask &= cond_mask
+            
+            resonance_score_total.loc[resonance_mask] += bonus_score
+            score_details_df.loc[resonance_mask, f"RESO_{rule_name}"] = bonus_score
+
+        # --- 第4层: 剧本分 (Playbook Score) - 降权处理 ---
+        playbook_weight = self._get_param_value(scoring_params.get('playbook_score_weight'), 0.5)
+        print(f"      -> [火力层4/4] 正在计算剧本分 (权重: {playbook_weight})...")
+        # 调用旧的计分逻辑来获取原始剧本分
+        _, raw_playbook_details = self._calculate_entry_score_legacy(df, params, trigger_events, setup_scores, atomic_states)
+        raw_playbook_score = raw_playbook_details.sum(axis=1)
+        playbook_score_total = (raw_playbook_score * playbook_weight).round(0)
+        
+        # 将降权后的剧本分详情合并
+        weighted_playbook_details = (raw_playbook_details * playbook_weight).round(0)
+        score_details_df = pd.concat([score_details_df, weighted_playbook_details], axis=1)
+
+        # --- 最终汇总 ---
+        final_score = base_score_total + trigger_score_total + resonance_score_total + playbook_score_total
+        df['entry_score'] = final_score.round(0)
+        score_details_df.fillna(0, inplace=True)
+        
+        print(f"--- [计分引擎 V162.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        
+        return df, score_details_df
+
+    def _calculate_entry_score_legacy(
+        self, 
+        df: pd.DataFrame, 
+        params: dict, 
+        trigger_events: Dict[str, pd.Series], 
+        setup_scores: Dict[str, pd.Series],
+        atomic_states: Dict[str, pd.Series]
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        【V162.0 新增】这是旧版的“剧本家族竞争”计分逻辑，现在被新引擎调用以计算降权的剧本分。
+        """
         default_series = pd.Series(False, index=df.index)
         context_window = self._get_param_value(
             self._get_params_block(params, 'entry_scoring_params', {}).get('context_window'), 10
         )
-
-        # --- 步骤0: 定义重大事件并创建“坚不可摧的记忆核心” ---
         p_violent = self._get_params_block(params, 'trigger_event_params', {}).get('violent_reversal_trigger', {})
         pct_change_thresh = self._get_param_value(p_violent.get('min_pct_change'), 0.04)
         vol_multiplier = self._get_param_value(p_violent.get('volume_multiplier'), 1.8)
         is_strong_rally = df['pct_change_D'] > pct_change_thresh
         is_huge_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * vol_multiplier
         trigger_violent_reversal = is_strong_rally & is_huge_volume
-        
-        # 【核心修正】使用最可靠的 rolling().max() 创建持续3天的战术优势窗口
         persistence_days = self._get_param_value(p_violent.get('persistence_days'), 3)
         reversal_signal_int = trigger_violent_reversal.astype(int)
         CONTEXT_VIOLENT_REVERSAL_WINDOW = (reversal_signal_int.rolling(window=persistence_days, min_periods=1).max() == 1)
         atomic_states['CONTEXT_VIOLENT_REVERSAL_WINDOW'] = CONTEXT_VIOLENT_REVERSAL_WINDOW
-        
         playbook_definitions = self._get_playbook_definitions(df, trigger_events, setup_scores, atomic_states)
-        
-        # ==================== 步骤1: 向量化预计算所有“基础分”和“加分项” ====================
         base_scores_df = pd.DataFrame(index=df.index)
         bonus_scores_df = pd.DataFrame(index=df.index)
-        intermediate_masks = {}
-
         for playbook in playbook_definitions:
             name = playbook['name']
             rules = playbook.get('scoring_rules', {})
             playbook_type = playbook.get('type')
-            
             original_trigger_mask = playbook.get('trigger', default_series)
             is_core_trend_playbook = name in ['HEALTHY_MARKUP_A', 'TREND_EMERGENCE_B_PLUS']
             contextual_trigger_mask = CONTEXT_VIOLENT_REVERSAL_WINDOW if is_core_trend_playbook else default_series
             trigger_mask = original_trigger_mask | contextual_trigger_mask
-
             side_mask = (df['close_D'] > df.get('EMA_55_D', -1)) if playbook.get('side') == 'right' else pd.Series(True, index=df.index)
-
             setup_mask = pd.Series(True, index=df.index)
             if playbook_type == 'setup':
                 setup_mask = playbook.get('setup', default_series)
@@ -1001,22 +1051,9 @@ class TrendFollowStrategy:
                 precondition_score += sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
                 precondition_score += sum(setup_scores.get(f'SETUP_SCORE_{s}', default_series).rolling(window=context_window, min_periods=1).max().fillna(0) * v for s, v in rules.get('setup_bonus', {}).items())
                 setup_mask = precondition_score >= min_score_req
-
             valid_mask = trigger_mask & side_mask & setup_mask
-            
-            intermediate_masks[name] = {
-                'trigger_mask': trigger_mask,
-                'side_mask': side_mask,
-                'setup_mask': setup_mask,
-                'valid_mask': valid_mask,
-                'playbook_type': playbook_type,
-                'scoring_rules': rules,
-                'setup_score_series': playbook.get('setup_score_series', default_series)
-            }
-
             base_score = rules.get('base_score', playbook.get('score', 0))
             base_scores_df[name] = valid_mask.astype(int) * base_score
-
             playbook_bonus = pd.Series(0.0, index=df.index)
             if rules:
                 condition_bonus = sum(atomic_states.get(s, default_series).astype(int) * v for s, v in rules.get('conditions', {}).items())
@@ -1031,17 +1068,13 @@ class TrendFollowStrategy:
                     setup_multiplier_bonus = max_setup_in_context * (multiplier - 1) if multiplier > 1 else pd.Series(0.0, index=df.index)
                 playbook_bonus = condition_bonus + event_bonus + setup_bonus + trigger_bonus + setup_multiplier_bonus
             bonus_scores_df[name] = playbook_bonus * valid_mask
-
-        # ==================== 步骤2: 向量化执行“家族继承”逻辑 ====================
         playbook_to_family = {p['name']: p.get('family', 'UNCATEGORIZED') for p in playbook_definitions}
         family_to_playbooks = {}
         for p_name, f_name in playbook_to_family.items():
             if f_name not in family_to_playbooks: family_to_playbooks[f_name] = []
             family_to_playbooks[f_name].append(p_name)
-
         final_family_scores = pd.DataFrame(0.0, index=df.index, columns=family_to_playbooks.keys())
         score_details_df = pd.DataFrame(0.0, index=df.index, columns=base_scores_df.columns)
-
         for family_name, playbook_names in family_to_playbooks.items():
             family_base_scores = base_scores_df[playbook_names]
             family_bonus_scores = bonus_scores_df[playbook_names]
@@ -1058,27 +1091,9 @@ class TrendFollowStrategy:
                     if pd.notna(winner_name):
                         score_details_df.loc[row.name, winner_name] = row[family_name]
                 df_temp.apply(assign_score, axis=1)
-
         final_score = final_family_scores.sum(axis=1)
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
-        
-        # ==================== 步骤3: 【探针调用点】(默认禁用) ====================
-        # probe_dates = ['2025-07-08', '2025-07-09', '2025-07-10', '2025-07-11']
-        # self._probe_entry_score_details(
-        #     df=df,
-        #     probe_dates=probe_dates,
-        #     final_score=final_score,
-        #     intermediate_masks=intermediate_masks,
-        #     playbook_definitions=playbook_definitions,
-        #     trigger_violent_reversal=trigger_violent_reversal,
-        #     setup_scores=setup_scores,
-        #     context_window=context_window,
-        #     atomic_states=atomic_states
-        # )
-        
-        print(f"\n--- [计分引擎 V152.2] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
-        
         return df, score_details_df
 
     # ▼▼▼ 固化“黑匣子”探针为独立模块 ▼▼▼

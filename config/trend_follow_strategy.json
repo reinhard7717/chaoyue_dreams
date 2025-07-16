@@ -29,7 +29,87 @@
         "probe_start_date": "2025-03-01"
       },
       "strategy_info": {
-        "name": { "value": "家族竞争版_v82", "说明": "策略唯一标识名称，已更新至V82。" }
+        "name": { "value": "三层火力版_v162", "说明": "策略唯一标识名称" }
+      },
+      "four_layer_scoring_params": {
+        "enabled": { "value": true },
+        "说明": "【V163.1 清单净化版】这是一个结构优化、逻辑纯粹的四层火力评分体系。",
+        "playbook_score_weight": { "value": 0.4, "说明": "剧本分的权重，进一步削弱其在总分中的占比，强调基础素质。" },
+        
+        "metadata": {
+          "说明": "【信号元数据词典】统一存放所有信号的中文名和描述，供报告和分析使用。",
+          "MA_STATE_STABLE_BULLISH":       { "cn_name": "【趋势】均线多头排列", "description": "战术核心，趋势最健康的标志。" },
+          "MA_STATE_PRICE_ABOVE_LONG_MA":  { "cn_name": "【趋势】股价站上生命线", "description": "进入强势区域的基础门槛。" },
+          "MA_STATE_DIVERGING":            { "cn_name": "【趋势】均线发散", "description": "主升浪加速的强烈信号。" },
+          "MA_STATE_SHORT_SLOPE_POSITIVE": { "cn_name": "【趋势】短期均线向上", "description": "趋势转折或延续的先行指标。" },
+          "CONTEXT_STRATEGIC_BOTTOMING_W": { "cn_name": "【趋势】周线战略性企稳", "description": "来自更高维度的战略支撑，价值极高。" },
+          "PLATFORM_STATE_STABLE_FORMED":  { "cn_name": "【结构】稳固筹码平台", "description": "天然的强支撑和起爆平台，价值极高。" },
+          "BOX_STATE_HEALTHY_CONSOLIDATION":{ "cn_name": "【结构】健康箱体盘整", "description": "良性的空中加油或蓄势形态。" },
+          "VOL_STATE_SQUEEZE_WINDOW":      { "cn_name": "【结构】能量压缩窗口", "description": "市场静默，预示着即将到来的巨大波动。" },
+          "KLINE_STATE_N_SHAPE_CONSOLIDATION":{ "cn_name": "【结构】N字板空中接力", "description": "强势股的经典中继形态。" },
+          "CHIP_STATE_MARKUP":             { "cn_name": "【筹码】主升浪（拉升）", "description": "主力控盘，成本持续上移。" },
+          "CHIP_STATE_HIGHLY_CONCENTRATED":{ "cn_name": "【筹码】高度集中", "description": "货源归边，是潜在暴涨股的核心特征。" },
+          "CHIP_STATE_ACCUMULATION":       { "cn_name": "【筹码】吸筹阶段", "description": "主力正在收集筹码，是上涨的前兆。" },
+          "CAPITAL_STATE_INFLOW_CONFIRMED":{ "cn_name": "【资金】主力资金流入", "description": "有增量资金在积极介入。" },
+          "CAPITAL_STATE_DIVERGENCE_WINDOW":{ "cn_name": "【资金】底背离机会窗口", "description": "下跌中出现资金异动，是左侧机会的信号。" },
+          "CAPITAL_STATE_CMF_BULLISH":     { "cn_name": "【资金】CMF指标看涨", "description": "确认资金处于净流入状态。" },
+          "TRIGGER_DOMINANT_REVERSAL":     { "cn_name": "【触发】显性反转阳线", "description": "高确定性的底部反转信号。" },
+          "TRIGGER_CHIP_IGNITION":         { "cn_name": "【触发】筹码点火", "description": "筹码结构质变，最可靠的启动信号之一。" },
+          "TRIGGER_ENERGY_RELEASE":        { "cn_name": "【触发】能量释放阳线", "description": "价量齐升的强力突破信号。" },
+          "TRIGGER_VOLUME_SPIKE_BREAKOUT": { "cn_name": "【触发】放量突破近期高点", "description": "突破关键压力位，打开上涨空间。" },
+          "TRIGGER_BREAKOUT_CANDLE":       { "cn_name": "【触发】企稳突破阳线", "description": "突破关键均线（如布林中轨）的确认信号。" },
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND":{ "cn_name": "【触发】平台回踩反弹", "description": "在强支撑位获得确认，是绝佳的二次介入点。" },
+          "TRIGGER_N_SHAPE_BREAKOUT":      { "cn_name": "【触发】N字形态突破", "description": "强势中继形态的确认爆发。" },
+          "TRIGGER_EARTH_HEAVEN_BOARD":    { "cn_name": "【触发】地天板", "description": "市场情绪的极致反转，给予最高分值。" },
+          "TRIGGER_TREND_CONTINUATION_CANDLE":{ "cn_name": "【触发】趋势延续阳线", "description": "在上升趋势中创近期新高，确认趋势健康。" },
+          "TRIGGER_PULLBACK_REBOUND":      { "cn_name": "【触发】均线回踩反弹", "description": "回踩短期均线获得支撑，良性回调结束。" },
+          "TRIGGER_DMI_CROSS":             { "cn_name": "【触发】DMI金叉", "description": "趋势指标确认多头力量增强。" },
+          "TRIGGER_MACD_LOW_CROSS":        { "cn_name": "【触发】MACD低位金叉", "description": "在下跌后的低位金叉，反转可靠性更高。" }
+        },
+
+        "base_conditions": {
+          "说明": "【第一层：基础分】评估战场的静态健康度，只包含评分，描述见metadata。",
+          "MA_STATE_STABLE_BULLISH": 50,
+          "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
+          "MA_STATE_DIVERGING": 40,
+          "MA_STATE_SHORT_SLOPE_POSITIVE": 20,
+          "CONTEXT_STRATEGIC_BOTTOMING_W": 60,
+          "PLATFORM_STATE_STABLE_FORMED": 70,
+          "BOX_STATE_HEALTHY_CONSOLIDATION": 40,
+          "VOL_STATE_SQUEEZE_WINDOW": 30,
+          "KLINE_STATE_N_SHAPE_CONSOLIDATION": 50,
+          "CHIP_STATE_MARKUP": 40,
+          "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
+          "CHIP_STATE_ACCUMULATION": 30,
+          "CAPITAL_STATE_INFLOW_CONFIRMED": 30,
+          "CAPITAL_STATE_DIVERGENCE_WINDOW": 40,
+          "CAPITAL_STATE_CMF_BULLISH": 20
+        },
+        "trigger_events": {
+          "说明": "【第二层：触发分】评估当天的动态进攻信号，只包含评分，描述见metadata。",
+          "TRIGGER_DOMINANT_REVERSAL": 80,
+          "TRIGGER_CHIP_IGNITION": 100,
+          "TRIGGER_ENERGY_RELEASE": 70,
+          "TRIGGER_VOLUME_SPIKE_BREAKOUT": 90,
+          "TRIGGER_BREAKOUT_CANDLE": 60,
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80,
+          "TRIGGER_N_SHAPE_BREAKOUT": 70,
+          "TRIGGER_EARTH_HEAVEN_BOARD": 200,
+          "TRIGGER_TREND_CONTINUATION_CANDLE": 40,
+          "TRIGGER_PULLBACK_REBOUND": 50,
+          "TRIGGER_DMI_CROSS": 30,
+          "TRIGGER_MACD_LOW_CROSS": 40
+        },
+        "resonance_rules": {
+          "说明": "【第三层：共振加成】评估多维度优势的协同效应，给予巨额加分。",
+          "rules": [
+            { "name": "CHIP_VOLUME_RESONANCE", "cn_name": "【共振】筹码-量能", "conditions": ["CHIP_EVENT_IGNITION", "is_volume_above_ma"], "bonus_score": 100 },
+            { "name": "TREND_CAPITAL_RESONANCE", "cn_name": "【共振】趋势-资金", "conditions": ["MA_STATE_STABLE_BULLISH", "CAPITAL_STATE_INFLOW_CONFIRMED"], "bonus_score": 80 },
+            { "name": "STRUCTURE_ENERGY_RESONANCE", "cn_name": "【共振】结构-能量", "conditions": ["BOX_EVENT_BREAKOUT", "VOL_EVENT_SQUEEZE"], "bonus_score": 120 },
+            { "name": "STRATEGY_TACTICS_RESONANCE", "cn_name": "【共振】战略-战术", "conditions": ["CONTEXT_STRATEGIC_BOTTOMING_W", "TRIGGER_DOMINANT_REVERSAL"], "bonus_score": 150 },
+            { "name": "PLATFORM_BREAKOUT_RESONANCE", "cn_name": "【共振】平台-突破", "conditions": ["PLATFORM_STATE_STABLE_FORMED", "TRIGGER_BREAKOUT_CANDLE"], "bonus_score": 130 }
+          ]
+        }
       },
       "setup_scoring_matrix": {
         "说明": "【V82.0 核心大脑】准备状态置信度矩阵。所有“准备状态”的评分逻辑已全部集中于此。",

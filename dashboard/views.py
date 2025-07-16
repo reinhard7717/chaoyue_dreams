@@ -179,12 +179,7 @@ def trend_following_list(request):
             'stable_platform_price': log.stable_platform_price,
         })
 
-    # ▼▼▼【代码修改 V117.22】: 复用已注解并过滤的 held_queryset ▼▼▼
-    # 准备筛选器中的剧本列表
-    # 我们直接在已经筛选出“持仓中”股票的 held_queryset 上获取剧本列表
-    # 这样既能保证 'latest_sell_time' 字段存在，又能减少不必要的数据查询
     all_playbook_lists = held_queryset.values_list('triggered_playbooks', flat=True)
-    # ▲▲▲【代码修改 V117.22】▲▲▲
     
     unique_playbooks = sorted(
         list(set(chain.from_iterable(p for p in all_playbook_lists if p))), 
