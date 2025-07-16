@@ -320,6 +320,9 @@ class IndicatorService:
                 stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
             all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
+
+        # 在所有基础指标计算完毕后，调用斜率计算
+        all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
         return all_dfs
 
@@ -781,6 +784,71 @@ class IndicatorService:
         # print(f"--- [IndicatorService V110 调试输出结束] ---\n")
 
         return final_df
+
+    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V2.0 跨周期生产线版】
+        - 职责: 作为数据工程的一部分，为所有指定的时间周期计算斜率和加速度。
+        """
+        print("    - [斜率中心 V2.0 跨周期生产线版 @ IndicatorService] 启动...")
+        # 注意：这里的参数路径可能需要根据IndicatorService的上下文调整
+        # 假设config就是完整的策略配置
+        slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
+        if not slope_params.get('enabled', False):
+            print("      -> 斜率计算被禁用，跳过。")
+            return all_dfs
+
+        series_to_slope = slope_params.get('series_to_slope', {})
+        if not series_to_slope:
+            print("      -> [信息] 未在配置中指定任何需要计算斜率的序列，跳过。")
+            return all_dfs
+
+        # (这里是之前改造好的、完整的跨周期斜率计算逻辑)
+        for col_pattern, lookbacks in series_to_slope.items():
+            try:
+                timeframe = col_pattern.split('_')[-1]
+                if timeframe.upper() not in ['D', 'W', 'M', 'Q', 'Y'] and not timeframe.isdigit():
+                    timeframe = 'D'
+            except IndexError:
+                continue
+
+            if timeframe not in all_dfs:
+                continue
+            
+            df = all_dfs[timeframe]
+            
+            if col_pattern not in df.columns:
+                continue
+
+            print(f"      -> 正在为周期 '{timeframe}' 的指标 '{col_pattern}' 计算斜率...")
+            source_series = df[col_pattern].astype(float)
+            
+            newly_created_slope_cols = []
+
+            for lookback in lookbacks:
+                slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
+                if slope_col_name in df.columns: continue
+                min_p = max(2, lookback // 2)
+                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
+                slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
+                df[slope_col_name] = slope_series.fillna(0)
+                newly_created_slope_cols.append((slope_col_name, lookback, col_pattern))
+
+            for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
+                accel_col_name = f'ACCEL_{lookback}_{original_col_name}'
+                if accel_col_name in df.columns: continue
+                if not df[slope_col_name].dropna().empty:
+                    min_p = max(2, lookback // 2)
+                    accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
+                    accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
+                    df[accel_col_name] = accel_series.fillna(0)
+                else:
+                    df[accel_col_name] = np.nan
+            
+            all_dfs[timeframe] = df
+
+        print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
+        return all_dfs
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """

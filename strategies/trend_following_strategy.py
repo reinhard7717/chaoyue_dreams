@@ -249,18 +249,20 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V180.0 最终同步版】
-        - 核心: 确保调用链完整，为V179计分引擎提供所有必需的高维度动态情报。
+        【V182.0 职责回归版】
+        - 核心修改: 函数签名还原，只接收日线df。斜率计算的职责已移交IndicatorService。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V180.0 最终同步版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V182.0 职责回归版】 ======")
         print("======================================================================")
 
-        if df is None or df.empty: return pd.DataFrame(), {}
+        if df is None or df.empty:
+            return pd.DataFrame(), {}
+        
+        # 不再需要调用斜率计算，直接使用传入的、已经包含斜率的df
         df = self._ensure_numeric_types(df)
         
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
-        df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         if 'close_D' in df.columns:
             df['pct_change_D'] = df['close_D'].pct_change()
@@ -583,88 +585,6 @@ class TrendFollowStrategy:
         adjusted_score = raw_scores * (1 + total_multiplier)
         print("    - [指挥棒模型 V119.4] 调整完成。")
         return adjusted_score, adjustment_details_df
-
-    # 斜率计算中心
-    def _calculate_trend_slopes(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
-        """
-        【V114 精简优化版】
-        - 核心优化: 彻底移除了 auto_detect_patterns 逻辑，现在只计算在配置文件中被明确指定的斜率。
-                    这从根本上解决了因自动探测导致斜率计算量爆炸的问题，是本次性能优化的关键。
-        """
-        print("    - [斜率中心 V114 精简优化版] 启动...")
-        slope_params = self._get_params_block(params, 'slope_params', {})
-        if not self._get_param_value(slope_params.get('enabled'), False):
-            print("      -> 斜率计算被禁用，跳过。")
-            return df
-
-        # ▼▼▼【代码修改 V114】: 移除自动探测逻辑，只使用明确指定的系列 ▼▼▼
-        # --- 准备工作: 构建计算任务清单 ---
-        series_to_slope = self._get_param_value(slope_params.get('series_to_slope'), {})
-        
-        if not series_to_slope:
-            print("      -> [信息] 未在配置中指定任何需要计算斜率的序列，跳过。")
-            return df
-        # ▲▲▲【代码修改 V114】▲▲▲
-
-        newly_created_slope_cols = []
-
-        # --- 阶段一: 批量生成所有基础斜率 ---
-        # print(f"      -> [阶段1/3] 开始批量生成 {sum(len(v) for v in series_to_slope.values())} 个基础斜率...")
-        for col_name, lookbacks in series_to_slope.items():
-            if col_name not in df.columns:
-                print(f"        -> [警告] 配置的斜率源列 '{col_name}' 不存在，跳过。")
-                continue
-            source_series = df[col_name].astype(float)
-            for lookback in lookbacks:
-                slope_col_name = f'SLOPE_{lookback}_{col_name}'
-                if slope_col_name in df.columns:
-                    continue
-                
-                min_p = max(2, lookback // 2)
-                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                
-                if isinstance(linreg_result, pd.DataFrame):
-                    slope_series = linreg_result.iloc[:, 0]
-                elif isinstance(linreg_result, pd.Series):
-                    slope_series = linreg_result
-                else:
-                    slope_series = pd.Series(np.nan, index=df.index)
-                
-                df[slope_col_name] = slope_series.fillna(0)
-                newly_created_slope_cols.append((slope_col_name, lookback, col_name)) # 增加原始列名
-
-        # --- 阶段二: 批量生成所有加速度 (斜率的斜率) ---
-        # print(f"      -> [阶段2/3] 开始批量生成加速度 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
-        for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
-            accel_col_name = f'ACCEL_{lookback}_{original_col_name}'
-            if accel_col_name in df.columns:
-                continue
-
-            if not df[slope_col_name].dropna().empty:
-                min_p = max(2, lookback // 2)
-                accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                if isinstance(accel_linreg_result, pd.DataFrame):
-                    accel_series = accel_linreg_result.iloc[:, 0]
-                elif isinstance(accel_linreg_result, pd.Series):
-                    accel_series = accel_linreg_result
-                else:
-                    accel_series = pd.Series(np.nan, index=df.index)
-                df[accel_col_name] = accel_series.fillna(0)
-            else:
-                df[accel_col_name] = np.nan
-
-        # --- 阶段三: 批量生成所有归一化斜率 ---
-        # print(f"      -> [阶段3/3] 开始批量生成归一化斜率 (基于 {len(newly_created_slope_cols)} 个新斜率)...")
-        for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
-            norm_slope_col_name = f'SLOPE_NORM_{lookback}_{original_col_name}'
-            if norm_slope_col_name in df.columns:
-                continue
-            
-            slope_std = df[slope_col_name].rolling(window=lookback * 2, min_periods=lookback).std()
-            df[norm_slope_col_name] = np.divide(df[slope_col_name], slope_std, out=np.zeros_like(df[slope_col_name], dtype=float), where=slope_std!=0)
-        
-        print("    - [斜率中心 V114] 所有斜率相关计算完成。")
-        return df
 
     # ▼▼▼ 剧本的静态“蓝图”知识库 ▼▼▼
     def _get_playbook_blueprints(self) -> List[Dict]:
