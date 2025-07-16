@@ -262,6 +262,8 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
+        if 'close_D' in df.columns:
+            df['pct_change_D'] = df['close_D'].pct_change()
         
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (恢复完整功能) ---")
         df, platform_states = self._diagnose_platform_states(df, params)
