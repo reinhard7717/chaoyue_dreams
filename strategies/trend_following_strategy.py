@@ -249,13 +249,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V170.0 幽灵代码清除版】
-        - 核心修正: 恢复了在之前版本升级中意外丢失的V167“纵深防御”风险信号计算逻辑。
-                    并为所有风险信号的计算增加了明确的print调试日志。
-        - 收益: 确保了所有在JSON中定义的防御工事，都在代码中被100%地构筑和激活。
-                评分系统现在能够真正地对风险票进行扣分。
+        【V171.0 状态感知修正版】
+        - 核心修正: 修正了 PLATFORM_FAILURE 和 EMA_DEATH_CROSS 等关键风险信号的定义，
+                    将其从一次性的“事件”升级为持续性的“状态”。
+        - 收益: 确保了破位、死叉等重大风险一旦发生，会在其持续期间内，每一天都对
+                总分施加惩罚，彻底解决了风险信号“昙花一现”的重大BUG。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V170.0 幽灵代码清除版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V171.0 状态感知修正版】 ======")
         if df is None or df.empty:
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
@@ -320,7 +320,6 @@ class TrendFollowStrategy:
         
         # --- 3.2 【核心修正】构建完整的“纵深防御”与“精锐打击”信号矩阵 ---
         print("      -> 正在构建完整的信号矩阵...")
-        # --- V167 纵深防御信号 ---
         cost_slope_5d_col = 'SLOPE_5_CHIP_peak_cost_D'
         if cost_slope_5d_col in df.columns:
             atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
@@ -337,16 +336,23 @@ class TrendFollowStrategy:
         total_range = df['high_D'] - df['low_D']
         atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
         print(f"        -> [风险-形态] “长上影线冲高回落”已定义，激活 {atomic_states['KLINE_UPTHRUST_REJECTION'].sum()} 天。")
+        
+        # ▼▼▼【代码修改 V171.0】: 将“平台破位”从一次性事件修正为持续性状态 ▼▼▼
         platform_price_col = 'PLATFORM_PRICE_STABLE'
         if platform_price_col in df.columns:
-            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df['close_D'].shift(1) >= df[platform_price_col].shift(1))
-            print(f"        -> [风险-结构] “筹码平台破位”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
+            # 只要平台价格存在，且当前收盘价低于平台价格，就视为破位状态
+            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df[platform_price_col].notna())
+            print(f"        -> [风险-结构] “筹码平台破位(状态)”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
+        # ▲▲▲【代码修改 V171.0】▲▲▲
+            
+        # ▼▼▼【代码修改 V171.0】: 将“均线死叉”从一次性事件修正为持续性状态 ▼▼▼
         ema5_col = 'EMA_5_D'
         if ema5_col in df.columns and ema21_col in df.columns:
-            atomic_states['EMA_DEATH_CROSS'] = (df[ema5_col] < df[ema21_col]) & (df[ema5_col].shift(1) >= df[ema21_col].shift(1))
-            print(f"        -> [风险-趋势] “短期均线死叉”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
-        
-        # --- V168 精锐信号 ---
+            # 只要5日线在21日线之下，就视为死叉状态
+            atomic_states['EMA_DEATH_CROSS'] = df[ema5_col] < df[ema21_col]
+            print(f"        -> [风险-趋势] “短期均线死叉(状态)”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
+        # ▲▲▲【代码修改 V171.0】▲▲▲
+            
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
         if conc_slope_col in df.columns:
             atomic_states['CHIP_RAPID_CONCENTRATION'] = df[conc_slope_col] < -0.005
@@ -359,8 +365,6 @@ class TrendFollowStrategy:
             is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
             atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
             print(f"        -> [精锐减分] “极高获利盘滞涨”已定义，激活 {atomic_states['RISK_EXTREME_PROFIT_TAKING'].sum()} 天。")
-
-        # --- V169 共振催化剂信号 ---
         atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'] = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
         print(f"        -> [共振催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
 
@@ -371,7 +375,7 @@ class TrendFollowStrategy:
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         print(f"        -> [精锐触发] “压缩后突破”已定义，激活 {trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'].sum()} 天。")
 
-        print("--- [总指挥] 步骤5: 启动【V170.0 全面校准】评分引擎 ---")
+        print("--- [总指挥] 步骤5: 启动【V171.0 全面校准】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         raw_total_score = df['entry_score'].copy()
         
@@ -393,7 +397,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V170.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V171.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
