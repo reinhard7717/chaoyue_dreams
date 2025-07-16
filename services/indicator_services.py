@@ -28,9 +28,12 @@ logger = logging.getLogger("services")
 
 class IndicatorService:
     """
-    技术指标计算服务 (使用 pandas-ta)
-    负责获取多时间级别原始数据，进行时间序列标准化（重采样），计算指标，合并数据并进行最终填充。
-    并行处理数据获取、重采样和指标计算任务以提高效率。
+    【V8.0 情报锻造中心版】技术指标计算服务
+    - 核心升级: 彻底重构周/月线数据的处理方式。不再独立获取预聚合的周/月线数据，
+                而是强制从日线数据(D)中，通过 resample 方法，亲手锻造出高保真的
+                周线(W)和月线(M)的OHLCV及核心指标。
+    - 新增功能: 引入 _calculate_synthetic_weekly_indicators 辅助函数，专门负责
+                计算像CMF这类必须依赖日线过程的复杂周线指标，确保情报的绝对准确性。
     """
     def __init__(self):
         """
@@ -270,84 +273,54 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V6.2 终极自适应版】为策略准备数据的统一入口。
-        该方法会递归搜索配置，自适应地决定是否附加行业背景数据。
-
-        Args:
-            stock_code (str): 股票代码。
-            config (dict): 任何策略的完整配置文件字典。
-            trade_time (Optional[str]): 交易时间。
-
-        Returns:
-            Dict[str, pd.DataFrame]: 包含所有时间周期DataFrame的字典。
+        【V8.0 情报锻造中心版】为策略准备数据的统一入口。
+        此版本将调用重构后的核心数据准备函数。
         """
-        # print(f"--- [数据准备V6.2-自适应版] 开始为 {stock_code} 准备数据... ---")
+        # print(f"--- [数据准备V8.0-情报锻造中心] 开始为 {stock_code} 准备数据... ---")
 
-        # --- 步骤 1: 始终执行基础数据和指标的准备 ---
+        # --- 步骤 1: 调用重构后的核心数据准备函数 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time)
 
+        # --- 后续逻辑保持不变，注入行业背景、游资信号等 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
-            logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
+            # logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
             return all_dfs
         
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
 
-        # --- 步骤 2: 【核心升级】使用递归搜索来检查配置 ---
         industry_params = self._find_params_recursively(config, 'industry_context_params')
         is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
         
-
-         # --- 步骤 3: 检查并注入游资信号数据 ---
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         is_hm_enabled = hot_money_params.get('enabled', False) if hot_money_params else False
 
-        if not is_hm_enabled:
-            print("    - [配置信息] 在策略配置中未启用 'hot_money_params'，跳过游资信号计算。")
-        else:
-            print("    - [配置信息] 检测到游资分析已启用，开始获取并处理游资信号...")
+        if is_hm_enabled:
+            # print("    - [配置信息] 检测到游资分析已启用，开始获取并处理游资信号...")
             hm_signals_df = await self._prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
-            
             if not hm_signals_df.empty:
-                # 将游资信号合并到日线DataFrame
                 df_daily = df_daily.merge(hm_signals_df, left_index=True, right_index=True, how='left')
-                
-                # 对于布尔信号，用False填充缺失值
                 for col in hm_signals_df.columns:
                     if col in df_daily.columns:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                
-                print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
+                # print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
         
-        # 更新 all_dfs 中的日线数据
         all_dfs['D'] = df_daily
 
-        if not is_industry_enabled:
-            print("    - [配置信息] 在策略配置中未找到启用的 'industry_context_params'，跳过行业强度计算。")
-            # print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（无行业背景）。 ---")
-            return all_dfs
-
-        # --- 步骤 3: 如果启用，则执行行业数据注入 (此部分逻辑不变) ---
-        print(f"    - [配置信息] 检测到行业协同已启用，开始获取行业强度...")
+        if is_industry_enabled:
+            # print(f"    - [配置信息] 检测到行业协同已启用，开始获取行业强度...")
+            current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
+            industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
+            stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
+            stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
+            stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
+            stock_industry_rank = 0.0
+            if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
+                stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
+            all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
+            # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
         
-        current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
-        industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
-        stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
-        stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
-        stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
-
-        stock_industry_rank = 0.0
-        if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
-            stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
-            print(f"    - [行业背景注入] 股票 {stock_code} 所属行业 '{stock_industry_name}'({stock_industry_code}) 当日强度排名: {stock_industry_rank:.2%}")
-        else:
-            print(f"    - [行业背景注入] 股票 {stock_code} ({stock_industry_name}) 未找到行业排名，默认排名为 0.0。")
-
-        all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
-        print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列 ({stock_industry_rank:.2f}) 添加到日线数据。")
-        
-        # print(f"--- [数据准备V6.2-自适应版] {stock_code} 数据准备完成（含行业背景）。 ---")
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
@@ -357,20 +330,38 @@ class IndicatorService:
         trade_time: Optional[str] = None
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V7.6 架构优化版】
-        - 核心重构: 移除了独立获取CYQ数据的逻辑，统一由 StrategiesDAO.get_fund_flow_and_chips_data 提供所有补充数据。
-                    这消除了数据获取的冗余，并从根本上解决了因不同处理方式（ffill vs fillna(0)）导致的数据冲突问题。
-        - 流程简化: 现在只有一个补充数据源（df_supplemental），代码更清晰，责任更明确。
-        - 性能提升: 调用DAO时传入limit参数，避免全量查询，提升效率。
+        【V8.1 情报锻造中心-完整版】
+        - 核心重构: 不再独立获取周/月线数据，而是从日线数据中通过 resample 合成。
+        - 新增功能: 调用 _calculate_synthetic_weekly_indicators 合成复杂的周线指标。
+        - 流程整合: 完整集成了旧筹码、新筹码等补充数据的并发获取与合并逻辑。
+        - 日志优化: 提供了更清晰的数据处理流程追踪日志。
         """
+        print(f"--- [数据准备V8.1] 开始为 {stock_code} 准备基础数据与指标 ---")
+        
         # 1. 从配置中解析需要哪些时间周期的数据
         required_tfs = self._discover_required_timeframes_from_config(config)
+        if not required_tfs:
+            print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
+            return {}
+        
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
-        # print(f"    - [配置读取] 策略请求的基础数据量 (base_needed_bars) 为: {base_needed_bars}")
-        
+        print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
+
+        # 2. 【核心修改】确定需要从API获取的“基础”时间周期
+        base_tfs_to_fetch = set()
+        resample_map = {} # 记录需要从哪个源周期合成目标周期
+        for tf in required_tfs:
+            if tf in ['W', 'M']:
+                base_tfs_to_fetch.add('D') # 周线和月线都需要日线作为原材料
+                resample_map[tf] = 'D'
+            else:
+                base_tfs_to_fetch.add(tf) # 其他周期（如D, 60, 30）直接获取
+
+        # 3. 检查并准备所有补充数据的获取任务
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        
-        # 2. 判断是否需要获取补充数据（资金流、筹码等）
+        tasks = []
+
+        # 任务准备: 旧筹码和资金流
         needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
                 'advanced_fund_features', 'chip_cost_breakthrough', 
@@ -378,71 +369,51 @@ class IndicatorService:
             ]
             for key, params in indicators_config.items() if isinstance(params, dict)
         )
-        # 检查是否需要新筹码(AdvancedChipMetrics)数据
-        chip_params = self._find_params_recursively(config, 'chip_feature_params')
-        needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
-
-        if not required_tfs:
-            return {}
-
-        # 3. 准备所有数据获取任务
-        base_tfs_to_fetch = set()
-        resample_map = {}
-        for tf in required_tfs:
-            if tf in ['W', 'M']:
-                base_tfs_to_fetch.add('D')
-                resample_map[tf] = 'D'
-            else:
-                base_tfs_to_fetch.add(tf)
-        
-        # 原有的 needs_supplemental_data 逻辑保持不变
-        needs_fund_flow_data = any(
-            params.get('enabled', False) and key in [
-                'advanced_fund_features', 'capital_flow_divergence'
-            ]
-            for key, params in indicators_config.items() if isinstance(params, dict)
-        )
-
-        tasks = []
-        async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
-            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
-            return (tf_to_fetch, df)
-
-        for tf in base_tfs_to_fetch:
-            bars_to_fetch = base_needed_bars
-            if tf == 'D' and resample_map: # 如果需要周线或月线，日线数据需要更多
-                bars_to_fetch = max(bars_to_fetch, 1000)
-            tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
-        
-        # ▼▼▼【核心修正】: 统一管理所有补充数据的并发获取 ▼▼▼
-        # 任务1: 获取旧筹码和资金流数据
         if needs_legacy_supplemental_data:
             async def _fetch_legacy_supplemental_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-            # print("    - [数据任务] 已添加“旧筹码与资金流”获取任务。")
+            print("    - [任务规划] 已添加“旧筹码与资金流”获取任务。")
 
-        # 任务2: 获取新筹码(AdvancedChipMetrics)数据
+        # 任务准备: 新筹码(AdvancedChipMetrics)
+        chip_params = self._find_params_recursively(config, 'chip_feature_params')
+        needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
         if needs_advanced_chip_data:
             async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
-                # 假设您在 StrategiesDAO 中有一个方法来获取这个数据
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-            # print("    - [数据任务] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
-        
-        # 4. 并发执行所有数据获取任务
+            print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
+
+        # 4. 准备所有“基础”OHLCV数据获取任务
+        async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
+            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
+            return (tf_to_fetch, df)
+
+        for tf in base_tfs_to_fetch:
+            bars_to_fetch = base_needed_bars
+            if 'D' in base_tfs_to_fetch and resample_map:
+                bars_to_fetch = max(bars_to_fetch, 1200) # 约5年数据，确保周线/月线指标计算准确
+            tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
+            print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
+
+        # 5. 并发执行所有数据获取任务
+        print("    - [数据获取] 开始并发执行所有数据获取任务...")
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+        print("    - [数据获取] 所有任务执行完毕。")
+
+        # 6. 分类处理获取到的数据
         raw_dfs: Dict[str, pd.DataFrame] = {}
-        df_supplemental: Optional[pd.DataFrame] = None
+        df_legacy_supplemental: Optional[pd.DataFrame] = None
         df_advanced_chips: Optional[pd.DataFrame] = None
         
         for result in all_data_results:
-            if isinstance(result, Exception): continue
+            if isinstance(result, Exception):
+                print(f"      -> 警告: 一个数据获取任务失败: {result}")
+                continue
             if not (isinstance(result, tuple) and len(result) == 2): continue
             
             tag, data = result
@@ -451,85 +422,121 @@ class IndicatorService:
             elif tag == 'advanced_chips':
                 if isinstance(data, pd.DataFrame): df_advanced_chips = data
             else: # 处理 OHLCV 数据
-                tf = tag
-                df = data
-                if isinstance(df, pd.DataFrame) and not df.empty: raw_dfs[tf] = df
+                if isinstance(data, pd.DataFrame) and not data.empty:
+                    raw_dfs[tag] = data
 
         if 'D' not in raw_dfs:
-            logger.error(f"[{stock_code}] 最核心的日线数据获取失败，处理终止。")
+            print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
         
         print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
-        
-        # 5. 执行重采样（周线、月线）
-        if 'D' in raw_dfs and resample_map:
+
+        # 7. 【核心新增】执行重采样，锻造周线和月线OHLCV及核心指标
+        if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
+                    print(f"    - [数据锻造] 开始从日线数据合成 '{target_tf}' 周期数据...")
                     ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-                    resample_period = 'W-FRI' if target_tf == 'W' else 'M'
+                    resample_period = 'W-FRI' if target_tf == 'W' else 'ME' # 'ME' for MonthEnd
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
-                    df_resampled.dropna(inplace=True)
+                    df_resampled.dropna(how='all', inplace=True)
+                    
                     if not df_resampled.empty:
+                        if target_tf == 'W':
+                            df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
+                            df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
+
                         raw_dfs[target_tf] = df_resampled
+                        print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录。")
 
-        # 6. 标准化索引并计算指标
-        for tf, df in raw_dfs.items():
-            if df is not None and not df.empty:
-                raw_dfs[tf] = self._standardize_df_index_to_utc(df)
-
+        # 8. 标准化所有周期的索引，并准备并发计算指标
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
+            print(f"    - [指标计算] 开始为周期 '{tf}' 准备并计算指标...")
+            # 标准化索引
+            df = self._standardize_df_index_to_utc(df)
+            
+            # 【核心】只为日线数据融合补充数据
             if tf == 'D':
-                # 融合旧筹码和资金流数据
                 if df_legacy_supplemental is not None and not df_legacy_supplemental.empty:
-                    # print("    - [数据融合] 正在将“旧筹码与资金流”数据合并到日线...")
                     df_legacy_std = self._standardize_df_index_to_utc(df_legacy_supplemental)
                     df = pd.merge(df, df_legacy_std, left_index=True, right_index=True, how='left')
                     df[list(df_legacy_std.columns)] = df[list(df_legacy_std.columns)].ffill()
                 
-                # 融合新筹码(AdvancedChipMetrics)数据
                 if df_advanced_chips is not None and not df_advanced_chips.empty:
-                    # print("    - [数据融合] 正在将“新筹码(AdvancedChipMetrics)”数据合并到日线...")
                     df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
-                    
-                    # 为新筹码指标列添加 'CHIP_' 前缀，以避免与旧数据列名冲突
                     chip_cols = {col: f"CHIP_{col}" for col in df_advanced_chips_std.columns if col not in ['stock_id', 'trade_time']}
                     df_advanced_chips_std = df_advanced_chips_std.rename(columns=chip_cols)
-
                     df = pd.merge(df, df_advanced_chips_std, left_index=True, right_index=True, how='left')
-                    # 使用 ffill 填充，因为这些是每日更新的指标
                     df[list(df_advanced_chips_std.columns)] = df[list(df_advanced_chips_std.columns)].ffill()
             
+            # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-
-            # if tf == 'D':
-                # print(f"    - [数据流追踪] 步骤4: 日线指标计算后，行数: {len(df_with_indicators)}, 列: {df_with_indicators.columns.tolist()}")
-                # self._log_alignment_check(df_with_indicators)
-            
+            print(f"      -> 周期 '{tf}' 指标计算完成。")
             return tf, df_with_indicators
 
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
 
+        # 9. 并发执行所有指标计算任务
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
 
         for res in processed_results:
             if isinstance(res, Exception):
-                logger.error(f"指标计算任务中出现异常: {res}", exc_info=True)
+                print(f"    - 错误: 指标计算任务中出现异常: {res}")
                 continue
             if res and isinstance(res, tuple) and len(res) == 2:
                 tf, df_processed = res
                 if df_processed is not None and not df_processed.empty:
                     processed_dfs[tf] = df_processed
                 else:
-                    logger.warning(f"周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
+                    print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
 
-        # print(f"--- [数据准备V7.7-日志增强版] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        print(f"--- [数据准备V8.1] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
+
+    def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V8.0 新增】高级指标合成室
+        专门用于从日线数据中，为周线数据合成那些依赖日内过程的复杂指标。
+        
+        Args:
+            df_daily (pd.DataFrame): 完整的日线数据源。
+            df_weekly (pd.DataFrame): 已经通过resample聚合好的周线OHLCV数据。
+
+        Returns:
+            pd.DataFrame: 一个包含新合成的周线指标列的DataFrame，其索引与df_weekly对齐。
+        """
+        print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
+        synthetic_indicators = pd.DataFrame(index=df_weekly.index)
+
+        # --- 1. 合成周线CMF (Chaikin Money Flow) ---
+        # 步骤1.1: 在日线上计算每日的“资金流成交量” (Money Flow Volume)
+        mfm = ((df_daily['close'] - df_daily['low']) - (df_daily['high'] - df_daily['close'])) / (df_daily['high'] - df_daily['low'])
+        mfm = mfm.fillna(0)
+        daily_mfv = mfm * df_daily['volume']
+
+        # 步骤1.2: 将“日资金流成交量”和“日成交量”按周进行求和
+        weekly_mfv_sum = daily_mfv.resample('W-FRI').sum()
+        weekly_volume_sum = df_daily['volume'].resample('W-FRI').sum()
+
+        # 步骤1.3: 在周线级别上，计算最终的21周CMF
+        cmf_period = 21
+        cmf_numerator = weekly_mfv_sum.rolling(window=cmf_period).sum()
+        cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
+        
+        # 避免除以零
+        synthetic_indicators['CMF_21'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
+        
+        # --- 2. 未来可在此处添加更多复杂周线指标的合成逻辑 (如KDJ, RSI等) ---
+        # 例如，合成周线RSI也应先计算每日的涨跌额，再按周聚合，最后计算RSI，以获得更平滑的结果。
+        
+        print("      -> [高级指标合成室] 合成完成。")
+        return synthetic_indicators
 
     # ▼▼▼ 新增一个专门生成游资信号的函数 ▼▼▼
     async def _prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:

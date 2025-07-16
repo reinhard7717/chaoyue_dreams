@@ -2,23 +2,110 @@
   "file_name": "config/trend_follow_strategy.json",
   "说明": "【V82.0 完全适配版】这是一个与V82.0“完全潜能版”代码完全匹配的、经过重构和净化的策略配置文件。它消除了所有冗余参数，并将逻辑集中化，使配置结构更清晰、更易于维护。",
   "feature_engineering_params": {
-    "说明": "【数据工程层】定义本策略需要计算的所有技术指标。此部分结构保持稳定。",
-    "base_needed_bars": 500,
+    "说明": "【数据工程层 V2.0 - 统一版】定义本策略需要计算的所有技术指标，已合并周线数据需求。",
+    "base_needed_bars": 1200,
+    "说明_base_needed_bars": "请求的基础日线数据量。设置为1200条（约5年）以确保在重采样到周线后，仍有足够的数据（约240周）来计算长周期指标（如年线）。",
     "indicators": {
+      "说明": "已合并周线指标，'apply_on'字段精确控制计算级别。",
       "cyq_perf": { "enabled": true },
-      "ema": { "enabled": true, "apply_on": ["D", "60", "30"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
-      "vol_ma": { "enabled": true, "apply_on": ["D", "5"], "periods": [21] },
-      "boll_bands_and_width": { "enabled": true, "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
-      "rsi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13] }] },
-      "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }] },
+      "ema": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D", "60", "30"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
+          { "apply_on": ["W"], "periods": [5, 13, 21, 34, 55, 89, 144, 233] }
+        ]
+      },
+      "vol_ma": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D", "5"], "periods": [21] },
+          { "apply_on": ["W"], "periods": [5, 20, 55] }
+        ]
+      },
+      "boll_bands_and_width": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
+          { "apply_on": ["W"], "periods": [20], "std_dev": 2.0 }
+        ]
+      },
+      "rsi": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D"], "periods": [13] },
+          { "apply_on": ["W"], "periods": [6, 12] }
+        ] 
+      },
+      "macd": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D"], "periods": [13, 34, 8] },
+          { "apply_on": ["W"], "periods": [12, 26, 9] }
+        ] 
+      },
+      "kdj": {
+        "enabled": true,
+        "configs": [
+          { "apply_on": ["W"], "periods": [9, 3, 3] }
+        ]
+      },
+      "obv": {
+        "enabled": true,
+        "configs": [
+          { "apply_on": ["W"] }
+        ]
+      },
+      "trix": {
+        "enabled": true,
+        "configs": [
+          { "apply_on": ["W"], "periods": [13, 8] }
+        ]
+      },
+      "coppock": {
+        "enabled": true,
+        "configs": [
+          { "apply_on": ["W"], "periods": [26, 13, 10] }
+        ]
+      },
       "zscore": { "enabled": true, "configs": [{ "apply_on": ["D"], "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D", "window": 60, "output_column_name": "MACD_HIST_ZSCORE_D" }] },
       "dmi": { "enabled": false },
-      "kdj": { "enabled": false },
       "vwap": { "enabled": true, "apply_on": ["5", "30"] },
-      "cmf": { "enabled": true, "apply_on": ["D"], "periods": [21] },
-      "bias": { "enabled": true, "apply_on": ["D"], "periods": [21, 55] },
+      "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
+      "bias": { 
+        "enabled": true, 
+        "configs": [
+          { "apply_on": ["D"], "periods": [21, 55] },
+          { "apply_on": ["W"], "periods": [20] }
+        ]
+      },
       "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } },
       "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] }
+    }
+  },
+  "weekly_context_params": {
+    "说明": "【V83.0 新增】周线战略上下文引擎的专属配置区。所有周线级别的分析逻辑和剧本都集中于此。",
+    "trend_analysis_params": {
+      "enabled": true,
+      "ma_period": 21,
+      "left_side_support": {
+        "enabled": true,
+        "washout_score_min": 2
+      }
+    },
+    "strategy_playbooks": {
+      "说明": "【战略剧本层】定义了周线引擎包含的各种交易剧本（Playbook）。",
+      "ma_uptrend_playbook": { "enabled": true, "short_ma": 13, "mid_ma": 21, "long_ma": 55, "tolerance_pct": 0.02 },
+      "ma20_rising_state_playbook": { "enabled": true, "ma_period": 21, "slope_threshold_pct": 0.1 },
+      "ma20_turn_up_event_playbook": { "enabled": true, "ma_period": 21, "accel_threshold": 0 },
+      "early_uptrend_playbook": { "enabled": true, "short_ma": 13, "mid_ma": 21 },
+      "classic_breakout_playbook": { "enabled": true, "lookback_weeks": 26, "volume_multiplier": 1.5 },
+      "box_consolidation_breakout_playbook": { "enabled": true, "box_period": 26, "volume_multiplier": 1.5, "vol_ma_period": 5, "boll_period": 20, "bbw_quantile": 0.3 },
+      "oversold_rebound_bias_playbook": { "enabled": true, "bias_period": 20, "oversold_threshold": -15, "rebound_trigger": -12 },
+      "trix_golden_cross_playbook": { "enabled": true, "slope_threshold": 0.01 },
+      "coppock_reversal_playbook": { "enabled": true, "deep_value_threshold": -100, "accel_threshold": 10 },
+      "washout_score_playbook": { "enabled": true, "immunity_score_threshold": 3, "immunity_window": 3, "score_threshold": 2, "support_type": "MA", "support_ma_period": 21, "drift_lookback_period": 3, "bull_trap_lookback_period": 8, "bull_trap_drop_threshold": 0.05, "volume_avg_period": 20, "volume_contraction_threshold": 0.7 },
+      "rejection_filter_playbook": { "enabled": true, "ma_period": 21, "box_lookback_period": 52, "volume_multiplier": 1.5 },
+      "ace_signal_breakout_trigger_playbook": { "enabled": true, "lookback_weeks": 52, "volume_multiplier": 2.0, "vol_ma_period": 5, "trix_confirm": true }
     }
   },
   "strategy_params": {

@@ -17,6 +17,7 @@ from scipy.signal import find_peaks
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy
+from strategies.weekly_context_engine import WeeklyContextEngine
 from strategies.weekly_trend_follow_strategy import WeeklyTrendFollowStrategy
 from utils.config_loader import load_strategy_config
 from utils.data_sanitizer import sanitize_for_json
@@ -27,49 +28,26 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        【V6.7 分级止盈系统】
-        - 核心升级: 建立三级止盈预警系统，提供差异化、可操作的卖出建议。
-          - 一级预警 (黄色): 趋势加速度转负，提示“关注或部分减仓”。
-          - 二级警报 (橙色): 短期指标死叉，提示“标准止盈”。
-          - 三级警报 (红色): 跌破日线关键支撑，提示“紧急离场”。
-        - 优化: 信号记录中增加 `exit_severity_level` 和 `exit_signal_reason` 字段，分析报告更精细。
+        【V8.0 统一指挥改造版】
+        - 核心升级: 废除所有配置合并逻辑，改为加载并分发单一的统一配置文件。
+        - 流程重构: 引擎初始化流程被极大简化，直接从统一配置中提取所需部分。
         """
-        tactical_config_path = 'config/trend_follow_strategy.json'
-        strategic_config_path = 'config/weekly_trend_follow_strategy.json'
-        self.tactical_config = load_strategy_config(tactical_config_path)
-        self.strategic_config = load_strategy_config(strategic_config_path)
-        
-        # ▼▼▼ 调整配置合并逻辑，确保所有参数块都被包含 ▼▼▼
-        # 1. 深度复制战术配置作为基础
-        self.merged_config = deepcopy(self.tactical_config)
-
-        # 2. 合并特征工程参数 (feature_engineering_params)
-        base_merged_fe_params = self._merge_feature_engineering_configs(
-            self.tactical_config.get('feature_engineering_params', {}),
-            self.strategic_config.get('feature_engineering_params', {})
-        )
-        # 发现并合并共振和止盈所需的额外指标
-        resonance_indicators = self._discover_resonance_indicators(self.tactical_config)
-        take_profit_indicators = self._discover_take_profit_indicators(self.tactical_config)
-        temp_indicators = self._merge_indicators(base_merged_fe_params.get('indicators', {}), resonance_indicators)
-        final_indicators = self._merge_indicators(temp_indicators, take_profit_indicators)
-        base_merged_fe_params['indicators'] = final_indicators
-        self.merged_config['feature_engineering_params'] = base_merged_fe_params
-
-        # 3. 合并战略引擎的剧本 (如果存在)
-        if 'strategy_playbooks' in self.strategic_config:
-            self.merged_config['strategy_playbooks'] = deepcopy(self.strategic_config['strategy_playbooks'])
-        
-        # 4. 确保战术引擎的参数块 (如 chip_feature_params) 也被正确合并
-        #    这一步通常在第一步的 deepcopy 中已经完成，但为了明确，可以再次检查
-        if 'strategy_params' in self.tactical_config:
-            self.merged_config['strategy_params'] = deepcopy(self.tactical_config['strategy_params'])
-
+        unified_config_path = 'config/trend_follow_strategy.json'
+        self.unified_config = load_strategy_config(unified_config_path)
         self.indicator_service = IndicatorService()
-        self.strategic_engine = WeeklyTrendFollowStrategy(config=self.strategic_config) 
-        self.tactical_engine = TrendFollowStrategy(config=self.tactical_config)
+        # 1. 初始化战略参谋部 (周线上下文引擎)
+        #    从统一配置中，精准提取 'weekly_context_params' 部分传给它
+        self.strategic_engine = WeeklyContextEngine(
+            config=self.unified_config.get('weekly_context_params', {})
+        )
+        # 2. 初始化一线作战部队 (日线战术引擎)
+        #    将整个统一配置传给它，由它自行按需取用
+        self.tactical_engine = TrendFollowStrategy(
+            config=self.unified_config
+        )        
         self.daily_analysis_df = None
-        self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.merged_config)
+        # 确保时间周期发现逻辑使用新的统一配置对象
+        self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
 
     # ▼▼▼ 标准化战报生成器 ▼▼▼
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
@@ -157,149 +135,77 @@ class MultiTimeframeTrendStrategy:
         
         return "\n".join(report_parts)
 
-    def _discover_take_profit_indicators(self, config: Dict) -> Dict:
-        discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
-        tp_params = config.get('strategy_params', {}).get('trend_follow', {}).get('intraday_take_profit_params', {})
-        if not tp_params.get('enabled', False):
-            return {}
-        tf = tp_params.get('timeframe')
-        if not tf:
-            return {}
-        for rule in tp_params.get('rules', []):
-            rule_type = rule.get('type')
-            indicator_name, params = None, None
-            if rule_type == 'macd_dead_cross':
-                indicator_name, params = 'macd', {'apply_on': [tf], 'periods': rule['periods']}
-            elif rule_type == 'kdj_dead_cross':
-                indicator_name, params = 'kdj', {'apply_on': [tf], 'periods': rule['periods']}
-            elif rule_type == 'top_divergence' and rule.get('indicator') == 'rsi':
-                indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [rule['periods']]}
-            if indicator_name and params and params not in discovered[indicator_name]['configs']:
-                discovered[indicator_name]['configs'].append(params)
-        return json.loads(json.dumps(discovered))
-
-    def _discover_resonance_indicators(self, config: Dict) -> Dict:
-        discovered = defaultdict(lambda: {'enabled': True, 'configs': []})
-        resonance_params = config.get('strategy_params', {}).get('trend_follow', {}).get('multi_level_resonance_params', {})
-        if not resonance_params.get('enabled', False): return {}
-        for level in resonance_params.get('levels', []):
-            tf = level['tf']
-            for cond in level.get('conditions', []):
-                cond_type, params, indicator_name = cond['type'], None, None
-                if cond_type in ('macd_above_zero', 'macd_cross', 'macd_hist_turning_up'):
-                    indicator_name, params = 'macd', {'apply_on': [tf], 'periods': cond['periods']}
-                elif cond_type == 'dmi_cross':
-                    indicator_name, params = 'dmi', {'apply_on': [tf], 'periods': [cond['period']]}
-                elif cond_type == 'kdj_cross':
-                    indicator_name, params = 'kdj', {'apply_on': [tf], 'periods': cond['periods']}
-                elif cond_type == 'rsi_reversal':
-                    indicator_name, params = 'rsi', {'apply_on': [tf], 'periods': [cond['period']]}
-                elif cond_type == 'ema_above':
-                    indicator_name, params = 'ema', {'apply_on': [tf], 'periods': [cond['period']]}
-                if indicator_name and params and params not in discovered[indicator_name]['configs']:
-                    discovered[indicator_name]['configs'].append(params)
-        return json.loads(json.dumps(discovered))
-
-    def _merge_feature_engineering_configs(self, tactical_fe, strategic_fe):
-        merged = deepcopy(tactical_fe)
-        merged['base_needed_bars'] = max(
-            tactical_fe.get('base_needed_bars', 0),
-            strategic_fe.get('base_needed_bars', 0)
-        )
-        merged['indicators'] = self._merge_indicators(
-            tactical_fe.get('indicators', {}),
-            strategic_fe.get('indicators', {})
-        )
-        return merged
-
-    def _merge_indicators(self, base_indicators, new_indicators):
-        merged = deepcopy(base_indicators)
-        all_keys = set(merged.keys()) | set(new_indicators.keys())
-        def standardize_to_configs(cfg):
-            if not cfg or not cfg.get('enabled', False): return []
-            if 'configs' in cfg: return deepcopy(cfg['configs'])
-            if 'apply_on' in cfg:
-                sub_cfg = {'apply_on': cfg['apply_on']}
-                if 'periods' in cfg: sub_cfg['periods'] = cfg['periods']
-                if 'std_dev' in cfg: sub_cfg['std_dev'] = cfg['std_dev']
-                return [sub_cfg]
-            return []
-        for key in all_keys:
-            if key == '说明': continue
-            base_cfg, new_cfg = merged.get(key, {}), new_indicators.get(key, {})
-            is_enabled = base_cfg.get('enabled', False) or new_cfg.get('enabled', False)
-            if not is_enabled: continue
-            base_sub_configs, new_sub_configs = standardize_to_configs(base_cfg), standardize_to_configs(new_cfg)
-            final_configs = base_sub_configs
-            for sub_cfg in new_sub_configs:
-                if sub_cfg not in final_configs: final_configs.append(sub_cfg)
-            if not final_configs:
-                if key in base_cfg or key in new_cfg:
-                     merged[key] = deepcopy(base_cfg); merged[key].update(deepcopy(new_cfg))
-                continue
-            merged[key] = {
-                'enabled': True,
-                '说明': base_cfg.get('说明', '') or new_cfg.get('说明', ''),
-                'configs': final_configs
-            }
-            if not final_configs and 'enabled' in (base_cfg or new_cfg):
-                 merged[key] = {'enabled': is_enabled, '说明': merged[key]['说明']}
-        return merged
-
     async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        【V161.0 指挥链修复版】
-        - 核心诊断: 发现总指挥部存在灾难性的逻辑缺陷。它将日线信号错误地归类为
-                    “普通买入信号”，而在最终的调试报告流程中，这一类别被完全遗漏，
-                    导致所有日线买入信号“被消失”。
-        - 核心重构: 彻底简化信号汇总逻辑，确保无一遗漏。
-        - 新逻辑:
-          1. 运行所有引擎（战术、风险、分钟确认等）。
-          2. 将所有引擎返回的记录，【不加任何筛选和区分】，全部合并到一个列表中。
-          3. 这种简单粗暴的方式，从根本上杜绝了因复杂分类而导致战报被遗漏的风险。
+        【V8.0 统一指挥版】
+        - 核心流程: 数据准备 -> 周线分析 -> 信号注入 -> 日线决策 -> 汇总报告
+        - 适配修改: 使用 self.unified_config 作为数据准备的唯一配置源。
         """
-        logger.info(f"--- 开始为【{stock_code}】执行五级引擎分析 (V161.0) ---")
+        print(f"--- 开始为【{stock_code}】执行联合作战分析 (V8.0) ---")
         
-        all_dfs = await self.indicator_service._prepare_base_data_and_indicators(stock_code, self.merged_config, trade_time)
-        if 'D' not in all_dfs or 'W' not in all_dfs: return None
+        # 步骤1: 调用数据服务，获取所有锻造好的数据
+        print("  -> [步骤1/4] 正在调用 IndicatorService 获取所有周期数据...")
+        all_dfs = await self.indicator_service.prepare_data_for_strategy(
+            stock_code, self.unified_config, trade_time
+        )
+
+        if 'D' not in all_dfs or 'W' not in all_dfs:
+            print(f"    - 错误: 缺少日线或周线数据，无法执行联合作战。")
+            return None
             
-        strategic_signals_df = self._run_strategic_engine(all_dfs['W'])
-        all_dfs['D'] = self._merge_strategic_signals_to_daily(all_dfs['D'], strategic_signals_df)
+        # 步骤2: 调用战略参谋部，生成周线战略信号
+        print("  -> [步骤2/4] 正在调用 WeeklyContextEngine 生成周线战略信号...")
+        df_weekly_context = self.strategic_engine.generate_context(all_dfs['W'])
         
-        # 步骤1: 运行所有引擎，获取各自的信号记录
+        # 步骤3: 将周线战略信号注入日线数据
+        print("  -> [步骤3/4] 正在将周线战略背景注入日线数据...")
+        df_daily_enhanced = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
+        
+        all_dfs['D'] = df_daily_enhanced
+        
+        # 步骤4: 在增强后的数据上，运行所有战术及风险引擎
+        print("  -> [步骤4/4] 正在运行日线战术引擎及其他风险引擎...")
         tactical_records = self._run_tactical_engine(stock_code, all_dfs)
         risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-        # intraday_entry_engine 已经被禁用，会返回空列表，但保留调用以维持结构
         intraday_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
         
-        # 步骤2: 【核心修正】将所有记录直接合并，不再进行任何复杂的筛选和分类
         all_records = tactical_records + risk_alert_records + intraday_entry_records
         
-        logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
+        print(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
         return all_records
-        
-        # # 步骤3: 记录下被VIP通道处理过的日期
-        # processed_dates = {pd.to_datetime(rec['trade_time']).date() for rec in final_entry_records}
 
-        # # 步骤4: 从“草稿”中，筛选出未被VIP通道处理的“普通买入信号”
-        # other_entry_records = [
-        #     rec for rec in tactical_records_all 
-        #     if rec.get('entry_signal') and pd.to_datetime(rec['trade_time']).date() not in processed_dates
-        # ]
-
-        # # 步骤5: 从“草稿”中，筛选出所有的“非买入信号”
-        # non_entry_records = [rec for rec in tactical_records_all if not rec.get('entry_signal')]
+    def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V7.0 技术升级版】
+        - 核心升级: 放弃 merge_asof，改用更精准、更健壮的 reindex + ffill 技术。
+        - 收益: 完美地将周线信号广播到该周的每一个交易日，逻辑更清晰，结果更可靠。
+        """
+        if df_weekly_context is None or df_weekly_context.empty:
+            print("    - [情报融合] 周线引擎未返回任何战略信号，跳过注入。")
+            return df_daily
         
-        # # 运行其他引擎 (风险预警等)
-        # risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-        # resonance_entry_records = self._run_intraday_resonance_engine(stock_code, all_dfs) # 假设这也是一种入口信号
-
-        # # 步骤6: 合并所有信号，确保无一遗漏
-        # # 优先级：精加工信号 > 共振信号 > 普通入口信号 > 风险信号 > 其他非入口信号
-        # all_records = final_entry_records + resonance_entry_records + other_entry_records + risk_alert_records + non_entry_records
+        print(f"    - [情报融合] 准备将 {len(df_weekly_context.columns)} 个周线信号注入日线数据...")
         
-        # logger.info(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
-        # return all_records
+        # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别
+        # method='ffill' (forward-fill) 会将周一的信号值填充到周二、三、四、五
+        df_weekly_aligned = df_weekly_context.reindex(df_daily.index, method='ffill')
+        
+        # 步骤2: 使用 merge 合并，比 join 更安全，可以处理列名冲突
+        df_merged = df_daily.merge(df_weekly_aligned, left_index=True, right_index=True, how='left', suffixes=('', '_weekly_dup'))
+        
+        # 步骤3: 指令翻译与分发 (逻辑与旧版类似，但更简洁)
+        # 遍历所有从周线合并过来的列
+        for col in df_weekly_context.columns:
+            if col not in df_merged.columns: continue
+            
+            # 简单的类型填充
+            if col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
+                df_merged[col] = df_merged[col].fillna(False).astype(bool)
+            elif col.startswith(('washout_score_', 'rejection_signal_')):
+                df_merged[col] = df_merged[col].fillna(0).astype(int)
+        
+        print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
+        return df_merged
 
     # 情报融合中心
     def _fuse_intraday_confirmations(self, daily_records: List[Dict], confirmation_records: List[Dict]) -> List[Dict]:
@@ -1153,37 +1059,25 @@ class MultiTimeframeTrendStrategy:
 
     async def run_alpha_hunter(self, stock_code: str):
         """
-        【V118.5 接口兼容性修复版】
-        - 核心修复: 移除了在调用 _prepare_base_data_and_indicators 时传递的
-                    未被支持的 'limit' 关键字参数。
-        - 解决方案: 完全依赖 IndicatorService 自身的默认数据获取逻辑，
-                    该逻辑已能提供足够用于回测的历史数据（如1000条）。
-        - 收益: 解决了 TypeError，并使代码与现有稳定接口保持一致，降低了维护风险。
+        【V8.0 统一指挥版】
+        - 适配修改: 更新调用的配置对象为 self.unified_config。
         """
         print("=" * 80)
-        print(f"--- [总指挥] 阿尔法猎手任务启动 for {stock_code} (V118.5 兼容版) ---")
-        
+        print(f"--- [总指挥] 阿尔法猎手任务启动 for {stock_code} (V8.0 统一指挥版) ---")
         # 1. 准备数据
-        # 【核心修改】不再传递 limit 参数，使用 IndicatorService 的默认行为
-        print(f"    -> 正在为 {stock_code} 准备全量历史数据 (使用默认长度)...")
-        all_dfs = await self.indicator_service._prepare_base_data_and_indicators(
+        print(f"    -> 正在为 {stock_code} 准备全量历史数据...")
+        all_dfs = await self.indicator_service.prepare_data_for_strategy(
             stock_code=stock_code,
-            config=self.merged_config
-            # 注意：这里不再有 trade_time 和 limit，让其使用默认值
+            config=self.unified_config
         )
-        
         if 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"    -> [错误] 无法获取 {stock_code} 的日线数据，任务终止。")
             return
-
         # 2. 调用战术引擎的阿尔法猎手方法
-        # tactical_engine 是 TrendFollowStrategy 的实例
-        # 注意：alpha_hunter_backtest 仍然可以是 async def，这没有问题
         await self.tactical_engine.alpha_hunter_backtest(
             stock_code=stock_code,
             df_full=all_dfs['D'],
-            params=self.tactical_config # 使用战术配置
+            params=self.unified_config
         )
-        
         print(f"--- [总指挥] {stock_code} 的阿尔法猎手任务执行完毕。 ---")
         print("=" * 80)
