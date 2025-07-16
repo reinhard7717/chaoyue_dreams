@@ -323,7 +323,7 @@ class TrendFollowStrategy:
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
-        self._probe_risk_score_details(risk_score, risk_details_df, params)
+        # self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤7: 最终信号合成与日志输出 ---")
@@ -906,12 +906,11 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V183.0 决战兵推修正版】
-        - 核心修正: 彻底修复了火力放大器中，因排序错误导致高价值乘数被低价值乘数
-                    “覆盖”的致命BUG。现在，最严格、最高分的规则将在最后应用。
-        - 收益: 火力放大器将真正发挥作用，为最优秀的信号提供决定性的分数加成。
+        【V184.0 周线联动版】
+        - 核心升级: 新增“周线战略背景”加成引擎。在计算完基础分后，会检查
+                    从周线注入的战略信号，并对得分进行决定性的加成或惩罚。
         """
-        print("    - [计分引擎 V183.0 决战兵推修正版] 启动...")
+        print("    - [计分引擎 V184.0 周线联动版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
@@ -950,8 +949,70 @@ class TrendFollowStrategy:
         
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
+        # ▼▼▼ “周线战略背景”加成引擎 ▼▼▼
+        print("      -> [火力层3.5/4] 正在应用“周线战略背景”加成...")
+        strategic_bonus = pd.Series(0.0, index=df.index)
+
+        # --- Part A: 基于周线“状态”的持续性加成 ---
+        if 'state_node_main_ascent_W' in df.columns:
+            mask = df['state_node_main_ascent_W'] == True
+            bonus_value = 80
+            strategic_bonus.loc[mask] += bonus_value
+            score_details_df.loc[mask, 'BONUS_WEEKLY_MAIN_ASCENT'] = bonus_value
+            if mask.any():
+                print(f"        -> [周线状态] “主升浪”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
+        # 规则1: 如果周线处于“主升浪”状态，给予最高级别的战略加成
+        if 'state_node_main_ascent_W' in df.columns:
+            mask = df['state_node_main_ascent_W'] == True
+            bonus_value = 80  # 此值未来可以配置化
+            strategic_bonus.loc[mask] += bonus_value
+            score_details_df.loc[mask, 'BONUS_WEEKLY_MAIN_ASCENT'] = bonus_value
+            if mask.any():
+                print(f"        -> [周线加成] “主升浪”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
+        # 规则2: 如果周线处于“点火期”状态，给予次高级别的战略加成
+        if 'state_node_ignition_W' in df.columns:
+            mask = df['state_node_ignition_W'] == True
+            bonus_value = 50  # 此值未来可以配置化
+            strategic_bonus.loc[mask] += bonus_value
+            score_details_df.loc[mask, 'BONUS_WEEKLY_IGNITION'] = bonus_value
+            if mask.any():
+                print(f"        -> [周线加成] “点火期”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
+        # 规则3: 如果周线处于“滞涨/顶部”状态，给予严厉的战略惩罚
+        if 'state_node_topping_W' in df.columns:
+            mask = df['state_node_topping_W'] == True
+            penalty_value = -100  # 此值未来可以配置化
+            strategic_bonus.loc[mask] += penalty_value
+            score_details_df.loc[mask, 'PENALTY_WEEKLY_TOPPING'] = penalty_value
+            if mask.any():
+                print(f"        -> [周线惩罚] “滞涨区”背景激活，在 {mask.sum()} 天得分 {penalty_value}")
+        
+        # --- Part B: 基于周线“剧本事件”的瞬时加成 ---
+        # 规则: 如果本周触发了“周线经典突破”剧本，则在本周的所有交易日都给予一次性事件加分
+        if 'playbook_classic_breakout_W' in df.columns:
+            # 找到那些刚刚触发剧本的周 (本周为True，上周为False)
+            is_event_triggered_this_week = (df['playbook_classic_breakout_W'] == True) & (df['playbook_classic_breakout_W'].shift(1) == False)
+            mask = is_event_triggered_this_week
+            bonus_value = 60  # 事件驱动的加分可以更高
+            strategic_bonus.loc[mask] += bonus_value
+            score_details_df.loc[mask, 'BONUS_EVENT_WEEKLY_BREAKOUT'] = bonus_value
+            if mask.any():
+                print(f"        -> [周线事件] “经典突破”剧本触发，在本周的 {mask.sum()} 天得分 +{bonus_value}")
+
+        # 规则: 如果本周触发了“周线TRIX金叉”剧本...
+        if 'playbook_trix_golden_cross_W' in df.columns:
+            is_event_triggered_this_week = (df['playbook_trix_golden_cross_W'] == True) & (df['playbook_trix_golden_cross_W'].shift(1) == False)
+            mask = is_event_triggered_this_week
+            bonus_value = 70
+            strategic_bonus.loc[mask] += bonus_value
+            score_details_df.loc[mask, 'BONUS_EVENT_WEEKLY_TRIX_CROSS'] = bonus_value
+            if mask.any():
+                print(f"        -> [周线事件] “TRIX金叉”剧本触发，在本周的 {mask.sum()} 天得分 +{bonus_value}")
+
+        # 将周线战略分加到基础分上
+        score_after_weekly_bonus = base_plus_trigger_score + strategic_bonus
+
         # --- 步骤4: 【V183核心】启动修正后的“优势火力”放大器 ---
-        print("      -> [火力层4/4] 正在启动修正后的“优势火力”放大器...")
+        print("      -> [火力层4/4] 正在启动修正后的“优势火力”放大器...")   
         amp_params = scoring_params.get('chip_dynamics_amplifier', {})
         
         if amp_params.get('enabled', False):
@@ -963,43 +1024,34 @@ class TrendFollowStrategy:
             if conc_slope_col in df.columns:
                 conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
                 rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
-                # ▼▼▼【代码修改 V183.0】: 对于“越小越好”的指标，按分位阈值“降序”排列！▼▼▼
                 for rule in sorted(rules, key=lambda x: x['percentile_upper'], reverse=True):
                     conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
                 print(f"        -> [兵种-筹码] 乘数计算完成。")
-
             # 计算兵种2(成本)的乘数
             cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
             cost_multiplier = pd.Series(1.0, index=df.index)
             if cost_slope_col in df.columns:
                 cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
                 rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
-                # ▼▼▼【代码修改 V183.0】: 对于“越大越好”的指标，按分位阈值“升序”排列！▼▼▼
+                # ▼▼▼ 对于“越大越好”的指标，按分位阈值“升序”排列！▼▼▼
                 for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=False):
                     cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
                 print(f"        -> [兵种-成本] 乘数计算完成。")
-
             # 采用“优势火力”逻辑，取最大值
             final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
-            
             # 应用安全限制
             cap_params = amp_params.get('final_multiplier_cap', {})
             max_mult = cap_params.get('max', 3.0)
             min_mult = cap_params.get('min', 0.4)
             final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
-            
             score_details_df['FINAL_MULTIPLIER'] = final_multiplier
             print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
-            
-            final_score = base_plus_trigger_score * final_multiplier
+            final_score = score_after_weekly_bonus * final_multiplier
         else:
-            final_score = base_plus_trigger_score
-
+            final_score = score_after_weekly_bonus
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
-        
         print(f"--- [计分引擎 V183.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
-        
         return df, score_details_df
 
     def _calculate_entry_score_legacy(

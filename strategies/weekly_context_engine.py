@@ -44,25 +44,31 @@ class WeeklyContextEngine:
         # --- 步骤 1: 计算所有基础剧本和诊断信号 ---
         # _calculate_all_playbooks 的逻辑与您原代码完全一致
         context_df = self._calculate_all_playbooks(df_weekly)
-        
-        # --- 步骤 2: 趋势状态分析 (逻辑与您原代码完全一致) ---
         trend_params = self.params.get('trend_analysis_params', {})
-        ma_period = trend_params.get('ma_period', 21)
-        ma_col = f'EMA_{ma_period}_W'
         
-        if ma_col in context_df.columns:
-            slope = context_df[ma_col].diff(1)
-            acceleration = slope.diff(1)
-            context_df['state_trend_accelerating_W'] = (slope > 0) & (acceleration > 0)
-            context_df['state_trend_stable_rising_W'] = (slope > 0) & (acceleration <= 0)
-            context_df['state_trend_decelerating_fall_W'] = (slope < 0) & (acceleration > 0)
-            context_df['state_trend_accelerating_fall_W'] = (slope < 0) & (acceleration < 0)
+        # --- 步骤 2: 趋势动态分析 (斜率与加速度) ---
+        # 我们选择用5周窗口计算的斜率，因为它对近期变化更敏感
+        slope_col = 'SLOPE_5_EMA_21_W' 
+        accel_col = 'ACCEL_5_EMA_21_W'
+        
+        if slope_col in context_df.columns and accel_col in context_df.columns:
+            print(f"    - [动态分析] 使用 '{slope_col}' 和 '{accel_col}' 进行分析。")
+            slope = context_df[slope_col]
+            accel = context_df[accel_col]
+            
+            # 定义四个核心战略状态
+            context_df['state_trend_accelerating_W'] = (slope > 0) & (accel > 0)
+            context_df['state_trend_stable_rising_W'] = (slope > 0) & (accel <= 0)
+            context_df['state_trend_decelerating_fall_W'] = (slope < 0) & (accel > 0)
+            context_df['state_trend_accelerating_fall_W'] = (slope < 0) & (accel < 0)
+            
+            # 定义一个总体的“健康”过滤器
             context_df['filter_trend_is_healthy_W'] = context_df['state_trend_accelerating_W'] | context_df['state_trend_stable_rising_W']
         else:
-            print(f"【趋势分析-警告】缺少核心趋势分析列 {ma_col}，将跳过斜率分析。")
-            for col in ['filter_trend_is_healthy_W', 'state_trend_accelerating_W', 'state_trend_stable_rising_W', 'state_trend_decelerating_fall_W']:
+            print(f"    - [动态分析-警告] 缺少斜率分析列 {slope_col} 或 {accel_col}，将跳过动态分析。")
+            # 降级处理，确保后续逻辑不会报错
+            for col in ['filter_trend_is_healthy_W', 'state_trend_accelerating_W', 'state_trend_stable_rising_W', 'state_trend_decelerating_fall_W', 'state_trend_accelerating_fall_W']:
                 context_df[col] = pd.Series(False, index=context_df.index)
-            context_df['filter_trend_is_healthy_W'] = True
         
         # --- 步骤 3: 信号合成层 (引入洗盘豁免) ---
         # print("\n---【合成-右侧信号】---")
@@ -366,17 +372,33 @@ class WeeklyContextEngine:
         return final_signal.fillna(False)
 
     def _playbook_classic_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """剧本：经典高点突破"""
-        # print(f"\n--- 剧本检查: [{params.get('说明', '经典高点突破')}] ---")
+        """
+        【剧本 V4.0 动态增强版】: 经典高点突破 (注入动态灵魂)
+        - 核心升级: 增加第三个核心条件，要求突破必须发生在趋势“健康”或“加速”的背景下。
+        """
+        print(f"\n--- 剧本检查: [{params.get('说明', '经典高点突破')}] (V4.0 动态增强版) ---")
         lookback_weeks, volume_multiplier = params.get('lookback_weeks', 26), params.get('volume_multiplier', 1.5)
-        if not self._check_dependencies(df, ['high_W', 'volume_W', 'close_W'], log_details=True):
+        # 依赖检查，确保我们有斜率数据
+        slope_col = 'SLOPE_5_EMA_21_W' # 使用我们定义的核心斜率列
+        required_cols = ['high_W', 'volume_W', 'close_W', slope_col]
+        if not self._check_dependencies(df, required_cols, log_details=True):
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
+        
+        # 条件1: 价格突破 (逻辑不变)
         period_high = df['high_W'].shift(1).rolling(window=lookback_weeks).max()
-        avg_volume = df['volume_W'].shift(1).rolling(window=lookback_weeks).mean()
         is_price_breakout = df['close_W'] > period_high
+        
+        # 条件2: 放量突破 (逻辑不变)
+        avg_volume = df['volume_W'].shift(1).rolling(window=lookback_weeks).mean()
         is_volume_breakout = df['volume_W'] > (avg_volume * volume_multiplier)
-        final_signal = is_price_breakout & is_volume_breakout
+        
+        # 条件3 (新增): 趋势动能确认
+        # 要求突破发生时，周线级别的趋势速度必须是正向的
+        slope_threshold = params.get('slope_threshold', 0) # 允许在JSON中配置最小斜率
+        is_trend_supportive = df[slope_col] > slope_threshold
+        
+        final_signal = is_price_breakout & is_volume_breakout & is_trend_supportive
         last = df.iloc[-1]
         ph_last = period_high.iloc[-1]
         av_last = avg_volume.iloc[-1]
@@ -384,27 +406,26 @@ class WeeklyContextEngine:
         vb_last = is_volume_breakout.iloc[-1]
         # print(f"    - 条件1 (价格突破): {'[✓]' if pb_last else '[✗]'} (收盘价: {last.get('close_W', float('nan')):.2f} vs 前{lookback_weeks}周高点: {ph_last:.2f})")
         # print(f"    - 条件2 (放量突破): {'[✓]' if vb_last else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(av_last * volume_multiplier):.0f})")
+        # print(f"    - 条件3 (趋势动能支持): {'[✓]' if is_trend_supportive.iloc[-1] else '[✗]'} (斜率: {df[slope_col].iloc[-1]:.4f} > 阈值: {slope_threshold})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
 
     def _playbook_check_ma_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.3 升级剧本】: 检查均线多头排列 (引入容忍区)。
-        - 核心修改: 增加 tolerance_pct 参数，允许价格在支撑均线下方有小幅波动，
-                     以容忍市场噪音和毛刺，避免因轻微跌破而被错误过滤。
+        【剧本 V4.0 动态增强版】: 均线多头排列 (注入动态灵魂)
+        - 核心升级: 增加对核心均线斜率的判断，确保“多头排列”不是伪信号。
         """
-        # print(f"\n--- 剧本检查: [{params.get('说明', '均线多头排列')}] ---")
-        short_ma = params.get('short_ma', 13)
-        mid_ma = params.get('mid_ma', 21)
-        long_ma = params.get('long_ma', 55)
-        # 新增：从JSON获取容忍度参数，默认为1%，即允许股价跌破支撑均线1%
-        tolerance_pct = params.get('tolerance_pct', 0.01)
-        # print(f"    - 配置参数: short={short_ma}, mid={mid_ma}, long={long_ma}, tolerance_pct={tolerance_pct*100}%")
-
+        # ... (参数加载逻辑不变) ...
+        short_ma, mid_ma, long_ma = params.get('short_ma', 13), params.get('mid_ma', 21), params.get('long_ma', 55)
         short_col, mid_col, long_col = f'EMA_{short_ma}_W', f'EMA_{mid_ma}_W', f'EMA_{long_ma}_W'
-        if not self._check_dependencies(df, [short_col, mid_col, long_col, 'close_W'], log_details=True):
-            print(f"    - 结论: [失败] 缺少必要列")
+        
+        # ▼▼▼【代码修改 V4.0】: 引入斜率作为判断依据 ▼▼▼
+        mid_slope_col = f'SLOPE_5_EMA_{mid_ma}_W' # 检查中期趋势线的斜率
+        required_cols = [short_col, mid_col, long_col, 'close_W', mid_slope_col]
+        if not self._check_dependencies(df, required_cols, log_details=True):
             return pd.Series(False, index=df.index)
+        
+        tolerance_pct = params.get('tolerance_pct', 0.01)
 
         # 条件1: 均线排列关系不变
         ma_aligned = (df[short_col] > df[mid_col]) & (df[mid_col] > df[long_col])
@@ -413,7 +434,11 @@ class WeeklyContextEngine:
         support_level_with_tolerance = df[mid_col] * (1 - tolerance_pct)
         price_above_support_zone = df['close_W'] > support_level_with_tolerance
 
-        final_signal = ma_aligned & price_above_support_zone
+        # 条件3 (新增): 核心趋势线必须向上运行
+        slope_threshold = params.get('slope_threshold', 0)
+        is_core_ma_rising = df[mid_slope_col] > slope_threshold
+        
+        final_signal = ma_aligned & price_above_support_zone & is_core_ma_rising
         
         last = df.iloc[-1]
         ma_last = ma_aligned.iloc[-1]

@@ -301,7 +301,8 @@
           "EMA_89_D": [10],
           "EMA_105_D": [25],
           "CHIP_peak_cost_D": [5, 8, 21, 55],
-          "CHIP_concentration_90pct_D": [5]
+          "CHIP_concentration_90pct_D": [5],
+          "EMA_21_W": [5, 13]
         }
       },
       "kline_pattern_params": {
