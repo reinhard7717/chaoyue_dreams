@@ -38,7 +38,7 @@ class MultiTimeframeTrendStrategy:
         # 1. 初始化战略参谋部 (周线上下文引擎)
         #    从统一配置中，精准提取 'weekly_context_params' 部分传给它
         self.strategic_engine = WeeklyContextEngine(
-            config=self.unified_config.get('weekly_context_params', {})
+            config=self.unified_config
         )
         # 2. 初始化一线作战部队 (日线战术引擎)
         #    将整个统一配置传给它，由它自行按需取用

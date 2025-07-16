@@ -24,7 +24,7 @@ class WeeklyContextEngine:
         - 新逻辑:
           - 从统一配置的顶层获取 'feature_engineering_params'。
           - 从统一配置的 'weekly_context_params' 块中获取自己的行动指令。
-        """       
+        """
         # 1. 从统一配置中，获取周线引擎专属的逻辑参数块
         self.params = config.get('weekly_context_params', {})
         # 2. 从统一配置的顶层，获取所有指标的定义
