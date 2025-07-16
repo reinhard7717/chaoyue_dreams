@@ -870,66 +870,73 @@ class TrendFollowStrategy:
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
         # ▼▼▼ “周线战略背景”加成引擎 ▼▼▼
-        print("      -> [火力层3.5/4] 正在应用“周线战略背景”加成...")
-        strategic_bonus = pd.Series(0.0, index=df.index)
-
-        # --- Part A: 基于周线“状态”的持续性加成 ---
-        if 'state_node_main_ascent_W' in df.columns:
-            mask = df['state_node_main_ascent_W'] == True
-            bonus_value = 80
-            strategic_bonus.loc[mask] += bonus_value
-            score_details_df.loc[mask, 'BONUS_WEEKLY_MAIN_ASCENT'] = bonus_value
-            if mask.any():
-                print(f"        -> [周线状态] “主升浪”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
-        # 规则1: 如果周线处于“主升浪”状态，给予最高级别的战略加成
-        if 'state_node_main_ascent_W' in df.columns:
-            mask = df['state_node_main_ascent_W'] == True
-            bonus_value = 80  # 此值未来可以配置化
-            strategic_bonus.loc[mask] += bonus_value
-            score_details_df.loc[mask, 'BONUS_WEEKLY_MAIN_ASCENT'] = bonus_value
-            if mask.any():
-                print(f"        -> [周线加成] “主升浪”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
-        # 规则2: 如果周线处于“点火期”状态，给予次高级别的战略加成
-        if 'state_node_ignition_W' in df.columns:
-            mask = df['state_node_ignition_W'] == True
-            bonus_value = 50  # 此值未来可以配置化
-            strategic_bonus.loc[mask] += bonus_value
-            score_details_df.loc[mask, 'BONUS_WEEKLY_IGNITION'] = bonus_value
-            if mask.any():
-                print(f"        -> [周线加成] “点火期”背景激活，在 {mask.sum()} 天得分 +{bonus_value}")
-        # 规则3: 如果周线处于“滞涨/顶部”状态，给予严厉的战略惩罚
-        if 'state_node_topping_W' in df.columns:
-            mask = df['state_node_topping_W'] == True
-            penalty_value = -100  # 此值未来可以配置化
-            strategic_bonus.loc[mask] += penalty_value
-            score_details_df.loc[mask, 'PENALTY_WEEKLY_TOPPING'] = penalty_value
-            if mask.any():
-                print(f"        -> [周线惩罚] “滞涨区”背景激活，在 {mask.sum()} 天得分 {penalty_value}")
+        print("      -> [火力层3.5/4] 正在应用“周线精确制导”...")
         
-        # --- Part B: 基于周线“剧本事件”的瞬时加成 ---
-        # 规则: 如果本周触发了“周线经典突破”剧本，则在本周的所有交易日都给予一次性事件加分
-        if 'playbook_classic_breakout_W' in df.columns:
-            # 找到那些刚刚触发剧本的周 (本周为True，上周为False)
-            is_event_triggered_this_week = (df['playbook_classic_breakout_W'] == True) & (df['playbook_classic_breakout_W'].shift(1) == False)
-            mask = is_event_triggered_this_week
-            bonus_value = 60  # 事件驱动的加分可以更高
-            strategic_bonus.loc[mask] += bonus_value
-            score_details_df.loc[mask, 'BONUS_EVENT_WEEKLY_BREAKOUT'] = bonus_value
-            if mask.any():
-                print(f"        -> [周线事件] “经典突破”剧本触发，在本周的 {mask.sum()} 天得分 +{bonus_value}")
+        # 初始化各类分数的乘数，默认为1.0 (无影响)
+        positional_multiplier = pd.Series(1.0, index=df.index)
+        dynamic_multiplier = pd.Series(1.0, index=df.index)
+        trigger_multiplier = pd.Series(1.0, index=df.index)
+        # 初始化一个豁免乘数，用于抵消负分
+        penalty_immunity_multiplier = pd.Series(1.0, index=df.index)
 
-        # 规则: 如果本周触发了“周线TRIX金叉”剧本...
-        if 'playbook_trix_golden_cross_W' in df.columns:
-            is_event_triggered_this_week = (df['playbook_trix_golden_cross_W'] == True) & (df['playbook_trix_golden_cross_W'].shift(1) == False)
-            mask = is_event_triggered_this_week
-            bonus_value = 70
-            strategic_bonus.loc[mask] += bonus_value
-            score_details_df.loc[mask, 'BONUS_EVENT_WEEKLY_TRIX_CROSS'] = bonus_value
-            if mask.any():
-                print(f"        -> [周线事件] “TRIX金叉”剧本触发，在本周的 {mask.sum()} 天得分 +{bonus_value}")
+        # --- 指令1: 如果周线处于“主升浪”或“经典突破”的背景下 ---
+        # 战略意图: 放大动能和触发事件的权重
+        main_ascent_mask = df.get('state_node_main_ascent_W', default_series)
+        breakout_mask = df.get('playbook_classic_breakout_W', default_series)
+        momentum_context_mask = main_ascent_mask | breakout_mask
+        if momentum_context_mask.any():
+            print(f"        -> [周线指令] “主升浪/突破”背景激活，放大动能和触发权重。")
+            dynamic_multiplier.loc[momentum_context_mask] *= 1.5 # 动能分权重提升50%
+            trigger_multiplier.loc[momentum_context_mask] *= 1.8 # 触发分权重提升80%
+            score_details_df.loc[momentum_context_mask, 'CONTEXT_MULT_MOMENTUM'] = 1.5
+        
+        # --- 指令2: 如果周线处于“点火期”或“底部企稳”的背景下 ---
+        # 战略意图: 放大阵地分的权重，对趋势恶化的负分给予豁免
+        ignition_mask = df.get('state_node_ignition_W', default_series)
+        bottoming_mask = df.get('state_node_bottoming_W', default_series)
+        reversal_context_mask = ignition_mask | bottoming_mask
+        if reversal_context_mask.any():
+            print(f"        -> [周线指令] “点火/筑底”背景激活，放大阵地权重并豁免部分风险。")
+            positional_multiplier.loc[reversal_context_mask] *= 1.6 # 阵地分权重提升60%
+            # 对 CONTEXT_TREND_DETERIORATING 的负分给予豁免 (乘数设为0)
+            penalty_immunity_multiplier.loc[reversal_context_mask] = 0.0 
+            score_details_df.loc[reversal_context_mask, 'CONTEXT_MULT_POSITIONAL'] = 1.6
 
-        # 将周线战略分加到基础分上
-        score_after_weekly_bonus = base_plus_trigger_score + strategic_bonus
+        # --- 指令3: 如果周线处于“洗盘豁免期” ---
+        # 战略意图: 大幅降低所有负面信号的影响
+        washout_immunity_mask = df.get('state_washout_immunity_W', default_series)
+        if washout_immunity_mask.any():
+            print(f"        -> [周线指令] “洗盘豁免”激活，大幅降低负面信号影响。")
+            # 将所有负分的豁免乘数设为0.2 (即只承受20%的伤害)
+            penalty_immunity_multiplier.loc[washout_immunity_mask] = 0.2 
+            score_details_df.loc[washout_immunity_mask, 'CONTEXT_IMMUNITY_WASHOUT'] = 0.2
+
+        # --- 应用乘数，计算最终基础分 ---
+        # 分离正负分
+        pos_positional = total_positional_score.where(total_positional_score > 0, 0)
+        neg_positional = total_positional_score.where(total_positional_score < 0, 0)
+        pos_dynamic = total_dynamic_score.where(total_dynamic_score > 0, 0)
+        neg_dynamic = total_dynamic_score.where(total_dynamic_score < 0, 0)
+
+        # 应用乘数
+        adj_pos_positional = pos_positional * positional_multiplier
+        # 对负分应用豁免乘数
+        adj_neg_positional = neg_positional * penalty_immunity_multiplier 
+        adj_pos_dynamic = pos_dynamic * dynamic_multiplier
+        adj_neg_dynamic = neg_dynamic * penalty_immunity_multiplier
+        adj_trigger = trigger_score_total * trigger_multiplier
+
+        # 重新合成
+        adj_total_positional = adj_pos_positional + adj_neg_positional
+        adj_total_dynamic = adj_pos_dynamic + adj_neg_dynamic
+        
+        # --- 混合加权 (使用调整后的分数) ---
+        weights = scoring_params.get('hybrid_scoring_weights', {})
+        weight_pos = weights.get('positional_weight', 0.4)
+        weight_dyn = weights.get('dynamic_weight', 0.6)
+        weighted_base_score = (adj_total_positional * weight_pos) + (adj_total_dynamic * weight_dyn)
+        
+        base_plus_trigger_score = weighted_base_score + adj_trigger
 
         # --- 步骤4: 【V183核心】启动修正后的“优势火力”放大器 ---
         print("      -> [火力层4/4] 正在启动修正后的“优势火力”放大器...")   
@@ -966,12 +973,12 @@ class TrendFollowStrategy:
             final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
             score_details_df['FINAL_MULTIPLIER'] = final_multiplier
             print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
-            final_score = score_after_weekly_bonus * final_multiplier
+            final_score = base_plus_trigger_score * final_multiplier
         else:
-            final_score = score_after_weekly_bonus
+            final_score = base_plus_trigger_score
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
-        print(f"--- [计分引擎 V183.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V185.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         return df, score_details_df
 
     def _calculate_entry_score_legacy(
