@@ -906,18 +906,18 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V182.0 决战版 - 计分引擎】
-        - 核心修正: 1. 确保高价值DYN信号被计入动能分。2. 火力放大器采用更激进的“优势火力”
-                    (max)逻辑，由最强的动态指标主导最终的火力加成。
-        - 收益: 真正实现对龙头的决定性识别，分数将拉开巨大差距。
+        【V183.0 决战兵推修正版】
+        - 核心修正: 彻底修复了火力放大器中，因排序错误导致高价值乘数被低价值乘数
+                    “覆盖”的致命BUG。现在，最严格、最高分的规则将在最后应用。
+        - 收益: 火力放大器将真正发挥作用，为最优秀的信号提供决定性的分数加成。
         """
-        print("    - [计分引擎 V182.0 决战版] 启动...")
+        print("    - [计分引擎 V183.0 决战兵推修正版] 启动...")
         
         scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1 & 2: 计算“阵地分”和“动能分” (使用V182的JSON配置) ---
+        # --- 步骤1 & 2: 计算“阵地分”和“动能分” (逻辑不变) ---
         print("      -> [火力层1/4 & 2/4] 正在计算“阵地分”与“动能分”...")
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
@@ -950,8 +950,8 @@ class TrendFollowStrategy:
         
         base_plus_trigger_score = weighted_base_score + trigger_score_total
 
-        # --- 步骤4: 【V182核心】启动“优势火力”放大器 ---
-        print("      -> [火力层4/4] 正在启动“优势火力”放大器...")
+        # --- 步骤4: 【V183核心】启动修正后的“优势火力”放大器 ---
+        print("      -> [火力层4/4] 正在启动修正后的“优势火力”放大器...")
         amp_params = scoring_params.get('chip_dynamics_amplifier', {})
         
         if amp_params.get('enabled', False):
@@ -963,7 +963,8 @@ class TrendFollowStrategy:
             if conc_slope_col in df.columns:
                 conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
                 rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
-                for rule in sorted(rules, key=lambda x: x['percentile_upper']):
+                # ▼▼▼【代码修改 V183.0】: 对于“越小越好”的指标，按分位阈值“降序”排列！▼▼▼
+                for rule in sorted(rules, key=lambda x: x['percentile_upper'], reverse=True):
                     conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
                 print(f"        -> [兵种-筹码] 乘数计算完成。")
 
@@ -973,11 +974,12 @@ class TrendFollowStrategy:
             if cost_slope_col in df.columns:
                 cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
                 rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
-                for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=True):
+                # ▼▼▼【代码修改 V183.0】: 对于“越大越好”的指标，按分位阈值“升序”排列！▼▼▼
+                for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=False):
                     cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
                 print(f"        -> [兵种-成本] 乘数计算完成。")
 
-            # ▼▼▼【代码修改 V182.0】: 采用“优势火力”逻辑，取最大值！ ▼▼▼
+            # 采用“优势火力”逻辑，取最大值
             final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
             
             # 应用安全限制
@@ -996,7 +998,7 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
         
-        print(f"--- [计分引擎 V182.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        print(f"--- [计分引擎 V183.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
         
         return df, score_details_df
 
