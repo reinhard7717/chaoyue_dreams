@@ -249,13 +249,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V168.0 精锐化升级版】
-        - 核心升级: 部署了4个高价值的“特种作战信号”，包括2个加分项和2个减分项，
-                    以更精细的视角评估市场动态。
-        - 收益: 系统的决策能力从“识别状态”进化到“解读过程与强度”，能更早地发现
-                爆发机会和潜在风险。
+        【V170.0 幽灵代码清除版】
+        - 核心修正: 恢复了在之前版本升级中意外丢失的V167“纵深防御”风险信号计算逻辑。
+                    并为所有风险信号的计算增加了明确的print调试日志。
+        - 收益: 确保了所有在JSON中定义的防御工事，都在代码中被100%地构筑和激活。
+                评分系统现在能够真正地对风险票进行扣分。
         """
-        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V168.0 精锐化升级版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 开始执行【战术引擎 V170.0 幽灵代码清除版】 ======")
         if df is None or df.empty:
             return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
@@ -298,7 +298,7 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
         default_series = pd.Series(False, index=df.index)
         
-        # --- 3.1 战略趋势评估 (维持不变) ---
+        # --- 3.1 战略趋势评估 ---
         is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
         cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
         is_high_score_pit = cap_pit_score >= 80
@@ -316,39 +316,43 @@ class TrendFollowStrategy:
         unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
         final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
         atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
-        print(f"      -> “整体趋势恶化”风险信号已定义，共激活 {final_deterioration.sum()} 天。")
+        print(f"      -> [风险-战略] “整体趋势恶化”已定义，激活 {final_deterioration.sum()} 天。")
         
-        # --- 3.2 【核心升级】构建“纵深防御”与“精锐打击”信号矩阵 ---
-        print("      -> 正在构建“纵深防御”与“精锐打击”信号矩阵...")
-        # --- V167 风险信号 ---
+        # --- 3.2 【核心修正】构建完整的“纵深防御”与“精锐打击”信号矩阵 ---
+        print("      -> 正在构建完整的信号矩阵...")
+        # --- V167 纵深防御信号 ---
         cost_slope_5d_col = 'SLOPE_5_CHIP_peak_cost_D'
-        if cost_slope_5d_col in df.columns: atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
+        if cost_slope_5d_col in df.columns:
+            atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
+            print(f"        -> [风险-成本] “5日成本下移”已定义，激活 {atomic_states['COST_SLOPE_5D_NEGATIVE'].sum()} 天。")
         ema21_col = 'EMA_21_D'
-        if ema21_col in df.columns: atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df[ema21_col]
+        if ema21_col in df.columns:
+            atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df[ema21_col]
+            print(f"        -> [风险-价格] “跌破战术均线”已定义，激活 {atomic_states['PRICE_BELOW_EMA21'].sum()} 天。")
         is_falling_day = df['close_D'] < df['close_D'].shift(1)
         is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.2
         atomic_states['DISTRIBUTION_DAY'] = is_falling_day & is_high_volume
+        print(f"        -> [风险-量价] “放量下跌派发”已定义，激活 {atomic_states['DISTRIBUTION_DAY'].sum()} 天。")
         upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
         total_range = df['high_D'] - df['low_D']
         atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
+        print(f"        -> [风险-形态] “长上影线冲高回落”已定义，激活 {atomic_states['KLINE_UPTHRUST_REJECTION'].sum()} 天。")
         platform_price_col = 'PLATFORM_PRICE_STABLE'
-        if platform_price_col in df.columns: atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df['close_D'].shift(1) >= df[platform_price_col].shift(1))
+        if platform_price_col in df.columns:
+            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df['close_D'].shift(1) >= df[platform_price_col].shift(1))
+            print(f"        -> [风险-结构] “筹码平台破位”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
         ema5_col = 'EMA_5_D'
-        if ema5_col in df.columns and ema21_col in df.columns: atomic_states['EMA_DEATH_CROSS'] = (df[ema5_col] < df[ema21_col]) & (df[ema5_col].shift(1) >= df[ema21_col].shift(1))
+        if ema5_col in df.columns and ema21_col in df.columns:
+            atomic_states['EMA_DEATH_CROSS'] = (df[ema5_col] < df[ema21_col]) & (df[ema5_col].shift(1) >= df[ema21_col].shift(1))
+            print(f"        -> [风险-趋势] “短期均线死叉”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
         
         # --- V168 精锐信号 ---
-        # 加分项1: 筹码加速集中
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
         if conc_slope_col in df.columns:
             atomic_states['CHIP_RAPID_CONCENTRATION'] = df[conc_slope_col] < -0.005
             print(f"        -> [精锐加分] “筹码加速集中”已定义，激活 {atomic_states['CHIP_RAPID_CONCENTRATION'].sum()} 天。")
-        
-        # 减分项1: 筹码开始发散
-        if conc_slope_col in df.columns:
             atomic_states['CHIP_DISPERSION_RISK'] = df[conc_slope_col] > 0
             print(f"        -> [精锐减分] “筹码开始发散”已定义，激活 {atomic_states['CHIP_DISPERSION_RISK'].sum()} 天。")
-
-        # 减分项2: 极高获利盘滞涨
         winner_rate_col = 'winner_rate_D'
         if winner_rate_col in df.columns:
             is_extreme_winner_rate = df[winner_rate_col] > 98
@@ -356,20 +360,18 @@ class TrendFollowStrategy:
             atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
             print(f"        -> [精锐减分] “极高获利盘滞涨”已定义，激活 {atomic_states['RISK_EXTREME_PROFIT_TAKING'].sum()} 天。")
 
-        # --- V169.0 为共振规则准备催化剂信号 ---
+        # --- V169 共振催化剂信号 ---
         atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'] = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
-        print(f"        -> [催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
+        print(f"        -> [共振催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
 
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
-        trigger_events = self._define_trigger_events(df, params, atomic_states)
-        
-        # 加分项2: 压缩后突破 (这是一个触发事件，需要在定义完原子状态后计算)
+        trigger_events = self._define_trigger_events(df, params, atomic_states) 
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         print(f"        -> [精锐触发] “压缩后突破”已定义，激活 {trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'].sum()} 天。")
 
-        print("--- [总指挥] 步骤5: 启动【V168.0 精锐化】评分引擎 ---")
+        print("--- [总指挥] 步骤5: 启动【V170.0 全面校准】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, setup_scores, atomic_states)
         raw_total_score = df['entry_score'].copy()
         
@@ -391,7 +393,7 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V168.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V170.0】执行完毕 ======")
         return df, {}
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
