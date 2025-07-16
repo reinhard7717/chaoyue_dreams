@@ -249,60 +249,110 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V175.0 混合战争引擎版】
-        - 核心重构: 为适配混合战争评分引擎，本函数现在会同时生成“阵地”和“动能”两类信号，
-                    并将它们全部注入 atomic_states，供下游使用。
+        【V176.0 继承性发展版】
+        - 核心修正: 恢复了所有原子状态的诊断逻辑，确保为“混合战争”评分引擎提供
+                    最全面的“阵地”与“动能”情报。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V175.0 混合战争引擎版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V176.0 继承性发展版】 ======")
         print("======================================================================")
-
-        if 'close_D' in df.columns:
-            df['pct_change_D'] = df['close_D'].pct_change()
-        else:
-            # 如果连收盘价都没有，后续计算无意义，直接返回空值避免崩溃
-            print("[严重错误] 输入的DataFrame缺少'close_D'列，无法继续执行策略。")
-            return pd.DataFrame(), {}
 
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
         
-        print("--- [总指挥] 步骤1: 核心数据引擎启动 (斜率与模式识别) ---")
+        print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
         df = self._calculate_trend_slopes(df, params)
         df = self.pattern_recognizer.identify_all(df)
         
-        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (混合战争模式) ---")
+        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (恢复完整功能) ---")
         df, platform_states = self._diagnose_platform_states(df, params)
         
-        # 【V175 新增】同时诊断“阵地”与“动能”两类状态
-        trend_dynamics_states = self._diagnose_trend_dynamics(df, params)
-        positional_ma_states = self._diagnose_ma_states(df, params) # 恢复旧的阵地状态诊断
-
+        # 【V176 核心恢复】调用所有诊断模块，生成完整情报池
         atomic_states = {
             **self._diagnose_chip_states(df, params),
+            **self._diagnose_ma_states(df, params),
+            **self._diagnose_oscillator_states(df, params),
             **self._diagnose_capital_states(df, params),
             **self._diagnose_volatility_states(df, params),
-            **platform_states,
-            **trend_dynamics_states,
-            **positional_ma_states # 将阵地状态也注入情报池
+            **self._diagnose_box_states(df, params),
+            **self._diagnose_kline_patterns(df, params),
+            **self._diagnose_board_patterns(df, params),
+            **platform_states
         }
         
-        # 【V175 简化】只保留最高价值的触发器和非重复的风险信号
-        trigger_events = {}
-        trigger_events['TRIGGER_CHIP_IGNITION'] = atomic_states.get('CHIP_EVENT_IGNITION', pd.Series(False, index=df.index))
-        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
-        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
-        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+        print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
+        default_series = pd.Series(False, index=df.index)
         
-        atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
-        atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df.get('EMA_21_D', np.inf)
-        atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
+        # --- 3.1 战略趋势评估 ---
+        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        cap_pit_score = df.get('SETUP_SCORE_CAPITULATION_PIT', pd.Series(0, index=df.index))
+        is_high_score_pit = cap_pit_score >= 80
+        is_in_reversal_opportunity_zone = is_in_divergence_window | is_high_score_pit
+        atomic_states['IS_IN_REVERSAL_OPPORTUNITY_ZONE'] = is_in_reversal_opportunity_zone
+        
+        long_ma_slope_col = 'SLOPE_21_EMA_55_D'
+        is_long_ma_slope_negative = df.get(long_ma_slope_col, 0) < 0 if long_ma_slope_col in df.columns else default_series
+        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
+        is_short_ma_slope_negative = df.get(short_ma_slope_col, 0) < 0 if short_ma_slope_col in df.columns else default_series
+        long_ma_accel_col = 'ACCEL_21_EMA_55_D'
+        is_long_ma_accel_negative = df.get(long_ma_accel_col, 0) < 0 if long_ma_accel_col in df.columns else default_series
+        long_chip_slope_col = 'CHIP_peak_cost_slope_55d_D'
+        is_long_chip_slope_negative = df.get(long_chip_slope_col, 0) < 0 if long_chip_slope_col in df.columns else default_series
+        unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
+        final_deterioration = unconditional_deterioration & ~is_in_reversal_opportunity_zone
+        atomic_states['CONTEXT_TREND_DETERIORATING'] = final_deterioration
+        print(f"      -> [风险-战略] “整体趋势恶化”已定义，激活 {final_deterioration.sum()} 天。")
+        
+        # --- 3.2 【最终确认】构建完整的“纵深防御”与“精锐打击”信号矩阵 ---
+        print("      -> 正在构建完整的信号矩阵...")
+        cost_slope_5d_col = 'SLOPE_5_CHIP_peak_cost_D'
+        if cost_slope_5d_col in df.columns:
+            atomic_states['COST_SLOPE_5D_NEGATIVE'] = df[cost_slope_5d_col] < 0
+            print(f"        -> [风险-成本] “5日成本下移”已定义，激活 {atomic_states['COST_SLOPE_5D_NEGATIVE'].sum()} 天。")
+        ema21_col = 'EMA_21_D'
+        if ema21_col in df.columns:
+            atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df[ema21_col]
+            print(f"        -> [风险-价格] “跌破战术均线”已定义，激活 {atomic_states['PRICE_BELOW_EMA21'].sum()} 天。")
         is_falling_day = df['close_D'] < df['close_D'].shift(1)
         is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.2
         atomic_states['DISTRIBUTION_DAY'] = is_falling_day & is_high_volume
-        atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
+        print(f"        -> [风险-量价] “放量下跌派发”已定义，激活 {atomic_states['DISTRIBUTION_DAY'].sum()} 天。")
+        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
+        total_range = df['high_D'] - df['low_D']
+        atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
+        print(f"        -> [风险-形态] “长上影线冲高回落”已定义，激活 {atomic_states['KLINE_UPTHRUST_REJECTION'].sum()} 天。")
+        platform_price_col = 'PLATFORM_PRICE_STABLE'
+        if platform_price_col in df.columns:
+            atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df[platform_price_col]) & (df[platform_price_col].notna())
+            print(f"        -> [风险-结构] “筹码平台破位(状态)”已定义，激活 {atomic_states['PLATFORM_FAILURE'].sum()} 天。")
+        ema5_col = 'EMA_5_D'
+        if ema5_col in df.columns and ema21_col in df.columns:
+            atomic_states['EMA_DEATH_CROSS'] = df[ema5_col] < df[ema21_col]
+            print(f"        -> [风险-趋势] “短期均线死叉(状态)”已定义，激活 {atomic_states['EMA_DEATH_CROSS'].sum()} 天。")
+        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+        if conc_slope_col in df.columns:
+            atomic_states['CHIP_RAPID_CONCENTRATION'] = df[conc_slope_col] < -0.005
+            print(f"        -> [精锐加分] “筹码加速集中”已定义，激活 {atomic_states['CHIP_RAPID_CONCENTRATION'].sum()} 天。")
+            atomic_states['CHIP_DISPERSION_RISK'] = df[conc_slope_col] > 0
+            print(f"        -> [精锐减分] “筹码开始发散”已定义，激活 {atomic_states['CHIP_DISPERSION_RISK'].sum()} 天。")
+        winner_rate_col = 'winner_rate_D'
+        if winner_rate_col in df.columns:
+            is_extreme_winner_rate = df[winner_rate_col] > 98
+            is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
+            atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
+            print(f"        -> [精锐减分] “极高获利盘滞涨”已定义，激活 {atomic_states['RISK_EXTREME_PROFIT_TAKING'].sum()} 天。")
+        atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'] = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
+        print(f"        -> [共振催化剂] “前一日能量压缩”已定义，激活 {atomic_states['VOL_STATE_SQUEEZE_WINDOW_PREV_1D'].sum()} 天。")
 
-        print("--- [总指挥] 步骤5: 启动【V175.0 混合战争】评分引擎 ---")
+        print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
+        # 【V176 核心恢复】调用完整的触发器定义函数
+        trigger_events = self._define_trigger_events(df, params, atomic_states)
+        # 额外补充V168的精锐触发
+        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
+        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+
+        print("--- [总指挥] 步骤5: 启动【V176.0 继承性发展】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
         
         raw_total_score = df['entry_score'].copy()
@@ -323,6 +373,17 @@ class TrendFollowStrategy:
         df['signal_entry'] = df['entry_score'] >= score_threshold
         print(f"====== 【战术引擎 V175.0】执行完毕 ======")
         return df, {}
+    
+    # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
+    def _define_context_trend_deteriorating(self, df, atomic_states):
+        default_series = pd.Series(False, index=df.index)
+        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        is_long_ma_slope_negative = df.get('SLOPE_21_EMA_55_D', 0) < 0
+        is_short_ma_slope_negative = df.get('SLOPE_5_EMA_13_D', 0) < 0
+        is_long_ma_accel_negative = df.get('ACCEL_21_EMA_55_D', 0) < 0
+        is_long_chip_slope_negative = df.get('CHIP_peak_cost_slope_55d_D', 0) < 0
+        unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
+        return unconditional_deterioration & ~is_in_divergence_window
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """

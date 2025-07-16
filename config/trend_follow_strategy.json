@@ -33,71 +33,90 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V175.0 混合战争引擎版】评分体系重构为'阵地分'和'动能分'的加权组合。",
+        "说明": "【V176.0 继承性发展版】恢复所有信号，并将其归类至'阵地'与'动能'加权体系。",
         
         "hybrid_scoring_weights": {
-          "说明": "混合战争权重分配",
+          "说明": "混合战争权重分配 (阵地40%, 动能60%)",
           "positional_weight": 0.4,
           "dynamic_weight": 0.6
         },
 
         "metadata": {
-          "说明": "【信号元数据词典】V175版，区分为阵地信号和动能信号",
+          "说明": "【信号元数据词典】V176版，恢复并分类所有信号",
           "comment_positional": "--- 阵地信号 (Positional) ---",
           "MA_STATE_PRICE_ABOVE_LONG_MA":  { "cn_name": "【阵地】股价站上生命线" },
           "MA_STATE_STABLE_BULLISH":       { "cn_name": "【阵地】均线多头排列" },
+          "CONTEXT_STRATEGIC_BOTTOMING_W": { "cn_name": "【阵地】周线战略性企稳" },
           "PLATFORM_STATE_STABLE_FORMED":  { "cn_name": "【阵地】稳固筹码平台" },
+          "BOX_STATE_HEALTHY_CONSOLIDATION":{ "cn_name": "【阵地】健康箱体盘整" },
           "CHIP_STATE_HIGHLY_CONCENTRATED":{ "cn_name": "【阵地】筹码高度集中" },
+          "CHIP_STATE_ACCUMULATION":       { "cn_name": "【阵地】吸筹阶段" },
+          "CAPITAL_STATE_DIVERGENCE_WINDOW":{ "cn_name": "【阵地】底背离机会窗口" },
           "PLATFORM_FAILURE":              { "cn_name": "【阵地风险】筹码平台破位" },
           "PRICE_BELOW_EMA21":             { "cn_name": "【阵地风险】跌破战术均线" },
+          "CONTEXT_TREND_DETERIORATING":   { "cn_name": "【阵地风险】整体趋势恶化" },
 
           "comment_dynamic": "--- 动能信号 (Dynamic) ---",
-          "DYN_TREND_HEALTHY_ACCELERATING": { "cn_name": "【动能】健康加速" },
-          "DYN_TREND_MATURE_STABLE":        { "cn_name": "【动能】成熟稳定" },
-          "CHIP_RAPID_CONCENTRATION":       { "cn_name": "【动能】筹码加速集中" },
-          "DYN_TREND_WEAKENING_DECELERATING": { "cn_name": "【动能风险】动能衰减" },
-          "DYN_TREND_BEARISH_ACCELERATING":   { "cn_name": "【动能风险】下跌加速" },
-          "CHIP_DISPERSION_RISK":           { "cn_name": "【动能风险】筹码开始发散" },
-          "DISTRIBUTION_DAY":                 { "cn_name": "【动能风险】放量下跌派发" },
+          "MA_STATE_DIVERGING":            { "cn_name": "【动能】均线发散" },
+          "MA_STATE_SHORT_SLOPE_POSITIVE": { "cn_name": "【动能】短期均线向上" },
+          "VOL_STATE_SQUEEZE_WINDOW":      { "cn_name": "【动能】能量压缩窗口" },
+          "CHIP_STATE_MARKUP":             { "cn_name": "【动能】主升浪（拉升）" },
+          "CAPITAL_STATE_INFLOW_CONFIRMED":{ "cn_name": "【动能】主力资金流入" },
+          "CAPITAL_STATE_CMF_BULLISH":     { "cn_name": "【动能】CMF指标看涨" },
+          "CHIP_RAPID_CONCENTRATION":      { "cn_name": "【动能】筹码加速集中" },
+          "COST_SLOPE_5D_NEGATIVE":        { "cn_name": "【动能风险】5日成本下移" },
+          "DISTRIBUTION_DAY":              { "cn_name": "【动能风险】放量下跌派发" },
+          "KLINE_UPTHRUST_REJECTION":      { "cn_name": "【动能风险】长上影线冲高回落" },
+          "EMA_DEATH_CROSS":               { "cn_name": "【动能风险】短期均线死叉" },
+          "CHIP_DISPERSION_RISK":          { "cn_name": "【动能风险】筹码开始发散" },
+          "RISK_EXTREME_PROFIT_TAKING":    { "cn_name": "【动能风险】极高获利盘滞涨" },
 
           "comment_trigger": "--- 触发信号 (Trigger) ---",
-          "TRIGGER_CHIP_IGNITION":          { "cn_name": "【触发】筹码点火" },
-          "VOL_BREAKOUT_FROM_SQUEEZE":      { "cn_name": "【触发】压缩后突破" }
+          "TRIGGER_DOMINANT_REVERSAL":     { "cn_name": "【触发】显性反转阳线" },
+          "TRIGGER_CHIP_IGNITION":         { "cn_name": "【触发】筹码点火" },
+          "TRIGGER_ENERGY_RELEASE":        { "cn_name": "【触发】能量释放阳线" },
+          "TRIGGER_BREAKOUT_CANDLE":       { "cn_name": "【触发】企稳突破阳线" },
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND":{ "cn_name": "【触发】平台回踩反弹" },
+          "TRIGGER_EARTH_HEAVEN_BOARD":    { "cn_name": "【触发】地天板" },
+          "TRIGGER_PULLBACK_REBOUND":      { "cn_name": "【触发】均线回踩反弹" },
+          "VOL_BREAKOUT_FROM_SQUEEZE":     { "cn_name": "【触发】压缩后突破" }
         },
 
         "positional_scoring": {
           "说明": "【阵地分】评估静态战场态势，总分贡献权重 40%",
           "positive_signals": {
-            "MA_STATE_PRICE_ABOVE_LONG_MA": 100,
-            "MA_STATE_STABLE_BULLISH": 150,
-            "PLATFORM_STATE_STABLE_FORMED": 120,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 80
+            "MA_STATE_STABLE_BULLISH": 50, "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
+            "CONTEXT_STRATEGIC_BOTTOMING_W": 60, "PLATFORM_STATE_STABLE_FORMED": 70,
+            "BOX_STATE_HEALTHY_CONSOLIDATION": 40, "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
+            "CHIP_STATE_ACCUMULATION": 30, "CAPITAL_STATE_DIVERGENCE_WINDOW": 40
           },
           "negative_signals": {
-            "PLATFORM_FAILURE": -250,
-            "PRICE_BELOW_EMA21": -150
+            "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250,
+            "PRICE_BELOW_EMA21": -100
           }
         },
 
         "dynamic_scoring": {
           "说明": "【动能分】评估动态趋势和主力行为，总分贡献权重 60%",
           "positive_signals": {
-            "DYN_TREND_HEALTHY_ACCELERATING": 250,
-            "DYN_TREND_MATURE_STABLE": 150,
-            "CHIP_RAPID_CONCENTRATION": 100
+            "MA_STATE_DIVERGING": 40, "MA_STATE_SHORT_SLOPE_POSITIVE": 20,
+            "VOL_STATE_SQUEEZE_WINDOW": 30, "CHIP_STATE_MARKUP": 40,
+            "CAPITAL_STATE_INFLOW_CONFIRMED": 30, "CAPITAL_STATE_CMF_BULLISH": 20,
+            "CHIP_RAPID_CONCENTRATION": 70
           },
           "negative_signals": {
-            "DYN_TREND_WEAKENING_DECELERATING": -300,
-            "DYN_TREND_BEARISH_ACCELERATING": -200,
-            "CHIP_DISPERSION_RISK": -150,
-            "DISTRIBUTION_DAY": -100
+            "RISK_EXTREME_PROFIT_TAKING": -150, "COST_SLOPE_5D_NEGATIVE": -150,
+            "EMA_DEATH_CROSS": -120, "CHIP_DISPERSION_RISK": -100,
+            "KLINE_UPTHRUST_REJECTION": -80, "DISTRIBUTION_DAY": -180
           }
         },
         
         "trigger_events": {
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
-          "TRIGGER_CHIP_IGNITION": 120,
-          "VOL_BREAKOUT_FROM_SQUEEZE": 120
+          "TRIGGER_DOMINANT_REVERSAL": 80, "TRIGGER_CHIP_IGNITION": 120,
+          "TRIGGER_ENERGY_RELEASE": 70, "TRIGGER_BREAKOUT_CANDLE": 60,
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80, "TRIGGER_EARTH_HEAVEN_BOARD": 200,
+          "TRIGGER_PULLBACK_REBOUND": 50, "VOL_BREAKOUT_FROM_SQUEEZE": 120
         }
       },
       "setup_scoring_matrix": {
