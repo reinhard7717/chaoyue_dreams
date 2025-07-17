@@ -126,19 +126,39 @@ class ChipFeatureCalculator:
             'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
         }
 
-    # ... 其他方法 _calculate_winner_structure, _calculate_pressure_support, _calculate_effective_turnover 保持不变 ...
     def _calculate_winner_structure(self) -> dict:
+        """
+        【V5.0 获利结构重铸版】
+        - 核心修复: 彻底重构了获利盘的计算逻辑，解决了旧算法在下跌趋势中
+                    短期获利盘恒为0的致命缺陷。
+        - 新逻辑:
+          1. 计算“总获利盘”（成本低于当前收盘价）。
+          2. 计算“长期锁定盘”（成本低于20日前收盘价）。
+          3. “短期获利盘”被精确定义为“总获利盘”与“长期锁定盘”之差。
+        """
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
+
+        # 如果关键价格缺失，无法计算，直接返回
         if not close_price or not prev_20d_close or pd.isna(prev_20d_close):
             return {'winner_rate_short_term': None, 'winner_rate_long_term': None}
 
-        short_term_winners = self.df[(self.df['price'] < close_price) & (self.df['price'] >= prev_20d_close)]
-        long_term_winners = self.df[self.df['price'] < prev_20d_close]
+        # 1. 计算总获利盘：所有成本低于当前收盘价的筹码比例
+        total_winners_df = self.df[self.df['price'] < close_price]
+        total_winner_rate = total_winners_df['percent'].sum()
+
+        # 2. 计算长期锁定盘：所有成本低于20日前收盘价的筹码比例
+        long_term_winners_df = self.df[self.df['price'] < prev_20d_close]
+        long_term_winner_rate = long_term_winners_df['percent'].sum()
+
+        # 3. 计算短期获利盘：总获利盘与长期锁定盘之差
+        #    这代表了在过去20天内新产生的获利盘
+        #    使用 max(0, ...) 是为了防止因价格剧烈波动导致轻微的负值
+        short_term_winner_rate = max(0, total_winner_rate - long_term_winner_rate)
         
         return {
-            'winner_rate_short_term': short_term_winners['percent'].sum(),
-            'winner_rate_long_term': long_term_winners['percent'].sum(),
+            'winner_rate_short_term': short_term_winner_rate,
+            'winner_rate_long_term': long_term_winner_rate,
         }
 
     def _calculate_pressure_support(self) -> dict:
