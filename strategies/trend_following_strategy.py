@@ -116,14 +116,12 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V193.0 风控前提修正版】
-        - 核心升级: 修正了风控前提(high_risk_premise)过于苛刻，无法识别“高位横盘派发”
-                    风险模式的重大BUG。新增了第三个判断维度`is_high_level_oscillation`，
-                    确保即使在短期获利盘不高、涨幅不大的情况下，只要股价处于危险的
-                    高位震荡区，风控系统就必须被激活。
+        【V194.0 探针植入版】
+        - 核心升级: 植入“黑匣子探针”，专门用于剖析特定日期（2025-07-16）的风控逻辑
+                    执行全过程，将所有中间变量的值打印输出，以定位问题根源。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V193.0 风控前提修正版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V194.0 探针植入版】 ======")
         print("======================================================================")
 
         # ... (步骤1 到 6 的代码保持不变) ...
@@ -194,15 +192,13 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.5 · 前提修正版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.6 · 探针植入版】，审查所有得分 ---")
         
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
 
         # --- 前提条件定义 ---
-        # 条件1: 短期获利盘过高 (情绪过热)
         is_high_profit_zone = df.get('winner_rate_short_term_D', 0) > 70
         
-        # 条件2: 短期涨幅过大 (趋势过快)
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
         if cost_col in df.columns:
@@ -215,24 +211,18 @@ class TrendFollowStrategy:
             cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
             is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
         
-        # ▼▼▼【代码修改 V193.0】: 新增第三个前提条件 ▼▼▼
-        # 条件3: 高位震荡 (派发嫌疑)
         is_high_level_oscillation = default_series
         long_winner_rate_col = 'winner_rate_long_term_D'
-        long_ma_col = 'EMA_89_D' # 使用一个较长的均线作为高位参考
+        long_ma_col = 'EMA_89_D'
         if long_winner_rate_col in df.columns and long_ma_col in df.columns:
-            # 长期获利盘持续处于95%以上
             is_long_term_winner_saturated = df[long_winner_rate_col] > 95
-            # 且当前价格远高于长期均线 (例如，高出20%)
             is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
             is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
-        # ▲▲▲【代码修改 V193.0】▲▲▲
-
-        # 最终的“高风险环境”前提 = 三者取“或”
+        
         high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
 
-        # --- 风险识别与惩罚 (逻辑不变) ---
+        # --- 风险识别与惩罚 ---
         veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
         cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
         veto_accel_exhaustion = default_series
@@ -250,6 +240,49 @@ class TrendFollowStrategy:
         final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
         risk_penalty_multiplier = 0.2
         
+        # ▼▼▼【代码修改 V194.0】: 植入黑匣子探针 ▼▼▼
+        probe_date_str = '2025-07-16'
+        try:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if probe_ts in df.index:
+                print("\n" + "="*25 + f" [黑匣子探针启动: {probe_date_str}] " + "="*25)
+                row = df.loc[probe_ts]
+                
+                print("\n--- [探针-前提检查] ---")
+                print(f"  - is_high_profit_zone (短期获利盘 > 70%): {is_high_profit_zone.loc[probe_ts]}")
+                print(f"    - (原始值) winner_rate_short_term_D: {row.get('winner_rate_short_term_D', 'N/A')}")
+                print(f"  - is_rapid_markup (20日成本涨幅 > 15%): {is_rapid_markup.loc[probe_ts]}")
+                print(f"    - (原始值) 20日成本涨幅: {cost_change_ratio.loc[probe_ts]:.4f}" if 'cost_change_ratio' in locals() else "N/A")
+                print(f"  - is_high_level_oscillation (高位震荡): {is_high_level_oscillation.loc[probe_ts]}")
+                print(f"    - (原始值) 长期获利盘 > 95%: {is_long_term_winner_saturated.loc[probe_ts]}" if 'is_long_term_winner_saturated' in locals() else "N/A")
+                print(f"    - (原始值) 价格 > 89日均线*1.2: {is_price_at_high_level.loc[probe_ts]}" if 'is_price_at_high_level' in locals() else "N/A")
+                print(f"  - [结论] high_risk_premise (总前提): {high_risk_premise.loc[probe_ts]}")
+
+                print("\n--- [探针-风险规则检查 (仅在总前提为True时有意义)] ---")
+                print(f"  - veto_extreme_profit (获利盘极值): {veto_extreme_profit.loc[probe_ts]}")
+                print(f"  - veto_accel_exhaustion (成本加速衰竭): {veto_accel_exhaustion.loc[probe_ts]}")
+                print(f"  - veto_chip_divergence (筹码顶背离): {veto_chip_divergence.loc[probe_ts]}")
+                print(f"  - [结论] final_risk_mask (最终惩罚掩码): {final_risk_mask.loc[probe_ts]}")
+
+                print("\n--- [探针-最终得分] ---")
+                print(f"  - 惩罚前分数 (entry_score_pre_penalty): {row.get('entry_score_pre_penalty', 'N/A'):.2f}")
+                
+                # 模拟惩罚过程
+                final_score_probe = row.get('entry_score_pre_penalty', 0)
+                if final_risk_mask.loc[probe_ts]:
+                    final_score_probe *= risk_penalty_multiplier
+                    print(f"  - 惩罚后分数 (模拟计算): {final_score_probe:.2f}")
+                else:
+                    print(f"  - 惩罚后分数 (无惩罚): {final_score_probe:.2f}")
+                
+                print("="*27 + f" [黑匣子探针结束: {probe_date_str}] " + "="*27 + "\n")
+
+        except KeyError:
+            print(f"\n[探针信息] 日期 {probe_date_str} 不在数据帧中，无法进行探针分析。\n")
+        except Exception as e:
+            print(f"\n[探针错误] 在执行探针分析时发生错误: {e}\n")
+        # ▲▲▲【代码修改 V194.0】▲▲▲
+
         if final_risk_mask.any():
             df.loc[final_risk_mask, 'entry_score'] *= risk_penalty_multiplier
             print(f"    - [风控-惩罚] 在 {final_risk_mask.sum()} 个高风险交易日，对入场分施加了 {100 - risk_penalty_multiplier*100:.0f}% 的惩罚。")
@@ -264,7 +297,7 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V193.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V194.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
