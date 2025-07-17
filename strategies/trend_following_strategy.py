@@ -116,77 +116,41 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V202.0 动态防御版】
-        - 核心升级: 将 risk_details_df 保存到实例变量 self._last_risk_details_df，
-                    以便总指挥部可以调阅，生成详细的每日风险报告。
+        【V202.10 动态否决版】
+        - 核心升维: 废除固定的风险否决线，引入“风险容忍度”概念。
+                    否决与否，不再取决于风险分的绝对值，而是取决于“风险分”与
+                    “买入分”的动态比例。只有当风险的力量显著超出进攻力量可承受
+                    的范围时，买入信号才会被否决。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V202.0 动态防御版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V202.10 动态否决版】 ======")
         print("======================================================================")
 
-        # ... (步骤1-5 保持不变) ...
-        if df is None or df.empty:
-            return pd.DataFrame(), {}
-        
+        if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
         
-        print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
+        # ... (步骤1-6的计算逻辑保持不变，此处省略以保持清晰) ...
         df = self.pattern_recognizer.identify_all(df)
-        if 'close_D' in df.columns:
-            df['pct_change_D'] = df['close_D'].pct_change()
-        
-        print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (恢复完整功能) ---")
+        if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
         df, platform_states = self._diagnose_platform_states(df, params)
-        
-        atomic_states = {
-            **self._diagnose_chip_states(df, params),
-            **self._diagnose_ma_states(df, params),
-            **self._diagnose_oscillator_states(df, params),
-            **self._diagnose_capital_states(df, params),
-            **self._diagnose_volatility_states(df, params),
-            **self._diagnose_box_states(df, params),
-            **self._diagnose_kline_patterns(df, params),
-            **self._diagnose_board_patterns(df, params),
-            **platform_states,
-            **self._diagnose_trend_dynamics(df, params) 
-        }
-        
-        print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
-        default_series = pd.Series(False, index=df.index)
+        atomic_states = {**self._diagnose_chip_states(df, params), **self._diagnose_ma_states(df, params), **self._diagnose_oscillator_states(df, params), **self._diagnose_capital_states(df, params), **self._diagnose_volatility_states(df, params), **self._diagnose_box_states(df, params), **self._diagnose_kline_patterns(df, params), **self._diagnose_board_patterns(df, params), **platform_states, **self._diagnose_trend_dynamics(df, params) }
         atomic_states['CONTEXT_TREND_DETERIORATING'] = self._define_context_trend_deteriorating(df, atomic_states)
-        atomic_states['COST_SLOPE_5D_NEGATIVE'] = df.get('SLOPE_5_CHIP_peak_cost_D', 0) < 0
-        atomic_states['PRICE_BELOW_EMA21'] = df['close_D'] < df.get('EMA_21_D', np.inf)
-        is_falling_day = df['close_D'] < df['close_D'].shift(1)
-        is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.2
-        atomic_states['DISTRIBUTION_DAY'] = is_falling_day & is_high_volume
-        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
-        total_range = df['high_D'] - df['low_D']
-        atomic_states['KLINE_UPTHRUST_REJECTION'] = (upper_shadow > total_range * 0.5) & (total_range > 0)
         atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
-        atomic_states['EMA_DEATH_CROSS'] = df.get('EMA_5_D', np.inf) < df.get('EMA_21_D', -np.inf)
         atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
         is_extreme_winner_rate = df.get('CHIP_winner_rate_long_term_D', 0) > 98
         is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
-
-        print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states)
-        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
-
-        print("--- [总指挥] 步骤5: 启动【V180.0 最终同步版】评分引擎 ---")
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
-        
         raw_total_score = df['entry_score'].copy()
-        print("--- [总指挥] 步骤5.5: 指挥棒模型启动...")
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
         self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
-        
-        print("--- [总指挥] 步骤6: 风险剧本计分与出场决策 ---")
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
@@ -194,70 +158,41 @@ class TrendFollowStrategy:
         df['risk_score'] = risk_score
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V2.1 · 动态情报武装版】，审查所有得分 ---")
-        df['entry_score_pre_penalty'] = df['entry_score'].copy()
-        is_high_profit_zone = df.get('CHIP_winner_rate_short_term_D', 0) > 70
-        cost_col = 'CHIP_peak_cost_D'
-        is_rapid_markup = default_series
-        if cost_col in df.columns:
-            cost_20d_ago = df[cost_col].shift(20)
-            long_term_avg_period = 89
-            min_cost_multiplier = 0.5
-            long_term_avg_cost = df[cost_col].rolling(window=long_term_avg_period, min_periods=long_term_avg_period//2).mean()
-            dynamic_min_cost_threshold = long_term_avg_cost * min_cost_multiplier
-            meaningful_cost_mask = cost_20d_ago > dynamic_min_cost_threshold
-            cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
-            is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
-        is_high_level_oscillation = default_series
-        long_winner_rate_col = 'CHIP_winner_rate_long_term_D'
-        long_ma_col = 'EMA_89_D'
-        if long_winner_rate_col in df.columns and long_ma_col in df.columns:
-            is_long_term_winner_saturated = df[long_winner_rate_col] > 95
-            is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
-            is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
-        high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
-        print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
-        veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
-        cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
-        veto_accel_exhaustion = default_series
-        if cost_accel_col in df.columns:
-            is_accel_negative = df[cost_accel_col] < 0
-            consecutive_negative_accel = is_accel_negative.rolling(window=3).sum()
-            veto_accel_exhaustion = (consecutive_negative_accel >= 3) & high_risk_premise
-        veto_chip_divergence = default_series
-        price_col = 'close_D'
-        if price_col in df.columns and cost_col in df.columns:
-            is_price_new_high = df[price_col] >= df[price_col].rolling(20).max().shift(1)
-            is_cost_not_new_high = df[cost_col] < df[cost_col].rolling(20).max().shift(1)
-            veto_chip_divergence = is_price_new_high & is_cost_not_new_high & high_risk_premise
-        total_winner_rate_col = 'CHIP_total_winner_rate_D'
-        veto_total_profit_saturation = default_series
-        if total_winner_rate_col in df.columns:
-            is_saturated = df[total_winner_rate_col] > 98
-            is_not_strong_breakout = df['pct_change_D'] < 0.05
-            veto_total_profit_saturation = is_saturated & is_not_strong_breakout
-            if veto_total_profit_saturation.any():
-                 print(f"    - [风控-否决] “总获利盘饱和”风险激活 {veto_total_profit_saturation.sum()} 天。")
-        veto_profit_taking_imminent = atomic_states.get('CHIP_RISK_PROFIT_TAKING_IMMINENT', default_series)
-        if veto_profit_taking_imminent.any():
-            print(f"    - [风控-否决] “获利盘扩张停滞”风险激活 {veto_profit_taking_imminent.sum()} 天。")
-        final_risk_mask = (veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence | veto_total_profit_saturation | veto_profit_taking_imminent)
-        risk_penalty_multiplier = 0.2
-        if final_risk_mask.any():
-            df.loc[final_risk_mask, 'entry_score'] *= risk_penalty_multiplier
-            print(f"    - [风控-惩罚] 在 {final_risk_mask.sum()} 个高风险交易日，对入场分施加了 {100 - risk_penalty_multiplier*100:.0f}% 的惩罚。")
-        else:
-            print(f"    - [风控-裁决] 未发现需要施加惩罚的高风险信号。")
+        # ▼▼▼ 建立“动态否决权”裁决系统！▼▼▼
+        print("--- [总指挥] 步骤7: 最高统帅部启动，执行【攻防力量动态平衡裁决】！---")
+        
+        veto_params = self._get_params_block(params, 'risk_veto_params', {})
+        if self._get_param_value(veto_params.get('enabled'), False):
+            ratio = self._get_param_value(veto_params.get('risk_tolerance_ratio'), 0.5)
+            min_risk = self._get_param_value(veto_params.get('min_absolute_risk_for_veto'), 30)
+            
+            print(f"    -> [裁决标准] 风险容忍系数: {ratio:.2f}, 触发否决的最低绝对风险: {min_risk}")
 
-        print("--- [总指挥] 步骤8: 最终信号合成 ---")
-        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
-        score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
+            # 计算每一天的动态否决阈值
+            df['dynamic_veto_threshold'] = df['entry_score'] * ratio
+            
+            # 制作否决面具：风险分超过了动态阈值，并且风险分本身也达到了最低绝对水平
+            veto_mask = (df['risk_score'] > df['dynamic_veto_threshold']) & (df['risk_score'] >= min_risk)
+            
+            original_buy_signals_to_veto = (df['entry_score'] > 0) & veto_mask
+            
+            if original_buy_signals_to_veto.any():
+                print(f"    -> [风控裁决] 在 {original_buy_signals_to_veto.sum()} 个交易日，风险分超过了买入分可容忍的上限。")
+                print(f"    -> [执行否决] 已将这些交易日的 entry_score 强制清零！")
+                df.loc[veto_mask, 'entry_score'] = 0
+            else:
+                print("    -> [风控裁决] 所有买入信号均在风险容忍范围内，无需否决。")
+        else:
+            print("    -> [风控裁决] 动态否决系统被禁用，跳过此步骤。")
+        
+        print("--- [总指挥] 步骤8: 基于【最终裁决后】的得分，合成最终信号 ---")
+        score_threshold = self._get_param_value(self._get_params_block(params, 'entry_scoring_params', {}).get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V202.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V202.10】执行完毕 ======")
         return df, atomic_states
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING

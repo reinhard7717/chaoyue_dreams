@@ -455,10 +455,15 @@
         "persistence_days": 5, 
         "break_ma_period": 10 
     },
+    "warning_threshold_params": {
+      "说明": "【新增】风险预警阈值。当风险分达到此级别但未达到卖出级别时，触发预警。",
+      "LOW": { "level": 30, "cn_name": "低度风险" },
+      "MEDIUM": { "level": 50, "cn_name": "中度风险" }
+    },
     "exit_threshold_params": {
-      "CRITICAL": { "level": 120, "code": 99 },
-      "HIGH": { "level": 80, "code": 88 },
-      "MEDIUM": { "level": 50, "code": 77 }
+      "说明": "真正的“卖出”信号阈值，门槛已提高。",
+      "HIGH": { "level": 80, "code": 88, "cn_name": "高度风险卖出" },
+      "CRITICAL": { "level": 120, "code": 99, "cn_name": "临界风险卖出" }
     },
     "stagnation_params": {
       "enabled": true,
@@ -473,5 +478,15 @@
       "persistence_lookback_window": 3,
       "persistence_required_days": 2
     }
+  },
+  "risk_veto_params": {
+    "enabled": true,
+    "说明": "【V98.0 动态否决版】基于攻防力量对比，动态决定是否否决买入信号。",
+    
+    "risk_tolerance_ratio": 0.3,
+    "说明_ratio": "风险容忍系数。允许的风险分 = 买入分 * 此系数。例如0.5代表风险分超过买入分的一半时，才可能被否决。",
+
+    "min_absolute_risk_for_veto": 30,
+    "说明_min_risk": "触发否决的最低绝对风险分。用于避免一个极低的风险分(如5分)否决一个同样很低的买入分(如10分)。"
   }
 }
