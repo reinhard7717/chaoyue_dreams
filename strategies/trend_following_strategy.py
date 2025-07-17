@@ -114,152 +114,17 @@ class TrendFollowStrategy:
             print("      -> 所有数值列类型正常，无需转换。")
         return df
 
-    # 波段跟踪模拟器
-    def simulate_wave_tracking(self, df: pd.DataFrame, params: dict, start_date: str = '2025-05-01') -> pd.DataFrame:
-        """
-        【V113 闪电战优化版】
-        - 核心优化: 对性能黑洞 itertuples() 循环进行了优化。
-          将所有无状态的退出条件（高危风险码、失守生命线）进行向量化预计算，
-          极大地减少了循环内部的判断逻辑，显著提升了波段跟踪模拟器的执行效率。
-        """
-        if start_date:
-            df = df.loc[start_date:].copy()
-            if df.empty: return df
-        
-        tracking_params = self._get_params_block(params, 'wave_tracking_params', {})
-        if not self._get_param_value(tracking_params.get('enabled'), False): return df
-        
-        # --- 1. 参数加载 ---
-        profit_target_partial = self._get_param_value(tracking_params.get('profit_target_partial'), 0.30)
-        trailing_stop_pct = self._get_param_value(tracking_params.get('trailing_stop_pct'), 0.15)
-        exit_code_partial = self._get_param_value(tracking_params.get('exit_code_partial'), 77)
-        exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
-        high_risk_code_threshold = self._get_param_value(exit_thresholds.get('HIGH', {}).get('code'), 88)
-        life_line_ma_period = self._get_param_value(tracking_params.get('life_line_ma'), 21)
-        life_line_ma_col = f'EMA_{life_line_ma_period}_D'
-
-        # ▼▼▼ 向量化预计算无状态的退出条件 ▼▼▼
-        # print("    - [波段跟踪优化] 正在向量化预计算退出条件...")
-        df['cond_high_risk_exit'] = df['exit_signal_code'] >= high_risk_code_threshold
-        df['cond_partial_exit_profit'] = False # 依赖状态，循环内计算
-        df['cond_partial_exit_risk'] = df['exit_signal_code'] == exit_code_partial
-        if life_line_ma_col in df.columns:
-            df['cond_lifeline_break'] = df['close_D'] < df[life_line_ma_col]
-        else:
-            df['cond_lifeline_break'] = False
-
-        # --- 2. 初始化状态列和变量 ---
-        df['position_status'] = 0.0
-        df['trade_action'] = ''
-        in_position = False
-        position_size = 0.0
-        entry_price = 0.0
-        entry_date = None
-        highest_price_since_entry = 0.0
-        partial_exit_done = False
-        total_trades, winning_trades, total_pnl = 0, 0, 1.0
-        trade_details = []
-
-        # --- 3. 逐日迭代，模拟交易状态机 (现在循环内部更轻量) ---
-        # print("    - [波段跟踪优化] 开始执行轻量化状态机循环...")
-        for row in df.itertuples():
-            current_date = row.Index
-            
-            if not in_position:
-                if row.signal_entry:
-                    in_position, position_size, entry_price, entry_date = True, 1.0, row.close_D, current_date
-                    highest_price_since_entry, partial_exit_done = row.close_D, False
-                    df.loc[current_date, 'position_status'] = position_size
-                    df.loc[current_date, 'trade_action'] = 'ENTRY'
-            else:
-                highest_price_since_entry = max(highest_price_since_entry, row.high_D)
-                exit_reason, should_full_exit, exit_price = "", False, row.close_D
-
-                if row.cond_high_risk_exit:
-                    should_full_exit, exit_reason = True, f"高危风险码({row.exit_signal_code})"
-                elif row.close_D < highest_price_since_entry * (1 - trailing_stop_pct):
-                    should_full_exit, exit_reason = True, f"移动止损"
-                    exit_price = highest_price_since_entry * (1 - trailing_stop_pct)
-                elif partial_exit_done and row.cond_lifeline_break:
-                    should_full_exit, exit_reason = True, f"失守生命线"
-
-                if should_full_exit:
-                    pnl_ratio = (exit_price / entry_price) - 1
-                    total_pnl *= (1 + pnl_ratio)
-                    total_trades += 1
-                    if pnl_ratio > 0: winning_trades += 1
-                    trade_details.append({"pnl_ratio": pnl_ratio})
-                    in_position, position_size = False, 0.0
-                    df.loc[current_date, 'position_status'] = position_size
-                    df.loc[current_date, 'trade_action'] = 'FULL_EXIT'
-                    continue
-
-                should_partial_exit = False
-                if not partial_exit_done:
-                    if row.close_D > entry_price * (1 + profit_target_partial):
-                        should_partial_exit, exit_reason = True, f"目标利润达成"
-                    elif row.cond_partial_exit_risk:
-                        should_partial_exit, exit_reason = True, f"中度风险码"
-
-                if should_partial_exit:
-                    position_size, partial_exit_done = 0.5, True
-                    df.loc[current_date, 'position_status'] = position_size
-                    df.loc[current_date, 'trade_action'] = 'PARTIAL_EXIT'
-
-                if not should_full_exit and not should_partial_exit:
-                    df.loc[current_date, 'position_status'] = position_size
-        
-        df['position_status'] = df['position_status'].ffill().fillna(0)
-        
-        # --- 4. 最终回测绩效报告 ---
-        # print("\n" + "-"*25 + " 最终回测绩效报告 " + "-"*25)
-        
-        # if total_trades > 0:
-        #     win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
-        #     final_total_pnl_percent = (total_pnl - 1) * 100
-            
-        #     print(f"    - 回测区间: {df.index[0].date()} to {df.index[-1].date()}")
-        #     print(f"    - 总交易次数: {total_trades}")
-        #     print(f"    - 胜率: {win_rate:.2f}% ({winning_trades}次盈利 / {total_trades - winning_trades}次亏损)")
-        #     print(f"    - 总盈亏比例: {final_total_pnl_percent:.2f}%")
-            
-        #     # 计算更详细的指标
-        #     pnl_ratios = [t['pnl_ratio'] for t in trade_details]
-        #     avg_win = np.mean([p for p in pnl_ratios if p > 0]) * 100 if winning_trades > 0 else 0
-        #     avg_loss = np.mean([p for p in pnl_ratios if p <= 0]) * 100 if (total_trades - winning_trades) > 0 else 0
-        #     profit_factor = abs(sum(p for p in pnl_ratios if p > 0) / sum(p for p in pnl_ratios if p <= 0)) if sum(p for p in pnl_ratios if p <= 0) != 0 else float('inf')
-            
-        #     print(f"    - 平均盈利: {avg_win:.2f}% | 平均亏损: {avg_loss:.2f}%")
-        #     print(f"    - 盈亏比 (Profit Factor): {profit_factor:.2f}")
-        # else:
-        #     print("    - 在指定的回测区间内没有完成的交易。")
-
-        # if in_position:
-        #     last_row = df.iloc[-1]
-        #     current_pnl = (last_row.close_D / entry_price - 1) * 100
-        #     print("\n" + "-"*28 + " 期末持仓报告 " + "-"*28)
-        #     print(f"    - 回测结束时，仍有持仓：")
-        #     print(f"    - 入场日期: {entry_date.date()} | 入场价格: {entry_price:.2f}")
-        #     print(f"    - 当前仓位: {position_size*100}%")
-        #     print(f"    - 当前浮动盈亏: {current_pnl:.2f}%")
-        
-        print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======")
-        # print("="*60 + "\n")
-        return df
-
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V189.0 动态自适应版】
-        - 核心升级: 采纳将军建议，将风控前提中的“固定成本阈值”升级为“动态成本阈值”。
-                    该阈值基于成本重心自身的长期均值进行计算，使得风控标准能够
-                    自适应不同股价区间的股票，极大提升了策略的普适性和稳健性。
+        【V192.0 日志透明化版】
+        - 核心升级: 解决了风控惩罚在日志中不透明的问题。现在会记录惩罚前的分数，
+                    并在最终的信号报告中明确展示惩罚标签及其力度，使战报清晰易懂。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V189.0 动态自适应版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V192.0 日志透明化版】 ======")
         print("======================================================================")
 
-        # ... (前面所有步骤保持不变) ...
-        
+        # ... (步骤1 到 6 的代码保持不变) ...
         if df is None or df.empty:
             return pd.DataFrame(), {}
         
@@ -327,76 +192,59 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 最终信号合成 ---")
-        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
-        score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
-        df['signal_entry'] = df['entry_score'] >= score_threshold
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.4 · 风险惩罚版】，审查所有得分 ---")
         
-        # ▼▼▼ 采用动态自适应阈值 ▼▼▼
-        print("--- [总指挥] 步骤8: 启动【最终风控层 V1.3 · 动态自适应版】，审查所有买入信号 ---")
-        
-        # --- 前提条件定义 ---
+        # ▼▼▼【代码修改 V192.0】: 增加惩罚前分数的备份 ▼▼▼
+        df['entry_score_pre_penalty'] = df['entry_score'].copy()
+        # ▲▲▲【代码修改 V192.0】▲▲▲
+
         is_high_profit_zone = df.get('winner_rate_short_term_D', 0) > 70
-        
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
         if cost_col in df.columns:
             cost_20d_ago = df[cost_col].shift(20)
-            
-            # 【核心修正】使用动态阈值替代固定阈值
-            long_term_avg_period = 89 # 长期价值中枢周期
-            min_cost_multiplier = 0.5  # 允许成本低于长期均值的50%
-            
-            # 计算成本的长期均值
+            long_term_avg_period = 89
+            min_cost_multiplier = 0.5
             long_term_avg_cost = df[cost_col].rolling(window=long_term_avg_period, min_periods=long_term_avg_period//2).mean()
-            # 计算动态的“最低有意义成本”
             dynamic_min_cost_threshold = long_term_avg_cost * min_cost_multiplier
-            
-            # 只有当20天前的成本高于这个动态阈值时，才认为它有意义
             meaningful_cost_mask = cost_20d_ago > dynamic_min_cost_threshold
-            
             cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
             is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
-        
         high_risk_premise = is_high_profit_zone | is_rapid_markup
-        print(f"    - [风控-前提] 采用动态成本阈值 (基于{long_term_avg_period}日均值 * {min_cost_multiplier}) 进行过滤。")
-        print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天，只有在这些天才会启用最严厉的否决规则。")
+        print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
 
-        # --- 风控规则应用 (逻辑不变) ---
         veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
-        if veto_extreme_profit.any():
-            print(f"    - [风控-否决] “获利盘极值”风险激活，在 {veto_extreme_profit.sum()} 天禁止买入。")
-
         cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
         veto_accel_exhaustion = default_series
         if cost_accel_col in df.columns:
             is_accel_negative = df[cost_accel_col] < 0
             consecutive_negative_accel = is_accel_negative.rolling(window=3).sum()
             veto_accel_exhaustion = (consecutive_negative_accel >= 3) & high_risk_premise
-            if veto_accel_exhaustion.any():
-                print(f"    - [风控-否决] “成本加速度衰竭”风险激活，在 {veto_accel_exhaustion.sum()} 天禁止买入。")
-
         veto_chip_divergence = default_series
         price_col = 'close_D'
         if price_col in df.columns and cost_col in df.columns:
             is_price_new_high = df[price_col] >= df[price_col].rolling(20).max().shift(1)
             is_cost_not_new_high = df[cost_col] < df[cost_col].rolling(20).max().shift(1)
             veto_chip_divergence = is_price_new_high & is_cost_not_new_high & high_risk_premise
-            if veto_chip_divergence.any():
-                print(f"    - [风控-否决] “筹码顶背离”风险激活，在 {veto_chip_divergence.sum()} 天禁止买入。")
-
-        final_veto_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
         
-        original_signals = df['signal_entry'].sum()
-        df.loc[final_veto_mask, 'signal_entry'] = False
-        signals_after_veto = df['signal_entry'].sum()
+        final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
+        risk_penalty_multiplier = 0.2
         
-        if original_signals > signals_after_veto:
-            print(f"    - [风控-裁决] 最终风控层已执行。共否决了 {original_signals - signals_after_veto} 个高风险买入信号！")
+        if final_risk_mask.any():
+            df.loc[final_risk_mask, 'entry_score'] *= risk_penalty_multiplier
+            print(f"    - [风控-惩罚] 在 {final_risk_mask.sum()} 个高风险交易日，对入场分施加了 {100 - risk_penalty_multiplier*100:.0f}% 的惩罚。")
         else:
-            print(f"    - [风控-裁决] 最终风控层未发现需要干预的高风险信号。")
+            print(f"    - [风控-裁决] 未发现需要施加惩罚的高风险信号。")
 
-        print(f"====== 【战术引擎 V189.0】执行完毕 ======")
+        print("--- [总指挥] 步骤8: 最终信号合成 ---")
+        entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
+        score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
+        df['signal_entry'] = df['entry_score'] >= score_threshold
+
+        print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
+        df = self._run_position_management_simulation(df, params)
+
+        print(f"====== 【战术引擎 V192.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
@@ -412,23 +260,16 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V160.0 战史修正最终版】
-        - 核心诊断: 经过最终审查，确认了问题的根源在于本函数的设计缺陷。旧逻辑会用
-                    分钟线信号“覆盖”掉同一天的日线信号，导致日线信号在最终战报中“被消失”。
-        - 核心重构: 彻底废除“信号覆盖”逻辑，确保所有级别的信号都被忠实记录。
-        - 新逻辑:
-          1. 只筛选出有明确“日线买入信号”或“日线退出信号”的日期。
-          2. 对这些日期，无条件地、完整地生成并记录其日线级别的决策详情。
-          3. 分钟线信号将在其自身的流程中被处理，不再与日线信号混淆。
-        - 收益: 确保了战略决策的最高优先级和历史记录的绝对完整性。
+        【V192.0 日志透明化版】
+        - 核心升级: 在生成剧本列表时，检查是否存在风险惩罚。如果存在，则动态生成一个
+                    包含惩罚力度的标签（如“风险惩罚-80%”）并加入到剧本列表中，
+                    使得最终的信号报告能够清晰地反映风控系统的干预动作。
         """
-        # 【核心修正】筛选条件更精确，只关注日线级别的最终决策信号
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
             print(f"      -> [错误] prepare_db_records 缺少必要列: {required_cols}")
             return []
         
-        # 只筛选出日线级别有明确买入或卖出信号的行
         df_with_signals = result_df[
             (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
         ].copy()
@@ -444,7 +285,6 @@ class TrendFollowStrategy:
         
         has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
 
-        # 遍历每一个被筛选出的、有日线信号的日期
         for timestamp, row in df_with_signals.iterrows():
             triggered_playbooks_list = []
             if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
@@ -452,6 +292,19 @@ class TrendFollowStrategy:
                 active_items = playbooks_with_scores[playbooks_with_scores > 0].index
                 excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
                 triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
+
+            # ▼▼▼【代码修改 V192.0】: 增加惩罚标签生成逻辑 ▼▼▼
+            pre_penalty_score = row.get('entry_score_pre_penalty', row.entry_score)
+            final_score = row.entry_score
+            
+            # 只有在有买入信号时，才检查惩罚，避免在卖出信号上显示惩罚
+            if row.get('signal_entry', False) and final_score < pre_penalty_score and pre_penalty_score > 0:
+                penalty_pct = (1 - final_score / pre_penalty_score) * 100
+                # 避免除以0或无效计算导致的大百分比
+                if 0 <= penalty_pct <= 100:
+                    penalty_tag = f"风险惩罚-{penalty_pct:.0f}%"
+                    triggered_playbooks_list.append(penalty_tag)
+            # ▲▲▲【代码修改 V192.0】▲▲▲
 
             platform_price = None
             if has_platform_col and row.get('signal_entry', False):
@@ -466,11 +319,10 @@ class TrendFollowStrategy:
                 'stable_platform_price': platform_price,
             }
 
-            # 创建并添加记录，确保日线信号被忠实记录
             record = {
                 "stock_code": stock_code,
                 "trade_time": timestamp,
-                "timeframe": result_timeframe, # 确保timeframe是 'D'
+                "timeframe": result_timeframe,
                 "strategy_name": strategy_name,
                 "close_price": row.get(f'close_{result_timeframe}'),
                 "pct_change": row.get(f'pct_change_{result_timeframe}', 0.0),
@@ -2265,6 +2117,258 @@ class TrendFollowStrategy:
             
         # print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
+
+# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
+    def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
+        """
+        【V190.0 新增】战术预警诊断模块
+        - 职责: 在持仓期间，每日检查是否存在风险信号，并返回对应的预警级别和原因。
+        - 返回: (alert_level, alert_reason) -> (整数, 字符串)
+                 - 0: 无警报
+                 - 1: 黄色预警 (观察)
+                 - 2: 橙色预警 (准备减仓)
+                 - 3: 红色预警 (立即行动)
+        """
+        alert_params = self._get_params_block(params, 'alert_system_params', {})
+        if not self._get_param_value(alert_params.get('enabled'), True):
+            return 0, "No Alert"
+
+        # --- 预警剧本1: 筹码发散 ---
+        chip_dispersion_params = alert_params.get('chip_dispersion', {})
+        conc_slope = getattr(row, 'CHIP_concentration_90pct_slope_5d_D', 0)
+        
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_3_threshold'), 0.01):
+            return 3, f"筹码严重发散(斜率:{conc_slope:.4f})"
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_2_threshold'), 0.005):
+            return 2, f"筹码持续发散(斜率:{conc_slope:.4f})"
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_1_threshold'), 0.001):
+            return 1, f"筹码初步发散(斜率:{conc_slope:.4f})"
+
+        # --- 预警剧本2: 关键支撑失守 ---
+        support_break_params = alert_params.get('support_break', {})
+        short_ma_col = f"EMA_{self._get_param_value(support_break_params.get('short_ma'), 13)}_D"
+        mid_ma_col = f"EMA_{self._get_param_value(support_break_params.get('mid_ma'), 55)}_D"
+        
+        if getattr(row, 'close_D', 0) < getattr(row, mid_ma_col, float('inf')):
+            return 3, f"失守中期生命线({mid_ma_col})"
+        if getattr(row, 'close_D', 0) < getattr(row, short_ma_col, float('inf')):
+            return 2, f"失守短期趋势线({short_ma_col})"
+
+        # --- 预警剧本3: 资金流顶背离 ---
+        # (此处为简化逻辑，实际可做得更复杂，如连续N日背离)
+        if getattr(row, 'DYN_TREND_TOPPING_DIVERGENCE', False):
+             return 2, "动态趋势呈现顶背离"
+
+        return 0, "No Alert"
+    # ▲▲▲【代码新增 V190.0】▲▲▲
+
+    # ▼▼▼【代码新增 V190.0】: 全新的、支持动态仓位管理的模拟引擎 ▼▼▼
+    def _run_position_management_simulation(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V190.0 新增】战术持仓管理模拟引擎
+        - 核心功能: 模拟一个完整的交易周期，包括入场、持仓、风险预警、动态减仓和最终离场。
+        - 输出: 在DataFrame中增加仓位状态、预警级别、交易动作等列，用于最终分析。
+        """
+        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
+        
+        # --- 1. 参数初始化 ---
+        sim_params = self._get_params_block(params, 'position_management_params', {})
+        if not self._get_param_value(sim_params.get('enabled'), False):
+            print("    - 持仓管理模拟被禁用，跳过。")
+            return df
+
+        # 从配置中读取减仓比例
+        level_2_reduction = self._get_param_value(sim_params.get('level_2_alert_reduction_pct'), 0.3)
+        level_3_reduction = self._get_param_value(sim_params.get('level_3_alert_reduction_pct'), 0.5)
+        
+        # 初始化状态列
+        df['position_size'] = 0.0
+        df['alert_level'] = 0
+        df['alert_reason'] = ''
+        df['trade_action'] = ''
+
+        # 初始化状态变量
+        in_position = False
+        position_size = 0.0
+        entry_price = 0.0
+        partial_exit_level_2_done = False # 标记L2减仓是否已执行，避免重复减仓
+
+        # --- 2. 逐日迭代，模拟交易状态机 ---
+        for row in df.itertuples():
+            current_date = row.Index
+            
+            if not in_position:
+                # --- 入场逻辑 ---
+                if row.signal_entry:
+                    in_position = True
+                    position_size = 1.0
+                    entry_price = row.close_D
+                    partial_exit_level_2_done = False # 重置减仓标记
+                    df.loc[current_date, 'trade_action'] = 'ENTRY'
+            else:
+                # --- 持仓期间的逻辑 ---
+                
+                # a. 检查硬性离场信号 (最高优先级)
+                if row.exit_signal_code > 0:
+                    in_position = False
+                    position_size = 0.0
+                    df.loc[current_date, 'trade_action'] = f'EXIT (Code:{row.exit_signal_code})'
+                    df.loc[current_date, 'position_size'] = position_size
+                    continue # 当天直接离场，不再执行后续预警判断
+
+                # b. 检查战术预警信号
+                alert_level, alert_reason = self._check_tactical_alerts(row, params)
+                df.loc[current_date, 'alert_level'] = alert_level
+                df.loc[current_date, 'alert_reason'] = alert_reason
+
+                # c. 根据预警级别执行仓位调整
+                if alert_level == 3: # 红色预警
+                    if position_size > 0:
+                        reduction_amount = position_size * level_3_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L3 ({level_3_reduction:.0%})'
+                
+                elif alert_level == 2 and not partial_exit_level_2_done: # 橙色预警，且尚未执行过
+                    if position_size > 0:
+                        reduction_amount = position_size * level_2_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L2 ({level_2_reduction:.0%})'
+                        partial_exit_level_2_done = True # 标记已执行
+                
+                # d. 如果没有交易动作，则标记为持仓
+                if df.loc[current_date, 'trade_action'] == '':
+                    df.loc[current_date, 'trade_action'] = 'HOLD'
+
+            # 更新每日的最终仓位
+            df.loc[current_date, 'position_size'] = position_size
+        
+        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
+        return df# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
+    def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
+        """
+        【V190.0 新增】战术预警诊断模块
+        - 职责: 在持仓期间，每日检查是否存在风险信号，并返回对应的预警级别和原因。
+        - 返回: (alert_level, alert_reason) -> (整数, 字符串)
+                 - 0: 无警报
+                 - 1: 黄色预警 (观察)
+                 - 2: 橙色预警 (准备减仓)
+                 - 3: 红色预警 (立即行动)
+        """
+        alert_params = self._get_params_block(params, 'alert_system_params', {})
+        if not self._get_param_value(alert_params.get('enabled'), True):
+            return 0, "No Alert"
+
+        # --- 预警剧本1: 筹码发散 ---
+        chip_dispersion_params = alert_params.get('chip_dispersion', {})
+        conc_slope = getattr(row, 'CHIP_concentration_90pct_slope_5d_D', 0)
+        
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_3_threshold'), 0.01):
+            return 3, f"筹码严重发散(斜率:{conc_slope:.4f})"
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_2_threshold'), 0.005):
+            return 2, f"筹码持续发散(斜率:{conc_slope:.4f})"
+        if conc_slope > self._get_param_value(chip_dispersion_params.get('level_1_threshold'), 0.001):
+            return 1, f"筹码初步发散(斜率:{conc_slope:.4f})"
+
+        # --- 预警剧本2: 关键支撑失守 ---
+        support_break_params = alert_params.get('support_break', {})
+        short_ma_col = f"EMA_{self._get_param_value(support_break_params.get('short_ma'), 13)}_D"
+        mid_ma_col = f"EMA_{self._get_param_value(support_break_params.get('mid_ma'), 55)}_D"
+        
+        if getattr(row, 'close_D', 0) < getattr(row, mid_ma_col, float('inf')):
+            return 3, f"失守中期生命线({mid_ma_col})"
+        if getattr(row, 'close_D', 0) < getattr(row, short_ma_col, float('inf')):
+            return 2, f"失守短期趋势线({short_ma_col})"
+
+        # --- 预警剧本3: 资金流顶背离 ---
+        # (此处为简化逻辑，实际可做得更复杂，如连续N日背离)
+        if getattr(row, 'DYN_TREND_TOPPING_DIVERGENCE', False):
+             return 2, "动态趋势呈现顶背离"
+
+        return 0, "No Alert"
+    # ▲▲▲【代码新增 V190.0】▲▲▲
+
+    # ▼▼▼ 支持动态仓位管理的模拟引擎 ▼▼▼
+    def _run_position_management_simulation(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V190.0 新增】战术持仓管理模拟引擎
+        - 核心功能: 模拟一个完整的交易周期，包括入场、持仓、风险预警、动态减仓和最终离场。
+        - 输出: 在DataFrame中增加仓位状态、预警级别、交易动作等列，用于最终分析。
+        """
+        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
+        
+        # --- 1. 参数初始化 ---
+        sim_params = self._get_params_block(params, 'position_management_params', {})
+        if not self._get_param_value(sim_params.get('enabled'), False):
+            print("    - 持仓管理模拟被禁用，跳过。")
+            return df
+
+        # 从配置中读取减仓比例
+        level_2_reduction = self._get_param_value(sim_params.get('level_2_alert_reduction_pct'), 0.3)
+        level_3_reduction = self._get_param_value(sim_params.get('level_3_alert_reduction_pct'), 0.5)
+        
+        # 初始化状态列
+        df['position_size'] = 0.0
+        df['alert_level'] = 0
+        df['alert_reason'] = ''
+        df['trade_action'] = ''
+
+        # 初始化状态变量
+        in_position = False
+        position_size = 0.0
+        entry_price = 0.0
+        partial_exit_level_2_done = False # 标记L2减仓是否已执行，避免重复减仓
+
+        # --- 2. 逐日迭代，模拟交易状态机 ---
+        for row in df.itertuples():
+            current_date = row.Index
+            
+            if not in_position:
+                # --- 入场逻辑 ---
+                if row.signal_entry:
+                    in_position = True
+                    position_size = 1.0
+                    entry_price = row.close_D
+                    partial_exit_level_2_done = False # 重置减仓标记
+                    df.loc[current_date, 'trade_action'] = 'ENTRY'
+            else:
+                # --- 持仓期间的逻辑 ---
+                
+                # a. 检查硬性离场信号 (最高优先级)
+                if row.exit_signal_code > 0:
+                    in_position = False
+                    position_size = 0.0
+                    df.loc[current_date, 'trade_action'] = f'EXIT (Code:{row.exit_signal_code})'
+                    df.loc[current_date, 'position_size'] = position_size
+                    continue # 当天直接离场，不再执行后续预警判断
+
+                # b. 检查战术预警信号
+                alert_level, alert_reason = self._check_tactical_alerts(row, params)
+                df.loc[current_date, 'alert_level'] = alert_level
+                df.loc[current_date, 'alert_reason'] = alert_reason
+
+                # c. 根据预警级别执行仓位调整
+                if alert_level == 3: # 红色预警
+                    if position_size > 0:
+                        reduction_amount = position_size * level_3_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L3 ({level_3_reduction:.0%})'
+                
+                elif alert_level == 2 and not partial_exit_level_2_done: # 橙色预警，且尚未执行过
+                    if position_size > 0:
+                        reduction_amount = position_size * level_2_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L2 ({level_2_reduction:.0%})'
+                        partial_exit_level_2_done = True # 标记已执行
+                
+                # d. 如果没有交易动作，则标记为持仓
+                if df.loc[current_date, 'trade_action'] == '':
+                    df.loc[current_date, 'trade_action'] = 'HOLD'
+
+            # 更新每日的最终仓位
+            df.loc[current_date, 'position_size'] = position_size
+        
+        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
+        return df
 
     # 风险评分引擎
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_setups: Dict[str, pd.Series], risk_triggers: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
