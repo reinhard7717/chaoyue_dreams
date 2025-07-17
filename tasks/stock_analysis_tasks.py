@@ -352,12 +352,13 @@ def schedule_precompute_advanced_chips(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V4.4.2 - 获利盘计算修正版】
-    - 修正了因 `prev_20d_close` 计算时机过晚，导致获利盘指标 (`winner_rate_*`) 无法计算的问题。
-    - 将 `prev_20d_close` 的计算提前至数据合并后、特征计算前。
+    【执行器 V5.0 - 数据还原终极版】
+    - 核心修复: 解决了获利盘指标恒为0或100的根本性问题。在数据送入计算器前，
+                通过 groupby + diff() 操作，将源数据中伪装成“占比”的“累计占比”
+                还原为真实的、离散的筹码占比，确保了计算原材料的正确性。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V4.4.2, 模式: {mode})...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V5.0 数据还原版, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -370,29 +371,19 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             try:
                 last_metric = AdvancedChipMetrics.objects.filter(stock=stock_info).latest('trade_time')
                 last_metric_date = last_metric.trade_time
-                # logger.info(f"[{stock_code}] 找到最新已计算数据于: {last_metric_date}。")
             except AdvancedChipMetrics.DoesNotExist:
                 logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                 is_incremental = False
         
         fetch_start_date = None
         if is_incremental and last_metric_date:
-            # [修改] 稍微多获取一些数据以确保shift(20)的准确性
             fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
 
         def get_data(model, fields: tuple, date_field='trade_time'):
-            """
-            一个更健壮的数据获取辅助函数。
-            Args:
-                model: Django 模型类。
-                fields (tuple): 需要查询的字段名元组。
-                date_field (str): 用于日期过滤的字段名。
-            """
             qs = model.objects.filter(stock=stock_info)
             if fetch_start_date:
                 filter_kwargs = {f'{date_field}__gte': fetch_start_date}
                 qs = qs.filter(**filter_kwargs)
-            # 使用 *fields 将元组解包为位置参数，正确调用 .values()
             return pd.DataFrame.from_records(qs.values(*fields))
 
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
@@ -401,6 +392,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.warning(f"[{stock_code}] 在指定范围内找不到原始筹码数据，任务终止。")
             return {"status": "skipped", "reason": "no raw chip data in range"}
         cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
+
+        # ▼▼▼【代码修改 V5.0】: 还原真实的离散筹码占比 ▼▼▼
+        # 1. 必须先严格排序，确保 diff() 的正确性
+        cyq_chips_data = cyq_chips_data.sort_values(by=['trade_time', 'price'], ascending=True)
+        
+        # 2. 按天分组，对累计百分比执行差分操作，得到离散百分比
+        #    .diff() 会计算当前行与上一行的差值。
+        #    .fillna(cyq_chips_data['percent']) 用于正确处理每天的第一行数据（其diff结果为NaN）。
+        cyq_chips_data['percent'] = cyq_chips_data.groupby('trade_time')['percent'].diff().fillna(cyq_chips_data['percent'])
+        logger.info(f"[{stock_code}] 已将累计筹码占比还原为离散占比。")
+        # ▲▲▲【代码修改 V5.0】▲▲▲
 
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
         daily_data = get_data(daily_data_model, fields=('trade_time', 'vol', 'high', 'low'))
@@ -417,7 +419,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
         perf_data = perf_data.rename(columns={'his_high': 'close_price', 'weight_avg': 'weight_avg_cost'})
 
-        # --- 步骤 3, 4, 5, 6: 合并、计算、存储 ---
         merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
@@ -425,14 +426,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.warning(f"[{stock_code}] 数据源内连接后结果为空，任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
         
-        # [新增] 核心修改：提前计算 prev_20d_close
-        # 1. 必须先按日期排序，确保 .shift() 的正确性
         merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
-        # 2. 计算20日前收盘价，并将其添加到 merged_df 中
-        # 我们需要先提取每日唯一的收盘价，计算shift，然后再合并回去
         daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
         daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
-        # 将计算好的 prev_20d_close 合并回主DataFrame
         merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
         
         grouped_data = merged_df.groupby('trade_time')
@@ -441,17 +437,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if is_incremental and last_metric_date and trade_date <= last_metric_date:
                 continue
             
-            # 现在 context_data 中会包含 'prev_20d_close' (可能是NaN)
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             
-            # 传递给计算器，计算器现在可以正确计算获利盘了
             calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
             
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
-                # [新增] 将 prev_20d_close 也加入到待保存的指标中
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
 
