@@ -691,19 +691,26 @@ class MultiTimeframeTrendStrategy:
     # ▼▼▼ “每日风险书记官”方法 ▼▼▼
     def _generate_daily_risk_signals(self, stock_code: str, daily_analysis_df: pd.DataFrame, params: dict) -> List[Dict[str, Any]]:
         """
-        【V202.1 触发逻辑修复版】每日风险书记官
-        - 核心修复: 筛选逻辑不再依赖于 `exit_signal_code`，而是直接使用 `risk_score > 0`
-                    作为判断标准。这确保了只要当天存在任何风险分，就会被捕获并生成
-                    一条对应的风险信号记录，解决了有风险分但无信号输出的问题。
+        【V202.2 致命错误修复版】每日风险书记官
+        - 核心修复: 修复了当 'risk_score' 列不存在时，会因 `df.get()` 返回默认值
+                    而导致 `KeyError: False` 的致命错误。新的逻辑会先安全地检查
+                    列是否存在，然后再生成布尔掩码进行筛选，确保程序的绝对健壮性。
         """
         # 1. 获取风险剧本的定义，用于翻译原因
         risk_playbooks = self.tactical_engine._get_risk_playbook_blueprints()
         risk_playbook_map = {bp['name']: bp.get('cn_name', bp['name']) for bp in risk_playbooks}
 
-        # ▼▼▼【代码修改 V202.1】: 使用 risk_score 作为筛选标准 ▼▼▼
-        # 2. 筛选出所有产生了风险分的交易日
-        risk_days_df = daily_analysis_df[daily_analysis_df.get('risk_score', 0) > 0].copy()
-        # ▲▲▲【代码修改 V202.1】▲▲▲
+        # ▼▼▼【代码修改 V202.2】: 修复致命的KeyError: False错误 ▼▼▼
+        # 2. 安全地筛选出所有产生了风险分的交易日
+        # 步骤A: 首先检查 'risk_score' 列是否存在
+        if 'risk_score' not in daily_analysis_df.columns:
+            # 如果不存在，直接返回空列表，因为不可能有风险信号
+            return []
+            
+        # 步骤B: 如果列存在，则创建布尔掩码并进行筛选
+        mask = daily_analysis_df['risk_score'] > 0
+        risk_days_df = daily_analysis_df[mask].copy()
+        # ▲▲▲【代码修改 V202.2】▲▲▲
         
         if risk_days_df.empty:
             return []
@@ -713,7 +720,6 @@ class MultiTimeframeTrendStrategy:
 
         records = []
         for timestamp, row in risk_days_df.iterrows():
-            # exit_signal_code 仍然从行数据中获取，因为它代表了最终的决策
             exit_code = int(row.get('exit_signal_code', 0))
             
             # 4. 找出当天具体是哪些风险剧本被触发了
@@ -727,13 +733,22 @@ class MultiTimeframeTrendStrategy:
             triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
             reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
 
-            # 6. 根据风险代码确定严重等级
-            severity_level = 1
-            if exit_code >= 120: # 对应 CRITICAL
-                severity_level = 3
-            elif exit_code >= 80: # 对应 HIGH
-                severity_level = 2
-            # MEDIUM 及以下都算 1 级预警
+            # 6. 根据风险代码确定严重等级 (使用 exit_threshold_params 配置)
+            exit_thresholds = self._get_params_block(params, 'exit_threshold_params', {})
+            # 将阈值从高到低排序
+            sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
+            
+            severity_level = 0 # 默认为0
+            # 映射 exit_code 到 severity_level
+            for level_name, config in sorted_levels:
+                if exit_code == self._get_param_value(config.get('code')):
+                    if level_name == "CRITICAL":
+                        severity_level = 3
+                    elif level_name == "HIGH":
+                        severity_level = 2
+                    elif level_name == "MEDIUM":
+                        severity_level = 1
+                    break
 
             # 7. 使用标准化的生成器创建记录
             record = self._create_signal_record(
