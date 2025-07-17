@@ -1065,7 +1065,7 @@ def save_cyq_data_history_task(self):
         return {"status": "error", "message": str(e), "dispatched_stocks": 0}
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.refetch_incomplete_cyq_chips', queue='celery')
-def refetch_incomplete_cyq_chips(self, record_threshold=800):
+def refetch_incomplete_cyq_chips(self, record_threshold=1000):
     from django.db.models import Count
     """
     Celery 定时任务：查找所有 StockCyqChips* 表中，按股票分组后记录数少于指定阈值的股票，
