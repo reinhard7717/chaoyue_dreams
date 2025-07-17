@@ -993,13 +993,13 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V202.11 量化情报版】
-        - 核心升级: 在展示“风险预警”和“卖出警报”时，会从 context_snapshot 中
-                    提取关键的量化指标（如斜率）并附加到原因后面，实现从定性到
-                    定量的战报升级。
+        【V202.12 健壮性修复版】
+        - 核心修复: 解决了当 `exit_signal_reason` 字段为 None 时，导致 'in' 操作
+                    出现 TypeError 的致命崩溃问题。通过增加对 reason 变量的
+                    健壮性检查，确保其在进行字符串操作前始终是一个有效的字符串。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V202.11 量化情报版)] ---")
+        print(f"--- [历史回溯调试启动 (V202.12 健壮性修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -1016,13 +1016,9 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_records = []
             for rec in all_records:
-                # 确保 rec['trade_time'] 是 timezone-aware
                 rec_time = pd.to_datetime(rec['trade_time'])
-                if rec_time.tzinfo is None:
-                    rec_time = rec_time.tz_localize('UTC')
-                else:
-                    rec_time = rec_time.tz_convert('UTC')
-
+                if rec_time.tzinfo is None: rec_time = rec_time.tz_localize('UTC')
+                else: rec_time = rec_time.tz_convert('UTC')
                 if start_dt <= rec_time <= end_dt:
                     debug_period_records.append(rec)
 
@@ -1042,13 +1038,19 @@ class MultiTimeframeTrendStrategy:
                 signal_type = "未知信号"
                 details = "无详细信息"
                 
-                # ▼▼▼【代码修改 V202.11】: 升级展示逻辑，增加量化指标 ▼▼▼
                 context = record.get('context_snapshot', {})
                 risk_score = context.get('risk_score', 0)
-                reason = record.get('exit_signal_reason', 'N/A')
+                
+                # ▼▼▼【代码修改 V202.12】: 增加对 reason 的健壮性检查 ▼▼▼
+                # 问题: 如果数据库中 exit_signal_reason 字段为 NULL, record.get 会返回 None, 导致后续 'in' 操作类型错误。
+                # 修复: 先获取 reason, 然后检查它是否为 None 或空。如果是，则赋予一个明确的默认字符串。
+                reason = record.get('exit_signal_reason')
+                if not reason:
+                    reason = "原因未知" # 确保 reason 永远是一个可迭代的字符串
+                # ▲▲▲【代码修改 V202.12】▲▲▲
 
-                # 统一的量化指标提取逻辑
                 quant_details = []
+                # 因为 reason 现在保证是字符串，所以这里的 'in' 操作是绝对安全的
                 if "主峰根基动摇" in reason:
                     stability_slope = context.get('peak_stability_slope_5d', 'N/A')
                     if isinstance(stability_slope, float): quant_details.append(f"稳定斜率:{stability_slope:.3f}")
@@ -1075,16 +1077,12 @@ class MultiTimeframeTrendStrategy:
                 
                 elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
                     severity = record.get('exit_severity_level', 0)
-                    reason = record.get('exit_signal_reason', 'N/A')
                     signal_type = f"盘中异动(L{severity})"
                     details = f"原因: {reason}"
-                # ▲▲▲【代码修改 V202.11】▲▲▲
 
-                # 只有当信号被识别时才打印
                 if signal_type != "未知信号":
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
                 else:
-                    # 对于仍然未知的信号，打印更多调试信息
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | 原始记录: {record}")
 
             print(f"--- [历史回溯调试完成] ---")
