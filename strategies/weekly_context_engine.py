@@ -34,100 +34,88 @@ class WeeklyContextEngine:
 
     def generate_context(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 · 联合作战指挥版】
-        - 核心升级: 引入“战略共识”与“风险否决”机制。
-        - 流程:
-          1. 计算所有基础剧本和动态背景。
-          2. 基于剧本和动态背景，形成“强多头”、“底部反转”、“洗盘观察”三大战略共识。
-          3. 独立诊断是否存在“一票否决”级的战略风险。
-          4. 使用风险信号对三大共识进行审查和压制。
-          5. 基于最终的、经过审查的共识，生成对日线的指挥信号。
+        【V2.2 · 精确靶向版】
+        - 核心升级: 放宽了“战略共识”的形成门槛，不再强求特定的动态背景。
+        - 新逻辑:
+          1. 只要有对应的剧本信号触发，就形成初步的“战略意图”。
+          2. 让“风险否决”机制去精准地审查和剔除那些在错误背景下产生的“意图”。
+          3. 这种“先大胆假设，后小心求证”的流程，能更好地捕捉到与风险期重叠的信号。
         """
         if df_weekly is None or df_weekly.empty:
             logger.warning("周线上下文引擎输入DataFrame为空，无法生成信号。")
             return pd.DataFrame()
 
-        print("\n" + "="*30 + "【周线战略参谋部 V2.0】启动" + "="*30)
+        print("\n" + "="*30 + "【周线战略参谋部 V2.2】启动" + "="*30)
         
-        # --- 步骤 1: 计算所有基础剧本和诊断信号 ---
-        print("---【步骤1/5: 计算所有基础剧本】---")
+        # --- 步骤 1 & 2: 计算基础情报 (不变) ---
+        print("---【步骤1/5 & 2/5: 计算基础剧本与动态背景】---")
         context_df = self._calculate_all_playbooks(df_weekly)
-        
-        # --- 步骤 2: 趋势动态分析 (斜率与加速度) ---
-        print("\n---【步骤2/5: 进行趋势动态分析】---")
-        slope_col = 'SLOPE_5_EMA_21_W' 
-        accel_col = 'ACCEL_5_EMA_21_W'
+        slope_col, accel_col = 'SLOPE_5_EMA_21_W', 'ACCEL_5_EMA_21_W'
         if slope_col in context_df.columns and accel_col in context_df.columns:
-            print(f"    - [动态分析] 使用 '{slope_col}' 和 '{accel_col}' 进行分析。")
-            slope = context_df[slope_col]
-            accel = context_df[accel_col]
+            slope, accel = context_df[slope_col], context_df[accel_col]
             context_df['state_trend_accelerating_W'] = (slope > 0) & (accel > 0)
             context_df['state_trend_stable_rising_W'] = (slope > 0) & (accel <= 0)
             context_df['state_trend_decelerating_fall_W'] = (slope < 0) & (accel > 0)
             context_df['state_trend_accelerating_fall_W'] = (slope < 0) & (accel < 0)
             context_df['filter_trend_is_healthy_W'] = context_df['state_trend_accelerating_W'] | context_df['state_trend_stable_rising_W']
         else:
-            print(f"    - [动态分析-警告] 缺少斜率分析列 {slope_col} 或 {accel_col}，将跳过动态分析。")
+            print(f"    - [动态分析-警告] 缺少斜率分析列，部分诊断将受影响。")
             for col in ['filter_trend_is_healthy_W', 'state_trend_accelerating_W', 'state_trend_stable_rising_W', 'state_trend_decelerating_fall_W', 'state_trend_accelerating_fall_W']:
                 context_df[col] = pd.Series(False, index=context_df.index)
         
-        # --- 步骤 3: 建立“战略共识”层 ---
-        print("\n---【步骤3/5: 建立战略共识】---")
+        # --- 步骤 3: 【核心修改】建立更宽松的“战略意图” ---
+        print("\n---【步骤3/5: 建立初步战略意图 (放宽门槛)】---")
         default_series = pd.Series(False, index=context_df.index)
         
-        # === 3.1 定义“强多头共识” (Strong Bullish Consensus) ===
-        is_healthy_dynamic = context_df.get('filter_trend_is_healthy_W', default_series)
+        # === 3.1 定义“进攻意图” ===
+        # 只要有任何一个进攻型剧本触发，就认为有“进攻意图”
         offensive_playbooks = ['playbook_CLASSIC_BREAKOUT_W', 'playbook_BOX_CONSOLIDATION_BREAKOUT_W', 'playbook_ACE_SIGNAL_BREAKOUT_TRIGGER_W', 'playbook_COPPOCK_ACCELERATING_W']
         valid_offensive = [p for p in offensive_playbooks if p in context_df.columns]
-        has_offensive_signal = context_df[valid_offensive].any(axis=1) if valid_offensive else default_series
-        context_df['consensus_strong_bullish_W'] = is_healthy_dynamic & has_offensive_signal
-        print(f"    - [战略共识] “强多头共识”初步达成 {context_df['consensus_strong_bullish_W'].sum()} 周。")
+        context_df['intent_offensive_W'] = context_df[valid_offensive].any(axis=1) if valid_offensive else default_series
+        print(f"    - [战略意图] “进攻意图”初步形成 {context_df['intent_offensive_W'].sum()} 周。")
 
-        # === 3.2 定义“底部反转共识” (Bottom Reversal Consensus) ===
-        is_reversal_dynamic = context_df.get('state_trend_decelerating_fall_W', default_series)
+        # === 3.2 定义“反转意图” ===
+        # 只要有任何一个反转型剧本触发，就认为有“反转意图”
         reversal_playbooks = ['playbook_TRIX_GOLDEN_CROSS_W', 'playbook_COPPOCK_STABILIZING_W', 'playbook_OVERSOLD_REBOUND_BIAS_W']
         valid_reversal = [p for p in reversal_playbooks if p in context_df.columns]
-        has_reversal_signal = context_df[valid_reversal].any(axis=1) if valid_reversal else default_series
-        context_df['consensus_bottom_reversal_W'] = is_reversal_dynamic & has_reversal_signal
-        print(f"    - [战略共识] “底部反转共识”初步达成 {context_df['consensus_bottom_reversal_W'].sum()} 周。")
+        context_df['intent_reversal_W'] = context_df[valid_reversal].any(axis=1) if valid_reversal else default_series
+        print(f"    - [战略意图] “反转意图”初步形成 {context_df['intent_reversal_W'].sum()} 周。")
 
-        # === 3.3 定义“洗盘观察共识” (Washout Watch Consensus) ===
+        # === 3.3 定义“洗盘意图” ===
+        # 只要洗盘分数达到阈值，就认为有“洗盘意图”
         washout_params = self.playbook_params.get('washout_score_playbook', {})
-        washout_score_threshold = washout_params.get('score_threshold', 3) # 从配置中读取，默认为3
-        has_high_washout_score = context_df.get('washout_score_W', pd.Series(0, index=context_df.index)) >= washout_score_threshold
-        context_df['consensus_washout_watch_W'] = is_healthy_dynamic & has_high_washout_score
-        print(f"    - [战略共识] “洗盘观察共识”初步达成 {context_df['consensus_washout_watch_W'].sum()} 周。")
+        washout_score_threshold = washout_params.get('score_threshold', 3)
+        context_df['intent_washout_W'] = context_df.get('washout_score_W', pd.Series(0, index=context_df.index)) >= washout_score_threshold
+        print(f"    - [战略意图] “洗盘意图”初步形成 {context_df['intent_washout_W'].sum()} 周。")
 
-        # --- 步骤 4: 应用“风险否决”机制 ---
-        print("\n---【步骤4/5: 应用风险否决机制】---")
+        # --- 步骤 4: 应用“风险否决”与“机会确认”双重过滤 ---
+        print("\n---【步骤4/5: 应用双重过滤机制】---")
         strategic_veto = self._diagnose_strategic_risks(context_df)
-        
-        # 记录被否决前的数量
-        bullish_before_veto = context_df['consensus_strong_bullish_W'].sum()
-        reversal_before_veto = context_df['consensus_bottom_reversal_W'].sum()
-        washout_before_veto = context_df['consensus_washout_watch_W'].sum()
+        is_healthy_dynamic = context_df.get('filter_trend_is_healthy_W', default_series)
+        is_reversal_dynamic = context_df.get('state_trend_decelerating_fall_W', default_series)
 
-        # 应用否决
-        context_df['consensus_strong_bullish_W'] &= ~strategic_veto
-        context_df['consensus_bottom_reversal_W'] &= ~strategic_veto
-        context_df['consensus_washout_watch_W'] &= ~strategic_veto
+        # === 4.1 形成最终的“强多头共识” ===
+        # 条件：有进攻意图 AND 动态背景健康 AND 未被风险否决
+        context_df['consensus_strong_bullish_W'] = context_df['intent_offensive_W'] & is_healthy_dynamic & ~strategic_veto
         
-        print(f"    - [风险审查] “强多头共识”被否决 {bullish_before_veto - context_df['consensus_strong_bullish_W'].sum()} 周。")
-        print(f"    - [风险审查] “底部反转共识”被否决 {reversal_before_veto - context_df['consensus_bottom_reversal_W'].sum()} 周。")
-        print(f"    - [风险审查] “洗盘观察共识”被否决 {washout_before_veto - context_df['consensus_washout_watch_W'].sum()} 周。")
+        # === 4.2 形成最终的“底部反转共识” ===
+        # 条件：有反转意图 AND 动态背景配合(下跌减速) AND 未被风险否决
+        context_df['consensus_bottom_reversal_W'] = context_df['intent_reversal_W'] & is_reversal_dynamic & ~strategic_veto
+        
+        # === 4.3 形成最终的“洗盘观察共识” ===
+        # 条件：有洗盘意图 AND 动态背景健康 AND 未被风险否决
+        context_df['consensus_washout_watch_W'] = context_df['intent_washout_W'] & is_healthy_dynamic & ~strategic_veto
 
-        # --- 步骤 5: 信号合成与输出 ---
+        print(f"    - [最终共识] “强多头共识”在过滤后，最终确认 {context_df['consensus_strong_bullish_W'].sum()} 周。")
+        print(f"    - [最终共识] “底部反转共识”在过滤后，最终确认 {context_df['consensus_bottom_reversal_W'].sum()} 周。")
+        print(f"    - [最终共识] “洗盘观察共识”在过滤后，最终确认 {context_df['consensus_washout_watch_W'].sum()} 周。")
+
+        # --- 步骤 5: 信号合成与输出 (不变) ---
         print("\n---【步骤5/5: 最终信号合成与输出】---")
-        
-        # === 5.1 定义最终的状态节点 (基于共识) ===
         context_df['state_node_main_ascent_W'] = context_df['consensus_strong_bullish_W']
         context_df['state_node_ignition_W'] = context_df['consensus_bottom_reversal_W']
-        # 洗盘观察是一个特殊状态，可以独立存在，也可以和主升浪重叠
         context_df['state_node_washout_W'] = context_df['consensus_washout_watch_W']
-        # 滞涨区现在由风险否决模块直接定义
         context_df['state_node_topping_W'] = context_df.get('veto_strategic_risk_W', default_series)
-
-        # === 5.2 定义洗盘豁免状态 (逻辑不变，但现在更可靠) ===
         immunity_threshold = washout_params.get('immunity_score_threshold', 3)
         immunity_window = washout_params.get('immunity_window', 3)
         if 'washout_score_W' in context_df.columns:
@@ -135,18 +123,11 @@ class WeeklyContextEngine:
             context_df['state_washout_immunity_W'] = had_recent_strong_washout.fillna(False)
         else:
             context_df['state_washout_immunity_W'] = default_series
-        
-        # === 5.3 筛选并返回纯净的战略信号 ===
-        # 我们只向下游传递最高级别的、经过共识和否决的信号
         signal_cols = [col for col in context_df.columns if col.startswith(('state_node_', 'state_washout_immunity_W', 'veto_'))]
-        
-        # 确保原始DataFrame的列不会被意外包含
         original_cols = df_weekly.columns
         final_signal_cols = [col for col in signal_cols if col not in original_cols]
-
         print(f"    - [周线引擎] 已生成 {len(final_signal_cols)} 个最终周线战略指挥信号。")
-        print("="*30 + "【周线战略参谋部 V2.0】执行完毕" + "="*30 + "\n")
-        
+        print("="*30 + "【周线战略参谋部 V2.2】执行完毕" + "="*30 + "\n")
         return context_df[final_signal_cols]
 
     def _diagnose_strategic_risks(self, df: pd.DataFrame) -> pd.Series:
