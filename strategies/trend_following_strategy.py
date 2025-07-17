@@ -2422,73 +2422,6 @@ class TrendFollowStrategy:
         print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
         return df
 
-    # 风险评分引擎
-    def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_setups: Dict[str, pd.Series], risk_triggers: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        【V122.0 战略风险放大器版】
-        - 核心升级: 引入“战略风险放大器”机制。当 'CONTEXT_TREND_DETERIORATING' 状态被激活时，
-                    会给当天的总风险分施加一个巨大的惩罚性分值。
-        - 收益: 确保了在宏观趋势已经走坏的背景下，任何微小的战术风险都会被放大，
-                从而触发更早、更果断的离场信号，有效规避长期下跌中的“钝刀割肉”。
-        """
-        print("    - [风险评分引擎 V122.0] 启动，开始量化每日风险...")
-        
-        risk_playbooks = self.risk_playbook_blueprints
-        
-        total_risk_score = pd.Series(0.0, index=df.index)
-        risk_details_df = pd.DataFrame(0.0, index=df.index, columns=[p['name'] for p in risk_playbooks])
-        default_series = pd.Series(False, index=df.index)
-
-        print("      -> 步骤1: 评估所有战术风险剧本...")
-        for playbook in risk_playbooks:
-            name = playbook['name']
-            score = playbook.get('score', 0)
-            
-            setup_conditions_raw = playbook.get('setup', [])
-            setup_conditions = [setup_conditions_raw] if isinstance(setup_conditions_raw, str) else setup_conditions_raw
-            setup_mask = pd.Series(False, index=df.index)
-            for sc in setup_conditions:
-                setup_mask |= risk_setups.get(sc, default_series)
-
-            trigger_conditions_raw = playbook.get('trigger', [])
-            trigger_conditions = [trigger_conditions_raw] if isinstance(trigger_conditions_raw, str) else trigger_conditions_raw
-            trigger_mask = pd.Series(False, index=df.index)
-            for tc in trigger_conditions:
-                trigger_mask |= risk_triggers.get(tc, default_series)
-            
-            final_mask = setup_mask & trigger_mask
-            
-            if final_mask.any():
-                cn_name = playbook.get('cn_name', name)
-                total_risk_score.loc[final_mask] += score
-                risk_details_df.loc[final_mask, name] = score
-                # print(f"        -> 风险剧本 '{cn_name}' 触发，在 {final_mask.sum()} 天风险分 +{score}")
-
-        # --- 【核心新增】步骤2: 启动战略风险放大器 ---
-        print("      -> 步骤2: 启动战略风险放大器...")
-        # 从风险准备状态中获取“整体趋势恶化”的战略红旗
-        is_trend_deteriorating = risk_setups.get('CONTEXT_TREND_DETERIORATING', default_series)
-        
-        # 从配置中获取惩罚性分值
-        exit_params = params.get('exit_strategy_params', {})
-        strategic_penalty = self._get_param_value(exit_params.get('strategic_deterioration_penalty'), 50)
-        
-        # 当战略红旗升起时，施加惩罚
-        if is_trend_deteriorating.any():
-            # 只有在当天已经有其他战术风险时，才施加额外的战略惩罚，避免无故产生风险分
-            has_tactical_risk = total_risk_score > 0
-            apply_penalty_mask = is_trend_deteriorating & has_tactical_risk
-            
-            if apply_penalty_mask.any():
-                total_risk_score.loc[apply_penalty_mask] += strategic_penalty
-                # 在风险详情中记录这个战略惩罚
-                risk_details_df.loc[apply_penalty_mask, 'STRATEGIC_DETERIORATION_PENALTY'] = strategic_penalty
-                print(f"        -> “战略风险放大器”激活！因整体趋势恶化，在 {apply_penalty_mask.sum()} 天的风险分上追加了 {strategic_penalty} 分。")
-
-        df['risk_score'] = total_risk_score
-        print(f"    - [风险评分引擎 V122.0] 风险评分完成，最高风险分: {total_risk_score.max():.0f}")
-        return total_risk_score, risk_details_df
-
     # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """
@@ -2557,6 +2490,62 @@ class TrendFollowStrategy:
                 for name, score in triggered_playbooks.items():
                     cn_name = risk_playbook_cn_map.get(name, name)
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
+
+    # 风险评分引擎
+    def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_setups: Dict[str, pd.Series], risk_triggers: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V122.1 计分逻辑修复版】
+        - 核心修复: 彻底重写了风险评分逻辑。现在它能够正确地遍历所有风险剧本蓝图，
+                    查找对应的风险准备状态(risk_setups)，并根据蓝图中定义的'score'
+                    进行累加计分。这解决了之前版本中风险信号被识别但无法计分的根本性问题。
+        """
+        print("    - [风险评分引擎 V122.1 计分逻辑修复版] 启动，开始量化每日风险...")
+        
+        risk_score = pd.Series(0.0, index=df.index)
+        risk_details_df = pd.DataFrame(index=df.index)
+        
+        # 步骤1: 遍历所有风险剧本蓝图，并根据准备状态计分
+        print("      -> 步骤1: 评估所有战术风险剧本...")
+        risk_playbooks = self._get_risk_playbook_blueprints()
+        
+        for playbook in risk_playbooks:
+            playbook_name = playbook['name']
+            playbook_score = playbook.get('score', 0)
+            
+            # 构建对应的风险准备状态(setup)的列名
+            # 例如，剧本 'PROFIT_EVAPORATION' -> 状态 'SETUP_RISK_PROFIT_EVAPORATION'
+            setup_col_name = f"SETUP_RISK_{playbook_name}"
+            
+            # 检查这个风险准备状态是否存在且被激活
+            if setup_col_name in risk_setups and risk_setups[setup_col_name].any():
+                mask = risk_setups[setup_col_name]
+                
+                # 累加风险分
+                risk_score.loc[mask] += playbook_score
+                
+                # 在详情报告中记录该项风险的分值
+                detail_col_name = f"RISK_SCORE_{playbook_name}"
+                risk_details_df.loc[mask, detail_col_name] = playbook_score
+
+        # 步骤2: 应用战略风险放大器 (逻辑保持不变)
+        print("      -> 步骤2: 启动战略风险放大器...")
+        strategic_risk_params = self._get_params_block(params, 'strategic_risk_amplifier', {})
+        if self._get_param_value(strategic_risk_params.get('enabled'), False):
+            risk_context_col = 'filter_strategic_risk_veto_W' # 来自周线引擎的战略风险信号
+            if risk_context_col in df.columns:
+                mask = df[risk_context_col] == True
+                penalty_points = self._get_param_value(strategic_risk_params.get('penalty_points'), 50)
+                risk_score.loc[mask] += penalty_points
+                risk_details_df.loc[mask, 'STRATEGIC_RISK_PENALTY'] = penalty_points
+                if mask.any():
+                    print(f"        -> “战略风险放大器”激活！因整体趋势恶化，在 {mask.sum()} 天的风险分上追加了 {penalty_points} 分。")
+
+        risk_details_df.fillna(0, inplace=True)
+        
+        max_score = risk_score.max()
+        print(f"    - [风险评分引擎 V122.1] 风险评分完成，最高风险分: {max_score if pd.notna(max_score) else 0:.0f}")
+        
+        return risk_score, risk_details_df
 
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
