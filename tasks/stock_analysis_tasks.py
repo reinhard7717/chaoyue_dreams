@@ -352,14 +352,12 @@ def schedule_precompute_advanced_chips(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V10.0 - 最终赎罪版】
-    - 根本性修复: 纠正了灾难性的数据源错误。不再将 'his_high' 错误地用作收盘价。
-    - 回归正确数据源: 明确从每日行情数据中获取真实的 'close' 价格作为收盘价，
-                     确保送入计算器的所有数据都真实有效。
-    - 保留V8.0的归一化逻辑，因为它解决了数据单位不统一的问题。
+    【执行器 V10.1 - 数据源诊断版】
+    - 核心逻辑与V10.0完全一致，确保数据源和计算的正确性。
+    - 新增: 在合并数据前，打印各源数据表的可用天数，便于诊断数据完整性问题。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.0 最终赎罪版, 模式: {mode})...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.1 数据源诊断版, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -387,6 +385,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 qs = qs.filter(**filter_kwargs)
             return pd.DataFrame.from_records(qs.values(*fields))
 
+        # 1. 获取筹码分布数据
         chip_model = dao.get_cyq_chips_model_by_code(stock_code)
         cyq_chips_data = get_data(chip_model, fields=('trade_time', 'price', 'percent'))
         if cyq_chips_data.empty:
@@ -394,45 +393,53 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return {"status": "skipped", "reason": "no raw chip data in range"}
         cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
 
-        # 保留V8.0的正确逻辑：数据归一化
+        # 数据归一化
         daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
         mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
         if mask_sum_to_one.any():
             cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
-        logger.info(f"[{stock_code}] 数据归一化完成。")
-
-        # ▼▼▼【代码修改 V10.0】: 纠正数据源错误 ▼▼▼
-        # 1. 从每日行情表中获取正确的 close, high, low, vol
+        
+        # 2. 获取每日行情数据
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
-        # 确保 'close' 字段被获取
         daily_data = get_data(daily_data_model, fields=('trade_time', 'close', 'vol', 'high', 'low'))
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-        daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
-        # 将正确的 'close' 重命名为 'close_price'
-        daily_data = daily_data.rename(columns={'close': 'close_price', 'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
-
-        # 2. 从 StockCyqPerf 表中只获取其应该提供的数据：weight_avg_cost
-        #    不再使用 'his_high'
-        perf_data = get_data(StockCyqPerf, fields=('trade_time', 'weight_avg'))
-        perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
-        perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
-        # ▲▲▲【代码修改 V10.0】▲▲▲
-
+        
+        # 3. 获取每日基础指标数据
         daily_basic_data = get_data(StockDailyBasic, fields=('trade_time', 'float_share'))
         daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
+
+        # 4. 获取筹码性能数据
+        perf_data = get_data(StockCyqPerf, fields=('trade_time', 'weight_avg'))
+        perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
+
+        # ▼▼▼【代码修改 V10.1】: 增加数据源诊断日志 ▼▼▼
+        # 计算每个数据源的独立天数
+        cyq_days = cyq_chips_data['trade_time'].nunique()
+        daily_days = len(daily_data)
+        basic_days = len(daily_basic_data)
+        perf_days = len(perf_data)
+        # 打印诊断日志
+        logger.info(f"[{stock_code}] 数据源诊断: 筹码分布({cyq_days}天), 行情({daily_days}天), 基础({basic_days}天), 性能({perf_days}天)")
+        # ▲▲▲【代码修改 V10.1】▲▲▲
+
+        # --- 开始数据处理和合并 ---
+        daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
+        daily_data = daily_data.rename(columns={'close': 'close_price', 'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
+        
         daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
         daily_basic_data = daily_basic_data.drop(columns=['float_share'])
+
+        perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
 
         # 按正确的顺序合并数据
         merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
         if merged_df.empty:
-            logger.warning(f"[{stock_code}] 数据源内连接后结果为空，任务终止。")
+            logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
         
         merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
-        # 现在，这里的 'close_price' 是真实、正确的每日收盘价
         daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
         daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
         merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
@@ -446,13 +453,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             
-            # 使用 V9.1 版本的计算器，它现在将接收到完全正确的数据
             calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
             daily_metrics = calculator.calculate_all_metrics()
             
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
-                # prev_20d_close 字段现在也正确了
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
 
