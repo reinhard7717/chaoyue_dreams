@@ -90,9 +90,13 @@
         "EMA_55_D": [21, 55],
         "EMA_89_D": [10],
         "EMA_105_D": [25],
+        "EMA_21_W": [5, 13],
         "CHIP_peak_cost_D": [5, 8, 21, 55],
         "CHIP_concentration_90pct_D": [5],
-        "EMA_21_W": [5, 13]
+        "CHIP_total_winner_rate_D": [5, 21],
+        "CHIP_peak_stability_D": [5, 21],
+        "CHIP_peak_percent_D": [5],
+        "CHIP_pressure_above_D": [5]
       }
     }
   },
@@ -166,8 +170,13 @@
         "positional_scoring": {
           "说明": "【阵地分】评估静态战场态势，总分贡献权重 40%",
           "positive_signals": {
-            "MA_STATE_STABLE_BULLISH": 50, "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
-            "PLATFORM_STATE_STABLE_FORMED": 70, "CHIP_STATE_HIGHLY_CONCENTRATED": 60
+            "MA_STATE_STABLE_BULLISH": 50,
+            "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
+            "PLATFORM_STATE_STABLE_FORMED": 70,
+            "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
+            "CHIP_STATE_WINNER_RATE_ACCELERATING": 80,
+            "CHIP_STATE_PEAK_CONSOLIDATING": 50,
+            "CHIP_STATE_PRESSURE_DISSOLVING": 30
           },
           "negative_signals": {
             "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250

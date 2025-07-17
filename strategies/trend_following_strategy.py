@@ -116,12 +116,12 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V200.0 总获利盘武装版】
-        - 核心升级: 在“最终风控层”中，新增了基于 `total_winner_rate` 的风险否决规则，
-                    用于捕捉市场极度亢奋时的系统性风险。
+        【V201.0 动态情报武装版】
+        - 核心升级: 将新的动态斜率原子状态全面融入计分引擎和风险控制层，
+                    使得策略能够奖励动态优势，并惩罚动态劣势。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V200.0 总获利盘武装版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V201.0 动态情报武装版】 ======")
         print("======================================================================")
 
         if df is None or df.empty:
@@ -169,6 +169,15 @@ class TrendFollowStrategy:
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
 
+        # ▼▼▼【代码新增 V201.0】: 将新的动态优势状态注入评分引擎 ▼▼▼
+        # 注意：这些状态现在可以在计分引擎的JSON配置中被引用，作为加分项
+        # 例如，在 `four_layer_scoring_params` -> `dynamic_scoring` -> `positive_signals` 中加入：
+        # "CHIP_STATE_WINNER_RATE_ACCELERATING": 80,
+        # "CHIP_STATE_PEAK_CONSOLIDATING": 50,
+        # "CHIP_STATE_PRESSURE_DISSOLVING": 30
+        print("    - [情报注入] 新的动态筹码优势状态已准备就绪，可供计分引擎使用。")
+        # ▲▲▲【代码新增 V201.0】▲▲▲
+
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
@@ -191,7 +200,7 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V2.0 · 总获利盘武装版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V2.1 · 动态情报武装版】，审查所有得分 ---")
         
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
 
@@ -233,21 +242,27 @@ class TrendFollowStrategy:
             is_price_new_high = df[price_col] >= df[price_col].rolling(20).max().shift(1)
             is_cost_not_new_high = df[cost_col] < df[cost_col].rolling(20).max().shift(1)
             veto_chip_divergence = is_price_new_high & is_cost_not_new_high & high_risk_premise
-        
-        # ▼▼▼【代码新增 V200.0】: 新增总获利盘饱和风险否决规则 ▼▼▼
         total_winner_rate_col = 'CHIP_total_winner_rate_D'
         veto_total_profit_saturation = default_series
         if total_winner_rate_col in df.columns:
-            # 定义：总获利盘超过98%，且当天不是突破性的强势阳线（避免误杀主升浪加速期）
             is_saturated = df[total_winner_rate_col] > 98
-            is_not_strong_breakout = df['pct_change_D'] < 0.05 # 当天涨幅小于5%
+            is_not_strong_breakout = df['pct_change_D'] < 0.05
             veto_total_profit_saturation = is_saturated & is_not_strong_breakout
             if veto_total_profit_saturation.any():
                  print(f"    - [风控-否决] “总获利盘饱和”风险激活 {veto_total_profit_saturation.sum()} 天。")
-        # ▲▲▲【代码新增 V200.0】▲▲▲
+        
+        # ▼▼▼【代码新增 V201.0】: 将新的动态风险注入风控层 ▼▼▼
+        veto_profit_taking_imminent = atomic_states.get('CHIP_RISK_PROFIT_TAKING_IMMINENT', default_series)
+        if veto_profit_taking_imminent.any():
+            print(f"    - [风控-否决] “获利盘扩张停滞”风险激活 {veto_profit_taking_imminent.sum()} 天。")
+        # ▲▲▲【代码新增 V201.0】▲▲▲
 
-        # 将新风险规则加入最终的风险掩码
-        final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence | veto_total_profit_saturation
+        # 将所有风险规则加入最终的风险掩码
+        final_risk_mask = (veto_extreme_profit | 
+                           veto_accel_exhaustion | 
+                           veto_chip_divergence | 
+                           veto_total_profit_saturation |
+                           veto_profit_taking_imminent) # 新增风险
         risk_penalty_multiplier = 0.2
         
         if final_risk_mask.any():
@@ -260,13 +275,11 @@ class TrendFollowStrategy:
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
-
-        # 移除探针代码，恢复正常运行
         
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V200.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V201.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
@@ -1407,12 +1420,11 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V200.0 总获利盘武装版】筹码分布与流动状态诊断
-        - 核心升级: 全面引入 `total_winner_rate` 指标，并基于它创建了两个全新的原子状态：
-                    1. CHIP_STATE_PROFIT_EXPANDING: 识别获利盘健康扩张的进攻信号。
-                    2. CHIP_STATE_MAX_PESSIMISM: 识别市场极度悲观的逆势反转机会。
+        【V201.0 动态情报武装版】筹码分布与流动状态诊断
+        - 核心升级: 全面引入并使用新的斜率指标，创建了多个全新的动态原子状态，
+                    用于描述获利盘扩张速度、筹码峰稳定性和套牢盘消化情况。
         """
-        print("        -> [诊断模块 V200.0] 正在执行筹码状态诊断(总获利盘武装版)...")
+        print("        -> [诊断模块 V201.0] 正在执行筹码状态诊断(动态情报武装版)...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'chip_feature_params', {})
@@ -1420,6 +1432,7 @@ class TrendFollowStrategy:
             print("          -> 筹码诊断模块被禁用，跳过。")
             return states
         
+        # 扩展所需列，加入新的斜率指标
         required_cols = {
             'peak_cost': 'CHIP_peak_cost_D',
             'concentration_90pct': 'CHIP_concentration_90pct_D',
@@ -1430,27 +1443,58 @@ class TrendFollowStrategy:
             'peak_cost_slope_8d': 'CHIP_peak_cost_slope_8d_D',
             'winner_rate_short': 'CHIP_winner_rate_short_term_D',
             'close': 'close_D',
-            'total_winner_rate': 'CHIP_total_winner_rate_D' # 新增：总获利盘
+            'total_winner_rate': 'CHIP_total_winner_rate_D',
+            # ▼▼▼【代码新增 V201.0】: 引入新的斜率指标 ▼▼▼
+            'total_winner_rate_slope_5d': 'SLOPE_5_CHIP_total_winner_rate_D',
+            'peak_stability_slope_5d': 'SLOPE_5_CHIP_peak_stability_D',
+            'peak_percent_slope_5d': 'SLOPE_5_CHIP_peak_percent_D',
+            'pressure_above_slope_5d': 'SLOPE_5_CHIP_pressure_above_D'
+            # ▲▲▲【代码新增 V201.0】▲▲▲
         }
         
+        # 检查数据完整性
         if not all(col in df.columns for col in required_cols.values()):
             missing = [k for k, v in required_cols.items() if v not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states
 
+        # (数据类型转换逻辑保持不变)
         df_copy = df.copy()
-        numeric_cols_to_clean = [
-            required_cols['peak_cost'], required_cols['concentration_90pct'],
-            required_cols['concentration_slope'], required_cols['peak_cost_slope_21d'],
-            required_cols['peak_cost_slope_55d'], required_cols['peak_cost_accel_21d'],
-            required_cols['peak_cost_slope_8d'], required_cols['winner_rate_short'],
-            required_cols['total_winner_rate'] # 新增：总获利盘
-        ]
+        numeric_cols_to_clean = [v for k, v in required_cols.items() if 'slope' in k or 'rate' in k or 'cost' in k or 'conc' in k or 'percent' in k or 'pressure' in k]
         for col in numeric_cols_to_clean:
             if col in df_copy.columns:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+
+        # ▼▼▼ 基于新斜率指标创建原子状态 ▼▼▼
+        # 状态1: 获利盘加速扩张 (S级进攻信号)
+        # 定义：总获利盘的5日斜率 > 0，且斜率本身还在增长（加速度>0）
+        winner_rate_slope_col = required_cols['total_winner_rate_slope_5d']
+        states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = (df_copy[winner_rate_slope_col] > 0) & (df_copy[winner_rate_slope_col] > df_copy[winner_rate_slope_col].shift(1))
+        if states['CHIP_STATE_WINNER_RATE_ACCELERATING'].any():
+            print(f"          -> '获利盘加速扩张' 状态已定义，激活 {states['CHIP_STATE_WINNER_RATE_ACCELERATING'].sum()} 天。")
+
+        # 状态2: 筹码峰正在被夯实 (A级进攻信号)
+        # 定义：主筹码峰的稳定性和占比斜率均为正
+        stability_slope_col = required_cols['peak_stability_slope_5d']
+        percent_slope_col = required_cols['peak_percent_slope_5d']
+        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df_copy[stability_slope_col] > 0) & (df_copy[percent_slope_col] > 0)
+        if states['CHIP_STATE_PEAK_CONSOLIDATING'].any():
+            print(f"          -> '筹码峰正在夯实' 状态已定义，激活 {states['CHIP_STATE_PEAK_CONSOLIDATING'].sum()} 天。")
+
+        # 状态3: 上方套牢盘快速消化 (B级进攻信号)
+        # 定义：上方套牢盘的5日斜率为负
+        pressure_slope_col = required_cols['pressure_above_slope_5d']
+        states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df_copy[pressure_slope_col] < 0)
+        if states['CHIP_STATE_PRESSURE_DISSOLVING'].any():
+            print(f"          -> '上方套牢盘快速消化' 状态已定义，激活 {states['CHIP_STATE_PRESSURE_DISSOLVING'].sum()} 天。")
         
-        # --- 【代码新增 V200.0】: 基于总获利盘创建新状态 ---
+        # 风险状态1: 获利盘扩张停滞 (风险信号)
+        # 定义：总获利盘斜率由正转负
+        states['CHIP_RISK_PROFIT_TAKING_IMMINENT'] = (df_copy[winner_rate_slope_col] < 0) & (df_copy[winner_rate_slope_col].shift(1) > 0)
+        if states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].any():
+            print(f"          -> '获利盘扩张停滞' 风险已定义，激活 {states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].sum()} 天。")
+        
+        # ---基于总获利盘创建新状态 ---
         total_winner_rate_col = required_cols['total_winner_rate']
         
         # 状态1: 获利盘健康扩张 (进攻信号)
@@ -2143,25 +2187,19 @@ class TrendFollowStrategy:
         # print("        -> [诊断模块] K线组合形态诊断执行完毕。")
         return states
 
-# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
+    # ▼▼▼ 独立的“战术预警”诊断模块 ▼▼▼
     def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
         """
-        【V190.0 新增】战术预警诊断模块
-        - 职责: 在持仓期间，每日检查是否存在风险信号，并返回对应的预警级别和原因。
-        - 返回: (alert_level, alert_reason) -> (整数, 字符串)
-                 - 0: 无警报
-                 - 1: 黄色预警 (观察)
-                 - 2: 橙色预警 (准备减仓)
-                 - 3: 红色预警 (立即行动)
+        【V202.0 动态防御版】战术预警诊断模块
+        - 核心升级: 新增对动态筹码斜率的实时监控，提供更灵敏的盘中风险预警。
         """
         alert_params = self._get_params_block(params, 'alert_system_params', {})
         if not self._get_param_value(alert_params.get('enabled'), True):
             return 0, "No Alert"
 
-        # --- 预警剧本1: 筹码发散 ---
+        # --- 预警剧本1: 筹码发散 (静态风险) ---
         chip_dispersion_params = alert_params.get('chip_dispersion', {})
         conc_slope = getattr(row, 'CHIP_concentration_90pct_slope_5d_D', 0)
-        
         if conc_slope > self._get_param_value(chip_dispersion_params.get('level_3_threshold'), 0.01):
             return 3, f"筹码严重发散(斜率:{conc_slope:.4f})"
         if conc_slope > self._get_param_value(chip_dispersion_params.get('level_2_threshold'), 0.005):
@@ -2169,23 +2207,33 @@ class TrendFollowStrategy:
         if conc_slope > self._get_param_value(chip_dispersion_params.get('level_1_threshold'), 0.001):
             return 1, f"筹码初步发散(斜率:{conc_slope:.4f})"
 
-        # --- 预警剧本2: 关键支撑失守 ---
+        # ▼▼▼ 动态筹码风险预警 ▼▼▼
+        # --- 预警剧本2: 获利盘蒸发 (动态风险) ---
+        winner_rate_slope = getattr(row, 'SLOPE_5_CHIP_total_winner_rate_D', 0)
+        if winner_rate_slope < -5.0: # 如果获利盘每天减少超过5个百分点
+            return 3, f"获利盘快速蒸发(斜率:{winner_rate_slope:.2f})"
+        if winner_rate_slope < -1.0: # 如果获利盘每天减少超过1个百分点
+            return 2, f"获利盘开始萎缩(斜率:{winner_rate_slope:.2f})"
+
+        # --- 预警剧本3: 主峰瓦解 (动态风险) ---
+        stability_slope = getattr(row, 'SLOPE_5_CHIP_peak_stability_D', 0)
+        if stability_slope < -0.1: # 稳定性斜率出现显著负值
+            return 2, f"主峰稳定性瓦解(斜率:{stability_slope:.2f})"
+
+        # --- 预警剧本4: 关键支撑失守 (结构性风险) ---
         support_break_params = alert_params.get('support_break', {})
         short_ma_col = f"EMA_{self._get_param_value(support_break_params.get('short_ma'), 13)}_D"
         mid_ma_col = f"EMA_{self._get_param_value(support_break_params.get('mid_ma'), 55)}_D"
-        
         if getattr(row, 'close_D', 0) < getattr(row, mid_ma_col, float('inf')):
             return 3, f"失守中期生命线({mid_ma_col})"
         if getattr(row, 'close_D', 0) < getattr(row, short_ma_col, float('inf')):
             return 2, f"失守短期趋势线({short_ma_col})"
 
-        # --- 预警剧本3: 资金流顶背离 ---
-        # (此处为简化逻辑，实际可做得更复杂，如连续N日背离)
+        # --- 预警剧本5: 资金流顶背离 ---
         if getattr(row, 'DYN_TREND_TOPPING_DIVERGENCE', False):
              return 2, "动态趋势呈现顶背离"
 
         return 0, "No Alert"
-    # ▲▲▲【代码新增 V190.0】▲▲▲
 
     # ▼▼▼【代码新增 V190.0】: 全新的、支持动态仓位管理的模拟引擎 ▼▼▼
     def _run_position_management_simulation(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
@@ -2465,60 +2513,29 @@ class TrendFollowStrategy:
     # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """
-        【V97.1 兼容性修改版】
-        - 职责: 定义所有“风险剧本”的静态属性。
-        - 修改: 根据V97的最终战术思想，精确化剧本定义，确保 setup 和 trigger 的名称与新架构匹配。
+        【V202.0 动态防御版】
+        - 核心升级: 新增了三个基于动态筹码斜率的风险剧本，用于量化趋势衰竭的风险。
         """
         return [
+            # --- 结构性风险 (Structure Risk) ---
+            {'name': 'STRUCTURE_BREAKDOWN', 'cn_name': '【结构】关键支撑破位', 'score': 100},
+            {'name': 'UPTHRUST_DISTRIBUTION', 'cn_name': '【结构】冲高派发', 'score': 80},
+            # --- 动能衰竭风险 (Momentum Exhaustion) ---
+            {'name': 'CHIP_EXHAUSTION', 'cn_name': '【动能】筹码成本加速衰竭', 'score': 60},
+            {'name': 'CHIP_DIVERGENCE', 'cn_name': '【动能】筹码顶背离', 'score': 70},
+            # ▼▼▼ 动态风险剧本 ▼▼▼
             {
-                'name': 'PLATFORM_BREAKDOWN_CRITICAL', 'cn_name': '【极危】筹码平台破位', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 130, # 给予极高的风险分值
-                'setup': ['RISK_SETUP_PLATFORM_FORMED'], # 准备条件：一个稳固的平台已经形成
-                'trigger': ['RISK_TRIGGER_PLATFORM_BREAKDOWN'], # 触发条件：价格有效跌破平台
-                'comment': '价格有效跌破由筹码峰形成的稳固平台，这是市场结构被破坏的强烈信号，极易引发踩踏。'
+                'name': 'PROFIT_EVAPORATION', 'cn_name': '【动态】获利盘蒸发', 'score': 75,
+                'comment': '总获利盘斜率转负，市场赚钱效应快速消失，是强烈的离场信号。'
             },
             {
-                'name': 'BEARISH_STAGNATION', 'cn_name': '【极危】熊市停滞(崩盘前兆)', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 120,
-                'setup': ['RISK_SETUP_BEARISH_STAGNATION'],
-                'trigger': ['RISK_TRIGGER_ANY'],
-                'comment': '在熊市趋势中，波动、振幅、资金、动能四维共振，确认市场进入崩盘前的窒息状态。'
+                'name': 'PEAK_WEAKENING', 'cn_name': '【动态】主峰根基动摇', 'score': 55,
+                'comment': '主筹码峰的稳定性或占比开始下降，主力阵地可能在瓦解。'
             },
             {
-                'name': 'TRUE_STRUCTURE_BREAKDOWN', 'cn_name': '【极危】真实结构破位(多重确认)', 'family': 'MARKET_STRUCTURE_RISK',
-                'score': 120,
-                'setup': ['RISK_SETUP_ANY'],
-                'trigger': ['RISK_TRIGGER_TRUE_BREAKDOWN_CANDLE'],
-                'comment': '创近期新低, 且满足[下跌动能为负]和[持续弱势]双重确认, 是趋势结构被破坏的强烈信号。'
-            },
-            {
-                'name': 'TREND_DECAY_WARNING', 'cn_name': '【高危】趋势衰减预警', 'family': 'TREND_RISK',
-                'score': 85,
-                'setup': ['RISK_SETUP_IN_UPTREND'], # 准备条件：必须是发生在一次上升趋势之后
-                'trigger': ['RISK_TRIGGER_TREND_DECAY'], # 触发条件：趋势衰减的复合信号
-                'comment': '在上升趋势后，价格首次有效跌破短期生命线(如EMA21)，且动能指标确认走弱，是趋势可能终结的重要信号。'
-            },
-            {
-                'name': 'CHIP_DISTRIBUTION_WARNING', 'cn_name': '【高危】筹码高位派发', 'family': 'DISTRIBUTION_RISK',
-                'score': 95,
-                'setup': ['RISK_SETUP_OVEREXTENDED_ZONE'], # 准备条件：股价处于高位的“超涨区”
-                'trigger': ['CHIP_RISK_DIVERGENCE', 'CHIP_RISK_EXHAUSTION'], # 触发条件：出现“筹码背离”或“趋势衰竭”
-                'comment': '在股价高位，出现筹码松动或派发迹象，是重要的离场预警。'
-            },
-            {
-                'name': 'ATTACK_FAILED_DISTRIBUTION', 'cn_name': '【高危】上攻失败派发', 'family': 'DISTRIBUTION_RISK',
-                'score': 90,
-                'setup': ['RISK_SETUP_IN_UPTREND'], # 修正1: 使用正确的“上升趋势”准备状态
-                'trigger': ['RISK_TRIGGER_BOUNCE_FAILED_CANDLE'], # 修正2: 使用正确的“当日冲高回落”触发器
-                'comment': '在[上升趋势]中, 出现[冲高回落K线], 是经典的派发信号。'
-            },
-            {
-                'name': 'SHARP_PULLBACK_WARNING', 'cn_name': '【中危】急跌回调预警', 'family': 'PULLBACK_WARNING_RISK',
-                'score': 75,
-                'setup': ['RISK_SETUP_ANY'],
-                'trigger': ['RISK_TRIGGER_SHARP_PULLBACK_CANDLE'],
-                'comment': '出现放量大阴线并跌破短期均线，是市场强度减弱的明确警告。'
-            },
+                'name': 'RESISTANCE_BUILDING', 'cn_name': '【动态】上方压力积聚', 'score': 35,
+                'comment': '上方套牢盘不减反增，表明进攻受阻，后续突破难度加大。'
+            }
         ]
 
     # ▼▼▼ 风险剧本探针函数 ▼▼▼
@@ -2565,36 +2582,48 @@ class TrendFollowStrategy:
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V124.0 统一指挥部版】
-        - 核心重构: 不再负责计算战略级别的状态，而是直接从 `atomic_states` (中央情报库)
-                    中接收 'CONTEXT_TREND_DETERIORATING' 这个最高指令。
-        - 收益: 职责更单一，架构更清晰。
+        【V202.0 动态防御版】
+        - 核心升级: 新增对动态筹码斜率风险的诊断逻辑，生成新的“风险准备状态”。
         """
-        print("    - [风险准备状态诊断中心 V124.0] 启动...")
-        setups = {}
-        exit_params = params.get('exit_strategy_params', {})
+        print("    - [风险前哨站 V202.0 动态防御版] 启动...")
+        risk_setups = {}
         default_series = pd.Series(False, index=df.index)
-        
-        setups['RISK_SETUP_ANY'] = pd.Series(True, index=df.index)
+        exit_params = self._get_params_block(params, 'exit_strategy_params', {})
+        if not self._get_param_value(exit_params.get('enabled'), False):
+            print("      -> 出场策略被禁用，风险诊断跳过。")
+            return {}
 
-        # --- 步骤1: 诊断常规风险准备状态 (逻辑不变) ---
-        p_over = exit_params.get('upthrust_distribution_params', {})
-        ma_long_period = self._get_param_value(p_over.get('overextension_ma_period'), 55)
-        ma_long_col = f'EMA_{ma_long_period}_D'
-        if ma_long_col in df.columns:
-            threshold = self._get_param_value(p_over.get('overextension_threshold'), 0.15)
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = (df['close_D'] / df[ma_long_col] - 1) > threshold
-            setups['RISK_SETUP_IN_UPTREND'] = df['close_D'] > df[ma_long_col]
+        # --- 1. 结构性风险诊断 (逻辑不变) ---
+        risk_setups['SETUP_RISK_STRUCTURE_BREAKDOWN'] = self._diagnose_structure_breakdown(df, exit_params)
+        risk_setups['SETUP_RISK_UPTHRUST_DISTRIBUTION'] = self._diagnose_upthrust_distribution(df, exit_params)
+
+        # --- 2. 动能衰竭风险诊断 (逻辑不变) ---
+        risk_setups['SETUP_RISK_CHIP_EXHAUSTION'] = atomic_states.get('CHIP_RISK_EXHAUSTION', default_series)
+        risk_setups['SETUP_RISK_CHIP_DIVERGENCE'] = atomic_states.get('CHIP_RISK_DIVERGENCE', default_series)
+
+        # ▼▼▼ 诊断新的动态风险 ▼▼▼
+        # 准备所需的斜率列名
+        total_winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
+        peak_stability_slope_col = 'SLOPE_5_CHIP_peak_stability_D'
+        peak_percent_slope_col = 'SLOPE_5_CHIP_peak_percent_D'
+        pressure_above_slope_col = 'SLOPE_5_CHIP_pressure_above_D'
+        
+        required_cols = [total_winner_rate_slope_col, peak_stability_slope_col, peak_percent_slope_col, pressure_above_slope_col]
+        if not all(col in df.columns for col in required_cols):
+            print("      -> [警告] 缺少诊断动态风险所需的斜率列，相关诊断将跳过。")
         else:
-            setups['RISK_SETUP_OVEREXTENDED_ZONE'] = default_series
-            setups['RISK_SETUP_IN_UPTREND'] = default_series
-        
-        setups['RISK_SETUP_PLATFORM_FORMED'] = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+            # 诊断1: 获利盘蒸发
+            risk_setups['SETUP_RISK_PROFIT_EVAPORATION'] = (df[total_winner_rate_slope_col] < 0)
+            # 诊断2: 主峰根基动摇
+            risk_setups['SETUP_RISK_PEAK_WEAKENING'] = (df[peak_stability_slope_col] < 0) | (df[peak_percent_slope_col] < 0)
+            # 诊断3: 上方压力积聚
+            risk_setups['SETUP_RISK_RESISTANCE_BUILDING'] = (df[pressure_above_slope_col] > 0)
+        # 打印诊断结果
+        for name, series in risk_setups.items():
+            if series.any():
+                print(f"      -> 风险准备 '{name}' 已激活 {series.sum()} 天。")
 
-        # --- 步骤2: 直接从中央情报库接收“最高指令” ---
-        setups['CONTEXT_TREND_DETERIORATING'] = atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
-        
-        return setups
+        return risk_setups
 
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
