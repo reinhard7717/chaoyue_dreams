@@ -691,16 +691,20 @@ class MultiTimeframeTrendStrategy:
     # ▼▼▼ “每日风险书记官”方法 ▼▼▼
     def _generate_daily_risk_signals(self, stock_code: str, daily_analysis_df: pd.DataFrame, params: dict) -> List[Dict[str, Any]]:
         """
-        【V202.0 新增】每日风险书记官
-        - 核心职责: 遍历每日分析结果，将所有非零的 `exit_signal_code` 翻译成
-                    标准化的、包含详细原因的风险/出场信号记录。
+        【V202.1 触发逻辑修复版】每日风险书记官
+        - 核心修复: 筛选逻辑不再依赖于 `exit_signal_code`，而是直接使用 `risk_score > 0`
+                    作为判断标准。这确保了只要当天存在任何风险分，就会被捕获并生成
+                    一条对应的风险信号记录，解决了有风险分但无信号输出的问题。
         """
         # 1. 获取风险剧本的定义，用于翻译原因
         risk_playbooks = self.tactical_engine._get_risk_playbook_blueprints()
         risk_playbook_map = {bp['name']: bp.get('cn_name', bp['name']) for bp in risk_playbooks}
 
-        # 2. 筛选出所有产生了风险/出场信号的交易日
-        risk_days_df = daily_analysis_df[daily_analysis_df['exit_signal_code'] > 0].copy()
+        # ▼▼▼【代码修改 V202.1】: 使用 risk_score 作为筛选标准 ▼▼▼
+        # 2. 筛选出所有产生了风险分的交易日
+        risk_days_df = daily_analysis_df[daily_analysis_df.get('risk_score', 0) > 0].copy()
+        # ▲▲▲【代码修改 V202.1】▲▲▲
+        
         if risk_days_df.empty:
             return []
 
@@ -709,27 +713,27 @@ class MultiTimeframeTrendStrategy:
 
         records = []
         for timestamp, row in risk_days_df.iterrows():
-            exit_code = int(row['exit_signal_code'])
+            # exit_signal_code 仍然从行数据中获取，因为它代表了最终的决策
+            exit_code = int(row.get('exit_signal_code', 0))
             
             # 4. 找出当天具体是哪些风险剧本被触发了
             triggered_risks_en = []
             if not risk_details_df.empty and timestamp in risk_details_df.index:
                 risk_details_for_day = risk_details_df.loc[timestamp]
-                # 找出当天所有得分大于0的风险项
                 active_risks = risk_details_for_day[risk_details_for_day > 0].index
-                # 转换格式，例如从 'RISK_SCORE_PROFIT_EVAPORATION' 提取 'PROFIT_EVAPORATION'
                 triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
 
             # 5. 翻译成中文，并组合成最终的原因描述
             triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
             reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
 
-            # 6. 根据风险代码确定严重等级 (这是一个简化的映射，可以根据需要细化)
+            # 6. 根据风险代码确定严重等级
             severity_level = 1
-            if exit_code >= 150:
+            if exit_code >= 120: # 对应 CRITICAL
                 severity_level = 3
-            elif exit_code >= 80:
+            elif exit_code >= 80: # 对应 HIGH
                 severity_level = 2
+            # MEDIUM 及以下都算 1 级预警
 
             # 7. 使用标准化的生成器创建记录
             record = self._create_signal_record(
