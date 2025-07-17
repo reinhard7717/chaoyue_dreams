@@ -352,14 +352,15 @@ def schedule_precompute_advanced_chips(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V7.0 - 最终真相版】
-    - 根本性修复: 根据日志铁证，确认源数据为 0-1 范围的累计值。
-    - 核心修正: 在数据还原后，增加了一个至关重要的缩放步骤 (`* 100`)，
-                将 0-1 范围的离散值正确转换为计算器所需的 0-100 百分比，
-                从根源上解决了所有指标计算错误的问题。
+    【执行器 V8.0 - 数据归一化最终版】
+    - 根本性修复: 彻底推翻“累计值”假设。确认数据为离散值，但存在“sum-to-1”和
+                  “sum-to-100”两种不同单位。
+    - 核心修正: 废除所有 .diff() 操作。引入数据归一化流程：按天检查占比总和，
+                若总和约等于1，则将当日所有占比数据乘以100，从而确保送入
+                计算器的数据单位永远是正确的“sum-to-100”格式。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V7.0 最终真相版, 模式: {mode})...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V8.0 数据归一化最终版, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -394,25 +395,34 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return {"status": "skipped", "reason": "no raw chip data in range"}
         cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
 
-        # ▼▼▼【代码修改 V7.0】: 还原并正确缩放，这是最核心的修复 ▼▼▼
-        cyq_chips_data = cyq_chips_data.sort_values(by=['trade_time', 'price'], ascending=True)
+        # ▼▼▼【代码修改 V8.0】: 废除 diff，执行数据归一化 ▼▼▼
+        logger.info(f"[{stock_code}] 开始执行数据归一化检查...")
         
-        grouped = cyq_chips_data.groupby('trade_time')
-        # 1. 还原：将 0-1 范围的累计值，还原为 0-1 范围的离散值
-        discrete_percent_0_1 = grouped['percent'].diff().fillna(grouped['percent'].transform('first'))
+        # 1. 按天分组，计算每天的占比总和
+        daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
         
-        # 2. 缩放：将 0-1 范围的离散值，乘以100，得到计算器所需的 0-100 百分比
-        cyq_chips_data['percent'] = discrete_percent_0_1 * 100
-        logger.info(f"[{stock_code}] 已将 0-1 累计值还原为 0-100 离散百分比。")
+        # 2. 识别出哪些数据是 "sum-to-1" 格式 (总和约等于1)
+        #    使用 np.isclose 来处理浮点数比较的精度问题
+        mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
         
-        # 【健康检查】 现在，总和应该接近100
+        # 【健康检查】 打印归一化前的状态
         if not cyq_chips_data.empty:
             sample_date = cyq_chips_data['trade_time'].unique()[-1]
-            day_sum = cyq_chips_data[cyq_chips_data['trade_time'] == sample_date]['percent'].sum()
-            logger.info(f"[{stock_code}] 健康检查: 日期 {sample_date} 还原后的离散占比总和为: {day_sum:.2f}")
-        # ▲▲▲【代码修改 V7.0】▲▲▲
+            pre_sum = cyq_chips_data[cyq_chips_data['trade_time'] == sample_date]['percent'].sum()
+            logger.info(f"[{stock_code}] 健康检查 (归一化前): 日期 {sample_date} 原始总和为: {pre_sum:.2f}")
 
-        # ... 后续所有代码保持不变，因为它们现在接收的是正确的数据 ...
+        # 3. 对识别出的数据执行归一化：乘以100
+        if mask_sum_to_one.any():
+            logger.info(f"[{stock_code}] 检测到 'sum-to-1' 格式数据，执行归一化 (x100)...")
+            cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
+        
+        # 【健康检查】 打印归一化后的状态
+        if not cyq_chips_data.empty:
+            post_sum = cyq_chips_data[cyq_chips_data['trade_time'] == sample_date]['percent'].sum()
+            logger.info(f"[{stock_code}] 健康检查 (归一化后): 日期 {sample_date} 最终总和为: {post_sum:.2f}")
+        # ▲▲▲【代码修改 V8.0】▲▲▲
+
+        # ... 后续所有代码保持不变 ...
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
         daily_data = get_data(daily_data_model, fields=('trade_time', 'vol', 'high', 'low'))
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
