@@ -2567,7 +2567,7 @@ class TrendFollowStrategy:
         print("    - [风险前哨站 V202.0 动态防御版] 启动...")
         risk_setups = {}
         default_series = pd.Series(False, index=df.index)
-        exit_params = self._get_params_block(params, 'exit_strategy_params', {})
+        exit_params = params.get('exit_strategy_params', {})
         if not self._get_param_value(exit_params.get('enabled'), False):
             print("      -> 出场策略被禁用，风险诊断跳过。")
             return {}
