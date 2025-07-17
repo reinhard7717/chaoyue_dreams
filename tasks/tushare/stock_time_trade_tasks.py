@@ -15,7 +15,7 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_5_SZ, StockMinuteData_60_SZ, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC, StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
+from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_5_SZ, StockMinuteData_60_SZ, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC, StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveHistoryData_TimeTrade'
@@ -1064,6 +1064,78 @@ def save_cyq_data_history_task(self):
         logger.error(f"执行 save_cyq_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_stocks": 0}
 
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.refetch_incomplete_cyq_chips', queue='celery')
+def refetch_incomplete_cyq_chips(self, record_threshold=800):
+    from django.db.models import Count
+    """
+    Celery 定时任务：查找所有 StockCyqChips* 表中，按股票分组后记录数少于指定阈值的股票，
+    并为这些股票重新触发全量历史数据拉取任务。
+
+    这个任务通常用于数据修复或补充，例如当发现某些股票的历史筹码数据不完整时。
+
+    Args:
+        self: Celery 任务实例，由 bind=True 自动注入。
+        record_threshold (int): 记录数的阈值。如果一只股票的筹码数据记录总数低于此值，
+                                 将被视为不完整。默认为 800。
+    """
+    print(f"开始执行任务：检查并重新拉取记录数少于 {record_threshold} 条的筹码分布数据...")
+    logger.info(f"开始执行任务：检查并重新拉取记录数少于 {record_threshold} 条的筹码分布数据...")
+    # 定义所有需要检查的筹码分布数据表模型
+    chips_models = [
+        StockCyqChipsCY,
+        StockCyqChipsSZ,
+        StockCyqChipsKC,
+        StockCyqChipsSH,
+        StockCyqChipsBJ,
+    ]
+    # 使用集合来存储需要重新拉取数据的股票代码，以自动处理重复项
+    stocks_to_refetch = set()
+    try:
+        # 遍历每一个筹码分布模型进行检查
+        for model in chips_models:
+            table_name = model._meta.db_table
+            print(f"正在检查表: {table_name}...")
+            logger.info(f"正在检查表: {table_name}...")
+            # 【核心查询逻辑】
+            # 1. `values('stock__stock_code')`: 按关联的 StockInfo 模型的 stock_code 字段进行分组。
+            # 2. `annotate(record_count=Count('id'))`: 为每个分组计算其拥有的记录数量，并命名为 record_count。
+            # 3. `filter(record_count__lt=record_threshold)`: 筛选出记录数量小于指定阈值的分组。
+            # 4. `values_list('stock__stock_code', flat=True)`: 提取这些分组的 stock_code，并返回一个扁平化的列表，如 ['000001.SZ', '000002.SZ']。
+            incomplete_stocks_query = model.objects.values('stock__stock_code') \
+                .annotate(record_count=Count('id')) \
+                .filter(record_count__lt=record_threshold) \
+                .values_list('stock__stock_code', flat=True)
+            # 执行查询并将结果转换为列表
+            found_codes = list(incomplete_stocks_query)
+            if found_codes:
+                count = len(found_codes)
+                print(f"在表 {table_name} 中发现 {count} 只股票记录不完整。")
+                logger.info(f"在表 {table_name} 中发现 {count} 只股票记录不完整。")
+                # 将新发现的股票代码添加到集合中
+                stocks_to_refetch.update(found_codes)
+            else:
+                print(f"在表 {table_name} 中未发现记录不完整的股票。")
+                logger.info(f"在表 {table_name} 中未发现记录不完整的股票。")
+        total_count = len(stocks_to_refetch)
+        print(f"检查完成。总共发现 {total_count} 只股票需要重新拉取数据。")
+        logger.info(f"检查完成。总共发现 {total_count} 只股票需要重新拉取数据。")
+        # 如果有需要处理的股票，则为每一只股票分发一个Celery任务
+        if total_count > 0:
+            print("开始分发数据拉取任务...")
+            for stock_code in stocks_to_refetch:
+                print(f"为股票 {stock_code} 创建数据拉取任务。")
+                # 调用已有的 `save_cyq_chips_history_batch` 任务来拉取数据。
+                # 我们只传递 ts_code，让任务使用其默认的日期范围（通常是全量拉取）。
+                save_cyq_chips_history_batch.delay(ts_code=stock_code)
+            print(f"已为 {total_count} 只股票成功分发任务。")
+            logger.info(f"已为 {total_count} 只股票成功分发任务。")
+        return f"任务完成。共检查 {len(chips_models)} 个表，为 {total_count} 只股票分发了更新任务。"
+    except Exception as e:
+        print(f"执行任务 refetch_incomplete_cyq_chips 时发生严重错误: {e}")
+        logger.error(f"执行任务 refetch_incomplete_cyq_chips 时发生严重错误: {e}", exc_info=True)
+        # 发生错误时，可以选择让Celery重试任务，例如5分钟后重试
+        # self.retry(exc=e, countdown=300)
+        raise # 重新抛出异常，以便在Celery监控工具中看到任务失败状态
 
 #  ================ 清理非交易日数据任务 ================
 
