@@ -249,17 +249,17 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V182.0 职责回归版】
-        - 核心修改: 函数签名还原，只接收日线df。斜率计算的职责已移交IndicatorService。
+        【V186.0 最终风控版】
+        - 核心升级: 在所有计分逻辑之后，新增一个拥有“一票否决权”的最终风控层。
+                    该层级专门用于识别和否决那些分数虽高但风险极大的“陷阱信号”。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V182.0 职责回归版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V186.0 最终风控版】 ======")
         print("======================================================================")
 
         if df is None or df.empty:
             return pd.DataFrame(), {}
         
-        # 不再需要调用斜率计算，直接使用传入的、已经包含斜率的df
         df = self._ensure_numeric_types(df)
         
         print("--- [总指挥] 步骤1: 核心数据引擎启动 ---")
@@ -270,7 +270,6 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤1.5: 原子状态诊断中心启动 (恢复完整功能) ---")
         df, platform_states = self._diagnose_platform_states(df, params)
         
-        # 【V180 核心】调用所有诊断模块，生成完整情报池
         atomic_states = {
             **self._diagnose_chip_states(df, params),
             **self._diagnose_ma_states(df, params),
@@ -281,12 +280,10 @@ class TrendFollowStrategy:
             **self._diagnose_kline_patterns(df, params),
             **self._diagnose_board_patterns(df, params),
             **platform_states,
-            # 【V180 核心】确保调用了高维度动态诊断模块
             **self._diagnose_trend_dynamics(df, params) 
         }
         
         print("--- [总指挥] 步骤3: 统一指挥部 - 风险矩阵与战略评估 ---")
-        # 【V180 核心】恢复完整的风险信号定义
         default_series = pd.Series(False, index=df.index)
         atomic_states['CONTEXT_TREND_DETERIORATING'] = self._define_context_trend_deteriorating(df, atomic_states)
         atomic_states['COST_SLOPE_5D_NEGATIVE'] = df.get('SLOPE_5_CHIP_peak_cost_D', 0) < 0
@@ -325,15 +322,55 @@ class TrendFollowStrategy:
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
-        # self._probe_risk_score_details(risk_score, risk_details_df, params)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 最终信号合成与日志输出 ---")
+        print("--- [总指挥] 步骤7: 最终信号合成 ---")
         entry_scoring_params = self._get_params_block(params, 'entry_scoring_params', {})
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print(f"====== 【战术引擎 V180.0】执行完毕 ======")
+        # ▼▼▼ 最终风控层 ▼▼▼
+        print("--- [总指挥] 步骤8: 启动【最终风控层 V1.0】，审查所有买入信号 ---")
+        # 风控规则1: 获利盘极值 + 滞涨
+        # 从 atomic_states 中获取已计算好的 RISK_EXTREME_PROFIT_TAKING 信号
+        veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series)
+        if veto_extreme_profit.any():
+            print(f"    - [风控-否决] “获利盘极值”风险激活，在 {veto_extreme_profit.sum()} 天禁止买入。")
+        # 风控规则2: 成本加速度连续衰竭
+        cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
+        veto_accel_exhaustion = default_series
+        if cost_accel_col in df.columns:
+            # 检查加速度是否连续3天为负
+            is_accel_negative = df[cost_accel_col] < 0
+            consecutive_negative_accel = is_accel_negative.rolling(window=3).sum()
+            veto_accel_exhaustion = (consecutive_negative_accel >= 3)
+            if veto_accel_exhaustion.any():
+                print(f"    - [风控-否决] “成本加速度衰竭”风险激活，在 {veto_accel_exhaustion.sum()} 天禁止买入。")
+        # 风控规则3: 筹码顶背离
+        veto_chip_divergence = default_series
+        price_col = 'close_D'
+        cost_col = 'CHIP_peak_cost_D'
+        if price_col in df.columns and cost_col in df.columns:
+            # 价格创20日新高
+            is_price_new_high = df[price_col] >= df[price_col].rolling(20).max().shift(1)
+            # 但成本重心未创20日新高
+            is_cost_not_new_high = df[cost_col] < df[cost_col].rolling(20).max().shift(1)
+            veto_chip_divergence = is_price_new_high & is_cost_not_new_high
+            if veto_chip_divergence.any():
+                print(f"    - [风控-否-决] “筹码顶背离”风险激活，在 {veto_chip_divergence.sum()} 天禁止买入。")
+        # 合并所有否决信号
+        final_veto_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
+        # 应用一票否决
+        original_signals = df['signal_entry'].sum()
+        df.loc[final_veto_mask, 'signal_entry'] = False
+        signals_after_veto = df['signal_entry'].sum()
+        
+        if original_signals > signals_after_veto:
+            print(f"    - [风控-裁决] 最终风控层已执行。共否决了 {original_signals - signals_after_veto} 个高风险买入信号！")
+        else:
+            print(f"    - [风控-裁决] 最终风控层未发现可疑信号，所有买入信号均通过审查。")
+
+        print(f"====== 【战术引擎 V186.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
