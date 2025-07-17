@@ -740,10 +740,10 @@ class StrategiesDAO(BaseDAO):
         limit: int
     ) -> pd.DataFrame:
         """
-        【V197.0 终极健壮版】
-        - 核心升级: 遵照最高指令，彻底废除手动的 `field_names` 列表。
-                    改为使用 `.values()` 直接获取模型的所有字段，从根本上杜绝
-                    因字段遗漏导致的数据链路中断问题，极大提升了系统的健壮性。
+        【V198.0 DAO层超级探针版】
+        - 核心升级: 植入“超级探针”，在数据离开DAO层之前，直接打印从数据库获取的
+                    原始筹码数据，特别是 `winner_rate_short_term`，以最终确认
+                    数据源本身是否存在问题。
         """
         queryset = AdvancedChipMetrics.objects.filter(stock__stock_code=stock_code)
 
@@ -753,16 +753,40 @@ class StrategiesDAO(BaseDAO):
 
         queryset = queryset.order_by('-trade_time')[:limit]
         
-        # ▼▼▼【代码修改 V197.0】: 移除脆弱的 field_names 列表，直接获取所有字段！ ▼▼▼
-        # 1. 删除了整个 field_names 列表定义。
-        # 2. 修改 .values() 调用，不再传入任何参数，意味着获取所有字段。
         data_records = [item async for item in queryset.values()]
-        # ▲▲▲【代码修改 V197.0】▲▲▲
 
         if not data_records:
             return pd.DataFrame()
 
         df = pd.DataFrame.from_records(data_records)
+
+        # ▼▼▼【代码修改 V198.0】: 植入DAO层超级探针 ▼▼▼
+        print("\n" + "="*25 + " [DAO层超级探针启动] " + "="*25)
+        print(f"--- 正在检查为 {stock_code} 从数据库原始获取的数据 ---")
+        
+        # 定义探针需要检查的关键列
+        probe_cols = ['trade_time', 'winner_rate_short_term', 'winner_rate_long_term']
+        
+        # 检查这些列是否存在于DataFrame中
+        existing_probe_cols = [col for col in probe_cols if col in df.columns]
+        
+        if not existing_probe_cols:
+            print(f"!!! 严重警告: 探针所需列在DataFrame中不存在! 可用列: {df.columns.tolist()}")
+        else:
+            # 打印最近5条原始记录
+            print("--- 最近5条原始记录 ---")
+            print(df[existing_probe_cols].tail(5))
+            
+            # 对关键列进行统计描述，这是最有力的证据
+            if 'winner_rate_short_term' in df.columns:
+                print("\n--- 'winner_rate_short_term' 列的统计描述 ---")
+                print(df['winner_rate_short_term'].describe())
+            else:
+                print("\n--- 'winner_rate_short_term' 列在原始数据中不存在 ---")
+
+        print("="*27 + " [DAO层超级探针结束] " + "="*27 + "\n")
+        # ▲▲▲【代码修改 V198.0】▲▲▲
+
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
