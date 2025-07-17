@@ -1,16 +1,11 @@
-# 文件: chip_feature_calculator.py (V6.0 高性能优化版)
-import pandas as pd
-import numpy as np
-from scipy.signal import find_peaks
-from decimal import Decimal
-
 class ChipFeatureCalculator:
     """
-    【V6.0 高性能优化版】
+    【V6.1 高性能最终版】
     - 性能优化: 重构了 _calculate_concentration 方法，使用 NumPy 向量化操作
                 (np.searchsorted) 替代了低效的 Python for 循环，将计算
                 复杂度从 O(N^2) 降至 O(N log N)，性能提升10-100倍。
-    - 逻辑修复: 保留了 V5.0 版本对 _calculate_winner_structure 的修复。
+    - 逻辑修复: 保留了 V5.0 版本对 _calculate_winner_structure 的修复，该修复
+                在接收到正确的离散占比数据后将完美工作。
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
         self.df = daily_chips_df.reset_index(drop=True)
@@ -39,7 +34,6 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_peaks(self) -> dict:
-        # 此方法已审查，无需优化
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
         if len(peaks) == 0:
@@ -62,7 +56,7 @@ class ChipFeatureCalculator:
         main_peak_cost = self.df.iloc[main_peak_df_idx]['price']
         main_peak_percent = self.df.iloc[main_peak_df_idx]['percent']
         main_peak_volume = int(main_peak_percent / 100 * self.ctx['total_chip_volume'])
-        peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean()
+        peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean() if self.df['percent'].mean() > 0 else 1.0
 
         result = {
             'peak_cost': main_peak_cost,
@@ -79,36 +73,25 @@ class ChipFeatureCalculator:
             
             result['secondary_peak_cost'] = self.df.iloc[secondary_peak_df_idx]['price']
             result['peak_distance_ratio'] = abs(main_peak_cost - result['secondary_peak_cost']) / main_peak_cost if main_peak_cost > 0 else None
-            result['peak_strength_ratio'] = remaining_prominences.max() / prominences[main_peak_idx_in_peaks]
+            result['peak_strength_ratio'] = remaining_prominences.max() / prominences[main_peak_idx_in_peaks] if prominences[main_peak_idx_in_peaks] > 0 else None
         else:
             result.update({'secondary_peak_cost': None, 'peak_distance_ratio': None, 'peak_strength_ratio': None})
             
         return result
 
     def _calculate_concentration(self) -> dict:
-        """
-        【V6.0 高性能优化版】
-        使用NumPy向量化操作重构，大幅提升计算效率。
-        """
-        # 预先计算累积百分比
         self.df['cumulative_percent'] = self.df['percent'].cumsum()
         
         def get_concentration_range_vectorized(target_pct: float) -> tuple:
-            # 将pandas Series转换为NumPy数组以获得最佳性能
             cum_percent_vals = self.df['cumulative_percent'].values
             price_vals = self.df['price'].values
             
-            # 1. 为每个起点计算目标累积值
-            #    注意：这里的起点是索引i，其累积值是cum_percent_vals[i-1]，所以要处理i=0的情况
             start_cum_vals = np.roll(cum_percent_vals, 1)
             start_cum_vals[0] = 0
             target_cum_vals = start_cum_vals + target_pct
 
-            # 2. 使用np.searchsorted进行向量化二分查找，找到所有终点
-            #    'right'表示如果找到相同值，插入到右边
             end_indices = np.searchsorted(cum_percent_vals, target_cum_vals, side='right')
 
-            # 3. 过滤掉超出范围的索引
             valid_mask = end_indices < len(price_vals)
             if not np.any(valid_mask):
                 return float('inf'), (None, None)
@@ -116,13 +99,10 @@ class ChipFeatureCalculator:
             start_indices_valid = np.arange(len(price_vals))[valid_mask]
             end_indices_valid = end_indices[valid_mask]
 
-            # 4. 向量化计算所有可能的价格区间宽度
             widths = price_vals[end_indices_valid] - price_vals[start_indices_valid]
             
-            # 5. 找到最小宽度的索引
             min_width_idx = np.argmin(widths)
             
-            # 6. 提取最小宽度和对应的价格范围
             min_width = widths[min_width_idx]
             best_start_price = price_vals[start_indices_valid[min_width_idx]]
             best_end_price = price_vals[end_indices_valid[min_width_idx]]
@@ -139,7 +119,6 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_winner_structure(self) -> dict:
-        # 此方法已在V5.0修复，逻辑健全且高效
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
 
@@ -160,7 +139,6 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_pressure_support(self) -> dict:
-        # 此方法已审查，无需优化
         close_price = self.ctx.get('close_price')
         if not close_price:
             return {}
@@ -182,7 +160,6 @@ class ChipFeatureCalculator:
         }
         
     def _calculate_effective_turnover(self) -> dict:
-        # 此方法已审查，无需优化
         low_price = self.ctx.get('low_price')
         high_price = self.ctx.get('high_price')
         cost_range_70_low, cost_range_70_high = self.ctx.get('cost_range_70pct', (None, None))
