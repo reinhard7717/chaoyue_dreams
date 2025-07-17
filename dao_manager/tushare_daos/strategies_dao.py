@@ -740,73 +740,33 @@ class StrategiesDAO(BaseDAO):
         limit: int
     ) -> pd.DataFrame:
         """
-        从数据库异步获取指定股票的高级筹码指标数据。
-
-        Args:
-            stock_code (str): 股票代码，例如 '600519'。
-            trade_time_dt (Optional[pd.Timestamp]): 查询的截止交易日期。如果为 None，则获取最新的数据。
-            limit (int): 要获取的数据记录数量。
-
-        Returns:
-            pd.DataFrame: 包含高级筹码指标数据的DataFrame。
-                          DataFrame 的索引是 'trade_time' (日期)，并且按时间升序排列。
-                          如果数据库中没有找到匹配的数据，则返回一个空的DataFrame。
+        【V197.0 终极健壮版】
+        - 核心升级: 遵照最高指令，彻底废除手动的 `field_names` 列表。
+                    改为使用 `.values()` 直接获取模型的所有字段，从根本上杜绝
+                    因字段遗漏导致的数据链路中断问题，极大提升了系统的健壮性。
         """
-        # --- 新增代码开始 ---
-        # print(f"调试信息: [DAO] 开始获取高级筹码指标数据 -> 股票代码: {stock_code}, 截止日期: {trade_time_dt}, 数量: {limit}")
-
-        # 1. 构建基础查询集，根据股票代码过滤
-        # Django ORM 的 afilter 方法是 filter 的异步版本
         queryset = AdvancedChipMetrics.objects.filter(stock__stock_code=stock_code)
 
-        # 2. 如果提供了截止日期，则应用日期过滤器
         if trade_time_dt and pd.notna(trade_time_dt):
-            # AdvancedChipMetrics 模型中的 trade_time 是 DateField，因此需要从 Timestamp 中提取 date 部分
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
-            # print(f"调试信息: [DAO] 应用日期过滤器: trade_time <= {end_date}")
 
-        # 3. 按交易日期降序排列，并限制返回的记录数量
-        # 这样可以确保我们获取的是截止日期前最新的 `limit` 条数据
         queryset = queryset.order_by('-trade_time')[:limit]
-        # print(f"调试信息: [DAO] 应用排序和限制: order_by('-trade_time')[:{limit}]")
+        
+        # ▼▼▼【代码修改 V197.0】: 移除脆弱的 field_names 列表，直接获取所有字段！ ▼▼▼
+        # 1. 删除了整个 field_names 列表定义。
+        # 2. 修改 .values() 调用，不再传入任何参数，意味着获取所有字段。
+        data_records = [item async for item in queryset.values()]
+        # ▲▲▲【代码修改 V197.0】▲▲▲
 
-        # 4. 定义需要从数据库中查询的字段列表，提高查询效率
-        field_names = [
-            'trade_time', 'peak_cost', 'peak_percent', 'peak_volume',
-            'peak_cost_slope_5d', 'peak_cost_slope_8d', 'peak_cost_slope_13d',
-            'peak_cost_slope_21d', 'peak_cost_slope_34d', 'peak_cost_slope_55d',
-            'peak_cost_slope_89d', 'peak_cost_slope_144d', 'peak_cost_accel_5d',
-            'peak_cost_accel_21d', 'concentration_90pct', 'concentration_90pct_slope_5d',
-            'peak_stability', 'winner_rate_short_term', 'winner_rate_long_term',
-            'is_multi_peak', 'secondary_peak_cost', 'peak_distance_ratio',
-            'peak_strength_ratio', 'pressure_above', 'support_below',
-            'pressure_above_volume', 'support_below_volume',
-            'turnover_volume_in_cost_range_70pct', 'prev_20d_close'
-        ]
-
-        # 5. 异步执行查询，并将结果（字典列表）收集起来
-        # 使用 `async for` 遍历异步查询集
-        data_records = [item async for item in queryset.values(*field_names)]
-        # print(f"调试信息: [DAO] 数据库查询完成，获取到 {len(data_records)} 条记录")
-
-        # 6. 如果查询结果为空，直接返回一个空的 DataFrame
         if not data_records:
-            print("调试信息: [DAO] 未查询到任何数据，返回空的DataFrame")
             return pd.DataFrame()
 
-        # 7. 将记录列表转换为 Pandas DataFrame
         df = pd.DataFrame.from_records(data_records)
-
-        # 8. 数据后处理，使其更适合进行时间序列分析
-        # a. 将 'trade_time' 列转换为 pandas 的 datetime 类型
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
-        # b. 将 'trade_time' 设置为 DataFrame 的索引
         df = df.set_index('trade_time')
-        # c. 按索引（时间）升序排列，这是时间序列分析的标准格式
         df = df.sort_index(ascending=True)
 
-        # print(f"调试信息: [DAO] 成功创建并处理DataFrame，最终形状: {df.shape}")
         return df
 
 
