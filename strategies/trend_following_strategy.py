@@ -273,9 +273,11 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.7 钢铁纪律版】统一战报司令部
-        - 核心修复: 遵从“风控第一”原则，彻底重构信号处理逻辑，建立“卖出 > 买入 > 预警”的绝对优先级。
-                    确保任何情况下，卖出信号都拥有最高处理权限，杜绝在风险日错误买入的致命问题。
+        【V202.8 预警体系修复版】统一战报司令部
+        - 核心修复: 修正了在计算 exit_severity_level 时，获取风险阈值配置的致命路径错误。
+                    确保了风险等级(L1,L2,L3)能被正确计算和分配。
+        - 体系恢复: 此修复使得风险分低于最低卖出阈值的信号，能够正确地被 is_warning 逻辑捕获，
+                    从而真正地生成“风险预警”信号，恢复了完整的三级信号体系。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
         if not all(col in result_df.columns for col in required_cols):
@@ -301,18 +303,20 @@ class TrendFollowStrategy:
             exit_code = int(row.get('exit_signal_code', 0))
             risk_score = row.get('risk_score', 0.0)
             is_exit = exit_code > 0
+            # 只有在既不卖出也不买入时，才可能是预警
             is_warning = risk_score > 0 and not is_exit and not is_entry
-            
+
             # 优先级1: 卖出信号 (生存高于一切)
             if is_exit:
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['exit_signal_code'] = exit_code
                 
-                # 填充风险详情
                 self._fill_risk_details(record, row, risk_playbook_map)
                 
-                # 计算严重等级
-                exit_thresholds = self._get_params_block(params, 'exit_threshold_params', {})
+                # ▼▼▼【代码修改 V202.8】: 从正确的路径获取“严重等级定义手册”！▼▼▼
+                exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
+                # ▲▲▲【代码修改 V202.8】▲▲▲
+                
                 sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
                 severity_level = 0
                 for level_name, config in sorted_levels:
@@ -323,7 +327,7 @@ class TrendFollowStrategy:
                         break
                 record['exit_severity_level'] = severity_level
                 records.append(record)
-                continue # 处理完卖出信号后，立即处理下一天，不再检查买入或预警
+                continue
 
             # 优先级2: 买入信号 (确认安全后，方可进攻)
             elif is_entry:
@@ -341,22 +345,19 @@ class TrendFollowStrategy:
                 record['triggered_playbooks'] = playbooks_list
                 record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
                 
-                # 即使是买入信号，也记录当时的风险分作为参考
                 record['context_snapshot']['risk_score'] = risk_score
                 records.append(record)
-                continue # 处理完买入信号后，立即处理下一天
+                continue
 
             # 优先级3: 风险预警 (既不卖出也不买入时，保持观察)
             elif is_warning:
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['is_risk_warning'] = True
                 
-                # 填充风险详情
                 self._fill_risk_details(record, row, risk_playbook_map)
                 records.append(record)
             
         return records
-
     def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
         """【V202.6 辅助函数】创建标准化的数据库记录模板"""
         return {
@@ -397,6 +398,7 @@ class TrendFollowStrategy:
         context['peak_stability_slope_5d'] = row.get('SLOPE_5_CHIP_peak_stability_D')
         context['pressure_above_slope_5d'] = row.get('SLOPE_5_CHIP_pressure_above_D')
         record['context_snapshot'] = sanitize_for_json(context)
+
     def generate_intraday_alerts(self, daily_df: pd.DataFrame, minute_df: pd.DataFrame, params: dict) -> List[Dict]:
         """
         【V104 终局 · 执行版】
