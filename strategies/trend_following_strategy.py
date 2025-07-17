@@ -190,9 +190,8 @@ class TrendFollowStrategy:
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
-        # ▼▼▼【代码修改 V202.0】: 保存风险归因报告 ▼▼▼
         self._last_risk_details_df = risk_details_df
-        # ▲▲▲【代码修改 V202.0】▲▲▲
+        df['risk_score'] = risk_score
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤7: 启动【最终风控层 V2.1 · 动态情报武装版】，审查所有得分 ---")
