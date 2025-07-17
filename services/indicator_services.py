@@ -502,6 +502,27 @@ class IndicatorService:
         print(f"--- [数据准备V8.1] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
+    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
+        """计算资金流分"""
+        if df.empty or trade_date not in df.index:
+            return 0.0
+            
+        # 截取近期数据
+        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
+        if recent_df.empty:
+            return 0.0
+            
+        # 条件1: 近期累计净流入
+        net_inflow_sum = recent_df['net_amount'].sum()
+        
+        # 条件2: 净流入天数占比
+        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
+        
+        # 综合打分
+        score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+        return score
+
+
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
         【V8.0 新增】高级指标合成室
@@ -2141,25 +2162,6 @@ class IndicatorService:
         score = (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
         return score
 
-    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算资金流分"""
-        if df.empty or trade_date not in df.index:
-            return 0.0
-            
-        # 截取近期数据
-        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
-        if recent_df.empty:
-            return 0.0
-            
-        # 条件1: 近期累计净流入
-        net_inflow_sum = recent_df['net_amount'].sum()
-        
-        # 条件2: 净流入天数占比
-        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
-        
-        # 综合打分
-        score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
-        return score
 
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """计算内部强度分"""

@@ -740,55 +740,34 @@ class StrategiesDAO(BaseDAO):
         limit: int
     ) -> pd.DataFrame:
         """
-        【V199.0 终极修复版】
-        - 核心修复: 1. 在DAO层就对数据按时间升序排序，从根源上杜绝了后续ffill可能引发的数据污染问题。
-                    2. 修正了探针逻辑，确保其打印的是最新的、排序后的数据。
+        【V199.0 正常勤务版】
+        - 核心升级: 移除所有用于调试的“超级探针”代码，恢复到最高效、最健壮的
+                    生产状态。保留了直接获取所有字段的逻辑，以确保数据链路的
+                    长期稳定性和免维护性。
         """
+        # 1. 构建基础查询集
         queryset = AdvancedChipMetrics.objects.filter(stock__stock_code=stock_code)
 
+        # 2. 应用日期过滤器
         if trade_time_dt and pd.notna(trade_time_dt):
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
 
+        # 3. 排序并限制数量
         queryset = queryset.order_by('-trade_time')[:limit]
         
+        # 4. 直接获取所有字段，不再使用脆弱的 field_names 列表
         data_records = [item async for item in queryset.values()]
 
+        # 5. 如果无数据，返回空DataFrame
         if not data_records:
             return pd.DataFrame()
 
+        # 6. 转换为DataFrame并进行标准化处理
         df = pd.DataFrame.from_records(data_records)
-
-        # ▼▼▼【代码修改 V199.0】: 修正排序和探针逻辑 ▼▼▼
-        # 1. 在探针之前，就先按时间升序排好序
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        df.sort_values('trade_time', inplace=True, ascending=True)
-
-        print("\n" + "="*25 + " [DAO层超级探针启动] " + "="*25)
-        print(f"--- 正在检查为 {stock_code} 从数据库原始获取的数据 (已按时间升序) ---")
-        
-        probe_cols = ['trade_time', 'winner_rate_short_term', 'winner_rate_long_term']
-        existing_probe_cols = [col for col in probe_cols if col in df.columns]
-        
-        if not existing_probe_cols:
-            print(f"!!! 严重警告: 探针所需列在DataFrame中不存在! 可用列: {df.columns.tolist()}")
-        else:
-            # 2. 现在 tail(5) 看到的就是最新的5条记录
-            print("--- 最近5条原始记录 ---")
-            print(df[existing_probe_cols].tail(5))
-            
-            if 'winner_rate_short_term' in df.columns:
-                print("\n--- 'winner_rate_short_term' 列的统计描述 ---")
-                print(df['winner_rate_short_term'].describe())
-            else:
-                print("\n--- 'winner_rate_short_term' 列在原始数据中不存在 ---")
-
-        print("="*27 + " [DAO层超级探针结束] " + "="*27 + "\n")
-        
-        # 3. 最后再设置索引
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df = df.set_index('trade_time')
-        # ▲▲▲【代码修改 V199.0】▲▲▲
+        df = df.sort_index(ascending=True)
 
         return df
 

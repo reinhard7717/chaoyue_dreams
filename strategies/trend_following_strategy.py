@@ -116,16 +116,14 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V197.0 最终修正版】
-        - 核心修复: 修正了策略层使用错误的（未加CHIP_前缀）列名来获取获利盘数据
-                    的根本性错误。更新了所有相关代码，确保其能正确读取由数据
-                    服务层标准化处理后的特征名称，从而彻底打通数据链路。
+        【V200.0 总获利盘武装版】
+        - 核心升级: 在“最终风控层”中，新增了基于 `total_winner_rate` 的风险否决规则，
+                    用于捕捉市场极度亢奋时的系统性风险。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V197.0 最终修正版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V200.0 总获利盘武装版】 ======")
         print("======================================================================")
 
-        # ... (步骤1 到 6 的代码保持不变) ...
         if df is None or df.empty:
             return pd.DataFrame(), {}
         
@@ -166,9 +164,7 @@ class TrendFollowStrategy:
         atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
         atomic_states['EMA_DEATH_CROSS'] = df.get('EMA_5_D', np.inf) < df.get('EMA_21_D', -np.inf)
         atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
-        # ▼▼▼【代码修改 V197.0】: 使用正确的列名 ▼▼▼
         is_extreme_winner_rate = df.get('CHIP_winner_rate_long_term_D', 0) > 98
-        # ▲▲▲【代码修改 V197.0】▲▲▲
         is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
@@ -195,14 +191,12 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.9 · 最终修正版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V2.0 · 总获利盘武装版】，审查所有得分 ---")
         
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
 
-        # --- 前提条件定义 ---
-        # ▼▼▼【代码修改 V197.0】: 使用正确的列名 ▼▼▼
+        # --- 前提条件定义 (保持不变) ---
         is_high_profit_zone = df.get('CHIP_winner_rate_short_term_D', 0) > 70
-        
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
         if cost_col in df.columns:
@@ -214,15 +208,13 @@ class TrendFollowStrategy:
             meaningful_cost_mask = cost_20d_ago > dynamic_min_cost_threshold
             cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
             is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
-        
         is_high_level_oscillation = default_series
-        long_winner_rate_col = 'CHIP_winner_rate_long_term_D' # 使用正确的列名
+        long_winner_rate_col = 'CHIP_winner_rate_long_term_D'
         long_ma_col = 'EMA_89_D'
         if long_winner_rate_col in df.columns and long_ma_col in df.columns:
             is_long_term_winner_saturated = df[long_winner_rate_col] > 95
             is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
             is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
-        # ▲▲▲【代码修改 V197.0】▲▲▲
         
         high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
@@ -242,7 +234,20 @@ class TrendFollowStrategy:
             is_cost_not_new_high = df[cost_col] < df[cost_col].rolling(20).max().shift(1)
             veto_chip_divergence = is_price_new_high & is_cost_not_new_high & high_risk_premise
         
-        final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
+        # ▼▼▼【代码新增 V200.0】: 新增总获利盘饱和风险否决规则 ▼▼▼
+        total_winner_rate_col = 'CHIP_total_winner_rate_D'
+        veto_total_profit_saturation = default_series
+        if total_winner_rate_col in df.columns:
+            # 定义：总获利盘超过98%，且当天不是突破性的强势阳线（避免误杀主升浪加速期）
+            is_saturated = df[total_winner_rate_col] > 98
+            is_not_strong_breakout = df['pct_change_D'] < 0.05 # 当天涨幅小于5%
+            veto_total_profit_saturation = is_saturated & is_not_strong_breakout
+            if veto_total_profit_saturation.any():
+                 print(f"    - [风控-否决] “总获利盘饱和”风险激活 {veto_total_profit_saturation.sum()} 天。")
+        # ▲▲▲【代码新增 V200.0】▲▲▲
+
+        # 将新风险规则加入最终的风险掩码
+        final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence | veto_total_profit_saturation
         risk_penalty_multiplier = 0.2
         
         if final_risk_mask.any():
@@ -256,57 +261,12 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
 
-        # ▼▼▼【代码修改 V197.0】: 更新探针以使用正确的列名 ▼▼▼
-        def _get_value_at_probe_ts(data, ts):
-            if isinstance(data, pd.Series):
-                return data.loc[ts] if ts in data.index else 'N/A (不在索引中)'
-            return data
-
-        potential_probe_ts = df[df['signal_entry']].index.max()
-
-        if pd.notna(potential_probe_ts):
-            probe_ts = potential_probe_ts
-            probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print("\n" + "="*25 + f" [智能探针启动: {probe_date_str}] " + "="*25)
-            row = df.loc[probe_ts]
-            
-            print("\n--- [探针-前提检查] ---")
-            print(f"  - is_high_profit_zone (短期获利盘 > 70%): {_get_value_at_probe_ts(is_high_profit_zone, probe_ts)}")
-            print(f"    - (原始值) CHIP_winner_rate_short_term_D: {row.get('CHIP_winner_rate_short_term_D', 'N/A')}")
-            print(f"  - is_rapid_markup (20日成本涨幅 > 15%): {_get_value_at_probe_ts(is_rapid_markup, probe_ts)}")
-            cost_change_ratio_val = _get_value_at_probe_ts(cost_change_ratio, probe_ts) if 'cost_change_ratio' in locals() else "N/A"
-            print(f"    - (原始值) 20日成本涨幅: {cost_change_ratio_val:.4f}" if isinstance(cost_change_ratio_val, (int, float)) else cost_change_ratio_val)
-            print(f"  - is_high_level_oscillation (高位震荡): {_get_value_at_probe_ts(is_high_level_oscillation, probe_ts)}")
-            print(f"    - (原始值) 长期获利盘 > 95%: {_get_value_at_probe_ts(is_long_term_winner_saturated, probe_ts) if 'is_long_term_winner_saturated' in locals() else 'N/A'}")
-            print(f"    - (原始值) 价格 > 89日均线*1.2: {_get_value_at_probe_ts(is_price_at_high_level, probe_ts) if 'is_price_at_high_level' in locals() else 'N/A'}")
-            print(f"  - [结论] high_risk_premise (总前提): {_get_value_at_probe_ts(high_risk_premise, probe_ts)}")
-
-            print("\n--- [探针-风险规则检查 (仅在总前提为True时有意义)] ---")
-            print(f"  - veto_extreme_profit (获利盘极值): {_get_value_at_probe_ts(veto_extreme_profit, probe_ts)}")
-            print(f"  - veto_accel_exhaustion (成本加速衰竭): {_get_value_at_probe_ts(veto_accel_exhaustion, probe_ts)}")
-            print(f"  - veto_chip_divergence (筹码顶背离): {_get_value_at_probe_ts(veto_chip_divergence, probe_ts)}")
-            print(f"  - [结论] final_risk_mask (最终惩罚掩码): {_get_value_at_probe_ts(final_risk_mask, probe_ts)}")
-
-            print("\n--- [探针-最终得分] ---")
-            pre_penalty_score_probe = row.get('entry_score_pre_penalty', 0)
-            final_score_probe = row.get('entry_score', 0)
-            print(f"  - 惩罚前分数 (entry_score_pre_penalty): {pre_penalty_score_probe:.2f}")
-            print(f"  - 惩罚后分数 (entry_score): {final_score_probe:.2f}")
-            if final_score_probe < pre_penalty_score_probe:
-                penalty_pct = (1 - final_score_probe / pre_penalty_score_probe) * 100 if pre_penalty_score_probe > 0 else 0
-                print(f"  - [结论] 分数被惩罚了 {penalty_pct:.0f}%")
-            else:
-                print(f"  - [结论] 分数未被惩罚。")
-            
-            print("="*27 + f" [智能探针结束: {probe_date_str}] " + "="*27 + "\n")
-        else:
-            print("\n[探针信息] 未发现任何买入信号，智能探针未启动。\n")
-        # ▲▲▲【代码修改 V197.0】▲▲▲
-
+        # 移除探针代码，恢复正常运行
+        
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V197.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V200.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
@@ -1447,17 +1407,12 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V120.4 雷达校准版】筹码分布与流动状态诊断
-        - 核心修复: 彻底重写了“断层新生”(FAULT_REBIRTH)的识别逻辑，修复了其错误地将
-                    常见“重新吸筹”识别为罕见事件的致命BUG。
-        - 新逻辑:
-          1. 首先识别出“成本断崖”这一罕见事件 (is_cost_cliff)。
-          2. 以此事件为起点，创建一个为期N天(如5天)的“断层新生观察窗口”(FAULT_REBIRTH_WINDOW)。
-          3. 识别“重新吸筹”的确认信号 (is_re_accumulating)。
-          4. 最终的“断层新生”事件，必须是“重新吸筹”信号且发生在“观察窗口”之内。
-        - 收益: 确保了该事件的罕见性和高价值性，避免了假警报对系统的干扰。
+        【V200.0 总获利盘武装版】筹码分布与流动状态诊断
+        - 核心升级: 全面引入 `total_winner_rate` 指标，并基于它创建了两个全新的原子状态：
+                    1. CHIP_STATE_PROFIT_EXPANDING: 识别获利盘健康扩张的进攻信号。
+                    2. CHIP_STATE_MAX_PESSIMISM: 识别市场极度悲观的逆势反转机会。
         """
-        print("        -> [诊断模块 V120.4] 正在执行筹码状态诊断...")
+        print("        -> [诊断模块 V200.0] 正在执行筹码状态诊断(总获利盘武装版)...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'chip_feature_params', {})
@@ -1474,7 +1429,8 @@ class TrendFollowStrategy:
             'peak_cost_accel_21d': 'CHIP_peak_cost_accel_21d_D',
             'peak_cost_slope_8d': 'CHIP_peak_cost_slope_8d_D',
             'winner_rate_short': 'CHIP_winner_rate_short_term_D',
-            'close': 'close_D'
+            'close': 'close_D',
+            'total_winner_rate': 'CHIP_total_winner_rate_D' # 新增：总获利盘
         }
         
         if not all(col in df.columns for col in required_cols.values()):
@@ -1488,46 +1444,53 @@ class TrendFollowStrategy:
             required_cols['concentration_slope'], required_cols['peak_cost_slope_21d'],
             required_cols['peak_cost_slope_55d'], required_cols['peak_cost_accel_21d'],
             required_cols['peak_cost_slope_8d'], required_cols['winner_rate_short'],
+            required_cols['total_winner_rate'] # 新增：总获利盘
         ]
         for col in numeric_cols_to_clean:
             if col in df_copy.columns:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         
-        # --- 【核心修正】重写“断层新生”事件诊断逻辑 ---
+        # --- 【代码新增 V200.0】: 基于总获利盘创建新状态 ---
+        total_winner_rate_col = required_cols['total_winner_rate']
+        
+        # 状态1: 获利盘健康扩张 (进攻信号)
+        # 定义：5日内，总获利盘增长超过20个百分点
+        profit_increase_5d = df_copy[total_winner_rate_col] - df_copy[total_winner_rate_col].shift(5)
+        states['CHIP_STATE_PROFIT_EXPANDING'] = (profit_increase_5d > 20)
+        if states['CHIP_STATE_PROFIT_EXPANDING'].any():
+            print(f"          -> '获利盘健康扩张' 状态已定义，激活 {states['CHIP_STATE_PROFIT_EXPANDING'].sum()} 天。")
+
+        # 状态2: 市场极度悲观 (逆势反转信号)
+        # 定义：总获利盘低于5%
+        states['CHIP_STATE_MAX_PESSIMISM'] = (df_copy[total_winner_rate_col] < 5)
+        if states['CHIP_STATE_MAX_PESSIMISM'].any():
+            print(f"          -> '市场极度悲观' 状态已定义，激活 {states['CHIP_STATE_MAX_PESSIMISM'].sum()} 天。")
+        # --- 【代码新增 V200.0】 结束 ---
+
+        # --- “断层新生”事件诊断逻辑 (保持不变) ---
         p_fault = p.get('fault_rebirth_params', {})
         if self._get_param_value(p_fault.get('enabled'), True):
-            # 1. 定义“成本断崖”触发事件
             cost_col = required_cols['peak_cost']
             cost_pct_change = df_copy[cost_col].pct_change()
             cost_drop_threshold = self._get_param_value(p_fault.get('cost_drop_threshold'), -0.10)
             is_cost_cliff = (cost_pct_change <= cost_drop_threshold).fillna(False)
-
-            # 2. 创建一个在“成本断崖”后持续N天的“观察窗口”
             window_days = self._get_param_value(p_fault.get('observation_window_days'), 5)
-            # 使用持久化状态函数，当成本断崖发生时，窗口激活并持续5天
             fault_rebirth_window = self._create_persistent_state(
                 df_copy, entry_event=is_cost_cliff, persistence_days=window_days
             )
-            states['CHIP_STATE_FAULT_REBIRTH_WINDOW'] = fault_rebirth_window # 可以选择性地暴露这个状态
-
-            # 3. 定义“重新吸筹”确认信号
+            states['CHIP_STATE_FAULT_REBIRTH_WINDOW'] = fault_rebirth_window
             conc_slope_col = df_copy[required_cols['concentration_slope']]
             is_re_accumulating = (conc_slope_col < 0) & (conc_slope_col.shift(1).fillna(0) > 0)
-
-            # 4. 最终事件 = 成本断崖日本身，或在观察窗口内出现的首次重新吸筹信号
             is_confirmed_in_window = is_re_accumulating & fault_rebirth_window
-            # 找到每个窗口内的第一个确认信号
             first_confirmation_in_window = is_confirmed_in_window & ~is_confirmed_in_window.shift(1).fillna(False)
-
             final_fault_event = is_cost_cliff | first_confirmation_in_window
             states['CHIP_EVENT_FAULT_REBIRTH'] = final_fault_event
-            
             if final_fault_event.any():
                 print(f"          -> 【雷达校准完毕】捕获到'断层新生'事件 {final_fault_event.sum()} 天。{self._format_debug_dates(final_fault_event)}")
         else:
             states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
 
-        # --- 常规状态诊断 (逻辑保持不变, 使用净化后的 df_copy) ---
+        # --- 常规状态诊断 (逻辑保持不变) ---
         is_markup_base = (df_copy[required_cols['peak_cost_slope_21d']] > 0) & (df_copy.get(required_cols['peak_cost_slope_55d'], 0) > 0)
         p_dist = p.get('distribution_params', {})
         is_distributing = df_copy[required_cols['concentration_slope']] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
