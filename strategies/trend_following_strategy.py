@@ -116,12 +116,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V194.0 探针植入版】
-        - 核心升级: 植入“黑匣子探针”，专门用于剖析特定日期（2025-07-16）的风控逻辑
-                    执行全过程，将所有中间变量的值打印输出，以定位问题根源。
+        【V195.0 智能探针版】
+        - 核心升级: 彻底改造了“黑匣子探针”的触发逻辑。探针不再锁定固定日期，
+                    而是能自动寻找并对准数据中【最新一个】买入信号日进行剖析，
+                    实现了调试的完全自动化和智能化。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V194.0 探针植入版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V195.0 智能探针版】 ======")
         print("======================================================================")
 
         # ... (步骤1 到 6 的代码保持不变) ...
@@ -192,7 +193,7 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.6 · 探针植入版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.7 · 智能探针版】，审查所有得分 ---")
         
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
 
@@ -240,49 +241,6 @@ class TrendFollowStrategy:
         final_risk_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
         risk_penalty_multiplier = 0.2
         
-        # ▼▼▼【代码修改 V194.0】: 植入黑匣子探针 ▼▼▼
-        probe_date_str = '2025-07-16'
-        try:
-            probe_ts = pd.to_datetime(probe_date_str)
-            if probe_ts in df.index:
-                print("\n" + "="*25 + f" [黑匣子探针启动: {probe_date_str}] " + "="*25)
-                row = df.loc[probe_ts]
-                
-                print("\n--- [探针-前提检查] ---")
-                print(f"  - is_high_profit_zone (短期获利盘 > 70%): {is_high_profit_zone.loc[probe_ts]}")
-                print(f"    - (原始值) winner_rate_short_term_D: {row.get('winner_rate_short_term_D', 'N/A')}")
-                print(f"  - is_rapid_markup (20日成本涨幅 > 15%): {is_rapid_markup.loc[probe_ts]}")
-                print(f"    - (原始值) 20日成本涨幅: {cost_change_ratio.loc[probe_ts]:.4f}" if 'cost_change_ratio' in locals() else "N/A")
-                print(f"  - is_high_level_oscillation (高位震荡): {is_high_level_oscillation.loc[probe_ts]}")
-                print(f"    - (原始值) 长期获利盘 > 95%: {is_long_term_winner_saturated.loc[probe_ts]}" if 'is_long_term_winner_saturated' in locals() else "N/A")
-                print(f"    - (原始值) 价格 > 89日均线*1.2: {is_price_at_high_level.loc[probe_ts]}" if 'is_price_at_high_level' in locals() else "N/A")
-                print(f"  - [结论] high_risk_premise (总前提): {high_risk_premise.loc[probe_ts]}")
-
-                print("\n--- [探针-风险规则检查 (仅在总前提为True时有意义)] ---")
-                print(f"  - veto_extreme_profit (获利盘极值): {veto_extreme_profit.loc[probe_ts]}")
-                print(f"  - veto_accel_exhaustion (成本加速衰竭): {veto_accel_exhaustion.loc[probe_ts]}")
-                print(f"  - veto_chip_divergence (筹码顶背离): {veto_chip_divergence.loc[probe_ts]}")
-                print(f"  - [结论] final_risk_mask (最终惩罚掩码): {final_risk_mask.loc[probe_ts]}")
-
-                print("\n--- [探针-最终得分] ---")
-                print(f"  - 惩罚前分数 (entry_score_pre_penalty): {row.get('entry_score_pre_penalty', 'N/A'):.2f}")
-                
-                # 模拟惩罚过程
-                final_score_probe = row.get('entry_score_pre_penalty', 0)
-                if final_risk_mask.loc[probe_ts]:
-                    final_score_probe *= risk_penalty_multiplier
-                    print(f"  - 惩罚后分数 (模拟计算): {final_score_probe:.2f}")
-                else:
-                    print(f"  - 惩罚后分数 (无惩罚): {final_score_probe:.2f}")
-                
-                print("="*27 + f" [黑匣子探针结束: {probe_date_str}] " + "="*27 + "\n")
-
-        except KeyError:
-            print(f"\n[探针信息] 日期 {probe_date_str} 不在数据帧中，无法进行探针分析。\n")
-        except Exception as e:
-            print(f"\n[探针错误] 在执行探针分析时发生错误: {e}\n")
-        # ▲▲▲【代码修改 V194.0】▲▲▲
-
         if final_risk_mask.any():
             df.loc[final_risk_mask, 'entry_score'] *= risk_penalty_multiplier
             print(f"    - [风控-惩罚] 在 {final_risk_mask.sum()} 个高风险交易日，对入场分施加了 {100 - risk_penalty_multiplier*100:.0f}% 的惩罚。")
@@ -294,10 +252,52 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
 
+        # ▼▼▼【代码修改 V195.0】: 智能探针逻辑 ▼▼▼
+        # 1. 自动寻找最新一个买入信号日作为探针目标
+        potential_probe_ts = df[df['signal_entry']].index.max()
+
+        if pd.notna(potential_probe_ts):
+            probe_ts = potential_probe_ts
+            probe_date_str = probe_ts.strftime('%Y-%m-%d')
+            print("\n" + "="*25 + f" [智能探针启动: {probe_date_str}] " + "="*25)
+            row = df.loc[probe_ts]
+            
+            print("\n--- [探针-前提检查] ---")
+            print(f"  - is_high_profit_zone (短期获利盘 > 70%): {is_high_profit_zone.loc[probe_ts]}")
+            print(f"    - (原始值) winner_rate_short_term_D: {row.get('winner_rate_short_term_D', 'N/A')}")
+            print(f"  - is_rapid_markup (20日成本涨幅 > 15%): {is_rapid_markup.loc[probe_ts]}")
+            print(f"    - (原始值) 20日成本涨幅: {cost_change_ratio.loc[probe_ts]:.4f}" if 'cost_change_ratio' in locals() else "N/A")
+            print(f"  - is_high_level_oscillation (高位震荡): {is_high_level_oscillation.loc[probe_ts]}")
+            print(f"    - (原始值) 长期获利盘 > 95%: {is_long_term_winner_saturated.loc[probe_ts]}" if 'is_long_term_winner_saturated' in locals() else "N/A")
+            print(f"    - (原始值) 价格 > 89日均线*1.2: {is_price_at_high_level.loc[probe_ts]}" if 'is_price_at_high_level' in locals() else "N/A")
+            print(f"  - [结论] high_risk_premise (总前提): {high_risk_premise.loc[probe_ts]}")
+
+            print("\n--- [探针-风险规则检查 (仅在总前提为True时有意义)] ---")
+            print(f"  - veto_extreme_profit (获利盘极值): {veto_extreme_profit.loc[probe_ts]}")
+            print(f"  - veto_accel_exhaustion (成本加速衰竭): {veto_accel_exhaustion.loc[probe_ts]}")
+            print(f"  - veto_chip_divergence (筹码顶背离): {veto_chip_divergence.loc[probe_ts]}")
+            print(f"  - [结论] final_risk_mask (最终惩罚掩码): {final_risk_mask.loc[probe_ts]}")
+
+            print("\n--- [探针-最终得分] ---")
+            pre_penalty_score_probe = row.get('entry_score_pre_penalty', 0)
+            final_score_probe = row.get('entry_score', 0)
+            print(f"  - 惩罚前分数 (entry_score_pre_penalty): {pre_penalty_score_probe:.2f}")
+            print(f"  - 惩罚后分数 (entry_score): {final_score_probe:.2f}")
+            if final_score_probe < pre_penalty_score_probe:
+                penalty_pct = (1 - final_score_probe / pre_penalty_score_probe) * 100 if pre_penalty_score_probe > 0 else 0
+                print(f"  - [结论] 分数被惩罚了 {penalty_pct:.0f}%")
+            else:
+                print(f"  - [结论] 分数未被惩罚。")
+            
+            print("="*27 + f" [智能探针结束: {probe_date_str}] " + "="*27 + "\n")
+        else:
+            print("\n[探针信息] 未发现任何买入信号，智能探针未启动。\n")
+        # ▲▲▲【代码修改 V195.0】▲▲▲
+
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V194.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V195.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
