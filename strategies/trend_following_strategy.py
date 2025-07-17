@@ -249,13 +249,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V187.0 风控分级版】
-        - 核心升级: 为“最终风控层”的否决规则增加了“前提条件”。只有在市场进入
-                    明确的“高位”或“强趋势”状态时，才激活最严厉的否决规则，
-                    避免在低波动横盘行情中产生误判。
+        【V189.0 动态自适应版】
+        - 核心升级: 采纳将军建议，将风控前提中的“固定成本阈值”升级为“动态成本阈值”。
+                    该阈值基于成本重心自身的长期均值进行计算，使得风控标准能够
+                    自适应不同股价区间的股票，极大提升了策略的普适性和稳健性。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V187.0 风控分级版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V189.0 动态自适应版】 ======")
         print("======================================================================")
 
         # ... (前面所有步骤保持不变) ...
@@ -332,32 +332,41 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        # ▼▼▼ 为最终风控层增加“前提条件” ▼▼▼
-        print("--- [总指挥] 步骤8: 启动【最终风控层 V1.1 · 分级版】，审查所有买入信号 ---")
+        # ▼▼▼ 采用动态自适应阈值 ▼▼▼
+        print("--- [总指挥] 步骤8: 启动【最终风控层 V1.3 · 动态自适应版】，审查所有买入信号 ---")
         
         # --- 前提条件定义 ---
-        # 只有当市场进入“狂热”或“高位”状态时，才激活严格风控
-        # 条件1: 短期获利盘超过70%
         is_high_profit_zone = df.get('winner_rate_short_term_D', 0) > 70
-        # 条件2: 成本重心在20天内上涨超过15%
+        
         cost_col = 'CHIP_peak_cost_D'
-        is_rapid_markup = False
+        is_rapid_markup = default_series
         if cost_col in df.columns:
             cost_20d_ago = df[cost_col].shift(20)
-            is_rapid_markup = (df[cost_col] / cost_20d_ago - 1) > 0.15
+            
+            # 【核心修正】使用动态阈值替代固定阈值
+            long_term_avg_period = 89 # 长期价值中枢周期
+            min_cost_multiplier = 0.5  # 允许成本低于长期均值的50%
+            
+            # 计算成本的长期均值
+            long_term_avg_cost = df[cost_col].rolling(window=long_term_avg_period, min_periods=long_term_avg_period//2).mean()
+            # 计算动态的“最低有意义成本”
+            dynamic_min_cost_threshold = long_term_avg_cost * min_cost_multiplier
+            
+            # 只有当20天前的成本高于这个动态阈值时，才认为它有意义
+            meaningful_cost_mask = cost_20d_ago > dynamic_min_cost_threshold
+            
+            cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
+            is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
         
-        # 最终的“高风险环境”前提
         high_risk_premise = is_high_profit_zone | is_rapid_markup
+        print(f"    - [风控-前提] 采用动态成本阈值 (基于{long_term_avg_period}日均值 * {min_cost_multiplier}) 进行过滤。")
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天，只有在这些天才会启用最严厉的否决规则。")
 
-        # --- 风控规则应用 (现在都必须先满足 high_risk_premise) ---
-        
-        # 风控规则1: 获利盘极值 + 滞涨
+        # --- 风控规则应用 (逻辑不变) ---
         veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
         if veto_extreme_profit.any():
             print(f"    - [风控-否决] “获利盘极值”风险激活，在 {veto_extreme_profit.sum()} 天禁止买入。")
 
-        # 风控规则2: 成本加速度连续衰竭
         cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
         veto_accel_exhaustion = default_series
         if cost_accel_col in df.columns:
@@ -367,7 +376,6 @@ class TrendFollowStrategy:
             if veto_accel_exhaustion.any():
                 print(f"    - [风控-否决] “成本加速度衰竭”风险激活，在 {veto_accel_exhaustion.sum()} 天禁止买入。")
 
-        # 风控规则3: 筹码顶背离
         veto_chip_divergence = default_series
         price_col = 'close_D'
         if price_col in df.columns and cost_col in df.columns:
@@ -377,10 +385,8 @@ class TrendFollowStrategy:
             if veto_chip_divergence.any():
                 print(f"    - [风控-否决] “筹码顶背离”风险激活，在 {veto_chip_divergence.sum()} 天禁止买入。")
 
-        # 合并所有否决信号
         final_veto_mask = veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence
         
-        # 应用一票否决
         original_signals = df['signal_entry'].sum()
         df.loc[final_veto_mask, 'signal_entry'] = False
         signals_after_veto = df['signal_entry'].sum()
@@ -390,7 +396,7 @@ class TrendFollowStrategy:
         else:
             print(f"    - [风控-裁决] 最终风控层未发现需要干预的高风险信号。")
 
-        print(f"====== 【战术引擎 V187.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V189.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
