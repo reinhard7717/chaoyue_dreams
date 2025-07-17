@@ -606,10 +606,10 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V131.0 职责分离版】
-        - 核心重构: 彻底移除了对波段跟踪模拟器(simulate_wave_tracking)的调用。
-        - 收益: 使实盘引擎的职责更纯粹，只负责生成信号和下放情报，不再执行任何
-                与实时决策无关的回测分析，提升了实盘运行效率和代码清晰度。
+        【V194.0 情报完整性适配版】
+        - 核心升级: 在函数末尾增加了新的逻辑，用于提取并打包“持仓管理引擎”生成的
+                    动态过程记录（如减仓、预警等），确保这些宝贵的过程信息能被
+                    最终的调试报告所捕获和展示。
         """
         df_daily_prepared = all_dfs.get('D')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -626,6 +626,7 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [引擎2-调试] 战术引擎原始分析结果时间范围到: {daily_analysis_df.index.max()}")
 
+        # self.daily_analysis_df 的处理保持不变
         self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
         if 'entry_score' in self.daily_analysis_df.columns:
             self.daily_analysis_df['entry_score'].fillna(0, inplace=True)
@@ -635,6 +636,7 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [引擎2-调试] reindex后，最终 self.daily_analysis_df 时间范围到: {self.daily_analysis_df.index.max()}")
 
+        # 1. 首先，获取由 prepare_db_records 生成的“主要事件”记录（买/卖）
         db_records = self.tactical_engine.prepare_db_records(
             stock_code, 
             self.daily_analysis_df,
@@ -642,7 +644,43 @@ class MultiTimeframeTrendStrategy:
             params=self.unified_config, 
             result_timeframe='D'
         )
-        print(f"    -> [战报记录] 已基于完整分析结果生成 {len(db_records)} 条数据库记录。")
+        print(f"    -> [战报记录] 已基于完整分析结果生成 {len(db_records)} 条主要事件记录。")
+
+        # ▼▼▼【代码修改 V194.0】: 提取并打包持仓过程中的动态记录 ▼▼▼
+        # 2. 接着，提取持仓管理引擎生成的“过程记录”
+        position_management_records = []
+        # 检查持仓管理列是否存在
+        pm_cols = ['trade_action', 'alert_level', 'alert_reason', 'position_size']
+        if all(col in self.daily_analysis_df.columns for col in pm_cols):
+            # 筛选出有意义的过程记录（非空动作，且不是我们已经通过prepare_db_records处理过的ENTRY/EXIT）
+            process_df = self.daily_analysis_df[
+                (self.daily_analysis_df['trade_action'] != '') &
+                (~self.daily_analysis_df['trade_action'].isin(['ENTRY', 'HOLD'])) &
+                (~self.daily_analysis_df['trade_action'].str.startswith('EXIT'))
+            ].copy()
+
+            for timestamp, row in process_df.iterrows():
+                # 将这些过程记录也打包成标准格式
+                record = self._create_signal_record(
+                    stock_code=stock_code,
+                    trade_time=timestamp,
+                    timeframe='D',
+                    strategy_name="POSITION_MANAGEMENT",
+                    close_price=row.get('close_D'),
+                    # 关键：为这些记录设置一个独特的信号类型，以便后续识别
+                    trade_action=row.get('trade_action'), 
+                    alert_level=row.get('alert_level'),
+                    alert_reason=row.get('alert_reason'),
+                    position_size=row.get('position_size'),
+                )
+                position_management_records.append(record)
+            
+            if position_management_records:
+                 print(f"    -> [战报记录] 已从持仓管理引擎中提取 {len(position_management_records)} 条过程记录(如减仓/预警)。")
+
+        # 3. 合并所有记录
+        all_records = db_records + position_management_records
+        # ▲▲▲【代码修改 V194.0】▲▲▲
 
         # 情报下放逻辑保持不变
         cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
@@ -662,7 +700,7 @@ class MultiTimeframeTrendStrategy:
                     )
                     print(f"      - 情报已成功注入 {tf} 分钟数据。")
         
-        return db_records
+        return all_records
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         df_copy = df.copy()
@@ -974,13 +1012,12 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V192.0 指挥链修复版】
-        - 核心修正: 彻底删除了对已被废弃的 simulate_wave_tracking 的调用逻辑。
-                    新的持仓管理模拟已整合进 apply_strategy 流程，无需在此处重复调用。
-                    本函数现在只负责调用总指挥部并展示最终战报。
+        【V194.0 战报系统适配版】
+        - 核心升级: 重构了报告展示逻辑，使其能够识别并清晰地展示由持仓管理引擎
+                    生成的新的战术动作，如“减仓”和“风险预警”。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V192.0 指挥链修复版)] ---")
+        print(f"--- [历史回溯调试启动 (V194.0 战报系统适配版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -995,12 +1032,8 @@ class MultiTimeframeTrendStrategy:
 
             print(f"[成功] 总指挥部运行完毕，共返回 {len(all_records)} 条原始信号记录。")
 
-            # ▼▼▼【代码修改 V192.0】: 清理冗余的模拟器调用逻辑 ▼▼▼
-            # 新的持仓管理模拟器已在 run_for_stock -> _run_tactical_engine -> apply_strategy 中被自动调用
-            # 此处无需也无法再单独调用
             print("\n[步骤 2/3] [调试专属] 正在执行波段跟踪模拟器...")
-            print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======") # 保持日志格式一致性
-            # ▲▲▲【代码修改 V192.0】▲▲▲
+            print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======")
 
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
@@ -1027,11 +1060,13 @@ class MultiTimeframeTrendStrategy:
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
+            # ▼▼▼【代码修改 V194.0】: 升级战报展示逻辑 ▼▼▼
             for record in debug_period_records:
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
                 tf = record['timeframe']
                 
+                # 1. 检查是否是买入信号
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
                     playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
@@ -1039,12 +1074,23 @@ class MultiTimeframeTrendStrategy:
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
                 
+                # 2. 检查是否是硬性卖出信号
                 elif record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
                     reason = record.get('exit_signal_reason', 'N/A')
                     signal_type = f"卖出警报(L{severity})"
                     details = f"原因: {reason}"
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
+
+                # 3. 检查是否是持仓管理引擎生成的动作
+                elif 'trade_action' in record:
+                    action = record['trade_action']
+                    reason = record.get('alert_reason', 'N/A')
+                    position_size = record.get('position_size', 0.0)
+                    signal_type = "战术动作"
+                    details = f"动作: {action} | 原因: {reason} | 剩余仓位: {position_size:.0%}"
+                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<6s}] | {details}")
+            # ▲▲▲【代码修改 V194.0】▲▲▲
 
             print(f"--- [历史回溯调试完成] ---")
             print("=" * 80)
