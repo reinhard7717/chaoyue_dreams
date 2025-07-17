@@ -993,53 +993,47 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V202.4 量化预警版】
-        - 核心升级: 引入对“风险预警”信号的展示逻辑。
-        - 情报升级: 在展示卖出和预警信号时，会附带关键的量化指标，如风险分和斜率，
-                    使得战报更具深度和可操作性。
+        【V202.11 量化情报版】
+        - 核心升级: 在展示“风险预警”和“卖出警报”时，会从 context_snapshot 中
+                    提取关键的量化指标（如斜率）并附加到原因后面，实现从定性到
+                    定量的战报升级。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V202.4 量化预警版)] ---")
+        print(f"--- [历史回溯调试启动 (V202.11 量化情报版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            print(f"\n[步骤 1/3] 正在调用总指挥部 (run_for_stock) 获取完整信号列表...")
             all_records = await self.run_for_stock(stock_code, trade_time=end_date)
-            
             if all_records is None:
                 print("[错误] 总指挥部未能返回任何信号记录。")
                 return
 
-            print(f"[成功] 总指挥部运行完毕，共返回 {len(all_records)} 条原始信号记录。")
-
-            print("\n[步骤 2/3] [调试专属] 正在执行波段跟踪模拟器...")
-            print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======")
-
-            print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
-            
+            print(f"\n[步骤 2/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             start_dt = pd.to_datetime(start_date, utc=True)
             end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
             
             debug_period_records = []
             for rec in all_records:
+                # 确保 rec['trade_time'] 是 timezone-aware
                 rec_time = pd.to_datetime(rec['trade_time'])
-                if rec_time.tzinfo is None: rec_time = rec_time.tz_localize('UTC')
-                else: rec_time = rec_time.tz_convert('UTC')
+                if rec_time.tzinfo is None:
+                    rec_time = rec_time.tz_localize('UTC')
+                else:
+                    rec_time = rec_time.tz_convert('UTC')
+
                 if start_dt <= rec_time <= end_dt:
                     debug_period_records.append(rec)
 
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
-                print("--- [历史回溯调试完成] ---")
                 return
 
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            # ▼▼▼【代码修改 V202.4】: 全新的、支持三级信号体系的展示逻辑 ▼▼▼
             for record in debug_period_records:
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -1048,39 +1042,50 @@ class MultiTimeframeTrendStrategy:
                 signal_type = "未知信号"
                 details = "无详细信息"
                 
-                # 优先级1: 入场信号
-                if record.get('entry_signal'):
+                # ▼▼▼【代码修改 V202.11】: 升级展示逻辑，增加量化指标 ▼▼▼
+                context = record.get('context_snapshot', {})
+                risk_score = context.get('risk_score', 0)
+                reason = record.get('exit_signal_reason', 'N/A')
+
+                # 统一的量化指标提取逻辑
+                quant_details = []
+                if "主峰根基动摇" in reason:
+                    stability_slope = context.get('peak_stability_slope_5d', 'N/A')
+                    if isinstance(stability_slope, float): quant_details.append(f"稳定斜率:{stability_slope:.3f}")
+                if "上方压力积聚" in reason:
+                    pressure_slope = context.get('pressure_above_slope_5d', 'N/A')
+                    if isinstance(pressure_slope, float): quant_details.append(f"压力斜率:{pressure_slope:.3f}")
+                
+                quant_str = f" ({', '.join(quant_details)})" if quant_details else ""
+
+                if record.get('exit_signal_code', 0) > 0:
+                    severity = record.get('exit_severity_level', 0)
+                    signal_type = f"卖出警报(L{severity})"
+                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}{quant_str}"
+                
+                elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
-                    playbooks = [p for p in playbooks if p]
+                    playbooks = record.get('triggered_playbooks_cn', [])
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
                 
-                # 优先级2: 卖出警报
-                elif record.get('exit_signal_code', 0) > 0:
-                    severity = record.get('exit_severity_level', 0)
-                    reason = record.get('exit_signal_reason', 'N/A')
-                    risk_score = record.get('context_snapshot', {}).get('risk_score', 0)
-                    signal_type = f"卖出警报(L{severity})"
-                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
-
-                # 优先级3: 风险预警
-                elif record.get('is_warning'):
-                    reason = record.get('exit_signal_reason', 'N/A')
-                    risk_score = record.get('context_snapshot', {}).get('risk_score', 0)
-                    cost_slope = record.get('context_snapshot', {}).get('cost_slope_5d', 0)
+                elif record.get('is_risk_warning'):
                     signal_type = "风险预警"
-                    details = f"风险分: {risk_score:<3.0f} (成本斜率: {cost_slope:.3f}) | 原因: {reason}"
-
-                # 优先级4: 其他分钟级信号 (如盘中跌破VWAP)
+                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}{quant_str}"
+                
                 elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
                     severity = record.get('exit_severity_level', 0)
                     reason = record.get('exit_signal_reason', 'N/A')
                     signal_type = f"盘中异动(L{severity})"
                     details = f"原因: {reason}"
+                # ▲▲▲【代码修改 V202.11】▲▲▲
 
-                print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
-            # ▲▲▲【代码修改 V202.4】▲▲▲
+                # 只有当信号被识别时才打印
+                if signal_type != "未知信号":
+                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
+                else:
+                    # 对于仍然未知的信号，打印更多调试信息
+                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | 原始记录: {record}")
 
             print(f"--- [历史回溯调试完成] ---")
 

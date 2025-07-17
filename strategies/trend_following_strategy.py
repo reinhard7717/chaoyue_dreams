@@ -1064,39 +1064,43 @@ class TrendFollowStrategy:
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
-        【V57.1 寻路修正版】出场决策引擎
-        - 核心修复: 修正了获取风险阈值参数的路径。之前它错误地在 `strategy_params`
-                    中寻找，现在已校正为直接从顶层的 `exit_strategy_params` 中获取，
-                    确保能正确加载风险等级和代码，从而生成有效的日线出场信号。
+        【V202.11 权限重铸版】出场决策引擎
+        - 核心修复: 彻底重构。此引擎现在只负责处理“真正的卖出信号”。
+                    它会从配置中获取一个明确的“最低卖出风险分”，只有当风险分
+                    超过此值时，才会开始匹配并分配 exit_code。
         """
-        # ▼▼▼【代码修改 V57.1】: 校正参数获取路径，直抵正确的“弹药库”！▼▼▼
-        # 直接从顶层 params 获取 exit_strategy_params，再获取其中的 exit_threshold_params
-        threshold_params = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
-        # ▲▲▲【代码修改 V57.1】▲▲▲
-
+        exit_strategy_params = params.get('exit_strategy_params', {})
+        threshold_params = exit_strategy_params.get('exit_threshold_params', {})
+        
+        # ▼▼▼ 设定“最低开火权限”！▼▼▼
+        # 只有当风险分达到 exit_threshold_params 中定义的最低 level 时，才触发卖出。
+        # 这为“风险预警”留出了明确的安全空间。
         if not threshold_params:
-            # 如果找不到配置，安全退出，不产生任何信号
             return pd.Series(0, index=df.index)
-            
-        # 按风险等级从高到低排序，确保优先匹配高级别风险
+        
+        min_score_for_exit = min(self._get_param_value(config.get('level')) for config in threshold_params.values())
+        
+        # 制作一个“开火许可”面具
+        fire_permission_mask = risk_score >= min_score_for_exit
+        
+        # 如果没有任何一天的风险达到最低卖出标准，则直接返回全0，不产生任何卖出信号
+        if not fire_permission_mask.any():
+            return pd.Series(0, index=df.index)
+
         levels = sorted(threshold_params.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
         
         conditions = []
         choices = []
         
-        print("    - [出场决策引擎 V57.1] 启动，开始根据风险分做出决策...")
         for level_name, config in levels:
             threshold = self._get_param_value(config.get('level'))
             exit_code = self._get_param_value(config.get('code'))
-            conditions.append(risk_score >= threshold)
+            # 条件现在必须同时满足：达到阈值 且 拥有“开火许可”
+            conditions.append((risk_score >= threshold) & fire_permission_mask)
             choices.append(exit_code)
-            print(f"      -> 定义决策规则: 风险分 >= {threshold}，则出场，代码: {exit_code}")
             
         exit_signal = np.select(conditions, choices, default=0)
-        final_exit_signal = pd.Series(exit_signal, index=df.index)
-        
-        print(f"    - [出场决策引擎 V57.1] 决策完成，共产生 { (final_exit_signal > 0).sum() } 个出场信号。")
-        return final_exit_signal
+        return pd.Series(exit_signal, index=df.index)
 
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
