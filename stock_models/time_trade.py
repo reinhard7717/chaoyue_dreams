@@ -1136,6 +1136,7 @@ class AdvancedChipMetrics(models.Model):
 
     winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例")
     winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例")
+    total_winner_rate = models.FloatField(verbose_name='总获利盘(%)', null=True, blank=True, help_text="持仓成本低于当天收盘价的筹码总比例")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="当天是否存在多个显著的筹码峰")
     secondary_peak_cost = models.FloatField(verbose_name='次筹码峰成本', null=True, blank=True, help_text="如果存在，第二大筹码峰的成本价")
     peak_distance_ratio = models.FloatField(verbose_name='主次峰距离比', null=True, blank=True, help_text="主次峰成本价的距离 / 主峰成本价")
