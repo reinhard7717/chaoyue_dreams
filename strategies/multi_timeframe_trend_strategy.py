@@ -993,24 +993,36 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V202.13 风险仪表盘版】
-        - 核心升级: 彻底重构战报展示逻辑。不再手动拼接原始斜率，而是调用
-                    全新的 `_get_quantified_risk_details` 方法，生成包含
-                    (得分/100) 格式的、高度直观的“智能战报”。
+        【V202.14 战报简化版】
+        - 核心升级: 极大地简化了此方法。由于所有情报在生成时已被量化并存入
+                    数据库，本方法不再需要进行任何复杂的翻译工作，只需直接
+                    从记录中读取 `exit_signal_reason` 并展示即可。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V202.13 风险仪表盘版)] ---")
-        # ... (前面的代码保持不变) ...
+        print(f"--- [历史回溯调试启动 (V202.14 战报简化版)] ---")
+        print(f"    -> 股票代码: {stock_code}")
+        print(f"    -> 回测时段: {start_date} to {end_date}")
+        print("=" * 80)
+
         try:
             all_records = await self.run_for_stock(stock_code, trade_time=end_date)
             if all_records is None: return
             print(f"\n[步骤 2/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             start_dt = pd.to_datetime(start_date, utc=True)
             end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
-            debug_period_records = [rec for rec in all_records if start_dt <= pd.to_datetime(rec['trade_time']).tz_convert('UTC') <= end_dt]
+            
+            debug_period_records = []
+            for rec in all_records:
+                rec_time = pd.to_datetime(rec['trade_time'])
+                if rec_time.tzinfo is None: rec_time = rec_time.tz_localize('UTC')
+                else: rec_time = rec_time.tz_convert('UTC')
+                if start_dt <= rec_time <= end_dt:
+                    debug_period_records.append(rec)
+
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
+
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
@@ -1021,17 +1033,16 @@ class MultiTimeframeTrendStrategy:
                 signal_type = "未知信号"
                 details = "无详细信息"
                 
-                # ▼▼▼【代码修改 V202.13】: 调用“风险量化器”生成智能战报 ▼▼▼
                 context = record.get('context_snapshot', {})
                 risk_score = context.get('risk_score', 0)
                 
-                # 统一调用风险量化器
-                quantified_reason = self._get_quantified_risk_details(record)
+                # ▼▼▼【代码修改 V202.14】: 直接读取，无需翻译！▼▼▼
+                reason = record.get('exit_signal_reason') or "原因未知"
 
                 if record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
                     signal_type = f"卖出警报(L{severity})"
-                    details = f"风险分: {risk_score:<3.0f} | 原因: {quantified_reason}"
+                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
                 
                 elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
@@ -1041,13 +1052,12 @@ class MultiTimeframeTrendStrategy:
                 
                 elif record.get('is_risk_warning'):
                     signal_type = "风险预警"
-                    details = f"风险分: {risk_score:<3.0f} | 原因: {quantified_reason}"
+                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
                 
                 elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
-                    reason = record.get('exit_signal_reason', '原因未知')
                     signal_type = f"盘中异动"
                     details = f"原因: {reason}"
-                # ▲▲▲【代码修改 V202.13】▲▲▲
+                # ▲▲▲【代码修改 V202.14】▲▲▲
 
                 if signal_type != "未知信号":
                     print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
