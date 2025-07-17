@@ -116,13 +116,13 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V196.0 安全探针版】
-        - 核心修复: 修复了探针代码在处理非Series对象时引发的AttributeError。
-                    引入了一个安全的辅助函数 `_get_value_at_probe_ts`，确保在
-                    访问任何变量前都进行类型检查，从而保证了探针的健壮性。
+        【V197.0 最终修正版】
+        - 核心修复: 修正了策略层使用错误的（未加CHIP_前缀）列名来获取获利盘数据
+                    的根本性错误。更新了所有相关代码，确保其能正确读取由数据
+                    服务层标准化处理后的特征名称，从而彻底打通数据链路。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V196.0 安全探针版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V197.0 最终修正版】 ======")
         print("======================================================================")
 
         # ... (步骤1 到 6 的代码保持不变) ...
@@ -166,7 +166,9 @@ class TrendFollowStrategy:
         atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
         atomic_states['EMA_DEATH_CROSS'] = df.get('EMA_5_D', np.inf) < df.get('EMA_21_D', -np.inf)
         atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
-        is_extreme_winner_rate = df.get('winner_rate_D', 0) > 98
+        # ▼▼▼【代码修改 V197.0】: 使用正确的列名 ▼▼▼
+        is_extreme_winner_rate = df.get('CHIP_winner_rate_long_term_D', 0) > 98
+        # ▲▲▲【代码修改 V197.0】▲▲▲
         is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
@@ -193,12 +195,13 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.8 · 安全探针版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.9 · 最终修正版】，审查所有得分 ---")
         
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
 
         # --- 前提条件定义 ---
-        is_high_profit_zone = df.get('winner_rate_short_term_D', 0) > 70
+        # ▼▼▼【代码修改 V197.0】: 使用正确的列名 ▼▼▼
+        is_high_profit_zone = df.get('CHIP_winner_rate_short_term_D', 0) > 70
         
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
@@ -213,12 +216,13 @@ class TrendFollowStrategy:
             is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
         
         is_high_level_oscillation = default_series
-        long_winner_rate_col = 'winner_rate_long_term_D'
+        long_winner_rate_col = 'CHIP_winner_rate_long_term_D' # 使用正确的列名
         long_ma_col = 'EMA_89_D'
         if long_winner_rate_col in df.columns and long_ma_col in df.columns:
             is_long_term_winner_saturated = df[long_winner_rate_col] > 95
             is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
             is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
+        # ▲▲▲【代码修改 V197.0】▲▲▲
         
         high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
@@ -252,14 +256,12 @@ class TrendFollowStrategy:
         score_threshold = self._get_param_value(entry_scoring_params.get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
 
-        # ▼▼▼【代码修改 V196.0】: 智能且安全的探针逻辑 ▼▼▼
-        # 0. 定义一个安全的取值辅助函数
+        # ▼▼▼【代码修改 V197.0】: 更新探针以使用正确的列名 ▼▼▼
         def _get_value_at_probe_ts(data, ts):
             if isinstance(data, pd.Series):
                 return data.loc[ts] if ts in data.index else 'N/A (不在索引中)'
-            return data # 如果不是Series，直接返回值
+            return data
 
-        # 1. 自动寻找最新一个买入信号日作为探针目标
         potential_probe_ts = df[df['signal_entry']].index.max()
 
         if pd.notna(potential_probe_ts):
@@ -270,7 +272,7 @@ class TrendFollowStrategy:
             
             print("\n--- [探针-前提检查] ---")
             print(f"  - is_high_profit_zone (短期获利盘 > 70%): {_get_value_at_probe_ts(is_high_profit_zone, probe_ts)}")
-            print(f"    - (原始值) winner_rate_short_term_D: {row.get('winner_rate_short_term_D', 'N/A')}")
+            print(f"    - (原始值) CHIP_winner_rate_short_term_D: {row.get('CHIP_winner_rate_short_term_D', 'N/A')}")
             print(f"  - is_rapid_markup (20日成本涨幅 > 15%): {_get_value_at_probe_ts(is_rapid_markup, probe_ts)}")
             cost_change_ratio_val = _get_value_at_probe_ts(cost_change_ratio, probe_ts) if 'cost_change_ratio' in locals() else "N/A"
             print(f"    - (原始值) 20日成本涨幅: {cost_change_ratio_val:.4f}" if isinstance(cost_change_ratio_val, (int, float)) else cost_change_ratio_val)
@@ -299,12 +301,12 @@ class TrendFollowStrategy:
             print("="*27 + f" [智能探针结束: {probe_date_str}] " + "="*27 + "\n")
         else:
             print("\n[探针信息] 未发现任何买入信号，智能探针未启动。\n")
-        # ▲▲▲【代码修改 V196.0】▲▲▲
+        # ▲▲▲【代码修改 V197.0】▲▲▲
 
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V196.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V197.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
