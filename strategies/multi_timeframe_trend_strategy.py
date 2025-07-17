@@ -991,51 +991,6 @@ class MultiTimeframeTrendStrategy:
                 return classic_reversal | is_turning_up_after_dip
         return pd.Series(False, index=df.index)
 
-    def _get_quantified_risk_details(self, record: Dict) -> str:
-        """
-        【V202.13 新增】风险量化器 (Risk Quantifier)
-        - 核心功能: 读取配置文件中的量化模型，将原始指标翻译成 0-100 的直观风险分。
-        """
-        quantifier_params = self._get_params_block(self.params, 'risk_quantifier_params', {})
-        if not self._get_param_value(quantifier_params.get('enabled'), False):
-            return ""
-
-        context = record.get('context_snapshot', {})
-        reason_str = record.get('exit_signal_reason', "") or ""
-        
-        quantified_parts = []
-        
-        # 遍历配置中定义的所有可量化风险
-        for risk_key, config in quantifier_params.items():
-            if not isinstance(config, dict): continue
-            
-            cn_name = config.get('cn_name')
-            # 只有当战报原因中确实包含此风险时，才进行量化翻译
-            if cn_name and cn_name in reason_str:
-                metric_key = config.get('source_metric')
-                raw_value = context.get(metric_key)
-                
-                if raw_value is None or not isinstance(raw_value, (int, float)):
-                    continue
-
-                # 读取Sigmoid模型参数
-                direction = config.get('direction', 1)
-                center = config.get('center_point', 0)
-                steepness = config.get('steepness', 1)
-                
-                # 应用Sigmoid函数进行计算: 1 / (1 + e^(-k*(x-x0)))
-                try:
-                    # 核心公式，将任意值映射到 0-1 区间
-                    normalized_score = 1 / (1 + np.exp(-steepness * direction * (raw_value - center)))
-                    # 转换为 0-100 的整数分
-                    final_score = int(normalized_score * 100)
-                    quantified_parts.append(f"{cn_name}({final_score}/100)")
-                except (OverflowError, ValueError):
-                    # 如果计算出错，则跳过
-                    continue
-        
-        return ", ".join(quantified_parts) if quantified_parts else reason_str
-
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
         【V202.13 风险仪表盘版】

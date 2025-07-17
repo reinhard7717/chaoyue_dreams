@@ -206,13 +206,64 @@ class TrendFollowStrategy:
         unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
         return unconditional_deterioration & ~is_in_divergence_window
 
+    def _quantify_risk_reasons(self, record: Dict) -> str:
+        """
+        【V202.14 新增】风险量化器 (Risk Quantifier)
+        - 核心职责: 读取配置文件中的量化模型，将原始风险原因(如'主峰根基动摇')
+                    翻译成包含 0-100 直观风险分的“仪表盘”读数。
+        - 所属单位: TrendFollowStrategy (因为它拥有参数解析器 _get_params_block)
+        """
+        # ▼▼▼【代码修改 V202.14】: 使用 self._get_params_block 获取配置 ▼▼▼
+        quantifier_params = self._get_params_block(self.daily_params, 'risk_quantifier_params', {})
+        if not self._get_param_value(quantifier_params.get('enabled'), False):
+            # 如果被禁用，则返回原始的、未量化的原因
+            return record.get('exit_signal_reason', "") or ""
+        # ▲▲▲【代码修改 V202.14】▲▲▲
+
+        context = record.get('context_snapshot', {})
+        # 从 triggered_playbooks_cn 获取最原始、最干净的原因列表
+        reason_list = record.get('triggered_playbooks_cn', [])
+        if not reason_list:
+            return record.get('exit_signal_reason', "原因未知")
+
+        quantified_parts = []
+        
+        for risk_key, config in quantifier_params.items():
+            if not isinstance(config, dict): continue
+            
+            cn_name = config.get('cn_name')
+            # 检查当前风险原因是否在需要量化的列表中
+            if cn_name and cn_name in reason_list:
+                metric_key = config.get('source_metric')
+                raw_value = context.get(metric_key)
+                
+                if raw_value is None or not isinstance(raw_value, (int, float)):
+                    quantified_parts.append(cn_name) # 如果没有量化数据，则只显示名称
+                    continue
+
+                direction = config.get('direction', 1)
+                center = config.get('center_point', 0)
+                steepness = config.get('steepness', 1)
+                
+                try:
+                    normalized_score = 1 / (1 + np.exp(-steepness * direction * (raw_value - center)))
+                    final_score = int(normalized_score * 100)
+                    quantified_parts.append(f"{cn_name}({final_score}/100)")
+                except (OverflowError, ValueError):
+                    quantified_parts.append(cn_name) # 计算出错则只显示名称
+        
+        # 处理那些不在量化配置中的其他原因
+        unquantified_reasons = [reason for reason in reason_list if not any(reason in qp for qp in quantified_parts)]
+        
+        # 将量化后的部分和未量化的部分合并
+        final_parts = quantified_parts + unquantified_reasons
+        return ", ".join(final_parts) if final_parts else "综合风险"
+
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.8 预警体系修复版】统一战报司令部
-        - 核心修复: 修正了在计算 exit_severity_level 时，获取风险阈值配置的致命路径错误。
-                    确保了风险等级(L1,L2,L3)能被正确计算和分配。
-        - 体系恢复: 此修复使得风险分低于最低卖出阈值的信号，能够正确地被 is_warning 逻辑捕获，
-                    从而真正地生成“风险预警”信号，恢复了完整的三级信号体系。
+        【V202.14 情报量化存档版】统一战报司令部
+        - 核心升级: 在生成风险/预警记录后，立刻调用全新的 `_quantify_risk_reasons`
+                    方法，将原因翻译成量化格式，然后再存入数据库。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
         if not all(col in result_df.columns for col in required_cols):
@@ -220,11 +271,10 @@ class TrendFollowStrategy:
             return []
         
         df_with_signals = result_df[
-            (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0) | (result_df['risk_score'] > 0)
+            (result_df['signal_entry'] == True) | (result_df['risk_score'] > 0)
         ].copy()
 
-        if df_with_signals.empty:
-            return []
+        if df_with_signals.empty: return []
         
         records = []
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
@@ -233,44 +283,44 @@ class TrendFollowStrategy:
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
         
+        exit_strategy_cfg = params.get('exit_strategy_params', {})
+        warning_thresholds = exit_strategy_cfg.get('warning_threshold_params', {})
+        min_warning_level = min([cfg['level'] for cfg in warning_thresholds.values()]) if warning_thresholds else 30
+
         for timestamp, row in df_with_signals.iterrows():
             is_entry = bool(row.get('signal_entry', False))
             exit_code = int(row.get('exit_signal_code', 0))
             risk_score = row.get('risk_score', 0.0)
             is_exit = exit_code > 0
-            # 只有在既不卖出也不买入时，才可能是预警
-            is_warning = risk_score > 0 and not is_exit and not is_entry
+            is_warning = risk_score >= min_warning_level and not is_exit and not is_entry
 
-            # 优先级1: 卖出信号 (生存高于一切)
             if is_exit:
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['exit_signal_code'] = exit_code
-                
                 self._fill_risk_details(record, row, risk_playbook_map)
                 
-                # ▼▼▼【代码修改 V202.8】: 从正确的路径获取“严重等级定义手册”！▼▼▼
-                exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
-                # ▲▲▲【代码修改 V202.8】▲▲▲
-                
+                # ▼▼▼【代码修改 V202.14】: 在存档前，对情报进行量化翻译！▼▼▼
+                record['exit_signal_reason'] = self._quantify_risk_reasons(record)
+                # ▲▲▲【代码修改 V202.14】▲▲▲
+
+                exit_thresholds = exit_strategy_cfg.get('exit_threshold_params', {})
                 sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
                 severity_level = 0
                 for level_name, config in sorted_levels:
                     if exit_code == self._get_param_value(config.get('code')):
                         if level_name == "CRITICAL": severity_level = 3
                         elif level_name == "HIGH": severity_level = 2
-                        elif level_name == "MEDIUM": severity_level = 1
                         break
                 record['exit_severity_level'] = severity_level
                 records.append(record)
                 continue
 
-            # 优先级2: 买入信号 (确认安全后，方可进攻)
             elif is_entry:
+                # ... 买入信号逻辑保持不变 ...
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['entry_signal'] = True
                 record['entry_score'] = row.get('entry_score', 0.0)
                 record['stable_platform_price'] = row.get('PLATFORM_PRICE_STABLE')
-                
                 playbooks_list = []
                 if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                     playbooks_with_scores = self._last_score_details_df.loc[timestamp]
@@ -279,20 +329,23 @@ class TrendFollowStrategy:
                     playbooks_list = [item for item in active_items if not item.startswith(excluded_prefixes)]
                 record['triggered_playbooks'] = playbooks_list
                 record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
-                
                 record['context_snapshot']['risk_score'] = risk_score
                 records.append(record)
                 continue
 
-            # 优先级3: 风险预警 (既不卖出也不买入时，保持观察)
             elif is_warning:
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['is_risk_warning'] = True
-                
                 self._fill_risk_details(record, row, risk_playbook_map)
+                
+                # ▼▼▼【代码修改 V202.14】: 在存档前，对情报进行量化翻译！▼▼▼
+                record['exit_signal_reason'] = self._quantify_risk_reasons(record)
+                # ▲▲▲【代码修改 V202.14】▲▲▲
+                
                 records.append(record)
             
         return records
+
     def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
         """【V202.6 辅助函数】创建标准化的数据库记录模板"""
         return {
