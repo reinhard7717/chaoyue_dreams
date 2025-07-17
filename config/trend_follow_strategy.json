@@ -488,5 +488,84 @@
 
     "min_absolute_risk_for_veto": 30,
     "说明_min_risk": "触发否决的最低绝对风险分。用于避免一个极低的风险分(如5分)否决一个同样很低的买入分(如10分)。"
+  },
+  "risk_quantifier_params": {
+    "enabled": true,
+    "说明": "【V99.0 风险仪表盘】将原始风险指标翻译成 0-100 的直观得分。",
+    
+    "peak_stability": {
+      "cn_name": "主峰根基动摇",
+      "source_metric": "peak_stability_slope_5d",
+      "direction": -1,
+      "说明_direction": "风险方向, -1代表数值越小风险越高(如斜率为负)",
+      "center_point": -1.0,
+      "说明_center": "中心点, 代表此数值对应50分风险",
+      "steepness": 2.0,
+      "说明_steepness": "陡峭度, 数值越大, 风险在中心点附近变化越剧烈"
+    },
+    "pressure_above": {
+      "cn_name": "上方压力积聚",
+      "source_metric": "pressure_above_slope_5d",
+      "direction": 1,
+      "说明_direction": "风险方向, 1代表数值越大风险越高(如斜率为正)",
+      "center_point": 0.8,
+      "steepness": 3.0
+    },
+    "cost_decay": {
+      "cn_name": "筹码成本衰竭",
+      "source_metric": "cost_slope_5d",
+      "direction": -1,
+      "center_point": -0.5,
+      "steepness": 2.5
+    },
+    "winner_evaporation": {
+      "cn_name": "获利盘蒸发",
+      "source_metric": "winner_rate_slope_5d",
+      "direction": -1,
+      "center_point": -2.0,
+      "steepness": 1.5
+    }
+  },
+  "position_management_params": {
+    "enabled": true,
+    "说明": "【V100.0 标准作战条例】定义了从建仓、加仓到止盈止损的全流程战术动作。",
+
+    "initial_sizing": {
+      "enabled": true,
+      "sizing_model": "FIXED_RISK_PERCENT",
+      "说明_model": "军力部署模型。FIXED_RISK_PERCENT: 基于总资金的固定风险百分比建仓，确保任何单次失利都在可控范围内。这是最专业的资金管理模式。计算公式: 仓位规模 = (总资金 * 风险百分比) / (入场价 - 止损价)",
+      "risk_per_trade_percent": 2.0,
+      "说明_risk_pct": "单笔交易愿意承受的最大风险，占总资金的百分比 (例如2.0代表2%)。这是我军的生命线！"
+    },
+
+    "stop_loss": {
+      "enabled": true,
+      "initial_stop_model": "PLATFORM_SUPPORT",
+      "说明_initial": "最后防线模型。PLATFORM_SUPPORT: 使用我们之前精心计算出的'稳固筹码平台'价格(stable_platform_price)作为初始止损位，具备极强的战术意义。",
+      "atr_multiplier_for_platform": 0.5,
+      "说明_atr_platform": "在平台价格下方再增加 N 倍的ATR作为缓冲，防止被精准的假跌破清除出场。设为0则不使用缓冲。",
+      "min_stop_loss_percent": 4.0,
+      "说明_min_pct": "为防止止损位因平台过近而过于贴近成本价，强制设置一个最小的止损幅度(例如4%)，保证部队有足够的腾挪空间。"
+    },
+
+    "trailing_stop": {
+      "enabled": true,
+      "trailing_model": "MOVING_AVERAGE",
+      "说明_trailing": "锁定利润模型。让利润顺着趋势奔跑，同时保护已有战果。MOVING_AVERAGE: 当价格收盘有效跌破指定的移动平均线时，全线止盈。",
+      "ma_type": "EMA",
+      "ma_period": 20,
+      "说明_ma": "移动止盈使用的均线类型(EMA/SMA)和周期。EMA20是中期趋势的经典生命线。"
+    },
+
+    "pyramiding": {
+      "enabled": false,
+      "说明": "乘胜追击（金字塔加仓）规则。在优势战局下扩大战果，但需谨慎使用。",
+      "trigger_condition": "NEW_BUY_SIGNAL",
+      "说明_trigger": "加仓的触发条件。NEW_BUY_SIGNAL: 出现新的、评分达标的买入信号时。",
+      "add_size_ratio": 0.5,
+      "说明_add_size": "加仓规模，是初始仓位的比例 (例如0.5代表加仓初始仓位的一半)。",
+      "max_pyramid_count": 2,
+      "说明_max_count": "最大允许的加仓次数，防止在趋势末期过度投入兵力。"
+    }
   }
 }

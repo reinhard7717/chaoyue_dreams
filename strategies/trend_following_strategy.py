@@ -2295,6 +2295,7 @@ class TrendFollowStrategy:
         
         print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
         return df# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
+
     def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
         """
         【V190.0 新增】战术预警诊断模块
@@ -2336,90 +2337,6 @@ class TrendFollowStrategy:
              return 2, "动态趋势呈现顶背离"
 
         return 0, "No Alert"
-    # ▲▲▲【代码新增 V190.0】▲▲▲
-
-    # ▼▼▼ 支持动态仓位管理的模拟引擎 ▼▼▼
-    def _run_position_management_simulation(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
-        """
-        【V190.0 新增】战术持仓管理模拟引擎
-        - 核心功能: 模拟一个完整的交易周期，包括入场、持仓、风险预警、动态减仓和最终离场。
-        - 输出: 在DataFrame中增加仓位状态、预警级别、交易动作等列，用于最终分析。
-        """
-        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
-        
-        # --- 1. 参数初始化 ---
-        sim_params = self._get_params_block(params, 'position_management_params', {})
-        if not self._get_param_value(sim_params.get('enabled'), False):
-            print("    - 持仓管理模拟被禁用，跳过。")
-            return df
-
-        # 从配置中读取减仓比例
-        level_2_reduction = self._get_param_value(sim_params.get('level_2_alert_reduction_pct'), 0.3)
-        level_3_reduction = self._get_param_value(sim_params.get('level_3_alert_reduction_pct'), 0.5)
-        
-        # 初始化状态列
-        df['position_size'] = 0.0
-        df['alert_level'] = 0
-        df['alert_reason'] = ''
-        df['trade_action'] = ''
-
-        # 初始化状态变量
-        in_position = False
-        position_size = 0.0
-        entry_price = 0.0
-        partial_exit_level_2_done = False # 标记L2减仓是否已执行，避免重复减仓
-
-        # --- 2. 逐日迭代，模拟交易状态机 ---
-        for row in df.itertuples():
-            current_date = row.Index
-            
-            if not in_position:
-                # --- 入场逻辑 ---
-                if row.signal_entry:
-                    in_position = True
-                    position_size = 1.0
-                    entry_price = row.close_D
-                    partial_exit_level_2_done = False # 重置减仓标记
-                    df.loc[current_date, 'trade_action'] = 'ENTRY'
-            else:
-                # --- 持仓期间的逻辑 ---
-                
-                # a. 检查硬性离场信号 (最高优先级)
-                if row.exit_signal_code > 0:
-                    in_position = False
-                    position_size = 0.0
-                    df.loc[current_date, 'trade_action'] = f'EXIT (Code:{row.exit_signal_code})'
-                    df.loc[current_date, 'position_size'] = position_size
-                    continue # 当天直接离场，不再执行后续预警判断
-
-                # b. 检查战术预警信号
-                alert_level, alert_reason = self._check_tactical_alerts(row, params)
-                df.loc[current_date, 'alert_level'] = alert_level
-                df.loc[current_date, 'alert_reason'] = alert_reason
-
-                # c. 根据预警级别执行仓位调整
-                if alert_level == 3: # 红色预警
-                    if position_size > 0:
-                        reduction_amount = position_size * level_3_reduction
-                        position_size -= reduction_amount
-                        df.loc[current_date, 'trade_action'] = f'REDUCE_L3 ({level_3_reduction:.0%})'
-                
-                elif alert_level == 2 and not partial_exit_level_2_done: # 橙色预警，且尚未执行过
-                    if position_size > 0:
-                        reduction_amount = position_size * level_2_reduction
-                        position_size -= reduction_amount
-                        df.loc[current_date, 'trade_action'] = f'REDUCE_L2 ({level_2_reduction:.0%})'
-                        partial_exit_level_2_done = True # 标记已执行
-                
-                # d. 如果没有交易动作，则标记为持仓
-                if df.loc[current_date, 'trade_action'] == '':
-                    df.loc[current_date, 'trade_action'] = 'HOLD'
-
-            # 更新每日的最终仓位
-            df.loc[current_date, 'position_size'] = position_size
-        
-        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
-        return df
 
     # ▼▼▼ 风险剧本的静态“蓝图”知识库 ▼▼▼
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
