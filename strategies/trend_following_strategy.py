@@ -116,14 +116,15 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V201.0 动态情报武装版】
-        - 核心升级: 将新的动态斜率原子状态全面融入计分引擎和风险控制层，
-                    使得策略能够奖励动态优势，并惩罚动态劣势。
+        【V202.0 动态防御版】
+        - 核心升级: 将 risk_details_df 保存到实例变量 self._last_risk_details_df，
+                    以便总指挥部可以调阅，生成详细的每日风险报告。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V201.0 动态情报武装版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V202.0 动态防御版】 ======")
         print("======================================================================")
 
+        # ... (步骤1-5 保持不变) ...
         if df is None or df.empty:
             return pd.DataFrame(), {}
         
@@ -169,15 +170,6 @@ class TrendFollowStrategy:
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
 
-        # ▼▼▼【代码新增 V201.0】: 将新的动态优势状态注入评分引擎 ▼▼▼
-        # 注意：这些状态现在可以在计分引擎的JSON配置中被引用，作为加分项
-        # 例如，在 `four_layer_scoring_params` -> `dynamic_scoring` -> `positive_signals` 中加入：
-        # "CHIP_STATE_WINNER_RATE_ACCELERATING": 80,
-        # "CHIP_STATE_PEAK_CONSOLIDATING": 50,
-        # "CHIP_STATE_PRESSURE_DISSOLVING": 30
-        print("    - [情报注入] 新的动态筹码优势状态已准备就绪，可供计分引擎使用。")
-        # ▲▲▲【代码新增 V201.0】▲▲▲
-
         print("--- [总指挥] 步骤4: 触发事件定义引擎启动 ---")
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
@@ -198,13 +190,13 @@ class TrendFollowStrategy:
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
+        # ▼▼▼【代码修改 V202.0】: 保存风险归因报告 ▼▼▼
+        self._last_risk_details_df = risk_details_df
+        # ▲▲▲【代码修改 V202.0】▲▲▲
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
         print("--- [总指挥] 步骤7: 启动【最终风控层 V2.1 · 动态情报武装版】，审查所有得分 ---")
-        
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
-
-        # --- 前提条件定义 (保持不变) ---
         is_high_profit_zone = df.get('CHIP_winner_rate_short_term_D', 0) > 70
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
@@ -224,11 +216,8 @@ class TrendFollowStrategy:
             is_long_term_winner_saturated = df[long_winner_rate_col] > 95
             is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
             is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
-        
         high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
-
-        # --- 风险识别与惩罚 ---
         veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
         cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
         veto_accel_exhaustion = default_series
@@ -250,21 +239,11 @@ class TrendFollowStrategy:
             veto_total_profit_saturation = is_saturated & is_not_strong_breakout
             if veto_total_profit_saturation.any():
                  print(f"    - [风控-否决] “总获利盘饱和”风险激活 {veto_total_profit_saturation.sum()} 天。")
-        
-        # ▼▼▼【代码新增 V201.0】: 将新的动态风险注入风控层 ▼▼▼
         veto_profit_taking_imminent = atomic_states.get('CHIP_RISK_PROFIT_TAKING_IMMINENT', default_series)
         if veto_profit_taking_imminent.any():
             print(f"    - [风控-否决] “获利盘扩张停滞”风险激活 {veto_profit_taking_imminent.sum()} 天。")
-        # ▲▲▲【代码新增 V201.0】▲▲▲
-
-        # 将所有风险规则加入最终的风险掩码
-        final_risk_mask = (veto_extreme_profit | 
-                           veto_accel_exhaustion | 
-                           veto_chip_divergence | 
-                           veto_total_profit_saturation |
-                           veto_profit_taking_imminent) # 新增风险
+        final_risk_mask = (veto_extreme_profit | veto_accel_exhaustion | veto_chip_divergence | veto_total_profit_saturation | veto_profit_taking_imminent)
         risk_penalty_multiplier = 0.2
-        
         if final_risk_mask.any():
             df.loc[final_risk_mask, 'entry_score'] *= risk_penalty_multiplier
             print(f"    - [风控-惩罚] 在 {final_risk_mask.sum()} 个高风险交易日，对入场分施加了 {100 - risk_penalty_multiplier*100:.0f}% 的惩罚。")
@@ -279,8 +258,8 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V201.0】执行完毕 ======")
-        return df, {}
+        print(f"====== 【战术引擎 V202.0】执行完毕 ======")
+        return df, atomic_states
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
