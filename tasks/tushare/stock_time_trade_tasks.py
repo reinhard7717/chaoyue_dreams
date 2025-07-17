@@ -1083,10 +1083,10 @@ def refetch_incomplete_cyq_chips(self, record_threshold=1000):
     # 定义所有需要检查的筹码分布数据表模型
     chips_models = [
         StockCyqChipsCY,
-        StockCyqChipsSZ,
-        StockCyqChipsKC,
-        StockCyqChipsSH,
-        StockCyqChipsBJ,
+        # StockCyqChipsSZ,
+        # StockCyqChipsKC,
+        # StockCyqChipsSH,
+        # StockCyqChipsBJ,
     ]
     # 使用集合来存储需要重新拉取数据的股票代码，以自动处理重复项
     stocks_to_refetch = set()
@@ -1126,7 +1126,7 @@ def refetch_incomplete_cyq_chips(self, record_threshold=1000):
                 print(f"为股票 {stock_code} 创建数据拉取任务。")
                 # 调用已有的 `save_cyq_chips_history_batch` 任务来拉取数据。
                 # 我们只传递 ts_code，让任务使用其默认的日期范围（通常是全量拉取）。
-                save_cyq_chips_history_batch.delay(ts_code=stock_code)
+                save_cyq_chips_history_batch.delay(ts_code=stock_code, start_date=None, end_date=None)
             print(f"已为 {total_count} 只股票成功分发任务。")
             logger.info(f"已为 {total_count} 只股票成功分发任务。")
         return f"任务完成。共检查 {len(chips_models)} 个表，为 {total_count} 只股票分发了更新任务。"
