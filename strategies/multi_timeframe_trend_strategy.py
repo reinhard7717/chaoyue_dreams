@@ -691,26 +691,20 @@ class MultiTimeframeTrendStrategy:
     # ▼▼▼ “每日风险书记官”方法 ▼▼▼
     def _generate_daily_risk_signals(self, stock_code: str, daily_analysis_df: pd.DataFrame, params: dict) -> List[Dict[str, Any]]:
         """
-        【V202.2 致命错误修复版】每日风险书记官
-        - 核心修复: 修复了当 'risk_score' 列不存在时，会因 `df.get()` 返回默认值
-                    而导致 `KeyError: False` 的致命错误。新的逻辑会先安全地检查
-                    列是否存在，然后再生成布尔掩码进行筛选，确保程序的绝对健壮性。
+        【V202.3 致命错误修复版】每日风险书记官
+        - 核心修复: 修复了因调用不存在的辅助方法 `_get_params_block` 而导致的
+                    `AttributeError`。新的逻辑使用标准的、安全的字典访问方法
+                    直接从完整的配置对象中获取所需参数，彻底解决了跨类依赖问题。
         """
         # 1. 获取风险剧本的定义，用于翻译原因
         risk_playbooks = self.tactical_engine._get_risk_playbook_blueprints()
         risk_playbook_map = {bp['name']: bp.get('cn_name', bp['name']) for bp in risk_playbooks}
 
-        # ▼▼▼【代码修改 V202.2】: 修复致命的KeyError: False错误 ▼▼▼
         # 2. 安全地筛选出所有产生了风险分的交易日
-        # 步骤A: 首先检查 'risk_score' 列是否存在
         if 'risk_score' not in daily_analysis_df.columns:
-            # 如果不存在，直接返回空列表，因为不可能有风险信号
             return []
-            
-        # 步骤B: 如果列存在，则创建布尔掩码并进行筛选
         mask = daily_analysis_df['risk_score'] > 0
         risk_days_df = daily_analysis_df[mask].copy()
-        # ▲▲▲【代码修改 V202.2】▲▲▲
         
         if risk_days_df.empty:
             return []
@@ -718,39 +712,44 @@ class MultiTimeframeTrendStrategy:
         # 3. 获取风险归因的详细报告
         risk_details_df = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
 
+        # ▼▼▼【代码修改 V202.3】: 修复 AttributeError ▼▼▼
+        # 4. 直接、安全地从完整的配置对象(params)中获取风险阈值
+        exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
+        # 按风险等级从高到低排序，确保优先匹配高级别风险
+        sorted_levels = sorted(exit_thresholds.items(), key=lambda item: item[1].get('level', 0), reverse=True)
+        # ▲▲▲【代码修改 V202.3】▲▲▲
+
         records = []
         for timestamp, row in risk_days_df.iterrows():
             exit_code = int(row.get('exit_signal_code', 0))
             
-            # 4. 找出当天具体是哪些风险剧本被触发了
+            # 5. 找出当天具体是哪些风险剧本被触发了
             triggered_risks_en = []
             if not risk_details_df.empty and timestamp in risk_details_df.index:
                 risk_details_for_day = risk_details_df.loc[timestamp]
                 active_risks = risk_details_for_day[risk_details_for_day > 0].index
                 triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
 
-            # 5. 翻译成中文，并组合成最终的原因描述
+            # 6. 翻译成中文，并组合成最终的原因描述
             triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
             reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
 
-            # 6. 根据风险代码确定严重等级 (使用 exit_threshold_params 配置)
-            exit_thresholds = self._get_params_block(params, 'exit_threshold_params', {})
-            # 将阈值从高到低排序
-            sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
-            
-            severity_level = 0 # 默认为0
-            # 映射 exit_code 到 severity_level
+            # ▼▼▼【代码修改 V202.3】: 修复 AttributeError ▼▼▼
+            # 7. 根据风险代码确定严重等级
+            severity_level = 0 # 默认为0 (无特定等级)
             for level_name, config in sorted_levels:
-                if exit_code == self._get_param_value(config.get('code')):
+                # 直接比较，不再需要辅助函数
+                if exit_code == config.get('code'):
                     if level_name == "CRITICAL":
                         severity_level = 3
                     elif level_name == "HIGH":
                         severity_level = 2
                     elif level_name == "MEDIUM":
                         severity_level = 1
-                    break
+                    break # 找到匹配的就跳出循环
+            # ▲▲▲【代码修改 V202.3】▲▲▲
 
-            # 7. 使用标准化的生成器创建记录
+            # 8. 使用标准化的生成器创建记录
             record = self._create_signal_record(
                 stock_code=stock_code,
                 trade_time=timestamp,
