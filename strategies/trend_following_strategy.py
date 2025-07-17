@@ -116,12 +116,14 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V192.0 日志透明化版】
-        - 核心升级: 解决了风控惩罚在日志中不透明的问题。现在会记录惩罚前的分数，
-                    并在最终的信号报告中明确展示惩罚标签及其力度，使战报清晰易懂。
+        【V193.0 风控前提修正版】
+        - 核心升级: 修正了风控前提(high_risk_premise)过于苛刻，无法识别“高位横盘派发”
+                    风险模式的重大BUG。新增了第三个判断维度`is_high_level_oscillation`，
+                    确保即使在短期获利盘不高、涨幅不大的情况下，只要股价处于危险的
+                    高位震荡区，风控系统就必须被激活。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V192.0 日志透明化版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V193.0 风控前提修正版】 ======")
         print("======================================================================")
 
         # ... (步骤1 到 6 的代码保持不变) ...
@@ -192,13 +194,15 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
         df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.4 · 风险惩罚版】，审查所有得分 ---")
+        print("--- [总指挥] 步骤7: 启动【最终风控层 V1.5 · 前提修正版】，审查所有得分 ---")
         
-        # ▼▼▼【代码修改 V192.0】: 增加惩罚前分数的备份 ▼▼▼
         df['entry_score_pre_penalty'] = df['entry_score'].copy()
-        # ▲▲▲【代码修改 V192.0】▲▲▲
 
+        # --- 前提条件定义 ---
+        # 条件1: 短期获利盘过高 (情绪过热)
         is_high_profit_zone = df.get('winner_rate_short_term_D', 0) > 70
+        
+        # 条件2: 短期涨幅过大 (趋势过快)
         cost_col = 'CHIP_peak_cost_D'
         is_rapid_markup = default_series
         if cost_col in df.columns:
@@ -210,9 +214,25 @@ class TrendFollowStrategy:
             meaningful_cost_mask = cost_20d_ago > dynamic_min_cost_threshold
             cost_change_ratio = (df[cost_col] / cost_20d_ago - 1).fillna(0)
             is_rapid_markup = (cost_change_ratio > 0.15) & meaningful_cost_mask
-        high_risk_premise = is_high_profit_zone | is_rapid_markup
+        
+        # ▼▼▼【代码修改 V193.0】: 新增第三个前提条件 ▼▼▼
+        # 条件3: 高位震荡 (派发嫌疑)
+        is_high_level_oscillation = default_series
+        long_winner_rate_col = 'winner_rate_long_term_D'
+        long_ma_col = 'EMA_89_D' # 使用一个较长的均线作为高位参考
+        if long_winner_rate_col in df.columns and long_ma_col in df.columns:
+            # 长期获利盘持续处于95%以上
+            is_long_term_winner_saturated = df[long_winner_rate_col] > 95
+            # 且当前价格远高于长期均线 (例如，高出20%)
+            is_price_at_high_level = df['close_D'] > (df[long_ma_col] * 1.2)
+            is_high_level_oscillation = is_long_term_winner_saturated & is_price_at_high_level
+        # ▲▲▲【代码修改 V193.0】▲▲▲
+
+        # 最终的“高风险环境”前提 = 三者取“或”
+        high_risk_premise = is_high_profit_zone | is_rapid_markup | is_high_level_oscillation
         print(f"    - [风控-前提] “高风险环境”共激活 {high_risk_premise.sum()} 天。")
 
+        # --- 风险识别与惩罚 (逻辑不变) ---
         veto_extreme_profit = atomic_states.get('RISK_EXTREME_PROFIT_TAKING', default_series) & high_risk_premise
         cost_accel_col = 'ACCEL_5_CHIP_peak_cost_D'
         veto_accel_exhaustion = default_series
@@ -244,7 +264,7 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V192.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V193.0】执行完毕 ======")
         return df, {}
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING

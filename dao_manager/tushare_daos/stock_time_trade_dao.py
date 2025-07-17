@@ -1547,7 +1547,7 @@ class StockTimeTradeDAO(BaseDAO):
         total_stocks = len(all_stocks)
         
         for i, stock in enumerate(all_stocks):
-            print(f"开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
+            print(f"【cyq_chips每日筹码分布】开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
             # [新增] 移植10万行追溯逻辑
             current_end_date_str = initial_end_date_str
             all_dfs_for_one_stock = [] # 用于收集单只股票的所有追溯轮次数据
