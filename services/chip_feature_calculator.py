@@ -1,3 +1,8 @@
+from decimal import Decimal
+import numpy as np
+import pandas as pd
+from scipy.signal import find_peaks
+
 class ChipFeatureCalculator:
     """
     【V6.1 高性能最终版】
