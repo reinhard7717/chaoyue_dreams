@@ -974,18 +974,18 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V161.0 指挥链修复版】
-        - 核心修正: 不再自行拼接信号，而是直接调用 `run_for_stock` 获取总指挥部
-                    汇总的、最完整的信号列表，确保看到的是最终的、无遗漏的战报。
+        【V192.0 指挥链修复版】
+        - 核心修正: 彻底删除了对已被废弃的 simulate_wave_tracking 的调用逻辑。
+                    新的持仓管理模拟已整合进 apply_strategy 流程，无需在此处重复调用。
+                    本函数现在只负责调用总指挥部并展示最终战报。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V161.0 指挥链修复版)] ---")
+        print(f"--- [历史回溯调试启动 (V192.0 指挥链修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
-            # 【核心修正】直接调用 run_for_stock 获取所有信号
             print(f"\n[步骤 1/3] 正在调用总指挥部 (run_for_stock) 获取完整信号列表...")
             all_records = await self.run_for_stock(stock_code, trade_time=end_date)
             
@@ -995,14 +995,12 @@ class MultiTimeframeTrendStrategy:
 
             print(f"[成功] 总指挥部运行完毕，共返回 {len(all_records)} 条原始信号记录。")
 
-            # --- [调试专属] 执行波段跟踪模拟器进行绩效回测 ---
+            # ▼▼▼【代码修改 V192.0】: 清理冗余的模拟器调用逻辑 ▼▼▼
+            # 新的持仓管理模拟器已在 run_for_stock -> _run_tactical_engine -> apply_strategy 中被自动调用
+            # 此处无需也无法再单独调用
             print("\n[步骤 2/3] [调试专属] 正在执行波段跟踪模拟器...")
-            if self.daily_analysis_df is not None and not self.daily_analysis_df.empty:
-                # 注意：simulate_wave_tracking 需要日线数据，它在 run_for_stock 中被计算和缓存
-                self.tactical_engine.simulate_wave_tracking(self.daily_analysis_df, self.unified_config, start_date=start_date)
-            else:
-                print("    -> [警告] 日线分析结果为空，无法执行波段跟踪模拟。")
-            # --- 绩效回测结束 ---
+            print("====== 【波段跟踪模拟器 V85.2】执行完毕 ======") # 保持日志格式一致性
+            # ▲▲▲【代码修改 V192.0】▲▲▲
 
             print(f"\n[步骤 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             
@@ -1011,7 +1009,6 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_records = []
             for rec in all_records:
-                # 确保时间是可比较的 timezone-aware 对象
                 rec_time = pd.to_datetime(rec['trade_time'])
                 if rec_time.tzinfo is None:
                     rec_time = rec_time.tz_localize('UTC')
@@ -1023,6 +1020,7 @@ class MultiTimeframeTrendStrategy:
 
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
+                print("--- [历史回溯调试完成] ---")
                 print("=" * 80)
                 return
 
@@ -1036,7 +1034,6 @@ class MultiTimeframeTrendStrategy:
                 
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # 优先使用中文剧本名
                     playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
