@@ -606,9 +606,10 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V202.0 终极战报版】
-        - 核心升级: 新增对“每日风险书记官”(_generate_daily_risk_signals)的调用，
-                    并将所有类型的信号（入场、风险、持仓管理）整合到一份完整的战报中。
+        【V202.3 统一指挥版】
+        - 核心重构: 废除了对 _generate_daily_risk_signals 的调用，将所有日线信号
+                    (买入/卖出/风险)的生成职责，统一交由 self.tactical_engine.prepare_db_records
+                    一个方法完成，从根本上解决了信号重复和冲突的问题。
         """
         df_daily_prepared = all_dfs.get('D')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -634,21 +635,16 @@ class MultiTimeframeTrendStrategy:
         
         print(f"--- [引擎2-调试] reindex后，最终 self.daily_analysis_df 时间范围到: {self.daily_analysis_df.index.max()}")
 
-        # 1. 获取“主要事件”记录（买入信号）
-        entry_records = self.tactical_engine.prepare_db_records(
-            stock_code, self.daily_analysis_df, atomic_signals, 
+        # ▼▼▼【代码修改 V202.3】: 统一调用唯一的信号生成器 ▼▼▼
+        # 1. 调用唯一的“战报司令部”，生成所有日线信号（买入和卖出）
+        db_records = self.tactical_engine.prepare_db_records(
+            stock_code, self.daily_analysis_df,
             params=self.unified_config, result_timeframe='D'
         )
-        print(f"    -> [战报记录] 已生成 {len(entry_records)} 条主要事件(买入)记录。")
+        print(f"    -> [战报记录] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出)。")
+        # ▲▲▲【代码修改 V202.3】▲▲▲
 
-        # ▼▼▼【代码修改 V202.0】: 新增对每日风险信号的生成和整合 ▼▼▼
-        # 2. 调用“每日风险书记官”，生成风险和出场信号记录
-        risk_and_exit_records = self._generate_daily_risk_signals(
-            stock_code, self.daily_analysis_df, self.unified_config
-        )
-        print(f"    -> [战报记录] 已生成 {len(risk_and_exit_records)} 条风险/出场信号记录。")
-
-        # 3. 提取持仓管理引擎生成的“过程记录”
+        # 2. 提取持仓管理引擎生成的“过程记录” (逻辑不变)
         position_management_records = []
         pm_cols = ['trade_action', 'alert_level', 'alert_reason', 'position_size']
         if all(col in self.daily_analysis_df.columns for col in pm_cols):
@@ -668,9 +664,8 @@ class MultiTimeframeTrendStrategy:
             if position_management_records:
                  print(f"    -> [战报记录] 已提取 {len(position_management_records)} 条持仓过程记录(如减仓/预警)。")
 
-        # 4. 合并所有记录
-        all_records = entry_records + risk_and_exit_records + position_management_records
-        # ▲▲▲【代码修改 V202.0】▲▲▲
+        # 3. 合并所有记录
+        all_records = db_records + position_management_records
 
         # 情报下放逻辑保持不变
         cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
@@ -687,85 +682,6 @@ class MultiTimeframeTrendStrategy:
                     print(f"      - 情报已成功注入 {tf} 分钟数据。")
         
         return all_records
-
-    # ▼▼▼ “每日风险书记官”方法 ▼▼▼
-    def _generate_daily_risk_signals(self, stock_code: str, daily_analysis_df: pd.DataFrame, params: dict) -> List[Dict[str, Any]]:
-        """
-        【V202.3 致命错误修复版】每日风险书记官
-        - 核心修复: 修复了因调用不存在的辅助方法 `_get_params_block` 而导致的
-                    `AttributeError`。新的逻辑使用标准的、安全的字典访问方法
-                    直接从完整的配置对象中获取所需参数，彻底解决了跨类依赖问题。
-        """
-        # 1. 获取风险剧本的定义，用于翻译原因
-        risk_playbooks = self.tactical_engine._get_risk_playbook_blueprints()
-        risk_playbook_map = {bp['name']: bp.get('cn_name', bp['name']) for bp in risk_playbooks}
-
-        # 2. 安全地筛选出所有产生了风险分的交易日
-        if 'risk_score' not in daily_analysis_df.columns:
-            return []
-        mask = daily_analysis_df['risk_score'] > 0
-        risk_days_df = daily_analysis_df[mask].copy()
-        
-        if risk_days_df.empty:
-            return []
-
-        # 3. 获取风险归因的详细报告
-        risk_details_df = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
-
-        # ▼▼▼【代码修改 V202.3】: 修复 AttributeError ▼▼▼
-        # 4. 直接、安全地从完整的配置对象(params)中获取风险阈值
-        exit_thresholds = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
-        # 按风险等级从高到低排序，确保优先匹配高级别风险
-        sorted_levels = sorted(exit_thresholds.items(), key=lambda item: item[1].get('level', 0), reverse=True)
-        # ▲▲▲【代码修改 V202.3】▲▲▲
-
-        records = []
-        for timestamp, row in risk_days_df.iterrows():
-            exit_code = int(row.get('exit_signal_code', 0))
-            
-            # 5. 找出当天具体是哪些风险剧本被触发了
-            triggered_risks_en = []
-            if not risk_details_df.empty and timestamp in risk_details_df.index:
-                risk_details_for_day = risk_details_df.loc[timestamp]
-                active_risks = risk_details_for_day[risk_details_for_day > 0].index
-                triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
-
-            # 6. 翻译成中文，并组合成最终的原因描述
-            triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
-            reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
-
-            # ▼▼▼【代码修改 V202.3】: 修复 AttributeError ▼▼▼
-            # 7. 根据风险代码确定严重等级
-            severity_level = 0 # 默认为0 (无特定等级)
-            for level_name, config in sorted_levels:
-                # 直接比较，不再需要辅助函数
-                if exit_code == config.get('code'):
-                    if level_name == "CRITICAL":
-                        severity_level = 3
-                    elif level_name == "HIGH":
-                        severity_level = 2
-                    elif level_name == "MEDIUM":
-                        severity_level = 1
-                    break # 找到匹配的就跳出循环
-            # ▲▲▲【代码修改 V202.3】▲▲▲
-
-            # 8. 使用标准化的生成器创建记录
-            record = self._create_signal_record(
-                stock_code=stock_code,
-                trade_time=timestamp,
-                timeframe='D',
-                strategy_name="RISK_MANAGEMENT",
-                close_price=row.get('close_D'),
-                exit_signal_code=exit_code,
-                exit_severity_level=severity_level,
-                exit_signal_reason=reason,
-                triggered_playbooks=triggered_risks_en,
-                triggered_playbooks_cn=triggered_risks_cn,
-                context_snapshot={'risk_score': row.get('risk_score', 0.0)}
-            )
-            records.append(record)
-            
-        return records
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         df_copy = df.copy()
@@ -1077,12 +993,13 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V202.0 终极战报适配版】
+        【V202.3 最终决战版】
         - 核心升级: 彻底重构报告展示逻辑，使其能够按优先级正确识别并清晰地展示
-                    所有类型的信号：买入信号、风险/出场信号、以及持仓管理动作。
+                    所有类型的信号：买入信号、所有级别的风险/出场信号、以及持仓管理动作。
+                    解决了日线风险信号被错误归类为“未知信号”的问题。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V202.0 终极战报适配版)] ---")
+        print(f"--- [历史回溯调试启动 (V202.3 最终决战版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -1107,7 +1024,6 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_records = []
             for rec in all_records:
-                # 确保时间是时区感知的UTC时间
                 rec_time = pd.to_datetime(rec['trade_time'])
                 if rec_time.tzinfo is None:
                     rec_time = rec_time.tz_localize('UTC')
@@ -1123,12 +1039,11 @@ class MultiTimeframeTrendStrategy:
                 print("=" * 80)
                 return
 
-            # 按时间排序，确保战报的连贯性
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            # ▼▼▼【代码修改 V202.0】: 全新的、按优先级解析的战报展示逻辑 ▼▼▼
+            # ▼▼▼【代码修改 V202.3】: 全新的、按优先级解析的战报展示逻辑 ▼▼▼
             for record in debug_period_records:
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -1140,26 +1055,28 @@ class MultiTimeframeTrendStrategy:
                 # 优先级1: 入场信号
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # 优先使用中文剧本名，如果不存在则使用英文名
                     playbooks = record.get('triggered_playbooks_cn', record.get('triggered_playbooks', []))
-                    # 过滤掉可能存在的空字符串或None
                     playbooks = [p for p in playbooks if p]
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
                 
-                # 优先级2: 风险/出场信号
+                # 优先级2: 风险/出场信号 (包括日线和分钟线)
                 elif record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
                     # 优先使用中文原因，如果不存在则使用英文原因
                     reason_list_cn = record.get('triggered_playbooks_cn', [])
                     reason_list_en = record.get('triggered_playbooks', [])
-                    reason_list = reason_list_cn if any(reason_list_cn) else reason_list_en
-                    reason = ", ".join(reason_list) if reason_list else record.get('exit_signal_reason', 'N/A')
+                    
+                    # 确保列表不为空
+                    reason_list = reason_list_cn if any(r for r in reason_list_cn if r) else reason_list_en
+                    
+                    # 如果剧本列表为空，则使用 exit_signal_reason 字段作为备用
+                    reason = ", ".join(reason_list) if any(r for r in reason_list if r) else record.get('exit_signal_reason', 'N/A')
                     
                     signal_type = f"卖出警报(L{severity})"
                     details = f"原因: {reason}"
 
-                # 优先级3: 持仓管理动作
+                # 优先级3: 持仓管理动作 (例如减仓)
                 elif 'trade_action' in record and record.get('trade_action'):
                     action = record['trade_action']
                     reason = record.get('alert_reason', 'N/A')
@@ -1169,7 +1086,7 @@ class MultiTimeframeTrendStrategy:
                 
                 # 打印最终格式化的战报
                 print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
-            # ▲▲▲【代码修改 V202.0】▲▲▲
+            # ▲▲▲【代码修改 V202.3】▲▲▲
 
             print(f"--- [历史回溯调试完成] ---")
             print("=" * 80)

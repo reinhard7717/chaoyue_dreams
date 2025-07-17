@@ -271,12 +271,13 @@ class TrendFollowStrategy:
         unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
         return unconditional_deterioration & ~is_in_divergence_window
 
-    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V192.0 日志透明化版】
-        - 核心升级: 在生成剧本列表时，检查是否存在风险惩罚。如果存在，则动态生成一个
-                    包含惩罚力度的标签（如“风险惩罚-80%”）并加入到剧本列表中，
-                    使得最终的信号报告能够清晰地反映风控系统的干预动作。
+        【V202.3 统一战报司令部】
+        - 核心升级: 此方法现在是生成所有日线信号的唯一入口。
+        - 新增功能: 整合了之前分散的风险信号生成逻辑。当检测到卖出信号时，
+                    会主动查找风险归因，并填充详细的 exit_severity_level 和
+                    exit_signal_reason 字段，确保每一条卖出信号都信息完整。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
         if not all(col in result_df.columns for col in required_cols):
@@ -294,60 +295,88 @@ class TrendFollowStrategy:
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
         strategy_name = self._get_param_value(strategy_info_block.get('name'), 'unknown_strategy')
         
+        # 为买入和卖出信号准备名称映射
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
         
         has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
 
         for timestamp, row in df_with_signals.iterrows():
-            triggered_playbooks_list = []
-            if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
-                playbooks_with_scores = self._last_score_details_df.loc[timestamp]
-                active_items = playbooks_with_scores[playbooks_with_scores > 0].index
-                excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
-                triggered_playbooks_list = [ item for item in active_items if not item.startswith(excluded_prefixes) ]
+            is_entry = bool(row.get('signal_entry', False))
+            is_exit = int(row.get('exit_signal_code', 0)) > 0
 
-            # ▼▼▼【代码修改 V192.0】: 增加惩罚标签生成逻辑 ▼▼▼
-            pre_penalty_score = row.get('entry_score_pre_penalty', row.entry_score)
-            final_score = row.entry_score
-            
-            # 只有在有买入信号时，才检查惩罚，避免在卖出信号上显示惩罚
-            if row.get('signal_entry', False) and final_score < pre_penalty_score and pre_penalty_score > 0:
-                penalty_pct = (1 - final_score / pre_penalty_score) * 100
-                # 避免除以0或无效计算导致的大百分比
-                if 0 <= penalty_pct <= 100:
-                    penalty_tag = f"风险惩罚-{penalty_pct:.0f}%"
-                    triggered_playbooks_list.append(penalty_tag)
-            # ▲▲▲【代码修改 V192.0】▲▲▲
+            # 初始化所有信号字段
+            record = {
+                "stock_code": stock_code, "trade_time": timestamp, "timeframe": result_timeframe,
+                "strategy_name": strategy_name, "close_price": row.get(f'close_{result_timeframe}'),
+                "entry_score": 0.0, "entry_signal": False, "exit_signal_code": 0,
+                "exit_severity_level": 0, "exit_signal_reason": None,
+                "stable_platform_price": None, "triggered_playbooks": [], "triggered_playbooks_cn": [],
+                "context_snapshot": {}
+            }
 
-            platform_price = None
-            if has_platform_col and row.get('signal_entry', False):
-                platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
-                if not platform_series_before.empty:
-                    platform_price = platform_series_before.iloc[-1]
+            if is_entry:
+                # --- 处理买入信号 ---
+                record['entry_signal'] = True
+                record['entry_score'] = row.get('entry_score', 0.0)
+                
+                playbooks_list = []
+                if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
+                    playbooks_with_scores = self._last_score_details_df.loc[timestamp]
+                    active_items = playbooks_with_scores[playbooks_with_scores > 0].index
+                    excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
+                    playbooks_list = [item for item in active_items if not item.startswith(excluded_prefixes)]
+                
+                record['triggered_playbooks'] = playbooks_list
+                record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
+                
+                if has_platform_col:
+                    platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
+                    if not platform_series_before.empty:
+                        record['stable_platform_price'] = platform_series_before.iloc[-1]
 
-            context_snapshot = {
+            elif is_exit:
+                # ▼▼▼【代码新增 V202.3】: 在此处统一处理卖出信号的详细信息 ▼▼▼
+                # --- 处理卖出信号 ---
+                exit_code = int(row.get('exit_signal_code', 0))
+                record['exit_signal_code'] = exit_code
+                
+                # 1. 查找风险归因
+                risk_details_df = getattr(self, '_last_risk_details_df', pd.DataFrame())
+                triggered_risks_en = []
+                if not risk_details_df.empty and timestamp in risk_details_df.index:
+                    risk_details_for_day = risk_details_df.loc[timestamp]
+                    active_risks = risk_details_for_day[risk_details_for_day > 0].index
+                    triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
+                
+                # 2. 翻译成中文原因
+                triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
+                reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
+                record['exit_signal_reason'] = reason
+                record['triggered_playbooks'] = triggered_risks_en
+                record['triggered_playbooks_cn'] = triggered_risks_cn
+
+                # 3. 确定严重等级
+                exit_thresholds = self._get_params_block(params, 'exit_threshold_params', {})
+                sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
+                severity_level = 0
+                for level_name, config in sorted_levels:
+                    if exit_code == self._get_param_value(config.get('code')):
+                        if level_name == "CRITICAL": severity_level = 3
+                        elif level_name == "HIGH": severity_level = 2
+                        elif level_name == "MEDIUM": severity_level = 1
+                        break
+                record['exit_severity_level'] = severity_level
+                # ▲▲▲【代码新增 V202.3】▲▲▲
+
+            # 填充通用的上下文快照
+            record['context_snapshot'] = sanitize_for_json({
                 'close': row.get(f'close_{result_timeframe}'),
                 'entry_score': row.get('entry_score', 0.0),
                 'risk_score': row.get('risk_score', 0.0),
-                'stable_platform_price': platform_price,
-            }
-
-            record = {
-                "stock_code": stock_code,
-                "trade_time": timestamp,
-                "timeframe": result_timeframe,
-                "strategy_name": strategy_name,
-                "close_price": row.get(f'close_{result_timeframe}'),
-                "pct_change": row.get(f'pct_change_{result_timeframe}', 0.0),
-                "entry_score": row.get('entry_score', 0.0),
-                "entry_signal": bool(row.get('signal_entry', False)),
-                "exit_signal_code": int(row.get('exit_signal_code', 0)),
-                "stable_platform_price": platform_price,
-                "triggered_playbooks": triggered_playbooks_list,
-                "triggered_playbooks_cn": [playbook_cn_name_map.get(item, item) for item in triggered_playbooks_list],
-                "active_setups": [s.replace('SETUP_', '') for s in row.index if s.startswith('SETUP_') and row[s] is True],
-                "context_snapshot": sanitize_for_json(context_snapshot),
-            }
+                'stable_platform_price': record['stable_platform_price'],
+            })
+            
             records.append(record)
             
         return records
@@ -1082,24 +1111,38 @@ class TrendFollowStrategy:
 
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
         """
-        【V57.0 出场决策引擎】
+        【V57.1 寻路修正版】出场决策引擎
+        - 核心修复: 修正了获取风险阈值参数的路径。之前它错误地在 `strategy_params`
+                    中寻找，现在已校正为直接从顶层的 `exit_strategy_params` 中获取，
+                    确保能正确加载风险等级和代码，从而生成有效的日线出场信号。
         """
-        # print("    - [出场决策引擎 V57.0] 启动，开始根据风险分做出决策...")
-        threshold_params = self._get_params_block(params, 'exit_threshold_params', {})
+        # ▼▼▼【代码修改 V57.1】: 校正参数获取路径，直抵正确的“弹药库”！▼▼▼
+        # 直接从顶层 params 获取 exit_strategy_params，再获取其中的 exit_threshold_params
+        threshold_params = params.get('exit_strategy_params', {}).get('exit_threshold_params', {})
+        # ▲▲▲【代码修改 V57.1】▲▲▲
+
         if not threshold_params:
+            # 如果找不到配置，安全退出，不产生任何信号
             return pd.Series(0, index=df.index)
+            
+        # 按风险等级从高到低排序，确保优先匹配高级别风险
         levels = sorted(threshold_params.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
+        
         conditions = []
         choices = []
+        
+        print("    - [出场决策引擎 V57.1] 启动，开始根据风险分做出决策...")
         for level_name, config in levels:
             threshold = self._get_param_value(config.get('level'))
             exit_code = self._get_param_value(config.get('code'))
             conditions.append(risk_score >= threshold)
             choices.append(exit_code)
             print(f"      -> 定义决策规则: 风险分 >= {threshold}，则出场，代码: {exit_code}")
+            
         exit_signal = np.select(conditions, choices, default=0)
         final_exit_signal = pd.Series(exit_signal, index=df.index)
-        print(f"    - [出场决策引擎 V57.0] 决策完成，共产生 { (final_exit_signal > 0).sum() } 个出场信号。")
+        
+        print(f"    - [出场决策引擎 V57.1] 决策完成，共产生 { (final_exit_signal > 0).sum() } 个出场信号。")
         return final_exit_signal
 
     def _calculate_setup_conditions(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
