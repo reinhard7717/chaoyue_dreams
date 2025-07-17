@@ -665,6 +665,7 @@ class TrendFollowStrategySignalLog(models.Model):
     
     # --- 信号类型 (细分) ---
     entry_signal = models.BooleanField(default=False, help_text="是否为最终的买入信号 (得分超过阈值)")
+    is_risk_warning = models.BooleanField(default=False, help_text="是否为风险预警信号 (风险分>0但未触发卖出)")
     exit_signal_code = models.IntegerField(default=0, help_text="卖出信号代码 (0:无, 1:压力位, 2:移动止盈, 3:指标)")
     exit_severity_level = models.IntegerField(default=0, help_text="止盈信号的严重性等级 (0:无, 1:预警, 2:标准, 3:紧急)")
     exit_signal_reason = models.CharField(max_length=255, blank=True, null=True, help_text="止盈信号的具体原因描述")

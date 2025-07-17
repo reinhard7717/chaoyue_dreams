@@ -273,19 +273,17 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.3 统一战报司令部】
-        - 核心升级: 此方法现在是生成所有日线信号的唯一入口。
-        - 新增功能: 整合了之前分散的风险信号生成逻辑。当检测到卖出信号时，
-                    会主动查找风险归因，并填充详细的 exit_severity_level 和
-                    exit_signal_reason 字段，确保每一条卖出信号都信息完整。
+        【V202.7 钢铁纪律版】统一战报司令部
+        - 核心修复: 遵从“风控第一”原则，彻底重构信号处理逻辑，建立“卖出 > 买入 > 预警”的绝对优先级。
+                    确保任何情况下，卖出信号都拥有最高处理权限，杜绝在风险日错误买入的致命问题。
         """
-        required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}']
+        required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
         if not all(col in result_df.columns for col in required_cols):
             print(f"      -> [错误] prepare_db_records 缺少必要列: {required_cols}")
             return []
         
         df_with_signals = result_df[
-            (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0)
+            (result_df['signal_entry'] == True) | (result_df['exit_signal_code'] > 0) | (result_df['risk_score'] > 0)
         ].copy()
 
         if df_with_signals.empty:
@@ -295,68 +293,25 @@ class TrendFollowStrategy:
         strategy_info_block = self._get_params_block(params, 'strategy_info', {})
         strategy_name = self._get_param_value(strategy_info_block.get('name'), 'unknown_strategy')
         
-        # 为买入和卖出信号准备名称映射
         playbook_cn_name_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
         
-        has_platform_col = 'PLATFORM_PRICE_STABLE' in result_df.columns
-
         for timestamp, row in df_with_signals.iterrows():
             is_entry = bool(row.get('signal_entry', False))
-            is_exit = int(row.get('exit_signal_code', 0)) > 0
-
-            # 初始化所有信号字段
-            record = {
-                "stock_code": stock_code, "trade_time": timestamp, "timeframe": result_timeframe,
-                "strategy_name": strategy_name, "close_price": row.get(f'close_{result_timeframe}'),
-                "entry_score": 0.0, "entry_signal": False, "exit_signal_code": 0,
-                "exit_severity_level": 0, "exit_signal_reason": None,
-                "stable_platform_price": None, "triggered_playbooks": [], "triggered_playbooks_cn": [],
-                "context_snapshot": {}
-            }
-
-            if is_entry:
-                # --- 处理买入信号 ---
-                record['entry_signal'] = True
-                record['entry_score'] = row.get('entry_score', 0.0)
-                
-                playbooks_list = []
-                if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
-                    playbooks_with_scores = self._last_score_details_df.loc[timestamp]
-                    active_items = playbooks_with_scores[playbooks_with_scores > 0].index
-                    excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER')
-                    playbooks_list = [item for item in active_items if not item.startswith(excluded_prefixes)]
-                
-                record['triggered_playbooks'] = playbooks_list
-                record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
-                
-                if has_platform_col:
-                    platform_series_before = result_df.loc[:timestamp, 'PLATFORM_PRICE_STABLE'].dropna()
-                    if not platform_series_before.empty:
-                        record['stable_platform_price'] = platform_series_before.iloc[-1]
-
-            elif is_exit:
-                # ▼▼▼【代码新增 V202.3】: 在此处统一处理卖出信号的详细信息 ▼▼▼
-                # --- 处理卖出信号 ---
-                exit_code = int(row.get('exit_signal_code', 0))
+            exit_code = int(row.get('exit_signal_code', 0))
+            risk_score = row.get('risk_score', 0.0)
+            is_exit = exit_code > 0
+            is_warning = risk_score > 0 and not is_exit and not is_entry
+            
+            # 优先级1: 卖出信号 (生存高于一切)
+            if is_exit:
+                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['exit_signal_code'] = exit_code
                 
-                # 1. 查找风险归因
-                risk_details_df = getattr(self, '_last_risk_details_df', pd.DataFrame())
-                triggered_risks_en = []
-                if not risk_details_df.empty and timestamp in risk_details_df.index:
-                    risk_details_for_day = risk_details_df.loc[timestamp]
-                    active_risks = risk_details_for_day[risk_details_for_day > 0].index
-                    triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
+                # 填充风险详情
+                self._fill_risk_details(record, row, risk_playbook_map)
                 
-                # 2. 翻译成中文原因
-                triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
-                reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
-                record['exit_signal_reason'] = reason
-                record['triggered_playbooks'] = triggered_risks_en
-                record['triggered_playbooks_cn'] = triggered_risks_cn
-
-                # 3. 确定严重等级
+                # 计算严重等级
                 exit_thresholds = self._get_params_block(params, 'exit_threshold_params', {})
                 sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
                 severity_level = 0
@@ -367,20 +322,81 @@ class TrendFollowStrategy:
                         elif level_name == "MEDIUM": severity_level = 1
                         break
                 record['exit_severity_level'] = severity_level
-                # ▲▲▲【代码新增 V202.3】▲▲▲
+                records.append(record)
+                continue # 处理完卖出信号后，立即处理下一天，不再检查买入或预警
 
-            # 填充通用的上下文快照
-            record['context_snapshot'] = sanitize_for_json({
-                'close': row.get(f'close_{result_timeframe}'),
-                'entry_score': row.get('entry_score', 0.0),
-                'risk_score': row.get('risk_score', 0.0),
-                'stable_platform_price': record['stable_platform_price'],
-            })
-            
-            records.append(record)
+            # 优先级2: 买入信号 (确认安全后，方可进攻)
+            elif is_entry:
+                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
+                record['entry_signal'] = True
+                record['entry_score'] = row.get('entry_score', 0.0)
+                record['stable_platform_price'] = row.get('PLATFORM_PRICE_STABLE')
+                
+                playbooks_list = []
+                if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
+                    playbooks_with_scores = self._last_score_details_df.loc[timestamp]
+                    active_items = playbooks_with_scores[playbooks_with_scores > 0].index
+                    excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_')
+                    playbooks_list = [item for item in active_items if not item.startswith(excluded_prefixes)]
+                record['triggered_playbooks'] = playbooks_list
+                record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
+                
+                # 即使是买入信号，也记录当时的风险分作为参考
+                record['context_snapshot']['risk_score'] = risk_score
+                records.append(record)
+                continue # 处理完买入信号后，立即处理下一天
+
+            # 优先级3: 风险预警 (既不卖出也不买入时，保持观察)
+            elif is_warning:
+                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
+                record['is_risk_warning'] = True
+                
+                # 填充风险详情
+                self._fill_risk_details(record, row, risk_playbook_map)
+                records.append(record)
             
         return records
 
+    def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
+        """【V202.6 辅助函数】创建标准化的数据库记录模板"""
+        return {
+            "stock_code": stock_code, "trade_time": timestamp, "timeframe": timeframe,
+            "strategy_name": strategy_name, "close_price": row.get(f'close_{timeframe}'),
+            "entry_score": 0.0, "stable_platform_price": None,
+            "entry_signal": False, "is_risk_warning": False,
+            "exit_signal_code": 0, "exit_severity_level": 0, "exit_signal_reason": None,
+            "is_pullback_setup": bool(row.get('SETUP_SCORE_PLATFORM_SUPPORT_PULLBACK', 0) > 0),
+            "triggered_playbooks": [], "triggered_playbooks_cn": [], 
+            "context_snapshot": {
+                'close': row.get(f'close_{timeframe}'),
+                'entry_score': row.get('entry_score', 0.0),
+                'risk_score': row.get('risk_score', 0.0),
+            }
+        }
+
+    def _fill_risk_details(self, record: Dict, row: pd.Series, risk_playbook_map: Dict):
+        """【V202.7 辅助函数】为卖出或预警信号填充风险详情和量化指标"""
+        timestamp = record['trade_time']
+        triggered_risks_en = []
+        risk_details_df = getattr(self, '_last_risk_details_df', pd.DataFrame())
+        if not risk_details_df.empty and timestamp in risk_details_df.index:
+            risk_details_for_day = risk_details_df.loc[timestamp]
+            active_risks = risk_details_for_day[risk_details_for_day > 0].index
+            triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
+        
+        triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
+        reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
+        
+        record['exit_signal_reason'] = reason
+        record['triggered_playbooks'] = triggered_risks_en
+        record['triggered_playbooks_cn'] = triggered_risks_cn
+        
+        context = record['context_snapshot']
+        context['cost_slope_5d'] = row.get('SLOPE_5_CHIP_peak_cost_D')
+        context['winner_rate_slope_5d'] = row.get('SLOPE_5_CHIP_total_winner_rate_D')
+        context['peak_stability_slope_5d'] = row.get('SLOPE_5_CHIP_peak_stability_D')
+        context['pressure_above_slope_5d'] = row.get('SLOPE_5_CHIP_pressure_above_D')
+        record['context_snapshot'] = sanitize_for_json(context)
     def generate_intraday_alerts(self, daily_df: pd.DataFrame, minute_df: pd.DataFrame, params: dict) -> List[Dict]:
         """
         【V104 终局 · 执行版】

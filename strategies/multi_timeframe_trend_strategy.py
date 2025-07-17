@@ -993,13 +993,13 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V202.3 最终决战版】
-        - 核心升级: 彻底重构报告展示逻辑，使其能够按优先级正确识别并清晰地展示
-                    所有类型的信号：买入信号、所有级别的风险/出场信号、以及持仓管理动作。
-                    解决了日线风险信号被错误归类为“未知信号”的问题。
+        【V202.4 量化预警版】
+        - 核心升级: 引入对“风险预警”信号的展示逻辑。
+        - 情报升级: 在展示卖出和预警信号时，会附带关键的量化指标，如风险分和斜率，
+                    使得战报更具深度和可操作性。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V202.3 最终决战版)] ---")
+        print(f"--- [历史回溯调试启动 (V202.4 量化预警版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -1025,25 +1025,21 @@ class MultiTimeframeTrendStrategy:
             debug_period_records = []
             for rec in all_records:
                 rec_time = pd.to_datetime(rec['trade_time'])
-                if rec_time.tzinfo is None:
-                    rec_time = rec_time.tz_localize('UTC')
-                else:
-                    rec_time = rec_time.tz_convert('UTC')
-
+                if rec_time.tzinfo is None: rec_time = rec_time.tz_localize('UTC')
+                else: rec_time = rec_time.tz_convert('UTC')
                 if start_dt <= rec_time <= end_dt:
                     debug_period_records.append(rec)
 
             if not debug_period_records:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 print("--- [历史回溯调试完成] ---")
-                print("=" * 80)
                 return
 
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            # ▼▼▼【代码修改 V202.3】: 全新的、按优先级解析的战报展示逻辑 ▼▼▼
+            # ▼▼▼【代码修改 V202.4】: 全新的、支持三级信号体系的展示逻辑 ▼▼▼
             for record in debug_period_records:
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -1051,7 +1047,7 @@ class MultiTimeframeTrendStrategy:
                 
                 signal_type = "未知信号"
                 details = "无详细信息"
-
+                
                 # 优先级1: 入场信号
                 if record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
@@ -1060,36 +1056,33 @@ class MultiTimeframeTrendStrategy:
                     signal_type = "买入信号"
                     details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks)}"
                 
-                # 优先级2: 风险/出场信号 (包括日线和分钟线)
+                # 优先级2: 卖出警报
                 elif record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
-                    # 优先使用中文原因，如果不存在则使用英文原因
-                    reason_list_cn = record.get('triggered_playbooks_cn', [])
-                    reason_list_en = record.get('triggered_playbooks', [])
-                    
-                    # 确保列表不为空
-                    reason_list = reason_list_cn if any(r for r in reason_list_cn if r) else reason_list_en
-                    
-                    # 如果剧本列表为空，则使用 exit_signal_reason 字段作为备用
-                    reason = ", ".join(reason_list) if any(r for r in reason_list if r) else record.get('exit_signal_reason', 'N/A')
-                    
+                    reason = record.get('exit_signal_reason', 'N/A')
+                    risk_score = record.get('context_snapshot', {}).get('risk_score', 0)
                     signal_type = f"卖出警报(L{severity})"
+                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
+
+                # 优先级3: 风险预警
+                elif record.get('is_warning'):
+                    reason = record.get('exit_signal_reason', 'N/A')
+                    risk_score = record.get('context_snapshot', {}).get('risk_score', 0)
+                    cost_slope = record.get('context_snapshot', {}).get('cost_slope_5d', 0)
+                    signal_type = "风险预警"
+                    details = f"风险分: {risk_score:<3.0f} (成本斜率: {cost_slope:.3f}) | 原因: {reason}"
+
+                # 优先级4: 其他分钟级信号 (如盘中跌破VWAP)
+                elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
+                    severity = record.get('exit_severity_level', 0)
+                    reason = record.get('exit_signal_reason', 'N/A')
+                    signal_type = f"盘中异动(L{severity})"
                     details = f"原因: {reason}"
 
-                # 优先级3: 持仓管理动作 (例如减仓)
-                elif 'trade_action' in record and record.get('trade_action'):
-                    action = record['trade_action']
-                    reason = record.get('alert_reason', 'N/A')
-                    position_size = record.get('position_size', 0.0)
-                    signal_type = "战术动作"
-                    details = f"动作: {action} | 原因: {reason} | 剩余仓位: {position_size:.0%}"
-                
-                # 打印最终格式化的战报
                 print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
-            # ▲▲▲【代码修改 V202.3】▲▲▲
+            # ▲▲▲【代码修改 V202.4】▲▲▲
 
             print(f"--- [历史回溯调试完成] ---")
-            print("=" * 80)
 
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
