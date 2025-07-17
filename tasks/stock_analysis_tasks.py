@@ -352,14 +352,14 @@ def schedule_precompute_advanced_chips(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V6.1 - 最终部署版】
-    - 根本性修复: 使用 .transform('first') 替代了错误的 .fillna() 逻辑，
-                  确保了从“累计占比”到“离散占比”的还原过程绝对正确，
-                  从而彻底解决了获利盘和集中度指标计算失效的问题。
-    - 新增健康检查: 临时增加打印语句，验证还原后的离散占比之和是否为100。
+    【执行器 V7.0 - 最终真相版】
+    - 根本性修复: 根据日志铁证，确认源数据为 0-1 范围的累计值。
+    - 核心修正: 在数据还原后，增加了一个至关重要的缩放步骤 (`* 100`)，
+                将 0-1 范围的离散值正确转换为计算器所需的 0-100 百分比，
+                从根源上解决了所有指标计算错误的问题。
     """
     mode = "增量更新" if is_incremental else "全量刷新"
-    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V6.1 最终部署版, 模式: {mode})...")
+    logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V7.0 最终真相版, 模式: {mode})...")
     
     try:
         stock_info = StockInfo.objects.get(stock_code=stock_code)
@@ -394,21 +394,25 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return {"status": "skipped", "reason": "no raw chip data in range"}
         cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
 
-        # ▼▼▼【代码修改 V6.1】: 使用 transform 精准还原离散占比，这是最核心的修复 ▼▼▼
+        # ▼▼▼【代码修改 V7.0】: 还原并正确缩放，这是最核心的修复 ▼▼▼
         cyq_chips_data = cyq_chips_data.sort_values(by=['trade_time', 'price'], ascending=True)
         
         grouped = cyq_chips_data.groupby('trade_time')
-        # 使用 transform('first') 来获取每组的第一个值，用于填充该组因.diff()产生的NaN
-        cyq_chips_data['percent'] = grouped['percent'].diff().fillna(grouped['percent'].transform('first'))
-        logger.info(f"[{stock_code}] 已使用 transform 精准还原离散筹码占比。")
+        # 1. 还原：将 0-1 范围的累计值，还原为 0-1 范围的离散值
+        discrete_percent_0_1 = grouped['percent'].diff().fillna(grouped['percent'].transform('first'))
         
-        # 【临时健康检查】 抽样检查一天的总和是否接近100
+        # 2. 缩放：将 0-1 范围的离散值，乘以100，得到计算器所需的 0-100 百分比
+        cyq_chips_data['percent'] = discrete_percent_0_1 * 100
+        logger.info(f"[{stock_code}] 已将 0-1 累计值还原为 0-100 离散百分比。")
+        
+        # 【健康检查】 现在，总和应该接近100
         if not cyq_chips_data.empty:
-            sample_date = cyq_chips_data['trade_time'].unique()[-1] # 取最新的一天
+            sample_date = cyq_chips_data['trade_time'].unique()[-1]
             day_sum = cyq_chips_data[cyq_chips_data['trade_time'] == sample_date]['percent'].sum()
             logger.info(f"[{stock_code}] 健康检查: 日期 {sample_date} 还原后的离散占比总和为: {day_sum:.2f}")
-        # ▲▲▲【代码修改 V6.1】▲▲▲
+        # ▲▲▲【代码修改 V7.0】▲▲▲
 
+        # ... 后续所有代码保持不变，因为它们现在接收的是正确的数据 ...
         daily_data_model = dao.get_daily_data_model_by_code(stock_code)
         daily_data = get_data(daily_data_model, fields=('trade_time', 'vol', 'high', 'low'))
         daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
@@ -510,7 +514,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 
 
 
