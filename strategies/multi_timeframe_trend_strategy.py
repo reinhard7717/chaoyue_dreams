@@ -101,7 +101,7 @@ class MultiTimeframeTrendStrategy:
         all_dfs['D_CONTEXT'] = df_daily_with_context # 更新 all_dfs，供下游引擎使用
 
         # 4. 战术引擎：基于日线+战略上下文，生成日线级别的交易信号
-        tactical_records = await self._run_tactical_engine(stock_code, all_dfs)
+        tactical_records = self._run_tactical_engine(stock_code, all_dfs)
         print(f"  - [战术引擎] 生成 {len(tactical_records)} 条日线级信号。")
 
         # 5. 盘中入场引擎：对日线信号进行盘中确认
