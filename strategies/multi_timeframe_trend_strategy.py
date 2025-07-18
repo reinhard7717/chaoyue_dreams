@@ -91,7 +91,7 @@ class MultiTimeframeTrendStrategy:
             return []
 
         # 2. 战略引擎：计算长期趋势和上下文
-        df_weekly_context = await self.strategic_engine.generate_context(all_dfs['W'])
+        df_weekly_context = self.strategic_engine.generate_context(all_dfs['W'])
         if df_weekly_context.empty:
             print(f"  - [战略引擎] 未能生成战略上下文，跳过后续处理。")
             return []
