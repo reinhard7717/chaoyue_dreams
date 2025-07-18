@@ -116,24 +116,62 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V202.10 动态否决版】
-        - 核心升维: 废除固定的风险否决线，引入“风险容忍度”概念。
-                    否决与否，不再取决于风险分的绝对值，而是取决于“风险分”与
-                    “买入分”的动态比例。只有当风险的力量显著超出进攻力量可承受
-                    的范围时，买入信号才会被否决。
+        【V202.10 重构优化版】
+        - 核心重构: 将原有的线性执行流程，按逻辑功能拆分为独立的私有方法：
+                    _run_all_diagnostics: 运行所有状态诊断。
+                    _calculate_all_scores: 计算所有得分（入场分、风险分）。
+                    _apply_risk_veto_and_finalize: 执行风险否决并生成最终信号。
+        - 收益: 主流程逻辑更清晰，代码结构更合理，便于维护和扩展。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V202.10 动态否决版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V202.10 重构优化版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
+
+        # 步骤1：运行所有诊断，生成原子状态和触发事件
+        df, atomic_states, trigger_events = self._run_all_diagnostics(df, params)
+
+        # 步骤2：计算所有得分，包括入场分和风险分
+        df, score_details_df, risk_details_df = self._calculate_all_scores(df, params, atomic_states, trigger_events)
+        self._last_score_details_df = score_details_df
+        self._last_risk_details_df = risk_details_df
+
+        # 步骤3：执行风险否决，并生成最终信号
+        df = self._apply_risk_veto_and_finalize(df, params)
         
-        # ... (步骤1-6的计算逻辑保持不变，此处省略以保持清晰) ...
+        # 步骤4：运行持仓管理模拟
+        print("--- [总指挥] 步骤4: 启动【持仓管理引擎】，模拟全程战术动作 ---")
+        df = self._run_position_management_simulation(df, params)
+
+        print(f"====== 【战术引擎 V202.10】执行完毕 ======")
+        return df, atomic_states
+
+    def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict, Dict]:
+        """
+        【新增辅助方法】运行所有诊断模块，生成原子状态和触发事件。
+        """
+        print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
         df = self.pattern_recognizer.identify_all(df)
         if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
+        
         df, platform_states = self._diagnose_platform_states(df, params)
-        atomic_states = {**self._diagnose_chip_states(df, params), **self._diagnose_ma_states(df, params), **self._diagnose_oscillator_states(df, params), **self._diagnose_capital_states(df, params), **self._diagnose_volatility_states(df, params), **self._diagnose_box_states(df, params), **self._diagnose_kline_patterns(df, params), **self._diagnose_board_patterns(df, params), **platform_states, **self._diagnose_trend_dynamics(df, params) }
+        
+        atomic_states = {
+            **self._diagnose_chip_states(df, params), 
+            **self._diagnose_ma_states(df, params), 
+            **self._diagnose_oscillator_states(df, params), 
+            **self._diagnose_capital_states(df, params), 
+            **self._diagnose_volatility_states(df, params), 
+            **self._diagnose_box_states(df, params), 
+            **self._diagnose_kline_patterns(df, params), 
+            **self._diagnose_board_patterns(df, params), 
+            **platform_states, 
+            **self._diagnose_trend_dynamics(df, params)
+        }
+        
+        # 定义复合原子状态
         atomic_states['CONTEXT_TREND_DETERIORATING'] = self._define_context_trend_deteriorating(df, atomic_states)
         atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
         atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
@@ -141,41 +179,53 @@ class TrendFollowStrategy:
         is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
         atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
         atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
+        
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+        
+        return df, atomic_states, trigger_events
+
+    def _calculate_all_scores(self, df: pd.DataFrame, params: dict, atomic_states: Dict, trigger_events: Dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        【新增辅助方法】计算所有得分，包括入场分和风险分。
+        """
+        print("--- [总指挥] 步骤2: 计算入场分与风险分... ---")
+        # 计算原始入场分
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
         raw_total_score = df['entry_score'].copy()
+        
+        # 应用最终调整
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
-        self._last_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
+        
+        final_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
+        
+        # 计算风险分
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
         risk_score, risk_details_df = self._calculate_risk_score(df, params, risk_setups, risk_triggers)
-        self._last_risk_details_df = risk_details_df
         df['risk_score'] = risk_score
-        df['exit_signal_code'] = self._calculate_exit_signals(df, params, risk_score)
         
-        # ▼▼▼ 建立“动态否决权”裁决系统！▼▼▼
-        print("--- [总指挥] 步骤7: 最高统帅部启动，执行【攻防力量动态平衡裁决】！---")
-        
+        return df, final_score_details_df, risk_details_df
+
+    def _apply_risk_veto_and_finalize(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【新增辅助方法】执行风险否决，并生成最终的入场和出场信号。
+        """
+        print("--- [总指挥] 步骤3: 执行风险否决并生成最终信号... ---")
         veto_params = self._get_params_block(params, 'risk_veto_params', {})
         if self._get_param_value(veto_params.get('enabled'), False):
             ratio = self._get_param_value(veto_params.get('risk_tolerance_ratio'), 0.5)
             min_risk = self._get_param_value(veto_params.get('min_absolute_risk_for_veto'), 30)
             
             print(f"    -> [裁决标准] 风险容忍系数: {ratio:.2f}, 触发否决的最低绝对风险: {min_risk}")
-
-            # 计算每一天的动态否决阈值
             df['dynamic_veto_threshold'] = df['entry_score'] * ratio
-            
-            # 制作否决面具：风险分超过了动态阈值，并且风险分本身也达到了最低绝对水平
             veto_mask = (df['risk_score'] > df['dynamic_veto_threshold']) & (df['risk_score'] >= min_risk)
             
             original_buy_signals_to_veto = (df['entry_score'] > 0) & veto_mask
-            
             if original_buy_signals_to_veto.any():
                 print(f"    -> [风控裁决] 在 {original_buy_signals_to_veto.sum()} 个交易日，风险分超过了买入分可容忍的上限。")
                 print(f"    -> [执行否决] 已将这些交易日的 entry_score 强制清零！")
@@ -184,16 +234,15 @@ class TrendFollowStrategy:
                 print("    -> [风控裁决] 所有买入信号均在风险容忍范围内，无需否决。")
         else:
             print("    -> [风控裁决] 动态否决系统被禁用，跳过此步骤。")
+            
+        # 计算最终出场信号码
+        df['exit_signal_code'] = self._calculate_exit_signals(df, params, df['risk_score'])
         
-        print("--- [总指挥] 步骤8: 基于【最终裁决后】的得分，合成最终信号 ---")
+        # 计算最终入场信号
         score_threshold = self._get_param_value(self._get_params_block(params, 'entry_scoring_params', {}).get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
-        print("--- [总指挥] 步骤9: 启动【持仓管理引擎】，模拟全程战术动作 ---")
-        df = self._run_position_management_simulation(df, params)
-
-        print(f"====== 【战术引擎 V202.10】执行完毕 ======")
-        return df, atomic_states
+        return df
 
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
@@ -261,9 +310,10 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.14 情报量化存档版】统一战报司令部
-        - 核心升级: 在生成风险/预警记录后，立刻调用全新的 `_quantify_risk_reasons`
-                    方法，将原因翻译成量化格式，然后再存入数据库。
+        【V202.14 重构优化版】统一战报司令部
+        - 核心修复: 在调用 _create_db_record_template 创建记录后，对可能为 NaN 的字段（如 stable_platform_price）进行二次检查和转换，确保数据清洁。
+        - 核心重构: 简化了信号判断逻辑，使代码更易读。
+        - 业务逻辑: 保持原有的信号生成逻辑（入场、出场、预警）不变。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
         if not all(col in result_df.columns for col in required_cols):
@@ -288,6 +338,8 @@ class TrendFollowStrategy:
         min_warning_level = min([cfg['level'] for cfg in warning_thresholds.values()]) if warning_thresholds else 30
 
         for timestamp, row in df_with_signals.iterrows():
+            record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
+            
             is_entry = bool(row.get('signal_entry', False))
             exit_code = int(row.get('exit_signal_code', 0))
             risk_score = row.get('risk_score', 0.0)
@@ -295,53 +347,101 @@ class TrendFollowStrategy:
             is_warning = risk_score >= min_warning_level and not is_exit and not is_entry
 
             if is_exit:
-                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['exit_signal_code'] = exit_code
                 self._fill_risk_details(record, row, risk_playbook_map)
-                
                 record['exit_signal_reason'] = self._quantify_risk_reasons(record)
-
+                
                 exit_thresholds = exit_strategy_cfg.get('exit_threshold_params', {})
                 sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
-                severity_level = 0
                 for level_name, config in sorted_levels:
                     if exit_code == self._get_param_value(config.get('code')):
-                        if level_name == "CRITICAL": severity_level = 3
-                        elif level_name == "HIGH": severity_level = 2
+                        record['exit_severity_level'] = 3 if level_name == "CRITICAL" else 2
                         break
-                record['exit_severity_level'] = severity_level
                 records.append(record)
-                continue
 
             elif is_entry:
-                # ... 买入信号逻辑保持不变 ...
-                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['entry_signal'] = True
-                record['entry_score'] = row.get('entry_score', 0.0)
+                # ▼▼▼【代码修改】修复NaN错误的关键点 ▼▼▼
                 stable_price = row.get('PLATFORM_PRICE_STABLE')
-                record['stable_platform_price'] = None if pd.isna(stable_price) else stable_price
+                record['stable_platform_price'] = float(stable_price) if pd.notna(stable_price) else None
+                # ▲▲▲【代码修改】▲▲▲
+                
                 playbooks_list = []
                 if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                     playbooks_with_scores = self._last_score_details_df.loc[timestamp]
                     active_items = playbooks_with_scores[playbooks_with_scores > 0].index
                     excluded_prefixes = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_')
                     playbooks_list = [item for item in active_items if not item.startswith(excluded_prefixes)]
+                
                 record['triggered_playbooks'] = playbooks_list
                 record['triggered_playbooks_cn'] = [playbook_cn_name_map.get(item, item) for item in playbooks_list]
-                record['context_snapshot']['risk_score'] = risk_score
                 records.append(record)
-                continue
 
             elif is_warning:
-                record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['is_risk_warning'] = True
                 self._fill_risk_details(record, row, risk_playbook_map)
-                
                 record['exit_signal_reason'] = self._quantify_risk_reasons(record)
-                
                 records.append(record)
             
         return records
+
+    def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
+        """
+        【V202.6 健壮性增强版】
+        - 核心修复: 对所有从DataFrame中提取的数值类型，都使用 pd.notna() 进行检查，
+                    并将 NaN 值转换成数据库可接受的类型（None 或 0.0），从根源上杜绝 `ValidationError`。
+        """
+        # ▼▼▼【代码修改】对所有数值进行NaN检查和转换 ▼▼▼
+        close_price = row.get(f'close_{timeframe}')
+        entry_score = row.get('entry_score', 0.0)
+        risk_score = row.get('risk_score', 0.0)
+        
+        return {
+            "stock_code": stock_code, "trade_time": timestamp, "timeframe": timeframe,
+            "strategy_name": strategy_name, 
+            "close_price": float(close_price) if pd.notna(close_price) else None, # 修复点1: close_price
+            "entry_score": float(entry_score) if pd.notna(entry_score) else 0.0, # 修复点2: entry_score
+            "stable_platform_price": None, # 此处留空，由主流程填充并检查
+            "entry_signal": False, "is_risk_warning": False,
+            "exit_signal_code": 0, "exit_severity_level": 0, "exit_signal_reason": None,
+            "is_pullback_setup": bool(row.get('SETUP_SCORE_PLATFORM_SUPPORT_PULLBACK', 0) > 0),
+            "triggered_playbooks": [], "triggered_playbooks_cn": [], 
+            "context_snapshot": {
+                'close': float(close_price) if pd.notna(close_price) else None,
+                'entry_score': float(entry_score) if pd.notna(entry_score) else 0.0,
+                'risk_score': float(risk_score) if pd.notna(risk_score) else 0.0, # 修复点3: risk_score
+            }
+        }
+        # ▲▲▲【代码修改】▲▲▲
+
+    def _fill_risk_details(self, record: Dict, row: pd.Series, risk_playbook_map: Dict):
+        """
+        【V202.7 健壮性增强版】
+        - 核心修复: 对所有添加到 context_snapshot 的数值，进行 pd.notna() 检查，确保数据清洁。
+        """
+        timestamp = record['trade_time']
+        triggered_risks_en = []
+        risk_details_df = getattr(self, '_last_risk_details_df', pd.DataFrame())
+        if not risk_details_df.empty and timestamp in risk_details_df.index:
+            risk_details_for_day = risk_details_df.loc[timestamp]
+            active_risks = risk_details_for_day[risk_details_for_day > 0].index
+            triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
+        
+        triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
+        reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
+        
+        record['exit_signal_reason'] = reason
+        record['triggered_playbooks'] = triggered_risks_en
+        record['triggered_playbooks_cn'] = triggered_risks_cn
+        
+        context = record['context_snapshot']
+        # ▼▼▼【代码修改】增加NaN检查 ▼▼▼
+        context['cost_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_peak_cost_D')) else None
+        context['winner_rate_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_total_winner_rate_D')) else None
+        context['peak_stability_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_peak_stability_D')) else None
+        context['pressure_above_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_pressure_above_D')) else None
+        # ▲▲▲【代码修改】▲▲▲
+        record['context_snapshot'] = sanitize_for_json(context) # sanitize_for_json 仍然保留，用于处理其他JSON不支持的类型
 
     def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
         """【V202.6 辅助函数】创建标准化的数据库记录模板"""
@@ -786,18 +886,52 @@ class TrendFollowStrategy:
         atomic_states: Dict[str, pd.Series]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V184.0 周线联动版】
-        - 核心升级: 新增“周线战略背景”加成引擎。在计算完基础分后，会检查
-                    从周线注入的战略信号，并对得分进行决定性的加成或惩罚。
+        【V184.0 重构优化版】
+        - 核心重构: 将原有的复杂计分逻辑拆分为三个独立的辅助函数：
+                    _calculate_base_scores: 计算基础分（阵地分+动能分+触发分）。
+                    _apply_weekly_context_modifiers: 应用周线战略背景乘数。
+                    _apply_final_score_amplifier: 应用最终的“优势火力”放大器。
+        - 收益: 计分流程的每一步都清晰可见，极大提高了代码的可读性和可维护性。
         """
-        print("    - [计分引擎 V184.0 周线联动版] 启动...")
+        print("    - [计分引擎 V184.0 重构优化版] 启动...")
         
-        scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
         score_details_df = pd.DataFrame(index=df.index)
-        default_series = pd.Series(False, index=df.index)
+        scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
 
-        # --- 步骤1 & 2: 计算“阵地分”和“动能分” (逻辑不变) ---
-        print("      -> [火力层1/4 & 2/4] 正在计算“阵地分”与“动能分”...")
+        # 步骤1: 计算基础分的三大组成部分 (阵地、动能、触发)
+        # ▼▼▼【代码修改】现在返回三个独立的分数组件 ▼▼▼
+        positional_score, dynamic_score, trigger_score, score_details_df = self._calculate_base_scores(
+            df, scoring_params, atomic_states, trigger_events, score_details_df
+        )
+        # ▲▲▲【代码修改】▲▲▲
+
+        # 步骤2: 应用周线战略背景修正，得到加权后的基础分
+        # ▼▼▼【代码修改】将三个分数组件传入进行修正和加权 ▼▼▼
+        modified_base_score, score_details_df = self._apply_weekly_context_modifiers(
+            df, positional_score, dynamic_score, trigger_score, scoring_params, atomic_states, score_details_df
+        )
+        # ▲▲▲【代码修改】▲▲▲
+
+        # 步骤3: 应用最终的“优势火力”放大器
+        final_score, score_details_df = self._apply_final_score_amplifier(
+            df, modified_base_score, scoring_params, score_details_df
+        )
+        
+        df['entry_score'] = final_score.round(0)
+        score_details_df.fillna(0, inplace=True)
+        print(f"--- [计分引擎 V184.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        return df, score_details_df
+
+    def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
+        """
+        【新增辅助方法 - 优化版】
+        - 核心修改: 此方法现在只计算并返回三个最原始的分数组件（阵地分、动能分、触发分），不再进行加权。
+        - 收益: 职责更单一，便于后续步骤进行更复杂的修正。
+        """
+        print("      -> [火力层1-3/4] 正在计算“阵地分”、“动能分”与“触发分”...")
+        default_series = pd.Series(False, index=df.index)
+        
+        # 计算阵地分
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
         for state_name, score in {**positional_params.get('positive_signals', {}), **positional_params.get('negative_signals', {})}.items():
@@ -805,6 +939,7 @@ class TrendFollowStrategy:
             total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
             
+        # 计算动能分
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         total_dynamic_score = pd.Series(0.0, index=df.index)
         for state_name, score in {**dynamic_params.get('positive_signals', {}), **dynamic_params.get('negative_signals', {})}.items():
@@ -812,13 +947,7 @@ class TrendFollowStrategy:
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
 
-        # --- 步骤3: 混合加权与触发分叠加 (逻辑不变) ---
-        print("      -> [火力层3/4] 正在执行混合加权与触发分叠加...")
-        weights = scoring_params.get('hybrid_scoring_weights', {})
-        weight_pos = weights.get('positional_weight', 0.4)
-        weight_dyn = weights.get('dynamic_weight', 0.6)
-        weighted_base_score = (total_positional_score * weight_pos) + (total_dynamic_score * weight_dyn)
-        
+        # 计算触发分
         trigger_score_total = pd.Series(0.0, index=df.index)
         trigger_event_scores = scoring_params.get('trigger_events', {})
         for event_name, score in trigger_event_scores.items():
@@ -827,119 +956,126 @@ class TrendFollowStrategy:
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
         
-        base_plus_trigger_score = weighted_base_score + trigger_score_total
+        return total_positional_score, total_dynamic_score, trigger_score_total, score_details_df
 
-        # ▼▼▼ “周线战略背景”加成引擎 ▼▼▼
+    def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【新增辅助方法 - 完整实现版】
+        - 核心修复: 提供了完整的周线战略背景修正逻辑，并定义了缺失的 `default_series`。
+        - 工作流程:
+          1. 根据周线信号（如主升浪、底部企稳等）计算出各类分数的修正乘数。
+          2. 将原始分数组件拆分为正分和负分。
+          3. 对正分应用加成乘数，对负分应用豁免乘数。
+          4. 将修正后的分数重新加权混合，并叠加上修正后的触发分，得到最终的修正后基础分。
+        """
         print("      -> [火力层3.5/4] 正在应用“周线精确制导”...")
-        
+        # ▼▼▼【代码修改】修复点：定义 default_series ▼▼▼
+        default_series = pd.Series(False, index=df.index)
+        # ▲▲▲【代码修改】▲▲▲
+
         # 初始化各类分数的乘数，默认为1.0 (无影响)
         positional_multiplier = pd.Series(1.0, index=df.index)
         dynamic_multiplier = pd.Series(1.0, index=df.index)
         trigger_multiplier = pd.Series(1.0, index=df.index)
-        # 初始化一个豁免乘数，用于抵消负分
-        penalty_immunity_multiplier = pd.Series(1.0, index=df.index)
+        penalty_immunity_multiplier = pd.Series(1.0, index=df.index) # 用于抵消负分的豁免乘数
 
-        # --- 指令1: 如果周线处于“主升浪”或“经典突破”的背景下 ---
-        # 战略意图: 放大动能和触发事件的权重
+        # 指令1: 如果周线处于“主升浪”或“经典突破”的背景下
         main_ascent_mask = df.get('state_node_main_ascent_W', default_series)
         breakout_mask = df.get('playbook_classic_breakout_W', default_series)
         momentum_context_mask = main_ascent_mask | breakout_mask
         if momentum_context_mask.any():
             print(f"        -> [周线指令] “主升浪/突破”背景激活，放大动能和触发权重。")
-            dynamic_multiplier.loc[momentum_context_mask] *= 1.5 # 动能分权重提升50%
-            trigger_multiplier.loc[momentum_context_mask] *= 1.8 # 触发分权重提升80%
+            dynamic_multiplier.loc[momentum_context_mask] *= 1.5
+            trigger_multiplier.loc[momentum_context_mask] *= 1.8
             score_details_df.loc[momentum_context_mask, 'CONTEXT_MULT_MOMENTUM'] = 1.5
         
-        # --- 指令2: 如果周线处于“点火期”或“底部企稳”的背景下 ---
-        # 战略意图: 放大阵地分的权重，对趋势恶化的负分给予豁免
+        # 指令2: 如果周线处于“点火期”或“底部企稳”的背景下
         ignition_mask = df.get('state_node_ignition_W', default_series)
         bottoming_mask = df.get('state_node_bottoming_W', default_series)
         reversal_context_mask = ignition_mask | bottoming_mask
         if reversal_context_mask.any():
             print(f"        -> [周线指令] “点火/筑底”背景激活，放大阵地权重并豁免部分风险。")
-            positional_multiplier.loc[reversal_context_mask] *= 1.6 # 阵地分权重提升60%
-            # 对 CONTEXT_TREND_DETERIORATING 的负分给予豁免 (乘数设为0)
+            positional_multiplier.loc[reversal_context_mask] *= 1.6
             penalty_immunity_multiplier.loc[reversal_context_mask] = 0.0 
             score_details_df.loc[reversal_context_mask, 'CONTEXT_MULT_POSITIONAL'] = 1.6
 
-        # --- 指令3: 如果周线处于“洗盘豁免期” ---
-        # 战略意图: 大幅降低所有负面信号的影响
+        # 指令3: 如果周线处于“洗盘豁免期”
         washout_immunity_mask = df.get('state_washout_immunity_W', default_series)
         if washout_immunity_mask.any():
             print(f"        -> [周线指令] “洗盘豁免”激活，大幅降低负面信号影响。")
-            # 将所有负分的豁免乘数设为0.2 (即只承受20%的伤害)
             penalty_immunity_multiplier.loc[washout_immunity_mask] = 0.2 
             score_details_df.loc[washout_immunity_mask, 'CONTEXT_IMMUNITY_WASHOUT'] = 0.2
 
-        # --- 应用乘数，计算最终基础分 ---
+        # --- 应用乘数 ---
         # 分离正负分
-        pos_positional = total_positional_score.where(total_positional_score > 0, 0)
-        neg_positional = total_positional_score.where(total_positional_score < 0, 0)
-        pos_dynamic = total_dynamic_score.where(total_dynamic_score > 0, 0)
-        neg_dynamic = total_dynamic_score.where(total_dynamic_score < 0, 0)
+        pos_positional = positional_score.where(positional_score > 0, 0)
+        neg_positional = positional_score.where(positional_score < 0, 0)
+        pos_dynamic = dynamic_score.where(dynamic_score > 0, 0)
+        neg_dynamic = dynamic_score.where(dynamic_score < 0, 0)
 
         # 应用乘数
         adj_pos_positional = pos_positional * positional_multiplier
-        # 对负分应用豁免乘数
-        adj_neg_positional = neg_positional * penalty_immunity_multiplier 
+        adj_neg_positional = neg_positional * penalty_immunity_multiplier # 对负分应用豁免乘数
         adj_pos_dynamic = pos_dynamic * dynamic_multiplier
         adj_neg_dynamic = neg_dynamic * penalty_immunity_multiplier
-        adj_trigger = trigger_score_total * trigger_multiplier
+        adj_trigger = trigger_score * trigger_multiplier
 
-        # 重新合成
+        # 重新合成调整后的分数组件
         adj_total_positional = adj_pos_positional + adj_neg_positional
         adj_total_dynamic = adj_pos_dynamic + adj_neg_dynamic
         
-        # --- 混合加权 (使用调整后的分数) ---
+        # --- 使用调整后的分数进行混合加权 ---
         weights = scoring_params.get('hybrid_scoring_weights', {})
         weight_pos = weights.get('positional_weight', 0.4)
         weight_dyn = weights.get('dynamic_weight', 0.6)
         weighted_base_score = (adj_total_positional * weight_pos) + (adj_total_dynamic * weight_dyn)
         
-        base_plus_trigger_score = weighted_base_score + adj_trigger
-
-        # --- 步骤4: 【V183核心】启动修正后的“优势火力”放大器 ---
-        print("      -> [火力层4/4] 正在启动修正后的“优势火力”放大器...")   
-        amp_params = scoring_params.get('chip_dynamics_amplifier', {})
+        # 叠加上调整后的触发分，得到最终的修正后基础分
+        modified_base_score = weighted_base_score + adj_trigger
         
-        if amp_params.get('enabled', False):
-            window = self._get_param_value(amp_params.get('lookback_window'), 250)
-            
-            # 计算兵种1(筹码)的乘数
-            conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
-            conc_multiplier = pd.Series(1.0, index=df.index)
-            if conc_slope_col in df.columns:
-                conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
-                for rule in sorted(rules, key=lambda x: x['percentile_upper'], reverse=True):
-                    conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
-                print(f"        -> [兵种-筹码] 乘数计算完成。")
-            # 计算兵种2(成本)的乘数
-            cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
-            cost_multiplier = pd.Series(1.0, index=df.index)
-            if cost_slope_col in df.columns:
-                cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-                rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
-                # ▼▼▼ 对于“越大越好”的指标，按分位阈值“升序”排列！▼▼▼
-                for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=False):
-                    cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
-                print(f"        -> [兵种-成本] 乘数计算完成。")
-            # 采用“优势火力”逻辑，取最大值
-            final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
-            # 应用安全限制
-            cap_params = amp_params.get('final_multiplier_cap', {})
-            max_mult = cap_params.get('max', 3.0)
-            min_mult = cap_params.get('min', 0.4)
-            final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
-            score_details_df['FINAL_MULTIPLIER'] = final_multiplier
-            print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
-            final_score = base_plus_trigger_score * final_multiplier
-        else:
-            final_score = base_plus_trigger_score
-        df['entry_score'] = final_score.round(0)
-        score_details_df.fillna(0, inplace=True)
-        print(f"--- [计分引擎 V185.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
-        return df, score_details_df
+        return modified_base_score, score_details_df
+
+    def _apply_final_score_amplifier(self, df: pd.DataFrame, modified_base_score: pd.Series, scoring_params: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【新增辅助方法】应用最终的“优势火力”放大器。
+        """
+        print("      -> [火力层4/4] 正在启动“优势火力”放大器...")
+        amp_params = scoring_params.get('chip_dynamics_amplifier', {})
+        if not amp_params.get('enabled', False):
+            return modified_base_score, score_details_df
+
+        window = self._get_param_value(amp_params.get('lookback_window'), 250)
+        
+        # 计算兵种1(筹码)的乘数
+        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+        conc_multiplier = pd.Series(1.0, index=df.index)
+        if conc_slope_col in df.columns:
+            conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
+            rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
+            for rule in sorted(rules, key=lambda x: x['percentile_upper'], reverse=True):
+                conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
+        
+        # 计算兵种2(成本)的乘数
+        cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
+        cost_multiplier = pd.Series(1.0, index=df.index)
+        if cost_slope_col in df.columns:
+            cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
+            rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
+            for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=False):
+                cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
+        
+        # 采用“优势火力”逻辑，取最大值并应用安全限制
+        final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
+        cap_params = amp_params.get('final_multiplier_cap', {})
+        max_mult = cap_params.get('max', 3.0)
+        min_mult = cap_params.get('min', 0.4)
+        final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
+        
+        score_details_df['FINAL_MULTIPLIER'] = final_multiplier
+        print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
+        
+        final_score = modified_base_score * final_multiplier
+        return final_score, score_details_df
 
     def _calculate_entry_score_legacy(
         self, 
