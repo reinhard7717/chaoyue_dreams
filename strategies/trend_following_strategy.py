@@ -1762,8 +1762,11 @@ class TrendFollowStrategy:
         status_concentrated = "[✓]" if states['CHIP_FACT_IS_CONCENTRATED'].iloc[-1] else "[✗]"
         print(f"          -> [事实报告] '筹码处于集中状态' (最新一日): {status_concentrated}")
 
-        is_trend_dispersing = df[conc_slope_col] > slope_tolerance
-        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_low_concentration_value & is_trend_dispersing
+        # 最高警报：筹码结构是否正在崩溃
+        # 新的定义：不再关心筹码绝对值！只要发散的“速度”超过了危险阈值，就视为崩溃！
+        dispersing_slope_threshold = self._get_param_value(p_struct.get('dispersing_slope_threshold'), 0.002) # 定义一个明确的“危险发散斜率”
+        
+        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = df[conc_slope_col] > dispersing_slope_threshold
         
         if states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
             status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
