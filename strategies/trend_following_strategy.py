@@ -964,8 +964,8 @@ class TrendFollowStrategy:
         )
         
         df['entry_score'] = final_score.round(0)
-        score_details_df.fillna(0, inplace=True)
-        print(f"--- [计分引擎 V184.0] 计算完成。最终有 { (final_score > 0).sum() } 个交易日产生得分。 ---")
+        latest_score = final_score.iloc[-1] if not final_score.empty else 0
+        print(f"--- [计分引擎 V184.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
     def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
@@ -1712,39 +1712,38 @@ class TrendFollowStrategy:
 
         conc_col = 'CHIP_concentration_90pct_D'
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
-        
-        # 静态条件：筹码集中度的绝对值是否低于阈值
+
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
         is_low_concentration_value = df[conc_col] < conc_thresh_abs
-        
-        # 动态安全锁：筹码集中度的变化趋势是否健康（稳定或仍在集中）
+
         slope_tolerance = self._get_param_value(p_struct.get('slope_tolerance'), 0.001)
         is_trend_healthy = df[conc_slope_col] <= slope_tolerance
-        
-        # 新的、可靠的“高度集中”信号 = 静态条件 AND 动态安全锁
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
-        print(f"          -> [忠诚信号] '筹码高度集中' 已校准，激活 {states['CHIP_STATE_HIGHLY_CONCENTRATED'].sum()} 天。")
 
-        # 全新的、最高优先级风险信号：“筹码结构崩溃”
+        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
+
+        status_concentrated = "[✓]" if states['CHIP_STATE_HIGHLY_CONCENTRATED'].iloc[-1] else "[✗]"
+        print(f"          -> [忠诚信号] '筹码高度集中' (最新一日): {status_concentrated}")
+
         is_trend_dispersing = df[conc_slope_col] > slope_tolerance
         states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_low_concentration_value & is_trend_dispersing
+        
         if states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
-            print(f"          -> [!!!最高警报!!!] '筹码结构崩溃' 风险已识别，激活 {states['RISK_CHIP_STRUCTURE_COLLAPSE'].sum()} 天。")
+            status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
+            print(f"          -> [!!!最高警报!!!] '筹码结构崩溃' (最新一日): {status_collapse}")
 
-        # 其他相关状态
         if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
             squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
             squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
             squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
             states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
-        
+
         p_scattered = params.get('scattered_params', {})
         if self._get_param_value(p_scattered.get('enabled'), True):
             scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
             states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)
-            
-        return states
 
+        return states
+    
     def _diagnose_chip_cycle_states(self, df: pd.DataFrame, params: dict, current_states: dict) -> Dict[str, pd.Series]:
         """【V204.0 新增】专业化作战单元：周期研判单元"""
         states = {}
@@ -2644,105 +2643,112 @@ class TrendFollowStrategy:
     # 风险评分引擎
     def _calculate_risk_score(self, df: pd.DataFrame, params: dict, risk_setups: Dict[str, pd.Series], risk_triggers: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V122.1 计分逻辑修复版】
-        - 核心修复: 彻底重写了风险评分逻辑。现在它能够正确地遍历所有风险剧本蓝图，
-                    查找对应的风险准备状态(risk_setups)，并根据蓝图中定义的'score'
-                    进行累加计分。这解决了之前版本中风险信号被识别但无法计分的根本性问题。
+        【V205.0 风险一票否决版】风险评分引擎
+        - 核心升级: 正式为“筹码结构崩溃”风险剧本 `RISK_SCORE_CHIP_STRUCTURE_COLLAPSE`
+                    配备了“毁灭性”的500点基础风险分。
+        - 作战意图: 建立风险的“一票否决权”。一旦此信号被激活，其巨大的风险分将
+                    压倒几乎所有正面的买入信号得分，并能轻易触发最高级别的卖出警报，
+                    从而确保我军在遭遇主力溃败时能够第一时间、无条件地撤离战场。
         """
-        print("    - [风险评分引擎 V122.1 计分逻辑修复版] 启动，开始量化每日风险...")
-        
-        risk_score = pd.Series(0.0, index=df.index)
+        print("    - [风险评分引擎 V205.0 风险一票否决版] 启动，开始量化每日风险...")
         risk_details_df = pd.DataFrame(index=df.index)
-        
-        # 步骤1: 遍历所有风险剧本蓝图，并根据准备状态计分
+        total_risk_score = pd.Series(0.0, index=df.index)
+        default_series = pd.Series(False, index=df.index)
+
+        # 步骤1: 评估所有战术风险剧本
         print("      -> 步骤1: 评估所有战术风险剧本...")
-        risk_playbooks = self._get_risk_playbook_blueprints()
-        
-        for playbook in risk_playbooks:
-            playbook_name = playbook['name']
-            playbook_score = playbook.get('score', 0)
+        for playbook in self.risk_playbook_blueprints:
+            name = playbook['name']
+            base_score = self._get_param_value(playbook.get('base_score'), 0)
             
-            # 构建对应的风险准备状态(setup)的列名
-            # 例如，剧本 'PROFIT_EVAPORATION' -> 状态 'SETUP_RISK_PROFIT_EVAPORATION'
-            setup_col_name = f"SETUP_RISK_{playbook_name}"
-            
-            # 检查这个风险准备状态是否存在且被激活
-            if setup_col_name in risk_setups and risk_setups[setup_col_name].any():
-                mask = risk_setups[setup_col_name]
-                
-                # 累加风险分
-                risk_score.loc[mask] += playbook_score
-                
-                # 在详情报告中记录该项风险的分值
-                detail_col_name = f"RISK_SCORE_{playbook_name}"
-                risk_details_df.loc[mask, detail_col_name] = playbook_score
+            setup_name = playbook.get('setup_condition')
+            trigger_name = playbook.get('trigger_event')
 
-        # 步骤2: 应用战略风险放大器 (逻辑保持不变)
+            setup_mask = risk_setups.get(setup_name, default_series) if setup_name else pd.Series(True, index=df.index)
+            trigger_mask = risk_triggers.get(trigger_name, default_series) if trigger_name else pd.Series(True, index=df.index)
+            
+            final_mask = setup_mask & trigger_mask
+            
+            if final_mask.any():
+                risk_details_df.loc[final_mask, f'RISK_SCORE_{name}'] = base_score
+                # print(f"        -> 风险剧本 '{playbook.get('cn_name', name)}' 已激活 {final_mask.sum()} 天，基础风险分: {base_score}")
+
+        # 步骤2: 启动战略风险放大器
         print("      -> 步骤2: 启动战略风险放大器...")
-        strategic_risk_params = self._get_params_block(params, 'strategic_risk_amplifier', {})
-        if self._get_param_value(strategic_risk_params.get('enabled'), False):
-            risk_context_col = 'filter_strategic_risk_veto_W' # 来自周线引擎的战略风险信号
-            if risk_context_col in df.columns:
-                mask = df[risk_context_col] == True
-                penalty_points = self._get_param_value(strategic_risk_params.get('penalty_points'), 50)
-                risk_score.loc[mask] += penalty_points
-                risk_details_df.loc[mask, 'STRATEGIC_RISK_PENALTY'] = penalty_points
+        p_amp = self._get_params_block(params, 'risk_amplification_params', {})
+        if self._get_param_value(p_amp.get('enabled'), True):
+            for state_name, multiplier in p_amp.get('strategic_multipliers', {}).items():
+                mask = df.get(state_name, default_series)
                 if mask.any():
-                    print(f"        -> “战略风险放大器”激活！因整体趋势恶化，在 {mask.sum()} 天的风险分上追加了 {penalty_points} 分。")
+                    total_risk_score *= np.where(mask, multiplier, 1.0)
+                    # print(f"        -> 战略风险放大器 '{state_name}' 已激活，风险乘数: x{multiplier}")
 
-        risk_details_df.fillna(0, inplace=True)
+        total_risk_score += risk_details_df.sum(axis=1)
         
-        max_score = risk_score.max()
-        print(f"    - [风险评分引擎 V122.1] 风险评分完成，最高风险分: {max_score if pd.notna(max_score) else 0:.0f}")
-        
-        return risk_score, risk_details_df
+        print("    - [风险评分引擎 V205.0] 风险评分完成。")
+        return total_risk_score, risk_details_df
 
     # ▼▼▼ “风险准备状态”诊断中心 ▼▼▼
     def _diagnose_risk_setups(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V202.0 动态防御版】
-        - 核心升级: 新增对动态筹码斜率风险的诊断逻辑，生成新的“风险准备状态”。
+        【V205.0 指挥链重铸版】风险前哨站
+        - 核心升级: 正式将全新的、最高优先级的风险信号 `RISK_CHIP_STRUCTURE_COLLAPSE`
+                    纳入风险剧本的侦测范围。
+        - 作战意图: 确保“筹码结构崩溃”这一致命警报，能够被风险系统正确捕获，并传递给
+                    后续的风险评分引擎，从根本上打通了“情报传递”的最后一公里。
         """
-        print("    - [风险前哨站 V202.0 动态防御版] 启动...")
+        print("    - [风险前哨站 V205.0 指挥链重铸版] 启动...")
         risk_setups = {}
         default_series = pd.Series(False, index=df.index)
         exit_params = self.exit_strategy_params
+        
         if not self._get_param_value(exit_params.get('enabled'), False):
             print("      -> 出场策略被禁用，风险诊断跳过。")
             return {}
 
-        # --- 1. 结构性风险诊断 (逻辑不变) ---
-        risk_setups['SETUP_RISK_STRUCTURE_BREAKDOWN'] = self._diagnose_structure_breakdown(df, exit_params)
-        risk_setups['SETUP_RISK_UPTHRUST_DISTRIBUTION'] = self._diagnose_upthrust_distribution(df, exit_params)
+        # 1. 捕获“筹码结构崩溃”信号
+        risk_setups['SETUP_CHIP_STRUCTURE_COLLAPSE'] = atomic_states.get('RISK_CHIP_STRUCTURE_COLLAPSE', default_series)
+        if risk_setups['SETUP_CHIP_STRUCTURE_COLLAPSE'].any():
+             status_collapse_setup = "[✓]" if risk_setups['SETUP_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
+             print(f"      -> [最高警报已捕获!] '筹码结构崩溃' 风险剧本 (最新一日): {status_collapse_setup}")
 
-        # --- 2. 动能衰竭风险诊断 (逻辑不变) ---
-        risk_setups['SETUP_RISK_CHIP_EXHAUSTION'] = atomic_states.get('CHIP_RISK_EXHAUSTION', default_series)
-        risk_setups['SETUP_RISK_CHIP_DIVERGENCE'] = atomic_states.get('CHIP_RISK_DIVERGENCE', default_series)
-
-        # ▼▼▼ 诊断新的动态风险 ▼▼▼
-        # 准备所需的斜率列名
-        total_winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
-        peak_stability_slope_col = 'SLOPE_5_CHIP_peak_stability_D'
-        peak_percent_slope_col = 'SLOPE_5_CHIP_peak_percent_D'
-        pressure_above_slope_col = 'SLOPE_5_CHIP_pressure_above_D'
+        # 2. 诊断“冲高回落”风险
+        p_upthrust = exit_params.get('upthrust_distribution_params', {})
+        if self._get_param_value(p_upthrust.get('enabled'), True):
+            over_ma = self._get_param_value(p_upthrust.get('overextension_ma_period'), 55)
+            over_thresh = self._get_param_value(p_upthrust.get('overextension_threshold'), 0.15)
+            lookback = self._get_param_value(p_upthrust.get('upthrust_lookback_days'), 5)
+            ma_col = f'EMA_{over_ma}_D'
+            if ma_col in df.columns:
+                is_overextended = (df['high_D'] / df[ma_col] - 1) > over_thresh
+                is_upthrust = df['high_D'] > df['high_D'].shift(1).rolling(window=lookback).max()
+                risk_setups['SETUP_UPTHRUST_DISTRIBUTION'] = is_overextended & is_upthrust
         
-        required_cols = [total_winner_rate_slope_col, peak_stability_slope_col, peak_percent_slope_col, pressure_above_slope_col]
-        if not all(col in df.columns for col in required_cols):
-            print("      -> [警告] 缺少诊断动态风险所需的斜率列，相关诊断将跳过。")
-        else:
-            # 诊断1: 获利盘蒸发
-            risk_setups['SETUP_RISK_PROFIT_EVAPORATION'] = (df[total_winner_rate_slope_col] < 0)
-            # 诊断2: 主峰根基动摇
-            risk_setups['SETUP_RISK_PEAK_WEAKENING'] = (df[peak_stability_slope_col] < 0) | (df[peak_percent_slope_col] < 0)
-            # 诊断3: 上方压力积聚
-            risk_setups['SETUP_RISK_RESISTANCE_BUILDING'] = (df[pressure_above_slope_col] > 0)
-        # 打印诊断结果
-        for name, series in risk_setups.items():
-            if series.any():
-                print(f"      -> 风险准备 '{name}' 已激活 {series.sum()} 天。")
+        # 3. 诊断“真实破位”风险
+        p_breakdown = exit_params.get('true_breakdown_params', {})
+        if self._get_param_value(p_breakdown.get('enabled'), True):
+            lookback = self._get_param_value(p_breakdown.get('lookback_period'), 20)
+            ma_p = self._get_param_value(p_breakdown.get('confirmation_ma_period'), 21)
+            ma_col = f'EMA_{ma_p}_D'
+            if ma_col in df.columns:
+                is_breakdown = df['close_D'] < df['low_D'].shift(1).rolling(window=lookback).min()
+                is_below_ma = df['close_D'] < df[ma_col]
+                risk_setups['SETUP_TRUE_BREAKDOWN'] = is_breakdown & is_below_ma
+
+        # 4. 诊断“熊市停滞”风险
+        p_stag = exit_params.get('stagnation_params', {})
+        if self._get_param_value(p_stag.get('enabled'), True):
+            atr_col = 'ATRr_14_D'
+            bbw_col = 'BBW_21_2.0_D'
+            if atr_col in df.columns and bbw_col in df.columns:
+                low_vol_thresh = df[bbw_col].rolling(self._get_param_value(p_stag.get('low_vol_window'), 120)).quantile(self._get_param_value(p_stag.get('low_vol_percentile'), 0.1))
+                low_range_thresh = df[atr_col].rolling(self._get_param_value(p_stag.get('low_range_window'), 60)).quantile(self._get_param_value(p_stag.get('low_range_percentile'), 0.1))
+                is_low_volatility = df[bbw_col] < low_vol_thresh
+                is_low_range = df[atr_col] < low_range_thresh
+                risk_setups['SETUP_STAGNATION'] = is_low_volatility & is_low_range
 
         return risk_setups
-
+    
     # ▼▼▼ “风险触发事件”定义中心 ▼▼▼
     def _define_risk_triggers(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
