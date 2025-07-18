@@ -46,15 +46,18 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self):
         """
-        初始化总指挥部。
+        【V203.1 修正版】初始化总指挥部。
+        - 核心修正: 恢复使用 self.indicator_service，移除了错误的 self.data_loader 引用。
         """
-        print("--- [总指挥部] 正在初始化 (V203.0)... ---")
+        print("--- [总指挥部] 正在初始化 (V203.1)... ---")
         # 加载唯一的全局配置文件，作为所有决策的依据
         unified_config_path = 'config/trend_follow_strategy.json'
         self.unified_config = load_strategy_config(unified_config_path)
         
+        # ▼▼▼【代码修改】修正错误的变量名，恢复使用 indicator_service ▼▼▼
         # 初始化下属的核心服务与引擎
         self.indicator_service = IndicatorService() # 数据工程部门
+        # ▲▲▲【代码修改】▲▲▲
         
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
@@ -80,7 +83,9 @@ class MultiTimeframeTrendStrategy:
         print(f"\n🚀 [总指挥层] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
 
         # 1. 数据准备：获取所有需要的时间框架数据
-        all_dfs = await self.data_loader.get_all_timeframe_data(stock_code, end_date=trade_time)
+        all_dfs = await self.indicator_service.prepare_data_for_strategy(
+            stock_code, self.unified_config, trade_time
+        )
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
             return []
