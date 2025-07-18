@@ -315,12 +315,10 @@ class MultiTimeframeTrendStrategy:
             
         return final_entry_records
 
-    def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V203.3 最终确认版】盘中风险预警引擎
-        监控由日线识别出的“风险预备日”的次日盘中表现，发出风险警报。
-        - 业务逻辑: 与原始的 for-loop + 状态机版本完全等价。
-        - 核心优化: 采用向量化和 groupby().apply() 模式，结构更清晰，执行更高效。
+        【V203.4 致命错误修正版】盘中风险预警引擎
+        - 核心修正: 纠正了在 groupby().apply() 中 idxmax() 返回整数位置而非Timestamp的致命错误。
         """
         # 1. 加载配置并进行健壮性检查
         exec_params = self.tactical_engine._get_params_block(self.unified_config, 'intraday_execution_params', {})
@@ -369,37 +367,36 @@ class MultiTimeframeTrendStrategy:
             is_breaking = day_df[close_col] < day_df[vwap_col]
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
             
-            # 检查当天是否存在首次跌破信号，如果不存在则直接返回，增加健壮性
             if not first_break_mask.any(): return None
             
-            # ▼▼▼【代码修改】这里是您提问的关键点 ▼▼▼
-            # .idxmax() 在一个以 DatetimeIndex 为索引的布尔 Series 上调用时，
-            # 会直接返回第一个 True 值对应的索引标签，这个标签就是一个 pandas.Timestamp 对象。
-            # 因此，first_break_idx 已经是时间戳类型，无需任何转换。
-            first_break_idx = first_break_mask.idxmax()
-            # ▲▲▲【代码修改】▲▲▲
+            # ▼▼▼【致命错误修正】修正 idxmax() 的错误用法 ▼▼▼
+            # 步骤 1: idxmax() 在此上下文中返回的是整数位置 (numpy.int64)，而不是 Timestamp。
+            first_break_pos = first_break_mask.idxmax()
             
-            first_alert_row = day_df.loc[first_break_idx]
+            # 步骤 2: 使用这个整数位置，从分组 day_df 的索引中获取正确的 Timestamp 对象。
+            first_break_timestamp = day_df.index[first_break_pos]
+            # ▲▲▲【致命错误修正】▲▲▲
             
-            # 检查警报发出后，当天是否重新站回VWAP
-            df_after_alert = day_df[day_df.index > first_break_idx]
+            # 现在使用正确的 Timestamp 对象 (first_break_timestamp) 进行所有操作
+            first_alert_row = day_df.loc[first_break_timestamp]
+            
+            df_after_alert = day_df[day_df.index > first_break_timestamp]
             is_reclaimed = (df_after_alert[close_col] > df_after_alert[vwap_col]).any()
             
-            # 根据是否收复，决定最终的警报内容
             if is_reclaimed:
                 reclaim_time = df_after_alert[df_after_alert[close_col] > df_after_alert[vwap_col]].index[0]
-                # ▼▼▼【代码修改】直接调用 .strftime() 是完全正确的，因为 first_break_idx 是 Timestamp 对象 ▼▼▼
-                final_reason = f"[威胁解除] 曾于{first_break_idx.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
-                final_code, final_severity = 0, 0 # 无风险
+                # ▼▼▼【代码修改】现在可以安全地对 Timestamp 对象调用 strftime ▼▼▼
+                final_reason = f"[威胁解除] 曾于{first_break_timestamp.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
+                final_code, final_severity = 0, 0
             else:
-                # ▼▼▼【代码修改】此处同理，直接调用 .strftime() ▼▼▼
-                final_reason = f"盘中于{first_break_idx.strftime('%H:%M')}跌破VWAP且至收盘未收复"
+                # ▼▼▼【代码修改】此处同理 ▼▼▼
+                final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
                 final_severity = get_val(upthrust_params.get('severity_level'), 3)
             # ▲▲▲【代码修改】▲▲▲
 
             return self._create_signal_record(
-                stock_code=stock_code, trade_time=first_break_idx, timeframe=minute_tf,
+                stock_code=stock_code, trade_time=first_break_timestamp, timeframe=minute_tf,
                 strategy_name="INTRADAY_RISK_ALERT", close_price=first_alert_row[close_col],
                 exit_signal_code=final_code, exit_severity_level=final_severity,
                 exit_signal_reason=final_reason,
@@ -407,7 +404,6 @@ class MultiTimeframeTrendStrategy:
                 context_snapshot={'close': first_alert_row[close_col], 'vwap': first_alert_row[vwap_col], 'reclaimed': is_reclaimed},
             )
 
-        # 对所有需要监控的日子的分钟线数据进行分组，并应用处理函数
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
             .groupby('monitoring_date', group_keys=False)\
             .apply(process_alert_day)\
