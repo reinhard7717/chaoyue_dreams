@@ -239,12 +239,11 @@ class TrendFollowStrategy:
             veto_mask = (df['risk_score'] > df['dynamic_veto_threshold']) & (df['risk_score'] >= min_risk)
             
             original_buy_signals_to_veto = (df['entry_score'] > 0) & veto_mask
-            if original_buy_signals_to_veto.any():
-                print(f"    -> [风控裁决] 在 {original_buy_signals_to_veto.sum()} 个交易日，风险分超过了买入分可容忍的上限。")
-                print(f"    -> [执行否决] 已将这些交易日的 entry_score 强制清零！")
-                df.loc[veto_mask, 'entry_score'] = 0
+            if not original_buy_signals_to_veto.empty and original_buy_signals_to_veto.iloc[-1]:
+                print(f"    -> [风控裁决] (最新一日): [✓] 风险否决已执行！")
             else:
                 print("    -> [风控裁决] 所有买入信号均在风险容忍范围内，无需否决。")
+            df.loc[veto_mask, 'entry_score'] = 0
         else:
             print("    -> [风控裁决] 动态否决系统被禁用，跳过此步骤。")
             
@@ -685,8 +684,8 @@ class TrendFollowStrategy:
             total_multiplier.loc[mask] += multiplier_value
             adjustment_details_df.loc[mask, name] = multiplier_value
             
-            if mask.any():
-                print(f"      -> 指挥棒规则 '{cn_name}' 已激活，在 {mask.sum()} 天提供了 {multiplier_value*100:.0f}% 的质量乘数。")
+            if not mask.empty and mask.iloc[-1]:
+                print(f"      -> 指挥棒 '{cn_name}' (最新一日): [✓] (乘数: +{multiplier_value*100:.0f}%)")
 
         adjusted_score = raw_scores * (1 + total_multiplier)
         print("    - [指挥棒模型 V119.4] 调整完成。")
@@ -1222,6 +1221,8 @@ class TrendFollowStrategy:
         final_score = final_family_scores.sum(axis=1)
         df['entry_score'] = final_score.round(0)
         score_details_df.fillna(0, inplace=True)
+        latest_score = final_score.iloc[-1] if not final_score.empty else 0
+        print(f"--- [计分引擎 V184.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
     # ▼▼▼ 固化“黑匣子”探针为独立模块 ▼▼▼
