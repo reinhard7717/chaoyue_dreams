@@ -80,12 +80,16 @@
                                 <strong>买入于: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }})</small>
+                                {# ▼▼▼【代码修改】: 新增平台支撑价格显示逻辑 ▼▼▼ #}
+                                {# 检查 item.buy_info 中是否存在 stable_platform_price 字段 #}
                                 {% if item.buy_info.stable_platform_price %}
                                 <div class="platform-price-info">
+                                    {# 增加一个盾牌图标，并格式化价格为两位小数 #}
                                     <span class="icon" title="以此价格为关键支撑/压力">🛡️</span>
                                     平台支撑: {{ item.buy_info.stable_platform_price|floatformat:2 }}
                                 </div>
                                 {% endif %}
+                                {# ▲▲▲【代码修改结束】▲▲▲ #}
                             {% else %}
                                 -
                             {% endif %}
