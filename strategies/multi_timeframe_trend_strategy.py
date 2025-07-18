@@ -91,13 +91,13 @@ class MultiTimeframeTrendStrategy:
             return []
 
         # 2. 战略引擎：计算长期趋势和上下文
-        strategic_context_df = await self.strategic_engine.run(all_dfs)
-        if strategic_context_df.empty:
+        df_weekly_context = await self.strategic_engine.generate_context(all_dfs['W'])
+        if df_weekly_context.empty:
             print(f"  - [战略引擎] 未能生成战略上下文，跳过后续处理。")
             return []
 
         # 3. 情报融合：将战略上下文合并到日线数据
-        df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], strategic_context_df)
+        df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
         all_dfs['D_CONTEXT'] = df_daily_with_context # 更新 all_dfs，供下游引擎使用
 
         # 4. 战术引擎：基于日线+战略上下文，生成日线级别的交易信号
