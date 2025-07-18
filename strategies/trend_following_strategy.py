@@ -427,7 +427,9 @@ class TrendFollowStrategy:
             if col not in df.columns:
                 df[col] = None if col not in ['entry_score', 'exit_signal_code', 'exit_severity_level'] else 0.0
 
-        return df[final_cols].to_dict('records')
+        sanitized_df = df[final_cols].replace({np.nan: None})
+
+        return sanitized_df.to_dict('records')
 
     def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
         """
