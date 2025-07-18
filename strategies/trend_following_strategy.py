@@ -954,8 +954,9 @@ class TrendFollowStrategy:
 
     def _deploy_field_coroner_probe(
         self, 
-        probe_date_str: str, 
+        probe_dates: list, # 接收一个日期列表
         df: pd.DataFrame,
+        atomic_states: dict, # 传入所有原子状态
         positional_score: pd.Series,
         dynamic_score: pd.Series,
         trigger_score: pd.Series,
@@ -966,58 +967,63 @@ class TrendFollowStrategy:
         score_details_df: pd.DataFrame
     ):
         """
-        【V215.0 战地验尸官探针 - 临时调试模块】
+        【V215.0 终极验尸官探针 - 临时调试模块】
         此探针为临时调试工具，用于对特定日期的计分流程进行最详尽的解剖。
         """
-        try:
-            probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
-            if probe_ts not in df.index:
-                return # 如果日期不存在，则静默退出
+        for probe_date_str in probe_dates:
+            try:
+                probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
+                if probe_ts not in df.index:
+                    continue
 
-            print("\n" + "="*30 + f" [战地验尸报告: {probe_date_str}] " + "="*30)
-            
-            # 提取当天的所有分值
-            positional_val = positional_score.loc[probe_ts]
-            dynamic_val = dynamic_score.loc[probe_ts]
-            trigger_val = trigger_score.loc[probe_ts]
-            penalty_val = penalty_score.loc[probe_ts]
-            positive_base_val = positive_base_score.loc[probe_ts]
-            amplified_pos_val = amplified_positive_score.loc[probe_ts]
-            final_score_val = final_score.loc[probe_ts]
-            multiplier_val = score_details_df.loc[probe_ts].get('FINAL_MULTIPLIER', 1.0)
+                print("\n" + "="*30 + f" [战地验尸报告: {probe_date_str}] " + "="*30)
+                
+                # --- 验尸第一部分：惩罚部队情报源核查 ---
+                print("[A. 惩罚部队情报源核查]")
+                
+                # 1. 核查 RISK_CHIP_STRUCTURE_COLLAPSE
+                cost_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_peak_cost_D', 'N/A')
+                winner_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_total_winner_rate_D', 'N/A')
+                collapse_triggered = atomic_states['RISK_CHIP_STRUCTURE_COLLAPSE'].loc[probe_ts]
+                print(f"  - RISK_CHIP_STRUCTURE_COLLAPSE: {collapse_triggered}")
+                print(f"    - 成本斜率: {cost_slope:.4f} (阈值 < -0.01)")
+                print(f"    - 获利盘斜率: {winner_slope:.4f} (阈值 < -1.0)")
 
-            # 打印详细计算流程
-            print(f"[1. 基础火力评估 (原始正分)]")
-            print(f"   - 阵地分 (Positional) : {positional_val:8.2f}")
-            print(f"   - 动能分 (Dynamic)    : {dynamic_val:8.2f}")
-            print(f"   - 触发分 (Trigger)    : {trigger_val:8.2f}")
-            print(f"   ------------------------------------")
-            
-            print(f"[2. 战略修正 (周线加权)]")
-            print(f"   - 修正后正面得分      : {positive_base_val:8.2f}")
-            print(f"   (计算公式: (阵地分*0.4 + 动能分*0.6) * 周线乘数 + 触发分 * 周线乘数)")
-            print(f"   ------------------------------------")
+                # 2. 核查 DYN_TREND_WEAKENING_DECELERATING
+                long_slope = df.loc[probe_ts].get('SLOPE_55_EMA_55_D', 'N/A')
+                long_accel = df.loc[probe_ts].get('ACCEL_55_EMA_55_D', 'N/A')
+                short_slope = df.loc[probe_ts].get('SLOPE_13_EMA_13_D', 'N/A')
+                weakening_triggered = atomic_states['DYN_TREND_WEAKENING_DECELERATING'].loc[probe_ts]
+                print(f"  - DYN_TREND_WEAKENING_DECELERATING: {weakening_triggered}")
+                print(f"    - 长期斜率 > 0: {long_slope > 0 if isinstance(long_slope, float) else 'N/A'}")
+                print(f"    - 长期加速度 < 0: {long_accel < 0 if isinstance(long_accel, float) else 'N/A'}")
+                print(f"    - 短期斜率 < 0: {short_slope < 0 if isinstance(short_slope, float) else 'N/A'}")
+                
+                print("-" * 70)
 
-            print(f"[3. 优势火力放大]")
-            print(f"   - 当日火力乘数        : {multiplier_val:8.2f}")
-            print(f"   - 放大后正面得分      : {amplified_pos_val:8.2f}")
-            print(f"   (计算公式: {positive_base_val:.2f} * {multiplier_val:.2f})")
-            print(f"   ------------------------------------")
+                # --- 验尸第二部分：计分流程解剖 ---
+                print("[B. 计分流程解剖]")
+                positional_val = positional_score.loc[probe_ts]
+                dynamic_val = dynamic_score.loc[probe_ts]
+                trigger_val = trigger_score.loc[probe_ts]
+                penalty_val = penalty_score.loc[probe_ts]
+                positive_base_val = positive_base_score.loc[probe_ts]
+                amplified_pos_val = amplified_positive_score.loc[probe_ts]
+                final_score_val = final_score.loc[probe_ts]
+                multiplier_val = score_details_df.loc[probe_ts].get('FINAL_MULTIPLIER', 1.0)
 
-            print(f"[4. 惩罚部队裁决]")
-            print(f"   - 当日惩罚总分        : {penalty_val:8.2f}")
-            print(f"   ------------------------------------")
+                print(f"  [1. 基础火力] 阵地分:{positional_val:.2f}, 动能分:{dynamic_val:.2f}, 触发分:{trigger_val:.2f}")
+                print(f"  [2. 战略修正] 修正后正面得分: {positive_base_val:.2f}")
+                print(f"  [3. 火力放大] 乘数:{multiplier_val:.2f}, 放大后正面得分: {amplified_pos_val:.2f}")
+                print(f"  [4. 惩罚裁决] 当日惩罚总分: {penalty_val:.2f}")
+                print(f"  [5. 最终战果] {amplified_pos_val:.2f} + ({penalty_val:.2f}) = {final_score_val:.2f}")
+                
+                print("="*80 + "\n")
 
-            print(f"[5. 最终战果结算]")
-            print(f"   - 最终得分计算        : {amplified_pos_val:.2f} (放大后正分) + {penalty_val:.2f} (惩罚分)")
-            print(f"   - 最终引擎得分        : {final_score_val:8.2f}")
-            
-            print("="*80 + "\n")
-
-        except KeyError:
-            print(f"\n[探针警告] 无法找到日期 {probe_date_str} 的数据，验尸失败。\n")
-        except Exception as e:
-            print(f"\n[探针致命错误] 在对 {probe_date_str} 进行验尸时发生未知错误: {e}\n")
+            except KeyError as e:
+                print(f"\n[探针警告] 无法找到日期 {probe_date_str} 的数据或列 {e}，验尸失败。\n")
+            except Exception as e:
+                print(f"\n[探针致命错误] 在对 {probe_date_str} 进行验尸时发生未知错误: {e}\n")
 
     def _calculate_entry_score(
         self, 
@@ -1061,12 +1067,13 @@ class TrendFollowStrategy:
         df['entry_score'] = final_score.round(0)
         latest_score = final_score.iloc[-1] if not final_score.empty else 0
 
+        probe_dates_list = ['2025-06-26', '2025-06-27', '2025-07-11']
         self._deploy_field_coroner_probe(
-            '2025-06-27', df,
+            probe_dates_list, df, atomic_states,
             positional_score, dynamic_score, trigger_score, penalty_score,
             positive_base_score, amplified_positive_score, final_score, score_details_df
         )
-        
+
         print(f"--- [计分引擎 V211.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
@@ -1839,11 +1846,18 @@ class TrendFollowStrategy:
         status_concentrated = "[✓]" if states['CHIP_FACT_IS_CONCENTRATED'].iloc[-1] else "[✗]"
         print(f"          -> [事实报告] '筹码处于集中状态' (最新一日): {status_concentrated}")
 
-        # 最高警报：筹码结构是否正在崩溃
-        # 新的定义：不再关心筹码绝对值！只要发散的“速度”超过了危险阈值，就视为崩溃！
-        dispersing_slope_threshold = self._get_param_value(p_struct.get('dispersing_slope_threshold'), 0.002) # 定义一个明确的“危险发散斜率”
-        
-        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = df[conc_slope_col] > dispersing_slope_threshold
+        # ▼▼▼ 注入全新的“崩溃共振”逻辑 ▼▼▼
+        # 1. 获取多源情报
+        cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
+        winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
+        # 2. 获取新的作战条令
+        cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
+        winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
+        # 3. 进行多源情报交叉验证
+        is_cost_collapsing = df.get(cost_slope_col, 0) < cost_collapse_threshold
+        is_winner_rate_collapsing = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
+        # 最终裁决：必须共振，方为崩溃
+        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_cost_collapsing & is_winner_rate_collapsing
 
         if 'RISK_CHIP_STRUCTURE_COLLAPSE' in states and states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
             status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
