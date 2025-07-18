@@ -952,6 +952,73 @@ class TrendFollowStrategy:
         # print(f"    - [剧本水合引擎 V127.0] 完成。")
         return hydrated_playbooks
 
+    def _deploy_field_coroner_probe(
+        self, 
+        probe_date_str: str, 
+        df: pd.DataFrame,
+        positional_score: pd.Series,
+        dynamic_score: pd.Series,
+        trigger_score: pd.Series,
+        penalty_score: pd.Series,
+        positive_base_score: pd.Series,
+        amplified_positive_score: pd.Series,
+        final_score: pd.Series,
+        score_details_df: pd.DataFrame
+    ):
+        """
+        【V215.0 战地验尸官探针 - 临时调试模块】
+        此探针为临时调试工具，用于对特定日期的计分流程进行最详尽的解剖。
+        """
+        try:
+            probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
+            if probe_ts not in df.index:
+                return # 如果日期不存在，则静默退出
+
+            print("\n" + "="*30 + f" [战地验尸报告: {probe_date_str}] " + "="*30)
+            
+            # 提取当天的所有分值
+            positional_val = positional_score.loc[probe_ts]
+            dynamic_val = dynamic_score.loc[probe_ts]
+            trigger_val = trigger_score.loc[probe_ts]
+            penalty_val = penalty_score.loc[probe_ts]
+            positive_base_val = positive_base_score.loc[probe_ts]
+            amplified_pos_val = amplified_positive_score.loc[probe_ts]
+            final_score_val = final_score.loc[probe_ts]
+            multiplier_val = score_details_df.loc[probe_ts].get('FINAL_MULTIPLIER', 1.0)
+
+            # 打印详细计算流程
+            print(f"[1. 基础火力评估 (原始正分)]")
+            print(f"   - 阵地分 (Positional) : {positional_val:8.2f}")
+            print(f"   - 动能分 (Dynamic)    : {dynamic_val:8.2f}")
+            print(f"   - 触发分 (Trigger)    : {trigger_val:8.2f}")
+            print(f"   ------------------------------------")
+            
+            print(f"[2. 战略修正 (周线加权)]")
+            print(f"   - 修正后正面得分      : {positive_base_val:8.2f}")
+            print(f"   (计算公式: (阵地分*0.4 + 动能分*0.6) * 周线乘数 + 触发分 * 周线乘数)")
+            print(f"   ------------------------------------")
+
+            print(f"[3. 优势火力放大]")
+            print(f"   - 当日火力乘数        : {multiplier_val:8.2f}")
+            print(f"   - 放大后正面得分      : {amplified_pos_val:8.2f}")
+            print(f"   (计算公式: {positive_base_val:.2f} * {multiplier_val:.2f})")
+            print(f"   ------------------------------------")
+
+            print(f"[4. 惩罚部队裁决]")
+            print(f"   - 当日惩罚总分        : {penalty_val:8.2f}")
+            print(f"   ------------------------------------")
+
+            print(f"[5. 最终战果结算]")
+            print(f"   - 最终得分计算        : {amplified_pos_val:.2f} (放大后正分) + {penalty_val:.2f} (惩罚分)")
+            print(f"   - 最终引擎得分        : {final_score_val:8.2f}")
+            
+            print("="*80 + "\n")
+
+        except KeyError:
+            print(f"\n[探针警告] 无法找到日期 {probe_date_str} 的数据，验尸失败。\n")
+        except Exception as e:
+            print(f"\n[探针致命错误] 在对 {probe_date_str} 进行验尸时发生未知错误: {e}\n")
+
     def _calculate_entry_score(
         self, 
         df: pd.DataFrame, 
@@ -993,6 +1060,13 @@ class TrendFollowStrategy:
         
         df['entry_score'] = final_score.round(0)
         latest_score = final_score.iloc[-1] if not final_score.empty else 0
+
+        self._deploy_field_coroner_probe(
+            '2025-06-27', df,
+            positional_score, dynamic_score, trigger_score, penalty_score,
+            positive_base_score, amplified_positive_score, final_score, score_details_df
+        )
+        
         print(f"--- [计分引擎 V211.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
