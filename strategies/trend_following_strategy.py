@@ -1630,196 +1630,199 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V201.0 动态情报武装版】筹码分布与流动状态诊断
-        - 核心升级: 全面引入并使用新的斜率指标，创建了多个全新的动态原子状态，
-                    用于描述获利盘扩张速度、筹码峰稳定性和套牢盘消化情况。
+        【V204.0 军事化改编版】筹码诊断总指挥部
+        - 核心重构: 此方法已重构为总指挥角色，不再处理具体逻辑。
+                    它负责按顺序调用下属的各个“专业化作战单元”（辅助方法），
+                    并将它们的诊断结果汇总，形成最终的筹码状态报告。
         """
-        print("        -> [诊断模块 V201.0] 正在执行筹码状态诊断(动态情报武装版)...")
+        print("        -> [诊断模块 V204.0 军事化改编版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
         p = self._get_params_block(params, 'chip_feature_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码诊断模块被禁用，跳过。")
             return states
-        
-        # 扩展所需列，加入新的斜率指标
-        required_cols = {
-            'peak_cost': 'CHIP_peak_cost_D',
-            'concentration_90pct': 'CHIP_concentration_90pct_D',
-            'concentration_slope': 'CHIP_concentration_90pct_slope_5d_D',
-            'peak_cost_slope_21d': 'CHIP_peak_cost_slope_21d_D',
-            'peak_cost_slope_55d': 'CHIP_peak_cost_slope_55d_D',
-            'peak_cost_accel_21d': 'CHIP_peak_cost_accel_21d_D',
-            'peak_cost_slope_8d': 'CHIP_peak_cost_slope_8d_D',
-            'winner_rate_short': 'CHIP_winner_rate_short_term_D',
-            'close': 'close_D',
-            'total_winner_rate': 'CHIP_total_winner_rate_D',
-            # ▼▼▼【代码新增 V201.0】: 引入新的斜率指标 ▼▼▼
-            'total_winner_rate_slope_5d': 'SLOPE_5_CHIP_total_winner_rate_D',
-            'peak_stability_slope_5d': 'SLOPE_5_CHIP_peak_stability_D',
-            'peak_percent_slope_5d': 'SLOPE_5_CHIP_peak_percent_D',
-            'pressure_above_slope_5d': 'SLOPE_5_CHIP_pressure_above_D'
-            # ▲▲▲【代码新增 V201.0】▲▲▲
-        }
-        
-        # 检查数据完整性
-        if not all(col in df.columns for col in required_cols.values()):
-            missing = [k for k, v in required_cols.items() if v not in df.columns]
+
+        # 预处理和数据检查
+        required_cols = [
+            'CHIP_peak_cost_D', 'CHIP_concentration_90pct_D', 'CHIP_concentration_90pct_slope_5d_D',
+            'CHIP_peak_cost_slope_21d_D', 'CHIP_peak_cost_slope_55d_D', 'CHIP_peak_cost_accel_21d_D',
+            'CHIP_peak_cost_slope_8d_D', 'CHIP_winner_rate_short_term_D', 'close_D',
+            'CHIP_total_winner_rate_D', 'SLOPE_5_CHIP_total_winner_rate_D', 'SLOPE_5_CHIP_peak_stability_D',
+            'SLOPE_5_CHIP_peak_percent_D', 'SLOPE_5_CHIP_pressure_above_D'
+        ]
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states
-
-        # (数据类型转换逻辑保持不变)
+        
         df_copy = df.copy()
-        numeric_cols_to_clean = [v for k, v in required_cols.items() if 'slope' in k or 'rate' in k or 'cost' in k or 'conc' in k or 'percent' in k or 'pressure' in k]
-        for col in numeric_cols_to_clean:
-            if col in df_copy.columns:
-                df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+        for col in required_cols:
+            df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
 
-        # ▼▼▼ 基于新斜率指标创建原子状态 ▼▼▼
-        # 状态1: 获利盘加速扩张 (S级进攻信号)
-        # 定义：总获利盘的5日斜率 > 0，且斜率本身还在增长（加速度>0）
-        winner_rate_slope_col = required_cols['total_winner_rate_slope_5d']
-        states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = (df_copy[winner_rate_slope_col] > 0) & (df_copy[winner_rate_slope_col] > df_copy[winner_rate_slope_col].shift(1))
-        # if states['CHIP_STATE_WINNER_RATE_ACCELERATING'].any():
-        #     print(f"          -> '获利盘加速扩张' 状态已定义，激活 {states['CHIP_STATE_WINNER_RATE_ACCELERATING'].sum()} 天。")
+        # ▼▼▼【代码重构 V204.0】: 依次调用专业化作战单元 ▼▼▼
+        # 1. 动态侦察单元: 负责分析斜率等动态指标
+        states.update(self._diagnose_chip_dynamics_states(df_copy, p))
+        
+        # 2. 结构分析单元: 负责分析集中度，并内置“叛徒清除”逻辑
+        states.update(self._diagnose_chip_concentration_states(df_copy, p))
 
-        # 状态2: 筹码峰正在被夯实 (A级进攻信号)
-        # 定义：主筹码峰的稳定性和占比斜率均为正
-        stability_slope_col = required_cols['peak_stability_slope_5d']
-        percent_slope_col = required_cols['peak_percent_slope_5d']
-        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df_copy[stability_slope_col] > 0) & (df_copy[percent_slope_col] > 0)
-        # if states['CHIP_STATE_PEAK_CONSOLIDATING'].any():
-        #     print(f"          -> '筹码峰正在夯实' 状态已定义，激活 {states['CHIP_STATE_PEAK_CONSOLIDATING'].sum()} 天。")
+        # 3. 周期研判单元: 负责判断市场宏观周期
+        primary_state = self._diagnose_chip_cycle_states(df_copy, p, states)
+        states.update(primary_state)
 
-        # 状态3: 上方套牢盘快速消化 (B级进攻信号)
-        # 定义：上方套牢盘的5日斜率为负
-        pressure_slope_col = required_cols['pressure_above_slope_5d']
-        states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df_copy[pressure_slope_col] < 0)
-        # if states['CHIP_STATE_PRESSURE_DISSOLVING'].any():
-        #     print(f"          -> '上方套牢盘快速消化' 状态已定义，激活 {states['CHIP_STATE_PRESSURE_DISSOLVING'].sum()} 天。")
-        
-        # 风险状态1: 获利盘扩张停滞 (风险信号)
-        # 定义：总获利盘斜率由正转负
-        states['CHIP_RISK_PROFIT_TAKING_IMMINENT'] = (df_copy[winner_rate_slope_col] < 0) & (df_copy[winner_rate_slope_col].shift(1) > 0)
-        # if states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].any():
-        #     print(f"          -> '获利盘扩张停滞' 风险已定义，激活 {states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].sum()} 天。")
-        
-        # ---基于总获利盘创建新状态 ---
-        total_winner_rate_col = required_cols['total_winner_rate']
-        
-        # 状态1: 获利盘健康扩张 (进攻信号)
-        # 定义：5日内，总获利盘增长超过20个百分点
-        profit_increase_5d = df_copy[total_winner_rate_col] - df_copy[total_winner_rate_col].shift(5)
-        states['CHIP_STATE_PROFIT_EXPANDING'] = (profit_increase_5d > 20)
-        # if states['CHIP_STATE_PROFIT_EXPANDING'].any():
-        #     print(f"          -> '获利盘健康扩张' 状态已定义，激活 {states['CHIP_STATE_PROFIT_EXPANDING'].sum()} 天。")
+        # 4. 风险哨站: 专门识别各类筹码风险
+        states.update(self._diagnose_chip_risk_states(df_copy, p, states))
 
-        # 状态2: 市场极度悲观 (逆势反转信号)
-        # 定义：总获利盘低于5%
-        states['CHIP_STATE_MAX_PESSIMISM'] = (df_copy[total_winner_rate_col] < 5)
-        # if states['CHIP_STATE_MAX_PESSIMISM'].any():
-        #     print(f"          -> '市场极度悲观' 状态已定义，激活 {states['CHIP_STATE_MAX_PESSIMISM'].sum()} 天。")
-        # --- 【代码新增 V200.0】 结束 ---
+        # 5. 特种事件部队: 捕捉“点火”、“断层新生”等特殊信号
+        states.update(self._diagnose_chip_events(df_copy, p, primary_state['CHIP_PRIMARY_STATE']))
+        # ▲▲▲【代码重构 V204.0】▲▲▲
 
-        # --- “断层新生”事件诊断逻辑 (保持不变) ---
-        p_fault = p.get('fault_rebirth_params', {})
-        if self._get_param_value(p_fault.get('enabled'), True):
-            cost_col = required_cols['peak_cost']
-            cost_pct_change = df_copy[cost_col].pct_change()
-            cost_drop_threshold = self._get_param_value(p_fault.get('cost_drop_threshold'), -0.10)
-            is_cost_cliff = (cost_pct_change <= cost_drop_threshold).fillna(False)
-            window_days = self._get_param_value(p_fault.get('observation_window_days'), 5)
-            fault_rebirth_window = self._create_persistent_state(
-                df_copy, entry_event=is_cost_cliff, persistence_days=window_days
-            )
-            states['CHIP_STATE_FAULT_REBIRTH_WINDOW'] = fault_rebirth_window
-            conc_slope_col = df_copy[required_cols['concentration_slope']]
-            is_re_accumulating = (conc_slope_col < 0) & (conc_slope_col.shift(1).fillna(0) > 0)
-            is_confirmed_in_window = is_re_accumulating & fault_rebirth_window
-            first_confirmation_in_window = is_confirmed_in_window & ~is_confirmed_in_window.shift(1).fillna(False)
-            final_fault_event = is_cost_cliff | first_confirmation_in_window
-            states['CHIP_EVENT_FAULT_REBIRTH'] = final_fault_event
-            # if final_fault_event.any():
-            #     print(f"          -> 【雷达校准完毕】捕获到'断层新生'事件 {final_fault_event.sum()} 天。{self._format_debug_dates(final_fault_event)}")
-        else:
-            states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
-
-        # --- 常规状态诊断 (逻辑保持不变) ---
-        is_markup_base = (df_copy[required_cols['peak_cost_slope_21d']] > 0) & (df_copy.get(required_cols['peak_cost_slope_55d'], 0) > 0)
-        p_dist = p.get('distribution_params', {})
-        is_distributing = df_copy[required_cols['concentration_slope']] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
-        is_at_high = df_copy[required_cols['close']] > df_copy[required_cols['close']].rolling(window=55).quantile(0.8)
-        is_distribution_base = is_distributing & is_at_high
-        p_accum = p.get('accumulation_params', {})
-        lookback_accum = self._get_param_value(p_accum.get('lookback_days'), 21)
-        concentrating_days = (df_copy[required_cols['concentration_slope']] < 0).rolling(window=lookback_accum).sum()
-        is_concentrating = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('required_days_ratio'), 0.6))
-        is_not_rising = df_copy[required_cols['peak_cost_slope_21d']] <= 0
-        is_accumulation_base = is_concentrating & is_not_rising
-        
-        conditions = [is_markup_base, is_distribution_base, is_accumulation_base]
-        choices = ['MARKUP', 'DISTRIBUTION', 'ACCUMULATION']
-        primary_state = pd.Series(np.select(conditions, choices, default='TRANSITION'), index=df_copy.index)
-        
-        states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
-        states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
-        states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
-
-        p_struct = p.get('structure_params', {})
-        conc_col = required_cols['concentration_90pct']
-        high_control_threshold = self._get_param_value(p_struct.get('high_control_threshold'), 0.20)
-        states['CHIP_STATE_HIGH_CONTROL'] = df_copy[conc_col] < high_control_threshold
-        
-        is_markup_today = states['CHIP_STATE_MARKUP']
-        was_not_markup_yesterday = ~states['CHIP_STATE_MARKUP'].shift(1).fillna(True)
-        states['EVENT_CHIP_CYCLE_TRANSITION'] = is_markup_today & was_not_markup_yesterday
-        
-        is_high_control = states['CHIP_STATE_HIGH_CONTROL']
-        is_cycle_transition = states['EVENT_CHIP_CYCLE_TRANSITION']
-        states['STRATEGIC_SETUP_HIGH_CONTROL_MARKUP'] = is_high_control & is_cycle_transition
-        
-        is_deep = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('deep_ratio'), 0.85))
-        states['CHIP_STATE_ACCUMULATION_DEEP'] = states['CHIP_STATE_ACCUMULATION'] & is_deep
-        p_capit = p.get('capitulation_params', {})
-        winner_rate_col = 'winner_rate_D'
-        if winner_rate_col in df_copy.columns:
-            is_washed_out = df_copy[winner_rate_col] < self._get_param_value(p_capit.get('winner_rate_threshold'), 8.0)
-            states['CHIP_STATE_LOW_PROFIT'] = is_washed_out
-            states['CHIP_STATE_PIT_OPPORTUNITY'] = is_washed_out & states['CHIP_STATE_ACCUMULATION']
-        else:
-            states['CHIP_STATE_LOW_PROFIT'] = default_series
-            states['CHIP_STATE_PIT_OPPORTUNITY'] = default_series
-        if self._get_param_value(p_struct.get('enabled'), True):
-            conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-            states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df_copy[conc_col] < conc_thresh_abs
-            if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
-                squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
-                squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
-                squeeze_threshold_series = df_copy[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
-                states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df_copy[conc_col] < squeeze_threshold_series
-            p_scattered = p.get('scattered_params', {})
-            if self._get_param_value(p_scattered.get('enabled'), True):
-                scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
-                scattered_threshold_ratio = scattered_threshold_pct / 100.0
-                states['CHIP_STATE_SCATTERED'] = df_copy[conc_col] > scattered_threshold_ratio
-        is_still_rising = df_copy[required_cols['peak_cost_slope_21d']] > 0
-        is_decelerating = df_copy[required_cols['peak_cost_accel_21d']] < 0
-        states['CHIP_RISK_EXHAUSTION'] = is_still_rising & is_decelerating
-        is_short_slope_down = df_copy[required_cols['peak_cost_slope_8d']] < 0
-        is_mid_slope_up = df_copy[required_cols['peak_cost_slope_21d']] > 0
-        states['CHIP_RISK_DIVERGENCE'] = is_short_slope_down & is_mid_slope_up & is_at_high
-        p_ignite = p.get('ignition_params', {})
-        is_accelerating = df_copy[required_cols['peak_cost_accel_21d']] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
-        winner_rate_col_dyn = required_cols['winner_rate_short']
-        is_winner_rate_increasing = df_copy[winner_rate_col_dyn] > df_copy[winner_rate_col_dyn].shift(1)
-        was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
-        states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
-
+        # 最终清理
         for key in states:
             if states[key] is None:
                 states[key] = pd.Series(False, index=df_copy.index)
             else:
                 states[key] = states[key].fillna(False)
+        return states
+
+    def _diagnose_chip_dynamics_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """【V204.0 新增】专业化作战单元：动态侦察单元"""
+        states = {}
+        # 状态1: 获利盘加速扩张 (S级进攻信号)
+        winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
+        states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = (df[winner_rate_slope_col] > 0) & (df[winner_rate_slope_col] > df[winner_rate_slope_col].shift(1))
+        
+        # 状态2: 筹码峰正在被夯实 (A级进攻信号)
+        stability_slope_col = 'SLOPE_5_CHIP_peak_stability_D'
+        percent_slope_col = 'SLOPE_5_CHIP_peak_percent_D'
+        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df[stability_slope_col] > 0) & (df[percent_slope_col] > 0)
+        
+        # 状态3: 上方套牢盘快速消化 (B级进攻信号)
+        pressure_slope_col = 'SLOPE_5_CHIP_pressure_above_D'
+        states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df[pressure_slope_col] < 0)
+        
+        return states
+
+    def _diagnose_chip_concentration_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """【V204.0 新增】专业化作战单元：结构分析单元 (内置“叛徒清除”逻辑)"""
+        states = {}
+        p_struct = params.get('structure_params', {})
+        if not self._get_param_value(p_struct.get('enabled'), True):
+            return states
+
+        conc_col = 'CHIP_concentration_90pct_D'
+        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+        
+        # 静态条件：筹码集中度的绝对值是否低于阈值
+        conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+        is_low_concentration_value = df[conc_col] < conc_thresh_abs
+        
+        # 动态安全锁：筹码集中度的变化趋势是否健康（稳定或仍在集中）
+        slope_tolerance = self._get_param_value(p_struct.get('slope_tolerance'), 0.001)
+        is_trend_healthy = df[conc_slope_col] <= slope_tolerance
+        
+        # 新的、可靠的“高度集中”信号 = 静态条件 AND 动态安全锁
+        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
+        print(f"          -> [忠诚信号] '筹码高度集中' 已校准，激活 {states['CHIP_STATE_HIGHLY_CONCENTRATED'].sum()} 天。")
+
+        # 全新的、最高优先级风险信号：“筹码结构崩溃”
+        is_trend_dispersing = df[conc_slope_col] > slope_tolerance
+        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_low_concentration_value & is_trend_dispersing
+        if states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
+            print(f"          -> [!!!最高警报!!!] '筹码结构崩溃' 风险已识别，激活 {states['RISK_CHIP_STRUCTURE_COLLAPSE'].sum()} 天。")
+
+        # 其他相关状态
+        if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
+            squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
+            squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
+            squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
+            states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
+        
+        p_scattered = params.get('scattered_params', {})
+        if self._get_param_value(p_scattered.get('enabled'), True):
+            scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
+            states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)
+            
+        return states
+
+    def _diagnose_chip_cycle_states(self, df: pd.DataFrame, params: dict, current_states: dict) -> Dict[str, pd.Series]:
+        """【V204.0 新增】专业化作战单元：周期研判单元"""
+        states = {}
+        # 拉升周期
+        is_markup_base = (df['CHIP_peak_cost_slope_21d_D'] > 0) & (df.get('CHIP_peak_cost_slope_55d_D', 0) > 0)
+        
+        # 派发周期
+        p_dist = params.get('distribution_params', {})
+        is_distributing = df['CHIP_concentration_90pct_slope_5d_D'] > self._get_param_value(p_dist.get('divergence_threshold'), 0.01)
+        is_at_high = df['close_D'] > df['close_D'].rolling(window=55).quantile(0.8)
+        is_distribution_base = is_distributing & is_at_high
+        
+        # 吸筹周期
+        p_accum = params.get('accumulation_params', {})
+        lookback_accum = self._get_param_value(p_accum.get('lookback_days'), 21)
+        concentrating_days = (df['CHIP_concentration_90pct_slope_5d_D'] < 0).rolling(window=lookback_accum).sum()
+        is_concentrating = concentrating_days >= (lookback_accum * self._get_param_value(p_accum.get('required_days_ratio'), 0.6))
+        is_not_rising = df['CHIP_peak_cost_slope_21d_D'] <= 0
+        is_accumulation_base = is_concentrating & is_not_rising
+        
+        conditions = [is_markup_base, is_distribution_base, is_accumulation_base]
+        choices = ['MARKUP', 'DISTRIBUTION', 'ACCUMULATION']
+        primary_state = pd.Series(np.select(conditions, choices, default='TRANSITION'), index=df.index)
+        
+        states['CHIP_PRIMARY_STATE'] = primary_state # 存储原始状态，供事件诊断使用
+        states['CHIP_STATE_MARKUP'] = (primary_state == 'MARKUP')
+        states['CHIP_STATE_ACCUMULATION'] = (primary_state == 'ACCUMULATION')
+        states['CHIP_STATE_DISTRIBUTION'] = (primary_state == 'DISTRIBUTION')
+        
+        return states
+
+    def _diagnose_chip_risk_states(self, df: pd.DataFrame, params: dict, current_states: dict) -> Dict[str, pd.Series]:
+        """【V204.0 新增】专业化作战单元：风险哨站"""
+        states = {}
+        # 风险1: 获利盘扩张停滞
+        winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
+        states['CHIP_RISK_PROFIT_TAKING_IMMINENT'] = (df[winner_rate_slope_col] < 0) & (df[winner_rate_slope_col].shift(1) > 0)
+        
+        # 风险2: 力竭风险
+        is_still_rising = df['CHIP_peak_cost_slope_21d_D'] > 0
+        is_decelerating = df['CHIP_peak_cost_accel_21d_D'] < 0
+        states['CHIP_RISK_EXHAUSTION'] = is_still_rising & is_decelerating
+        
+        # 风险3: 背离风险
+        is_short_slope_down = df['CHIP_peak_cost_slope_8d_D'] < 0
+        is_mid_slope_up = df['CHIP_peak_cost_slope_21d_D'] > 0
+        is_at_high = df['close_D'] > df['close_D'].rolling(window=55).quantile(0.8)
+        states['CHIP_RISK_DIVERGENCE'] = is_short_slope_down & is_mid_slope_up & is_at_high
+        
+        return states
+
+    def _diagnose_chip_events(self, df: pd.DataFrame, params: dict, primary_state: pd.Series) -> Dict[str, pd.Series]:
+        """【V204.0 新增】专业化作战单元：特种事件部队"""
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        
+        # 事件1: 点火事件
+        p_ignite = params.get('ignition_params', {})
+        is_accelerating = df['CHIP_peak_cost_accel_21d_D'] > self._get_param_value(p_ignite.get('accel_threshold'), 0.01)
+        is_winner_rate_increasing = df['CHIP_winner_rate_short_term_D'] > df['CHIP_winner_rate_short_term_D'].shift(1)
+        was_in_setup_state = primary_state.shift(1).isin(['ACCUMULATION', 'TRANSITION'])
+        states['CHIP_EVENT_IGNITION'] = is_accelerating & is_winner_rate_increasing & was_in_setup_state
+        
+        # 事件2: 断层新生事件
+        p_fault = params.get('fault_rebirth_params', {})
+        if self._get_param_value(p_fault.get('enabled'), True):
+            cost_pct_change = df['CHIP_peak_cost_D'].pct_change()
+            cost_drop_threshold = self._get_param_value(p_fault.get('cost_drop_threshold'), -0.10)
+            is_cost_cliff = (cost_pct_change <= cost_drop_threshold).fillna(False)
+            window_days = self._get_param_value(p_fault.get('observation_window_days'), 5)
+            fault_rebirth_window = self._create_persistent_state(df, entry_event=is_cost_cliff, persistence_days=window_days)
+            is_re_accumulating = (df['CHIP_concentration_90pct_slope_5d_D'] < 0) & (df['CHIP_concentration_90pct_slope_5d_D'].shift(1).fillna(0) > 0)
+            is_confirmed_in_window = is_re_accumulating & fault_rebirth_window
+            first_confirmation_in_window = is_confirmed_in_window & ~is_confirmed_in_window.shift(1).fillna(False)
+            states['CHIP_EVENT_FAULT_REBIRTH'] = is_cost_cliff | first_confirmation_in_window
+        else:
+            states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
+            
         return states
 
     # ▼▼▼ “平台引力”侦察模块 ▼▼▼
