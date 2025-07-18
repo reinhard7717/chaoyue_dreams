@@ -163,14 +163,22 @@ class TrendFollowStrategy:
 
     def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict, Dict]:
         """
-        【新增辅助方法】运行所有诊断模块，生成原子状态和触发事件。
+        【V207.0 指挥权归还版】
+        - 核心重构: 彻底清除了此方法中所有对“原子状态”的重复定义和覆盖。
+                    此方法现在只负责调用专业的诊断模块，并将结果汇总，不再进行
+                    任何“越权”的判断。所有“复合状态”的定义权，已全部归还给
+                    其所属的专业诊断单元。
+        - 作战意图: 建立一个清晰、单一、无冲突的情报生成链路，确保由专业模块
+                    生成的“精炼情报”能够直达计分和风控引擎，杜绝“情报覆盖”和
+                    “指挥混乱”的系统性风险。
         """
         print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
         df = self.pattern_recognizer.identify_all(df)
         if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
-        
+
         df, platform_states = self._diagnose_platform_states(df, params)
-        
+
+        # ▼▼▼【代码修改 V207.0】: 清理“犯罪现场”，只保留调用和汇总 ▼▼▼
         atomic_states = {
             **self._diagnose_chip_states(df, params), 
             **self._diagnose_ma_states(df, params), 
@@ -183,21 +191,12 @@ class TrendFollowStrategy:
             **platform_states, 
             **self._diagnose_trend_dynamics(df, params)
         }
-        
-        # 定义复合原子状态
-        atomic_states['CONTEXT_TREND_DETERIORATING'] = self._define_context_trend_deteriorating(df, atomic_states)
-        atomic_states['PLATFORM_FAILURE'] = (df['close_D'] < df.get('PLATFORM_PRICE_STABLE', np.inf)) & (df.get('PLATFORM_PRICE_STABLE', np.inf) > 0)
-        atomic_states['CHIP_DISPERSION_RISK'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) > 0
-        is_extreme_winner_rate = df.get('CHIP_winner_rate_long_term_D', 0) > 98
-        is_stagnating = df['high_D'].rolling(window=3).max() <= df['high_D'].shift(1)
-        atomic_states['RISK_EXTREME_PROFIT_TAKING'] = is_extreme_winner_rate & is_stagnating
-        atomic_states['CHIP_RAPID_CONCENTRATION'] = df.get('CHIP_concentration_90pct_slope_5d_D', 0) < -0.005
-        
+
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
-        
+
         return df, atomic_states, trigger_events
 
     def _calculate_all_scores(self, df: pd.DataFrame, params: dict, atomic_states: Dict, trigger_events: Dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -208,14 +207,14 @@ class TrendFollowStrategy:
         # 计算原始入场分
         df, score_details_df = self._calculate_entry_score(df, params, trigger_events, {}, atomic_states)
         raw_total_score = df['entry_score'].copy()
-        
+
         # 应用最终调整
         adjusted_score, adjustment_details = self._apply_final_score_adjustments(df, raw_total_score, params, atomic_states)
         df['entry_score_raw'] = raw_total_score
         df['entry_score'] = adjusted_score
-        
+
         final_score_details_df = pd.concat([score_details_df, adjustment_details], axis=1).fillna(0)
-        
+
         # 计算风险分
         risk_setups = self._diagnose_risk_setups(df, params, atomic_states)
         risk_triggers = self._define_risk_triggers(df, params)
