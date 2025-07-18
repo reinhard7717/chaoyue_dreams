@@ -1021,71 +1021,42 @@ class TrendFollowStrategy:
 
     def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【新增辅助方法 - 完整实现版】
-        - 核心修复: 提供了完整的周线战略背景修正逻辑，并定义了缺失的 `default_series`。
-        - 工作流程:
-          1. 根据周线信号（如主升浪、底部企稳等）计算出各类分数的修正乘数。
-          2. 将原始分数组件拆分为正分和负分。
-          3. 对正分应用加成乘数，对负分应用豁免乘数。
-          4. 将修正后的分数重新加权混合，并叠加上修正后的触发分，得到最终的修正后基础分。
+        【V212.0 幽灵净化版】
+        - 核心重构: 彻底删除了此方法中所有关于“负分分离”和“惩罚豁免”的幽灵代码。
+                    由于所有负分已在上游被剥离为独立的“惩罚分”，此模块的职责被
+                    净化为：只对正面得分进行周线级别的加权和修正。
+        - 作战意图: 彻底根除因代码重构不完全而导致的逻辑短路，确保指挥链的每
+                    一个环节都权责清晰、逻辑正确，不再有任何“历史遗留问题”。
         """
         print("      -> [火力层3.5/4] 正在应用“周线精确制导”...")
-        # ▼▼▼【代码修改】修复点：定义 default_series ▼▼▼
         default_series = pd.Series(False, index=df.index)
-        # ▲▲▲【代码修改】▲▲▲
 
-        # 初始化各类分数的乘数，默认为1.0 (无影响)
         positional_multiplier = pd.Series(1.0, index=df.index)
         dynamic_multiplier = pd.Series(1.0, index=df.index)
         trigger_multiplier = pd.Series(1.0, index=df.index)
-        penalty_immunity_multiplier = pd.Series(1.0, index=df.index) # 用于抵消负分的豁免乘数
-
-        # 指令1: 如果周线处于“主升浪”或“经典突破”的背景下
+        
+        # ▼▼▼ 简化周线指令，只保留对正面火力的加成 ▼▼▼
         main_ascent_mask = df.get('state_node_main_ascent_W', default_series)
         breakout_mask = df.get('playbook_classic_breakout_W', default_series)
         momentum_context_mask = main_ascent_mask | breakout_mask
         if momentum_context_mask.any():
-            print(f"        -> [周线指令] “主升浪/突破”背景激活，放大动能和触发权重。")
             dynamic_multiplier.loc[momentum_context_mask] *= 1.5
             trigger_multiplier.loc[momentum_context_mask] *= 1.8
             score_details_df.loc[momentum_context_mask, 'CONTEXT_MULT_MOMENTUM'] = 1.5
         
-        # 指令2: 如果周线处于“点火期”或“底部企稳”的背景下
         ignition_mask = df.get('state_node_ignition_W', default_series)
         bottoming_mask = df.get('state_node_bottoming_W', default_series)
         reversal_context_mask = ignition_mask | bottoming_mask
         if reversal_context_mask.any():
-            print(f"        -> [周线指令] “点火/筑底”背景激活，放大阵地权重并豁免部分风险。")
             positional_multiplier.loc[reversal_context_mask] *= 1.6
-            penalty_immunity_multiplier.loc[reversal_context_mask] = 0.0 
             score_details_df.loc[reversal_context_mask, 'CONTEXT_MULT_POSITIONAL'] = 1.6
 
-        # 指令3: 如果周线处于“洗盘豁免期”
-        washout_immunity_mask = df.get('state_washout_immunity_W', default_series)
-        if washout_immunity_mask.any():
-            print(f"        -> [周线指令] “洗盘豁免”激活，大幅降低负面信号影响。")
-            penalty_immunity_multiplier.loc[washout_immunity_mask] = 0.2 
-            score_details_df.loc[washout_immunity_mask, 'CONTEXT_IMMUNITY_WASHOUT'] = 0.2
-
-        # --- 应用乘数 ---
-        # 分离正负分
-        pos_positional = positional_score.where(positional_score > 0, 0)
-        neg_positional = positional_score.where(positional_score < 0, 0)
-        pos_dynamic = dynamic_score.where(dynamic_score > 0, 0)
-        neg_dynamic = dynamic_score.where(dynamic_score < 0, 0)
-
-        # 应用乘数
-        adj_pos_positional = pos_positional * positional_multiplier
-        adj_neg_positional = neg_positional * penalty_immunity_multiplier # 对负分应用豁免乘数
-        adj_pos_dynamic = pos_dynamic * dynamic_multiplier
-        adj_neg_dynamic = neg_dynamic * penalty_immunity_multiplier
+        # 应用乘数 (现在直接应用于纯正分)
+        adj_total_positional = positional_score * positional_multiplier
+        adj_total_dynamic = dynamic_score * dynamic_multiplier
         adj_trigger = trigger_score * trigger_multiplier
-
-        # 重新合成调整后的分数组件
-        adj_total_positional = adj_pos_positional + adj_neg_positional
-        adj_total_dynamic = adj_pos_dynamic + adj_neg_dynamic
         
-        # --- 使用调整后的分数进行混合加权 ---
+        # 使用调整后的分数进行混合加权
         weights = scoring_params.get('hybrid_scoring_weights', {})
         weight_pos = weights.get('positional_weight', 0.4)
         weight_dyn = weights.get('dynamic_weight', 0.6)
