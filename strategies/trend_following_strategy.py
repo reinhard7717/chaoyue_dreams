@@ -1846,18 +1846,17 @@ class TrendFollowStrategy:
         status_concentrated = "[✓]" if states['CHIP_FACT_IS_CONCENTRATED'].iloc[-1] else "[✗]"
         print(f"          -> [事实报告] '筹码处于集中状态' (最新一日): {status_concentrated}")
 
-        # ▼▼▼ 注入全新的“崩溃共振”逻辑 ▼▼▼
         # 1. 获取多源情报
         cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
         winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
-        # 2. 获取新的作战条令
+        # 2. 获取作战条令
         cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
         winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
-        # 3. 进行多源情报交叉验证
+        # 3. 建立两个独立的审判庭
         is_cost_collapsing = df.get(cost_slope_col, 0) < cost_collapse_threshold
         is_winner_rate_collapsing = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
-        # 最终裁决：必须共振，方为崩溃
-        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_cost_collapsing & is_winner_rate_collapsing
+        # 最终裁决：任何一个审判庭判定有罪，就拉响警报！
+        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_cost_collapsing | is_winner_rate_collapsing
 
         if 'RISK_CHIP_STRUCTURE_COLLAPSE' in states and states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
             status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
