@@ -109,9 +109,7 @@ class MultiTimeframeTrendStrategy:
         print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_records)} 条盘中确认信号。")
 
         # 6. 盘中风险预警引擎：监控潜在的盘中风险
-        # ▼▼▼【代码修改】: 补充遗漏的 await 关键字，确保获取到列表结果而非协程对象 ▼▼▼
-        risk_alert_records = await self._run_intraday_alert_engine(stock_code, all_dfs)
-        # ▲▲▲【代码修改】▲▲▲
+        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
         print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_records)} 条风险预警信号。")
 
         # 7. 信号汇总
