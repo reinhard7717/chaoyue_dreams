@@ -938,32 +938,32 @@ class TrendFollowStrategy:
                     _apply_final_score_amplifier: 应用最终的“优势火力”放大器。
         - 收益: 计分流程的每一步都清晰可见，极大提高了代码的可读性和可维护性。
         """
-        print("    - [计分引擎 V184.0 重构优化版] 启动...")
+        print("    - [计分引擎 V211.0 攻防分离版] 启动...")
         
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self.scoring_params
 
-        # 步骤1: 计算基础分的三大组成部分 (阵地、动能、触发)
+        # 步骤0: 计算基础分的三大组成部分 (阵地、动能、触发)
         positional_score, dynamic_score, trigger_score, penalty_score, score_details_df = self._calculate_base_scores(
             df, scoring_params, atomic_states, trigger_events, score_details_df
         )
 
-        # 步骤2: 应用周线战略背景修正，得到加权后的基础分
-        modified_base_score, score_details_df = self._apply_weekly_context_modifiers(
+        # 步骤1: 计算所有“正面得分”的总和
+        positive_base_score, score_details_df = self._apply_weekly_context_modifiers(
             df, positional_score, dynamic_score, trigger_score, scoring_params, atomic_states, score_details_df
         )
-
-        # 步骤3: 应用最终的“优势火力”放大器
-        amplified_score, score_details_df = self._apply_final_score_amplifier(
-            df, modified_base_score, scoring_params, score_details_df
+        
+        # 步骤2: “优势火力放大器”只对“正面得分”进行放大
+        amplified_positive_score, score_details_df = self._apply_final_score_amplifier(
+            df, positive_base_score, scoring_params, score_details_df
         )
         
-        # ▼▼▼ 在所有计算的最后，施加最终裁决！▼▼▼
-        final_score = amplified_score + penalty_score
+        # 步骤3: 在所有加成计算完毕后，施加最终的、绝对的“惩罚裁决”
+        final_score = amplified_positive_score + penalty_score
         
         df['entry_score'] = final_score.round(0)
         latest_score = final_score.iloc[-1] if not final_score.empty else 0
-        print(f"--- [计分引擎 V184.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
+        print(f"--- [计分引擎 V211.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
     def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.DataFrame]:
