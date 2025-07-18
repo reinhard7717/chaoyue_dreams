@@ -106,9 +106,9 @@ class WeeklyContextEngine:
         # 条件：有洗盘意图 AND 动态背景健康 AND 未被风险否决
         context_df['consensus_washout_watch_W'] = context_df['intent_washout_W'] & is_healthy_dynamic & ~strategic_veto
 
-        print(f"    - [最终共识] “强多头共识”在过滤后，最终确认 {context_df['consensus_strong_bullish_W'].sum()} 周。")
-        print(f"    - [最终共识] “底部反转共识”在过滤后，最终确认 {context_df['consensus_bottom_reversal_W'].sum()} 周。")
-        print(f"    - [最终共识] “洗盘观察共识”在过滤后，最终确认 {context_df['consensus_washout_watch_W'].sum()} 周。")
+        # print(f"    - [最终共识] “强多头共识”在过滤后，最终确认 {context_df['consensus_strong_bullish_W'].sum()} 周。")
+        # print(f"    - [最终共识] “底部反转共识”在过滤后，最终确认 {context_df['consensus_bottom_reversal_W'].sum()} 周。")
+        # print(f"    - [最终共识] “洗盘观察共识”在过滤后，最终确认 {context_df['consensus_washout_watch_W'].sum()} 周。")
 
         # --- 步骤 5: 信号合成与输出 (不变) ---
         print("\n---【步骤5/5: 最终信号合成与输出】---")
@@ -143,7 +143,7 @@ class WeeklyContextEngine:
         is_topping_dynamic = df.get('state_trend_stable_rising_W', default_series)
         has_rejection = df.get('rejection_signal_W', pd.Series(0, index=df.index)) < 0
         risk_stagnation = is_topping_dynamic & has_rejection
-        print(f"    - [风险诊断] “高位滞涨”瞬时风险识别 {risk_stagnation.sum()} 周。")
+        # print(f"    - [风险诊断] “高位滞涨”瞬时风险识别 {risk_stagnation.sum()} 周。")
         
         # --- 风险2: 破位下跌确认 (触发持续性风险) ---
         is_falling_dynamic = df.get('state_trend_accelerating_fall_W', default_series)
@@ -155,7 +155,7 @@ class WeeklyContextEngine:
         
         # “破位下跌”事件，只在首次发生时触发
         breakdown_event = (is_falling_dynamic & is_ma_downtrend) & ~(is_falling_dynamic & is_ma_downtrend).shift(1).fillna(False)
-        print(f"    - [风险诊断] “破位下跌”事件触发 {breakdown_event.sum()} 周。")
+        # print(f"    - [风险诊断] “破位下跌”事件触发 {breakdown_event.sum()} 周。")
 
         # --- 核心升级: 建立“战略戒备”状态窗口 ---
         # 当“破位下跌”事件发生后，启动一个为期4周的“战略戒备”窗口
@@ -167,13 +167,13 @@ class WeeklyContextEngine:
         counter = counter.replace(0, np.nan).ffill().fillna(0)
         days_in_window = counter.groupby(breakdown_event.cumsum()).cumcount()
         persistent_breakdown_risk = (days_in_window < persistence_weeks) & (counter > 0)
-        print(f"    - [风险诊断] “持续性破位风险”(战略戒备)共激活 {persistent_breakdown_risk.sum()} 周。")
+        # print(f"    - [风险诊断] “持续性破位风险”(战略戒备)共激活 {persistent_breakdown_risk.sum()} 周。")
 
         # --- 合并所有风险，形成最终的“风险否决”信号 ---
         # 最终否决信号 = 瞬时的高位滞涨风险 OR 持续性的破位下跌风险
         final_veto_signal = risk_stagnation | persistent_breakdown_risk
         df['veto_strategic_risk_W'] = final_veto_signal # 将否决信号也输出，便于调试
-        print(f"    - [风险诊断] 最终战略风险否决信号在 {final_veto_signal.sum()} 周被激活。")
+        # print(f"    - [风险诊断] 最终战略风险否决信号在 {final_veto_signal.sum()} 周被激活。")
         
         return final_veto_signal
 

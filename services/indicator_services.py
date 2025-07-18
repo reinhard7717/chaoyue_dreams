@@ -348,7 +348,7 @@ class IndicatorService:
             return {}
         
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
-        print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
+        # print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
 
         # 2. 【核心修改】确定需要从API获取的“基础”时间周期
         base_tfs_to_fetch = set()
@@ -378,7 +378,7 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-            print("    - [任务规划] 已添加“旧筹码与资金流”获取任务。")
+            # print("    - [任务规划] 已添加“旧筹码与资金流”获取任务。")
 
         # 任务准备: 新筹码(AdvancedChipMetrics)
         chip_params = self._find_params_recursively(config, 'chip_feature_params')
@@ -389,7 +389,7 @@ class IndicatorService:
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-            print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
+            # print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
 
         # 4. 准备所有“基础”OHLCV数据获取任务
         async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
@@ -401,12 +401,12 @@ class IndicatorService:
             if 'D' in base_tfs_to_fetch and resample_map:
                 bars_to_fetch = max(bars_to_fetch, 1200) # 约5年数据，确保周线/月线指标计算准确
             tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
-            print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
+            # print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
 
         # 5. 并发执行所有数据获取任务
-        print("    - [数据获取] 开始并发执行所有数据获取任务...")
+        # print("    - [数据获取] 开始并发执行所有数据获取任务...")
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-        print("    - [数据获取] 所有任务执行完毕。")
+        # print("    - [数据获取] 所有任务执行完毕。")
 
         # 6. 分类处理获取到的数据
         raw_dfs: Dict[str, pd.DataFrame] = {}
@@ -458,7 +458,7 @@ class IndicatorService:
         calc_tasks = []
 
         async def _calculate_for_tf(tf, df):
-            print(f"    - [指标计算] 开始为周期 '{tf}' 准备并计算指标...")
+            # print(f"    - [指标计算] 开始为周期 '{tf}' 准备并计算指标...")
             # 标准化索引
             df = self._standardize_df_index_to_utc(df)
             
@@ -478,7 +478,7 @@ class IndicatorService:
             
             # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            print(f"      -> 周期 '{tf}' 指标计算完成。")
+            # print(f"      -> 周期 '{tf}' 指标计算完成。")
             return tf, df_with_indicators
 
         for tf, df in raw_dfs.items():
@@ -841,7 +841,7 @@ class IndicatorService:
             if col_pattern not in df.columns:
                 continue
 
-            print(f"      -> 正在为周期 '{timeframe}' 的指标 '{col_pattern}' 计算斜率...")
+            # print(f"      -> 正在为周期 '{timeframe}' 的指标 '{col_pattern}' 计算斜率...")
             source_series = df[col_pattern].astype(float)
             
             newly_created_slope_cols = []

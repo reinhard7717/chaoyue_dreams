@@ -679,7 +679,7 @@ class MultiTimeframeTrendStrategy:
                         left=df_intraday.sort_index(), right=broadcast_df.sort_index(),
                         left_index=True, right_index=True, direction='backward'
                     )
-                    print(f"      - 情报已成功注入 {tf} 分钟数据。")
+                    # print(f"      - 情报已成功注入 {tf} 分钟数据。")
         
         return all_records
 

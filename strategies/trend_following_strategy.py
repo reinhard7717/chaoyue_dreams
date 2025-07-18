@@ -1612,9 +1612,9 @@ class TrendFollowStrategy:
                 # 条件3: 当天是阳线，确认反弹意图
                 is_positive_day = df['close_D'] > df['open_D']
                 triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day
-                signal = triggers.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
-                if signal.any():
-                    print(f"      -> '筹码平台回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+                # signal = triggers.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
+                # if signal.any():
+                    # print(f"      -> '筹码平台回踩反弹' 触发器定义完成，发现 {signal.sum()} 天。{self._format_debug_dates(signal)}")
             else:
                 print(f"      -> [警告] 缺少 '{platform_price_col}' 列，无法定义平台回踩触发器。")
 
@@ -1680,29 +1680,29 @@ class TrendFollowStrategy:
         # 定义：总获利盘的5日斜率 > 0，且斜率本身还在增长（加速度>0）
         winner_rate_slope_col = required_cols['total_winner_rate_slope_5d']
         states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = (df_copy[winner_rate_slope_col] > 0) & (df_copy[winner_rate_slope_col] > df_copy[winner_rate_slope_col].shift(1))
-        if states['CHIP_STATE_WINNER_RATE_ACCELERATING'].any():
-            print(f"          -> '获利盘加速扩张' 状态已定义，激活 {states['CHIP_STATE_WINNER_RATE_ACCELERATING'].sum()} 天。")
+        # if states['CHIP_STATE_WINNER_RATE_ACCELERATING'].any():
+        #     print(f"          -> '获利盘加速扩张' 状态已定义，激活 {states['CHIP_STATE_WINNER_RATE_ACCELERATING'].sum()} 天。")
 
         # 状态2: 筹码峰正在被夯实 (A级进攻信号)
         # 定义：主筹码峰的稳定性和占比斜率均为正
         stability_slope_col = required_cols['peak_stability_slope_5d']
         percent_slope_col = required_cols['peak_percent_slope_5d']
         states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df_copy[stability_slope_col] > 0) & (df_copy[percent_slope_col] > 0)
-        if states['CHIP_STATE_PEAK_CONSOLIDATING'].any():
-            print(f"          -> '筹码峰正在夯实' 状态已定义，激活 {states['CHIP_STATE_PEAK_CONSOLIDATING'].sum()} 天。")
+        # if states['CHIP_STATE_PEAK_CONSOLIDATING'].any():
+        #     print(f"          -> '筹码峰正在夯实' 状态已定义，激活 {states['CHIP_STATE_PEAK_CONSOLIDATING'].sum()} 天。")
 
         # 状态3: 上方套牢盘快速消化 (B级进攻信号)
         # 定义：上方套牢盘的5日斜率为负
         pressure_slope_col = required_cols['pressure_above_slope_5d']
         states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df_copy[pressure_slope_col] < 0)
-        if states['CHIP_STATE_PRESSURE_DISSOLVING'].any():
-            print(f"          -> '上方套牢盘快速消化' 状态已定义，激活 {states['CHIP_STATE_PRESSURE_DISSOLVING'].sum()} 天。")
+        # if states['CHIP_STATE_PRESSURE_DISSOLVING'].any():
+        #     print(f"          -> '上方套牢盘快速消化' 状态已定义，激活 {states['CHIP_STATE_PRESSURE_DISSOLVING'].sum()} 天。")
         
         # 风险状态1: 获利盘扩张停滞 (风险信号)
         # 定义：总获利盘斜率由正转负
         states['CHIP_RISK_PROFIT_TAKING_IMMINENT'] = (df_copy[winner_rate_slope_col] < 0) & (df_copy[winner_rate_slope_col].shift(1) > 0)
-        if states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].any():
-            print(f"          -> '获利盘扩张停滞' 风险已定义，激活 {states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].sum()} 天。")
+        # if states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].any():
+        #     print(f"          -> '获利盘扩张停滞' 风险已定义，激活 {states['CHIP_RISK_PROFIT_TAKING_IMMINENT'].sum()} 天。")
         
         # ---基于总获利盘创建新状态 ---
         total_winner_rate_col = required_cols['total_winner_rate']
@@ -1711,14 +1711,14 @@ class TrendFollowStrategy:
         # 定义：5日内，总获利盘增长超过20个百分点
         profit_increase_5d = df_copy[total_winner_rate_col] - df_copy[total_winner_rate_col].shift(5)
         states['CHIP_STATE_PROFIT_EXPANDING'] = (profit_increase_5d > 20)
-        if states['CHIP_STATE_PROFIT_EXPANDING'].any():
-            print(f"          -> '获利盘健康扩张' 状态已定义，激活 {states['CHIP_STATE_PROFIT_EXPANDING'].sum()} 天。")
+        # if states['CHIP_STATE_PROFIT_EXPANDING'].any():
+        #     print(f"          -> '获利盘健康扩张' 状态已定义，激活 {states['CHIP_STATE_PROFIT_EXPANDING'].sum()} 天。")
 
         # 状态2: 市场极度悲观 (逆势反转信号)
         # 定义：总获利盘低于5%
         states['CHIP_STATE_MAX_PESSIMISM'] = (df_copy[total_winner_rate_col] < 5)
-        if states['CHIP_STATE_MAX_PESSIMISM'].any():
-            print(f"          -> '市场极度悲观' 状态已定义，激活 {states['CHIP_STATE_MAX_PESSIMISM'].sum()} 天。")
+        # if states['CHIP_STATE_MAX_PESSIMISM'].any():
+        #     print(f"          -> '市场极度悲观' 状态已定义，激活 {states['CHIP_STATE_MAX_PESSIMISM'].sum()} 天。")
         # --- 【代码新增 V200.0】 结束 ---
 
         # --- “断层新生”事件诊断逻辑 (保持不变) ---
@@ -1739,8 +1739,8 @@ class TrendFollowStrategy:
             first_confirmation_in_window = is_confirmed_in_window & ~is_confirmed_in_window.shift(1).fillna(False)
             final_fault_event = is_cost_cliff | first_confirmation_in_window
             states['CHIP_EVENT_FAULT_REBIRTH'] = final_fault_event
-            if final_fault_event.any():
-                print(f"          -> 【雷达校准完毕】捕获到'断层新生'事件 {final_fault_event.sum()} 天。{self._format_debug_dates(final_fault_event)}")
+            # if final_fault_event.any():
+            #     print(f"          -> 【雷达校准完毕】捕获到'断层新生'事件 {final_fault_event.sum()} 天。{self._format_debug_dates(final_fault_event)}")
         else:
             states['CHIP_EVENT_FAULT_REBIRTH'] = default_series
 
@@ -1883,8 +1883,8 @@ class TrendFollowStrategy:
         # 状态字典也基于“存活”状态
         states['PLATFORM_STATE_STABLE_FORMED'] = is_platform_alive.fillna(False)
         
-        if states['PLATFORM_STATE_STABLE_FORMED'].any():
-            print(f"          -> '稳固筹码平台'已识别 (已加入时效与相关性约束)，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
+        # if states['PLATFORM_STATE_STABLE_FORMED'].any():
+            # print(f"          -> '稳固筹码平台'已识别 (已加入时效与相关性约束)，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
 
         return df_copy, states
 
@@ -2031,8 +2031,8 @@ class TrendFollowStrategy:
         dynamics_states['DYN_TREND_TOPPING_DIVERGENCE'] = is_new_high & is_slope_weakening
 
         # --- 4. 打印调试信息 ---
-        for name, series in dynamics_states.items():
-            print(f"          -> “{name}” 已定义，激活 {series.sum()} 天。")
+        # for name, series in dynamics_states.items():
+        #     print(f"          -> “{name}” 已定义，激活 {series.sum()} 天。")
             
         return dynamics_states
 
