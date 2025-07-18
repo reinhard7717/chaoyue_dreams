@@ -139,13 +139,11 @@
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V182.0 决战版】将高价值的DYN信号正式列装，并更新火力放大器配置。",
-        
         "hybrid_scoring_weights": {
           "说明": "混合战争权重分配 (阵地40%, 动能60%)",
           "positional_weight": 0.4,
           "dynamic_weight": 0.6
         },
-
         "metadata": {
           "说明": "【信号元数据词典】V182版",
           "comment_positional": "--- 阵地信号 (Positional) ---",
@@ -155,7 +153,6 @@
           "CHIP_STATE_HIGHLY_CONCENTRATED":{ "cn_name": "【阵地】筹码高度集中" },
           "PLATFORM_FAILURE":              { "cn_name": "【阵地风险】筹码平台破位" },
           "CONTEXT_TREND_DETERIORATING":   { "cn_name": "【阵地风险】整体趋势恶化" },
-
           "comment_dynamic": "--- 动能信号 (Dynamic) ---",
           "DYN_TREND_HEALTHY_ACCELERATING": { "cn_name": "【动能S级】健康加速" },
           "DYN_TREND_MATURE_STABLE":        { "cn_name": "【动能A级】成熟稳定" },
@@ -163,10 +160,8 @@
           "DYN_TREND_WEAKENING_DECELERATING": { "cn_name": "【动能风险S级】动能衰减" },
           "DYN_TREND_BEARISH_ACCELERATING":   { "cn_name": "【动能风险A级】下跌加速" },
           "CHIP_DISPERSION_RISK":           { "cn_name": "【动能风险】筹码开始发散" },
-
           "comment_trigger": "--- 触发信号 (Trigger) ---"
         },
-
         "positional_scoring": {
           "说明": "【阵地分】评估静态战场态势，总分贡献权重 40%",
           "positive_signals": {
@@ -182,13 +177,11 @@
             "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250
           }
         },
-
         "dynamic_scoring": {
           "说明": "【动能分】评估动态趋势和主力行为，总分贡献权重 60%",
           "positive_signals": {
             "DYN_TREND_HEALTHY_ACCELERATING": 250,
-            "DYN_TREND_MATURE_STABLE": 150,
-            "CHIP_RAPID_CONCENTRATION": 70
+            "DYN_TREND_MATURE_STABLE": 150
           },
           "negative_signals": {
             "DYN_TREND_WEAKENING_DECELERATING": -300,
@@ -196,14 +189,16 @@
             "CHIP_DISPERSION_RISK": -150
           }
         },
-        
+        "penalty_signals": {
+          "说明": "【惩罚层】定义拥有“一票否决权”的最高优先级风险信号。这些信号将直接、猛烈地扣减基础分。",
+          "RISK_CHIP_STRUCTURE_COLLAPSE": -500
+        },
         "trigger_events": {
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
           "TRIGGER_DOMINANT_REVERSAL": 80, "TRIGGER_CHIP_IGNITION": 120,
           "TRIGGER_ENERGY_RELEASE": 70, "TRIGGER_BREAKOUT_CANDLE": 60,
           "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80, "VOL_BREAKOUT_FROM_SQUEEZE": 120
         },
-
         "chip_dynamics_amplifier": {
           "enabled": true,
           "说明": "【V182.0 优势火力版】采用更激进的max()逻辑，由最强的信号主导火力。",

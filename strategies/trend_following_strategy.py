@@ -223,6 +223,7 @@ class TrendFollowStrategy:
         
         return df, final_score_details_df, risk_details_df
 
+
     def _apply_risk_veto_and_finalize(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【新增辅助方法】执行风险否决，并生成最终的入场和出场信号。
@@ -968,30 +969,33 @@ class TrendFollowStrategy:
 
     def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
         """
-        【新增辅助方法 - 优化版】
-        - 核心修改: 此方法现在只计算并返回三个最原始的分数组件（阵地分、动能分、触发分），不再进行加权。
-        - 收益: 职责更单一，便于后续步骤进行更复杂的修正。
+        【V208.0 惩罚机制版】
+        - 核心升级: 引入全新的“惩罚分”(Penalty Score)层。除了计算阵地、动能、触发
+                    这三个“加分项”外，现在还会独立计算一个“惩罚分”。
+        - 作战意图: 从根本上解决系统“只加分、不扣分”的唯攻思想。当出现
+                    `RISK_CHIP_STRUCTURE_COLLAPSE` 等致命风险时，将直接施加
+                    巨大的负分惩罚，确保风险能被计分引擎正面响应。
         """
         print("      -> [火力层1-3/4] 正在计算“阵地分”、“动能分”与“触发分”...")
         default_series = pd.Series(False, index=df.index)
         
-        # 计算阵地分
+        # 计算阵地分 (加分项)
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
-        for state_name, score in {**positional_params.get('positive_signals', {}), **positional_params.get('negative_signals', {})}.items():
+        for state_name, score in positional_params.get('positive_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
             
-        # 计算动能分
+        # 计算动能分 (加分项)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         total_dynamic_score = pd.Series(0.0, index=df.index)
-        for state_name, score in {**dynamic_params.get('positive_signals', {}), **dynamic_params.get('negative_signals', {})}.items():
+        for state_name, score in dynamic_params.get('positive_signals', {}).items():
             mask = atomic_states.get(state_name, default_series)
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
 
-        # 计算触发分
+        # 计算触发分 (加分项)
         trigger_score_total = pd.Series(0.0, index=df.index)
         trigger_event_scores = scoring_params.get('trigger_events', {})
         for event_name, score in trigger_event_scores.items():
@@ -1000,7 +1004,29 @@ class TrendFollowStrategy:
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
         
-        return total_positional_score, total_dynamic_score, trigger_score_total, score_details_df
+        # ▼▼▼【代码修改 V208.0】: 新增“惩罚分”计算层 ▼▼▼
+        print("      -> [惩罚层] 正在计算“惩罚分”...")
+        total_penalty_score = pd.Series(0.0, index=df.index)
+        # 合并所有负面信号源
+        negative_signals = {
+            **positional_params.get('negative_signals', {}),
+            **dynamic_params.get('negative_signals', {}),
+            **scoring_params.get('penalty_signals', {}) # 引入新的、独立的惩罚信号配置
+        }
+        for state_name, score in negative_signals.items():
+            mask = atomic_states.get(state_name, default_series)
+            # 惩罚分直接叠加，score本身应为负值
+            total_penalty_score.loc[mask] += score 
+            score_details_df.loc[mask, state_name] = score
+            if mask.any() and score < 0:
+                 status_penalty = "[✓]" if mask.iloc[-1] else "[✗]"
+                 print(f"        -> 惩罚信号 '{state_name}' (最新一日): {status_penalty} (分值: {score})")
+
+        # 将惩罚分整合到阵地分或动能分中，以便参与后续加权。此处将其加入阵地分。
+        final_positional_score = total_positional_score + total_penalty_score
+        # ▲▲▲【代码修改 V208.0】▲▲▲
+        
+        return final_positional_score, total_dynamic_score, trigger_score_total, score_details_df
 
     def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
@@ -1686,7 +1712,12 @@ class TrendFollowStrategy:
         return states
 
     def _diagnose_chip_dynamics_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """【V204.0 新增】专业化作战单元：动态侦察单元"""
+        """
+        【V209.0 权力归建版】专业化作战单元：动态侦察单元
+        - 核心升级: 正式将 `CHIP_RAPID_CONCENTRATION` (筹码快速集中) 的定义权
+                    归建于此。作为动态指标的分析中心，由本方法定义此战术级信号，
+                    确保了情报源的唯一性和权威性。
+        """
         states = {}
         # 状态1: 获利盘加速扩张 (S级进攻信号)
         winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
@@ -1700,6 +1731,15 @@ class TrendFollowStrategy:
         # 状态3: 上方套牢盘快速消化 (B级进攻信号)
         pressure_slope_col = 'SLOPE_5_CHIP_pressure_above_D'
         states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df[pressure_slope_col] < 0)
+        
+        # ▼▼▼ “筹码快速集中”的定义 ▼▼▼
+        # 核心逻辑：筹码集中度的5日斜率小于一个显著的负值阈值，
+        # 表明筹码正在以极快的速度从分散走向集中。
+        p_dynamic = params.get('dynamic_params', {}) # 允许未来在JSON中配置
+        rapid_concentration_threshold = self._get_param_value(p_dynamic.get('rapid_concentration_threshold'), -0.005)
+        
+        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+        states['CHIP_RAPID_CONCENTRATION'] = df.get(conc_slope_col, 0) < rapid_concentration_threshold
         
         return states
 
@@ -1969,6 +2009,32 @@ class TrendFollowStrategy:
                 )
             else:
                 states['MA_STATE_DUCK_NECK_FORMING'] = default_series
+
+        # ▼▼▼ “整体趋势恶化”的定义 ▼▼▼
+        # 1. 准备所需情报
+        # 检查是否存在资本底背离的豁免窗口
+        is_in_divergence_window = states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        # 检查各项战略指标的斜率是否为负
+        # a. 长期均线趋势（生命线）
+        is_long_ma_slope_negative = df.get('SLOPE_55_EMA_55_D', 0) < 0
+        # b. 短期均线趋势（攻击线）
+        is_short_ma_slope_negative = df.get('SLOPE_13_EMA_13_D', 0) < 0
+        # c. 长期均线加速度（趋势动能）
+        is_long_ma_accel_negative = df.get('ACCEL_55_EMA_55_D', 0) < 0
+        # d. 长期筹码成本趋势（主力成本）
+        is_long_chip_slope_negative = df.get('CHIP_peak_cost_slope_55d_D', 0) < 0
+        # 2. 定义“无条件恶化”状态
+        # 必须所有战略指标协同转弱，才是不可逆的恶化
+        unconditional_deterioration = (
+            is_long_ma_slope_negative & 
+            is_short_ma_slope_negative & 
+            is_long_ma_accel_negative & 
+            is_long_chip_slope_negative
+        )
+        # 3. 最终裁决
+        # 趋势恶化 = “无条件恶化” 且 “不在资本底背离的豁免期内”
+        states['CONTEXT_TREND_DETERIORATING'] = unconditional_deterioration & ~is_in_divergence_window
+
         for key in states:
             if states[key] is None:
                 states[key] = default_series
