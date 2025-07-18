@@ -1744,7 +1744,7 @@ class TrendFollowStrategy:
                     为后续组建的、能够进行多维分析的“精英部队”提供干净、无偏见的情报原料。
         """
         states = {}
-        p_struct = self._get_params_block(params, 'chip_feature_params', {}).get('structure_params', {})
+        p_struct = self._get_params_block(self.unified_config, 'chip_feature_params', {}).get('structure_params', {})
         if not self._get_param_value(p_struct.get('enabled'), True):
             return states
 
@@ -1752,7 +1752,10 @@ class TrendFollowStrategy:
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
         
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+        slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001) # 健康趋势的容忍度
         is_low_concentration_value = df[conc_col] < conc_thresh_abs
+        is_trend_stable = df[conc_slope_col] <= slope_tolerance_healthy
+        states['CHIP_FACT_IS_CONCENTRATED'] = is_low_concentration_value & is_trend_stable
         
         slope_tolerance = self._get_param_value(p_struct.get('slope_tolerance'), 0.001)
         is_trend_healthy = df[conc_slope_col] <= slope_tolerance
@@ -1767,8 +1770,8 @@ class TrendFollowStrategy:
         dispersing_slope_threshold = self._get_param_value(p_struct.get('dispersing_slope_threshold'), 0.002) # 定义一个明确的“危险发散斜率”
         
         states['RISK_CHIP_STRUCTURE_COLLAPSE'] = df[conc_slope_col] > dispersing_slope_threshold
-        
-        if states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
+
+        if 'RISK_CHIP_STRUCTURE_COLLAPSE' in states and states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
             status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
             print(f"          -> [!!!最高警报!!!] '筹码结构崩溃' (最新一日): {status_collapse}")
 
@@ -1778,7 +1781,7 @@ class TrendFollowStrategy:
             squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
             states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
 
-        p_scattered = params.get('scattered_params', {})
+        p_scattered = self._get_params_block(self.unified_config, 'chip_feature_params', {}).get('scattered_params', {})
         if self._get_param_value(p_scattered.get('enabled'), True):
             scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
             states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)

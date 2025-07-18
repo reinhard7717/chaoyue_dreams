@@ -285,8 +285,15 @@
         },
         "capitulation_params": { "winner_rate_threshold": { "value": 8.0, "说明": "定义“投降坑”的总获利盘比例上限(%)。" } },
         "structure_params": {
-          "enabled": true, "high_concentration_threshold": 0.15, "enable_relative_squeeze": true,
-          "squeeze_window": 120, "squeeze_percentile": 0.2
+          "enabled": true, 
+          "high_concentration_threshold": 0.15,
+          "slope_tolerance_healthy": 0.001,
+          "说明_slope_tolerance_healthy": "定义“健康集中”状态时，允许的筹码发散斜率的最大容忍度。",
+          "dispersing_slope_threshold": 0.002,
+          "说明_dispersing_slope_threshold": "定义“结构崩溃”风险时，触发警报的最小发散斜率。此值应大于健康容忍度。",
+          "enable_relative_squeeze": true,
+          "squeeze_window": 120, 
+          "squeeze_percentile": 0.2
         },
         "scattered_params": { "enabled": true, "threshold": { "value": 30.0, "说明": "90%成本集中度高于此值(%)，视为筹码极度发散。" } },
         "ignition_params": { "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度。" } }
