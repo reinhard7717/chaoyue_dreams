@@ -69,8 +69,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // === 主控台页面 (home.html) 功能 =========================================
     // =========================================================================
     function initializeHomePage() {
+        // ▼▼▼【代码修改】: 新增“卫兵子句” (Guard Clause) ▼▼▼
+        // 这是主控台页面的核心元素之一。如果它不存在，说明当前不是主控台页面，
+        // 应该立即退出函数，防止后续代码因找不到元素而报错。
+        const addFavoriteForm = document.getElementById('add-favorite-form');
+        if (!addFavoriteForm) {
+            return; // 如果找不到添加表单，说明不是主控台页面，直接退出
+        }
+        // ▲▲▲【代码修改结束】▲▲▲
+
         console.log('正在初始化【主控台】页面功能...');
 
+        // 因为上面的卫兵子句确保了我们在正确的页面，所以现在可以安全地获取所有元素
         const favoritesTbody = document.getElementById('favorites-tbody');
         const favoritesEmpty = document.getElementById('favorites-empty');
         
@@ -237,132 +247,121 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         
-        // ▼▼▼ 搜索和添加自选股的完整逻辑 ▼▼▼
+        // ▼▼▼【代码修改】: 此部分逻辑现在是安全的，因为函数入口有卫兵子句 ▼▼▼
         const searchInput = document.getElementById('stock-search-input');
         const searchResultsContainer = document.getElementById('search-results');
-        const addFavoriteForm = document.getElementById('add-favorite-form');
         let debounceTimer;
-        let selectedStockCode = null; // 用于存储从搜索结果中选择的股票代码
+        let selectedStockCode = null;
 
-        if (searchInput && searchResultsContainer && addFavoriteForm) {
-            // 1. 监听搜索框的输入事件
-            searchInput.addEventListener('keyup', (event) => {
-                const query = searchInput.value.trim();
-                // 清除之前的计时器
-                clearTimeout(debounceTimer);
+        // 1. 监听搜索框的输入事件
+        searchInput.addEventListener('keyup', (event) => {
+            const query = searchInput.value.trim();
+            clearTimeout(debounceTimer);
 
-                if (query.length === 0) {
-                    searchResultsContainer.innerHTML = '';
-                    searchResultsContainer.style.display = 'none';
-                    selectedStockCode = null;
-                    return;
-                }
-
-                // 设置一个新的计时器，实现防抖
-                debounceTimer = setTimeout(async () => {
-                    console.log(`[Search] 正在搜索: ${query}`);
-                    try {
-                        const response = await fetch(`/dashboard/api/stock-search/?q=${encodeURIComponent(query)}`);
-                        if (!response.ok) {
-                            throw new Error('网络响应错误');
-                        }
-                        const stocks = await response.json();
-                        renderSearchResults(stocks);
-                    } catch (error) {
-                        console.error('[Search] 搜索API请求失败:', error);
-                        searchResultsContainer.innerHTML = '<div class="search-result-item">搜索出错，请稍后重试。</div>';
-                        searchResultsContainer.style.display = 'block';
-                    }
-                }, 300); // 300毫秒延迟
-            });
-
-            // 2. 渲染搜索结果
-            function renderSearchResults(stocks) {
+            if (query.length === 0) {
                 searchResultsContainer.innerHTML = '';
-                if (stocks.length === 0) {
-                    searchResultsContainer.innerHTML = '<div class="search-result-item">未找到相关股票</div>';
-                } else {
-                    stocks.forEach(stock => {
-                        const item = document.createElement('div');
-                        item.className = 'search-result-item';
-                        item.textContent = `${stock.stock_code} - ${stock.stock_name}`;
-                        item.dataset.stockCode = stock.stock_code;
-                        item.dataset.stockName = stock.stock_name;
-                        searchResultsContainer.appendChild(item);
-                    });
-                }
-                searchResultsContainer.style.display = 'block';
+                searchResultsContainer.style.display = 'none';
+                selectedStockCode = null;
+                return;
             }
 
-            // 3. 监听搜索结果容器的点击事件（事件委托）
-            searchResultsContainer.addEventListener('click', (event) => {
-                const targetItem = event.target.closest('.search-result-item');
-                if (targetItem && targetItem.dataset.stockCode) {
-                    console.log(`[Search] 选中了: ${targetItem.dataset.stockCode}`);
-                    // 将选中的股票信息填入输入框
-                    searchInput.value = `${targetItem.dataset.stockCode} - ${targetItem.dataset.stockName}`;
-                    // 存储选中的股票代码，用于提交
-                    selectedStockCode = targetItem.dataset.stockCode;
-                    // 清空并隐藏结果列表
-                    searchResultsContainer.innerHTML = '';
-                    searchResultsContainer.style.display = 'none';
-                }
-            });
-
-            // 4. 监听表单提交事件
-            addFavoriteForm.addEventListener('submit', async (event) => {
-                event.preventDefault(); // 阻止表单默认的刷新页面的提交行为
-                
-                if (!selectedStockCode) {
-                    showNotification('请先从搜索结果中选择一只股票', 'warning');
-                    return;
-                }
-
-                const addButton = document.getElementById('add-favorite-btn');
-                addButton.disabled = true;
-                addButton.innerHTML = '<span class="icon">+</span> 添加中...';
-
+            debounceTimer = setTimeout(async () => {
+                console.log(`[Search] 正在搜索: ${query}`);
                 try {
-                    const csrfToken = getCookie('csrftoken');
-                    const response = await fetch('/dashboard/api/favorites/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'X-CSRFToken': csrfToken
-                        },
-                        body: JSON.stringify({ stock_code: selectedStockCode })
-                    });
-
-                    if (response.ok) {
-                        const newFavorite = await response.json();
-                        showNotification(`股票 ${newFavorite.stock.stock_code} 添加成功！`, 'success');
-                        // 清空输入框和状态
-                        searchInput.value = '';
-                        selectedStockCode = null;
-                        // WebSocket会处理列表更新，这里无需手动调用addStockRow
-                    } else {
-                        const errorData = await response.json();
-                        // 尝试从后端的不同错误格式中提取信息
-                        const errorMsg = errorData.detail || (errorData.stock_code ? `代码: ${errorData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
-                        showNotification(errorMsg, 'error');
+                    const response = await fetch(`/dashboard/api/stock-search/?q=${encodeURIComponent(query)}`);
+                    if (!response.ok) {
+                        throw new Error('网络响应错误');
                     }
+                    const stocks = await response.json();
+                    renderSearchResults(stocks);
                 } catch (error) {
-                    console.error('[Favorite Add] 添加自选失败:', error);
-                    showNotification('网络错误，添加失败', 'error');
-                } finally {
-                    addButton.disabled = false;
-                    addButton.innerHTML = '<span class="icon">+</span> 添加到自选';
+                    console.error('[Search] 搜索API请求失败:', error);
+                    searchResultsContainer.innerHTML = '<div class="search-result-item">搜索出错，请稍后重试。</div>';
+                    searchResultsContainer.style.display = 'block';
                 }
-            });
+            }, 300);
+        });
 
-            // 点击页面其他地方，隐藏搜索结果
-            document.addEventListener('click', (event) => {
-                if (!addFavoriteForm.contains(event.target)) {
-                    searchResultsContainer.style.display = 'none';
-                }
-            });
+        // 2. 渲染搜索结果
+        function renderSearchResults(stocks) {
+            searchResultsContainer.innerHTML = '';
+            if (stocks.length === 0) {
+                searchResultsContainer.innerHTML = '<div class="search-result-item">未找到相关股票</div>';
+            } else {
+                stocks.forEach(stock => {
+                    const item = document.createElement('div');
+                    item.className = 'search-result-item';
+                    item.textContent = `${stock.stock_code} - ${stock.stock_name}`;
+                    item.dataset.stockCode = stock.stock_code;
+                    item.dataset.stockName = stock.stock_name;
+                    searchResultsContainer.appendChild(item);
+                });
+            }
+            searchResultsContainer.style.display = 'block';
         }
+
+        // 3. 监听搜索结果容器的点击事件（事件委托）
+        searchResultsContainer.addEventListener('click', (event) => {
+            const targetItem = event.target.closest('.search-result-item');
+            if (targetItem && targetItem.dataset.stockCode) {
+                console.log(`[Search] 选中了: ${targetItem.dataset.stockCode}`);
+                searchInput.value = `${targetItem.dataset.stockCode} - ${targetItem.dataset.stockName}`;
+                selectedStockCode = targetItem.dataset.stockCode;
+                searchResultsContainer.innerHTML = '';
+                searchResultsContainer.style.display = 'none';
+            }
+        });
+
+        // 4. 监听表单提交事件
+        addFavoriteForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            if (!selectedStockCode) {
+                showNotification('请先从搜索结果中选择一只股票', 'warning');
+                return;
+            }
+
+            const addButton = document.getElementById('add-favorite-btn');
+            addButton.disabled = true;
+            addButton.innerHTML = '<span class="icon">+</span> 添加中...';
+
+            try {
+                const csrfToken = getCookie('csrftoken');
+                const response = await fetch('/dashboard/api/favorites/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ stock_code: selectedStockCode })
+                });
+
+                if (response.ok) {
+                    const newFavorite = await response.json();
+                    showNotification(`股票 ${newFavorite.stock.stock_code} 添加成功！`, 'success');
+                    searchInput.value = '';
+                    selectedStockCode = null;
+                } else {
+                    const errorData = await response.json();
+                    const errorMsg = errorData.detail || (errorData.stock_code ? `代码: ${errorData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
+                    showNotification(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('[Favorite Add] 添加自选失败:', error);
+                showNotification('网络错误，添加失败', 'error');
+            } finally {
+                addButton.disabled = false;
+                addButton.innerHTML = '<span class="icon">+</span> 添加到自选';
+            }
+        });
+
+        // 点击页面其他地方，隐藏搜索结果
+        document.addEventListener('click', (event) => {
+            if (!addFavoriteForm.contains(event.target)) {
+                searchResultsContainer.style.display = 'none';
+            }
+        });
         // ▲▲▲【代码修改结束】▲▲▲
 
         // 启动WebSocket
