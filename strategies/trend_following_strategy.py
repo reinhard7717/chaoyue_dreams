@@ -323,12 +323,11 @@ class TrendFollowStrategy:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.15 性能优化版】统一战报司令部
-        - 核心重构: 废除低效的 iterrows() 循环，全面采用向量化操作。
-                    1. 使用 np.select 创建条件列。
-                    2. 使用 apply 结合辅助函数处理难以完全向量化的列表/字典生成。
-                    3. 最后使用 to_dict('records') 一次性高效生成结果。
-        - 收益: 极大提升了信号记录的生成速度，尤其是在信号数量多时，性能提升可达10倍以上。
+        【V202.16 健壮性修复版】统一战报司令部
+        - 核心修复: 解决了 `np.select` 在退出规则配置为空时崩溃的问题。
+                    在计算 `exit_severity_level` 之前，增加了一个保护性检查。
+                    如果从配置中未找到任何有效的退出规则，则安全地将严重级别设置为0，而不是尝试执行会导致错误的 `np.select`。
+        - 业务逻辑: 保持不变。
         """
         required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
         if not all(col in result_df.columns for col in required_cols):
@@ -339,47 +338,52 @@ class TrendFollowStrategy:
         if df.empty: return []
 
         # --- 准备工作 ---
-        strategy_name = self._get_param_value(self.strategy_info.get('name'), 'unknown_strategy')
+        strategy_info = self._get_params_block(params, 'strategy_info', {})
+        strategy_name = self._get_param_value(strategy_info.get('name'), 'unknown_strategy')
         playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
-        exit_cfg = self.exit_strategy_params
+        exit_cfg = params.get('exit_strategy_params', {})
         warning_thresh = exit_cfg.get('warning_threshold_params', {})
-        min_warning_level = min([cfg['level'] for cfg in warning_thresh.values()]) if warning_thresh else 30
+        min_warning_level = min([cfg['level'] for cfg in warning_thresh.values() if isinstance(cfg, dict)]) if warning_thresh else 30
         exit_thresh = exit_cfg.get('exit_threshold_params', {})
 
         # --- 向量化计算 ---
-        # 1. 确定信号类型
         is_exit = df['exit_signal_code'] > 0
         is_entry = df['signal_entry']
         is_warning = (df['risk_score'] >= min_warning_level) & ~is_exit & ~is_entry
         
-        # 2. 填充基础信息
         df['stock_code'] = stock_code
         df['timeframe'] = result_timeframe
         df['strategy_name'] = strategy_name
         df['trade_time'] = df.index
         df['close_price'] = df[f'close_{result_timeframe}'].apply(lambda x: float(x) if pd.notna(x) else None)
 
-        # 3. 向量化处理不同信号类型的字段
-        # entry_signal / is_risk_warning
         df['entry_signal'] = is_entry
         df['is_risk_warning'] = is_warning
         
-        # stable_platform_price (仅对 entry 信号)
         df['stable_platform_price'] = np.where(
             is_entry, df['PLATFORM_PRICE_STABLE'].apply(lambda x: float(x) if pd.notna(x) else None), None
         )
 
-        # exit_severity_level (仅对 exit 信号)
-        conditions = [df['exit_signal_code'] == self._get_param_value(cfg.get('code')) for name, cfg in exit_thresh.items()]
-        choices = [3 if name == "CRITICAL" else 2 for name in exit_thresh.keys()]
-        df['exit_severity_level'] = np.select(conditions, choices, default=0)
+        # ▼▼▼【代码修改】修复 np.select 错误的核心逻辑 ▼▼▼
+        # 步骤1: 过滤出有效的退出规则，排除"说明"等非字典项，确保迭代安全
+        valid_exit_rules = {name: cfg for name, cfg in exit_thresh.items() if isinstance(cfg, dict) and 'code' in cfg}
+        
+        # 步骤2: 增加保护，仅在存在有效规则时才执行np.select
+        if valid_exit_rules:
+            print(f"    -> 检测到 {len(valid_exit_rules)} 条有效退出规则，正在计算严重等级...")
+            conditions = [df['exit_signal_code'] == self._get_param_value(rule.get('code')) for name, rule in valid_exit_rules.items()]
+            choices = [3 if name == "CRITICAL" else 2 for name in valid_exit_rules.keys()]
+            df['exit_severity_level'] = np.select(conditions, choices, default=0)
+        else:
+            # 如果没有定义任何退出规则，则将严重级别安全地设置为0
+            print("    -> 未检测到有效退出规则，所有信号的严重等级将设为0。")
+            df['exit_severity_level'] = 0
+        # ▲▲▲【代码修改】▲▲▲
 
-        # 4. 使用 apply 处理复杂的 playbooks 和 context
         def get_playbooks(timestamp, is_entry_signal):
             df_details = self._last_score_details_df if is_entry_signal else self._last_risk_details_df
-            if df_details is None or timestamp not in df_details.index:
-                return [], []
+            if df_details is None or timestamp not in df_details.index: return [], []
             
             details_row = df_details.loc[timestamp]
             active_items = details_row[details_row > 0].index
@@ -388,7 +392,7 @@ class TrendFollowStrategy:
                 excluded = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_')
                 playbooks_en = [item for item in active_items if not item.startswith(excluded)]
                 playbooks_cn = [playbook_map.get(p, p) for p in playbooks_en]
-            else: # is_exit or is_warning
+            else:
                 playbooks_en = [item.replace('RISK_SCORE_', '') for item in active_items]
                 playbooks_cn = [risk_playbook_map.get(p, p) for p in playbooks_en]
             return playbooks_en, playbooks_cn
@@ -396,7 +400,6 @@ class TrendFollowStrategy:
         playbook_results = df.apply(lambda row: get_playbooks(row.name, row['signal_entry']), axis=1)
         df[['triggered_playbooks', 'triggered_playbooks_cn']] = pd.DataFrame(playbook_results.tolist(), index=df.index)
 
-        # 5. 生成 exit_signal_reason 和 context_snapshot
         def build_final_details(row):
             context = {
                 'close': row['close_price'],
@@ -404,7 +407,7 @@ class TrendFollowStrategy:
                 'risk_score': float(row['risk_score']) if pd.notna(row['risk_score']) else 0.0,
             }
             reason = None
-            if not row['entry_signal']: # For exit and warning
+            if not row['entry_signal']:
                 cn_playbooks = row['triggered_playbooks_cn']
                 reason_str = ", ".join(cn_playbooks) if cn_playbooks else "综合风险评分超阈值"
                 record_for_quantify = {'triggered_playbooks_cn': cn_playbooks, 'context_snapshot': row.to_dict()}
@@ -414,14 +417,12 @@ class TrendFollowStrategy:
         final_details = df.apply(build_final_details, axis=1)
         df[['exit_signal_reason', 'context_snapshot']] = pd.DataFrame(final_details.tolist(), index=df.index)
 
-        # 6. 筛选最终列并生成字典列表
         final_cols = [
             "stock_code", "trade_time", "timeframe", "strategy_name", "close_price",
             "entry_score", "stable_platform_price", "entry_signal", "is_risk_warning",
             "exit_signal_code", "exit_severity_level", "exit_signal_reason",
             "triggered_playbooks", "triggered_playbooks_cn", "context_snapshot"
         ]
-        # 确保所有需要的列都存在
         for col in final_cols:
             if col not in df.columns:
                 df[col] = None if col not in ['entry_score', 'exit_signal_code', 'exit_severity_level'] else 0.0
