@@ -71,52 +71,52 @@ class MultiTimeframeTrendStrategy:
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
         print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """
-        【联合作战总入口】
-        为单个股票执行完整的、跨时间周期的分析流程。
+        【总指挥层核心 - V203.3 修复版】
+        为单个股票执行完整的多时间框架分析流程。
+        - **修复 (V203.3)**: 修复了因缺少 await 关键字导致的 TypeError。
+        """
+        print(f"\n🚀 [总指挥层] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
 
-        作战流程:
-        1.  **数据准备**: 调用数据工程部门，获取所有必需的、计算好指标的多周期K线数据。
-        2.  **周线战略分析**: 命令战略参谋部，基于周线图生成宏观趋势判断和战略信号。
-        3.  **情报融合**: 将周线战略信号精准地“广播”并注入到每一天的日线数据中。
-        4.  **日线战术决策**: 命令一线作战部队，在融合了战略背景的日线数据上，执行精细的战术分析和风险评估。
-        5.  **盘中执行监控**: 启动分钟级引擎，用于捕捉精确的入场确认点和盘中风险警报。
-        6.  **战果汇总**: 收集所有引擎生成的信号，进行最终的整理和交付。
-        """
-        print(f"\n--- 开始为【{stock_code}】执行联合作战分析 (V203.0) ---")
-        
-        # 步骤1: 数据准备
-        print("  -> [步骤1/5] 正在调用 IndicatorService 获取所有周期数据...")
-        all_dfs = await self.indicator_service.prepare_data_for_strategy(
-            stock_code, self.unified_config, trade_time
-        )
-        if 'D' not in all_dfs or all_dfs['D'].empty or 'W' not in all_dfs or all_dfs['W'].empty:
-            print(f"    - [错误] 缺少日线或周线核心数据，无法执行联合作战。任务终止。")
-            return None
-            
-        # 步骤2: 周线战略分析
-        print("  -> [步骤2/5] 正在调用 WeeklyContextEngine 生成周线战略信号...")
-        df_weekly_context = self.strategic_engine.generate_context(all_dfs['W'])
-        
-        # 步骤3: 情报融合
-        print("  -> [步骤3/5] 正在将周线战略背景注入日线数据...")
-        all_dfs['D'] = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
-        
-        # 步骤4: 日线战术决策
-        print("  -> [步骤4/5] 正在运行日线战术引擎...")
-        tactical_records = self._run_tactical_engine(stock_code, all_dfs)
-        
-        # 步骤5: 盘中执行监控
-        print("  -> [步骤5/5] 正在运行分钟级监控引擎...")
-        # 注意：盘中引擎现在依赖于战术引擎生成的 self.daily_analysis_df，所以必须在战术引擎之后运行
+        # 1. 数据准备：获取所有需要的时间框架数据
+        all_dfs = await self.data_loader.get_all_timeframe_data(stock_code, end_date=trade_time)
+        if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
+            print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
+            return []
+
+        # 2. 战略引擎：计算长期趋势和上下文
+        strategic_context_df = await self.strategic_engine.run(all_dfs)
+        if strategic_context_df.empty:
+            print(f"  - [战略引擎] 未能生成战略上下文，跳过后续处理。")
+            return []
+
+        # 3. 情报融合：将战略上下文合并到日线数据
+        df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], strategic_context_df)
+        all_dfs['D_CONTEXT'] = df_daily_with_context # 更新 all_dfs，供下游引擎使用
+
+        # 4. 战术引擎：基于日线+战略上下文，生成日线级别的交易信号
+        tactical_records = await self._run_tactical_engine(stock_code, all_dfs)
+        print(f"  - [战术引擎] 生成 {len(tactical_records)} 条日线级信号。")
+
+        # 5. 盘中入场引擎：对日线信号进行盘中确认
         intraday_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
-        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-        
-        # 汇总所有记录
+        print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_records)} 条盘中确认信号。")
+
+        # 6. 盘中风险预警引擎：监控潜在的盘中风险
+        # ▼▼▼【代码修改】: 补充遗漏的 await 关键字，确保获取到列表结果而非协程对象 ▼▼▼
+        risk_alert_records = await self._run_intraday_alert_engine(stock_code, all_dfs)
+        # ▲▲▲【代码修改】▲▲▲
+        print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_records)} 条风险预警信号。")
+
+        # 7. 信号汇总
         all_records = tactical_records + intraday_entry_records + risk_alert_records
         
-        print(f"--- 所有引擎分析完毕，共生成 {len(all_records)} 条最终信号记录准备交付。 ---")
+        # 8. 结果排序（可选，但推荐）
+        if all_records:
+            all_records.sort(key=lambda x: x['trade_time'])
+
+        print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_records)} 条记录。")
         return all_records
 
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
