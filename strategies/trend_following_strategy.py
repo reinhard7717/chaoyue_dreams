@@ -206,7 +206,6 @@ class TrendFollowStrategy:
 
         df, platform_states = self._diagnose_platform_states(df, params)
 
-        # ▼▼▼【代码修改 V207.0】: 清理“犯罪现场”，只保留调用和汇总 ▼▼▼
         atomic_states = {
             **self._diagnose_chip_states(df, params), 
             **self._diagnose_ma_states(df, params), 
@@ -221,6 +220,18 @@ class TrendFollowStrategy:
         }
 
         atomic_states.update(self._diagnose_strategic_setups(df, params, atomic_states))
+
+        # ▼▼▼ 建立“军事最高法院”和“军事法庭” ▼▼▼
+        # 1. 获取原始情报
+        is_cost_collapsing = atomic_states.get('RAW_SIGNAL_COST_COLLAPSE', pd.Series(False, index=df.index))
+        is_winner_rate_collapsing = atomic_states.get('RAW_SIGNAL_WINNER_RATE_COLLAPSE', pd.Series(False, index=df.index))
+        # 2. 获取战场环境
+        is_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', pd.Series(False, index=df.index))
+        # 3. 进行最终司法裁决
+        # 最高法院：成本崩溃是无条件死罪
+        atomic_states['RISK_COST_BASIS_COLLAPSE'] = is_cost_collapsing
+        # 军事法庭：信心恶化，只有在趋势不健康时才定罪
+        atomic_states['RISK_CONFIDENCE_DETERIORATION'] = is_winner_rate_collapsing & ~is_trend_healthy
 
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
@@ -1818,61 +1829,67 @@ class TrendFollowStrategy:
 
     def _diagnose_chip_concentration_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V213.0 思想革命版】
-        - 核心升级: 废除了带有价值判断的“忠诚信号”`CHIP_STATE_HIGHLY_CONCENTRATED`。
-                    取而代之的是一个纯粹的、中立的“事实报告”`CHIP_FACT_IS_CONCENTRATED`。
-        - 作战意图: 根除系统基于单一原始数据进行幼稚判断的缺陷。将事实与判断分离，
-                    为后续组建的、能够进行多维分析的“精英部队”提供干净、无偏见的情报原料。
+        【V217.0 情报净化版】
+        - 核心修改: 此模块的职责被净化，不再进行任何“定罪”，只负责生成最原始、
+                    最中立的“原始情报”(RAW_SIGNAL)，供总指挥部进行最终裁决。
         """
+        # 初始化状态字典
         states = {}
+        # 从统一配置中获取筹码结构参数
         p_struct = self._get_params_block(self.unified_config, 'chip_feature_params', {}).get('structure_params', {})
+        # 如果该诊断模块被禁用，则直接返回空字典
         if not self._get_param_value(p_struct.get('enabled'), True):
             return states
 
+        # 定义需要用到的列名
         conc_col = 'CHIP_concentration_90pct_D'
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
         
+        # --- 事实报告：筹码是否处于一个“稳定且集中”的良好状态 ---
+        # 获取绝对集中度阈值
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001) # 健康趋势的容忍度
+        # 获取健康趋势下的斜率容忍度
+        slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001)
+        # 判断绝对值是否集中
         is_low_concentration_value = df[conc_col] < conc_thresh_abs
+        # 判断趋势是否稳定或在向好的方向发展
         is_trend_stable = df[conc_slope_col] <= slope_tolerance_healthy
+        # 最终的“集中状态”需要同时满足绝对值和趋势两个条件
         states['CHIP_FACT_IS_CONCENTRATED'] = is_low_concentration_value & is_trend_stable
         
-        slope_tolerance = self._get_param_value(p_struct.get('slope_tolerance'), 0.001)
-        is_trend_healthy = df[conc_slope_col] <= slope_tolerance
-        
-        # ▼▼▼ 废除“忠诚信号”，改造为“中立事实” ▼▼▼
-        states['CHIP_FACT_IS_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
-        status_concentrated = "[✓]" if states['CHIP_FACT_IS_CONCENTRATED'].iloc[-1] else "[✗]"
+        # 打印最新的事实报告状态
+        status_concentrated = "[✓]" if states.get('CHIP_FACT_IS_CONCENTRATED', pd.Series(False, index=df.index)).iloc[-1] else "[✗]"
         print(f"          -> [事实报告] '筹码处于集中状态' (最新一日): {status_concentrated}")
 
-        # 1. 获取多源情报
+        # 定义成本斜率和获利盘斜率的列名
         cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
         winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
-        # 2. 获取作战条令
+        
+        # 从配置中获取成本崩溃和获利盘崩溃的阈值
         cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
         winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
-        # 3. 建立两个独立的审判庭
-        is_cost_collapsing = df.get(cost_slope_col, 0) < cost_collapse_threshold
-        is_winner_rate_collapsing = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
-        # 最终裁决：任何一个审判庭判定有罪，就拉响警报！
-        states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_cost_collapsing | is_winner_rate_collapsing
-
-        if 'RISK_CHIP_STRUCTURE_COLLAPSE' in states and states['RISK_CHIP_STRUCTURE_COLLAPSE'].any():
-            status_collapse = "[✓]" if states['RISK_CHIP_STRUCTURE_COLLAPSE'].iloc[-1] else "[✗]"
-            print(f"          -> [!!!最高警报!!!] '筹码结构崩溃' (最新一日): {status_collapse}")
-
+        # 生成“成本崩溃”的原始信号，供上层裁决
+        states['RAW_SIGNAL_COST_COLLAPSE'] = df.get(cost_slope_col, 0) < cost_collapse_threshold
+        # 生成“获利盘崩溃”的原始信号，供上层裁决
+        states['RAW_SIGNAL_WINNER_RATE_COLLAPSE'] = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
+        
+        # --- 其他筹码结构状态诊断 ---
+        # 诊断“筹码集中度压缩”状态
         if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
             squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
             squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
+            # 计算滚动的分位数阈值
             squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
+            # 判断当前集中度是否低于动态阈值
             states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
 
+        # 诊断“筹码发散”状态
         p_scattered = self._get_params_block(self.unified_config, 'chip_feature_params', {}).get('scattered_params', {})
         if self._get_param_value(p_scattered.get('enabled'), True):
             scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
             states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)
 
+        # 返回所有诊断出的状态
         return states
     
     def _diagnose_chip_cycle_states(self, df: pd.DataFrame, params: dict, current_states: dict) -> Dict[str, pd.Series]:

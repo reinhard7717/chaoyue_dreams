@@ -191,8 +191,11 @@
           }
         },
         "penalty_signals": {
-          "说明": "【惩罚层】定义拥有“一票否决权”的最高优先级风险信号。这些信号将直接、猛烈地扣减基础分。",
-          "RISK_CHIP_STRUCTURE_COLLAPSE": -500
+          "说明": "【V217.0 罪责相适应版】刑法法典。为不同严重程度的罪行，设定了独立的罪名和罚分。",
+          "RISK_COST_BASIS_COLLAPSE": -500,
+          "说明_cost_collapse": "【最高法院】成本中枢崩溃。这是最明确的溃败信号，处以极刑。",
+          "RISK_CONFIDENCE_DETERIORATION": -150,
+          "说明_confidence_deterioration": "【军事法庭】市场信心恶化。这是一个次级风险，只有在趋势背景不佳时才会被定罪。"
         },
         "trigger_events": {
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
