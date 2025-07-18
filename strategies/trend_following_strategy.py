@@ -161,6 +161,34 @@ class TrendFollowStrategy:
         print(f"====== 【战术引擎 V202.10】执行完毕 ======")
         return df, atomic_states
 
+    def _diagnose_strategic_setups(self, df: pd.DataFrame, params: dict, existing_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V213.0 新增】精英侦察部队：战略态势诊断单元
+        - 核心职责: 负责定义最高级别的、需要多维信息综合判断的战略信号，
+                    如此处定义的 `STRATEGIC_SETUP_HIGH_CONTROL_MARKUP`。
+        - 作战意图: 解决之前“名存实亡”的问题，正式组建一支能理解复杂战场态势的
+                    精英部队，确保我军的“战略加成”只授予真正的优势机会。
+        """
+        print("        -> [诊断模块 V213.0 精英部队] 正在执行战略态势诊断...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # 定义“高控盘拉升” (High Control Markup)
+        # 必须同时满足以下所有条件，才是真正的精英信号：
+        # 1. 事实基础：筹码确实是集中的 (由我们的中立情报官提供)
+        is_concentrated = existing_states.get('CHIP_FACT_IS_CONCENTRATED', default_series)
+        
+        # 2. 战略位置：整体趋势健康，均线多头排列 (由均线部队提供)
+        is_ma_bullish = existing_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        
+        # 3. 战术方向：动态趋势正在健康加速 (由动态惯性部队提供)
+        is_dyn_accelerating = existing_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
+
+        # 最终裁决：三位一体，方为“高控盘拉升”
+        states['STRATEGIC_SETUP_HIGH_CONTROL_MARKUP'] = is_concentrated & is_ma_bullish & is_dyn_accelerating
+        
+        return states
+
     def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict, Dict]:
         """
         【V207.0 指挥权归还版】
@@ -191,6 +219,8 @@ class TrendFollowStrategy:
             **platform_states, 
             **self._diagnose_trend_dynamics(df, params)
         }
+
+        atomic_states.update(self._diagnose_strategic_setups(df, params, atomic_states))
 
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
@@ -1706,25 +1736,31 @@ class TrendFollowStrategy:
         return states
 
     def _diagnose_chip_concentration_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """【V204.0 新增】专业化作战单元：结构分析单元 (内置“叛徒清除”逻辑)"""
+        """
+        【V213.0 思想革命版】
+        - 核心升级: 废除了带有价值判断的“忠诚信号”`CHIP_STATE_HIGHLY_CONCENTRATED`。
+                    取而代之的是一个纯粹的、中立的“事实报告”`CHIP_FACT_IS_CONCENTRATED`。
+        - 作战意图: 根除系统基于单一原始数据进行幼稚判断的缺陷。将事实与判断分离，
+                    为后续组建的、能够进行多维分析的“精英部队”提供干净、无偏见的情报原料。
+        """
         states = {}
-        p_struct = params.get('structure_params', {})
+        p_struct = self._get_params_block(params, 'chip_feature_params', {}).get('structure_params', {})
         if not self._get_param_value(p_struct.get('enabled'), True):
             return states
 
         conc_col = 'CHIP_concentration_90pct_D'
         conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
-
+        
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
         is_low_concentration_value = df[conc_col] < conc_thresh_abs
-
+        
         slope_tolerance = self._get_param_value(p_struct.get('slope_tolerance'), 0.001)
         is_trend_healthy = df[conc_slope_col] <= slope_tolerance
-
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
-
-        status_concentrated = "[✓]" if states['CHIP_STATE_HIGHLY_CONCENTRATED'].iloc[-1] else "[✗]"
-        print(f"          -> [忠诚信号] '筹码高度集中' (最新一日): {status_concentrated}")
+        
+        # ▼▼▼ 废除“忠诚信号”，改造为“中立事实” ▼▼▼
+        states['CHIP_FACT_IS_CONCENTRATED'] = is_low_concentration_value & is_trend_healthy
+        status_concentrated = "[✓]" if states['CHIP_FACT_IS_CONCENTRATED'].iloc[-1] else "[✗]"
+        print(f"          -> [事实报告] '筹码处于集中状态' (最新一日): {status_concentrated}")
 
         is_trend_dispersing = df[conc_slope_col] > slope_tolerance
         states['RISK_CHIP_STRUCTURE_COLLAPSE'] = is_low_concentration_value & is_trend_dispersing
