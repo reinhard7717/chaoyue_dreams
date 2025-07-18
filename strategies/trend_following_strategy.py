@@ -944,42 +944,39 @@ class TrendFollowStrategy:
         scoring_params = self.scoring_params
 
         # 步骤1: 计算基础分的三大组成部分 (阵地、动能、触发)
-        # ▼▼▼【代码修改】现在返回三个独立的分数组件 ▼▼▼
-        positional_score, dynamic_score, trigger_score, score_details_df = self._calculate_base_scores(
+        positional_score, dynamic_score, trigger_score, penalty_score, score_details_df = self._calculate_base_scores(
             df, scoring_params, atomic_states, trigger_events, score_details_df
         )
-        # ▲▲▲【代码修改】▲▲▲
 
         # 步骤2: 应用周线战略背景修正，得到加权后的基础分
-        # ▼▼▼【代码修改】将三个分数组件传入进行修正和加权 ▼▼▼
         modified_base_score, score_details_df = self._apply_weekly_context_modifiers(
             df, positional_score, dynamic_score, trigger_score, scoring_params, atomic_states, score_details_df
         )
-        # ▲▲▲【代码修改】▲▲▲
 
         # 步骤3: 应用最终的“优势火力”放大器
-        final_score, score_details_df = self._apply_final_score_amplifier(
+        amplified_score, score_details_df = self._apply_final_score_amplifier(
             df, modified_base_score, scoring_params, score_details_df
         )
+        
+        # ▼▼▼ 在所有计算的最后，施加最终裁决！▼▼▼
+        final_score = amplified_score + penalty_score
         
         df['entry_score'] = final_score.round(0)
         latest_score = final_score.iloc[-1] if not final_score.empty else 0
         print(f"--- [计分引擎 V184.0] 计算完成。最新一日得分: {latest_score:.2f} ---")
         return df, score_details_df
 
-    def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
+    def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V208.0 惩罚机制版】
-        - 核心升级: 引入全新的“惩罚分”(Penalty Score)层。除了计算阵地、动能、触发
-                    这三个“加分项”外，现在还会独立计算一个“惩罚分”。
-        - 作战意图: 从根本上解决系统“只加分、不扣分”的唯攻思想。当出现
-                    `RISK_CHIP_STRUCTURE_COLLAPSE` 等致命风险时，将直接施加
-                    巨大的负分惩罚，确保风险能被计分引擎正面响应。
+        【V210.0 作战序列重塑版】
+        - 核心升级: 将“惩罚分”彻底剥离，作为一个独立的战斗序列(total_penalty_score)返回。
+        - 作战意图: 确保惩罚分不再混入阵地分，从根本上杜绝其被后续的“周线豁免”等
+                    逻辑意外抵消或削弱的可能，保证其绝对的、最终的否决权。
         """
         print("      -> [火力层1-3/4] 正在计算“阵地分”、“动能分”与“触发分”...")
         default_series = pd.Series(False, index=df.index)
         
-        # 计算阵地分 (加分项)
+        # 计算阵地分 (纯加分项)
         positional_params = scoring_params.get('positional_scoring', {})
         total_positional_score = pd.Series(0.0, index=df.index)
         for state_name, score in positional_params.get('positive_signals', {}).items():
@@ -987,7 +984,7 @@ class TrendFollowStrategy:
             total_positional_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
             
-        # 计算动能分 (加分项)
+        # 计算动能分 (纯加分项)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         total_dynamic_score = pd.Series(0.0, index=df.index)
         for state_name, score in dynamic_params.get('positive_signals', {}).items():
@@ -995,7 +992,7 @@ class TrendFollowStrategy:
             total_dynamic_score.loc[mask] += score
             score_details_df.loc[mask, state_name] = score
 
-        # 计算触发分 (加分项)
+        # 计算触发分 (纯加分项)
         trigger_score_total = pd.Series(0.0, index=df.index)
         trigger_event_scores = scoring_params.get('trigger_events', {})
         for event_name, score in trigger_event_scores.items():
@@ -1004,29 +1001,23 @@ class TrendFollowStrategy:
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
         
-        # ▼▼▼【代码修改 V208.0】: 新增“惩罚分”计算层 ▼▼▼
         print("      -> [惩罚层] 正在计算“惩罚分”...")
         total_penalty_score = pd.Series(0.0, index=df.index)
-        # 合并所有负面信号源
         negative_signals = {
             **positional_params.get('negative_signals', {}),
             **dynamic_params.get('negative_signals', {}),
-            **scoring_params.get('penalty_signals', {}) # 引入新的、独立的惩罚信号配置
+            **scoring_params.get('penalty_signals', {})
         }
         for state_name, score in negative_signals.items():
             mask = atomic_states.get(state_name, default_series)
-            # 惩罚分直接叠加，score本身应为负值
             total_penalty_score.loc[mask] += score 
             score_details_df.loc[mask, state_name] = score
             if mask.any() and score < 0:
                  status_penalty = "[✓]" if mask.iloc[-1] else "[✗]"
                  print(f"        -> 惩罚信号 '{state_name}' (最新一日): {status_penalty} (分值: {score})")
 
-        # 将惩罚分整合到阵地分或动能分中，以便参与后续加权。此处将其加入阵地分。
-        final_positional_score = total_positional_score + total_penalty_score
-        # ▲▲▲【代码修改 V208.0】▲▲▲
-        
-        return final_positional_score, total_dynamic_score, trigger_score_total, score_details_df
+        # ▼▼▼ 返回独立的惩罚分，不再将其混入阵地分 ▼▼▼
+        return total_positional_score, total_dynamic_score, trigger_score_total, total_penalty_score, score_details_df
 
     def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """

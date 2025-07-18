@@ -80,16 +80,12 @@
                                 <strong>买入于: {{ item.buy_info.time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}</strong>
                                 <br>
                                 <small>策略: {{ item.buy_info.strategy_name|playbook_display }} ({{ item.buy_info.time_level }})</small>
-                                {# ▼▼▼【代码修改】: 新增平台支撑价格显示逻辑 ▼▼▼ #}
-                                {# 检查 item.buy_info 中是否存在 stable_platform_price 字段 #}
                                 {% if item.buy_info.stable_platform_price %}
                                 <div class="platform-price-info">
-                                    {# 增加一个盾牌图标，并格式化价格为两位小数 #}
                                     <span class="icon" title="以此价格为关键支撑/压力">🛡️</span>
                                     平台支撑: {{ item.buy_info.stable_platform_price|floatformat:2 }}
                                 </div>
                                 {% endif %}
-                                {# ▲▲▲【代码修改结束】▲▲▲ #}
                             {% else %}
                                 -
                             {% endif %}
@@ -125,17 +121,21 @@
                                     <ul class="playbook-list {% if item.buy_info.playbooks|length > 3 %}collapsible{% endif %}">
                                     {% for playbook in item.buy_info.playbooks %}
                                         {% with playbook_display_name=playbook|playbook_display %}
+                                            {# ▼▼▼【代码修改】: 修正了判断逻辑，与 trend_following_list.html 保持一致 ▼▼▼ #}
                                             {% if 'ROCKET' in playbook %}
                                                 <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
                                             {% elif 'EXIT' in playbook %}
                                                 <li class="playbook-tag status-alert-level-3" title="{{ playbook }}">🚨 {{ playbook_display_name }}</li>
-                                            {% elif 'S' in playbook_display_name %}
+                                            {# 将 'S' in playbook_display_name 修改为 '王牌' in playbook_display_name #}
+                                            {% elif '王牌' in playbook_display_name %}
                                                 <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                            {% elif 'A+' in playbook_display_name %}
+                                            {# 将 'A+' in playbook_display_name 修改为 '专家' in playbook_display_name #}
+                                            {% elif '专家' in playbook_display_name %}
                                                 <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
                                             {% else %}
                                                 <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
                                             {% endif %}
+                                            {# ▲▲▲【代码修改结束】▲▲▲ #}
                                         {% endwith %}
                                     {% endfor %}
                                     </ul>
