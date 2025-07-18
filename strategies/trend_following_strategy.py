@@ -299,9 +299,7 @@ class TrendFollowStrategy:
                 record['exit_signal_code'] = exit_code
                 self._fill_risk_details(record, row, risk_playbook_map)
                 
-                # ▼▼▼【代码修改 V202.14】: 在存档前，对情报进行量化翻译！▼▼▼
                 record['exit_signal_reason'] = self._quantify_risk_reasons(record)
-                # ▲▲▲【代码修改 V202.14】▲▲▲
 
                 exit_thresholds = exit_strategy_cfg.get('exit_threshold_params', {})
                 sorted_levels = sorted(exit_thresholds.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
@@ -320,7 +318,8 @@ class TrendFollowStrategy:
                 record = self._create_db_record_template(stock_code, timestamp, result_timeframe, strategy_name, row)
                 record['entry_signal'] = True
                 record['entry_score'] = row.get('entry_score', 0.0)
-                record['stable_platform_price'] = row.get('PLATFORM_PRICE_STABLE')
+                stable_price = row.get('PLATFORM_PRICE_STABLE')
+                record['stable_platform_price'] = None if pd.isna(stable_price) else stable_price
                 playbooks_list = []
                 if self._last_score_details_df is not None and timestamp in self._last_score_details_df.index:
                     playbooks_with_scores = self._last_score_details_df.loc[timestamp]
@@ -338,9 +337,7 @@ class TrendFollowStrategy:
                 record['is_risk_warning'] = True
                 self._fill_risk_details(record, row, risk_playbook_map)
                 
-                # ▼▼▼【代码修改 V202.14】: 在存档前，对情报进行量化翻译！▼▼▼
                 record['exit_signal_reason'] = self._quantify_risk_reasons(record)
-                # ▲▲▲【代码修改 V202.14】▲▲▲
                 
                 records.append(record)
             
