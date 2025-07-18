@@ -209,9 +209,8 @@ class MultiTimeframeTrendStrategy:
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【盘中入场确认引擎 - V203.0 重构版】
-        识别日线发出的“预备信号”，并在次日的分钟线上寻找精确的“确认信号”。
-        - **重构逻辑**: 废弃 for 循环，采用向量化和 groupby 操作，提升效率和可读性。
+        【V203.5 根源修正版】盘中入场确认引擎
+        - 致命错误修正: 同步应用 reset_index/set_index 模式，在 merge 操作中强制保留 DatetimeIndex。
         """
         # 1. 加载配置并进行健壮性检查
         entry_params = self.tactical_engine._get_params_block(self.unified_config, 'intraday_entry_params', {})
@@ -229,64 +228,66 @@ class MultiTimeframeTrendStrategy:
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold].copy()
         if setup_days_df.empty: return []
 
-        # 3. 准备上下文信息，用于合并
-        # 提取预备日的关键信息：分数、剧本、平台价格
+        # 3. 准备上下文信息
         setup_days_df['setup_date'] = setup_days_df.index.date
         
-        # 获取次日（监控日）的日期
-        trade_dates = await TradeCalendar.get_trade_dates_in_range_async(
+        trade_dates_series = pd.Series(await TradeCalendar.get_trade_dates_in_range_async(
             start_date=setup_days_df.index.min().date(),
-            end_date=setup_days_df.index.max().date()
-        )
-        if not trade_dates: return []
-        
-        date_map = {d: nd for d, nd in zip(trade_dates[:-1], trade_dates[1:])}
+            end_date=(setup_days_df.index.max() + pd.Timedelta(days=5)).date()
+        ))
+        date_map = pd.Series(trade_dates_series.iloc[1:].values, index=trade_dates_series.iloc[:-1].values)
         setup_days_df['monitoring_date'] = setup_days_df['setup_date'].map(date_map)
         setup_days_df.dropna(subset=['monitoring_date'], inplace=True)
+        if setup_days_df.empty: return []
 
-        # 4. 向量化合并：将预备日的上下文信息，合并到监控日的分钟线数据中
+        # 4. ▼▼▼【代码修改】修正合并逻辑，强制保留时间戳索引 ▼▼▼
         context_cols = ['monitoring_date', 'entry_score', 'PLATFORM_PRICE_STABLE']
-        minute_df['monitoring_date'] = minute_df.index.date
+        existing_context_cols = [col for col in context_cols if col in setup_days_df.columns]
         
-        # 使用 merge 将日线上下文（基于监控日）赋给所有对应的分钟线
+        # 步骤 4.1: 将 minute_df 的 DatetimeIndex 显式转换为一个名为 'trade_time' 的列
+        minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
+        minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
+        
+        # 步骤 4.2: 在列上进行合并
         merged_minute_df = pd.merge(
-            minute_df,
-            setup_days_df[context_cols],
+            minute_df_with_ts,
+            setup_days_df[existing_context_cols],
             on='monitoring_date',
-            how='inner' # 只保留那些确实是监控日的分钟线数据
+            how='inner'
         )
         if merged_minute_df.empty: return []
+        
+        # 步骤 4.3: 将 'trade_time' 列恢复为 DatetimeIndex
+        merged_minute_df.set_index('trade_time', inplace=True)
+        # ▲▲▲【代码修改】▲▲▲
 
         # 5. 向量化计算：在合并后的分钟线数据上，一次性计算所有确认信号
         final_confirmation_signal = pd.Series(True, index=merged_minute_df.index)
         rules = entry_params.get('confirmation_rules', {})
         
-        # 规则 a: 价格站上 VWAP
         vwap_rule = rules.get('vwap_reclaim', {})
         if get_val(vwap_rule.get('enabled'), False):
-            vwap_col = f'VWAP_{minute_tf}'
-            if vwap_col in merged_minute_df.columns:
-                final_confirmation_signal &= (merged_minute_df[f'close_{minute_tf}'] > merged_minute_df[vwap_col])
+            vwap_col, close_col_m = f'VWAP_{minute_tf}', f'close_{minute_tf}'
+            if vwap_col in merged_minute_df.columns and close_col_m in merged_minute_df.columns:
+                final_confirmation_signal &= (merged_minute_df[close_col_m] > merged_minute_df[vwap_col])
         
-        # 规则 b: 成交量放大
         vol_rule = rules.get('volume_confirmation', {})
         if get_val(vol_rule.get('enabled'), False):
             vol_ma_col = f'VOL_MA_{get_val(vol_rule.get("ma_period"), 21)}_{minute_tf}'
-            if vol_ma_col in merged_minute_df.columns:
-                final_confirmation_signal &= (merged_minute_df[f'volume_{minute_tf}'] > merged_minute_df[vol_ma_col])
+            volume_col_m = f'volume_{minute_tf}'
+            if vol_ma_col in merged_minute_df.columns and volume_col_m in merged_minute_df.columns:
+                final_confirmation_signal &= (merged_minute_df[volume_col_m] > merged_minute_df[vol_ma_col])
 
-        # 规则 c: 满足开盘后最小时间要求
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
-        merged_minute_df['time_of_day'] = merged_minute_df.index.time
         market_open_time = time(9, 30 + min_time_after_open)
-        final_confirmation_signal &= (merged_minute_df['time_of_day'] >= market_open_time)
+        final_confirmation_signal &= (merged_minute_df.index.time >= market_open_time)
 
         # 6. Groupby + idxmin: 高效找出每个监控日的“首次”确认信号
         triggered_df = merged_minute_df[final_confirmation_signal]
         if triggered_df.empty: return []
         
-        # `idxmin()` 在这里的作用是找到每个分组（每天）中，索引（时间）最小的那一行，即首次触发的时刻
-        first_confirmations_df = triggered_df.loc[triggered_df.groupby('monitoring_date').idxmin().index]
+        # 因为索引是 DatetimeIndex, idxmin() 会返回 Timestamp 索引，可以直接用于 .loc
+        first_confirmations_df = triggered_df.loc[triggered_df.groupby('monitoring_date').idxmin().iloc[:, 0]]
 
         # 7. 生成最终战报记录
         final_entry_records = []
@@ -294,31 +295,31 @@ class MultiTimeframeTrendStrategy:
         playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
         
         for timestamp, row in first_confirmations_df.iterrows():
-            daily_score = row['entry_score']
+            daily_score = row.get('entry_score', 0)
             bonus_score = get_val(entry_params.get('bonus_score'), 50)
             final_score = daily_score + bonus_score
             
-            # 准备剧本信息
             playbook_name = get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')
-            playbooks_en = [playbook_name] # 简化处理，可根据需要从日线继承
-            playbooks_cn = [playbook_cn_map.get(p, p) for p in playbooks_en]
+            confirmed_playbooks = [playbook_name]
+            confirmed_playbooks_cn = [playbook_cn_map.get(p, p) for p in confirmed_playbooks]
 
             record = self._create_signal_record(
                 stock_code=stock_code, trade_time=timestamp, timeframe=minute_tf,
-                strategy_name=get_val(entry_params.get('signal_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                close_price=row[f'close_{minute_tf}'], entry_score=final_score, entry_signal=True,
-                triggered_playbooks=playbooks_en, triggered_playbooks_cn=playbooks_cn,
+                strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
+                close_price=row.get(f'close_{minute_tf}'), entry_score=final_score, entry_signal=True,
+                triggered_playbooks=confirmed_playbooks, triggered_playbooks_cn=confirmed_playbooks_cn,
                 stable_platform_price=row.get('PLATFORM_PRICE_STABLE'),
-                context_snapshot={'close': row[f'close_{minute_tf}'], 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True}
+                context_snapshot={'close': row.get(f'close_{minute_tf}'), 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True}
             )
             final_entry_records.append(record)
             
         return final_entry_records
 
-    async def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V203.4 致命错误修正版】盘中风险预警引擎
-        - 核心修正: 纠正了在 groupby().apply() 中 idxmax() 返回整数位置而非Timestamp的致命错误。
+        【V203.5 根源修正版】盘中风险预警引擎
+        - 致命错误修正: 通过 reset_index/set_index 模式，在 merge 操作中强制保留 DatetimeIndex，
+                        彻底解决 idxmax 返回整数并导致程序崩溃的根源性问题。
         """
         # 1. 加载配置并进行健壮性检查
         exec_params = self.tactical_engine._get_params_block(self.unified_config, 'intraday_execution_params', {})
@@ -344,12 +345,20 @@ class MultiTimeframeTrendStrategy:
         setup_days_df = df_daily[is_upthrust_day].copy()
         if setup_days_df.empty: return []
 
-        # 3. 向量化合并：将上下文合并到监控日的分钟线
+        # 3. ▼▼▼【代码修改】修正合并逻辑，强制保留时间戳索引 ▼▼▼
         setup_days_df['monitoring_date'] = (setup_days_df.index + pd.Timedelta(days=1)).date
-        minute_df['monitoring_date'] = minute_df.index.date
         
-        merged_minute_df = pd.merge(minute_df, setup_days_df[['monitoring_date']], on='monitoring_date', how='inner')
+        # 步骤 3.1: 将 minute_df 的 DatetimeIndex 显式转换为一个名为 'trade_time' 的列
+        minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
+        minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
+        
+        # 步骤 3.2: 在列上进行合并
+        merged_minute_df = pd.merge(minute_df_with_ts, setup_days_df[['monitoring_date']], on='monitoring_date', how='inner')
         if merged_minute_df.empty: return []
+        
+        # 步骤 3.3: 将 'trade_time' 列恢复为 DatetimeIndex，确保数据完整性
+        merged_minute_df.set_index('trade_time', inplace=True)
+        # ▲▲▲【代码修改】▲▲▲
 
         # 4. 向量化计算：找出所有“跌破VWAP”的时刻
         close_col, vwap_col = f'close_{minute_tf}', f'VWAP_{minute_tf}'
@@ -363,21 +372,15 @@ class MultiTimeframeTrendStrategy:
 
         # 5. Groupby + Apply: 对每个发生首次跌破的监控日，应用状态机逻辑
         def process_alert_day(day_df: pd.DataFrame) -> Optional[Dict]:
-            """应用于每个监控日分组的函数，实现状态机逻辑"""
             is_breaking = day_df[close_col] < day_df[vwap_col]
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
             
             if not first_break_mask.any(): return None
             
-            # ▼▼▼【致命错误修正】修正 idxmax() 的错误用法 ▼▼▼
-            # 步骤 1: idxmax() 在此上下文中返回的是整数位置 (numpy.int64)，而不是 Timestamp。
-            first_break_pos = first_break_mask.idxmax()
+            # ▼▼▼【代码修改】因为索引已正确恢复为 DatetimeIndex，idxmax() 现在会直接返回 Timestamp 对象 ▼▼▼
+            first_break_timestamp = first_break_mask.idxmax()
+            # ▲▲▲【代码修改】▲▲▲
             
-            # 步骤 2: 使用这个整数位置，从分组 day_df 的索引中获取正确的 Timestamp 对象。
-            first_break_timestamp = day_df.index[first_break_pos]
-            # ▲▲▲【致命错误修正】▲▲▲
-            
-            # 现在使用正确的 Timestamp 对象 (first_break_timestamp) 进行所有操作
             first_alert_row = day_df.loc[first_break_timestamp]
             
             df_after_alert = day_df[day_df.index > first_break_timestamp]
@@ -385,15 +388,12 @@ class MultiTimeframeTrendStrategy:
             
             if is_reclaimed:
                 reclaim_time = df_after_alert[df_after_alert[close_col] > df_after_alert[vwap_col]].index[0]
-                # ▼▼▼【代码修改】现在可以安全地对 Timestamp 对象调用 strftime ▼▼▼
                 final_reason = f"[威胁解除] 曾于{first_break_timestamp.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
                 final_code, final_severity = 0, 0
             else:
-                # ▼▼▼【代码修改】此处同理 ▼▼▼
                 final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
                 final_severity = get_val(upthrust_params.get('severity_level'), 3)
-            # ▲▲▲【代码修改】▲▲▲
 
             return self._create_signal_record(
                 stock_code=stock_code, trade_time=first_break_timestamp, timeframe=minute_tf,
