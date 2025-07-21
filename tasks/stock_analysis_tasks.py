@@ -442,7 +442,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 
         # --- 开始数据处理和合并 ---
         daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
-        daily_data = daily_data.rename(columns={'close': 'close_price', 'high': 'high_price', 'low': 'low_price'}).drop(columns=['vol'])
+        daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
         
         daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
         daily_basic_data = daily_basic_data.drop(columns=['float_share'])
