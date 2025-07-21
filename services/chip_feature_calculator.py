@@ -33,13 +33,15 @@ class ChipFeatureCalculator:
         winner_structure_info = self._calculate_winner_structure()
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
+        fund_flow_info = self._calculate_fund_flow_metrics()
 
         return {
             **peaks_info,
             **concentration_info,
             **winner_structure_info,
             **pressure_support_info,
-            **turnover_info
+            **turnover_info,
+            **fund_flow_info
         }
 
     def _calculate_peaks(self) -> dict:
@@ -205,3 +207,55 @@ class ChipFeatureCalculator:
             turnover_volume = 0
 
         return {'turnover_volume_in_cost_range_70pct': turnover_volume}
+
+def _calculate_fund_flow_metrics(self) -> dict:
+        """
+        计算主力资金和散户资金的当日交易指标。
+        - 主力资金 = 大单 + 特大单
+        - 散户资金 = 小单 + 中单
+        - 均价 = (成交额 * 10000) / (成交量(手) * 100)
+        """
+        # 检查必要字段是否存在，如果缺少资金流数据则返回空字典
+        required_keys = [
+            'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
+            'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
+            'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
+            'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
+        ]
+        if not all(pd.notna(self.ctx.get(key)) for key in required_keys):
+            print(f"调试信息: {self.ctx.get('trade_time')} 缺少资金流数据，跳过计算。")
+            return {}
+
+        # --- 主力资金计算 ---
+        main_force_buy_vol = self.ctx.get('buy_lg_vol', 0) + self.ctx.get('buy_elg_vol', 0)
+        main_force_buy_amount = self.ctx.get('buy_lg_amount', 0) + self.ctx.get('buy_elg_amount', 0)
+        main_force_sell_vol = self.ctx.get('sell_lg_vol', 0) + self.ctx.get('sell_elg_vol', 0)
+        main_force_sell_amount = self.ctx.get('sell_lg_amount', 0) + self.ctx.get('sell_elg_amount', 0)
+
+        # --- 散户资金计算 ---
+        retail_buy_vol = self.ctx.get('buy_sm_vol', 0) + self.ctx.get('buy_md_vol', 0)
+        retail_buy_amount = self.ctx.get('buy_sm_amount', 0) + self.ctx.get('buy_md_amount', 0)
+        retail_sell_vol = self.ctx.get('sell_sm_vol', 0) + self.ctx.get('sell_md_vol', 0)
+        retail_sell_amount = self.ctx.get('sell_sm_amount', 0) + self.ctx.get('sell_md_amount', 0)
+
+        # --- 均价计算 (处理分母为0的情况) ---
+        # 价格 = (金额[万元] * 10000) / (手数 * 100)
+        main_force_buy_avg_price = (main_force_buy_amount * 10000) / (main_force_buy_vol * 100) if main_force_buy_vol > 0 else None
+        main_force_sell_avg_price = (main_force_sell_amount * 10000) / (main_force_sell_vol * 100) if main_force_sell_vol > 0 else None
+        retail_buy_avg_price = (retail_buy_amount * 10000) / (retail_buy_vol * 100) if retail_buy_vol > 0 else None
+        retail_sell_avg_price = (retail_sell_amount * 10000) / (retail_sell_vol * 100) if retail_sell_vol > 0 else None
+
+        # --- 净值计算 ---
+        main_force_net_inflow_volume = (main_force_buy_vol - main_force_sell_vol) * 100  # 转换为股
+        main_force_net_inflow_amount = (main_force_buy_amount - main_force_sell_amount) * 10000  # 转换为元
+        retail_net_inflow_volume = (retail_buy_vol - retail_sell_vol) * 100  # 转换为股
+
+        return {
+            'main_force_buy_avg_price': main_force_buy_avg_price,
+            'main_force_sell_avg_price': main_force_sell_avg_price,
+            'main_force_net_inflow_volume': main_force_net_inflow_volume,
+            'main_force_net_inflow_amount': main_force_net_inflow_amount,
+            'retail_buy_avg_price': retail_buy_avg_price,
+            'retail_sell_avg_price': retail_sell_avg_price,
+            'retail_net_inflow_volume': retail_net_inflow_volume,
+        }

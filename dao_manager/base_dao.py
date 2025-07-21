@@ -645,7 +645,8 @@ class BaseDAO(Generic[T]):
         total_records = len(data_list)
         failed_count = 0
         # 2. 字段元数据分析
-        all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
+        # all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
+        all_model_fields = {f.name for f in model_class._meta.fields}
         unique_field_set = set(unique_fields)
         for field_name in unique_fields:
             if field_name.endswith('_id'):

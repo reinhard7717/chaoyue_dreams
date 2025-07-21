@@ -1148,6 +1148,15 @@ class AdvancedChipMetrics(models.Model):
     turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数")
     prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价')
 
+    main_force_buy_avg_price = models.FloatField(verbose_name='主力买入均价', null=True, blank=True, help_text="当天大单+特大单买入的平均价格")
+    main_force_sell_avg_price = models.FloatField(verbose_name='主力卖出均价', null=True, blank=True, help_text="当天大单+特大单卖出的平均价格")
+    main_force_net_inflow_volume = models.BigIntegerField(verbose_name='主力净流入量(股)', null=True, blank=True, help_text="主力净买入股数，正为净流入，负为净流出")
+    main_force_net_inflow_amount = models.FloatField(verbose_name='主力净流入额(元)', null=True, blank=True, help_text="主力净买入金额，正为净流入，负为净流出")
+    
+    retail_buy_avg_price = models.FloatField(verbose_name='散户买入均价', null=True, blank=True, help_text="当天小单+中单买入的平均价格")
+    retail_sell_avg_price = models.FloatField(verbose_name='散户卖出均价', null=True, blank=True, help_text="当天小单+中单卖出的平均价格")
+    retail_net_inflow_volume = models.BigIntegerField(verbose_name='散户净流入量(股)', null=True, blank=True, help_text="散户净买入股数，正为净流入，负为净流出")
+
     class Meta:
         verbose_name = '高级筹码指标(斐波那契版)'
         verbose_name_plural = verbose_name

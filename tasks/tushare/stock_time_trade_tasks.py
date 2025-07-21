@@ -290,7 +290,7 @@ def save_day_data_today_task(self):
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
         save_cyq_data_today_task.delay()
-        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+        # print(f"保存 每日筹码分布 数据完成。 result: {result} ")
         result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
