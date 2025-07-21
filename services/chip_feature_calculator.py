@@ -208,7 +208,7 @@ class ChipFeatureCalculator:
 
         return {'turnover_volume_in_cost_range_70pct': turnover_volume}
 
-def _calculate_fund_flow_metrics(self) -> dict:
+    def _calculate_fund_flow_metrics(self) -> dict:
         """
         计算主力资金和散户资金的当日交易指标。
         - 主力资金 = 大单 + 特大单
