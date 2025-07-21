@@ -77,6 +77,36 @@ class IndicatorService:
         count = len(df)
         print(f"      -> 结果: 数据量={count}, 开始时间='{start_time}', 结束时间='{end_time}'")
 
+    def _log_final_data_columns(self, all_dfs: Dict[str, pd.DataFrame]):
+        """
+        【V225.0 新增】军械库清单生成器
+        - 核心职责: 在所有数据准备和计算流程结束后，按周期清晰地打印出最终生成的所有数据列名。
+        """
+        print("\n" + "="*30 + " [最终军械库清单] " + "="*30)
+        print("情报锻造中心已完成所有数据准备，最终产出的数据列清单如下：")
+
+        # 定义周期的标准排序，确保输出顺序固定
+        sorted_timeframes = sorted(
+            all_dfs.keys(), 
+            key=lambda x: (
+                {'M': 0, 'W': 1, 'D': 2}.get(x, 3), # 月、周、日优先
+                -int(x) if x.isdigit() else 0 # 分钟线按从大到小排序
+            )
+        )
+
+        for timeframe in sorted_timeframes:
+            df = all_dfs[timeframe]
+            if df is None or df.empty:
+                continue
+            
+            print(f"\n--- 周期: {timeframe} (共 {len(df.columns)} 列) ---")
+            # 为了美观，每5个列名换一行打印
+            columns_list = sorted(df.columns.tolist())
+            for i in range(0, len(columns_list), 5):
+                print("  ".join(f"{col:<30}" for col in columns_list[i:i+5]))
+
+        print("\n" + "="*32 + " [清单生成完毕] " + "="*32 + "\n")
+
     # ▼▼▼ 调试辅助函数，用于抽查数据对齐情况 ▼▼▼
     def _log_alignment_check(self, df: pd.DataFrame, num_samples: int = 10):
         """
@@ -324,6 +354,9 @@ class IndicatorService:
         # 在所有基础指标计算完毕后，调用斜率计算
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
+        #  调用军械库清单生成器 ▼▼▼
+        self._log_final_data_columns(all_dfs)
+        
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
@@ -521,7 +554,6 @@ class IndicatorService:
         # 综合打分
         score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
         return score
-
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
