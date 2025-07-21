@@ -214,6 +214,7 @@ class ChipFeatureCalculator:
         - 主力资金 = 大单 + 特大单
         - 散户资金 = 小单 + 中单
         - 均价 = (成交额 * 10000) / (成交量(手) * 100)
+        - 新增: 在进行算术运算前，将所有从 context 获取的值显式转换为 float，以避免 Decimal 类型冲突。
         """
         # 检查必要字段是否存在，如果缺少资金流数据则返回空字典
         required_keys = [
@@ -222,21 +223,25 @@ class ChipFeatureCalculator:
             'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
             'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
         ]
+        # 使用 pd.notna 检查可以正确处理 None 和 NaN
         if not all(pd.notna(self.ctx.get(key)) for key in required_keys):
-            print(f"调试信息: {self.ctx.get('trade_time')} 缺少资金流数据，跳过计算。")
+            # 调试信息: 打印缺失数据的日期，便于排查
+            trade_date_str = self.ctx.get('trade_time', '未知日期')
+            print(f"调试信息: [{trade_date_str}] 缺少完整的资金流数据，跳过资金流指标计算。")
             return {}
 
         # --- 主力资金计算 ---
-        main_force_buy_vol = self.ctx.get('buy_lg_vol', 0) + self.ctx.get('buy_elg_vol', 0)
-        main_force_buy_amount = self.ctx.get('buy_lg_amount', 0) + self.ctx.get('buy_elg_amount', 0)
-        main_force_sell_vol = self.ctx.get('sell_lg_vol', 0) + self.ctx.get('sell_elg_vol', 0)
-        main_force_sell_amount = self.ctx.get('sell_lg_amount', 0) + self.ctx.get('sell_elg_amount', 0)
+        # 核心修正：将所有从 context 获取的值用 float() 包裹，确保类型统一
+        main_force_buy_vol = float(self.ctx.get('buy_lg_vol', 0)) + float(self.ctx.get('buy_elg_vol', 0))
+        main_force_buy_amount = float(self.ctx.get('buy_lg_amount', 0)) + float(self.ctx.get('buy_elg_amount', 0))
+        main_force_sell_vol = float(self.ctx.get('sell_lg_vol', 0)) + float(self.ctx.get('sell_elg_vol', 0))
+        main_force_sell_amount = float(self.ctx.get('sell_lg_amount', 0)) + float(self.ctx.get('sell_elg_amount', 0))
 
         # --- 散户资金计算 ---
-        retail_buy_vol = self.ctx.get('buy_sm_vol', 0) + self.ctx.get('buy_md_vol', 0)
-        retail_buy_amount = self.ctx.get('buy_sm_amount', 0) + self.ctx.get('buy_md_amount', 0)
-        retail_sell_vol = self.ctx.get('sell_sm_vol', 0) + self.ctx.get('sell_md_vol', 0)
-        retail_sell_amount = self.ctx.get('sell_sm_amount', 0) + self.ctx.get('sell_md_amount', 0)
+        retail_buy_vol = float(self.ctx.get('buy_sm_vol', 0)) + float(self.ctx.get('buy_md_vol', 0))
+        retail_buy_amount = float(self.ctx.get('buy_sm_amount', 0)) + float(self.ctx.get('buy_md_amount', 0))
+        retail_sell_vol = float(self.ctx.get('sell_sm_vol', 0)) + float(self.ctx.get('sell_md_vol', 0))
+        retail_sell_amount = float(self.ctx.get('sell_sm_amount', 0)) + float(self.ctx.get('sell_md_amount', 0))
 
         # --- 均价计算 (处理分母为0的情况) ---
         # 价格 = (金额[万元] * 10000) / (手数 * 100)
@@ -259,3 +264,13 @@ class ChipFeatureCalculator:
             'retail_sell_avg_price': retail_sell_avg_price,
             'retail_net_inflow_volume': retail_net_inflow_volume,
         }
+
+
+
+
+
+
+
+
+
+
