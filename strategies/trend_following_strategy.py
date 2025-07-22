@@ -2690,27 +2690,42 @@ class TrendFollowStrategy:
     #    -> 首席验尸官: _deploy_field_coroner_probe()
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date_str: str):
         """
-        【V244.0 新增】战地验尸探针
-        - 核心职责: 针对指定的“probe_date”，进行深入的、侵入式的“验尸”，
-                    提取并展示该日所有关键决策变量的瞬时快照，用于精确诊断问题。
+        【V245.0 智能寻路版】战地验尸探针
+        - 核心升级: 解决了因指定日期为非交易日而导致验尸失败的问题。
+        - 新规则:
+          1. 尝试定位指定的 `probe_date`。
+          2. 如果找不到，不再直接放弃，而是自动向后搜索，直到找到第一个存在的交易日为止。
+          3. 在报告中明确告知指挥部，实际验尸的日期是哪个替代日期。
+        - 收益: 极大提升了探针的实战适应性和易用性，确保验尸任务总能成功执行。
         """
         try:
-            probe_date = pd.to_datetime(probe_date_str)
-            if probe_date not in df.index:
-                print(f"\n--- [战地验尸总署-警告] 未在数据中找到指定的验尸日期: {probe_date_str} ---")
-                return
-
+            # ▼▼▼【代码修改 V245.0】: 引入智能寻路逻辑 ▼▼▼
+            target_date = pd.to_datetime(probe_date_str)
+            
+            # 智能寻路：如果指定日期不存在，则向后寻找最近的下一个有效交易日
+            if target_date not in df.index:
+                # 获取所有在指定日期之后（包含）的有效交易日索引
+                future_dates = df.index[df.index >= target_date]
+                if not future_dates.empty:
+                    actual_probe_date = future_dates[0]
+                    print(f"\n--- [战地验尸总署-情报] 指定日期 {probe_date_str} 非交易日，自动选用下一个交易日 {actual_probe_date.strftime('%Y-%m-%d')} 进行验尸 ---")
+                else:
+                    print(f"\n--- [战地验尸总署-警告] 未在数据中找到指定的验尸日期 {probe_date_str} 或任何后续日期 ---")
+                    return
+            else:
+                actual_probe_date = target_date
+            
             print("\n" + "="*25 + " [战地验尸总署-探针报告] " + "="*25)
-            print(f"  [验尸目标]: {self._get_param_value(self.strategy_info.get('name'))} @ {probe_date_str}")
+            print(f"  [验尸目标]: {self._get_param_value(self.strategy_info.get('name'))} @ {actual_probe_date.strftime('%Y-%m-%d')}")
             
             # 提取当日的完整数据行
-            row = df.loc[probe_date]
+            row = df.loc[actual_probe_date]
+            # ▲▲▲【代码修改 V245.0】▲▲▲
 
             # --- 核心矛盾点审查 ---
             print("\n--- [1. 核心矛盾点审查] ---")
             risk_score = row.get('risk_score', 'N/A')
             exit_signal_code = row.get('exit_signal_code', 'N/A')
-            # 重新模拟当天的预警判断，获取最真实的预警级别
             alert_level, alert_reason = self._check_tactical_alerts(row, self.unified_config)
             print(f"  - 当日风险分 (risk_score): {risk_score}")
             print(f"  - 当日离场码 (exit_signal_code): {exit_signal_code}")
@@ -2719,8 +2734,8 @@ class TrendFollowStrategy:
 
             # --- 风险评估溯源 ---
             print("\n--- [2. 风险评估溯源] ---")
-            if self._last_risk_details_df is not None and probe_date in self._last_risk_details_df.index:
-                risk_components = self._last_risk_details_df.loc[probe_date].dropna()
+            if self._last_risk_details_df is not None and actual_probe_date in self._last_risk_details_df.index:
+                risk_components = self._last_risk_details_df.loc[actual_probe_date].dropna()
                 if not risk_components.empty:
                     print("  - 风险分构成:")
                     for k, v in risk_components.to_dict().items():
@@ -2734,8 +2749,8 @@ class TrendFollowStrategy:
             print("\n--- [3. 进攻评估溯源] ---")
             entry_score = row.get('entry_score', 'N/A')
             print(f"  - 当日进攻分 (entry_score): {entry_score}")
-            if self._last_score_details_df is not None and probe_date in self._last_score_details_df.index:
-                score_components = self._last_score_details_df.loc[probe_date].dropna()
+            if self._last_score_details_df is not None and actual_probe_date in self._last_score_details_df.index:
+                score_components = self._last_score_details_df.loc[actual_probe_date].dropna()
                 if not score_components.empty:
                     print("  - 进攻分构成:")
                     for k, v in score_components.to_dict().items():
@@ -2931,272 +2946,6 @@ class TrendFollowStrategy:
             break_groups = break_points.groupby(event_groups).transform('idxmax')
             persistent_state &= (df.index < break_groups) | (break_groups.isna())
         return persistent_state
-
-    async def alpha_hunter_backtest(self, stock_code: str, df_full: pd.DataFrame, params: dict):
-        """
-        【V118.20 情报重建修复版】
-        - 核心修复: 解决了因调用 apply_strategy 导致 'analysis_period' 列丢失的BUG。
-        - 解决方案: 在所有计算和合并操作完成后，从原始的 analysis_df 中提取
-                    'analysis_period' 列，并将其强制重新附加到 final_report_df 上，
-                    确保该关键信息在最终报告中存在。
-        """
-        print("\n" + "="*30 + " [阿尔法猎手 V118.20 启动] " + "="*30)
-        
-        backtest_params = self._get_params_block('alpha_hunter_params')
-        if not self._get_param_value(backtest_params.get('enabled'), False): return
-
-        min_duration = self._get_param_value(backtest_params.get('min_duration_days'), 3)
-        min_total_gain = self._get_param_value(backtest_params.get('min_total_gain_pct'), 15.0) / 100.0
-        pre_days_lookback = self._get_param_value(backtest_params.get('pre_days_lookback'), 30)
-        post_days_lookforward = 5
-        activation_window = self._get_param_value(backtest_params.get('activation_window_days'), 2)
-        output_dir_base = self._get_param_value(backtest_params.get('output_dir'), 'alpha_hunter_reports')
-        
-        print(f"    -> 目标波段标准: 持续 >= {min_duration} 天, 总涨幅 >= {min_total_gain*100:.1f}%")
-        print(f"    -> 回溯窗口: {pre_days_lookback} 天 | 推演窗口: {post_days_lookforward} 天")
-
-        print("\n--- [猎手阶段1] 正在扫描历史，寻找所有黄金上涨波段...")
-        df_full['cum_min'] = df_full['close_D'].cummin()
-        df_full['is_new_low'] = df_full['close_D'] <= df_full['cum_min']
-        wave_starts = df_full['is_new_low'].shift(1).fillna(False) & ~df_full['is_new_low']
-        start_indices = df_full.index[wave_starts]
-        golden_waves = []
-        for start_date in start_indices:
-            wave_df = df_full.loc[start_date:]
-            next_low_day = wave_df[wave_df['is_new_low']].first_valid_index()
-            if next_low_day: wave_df = wave_df.loc[:next_low_day].iloc[:-1]
-            if wave_df.empty: continue
-            end_date = wave_df['close_D'].idxmax()
-            wave_df = wave_df.loc[:end_date]
-            duration = len(wave_df)
-            total_gain = (wave_df.iloc[-1]['close_D'] / wave_df.iloc[0]['close_D']) - 1
-            if duration >= min_duration and total_gain >= min_total_gain:
-                golden_waves.append({'start_date': wave_df.index[0], 'end_date': end_date, 'duration': duration, 'total_gain': total_gain})
-        
-        print(f"    -> [扫描完成] 发现 {len(golden_waves)} 个原始黄金上涨波段。")
-        target_tz = df_full.index.tz
-        cutoff_date_naive = pd.Timestamp('2024-01-01')
-        cutoff_date = cutoff_date_naive.tz_localize(target_tz) if target_tz else cutoff_date_naive
-        print(f"    -> [时间过滤] 将只分析 {cutoff_date.date()} 之后启动的波段...")
-        golden_waves = [wave for wave in golden_waves if wave['start_date'] >= cutoff_date]
-        if not golden_waves:
-            print("    -> [过滤完成] 未发现符合时间条件的黄金上涨波段。")
-            return
-        print(f"    -> [过滤完成] 发现 {len(golden_waves)} 个符合条件的波段，准备逐一回测...")
-
-        success_count, missed_count = 0, 0
-        for i, wave in enumerate(golden_waves):
-            start_date = wave['start_date']
-            print(f"\n--- [猎手阶段2] 正在回测第 {i+1}/{len(golden_waves)} 个波段: {start_date.date()} ---")
-            start_loc = df_full.index.get_loc(start_date)
-            
-            start_slice = start_loc - pre_days_lookback
-            end_slice = min(start_loc + 1 + post_days_lookforward, len(df_full))
-            if start_slice < 0: continue
-            
-            analysis_df = df_full.iloc[start_slice:end_slice].copy()
-            
-            # 【修复点 A】在调用策略前，先在原始的 analysis_df 上创建好 analysis_period 列
-            analysis_df['analysis_period'] = 'lookback'
-            # 找到起涨点在当前切片中的位置
-            start_date_in_slice_loc = analysis_df.index.get_loc(start_date)
-            # 将起涨点之后的所有行标记为 'look_forward'
-            if start_date_in_slice_loc + 1 < len(analysis_df):
-                analysis_df.iloc[start_date_in_slice_loc + 1:, analysis_df.columns.get_loc('analysis_period')] = 'look_forward'
-
-            try:
-                result_df_raw, _ = self.apply_strategy(analysis_df, params)
-            except Exception as e:
-                print(f"    -> [严重错误] 策略推演时发生异常: {e}")
-                continue
-
-            result_df = result_df_raw.reindex(analysis_df.index).copy()
-
-            is_activated = False
-            activation_start = start_date - pd.Timedelta(days=activation_window)
-            activation_period_df = result_df.loc[activation_start : start_date]
-            
-            if not activation_period_df.empty and activation_period_df['signal_entry'].any():
-                success_count += 1
-                activation_date = activation_period_df[activation_period_df['signal_entry']].index[0]
-                print(f"    -> [捕获成功!] 策略在 {activation_date.date()} 成功激活信号。")
-            else:
-                missed_count += 1
-                print(f"    -> [错失良机!] 未能捕获此波段。正在生成情报档案...")
-
-                final_report_df = result_df.copy()
-                if self._last_score_details_df is not None and not self._last_score_details_df.empty:
-                    scoped_score_details = self._last_score_details_df.reindex(final_report_df.index).copy()
-                    final_report_df = final_report_df.join(scoped_score_details, how='left')
-                
-                # 【修复点 B】从原始的 analysis_df 中提取 'analysis_period' 列并强制合并
-                if 'analysis_period' in analysis_df.columns:
-                    final_report_df['analysis_period'] = analysis_df['analysis_period']
-                else:
-                    # 作为备用方案，如果 analysis_df 也没有，则创建一个默认的
-                    final_report_df['analysis_period'] = 'unknown'
-
-                essential_columns_whitelist = [
-                    'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
-                    'signal_entry', 'entry_score', 'risk_score', 'EMA_21_D', 'EMA_55_D', 
-                    'EMA_89_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
-                    'peak_cost_D', 'winner_rate_short_term_D', 'concentration_90pct_D',
-                    'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
-                    'SLOPE_5_close_D', 'ACCEL_5_close_D', 'concentration_90pct_slope_5d_D',
-                    'analysis_period'
-                ]
-                
-                # 动态添加所有得分详情列到白名单
-                if self._last_score_details_df is not None:
-                    score_detail_cols = [col for col in self._last_score_details_df.columns if col in final_report_df.columns]
-                    essential_columns_whitelist.extend(score_detail_cols)
-
-                columns_to_keep = [col for col in essential_columns_whitelist if col in final_report_df.columns]
-                final_report_df = final_report_df[columns_to_keep]
-                
-                report_dir = os.path.join(output_dir_base, stock_code)
-                try:
-                    os.makedirs(report_dir, exist_ok=True)
-                except OSError as e:
-                    print(f"    -> [错误] 创建报告目录 '{report_dir}' 失败: {e}")
-                    continue
-
-                filename = f"{start_date.strftime('%Y-%m-%d')}.json"
-                filepath = os.path.join(report_dir, filename)
-                
-                json_data = sanitize_for_json(final_report_df.to_dict(orient='index'))
-                try:
-                    with open(filepath, 'w', encoding='utf-8') as f:
-                        json.dump(json_data, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [报告生成] 已将包含推演数据的快照 ({len(final_report_df)}行) 保存至: {filepath}")
-
-                    interpretation_dict = await self.interpret_snapshot(filepath, params)
-                    
-                    base_name, _ = os.path.splitext(filename)
-                    interp_filename = f"{base_name}_interpret_snapshot.json"
-                    interp_filepath = os.path.join(report_dir, interp_filename)
-                    with open(interp_filepath, 'w', encoding='utf-8') as f:
-                        json.dump(interpretation_dict, f, ensure_ascii=False, indent=4)
-                    print(f"    -> [智能解读] 已将推演诊断报告保存至: {interp_filepath}")
-
-                except Exception as e:
-                    print(f"    -> [错误] 保存或解读JSON情报档案失败: {e}")
-
-        print("\n" + "="*30 + " [阿尔法猎手 V118.20 总结] " + "="*30)
-        print(f"    - 总计分析波段数: {len(golden_waves)}")
-        print(f"    - 成功捕获: {success_count} 个 | 错失良机: {missed_count} 个")
-        if len(golden_waves) > 0:
-            capture_rate = (success_count / len(golden_waves)) * 100
-            print(f"    - 黄金波段捕获率: {capture_rate:.2f}%")
-        print("="*74)
-
-    async def interpret_snapshot(self, filepath: str, params: dict) -> dict:
-        """
-        【V118.18 战役推演官】
-        - 核心升级 1: 修正原子状态识别逻辑，更精确。
-        - 核心升级 2: 增加“战后推演”模块，分析后续5天走势。
-        - 核心升级 3: 给出最终裁决：是“确认错失良机”还是“确认规避陷阱”。
-        """
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            if not data:
-                return {"error": "解读失败：JSON文件为空。", "source_file": filepath}
-
-            df = pd.DataFrame.from_dict(data, orient='index')
-            df.index = pd.to_datetime(df.index)
-            
-            # 1. 分离战前与战后数据
-            df_lookback = df[df['analysis_period'] == 'lookback']
-            df_look_forward = df[df['analysis_period'] == 'look_forward']
-            
-            if df_lookback.empty:
-                return {"error": "解读失败：报告中无lookback数据。", "source_file": filepath}
-
-            # 2. 对起涨点当天进行分析
-            last_day = df_lookback.iloc[-1]
-            last_date_str = last_day.name.strftime('%Y-%m-%d')
-
-            # --- 上下文分析 ---
-            ema21 = last_day.get('EMA_21_D', 0)
-            ema55 = last_day.get('EMA_55_D', 0)
-            close = last_day.get('close_D', 0)
-            trend_context = "震荡或整理区"
-            if close > ema21 > ema55: trend_context = "强势区 (收盘价 > EMA21 > EMA55)"
-            elif close < ema21 < ema55: trend_context = "弱势区 (收盘价 < EMA21 < EMA55)"
-            
-            macd_h = last_day.get('MACDh_13_34_8_D', 0)
-            momentum_context = "动能为负 (MACD绿柱)" if macd_h <= 0 else "动能为正 (MACD红柱)"
-
-            # --- 状态诊断 (精确版) ---
-            # ▼▼▼【核心修正 V118.18】精确识别原子状态 ▼▼▼
-            active_states = [
-                col for col, val in last_day.items() 
-                if isinstance(col, str) and col.isupper() and '_D' not in col and 'score' not in col
-                and isinstance(val, (int, float)) and val > 0
-            ]
-            # ▲▲▲【核心修正 V118.18】▲▲▲
-
-            # --- 触发事件分析 ---
-            entry_score = last_day.get('entry_score', 0)
-            risk_score = last_day.get('risk_score', 0)
-            scoring_params = self._get_params_block('scoring_params')
-            min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7)
-
-            # --- 战后推演分析 (Post-Event Analysis) ---
-            post_event_analysis = {}
-            if not df_look_forward.empty:
-                forward_days = len(df_look_forward)
-                # 后续N日内的最高价
-                peak_high_forward = df_look_forward['high_D'].max()
-                # 后续N日最终收盘价
-                final_close_forward = df_look_forward['close_D'].iloc[-1]
-                
-                # 计算涨幅
-                peak_gain_pct = ((peak_high_forward / close) - 1) * 100
-                final_gain_pct = ((final_close_forward / close) - 1) * 100
-                
-                # 最终裁决
-                verdict = "确认规避陷阱"
-                if peak_gain_pct > 8.0: # 如果后续5日内最大涨幅超过8%，可认为是错失良机
-                    verdict = "确认错失良机"
-                
-                post_event_analysis = {
-                    "verdict": verdict,
-                    "forward_days_analyzed": forward_days,
-                    "peak_gain_in_period_pct": round(peak_gain_pct, 2),
-                    "final_gain_at_period_end_pct": round(final_gain_pct, 2),
-                    "summary": f"在后续{forward_days}天内, 股价最大涨幅达到{peak_gain_pct:.2f}%, 期末收盘涨幅为{final_gain_pct:.2f}%。"
-                }
-            else:
-                post_event_analysis = {"verdict": "数据不足，无法推演", "summary": "报告中无后续数据。"}
-
-            # --- 合成最终报告字典 ---
-            interpretation_dict = {
-                "interpretation_details": {
-                    "report_date": last_date_str,
-                    "source_snapshot": os.path.basename(filepath),
-                    "status": "Missed Opportunity Analysis"
-                },
-                "pre_event_analysis": {
-                    "context_summary": f"趋势: {trend_context} | 动能: {momentum_context}",
-                    "active_atomic_states": active_states if active_states else "无",
-                    "trigger_failure_reason": {
-                        "conclusion": "未能达到最低入场阈值",
-                        "final_entry_score": round(entry_score, 4),
-                        "risk_score": round(risk_score, 4),
-                        "required_score": min_entry_score
-                    }
-                },
-                "post_event_analysis": post_event_analysis
-            }
-            return interpretation_dict
-
-        except FileNotFoundError:
-            return {"error": "解读失败：找不到文件。", "source_file": filepath}
-        except Exception as e:
-            return {"error": f"解读时发生未知错误: {e}", "source_file": filepath}
 
 
 
