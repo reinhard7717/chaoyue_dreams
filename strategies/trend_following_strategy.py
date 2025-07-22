@@ -75,6 +75,8 @@ class TrendFollowStrategy:
 
         # 调用方法获取静态蓝图，并将其存储为实例属性，供后续所有方法安全调用
         self.playbook_blueprints = self._get_playbook_blueprints()
+        # 在初始化时建立“风险档案室”
+        self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
