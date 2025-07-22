@@ -60,38 +60,19 @@ class TrendFollowStrategy:
     """
     趋势跟踪策略 (V62.0 - 增强调试日志版)
     - 核心升级: 新增 _format_debug_dates 辅助函数，并全局应用于所有诊断日志，使其能输出具体发生日期，极大提升调试效率。
-    """
+    """   
     def __init__(self, config: dict):
-        """
-        【V21.1 性能优化版】
-        - 核心优化: 在初始化时，一次性加载所有策略模块的参数块到实例变量中。
-        - 收益: 1. 避免在策略执行过程中反复调用 _get_params_block 进行字典查找，提升微观性能。
-                 2. 使后续代码可以直接通过 self.xxx_params 访问配置，更加简洁清晰。
-        """
-        self.unified_config = config # 修改：直接使用传入的config，而不是命名为daily_params
-        
-        # ▼▼▼ 一次性加载所有参数块 ▼▼▼
+        self.unified_config = config
         self.strategy_info = self._get_params_block(self.unified_config, 'strategy_info')
         self.scoring_params = self._get_params_block(self.unified_config, 'four_layer_scoring_params')
-        self.setup_scoring_matrix = self._get_params_block(self.unified_config, 'setup_scoring_matrix')
         self.exit_strategy_params = self._get_params_block(self.unified_config, 'exit_strategy_params')
         self.risk_veto_params = self._get_params_block(self.unified_config, 'risk_veto_params')
         self.debug_params = self._get_params_block(self.unified_config, 'debug_params')
         self.kline_params = self._get_params_block(self.unified_config, 'kline_pattern_params')
-
         self.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-        self.signals = {}
-        self.scores = {}
         self._last_score_details_df = None
-        self.verbose_logging = self.debug_params.get('enabled', False) and self.debug_params.get('verbose_logging', False)
-        
-        self.playbook_blueprints = self._get_playbook_blueprints()
-        self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
-        
-        print(f"--- [战术策略 TrendFollowStrategy (V91.0 风险剧本架构)] 初始化完成 ---")
-        print(f"    -> 已缓存 {len(self.playbook_blueprints)} 个入场剧本蓝图。")
-        print(f"    -> 已缓存 {len(self.risk_playbook_blueprints)} 个风险剧本蓝图。")
-        print(f"    -> 关键参数块已预加载到实例变量中。")
+        self._last_risk_details_df = None
+        print(f"--- [战术策略 TrendFollowStrategy (V230.0 正本清源版)] 初始化完成 ---")
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -1935,7 +1916,7 @@ class TrendFollowStrategy:
                  print(f"        -> 惩罚信号 '{state_name}' (最新一日): {status_penalty} (分值: {score})")
 
         # ▼▼▼ 返回独立的惩罚分，不再将其混入阵地分 ▼▼▼
-        return total_positional_score, total_dynamic_score, trigger_score_total, total_penalty_score, score_details_df
+        return total_positional_score, total_dynamic_score, trigger_score_total, total_cognitive_score, total_penalty_score, score_details_df
 
     #       ├─> 战略修正室: _apply_weekly_context_modifiers()
     def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
