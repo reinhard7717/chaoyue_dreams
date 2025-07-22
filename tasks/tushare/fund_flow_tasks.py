@@ -376,7 +376,7 @@ def save_fund_flow_daily_data_history_task(self):
     try:
         NUM_DAYS_TO_FETCH = 1500
         # [优化] 将任务切片的大小定义为可配置的常量
-        CHUNK_SIZE_DAYS = 90 # 每个子任务处理90天的数据
+        CHUNK_SIZE_DAYS = 5 # 每个子任务处理90天的数据
         
         trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=NUM_DAYS_TO_FETCH)
         
