@@ -611,7 +611,7 @@ class TrendFollowStrategy:
         default_series = pd.Series(False, index=df.index)
         
         # ▼▼▼【代码修改 V234.0】: 统一从 trigger_event_params 获取所有参数 ▼▼▼
-        trigger_params = self._get_params_block(params, 'trigger_event_params', {})
+        trigger_params = self._get_params_block('trigger_event_params')
         if not self._get_param_value(trigger_params.get('enabled'), True):
             print("          -> 触发事件引擎被禁用，跳过。")
             return triggers
@@ -747,7 +747,7 @@ class TrendFollowStrategy:
     def _diagnose_oscillator_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """【V234.0 最终净化版】震荡指标状态诊断中心"""
         states = {}
-        p = self._get_params_block(params, 'oscillator_state_params', {})
+        p = self._get_params_block('oscillator_state_params')
         if not self._get_param_value(p.get('enabled'), False): return states
         
         # --- RSI 相关状态 ---
@@ -783,7 +783,7 @@ class TrendFollowStrategy:
     def _diagnose_volatility_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """【V224.0 逻辑内嵌版】波动率与成交量状态诊断"""
         states = {}
-        p = self._get_params_block(params, 'volatility_state_params', {})
+        p = self._get_params_block('volatility_state_params')
         if not self._get_param_value(p.get('enabled'), False): return states
         
         default_series = pd.Series(False, index=df.index)
@@ -966,7 +966,7 @@ class TrendFollowStrategy:
         triggers = {}
 
         # 从配置中获取筹码特征参数
-        p = self._get_params_block(params, 'chip_feature_params', {})
+        p = self._get_params_block('chip_feature_params')
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码情报总参谋部被禁用，跳过。")
             return states, triggers
@@ -1438,8 +1438,7 @@ class TrendFollowStrategy:
         """
         print("        -> [诊断模块 V147.0] 正在执行箱体状态诊断(实战化地形识别版)...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
-        box_params = self._get_params_block(params, 'dynamic_box_params', {})
+        box_params = self._get_params_block('dynamic_box_params')
         if not self._get_param_value(box_params.get('enabled'), False) or df.empty:
             print("          -> 箱体诊断模块被禁用或数据为空，跳过。")
             return states
@@ -1473,7 +1472,7 @@ class TrendFollowStrategy:
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
         # --- 步骤4: 诊断“健康箱体盘整”状态 (逻辑不变) ---
-        ma_params = self._get_params_block(params, 'ma_state_params', {})
+        ma_params = self._get_params_block('ma_state_params')
         mid_ma_period = self._get_param_value(ma_params.get('mid_ma'), 55)
         mid_ma_col = f"EMA_{mid_ma_period}_D"
         
@@ -1811,7 +1810,7 @@ class TrendFollowStrategy:
         【V233.0 纯进攻版 - 进攻方案评估中心】
         - 核心改革: 此方法现在只负责计算“进攻价值分”，不再处理任何负面或惩罚信号。
         """
-        scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
+        scoring_params = self._get_params_block('four_layer_scoring_params')
         if not self._get_param_value(scoring_params.get('enabled'), True):
             df['entry_score'] = 0
             return df, pd.DataFrame(index=df.index)
@@ -2116,7 +2115,7 @@ class TrendFollowStrategy:
         【V233.0 新增 - 最高风险裁决所】
         - 核心职责: 统一评估所有负面风险信号，计算独立的“战场风险分”。
         """
-        scoring_params = self._get_params_block(params, 'four_layer_scoring_params', {})
+        scoring_params = self._get_params_block('four_layer_scoring_params')
         risk_rules = scoring_params.get('risk_scoring', {}).get('signals', {})
         
         risk_score = pd.Series(0.0, index=df.index)
