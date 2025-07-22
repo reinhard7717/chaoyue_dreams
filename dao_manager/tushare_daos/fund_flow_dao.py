@@ -459,7 +459,7 @@ class FundFlowDao(BaseDAO):
 
         # 2. 分页拉取并处理数据
         offset = 0
-        limit = 4000
+        limit = 6000
         all_data_to_save = [] # 用于累积所有批次处理好的数据
 
         while True:
@@ -574,7 +574,7 @@ class FundFlowDao(BaseDAO):
 
         # 2. 分页拉取并处理数据
         offset = 0
-        limit = 5000
+        limit = 6000
         all_data_to_save = [] # 用于累积所有批次处理好的数据
 
         while True:
