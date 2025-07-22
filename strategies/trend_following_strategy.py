@@ -72,7 +72,9 @@ class TrendFollowStrategy:
         self.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
         self._last_score_details_df = None
         self._last_risk_details_df = None
-        print(f"--- [战术策略 TrendFollowStrategy (V230.0 正本清源版)] 初始化完成 ---")
+
+        # 调用方法获取静态蓝图，并将其存储为实例属性，供后续所有方法安全调用
+        self.playbook_blueprints = self._get_playbook_blueprints()
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -951,7 +953,6 @@ class TrendFollowStrategy:
         print("        -> [筹码情报总参谋部 V236.0] 启动...")
         states = {}
         triggers = {}
-        default_series = pd.Series(False, index=df.index)
 
         # 从配置中获取筹码特征参数
         p = self._get_params_block(params, 'chip_feature_params', {})
