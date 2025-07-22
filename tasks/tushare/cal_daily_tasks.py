@@ -3,7 +3,7 @@ import logging
 from typing import List
 from chaoyue_dreams.celery import app as celery_app
 from tasks.stock_analysis_tasks import schedule_precompute_advanced_chips
-from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_today, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_yesterday, save_fund_flow_data_this_week_task
+from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_today, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_yesterday, save_fund_flow_data_this_week_task, save_hm_detail_data_today
 from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task, save_trade_cal
 from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_day_data_this_week_batch, save_day_data_today_task, save_day_data_yesterday_task, save_month_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_daily_basic_data_yesterday_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_stocks_minute_data_yesterday_task, save_week_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from tasks.tushare.industry_tasks import save_ths_index_today_task, save_ths_index_yesterday_task
@@ -69,6 +69,9 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
         logger.info("开始执行: 板块、行业资金流向数据 - 同花顺...")
         save_fund_flow_daily_data_ths_today.delay()
         logger.info(f"已分派板块、行业资金流向数据 - 同花顺任务。")
+        
+        save_hm_detail_data_today.delay()
+        logger.info(f"已分派龙虎榜数据任务。")
 
         logger.info("开始执行: 高级筹码指标预计算任务...")
         schedule_precompute_advanced_chips.delay()
