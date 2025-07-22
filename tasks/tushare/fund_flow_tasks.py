@@ -125,8 +125,8 @@ def save_fund_flow_daily_data_today(self):
         today_date = timezone.now().date()
         # [修改] 定义需要并行执行的所有异步数据保存方法名
         target_methods = [
-            'save_history_fund_flow_daily_data_by_trade_date',
-            'save_history_fund_flow_daily_ths_data_by_trade_date',
+            'save_history_fund_flow_daily_data',
+            'save_history_fund_flow_daily_ths_data',
             'save_history_fund_flow_cnt_ths_data',
             'save_history_fund_flow_industry_ths_data'
         ]
@@ -220,8 +220,8 @@ def save_fund_flow_daily_data_yesterday(self):
         today_date = timezone.now().date()
         yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         target_methods = [
-            'save_history_fund_flow_daily_data_by_trade_date',
-            'save_history_fund_flow_daily_ths_data_by_trade_date',
+            'save_history_fund_flow_daily_data',
+            'save_history_fund_flow_daily_ths_data',
             'save_history_fund_flow_cnt_ths_data',
             'save_history_fund_flow_industry_ths_data'
         ]
@@ -283,10 +283,9 @@ def save_fund_flow_data_this_week_task(self):
         this_monday, this_friday = get_this_monday_and_friday()
         # [修改] 定义需要并行执行的所有数据保存方法名
         target_methods = [
-            'save_history_fund_flow_daily_data_by_trade_date',
-            'save_history_fund_flow_daily_ths_data_by_trade_date',
-            'save_history_fund_flow_cnt_ths_data',
-            'save_history_fund_flow_industry_ths_data'
+            'save_history_fund_flow_daily_data',
+            'save_history_fund_flow_daily_ths_data',
+            'save_history_fund_flow_cnt_ths_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组任务签名 (signature)
         # .s() 创建了一个任务的“签名”，它包含了任务名和所有参数，但不会立即执行
@@ -310,83 +309,109 @@ def save_fund_flow_data_this_week_task(self):
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_batch', queue="SaveHistoryData_TimeTrade")
-def save_fund_flow_daily_data_history_batch(self, trade_date: datetime.date = None, start_date: datetime.date = None, end_date: datetime.date = None):
+def save_fund_flow_daily_data_history_batch(self, start_date: datetime.date, end_date: datetime.date):
     """
-    【优化版】从Tushare批量获取指定日期或日期范围内的历史日级资金流向数据并保存。
-    - 优先使用 start_date 和 end_date 进行范围查询。
-    - 如果只提供了 trade_date，则进行单日查询。
+    【优化版 V2】从Tushare批量获取指定日期范围内的历史日级资金流向数据并保存。
+    - 此任务被设计为处理一个明确的、不宜过大的日期范围。
+    - [重构] 并发执行三个数据源的获取，提升效率。
+    - [重构] 增强错误处理，单个数据源失败不影响其他数据源。
     """
-    # [修改] 日志记录更清晰，能反映任务处理的范围
-    if start_date and end_date:
-        log_msg = f"开始处理 {start_date} 到 {end_date} 的历史日级资金流向数据..."
-    elif trade_date:
-        log_msg = f"开始处理 {trade_date} 的历史日级资金流向数据..."
-    else:
-        logger.warning("未提供任何有效日期参数，任务终止。")
-        return {"status": "skipped", "message": "No date provided."}
-    
+    log_msg = f"开始并发处理 {start_date} 到 {end_date} 的历史日级资金流向数据..."
     logger.info(log_msg)
     
     fund_flow_dao = FundFlowDao()
-    try:
-        # [修改] 将所有参数直接传递给已优化的DAO方法，它能智能处理
-        # DAO方法内部会优先使用start_date和end_date
-        asyncio.run(fund_flow_dao.save_history_fund_flow_daily_data_by_trade_date(
-            trade_date=trade_date, 
-            start_date=start_date, 
-            end_date=end_date
-        ))
-        
-        # 如果未来要启用同花顺和东方财富的数据源，也应改造它们以接受日期范围
-        # logger.info("处理同花顺数据...")
-        # asyncio.run(fund_flow_dao.save_history_fund_flow_daily_ths_data_by_trade_date(start_date=start_date, end_date=end_date))
-        # logger.info("处理东方财富数据...")
-        # asyncio.run(fund_flow_dao.save_history_fund_flow_daily_dc_data_trade_date(start_date=start_date, end_date=end_date))
-        
-        logger.info(f"成功完成日期范围 {start_date}-{end_date} (或单日 {trade_date}) 的资金流数据保存任务。")
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}
 
-# [修改] 重构调度器任务，使其分派单个范围任务
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task')
+    # [优化] 定义一个异步主函数来使用asyncio.gather并发执行所有数据获取任务
+    async def main():
+        # [修改] 将三个独立的异步任务放入一个列表中
+        tasks = [
+            fund_flow_dao.save_history_fund_flow_daily_data(start_date=start_date, end_date=end_date),
+            fund_flow_dao.save_history_fund_flow_daily_ths_data(start_date=start_date, end_date=end_date),
+            fund_flow_dao.save_history_fund_flow_daily_dc_data(start_date=start_date, end_date=end_date)
+        ]
+        
+        # [修改] 使用 asyncio.gather 并发运行所有任务，并设置 return_exceptions=True 以便捕获所有异常而不是中途停止
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # [修改] 检查每个任务的结果，进行精细化的日志记录
+        source_names = ["Tushare", "同花顺", "东方财富"]
+        has_error = False
+        for name, result in zip(source_names, results):
+            if isinstance(result, Exception):
+                logger.error(f"数据源 [{name}] 在处理日期范围 {start_date}-{end_date} 时失败: {result}", exc_info=False) # exc_info设为False避免日志过于冗长
+                has_error = True
+            else:
+                logger.info(f"数据源 [{name}] 在处理日期范围 {start_date}-{end_date} 时成功。")
+        
+        return not has_error # 如果没有错误，返回True
+
+    try:
+        # [修改] 只需调用一次 asyncio.run() 来执行异步主函数
+        success = asyncio.run(main())
+        
+        if success:
+            logger.info(f"成功完成日期范围 {start_date}-{end_date} 的所有资金流数据保存任务。")
+            return {"status": "success"}
+        else:
+            logger.warning(f"日期范围 {start_date}-{end_date} 的资金流数据保存任务部分失败。")
+            # [修改] 即使部分失败，也认为是可接受的完成，以便Celery不重试。错误已记录。
+            return {"status": "partial_success"}
+
+    except Exception as e:
+        # 这个异常捕获主要用于处理asyncio.run本身或之前同步代码的错误
+        logger.error(f"执行批量保存任务({start_date} to {end_date})时发生意外错误: {e}", exc_info=True)
+        # [修改] 明确返回错误状态
+        raise self.retry(exc=e, countdown=60) # 发生未知严重错误时，可以考虑重试
+
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task', queue='celery')
 def save_fund_flow_daily_data_history_task(self): 
     """
-    【优化版 V2】调度器任务：
-    1. 使用 TradeCalendar 模型获取最近N个交易日。
-    2. 计算起始和结束日期。
-    3. 分派一个【单个】的批量任务来处理整个日期范围。
+    【优化版 V3】调度器任务：
+    1. 获取最近N个交易日。
+    2. [重构] 将大的日期范围【切片】成多个小任务。
+    3. [重构] 为每个小范围分派一个独立的批量任务，实现并行处理和高容错性。
     这个任务由 Celery Beat 调度。
     """
-    logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器模式) - 获取交易日历并分派单个范围任务")
+    logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器-任务分片模式)")
     try:
-        # [修改] 定义需要获取的交易日数量，例如最近10个交易日。可以根据需求调整。
         NUM_DAYS_TO_FETCH = 1500
+        # [优化] 将任务切片的大小定义为可配置的常量
+        CHUNK_SIZE_DAYS = 90 # 每个子任务处理90天的数据
         
-        # [修改] 直接调用 TradeCalendar 的同步类方法，不再需要DAO和asyncio.run
-        # 该方法返回按日期【降序】排列的列表，即 [最新日期, ..., 最早日期]
         trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=NUM_DAYS_TO_FETCH)
         
         if not trade_days_list:
             logger.warning("未能从TradeCalendar获取到交易日历，无法分派任务。")
             return {"status": "skipped", "message": "Trade calendar is empty."}
             
-        # [修改] 根据返回的降序列表，正确设置起始和结束日期
-        # 因为列表是 [最新日期, ..., 最早日期]，所以 end_date 是第一个元素，start_date 是最后一个元素
-        start_date = trade_days_list[-1]
-        end_date = trade_days_list[0]
+        total_start_date = trade_days_list[-1]
+        total_end_date = trade_days_list[0]
         
-        logger.info(f"计算出的处理日期范围为: {start_date} 到 {end_date} (共 {len(trade_days_list)} 个交易日)")
+        logger.info(f"计算出的总处理日期范围为: {total_start_date} 到 {total_end_date} (共 {len(trade_days_list)} 个交易日)")
         
-        # 任务分派逻辑保持不变
-        save_fund_flow_daily_data_history_batch.s(
-            start_date=start_date, 
-            end_date=end_date
-        ).apply_async()
-        
-        logger.info(f"任务结束: 成功分派1个批量任务处理从 {start_date} 到 {end_date} 的数据。")
-        return {"status": "success", "dispatched_tasks": 1, "date_range": f"{start_date}_to_{end_date}"}
+        # [重构] 任务分片逻辑
+        dispatched_tasks_count = 0
+        # 从结束日期（最近的日期）开始，向前切分
+        current_end_date = total_end_date
+        while current_end_date >= total_start_date:
+            # 计算当前分片的开始日期
+            current_start_date = max(total_start_date, current_end_date - datetime.timedelta(days=CHUNK_SIZE_DAYS - 1))
+            
+            print(f"准备分派任务，范围: {current_start_date} -> {current_end_date}")
+            
+            # 为这个小的时间范围分派一个独立的任务
+            save_fund_flow_daily_data_history_batch.s(
+                start_date=current_start_date, 
+                end_date=current_end_date
+            ).apply_async()
+            
+            dispatched_tasks_count += 1
+            
+            # 更新下一次迭代的结束日期，即当前分片开始日期的前一天
+            current_end_date = current_start_date - datetime.timedelta(days=1)
+
+        logger.info(f"任务结束: 成功将总范围分派成 {dispatched_tasks_count} 个子任务进行处理。")
+        return {"status": "success", "dispatched_tasks": dispatched_tasks_count, "total_date_range": f"{total_start_date}_to_{total_end_date}"}
     except Exception as e:
         logger.error(f"执行 save_fund_flow_daily_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_tasks": 0}

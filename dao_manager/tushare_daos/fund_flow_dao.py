@@ -55,7 +55,7 @@ class FundFlowDao(BaseDAO):
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailySZ  # 默认返回深市主板
 
-    async def save_history_fund_flow_daily_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+    async def save_history_fund_flow_daily_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 (终极优化版 V3 - 客户端分块策略)
         1. [重构] 废弃低效的“10万行追溯”逻辑。
@@ -190,24 +190,29 @@ class FundFlowDao(BaseDAO):
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailyTHS_SZ  # 默认返回深市主板
 
-    async def save_history_fund_flow_daily_ths_data_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+    async def save_history_fund_flow_daily_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存历史日级资金流向数据 - 同花顺 (V3 重构版)
-        参照终极优化版逻辑，采用客户端分块、分页拉取、向量化处理和分表存储策略。
+        保存历史日级资金流向数据 - 同花顺 (参照save_history_fund_flow_daily_data重构)
+        1. [新增] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
+        2. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
+        3. [重构] 使用向量化处理替代逐行循环，一次性获取所有股票信息，避免N+1查询。
+        4. [重构] 实现动态分表存储，根据股票代码自动存入对应的板块数据表。
         """
-        # --- 1. [重构] 日期参数处理与验证 ---
+        # --- 1. 日期参数处理与验证 ---
         if start_date and end_date and start_date > end_date:
             logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
             return
-
+        # 如果是范围查询
         if start_date and end_date:
-            logger.info(f"接收到范围任务(同花顺)，将对 {start_date} 到 {end_date} 的数据采用客户端分块策略处理。")
+            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的同花顺资金流数据采用客户端分块策略处理。")
+        # 如果是单日查询
         elif trade_date:
             start_date = end_date = trade_date
-            logger.info(f"接收到单日任务(同花顺): {trade_date}")
+            logger.info(f"接收到单日任务: {trade_date}")
+        # 默认情况，获取当天
         else:
             start_date = end_date = date.today()
-            logger.info(f"未提供日期，默认获取今日数据(同花顺): {start_date}")
+            logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
         # --- 2. [新增] 客户端日期分块逻辑 ---
         date_chunks = []
@@ -224,23 +229,23 @@ class FundFlowDao(BaseDAO):
         for chunk_start, chunk_end in date_chunks:
             chunk_start_str = chunk_start.strftime('%Y%m%d')
             chunk_end_str = chunk_end.strftime('%Y%m%d')
-            print(f"DAO(同花顺): 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
+            print(f"DAO: 开始处理同花顺资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
 
             offset = 0
-            limit = 5000 # 同花顺接口建议的单次最大limit
+            limit = 5000 # Tushare建议的单次最大limit
             
             while True:
                 try:
-                    # [修改] 调用 moneyflow_ths 接口，并使用分块的起止日期
+                    # [修改] API调用现在使用分块的起止日期，并调用 moneyflow_ths 接口
                     df = self.ts_pro.moneyflow_ths(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
                         "limit": limit, "offset": offset
                     }, fields=[
-                        "trade_date", "ts_code", "name", "pct_change", "latest", "net_amount", "net_d5_amount", "buy_lg_amount", 
+                        "trade_date", "ts_code", "pct_change", "net_amount", "net_d5_amount", "buy_lg_amount", 
                         "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
                     ])
-                    await asyncio.sleep(0.75) # 保持友好的API调用频率
+                    await asyncio.sleep(0.85) # 保持友好的API调用频率
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (moneyflow_ths, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
                     await asyncio.sleep(5) # 出错时等待更长时间
@@ -261,32 +266,34 @@ class FundFlowDao(BaseDAO):
             return
 
         # --- 4. [重构] 向量化数据处理与入库 ---
-        print("DAO(同花顺): 所有分块数据获取完毕，开始进行数据整合与处理...")
+        print("DAO: 所有同花顺分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
+        # [修改] 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
+        # [修改] 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
-            logger.info("同花顺数据关联股票基础信息后为空，任务结束。")
+            logger.info("数据关联股票基础信息后为空，任务结束。")
             return
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # [修改] 调用 get_fund_flow_ths_model_by_code 实现分表
+        # [修改] 调用 get_fund_flow_ths_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_ths_model_by_code)
 
         total_rows = 0
-        # [修改] 按目标模型分组并批量入库
+        # [修改] 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
             
-            # [修改] 准备最终入库的数据，丢弃不再需要的辅助列
-            final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model', 'name'])
+            # [修改] 准备最终要存入数据库的数据，丢弃辅助列
+            final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
 
             await self._save_all_to_db_native_upsert(
@@ -318,24 +325,29 @@ class FundFlowDao(BaseDAO):
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailyDC_SZ  # 默认返回深市主板
 
-    async def save_history_fund_flow_daily_dc_data_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+    async def save_history_fund_flow_daily_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存历史日级资金流向数据 - 东方财富 (V3 重构版)
-        参照终极优化版逻辑，采用客户端分块、分页拉取、向量化处理和分表存储策略。
+        保存历史日级资金流向数据 - 东方财富 (参照save_history_fund_flow_daily_data重构)
+        1. [新增] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
+        2. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
+        3. [重构] 使用向量化处理替代逐行循环，一次性获取所有股票信息，避免N+1查询。
+        4. [重构] 实现动态分表存储，根据股票代码自动存入对应的板块数据表。
         """
-        # --- 1. [重构] 日期参数处理与验证 ---
+        # --- 1. 日期参数处理与验证 ---
         if start_date and end_date and start_date > end_date:
             logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
             return
-
+        # 如果是范围查询
         if start_date and end_date:
-            logger.info(f"接收到范围任务(东方财富)，将对 {start_date} 到 {end_date} 的数据采用客户端分块策略处理。")
+            logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的东方财富资金流数据采用客户端分块策略处理。")
+        # 如果是单日查询
         elif trade_date:
             start_date = end_date = trade_date
-            logger.info(f"接收到单日任务(东方财富): {trade_date}")
+            logger.info(f"接收到单日任务: {trade_date}")
+        # 默认情况，获取当天
         else:
             start_date = end_date = date.today()
-            logger.info(f"未提供日期，默认获取今日数据(东方财富): {start_date}")
+            logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
         # --- 2. [新增] 客户端日期分块逻辑 ---
         date_chunks = []
@@ -352,14 +364,14 @@ class FundFlowDao(BaseDAO):
         for chunk_start, chunk_end in date_chunks:
             chunk_start_str = chunk_start.strftime('%Y%m%d')
             chunk_end_str = chunk_end.strftime('%Y%m%d')
-            print(f"DAO(东方财富): 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
+            print(f"DAO: 开始处理东方财富资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
 
             offset = 0
-            limit = 5000 # 东方财富接口建议的单次最大limit
+            limit = 5000 # Tushare建议的单次最大limit
             
             while True:
                 try:
-                    # [修改] 调用 moneyflow_dc 接口，并使用分块的起止日期
+                    # [修改] API调用现在使用分块的起止日期，并调用 moneyflow_dc 接口
                     df = self.ts_pro.moneyflow_dc(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
@@ -368,7 +380,7 @@ class FundFlowDao(BaseDAO):
                         "trade_date", "ts_code", "name", "pct_change", "close", "net_amount", "net_amount_rate", "buy_elg_amount", "buy_elg_amount_rate",
                         "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", "buy_sm_amount_rate"
                     ])
-                    await asyncio.sleep(0.75) # 保持友好的API调用频率
+                    await asyncio.sleep(0.85) # 保持友好的API调用频率
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (moneyflow_dc, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
                     await asyncio.sleep(5) # 出错时等待更长时间
@@ -389,32 +401,34 @@ class FundFlowDao(BaseDAO):
             return
 
         # --- 4. [重构] 向量化数据处理与入库 ---
-        print("DAO(东方财富): 所有分块数据获取完毕，开始进行数据整合与处理...")
+        print("DAO: 所有东方财富分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
+        # [修改] 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
+        # [修改] 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
-            logger.info("东方财富数据关联股票基础信息后为空，任务结束。")
+            logger.info("数据关联股票基础信息后为空，任务结束。")
             return
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # [修改] 调用 get_fund_flow_dc_model_by_code 实现分表
+        # [修改] 调用 get_fund_flow_dc_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_dc_model_by_code)
 
         total_rows = 0
-        # [修改] 按目标模型分组并批量入库
+        # [修改] 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
             
-            # [修改] 准备最终入库的数据，丢弃不再需要的辅助列
-            final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model', 'name'])
+            # [修改] 准备最终要存入数据库的数据，丢弃辅助列。注意：'name'字段在DC模型中是需要的，所以不丢弃。
+            final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
 
             await self._save_all_to_db_native_upsert(
