@@ -256,6 +256,9 @@ class TrendFollowStrategy:
 
         atomic_states.update(self._diagnose_market_structure_states(df, params, atomic_states))
         atomic_states.update(self._diagnose_strategic_setups(df, params, atomic_states))
+        
+        # 在所有基础和复合状态诊断完成后，进行最高维度的模式识别
+        atomic_states.update(self._diagnose_cognitive_patterns(df, atomic_states))
 
         # ▼▼▼ 建立“军事最高法院”和“军事法庭” ▼▼▼
         # 1. 获取原始情报
@@ -1740,6 +1743,16 @@ class TrendFollowStrategy:
         
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self.scoring_params
+        
+        # ▼▼▼ 接收新增的“认知分” ▼▼▼
+        positional_score, dynamic_score, trigger_score, cognitive_score, penalty_score, score_details_df = self._calculate_base_scores(
+            df, scoring_params, atomic_states, trigger_events, score_details_df
+        )
+
+        # 步骤1: 计算所有“正面得分”的总和 (将认知分加入)
+        positive_base_score, score_details_df = self._apply_weekly_context_modifiers(
+            df, positional_score, dynamic_score, trigger_score, cognitive_score, scoring_params, atomic_states, score_details_df
+        )
 
         # 步骤0: 计算基础分的三大组成部分 (阵地、动能、触发)
         positional_score, dynamic_score, trigger_score, penalty_score, score_details_df = self._calculate_base_scores(
@@ -1891,6 +1904,20 @@ class TrendFollowStrategy:
             mask = trigger_events.get(event_name, default_series)
             trigger_score_total.loc[mask] += score
             score_details_df.loc[mask, event_name] = score
+
+        # ▼▼▼ “认知层”火力计算 ▼▼▼
+        print("      -> [王牌火力层] 正在计算“认知模式分”...")
+        total_cognitive_score = pd.Series(0.0, index=df.index)
+        cognitive_pattern_scores = scoring_params.get('cognitive_pattern_scoring', {})
+        for pattern_name, score in cognitive_pattern_scores.items():
+            if not pattern_name.startswith('COGNITIVE_PATTERN_'):
+                continue
+            mask = atomic_states.get(pattern_name, default_series)
+            total_cognitive_score.loc[mask] += score
+            score_details_df.loc[mask, pattern_name] = score
+            if mask.any() and score > 0:
+                 status_cognitive = "[✓]" if mask.iloc[-1] else "[✗]"
+                 print(f"        -> 认知模式 '{pattern_name}' (最新一日): {status_cognitive} (分值: +{score})")
         
         print("      -> [惩罚层] 正在计算“惩罚分”...")
         total_penalty_score = pd.Series(0.0, index=df.index)
@@ -1956,6 +1983,16 @@ class TrendFollowStrategy:
         
         # 叠加上调整后的触发分，得到最终的修正后基础分
         modified_base_score = weighted_base_score + adj_trigger
+        
+        # ▼▼▼ 调整正面得分的计算方式 ▼▼▼
+        # 使用调整后的分数进行混合加权
+        weights = scoring_params.get('hybrid_scoring_weights', {})
+        weight_pos = weights.get('positional_weight', 0.4)
+        weight_dyn = weights.get('dynamic_weight', 0.6)
+        weighted_base_score = (positional_score * weight_pos) + (dynamic_score * weight_dyn)
+        
+        # 叠加上调整后的触发分，再加上独立的、不受影响的认知分
+        modified_base_score = weighted_base_score + trigger_score + cognitive_score
         
         return modified_base_score, score_details_df
 
@@ -2265,15 +2302,30 @@ class TrendFollowStrategy:
             if df_details is None or timestamp not in df_details.index: return [], []
             
             details_row = df_details.loc[timestamp]
+            # 注意：这里我们取所有大于0的项，因为认知模式分也是正分
             active_items = details_row[details_row > 0].index
             
+            playbooks_en = []
+            playbooks_cn = []
+
             if is_entry_signal:
-                excluded = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_')
-                playbooks_en = [item for item in active_items if not item.startswith(excluded)]
-                playbooks_cn = [playbook_map.get(p, p) for p in playbooks_en]
-            else:
+                # 1. 提取战术剧本 (Playbooks)
+                excluded = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_', 'COGNITIVE_PATTERN_')
+                tactical_playbooks_en = [item for item in active_items if not item.startswith(excluded)]
+                tactical_playbooks_cn = [playbook_map.get(p, p) for p in tactical_playbooks_en]
+                
+                # 2. 提取认知模式 (Cognitive Patterns)
+                cognitive_patterns_en = [item for item in active_items if item.startswith('COGNITIVE_PATTERN_')]
+                # (未来可以为认知模式建立独立的中文名映射)
+                cognitive_patterns_cn = [item.replace('COGNITIVE_PATTERN_', '认知模式:') for item in cognitive_patterns_en]
+
+                # 3. 合并，并将认知模式放在最前，以彰显其重要性
+                playbooks_en = cognitive_patterns_en + tactical_playbooks_en
+                playbooks_cn = cognitive_patterns_cn + tactical_playbooks_cn
+            else: # 风险信号逻辑不变
                 playbooks_en = [item.replace('RISK_SCORE_', '') for item in active_items]
                 playbooks_cn = [risk_playbook_map.get(p, p) for p in playbooks_en]
+
             return playbooks_en, playbooks_cn
 
         playbook_results = df.apply(lambda row: get_playbooks(row.name, row['signal_entry']), axis=1)
@@ -2532,8 +2584,11 @@ class TrendFollowStrategy:
         score_details_df: pd.DataFrame
     ):
         """
-        【V215.0 终极验尸官探针 - 临时调试模块】
-        此探针为临时调试工具，用于对特定日期的计分流程进行最详尽的解剖。
+        【V227.0 法医手册升级版】
+        - 核心修复: 更新了验尸官的审查流程，使其能够识别并核查最新的风险裁决番号
+                    `RISK_COST_BASIS_COLLAPSE` 和 `RISK_CONFIDENCE_DETERIORATION`，
+                    解决了因番号变更导致的“情报失联”问题。
+        - 逻辑优化: 将原先混杂的审查逻辑，拆分为对两项罪名的独立、精确核查。
         """
         for probe_date_str in probe_dates:
             try:
@@ -2541,28 +2596,28 @@ class TrendFollowStrategy:
                 if probe_ts not in df.index:
                     continue
 
-                print("\n" + "="*30 + f" [战地验尸报告: {probe_date_str}] " + "="*30)
+                print("\n" + "="*30 + f" [战地验尸报告 V227.0: {probe_date_str}] " + "="*30)
                 
                 # --- 验尸第一部分：惩罚部队情报源核查 ---
                 print("[A. 惩罚部队情报源核查]")
                 
-                # 1. 核查 RISK_CHIP_STRUCTURE_COLLAPSE
+                # ▼▼▼【代码修改 V227.0】: 更新审查流程和情报代号 ▼▼▼
+                # 审查罪名 1: 成本基石崩溃罪 (RISK_COST_BASIS_COLLAPSE)
                 cost_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_peak_cost_D', 'N/A')
-                winner_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_total_winner_rate_D', 'N/A')
-                collapse_triggered = atomic_states['RISK_CHIP_STRUCTURE_COLLAPSE'].loc[probe_ts]
-                print(f"  - RISK_CHIP_STRUCTURE_COLLAPSE: {collapse_triggered}")
-                print(f"    - 成本斜率: {cost_slope:.4f} (阈值 < -0.01)")
-                print(f"    - 获利盘斜率: {winner_slope:.4f} (阈值 < -1.0)")
+                # 从情报总局档案库中，调取正确的裁决结果
+                cost_collapse_triggered = atomic_states.get('RISK_COST_BASIS_COLLAPSE', pd.Series(False, index=df.index)).loc[probe_ts]
+                print(f"  - [罪名1] RISK_COST_BASIS_COLLAPSE: {cost_collapse_triggered}")
+                print(f"    - 定罪依据 (成本斜率): {cost_slope:.4f} (阈值 < -0.01)")
 
-                # 2. 核查 DYN_TREND_WEAKENING_DECELERATING
-                long_slope = df.loc[probe_ts].get('SLOPE_55_EMA_55_D', 'N/A')
-                long_accel = df.loc[probe_ts].get('ACCEL_55_EMA_55_D', 'N/A')
-                short_slope = df.loc[probe_ts].get('SLOPE_13_EMA_13_D', 'N/A')
-                weakening_triggered = atomic_states['DYN_TREND_WEAKENING_DECELERATING'].loc[probe_ts]
-                print(f"  - DYN_TREND_WEAKENING_DECELERATING: {weakening_triggered}")
-                print(f"    - 长期斜率 > 0: {long_slope > 0 if isinstance(long_slope, float) else 'N/A'}")
-                print(f"    - 长期加速度 < 0: {long_accel < 0 if isinstance(long_accel, float) else 'N/A'}")
-                print(f"    - 短期斜率 < 0: {short_slope < 0 if isinstance(short_slope, float) else 'N/A'}")
+                # 审查罪名 2: 市场信心恶化罪 (RISK_CONFIDENCE_DETERIORATION)
+                winner_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_total_winner_rate_D', 'N/A')
+                is_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', pd.Series(False, index=df.index)).loc[probe_ts]
+                # 调取正确的裁决结果
+                confidence_collapse_triggered = atomic_states.get('RISK_CONFIDENCE_DETERIORATION', pd.Series(False, index=df.index)).loc[probe_ts]
+                print(f"  - [罪名2] RISK_CONFIDENCE_DETERIORATION: {confidence_collapse_triggered}")
+                print(f"    - 定罪依据1 (获利盘斜率): {winner_slope:.4f} (阈值 < -1.0)")
+                print(f"    - 定罪依据2 (趋势不健康): {not is_trend_healthy}")
+                # ▲▲▲【代码修改 V227.0】▲▲▲
                 
                 print("-" * 70)
 
@@ -2703,11 +2758,46 @@ class TrendFollowStrategy:
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
 
 
-    # 最终得分调整层
-    
-    # ▼▼▼ 剧本的静态“蓝图”知识库 ▼▼▼
-    
-    # ▼▼▼ 此方法现在是“水合”引擎 ▼▼▼
+    def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V226.0 新增】战场模式识别与认知智能总署 (雏形)
+        - 核心职责: 将多个原子/复合状态，升维成与市场行为阶段明确挂钩的、可被理解的“认知模式”。
+                    这是对现有高阶战术的梳理，并为未来引入机器学习模型进行模式挖掘和自动标注奠定基础。
+        - 作战意图: 我们不采用穷举式的排列组合，而是通过专家知识，定义出最高效、最经典的战场模式，
+                    实现对市场的“升维打击”。
+        """
+        print("        -> [认知智能总署 V226.0] 启动，正在识别高维战场模式...")
+        patterns = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 模式分类 1: 底部反转阶段 (Bottoming & Reversal Phase) ---
+        # 模式 1.1: “深渊凝视” - 市场极度恐慌后的强力反转
+        patterns['COGNITIVE_PATTERN_ABYSS_REVERSAL'] = atomic_states.get('STRUCTURE_STATE_REVERSAL_AT_SUPPORT', default_series) & \
+                                                      atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', default_series)
+        
+        # 模式 1.2: “资本逆行” - 在下跌中出现主力与散户的行为背离
+        patterns['COGNITIVE_PATTERN_CAPITAL_DIVERGENCE'] = atomic_states.get('CAPITAL_STRUCT_BULLISH_DIVERGENCE', default_series) & \
+                                                          atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
+
+        # --- 模式分类 2: 上升趋势中继阶段 (Uptrend Continuation Phase) ---
+        # 模式 2.1: “上升旗形” - 多头趋势中的健康、缩量盘整
+        patterns['COGNITIVE_PATTERN_BULL_FLAG'] = atomic_states.get('STRUCTURE_STATE_BULL_FLAG_CONSOLIDATION', default_series) & \
+                                                  atomic_states.get('VOL_STATE_SHRINKING', default_series)
+
+        # 模式 2.2: “高控盘主升” - 筹码高度集中下的趋势加速
+        patterns['COGNITIVE_PATTERN_HIGH_CONTROL_MARKUP'] = atomic_states.get('STRATEGIC_SETUP_HIGH_CONTROL_MARKUP', default_series)
+
+        # --- 模式分类 3: 潜在风险与派发阶段 (Risk & Distribution Phase) ---
+        # 模式 3.1: “死亡背离” - 趋势向上但主力资金已在派发
+        patterns['COGNITIVE_PATTERN_DEATH_DIVERGENCE'] = atomic_states.get('RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE', default_series) & \
+                                                        atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        
+        # 模式 3.2: “动能衰竭” - 趋势减速且短期均线掉头向下
+        patterns['COGNITIVE_PATTERN_MOMENTUM_EXHAUSTION'] = atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
+
+        # --- 最终将识别出的认知模式，合并回 atomic_states，供下游使用 ---
+        print(f"        -> [认知智能总署 V226.0] 识别完成，共定义 {len(patterns)} 种高维模式。")
+        return patterns
     
     
     

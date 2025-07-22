@@ -8,77 +8,86 @@
     "indicators": {
       "说明": "已合并周线指标，'apply_on'字段精确控制计算级别。",
       "cyq_perf": { "enabled": true },
-      "ema": { 
-        "enabled": true, 
+      "ema": {
+        "enabled": true,
         "configs": [
-          { "apply_on": ["D", "60", "30"], "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233] },
+          {
+            "apply_on": ["D", "60", "30"],
+            "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233]
+          },
           { "apply_on": ["W"], "periods": [5, 13, 21, 34, 55, 89, 144, 233] }
         ]
       },
-      "vol_ma": { 
-        "enabled": true, 
+      "vol_ma": {
+        "enabled": true,
         "configs": [
           { "apply_on": ["D", "5"], "periods": [21] },
           { "apply_on": ["W"], "periods": [5, 20, 55] }
         ]
       },
-      "boll_bands_and_width": { 
-        "enabled": true, 
+      "boll_bands_and_width": {
+        "enabled": true,
         "configs": [
           { "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
           { "apply_on": ["W"], "periods": [20], "std_dev": 2.0 }
         ]
       },
-      "rsi": { 
-        "enabled": true, 
+      "rsi": {
+        "enabled": true,
         "configs": [
           { "apply_on": ["D"], "periods": [13] },
           { "apply_on": ["W"], "periods": [6, 12] }
-        ] 
+        ]
       },
-      "macd": { 
-        "enabled": true, 
+      "macd": {
+        "enabled": true,
         "configs": [
           { "apply_on": ["D"], "periods": [13, 34, 8] },
           { "apply_on": ["W"], "periods": [12, 26, 9] }
-        ] 
+        ]
       },
       "kdj": {
         "enabled": true,
-        "configs": [
-          { "apply_on": ["W"], "periods": [9, 3, 3] }
-        ]
+        "configs": [{ "apply_on": ["W"], "periods": [9, 3, 3] }]
       },
       "obv": {
         "enabled": true,
-        "configs": [
-          { "apply_on": ["W"] }
-        ]
+        "configs": [{ "apply_on": ["W"] }]
       },
       "trix": {
         "enabled": true,
-        "configs": [
-          { "apply_on": ["W"], "periods": [13, 8] }
-        ]
+        "configs": [{ "apply_on": ["W"], "periods": [13, 8] }]
       },
       "coppock": {
         "enabled": true,
+        "configs": [{ "apply_on": ["W"], "periods": [26, 13, 10] }]
+      },
+      "zscore": {
+        "enabled": true,
         "configs": [
-          { "apply_on": ["W"], "periods": [26, 13, 10] }
+          {
+            "apply_on": ["D"],
+            "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D",
+            "window": 60,
+            "output_column_name": "MACD_HIST_ZSCORE_D"
+          }
         ]
       },
-      "zscore": { "enabled": true, "configs": [{ "apply_on": ["D"], "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D", "window": 60, "output_column_name": "MACD_HIST_ZSCORE_D" }] },
       "dmi": { "enabled": false },
       "vwap": { "enabled": true, "apply_on": ["5", "30"] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
-      "bias": { 
-        "enabled": true, 
+      "bias": {
+        "enabled": true,
         "configs": [
           { "apply_on": ["D"], "periods": [21, 55] },
           { "apply_on": ["W"], "periods": [20] }
         ]
       },
-      "advanced_fund_features": { "enabled": true, "apply_on": ["D"], "params": { "ma_periods": [3, 5, 10] } },
+      "advanced_fund_features": {
+        "enabled": true,
+        "apply_on": ["D"],
+        "params": { "ma_periods": [3, 5, 10] }
+      },
       "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] }
     },
     "slope_params": {
@@ -112,18 +121,82 @@
     },
     "strategy_playbooks": {
       "说明": "【战略剧本层】定义了周线引擎包含的各种交易剧本（Playbook）。",
-      "ma_uptrend_playbook": { "enabled": true, "short_ma": 13, "mid_ma": 21, "long_ma": 55, "tolerance_pct": 0.02 },
-      "ma20_rising_state_playbook": { "enabled": true, "ma_period": 21, "slope_threshold_pct": 0.1 },
-      "ma20_turn_up_event_playbook": { "enabled": true, "ma_period": 21, "accel_threshold": 0 },
-      "early_uptrend_playbook": { "enabled": true, "short_ma": 13, "mid_ma": 21 },
-      "classic_breakout_playbook": { "enabled": true, "lookback_weeks": 26, "volume_multiplier": 1.5 },
-      "box_consolidation_breakout_playbook": { "enabled": true, "box_period": 26, "volume_multiplier": 1.5, "vol_ma_period": 5, "boll_period": 20, "bbw_quantile": 0.3 },
-      "oversold_rebound_bias_playbook": { "enabled": true, "bias_period": 20, "oversold_threshold": -15, "rebound_trigger": -12 },
-      "trix_golden_cross_playbook": { "enabled": true, "slope_threshold": 0.01 },
-      "coppock_reversal_playbook": { "enabled": true, "deep_value_threshold": -100, "accel_threshold": 10 },
-      "washout_score_playbook": { "enabled": true, "immunity_score_threshold": 3, "immunity_window": 3, "score_threshold": 2, "support_type": "MA", "support_ma_period": 21, "drift_lookback_period": 3, "bull_trap_lookback_period": 8, "bull_trap_drop_threshold": 0.05, "volume_avg_period": 20, "volume_contraction_threshold": 0.7 },
-      "rejection_filter_playbook": { "enabled": true, "ma_period": 21, "box_lookback_period": 52, "volume_multiplier": 1.5 },
-      "ace_signal_breakout_trigger_playbook": { "enabled": true, "lookback_weeks": 52, "volume_multiplier": 2.0, "vol_ma_period": 5, "trix_confirm": true }
+      "ma_uptrend_playbook": {
+        "enabled": true,
+        "short_ma": 13,
+        "mid_ma": 21,
+        "long_ma": 55,
+        "tolerance_pct": 0.02
+      },
+      "ma20_rising_state_playbook": {
+        "enabled": true,
+        "ma_period": 21,
+        "slope_threshold_pct": 0.1
+      },
+      "ma20_turn_up_event_playbook": {
+        "enabled": true,
+        "ma_period": 21,
+        "accel_threshold": 0
+      },
+      "early_uptrend_playbook": {
+        "enabled": true,
+        "short_ma": 13,
+        "mid_ma": 21
+      },
+      "classic_breakout_playbook": {
+        "enabled": true,
+        "lookback_weeks": 26,
+        "volume_multiplier": 1.5
+      },
+      "box_consolidation_breakout_playbook": {
+        "enabled": true,
+        "box_period": 26,
+        "volume_multiplier": 1.5,
+        "vol_ma_period": 5,
+        "boll_period": 20,
+        "bbw_quantile": 0.3
+      },
+      "oversold_rebound_bias_playbook": {
+        "enabled": true,
+        "bias_period": 20,
+        "oversold_threshold": -15,
+        "rebound_trigger": -12
+      },
+      "trix_golden_cross_playbook": {
+        "enabled": true,
+        "slope_threshold": 0.01
+      },
+      "coppock_reversal_playbook": {
+        "enabled": true,
+        "deep_value_threshold": -100,
+        "accel_threshold": 10
+      },
+      "washout_score_playbook": {
+        "enabled": true,
+        "immunity_score_threshold": 3,
+        "immunity_window": 3,
+        "score_threshold": 2,
+        "support_type": "MA",
+        "support_ma_period": 21,
+        "drift_lookback_period": 3,
+        "bull_trap_lookback_period": 8,
+        "bull_trap_drop_threshold": 0.05,
+        "volume_avg_period": 20,
+        "volume_contraction_threshold": 0.7
+      },
+      "rejection_filter_playbook": {
+        "enabled": true,
+        "ma_period": 21,
+        "box_lookback_period": 52,
+        "volume_multiplier": 1.5
+      },
+      "ace_signal_breakout_trigger_playbook": {
+        "enabled": true,
+        "lookback_weeks": 52,
+        "volume_multiplier": 2.0,
+        "vol_ma_period": 5,
+        "trix_confirm": true
+      }
     }
   },
   "strategy_params": {
@@ -147,19 +220,31 @@
         "metadata": {
           "说明": "【信号元数据词典】V182版",
           "comment_positional": "--- 阵地信号 (Positional) ---",
-          "MA_STATE_PRICE_ABOVE_LONG_MA":  { "cn_name": "【阵地】股价站上生命线" },
-          "MA_STATE_STABLE_BULLISH":       { "cn_name": "【阵地】均线多头排列" },
-          "PLATFORM_STATE_STABLE_FORMED":  { "cn_name": "【阵地】稳固筹码平台" },
-          "CHIP_STATE_HIGHLY_CONCENTRATED":{ "cn_name": "【阵地】筹码高度集中" },
-          "PLATFORM_FAILURE":              { "cn_name": "【阵地风险】筹码平台破位" },
-          "CONTEXT_TREND_DETERIORATING":   { "cn_name": "【阵地风险】整体趋势恶化" },
+          "MA_STATE_PRICE_ABOVE_LONG_MA": {
+            "cn_name": "【阵地】股价站上生命线"
+          },
+          "MA_STATE_STABLE_BULLISH": { "cn_name": "【阵地】均线多头排列" },
+          "PLATFORM_STATE_STABLE_FORMED": { "cn_name": "【阵地】稳固筹码平台" },
+          "CHIP_STATE_HIGHLY_CONCENTRATED": {
+            "cn_name": "【阵地】筹码高度集中"
+          },
+          "PLATFORM_FAILURE": { "cn_name": "【阵地风险】筹码平台破位" },
+          "CONTEXT_TREND_DETERIORATING": {
+            "cn_name": "【阵地风险】整体趋势恶化"
+          },
           "comment_dynamic": "--- 动能信号 (Dynamic) ---",
-          "DYN_TREND_HEALTHY_ACCELERATING": { "cn_name": "【动能S级】健康加速" },
-          "DYN_TREND_MATURE_STABLE":        { "cn_name": "【动能A级】成熟稳定" },
-          "CHIP_RAPID_CONCENTRATION":       { "cn_name": "【动能】筹码加速集中" },
-          "DYN_TREND_WEAKENING_DECELERATING": { "cn_name": "【动能风险S级】动能衰减" },
-          "DYN_TREND_BEARISH_ACCELERATING":   { "cn_name": "【动能风险A级】下跌加速" },
-          "CHIP_DISPERSION_RISK":           { "cn_name": "【动能风险】筹码开始发散" },
+          "DYN_TREND_HEALTHY_ACCELERATING": {
+            "cn_name": "【动能S级】健康加速"
+          },
+          "DYN_TREND_MATURE_STABLE": { "cn_name": "【动能A级】成熟稳定" },
+          "CHIP_RAPID_CONCENTRATION": { "cn_name": "【动能】筹码加速集中" },
+          "DYN_TREND_WEAKENING_DECELERATING": {
+            "cn_name": "【动能风险S级】动能衰减"
+          },
+          "DYN_TREND_BEARISH_ACCELERATING": {
+            "cn_name": "【动能风险A级】下跌加速"
+          },
+          "CHIP_DISPERSION_RISK": { "cn_name": "【动能风险】筹码开始发散" },
           "comment_trigger": "--- 触发信号 (Trigger) ---"
         },
         "positional_scoring": {
@@ -176,7 +261,8 @@
             "CAPITAL_STRUCT_BULLISH_DIVERGENCE": 100
           },
           "negative_signals": {
-            "CONTEXT_TREND_DETERIORATING": -200, "PLATFORM_FAILURE": -250
+            "CONTEXT_TREND_DETERIORATING": -200,
+            "PLATFORM_FAILURE": -250
           }
         },
         "dynamic_scoring": {
@@ -193,6 +279,11 @@
             "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": -100
           }
         },
+        "cognitive_pattern_scoring": {
+          "COGNITIVE_PATTERN_HIGH_CONTROL_MARKUP": 150,
+          "COGNITIVE_PATTERN_BULL_FLAG": 80,
+          "COGNITIVE_PATTERN_ABYSS_REVERSAL": 120
+        },
         "penalty_signals": {
           "说明": "【V217.0 罪责相适应版】刑法法典。为不同严重程度的罪行，设定了独立的罪名和罚分。",
           "RISK_COST_BASIS_COLLAPSE": -500,
@@ -204,9 +295,12 @@
         },
         "trigger_events": {
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
-          "TRIGGER_DOMINANT_REVERSAL": 80, "TRIGGER_CHIP_IGNITION": 120,
-          "TRIGGER_ENERGY_RELEASE": 70, "TRIGGER_BREAKOUT_CANDLE": 60,
-          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80, "VOL_BREAKOUT_FROM_SQUEEZE": 120
+          "TRIGGER_DOMINANT_REVERSAL": 80,
+          "TRIGGER_CHIP_IGNITION": 120,
+          "TRIGGER_ENERGY_RELEASE": 70,
+          "TRIGGER_BREAKOUT_CANDLE": 60,
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80,
+          "VOL_BREAKOUT_FROM_SQUEEZE": 120
         },
         "chip_dynamics_amplifier": {
           "enabled": true,
@@ -236,34 +330,68 @@
         "DEEP_ACCUMULATION": {
           "说明": "S级菜肴：深度吸筹区。目标是找到最可能成为主升浪起点的吸筹末期。",
           "must_have": { "MA_STATE_CONVERGING": 30 },
-          "any_of_must_have": { "VOL_STATE_SQUEEZE_WINDOW": 50, "CHIP_STATE_HIGHLY_CONCENTRATED": 50 },
-          "bonus": { "MA_STATE_W_STABILIZING": 40, "CAPITAL_EVENT_SLOPE_CROSS": 40, "CHIP_STATE_ACCUMULATION": 30, "VOL_EVENT_SQUEEZE": 20 }
+          "any_of_must_have": {
+            "VOL_STATE_SQUEEZE_WINDOW": 50,
+            "CHIP_STATE_HIGHLY_CONCENTRATED": 50
+          },
+          "bonus": {
+            "MA_STATE_W_STABILIZING": 40,
+            "CAPITAL_EVENT_SLOPE_CROSS": 40,
+            "CHIP_STATE_ACCUMULATION": 30,
+            "VOL_EVENT_SQUEEZE": 20
+          }
         },
         "CAPITULATION_PIT": {
           "说明": "【V65.0 重构版】投降坑。专门识别价格超卖+获利盘低+筹码发散的'混乱之底'。",
           "enabled": { "value": true },
-          "must_have_score": { "value": 40, "说明": "满足核心条件(价格负向乖离)的基础分。" },
-          "bonus_score": { "value": 25, "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。" }
+          "must_have_score": {
+            "value": 40,
+            "说明": "满足核心条件(价格负向乖离)的基础分。"
+          },
+          "bonus_score": {
+            "value": 25,
+            "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。"
+          }
         },
         "HEALTHY_MARKUP": {
           "说明": "A级菜肴：健康主升浪。在V82.0中，其加分项被剧本定义直接消费，此处保留基础定义。",
-          "must_have": { "MA_STATE_PRICE_ABOVE_LONG_MA": 40, "MA_STATE_STABLE_BULLISH": 20 },
-          "bonus": { "CHIP_STATE_MARKUP": 30, "CAPITAL_STATE_INFLOW_CONFIRMED": 30, "VOL_STATE_SHRINKING": 15 }
+          "must_have": {
+            "MA_STATE_PRICE_ABOVE_LONG_MA": 40,
+            "MA_STATE_STABLE_BULLISH": 20
+          },
+          "bonus": {
+            "CHIP_STATE_MARKUP": 30,
+            "CAPITAL_STATE_INFLOW_CONFIRMED": 30,
+            "VOL_STATE_SHRINKING": 15
+          }
         },
         "ENERGY_COMPRESSION": {
           "说明": "B+级菜肴：能量压缩。目标是找到突破的潜在候选者。",
-          "any_of_must_have": { "VOL_STATE_SQUEEZE_WINDOW": 40, "CHIP_STATE_CONCENTRATION_SQUEEZE": 40 },
-          "bonus": { "CHIP_STATE_ACCUMULATION": 30, "MA_STATE_CONVERGING": 20, "VOL_STATE_SHRINKING": 10 }
+          "any_of_must_have": {
+            "VOL_STATE_SQUEEZE_WINDOW": 40,
+            "CHIP_STATE_CONCENTRATION_SQUEEZE": 40
+          },
+          "bonus": {
+            "CHIP_STATE_ACCUMULATION": 30,
+            "MA_STATE_CONVERGING": 20,
+            "VOL_STATE_SHRINKING": 10
+          }
         },
         "WASHOUT_REVERSAL": {
           "说明": "A级菜肴：巨阴洗盘反转。识别主力极端洗盘后的反转机会。",
           "must_have": { "KLINE_STATE_WASHOUT_WINDOW": 50 },
-          "bonus": { "CHIP_STATE_ACCUMULATION": 30, "OSC_STATE_RSI_OVERSOLD": 20 }
+          "bonus": {
+            "CHIP_STATE_ACCUMULATION": 30,
+            "OSC_STATE_RSI_OVERSOLD": 20
+          }
         },
         "N_SHAPE_CONTINUATION": {
           "说明": "A级菜肴：N字板接力。捕捉强势股的趋势中继爆发点。",
           "must_have": { "KLINE_STATE_N_SHAPE_CONSOLIDATION": 60 },
-          "bonus": { "MA_STATE_STABLE_BULLISH": 30, "CAPITAL_STATE_INFLOW_CONFIRMED": 25 }
+          "bonus": {
+            "MA_STATE_STABLE_BULLISH": 30,
+            "CAPITAL_STATE_INFLOW_CONFIRMED": 25
+          }
         },
         "GAP_SUPPORT_PULLBACK": {
           "说明": "B+级菜肴：缺口支撑回踩。在强势趋势中寻找低风险的介入点。",
@@ -279,21 +407,51 @@
       "trigger_event_params": {
         "enabled": true,
         "说明": "【V82.0 净化版】触发事件引擎的参数配置。只保留最核心的K线形态定义。",
-        "panic_reversal_params": { "enabled": { "value": true, "说明": "结构派恐慌反转触发器。" } },
-        "reversal_confirmation_candle": { "enabled": true, "min_pct_change": { "value": 0.03, "说明": "反转确认阳线的最小日涨幅。" } },
-        "breakout_candle": { "enabled": true, "min_body_ratio": { "value": 0.4, "说明": "突破阳线(企稳型)的最小实体占比。" } },
-        "pullback_rebound_trigger_params": { "enabled": true, "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" } },
-        "trend_continuation_candle": { "enabled": { "value": true }, "lookback_period": { "value": 8, "说明": "判断收盘价是否创近期新高的回看周期。" } }
+        "panic_reversal_params": {
+          "enabled": { "value": true, "说明": "结构派恐慌反转触发器。" }
+        },
+        "reversal_confirmation_candle": {
+          "enabled": true,
+          "min_pct_change": {
+            "value": 0.03,
+            "说明": "反转确认阳线的最小日涨幅。"
+          }
+        },
+        "breakout_candle": {
+          "enabled": true,
+          "min_body_ratio": {
+            "value": 0.4,
+            "说明": "突破阳线(企稳型)的最小实体占比。"
+          }
+        },
+        "pullback_rebound_trigger_params": {
+          "enabled": true,
+          "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" }
+        },
+        "trend_continuation_candle": {
+          "enabled": { "value": true },
+          "lookback_period": {
+            "value": 8,
+            "说明": "判断收盘价是否创近期新高的回看周期。"
+          }
+        }
       },
       "chip_feature_params": {
         "enabled": true,
         "说明": "【V82.0 净化版】筹码诊断引擎参数。",
         "accumulation_params": {
-          "lookback_days": { "value": 21 }, "required_days_ratio": { "value": 0.6 }, "deep_ratio": { "value": 0.85 }
+          "lookback_days": { "value": 21 },
+          "required_days_ratio": { "value": 0.6 },
+          "deep_ratio": { "value": 0.85 }
         },
-        "capitulation_params": { "winner_rate_threshold": { "value": 8.0, "说明": "定义“投降坑”的总获利盘比例上限(%)。" } },
+        "capitulation_params": {
+          "winner_rate_threshold": {
+            "value": 8.0,
+            "说明": "定义“投降坑”的总获利盘比例上限(%)。"
+          }
+        },
         "structure_params": {
-          "enabled": true, 
+          "enabled": true,
           "high_concentration_threshold": 0.15,
           "slope_tolerance_healthy": 0.001,
           "说明_slope_tolerance_healthy": "定义“健康集中”状态时，允许的筹码发散斜率的最大容忍度。",
@@ -302,56 +460,95 @@
           "winner_rate_collapse_threshold": -1.0,
           "说明_winner_rate_collapse_threshold": "【崩溃共振条件2】获利盘崩溃阈值。5日获利盘斜率低于此值(单位:%)，视为市场信心崩溃。",
           "enable_relative_squeeze": true,
-          "squeeze_window": 120, 
+          "squeeze_window": 120,
           "squeeze_percentile": 0.2
         },
-        "scattered_params": { "enabled": true, "threshold": { "value": 30.0, "说明": "90%成本集中度高于此值(%)，视为筹码极度发散。" } },
-        "ignition_params": { "accel_threshold": { "value": 0.01, "说明": "定义“点火”事件所需的最小成本峰加速度。" } }
+        "scattered_params": {
+          "enabled": true,
+          "threshold": {
+            "value": 30.0,
+            "说明": "90%成本集中度高于此值(%)，视为筹码极度发散。"
+          }
+        },
+        "ignition_params": {
+          "accel_threshold": {
+            "value": 0.01,
+            "说明": "定义“点火”事件所需的最小成本峰加速度。"
+          }
+        }
       },
       "ma_state_params": {
-        "enabled": true, "short_ma": 13, "mid_ma": 21, "long_ma": 55,
-        "converging_zscore": -1.0, "diverging_zscore": 1.0
+        "enabled": true,
+        "short_ma": 13,
+        "mid_ma": 21,
+        "long_ma": 55,
+        "converging_zscore": -1.0,
+        "diverging_zscore": 1.0
       },
       "oscillator_state_params": {
-        "enabled": true, "rsi_overbought": 80, "rsi_oversold": 25,
+        "enabled": true,
+        "rsi_overbought": 80,
+        "rsi_oversold": 25,
         "bias_dynamic_threshold": {
-          "window": { "value": 120, "说明": "计算BIAS历史分位数的滚动窗口期。" },
-          "quantile": { "value": 0.1, "说明": "BIAS值需要低于历史同期的哪个分位数才算'负向乖离'。" }
+          "window": {
+            "value": 120,
+            "说明": "计算BIAS历史分位数的滚动窗口期。"
+          },
+          "quantile": {
+            "value": 0.1,
+            "说明": "BIAS值需要低于历史同期的哪个分位数才算'负向乖离'。"
+          }
         }
       },
       "capital_state_params": {
-        "enabled": true, "cmf_bullish_threshold": 0.05,
+        "enabled": true,
+        "cmf_bullish_threshold": 0.05,
         "divergence_context": { "persistence_days": 15, "trend_ma_period": 55 }
       },
       "volatility_state_params": {
-        "enabled": true, "squeeze_percentile": 0.1, "shrinking_ratio": 0.8,
+        "enabled": true,
+        "squeeze_percentile": 0.1,
+        "shrinking_ratio": 0.8,
         "squeeze_context": { "persistence_days": 10, "volume_break_ratio": 1.5 }
       },
       "kline_pattern_params": {
         "enabled": true,
-        "washout_params": { "enabled": true, "washout_threshold": -0.07, "washout_volume_ratio": 1.5 },
+        "washout_params": {
+          "enabled": true,
+          "washout_threshold": -0.07,
+          "washout_volume_ratio": 1.5
+        },
         "gap_support_params": { "enabled": true, "persistence_days": 10 },
-        "n_shape_params": { "enabled": true, "rally_threshold": 0.097, "consolidation_days_max": 3 }
+        "n_shape_params": {
+          "enabled": true,
+          "rally_threshold": 0.097,
+          "consolidation_days_max": 3
+        }
       },
       "dynamic_box_params": {
-        "enabled": true, "peak_distance": 10, "peak_prominence": 0.02
+        "enabled": true,
+        "peak_distance": 10,
+        "peak_prominence": 0.02
       },
       "final_score_adjustments": {
-        "enabled": { "value": true, "说明": "【V80.0 指挥棒模型】最终得分调整层。" },
+        "enabled": {
+          "value": true,
+          "说明": "【V80.0 指挥棒模型】最终得分调整层。"
+        },
         "multipliers": [
           {
-              "name": "VOLATILITY_SILENCE_MULTIPLIER",
-              "cn_name": "【质量加成】波动极度沉寂",
-              "source_column": "BBW_21_2.0_D",
-              "condition": "is_lowest_percentile",
-              "window": 120,
-              "percentile": 0.1,
-              "adaptive_threshold_config": {
-                  "enabled": true,
-                  "median_window": 250,
-                  "multiplier": 0.5
-              },
-              "multiplier_value": 0.15
+            "name": "VOLATILITY_SILENCE_MULTIPLIER",
+            "cn_name": "【质量加成】波动极度沉寂",
+            "source_column": "BBW_21_2.0_D",
+            "condition": "is_lowest_percentile",
+            "window": 120,
+            "percentile": 0.1,
+            "adaptive_threshold_config": {
+              "enabled": true,
+              "median_window": 250,
+              "multiplier": 0.5
+            },
+            "multiplier_value": 0.15
           },
           {
             "name": "BONUS_HIGH_CONTROL_MARKUP",
@@ -359,16 +556,31 @@
             "source_column": "STRATEGIC_SETUP_HIGH_CONTROL_MARKUP",
             "condition": "is_true",
             "multiplier_value": 0.55
-        }
+          }
         ]
       },
       "wave_tracking_params": {
-        "enabled": { "value": true, "说明": "【V85.0 波段跟踪】启用或禁用波段跟踪模拟器。" },
-        "profit_target_partial": { "value": 0.30, "说明": "触发部分减仓的利润目标比例。" },
-        "trailing_stop_pct": { "value": 0.15, "说明": "从波段最高点回撤多少比例触发移动止损/盈。" },
-        "exit_code_partial": { "value": 77, "说明": "触发部分减仓的中度风险码。" },
+        "enabled": {
+          "value": true,
+          "说明": "【V85.0 波段跟踪】启用或禁用波段跟踪模拟器。"
+        },
+        "profit_target_partial": {
+          "value": 0.3,
+          "说明": "触发部分减仓的利润目标比例。"
+        },
+        "trailing_stop_pct": {
+          "value": 0.15,
+          "说明": "从波段最高点回撤多少比例触发移动止损/盈。"
+        },
+        "exit_code_partial": {
+          "value": 77,
+          "说明": "触发部分减仓的中度风险码。"
+        },
         "exit_code_full": { "value": 99, "说明": "触发完全清仓的高危风险码。" },
-        "life_line_ma": { "value": 21, "说明": "减仓后，作为趋势生命线的EMA周期。" }
+        "life_line_ma": {
+          "value": 21,
+          "说明": "减仓后，作为趋势生命线的EMA周期。"
+        }
       },
       "intraday_entry_params": {
         "说明": "【V117.6 终极统一版】分钟级买入确认引擎配置",
@@ -396,8 +608,8 @@
       },
       "intraday_execution_params": {
         "说明": "【V117.4 适配版】通用盘中预警引擎的配置中心",
-        
-        "enabled": true, 
+
+        "enabled": true,
         "timeframe": "30",
 
         "rules": {
@@ -428,10 +640,10 @@
   "exit_strategy_params": {
     "enabled": true,
     "说明": "【V97.1 风险剧本版】智能出场矩阵，新增了对'下跌中继'剧本的参数支持。",
-    "upthrust_distribution_params": { 
+    "upthrust_distribution_params": {
       "enabled": true,
       "说明": "【V103 关系版】“冲高回落”结构信号的计算参数",
-      "overextension_ma_period": 55, 
+      "overextension_ma_period": 55,
       "overextension_threshold": 0.15,
       "upthrust_lookback_days": 5
     },
@@ -451,12 +663,12 @@
       "min_pct_change": -0.03,
       "high_volume_quantile": 0.75
     },
-    "divergence_exit_params": { 
-        "enabled": false, 
-        "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
-        "lookback_period": 20, 
-        "persistence_days": 5, 
-        "break_ma_period": 10 
+    "divergence_exit_params": {
+      "enabled": false,
+      "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
+      "lookback_period": 20,
+      "persistence_days": 5,
+      "break_ma_period": 10
     },
     "warning_threshold_params": {
       "说明": "【新增】风险预警阈值。当风险分达到此级别但未达到卖出级别时，触发预警。",
@@ -485,7 +697,7 @@
   "risk_veto_params": {
     "enabled": true,
     "说明": "【V98.0 动态否决版】基于攻防力量对比，动态决定是否否决买入信号。",
-    
+
     "risk_tolerance_ratio": 0.3,
     "说明_ratio": "风险容忍系数。允许的风险分 = 买入分 * 此系数。例如0.5代表风险分超过买入分的一半时，才可能被否决。",
 
@@ -495,7 +707,7 @@
   "risk_quantifier_params": {
     "enabled": true,
     "说明": "【V99.0 风险仪表盘】将原始风险指标翻译成 0-100 的直观得分。",
-    
+
     "peak_stability": {
       "cn_name": "主峰根基动摇",
       "source_metric": "peak_stability_slope_5d",
