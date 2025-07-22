@@ -203,17 +203,18 @@
   },
   "strategy_params": {
     "trend_follow": {
+      "说明": "【V238.0 最终整合版】趋势跟踪策略核心模块。已整合所有最新改革，包括三权分立计分、CHIPCON风险系统、以及所有参数和列名的校准。",
       "debug_params": {
         "enabled": { "value": true },
         "verbose_logging": { "value": true },
         "probe_start_date": "2025-03-01"
       },
       "strategy_info": {
-        "name": { "value": "三权分立_V234", "说明": "策略唯一标识名称" }
+        "name": { "value": "CHIPCON核心_V238", "说明": "策略唯一标识名称" }
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V234.0 最终净化版】计分体系。进攻与风险评估彻底分离，权责清晰。",
+        "说明": "【V235.0 CHIPCON版】计分体系。进攻与风险评估彻底分离，风险评估以CHIPCON为核心。",
         "positional_scoring": {
           "说明": "【进攻评估 - 阵地分】评估静态战场优势，只负责加分。",
           "positive_signals": {
@@ -238,24 +239,24 @@
           }
         },
         "risk_scoring": {
-          "说明": "【最高风险裁决所】统一评估所有负面风险信号，计算独立的风险分。",
+          "说明": "【最高风险裁决所】以CHIPCON为核心，统一评估所有风险。",
           "signals": {
-            "说明_S_TIER": "--- S级风险 (一票否决级) ---",
-            "STRUCTURE_BEARISH_CHANNEL_F": 800,
-            "STRUCTURE_TOPPING_DANGER_S": 600,
-            "RISK_COST_BASIS_COLLAPSE": 500,
-            "RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE": 400,
-            "CHIP_FUND_FLOW_CONSENSUS_OUTFLOW": 350,
-            "说明_A_TIER": "--- A级风险 (严重警告级) ---",
-            "PLATFORM_FAILURE": 250,
-            "CONTEXT_TREND_DETERIORATING": 200,
-            "RISK_CONFIDENCE_DETERIORATION": 150,
-            "说明_B_TIER": "--- B级风险 (战术警示级) ---",
-            "DYN_TREND_WEAKENING_DECELERATING": 100,
-            "CHIP_HEALTH_DETERIORATING": 80,
-            "CPA_FALL_WITH_MAIN_FORCE_FLEEING": 60,
-            "CHIP_FUND_FLOW_DIVERGENCE": 50,
-            "CPA_RISE_WITH_RETAIL_FOMO": 40
+            "说明_CHIPCON": "--- 核心戒备等级风险 (CHIPCON-based Risk) ---",
+            "CHIPCON_1_WAR": 1000,
+            "说明_CHIPCON_1": "【战争状态】灾难性溃败，赋予最高风险分，必须无条件离场。",
+            "CHIPCON_2_PRE_WAR": 700,
+            "说明_CHIPCON_2": "【临战状态】高危信号出现，赋予次高风险分，触发战术性离场。",
+            "CHIPCON_3_HIGH_ALERT": 300,
+            "说明_CHIPCON_3": "【高度戒备】明确的恶化趋势，赋予显著风险分，作为强力预警。",
+            "CHIPCON_4_READINESS": 50,
+            "说明_CHIPCON_4": "【常规戒备】轻微不良信号，赋予少量风险分，用于风险累积计算。",
+            "说明_ADDITIONAL": "--- 补充性风险 (用于叠加) ---",
+            "STRUCTURE_TOPPING_DANGER_S": 200,
+            "说明_TOPPING": "顶部背离是独立于CHIPCON的结构性风险，可与CHIPCON风险叠加。",
+            "PLATFORM_FAILURE": 150,
+            "说明_PLATFORM": "关键平台破位是重要的结构性风险，可叠加。",
+            "DYN_TREND_WEAKENING_DECELERATING": 80,
+            "说明_DYN_WEAK": "动能衰减可作为CHIPCON的补充风险信号。"
           }
         },
         "trigger_events": {
@@ -370,6 +371,14 @@
           }
         }
       },
+      "ma_state_params": {
+        "enabled": true,
+        "short_ma": 13,
+        "mid_ma": 21,
+        "long_ma": 55,
+        "converging_zscore": -1.0,
+        "diverging_zscore": 1.0
+      },
       "oscillator_state_params": {
         "enabled": true,
         "rsi_overbought": 80,
@@ -412,113 +421,27 @@
       },
       "dynamic_box_params": {
         "enabled": true,
-        "peak_distance": 10,
-        "peak_prominence": 0.02
+        "lookback_window": 8,
+        "max_amplitude_ratio": 0.05
       },
       "final_score_adjustments": {
-        "enabled": {
-          "value": true,
-          "说明": "【V80.0 指挥棒模型】最终得分调整层。"
-        },
-        "multipliers": [
-          {
-            "name": "VOLATILITY_SILENCE_MULTIPLIER",
-            "cn_name": "【质量加成】波动极度沉寂",
-            "source_column": "BBW_21_2.0_D",
-            "condition": "is_lowest_percentile",
-            "window": 120,
-            "percentile": 0.1,
-            "adaptive_threshold_config": {
-              "enabled": true,
-              "median_window": 250,
-              "multiplier": 0.5
-            },
-            "multiplier_value": 0.15
-          },
-          {
-            "name": "BONUS_HIGH_CONTROL_MARKUP",
-            "cn_name": "【战略加成】高控盘拉升",
-            "source_column": "STRATEGIC_SETUP_HIGH_CONTROL_MARKUP",
-            "condition": "is_true",
-            "multiplier_value": 0.55
-          }
-        ]
-      },
-      "wave_tracking_params": {
-        "enabled": {
-          "value": true,
-          "说明": "【V85.0 波段跟踪】启用或禁用波段跟踪模拟器。"
-        },
-        "profit_target_partial": {
-          "value": 0.3,
-          "说明": "触发部分减仓的利润目标比例。"
-        },
-        "trailing_stop_pct": {
-          "value": 0.15,
-          "说明": "从波段最高点回撤多少比例触发移动止损/盈。"
-        },
-        "exit_code_partial": {
-          "value": 77,
-          "说明": "触发部分减仓的中度风险码。"
-        },
-        "exit_code_full": { "value": 99, "说明": "触发完全清仓的高危风险码。" },
-        "life_line_ma": {
-          "value": 21,
-          "说明": "减仓后，作为趋势生命线的EMA周期。"
-        }
+        "enabled": false,
+        "说明": "【V80.0 指挥棒模型】最终得分调整层。在新的计分体系下，暂时禁用以观察基础分效果。",
+        "multipliers": []
       },
       "intraday_entry_params": {
-        "说明": "【V117.6 终极统一版】分钟级买入确认引擎配置",
         "enabled": false,
         "daily_score_threshold": 100,
         "timeframe": "5",
         "confirmation_rules": {
-          "vwap_reclaim": {
-            "enabled": true
-          },
-          "volume_confirmation": {
-            "enabled": true,
-            "ma_period": 21
-          },
+          "vwap_reclaim": { "enabled": true },
+          "volume_confirmation": { "enabled": true, "ma_period": 21 },
           "volatility_breakout": {
             "enabled": true,
             "squeeze_window": 60,
             "squeeze_percentile": 0.2
-          },
-          "min_time_after_open": 15
-        },
-        "signal_name": "INTRADAY_ENTRY_CONFIRMATION",
-        "playbook_name": "ENTRY_INTRADAY_CONFIRMATION",
-        "bonus_score": 50
-      },
-      "intraday_execution_params": {
-        "说明": "【V117.4 适配版】通用盘中预警引擎的配置中心",
-
-        "enabled": true,
-        "timeframe": "30",
-
-        "rules": {
-          "upthrust_rejection": {
-            "enabled": true,
-            "alert_playbook_name": "EXIT_INTRADAY_UPTHRUST_REJECTION",
-            "alert_code": 103,
-            "severity_level": 3
-          },
-          "sharp_pullback_confirmation": {
-            "enabled": true,
-            "alert_playbook_name": "EXIT_INTRADAY_PULLBACK_FAILED",
-            "alert_code": 104,
-            "severity_level": 3
           }
         }
-      },
-      "alpha_hunter_params": {
-        "enabled": true,
-        "min_duration_days": 3,
-        "min_total_gain_pct": 15.0,
-        "pre_days_lookback": 30,
-        "activation_window_days": 2,
-        "output_dir": "alpha_hunter_reports"
       }
     }
   },

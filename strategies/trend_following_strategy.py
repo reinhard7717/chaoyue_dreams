@@ -159,7 +159,7 @@ class TrendFollowStrategy:
         is_long_ma_slope_negative = df.get('SLOPE_21_EMA_55_D', 0) < 0
         is_short_ma_slope_negative = df.get('SLOPE_5_EMA_13_D', 0) < 0
         is_long_ma_accel_negative = df.get('ACCEL_21_EMA_55_D', 0) < 0
-        is_long_chip_slope_negative = df.get('CHIP_peak_cost_slope_55d_D', 0) < 0
+        is_long_chip_slope_negative = df.get('peak_cost_slope_55d_D', 0) < 0
         unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
         return unconditional_deterioration & ~is_in_divergence_window
 
@@ -1279,8 +1279,8 @@ class TrendFollowStrategy:
             states['CAPITAL_STATE_DIVERGENCE_WINDOW'] = price_new_high & cmf_not_new_high & is_uptrend
 
         # --- 作战单元2: 【王牌】新型资本结构诊断 (基于主力/散户资金) ---
-        main_force_col = 'CHIP_main_force_net_inflow_volume_D'
-        retail_col = 'CHIP_retail_net_inflow_volume_D'
+        main_force_col = 'main_force_net_inflow_amount_D'
+        retail_col = 'retail_net_inflow_volume_D'
         # 检查情报是否送达
         if all(c in df.columns for c in [main_force_col, retail_col]):
             print("          -> [情报确认] 主力/散户资金数据已接收，开始结构分析...")
@@ -1392,7 +1392,7 @@ class TrendFollowStrategy:
         # c. 长期均线加速度（趋势动能）
         is_long_ma_accel_negative = df.get('ACCEL_55_EMA_55_D', 0) < 0
         # d. 长期筹码成本趋势（主力成本）
-        is_long_chip_slope_negative = df.get('CHIP_peak_cost_slope_55d_D', 0) < 0
+        is_long_chip_slope_negative = df.get('peak_cost_slope_55d_D', 0) < 0
         # 2. 定义“无条件恶化”状态
         # 必须所有战略指标协同转弱，才是不可逆的恶化
         unconditional_deterioration = (
@@ -2069,7 +2069,7 @@ class TrendFollowStrategy:
         window = self._get_param_value(amp_params.get('lookback_window'), 250)
         
         # 计算兵种1(筹码)的乘数
-        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
+        conc_slope_col = 'concentration_90pct_slope_5d_D'
         conc_multiplier = pd.Series(1.0, index=df.index)
         if conc_slope_col in df.columns:
             conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
@@ -2078,7 +2078,7 @@ class TrendFollowStrategy:
                 conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
         
         # 计算兵种2(成本)的乘数
-        cost_slope_col = 'SLOPE_5_CHIP_peak_cost_D'
+        cost_slope_col = 'SLOPE_5_peak_cost_D'
         cost_multiplier = pd.Series(1.0, index=df.index)
         if cost_slope_col in df.columns:
             cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
@@ -2467,10 +2467,10 @@ class TrendFollowStrategy:
         record['triggered_playbooks_cn'] = triggered_risks_cn
         
         context = record['context_snapshot']
-        context['cost_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_peak_cost_D')) else None
-        context['winner_rate_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_total_winner_rate_D')) else None
-        context['peak_stability_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_peak_stability_D')) else None
-        context['pressure_above_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_CHIP_pressure_above_D')) else None
+        context['cost_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_peak_cost_D')) else None
+        context['winner_rate_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_total_winner_rate_D')) else None
+        context['peak_stability_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_peak_stability_D')) else None
+        context['pressure_above_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_pressure_above_D')) else None
         record['context_snapshot'] = sanitize_for_json(context) # sanitize_for_json 仍然保留，用于处理其他JSON不支持的类型
 
     # ─> 风险量化局 (Risk Quantifier Bureau)
@@ -2634,14 +2634,14 @@ class TrendFollowStrategy:
                 
                 # ▼▼▼【代码修改 V227.0】: 更新审查流程和情报代号 ▼▼▼
                 # 审查罪名 1: 成本基石崩溃罪 (RISK_COST_BASIS_COLLAPSE)
-                cost_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_peak_cost_D', 'N/A')
+                cost_slope = df.loc[probe_ts].get('SLOPE_5_peak_cost_D', 'N/A')
                 # 从情报总局档案库中，调取正确的裁决结果
                 cost_collapse_triggered = atomic_states.get('RISK_COST_BASIS_COLLAPSE', pd.Series(False, index=df.index)).loc[probe_ts]
                 print(f"  - [罪名1] RISK_COST_BASIS_COLLAPSE: {cost_collapse_triggered}")
                 print(f"    - 定罪依据 (成本斜率): {cost_slope:.4f} (阈值 < -0.01)")
 
                 # 审查罪名 2: 市场信心恶化罪 (RISK_CONFIDENCE_DETERIORATION)
-                winner_slope = df.loc[probe_ts].get('SLOPE_5_CHIP_total_winner_rate_D', 'N/A')
+                winner_slope = df.loc[probe_ts].get('SLOPE_5_total_winner_rate_D', 'N/A')
                 is_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', pd.Series(False, index=df.index)).loc[probe_ts]
                 # 调取正确的裁决结果
                 confidence_collapse_triggered = atomic_states.get('RISK_CONFIDENCE_DETERIORATION', pd.Series(False, index=df.index)).loc[probe_ts]
@@ -2966,9 +2966,9 @@ class TrendFollowStrategy:
                     'open_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
                     'signal_entry', 'entry_score', 'risk_score', 'EMA_21_D', 'EMA_55_D', 
                     'EMA_89_D', 'MACD_13_34_8_D', 'MACDh_13_34_8_D', 'MACDs_13_34_8_D',
-                    'CHIP_peak_cost_D', 'CHIP_winner_rate_short_term_D', 'CHIP_concentration_90pct_D',
+                    'peak_cost_D', 'winner_rate_short_term_D', 'concentration_90pct_D',
                     'net_mf_amount_D', 'buy_elg_amount_D', 'sell_elg_amount_D',
-                    'SLOPE_5_close_D', 'ACCEL_5_close_D', 'CHIP_concentration_90pct_slope_5d_D',
+                    'SLOPE_5_close_D', 'ACCEL_5_close_D', 'concentration_90pct_slope_5d_D',
                     'analysis_period'
                 ]
                 
