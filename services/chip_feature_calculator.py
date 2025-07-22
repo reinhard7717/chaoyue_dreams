@@ -215,63 +215,86 @@ class ChipFeatureCalculator:
 
     def _calculate_fund_flow_metrics(self) -> dict:
         """
-        【V5.0 三源合一版】
-        - 核心升级: 实现“内部评估、外部确认、最终裁决”的三层交叉验证体系。
-        - 算法: 1. 基于最原始的交易所数据(CY)计算我军的“内部评估”结果。
-                 2. 引入同花顺(THS)和东方财富(DC)的数据作为“外部参照”。
-                 3. 当三方结论一致时，生成高置信度的“共识”信号。
-                 4. 当三方结论不一时，生成有价值的“分歧”信号。
+        【V6.1 全天候作战版】
+        - 核心升级: 采用弹性融合逻辑，智能处理外部数据源缺失问题。
+        - 算法:
+          1. 永远以最可靠的交易所数据(CY)为基准。
+          2. 检查同花顺(THS)和东方财富(DC)数据是否有效(非None,非NaN)。
+          3. 统计有效数据源的数量(1-3个)。
+          4. 基于有效数据源，重新定义“共识”与“分歧”：
+             - 共识: 至少有2个有效源，且它们的判断完全一致。
+             - 分歧: 至少有2个有效源，且它们的判断不一致。
+             - 单一信源: 只有1个有效源时，不产生共识或分歧信号。
         """
-        # --- 1. 内部评估 (基于交易所原始数据) ---
+        # --- 1. 内部评估 (基准数据) ---
         cy_keys = [
-            'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
-            'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
-            'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
-            'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
+            'buy_lg_amount', 'buy_elg_amount', 'sell_lg_amount', 'sell_elg_amount',
+            'buy_sm_vol', 'buy_md_vol', 'sell_sm_vol', 'sell_md_vol'
         ]
-        # 如果缺少最核心的交易所数据，则无法进行任何计算
+        # 如果连最核心的交易所数据都没有，则直接放弃
         if not all(pd.notna(self.ctx.get(key)) for key in cy_keys):
             trade_date_str = self.ctx.get('trade_time', '未知日期')
             print(f"调试信息: [{trade_date_str}] 缺少核心交易所资金流数据，跳过所有资金流指标计算。")
             return {}
 
+        # 计算内部评估结果
         main_force_buy_amount = float(self.ctx.get('buy_lg_amount', 0)) + float(self.ctx.get('buy_elg_amount', 0))
         main_force_sell_amount = float(self.ctx.get('sell_lg_amount', 0)) + float(self.ctx.get('sell_elg_amount', 0))
-        internal_main_force_net_amount = (main_force_buy_amount - main_force_sell_amount) * 10000  # 转换为元
+        internal_main_force_net_amount = (main_force_buy_amount - main_force_sell_amount) * 10000
 
         retail_buy_vol = float(self.ctx.get('buy_sm_vol', 0)) + float(self.ctx.get('buy_md_vol', 0))
         retail_sell_vol = float(self.ctx.get('sell_sm_vol', 0)) + float(self.ctx.get('sell_md_vol', 0))
-        internal_retail_net_volume = (retail_buy_vol - retail_sell_vol) * 100  # 转换为股
+        internal_retail_net_volume = (retail_buy_vol - retail_sell_vol) * 100
 
-        # --- 2. 外部参照 (获取同花顺与东财的公开情报) ---
-        # 注意：预计算任务需要确保这些字段已合并到 context 中
-        ths_net_amount = float(self.ctx.get('ths_buy_lg_amount', 0)) # 同花顺大单净额
-        dc_net_amount = float(self.ctx.get('dc_net_amount', 0))     # 东方财富主力净额
+        # --- 2. 外部参照与有效性检查 ---
+        # 获取外部数据，如果不存在或为NaN，则为None
+        ths_net_amount = self.ctx.get('ths_buy_lg_amount')
+        dc_net_amount = self.ctx.get('dc_net_amount')
+        
+        # 检查数据有效性 (pd.notna可以正确处理None和NaN)
+        is_cy_valid = True # 运行到这里，CY必然有效
+        is_ths_valid = pd.notna(ths_net_amount)
+        is_dc_valid = pd.notna(dc_net_amount)
 
-        # --- 3. 最终裁决 (融合三方情报，生成共识与分歧信号) ---
-        # 获取三方对主力资金流向的判断 (-1: 流出, 0: 平, 1: 流入)
-        cy_sign = np.sign(internal_main_force_net_amount)
-        ths_sign = np.sign(ths_net_amount)
-        dc_sign = np.sign(dc_net_amount)
+        # --- 3. 弹性融合裁决 ---
+        # 存储所有有效源的判断符号 (-1, 0, 1)
+        valid_signs = []
+        if is_cy_valid:
+            valid_signs.append(np.sign(internal_main_force_net_amount))
+        if is_ths_valid:
+            valid_signs.append(np.sign(float(ths_net_amount)))
+        if is_dc_valid:
+            valid_signs.append(np.sign(float(dc_net_amount)))
         
-        # 共识性流入：三方都判断为净流入
-        consensus_inflow = (cy_sign > 0 and ths_sign > 0 and dc_sign > 0)
-        
-        # 共识性流出：三方都判断为净流出
-        consensus_outflow = (cy_sign < 0 and ths_sign < 0 and dc_sign < 0)
-        
-        # 分歧：三方判断不完全一致 (排除了全流入、全流出、全为0的情况)
-        sign_sum = cy_sign + ths_sign + dc_sign
-        divergence = not (abs(sign_sum) == 3 or sign_sum == 0)
+        source_count = len(valid_signs)
+        consensus_inflow = False
+        consensus_outflow = False
+        divergence = False
+
+        # 只有当有效数据源大于等于2个时，才可能产生“共识”或“分歧”
+        if source_count >= 2:
+            # 检查所有有效源的判断是否完全一致
+            is_all_same = all(s == valid_signs[0] for s in valid_signs)
+            
+            if is_all_same:
+                # 如果判断一致，则根据方向确定是共识流入还是共识流出
+                if valid_signs[0] > 0:
+                    consensus_inflow = True
+                elif valid_signs[0] < 0:
+                    consensus_outflow = True
+            else:
+                # 如果判断不一致，则标记为分歧
+                divergence = True
 
         return {
             # 内部评估结果
             'main_force_net_inflow_amount': internal_main_force_net_amount,
             'retail_net_inflow_volume': internal_retail_net_volume,
-            # 外部参照数据
-            'ths_main_force_net_amount': ths_net_amount,
-            'dc_main_force_net_amount': dc_net_amount,
+            # 外部参照数据 (即使无效也存储None)
+            'ths_main_force_net_amount': float(ths_net_amount) if is_ths_valid else None,
+            'dc_main_force_net_amount': float(dc_net_amount) if is_dc_valid else None,
             # 最终融合信号
+            'fund_flow_data_source_count': source_count,
             'consensus_main_force_inflow': consensus_inflow,
             'consensus_main_force_outflow': consensus_outflow,
             'fund_flow_divergence': divergence,

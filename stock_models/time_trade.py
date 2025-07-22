@@ -1164,6 +1164,7 @@ class AdvancedChipMetrics(models.Model):
     ths_main_force_net_amount = models.FloatField(verbose_name='同花顺主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自同花顺的公开数据，反映市场共识。")
     dc_main_force_net_amount = models.FloatField(verbose_name='东方财富主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自东方财富的公开数据，反映市场共识。")
     # 6.3 融合裁决 (最终高置信度信号)
+    fund_flow_data_source_count = models.IntegerField(verbose_name='资金流有效源数量', null=True, blank=True, help_text="当天可用的资金流数据源总数(1-3)。")
     consensus_main_force_inflow = models.BooleanField(verbose_name='共识性主力流入', default=False, help_text="三大数据源(内部,同花顺,东财)是否均显示主力资金净流入。")
     consensus_main_force_outflow = models.BooleanField(verbose_name='共识性主力流出', default=False, help_text="三大数据源是否均显示主力资金净流出。")
     fund_flow_divergence = models.BooleanField(verbose_name='资金流向分歧', default=False, help_text="三大数据源对主力资金流向的判断是否不一致，可能暗示主力在进行欺骗性操作。")
