@@ -92,7 +92,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V181.0 后勤线总动员版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
+      "说明": "【V236.0 军火规格修复版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
       "series_to_slope": {
         "close_D": [5],
         "EMA_13_D": [5, 13],
@@ -100,12 +100,14 @@
         "EMA_89_D": [10],
         "EMA_105_D": [25],
         "EMA_21_W": [5, 13],
-        "CHIP_peak_cost_D": [5, 8, 21, 55],
-        "CHIP_concentration_90pct_D": [5],
-        "CHIP_total_winner_rate_D": [5, 21],
-        "CHIP_peak_stability_D": [5, 21],
-        "CHIP_peak_percent_D": [5],
-        "CHIP_pressure_above_D": [5]
+
+        "说明_CHIP": "--- 以下为筹码相关指标，注意已移除CHIP_前缀 ---",
+        "peak_cost_D": [5, 8, 21, 55],
+        "concentration_90pct_D": [5],
+        "total_winner_rate_D": [5, 21],
+        "peak_stability_D": [5, 21],
+        "peak_percent_D": [5],
+        "pressure_above_D": [5]
       }
     }
   },

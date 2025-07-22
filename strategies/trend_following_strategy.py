@@ -942,34 +942,33 @@ class TrendFollowStrategy:
     #    -> 总参谋长: _diagnose_chip_intelligence()
     def _diagnose_chip_intelligence(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V234.0 最终净化版 - 筹码情报总参谋部】
-        - 核心职责: 作为策略中唯一的“旧筹码”诊断入口，负责将基础筹码指标（CHIP_前缀）
-                    转化为战术级的“原子状态”和“触发事件”。
-        - 职能边界: 此方法【不】处理 AdvancedChipMetrics 的高级指标，以保证职责清晰。
-        - 核心净化: 清理了对已废弃参数块的调用，所有参数统一从 `chip_feature_params` 中获取，
-                    并移除了已被更高层级战局信号取代的冗余逻辑。
+        【V236.0 军火规格修复版 - 筹码情报总参谋部】
+        - 核心修复: 全面更新了所有引用的列名，移除了所有 'CHIP_' 前缀，并确保
+                    所有斜率和加速度列的名称与数据层的新命名规范完全一致。
+        - 内部结构: 按职能划分为四个核心作战单元，统一指挥、统一输出。
         - 输出: 返回一个包含所有筹码“状态”的字典和一个包含所有筹码“触发事件”的字典。
         """
-        print("        -> [筹码情报总参谋部 V234.0] 启动...")
-        
-        # --- 0. 初始化与战前准备 ---
+        print("        -> [筹码情报总参谋部 V236.0] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
 
-        # 获取总的筹码参数配置
+        # 从配置中获取筹码特征参数
         p = self._get_params_block(params, 'chip_feature_params', {})
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码情报总参谋部被禁用，跳过。")
             return states, triggers
 
-        # 严格检查所需的数据列（军需物资），如果缺少则直接中止，防止后续计算出错
+        # --- 0. 战前准备：按新版《武器命名条例》检查装备 ---
+        # 定义所有必需的列名，这些列名是后续所有诊断的基础
         required_cols = [
-            'CHIP_concentration_90pct_D', 'CHIP_concentration_90pct_slope_5d_D',
-            'SLOPE_5_CHIP_peak_cost_D', 'SLOPE_5_CHIP_total_winner_rate_D',
-            'SLOPE_5_CHIP_peak_stability_D', 'SLOPE_5_CHIP_peak_percent_D',
-            'SLOPE_5_CHIP_pressure_above_D', 'CHIP_peak_cost_accel_5d_D'
+            'concentration_90pct_D', 'concentration_90pct_slope_5d_D',
+            'SLOPE_5_peak_cost_D', 'SLOPE_5_total_winner_rate_D',
+            'SLOPE_5_peak_stability_D', 'SLOPE_5_peak_percent_D',
+            'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D'
         ]
+
+        # 检查数据层是否提供了所有必需的列
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
@@ -978,14 +977,16 @@ class TrendFollowStrategy:
         # --- 1. 结构与稳定司 (Structure & Stability) ---
         # 核心职责: 负责分析筹码的静态结构，如集中度、平台价格、稳定性。
         p_struct = p.get('structure_params', {})
-        conc_col = 'CHIP_concentration_90pct_D'
-        conc_slope_col = 'CHIP_concentration_90pct_slope_5d_D'
         
-        # 状态：筹码高度集中 (绝对阈值)
+        conc_col = 'concentration_90pct_D'
+        conc_slope_col = 'concentration_90pct_slope_5d_D'
+        
+        # 状态：筹码高度集中 (绝对值判断)
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = df[conc_col] < conc_thresh_abs
+        slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001)
+        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = (df[conc_col] < conc_thresh_abs) & (df[conc_slope_col] <= slope_tolerance_healthy)
         
-        # 状态：筹码集中度压缩 (相对阈值，即近期最低)
+        # 状态：筹码集中度压缩 (相对值判断，即与自身历史比)
         if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
             squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
             squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
@@ -999,30 +1000,31 @@ class TrendFollowStrategy:
             states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)
 
         # --- 2. 动态与动能司 (Dynamics & Momentum) ---
-        # 核心职责: 负责分析筹码的动态变化，如成本斜率、集中度斜率，并生成动能信号。
+        # 核心职责: 负责分析筹码的动态变化，如成本斜率、集中度斜率、加速度，并生成动能和事件信号。
         
         # 动能信号：获利盘加速
-        winner_rate_slope_col = 'SLOPE_5_CHIP_total_winner_rate_D'
+        winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
         states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = df.get(winner_rate_slope_col, 0) > 2.0
-
-        # 动能信号：筹码峰正在被夯实 (稳定度和占比同时增加)
-        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df['SLOPE_5_CHIP_peak_stability_D'] > 0) & (df['SLOPE_5_CHIP_peak_percent_D'] > 0)
+        
+        # 动能信号：筹码峰正在被夯实 (稳定度和占比都在增加)
+        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df['SLOPE_5_peak_stability_D'] > 0) & (df['SLOPE_5_peak_percent_D'] > 0)
         
         # 动能信号：上方套牢盘快速消化
-        states['CHIP_STATE_PRESSURE_DISSOLVING'] = df['SLOPE_5_CHIP_pressure_above_D'] < 0
+        states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df['SLOPE_5_pressure_above_D'] < 0)
         
-        # 动能信号：筹码快速集中 (从 p_struct 中获取统一的阈值)
+        # 动能信号：筹码快速集中
         rapid_concentration_threshold = self._get_param_value(p_struct.get('rapid_concentration_threshold'), -0.005)
         states['CHIP_RAPID_CONCENTRATION'] = df.get(conc_slope_col, 0) < rapid_concentration_threshold
 
         # --- 3. 风险与司法司 (Risk & Adjudication) ---
         # 核心职责: 专门生成供总指挥部进行司法裁决的“原始风险情报”。
-        cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
-        winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
         
         # 原始风险信号：成本中枢崩溃
-        states['RAW_SIGNAL_COST_COLLAPSE'] = df.get('SLOPE_5_CHIP_peak_cost_D', 0) < cost_collapse_threshold
-        # 原始风险信号：市场信心崩溃
+        cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
+        states['RAW_SIGNAL_COST_COLLAPSE'] = df.get('SLOPE_5_peak_cost_D', 0) < cost_collapse_threshold
+        
+        # 原始风险信号：市场信心崩溃 (获利盘快速蒸发)
+        winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
         states['RAW_SIGNAL_WINNER_RATE_COLLAPSE'] = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
 
         # --- 4. 特种事件部队 (Special Events) ---
@@ -1030,10 +1032,10 @@ class TrendFollowStrategy:
         p_ignition = p.get('ignition_params', {})
         if self._get_param_value(p_ignition.get('enabled'), True):
             accel_threshold = self._get_param_value(p_ignition.get('accel_threshold'), 0.01)
-            # “点火”是一个瞬时事件，应归入 triggers 字典
-            triggers['TRIGGER_CHIP_IGNITION'] = df.get('CHIP_peak_cost_accel_5d_D', 0) > accel_threshold
+            # 触发事件：筹码点火 (成本峰值开始加速上移)
+            triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
-        print("        -> [筹码情报总参谋部 V234.0] 诊断完成。")
+        print("        -> [筹码情报总参谋部 V236.0] 诊断完成。")
         return states, triggers
 
     def _diagnose_chip_price_action(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -1484,68 +1486,64 @@ class TrendFollowStrategy:
     #    -> (下辖): 平台引力侦察模块: _diagnose_platform_states()
     def _diagnose_platform_states(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V129.0 平台时效性与相关性版】
-        - 核心重构: 彻底重写平台诊断逻辑，引入“时效性”和“相关性”双重约束。
-        - 新逻辑:
-          1. (稳定性) 保持原有逻辑：计算筹码成本的归一化标准差，判断成本是否稳定。
-          2. (相关性) 新增约束：要求当前收盘价必须在平台成本的一定范围(如±5%)内，
-             确保平台对当前价格有实际的“引力作用”。
-          3. (时效性) 废除ffill()：只有在当天同时满足“稳定性”和“相关性”时，
-             才认为平台有效，并记录其价格。这从根本上解决了平台“永不过期”的问题。
-        - 收益: 使得“稳固筹码平台”成为一个真正稀缺、高价值的战术信号，极大地提升了其可靠性。
+        【V129.2 健壮部署版 - 筹码平台诊断模块】
+        - 核心修复: 修正了对筹码和价格列的引用，不再使用错误的 'CHIP_' 前缀，
+                    确保能够正确从数据层获取 'peak_cost_D' 和 'close_D'。
+        - 功能增强: 增加了更详细的日志输出和更强的防御性编程，确保在缺少数据时
+                    能够优雅地处理并返回标准化的空结果，防止下游模块出错。
         """
-        print("        -> [诊断模块 V129.0] 正在执行筹码平台状态诊断...")
+        print("        -> [诊断模块 V129.2] 正在执行筹码平台状态诊断...")
         states = {}
-        df_copy = df.copy()
-        default_series = pd.Series(False, index=df_copy.index)
+        default_series = pd.Series(False, index=df.index)
 
-        p = self._get_params_block(params, 'platform_state_params', {})
-        if not self._get_param_value(p.get('enabled'), True):
-            print("          -> 筹码平台诊断模块被禁用，跳过。")
-            df_copy['PLATFORM_PRICE_STABLE'] = np.nan
-            states['PLATFORM_STATE_STABLE_FORMED'] = default_series
-            return df_copy, states
-
-        cost_col = 'CHIP_peak_cost_D'
+        # --- 步骤1: 检查核心数据是否存在 ---
+        peak_cost_col = 'peak_cost_D'
         close_col = 'close_D'
-        if cost_col not in df_copy.columns or close_col not in df_copy.columns:
-            print(f"          -> [警告] 缺少列 '{cost_col}' 或 '{close_col}'，无法诊断平台状态。")
-            df_copy['PLATFORM_PRICE_STABLE'] = np.nan
+        long_ma_col = 'EMA_55_D' # 平台必须位于长期均线上方才有意义
+        
+        required_cols = [peak_cost_col, close_col, long_ma_col]
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"          -> [警告] 缺少诊断平台状态所需的核心列: {missing}。模块将返回空结果。")
+            # 即使失败，也要确保返回标准化的输出结构，防止下游模块调用失败
+            df['PLATFORM_PRICE_STABLE'] = np.nan
             states['PLATFORM_STATE_STABLE_FORMED'] = default_series
-            return df_copy, states
+            states['PLATFORM_FAILURE'] = default_series
+            return df, states
 
-        # --- 参数获取 ---
-        stability_window = self._get_param_value(p.get('stability_window'), 10)
-        stability_threshold = self._get_param_value(p.get('stability_threshold_ratio'), 0.01)
-        # 新增：价格相关性阈值
-        relevance_threshold = self._get_param_value(p.get('price_relevance_threshold'), 0.05) # 价格偏离平台成本5%即认为无关
+        # --- 步骤2: 定义并计算“稳固平台形成”状态 ---
+        # 条件A: 筹码峰成本在短期内高度稳定 (滚动5日的标准差/均值 < 2%)
+        is_cost_stable = (df[peak_cost_col].rolling(5).std() / df[peak_cost_col].rolling(5).mean()) < 0.02
+        
+        # 条件B: 当前价格位于长期趋势均线之上，确保平台处于上升趋势中
+        is_above_long_ma = df[close_col] > df[long_ma_col]
+        
+        # 组合成最终的“稳固平台形成”状态
+        stable_formed_series = is_cost_stable & is_above_long_ma
+        states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
+        
+        # --- 步骤3: 将有效的平台价格记录下来，供后续模块使用 ---
+        # 只有在平台形成当天，才记录下当天的平台价格，否则为NaN
+        df['PLATFORM_PRICE_STABLE'] = df[peak_cost_col].where(stable_formed_series)
+        
+        # --- 步骤4: 定义并计算“平台破位”风险 ---
+        # 条件A: 昨日处于稳固平台之上
+        was_on_platform = stable_formed_series.shift(1).fillna(False)
+        
+        # 条件B: 今日收盘价跌破了昨日的平台价格
+        # 使用 ffill() 填充平台价格，以处理平台形成后、破位前的那些天
+        stable_platform_price_series = df['PLATFORM_PRICE_STABLE'].ffill()
+        is_breaking_down = df[close_col] < stable_platform_price_series.shift(1)
+        
+        # 组合成最终的“平台破位”风险信号
+        platform_failure_series = was_on_platform & is_breaking_down
+        states['PLATFORM_FAILURE'] = platform_failure_series
 
-        # --- 过滤一: 稳定性 (Stability) ---
-        rolling_std = df_copy[cost_col].rolling(window=stability_window).std()
-        rolling_mean = df_copy[cost_col].rolling(window=stability_window).mean()
-        normalized_std = (rolling_std / rolling_mean).fillna(1.0)
-        is_cost_stable = normalized_std < stability_threshold
-        
-        # --- 过滤二: 相关性 (Relevance) ---
-        # 计算价格与平台成本的偏离度
-        price_deviation_ratio = abs(df_copy[close_col] / df_copy[cost_col] - 1)
-        is_price_relevant = price_deviation_ratio < relevance_threshold
+        # --- 步骤5: 打印诊断日志 ---
+        print(f"          -> '稳固平台形成' 状态诊断完成，共激活 {stable_formed_series.sum()} 天。")
+        print(f"          -> '平台破位' 风险诊断完成，共激活 {platform_failure_series.sum()} 天。")
 
-        # --- 过滤三: 时效性 (Timeliness) ---
-        # 最终的平台形成状态 = 稳定性 AND 相关性
-        # 只有在当天同时满足这两个条件，才认为平台是“活的”
-        is_platform_alive = is_cost_stable & is_price_relevant
-        
-        # 不再使用ffill()，只在平台“存活”的当天记录其价格
-        df_copy['PLATFORM_PRICE_STABLE'] = df_copy[cost_col].where(is_platform_alive, np.nan)
-        
-        # 状态字典也基于“存活”状态
-        states['PLATFORM_STATE_STABLE_FORMED'] = is_platform_alive.fillna(False)
-        
-        # if states['PLATFORM_STATE_STABLE_FORMED'].any():
-            # print(f"          -> '稳固筹码平台'已识别 (已加入时效与相关性约束)，共持续 {states['PLATFORM_STATE_STABLE_FORMED'].sum()} 天。")
-
-        return df_copy, states
+        return df, states
 
 
     # ─> 基础侦察部队 (Basic Reconnaissance Units)
