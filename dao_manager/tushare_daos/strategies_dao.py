@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from stock_models.fund_flow import FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS
 from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollowStrategyReport, StockAnalysisResultTrendFollowing, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
@@ -26,24 +27,7 @@ class StrategiesDAO(BaseDAO):
         self.cache_set = StrategyCacheSet()
         self.cache_get = StrategyCacheGet()
         self.stock_basic_dao = StockBasicInfoDao()
-    
-    def get_fund_flow_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的【日级资金流向】数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return FundFlowDailyCY
-        elif stock_code.endswith('.SZ'):
-            return FundFlowDailySZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return FundFlowDailyKC
-        elif stock_code.endswith('.SH'):
-            return FundFlowDailySH
-        elif stock_code.endswith('.BJ'):
-            return FundFlowDailyBJ
-        else:
-            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
-            return FundFlowDailySZ  # 默认返回深市主板
+        self.fund_flow_dao = FundFlowDao()
 
     def get_cyq_chips_model_by_code(self, stock_code: str):
         """
@@ -62,7 +46,6 @@ class StrategiesDAO(BaseDAO):
         else:
             print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
             return StockCyqChipsSZ  # 默认返回深市主板
-
 
     async def get_latest_strategy_result(self, stock_code: str):
         """
@@ -530,7 +513,7 @@ class StrategiesDAO(BaseDAO):
         """
         # print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
         
-        FundFlowModel = self.get_fund_flow_model_by_code(stock_code)
+        FundFlowModel = self.fund_flow_dao.get_fund_flow_model_by_code(stock_code)
         if not FundFlowModel:
             logger.error(f"无法为 {stock_code} 找到对应的资金流模型，跳过补充数据获取。")
             return pd.DataFrame()
@@ -692,6 +675,7 @@ class StrategiesDAO(BaseDAO):
 
         # print(f"调试信息: [DAO-SignalLog V120.9] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
         return saved_count
+
     async def update_strategy_state(self, stock_code: str, strategy_name: str, timeframe: str):
         """
         【V1.1】在信号生成后，更新策略状态摘要表 (支持多时间框架)。

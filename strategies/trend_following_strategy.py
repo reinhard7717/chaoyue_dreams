@@ -240,6 +240,8 @@ class TrendFollowStrategy:
         
         # 在所有基础和复合状态诊断完成后，进行最高维度的模式识别
         atomic_states.update(self._diagnose_cognitive_patterns(df, atomic_states))
+        # 在所有基础情报诊断完成后，进行筹码与价格的联合分析
+        atomic_states.update(self._diagnose_chip_price_action(df, atomic_states))
 
         # ▼▼▼ 建立“军事最高法院”和“军事法庭” ▼▼▼
         # 1. 获取原始情报
@@ -1131,6 +1133,53 @@ class TrendFollowStrategy:
 
         print("        -> [筹码情报总参谋部 V220.0] 情报汇总完毕。")
         return states, triggers
+
+    def _diagnose_chip_price_action(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V228.0 新增】筹码-价格行为联合分析部
+        - 核心职责: 将价格的涨跌行为与筹码（尤其是主力资金）的流动进行交叉验证，
+                    将单纯的价格行为，升维为包含“主力意图”的复合情报。
+        - 作战原则: “无筹码，不决策”。
+        """
+        print("        -> [联合分析部 V228.0] 启动，正在对价格行为进行筹码深度解析...")
+        cpa_states = {} # Chip-Price Action States
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 提取基础情报 ---
+        # 价格行为情报
+        is_price_rising = df.get('pct_change_D', default_series) > 0
+        is_price_falling = df.get('pct_change_D', default_series) < 0
+
+        # 主力资金动向情报 (来自筹码总参谋部)
+        is_main_force_buying = atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
+        is_main_force_selling = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        
+        # 散户资金动向情报
+        # 假设散户与主力行为相反，或者直接使用散户数据（如果未来有）
+        # 这里我们用主力行为的反面来代表散户的主要动向，简化模型
+        is_retail_likely_buying = is_main_force_selling
+        is_retail_likely_selling = is_main_force_buying
+
+        # --- 2. 进行联合分析，生成高维复合情报 ---
+        
+        # 【A级进攻信号】上涨的“质”：主力支撑的上涨
+        # 定义：价格上涨，同时主力资金在净流入。这是最健康的上涨模式。
+        cpa_states['CPA_RISE_WITH_MAIN_FORCE_SUPPORT'] = is_price_rising & is_main_force_buying
+        
+        # 【C级风险信号】上涨的“危”：散户追高的上涨
+        # 定义：价格上涨，但主力资金在净流出。这可能是拉高出货的危险信号。
+        cpa_states['CPA_RISE_WITH_RETAIL_FOMO'] = is_price_rising & is_main_force_selling
+
+        # 【S级风险信号】下跌的“质”：主力出逃的下跌
+        # 定义：价格下跌，同时主力资金在净流出。这是最危险的下跌，趋势可能反转。
+        cpa_states['CPA_FALL_WITH_MAIN_FORCE_FLEEING'] = is_price_falling & is_main_force_selling
+
+        # 【S级机会信号】下跌的“机”：主力吸筹的下跌
+        # 定义：价格下跌，但主力资金在净流入。这是经典的“黄金坑”或“洗盘吸筹”信号。
+        cpa_states['CPA_FALL_WITH_MAIN_FORCE_ABSORBING'] = is_price_falling & is_main_force_buying
+
+        print("        -> [联合分析部 V228.0] 深度解析完成。")
+        return cpa_states
 
     # 动态惯性引擎 (Dynamic Momentum Engine)
     #    -> 核心职责: 分析趋势的速度与加速度。

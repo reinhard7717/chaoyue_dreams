@@ -258,7 +258,11 @@
             "CHIP_STATE_PEAK_CONSOLIDATING": 50,
             "CHIP_STATE_PRESSURE_DISSOLVING": 30,
             "CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING": 40,
-            "CAPITAL_STRUCT_BULLISH_DIVERGENCE": 100
+            "CAPITAL_STRUCT_BULLISH_DIVERGENCE": 100,
+            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30,
+            "说明_CPA_RISE_WITH_MAIN_FORCE_SUPPORT": "主力支撑的上涨，是积极的阵地信号",
+            "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 50,
+            "说明_CPA_FALL_WITH_MAIN_FORCE_ABSORBING": "主力吸筹的下跌，是高质量的机会信号，分值更高！"
           },
           "negative_signals": {
             "CONTEXT_TREND_DETERIORATING": -200,
@@ -291,7 +295,11 @@
           "RISK_CONFIDENCE_DETERIORATION": -150,
           "说明_confidence_deterioration": "【军事法庭】市场信心恶化。这是一个次级风险，只有在趋势背景不佳时才会被定罪。",
           "RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE": -400,
-          "说明_bearish_divergence": "【最高法院】主力派发 & 散户接盘。这是最危险的顶部信号之一，必须严惩。"
+          "说明_bearish_divergence": "【最高法院】主力派发 & 散户接盘。这是最危险的顶部信号之一，必须严惩。",
+          "CPA_RISE_WITH_RETAIL_FOMO": -40,
+          "说明_CPA_RISE_WITH_RETAIL_FOMO": "散户追高的上涨，是危险信号，予以惩罚",
+          "CPA_FALL_WITH_MAIN_FORCE_FLEEING": -60,
+          "说明_CPA_FALL_WITH_MAIN_FORCE_FLEEING": "主力出逃的下跌，是严重风险，予以重罚！"
         },
         "trigger_events": {
           "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
