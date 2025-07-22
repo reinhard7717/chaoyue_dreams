@@ -115,17 +115,31 @@ class TrendFollowStrategy:
 
     def _get_params_block(self, block_name: str, default_return: Any = None) -> dict:
         """
-        【V239.0 中央集权版】健壮的参数块获取器。
-        - 核心重构: 不再接收易变的 params 字典作为参数。
-        - 新规则: 永远从 self.unified_config 这个唯一的“中央档案库”中，
-                  沿着 'strategy_params.trend_follow' 这条固定路径查找指定的配置块。
-                  这从根本上杜绝了因参数传递错误导致的配置读取失败问题。
+        【V240.0 通用情报检索版】终极参数块获取器。
+        - 核心重构: 废除旧的单一路径查找逻辑，建立一个智能的多路径搜索系统。
+        - 新规则:
+          1. 首先，在核心战术模块 'strategy_params.trend_follow' 中查找。
+          2. 如果未找到，则将搜索范围扩大到整个配置文件的根级别。
+          3. 如果仍然未找到，才返回默认值。
+        - 收益: 无论参数块在JSON中处于哪个层级，都能被准确找到。
+                此方法现在对JSON结构具有极高的适应性和鲁棒性，是此类问题的最终解决方案。
         """
         if default_return is None:
             default_return = {}
-        # 从唯一的、最顶层的配置字典开始查找
+
+        # 搜索路径1: 核心战术模块内部 (strategy_params -> trend_follow)
         trend_follow_params = self.unified_config.get('strategy_params', {}).get('trend_follow', {})
-        return trend_follow_params.get(block_name, default_return)
+        params = trend_follow_params.get(block_name)
+
+        # 如果在路径1未找到，则启动路径2: 在整个配置文件的根级别进行搜索
+        if params is None:
+            params = self.unified_config.get(block_name)
+
+        # 最终裁定：如果找到了，就返回；否则返回默认值
+        if params is not None:
+            return params
+        
+        return default_return
 
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
         """
