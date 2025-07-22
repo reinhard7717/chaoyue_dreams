@@ -1373,7 +1373,7 @@ class TrendFollowStrategy:
                 states[state_name] = is_touching & is_closing_above
             else:
                 states[f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'] = default_series
-        p_duck = self._get_params_block(params, 'duck_neck_params', {})
+        p_duck = self._get_params_block('duck_neck_params')
         if self._get_param_value(p_duck.get('enabled'), True):
             duck_short_p = self._get_param_value(p_duck.get('short_ma'), 5)
             duck_mid_p = self._get_param_value(p_duck.get('mid_ma'), 10)
@@ -1640,7 +1640,7 @@ class TrendFollowStrategy:
         """
         # print("        -> [诊断模块] 正在执行板形态诊断...")
         states = {}
-        p = self._get_params_block(params, 'board_pattern_params', {})
+        p = self._get_params_block('board_pattern_params')
         if not self._get_param_value(p.get('enabled'), False):
             return states
         prev_close = df['close_D'].shift(1)
@@ -1865,7 +1865,7 @@ class TrendFollowStrategy:
         """
         print("    - [指挥棒模型 V119.4 自适应阈值版] 启动，开始对原始总分进行最终调整...")
         
-        adjustment_params = self._get_params_block(params, 'final_score_adjustments', {})
+        adjustment_params = self._get_params_block('final_score_adjustments')
         if not self._get_param_value(adjustment_params.get('enabled'), False):
             print("      -> 最终得分调整被禁用，返回原始分数。")
             return raw_scores, pd.DataFrame(index=df.index)
@@ -2154,7 +2154,7 @@ class TrendFollowStrategy:
             df.loc[veto_mask, 'entry_score'] = 0
         
         # 决策2: 生成最终入场信号 - 哪些部队可以进攻？
-        score_threshold = self._get_param_value(self._get_params_block(params, 'entry_scoring_params', {}).get('score_threshold'), 100)
+        score_threshold = self._get_param_value(self._get_params_block('entry_scoring_params').get('score_threshold'), 100)
         df['signal_entry'] = df['entry_score'] >= score_threshold
         
         # 决策3: 生成最终离场信号码 - 哪些部队需要撤退？
@@ -2313,7 +2313,7 @@ class TrendFollowStrategy:
         if df.empty: return []
 
         # --- 准备工作 ---
-        strategy_info = self._get_params_block(params, 'strategy_info', {})
+        strategy_info = self._get_params_block('strategy_info')
         strategy_name = self._get_param_value(strategy_info.get('name'), 'unknown_strategy')
         playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
         risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
@@ -2537,7 +2537,7 @@ class TrendFollowStrategy:
         print("====== 开始执行【战术执行层 V104】(分钟级实时警报) ======")
 
         # --- 步骤0: 加载执行层参数 ---
-        exec_params = self._get_params_block(params, 'intraday_execution_params', {})
+        exec_params = self._get_params_block('intraday_execution_params')
         if not self._get_param_value(exec_params.get('enabled'), False):
             print("    - [信息] 战术执行层被禁用，跳过。")
             return []
@@ -2876,7 +2876,7 @@ class TrendFollowStrategy:
         """
         print("\n" + "="*30 + " [阿尔法猎手 V118.20 启动] " + "="*30)
         
-        backtest_params = self._get_params_block(params, 'alpha_hunter_params', {})
+        backtest_params = self._get_params_block('alpha_hunter_params')
         if not self._get_param_value(backtest_params.get('enabled'), False): return
 
         min_duration = self._get_param_value(backtest_params.get('min_duration_days'), 3)
@@ -3075,7 +3075,7 @@ class TrendFollowStrategy:
             # --- 触发事件分析 ---
             entry_score = last_day.get('entry_score', 0)
             risk_score = last_day.get('risk_score', 0)
-            scoring_params = self._get_params_block(params, 'scoring_params', {})
+            scoring_params = self._get_params_block('scoring_params')
             min_entry_score = self._get_param_value(scoring_params.get('min_entry_score'), 0.7)
 
             # --- 战后推演分析 (Post-Event Analysis) ---
