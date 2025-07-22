@@ -34,6 +34,10 @@ class ChipFeatureCalculator:
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
         fund_flow_info = self._calculate_fund_flow_metrics()
+        
+        # 将之前计算的结果作为输入，传递给新的计算单元
+        context_for_advanced = {**self.ctx, **peaks_info, **concentration_info, **winner_structure_info}
+        advanced_structure_info = self._calculate_advanced_structures(context_for_advanced)
 
         return {
             **peaks_info,
@@ -41,7 +45,8 @@ class ChipFeatureCalculator:
             **winner_structure_info,
             **pressure_support_info,
             **turnover_info,
-            **fund_flow_info
+            **fund_flow_info,
+            **advanced_structure_info # 合并最终结果
         }
 
     def _calculate_peaks(self) -> dict:
@@ -272,7 +277,97 @@ class ChipFeatureCalculator:
             'fund_flow_divergence': divergence,
         }
 
+    def _calculate_advanced_structures(self, context: dict) -> dict:
+        """
+        【V6.0 新增】计算“控盘度”、“利润质量”、“价码关系”三大升维指标。
+        """
+        results = {}
+        
+        # --- 1. 控盘度指标 (Control Metrics) ---
+        peak_volume = context.get('peak_volume')
+        total_float_share = self.ctx.get('total_chip_volume') # total_chip_volume 就是流通股本
+        if peak_volume is not None and total_float_share and total_float_share > 0:
+            results['peak_control_ratio'] = (peak_volume / total_float_share) * 100
 
+        # 计算筹码峰吸筹强度需要筹码峰的宽度信息
+        # (这是一个简化实现，更精确的需要从find_peaks获取宽度)
+        peak_cost = context.get('peak_cost')
+        daily_turnover = self.ctx.get('daily_turnover_volume')
+        if peak_cost is not None and daily_turnover and daily_turnover > 0:
+            # 假设主峰的核心范围是其成本价的上下1%
+            peak_range_low = peak_cost * 0.99
+            peak_range_high = peak_cost * 1.01
+            # 估算在主峰范围内的换手比例
+            turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
+            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover if daily_turnover > 0 else 0
+
+        # --- 2. 利润质量指标 (Profit Quality Metrics) ---
+        close_price = self.ctx.get('close_price')
+        if close_price:
+            winners_df = self.df[self.df['price'] < close_price]
+            if not winners_df.empty:
+                # 计算获利盘的加权平均成本
+                winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
+                results['winner_avg_cost'] = winner_avg_cost
+                # 计算获利盘的安全垫
+                if winner_avg_cost > 0:
+                    results['winner_profit_margin'] = ((close_price - winner_avg_cost) / winner_avg_cost) * 100
+
+        # --- 3. 价码关系指标 (Price-Chip Relation Metrics) ---
+        if close_price and peak_cost and peak_cost > 0:
+            results['price_to_peak_ratio'] = close_price / peak_cost
+        
+        # 计算筹码Z-Score
+        if close_price:
+            weighted_mean = self.ctx.get('weight_avg_cost')
+            # 计算加权标准差
+            weighted_std = np.sqrt(np.average((self.df['price'] - weighted_mean)**2, weights=self.df['percent']))
+            if weighted_std and weighted_std > 0:
+                results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
+
+        # --- 4. 超级指标: 筹码健康分 (Chip Health Score) ---
+        # 这是一个可以持续优化的专家打分系统，这里提供一个初始版本
+        score = 50.0 # 基础分
+        # 集中度越高越好
+        conc_90 = context.get('concentration_90pct', 1.0)
+        score += (0.3 - min(conc_90, 0.3)) * 100 # 集中度低于30%开始加分，最多加30分
+        # 集中度在收敛加分
+        conc_slope = context.get('concentration_90pct_slope_5d', 0)
+        if conc_slope < 0: score += 5
+        # 获利盘安全垫越高越好
+        profit_margin = results.get('winner_profit_margin', 0)
+        score += min(profit_margin, 20) # 最多加20分
+        # 股价在主峰之上加分
+        price_ratio = results.get('price_to_peak_ratio', 1.0)
+        if price_ratio > 1.05: score += 10
+        # 共识性流入加分
+        if context.get('consensus_main_force_inflow'): score += 15
+        # 共识性流出扣分
+        if context.get('consensus_main_force_outflow'): score -= 20
+        
+        results['chip_health_score'] = max(0, min(100, round(score, 2))) # 确保分数在0-100之间
+
+        return results
+
+    def _get_turnover_in_range(self, low_bound, high_bound) -> float:
+        """辅助函数：估算在某个价格区间的换手量"""
+        low_price = self.ctx.get('low_price')
+        high_price = self.ctx.get('high_price')
+        daily_turnover = self.ctx.get('daily_turnover_volume')
+
+        if not all([low_price, high_price, daily_turnover, daily_turnover > 0]):
+            return 0
+
+        intersection_low = max(low_price, low_bound)
+        intersection_high = min(high_price, high_bound)
+        
+        daily_price_range = high_price - low_price
+        intersection_range = intersection_high - intersection_low
+        
+        if daily_price_range > 0 and intersection_range > 0:
+            effective_ratio = intersection_range / daily_price_range
+            return daily_turnover * effective_ratio
+        return 0
 
 
 

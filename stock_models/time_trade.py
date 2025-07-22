@@ -1173,6 +1173,22 @@ class AdvancedChipMetrics(models.Model):
     support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数。")
     turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数，反映核心区换手意愿。")
     prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价', help_text="用于计算短期获利盘的基准价格。")
+    
+    # --- 8. 【升维】控盘度指标 (Control Metrics) ---
+    peak_control_ratio = models.FloatField(verbose_name='筹码峰控盘比(%)', null=True, blank=True, help_text="主筹码峰的绝对股数 / 流通股本。衡量主力对核心阵地的绝对控制力。")
+    peak_absorption_intensity = models.FloatField(verbose_name='筹码峰吸筹强度', null=True, blank=True, help_text="在主筹码峰价格区间内的换手量 / 当日总换手量。值越高，代表主力在核心区吸筹/换手越坚决。")
+
+    # --- 9. 【升维】利润质量指标 (Profit Quality Metrics) ---
+    winner_avg_cost = models.FloatField(verbose_name='获利盘平均成本', null=True, blank=True, help_text="所有获利筹码的加权平均成本价。")
+    winner_profit_margin = models.FloatField(verbose_name='获利盘安全垫(%)', null=True, blank=True, help_text="(收盘价 - 获利盘均价) / 获利盘均价。衡量获利盘的平均利润厚度，值越高，持股心态越稳。")
+
+    # --- 10. 【升维】价码关系指标 (Price-Chip Relation Metrics) ---
+    price_to_peak_ratio = models.FloatField(verbose_name='股价/筹码峰成本比', null=True, blank=True, help_text="收盘价 / 主筹码峰成本。 >1 表示股价脱离成本区，<1 表示被压制。")
+    chip_zscore = models.FloatField(verbose_name='筹码Z-Score', null=True, blank=True, help_text="收盘价在整个筹码分布中的标准分位置。衡量股价相对于整体持仓成本的偏离度。绝对值越大，偏离越远。")
+
+    # --- 11. 【超级指标】最终裁决 ---
+    chip_health_score = models.FloatField(verbose_name='筹码健康分(0-100)', null=True, blank=True, help_text="综合控盘度、利润质量、集中度等多个维度得出的最终评分，全面评估当前筹码结构的健康状况。")
+
 
     class Meta:
         verbose_name = '高级筹码指标(三源合一版)'
@@ -1192,6 +1208,7 @@ class AdvancedChipMetrics(models.Model):
             models.Index(fields=['consensus_main_force_inflow']),
             models.Index(fields=['consensus_main_force_outflow']),
             models.Index(fields=['fund_flow_divergence']),
+            models.Index(fields=['chip_health_score']), # 为超级指标建立索引
         ]
 
     def __str__(self):
