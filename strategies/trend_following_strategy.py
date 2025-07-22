@@ -2700,7 +2700,7 @@ class TrendFollowStrategy:
         """
         try:
             # ▼▼▼【代码修改 V245.0】: 引入智能寻路逻辑 ▼▼▼
-            target_date = pd.to_datetime(probe_date_str)
+            target_date = pd.to_datetime(probe_date_str, utc=True)
             
             # 智能寻路：如果指定日期不存在，则向后寻找最近的下一个有效交易日
             if target_date not in df.index:
