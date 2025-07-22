@@ -1157,19 +1157,22 @@ class AdvancedChipMetrics(models.Model):
     winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例，代表坚定持有的资金。")
 
     # --- 6. 【三源合一】资金流向指标 ---
-
     # 6.1 内部评估 (基于交易所原始数据)
     main_force_net_inflow_amount = models.FloatField(verbose_name='主力净流入额(元, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(大单+特大单)。")
     retail_net_inflow_volume = models.BigIntegerField(verbose_name='散户净流入量(股, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(小单+中单)。")
-
     # 6.2 外部参照 (用于交叉验证的公开数据)
     ths_main_force_net_amount = models.FloatField(verbose_name='同花顺主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自同花顺的公开数据，反映市场共识。")
     dc_main_force_net_amount = models.FloatField(verbose_name='东方财富主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自东方财富的公开数据，反映市场共识。")
-
     # 6.3 融合裁决 (最终高置信度信号)
     consensus_main_force_inflow = models.BooleanField(verbose_name='共识性主力流入', default=False, help_text="三大数据源(内部,同花顺,东财)是否均显示主力资金净流入。")
     consensus_main_force_outflow = models.BooleanField(verbose_name='共识性主力流出', default=False, help_text="三大数据源是否均显示主力资金净流出。")
     fund_flow_divergence = models.BooleanField(verbose_name='资金流向分歧', default=False, help_text="三大数据源对主力资金流向的判断是否不一致，可能暗示主力在进行欺骗性操作。")
+
+    # --- 7. 辅助与过程指标 ---
+    pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True, help_text="收盘价上方2%价格区间内的绝对筹码股数。")
+    support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数。")
+    turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数，反映核心区换手意愿。")
+    prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价', help_text="用于计算短期获利盘的基准价格。")
 
     class Meta:
         verbose_name = '高级筹码指标(三源合一版)'
