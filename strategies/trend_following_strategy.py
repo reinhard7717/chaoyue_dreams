@@ -2449,18 +2449,17 @@ class TrendFollowStrategy:
         df[['triggered_playbooks', 'triggered_playbooks_cn']] = pd.DataFrame(playbook_results.tolist(), index=df.index)
 
         def build_final_details(row):
-            context = {
-                'close': row['close_price'],
-                'entry_score': float(row['entry_score']) if pd.notna(row['entry_score']) else 0.0,
-                'risk_score': float(row['risk_score']) if pd.notna(row['risk_score']) else 0.0,
-            }
-            reason = None
-            if not row['entry_signal']:
-                cn_playbooks = row['triggered_playbooks_cn']
-                reason_str = ", ".join(cn_playbooks) if cn_playbooks else "综合风险评分超阈值"
-                record_for_quantify = {'triggered_playbooks_cn': cn_playbooks, 'context_snapshot': row.to_dict()}
-                reason = self._quantify_risk_reasons(record_for_quantify)
-            return reason, context
+            reason = self._quantify_risk_reasons(row)            
+            playbook_details = {}
+            if self._last_score_details_df is not None and row.name in self._last_score_details_df.index:
+                score_row = self._last_score_details_df.loc[row.name].dropna()
+                playbook_details['score_components'] = score_row.to_dict()
+
+            if self._last_risk_details_df is not None and row.name in self._last_risk_details_df.index:
+                risk_row = self._last_risk_details_df.loc[row.name].dropna()
+                playbook_details['risk_components'] = risk_row.to_dict()
+            
+            return {'reason': reason, 'playbook_details': playbook_details}
 
         final_details = df.apply(build_final_details, axis=1)
         df[['exit_signal_reason', 'context_snapshot']] = pd.DataFrame(final_details.tolist(), index=df.index)
