@@ -225,6 +225,12 @@ class TrendFollowStrategy:
         df = self._run_position_management_simulation(df, params)
 
         print(f"====== 【战术引擎 V223.0】执行完毕 ======")
+        
+        debug_params = self._get_params_block('debug_params')
+        probe_date = self._get_param_value(debug_params.get('probe_date'))
+        if probe_date:
+            self._deploy_field_coroner_probe(df, probe_date)
+
         return df, atomic_states
 
 
@@ -2682,81 +2688,67 @@ class TrendFollowStrategy:
     # ─> 战地验尸官 (Field Coroner)
     #    -> 核心职责: 对特定日期的完整计分流程进行法医级解剖。
     #    -> 首席验尸官: _deploy_field_coroner_probe()
-    def _deploy_field_coroner_probe(
-        self, 
-        probe_dates: list, # 接收一个日期列表
-        df: pd.DataFrame,
-        atomic_states: dict, # 传入所有原子状态
-        positional_score: pd.Series,
-        dynamic_score: pd.Series,
-        trigger_score: pd.Series,
-        penalty_score: pd.Series,
-        positive_base_score: pd.Series,
-        amplified_positive_score: pd.Series,
-        final_score: pd.Series,
-        score_details_df: pd.DataFrame
-    ):
+    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date_str: str):
         """
-        【V227.0 法医手册升级版】
-        - 核心修复: 更新了验尸官的审查流程，使其能够识别并核查最新的风险裁决番号
-                    `RISK_COST_BASIS_COLLAPSE` 和 `RISK_CONFIDENCE_DETERIORATION`，
-                    解决了因番号变更导致的“情报失联”问题。
-        - 逻辑优化: 将原先混杂的审查逻辑，拆分为对两项罪名的独立、精确核查。
+        【V244.0 新增】战地验尸探针
+        - 核心职责: 针对指定的“probe_date”，进行深入的、侵入式的“验尸”，
+                    提取并展示该日所有关键决策变量的瞬时快照，用于精确诊断问题。
         """
-        for probe_date_str in probe_dates:
-            try:
-                probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
-                if probe_ts not in df.index:
-                    continue
+        try:
+            probe_date = pd.to_datetime(probe_date_str)
+            if probe_date not in df.index:
+                print(f"\n--- [战地验尸总署-警告] 未在数据中找到指定的验尸日期: {probe_date_str} ---")
+                return
 
-                print("\n" + "="*30 + f" [战地验尸报告 V227.0: {probe_date_str}] " + "="*30)
-                
-                # --- 验尸第一部分：惩罚部队情报源核查 ---
-                print("[A. 惩罚部队情报源核查]")
-                
-                # ▼▼▼【代码修改 V227.0】: 更新审查流程和情报代号 ▼▼▼
-                # 审查罪名 1: 成本基石崩溃罪 (RISK_COST_BASIS_COLLAPSE)
-                cost_slope = df.loc[probe_ts].get('SLOPE_5_peak_cost_D', 'N/A')
-                # 从情报总局档案库中，调取正确的裁决结果
-                cost_collapse_triggered = atomic_states.get('RISK_COST_BASIS_COLLAPSE', pd.Series(False, index=df.index)).loc[probe_ts]
-                print(f"  - [罪名1] RISK_COST_BASIS_COLLAPSE: {cost_collapse_triggered}")
-                print(f"    - 定罪依据 (成本斜率): {cost_slope:.4f} (阈值 < -0.01)")
+            print("\n" + "="*25 + " [战地验尸总署-探针报告] " + "="*25)
+            print(f"  [验尸目标]: {self._get_param_value(self.strategy_info.get('name'))} @ {probe_date_str}")
+            
+            # 提取当日的完整数据行
+            row = df.loc[probe_date]
 
-                # 审查罪名 2: 市场信心恶化罪 (RISK_CONFIDENCE_DETERIORATION)
-                winner_slope = df.loc[probe_ts].get('SLOPE_5_total_winner_rate_D', 'N/A')
-                is_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', pd.Series(False, index=df.index)).loc[probe_ts]
-                # 调取正确的裁决结果
-                confidence_collapse_triggered = atomic_states.get('RISK_CONFIDENCE_DETERIORATION', pd.Series(False, index=df.index)).loc[probe_ts]
-                print(f"  - [罪名2] RISK_CONFIDENCE_DETERIORATION: {confidence_collapse_triggered}")
-                print(f"    - 定罪依据1 (获利盘斜率): {winner_slope:.4f} (阈值 < -1.0)")
-                print(f"    - 定罪依据2 (趋势不健康): {not is_trend_healthy}")
-                # ▲▲▲【代码修改 V227.0】▲▲▲
-                
-                print("-" * 70)
+            # --- 核心矛盾点审查 ---
+            print("\n--- [1. 核心矛盾点审查] ---")
+            risk_score = row.get('risk_score', 'N/A')
+            exit_signal_code = row.get('exit_signal_code', 'N/A')
+            # 重新模拟当天的预警判断，获取最真实的预警级别
+            alert_level, alert_reason = self._check_tactical_alerts(row, self.unified_config)
+            print(f"  - 当日风险分 (risk_score): {risk_score}")
+            print(f"  - 当日离场码 (exit_signal_code): {exit_signal_code}")
+            print(f"  - 当日预警级别 (alert_level from _check_tactical_alerts): {alert_level}")
+            print(f"  - 当日预警原因 (alert_reason from _check_tactical_alerts): {alert_reason}")
 
-                # --- 验尸第二部分：计分流程解剖 ---
-                print("[B. 计分流程解剖]")
-                positional_val = positional_score.loc[probe_ts]
-                dynamic_val = dynamic_score.loc[probe_ts]
-                trigger_val = trigger_score.loc[probe_ts]
-                penalty_val = penalty_score.loc[probe_ts]
-                positive_base_val = positive_base_score.loc[probe_ts]
-                amplified_pos_val = amplified_positive_score.loc[probe_ts]
-                final_score_val = final_score.loc[probe_ts]
-                multiplier_val = score_details_df.loc[probe_ts].get('FINAL_MULTIPLIER', 1.0)
+            # --- 风险评估溯源 ---
+            print("\n--- [2. 风险评估溯源] ---")
+            if self._last_risk_details_df is not None and probe_date in self._last_risk_details_df.index:
+                risk_components = self._last_risk_details_df.loc[probe_date].dropna()
+                if not risk_components.empty:
+                    print("  - 风险分构成:")
+                    for k, v in risk_components.to_dict().items():
+                        print(f"    - {k}: {v}")
+                else:
+                    print("  - 当日无任何风险项被激活。")
+            else:
+                print("  - 未找到当日的风险构成详情。")
 
-                print(f"  [1. 基础火力] 阵地分:{positional_val:.2f}, 动能分:{dynamic_val:.2f}, 触发分:{trigger_val:.2f}")
-                print(f"  [2. 战略修正] 修正后正面得分: {positive_base_val:.2f}")
-                print(f"  [3. 火力放大] 乘数:{multiplier_val:.2f}, 放大后正面得分: {amplified_pos_val:.2f}")
-                print(f"  [4. 惩罚裁决] 当日惩罚总分: {penalty_val:.2f}")
-                print(f"  [5. 最终战果] {amplified_pos_val:.2f} + ({penalty_val:.2f}) = {final_score_val:.2f}")
-                
-                print("="*80 + "\n")
+            # --- 进攻评估溯源 ---
+            print("\n--- [3. 进攻评估溯源] ---")
+            entry_score = row.get('entry_score', 'N/A')
+            print(f"  - 当日进攻分 (entry_score): {entry_score}")
+            if self._last_score_details_df is not None and probe_date in self._last_score_details_df.index:
+                score_components = self._last_score_details_df.loc[probe_date].dropna()
+                if not score_components.empty:
+                    print("  - 进攻分构成:")
+                    for k, v in score_components.to_dict().items():
+                        print(f"    - {k}: {v}")
+                else:
+                    print("  - 当日无任何进攻项被激活。")
+            else:
+                print("  - 未找到当日的进攻构成详情。")
+            
+            print("\n" + "="*30 + " [验尸报告结束] " + "="*30 + "\n")
 
-            except KeyError as e:
-                print(f"\n[探针警告] 无法找到日期 {probe_date_str} 的数据或列 {e}，验尸失败。\n")
-            except Exception as e:
-                print(f"\n[探针致命错误] 在对 {probe_date_str} 进行验尸时发生未知错误: {e}\n")
+        except Exception as e:
+            print(f"\n--- [战地验尸总署-严重错误] 探针在执行验尸过程中发生异常: {e} ---")
 
     # ─> 专项调查组 (Special Investigation Group)
     #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
