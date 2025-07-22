@@ -504,8 +504,6 @@ class IndicatorService:
                 
                 if df_advanced_chips is not None and not df_advanced_chips.empty:
                     df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
-                    chip_cols = {col: f"CHIP_{col}" for col in df_advanced_chips_std.columns if col not in ['stock_id', 'trade_time']}
-                    df_advanced_chips_std = df_advanced_chips_std.rename(columns=chip_cols)
                     df = pd.merge(df, df_advanced_chips_std, left_index=True, right_index=True, how='left')
                     df[list(df_advanced_chips_std.columns)] = df[list(df_advanced_chips_std.columns)].ffill()
             

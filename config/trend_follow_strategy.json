@@ -207,222 +207,80 @@
         "probe_start_date": "2025-03-01"
       },
       "strategy_info": {
-        "name": { "value": "三层火力版_v162", "说明": "策略唯一标识名称" }
+        "name": { "value": "三权分立_V234", "说明": "策略唯一标识名称" }
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V182.0 决战版】将高价值的DYN信号正式列装，并更新火力放大器配置。",
-        "hybrid_scoring_weights": {
-          "说明": "混合战争权重分配 (阵地40%, 动能60%)",
-          "positional_weight": 0.4,
-          "dynamic_weight": 0.6
-        },
-        "metadata": {
-          "说明": "【信号元数据词典】V182版",
-          "comment_positional": "--- 阵地信号 (Positional) ---",
-          "MA_STATE_PRICE_ABOVE_LONG_MA": {
-            "cn_name": "【阵地】股价站上生命线"
-          },
-          "MA_STATE_STABLE_BULLISH": { "cn_name": "【阵地】均线多头排列" },
-          "PLATFORM_STATE_STABLE_FORMED": { "cn_name": "【阵地】稳固筹码平台" },
-          "CHIP_STATE_HIGHLY_CONCENTRATED": {
-            "cn_name": "【阵地】筹码高度集中"
-          },
-          "PLATFORM_FAILURE": { "cn_name": "【阵地风险】筹码平台破位" },
-          "CONTEXT_TREND_DETERIORATING": {
-            "cn_name": "【阵地风险】整体趋势恶化"
-          },
-          "comment_dynamic": "--- 动能信号 (Dynamic) ---",
-          "DYN_TREND_HEALTHY_ACCELERATING": {
-            "cn_name": "【动能S级】健康加速"
-          },
-          "DYN_TREND_MATURE_STABLE": { "cn_name": "【动能A级】成熟稳定" },
-          "CHIP_RAPID_CONCENTRATION": { "cn_name": "【动能】筹码加速集中" },
-          "DYN_TREND_WEAKENING_DECELERATING": {
-            "cn_name": "【动能风险S级】动能衰减"
-          },
-          "DYN_TREND_BEARISH_ACCELERATING": {
-            "cn_name": "【动能风险A级】下跌加速"
-          },
-          "CHIP_DISPERSION_RISK": { "cn_name": "【动能风险】筹码开始发散" },
-          "comment_trigger": "--- 触发信号 (Trigger) ---"
-        },
+        "说明": "【V234.0 最终净化版】计分体系。进攻与风险评估彻底分离，权责清晰。",
         "positional_scoring": {
-          "说明": "【阵地分】评估静态战场态势，总分贡献权重 40%",
+          "说明": "【进攻评估 - 阵地分】评估静态战场优势，只负责加分。",
           "positive_signals": {
-            "MA_STATE_STABLE_BULLISH": 50,
-            "MA_STATE_PRICE_ABOVE_LONG_MA": 30,
+            "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
+            "CHIP_FUND_FLOW_CONSENSUS_INFLOW": 120,
+            "CHIP_HEALTH_EXCELLENT": 100,
             "PLATFORM_STATE_STABLE_FORMED": 70,
             "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
-            "CHIP_STATE_WINNER_RATE_ACCELERATING": 80,
-            "CHIP_STATE_PEAK_CONSOLIDATING": 50,
-            "CHIP_STATE_PRESSURE_DISSOLVING": 30,
-            "CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING": 40,
-            "CAPITAL_STRUCT_BULLISH_DIVERGENCE": 100,
-            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30,
-            "说明_CPA_RISE_WITH_MAIN_FORCE_SUPPORT": "主力支撑的上涨，是积极的阵地信号",
+            "MA_STATE_STABLE_BULLISH": 50,
             "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 50,
-            "说明_CPA_FALL_WITH_MAIN_FORCE_ABSORBING": "主力吸筹的下跌，是高质量的机会信号，分值更高！"
-          },
-          "negative_signals": {
-            "CONTEXT_TREND_DETERIORATING": -200,
-            "PLATFORM_FAILURE": -250
+            "CHIP_PROFIT_CUSHION_HIGH": 40,
+            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30
           }
         },
         "dynamic_scoring": {
-          "说明": "【动能分】评估动态趋势和主力行为，总分贡献权重 60%",
+          "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为，只负责加分。",
           "positive_signals": {
             "DYN_TREND_HEALTHY_ACCELERATING": 250,
-            "DYN_TREND_MATURE_STABLE": 150,
-            "CHIP_RAPID_CONCENTRATION": 70
-          },
-          "negative_signals": {
-            "DYN_TREND_WEAKENING_DECELERATING": -300,
-            "DYN_TREND_BEARISH_ACCELERATING": -200,
-            "CHIP_DISPERSION_RISK": -150,
-            "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": -100
+            "STRUCTURE_BREAKOUT_EVE_A": 150,
+            "CHIP_RAPID_CONCENTRATION": 70,
+            "CHIP_HEALTH_IMPROVING": 60
           }
         },
-        "cognitive_pattern_scoring": {
-          "COGNITIVE_PATTERN_HIGH_CONTROL_MARKUP": 150,
-          "COGNITIVE_PATTERN_BULL_FLAG": 80,
-          "COGNITIVE_PATTERN_ABYSS_REVERSAL": 120
-        },
-        "penalty_signals": {
-          "说明": "【V217.0 罪责相适应版】刑法法典。为不同严重程度的罪行，设定了独立的罪名和罚分。",
-          "RISK_COST_BASIS_COLLAPSE": -500,
-          "说明_cost_collapse": "【最高法院】成本中枢崩溃。这是最明确的溃败信号，处以极刑。",
-          "RISK_CONFIDENCE_DETERIORATION": -150,
-          "说明_confidence_deterioration": "【军事法庭】市场信心恶化。这是一个次级风险，只有在趋势背景不佳时才会被定罪。",
-          "RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE": -400,
-          "说明_bearish_divergence": "【最高法院】主力派发 & 散户接盘。这是最危险的顶部信号之一，必须严惩。",
-          "CPA_RISE_WITH_RETAIL_FOMO": -40,
-          "说明_CPA_RISE_WITH_RETAIL_FOMO": "散户追高的上涨，是危险信号，予以惩罚",
-          "CPA_FALL_WITH_MAIN_FORCE_FLEEING": -60,
-          "说明_CPA_FALL_WITH_MAIN_FORCE_FLEEING": "主力出逃的下跌，是严重风险，予以重罚！"
+        "risk_scoring": {
+          "说明": "【最高风险裁决所】统一评估所有负面风险信号，计算独立的风险分。",
+          "signals": {
+            "说明_S_TIER": "--- S级风险 (一票否决级) ---",
+            "STRUCTURE_BEARISH_CHANNEL_F": 800,
+            "STRUCTURE_TOPPING_DANGER_S": 600,
+            "RISK_COST_BASIS_COLLAPSE": 500,
+            "RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE": 400,
+            "CHIP_FUND_FLOW_CONSENSUS_OUTFLOW": 350,
+            "说明_A_TIER": "--- A级风险 (严重警告级) ---",
+            "PLATFORM_FAILURE": 250,
+            "CONTEXT_TREND_DETERIORATING": 200,
+            "RISK_CONFIDENCE_DETERIORATION": 150,
+            "说明_B_TIER": "--- B级风险 (战术警示级) ---",
+            "DYN_TREND_WEAKENING_DECELERATING": 100,
+            "CHIP_HEALTH_DETERIORATING": 80,
+            "CPA_FALL_WITH_MAIN_FORCE_FLEEING": 60,
+            "CHIP_FUND_FLOW_DIVERGENCE": 50,
+            "CPA_RISE_WITH_RETAIL_FOMO": 40
+          }
         },
         "trigger_events": {
-          "说明": "【触发分】在加权总分之上，提供额外的爆发力加成。",
-          "TRIGGER_DOMINANT_REVERSAL": 80,
+          "说明": "【触发分】在进攻总分之上，提供额外的爆发力加成。",
           "TRIGGER_CHIP_IGNITION": 120,
-          "TRIGGER_ENERGY_RELEASE": 70,
-          "TRIGGER_BREAKOUT_CANDLE": 60,
+          "VOL_BREAKOUT_FROM_SQUEEZE": 120,
+          "TRIGGER_DOMINANT_REVERSAL": 80,
           "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80,
-          "VOL_BREAKOUT_FROM_SQUEEZE": 120
-        },
-        "chip_dynamics_amplifier": {
-          "enabled": true,
-          "说明": "【V182.0 优势火力版】采用更激进的max()逻辑，由最强的信号主导火力。",
-          "lookback_window": { "value": 250 },
-          "concentration_slope_rules": {
-            "tiers": [
-              { "percentile_upper": 0.1, "multiplier": 1.8 },
-              { "percentile_upper": 0.3, "multiplier": 1.4 },
-              { "percentile_upper": 0.7, "multiplier": 1.0 },
-              { "percentile_upper": 1.1, "multiplier": 0.6 }
-            ]
-          },
-          "cost_basis_slope_rules": {
-            "tiers": [
-              { "percentile_lower": 0.9, "multiplier": 1.8 },
-              { "percentile_lower": 0.7, "multiplier": 1.4 },
-              { "percentile_lower": 0.3, "multiplier": 1.0 },
-              { "percentile_lower": -0.1, "multiplier": 0.6 }
-            ]
-          },
-          "final_multiplier_cap": { "max": 3.0, "min": 0.4 }
-        }
-      },
-      "setup_scoring_matrix": {
-        "说明": "【V82.0 核心大脑】准备状态置信度矩阵。所有“准备状态”的评分逻辑已全部集中于此。",
-        "DEEP_ACCUMULATION": {
-          "说明": "S级菜肴：深度吸筹区。目标是找到最可能成为主升浪起点的吸筹末期。",
-          "must_have": { "MA_STATE_CONVERGING": 30 },
-          "any_of_must_have": {
-            "VOL_STATE_SQUEEZE_WINDOW": 50,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 50
-          },
-          "bonus": {
-            "MA_STATE_W_STABILIZING": 40,
-            "CAPITAL_EVENT_SLOPE_CROSS": 40,
-            "CHIP_STATE_ACCUMULATION": 30,
-            "VOL_EVENT_SQUEEZE": 20
-          }
-        },
-        "CAPITULATION_PIT": {
-          "说明": "【V65.0 重构版】投降坑。专门识别价格超卖+获利盘低+筹码发散的'混乱之底'。",
-          "enabled": { "value": true },
-          "must_have_score": {
-            "value": 40,
-            "说明": "满足核心条件(价格负向乖离)的基础分。"
-          },
-          "bonus_score": {
-            "value": 25,
-            "说明": "每满足一个加分项(获利盘低、筹码发散)的额外加分。"
-          }
-        },
-        "HEALTHY_MARKUP": {
-          "说明": "A级菜肴：健康主升浪。在V82.0中，其加分项被剧本定义直接消费，此处保留基础定义。",
-          "must_have": {
-            "MA_STATE_PRICE_ABOVE_LONG_MA": 40,
-            "MA_STATE_STABLE_BULLISH": 20
-          },
-          "bonus": {
-            "CHIP_STATE_MARKUP": 30,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 30,
-            "VOL_STATE_SHRINKING": 15
-          }
-        },
-        "ENERGY_COMPRESSION": {
-          "说明": "B+级菜肴：能量压缩。目标是找到突破的潜在候选者。",
-          "any_of_must_have": {
-            "VOL_STATE_SQUEEZE_WINDOW": 40,
-            "CHIP_STATE_CONCENTRATION_SQUEEZE": 40
-          },
-          "bonus": {
-            "CHIP_STATE_ACCUMULATION": 30,
-            "MA_STATE_CONVERGING": 20,
-            "VOL_STATE_SHRINKING": 10
-          }
-        },
-        "WASHOUT_REVERSAL": {
-          "说明": "A级菜肴：巨阴洗盘反转。识别主力极端洗盘后的反转机会。",
-          "must_have": { "KLINE_STATE_WASHOUT_WINDOW": 50 },
-          "bonus": {
-            "CHIP_STATE_ACCUMULATION": 30,
-            "OSC_STATE_RSI_OVERSOLD": 20
-          }
-        },
-        "N_SHAPE_CONTINUATION": {
-          "说明": "A级菜肴：N字板接力。捕捉强势股的趋势中继爆发点。",
-          "must_have": { "KLINE_STATE_N_SHAPE_CONSOLIDATION": 60 },
-          "bonus": {
-            "MA_STATE_STABLE_BULLISH": 30,
-            "CAPITAL_STATE_INFLOW_CONFIRMED": 25
-          }
-        },
-        "GAP_SUPPORT_PULLBACK": {
-          "说明": "B+级菜肴：缺口支撑回踩。在强势趋势中寻找低风险的介入点。",
-          "must_have": { "KLINE_STATE_GAP_SUPPORT_ACTIVE": 40 },
-          "bonus": { "MA_STATE_STABLE_BULLISH": 20, "VOL_STATE_SHRINKING": 15 }
-        },
-        "BOTTOMING_PROCESS": {
-          "说明": "B级菜肴：底部企稳。捕捉因连续下跌导致价格严重偏离均线后，缩量盘整并出现企稳迹象的机会。",
-          "must_have": { "OPP_STATE_NEGATIVE_DEVIATION": 60 },
-          "bonus": { "VOL_STATE_SHRINKING": 20 }
+          "TRIGGER_BREAKOUT_CANDLE": 60,
+          "TRIGGER_ENERGY_RELEASE": 70
         }
       },
       "trigger_event_params": {
         "enabled": true,
-        "说明": "【V82.0 净化版】触发事件引擎的参数配置。只保留最核心的K线形态定义。",
-        "panic_reversal_params": {
-          "enabled": { "value": true, "说明": "结构派恐慌反转触发器。" }
-        },
+        "说明": "【V234.0 最终净化版】触发事件引擎的参数配置。",
         "reversal_confirmation_candle": {
           "enabled": true,
           "min_pct_change": {
             "value": 0.03,
             "说明": "反转确认阳线的最小日涨幅。"
+          }
+        },
+        "dominant_reversal_candle": {
+          "enabled": true,
+          "recovery_ratio": {
+            "value": 0.5,
+            "说明": "显性反转阳线要求收复前一日阴线实体的最小比例。"
           }
         },
         "breakout_candle": {
@@ -432,41 +290,65 @@
             "说明": "突破阳线(企稳型)的最小实体占比。"
           }
         },
+        "energy_release": {
+          "enabled": true,
+          "min_body_ratio": {
+            "value": 0.5,
+            "说明": "能量释放阳线的最小实体占比。"
+          },
+          "volume_ratio": {
+            "value": 1.5,
+            "说明": "能量释放要求的最小成交量放大倍数。"
+          }
+        },
+        "volume_spike_breakout": {
+          "enabled": true,
+          "volume_ratio": {
+            "value": 2.0,
+            "说明": "放量突破要求的最小成交量放大倍数。"
+          },
+          "lookback_period": {
+            "value": 20,
+            "说明": "放量突破需要突破过去N日的高点。"
+          }
+        },
         "pullback_rebound_trigger_params": {
           "enabled": true,
           "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" }
         },
+        "platform_pullback_trigger_params": {
+          "enabled": true,
+          "proximity_ratio": {
+            "value": 0.01,
+            "说明": "价格回踩平台时允许的最大误差范围。"
+          }
+        },
         "trend_continuation_candle": {
-          "enabled": { "value": true },
+          "enabled": true,
           "lookback_period": {
             "value": 8,
             "说明": "判断收盘价是否创近期新高的回看周期。"
+          }
+        },
+        "indicator_cross_params": {
+          "enabled": true,
+          "dmi_cross": { "enabled": false },
+          "macd_cross": {
+            "enabled": true,
+            "low_level": { "value": -0.5, "说明": "MACD低位金叉的位置阈值。" }
           }
         }
       },
       "chip_feature_params": {
         "enabled": true,
-        "说明": "【V82.0 净化版】筹码诊断引擎参数。",
-        "accumulation_params": {
-          "lookback_days": { "value": 21 },
-          "required_days_ratio": { "value": 0.6 },
-          "deep_ratio": { "value": 0.85 }
-        },
-        "capitulation_params": {
-          "winner_rate_threshold": {
-            "value": 8.0,
-            "说明": "定义“投降坑”的总获利盘比例上限(%)。"
-          }
-        },
+        "说明": "【V234.0 最终净化版】筹码诊断引擎参数。",
         "structure_params": {
           "enabled": true,
           "high_concentration_threshold": 0.15,
           "slope_tolerance_healthy": 0.001,
-          "说明_slope_tolerance_healthy": "定义“健康集中”状态时，允许的筹码发散斜率的最大容忍度。",
+          "rapid_concentration_threshold": -0.005,
           "cost_collapse_threshold": -0.01,
-          "说明_cost_collapse_threshold": "【崩溃共振条件1】成本中枢崩溃阈值。5日成本斜率低于此值，视为成本快速下移。",
           "winner_rate_collapse_threshold": -1.0,
-          "说明_winner_rate_collapse_threshold": "【崩溃共振条件2】获利盘崩溃阈值。5日获利盘斜率低于此值(单位:%)，视为市场信心崩溃。",
           "enable_relative_squeeze": true,
           "squeeze_window": 120,
           "squeeze_percentile": 0.2
@@ -479,19 +361,12 @@
           }
         },
         "ignition_params": {
+          "enabled": true,
           "accel_threshold": {
             "value": 0.01,
             "说明": "定义“点火”事件所需的最小成本峰加速度。"
           }
         }
-      },
-      "ma_state_params": {
-        "enabled": true,
-        "short_ma": 13,
-        "mid_ma": 21,
-        "long_ma": 55,
-        "converging_zscore": -1.0,
-        "diverging_zscore": 1.0
       },
       "oscillator_state_params": {
         "enabled": true,
