@@ -2307,42 +2307,57 @@ class TrendFollowStrategy:
 
     def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
         """
-        【V241.0 新增】战术预警中心
-        - 核心职责: 在持仓期间，根据每日的风险分，判断是否触发战术预警。
-                    此方法为 _run_position_management_simulation 提供服务。
-        - 预警级别:
-            - 0: 无预警
-            - 1: 低度风险 (例如：黄色预警)
-            - 2: 中度风险 (例如：橙色预警)
-            - 3: 高度风险 (例如：红色预警)
+        【V243.0 统一风险视图版】战术预警中心
+        - 核心修复: 彻底根治了风险评估体系的“精神分裂症”。
+        - 新规则:
+          1. 同时读取 "warning_threshold_params" (预警) 和 "exit_threshold_params" (卖出) 两个配置块。
+          2. 将所有风险等级（从低到高）合并到一个统一的列表中。
+          3. 根据当日的 risk_score，对照这个完整的风险光谱，返回唯一、正确的预警级别。
+        - 收益: 确保了沙盘推演模块能获取到与总司令部一致的、完整的风险认知，
+                从根本上杜绝了“幽灵警报”和逻辑矛盾。
         """
-        # 从配置中获取预警规则
         exit_params = self._get_params_block('exit_strategy_params')
         warning_params = exit_params.get('warning_threshold_params', {})
-        
-        # 如果没有配置预警规则，则不发出任何预警
-        if not warning_params:
+        exit_threshold_params = exit_params.get('exit_threshold_params', {})
+
+        # 如果没有任何风险配置，则不发出任何预警
+        if not warning_params and not exit_threshold_params:
             return 0, ''
 
         # 获取当日的风险分
         risk_score = getattr(row, 'risk_score', 0)
+        if risk_score <= 0:
+            return 0, ''
 
-        # 将预警级别按风险分从高到低排序，确保优先匹配高级别预警
-        # 我们为每个级别分配一个数字代码，例如 HIGH=3, MEDIUM=2, LOW=1
-        alert_levels = []
-        level_map = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1} 
+        # --- 建立统一的、全谱系的风险等级清单 ---
+        all_alerts = []
+        # 定义从配置名到数字等级的映射
+        level_map = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+
+        # 1. 加载“卖出”级别
+        for name, config in exit_threshold_params.items():
+            level_name_upper = name.upper()
+            if level_name_upper in level_map:
+                all_alerts.append({
+                    'level_code': level_map[level_name_upper],
+                    'threshold': self._get_param_value(config.get('level'), float('inf')),
+                    'reason': self._get_param_value(config.get('cn_name'), name)
+                })
+
+        # 2. 加载“预警”级别
         for name, config in warning_params.items():
-            if name.upper() in level_map:
-                alert_levels.append({
-                    'level_code': level_map[name.upper()],
+            level_name_upper = name.upper()
+            if level_name_upper in level_map:
+                all_alerts.append({
+                    'level_code': level_map[level_name_upper],
                     'threshold': self._get_param_value(config.get('level'), float('inf')),
                     'reason': self._get_param_value(config.get('cn_name'), name)
                 })
         
-        # 从高到低排序
-        sorted_alerts = sorted(alert_levels, key=lambda x: x['threshold'], reverse=True)
+        # --- 按风险阈值从高到低排序，确保优先匹配最严重的风险 ---
+        sorted_alerts = sorted(all_alerts, key=lambda x: x['threshold'], reverse=True)
 
-        # 检查是否触发任何预警
+        # --- 对照全谱系清单，进行最终裁决 ---
         for alert in sorted_alerts:
             if risk_score >= alert['threshold']:
                 # 一旦触发最高级别的预警，立即返回
