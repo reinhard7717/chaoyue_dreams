@@ -211,7 +211,7 @@ class MultiTimeframeTrendStrategy:
         - 致命错误修正: 同步应用 reset_index/set_index 模式，在 merge 操作中强制保留 DatetimeIndex。
         """
         # 1. 加载配置并进行健壮性检查
-        entry_params = self.tactical_engine._get_params_block(self.unified_config, 'intraday_entry_params', {})
+        entry_params = self.tactical_engine._get_params_block('intraday_entry_params')
         get_val = self.tactical_engine._get_param_value
         
         if not get_val(entry_params.get('enabled'), False): return []
@@ -320,7 +320,7 @@ class MultiTimeframeTrendStrategy:
                         彻底解决 idxmax 返回整数并导致程序崩溃的根源性问题。
         """
         # 1. 加载配置并进行健壮性检查
-        exec_params = self.tactical_engine._get_params_block(self.unified_config, 'intraday_execution_params', {})
+        exec_params = self.tactical_engine._get_params_block('intraday_execution_params')
         get_val = self.tactical_engine._get_param_value
         if not get_val(exec_params.get('enabled'), False): return []
         
@@ -336,7 +336,7 @@ class MultiTimeframeTrendStrategy:
         upthrust_params = rules_container.get('upthrust_rejection', {})
         if not get_val(upthrust_params.get('enabled'), False): return []
         
-        upthrust_calc_params = self.tactical_engine._get_params_block(self.unified_config, 'exit_strategy_params', {}).get('upthrust_distribution_params', {})
+        upthrust_calc_params = self.tactical_engine._get_params_block('exit_strategy_params').get('upthrust_distribution_params', {})
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
