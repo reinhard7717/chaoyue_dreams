@@ -2305,6 +2305,52 @@ class TrendFollowStrategy:
         print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
         return df# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
 
+    def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
+        """
+        【V241.0 新增】战术预警中心
+        - 核心职责: 在持仓期间，根据每日的风险分，判断是否触发战术预警。
+                    此方法为 _run_position_management_simulation 提供服务。
+        - 预警级别:
+            - 0: 无预警
+            - 1: 低度风险 (例如：黄色预警)
+            - 2: 中度风险 (例如：橙色预警)
+            - 3: 高度风险 (例如：红色预警)
+        """
+        # 从配置中获取预警规则
+        exit_params = self._get_params_block('exit_strategy_params')
+        warning_params = exit_params.get('warning_threshold_params', {})
+        
+        # 如果没有配置预警规则，则不发出任何预警
+        if not warning_params:
+            return 0, ''
+
+        # 获取当日的风险分
+        risk_score = getattr(row, 'risk_score', 0)
+
+        # 将预警级别按风险分从高到低排序，确保优先匹配高级别预警
+        # 我们为每个级别分配一个数字代码，例如 HIGH=3, MEDIUM=2, LOW=1
+        alert_levels = []
+        level_map = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1} 
+        for name, config in warning_params.items():
+            if name.upper() in level_map:
+                alert_levels.append({
+                    'level_code': level_map[name.upper()],
+                    'threshold': self._get_param_value(config.get('level'), float('inf')),
+                    'reason': self._get_param_value(config.get('cn_name'), name)
+                })
+        
+        # 从高到低排序
+        sorted_alerts = sorted(alert_levels, key=lambda x: x['threshold'], reverse=True)
+
+        # 检查是否触发任何预警
+        for alert in sorted_alerts:
+            if risk_score >= alert['threshold']:
+                # 一旦触发最高级别的预警，立即返回
+                return alert['level_code'], alert['reason']
+
+        # 如果风险分未达到任何预警阈值，则返回无预警
+        return 0, ''
+
     #  5. 后勤与战报总署 (Logistics & Reporting General Administration)
     #     -> 核心职责: 负责所有战后数据的处理、格式化、记录以及特殊警报的生成。
     #  ─> 战报司令部 (Battle Report Command)
