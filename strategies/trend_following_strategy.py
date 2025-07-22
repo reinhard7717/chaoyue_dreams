@@ -2476,58 +2476,40 @@ class TrendFollowStrategy:
     # ─> 风险量化局 (Risk Quantifier Bureau)
     #    -> 核心职责: 将抽象的风险原因，翻译成直观的“仪表盘”读数。
     #    -> 局长: _quantify_risk_reasons()
-    def _quantify_risk_reasons(self, record: Dict) -> str:
+    def _quantify_risk_reasons(self, record: pd.Series) -> str:
         """
-        【V202.14 新增】风险量化器 (Risk Quantifier)
-        - 核心职责: 读取配置文件中的量化模型，将原始风险原因(如'主峰根基动摇')
-                    翻译成包含 0-100 直观风险分的“仪表盘”读数。
-        - 所属单位: TrendFollowStrategy (因为它拥有参数解析器 _get_params_block)
+        【V237.2 情报来源修复版】风险量化局
+        - 核心修复: 修正了获取参数的来源，从错误的 self.daily_params 改为
+                    正确的 self.unified_config，确保能正确读取到 risk_quantifier_params。
         """
-        # ▼▼▼【代码修改 V202.14】: 使用 self._get_params_block 获取配置 ▼▼▼
-        quantifier_params = self._get_params_block(self.daily_params, 'risk_quantifier_params', {})
+        quantifier_params = self._get_params_block(self.unified_config, 'risk_quantifier_params', {})
         if not self._get_param_value(quantifier_params.get('enabled'), False):
-            # 如果被禁用，则返回原始的、未量化的原因
-            return record.get('exit_signal_reason', "") or ""
-        # ▲▲▲【代码修改 V202.14】▲▲▲
-
-        context = record.get('context_snapshot', {})
-        # 从 triggered_playbooks_cn 获取最原始、最干净的原因列表
-        reason_list = record.get('triggered_playbooks_cn', [])
-        if not reason_list:
-            return record.get('exit_signal_reason', "原因未知")
-
-        quantified_parts = []
-        
-        for risk_key, config in quantifier_params.items():
-            if not isinstance(config, dict): continue
-            
-            cn_name = config.get('cn_name')
-            # 检查当前风险原因是否在需要量化的列表中
-            if cn_name and cn_name in reason_list:
-                metric_key = config.get('source_metric')
-                raw_value = context.get(metric_key)
-                
-                if raw_value is None or not isinstance(raw_value, (int, float)):
-                    quantified_parts.append(cn_name) # 如果没有量化数据，则只显示名称
-                    continue
-
-                direction = config.get('direction', 1)
-                center = config.get('center_point', 0)
-                steepness = config.get('steepness', 1)
-                
-                try:
-                    normalized_score = 1 / (1 + np.exp(-steepness * direction * (raw_value - center)))
-                    final_score = int(normalized_score * 100)
-                    quantified_parts.append(f"{cn_name}({final_score}/100)")
-                except (OverflowError, ValueError):
-                    quantified_parts.append(cn_name) # 计算出错则只显示名称
-        
-        # 处理那些不在量化配置中的其他原因
-        unquantified_reasons = [reason for reason in reason_list if not any(reason in qp for qp in quantified_parts)]
-        
-        # 将量化后的部分和未量化的部分合并
-        final_parts = quantified_parts + unquantified_reasons
-        return ", ".join(final_parts) if final_parts else "综合风险"
+            return "风险量化未启用"
+        risk_scores = []
+        for name, params in quantifier_params.items():
+            if not isinstance(params, dict) or 'source_metric' not in params:
+                continue
+            source_metric = params['source_metric']
+            if source_metric not in record.index or pd.isna(record[source_metric]):
+                continue
+            value = record[source_metric]
+            direction = params.get('direction', 1)
+            center_point = params.get('center_point', 0)
+            steepness = params.get('steepness', 1.0)
+            cn_name = params.get('cn_name', name)
+            # 使用 sigmoid 函数将原始指标值映射到 0-100 的风险分数
+            # direction * (value - center_point) 确保了正确的风险方向
+            normalized_value = direction * (value - center_point)
+            score = 100 / (1 + np.exp(-steepness * normalized_value))
+            if score > 20: # 只报告有意义的风险项
+                risk_scores.append({'name': cn_name, 'score': int(score), 'value': value})
+        if not risk_scores:
+            return "无显著量化风险"
+        # 按风险分数从高到低排序
+        risk_scores.sort(key=lambda x: x['score'], reverse=True)
+        # 构建可读的风险描述字符串
+        reasons = [f"{item['name']}({item['score']})" for item in risk_scores]
+        return "; ".join(reasons)
 
     # ─> 盘中预警中心 (Intraday Alert Center)
     #    -> 核心职责: 独立于主战略流程，生成分钟级的实时战术警报。
