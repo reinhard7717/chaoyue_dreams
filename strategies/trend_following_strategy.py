@@ -1272,7 +1272,7 @@ class TrendFollowStrategy:
         default_series = pd.Series(False, index=df.index)
         
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
-        capital_params = self._get_params_block(self.unified_config, 'capital_state_params', {})
+        capital_params = self._get_params_block('capital_state_params')
         if self._get_param_value(capital_params.get('enabled'), True):
             cmf_bullish_threshold = self._get_param_value(capital_params.get('cmf_bullish_threshold'), 0.05)
             states['CAPITAL_STATE_INFLOW_CONFIRMED'] = df.get('CMF_21_D', 0) > cmf_bullish_threshold
