@@ -1103,68 +1103,96 @@ class StockCyqPerf(models.Model):
 # 高级筹码指标模型
 class AdvancedChipMetrics(models.Model):
     """
-    【V4.3 斐波那契周期版 - 高级筹码指标模型】
-    存储通过离线预计算从原始筹码分布中提炼出的高价值指标。
-    此版本采用斐波那契数列作为斜率和加速度的计算周期，以更好地捕捉市场节奏。
+    【V5.1 终极注释与索引版 - 高级筹码指标模型】
+    - 核心升级: 融合了交易所、同花顺、东方财富三大资金流数据源，并增加了“共识”与“分歧”信号。
+    - 注释增强: 为所有字段提供了详尽的中文注释和业务说明。
+    - 索引优化: 为核心查询字段和新的融合信号字段建立了数据库索引，提升查询性能。
     """
-    # 核心关联键
-    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, related_name='advanced_chip_metrics', verbose_name='股票', db_index=True)
-    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
 
-    # --- 1. 核心筹码峰基础指标 ---
-    peak_cost = models.FloatField(verbose_name='主筹码峰成本', null=True, blank=True, help_text="当天筹码分布最密集的价格")
-    peak_percent = models.FloatField(verbose_name='主筹码峰占比(%)', null=True, blank=True, help_text="主筹码峰位置的筹码比例")
-    peak_volume = models.BigIntegerField(verbose_name='主筹码峰成交量(股)', null=True, blank=True, help_text="主筹码峰位置的绝对成交股数")
+    # --- 1. 核心关联键 ---
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_chip_metrics',
+        verbose_name='股票',
+        db_index=True  # 核心外键，必须建立索引
+    )
+    trade_time = models.DateField(
+        verbose_name='交易日期',
+        db_index=True  # 核心时间戳，必须建立索引
+    )
 
-    # --- 2. 筹码峰动态指标 (斐波那契周期) ---
-    peak_cost_slope_5d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本5日斜率')
+    # --- 2. 核心筹码峰基础指标 ---
+    peak_cost = models.FloatField(verbose_name='主筹码峰成本', null=True, blank=True, help_text="当天筹码分布最密集的价格，是市场持仓的核心成本区。")
+    peak_percent = models.FloatField(verbose_name='主筹码峰占比(%)', null=True, blank=True, help_text="主筹码峰位置的筹码占总筹码的比例，反映了筹码的集中程度。")
+    peak_volume = models.BigIntegerField(verbose_name='主筹码峰成交量(股)', null=True, blank=True, help_text="主筹码峰位置的绝对成交股数。")
+
+    # --- 3. 筹码峰动态指标 (基于斐波那契周期) ---
+    peak_cost_slope_5d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本5日斜率', help_text="正值表示主力成本在快速抬高。")
     peak_cost_slope_8d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本8日斜率')
     peak_cost_slope_13d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本13日斜率')
-    peak_cost_slope_21d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本21日斜率')
+    peak_cost_slope_21d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本21日斜率', help_text="中期趋势的核心观察指标。")
     peak_cost_slope_34d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本34日斜率')
-    peak_cost_slope_55d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本55日斜率')
+    peak_cost_slope_55d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本55日斜率', help_text="长期趋势的核心观察指标。")
     peak_cost_slope_89d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本89日斜率')
     peak_cost_slope_144d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本144日斜率')
 
-    peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="短期趋势的动量变化")
-    peak_cost_accel_21d = models.FloatField(verbose_name='筹码峰成本21日加速度', null=True, blank=True, help_text="中期趋势的健康度变化")
+    peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="短期趋势的动量变化，正值表示成本抬升在加速。")
+    peak_cost_accel_21d = models.FloatField(verbose_name='筹码峰成本21日加速度', null=True, blank=True, help_text="中期趋势的健康度变化，正值表示趋势在加速。")
 
-    # --- 3. 筹码集中度与稳定性指标 ---
-    concentration_90pct = models.FloatField(verbose_name='90%筹码集中度', null=True, blank=True, help_text="包含90%筹码的最小价格区间宽度 / 平均成本")
-    concentration_90pct_slope_5d = models.FloatField(verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中，正值表示发散")
-    peak_stability = models.FloatField(verbose_name='筹码峰稳定性', null=True, blank=True, help_text="主筹码峰的突出程度(prominence) / 平均占比，值越大越稳定")
+    # --- 4. 筹码结构与分布指标 ---
+    concentration_90pct = models.FloatField(verbose_name='90%筹码集中度', null=True, blank=True, help_text="包含90%筹码的最小价格区间宽度 / 平均成本。值越小越集中。")
+    concentration_90pct_slope_5d = models.FloatField(verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中，是积极信号；正值表示发散。")
+    peak_stability = models.FloatField(verbose_name='筹码峰稳定性', null=True, blank=True, help_text="主筹码峰的突出程度(prominence) / 平均占比。值越大越稳定，代表主力控盘能力强。")
+    is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="当天是否存在多个显著的筹码峰，多峰形态通常意味着持仓成本分散。")
+    secondary_peak_cost = models.FloatField(verbose_name='次筹码峰成本', null=True, blank=True, help_text="如果存在，第二大筹码峰的成本价，可能是潜在的压力或支撑位。")
+    peak_distance_ratio = models.FloatField(verbose_name='主次峰距离比', null=True, blank=True, help_text="主次峰成本价的距离 / 主峰成本价。距离越远，结构越不稳定。")
+    peak_strength_ratio = models.FloatField(verbose_name='主次峰强度比', null=True, blank=True, help_text="次峰突出度 / 主峰突出度。比率越小，主峰的统治力越强。")
+    pressure_above = models.FloatField(verbose_name='上方2%套牢盘(%)', null=True, blank=True, help_text="收盘价上方2%价格区间内的筹码占比，代表直接的短期抛压。")
+    support_below = models.FloatField(verbose_name='下方2%支撑盘(%)', null=True, blank=True, help_text="收盘价下方2%价格区间内的筹码占比，代表直接的短期支撑。")
 
-    winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例")
-    winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例")
-    total_winner_rate = models.FloatField(verbose_name='总获利盘(%)', null=True, blank=True, help_text="持仓成本低于当天收盘价的筹码总比例")
-    is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="当天是否存在多个显著的筹码峰")
-    secondary_peak_cost = models.FloatField(verbose_name='次筹码峰成本', null=True, blank=True, help_text="如果存在，第二大筹码峰的成本价")
-    peak_distance_ratio = models.FloatField(verbose_name='主次峰距离比', null=True, blank=True, help_text="主次峰成本价的距离 / 主峰成本价")
-    peak_strength_ratio = models.FloatField(verbose_name='主次峰强度比', null=True, blank=True, help_text="次峰突出度 / 主峰突出度")
-    pressure_above = models.FloatField(verbose_name='上方2%套牢盘(%)', null=True, blank=True, help_text="收盘价上方2%价格区间内的筹码占比，代表直接压力")
-    support_below = models.FloatField(verbose_name='下方2%支撑盘(%)', null=True, blank=True, help_text="收盘价下方2%价格区间内的筹码占比，代表直接支撑")
-    pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True, help_text="收盘价上方2%价格区间内的绝对筹码股数")
-    support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数")
-    turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数")
-    prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价')
+    # --- 5. 获利盘结构指标 ---
+    total_winner_rate = models.FloatField(verbose_name='总获利盘(%)', null=True, blank=True, help_text="持仓成本低于当天收盘价的筹码总比例，反映市场整体情绪。")
+    winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例，代表近期追涨资金的浮盈情况。")
+    winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例，代表坚定持有的资金。")
 
-    main_force_buy_avg_price = models.FloatField(verbose_name='主力买入均价', null=True, blank=True, help_text="当天大单+特大单买入的平均价格")
-    main_force_sell_avg_price = models.FloatField(verbose_name='主力卖出均价', null=True, blank=True, help_text="当天大单+特大单卖出的平均价格")
-    main_force_net_inflow_volume = models.BigIntegerField(verbose_name='主力净流入量(股)', null=True, blank=True, help_text="主力净买入股数，正为净流入，负为净流出")
-    main_force_net_inflow_amount = models.FloatField(verbose_name='主力净流入额(元)', null=True, blank=True, help_text="主力净买入金额，正为净流入，负为净流出")
-    
-    retail_buy_avg_price = models.FloatField(verbose_name='散户买入均价', null=True, blank=True, help_text="当天小单+中单买入的平均价格")
-    retail_sell_avg_price = models.FloatField(verbose_name='散户卖出均价', null=True, blank=True, help_text="当天小单+中单卖出的平均价格")
-    retail_net_inflow_volume = models.BigIntegerField(verbose_name='散户净流入量(股)', null=True, blank=True, help_text="散户净买入股数，正为净流入，负为净流出")
+    # --- 6. 【三源合一】资金流向指标 ---
+
+    # 6.1 内部评估 (基于交易所原始数据)
+    main_force_net_inflow_amount = models.FloatField(verbose_name='主力净流入额(元, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(大单+特大单)。")
+    retail_net_inflow_volume = models.BigIntegerField(verbose_name='散户净流入量(股, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(小单+中单)。")
+
+    # 6.2 外部参照 (用于交叉验证的公开数据)
+    ths_main_force_net_amount = models.FloatField(verbose_name='同花顺主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自同花顺的公开数据，反映市场共识。")
+    dc_main_force_net_amount = models.FloatField(verbose_name='东方财富主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自东方财富的公开数据，反映市场共识。")
+
+    # 6.3 融合裁决 (最终高置信度信号)
+    consensus_main_force_inflow = models.BooleanField(verbose_name='共识性主力流入', default=False, help_text="三大数据源(内部,同花顺,东财)是否均显示主力资金净流入。")
+    consensus_main_force_outflow = models.BooleanField(verbose_name='共识性主力流出', default=False, help_text="三大数据源是否均显示主力资金净流出。")
+    fund_flow_divergence = models.BooleanField(verbose_name='资金流向分歧', default=False, help_text="三大数据源对主力资金流向的判断是否不一致，可能暗示主力在进行欺骗性操作。")
 
     class Meta:
-        verbose_name = '高级筹码指标(斐波那契版)'
+        verbose_name = '高级筹码指标(三源合一版)'
         verbose_name_plural = verbose_name
-        db_table = 'stock_advanced_chip_metrics' # 确保表名与您实际使用的一致
+        db_table = 'stock_advanced_chip_metrics'
+        # 核心约束：同一股票在同一天只能有一条记录
         unique_together = ('stock', 'trade_time')
+        # 默认排序：按时间倒序，方便获取最新数据
         ordering = ['-trade_time']
+        # 索引优化：为高频查询字段建立索引
+        indexes = [
+            # unique_together 已经隐式创建了 (stock, trade_time) 的联合索引，
+            # 但为单字段查询优化，可以单独建立索引。
+            models.Index(fields=['stock']),
+            models.Index(fields=['trade_time']),
+            # 为策略筛选高频使用的布尔信号字段建立索引
+            models.Index(fields=['consensus_main_force_inflow']),
+            models.Index(fields=['consensus_main_force_outflow']),
+            models.Index(fields=['fund_flow_divergence']),
+        ]
 
     def __str__(self):
+        # 定义对象在后台或命令行中的可读性表示
         return f"{self.stock.stock_code} - {self.trade_time}"
 
 # 指数日线行情(IndexDaily)

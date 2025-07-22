@@ -210,61 +210,67 @@ class ChipFeatureCalculator:
 
     def _calculate_fund_flow_metrics(self) -> dict:
         """
-        计算主力资金和散户资金的当日交易指标。
-        - 主力资金 = 大单 + 特大单
-        - 散户资金 = 小单 + 中单
-        - 均价 = (成交额 * 10000) / (成交量(手) * 100)
-        - 新增: 在进行算术运算前，将所有从 context 获取的值显式转换为 float，以避免 Decimal 类型冲突。
+        【V5.0 三源合一版】
+        - 核心升级: 实现“内部评估、外部确认、最终裁决”的三层交叉验证体系。
+        - 算法: 1. 基于最原始的交易所数据(CY)计算我军的“内部评估”结果。
+                 2. 引入同花顺(THS)和东方财富(DC)的数据作为“外部参照”。
+                 3. 当三方结论一致时，生成高置信度的“共识”信号。
+                 4. 当三方结论不一时，生成有价值的“分歧”信号。
         """
-        # 检查必要字段是否存在，如果缺少资金流数据则返回空字典
-        required_keys = [
+        # --- 1. 内部评估 (基于交易所原始数据) ---
+        cy_keys = [
             'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
             'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
             'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
             'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
         ]
-        # 使用 pd.notna 检查可以正确处理 None 和 NaN
-        if not all(pd.notna(self.ctx.get(key)) for key in required_keys):
-            # 调试信息: 打印缺失数据的日期，便于排查
+        # 如果缺少最核心的交易所数据，则无法进行任何计算
+        if not all(pd.notna(self.ctx.get(key)) for key in cy_keys):
             trade_date_str = self.ctx.get('trade_time', '未知日期')
-            print(f"调试信息: [{trade_date_str}] 缺少完整的资金流数据，跳过资金流指标计算。")
+            print(f"调试信息: [{trade_date_str}] 缺少核心交易所资金流数据，跳过所有资金流指标计算。")
             return {}
 
-        # --- 主力资金计算 ---
-        # 核心修正：将所有从 context 获取的值用 float() 包裹，确保类型统一
-        main_force_buy_vol = float(self.ctx.get('buy_lg_vol', 0)) + float(self.ctx.get('buy_elg_vol', 0))
         main_force_buy_amount = float(self.ctx.get('buy_lg_amount', 0)) + float(self.ctx.get('buy_elg_amount', 0))
-        main_force_sell_vol = float(self.ctx.get('sell_lg_vol', 0)) + float(self.ctx.get('sell_elg_vol', 0))
         main_force_sell_amount = float(self.ctx.get('sell_lg_amount', 0)) + float(self.ctx.get('sell_elg_amount', 0))
+        internal_main_force_net_amount = (main_force_buy_amount - main_force_sell_amount) * 10000  # 转换为元
 
-        # --- 散户资金计算 ---
         retail_buy_vol = float(self.ctx.get('buy_sm_vol', 0)) + float(self.ctx.get('buy_md_vol', 0))
-        retail_buy_amount = float(self.ctx.get('buy_sm_amount', 0)) + float(self.ctx.get('buy_md_amount', 0))
         retail_sell_vol = float(self.ctx.get('sell_sm_vol', 0)) + float(self.ctx.get('sell_md_vol', 0))
-        retail_sell_amount = float(self.ctx.get('sell_sm_amount', 0)) + float(self.ctx.get('sell_md_amount', 0))
+        internal_retail_net_volume = (retail_buy_vol - retail_sell_vol) * 100  # 转换为股
 
-        # --- 均价计算 (处理分母为0的情况) ---
-        # 价格 = (金额[万元] * 10000) / (手数 * 100)
-        main_force_buy_avg_price = (main_force_buy_amount * 10000) / (main_force_buy_vol * 100) if main_force_buy_vol > 0 else None
-        main_force_sell_avg_price = (main_force_sell_amount * 10000) / (main_force_sell_vol * 100) if main_force_sell_vol > 0 else None
-        retail_buy_avg_price = (retail_buy_amount * 10000) / (retail_buy_vol * 100) if retail_buy_vol > 0 else None
-        retail_sell_avg_price = (retail_sell_amount * 10000) / (retail_sell_vol * 100) if retail_sell_vol > 0 else None
+        # --- 2. 外部参照 (获取同花顺与东财的公开情报) ---
+        # 注意：预计算任务需要确保这些字段已合并到 context 中
+        ths_net_amount = float(self.ctx.get('ths_buy_lg_amount', 0)) # 同花顺大单净额
+        dc_net_amount = float(self.ctx.get('dc_net_amount', 0))     # 东方财富主力净额
 
-        # --- 净值计算 ---
-        main_force_net_inflow_volume = (main_force_buy_vol - main_force_sell_vol) * 100  # 转换为股
-        main_force_net_inflow_amount = (main_force_buy_amount - main_force_sell_amount) * 10000  # 转换为元
-        retail_net_inflow_volume = (retail_buy_vol - retail_sell_vol) * 100  # 转换为股
+        # --- 3. 最终裁决 (融合三方情报，生成共识与分歧信号) ---
+        # 获取三方对主力资金流向的判断 (-1: 流出, 0: 平, 1: 流入)
+        cy_sign = np.sign(internal_main_force_net_amount)
+        ths_sign = np.sign(ths_net_amount)
+        dc_sign = np.sign(dc_net_amount)
+        
+        # 共识性流入：三方都判断为净流入
+        consensus_inflow = (cy_sign > 0 and ths_sign > 0 and dc_sign > 0)
+        
+        # 共识性流出：三方都判断为净流出
+        consensus_outflow = (cy_sign < 0 and ths_sign < 0 and dc_sign < 0)
+        
+        # 分歧：三方判断不完全一致 (排除了全流入、全流出、全为0的情况)
+        sign_sum = cy_sign + ths_sign + dc_sign
+        divergence = not (abs(sign_sum) == 3 or sign_sum == 0)
 
         return {
-            'main_force_buy_avg_price': main_force_buy_avg_price,
-            'main_force_sell_avg_price': main_force_sell_avg_price,
-            'main_force_net_inflow_volume': main_force_net_inflow_volume,
-            'main_force_net_inflow_amount': main_force_net_inflow_amount,
-            'retail_buy_avg_price': retail_buy_avg_price,
-            'retail_sell_avg_price': retail_sell_avg_price,
-            'retail_net_inflow_volume': retail_net_inflow_volume,
+            # 内部评估结果
+            'main_force_net_inflow_amount': internal_main_force_net_amount,
+            'retail_net_inflow_volume': internal_retail_net_volume,
+            # 外部参照数据
+            'ths_main_force_net_amount': ths_net_amount,
+            'dc_main_force_net_amount': dc_net_amount,
+            # 最终融合信号
+            'consensus_main_force_inflow': consensus_inflow,
+            'consensus_main_force_outflow': consensus_outflow,
+            'fund_flow_divergence': divergence,
         }
-
 
 
 

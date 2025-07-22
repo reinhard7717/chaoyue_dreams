@@ -414,31 +414,41 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         perf_data = get_data(StockCyqPerf, fields=('trade_time', 'weight_avg'))
         perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
 
-        # 5. 获取日线资金流数据
-        fund_flow_model = fund_flow_dao.get_fund_flow_model_by_code(stock_code)
-        # 定义需要获取的资金流字段
-        fund_flow_fields = (
-            'trade_time', 
-            'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
+        # 5.1 获取交易所资金流数据 (CY)
+        fund_flow_cy_model = fund_flow_dao.get_fund_flow_model_by_code(stock_code)
+        cy_fields = (
+            'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
             'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
             'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
-            'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
-            'net_mf_vol' # net_mf_amount 也可以加上，但我们会自己计算
+            'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount'
         )
-        fund_flow_data = get_data(fund_flow_model, fields=fund_flow_fields)
-        if not fund_flow_data.empty:
-            fund_flow_data['trade_time'] = pd.to_datetime(fund_flow_data['trade_time']).dt.date
+        fund_flow_cy_data = get_data(fund_flow_cy_model, fields=cy_fields)
+        if not fund_flow_cy_data.empty:
+            fund_flow_cy_data['trade_time'] = pd.to_datetime(fund_flow_cy_data['trade_time']).dt.date
 
-        # 计算每个数据源的独立天数
+        # 5.2 获取同花顺资金流数据 (THS)
+        fund_flow_ths_model = fund_flow_dao.get_fund_flow_ths_model_by_code(stock_code)
+        ths_fields = ('trade_time', 'buy_lg_amount') # 同花顺我们关心大单净额
+        fund_flow_ths_data = get_data(fund_flow_ths_model, fields=ths_fields)
+        if not fund_flow_ths_data.empty:
+            fund_flow_ths_data['trade_time'] = pd.to_datetime(fund_flow_ths_data['trade_time']).dt.date
+            fund_flow_ths_data = fund_flow_ths_data.rename(columns={'buy_lg_amount': 'ths_buy_lg_amount'})
+
+        # 5.3 获取东方财富资金流数据 (DC)
+        fund_flow_dc_model = fund_flow_dao.get_fund_flow_dc_model_by_code(stock_code)
+        dc_fields = ('trade_time', 'net_amount') # 东方财富我们关心主力净流入额
+        fund_flow_dc_data = get_data(fund_flow_dc_model, fields=dc_fields)
+        if not fund_flow_dc_data.empty:
+            fund_flow_dc_data['trade_time'] = pd.to_datetime(fund_flow_dc_data['trade_time']).dt.date
+            fund_flow_dc_data = fund_flow_dc_data.rename(columns={'net_amount': 'dc_net_amount'})
+        
+        # 更新诊断日志
         cyq_days = cyq_chips_data['trade_time'].nunique()
         daily_days = len(daily_data)
-        basic_days = len(daily_basic_data)
-        perf_days = len(perf_data)
-        fund_flow_days = len(fund_flow_data) if not fund_flow_data.empty else 0
-        logger.info(f"[{stock_code}] 数据源诊断: 筹码分布({cyq_days}天), 行情({daily_days}天), 基础({basic_days}天), 性能({perf_days}天), 资金流({fund_flow_days}天)")
-
-        # 打印诊断日志
-        logger.info(f"[{stock_code}] 数据源诊断: 筹码分布({cyq_days}天), 行情({daily_days}天), 基础({basic_days}天), 性能({perf_days}天)")
+        fund_cy_days = len(fund_flow_cy_data) if not fund_flow_cy_data.empty else 0
+        fund_ths_days = len(fund_flow_ths_data) if not fund_flow_ths_data.empty else 0
+        fund_dc_days = len(fund_flow_dc_data) if not fund_flow_dc_data.empty else 0
+        logger.info(f"[{stock_code}] 数据源诊断: 筹码({cyq_days}天), 行情({daily_days}天), 资金流[CY]({fund_cy_days}天), [THS]({fund_ths_days}天), [DC]({fund_dc_days}天)")
 
         # --- 开始数据处理和合并 ---
         daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
@@ -453,8 +463,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
         merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
-        if not fund_flow_data.empty:
-            merged_df = pd.merge(merged_df, fund_flow_data, on='trade_time', how='left')
+        if not fund_flow_cy_data.empty:
+            merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
+        if not fund_flow_ths_data.empty:
+            merged_df = pd.merge(merged_df, fund_flow_ths_data, on='trade_time', how='left')
+        if not fund_flow_dc_data.empty:
+            merged_df = pd.merge(merged_df, fund_flow_dc_data, on='trade_time', how='left')
         if merged_df.empty:
             logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
             return {"status": "skipped", "reason": "data sources could not be merged"}
