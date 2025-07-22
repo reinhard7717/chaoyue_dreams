@@ -63,12 +63,12 @@ class TrendFollowStrategy:
     """   
     def __init__(self, config: dict):
         self.unified_config = config
-        self.strategy_info = self._get_params_block(self.unified_config, 'strategy_info')
-        self.scoring_params = self._get_params_block(self.unified_config, 'four_layer_scoring_params')
-        self.exit_strategy_params = self._get_params_block(self.unified_config, 'exit_strategy_params')
-        self.risk_veto_params = self._get_params_block(self.unified_config, 'risk_veto_params')
-        self.debug_params = self._get_params_block(self.unified_config, 'debug_params')
-        self.kline_params = self._get_params_block(self.unified_config, 'kline_pattern_params')
+        self.strategy_info = self._get_params_block('strategy_info')
+        self.scoring_params = self._get_params_block('four_layer_scoring_params')
+        self.exit_strategy_params = self._get_params_block('exit_strategy_params')
+        self.risk_veto_params = self._get_params_block('risk_veto_params')
+        self.debug_params = self._get_params_block('debug_params')
+        self.kline_params = self._get_params_block('kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
         self._last_score_details_df = None
         self._last_risk_details_df = None
@@ -113,10 +113,19 @@ class TrendFollowStrategy:
             return param
         return default
 
-    def _get_params_block(self, params: dict, block_name: str, default_return: Any = None) -> dict:
+    def _get_params_block(self, block_name: str, default_return: Any = None) -> dict:
+        """
+        【V239.0 中央集权版】健壮的参数块获取器。
+        - 核心重构: 不再接收易变的 params 字典作为参数。
+        - 新规则: 永远从 self.unified_config 这个唯一的“中央档案库”中，
+                  沿着 'strategy_params.trend_follow' 这条固定路径查找指定的配置块。
+                  这从根本上杜绝了因参数传递错误导致的配置读取失败问题。
+        """
         if default_return is None:
             default_return = {}
-        return params.get('strategy_params', {}).get('trend_follow', {}).get(block_name, default_return)
+        # 从唯一的、最顶层的配置字典开始查找
+        trend_follow_params = self.unified_config.get('strategy_params', {}).get('trend_follow', {})
+        return trend_follow_params.get(block_name, default_return)
 
     def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
         """
@@ -1309,7 +1318,7 @@ class TrendFollowStrategy:
         # print("        -> [诊断模块] 正在执行均线状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
-        p = self._get_params_block(params, 'ma_state_params', {})
+        p = self._get_params_block('ma_state_params')
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 均线诊断模块被禁用，跳过。")
             return states
@@ -2210,7 +2219,7 @@ class TrendFollowStrategy:
         print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
         
         # --- 1. 参数初始化 ---
-        sim_params = self._get_params_block(params, 'position_management_params', {})
+        sim_params = self._get_params_block('position_management_params')
         if not self._get_param_value(sim_params.get('enabled'), False):
             print("    - 持仓管理模拟被禁用，跳过。")
             return df
@@ -2482,7 +2491,7 @@ class TrendFollowStrategy:
         - 核心修复: 修正了获取参数的来源，从错误的 self.daily_params 改为
                     正确的 self.unified_config，确保能正确读取到 risk_quantifier_params。
         """
-        quantifier_params = self._get_params_block(self.unified_config, 'risk_quantifier_params', {})
+        quantifier_params = self._get_params_block('risk_quantifier_params')
         if not self._get_param_value(quantifier_params.get('enabled'), False):
             return "风险量化未启用"
         risk_scores = []
