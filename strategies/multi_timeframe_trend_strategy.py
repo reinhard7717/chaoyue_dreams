@@ -183,89 +183,80 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V2.2：宽表兼容版】
-        - 核心修正: 彻底重构了对 score_details 和 risk_details 的处理方式，以兼容
-                    从一线部队传来的“宽表”格式（每个规则一列），并将其动态转换为
-                    法医官所需的“长表”格式（包含'rule'和'score'列）。
-        - 新逻辑:
-          1. 新增内部函数 `transform_wide_to_long`。
-          2. 此函数接收宽表DataFrame和目标日期。
-          3. 它会筛选出目标日期的数据，并使用 pandas 的 melt 方法，将宽表高效地
-             转换为包含规则名称和分值的标准长表。
-          4. 后续的验尸流程，都基于这个转换后的标准长表进行，从而根治 KeyError。
+        【首席法医官 V2.3：证据清单修正版】
+        - 核心修正: 根据实际的DataFrame列名清单，全面重写了 rule_to_evidence_mapping。
+                    确保法医官能够根据正确的标签，在军火库中找到所有需要的证据。
+        - 新增逻辑:
+          1. 所有列名都精确匹配了实际的命名约定（如 `_D` 后缀）。
+          2. 对于不存在的“概念性”指标，暂时移除或替换为可观察的基础指标。
+          3. 调整了部分指标的参数以匹配实际情况 (如 RSI_13_D)。
         """
-        print("\n    ========================= [战地验尸总署-探针报告 V2.2] =========================")
+        print("\n    ========================= [战地验尸总署-探针报告 V2.3] =========================")
         
+        # ▼▼▼【代码修改 V2.3】: 全面修正“法医证据清单”以匹配实际列名 ▼▼▼
         rule_to_evidence_mapping = {
             # --- 风险规则的证据清单 ---
-            'risk_RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': ['main_force_net_inflow_5d_sum', 'main_force_net_inflow_10d_sum', 'retail_net_inflow_5d_sum'],
-            'risk_STRUCTURE_TOPPING_DANGER_S': ['close', 'high_20d', 'macd_hist', 'rsi_12', 'bias_24'],
+            # 注意：主力资金的5日/10日合计值可能需要数据工程层计算并输出，这里暂时使用单日值作为替代证据
+            'risk_RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': ['main_force_net_inflow_amount_D', 'retail_net_inflow_volume_D'],
+            'risk_STRUCTURE_TOPPING_DANGER_S': ['close_D', 'high_D', 'MACDh_13_34_8_D', 'RSI_13_D', 'BIAS_21_D', 'BIAS_55_D'],
             
             # --- 进攻规则的证据清单 ---
-            'CAPITAL_DIVERGENCE_REVERSAL': ['main_force_net_inflow_amount', 'main_force_net_inflow_3d_sum', 'price_change_pct_3d'],
-            'CHIP_HEALTH_EXCELLENT': ['chip_health_score', 'winner_profit_margin'],
-            'PLATFORM_STATE_STABLE_FORMED': ['platform_stability_score', 'platform_days'],
-            'CHIP_STATE_HIGHLY_CONCENTRATED': ['concentration_90pct', 'peak_stability'],
-            'DYN_TREND_HEALTHY_ACCELERATING': ['dyn_trend_score', 'dyn_trend_momentum', 'adx_14'],
-            'CONTEXT_STRONG_BREAKOUT_RALLY': ['close', 'high_20d', 'vol', 'vol_ma_20', 'pct_change']
+            # 注意：3日合计值和价格变动也需要数据工程层计算，暂时使用单日值
+            'CAPITAL_DIVERGENCE_REVERSAL': ['main_force_net_inflow_amount_D', 'close_D', 'prev_20d_close_D'],
+            'CHIP_HEALTH_EXCELLENT': ['chip_health_score_D', 'winner_profit_margin_D'],
+            # 'platform_stability_score' 是概念分数，替换为可观察的基础指标
+            'PLATFORM_STATE_STABLE_FORMED': ['peak_cost_slope_5d_D', 'peak_stability_D', 'close_D', 'EMA_55_D'],
+            'CHIP_STATE_HIGHLY_CONCENTRATED': ['concentration_90pct_D', 'peak_stability_D'],
+            # 'dyn_trend_score' 是概念分数，替换为构成它的核心斜率和加速度指标
+            'DYN_TREND_HEALTHY_ACCELERATING': ['SLOPE_55_EMA_55_D', 'ACCEL_55_EMA_55_D', 'SLOPE_13_EMA_13_D'],
+            # 'high_20d' 不存在，替换为与前20日收盘价的比较
+            'CONTEXT_STRONG_BREAKOUT_RALLY': ['close_D', 'prev_20d_close_D', 'volume_D', 'VOL_MA_21_D', 'pct_change_D']
         }
+        # ▲▲▲【代码修改 V2.3】▲▲▲
 
         try:
             probe_dt = pd.to_datetime(probe_date).date()
             probe_row = df.loc[df.index.date == probe_dt].iloc[0]
+            # 修正：从 probe_row 中获取 stock_code，而不是依赖外部传入
             stock_code = probe_row.get('stock_code', 'N/A')
+            if stock_code == 'N/A' and 'stock_id_D' in probe_row:
+                 stock_code = probe_row['stock_id_D']
             print(f"      [验尸目标]: 股票代码 {stock_code} @ {probe_date}")
         except (IndexError, KeyError):
             print(f"      [错误] 未能在主数据流中找到目标日期 {probe_date} 的记录。")
             return
 
-        # ▼▼▼【代码修改 V2.2】: 新增“宽表转长表”的核心转换器 ▼▼▼
         def transform_wide_to_long(details_df: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
-            """一个健壮的函数，用于将宽格式的详情DataFrame转换为长格式。"""
             if details_df is None or details_df.empty:
                 return pd.DataFrame(columns=['rule', 'score'])
-
             target_date = pd.to_datetime(target_date_str).date()
-            
-            # 筛选出目标日期的数据行
             if isinstance(details_df.index, pd.DatetimeIndex):
                 day_details = details_df[details_df.index.date == target_date]
             else:
                 print(f"      [警告] 详情案卷的索引不是日期格式，无法进行验尸。")
                 return pd.DataFrame(columns=['rule', 'score'])
-
             if day_details.empty:
                 return pd.DataFrame(columns=['rule', 'score'])
-
-            # 使用 melt 方法将宽表转换为长表
-            # id_vars=None, value_vars=所有列, var_name='rule', value_name='score'
             long_df = day_details.melt(var_name='rule', value_name='score')
-            
-            # 只保留得分不为0的规则
             long_df = long_df[long_df['score'] != 0].reset_index(drop=True)
-            
             return long_df
         
         risk_rules_long = transform_wide_to_long(risk_details, probe_date)
         score_rules_long = transform_wide_to_long(score_details, probe_date)
-        # ▲▲▲【代码修改 V2.2】▲▲▲
 
         # --- 风险验尸科 ---
         print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
-        # ▼▼▼【代码修改 V2.2】: 使用转换后的长表进行操作 ▼▼▼
         if not risk_rules_long.empty:
             print(f"  [目标日期 {probe_date} 风险详情]:")
             print(f"    -> 当日总风险分: {risk_rules_long['score'].sum():.2f}")
             print(f"    -> 风险构成:")
             for _, rule_row in risk_rules_long.iterrows():
-                # 从长表中直接读取 rule 和 score
                 rule_name = rule_row['rule']
                 rule_score = rule_row['score']
                 print(f"      - {rule_name}: {rule_score:.2f} 分")
                 
-                # 证据查找逻辑保持不变，但规则名现在是正确的
                 evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
-                if not evidence_cols: # 如果在主映射中找不到，尝试去掉 'risk_' 前缀再找一次
+                if not evidence_cols:
                     evidence_cols = rule_to_evidence_mapping.get(rule_name.replace('risk_', ''), [])
 
                 if evidence_cols:
@@ -273,16 +264,20 @@ class MultiTimeframeTrendStrategy:
                     for col in evidence_cols:
                         try:
                             value = probe_row[col]
-                            print(f"          - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"          - {col}: {value}")
+                            # 修正：对 pct_change_D 进行特殊格式化
+                            if col == 'pct_change_D':
+                                print(f"          - {col}: {value:.2%}")
+                            elif isinstance(value, (int, float)):
+                                print(f"          - {col}: {value:.2f}")
+                            else:
+                                print(f"          - {col}: {value}")
                         except KeyError:
                             print(f"          - [警告] 证据列 '{col}' 不存在!")
         else:
             print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
-        # ▲▲▲【代码修改 V2.2】▲▲▲
 
         # --- 进攻分验尸科 ---
         print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
-        # ▼▼▼【代码修改 V2.2】: 使用转换后的长表进行操作 ▼▼▼
         if not score_rules_long.empty:
             print(f"      [目标日期 {probe_date} 得分详情]:")
             print(f"        -> 当日总得分: {score_rules_long['score'].sum():.2f}")
@@ -298,12 +293,16 @@ class MultiTimeframeTrendStrategy:
                     for col in evidence_cols:
                         try:
                             value = probe_row[col]
-                            print(f"              - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"              - {col}: {value}")
+                            if col == 'pct_change_D':
+                                print(f"              - {col}: {value:.2%}")
+                            elif isinstance(value, (int, float)):
+                                print(f"              - {col}: {value:.2f}")
+                            else:
+                                print(f"              - {col}: {value}")
                         except KeyError:
                             print(f"              - [警告] 证据列 '{col}' 不存在!")
         else:
             print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻得分信号。")
-        # ▲▲▲【代码修改 V2.2】▲▲▲
         
         print("    ============================== [验尸报告结束] ==============================")
 
