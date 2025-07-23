@@ -442,6 +442,25 @@
             "squeeze_percentile": 0.2
           }
         }
+      },
+      "washout_suspicion_params": {
+        "description": "【洗盘嫌疑 V1.0】战术模块参数，用于识别并对冲“假派发、真洗盘”的风险。",
+        "enabled": {
+          "value": true,
+          "description": "是否启用此战术模块。"
+        },
+        "support_ma_period": {
+          "value": 21,
+          "description": "定义关键支撑均线的周期。价格守住此均线，是洗盘的重要特征。"
+        },
+        "volume_threshold_ratio": {
+          "value": 2.0,
+          "description": "定义成交量是否“过大”的阈值。洗盘时成交量通常不会持续超过21日均量的2倍。"
+        },
+        "reduction_factor": {
+          "value": 0.5,
+          "description": "风险对冲系数。如果确认为“洗盘嫌疑”，则“主力派发”风险分乘以该系数（例如0.5代表打5折）。"
+        }
       }
     }
   },

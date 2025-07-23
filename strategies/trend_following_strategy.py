@@ -1902,46 +1902,76 @@ class TrendFollowStrategy:
     #    -> 首席裁决官: _calculate_risk_score()
     def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V287.0 现代化改造版】
-        - 核心升级: 通讯协议与“进攻方案评估中心”保持一致，接收标准化的`context`字典。
-        - 作战流程:
-          1. 从`context`档案包中解压所有必需的情报。
-          2. 根据《风险评分手册》，对所有已激活的风险信号进行累加计分。
-          3. 输出最终的“风险分”。
+        【V288.0 洗盘识别版】
+        - 核心升级: 新增【洗盘嫌疑 V1.0】战术模块。
+        - 新作战流程:
+          1. 首先，按常规计算所有风险信号的原始得分。
+          2. 然后，专门部署“洗盘侦察连”，判断是否满足“洗盘”的三个核心特征：
+             a. 主力资金在流出。
+             b. 但价格并未跌破关键支撑位 (如EMA_21_D)。
+             c. 成交量并未持续放出天量。
+          3. 如果“洗盘嫌疑”成立，则对“主力派发”这一项风险的得分进行战术性削减（打折），
+             从而让AI能够区分“真派发”和“假洗盘”。
         """
-        print("        -> [最高风险裁决所 V287.0] 已接收档案包，正在启动风险评估...")
+        print("        -> [最高风险裁决所 V288.0 洗盘识别版] 启动，正在启动风险评估...")
 
         # --- 步骤1: 解压标准化的“作战情报档案包” ---
         df = context['df']
         params = context['params']
         atomic_states = context['atomic_states']
 
-        # --- 步骤2: 初始化计分板 ---
+        # --- 步骤2: 初始化计分板与读取风险规则 ---
         risk_score = pd.Series(0.0, index=df.index)
         risk_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block('four_layer_scoring_params')
-        
-        # --- 步骤3: 根据《风险评分手册》进行计分 ---
         risk_rules = scoring_params.get('risk_scoring', {}).get('signals', {})
         print(f"          -> 正在根据《风险评分手册》中的 {len(risk_rules)} 条规则进行裁决...")
         
+        # --- 步骤3: 按常规计算所有原始风险分 ---
         for signal_name, score in risk_rules.items():
-            # 跳过JSON中的注释行
-            if "说明" in signal_name:
-                continue
-            
-            # 从“中央情报局”获取风险信号的状态
+            if "说明" in signal_name: continue
             signal_series = atomic_states.get(signal_name)
-            
             if signal_series is not None and signal_series.any():
-                # 如果风险信号被激活，则累加其风险分
                 risk_score.loc[signal_series] += score
-                # 同时在详情报告中记录该项风险的得分
                 risk_details_df[f'risk_{signal_name}'] = signal_series * score
         
-        print("        -> [最高风险裁决所 V287.0] 风险评估完成。")
-        return risk_score, risk_details_df
+        # ▼▼▼ 部署【洗盘嫌疑 V1.0】战术模块 ▼▼▼
+        washout_params = self._get_params_block('washout_suspicion_params')
+        if self._get_param_value(washout_params.get('enabled'), True):
+            print("          -> [洗盘侦察连] 已部署，正在甄别“主力派发”信号的真伪...")
+            
+            # --- 条件A: 必须存在“主力派发”这个风险信号 ---
+            main_force_dist_risk_name = 'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'
+            is_main_force_distributing = atomic_states.get(main_force_dist_risk_name, pd.Series(False, index=df.index))
 
+            # --- 条件B: 价格并未跌破关键支撑位 ---
+            support_ma_period = self._get_param_value(washout_params.get('support_ma_period'), 21)
+            support_ma_col = f'EMA_{support_ma_period}_D'
+            price_above_support = df['close_D'] > df.get(support_ma_col, 0)
+
+            # --- 条件C: 成交量并未持续放出天量 ---
+            volume_ma_col = 'VOL_MA_21_D'
+            volume_threshold_ratio = self._get_param_value(washout_params.get('volume_threshold_ratio'), 2.0)
+            volume_not_excessive = df['volume_D'] < (df.get(volume_ma_col, 0) * volume_threshold_ratio)
+
+            # --- 最终裁定: “洗盘嫌疑”成立！ ---
+            is_washout_suspicion = is_main_force_distributing & price_above_support & volume_not_excessive
+            
+            if is_washout_suspicion.any():
+                # --- 执行“风险对冲” ---
+                reduction_factor = self._get_param_value(washout_params.get('reduction_factor'), 0.5)
+                original_risk_score = risk_rules.get(main_force_dist_risk_name, 0)
+                score_reduction = original_risk_score * (1 - reduction_factor)
+                
+                # 从总风险分中减去折扣部分
+                risk_score.loc[is_washout_suspicion] -= score_reduction
+                # 在风险详情中也更新这一项的分数
+                risk_details_df.loc[is_washout_suspicion, f'risk_{main_force_dist_risk_name}'] *= reduction_factor
+                
+                print(f"          -> [洗盘侦察连] 发现 {is_washout_suspicion.sum()} 天存在“洗盘嫌疑”！已对“主力派发”风险分进行 {reduction_factor:.0%} 折扣处理。")
+        
+        print("        -> [最高风险裁决所 V288.0] 风险评估完成。")
+        return risk_score, risk_details_df
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
