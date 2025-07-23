@@ -2011,6 +2011,10 @@ class TrendFollowStrategy:
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
         df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
         print("    -> [决策单元] 决策完成。")
+        # 初始化标准化的指令列
+        df['signal_entry'] = False
+        # 当信号类型为“买入信号”时，将“进攻许可”设置为True
+        df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
 
         print("--- [最高作战指挥部 V288.0] 一体化流程执行完毕。 ---")
         return df
