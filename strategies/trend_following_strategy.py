@@ -1799,33 +1799,31 @@ class TrendFollowStrategy:
     #     -> 总指挥: _run_scoring_and_assessment()
     def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V269.0 中央情报局版】参谋部联席会议
-        - 核心重构: 不再接收或传递 atomic_states 参数。
-        - 新情报流: 所有下游方法（如 _generate_playbook_states, _calculate_entry_score, _diagnose_all_risk_signals）
-                      都将直接从 self.atomic_states 按需调阅情报，极大地简化了指挥链，降低了耦合度。
+        【V284.0 战情上图版】
+        - 核心修复: 解决了因评估分数未被添加回主DataFrame而导致的致命KeyError。
+        - 新条例:
+          1. 本部门在调用下级单位完成计分后，必须立即将返回的 `entry_score` 和 `risk_score` 
+             作为新的列，添加到主作战地图 `df` 上。
+          2. 只有这张被正确标注过的地图，才被允许流转到下一个指挥环节。
+        - 收益: 彻底解决了情报在部门间交接时丢失的问题，确保了指挥链的完整性。
         """
-        print("--- [参谋部 V269.0] 启动，正在进行量化评估...")
+        print("    -> [参谋部联席会议 V284.0] 启动，正在执行评估与计分...")
+
+        # --- 步骤1: 调用下级部门，获取评估分数 ---
+        # “进攻方案评估中心”返回进攻分和详情
+        entry_score, score_details_df = self._calculate_entry_score(df, params, trigger_events)
         
-        # --- 1. 剧本情报生成 (Playbook Intelligence Generation) ---
-        # 调用情报中心。注意：它现在也不再需要 atomic_states 参数，因为它会直接从 self 调阅。
-        print("    -> [情报中心] 正在生成动态剧本情报...")
-        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
+        # “最高风险裁决所”返回风险分和详情
+        risk_score, risk_details_df = self._calculate_risk_score(df, params)
 
-        # --- 2. 进攻方案评估 (Entry Scoring) ---
-        # 调用评估中心。同样，它也不再需要 atomic_states 参数。
-        print("    -> [评估中心] 正在评估进攻方案...")
-        df, score_details_df = self._calculate_entry_score(df, params, setup_scores, playbook_states, trigger_events)
+        # --- 步骤2: 【关键修复】强制执行“战情上图”条例 ---
+        # 将计算出的分数，作为新的列，直接添加到主DataFrame上！
+        df['entry_score'] = entry_score
+        df['risk_score'] = risk_score
+        
+        print("    -> [参谋部联席会议 V284.0] 评估计分完成，已将结果标注于主作战地图。")
 
-        # --- 3. 最高风险裁决 (Risk Scoring) ---
-        print("    -> [裁决所] 正在进行最高风险裁决...")
-        # a. 获取风险裁决所需的专属参数
-        exit_params = self._get_params_block('exit_strategy_params')
-        # b. 调用风险情报总局。注意：它需要 atomic_states，因此我们从 self.atomic_states 传递给它。
-        risk_signals = self._diagnose_all_risk_signals(df, exit_params)
-        # c. 调用风险计分模块
-        df, risk_details_df = self._calculate_risk_score(df, params)
-
-        print("--- [参谋部 V269.0] 量化评估完成。")
+        # --- 步骤3: 返回被正确标注过的地图和评估详情 ---
         return df, score_details_df, risk_details_df
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
@@ -1990,11 +1988,10 @@ class TrendFollowStrategy:
         print("    -> [总司令部 V283.0 通讯协议修复版] 启动，正在下达最终作战指令...")
         
         # --- 步骤1: 计算离场信号 ---
-        # 确保 risk_score 列存在
         if 'risk_score' not in df.columns:
             raise ValueError("[严重错误] 在调用 _calculate_exit_signals 之前, 'risk_score' 列不存在于DataFrame中！")
         
-        # 修复调用，传入必需的 risk_score 参数
+        # 此处调用逻辑保持V283的修复结果
         df = self._calculate_exit_signals(df, params, df['risk_score'])
 
         # --- 步骤2: 风险否决 ---
