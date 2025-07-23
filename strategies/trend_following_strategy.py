@@ -205,12 +205,12 @@ class TrendFollowStrategy:
         # --- 步骤1：情报总局 (Intelligence Gathering) ---
         # 运行所有诊断模块，收集所有正面和负面的“原子情报”。
         print("--- [指挥链 1/4] 情报总局：正在收集所有战场情报... ---")
-        df, atomic_states, trigger_events = self._run_all_diagnostics(df, params)
+        df, trigger_events = self._run_all_diagnostics(df, params)
 
         # --- 步骤2：参谋部联席会议 (Assessment & Scoring) ---
         # 对所有情报进行量化评估，形成“进攻价值分”和“战场风险分”。
         print("--- [指挥链 2/4] 参谋部：正在对情报进行量化评估... ---")
-        df, score_details_df, risk_details_df = self._run_scoring_and_assessment(df, params, atomic_states, trigger_events)
+        df, score_details_df, risk_details_df = self._run_scoring_and_assessment(df, params, trigger_events)
         self._last_score_details_df = score_details_df
         self._last_risk_details_df = risk_details_df
 
@@ -237,18 +237,15 @@ class TrendFollowStrategy:
     # 1. 情报总局 (Intelligence General Administration)
     #    -> 核心职责: 统一收集所有战场情报，形成原子状态报告
     #    -> 总指挥: _run_all_diagnostics()
-    def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict, Dict]:
+    def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict]:
         """
-        【V257.0 最终整编版】情报总局
-        - 核心重构: 经过V256.0(筹码司令部)和V257.0(认知引擎)两次核心整编，本方法
-                      已成为一个高度精炼的、负责调度各大专业化司令部的“总指挥部”。
-        - 指挥链条:
-          1.  【基础侦察】: 启动K线模式识别器。
-          2.  【专业化司令部】: 依次调用平台、筹码、均线、资本等专业司令部，收集原子情报。
-          3.  【联合作战分析】: 在各司令部完成基础分析后，启动“筹码-价格”联合分析。
-          4.  【认知升华】: 启动“认知综合引擎”，将所有情报升华为高维战术概念。
-          5.  【战术触发定义】: 最终定义所有可供决策的“开火信号”。
-        - 收益: 指挥链极度清晰，权责分明，彻底消除了情报碎片化和职能交叉的问题。
+        【V269.0 中央情报局版】情报总局
+        - 核心重构:
+          1. 不再返回 atomic_states。而是将其作为实例属性 self.atomic_states 进行存储。
+             这使得 atomic_states 成为一个可供策略内所有方法按需调阅的“中央数据库”，
+             彻底解决了参数层层传递导致的臃肿和高耦合问题。
+          2. 所有下游的诊断模块，现在都直接从 self.atomic_states 读取或向其更新情报。
+        - 返回值变更: 现在只返回 df 和 trigger_events，指挥链变得极度清晰。
         """
         print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
         # 启动基础的K线模式识别器
@@ -260,12 +257,12 @@ class TrendFollowStrategy:
         # 1. 平台与阵地司令部
         df, platform_states = self._diagnose_platform_states(df, params)
         
-        # 2. 筹码情报最高司令部 (已完成一体化整编)
-        # 一次性获取所有筹码状态和触发器
+        # 2. 筹码情报最高司令部
         chip_states, chip_triggers = self._run_chip_intelligence_command(df, params)
 
-        # 3. 汇总所有基础原子情报
-        atomic_states = {
+        # 3. 【建立中央情报局】汇总所有基础原子情报，并存入 self.atomic_states
+        # 这是本次改革的核心：将所有情报统一存入实例属性，而不是作为局部变量传递
+        self.atomic_states = {
             **chip_states,                                  # 注入来自筹码最高司令部的情报
             **self._diagnose_ma_states(df, params),         # 均线野战部队
             **self._diagnose_oscillator_states(df, params), # 心理战与市场情绪侦察部
@@ -279,32 +276,33 @@ class TrendFollowStrategy:
         }
         
         # --- 在所有基础情报生成后，启动跨部门的联合作战分析 ---
+        # 后续所有部门，都直接从 self.atomic_states 调阅情报并更新
         
         # 4. 筹码-价格行为联合分析部 (跨部门协作)
-        atomic_states.update(self._diagnose_chip_price_action(df, atomic_states))
+        self.atomic_states.update(self._diagnose_chip_price_action(df, self.atomic_states))
         
         # 5. 市场结构总参谋部
-        atomic_states.update(self._diagnose_market_structure_states(df, params, atomic_states))
+        self.atomic_states.update(self._diagnose_market_structure_states(df, params, self.atomic_states))
         
         # --- 启动认知综合引擎，完成从“情报”到“认知”的最终升华 ---
         
-        # 6. 认知综合引擎 (已完成一体化整编)
-        # 一次性完成所有高维认知合成
-        atomic_states.update(self._run_cognitive_synthesis_engine(df, atomic_states))
+        # 6. 认知综合引擎
+        self.atomic_states.update(self._run_cognitive_synthesis_engine(df, self.atomic_states))
 
         # --- 基于所有情报和认知，定义最终的战术触发事件 ---
         
         # 7. 战术触发事件定义中心
-        trigger_events = self._define_trigger_events(df, params, atomic_states)
+        trigger_events = self._define_trigger_events(df, params, self.atomic_states)
         # 将筹码总参谋部提供的“触发事件”合并到总事件池中
         trigger_events.update(chip_triggers)
         
         # 特殊处理：从波动率压缩中突破的触发事件
-        is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
+        is_in_squeeze_window = self.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
 
-        return df, atomic_states, trigger_events
+        # 修改返回值，不再传递 atomic_states，因为它已经是全策略可访问的实例属性
+        return df, trigger_events
 
     # ─> 战术条令与剧本参谋部 (Tactical Doctrine & Playbook Dept.)
     #    -> 核心职责: 负责全军作战计划的理论制定与动态应用。
@@ -481,9 +479,9 @@ class TrendFollowStrategy:
                 p_cap_pit = rules
                 must_have_score = self._get_param_value(p_cap_pit.get('must_have_score'), 40)
                 bonus_score = self._get_param_value(p_cap_pit.get('bonus_score'), 25)
-                must_have_conditions = atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', default_series)
-                bonus_conditions_1 = atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
-                bonus_conditions_2 = atomic_states.get('CHIP_STATE_SCATTERED', default_series)
+                must_have_conditions = self.atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', default_series)
+                bonus_conditions_1 = self.atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
+                bonus_conditions_2 = self.atomic_states.get('CHIP_STATE_SCATTERED', default_series)
                 base_score = must_have_conditions.astype(int) * must_have_score
                 bonus_score_total = (bonus_conditions_1.astype(int) * bonus_score) + (bonus_conditions_2.astype(int) * bonus_score)
                 final_score = (base_score + bonus_score_total).where(must_have_conditions, 0)
@@ -491,13 +489,13 @@ class TrendFollowStrategy:
             # --- “平台质量” 专属评分逻辑 ---
             elif setup_name == 'PLATFORM_QUALITY':
                 p_quality = rules
-                must_have_cond = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+                must_have_cond = self.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
                 base_score_val = self._get_param_value(p_quality.get('base_score'), 40)
                 base_score = must_have_cond.astype(int) * base_score_val
                 bonus_score_series = pd.Series(0.0, index=df.index)
                 bonus_rules = p_quality.get('bonus', {})
                 for state, score in bonus_rules.items():
-                    state_series = atomic_states.get(state, default_series)
+                    state_series = self.atomic_states.get(state, default_series)
                     bonus_score_series += state_series.astype(int) * score
                 setup_scores[f'SETUP_SCORE_{setup_name}'] = (base_score + bonus_score_series).where(must_have_cond, 0)
             else:
@@ -506,7 +504,7 @@ class TrendFollowStrategy:
                 must_have_rules = rules.get('must_have', {})
                 must_have_passed = pd.Series(True, index=df.index)
                 for state, score in must_have_rules.items():
-                    state_series = atomic_states.get(state, default_series)
+                    state_series = self.atomic_states.get(state, default_series)
                     current_score += state_series * score
                     must_have_passed &= state_series
                 
@@ -515,7 +513,7 @@ class TrendFollowStrategy:
                 if any_of_rules:
                     any_of_score_component = pd.Series(0.0, index=df.index)
                     for state, score in any_of_rules.items():
-                        state_series = atomic_states.get(state, default_series)
+                        state_series = self.atomic_states.get(state, default_series)
                         any_of_score_component.loc[state_series] = score
                         any_of_passed |= state_series
                     current_score += any_of_score_component
@@ -524,7 +522,7 @@ class TrendFollowStrategy:
 
                 bonus_rules = rules.get('bonus', {})
                 for state, score in bonus_rules.items():
-                    state_series = atomic_states.get(state, default_series)
+                    state_series = self.atomic_states.get(state, default_series)
                     current_score += state_series * score
                 
                 final_validity = must_have_passed & any_of_passed
@@ -1785,30 +1783,35 @@ class TrendFollowStrategy:
     # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 
     #     -> 核心职责: 对情报进行量化评估，计算进攻价值分与战场风险分。
     #     -> 总指挥: _run_scoring_and_assessment()
-    def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V266.0 通讯协议修复版】参谋部联席会议
-        - 核心修复: 修正了对 _calculate_entry_score 的调用。在之前的重构中，
-                    错误地遗漏了 'atomic_states' 参数的传递，导致了 TypeError。
-        - 新流程: 确保将 atomic_states, setup_scores, playbook_states, trigger_events
-                  这四份核心情报，完整、正确地传递给进攻方案评估中心。
+        【V269.0 中央情报局版】参谋部联席会议
+        - 核心重构: 不再接收或传递 atomic_states 参数。
+        - 新情报流: 所有下游方法（如 _generate_playbook_states, _calculate_entry_score, _diagnose_all_risk_signals）
+                      都将直接从 self.atomic_states 按需调阅情报，极大地简化了指挥链，降低了耦合度。
         """
-        print("--- [参谋部 V266.0] 启动，正在进行量化评估...")
+        print("--- [参谋部 V269.0] 启动，正在进行量化评估...")
         
-        # 调用新的情报中心，获取精炼情报
-        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events, atomic_states)
+        # --- 1. 剧本情报生成 (Playbook Intelligence Generation) ---
+        # 调用情报中心。注意：它现在也不再需要 atomic_states 参数，因为它会直接从 self 调阅。
+        print("    -> [情报中心] 正在生成动态剧本情报...")
+        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
 
-        # --- 1. 进攻方案评估 (Entry Scoring) ---
+        # --- 2. 进攻方案评估 (Entry Scoring) ---
+        # 调用评估中心。同样，它也不再需要 atomic_states 参数。
         print("    -> [评估中心] 正在评估进攻方案...")
-        df, score_details_df = self._calculate_entry_score(df, params, atomic_states, setup_scores, playbook_states, trigger_events)
+        df, score_details_df = self._calculate_entry_score(df, params, setup_scores, playbook_states, trigger_events)
 
-        # --- 2. 最高风险裁决 (Risk Scoring) ---
+        # --- 3. 最高风险裁决 (Risk Scoring) ---
         print("    -> [裁决所] 正在进行最高风险裁决...")
+        # a. 获取风险裁决所需的专属参数
         exit_params = self._get_params_block('exit_strategy_params')
-        risk_signals = self._diagnose_all_risk_signals(df, exit_params, atomic_states)
+        # b. 调用风险情报总局。注意：它需要 atomic_states，因此我们从 self.atomic_states 传递给它。
+        risk_signals = self._diagnose_all_risk_signals(df, exit_params, self.atomic_states)
+        # c. 调用风险计分模块
         df, risk_details_df = self._calculate_risk_score(df, params, risk_signals)
 
-        print("--- [参谋部 V266.0] 量化评估完成。")
+        print("--- [参谋部 V269.0] 量化评估完成。")
         return df, score_details_df, risk_details_df
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
@@ -1859,7 +1862,7 @@ class TrendFollowStrategy:
                 min_score_to_trigger = rules.get('min_score_to_trigger', 0)
                 condition_score = pd.Series(0.0, index=df.index)
                 for state, score in rules.get('conditions', {}).items():
-                    state_series = atomic_states.get(state, default_series.astype(bool))
+                    state_series = self.atomic_states.get(state, default_series.astype(bool))
                     condition_score += state_series.astype(int) * score
                 setup_bonus_score = pd.Series(0.0, index=df.index)
                 for setup_key, bonus_multiplier in rules.get('setup_bonus', {}).items():
@@ -1894,7 +1897,7 @@ class TrendFollowStrategy:
         df['entry_score'] = score_details_df.sum(axis=1)
 
         # --- 4. 应用最终得分调整 (指挥棒模型) ---
-        df = self._apply_final_score_adjustments(df, params, atomic_states)
+        df = self._apply_final_score_adjustments(df, params) # 调用链简化
         
         return df, score_details_df
 
@@ -1926,7 +1929,7 @@ class TrendFollowStrategy:
             
             if state_name and multiplier_value:
                 # 从原子状态中获取对应的布尔序列
-                condition_series = atomic_states.get(state_name, pd.Series(False, index=df.index))
+                condition_series = self.atomic_states.get(state_name, pd.Series(False, index=df.index))
                 # 在满足条件的地方，应用乘数
                 final_multiplier.loc[condition_series] *= multiplier_value
         # 将最终的乘数应用到 entry_score 上
