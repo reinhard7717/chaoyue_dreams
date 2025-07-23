@@ -2385,16 +2385,18 @@ class TrendFollowStrategy:
     # ─> 战地验尸官 (Field Coroner)
     #    -> 核心职责: 对特定日期的完整计分流程进行法医级解剖。
     #    -> 首席验尸官: _deploy_field_coroner_probe()
-    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame):
+    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, params: dict):
         """
-        【V291.0 改造版】
-        - 核心升级: 不再从 self._last_..._df 读取可能过时或错误的旧档案。
-                    而是直接接收由上级单位实时传递过来的、最新的、临时的评估报告。
+        【V294.0 通讯协议同步版】
+        - 核心修复: 修正了本方法的函数签名，使其与上级单位(apply_strategy)的调用协议
+                    完全一致，能够正确接收包含`params`在内的6个参数。
+        - 收益: 彻底解决了因“调用”与“定义”参数数量不匹配而导致的TypeError。
         """
         print(f"========================= [战地验尸总署-探针报告] =========================")
         print(f"  [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
 
-        # 直接使用传递进来的 score_details 和 risk_details 进行验尸
+        # 确认本部门在向下级下达指令时，也使用了正确的、包含params的协议
+        # (此部分在V293已预测性修复，此处为最终确认)
         self._probe_risk_score_details(risk_details, probe_date, params)
         self._probe_entry_score_details(score_details, probe_date, params)
         
