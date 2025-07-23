@@ -1799,123 +1799,125 @@ class TrendFollowStrategy:
     #     -> 总指挥: _run_scoring_and_assessment()
     def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V286.0 最终流程再造版】
-        - 核心修复: 解决了因调用 `_calculate_entry_score` 时遗漏 `trigger_events` 参数而导致的致命TypeError。
-        - 最终条例 (情报交接铁律):
-          1. 在调用 `_calculate_entry_score` 时，必须将 `playbook_states` 和 `trigger_events` 
-             这两份核心情报，一并、完整地传递给它。一份都不能少！
-        - 收益: 彻底根除了参谋部内部反复出现的情报交接失误，确保了指挥链的绝对可靠。
+        【V287.0 联合作战情报中心】
+        - 核心改革: 彻底废除旧的、传递零散参数的官僚流程。
+        - 新流程:
+          1. 首先，调用“作战计划推演室”生成 `playbook_states`。
+          2. 然后，将所有评估所需的情报，统一打包进一个标准化的 `scoring_context` 字典。
+          3. 最后，将这同一个、完整的“情报档案包”分发给所有下级评估单位。
+        - 收益: 这是一个终极的、一劳永逸的解决方案。它使得通讯协议极度稳定，
+                未来即使增加新的情报，也只需向context中添加一个键，而无需改动任何函数签名。
+                此类因参数遗漏而导致的崩溃，将从我军的历史中被彻底抹去！
         """
-        print("    -> [参谋部联席会议 V286.0] 启动，正在执行评估与计分...")
+        print("    -> [联合作战情报中心 V287.0] 启动，正在准备标准化的作战情报档案包...")
 
-        # --- 步骤1: 调用“作战计划推演室”，获取动态作战剧本 ---
-        print("      -> 正在调用“作战计划推演室”生成动态作战剧本...")
+        # --- 步骤1: 生成动态作战剧本 ---
         setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
         
-        # --- 步骤2: 调用下级部门，获取评估分数 ---
-        print("      -> 正在调用“进攻方案评估中心”进行计分...")
-        # ▼▼▼【代码修改 V286.0】: 确保将 playbook_states 和 trigger_events 一并传递！ ▼▼▼
-        entry_score, score_details_df = self._calculate_entry_score(df, params, playbook_states, trigger_events)
-        # ▲▲▲【代码修改 V286.0】▲▲▲
-        
-        print("      -> 正在调用“最高风险裁决所”进行计分...")
-        risk_score, risk_details_df = self._calculate_risk_score(df, params)
+        # --- 步骤2: 【核心】建立标准化的“作战情报档案包” ---
+        scoring_context = {
+            "df": df,
+            "params": params,
+            "trigger_events": trigger_events,
+            "playbook_states": playbook_states,
+            "atomic_states": self.atomic_states, # 将中央情报局的数据也一并打包
+            "setup_scores": setup_scores
+        }
+        print("      -> 标准化“作战情报档案包”创建完毕。")
 
-        # --- 步骤3: 强制执行“战情上图”条例 (V284.0逻辑保持不变) ---
+        # --- 步骤3: 将同一个、完整的“档案包”分发给所有下级单位 ---
+        print("      -> 正在向各评估单位分发档案包...")
+        entry_score, score_details_df = self._calculate_entry_score(scoring_context)
+        risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
+
+        # --- 步骤4: 强制执行“战情上图”条例 (逻辑保持不变) ---
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
         
-        print("    -> [参谋部联席会议 V286.0] 评估计分完成，已将结果标注于主作战地图。")
+        print("    -> [联合作战情报中心 V287.0] 评估计分完成。")
 
-        # --- 步骤4: 返回被正确标注过的地图和评估详情 ---
+        # --- 步骤5: 返回最终结果 ---
         return df, score_details_df, risk_details_df
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
     #    -> 核心职责: 计算最终的入场分。
     #    -> 指挥官: _calculate_entry_score()
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, setup_scores: Dict[str, pd.Series], playbook_states: Dict[str, Dict[str, pd.Series]], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_entry_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V267.0 通讯修复版】进攻方案评估中心
-        - 核心修复: 修正了对 _apply_final_score_adjustments 的调用，补上了缺失的 'atomic_states' 参数。
-        - 收益: 打通了指挥链的“最后一公里”，确保了从情报生成到最终计分的全流程通讯畅通。
+        【V287.0 现代化改造版】
+        - 核心升级: 不再接收一长串零散的参数，而是接收一个标准化的`context`字典。
+                    这使得通讯协议极度稳定，彻底根除了因参数遗漏而导致的崩溃。
+        - 作战流程:
+          1. 从`context`档案包中解压所有必需的情报。
+          2. 依次启动“剧本火力”、“阵地火力”、“动能火力”和“触发器火力”四层评估体系。
+          3. 将所有火力得分相加，形成最终的“进攻分”。
         """
+        print("        -> [进攻方案评估中心 V287.0] 已接收档案包，正在启动四层火力评估...")
+
+        # --- 步骤1: 解压标准化的“作战情报档案包” ---
+        df = context['df']
+        params = context['params']
+        playbook_states = context['playbook_states']
+        trigger_events = context['trigger_events']
+        atomic_states = context['atomic_states']
+        
+        # --- 步骤2: 初始化计分板 ---
+        entry_score = pd.Series(0.0, index=df.index)
+        score_details_df = pd.DataFrame(index=df.index)
         scoring_params = self._get_params_block('four_layer_scoring_params')
-        if not self._get_param_value(scoring_params.get('enabled'), False):
-            df['entry_score'] = 0
-            return df, pd.DataFrame(index=df.index)
+        default_series = pd.Series(False, index=df.index)
 
-        default_series = pd.Series(0.0, index=df.index)
-        playbook_scores = {}
-        
-        # --- 1. 剧本计分 (Playbook Scoring) ---
+        # --- 步骤3: 启动四层火力评估体系 ---
+
+        # 【第一层火力：剧本得分 (Playbook Scoring)】
+        # 这是最核心的得分来源，代表着一个完整的、经过深思熟虑的作战计划。
+        print("          -> 正在评估“剧本火力”...")
         for blueprint in self.playbook_blueprints:
-            name = blueprint['name']
-            playbook_type = blueprint.get('type')
+            playbook_name = blueprint['name']
+            # 从动态情报中获取该剧本的“准备就绪”和“开火”信号
+            setup_series = playbook_states.get(playbook_name, {}).get('setup', default_series)
+            trigger_series = playbook_states.get(playbook_name, {}).get('trigger', default_series)
             
-            states = playbook_states.get(name, {})
-            setup_condition = states.get('setup', default_series.astype(bool))
-            trigger_condition = states.get('trigger', default_series.astype(bool))
+            # 当“准备就绪”且“开火信号”同时满足时，剧本被激活
+            is_playbook_activated = setup_series & trigger_series
             
-            if playbook_type == 'setup':
-                score = blueprint.get('score', 0)
-                playbook_scores[name] = (setup_condition & trigger_condition) * score
+            if is_playbook_activated.any():
+                score = self._get_param_value(blueprint.get('score'), 0)
+                entry_score.loc[is_playbook_activated] += score
+                score_details_df[playbook_name] = is_playbook_activated * score
 
-            elif playbook_type == 'setup_score':
-                score_key = blueprint.get('setup_score_key')
-                if not score_key:
-                    print(f"          -> [严重警告] 动态评分剧本 '{name}' 未在蓝图中定义 'setup_score_key'。跳过此剧本。")
-                    continue
-                setup_score_series = setup_scores.get(score_key, default_series)
-                rules = blueprint.get('scoring_rules', {})
-                base_score = rules.get('base_score', 0)
-                multiplier = rules.get('score_multiplier', 1.0)
-                final_score = (base_score + setup_score_series * multiplier)
-                playbook_scores[name] = final_score.where(setup_condition & trigger_condition, 0)
+        # 【第二层火力：阵地得分 (Positional Scoring)】
+        # 评估那些能够提供持续性战略优势的“阵地”状态。
+        print("          -> 正在评估“阵地火力”...")
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
+        for signal_name, score in positional_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
 
-            elif playbook_type == 'precondition_score':
-                rules = blueprint.get('scoring_rules', {})
-                base_score = rules.get('base_score', 0)
-                min_score_to_trigger = rules.get('min_score_to_trigger', 0)
-                condition_score = pd.Series(0.0, index=df.index)
-                for state, score in rules.get('conditions', {}).items():
-                    state_series = self.atomic_states.get(state, default_series.astype(bool))
-                    condition_score += state_series.astype(int) * score
-                setup_bonus_score = pd.Series(0.0, index=df.index)
-                for setup_key, bonus_multiplier in rules.get('setup_bonus', {}).items():
-                    score_series = setup_scores.get(f"SETUP_SCORE_{setup_key}", default_series)
-                    setup_bonus_score += score_series * bonus_multiplier
-                total_score = base_score + condition_score + setup_bonus_score
-                is_setup_valid = total_score >= min_score_to_trigger
-                trigger_bonus_score = pd.Series(0.0, index=df.index)
-                for trigger_name, bonus in rules.get('trigger_bonus', {}).items():
-                    trigger_series = trigger_events.get(trigger_name, default_series.astype(bool))
-                    trigger_bonus_score.loc[trigger_series] += bonus
-                final_score = total_score + trigger_bonus_score
-                playbook_scores[name] = final_score.where(is_setup_valid & trigger_condition, 0)
+        # 【第三层火力：动能得分 (Dynamic Scoring)】
+        # 评估那些代表市场动能正在增强的短期信号。
+        print("          -> 正在评估“动能火力”...")
+        dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
+        for signal_name, score in dynamic_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
 
-            elif playbook_type == 'event_driven':
-                score = blueprint.get('score', 0)
-                playbook_scores[name] = trigger_condition * score
-
-        # --- 2. 独立触发事件计分 (Standalone Trigger Scoring) ---
-        trigger_scoring_rules = scoring_params.get('trigger_events', {})
-        for trigger_name, score in trigger_scoring_rules.items():
-            if trigger_name in trigger_events:
-                playbook_scores[f"trg_{trigger_name}"] = trigger_events[trigger_name] * score
-
-        # --- 3. 汇总所有分数 ---
-        score_details_df = pd.DataFrame(playbook_scores).fillna(0)
+        # 【第四层火力：触发器得分 (Trigger Scoring)】
+        # 为那些关键的“开火信号”本身，提供额外的确认分。
+        print("          -> 正在评估“触发器火力”...")
+        trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
+        for signal_name, score in trigger_rules.items():
+            signal_series = trigger_events.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[f'trg_{signal_name}'] = signal_series * score
         
-        for blueprint in self.playbook_blueprints:
-            if blueprint['name'] not in score_details_df.columns:
-                score_details_df[blueprint['name']] = 0.0
-
-        df['entry_score'] = score_details_df.sum(axis=1)
-
-        # --- 4. 应用最终得分调整 (指挥棒模型) ---
-        df = self._apply_final_score_adjustments(df, params) # 调用链简化
-        
-        return df, score_details_df
+        print("        -> [进攻方案评估中心 V287.0] 四层火力评估完成。")
+        return entry_score, score_details_df
 
     #       └─> 指挥棒模型 (Score Adjustment Module)
     #          -> 核心职责: 对基础分进行最终的乘数加成或削弱。
@@ -1955,27 +1957,47 @@ class TrendFollowStrategy:
     # ─> 最高风险裁决所 (Supreme Risk Adjudication)
     #    -> 核心职责: 对风险简报进行量化打分。
     #    -> 首席裁决官: _calculate_risk_score()
-    def _calculate_risk_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V233.0 新增 - 最高风险裁决所】
-        - 核心职责: 统一评估所有负面风险信号，计算独立的“战场风险分”。
+        【V287.0 现代化改造版】
+        - 核心升级: 通讯协议与“进攻方案评估中心”保持一致，接收标准化的`context`字典。
+        - 作战流程:
+          1. 从`context`档案包中解压所有必需的情报。
+          2. 根据《风险评分手册》，对所有已激活的风险信号进行累加计分。
+          3. 输出最终的“风险分”。
         """
-        scoring_params = self._get_params_block('four_layer_scoring_params')
-        risk_rules = scoring_params.get('risk_scoring', {}).get('signals', {})
-        
-        risk_score = pd.Series(0.0, index=df.index)
-        risk_details = {}
+        print("        -> [最高风险裁决所 V287.0] 已接收档案包，正在启动风险评估...")
 
-        for state, score in risk_rules.items():
-            if state in self.atomic_states:
-                # 注意：JSON中的分值是正数，代表风险的严重程度
-                risk_series = self.atomic_states[state] * score
-                risk_score += risk_series
-                risk_details[f"risk_{state}"] = risk_series
+        # --- 步骤1: 解压标准化的“作战情报档案包” ---
+        df = context['df']
+        params = context['params']
+        atomic_states = context['atomic_states']
+
+        # --- 步骤2: 初始化计分板 ---
+        risk_score = pd.Series(0.0, index=df.index)
+        risk_details_df = pd.DataFrame(index=df.index)
+        scoring_params = self._get_params_block('four_layer_scoring_params')
         
-        df['risk_score'] = risk_score
-        risk_details_df = pd.DataFrame(risk_details)
-        return df, risk_details_df
+        # --- 步骤3: 根据《风险评分手册》进行计分 ---
+        risk_rules = scoring_params.get('risk_scoring', {}).get('signals', {})
+        print(f"          -> 正在根据《风险评分手册》中的 {len(risk_rules)} 条规则进行裁决...")
+        
+        for signal_name, score in risk_rules.items():
+            # 跳过JSON中的注释行
+            if "说明" in signal_name:
+                continue
+            
+            # 从“中央情报局”获取风险信号的状态
+            signal_series = atomic_states.get(signal_name)
+            
+            if signal_series is not None and signal_series.any():
+                # 如果风险信号被激活，则累加其风险分
+                risk_score.loc[signal_series] += score
+                # 同时在详情报告中记录该项风险的得分
+                risk_details_df[f'risk_{signal_name}'] = signal_series * score
+        
+        print("        -> [最高风险裁决所 V287.0] 风险评估完成。")
+        return risk_score, risk_details_df
 
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
