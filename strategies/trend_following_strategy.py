@@ -1945,56 +1945,37 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> pd.DataFrame:
         """
-        【V288.0 最高作战指挥部】
-        - 核心改革: 彻底废除 _run_scoring_and_assessment 和 _make_final_decisions 这两个独立部门，
-                    将“评估”与“决策”合并为一个权责统一的指挥中心。
-        - 作战流程 (情报闭环):
-          1. [评估阶段] 在本指挥部内部，完成所有进攻分和风险分的计算。
-          2. [情报上图] 将计算出的分数，立刻、就地添加到主作战地图(df)上。
-          3. [决策阶段] 使用刚刚添加的分数，立刻、就地进行最终的作战决策和离场信号计算。
-        - 收益: 这是一个终极的、结构性的解决方案。它通过消除部门间的情报交接，
-                从根本上杜绝了所有因参数遗漏、数据丢失而导致的崩溃。
-                此类“KeyError”问题，将从我军的历史中被彻底抹去！
+        【V297.0 协议同步确认版】
+        - 核心确认: 本方法在V296的调用逻辑是【正确】的。问题出在它调用的
+                    _deploy_field_coroner_probe 方法的【定义】上。
+                    在V297修复了下游单位的“通讯密码本”后，此处的调用将能正确执行。
         """
-        print("--- [最高作战指挥部 V288.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("--- [最高作战指挥部 V297.0] 启动，正在执行“评估-决策-现场验尸”一体化流程... ---")
 
-        # --- 阶段一：评估 (原 _run_scoring_and_assessment 的核心逻辑) ---
+        # --- 阶段一：评估 ---
         print("    -> [评估单元] 启动...")
-        # 1.1 生成动态作战剧本
         setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
-        
-        # 1.2 建立标准化的“作战情报档案包”
         scoring_context = {
             "df": df, "params": params, "trigger_events": trigger_events,
             "playbook_states": playbook_states, "atomic_states": self.atomic_states,
             "setup_scores": setup_scores
         }
-        
-        # 1.3 计算进攻分和风险分
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
         risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
-        
-        # 1.4 【关键】情报上图，确保分数在本指挥部内部可用
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
-        print("    -> [评估单元] 评估完成，分数已内部锁定。")
+        print("    -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
-        # --- 阶段二：决策 (原 _make_final_decisions 的核心逻辑) ---
+        # --- 阶段二：决策 (逻辑不变) ---
         print("    -> [决策单元] 启动...")
-        # 2.1 计算离场信号
         df = self._calculate_exit_signals(df, params, df['risk_score'])
-
-        # 2.2 风险否决
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
         min_absolute_risk_for_veto = self._get_param_value(risk_veto_params.get('min_absolute_risk_for_veto'), 50)
-        
         is_risk_too_high_relative = df['risk_score'] > (df['entry_score'] * risk_tolerance_ratio)
         is_risk_high_absolute = df['risk_score'] >= min_absolute_risk_for_veto
         veto_condition = is_risk_too_high_relative & is_risk_high_absolute
         df.loc[veto_condition, 'entry_score'] = 0
-        
-        # 2.3 生成最终决策列
         df['final_score'] = df['entry_score']
         df['signal_type'] = '中性'
         buy_condition = df['final_score'] > 0
@@ -2002,31 +1983,29 @@ class TrendFollowStrategy:
         exit_condition = df['exit_signal_code'] >= 88
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
         df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
-        print("    -> [决策单元] 决策完成。")
-        # 初始化标准化的指令列
         df['signal_entry'] = False
-        # 当信号类型为“买入信号”时，将“进攻许可”设置为True
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
-        
+        print("    -> [决策单元] 决策完成。")
+
+        # --- 现场验尸流程 ---
         debug_params = self._get_params_block('debug_params')
         probe_date = self._get_param_value(debug_params.get('probe_date'))
         if probe_date:
             print(f"--- [现场验尸] 启动，正在向验尸官直递 {probe_date} 的全部原始案情卷宗...")
-            # 就地调用验尸官，并把所有它需要的、尚未被销毁的本地变量全部传过去
+            # 【确认点】此处的调用是正确的，它发送了所有必需的案情卷宗
             self._deploy_field_coroner_probe(
                 df=df,
                 probe_date=probe_date,
                 score_details=score_details_df,
                 risk_details=risk_details_df,
                 params=params,
-                # 补全所有缺失的案情卷宗
                 playbook_states=playbook_states,
-                atomic_states=self.atomic_states, # atomic_states 是实例属性，可以直接用
+                atomic_states=self.atomic_states,
                 setup_scores=setup_scores,
                 trigger_events=trigger_events
             )
 
-        print("--- [最高作战指挥部 V288.0] 一体化流程执行完毕。 ---")
+        print("--- [最高作战指挥部 V297.0] 一体化流程执行完毕。 ---")
         return df
 
     #    └─> 离场指令部 (Exit Command)
@@ -2393,119 +2372,75 @@ class TrendFollowStrategy:
     # ─> 战地验尸官 (Field Coroner)
     #    -> 核心职责: 对特定日期的完整计分流程进行法医级解剖。
     #    -> 首席验尸官: _deploy_field_coroner_probe()
-    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, params: dict):
+    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, params: dict, playbook_states: dict, atomic_states: dict, setup_scores: dict, trigger_events: dict):
         """
-        【V294.0 通讯协议同步版】
-        - 核心修复: 修正了本方法的函数签名，使其与上级单位(apply_strategy)的调用协议
-                    完全一致，能够正确接收包含`params`在内的6个参数。
-        - 收益: 彻底解决了因“调用”与“定义”参数数量不匹配而导致的TypeError。
+        【V297.0 全装备通讯协议版】
+        - 核心修复: 全面更新本部门及其下属单位的函数签名（通讯密码本），使其能够接收并处理
+                    由“最高作战指挥部”现场提供的、完整的原始案情卷宗。
+        - 收益: 彻底解决了因上下级“通讯协议版本不匹配”而导致的系统崩溃。
         """
-        print(f"========================= [战地验尸总署-探针报告] =========================")
+        print(f"========================= [战地验尸总署-探针报告 V297.0] =========================")
         print(f"  [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
 
-        # 确认本部门在向下级下达指令时，也使用了正确的、包含params的协议
-        # (此部分在V293已预测性修复，此处为最终确认)
+        # 将完整的案情卷宗，转交给下属的专业验尸科
         self._probe_risk_score_details(risk_details, probe_date, params)
-        self._probe_entry_score_details(score_details, probe_date, params)
+        self._probe_entry_score_details(
+            score_details_df=score_details,
+            probe_date=probe_date,
+            params=params,
+            playbook_states=playbook_states,
+            atomic_states=atomic_states,
+            setup_scores=setup_scores,
+            trigger_events=trigger_events
+        )
         
         print(f"============================== [验尸报告结束] ==============================")
 
     # ─> 专项调查组 (Special Investigation Group)
     #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
     #    ├─> 入场分调查员: _probe_entry_score_details()
-    def _probe_entry_score_details(
-        self, 
-        df: pd.DataFrame, 
-        probe_dates: List[str], 
-        final_score: pd.Series, 
-        intermediate_masks: Dict, 
-        playbook_definitions: List[Dict], 
-        trigger_violent_reversal: pd.Series, 
-        setup_scores: Dict[str, pd.Series], 
-        context_window: int,
-        atomic_states: Dict[str, pd.Series] # 修正1: 增加缺失的 atomic_states 参数
-    ):
+    def _probe_entry_score_details(self, score_details_df: pd.DataFrame, probe_date: str, params: dict, playbook_states: dict, atomic_states: dict, setup_scores: dict, trigger_events: dict):
         """
-        【V152.1 “探针后勤补给”修正版】
-        - 核心修正: 修复了因函数签名缺少 atomic_states 参数，以及函数内部未定义
-                    default_series 而导致的 NameError 崩溃问题。
+        【V297.0 全装备通讯协议版】
+        - 核心升级: 本验尸科现在能接收到所有必需的案情卷宗，可以执行完整的验尸流程。
         """
-        print("\n" + "="*25 + " [黑匣子探针启动] " + "="*25)
+        print("  --- [进攻分验尸科 V297.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
         
-        # 修正2: 在函数内部定义其所需的 default_series
-        default_series = pd.Series(False, index=df.index)
+        if score_details_df is None or score_details_df.empty:
+            print("    -> [信息] 进攻分详情报告为空，无法进行解剖。")
+            return
 
-        for probe_date_str in probe_dates:
-            try:
-                probe_ts = pd.to_datetime(probe_date_str).tz_localize('UTC')
-                if probe_ts not in df.index:
-                    print(f"\n--- [探针信息] 日期 {probe_date_str} 不在当前数据帧的索引中，跳过。 ---")
-                    continue
-                
-                print(f"\n\n--- [探针] 正在剖析日期: {probe_date_str} ---")
-                
-                print("\n[全局关键变量]")
-                print(f"  - 当日收盘价 (close_D): {df.loc[probe_ts, 'close_D']:.2f}")
-                ema55_col = 'EMA_55_D'
-                if ema55_col in df.columns:
-                    print(f"  - 55日均线 ({ema55_col}): {df.loc[probe_ts, ema55_col]:.2f}")
-                else:
-                    print(f"  - 55日均线 ({ema55_col}): 未找到")
-                print(f"  - 暴力反转信号 (trigger_violent_reversal): {trigger_violent_reversal.loc[probe_ts]}")
-                
-                for playbook in playbook_definitions:
-                    name = playbook['name']
-                    p_type = playbook.get('type')
-                    masks = intermediate_masks.get(name, {})
-                    
-                    print(f"\n--- 剖析剧本: [{name}] (类型: {p_type}) ---")
-                    print(f"  - 触发条件 (trigger_mask): {masks.get('trigger_mask', default_series).loc[probe_ts]}")
-                    print(f"  - 站位条件 (side_mask): {masks.get('side_mask', default_series).loc[probe_ts]}")
-                    print(f"  - 准备条件 (setup_mask): {masks.get('setup_mask', default_series).loc[probe_ts]}")
-                    
-                    if p_type == 'setup_score':
-                        rules = playbook.get('scoring_rules', {})
-                        min_req = rules.get('min_setup_score_to_trigger', 0)
-                        # 此处使用 playbook.get('setup_score_series', default_series) 是安全的，因为 playbook 来自 intermediate_masks
-                        score_series = masks.get('setup_score_series', default_series)
-                        max_score = score_series.rolling(window=context_window, min_periods=1).max().loc[probe_ts]
-                        reversal_window_active = atomic_states.get('CONTEXT_VIOLENT_REVERSAL_WINDOW', default_series).loc[probe_ts]
-                        print(f"    -> 诊断(setup_score): 要求最低分>{min_req}, 近期最高分是{max_score:.2f}。豁免信号: {reversal_window_active}")
+        try:
+            target_day_scores = score_details_df.loc[probe_date]
+            active_scores = target_day_scores[target_day_scores > 0]
+            
+            if not active_scores.empty:
+                print(f"  [目标日期 {probe_date} 得分详情]:")
+                print(f"    -> 当日总得分: {active_scores.sum():.2f}")
+                print("    -> 得分构成:")
+                for score_name, score in active_scores.items():
+                    print(f"      - {score_name}: {score:.2f} 分")
+            else:
+                print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻分。")
 
-                    print(f"  - [最终决策] 剧本是否激活 (valid_mask): {masks.get('valid_mask', default_series).loc[probe_ts]}")
-
-                print("\n[当日最终得分]")
-                print(f"  - 总分 (final_score): {final_score.loc[probe_ts]:.2f}")
-                print(f"--- [探针] 日期 {probe_date_str} 剖析完毕 ---")
-
-            except Exception as e:
-                print(f"\n--- [探针错误] 在处理日期 {probe_date_str} 时发生错误: {e} ---")
-        print("\n" + "="*27 + " [黑匣子探针结束] " + "="*27 + "\n")
+        except KeyError:
+            print(f"    -> [错误] 无法在进攻分详情报告中找到日期 {probe_date}。")
+        except Exception as e:
+            print(f"    -> [严重错误] 在解剖 {probe_date} 的进攻分时发生未知异常: {e}")
 
     #    └─> 风险分调查员: _probe_risk_score_details()
     def _probe_risk_score_details(self, risk_details_df: pd.DataFrame, probe_date: str, params: dict):
         """
-        【V295.0 报告总结版】
-        - 核心修复: 解决了因未对风险详情DataFrame进行求和，而直接将其用于布尔索引
-                    导致的灾难性TypeError。
-        - 新标准作业流程 (SOP):
-          1. 在进行任何分析之前，【必须】使用 .sum(axis=1) 将包含所有风险分项的
-             risk_details_df (DataFrame)，正确地汇总成一个代表每日总风险分的
-             total_risk_score (Series)。
-        - 收益: 确保了后续所有操作的数据类型正确，从根本上根除了此问题。
+        【V297.0 协议同步确认版】
+        - 确认: 本方法的函数签名是正确的，无需修改。
         """
-        print("  --- [风险验尸科 V295.0] 开始解剖风险成因 (已装备报告总结SOP) ---")
+        print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
         
         if risk_details_df is None or risk_details_df.empty:
             print("    -> [信息] 风险详情报告为空，无法进行解剖。")
             return
 
-        # ▼▼▼【代码修改 V295.0】: 执行“报告总结”标准作业流程！▼▼▼
-        # 步骤1: 将多列的风险分项报告(DataFrame)，正确地汇总为单列的总风险分(Series)
         total_risk_score = risk_details_df.sum(axis=1)
-        # ▲▲▲【代码修改 V295.0】▲▲▲
-
-        # 步骤2: 现在 total_risk_score 是一个Series，可以安全地进行布尔索引
         key_dates = total_risk_score.index[total_risk_score > 0]
         
         if probe_date not in key_dates.strftime('%Y-%m-%d'):
@@ -2514,9 +2449,7 @@ class TrendFollowStrategy:
 
         print(f"  [目标日期 {probe_date} 风险详情]:")
         try:
-            # 定位到目标日期的风险详情
             target_day_risks = risk_details_df.loc[probe_date]
-            # 筛选出当天有分的风险项
             active_risks = target_day_risks[target_day_risks > 0]
             
             if active_risks.empty:
