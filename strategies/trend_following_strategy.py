@@ -214,6 +214,28 @@ class TrendFollowStrategy:
         # --- 指挥链 3/3: 沙盘推演 ---
         print("    --- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
         df = self._run_position_management_simulation(df, params)
+        
+        # ▼▼▼【代码修改 V301.1】: 在此处植入“首席验尸官”！▼▼▼
+        # 检查配置文件中是否下达了验尸指令
+        debug_params = self._get_params_block('debug_params')
+        probe_date = self._get_param_value(debug_params.get('probe_date'))
+        
+        # 如果指令明确，且当前数据包含目标日期，则立即执行验尸
+        if probe_date and pd.to_datetime(probe_date).date() in df.index.date:
+            print(f"    --- [首席验尸官] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
+            # 调用验尸官，并移交所有相关的原始案情卷宗
+            self._deploy_field_coroner_probe(
+                df=df,
+                probe_date=probe_date,
+                score_details=score_details_df,
+                risk_details=risk_details_df,
+                params=params,
+                # 确保传递在 _run_all_diagnostics 中生成的实例属性
+                playbook_states=getattr(self, 'playbook_states', {}),
+                atomic_states=getattr(self, 'atomic_states', {}),
+                setup_scores=getattr(self, 'setup_scores', {}),
+                trigger_events=trigger_events
+            )
 
         print(f"    ====== 【战术引擎 V301.0】执行完毕 ======")
         
