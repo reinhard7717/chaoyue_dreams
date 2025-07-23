@@ -2395,8 +2395,8 @@ class TrendFollowStrategy:
         print(f"  [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
 
         # 直接使用传递进来的 score_details 和 risk_details 进行验尸
-        self._probe_risk_score_details(risk_details, probe_date)
-        self._probe_entry_score_details(score_details, probe_date)
+        self._probe_risk_score_details(risk_details, probe_date, params)
+        self._probe_entry_score_details(score_details, probe_date, params)
         
         print(f"============================== [验尸报告结束] ==============================")
 
