@@ -324,12 +324,12 @@ class TrendFollowStrategy:
         # 将筹码总参谋部提供的“触发事件”合并到总事件池中
         trigger_events.update(chip_triggers)
         
+        self.setup_scores, self.playbook_states = self._generate_playbook_states(df, trigger_events)
+        
         # 特殊处理：从波动率压缩中突破的触发事件
         is_in_squeeze_window = self.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
-        
-        self.setup_scores, self.playbook_states = self._generate_playbook_states(df, trigger_events)
 
         # 修改返回值，不再传递 atomic_states，因为它已经是全策略可访问的实例属性
         return df, trigger_events
