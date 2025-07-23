@@ -326,6 +326,7 @@ class TrendFollowStrategy:
             {
                 'name': 'CAPITULATION_PIT_REVERSAL', 'cn_name': '【动态】投降坑反转', 'family': 'REVERSAL_CONTRARIAN',
                 'type': 'setup_score', 'side': 'left', 'comment': '根据坑的深度和反转K强度动态给分。', 'allow_memory': False,
+                'setup_score_key': 'SETUP_SCORE_CAPITULATION_PIT',
                 'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 160, 'score_multiplier': 1.0, 'trigger_bonus': {'TRIGGER_REVERSAL_CONFIRMATION_CANDLE': 50}}
             },
             {
@@ -357,6 +358,7 @@ class TrendFollowStrategy:
             {
                 'name': 'DEEP_ACCUMULATION_BREAKOUT', 'cn_name': '【动态】潜龙出海', 'family': 'TREND_MOMENTUM',
                 'type': 'setup_score', 'side': 'right', 'comment': '根据深度吸筹分数动态给分。若伴随筹码点火，则确定性更高。',
+                'setup_score_key': 'SETUP_SCORE_DEEP_ACCUMULATION',
                 'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
@@ -371,6 +373,7 @@ class TrendFollowStrategy:
                 'type': 'setup_score', 
                 'side': 'right', 
                 'comment': '根据平台质量(筹码结构、趋势背景)和支撑级别(均线/筹码峰)进行动态评分。',
+                'setup_score_key': 'SETUP_SCORE_PLATFORM_QUALITY',
                 'scoring_rules': {
                     'min_setup_score_to_trigger': 50,  # 要求平台质量分至少达到50
                     'base_score': 180,                 # 给予一个稳健的基础分
@@ -384,6 +387,7 @@ class TrendFollowStrategy:
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪', 'family': 'TREND_MOMENTUM',
                 'type': 'setup_score', 'side': 'right', 'comment': 'A级: 在主升浪中回踩或延续，根据主升浪健康分动态加成。',
+                'setup_score_key': 'SETUP_SCORE_HEALTHY_MARKUP',
                 'scoring_rules': { 
                     'min_setup_score_to_trigger': 60, # 要求主升浪健康分至少达到60
                     'base_score': 240, 
@@ -1812,12 +1816,9 @@ class TrendFollowStrategy:
     #    -> 指挥官: _calculate_entry_score()
     def _calculate_entry_score(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], playbook_states: Dict[str, Dict[str, pd.Series]], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        【V265.0 履历系统版】进攻方案评估中心
-        - 核心重构: 彻底废除了动态评分剧本中基于“猜测”的计分逻辑。
-        - 新流程:
-          - 当处理 type 为 'setup_score' 的剧本时，会首先从蓝图中读取 'setup_score_key' 字段。
-          - 使用这个明确的 key，从 setup_scores 字典中精准地获取其所依赖的评估分数序列。
-        - 收益: 计分逻辑变得清晰、健壮且易于维护，彻底杜绝了因命名不规范或逻辑不明确导致的潜在错误。
+        【V267.0 通讯修复版】进攻方案评估中心
+        - 核心修复: 修正了对 _apply_final_score_adjustments 的调用，补上了缺失的 'atomic_states' 参数。
+        - 收益: 打通了指挥链的“最后一公里”，确保了从情报生成到最终计分的全流程通讯畅通。
         """
         scoring_params = self._get_params_block('four_layer_scoring_params')
         if not self._get_param_value(scoring_params.get('enabled'), False):
@@ -1841,23 +1842,14 @@ class TrendFollowStrategy:
                 playbook_scores[name] = (setup_condition & trigger_condition) * score
 
             elif playbook_type == 'setup_score':
-                # ▼▼▼【代码修改 V265.0】: 查阅“履历档案”，不再“猜测”！▼▼▼
-                # 从蓝图的定义中，直接、明确地获取它所依赖的评估分数键
                 score_key = blueprint.get('setup_score_key')
-                
-                # 安全检查：如果履历不完整，则发出警告并跳过
                 if not score_key:
                     print(f"          -> [严重警告] 动态评分剧本 '{name}' 未在蓝图中定义 'setup_score_key'。跳过此剧本。")
                     continue
-                
-                # 使用这个明确的键，从 setup_scores 字典中获取评估分数序列
                 setup_score_series = setup_scores.get(score_key, default_series)
-                # ▲▲▲【代码修改 V265.0】▲▲▲
-
                 rules = blueprint.get('scoring_rules', {})
                 base_score = rules.get('base_score', 0)
                 multiplier = rules.get('score_multiplier', 1.0)
-                
                 final_score = (base_score + setup_score_series * multiplier)
                 playbook_scores[name] = final_score.where(setup_condition & trigger_condition, 0)
 
@@ -1865,25 +1857,20 @@ class TrendFollowStrategy:
                 rules = blueprint.get('scoring_rules', {})
                 base_score = rules.get('base_score', 0)
                 min_score_to_trigger = rules.get('min_score_to_trigger', 0)
-                
                 condition_score = pd.Series(0.0, index=df.index)
                 for state, score in rules.get('conditions', {}).items():
                     state_series = atomic_states.get(state, default_series.astype(bool))
                     condition_score += state_series.astype(int) * score
-                
                 setup_bonus_score = pd.Series(0.0, index=df.index)
                 for setup_key, bonus_multiplier in rules.get('setup_bonus', {}).items():
                     score_series = setup_scores.get(f"SETUP_SCORE_{setup_key}", default_series)
                     setup_bonus_score += score_series * bonus_multiplier
-                
                 total_score = base_score + condition_score + setup_bonus_score
                 is_setup_valid = total_score >= min_score_to_trigger
-                
                 trigger_bonus_score = pd.Series(0.0, index=df.index)
                 for trigger_name, bonus in rules.get('trigger_bonus', {}).items():
                     trigger_series = trigger_events.get(trigger_name, default_series.astype(bool))
                     trigger_bonus_score.loc[trigger_series] += bonus
-                
                 final_score = total_score + trigger_bonus_score
                 playbook_scores[name] = final_score.where(is_setup_valid & trigger_condition, 0)
 
@@ -1914,86 +1901,37 @@ class TrendFollowStrategy:
     #       └─> 指挥棒模型 (Score Adjustment Module)
     #          -> 核心职责: 对基础分进行最终的乘数加成或削弱。
     #          -> 对应方法: _apply_final_score_adjustments()
-    def _apply_final_score_adjustments(self, df: pd.DataFrame, raw_scores: pd.Series, params: dict, atomic_states: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.DataFrame]:
+    def _apply_final_score_adjustments(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> pd.DataFrame:
         """
-        【V119.4 自适应阈值版】最终得分调整层
-        - 核心升级: 引入“自适应绝对阈值”机制。对于波动率这类指标，不再使用固定阈值，
-                    而是根据其自身的长期中位数动态计算阈值（例如，低于长期中位数的50%）。
-                    这使得策略能更好地适应不同股票和不同市场周期的波动特性。
+        【V267.0 标准实现版】指挥棒模型 (最终得分调整)
+        - 核心职责: 在所有基础分数计算完毕后，根据特定的战场状态(atomic_states)，
+                    对最终的 entry_score 进行乘数调整。
+        - 参数要求: 必须接收 atomic_states 才能工作。
         """
-        print("    - [指挥棒模型 V119.4 自适应阈值版] 启动，开始对原始总分进行最终调整...")
-        
         adjustment_params = self._get_params_block('final_score_adjustments')
         if not self._get_param_value(adjustment_params.get('enabled'), False):
-            print("      -> 最终得分调整被禁用，返回原始分数。")
-            return raw_scores, pd.DataFrame(index=df.index)
+            return df # 如果在配置中被禁用，则直接返回，不进行任何操作
 
-        total_multiplier = pd.Series(0.0, index=df.index)
-        adjustment_details_df = pd.DataFrame(index=df.index)
-        multiplier_rules = adjustment_params.get('multipliers', [])
-        default_series = pd.Series(False, index=df.index)
+        multipliers = adjustment_params.get('multipliers', [])
+        if not multipliers:
+            return df
 
-        for rule in multiplier_rules:
-            name = rule.get('name')
-            cn_name = rule.get('cn_name', name)
-            source_col = rule.get('source_column')
-            condition = rule.get('condition')
-            multiplier_value = rule.get('multiplier_value', 0)
+        # 初始化一个全为1的乘数序列
+        final_multiplier = pd.Series(1.0, index=df.index)
 
-            mask = pd.Series(False, index=df.index)
-            if condition == 'is_lowest_percentile':
-                if source_col not in df.columns:
-                    print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的列'{source_col}'在DataFrame中不存在，跳过。")
-                    continue
-                
-                # 保险一：相对条件 (近期收缩)
-                window = rule.get('window', 250)
-                percentile = rule.get('percentile', 0.1)
-                threshold_relative = df[source_col].rolling(window=window, min_periods=window//2).quantile(percentile)
-                mask_relative = df[source_col] < threshold_relative
-                
-                # 保险二：绝对条件 (现在支持固定或自适应)
-                mask_absolute = pd.Series(True, index=df.index) # 默认绝对条件为真
-                
-                # 检查是否有自适应阈值配置
-                adaptive_config = rule.get('adaptive_threshold_config', {})
-                if self._get_param_value(adaptive_config.get('enabled'), False):
-                    median_window = self._get_param_value(adaptive_config.get('median_window'), 250)
-                    multiplier = self._get_param_value(adaptive_config.get('multiplier'), 0.5)
-                    
-                    # 计算长期中位数作为波动中枢
-                    long_term_median = df[source_col].rolling(window=median_window, min_periods=median_window//2).median()
-                    # 计算自适应绝对阈值
-                    threshold_absolute_adaptive = long_term_median * multiplier
-                    
-                    mask_absolute = df[source_col] < threshold_absolute_adaptive
-                    print(f"      -> 规则'{cn_name}'启用自适应双重保险: 相对分位 & 自适应阈值(<长期中枢*{multiplier})")
-
-                # 如果没有自适应配置，则检查固定阈值 (保持旧逻辑兼容性)
-                elif rule.get('absolute_threshold') is not None:
-                    absolute_threshold = rule.get('absolute_threshold')
-                    mask_absolute = df[source_col] < absolute_threshold
-                    print(f"      -> 规则'{cn_name}'启用固定双重保险: 相对分位 & 固定阈值(<{absolute_threshold})")
-
-                # 最终的掩码是两个条件的交集
-                mask = mask_relative & mask_absolute
+        # 遍历所有乘数规则
+        for rule in multipliers:
+            state_name = rule.get('if_state')
+            multiplier_value = rule.get('multiply_by')
             
-            elif condition == 'is_true':
-                if source_col not in atomic_states:
-                    print(f"      -> [警告] 指挥棒规则'{cn_name}'所需的事件'{source_col}'在atomic_states中不存在，跳过。")
-                    continue
-                mask = atomic_states.get(source_col, default_series)
-
-            # 应用乘数
-            total_multiplier.loc[mask] += multiplier_value
-            adjustment_details_df.loc[mask, name] = multiplier_value
-            
-            if not mask.empty and mask.iloc[-1]:
-                print(f"      -> 指挥棒 '{cn_name}' (最新一日): [✓] (乘数: +{multiplier_value*100:.0f}%)")
-
-        adjusted_score = raw_scores * (1 + total_multiplier)
-        print("    - [指挥棒模型 V119.4] 调整完成。")
-        return adjusted_score, adjustment_details_df
+            if state_name and multiplier_value:
+                # 从原子状态中获取对应的布尔序列
+                condition_series = atomic_states.get(state_name, pd.Series(False, index=df.index))
+                # 在满足条件的地方，应用乘数
+                final_multiplier.loc[condition_series] *= multiplier_value
+        # 将最终的乘数应用到 entry_score 上
+        df['entry_score'] *= final_multiplier
+        return df
 
     #       ├─> 基础火力评估室: _calculate_base_scores()
     def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.DataFrame]:
