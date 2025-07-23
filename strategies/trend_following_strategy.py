@@ -189,53 +189,80 @@ class TrendFollowStrategy:
     # -> 核心入口: apply_strategy()
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V298.0 临时情报中心版】
-        - 核心重构: 建立“临时现场归档”与“阅后即焚”的终极军事条令。
-        - 新流程:
-          1. 【归档】在从“最高作战指挥部”获取报告后，立即将其作为临时实例属性
-             (self._last_score_details_df) 存储。
-          2. 【共享】在战役期间，所有下游单位(如 prepare_db_records)都可以安全访问这些临时档案。
-          3. 【焚毁】使用 try...finally 结构，确保在战役结束时，无论是否发生异常，
-             都【必须】使用 del 彻底销毁这些临时档案，从根本上杜绝内存泄露。
-        - 收益: 这是一个终极的解决方案，同时解决了“数据可访问性”和“内存泄露”两大核心矛盾。
+        【V300.0 凤凰涅槃版】
+        - 核心重构: 执行终极的、一劳永逸的流程再造，同时解决所有已知问题。
+        - 新军事条令:
+          1. 【建立临时情报中心】: 使用 try...finally 结构，建立“临时归档”与“阅后即焚”的
+             终极情报管理机制。
+          2. 【统一汇报协议】: 强制所有下级单位返回标准化的情报包。
+          3. 【归还验尸指挥权】: 验尸操作由本部门在“临时情报中心”的保护下统一指挥。
+        - 收益: 这是一个终极的解决方案，同时解决了“数据可访问性”、“内存泄露”、
+                “协议不匹配”和“指挥权混乱”四大核心矛盾。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V298.0 临时情报中心版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V300.0 凤凰涅槃版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
         
+        # 步骤1: 建立坚不可摧的“阅后即焚”结构
         try:
             df = self._ensure_numeric_types(df)
 
-            # --- 步骤1：情报总局 (Intelligence Gathering) ---
-            print("    --- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
+            # --- 指挥链 1/4: 情报总局 ---
+            print("    --- [指挥链 1/4] 情报总局：正在收集所有战场情报... ---")
             df, trigger_events = self._run_all_diagnostics(df, params)
 
-            # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
-            print("    --- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
+            # --- 指挥链 2/4: 最高作战指挥部 ---
+            print("    --- [指挥链 2/4] 最高作战指挥部：正在执行一体化评估与决策... ---")
+            # 接收标准化的三联式情报包
             df, score_details_df, risk_details_df = self._run_assessment_and_decision_engine(df, params, trigger_events)
 
+            # --- 指挥链 3/4: 临时情报中心 (归档) ---
+            print("    --- [指挥链 3/4] 临时情报中心：正在执行现场归档... ---")
             # 将详细报告存入“临时情报柜”，供所有下游单位使用
             self._last_score_details_df = score_details_df
             self._last_risk_details_df = risk_details_df
-            print("    -> [临时情报中心] 已完成现场归档，所有下游单位可访问。")
+            print("        -> [归档完成] 所有下游单位(战报/验尸)可访问临时档案。")
             
-            # --- 步骤3：沙盘推演 (Position Management Simulation) ---
-            print("    --- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
+            # --- 指挥链 4/4: 沙盘推演 ---
+            print("    --- [指挥链 4/4] 作战推演：正在模拟全程战术动作... ---")
             df = self._run_position_management_simulation(df, params)
 
-            print(f"    ====== 【战术引擎 V298.0】执行完毕 ======")
+            # --- (按需执行) 战地验尸 ---
+            # 验尸指挥权已归还，在“临时情报中心”的保护下执行
+            debug_params = self._get_params_block('debug_params')
+            probe_date = self._get_param_value(debug_params.get('probe_date'))
+            if probe_date:
+                print(f"    --- [战地验尸] 启动，正在向验尸官直递 {probe_date} 的全部原始案情卷宗...")
+                self._deploy_field_coroner_probe(
+                    df=df,
+                    probe_date=probe_date,
+                    score_details=self._last_score_details_df, # 从临时情报柜调阅
+                    risk_details=self._last_risk_details_df,   # 从临时情报柜调阅
+                    params=params,
+                    playbook_states=self.playbook_states, # playbook_states 在 _run_all_diagnostics 中已成为实例属性
+                    atomic_states=self.atomic_states,
+                    setup_scores=self.setup_scores, # 假设 setup_scores 也成为实例属性
+                    trigger_events=trigger_events
+                )
+
+            print(f"    ====== 【战术引擎 V300.0】执行完毕 ======")
             
             return df, self.atomic_states
         
         finally:
-            # 无论战役成功与否，都必须在最后彻底销毁临时档案，杜绝内存泄露！
+            # 【终极保险】无论战役成功与否，都必须在最后彻底销毁临时档案！
+            print("    --- [临时情报中心] 正在执行“阅后即焚”条令... ---")
             if hasattr(self, '_last_score_details_df'):
                 del self._last_score_details_df
             if hasattr(self, '_last_risk_details_df'):
                 del self._last_risk_details_df
-            print("    -> [临时情报中心] 已执行“阅后即焚”条令，临时档案已销毁。")
+            if hasattr(self, 'playbook_states'): # 清理其他可能的临时属性
+                del self.playbook_states
+            if hasattr(self, 'setup_scores'):
+                del self.setup_scores
+            print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
 
     # 1. 情报总局 (Intelligence General Administration)
     #    -> 核心职责: 统一收集所有战场情报，形成原子状态报告
@@ -301,6 +328,8 @@ class TrendFollowStrategy:
         is_in_squeeze_window = self.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+        
+        self.setup_scores, self.playbook_states = self._generate_playbook_states(df, trigger_events)
 
         # 修改返回值，不再传递 atomic_states，因为它已经是全策略可访问的实例属性
         return df, trigger_events
@@ -1962,21 +1991,21 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V299.0 协议统一版】
-        - 核心修复: 彻底治愈本指挥部的“精神分裂症”。强制其汇报协议与上级单位(apply_strategy)
-                    的期望完全统一，返回一个包含 (df, score_details_df, risk_details_df)
-                    的三联式标准情报包。
-        - 收益: 这是一个终极的解决方案，彻底解决了因上下级“通讯协议版本不匹配”而导致的系统崩溃。
+        【V300.0 协议统一版】
+        - 核心修复: 强制其汇报协议与上级单位(apply_strategy)的期望完全统一，
+                    返回一个包含 (df, score_details_df, risk_details_df) 的三联式标准情报包。
+                    并彻底移除内部的验尸逻辑。
         """
-        print("    --- [最高作战指挥部 V299.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V300.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
         # --- 阶段一：评估 ---
         print("        -> [评估单元] 启动...")
-        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
+        # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
             "df": df, "params": params, "trigger_events": trigger_events,
-            "playbook_states": playbook_states, "atomic_states": self.atomic_states,
-            "setup_scores": setup_scores
+            "playbook_states": self.playbook_states, 
+            "atomic_states": self.atomic_states,
+            "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
         risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
@@ -2005,7 +2034,8 @@ class TrendFollowStrategy:
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
         print("        -> [决策单元] 决策完成。")
 
-        print("    --- [最高作战指挥部 V299.0] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V300.0] 一体化流程执行完毕。 ---")
+        # 强制执行现代化三联式汇报协议！
         return df, score_details_df, risk_details_df
 
     #    └─> 离场指令部 (Exit Command)
@@ -2374,13 +2404,12 @@ class TrendFollowStrategy:
     #    -> 首席验尸官: _deploy_field_coroner_probe()
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, params: dict, playbook_states: dict, atomic_states: dict, setup_scores: dict, trigger_events: dict):
         """
-        【V297.0 全装备通讯协议版】
+        【V300.0 全装备通讯协议版】
         - 核心修复: 全面更新本部门及其下属单位的函数签名（通讯密码本），使其能够接收并处理
-                    由“最高作战指挥部”现场提供的、完整的原始案情卷宗。
-        - 收益: 彻底解决了因上下级“通讯协议版本不匹配”而导致的系统崩溃。
+                    由“最高统帅部”在“临时情报中心”保护下提供的、完整的原始案情卷宗。
         """
-        print(f"========================= [战地验尸总署-探针报告 V297.0] =========================")
-        print(f"  [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
+        print(f"    ========================= [战地验尸总署-探针报告 V300.0] =========================")
+        print(f"      [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
 
         # 将完整的案情卷宗，转交给下属的专业验尸科
         self._probe_risk_score_details(risk_details, probe_date, params)
@@ -2393,21 +2422,20 @@ class TrendFollowStrategy:
             setup_scores=setup_scores,
             trigger_events=trigger_events
         )
-        
-        print(f"============================== [验尸报告结束] ==============================")
+        print(f"    ============================== [验尸报告结束] ==============================")
 
     # ─> 专项调查组 (Special Investigation Group)
     #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
     #    ├─> 入场分调查员: _probe_entry_score_details()
     def _probe_entry_score_details(self, score_details_df: pd.DataFrame, probe_date: str, params: dict, playbook_states: dict, atomic_states: dict, setup_scores: dict, trigger_events: dict):
         """
-        【V297.0 全装备通讯协议版】
+        【V300.0 全装备通讯协议版】
         - 核心升级: 本验尸科现在能接收到所有必需的案情卷宗，可以执行完整的验尸流程。
         """
-        print("  --- [进攻分验尸科 V297.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
+        print("      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
         
         if score_details_df is None or score_details_df.empty:
-            print("    -> [信息] 进攻分详情报告为空，无法进行解剖。")
+            print("        -> [信息] 进攻分详情报告为空，无法进行解剖。")
             return
 
         try:
@@ -2415,18 +2443,18 @@ class TrendFollowStrategy:
             active_scores = target_day_scores[target_day_scores > 0]
             
             if not active_scores.empty:
-                print(f"  [目标日期 {probe_date} 得分详情]:")
-                print(f"    -> 当日总得分: {active_scores.sum():.2f}")
-                print("    -> 得分构成:")
+                print(f"      [目标日期 {probe_date} 得分详情]:")
+                print(f"        -> 当日总得分: {active_scores.sum():.2f}")
+                print("        -> 得分构成:")
                 for score_name, score in active_scores.items():
-                    print(f"      - {score_name}: {score:.2f} 分")
+                    print(f"          - {score_name}: {score:.2f} 分")
             else:
-                print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻分。")
+                print(f"        -> [信息] 在目标日期 {probe_date} 未发现任何进攻分。")
 
         except KeyError:
-            print(f"    -> [错误] 无法在进攻分详情报告中找到日期 {probe_date}。")
+            print(f"        -> [错误] 无法在进攻分详情报告中找到日期 {probe_date}。")
         except Exception as e:
-            print(f"    -> [严重错误] 在解剖 {probe_date} 的进攻分时发生未知异常: {e}")
+            print(f"        -> [严重错误] 在解剖 {probe_date} 的进攻分时发生未知异常: {e}")
 
     #    └─> 风险分调查员: _probe_risk_score_details()
     def _probe_risk_score_details(self, risk_details_df: pd.DataFrame, probe_date: str, params: dict):
