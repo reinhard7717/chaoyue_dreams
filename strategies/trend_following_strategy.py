@@ -1783,26 +1783,28 @@ class TrendFollowStrategy:
     #     -> 总指挥: _run_scoring_and_assessment()
     def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V233.0 三权分立版 - 参谋部联席会议】
-        - 核心改革: 严格执行“进攻”与“风险”评估分离的原则。
-        - 新流程: 1. 调用 _calculate_entry_score 计算纯粹的“进攻价值分”。
-                   2. 调用 _calculate_risk_score 计算独立的“战场风险分”。
-                   3. 将两个独立的分数写入DataFrame，供总司令部决策。
+        【V266.0 通讯协议修复版】参谋部联席会议
+        - 核心修复: 修正了对 _calculate_entry_score 的调用。在之前的重构中，
+                    错误地遗漏了 'atomic_states' 参数的传递，导致了 TypeError。
+        - 新流程: 确保将 atomic_states, setup_scores, playbook_states, trigger_events
+                  这四份核心情报，完整、正确地传递给进攻方案评估中心。
         """
-        print("    - [参谋部 V233.0 三权分立版] 启动，正在进行攻防独立评估...")
+        print("--- [参谋部 V266.0] 启动，正在进行量化评估...")
         
+        # 调用新的情报中心，获取精炼情报
         setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events, atomic_states)
 
         # --- 1. 进攻方案评估 (Entry Scoring) ---
         print("    -> [评估中心] 正在评估进攻方案...")
-        df, score_details_df = self._calculate_entry_score(df, params, setup_scores, playbook_states, trigger_events)
+        df, score_details_df = self._calculate_entry_score(df, params, atomic_states, setup_scores, playbook_states, trigger_events)
 
         # --- 2. 最高风险裁决 (Risk Scoring) ---
         print("    -> [裁决所] 正在进行最高风险裁决...")
-        risk_signals = self._diagnose_all_risk_signals(df, params, atomic_states)
+        exit_params = self._get_params_block('exit_strategy_params')
+        risk_signals = self._diagnose_all_risk_signals(df, exit_params, atomic_states)
         df, risk_details_df = self._calculate_risk_score(df, params, risk_signals)
 
-        print("--- [参谋部 V264.0] 量化评估完成。")
+        print("--- [参谋部 V266.0] 量化评估完成。")
         return df, score_details_df, risk_details_df
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
