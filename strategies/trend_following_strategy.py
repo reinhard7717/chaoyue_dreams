@@ -278,8 +278,10 @@ class TrendFollowStrategy:
         atomic_states.update(self._diagnose_strategic_setups(df, params, atomic_states))
         
         # 在所有基础和复合状态诊断完成后，进行最高维度的模式识别
+        atomic_states.update(self._diagnose_price_action_context(df))
         atomic_states.update(self._diagnose_cognitive_patterns(df, atomic_states))
         atomic_states.update(self._diagnose_battlefield_stability(df))
+
         # 在所有基础情报诊断完成后，进行筹码与价格的联合分析
         atomic_states.update(self._diagnose_chip_price_action(df, atomic_states))
 
@@ -1802,34 +1804,30 @@ class TrendFollowStrategy:
 
     def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V248.0 新增】认知智能总署 (Cognitive Intelligence Agency)
-        - 核心职责: 识别由多个底层指标构成的、高维度的“主力作案模式”。
-                    这是将策略从“看指标”升维到“读战局”的关键一步。
+        【V250.0 升级版】认知智能总署 (已安装“战况识别滤镜”)
+        - 核心升级: 所有模式识别，都必须基于“价格行为上下文”进行。
         """
-        print("        -> [认知智能总署 V248.0] 启动，正在识别高维战场模式...")
+        print("        -> [认知智能总署 V250.0] 启动，正在识别高维战场模式...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 情报准备 ---
-        # 价格行为
-        is_strong_rally = df.get('pct_change_D', default_series) > 0.03
-        # 成本动态
+        is_healthy_rally = atomic_states.get('CONTEXT_HEALTHY_RALLY', default_series)
+        is_violent_breakout = atomic_states.get('CONTEXT_VIOLENT_BREAKOUT_RALLY', default_series)
+        
         is_cost_rising_fast = df.get('SLOPE_5_peak_cost_D', default_series) > 0.5
-        # 【核心】筹码结构动态
         is_chip_concentrating = df.get('concentration_90pct_slope_5d_D', default_series) < -0.001
         is_chip_dispersing = df.get('concentration_90pct_slope_5d_D', default_series) > 0.001
 
-        # --- 2. 模式识别与裁决 ---
-
+        # --- 2. 模式识别与裁决 (基于上下文) ---
         # 【S级机会模式】锁仓拉升 (Lock-Chip Rally)
-        # 定义: 股价显著上涨的同时，筹码非但没有发散，反而进一步集中。这是主力高度控盘、志存高远的铁证。
-        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_strong_rally & is_cost_rising_fast & is_chip_concentrating
+        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & is_chip_concentrating
 
         # 【S级风险模式】突破派发 (Breakout Distribution)
-        # 定义: 股价显著上涨，看似强势，但筹码却在急速发散。这是主力利用拉高吸引跟风盘，进行高位换手出货的经典陷阱。
-        states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_cost_rising_fast & is_chip_dispersing
+        # 风险模式的识别不受影响，因为派发可能在任何上涨情景中发生
+        states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = (is_healthy_rally | is_violent_breakout) & is_cost_rising_fast & is_chip_dispersing
 
-        print(f"        -> [认知智能总署 V248.0] 识别完成，定义了 {len(states)} 种高维模式。")
+        print(f"        -> [认知智能总署 V250.0] 识别完成，定义了 {len(states)} 种高维模式。")
         return states
 
     def _diagnose_battlefield_stability(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1866,6 +1864,28 @@ class TrendFollowStrategy:
         states['RISK_CAPITAL_VIOLENT_WHIPSAW'] = whipsaw_ratio > threshold
         
         print(f"        -> [战场稳定性评估局 V249.0] 评估完成。")
+        return states
+
+    def _diagnose_price_action_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V250.0 新增】价格行为上下文识别模块 (战况识别滤镜)
+        - 核心职责: 将单纯的日内涨跌幅，升维为具有战术意义的“上下文”。
+        - 作战意图: 为“认知智能总署”提供决策依据，防止其在错误的情景下，
+                    套用不合适的战术模式，从根本上解决对“暴力突破”的误判。
+        """
+        print("        -> [战况识别滤镜 V250.0] 启动，正在定义价格行为上下文...")
+        states = {}
+        pct_change_col = 'pct_change_D'
+        if pct_change_col not in df.columns:
+            return states
+
+        # 定义“暴力突破”上下文：日涨幅超过6%
+        states['CONTEXT_VIOLENT_BREAKOUT_RALLY'] = df[pct_change_col] > 0.06
+        
+        # 定义“健康上涨”上下文：日涨幅在2%到6%之间
+        states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.06)
+
+        print(f"        -> [战况识别滤镜 V250.0] 上下文定义完成。")
         return states
 
     # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 

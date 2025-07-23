@@ -219,7 +219,7 @@
         "positional_scoring": {
           "说明": "【进攻评估 - 阵地分】提升核心阵地优势的权重。",
           "positive_signals": {
-            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 400,
+            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 350,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "CHIP_FUND_FLOW_CONSENSUS_INFLOW": 120,
             "CHIP_HEALTH_EXCELLENT": 100,
@@ -235,6 +235,7 @@
           "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为。",
           "positive_signals": {
             "DYN_TREND_HEALTHY_ACCELERATING": 200,
+            "CONTEXT_VIOLENT_BREAKOUT_RALLY": 180,
             "STRUCTURE_BREAKOUT_EVE_A": 150,
             "CHIP_RAPID_CONCENTRATION": 80,
             "CHIP_HEALTH_IMPROVING": 70
