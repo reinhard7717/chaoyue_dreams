@@ -1799,31 +1799,37 @@ class TrendFollowStrategy:
     #     -> 总指挥: _run_scoring_and_assessment()
     def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V284.0 战情上图版】
-        - 核心修复: 解决了因评估分数未被添加回主DataFrame而导致的致命KeyError。
-        - 新条例:
-          1. 本部门在调用下级单位完成计分后，必须立即将返回的 `entry_score` 和 `risk_score` 
-             作为新的列，添加到主作战地图 `df` 上。
-          2. 只有这张被正确标注过的地图，才被允许流转到下一个指挥环节。
-        - 收益: 彻底解决了情报在部门间交接时丢失的问题，确保了指挥链的完整性。
+        【V285.0 流程再造版】
+        - 核心修复: 解决了因未生成并传递 `playbook_states` 而导致的致命TypeError。
+        - 新条例 (先推演，后评估):
+          1. 在评估任何进攻方案之前，必须先调用 `_generate_playbook_states`，
+             根据最新的 `trigger_events` 生成“动态作战剧本”(`playbook_states`)。
+          2. 然后，将这份至关重要的剧本，连同其他情报，一并传递给 `_calculate_entry_score`。
+        - 收益: 彻底理顺了参谋部的内部工作流程，确保了评估环节的情报完整性。
         """
-        print("    -> [参谋部联席会议 V284.0] 启动，正在执行评估与计分...")
+        print("    -> [参谋部联席会议 V285.0] 启动，正在执行评估与计分...")
 
-        # --- 步骤1: 调用下级部门，获取评估分数 ---
-        # “进攻方案评估中心”返回进攻分和详情
-        entry_score, score_details_df = self._calculate_entry_score(df, params, trigger_events)
+        # --- 步骤1: 【关键修复】调用“作战计划推演室”，获取动态作战剧本 ---
+        # 这是评估进攻方案的绝对前提！
+        print("      -> 正在调用“作战计划推演室”生成动态作战剧本...")
+        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
+        
+        # --- 步骤2: 调用下级部门，获取评估分数 ---
+        # “进攻方案评估中心”现在可以接收到完整的作战情报了
+        print("      -> 正在调用“进攻方案评估中心”进行计分...")
+        entry_score, score_details_df = self._calculate_entry_score(df, params, playbook_states, trigger_events)
         
         # “最高风险裁决所”返回风险分和详情
+        print("      -> 正在调用“最高风险裁决所”进行计分...")
         risk_score, risk_details_df = self._calculate_risk_score(df, params)
 
-        # --- 步骤2: 【关键修复】强制执行“战情上图”条例 ---
-        # 将计算出的分数，作为新的列，直接添加到主DataFrame上！
+        # --- 步骤3: 强制执行“战情上图”条例 (V284.0逻辑保持不变) ---
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
         
-        print("    -> [参谋部联席会议 V284.0] 评估计分完成，已将结果标注于主作战地图。")
+        print("    -> [参谋部联席会议 V285.0] 评估计分完成，已将结果标注于主作战地图。")
 
-        # --- 步骤3: 返回被正确标注过的地图和评估详情 ---
+        # --- 步骤4: 返回被正确标注过的地图和评估详情 ---
         return df, score_details_df, risk_details_df
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
