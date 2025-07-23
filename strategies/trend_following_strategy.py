@@ -189,36 +189,53 @@ class TrendFollowStrategy:
     # -> 核心入口: apply_strategy()
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V296.0 验尸权移交版】
-        - 核心重构: 彻底移除了本部门的“战地验尸”指挥权。
-                    验尸操作现在被嵌入到“最高作战指挥部”内部，以确保能访问到所有
-                    未被销毁的原始情报。
-        - 返回值简化: _run_assessment_and_decision_engine 现在只返回一个 df。
+        【V298.0 临时情报中心版】
+        - 核心重构: 建立“临时现场归档”与“阅后即焚”的终极军事条令。
+        - 新流程:
+          1. 【归档】在从“最高作战指挥部”获取报告后，立即将其作为临时实例属性
+             (self._last_score_details_df) 存储。
+          2. 【共享】在战役期间，所有下游单位(如 prepare_db_records)都可以安全访问这些临时档案。
+          3. 【焚毁】使用 try...finally 结构，确保在战役结束时，无论是否发生异常，
+             都【必须】使用 del 彻底销毁这些临时档案，从根本上杜绝内存泄露。
+        - 收益: 这是一个终极的解决方案，同时解决了“数据可访问性”和“内存泄露”两大核心矛盾。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V296.0 验尸权移交版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V298.0 临时情报中心版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
-        df = self._ensure_numeric_types(df)
-
-        # --- 步骤1：情报总局 (Intelligence Gathering) ---
-        print("--- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
-        df, trigger_events = self._run_all_diagnostics(df, params)
-
-        # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
-        print("--- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
-        # ▼▼▼【代码修改 V296.0】: 调用关系简化，不再接收验尸报告 ▼▼▼
-        df = self._run_assessment_and_decision_engine(df, params, trigger_events)
-        # ▲▲▲【代码修改 V296.0】▲▲▲
         
-        # --- 步骤3：沙盘推演 (Position Management Simulation) ---
-        print("--- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
-        df = self._run_position_management_simulation(df, params)
+        try:
+            df = self._ensure_numeric_types(df)
 
-        print(f"====== 【战术引擎 V296.0】执行完毕 ======")
+            # --- 步骤1：情报总局 (Intelligence Gathering) ---
+            print("    --- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
+            df, trigger_events = self._run_all_diagnostics(df, params)
 
-        return df, self.atomic_states
+            # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
+            print("    --- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
+            df, score_details_df, risk_details_df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+
+            # 将详细报告存入“临时情报柜”，供所有下游单位使用
+            self._last_score_details_df = score_details_df
+            self._last_risk_details_df = risk_details_df
+            print("    -> [临时情报中心] 已完成现场归档，所有下游单位可访问。")
+            
+            # --- 步骤3：沙盘推演 (Position Management Simulation) ---
+            print("    --- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
+            df = self._run_position_management_simulation(df, params)
+
+            print(f"    ====== 【战术引擎 V298.0】执行完毕 ======")
+            
+            return df, self.atomic_states
+        
+        finally:
+            # 无论战役成功与否，都必须在最后彻底销毁临时档案，杜绝内存泄露！
+            if hasattr(self, '_last_score_details_df'):
+                del self._last_score_details_df
+            if hasattr(self, '_last_risk_details_df'):
+                del self._last_risk_details_df
+            print("    -> [临时情报中心] 已执行“阅后即焚”条令，临时档案已销毁。")
 
     # 1. 情报总局 (Intelligence General Administration)
     #    -> 核心职责: 统一收集所有战场情报，形成原子状态报告
@@ -1986,24 +2003,6 @@ class TrendFollowStrategy:
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
         print("    -> [决策单元] 决策完成。")
-
-        # --- 现场验尸流程 ---
-        debug_params = self._get_params_block('debug_params')
-        probe_date = self._get_param_value(debug_params.get('probe_date'))
-        if probe_date:
-            print(f"--- [现场验尸] 启动，正在向验尸官直递 {probe_date} 的全部原始案情卷宗...")
-            # 【确认点】此处的调用是正确的，它发送了所有必需的案情卷宗
-            self._deploy_field_coroner_probe(
-                df=df,
-                probe_date=probe_date,
-                score_details=score_details_df,
-                risk_details=risk_details_df,
-                params=params,
-                playbook_states=playbook_states,
-                atomic_states=self.atomic_states,
-                setup_scores=setup_scores,
-                trigger_events=trigger_events
-            )
 
         print("--- [最高作战指挥部 V297.0] 一体化流程执行完毕。 ---")
         return df
