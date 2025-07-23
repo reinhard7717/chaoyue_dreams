@@ -226,10 +226,10 @@ class TrendFollowStrategy:
 
         print(f"====== 【战术引擎 V223.0】执行完毕 ======")
         
-        debug_params = self._get_params_block('debug_params')
-        probe_date = self._get_param_value(debug_params.get('probe_date'))
-        if probe_date:
-            self._deploy_field_coroner_probe(df, probe_date)
+        # debug_params = self._get_params_block('debug_params')
+        # probe_date = self._get_param_value(debug_params.get('probe_date'))
+        # if probe_date:
+        #     self._deploy_field_coroner_probe(df, probe_date)
 
         return df, atomic_states
 
@@ -1898,7 +1898,6 @@ class TrendFollowStrategy:
         if pct_change_col not in df.columns:
             return states
 
-        # ▼▼▼【代码修改 V253.0】: 建立三级上下文体系 ▼▼▼
         # 1. 健康上涨 (2% < 涨幅 <= 4%)
         states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.04)
         
@@ -1907,7 +1906,6 @@ class TrendFollowStrategy:
 
         # 3. 爆炸性拉升 (涨幅 > 7%)
         states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
-        # ▲▲▲【代码修改 V253.0】▲▲▲
 
         print(f"        -> [战况识别滤镜 V253.0] 上下文定义完成。")
         return states
