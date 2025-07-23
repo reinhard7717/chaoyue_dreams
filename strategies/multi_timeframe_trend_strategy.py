@@ -183,54 +183,71 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【战术决策模块】
-        运行核心的日线战术引擎，并处理其输出。
+        【V301.0 总司令部集权版】
+        - 核心重构: 将“临时情报中心”的建立与销毁职责，完全上移至本总司令部。
+        - 新流程 (Project Overlord):
+          1. 【建立保险柜】: 在本方法内部，建立一个坚不可摧的 try...finally 结构。
+          2. 【获取情报】: 调用下属战术引擎，获取包含详细报告的情报包。
+          3. 【亲自归档】: 将详细报告作为临时属性，【亲自】存入战术引擎实例中。
+          4. 【授权访问】: 调用战报司令部，此时它可以安全地访问临时档案。
+          5. 【亲自销毁】: 在 finally 块中，【亲自】销毁所有临时档案，确保内存安全。
+        - 收益: 这是一个终极的、符合正确生命周期的解决方案，彻底根除了所有AttributeError。
         """
         df_daily_prepared = all_dfs.get('D')
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
             return []
 
-        # 核心调用：执行日线策略分析
-        daily_analysis_df, _ = self.tactical_engine.apply_strategy(df_daily_prepared, self.unified_config)
-        
-        # 健壮性检查：处理引擎未返回结果的情况
-        if daily_analysis_df is None or daily_analysis_df.empty:
-            print("    - [战术引擎] 引擎返回了空的分析结果。")
-            # 即使为空，也创建一个空的DataFrame以防后续代码出错
-            self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
-            return []
-        
-        # 将分析结果保存到实例变量 self.daily_analysis_df，供其他盘中引擎使用
-        # 使用 reindex 确保索引与原始日线数据对齐，并填充 NaN 值
-        self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
-        if 'entry_score' in self.daily_analysis_df.columns:
-            self.daily_analysis_df['entry_score'].fillna(0, inplace=True)
-        
-        # 填充所有布尔类型的列，防止出现 NaN
-        bool_cols = self.daily_analysis_df.select_dtypes(include='bool').columns
-        self.daily_analysis_df[bool_cols] = self.daily_analysis_df[bool_cols].fillna(False)
-        
-        # 统一调用唯一的“战报司令部”，生成所有日线信号（买入、卖出、风险预警）
-        db_records = self.tactical_engine.prepare_db_records(
-            stock_code, self.daily_analysis_df,
-            params=self.unified_config, result_timeframe='D'
-        )
-        print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
+        # 步骤1: 建立坚不可摧的“总司令部级”临时情报中心
+        try:
+            # 步骤2: 核心调用，获取包含详细报告的情报包
+            daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
+                df_daily_prepared, self.unified_config
+            )
+            
+            if daily_analysis_df is None or daily_analysis_df.empty:
+                print("    - [战术引擎] 引擎返回了空的分析结果。")
+                self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
+                return []
 
-        # 【情报下放】将日线级别计算出的关键信息（如平台价格）广播到分钟线，供后续使用
-        cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
-        existing_cols = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
-        if existing_cols:
-            broadcast_df = self.daily_analysis_df[existing_cols].copy()
-            for tf, df_intraday in all_dfs.items():
-                if tf.isdigit() and df_intraday is not None and not df_intraday.empty:
-                    all_dfs[tf] = pd.merge_asof(
-                        left=df_intraday.sort_index(), right=broadcast_df.sort_index(),
-                        left_index=True, right_index=True, direction='backward'
-                    )
-        
-        return db_records
+            # 步骤3: 【总司令亲自归档】将详细报告存入下属单位的“临时情报柜”
+            self.tactical_engine._last_score_details_df = score_details_df
+            self.tactical_engine._last_risk_details_df = risk_details_df
+            print("    -> [总司令部] 已完成现场归档，所有下属单位可访问。")
+
+            # 将主分析结果保存到实例变量，供其他盘中引擎使用
+            self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
+            
+            # 步骤4: 【授权访问】统一调用唯一的“战报司令部”
+            # 此时，它可以安全地访问刚刚存入的临时档案
+            db_records = self.tactical_engine.prepare_db_records(
+                stock_code, self.daily_analysis_df,
+                params=self.unified_config, result_timeframe='D'
+            )
+            print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
+
+            # 【情报下放】(逻辑不变)
+            cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
+            existing_cols = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
+            if existing_cols:
+                broadcast_df = self.daily_analysis_df[existing_cols].copy()
+                for tf, df_intraday in all_dfs.items():
+                    if tf.isdigit() and df_intraday is not None and not df_intraday.empty:
+                        all_dfs[tf] = pd.merge_asof(
+                            left=df_intraday.sort_index(), right=broadcast_df.sort_index(),
+                            left_index=True, right_index=True, direction='backward'
+                        )
+            
+            return db_records
+
+        finally:
+            # 步骤5: 【总司令亲自销毁】无论成功与否，都必须销毁临时档案
+            print("    -> [总司令部] 正在执行“阅后即焚”条令...")
+            if hasattr(self.tactical_engine, '_last_score_details_df'):
+                del self.tactical_engine._last_score_details_df
+            if hasattr(self.tactical_engine, '_last_risk_details_df'):
+                del self.tactical_engine._last_risk_details_df
+            print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
