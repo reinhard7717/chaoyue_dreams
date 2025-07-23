@@ -205,7 +205,7 @@
     "trend_follow": {
       "说明": "【V238.0 最终整合版】趋势跟踪策略核心模块。已整合所有最新改革，包括三权分立计分、CHIPCON风险系统、以及所有参数和列名的校准。",
       "debug_params": {
-        "enabled": { "value": true },
+        "enabled": { "value": false },
         "verbose_logging": { "value": true },
         "probe_start_date": "2025-06-01",
         "probe_date": "2025-07-21"
