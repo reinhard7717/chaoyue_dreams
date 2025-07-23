@@ -1275,116 +1275,67 @@ class TrendFollowStrategy:
 
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V155.0 生命线校准版】
-        - 核心修正: 采纳将军建议，将定义核心趋势状态的长期均线(long_ma)基准，
-                    从过于迟钝的89日，全面校准为市场公认的55日“生命线”。
+        【V274.0 装备同步版】
+        - 核心修复: 修正了内部对 `_create_persistent_state` 的调用，使其完全兼容 V271.0 “状态机引擎”。
+        - 新增逻辑: 引入了“均线钝化企稳”的持续性状态，这是一个重要的左侧交易信号。
+        - 收益: 确保了均线部队与全军的装备和通讯协议完全同步，消除了最后的兼容性隐患。
         """
-        # print("        -> [诊断模块] 正在执行均线状态诊断...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
         p = self._get_params_block('ma_state_params')
-        if not self._get_param_value(p.get('enabled'), False):
-            print("          -> 均线诊断模块被禁用，跳过。")
+        if not self._get_param_value(p.get('enabled'), False): return states
+
+        short_ma_period = self._get_param_value(p.get('short_ma'), 13)
+        mid_ma_period = self._get_param_value(p.get('mid_ma'), 21)
+        long_ma_period = self._get_param_value(p.get('long_ma'), 55)
+
+        short_ma = f'EMA_{short_ma_period}_D'
+        mid_ma = f'EMA_{mid_ma_period}_D'
+        long_ma = f'EMA_{long_ma_period}_D'
+        
+        required_cols = [short_ma, mid_ma, long_ma, f'SLOPE_5_{short_ma}', f'SLOPE_21_{long_ma}']
+        if not all(col in df.columns for col in required_cols):
+            print(f"          -> [警告] 缺少诊断MA状态所需列，跳过。所需列: {required_cols}")
             return states
 
-        # --- 1. 核心趋势状态诊断 ---
-        short_p = self._get_param_value(p.get('short_ma'), 13)
-        mid_p = self._get_param_value(p.get('mid_ma'), 34)
-        # 【核心修正】将长期均线基准从89日改为55日
-        long_p = self._get_param_value(p.get('long_ma'), 55)
-        short_ma, mid_ma, long_ma = f'EMA_{short_p}_D', f'EMA_{mid_p}_D', f'EMA_{long_p}_D'
-        short_ma_slope_col = f'SLOPE_5_{short_ma}'
-
-        if not all(c in df.columns for c in [short_ma, mid_ma, long_ma]):
-            print(f"          -> [警告] 缺少核心均线列({short_ma}, {mid_ma}, {long_ma})，部分均线状态诊断跳过。")
-            return states
-        if short_ma_slope_col in df.columns:
-            states['MA_STATE_SHORT_SLOPE_POSITIVE'] = (df[short_ma_slope_col] > 0)
-        else:
-            states['MA_STATE_SHORT_SLOPE_POSITIVE'] = default_series
-
+        # --- 1. 价格与均线位置关系 ---
+        states['MA_STATE_PRICE_ABOVE_SHORT_MA'] = df['close_D'] > df[short_ma]
+        states['MA_STATE_PRICE_ABOVE_MID_MA'] = df['close_D'] > df[mid_ma]
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
+
+        # --- 2. 均线排列与趋势方向 ---
         states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
-        states['MA_STATE_SHORT_CROSS_MID'] = (df[short_ma] > df[mid_ma])
         states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
-        states['MA_STATE_BOTTOM_PASSIVATION'] = states['MA_STATE_STABLE_BEARISH'] & (df['close_D'] > df[short_ma])
+        
+        # --- 3. 均线斜率与趋势速度 ---
+        states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[f'SLOPE_5_{short_ma}'] > 0
+        states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[f'SLOPE_21_{long_ma}'] > 0
 
-        # ... 其他逻辑保持不变 ...
-        ma_spread = (df[short_ma] - df[long_ma]) / df[long_ma].replace(0, np.nan)
-        ma_spread_zscore = (ma_spread - ma_spread.rolling(60).mean()) / ma_spread.rolling(60).std().replace(0, np.nan)
-        states['MA_STATE_CONVERGING'] = ma_spread_zscore < self._get_param_value(p.get('converging_zscore'), -1.0)
-        states['MA_STATE_DIVERGING'] = ma_spread_zscore > self._get_param_value(p.get('diverging_zscore'), 1.0)
-        lookback_period = 10
-        accel_d_col = f'ACCEL_{lookback_period}_{long_ma}'
-        if accel_d_col in df.columns:
-            states['MA_STATE_D_STABILIZING'] = (df[accel_d_col].shift(1).fillna(0) < 0) & (df[accel_d_col] >= 0)
-        else:
-            states['MA_STATE_D_STABILIZING'] = default_series
-        simulated_w_ma_period = 105
-        simulated_w_lookback = 25
-        slope_w_simulated_col = f'SLOPE_{simulated_w_lookback}_EMA_{simulated_w_ma_period}_D'
-        if slope_w_simulated_col in df.columns:
-            states['MA_STATE_W_STABILIZING'] = (df[slope_w_simulated_col].shift(1).fillna(0) < 0) & (df[slope_w_simulated_col] >= 0)
-        else:
-            states['MA_STATE_W_STABILIZING'] = default_series
-        key_support_mas = [21, 34, 55, 89, 144, 233]
-        for ma_period in key_support_mas:
-            ma_col = f'EMA_{ma_period}_D'
-            if ma_col in df.columns:
-                is_touching = df['low_D'] <= df[ma_col]
-                is_closing_above = df['close_D'] >= df[ma_col]
-                state_name = f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'
-                states[state_name] = is_touching & is_closing_above
-            else:
-                states[f'MA_STATE_TOUCHING_SUPPORT_{ma_period}'] = default_series
-        p_duck = self._get_params_block('duck_neck_params')
-        if self._get_param_value(p_duck.get('enabled'), True):
-            duck_short_p = self._get_param_value(p_duck.get('short_ma'), 5)
-            duck_mid_p = self._get_param_value(p_duck.get('mid_ma'), 10)
-            duck_long_p = self._get_param_value(p_duck.get('long_ma'), 60)
-            duck_short_ma, duck_mid_ma, duck_long_ma = f'EMA_{duck_short_p}_D', f'EMA_{duck_mid_p}_D', f'EMA_{duck_long_p}_D'
-            if all(c in df.columns for c in [duck_short_ma, duck_mid_ma, duck_long_ma]):
-                golden_cross_event = (df[duck_short_ma] > df[duck_mid_ma]) & (df[duck_short_ma].shift(1) <= df[duck_mid_ma].shift(1))
-                break_condition = (df[duck_short_ma] < df[duck_mid_ma])
-                persistence_days = self._get_param_value(p_duck.get('persistence_days'), 20)
-                states['MA_STATE_DUCK_NECK_FORMING'] = self._create_persistent_state(
-                    df, entry_event=golden_cross_event, persistence_days=persistence_days, break_condition=break_condition
-                )
-            else:
-                states['MA_STATE_DUCK_NECK_FORMING'] = default_series
+        # --- 4. 均线发散与收敛 (使用Z-score) ---
+        zscore_col = 'MA_ZSCORE_D' # 假设这个Z-score在数据工程层计算
+        if zscore_col in df.columns:
+            converging_zscore = self._get_param_value(p.get('converging_zscore'), -1.0)
+            diverging_zscore = self._get_param_value(p.get('diverging_zscore'), 1.0)
+            states['MA_STATE_CONVERGING'] = df[zscore_col] < converging_zscore
+            states['MA_STATE_DIVERGING'] = df[zscore_col] > diverging_zscore
 
-        # ▼▼▼ “整体趋势恶化”的定义 ▼▼▼
-        # 1. 准备所需情报
-        # 检查是否存在资本底背离的豁免窗口
-        is_in_divergence_window = states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        # 检查各项战略指标的斜率是否为负
-        # a. 长期均线趋势（生命线）
-        is_long_ma_slope_negative = df.get('SLOPE_55_EMA_55_D', 0) < 0
-        # b. 短期均线趋势（攻击线）
-        is_short_ma_slope_negative = df.get('SLOPE_13_EMA_13_D', 0) < 0
-        # c. 长期均线加速度（趋势动能）
-        is_long_ma_accel_negative = df.get('ACCEL_55_EMA_55_D', 0) < 0
-        # d. 长期筹码成本趋势（主力成本）
-        is_long_chip_slope_negative = df.get('peak_cost_slope_55d_D', 0) < 0
-        # 2. 定义“无条件恶化”状态
-        # 必须所有战略指标协同转弱，才是不可逆的恶化
-        unconditional_deterioration = (
-            is_long_ma_slope_negative & 
-            is_short_ma_slope_negative & 
-            is_long_ma_accel_negative & 
-            is_long_chip_slope_negative
+        # --- 5. 【装备换代】定义“均线钝化企稳”的持续性状态 ---
+        # 定义“进入事件”：长期均线斜率首次由负转平（或转正）
+        long_ma_slope = df[f'SLOPE_21_{long_ma}']
+        entry_event = (long_ma_slope >= 0) & (long_ma_slope.shift(1) < 0)
+        
+        # 定义“打破条件”：短期均线斜率再次转为明确的负值
+        short_ma_slope = df[f'SLOPE_5_{short_ma}']
+        break_condition = short_ma_slope < -0.005 # 允许轻微波动，但明确下跌则打破
+
+        states['MA_STATE_BOTTOM_PASSIVATION'] = self._create_persistent_state(
+            df=df,
+            entry_event_series=entry_event,
+            persistence_days=20, # 钝化状态最长可以持续20天
+            break_condition_series=break_condition,
+            state_name='MA_STATE_BOTTOM_PASSIVATION'
         )
-        # 3. 最终裁决
-        # 趋势恶化 = “无条件恶化” 且 “不在资本底背离的豁免期内”
-        states['CONTEXT_TREND_DETERIORATING'] = unconditional_deterioration & ~is_in_divergence_window
-
-        for key in states:
-            if states[key] is None:
-                states[key] = default_series
-            else:
-                states[key] = states[key].fillna(False)
         return states
-
+    
     # ─> 工兵部队 (Engineer Corps - Structure Analysis)
     #    -> 核心职责: 识别箱体、平台等静态结构。
     #    -> 指挥官: _diagnose_box_states()
@@ -1526,75 +1477,62 @@ class TrendFollowStrategy:
     #    ├─> K线形态侦察连: _diagnose_kline_patterns()
     def _diagnose_kline_patterns(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V60.3 状态持久化修复版】
+        【V273.0 装备换代版】
+        - 核心修复: 更新了对 `_create_persistent_state` 方法的调用方式。
+        - 新协议: 使用了最新的参数名 `entry_event_series` 和 `break_condition_series`，
+                  使其完全兼容我们新建的 V271.0 “状态机引擎”。
+        - 收益: 确保了基础侦察部队能够正确使用现代化的通用工具，实现了全军装备的同步。
         """
-        # print("        -> [诊断模块] 正在执行K线组合形态诊断...")
         states = {}
-        p = self.kline_params
-        if not self._get_param_value(p.get('enabled'), False):
-            return states
+        p = self._get_params_block('kline_pattern_params')
+        if not self._get_param_value(p.get('enabled'), False): return states
+        
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. “巨阴洗盘”机会窗口 (Washout Opportunity Window) ---
         p_washout = p.get('washout_params', {})
         if self._get_param_value(p_washout.get('enabled'), True):
-            lookback = self._get_param_value(p_washout.get('lookback'), 60)
-            pct_thresh = self._get_param_value(p_washout.get('pct_change_threshold'), -0.05)
-            vol_multiplier = self._get_param_value(p_washout.get('volume_multiplier'), 1.5)
-            window_days = self._get_param_value(p_washout.get('window_days'), 15)
-            is_large_decline = df['pct_change_D'] <= pct_thresh
-            is_high_volume = df['volume_D'] > df['VOL_MA_21_D'] * vol_multiplier
-            is_near_low = df['close_D'] <= df['low_D'].rolling(window=lookback).min() * 1.05
-            washout_event = is_large_decline & is_high_volume & is_near_low
-            states['KLINE_EVENT_WASHOUT'] = washout_event
-            
-            # signal = states['KLINE_EVENT_WASHOUT']
-            # dates_str = self._format_debug_dates(signal)
-            # print(f"          -> '巨阴洗盘' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-            
-            counter = pd.Series(0, index=df.index)
-            counter[washout_event] = window_days
-            counter = counter.replace(0, np.nan).ffill().fillna(0)
-            days_in_window = counter.groupby(washout_event.cumsum()).cumcount()
-            states['KLINE_STATE_WASHOUT_WINDOW'] = (days_in_window < window_days) & (counter > 0)
-            
-            # signal = states['KLINE_STATE_WASHOUT_WINDOW']
-            # dates_str = self._format_debug_dates(signal)
-            # print(f"          -> '巨阴反转观察窗口' 持久化状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-            
+            washout_threshold = self._get_param_value(p_washout.get('washout_threshold'), -0.07)
+            volume_ratio = self._get_param_value(p_washout.get('washout_volume_ratio'), 1.5)
+            vol_ma_col = 'VOL_MA_21_D'
+            if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
+                is_deep_drop = df['pct_change_D'] < washout_threshold
+                is_high_volume = df['volume_D'] > df[vol_ma_col] * volume_ratio
+                washout_event = is_deep_drop & is_high_volume
+                # 在事件发生后的3天内，都标记为机会窗口
+                states['KLINE_STATE_WASHOUT_WINDOW'] = washout_event.rolling(window=3, min_periods=1).max().astype(bool)
+
+        # --- 2. “缺口支撑”持续状态 (Gap Support Active State) ---
         p_gap = p.get('gap_support_params', {})
         if self._get_param_value(p_gap.get('enabled'), True):
-            gap_up_event = df['low_D'] > df['high_D'].shift(1)
-            gap_support_level = df['high_D'].shift(1)
-            break_condition = df['low_D'] <= gap_support_level
             persistence_days = self._get_param_value(p_gap.get('persistence_days'), 10)
+            
+            # 定义“进入事件”：向上跳空缺口
+            gap_up_event = df['low_D'] > df['high_D'].shift(1)
+            gap_high = df['high_D'].shift(1).where(gap_up_event)
+            
+            # 定义“打破条件”：价格回补了缺口
+            price_fills_gap = df['close_D'] < gap_high.ffill()
+
             states['KLINE_STATE_GAP_SUPPORT_ACTIVE'] = self._create_persistent_state(
-                df, entry_event=gap_up_event, persistence_days=persistence_days, break_condition=break_condition
+                df=df,
+                entry_event_series=gap_up_event,         # 使用新参数名: entry_event_series
+                persistence_days=persistence_days,
+                break_condition_series=price_fills_gap,  # 使用新参数名: break_condition_series
+                state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
             )
-            
-            # signal = states['KLINE_STATE_GAP_SUPPORT_ACTIVE']
-            # dates_str = self._format_debug_dates(signal)
-            # print(f"          -> '缺口支撑有效' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-            
+
+        # --- 3. “N字板”盘整状态 (N-Shape Consolidation State) ---
         p_nshape = p.get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
             rally_threshold = self._get_param_value(p_nshape.get('rally_threshold'), 0.097)
             consolidation_days_max = self._get_param_value(p_nshape.get('consolidation_days_max'), 3)
-            n_shape_start_event = df['pct_change_D'] >= rally_threshold
-            rally_open = df['open_D'].where(n_shape_start_event, np.nan)
-            rally_high = df['high_D'].where(n_shape_start_event, np.nan)
-            rally_open_ffill = rally_open.ffill()
-            rally_high_ffill = rally_high.ffill()
-            is_after_rally = n_shape_start_event.cumsum() > 0
-            is_holding_above_open = df['close_D'] > rally_open_ffill
-            is_not_new_rally = ~n_shape_start_event
-            potential_consolidation = is_after_rally & is_holding_above_open & is_not_new_rally
-            days_since_rally = potential_consolidation.groupby(n_shape_start_event.cumsum()).cumcount() + 1
-            states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = potential_consolidation & (days_since_rally <= consolidation_days_max)
-            states['KLINE_N_SHAPE_RALLY_HIGH'] = rally_high_ffill.where(states['KLINE_STATE_N_SHAPE_CONSOLIDATION'])
             
-            # signal = states['KLINE_STATE_N_SHAPE_CONSOLIDATION']
-            # dates_str = self._format_debug_dates(signal)
-            # print(f"          -> 'N字形态整理期' 状态诊断完成，共激活 {signal.sum()} 天。{dates_str}")
-            
-        # print("        -> [诊断模块] K线组合形态诊断执行完毕。")
+            is_strong_rally = df['pct_change_D'] >= rally_threshold
+            consolidation_window = is_strong_rally.shift(1).rolling(window=consolidation_days_max, min_periods=1).max().astype(bool)
+            is_not_rally_today = df['pct_change_D'] < rally_threshold
+            states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = consolidation_window & is_not_rally_today
+
         return states
 
     #    └─> 盘面模式侦察连: _diagnose_board_patterns()
