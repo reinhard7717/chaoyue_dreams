@@ -2475,45 +2475,54 @@ class TrendFollowStrategy:
         print("\n" + "="*27 + " [黑匣子探针结束] " + "="*27 + "\n")
 
     #    └─> 风险分调查员: _probe_risk_score_details()
-    def _probe_risk_score_details(self, total_risk_score: pd.Series, risk_details_df: pd.DataFrame, params: dict):
+    def _probe_risk_score_details(self, risk_details_df: pd.DataFrame, probe_date: str, params: dict):
         """
-        【V93.1 探针时间限制版】
-        - 核心升级: 增加了可配置的时间限制，默认只显示指定日期之后的信息，使日志更聚焦。
+        【V295.0 报告总结版】
+        - 核心修复: 解决了因未对风险详情DataFrame进行求和，而直接将其用于布尔索引
+                    导致的灾难性TypeError。
+        - 新标准作业流程 (SOP):
+          1. 在进行任何分析之前，【必须】使用 .sum(axis=1) 将包含所有风险分项的
+             risk_details_df (DataFrame)，正确地汇总成一个代表每日总风险分的
+             total_risk_score (Series)。
+        - 收益: 确保了后续所有操作的数据类型正确，从根本上根除了此问题。
         """
-        print("\n" + "-"*25 + " 风险剧本探针 (Risk Playbook Probe) " + "-"*24)
+        print("  --- [风险验尸科 V295.0] 开始解剖风险成因 (已装备报告总结SOP) ---")
         
-        # ▼▼▼【代码修改 V93.1】: 增加时间限制逻辑 ▼▼▼
-        # 1. 从配置中获取探针的起始日期，并提供一个符合您需求的默认值
-        probe_start_date_str = self._get_param_value(self.debug_params.get('probe_start_date'), '2024-12-21')
-        print(f"    -> 探针时间范围: 从 {probe_start_date_str} 开始")
+        if risk_details_df is None or risk_details_df.empty:
+            print("    -> [信息] 风险详情报告为空，无法进行解剖。")
+            return
 
-        # 2. 筛选出所有有风险分的日期
+        # ▼▼▼【代码修改 V295.0】: 执行“报告总结”标准作业流程！▼▼▼
+        # 步骤1: 将多列的风险分项报告(DataFrame)，正确地汇总为单列的总风险分(Series)
+        total_risk_score = risk_details_df.sum(axis=1)
+        # ▲▲▲【代码修改 V295.0】▲▲▲
+
+        # 步骤2: 现在 total_risk_score 是一个Series，可以安全地进行布尔索引
         key_dates = total_risk_score.index[total_risk_score > 0]
         
-        # 3. 应用时间过滤器
-        if probe_start_date_str:
-            try:
-                start_date = pd.to_datetime(probe_start_date_str, utc=True)
-                key_dates = key_dates[key_dates >= start_date]
-            except Exception as e:
-                # 这个异常处理现在不太可能被触发，但保留它是个好习惯
-                print(f"      -> [警告] 探针起始日期 '{probe_start_date_str}' 格式错误，将显示所有风险日。错误: {e}")
+        if probe_date not in key_dates.strftime('%Y-%m-%d'):
+            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
+            return
 
-        if key_dates.empty:
-            print(f"    -> 在 {probe_start_date_str} 之后，未发现任何已触发的风险剧本。")
-        else:
-            risk_playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
+        print(f"  [目标日期 {probe_date} 风险详情]:")
+        try:
+            # 定位到目标日期的风险详情
+            target_day_risks = risk_details_df.loc[probe_date]
+            # 筛选出当天有分的风险项
+            active_risks = target_day_risks[target_day_risks > 0]
             
-            print(f"    -> 在指定时间范围内发现 {len(key_dates)} 个风险日，详情如下:")
-            for date in key_dates:
-                total_score = total_risk_score.loc[date]
-                print(f"    {date.strftime('%Y-%m-%d')} | 最终风险分: {total_score:.0f}")
-                
-                triggered_playbooks = risk_details_df.loc[date][risk_details_df.loc[date] > 0]
-                for name, score in triggered_playbooks.items():
-                    cn_name = risk_playbook_cn_map.get(name, name)
-                    print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
- 
+            if active_risks.empty:
+                print("    -> 当天总风险分 > 0，但未找到具体风险项（可能为多个小项累加），请检查评分逻辑。")
+            else:
+                print(f"    -> 当日总风险分: {active_risks.sum():.2f}")
+                print("    -> 风险构成:")
+                for risk_name, score in active_risks.items():
+                    print(f"      - {risk_name}: {score:.2f} 分")
+
+        except KeyError:
+            print(f"    -> [错误] 无法在风险详情报告中找到日期 {probe_date}。")
+        except Exception as e:
+            print(f"    -> [严重错误] 在解剖 {probe_date} 的风险时发生未知异常: {e}")
 
     def _create_persistent_state(self, df: pd.DataFrame, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series, state_name: str) -> pd.Series:
         """
