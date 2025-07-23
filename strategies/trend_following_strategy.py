@@ -1004,11 +1004,11 @@ class TrendFollowStrategy:
 
         required_cols = [
             'concentration_90pct_D', 'concentration_90pct_slope_5d_D',
-            'concentration_90pct_slope_21d_D', # 历史审查部需要
+            'SLOPE_21_concentration_90pct_D', # 【修复】原为 concentration_90pct_slope_21d_D
             'SLOPE_5_peak_cost_D', 'SLOPE_5_total_winner_rate_D',
             'SLOPE_5_peak_stability_D', 'SLOPE_5_peak_percent_D',
             'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D',
-            'chip_health_score' # 高级结构诊断室需要
+            'chip_health_score_D' # 【修复】原为 chip_health_score
         ]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
@@ -1040,14 +1040,13 @@ class TrendFollowStrategy:
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
         # --- 3. 高维结构解读 (Advanced Structure Interpretation) ---
-        # (原 _diagnose_advanced_chip_structures 的逻辑)
-        health_score = df.get('chip_health_score')
+        health_score = df.get('chip_health_score_D')
         if health_score is not None:
             states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
 
         # --- 4. 历史背景政审 (Historical Context Vetting) ---
         # (原 _diagnose_historical_context 的逻辑)
-        long_term_conc_slope_col = 'concentration_90pct_slope_21d_D'
+        long_term_conc_slope_col = 'SLOPE_21_concentration_90pct_D'
         distribution_threshold = 0.0001 
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[long_term_conc_slope_col] > distribution_threshold
 

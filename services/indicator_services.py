@@ -355,7 +355,7 @@ class IndicatorService:
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
         #  调用军械库清单生成器 ▼▼▼
-        self._log_final_data_columns(all_dfs)
+        # self._log_final_data_columns(all_dfs)
         
         return all_dfs
 
