@@ -231,7 +231,7 @@ class TrendFollowStrategy:
         if probe_date:
             self._deploy_field_coroner_probe(df, probe_date)
 
-        return df, atomic_states
+        return df, self.atomic_states
 
 
     # 1. 情报总局 (Intelligence General Administration)
