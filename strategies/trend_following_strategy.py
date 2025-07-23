@@ -1960,17 +1960,18 @@ class TrendFollowStrategy:
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
-    def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> pd.DataFrame:
+    def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V297.0 协议同步确认版】
-        - 核心确认: 本方法在V296的调用逻辑是【正确】的。问题出在它调用的
-                    _deploy_field_coroner_probe 方法的【定义】上。
-                    在V297修复了下游单位的“通讯密码本”后，此处的调用将能正确执行。
+        【V299.0 协议统一版】
+        - 核心修复: 彻底治愈本指挥部的“精神分裂症”。强制其汇报协议与上级单位(apply_strategy)
+                    的期望完全统一，返回一个包含 (df, score_details_df, risk_details_df)
+                    的三联式标准情报包。
+        - 收益: 这是一个终极的解决方案，彻底解决了因上下级“通讯协议版本不匹配”而导致的系统崩溃。
         """
-        print("--- [最高作战指挥部 V297.0] 启动，正在执行“评估-决策-现场验尸”一体化流程... ---")
+        print("    --- [最高作战指挥部 V299.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
         # --- 阶段一：评估 ---
-        print("    -> [评估单元] 启动...")
+        print("        -> [评估单元] 启动...")
         setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
         scoring_context = {
             "df": df, "params": params, "trigger_events": trigger_events,
@@ -1981,10 +1982,10 @@ class TrendFollowStrategy:
         risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
-        print("    -> [评估单元] 评估完成，所有案情卷宗已生成。")
+        print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
         # --- 阶段二：决策 (逻辑不变) ---
-        print("    -> [决策单元] 启动...")
+        print("        -> [决策单元] 启动...")
         df = self._calculate_exit_signals(df, params, df['risk_score'])
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
@@ -2002,10 +2003,10 @@ class TrendFollowStrategy:
         df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
-        print("    -> [决策单元] 决策完成。")
+        print("        -> [决策单元] 决策完成。")
 
-        print("--- [最高作战指挥部 V297.0] 一体化流程执行完毕。 ---")
-        return df
+        print("    --- [最高作战指挥部 V299.0] 一体化流程执行完毕。 ---")
+        return df, score_details_df, risk_details_df
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
