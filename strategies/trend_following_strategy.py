@@ -254,8 +254,8 @@ class TrendFollowStrategy:
 
         # --- 依次调用各大专业化司令部，收集原子情报 ---
         
-        # 1. 平台与阵地司令部
-        df, platform_states = self._diagnose_platform_states(df, params)
+        # 1. 市场结构战区司令部 (统一指挥MA, Box, Platform部队)
+        df, structure_states = self._diagnose_market_structure_command(df, params)
         
         # 2. 筹码情报最高司令部
         chip_states, chip_triggers = self._run_chip_intelligence_command(df, params)
@@ -263,15 +263,13 @@ class TrendFollowStrategy:
         # 3. 【建立中央情报局】汇总所有基础原子情报，并存入 self.atomic_states
         # 这是本次改革的核心：将所有情报统一存入实例属性，而不是作为局部变量传递
         self.atomic_states = {
+            **structure_states,                             # 注入来自市场结构战区司令部的所有情报
             **chip_states,                                  # 注入来自筹码最高司令部的情报
-            **self._diagnose_ma_states(df, params),         # 均线野战部队
             **self._diagnose_oscillator_states(df, params), # 心理战与市场情绪侦察部
             **self._diagnose_capital_states(df, params),    # 资本动向总参谋部
             **self._diagnose_volatility_states(df, params), # 能量与波动侦察部
-            **self._diagnose_box_states(df, params),        # 箱体工兵部队
             **self._diagnose_kline_patterns(df, params),    # 基础K线侦察部队
             **self._diagnose_board_patterns(df, params),    # 盘面特征侦察部队
-            **platform_states,                              # 注入来自平台司令部的情报
             **self._diagnose_trend_dynamics(df, params)     # 动态惯性引擎
         }
         
@@ -279,7 +277,7 @@ class TrendFollowStrategy:
         # 后续所有部门，都直接从 self.atomic_states 调阅情报并更新
         
         # 4. 筹码-价格行为联合分析部 (跨部门协作)
-        self.atomic_states.update(self._diagnose_chip_price_action(df, self.atomic_states))
+        self.atomic_states.update(self._diagnose_chip_price_action(df))
         
         # 5. 市场结构总参谋部
         self.atomic_states.update(self._diagnose_market_structure_states(df, params, self.atomic_states))
@@ -292,7 +290,7 @@ class TrendFollowStrategy:
         # --- 基于所有情报和认知，定义最终的战术触发事件 ---
         
         # 7. 战术触发事件定义中心
-        trigger_events = self._define_trigger_events(df, params, self.atomic_states)
+        trigger_events = self._define_trigger_events(df, params)
         # 将筹码总参谋部提供的“触发事件”合并到总事件池中
         trigger_events.update(chip_triggers)
         
@@ -540,16 +538,16 @@ class TrendFollowStrategy:
         score_healthy_markup = setup_scores.get('SETUP_SCORE_HEALTHY_MARKUP', default_series)
         score_platform_quality = setup_scores.get('SETUP_SCORE_PLATFORM_QUALITY', default_series)
 
-        capital_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
-        setup_bottom_passivation = atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-        setup_washout_reversal = atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
-        setup_healthy_box = atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
-        recent_reversal_context = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
-        ma_short_slope_positive = atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
-        is_trend_healthy = atomic_states.get('CONTEXT_OVERALL_TREND_HEALTHY', default_series)
+        capital_divergence_window = self.atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        setup_bottom_passivation = self.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
+        setup_washout_reversal = self.atomic_states.get('KLINE_STATE_WASHOUT_WINDOW', default_series)
+        setup_healthy_box = self.atomic_states.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
+        recent_reversal_context = self.atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
+        ma_short_slope_positive = self.atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
+        is_trend_healthy = self.atomic_states.get('CONTEXT_OVERALL_TREND_HEALTHY', default_series)
         
-        atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
-        atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
+        self.atomic_states['SETUP_SCORE_N_SHAPE_CONTINUATION_ABOVE_80'] = score_nshape_cont > 80
+        self.atomic_states['SETUP_SCORE_HEALTHY_MARKUP_ABOVE_60'] = score_healthy_markup > 60
 
         # 遍历静态蓝图，仅生成动态情报，不进行任何复制操作
         for blueprint in self.playbook_blueprints:
@@ -603,7 +601,7 @@ class TrendFollowStrategy:
                 setup_series = (score_gap_support > 60)
                 trigger_series = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
             elif name == 'CHIP_PLATFORM_PULLBACK':
-                setup_platform_formed = atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+                setup_platform_formed = self.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
                 setup_series = setup_platform_formed & is_trend_healthy
                 trigger_series = trigger_events.get('TRIGGER_PLATFORM_PULLBACK_REBOUND', default_series)
             elif name == 'ENERGY_COMPRESSION_BREAKOUT':
@@ -626,7 +624,7 @@ class TrendFollowStrategy:
 
         # --- 步骤3: 统一交战规则审查 (Unified Rules of Engagement) ---
         print("      -> 步骤3/3: 正在执行统一交战规则审查...")
-        is_trend_deteriorating = atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
+        is_trend_deteriorating = self.atomic_states.get('CONTEXT_TREND_DETERIORATING', default_series)
         for blueprint in self.playbook_blueprints:
             if blueprint.get('side') == 'right':
                 name = blueprint['name']
@@ -641,7 +639,7 @@ class TrendFollowStrategy:
     # ─> 战术触发事件定义中心 (Tactical Trigger Definition Center)
     #    -> 核心职责: 识别那些可以作为“开火信号”的瞬时战术事件(Trigger)。
     #    -> 指挥官: _define_trigger_events()
-    def _define_trigger_events(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _define_trigger_events(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V234.0 最终净化版 - 战术触发事件定义中心】
         - 核心升级: 严格遵循“V234.0 作战条例”，所有参数均从唯一的 trigger_event_params 配置块中获取，
@@ -750,7 +748,7 @@ class TrendFollowStrategy:
         # 3.1 N字形态突破 (依赖原子状态)
         p_nshape = self.kline_params.get('n_shape_params', {})
         if self._get_param_value(p_nshape.get('enabled'), True):
-            n_shape_consolidation_state = atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', default_series)
+            n_shape_consolidation_state = self.atomic_states.get('KLINE_STATE_N_SHAPE_CONSOLIDATION', default_series)
             consolidation_high = df['high_D'].where(n_shape_consolidation_state, np.nan).ffill()
             is_breaking_consolidation = df['close_D'] > consolidation_high.shift(1)
             triggers['TRIGGER_N_SHAPE_BREAKOUT'] = (df['close_D'] > df['open_D']) & is_breaking_consolidation
@@ -768,9 +766,9 @@ class TrendFollowStrategy:
 
         # --- 4. 从其他诊断模块接收的事件 (Event Reception) ---
         # 这些事件由其他专业部门生成，本部门只负责接收和汇报
-        triggers['TRIGGER_BOX_BREAKOUT'] = atomic_states.get('BOX_EVENT_BREAKOUT', default_series)
-        triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = atomic_states.get('BOARD_EVENT_EARTH_HEAVEN', default_series)
-        triggers['TRIGGER_TREND_STABILIZING'] = atomic_states.get('MA_STATE_D_STABILIZING', default_series)
+        triggers['TRIGGER_BOX_BREAKOUT'] = self.atomic_states.get('BOX_EVENT_BREAKOUT', default_series)
+        triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = self.atomic_states.get('BOARD_EVENT_EARTH_HEAVEN', default_series)
+        triggers['TRIGGER_TREND_STABILIZING'] = self.atomic_states.get('MA_STATE_D_STABILIZING', default_series)
 
         # --- 5. 最终安全检查 (Final Safety Check) ---
         # 确保所有触发器都已正确初始化，防止因计算失败导致后续流程出错
@@ -823,66 +821,50 @@ class TrendFollowStrategy:
     #    -> 核心职责: 侦测市场能量的“积蓄”(压缩)与“释放”(放量)。
     #    -> 指挥官: _diagnose_volatility_states()
     def _diagnose_volatility_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
-        """【V224.0 逻辑内嵌版】波动率与成交量状态诊断"""
+        """
+        【V271.0 状态机引擎改造版】
+        - 核心重构: 彻底移除了内部硬编码的 for 循环“代码化石”。
+        - 新架构: 现在通过调用我们新建的、通用的 `_create_persistent_state` 状态机引擎，
+                  用一行代码就完成了“能量待爆发窗口”的创建。
+        - 收益: 代码极度精简、逻辑清晰、完全解耦，展示了现代化架构的强大威力。
+        """
         states = {}
         p = self._get_params_block('volatility_state_params')
         if not self._get_param_value(p.get('enabled'), False): return states
-        
         default_series = pd.Series(False, index=df.index)
         bbw_col = 'BBW_21_2.0_D'
+        vol_ma_col = 'VOL_MA_21_D'
+        # --- 步骤1: 定义“进入事件” ---
         if bbw_col in df.columns:
             squeeze_threshold = df[bbw_col].rolling(60).quantile(self._get_param_value(p.get('squeeze_percentile'), 0.1))
-            # 识别“波动率极度压缩”的单次触发事件
             squeeze_event = (df[bbw_col] < squeeze_threshold) & (df[bbw_col].shift(1) >= squeeze_threshold)
             states['VOL_EVENT_SQUEEZE'] = squeeze_event
         else:
             squeeze_event = default_series
-
-        vol_ma_col = 'VOL_MA_21_D'
         if 'volume_D' in df.columns and vol_ma_col in df.columns:
             states['VOL_STATE_SHRINKING'] = df['volume_D'] < df[vol_ma_col] * self._get_param_value(p.get('shrinking_ratio'), 0.8)
-
-        # 作战单元：建立“能量待爆发”的持续性监控窗口
+        # --- 步骤2: 定义“打破条件” ---
         p_context = p.get('squeeze_context', {})
-        persistence_days = self._get_param_value(p_context.get('persistence_days'), 10)
-        
         if vol_ma_col in df.columns:
-            # 定义窗口的“打破条件”：成交量显著放大
             volume_break_ratio = self._get_param_value(p_context.get('volume_break_ratio'), 1.5)
             break_condition = df['volume_D'] > df[vol_ma_col] * volume_break_ratio
-            
-            # --- 原 _create_persistent_state 的核心逻辑开始 ---
-            persistent_series = pd.Series(False, index=df.index)
-            entry_indices = df.index[squeeze_event] # 使用上面定义的 squeeze_event
-            
-            for entry_idx in entry_indices:
-                window_end_idx = entry_idx + pd.Timedelta(days=persistence_days)
-                # 确定实际的窗口范围，不超过数据末尾
-                actual_window = df.loc[entry_idx:window_end_idx]
-                
-                # 在此窗口内查找第一个“打破条件”满足的位置
-                break_points = actual_window.index[break_condition[actual_window.index]]
-                
-                # 如果找到了打破点，则状态持续到打破点
-                if not break_points.empty:
-                    end_date = break_points[0]
-                    persistent_series.loc[entry_idx:end_date] = True
-                # 如果没找到，则状态持续整个窗口期
-                else:
-                    persistent_series.loc[actual_window.index] = True
-            
-            states['VOL_STATE_SQUEEZE_WINDOW'] = persistent_series
-            # --- 原 _create_persistent_state 的核心逻辑结束 ---
         else:
-            states['VOL_STATE_SQUEEZE_WINDOW'] = default_series
-            
+            break_condition = default_series
+        # --- 步骤3: 调用“状态机引擎”生成持续性状态 ---
+        persistence_days = self._get_param_value(p_context.get('persistence_days'), 10)
+        states['VOL_STATE_SQUEEZE_WINDOW'] = self._create_persistent_state(
+            df=df,
+            entry_event_series=squeeze_event,
+            persistence_days=persistence_days,
+            break_condition_series=break_condition,
+            state_name='VOL_STATE_SQUEEZE_WINDOW'
+        )
         return states
-
 
     # 风险情报总局 (Risk Intelligence Bureau)
     #    -> 核心职责: 汇总所有负面/风险信号。
     #    -> 指挥官: _diagnose_all_risk_signals()
-    def _diagnose_all_risk_signals(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _diagnose_all_risk_signals(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V222.0 新增】风险情报总局
         - 核心职责: 统一指挥所有风险侦察部队，收集所有风险信号，形成一份完整的、
@@ -908,8 +890,8 @@ class TrendFollowStrategy:
             'PLATFORM_FAILURE'
         ]
         for risk_name in strategic_risks:
-            if risk_name in atomic_states:
-                risk_signals[risk_name] = atomic_states[risk_name]
+            if risk_name in self.atomic_states:
+                risk_signals[risk_name] = self.atomic_states[risk_name]
 
         print(f"        -> [风险情报总局 V222.0] 情报汇总完毕，共监控 {len(risk_signals)} 类风险信号。")
         return risk_signals
@@ -1078,7 +1060,7 @@ class TrendFollowStrategy:
         print("        -> [筹码情报最高司令部 V260.0] 分析完毕。")
         return states, triggers
     
-    def _diagnose_chip_price_action(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _diagnose_chip_price_action(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V228.0 新增】筹码-价格行为联合分析部
         - 核心职责: 将价格的涨跌行为与筹码（尤其是主力资金）的流动进行交叉验证，
@@ -1095,8 +1077,8 @@ class TrendFollowStrategy:
         is_price_falling = df.get('pct_change_D', default_series) < 0
 
         # 主力资金动向情报 (来自筹码总参谋部)
-        is_main_force_buying = atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
-        is_main_force_selling = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        is_main_force_buying = self.atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
+        is_main_force_selling = self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
         
         # 散户资金动向情报
         # 假设散户与主力行为相反，或者直接使用散户数据（如果未来有）
@@ -1243,6 +1225,54 @@ class TrendFollowStrategy:
     # 野战部队 (Field Forces - Trend Analysis)
     #    -> 核心职责: 分析均线趋势。
     #    -> 指挥官: _diagnose_ma_states()
+    def _diagnose_market_structure_command(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V272.0 市场结构战区司令部】
+        - 核心重构: 这不是一次合并，而是一次战略整合。
+        - 新架构:
+          1. 本司令部统一指挥下属的三个专业化兵种：均线野战部队、价格工兵部队、筹码特种侦察部队。
+          2. 它首先收集所有基础的“原子结构情报”。
+          3. 然后，它进行情报融合，生成更高维度的、包含协同作战思想的“复合结构情报”。
+        - 收益: 极大地提升了代码的组织性和可读性，并能产出远比单个模块更有价值的协同信号。
+        """
+        print("        -> [市场结构战区司令部 V272.0] 启动，正在整合全战场结构情报...")
+        
+        # --- 1. 依次调动下属的专业化兵种，收集原子情报 ---
+        print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
+        ma_states = self._diagnose_ma_states(df, params)
+        box_states = self._diagnose_box_states(df, params)
+        df, platform_states = self._diagnose_platform_states(df, params) # 平台诊断会修改df，需要接收
+        
+        # 将所有原子情报汇总
+        atomic_structure_states = {**ma_states, **box_states, **platform_states}
+        
+        # --- 2. 进行情报融合与战术研判，生成复合情报 ---
+        print("          -> 正在进行情报融合，生成高维度复合情报...")
+        composite_states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # 复合情报1: “阵地优势” - 一个稳固的平台，必须得到动态趋势线的确认
+        is_platform_stable = atomic_structure_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        is_above_mid_ma = atomic_structure_states.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
+        composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
+
+        # 复合情报2: “健康盘整” - 一个箱体整理，必须发生在关键趋势线上方
+        is_in_box = atomic_structure_states.get('BOX_STATE_CONSOLIDATING', default_series)
+        is_above_long_ma = atomic_structure_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = is_in_box & is_above_long_ma
+
+        # 复合情报3: “突破前夜” (S级战术信号) - 极致的共振信号
+        # 定义：价格被压缩在一个健康的箱体内，而这个箱体本身就建立在一个稳固的筹码平台上，
+        #       同时，整个结构都位于主升趋势线之上。这是大战一触即发的终极信号！
+        is_healthy_box = composite_states.get('STRUCTURE_BOX_ABOVE_TRENDLINE', default_series)
+        is_on_stable_platform = atomic_structure_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_box & is_on_stable_platform
+
+        print("        -> [市场结构战区司令部 V272.0] 情报整合完毕。")
+        
+        # 返回所有原子情报和复合情报的集合，以及可能被修改的df
+        return df, {**atomic_structure_states, **composite_states}
+
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V155.0 生命线校准版】
@@ -1807,9 +1837,9 @@ class TrendFollowStrategy:
         # a. 获取风险裁决所需的专属参数
         exit_params = self._get_params_block('exit_strategy_params')
         # b. 调用风险情报总局。注意：它需要 atomic_states，因此我们从 self.atomic_states 传递给它。
-        risk_signals = self._diagnose_all_risk_signals(df, exit_params, self.atomic_states)
+        risk_signals = self._diagnose_all_risk_signals(df, exit_params)
         # c. 调用风险计分模块
-        df, risk_details_df = self._calculate_risk_score(df, params, risk_signals)
+        df, risk_details_df = self._calculate_risk_score(df, params)
 
         print("--- [参谋部 V269.0] 量化评估完成。")
         return df, score_details_df, risk_details_df
@@ -1817,7 +1847,7 @@ class TrendFollowStrategy:
     # ─> 进攻方案评估中心 (Entry Scoring Center)
     #    -> 核心职责: 计算最终的入场分。
     #    -> 指挥官: _calculate_entry_score()
-    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series], setup_scores: Dict[str, pd.Series], playbook_states: Dict[str, Dict[str, pd.Series]], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_entry_score(self, df: pd.DataFrame, params: dict, setup_scores: Dict[str, pd.Series], playbook_states: Dict[str, Dict[str, pd.Series]], trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         【V267.0 通讯修复版】进攻方案评估中心
         - 核心修复: 修正了对 _apply_final_score_adjustments 的调用，补上了缺失的 'atomic_states' 参数。
@@ -1904,7 +1934,7 @@ class TrendFollowStrategy:
     #       └─> 指挥棒模型 (Score Adjustment Module)
     #          -> 核心职责: 对基础分进行最终的乘数加成或削弱。
     #          -> 对应方法: _apply_final_score_adjustments()
-    def _apply_final_score_adjustments(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> pd.DataFrame:
+    def _apply_final_score_adjustments(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【V267.0 标准实现版】指挥棒模型 (最终得分调整)
         - 核心职责: 在所有基础分数计算完毕后，根据特定的战场状态(atomic_states)，
@@ -1936,180 +1966,10 @@ class TrendFollowStrategy:
         df['entry_score'] *= final_multiplier
         return df
 
-    #       ├─> 基础火力评估室: _calculate_base_scores()
-    def _calculate_base_scores(self, df: pd.DataFrame, scoring_params: dict, atomic_states: dict, trigger_events: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.DataFrame]:
-        """
-        【V210.0 作战序列重塑版】
-        - 核心升级: 将“惩罚分”彻底剥离，作为一个独立的战斗序列(total_penalty_score)返回。
-        - 作战意图: 确保惩罚分不再混入阵地分，从根本上杜绝其被后续的“周线豁免”等
-                    逻辑意外抵消或削弱的可能，保证其绝对的、最终的否决权。
-        """
-        print("      -> [火力层1-3/4] 正在计算“阵地分”、“动能分”与“触发分”...")
-        default_series = pd.Series(False, index=df.index)
-        
-        # 计算阵地分 (纯加分项)
-        positional_params = scoring_params.get('positional_scoring', {})
-        total_positional_score = pd.Series(0.0, index=df.index)
-        for state_name, score in positional_params.get('positive_signals', {}).items():
-            mask = atomic_states.get(state_name, default_series)
-            total_positional_score.loc[mask] += score
-            score_details_df.loc[mask, state_name] = score
-            
-        # 计算动能分 (纯加分项)
-        dynamic_params = scoring_params.get('dynamic_scoring', {})
-        total_dynamic_score = pd.Series(0.0, index=df.index)
-        for state_name, score in dynamic_params.get('positive_signals', {}).items():
-            mask = atomic_states.get(state_name, default_series)
-            total_dynamic_score.loc[mask] += score
-            score_details_df.loc[mask, state_name] = score
-
-        # 计算触发分 (纯加分项)
-        trigger_score_total = pd.Series(0.0, index=df.index)
-        trigger_event_scores = scoring_params.get('trigger_events', {})
-        for event_name, score in trigger_event_scores.items():
-            if event_name == '说明': continue
-            mask = trigger_events.get(event_name, default_series)
-            trigger_score_total.loc[mask] += score
-            score_details_df.loc[mask, event_name] = score
-
-        # ▼▼▼ “认知层”火力计算 ▼▼▼
-        print("      -> [王牌火力层] 正在计算“认知模式分”...")
-        total_cognitive_score = pd.Series(0.0, index=df.index)
-        cognitive_pattern_scores = scoring_params.get('cognitive_pattern_scoring', {})
-        for pattern_name, score in cognitive_pattern_scores.items():
-            if not pattern_name.startswith('COGNITIVE_PATTERN_'):
-                continue
-            mask = atomic_states.get(pattern_name, default_series)
-            total_cognitive_score.loc[mask] += score
-            score_details_df.loc[mask, pattern_name] = score
-            if mask.any() and score > 0:
-                 status_cognitive = "[✓]" if mask.iloc[-1] else "[✗]"
-                 print(f"        -> 认知模式 '{pattern_name}' (最新一日): {status_cognitive} (分值: +{score})")
-        
-        print("      -> [惩罚层] 正在计算“惩罚分”...")
-        total_penalty_score = pd.Series(0.0, index=df.index)
-        negative_signals = {
-            **positional_params.get('negative_signals', {}),
-            **dynamic_params.get('negative_signals', {}),
-            **scoring_params.get('penalty_signals', {})
-        }
-        for state_name, score in negative_signals.items():
-            mask = atomic_states.get(state_name, default_series)
-            total_penalty_score.loc[mask] += score 
-            score_details_df.loc[mask, state_name] = score
-            if mask.any() and score < 0:
-                 status_penalty = "[✓]" if mask.iloc[-1] else "[✗]"
-                 print(f"        -> 惩罚信号 '{state_name}' (最新一日): {status_penalty} (分值: {score})")
-
-        # ▼▼▼ 返回独立的惩罚分，不再将其混入阵地分 ▼▼▼
-        return total_positional_score, total_dynamic_score, trigger_score_total, total_cognitive_score, total_penalty_score, score_details_df
-
-    #       ├─> 战略修正室: _apply_weekly_context_modifiers()
-    def _apply_weekly_context_modifiers(self, df: pd.DataFrame, positional_score: pd.Series, dynamic_score: pd.Series, trigger_score: pd.Series, scoring_params: dict, atomic_states: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        【V212.0 幽灵净化版】
-        - 核心重构: 彻底删除了此方法中所有关于“负分分离”和“惩罚豁免”的幽灵代码。
-                    由于所有负分已在上游被剥离为独立的“惩罚分”，此模块的职责被
-                    净化为：只对正面得分进行周线级别的加权和修正。
-        - 作战意图: 彻底根除因代码重构不完全而导致的逻辑短路，确保指挥链的每
-                    一个环节都权责清晰、逻辑正确，不再有任何“历史遗留问题”。
-        """
-        print("      -> [火力层3.5/4] 正在应用“周线精确制导”...")
-        default_series = pd.Series(False, index=df.index)
-
-        positional_multiplier = pd.Series(1.0, index=df.index)
-        dynamic_multiplier = pd.Series(1.0, index=df.index)
-        trigger_multiplier = pd.Series(1.0, index=df.index)
-        
-        # ▼▼▼ 简化周线指令，只保留对正面火力的加成 ▼▼▼
-        main_ascent_mask = df.get('state_node_main_ascent_W', default_series)
-        breakout_mask = df.get('playbook_classic_breakout_W', default_series)
-        momentum_context_mask = main_ascent_mask | breakout_mask
-        if momentum_context_mask.any():
-            dynamic_multiplier.loc[momentum_context_mask] *= 1.5
-            trigger_multiplier.loc[momentum_context_mask] *= 1.8
-            score_details_df.loc[momentum_context_mask, 'CONTEXT_MULT_MOMENTUM'] = 1.5
-        
-        ignition_mask = df.get('state_node_ignition_W', default_series)
-        bottoming_mask = df.get('state_node_bottoming_W', default_series)
-        reversal_context_mask = ignition_mask | bottoming_mask
-        if reversal_context_mask.any():
-            positional_multiplier.loc[reversal_context_mask] *= 1.6
-            score_details_df.loc[reversal_context_mask, 'CONTEXT_MULT_POSITIONAL'] = 1.6
-
-        # 应用乘数 (现在直接应用于纯正分)
-        adj_total_positional = positional_score * positional_multiplier
-        adj_total_dynamic = dynamic_score * dynamic_multiplier
-        adj_trigger = trigger_score * trigger_multiplier
-        
-        # 使用调整后的分数进行混合加权
-        weights = scoring_params.get('hybrid_scoring_weights', {})
-        weight_pos = weights.get('positional_weight', 0.4)
-        weight_dyn = weights.get('dynamic_weight', 0.6)
-        weighted_base_score = (adj_total_positional * weight_pos) + (adj_total_dynamic * weight_dyn)
-        
-        # 叠加上调整后的触发分，得到最终的修正后基础分
-        modified_base_score = weighted_base_score + adj_trigger
-        
-        # ▼▼▼ 调整正面得分的计算方式 ▼▼▼
-        # 使用调整后的分数进行混合加权
-        weights = scoring_params.get('hybrid_scoring_weights', {})
-        weight_pos = weights.get('positional_weight', 0.4)
-        weight_dyn = weights.get('dynamic_weight', 0.6)
-        weighted_base_score = (positional_score * weight_pos) + (dynamic_score * weight_dyn)
-        
-        # 叠加上调整后的触发分，再加上独立的、不受影响的认知分
-        modified_base_score = weighted_base_score + trigger_score + cognitive_score
-        
-        return modified_base_score, score_details_df
-
-    #       └─> 火力放大器: _apply_final_score_amplifier()
-    def _apply_final_score_amplifier(self, df: pd.DataFrame, modified_base_score: pd.Series, scoring_params: dict, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        【新增辅助方法】应用最终的“优势火力”放大器。
-        """
-        print("      -> [火力层4/4] 正在启动“优势火力”放大器...")
-        amp_params = scoring_params.get('chip_dynamics_amplifier', {})
-        if not amp_params.get('enabled', False):
-            return modified_base_score, score_details_df
-
-        window = self._get_param_value(amp_params.get('lookback_window'), 250)
-        
-        # 计算兵种1(筹码)的乘数
-        conc_slope_col = 'concentration_90pct_slope_5d_D'
-        conc_multiplier = pd.Series(1.0, index=df.index)
-        if conc_slope_col in df.columns:
-            conc_rank = df[conc_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-            rules = amp_params.get('concentration_slope_rules', {}).get('tiers', [])
-            for rule in sorted(rules, key=lambda x: x['percentile_upper'], reverse=True):
-                conc_multiplier[conc_rank <= rule['percentile_upper']] = rule['multiplier']
-        
-        # 计算兵种2(成本)的乘数
-        cost_slope_col = 'SLOPE_5_peak_cost_D'
-        cost_multiplier = pd.Series(1.0, index=df.index)
-        if cost_slope_col in df.columns:
-            cost_rank = df[cost_slope_col].rolling(window=window, min_periods=window//2).rank(pct=True)
-            rules = amp_params.get('cost_basis_slope_rules', {}).get('tiers', [])
-            for rule in sorted(rules, key=lambda x: x['percentile_lower'], reverse=False):
-                cost_multiplier[cost_rank >= rule['percentile_lower']] = rule['multiplier']
-        
-        # 采用“优势火力”逻辑，取最大值并应用安全限制
-        final_multiplier = pd.concat([conc_multiplier, cost_multiplier], axis=1).max(axis=1)
-        cap_params = amp_params.get('final_multiplier_cap', {})
-        max_mult = cap_params.get('max', 3.0)
-        min_mult = cap_params.get('min', 0.4)
-        final_multiplier.clip(lower=min_mult, upper=max_mult, inplace=True)
-        
-        score_details_df['FINAL_MULTIPLIER'] = final_multiplier
-        print(f"        -> 火力放大器已激活。最终乘数范围: [{final_multiplier.min():.2f}, {final_multiplier.max():.2f}]")
-        
-        final_score = modified_base_score * final_multiplier
-        return final_score, score_details_df
-
     # ─> 最高风险裁决所 (Supreme Risk Adjudication)
     #    -> 核心职责: 对风险简报进行量化打分。
     #    -> 首席裁决官: _calculate_risk_score()
-    def _calculate_risk_score(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_risk_score(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         【V233.0 新增 - 最高风险裁决所】
         - 核心职责: 统一评估所有负面风险信号，计算独立的“战场风险分”。
@@ -2121,9 +1981,9 @@ class TrendFollowStrategy:
         risk_details = {}
 
         for state, score in risk_rules.items():
-            if state in atomic_states:
+            if state in self.atomic_states:
                 # 注意：JSON中的分值是正数，代表风险的严重程度
-                risk_series = atomic_states[state] * score
+                risk_series = self.atomic_states[state] * score
                 risk_score += risk_series
                 risk_details[f"risk_{state}"] = risk_series
         
@@ -2478,68 +2338,6 @@ class TrendFollowStrategy:
 
         return sanitized_df.to_dict('records')
 
-    #       ├─> 战报模板科 (Template Section)
-    #       │   -> 核心职责: 创建空的、标准格式的战报记录。
-    #       │   -> 对应方法: _create_db_record_template()
-    def _create_db_record_template(self, stock_code, timestamp, timeframe, strategy_name, row) -> Dict:
-        """
-        【V202.6 健壮性增强版】
-        - 核心修复: 对所有从DataFrame中提取的数值类型，都使用 pd.notna() 进行检查，
-                    并将 NaN 值转换成数据库可接受的类型（None 或 0.0），从根源上杜绝 `ValidationError`。
-        """
-        # ▼▼▼【代码修改】对所有数值进行NaN检查和转换 ▼▼▼
-        close_price = row.get(f'close_{timeframe}')
-        entry_score = row.get('entry_score', 0.0)
-        risk_score = row.get('risk_score', 0.0)
-        
-        return {
-            "stock_code": stock_code, "trade_time": timestamp, "timeframe": timeframe,
-            "strategy_name": strategy_name, 
-            "close_price": float(close_price) if pd.notna(close_price) else None, # 修复点1: close_price
-            "entry_score": float(entry_score) if pd.notna(entry_score) else 0.0, # 修复点2: entry_score
-            "stable_platform_price": None, # 此处留空，由主流程填充并检查
-            "entry_signal": False, "is_risk_warning": False,
-            "exit_signal_code": 0, "exit_severity_level": 0, "exit_signal_reason": None,
-            "is_pullback_setup": bool(row.get('SETUP_SCORE_PLATFORM_SUPPORT_PULLBACK', 0) > 0),
-            "triggered_playbooks": [], "triggered_playbooks_cn": [], 
-            "context_snapshot": {
-                'close': float(close_price) if pd.notna(close_price) else None,
-                'entry_score': float(entry_score) if pd.notna(entry_score) else 0.0,
-                'risk_score': float(risk_score) if pd.notna(risk_score) else 0.0, # 修复点3: risk_score
-            }
-        }
-        # ▲▲▲【代码修改】▲▲▲
-
-    #       └─> 风险详情科 (Risk Details Section)
-    #           -> 核心职责: 为风险事件填充详细的上下文和原因。
-    #           -> 对应方法: _fill_risk_details()
-    def _fill_risk_details(self, record: Dict, row: pd.Series, risk_playbook_map: Dict):
-        """
-        【V202.7 健壮性增强版】
-        - 核心修复: 对所有添加到 context_snapshot 的数值，进行 pd.notna() 检查，确保数据清洁。
-        """
-        timestamp = record['trade_time']
-        triggered_risks_en = []
-        risk_details_df = getattr(self, '_last_risk_details_df', pd.DataFrame())
-        if not risk_details_df.empty and timestamp in risk_details_df.index:
-            risk_details_for_day = risk_details_df.loc[timestamp]
-            active_risks = risk_details_for_day[risk_details_for_day > 0].index
-            triggered_risks_en = [risk.replace('RISK_SCORE_', '') for risk in active_risks]
-        
-        triggered_risks_cn = [risk_playbook_map.get(risk, risk) for risk in triggered_risks_en]
-        reason = ", ".join(triggered_risks_cn) if triggered_risks_cn else "综合风险评分超阈值"
-        
-        record['exit_signal_reason'] = reason
-        record['triggered_playbooks'] = triggered_risks_en
-        record['triggered_playbooks_cn'] = triggered_risks_cn
-        
-        context = record['context_snapshot']
-        context['cost_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_peak_cost_D')) else None
-        context['winner_rate_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_total_winner_rate_D')) else None
-        context['peak_stability_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_peak_stability_D')) else None
-        context['pressure_above_slope_5d'] = float(v) if pd.notna(v := row.get('SLOPE_5_pressure_above_D')) else None
-        record['context_snapshot'] = sanitize_for_json(context) # sanitize_for_json 仍然保留，用于处理其他JSON不支持的类型
-
     # ─> 风险量化局 (Risk Quantifier Bureau)
     #    -> 核心职责: 将抽象的风险原因，翻译成直观的“仪表盘”读数。
     #    -> 局长: _quantify_risk_reasons()
@@ -2577,90 +2375,6 @@ class TrendFollowStrategy:
         # 构建可读的风险描述字符串
         reasons = [f"{item['name']}({item['score']})" for item in risk_scores]
         return "; ".join(reasons)
-
-    # ─> 盘中预警中心 (Intraday Alert Center)
-    #    -> 核心职责: 独立于主战略流程，生成分钟级的实时战术警报。
-    #    -> 指挥官: generate_intraday_alerts()
-    def generate_intraday_alerts(self, daily_df: pd.DataFrame, minute_df: pd.DataFrame, params: dict) -> List[Dict]:
-        """
-        【V104 终局 · 执行版】
-        - 核心革命: 建立一个独立的“战术执行层”，将日线策略的“战略确认”转化为分钟级别的“实时警报”。
-        - 工作流程:
-          1. 接收已经运行完V103日线策略的 `daily_df`。
-          2. 识别出所有“冲高日”(Upthrust Day)。
-          3. 在其后的“戒备日”(Alert Day)中，监控分钟线数据。
-          4. 将日线级别的确认条件，“翻译”成实时价格的触发条件。
-          5. 在条件满足的第一分钟，生成并返回警报。
-        """
-        print("\n" + "="*60)
-        print("====== 开始执行【战术执行层 V104】(分钟级实时警报) ======")
-
-        # --- 步骤0: 加载执行层参数 ---
-        exec_params = self._get_params_block('intraday_execution_params')
-        if not self._get_param_value(exec_params.get('enabled'), False):
-            print("    - [信息] 战术执行层被禁用，跳过。")
-            return []
-
-        # --- 步骤1: 从日线策略中，识别出所有的“冲高日” ---
-        # 我们需要重新计算V103的冲高日逻辑，以确保独立性
-        p_attack = self.exit_strategy_params.get('upthrust_distribution_params', {})
-        lookback_period = self._get_param_value(p_attack.get('upthrust_lookback_days'), 5)
-        is_upthrust_day = daily_df['high_D'] > daily_df['high_D'].shift(1).rolling(window=lookback_period).max()
-        
-        upthrust_days_df = daily_df[is_upthrust_day]
-        if upthrust_days_df.empty:
-            print("    - [信息] 在日线数据中未发现任何“冲高日”，无需启动盘中监控。")
-            return []
-        
-        print(f"    - [战略确认] 发现 {len(upthrust_days_df)} 个潜在的“冲高日”，将在次日启动盘中监控。")
-
-        alerts = []
-        # --- 步骤2: 遍历每一个“冲高日”，监控其后一天的分钟行情 ---
-        for upthrust_date, upthrust_row in upthrust_days_df.iterrows():
-            alert_date = upthrust_date + pd.Timedelta(days=1)
-            
-            # 获取“戒备日”当天的分钟数据
-            alert_day_minute_df = minute_df[minute_df.index.date == alert_date.date()].copy()
-            if alert_day_minute_df.empty:
-                continue
-
-            # --- 步骤3: 准备实时触发的阈值 ---
-            # 阈值1: 戒备日当天的开盘价
-            alert_day_open = alert_day_minute_df.iloc[0]['open_M']
-            # 阈值2: 冲高日当天的开盘价
-            upthrust_day_open = upthrust_row['open_D']
-
-            print(f"      -> [进入戒备] 日期: {alert_date.date()} | 监控启动...")
-            print(f"         - 触发阈值1 (低于今日开盘): {alert_day_open:.2f}")
-            print(f"         - 触发阈值2 (低于昨日开盘): {upthrust_day_open:.2f}")
-
-            # --- 步骤4: 在分钟线上应用“翻译”后的触发条件 ---
-            triggered_minutes = alert_day_minute_df[
-                (alert_day_minute_df['close_M'] < alert_day_open) &
-                (alert_day_minute_df['close_M'] < upthrust_day_open)
-            ]
-
-            if not triggered_minutes.empty:
-                # 获取第一次触发警报的分钟
-                first_alert_minute = triggered_minutes.iloc[0]
-                alert_time = first_alert_minute.name
-                alert_price = first_alert_minute['close_M']
-                
-                alert_info = {
-                    "alert_time": alert_time,
-                    "alert_price": alert_price,
-                    "alert_type": "INTRADAY_UPTHRUST_REJECTION",
-                    "cn_name": "【盘中警报】冲高回落结构确认",
-                    "reason": f"价格({alert_price:.2f})跌破今日开盘({alert_day_open:.2f})与昨日开盘({upthrust_day_open:.2f})",
-                    "daily_setup_date": upthrust_date.date()
-                }
-                alerts.append(alert_info)
-                print(f"         - [警报触发!] 时间: {alert_time.time()} | 价格: {alert_price:.2f} | 原因: {alert_info['reason']}")
-        
-        print("====== 【战术执行层 V104】执行完毕 ======")
-        print("="*60 + "\n")
-        return alerts
-
 
     #  ★ 军事监察与战地验尸总署 (Inspector General & Field Forensics Administration)
     #     -> 核心职责: (非作战序列) 负责调试、审查与战后复盘，确保作战系统的正确性。
@@ -2857,29 +2571,49 @@ class TrendFollowStrategy:
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
  
 
-    def _create_persistent_state(
-        self, 
-        df: pd.DataFrame, 
-        entry_event: pd.Series, 
-        persistence_days: int, 
-        break_condition: Optional[pd.Series] = None
-    ) -> pd.Series:
+    def _create_persistent_state(self, df: pd.DataFrame, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series, state_name: str) -> pd.Series:
         """
-        【V58.0 新增 - 状态机生成器】
+        【V271.0 状态机引擎版】
+        - 核心功能: 创建一个“持续性状态窗口”。该状态从一个“进入事件”开始，
+                    持续指定的天数，或者直到一个“打破条件”被满足时提前结束。
+        - 参数:
+            - entry_event_series: 标记“进入事件”的布尔序列。
+            - persistence_days: 状态默认的持续天数。
+            - break_condition_series: 标记“打破条件”的布尔序列，会提前终止状态。
+            - state_name: 状态的名称，用于调试日志。
+        - 收益: 这是一个高度可重用的通用工具，可以将任何“事件”转化为“持续性状态”，
+                极大地增强了策略的灵活性和可维护性，彻底杜绝了代码重复。
         """
-        if not entry_event.any():
-            return pd.Series(False, index=df.index)
-        event_groups = entry_event.cumsum()
-        days_since_event = df.groupby(event_groups).cumcount()
-        is_within_persistence = days_since_event < persistence_days
-        is_active_period = event_groups > 0
-        persistent_state = is_active_period & is_within_persistence
-        if break_condition is not None:
-            break_points = break_condition & persistent_state
-            break_groups = break_points.groupby(event_groups).transform('idxmax')
-            persistent_state &= (df.index < break_groups) | (break_groups.isna())
-        return persistent_state
+        persistent_series = pd.Series(False, index=df.index)
+        entry_indices = df.index[entry_event_series]
 
+        if entry_indices.empty:
+            return persistent_series # 如果没有进入事件，直接返回空状态
+
+        print(f"          -> [状态机引擎] 正在为 '{state_name}' 创建持续状态窗口 (共 {len(entry_indices)} 个进入点)...")
+
+        for entry_idx in entry_indices:
+            # 计算窗口的理论结束日期
+            window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
+            
+            # 确定实际的窗口范围，确保不超出数据末尾
+            actual_window_mask = (df.index >= entry_idx) & (df.index <= window_end_date)
+            
+            # 在此窗口内查找第一个“打破条件”满足的位置
+            break_points = df.index[actual_window_mask & break_condition_series]
+            
+            # 确定状态的最终结束日期
+            if not break_points.empty:
+                # 如果找到了打破点，则状态持续到打破点（包含打破当天）
+                end_date = break_points[0]
+            else:
+                # 如果没找到，则状态持续整个窗口期
+                end_date = df.index[actual_window_mask][-1] if actual_window_mask.any() else entry_idx
+
+            # 将此时间段内的状态设置为 True
+            persistent_series.loc[entry_idx:end_date] = True
+            
+        return persistent_series
 
 
 
