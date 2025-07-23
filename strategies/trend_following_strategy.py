@@ -1980,29 +1980,48 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _make_final_decisions(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V223.0 重命名&重组】总司令部
-        - 核心职责: 作为指挥链的最终环节，根据“入场分”和“风险分”做出最终决策。
+        【V282.0 最终净化版】
+        - 核心修复: 再次强调并实施V278的修复逻辑，确保其不可被覆盖。此BUG极其顽固，必须根除。
+        - 作战条例:
+          1. 当 `exit_signal_code` 为高风险等级(>=88)时，必须将 `signal_type` 强制设定为“卖出信号”。
+          2. 同时，必须将 `final_score` 强制设定为当日的 `risk_score`，以反映真实的风险等级。
+        - 收益: 彻底杜绝内部计算与最终输出不一致的问题，确保指挥链情报的绝对准确！
         """
-        # 决策1: 风险否决 (Veto) - 是否取消进攻计划？
-        veto_params = self.risk_veto_params
-        if self._get_param_value(veto_params.get('enabled'), False):
-            ratio = self._get_param_value(veto_params.get('risk_tolerance_ratio'), 0.5)
-            min_risk = self._get_param_value(veto_params.get('min_absolute_risk_for_veto'), 30)
-            
-            df['dynamic_veto_threshold'] = df['entry_score'] * ratio
-            veto_mask = (df['risk_score'] > df['dynamic_veto_threshold']) & (df['risk_score'] >= min_risk)
-            
-            if veto_mask.any():
-                 print("    -> [总司令部指令] 发现风险过高，部分进攻计划已被否决！")
-            df.loc[veto_mask, 'entry_score'] = 0
+        print("    -> [总司令部 V282.0 最终净化版] 启动，正在下达最终作战指令...")
         
-        # 决策2: 生成最终入场信号 - 哪些部队可以进攻？
-        score_threshold = self._get_param_value(self._get_params_block('entry_scoring_params').get('score_threshold'), 100)
-        df['signal_entry'] = df['entry_score'] >= score_threshold
+        # --- 步骤1: 计算离场信号 ---
+        df = self._calculate_exit_signals(df, params)
+
+        # --- 步骤2: 风险否决 ---
+        risk_veto_params = self._get_params_block('risk_veto_params')
+        risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
+        min_absolute_risk_for_veto = self._get_param_value(risk_veto_params.get('min_absolute_risk_for_veto'), 50)
         
-        # 决策3: 生成最终离场信号码 - 哪些部队需要撤退？
-        df['exit_signal_code'] = self._calculate_exit_signals(df, params, df['risk_score'])
+        is_risk_too_high_relative = df['risk_score'] > (df['entry_score'] * risk_tolerance_ratio)
+        is_risk_high_absolute = df['risk_score'] >= min_absolute_risk_for_veto
+        veto_condition = is_risk_too_high_relative & is_risk_high_absolute
         
+        df.loc[veto_condition, 'entry_score'] = 0
+        
+        # --- 步骤3: 生成最终决策列 ---
+        df['final_score'] = df['entry_score']
+        df['signal_type'] = '中性'
+
+        buy_condition = df['final_score'] > 0
+        df.loc[buy_condition, 'signal_type'] = '买入信号'
+
+        # 条件: 凡是触发高风险离场信号的日子
+        exit_condition = df['exit_signal_code'] >= 88
+        
+        # 动作1: 信号类型必须是“卖出信号”
+        df.loc[exit_condition, 'signal_type'] = '卖出信号'
+        
+        # 动作2: 最终分数必须是“风险分”
+        df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
+
+        if exit_condition.any():
+            print(f"      -> [总司令部] 检测到 {exit_condition.sum()} 天高风险卖出信号，已强制记录风险分。")
+
         return df
 
     #    └─> 离场指令部 (Exit Command)
