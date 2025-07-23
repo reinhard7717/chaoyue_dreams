@@ -189,12 +189,17 @@ class TrendFollowStrategy:
     # -> 核心入口: apply_strategy()
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V288.0 最高指挥部版】
-        - 核心重构: 废除了旧的、分离的评估与决策流程，转而调用统一的、坚不可摧的
-                    “最高作战指挥部”(_run_assessment_and_decision_engine)。
+        【V292.0 开箱验货版】
+        - 核心修复: 解决了因未对“最高作战指挥部”返回的元组(tuple)进行解包，
+                    而导致下游模块接收到错误数据类型并崩溃的致命问题。
+        - 新军事条例 (开箱验货):
+          1. 在接收到 `_run_assessment_and_decision_engine` 返回的情报包裹后，
+             必须立即进行解包，将 df, score_details_df, risk_details_df 
+             分别赋值给正确的变量。
+        - 收益: 确保了指挥链上每一环接收到的都是正确格式的情报，彻底根除了此类TypeError。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V288.0 最高指挥部版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V292.0 开箱验货版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
@@ -205,21 +210,22 @@ class TrendFollowStrategy:
         df, trigger_events = self._run_all_diagnostics(df, params)
 
         # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
-        # 将“评估”与“决策”合并为一步，彻底杜绝情报交接失误
         print("--- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
-        df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+        df, score_details_df, risk_details_df = self._run_assessment_and_decision_engine(df, params, trigger_events)
         
         # --- 步骤3：沙盘推演 (Position Management Simulation) ---
+        # 此刻传递给下游的 df，已经是被正确解包后的、真正的作战地图(DataFrame)！
         print("--- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V288.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V292.0】执行完毕 ======")
         
         # --- 战地验尸 (按需直递) ---
         debug_params = self._get_params_block('debug_params')
         probe_date = self._get_param_value(debug_params.get('probe_date'))
         if probe_date:
             print(f"--- [战地验尸] 启动，正在向验尸官直递 {probe_date} 的临时档案...")
+            # 此处的 score_details_df 和 risk_details_df 也是被正确解包后的变量
             self._deploy_field_coroner_probe(df, probe_date, score_details_df, risk_details_df)
 
         return df, self.atomic_states
