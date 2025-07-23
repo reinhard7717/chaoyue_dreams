@@ -977,21 +977,14 @@ class TrendFollowStrategy:
     #    -> 总参谋长: _diagnose_chip_intelligence()
     def _run_chip_intelligence_command(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V256.0 一体化整编版】筹码情报最高司令部 (Chip Intelligence Supreme Command)
-        - 核心重构: 将原有的四个独立筹码诊断方法
-                      (_diagnose_chip_intelligence, _diagnose_advanced_chip_structures,
-                       _diagnose_chip_alert_conditions, _diagnose_historical_context)
-                      整合成一个统一、高效、权责分明的最高指挥部。
-        - 作战流程:
-          1. 军备检查: 检查所有必需的筹码数据是否到位。
-          2. 基础情报分析: 生成所有原子的、动态的筹码状态。
-          3. 高维结构解读: 解读筹码健康分等高级指标。
-          4. 历史背景政审: 对目标的长期行为进行审查，识别“历史污点”。
-          5. 核心戒备等级裁定: 基于所有情报，设定最终的CHIPCON戒备等级。
-        - 收益: 极大提升了代码的内聚性、可读性和维护性，消除了情报碎片化，
-                确保所有筹码相关的分析都在一个统一的指挥链下完成。
+        【V260.0 新条令版】筹码情报最高司令部 (Chip Intelligence Supreme Command)
+        - 核心修复: 彻底废除了基于“斜率”的、已被证明无效的旧历史审查条令。
+                      采用了全新的、基于“事实结果”的《领土占领新条令》。
+        - 新条令: 不再关心筹码分散的“过程”(斜率)，只关心其“结果”。如果今天的筹码
+                    集中度比21天前恶化(变大)了超过20%，就直接判定为“长期派发”。
+        - 收益: 新条令更加健壮、直接，无法被过程中的战术佯动所欺骗。
         """
-        print("        -> [筹码情报最高司令部 V256.0] 启动，正在执行一体化分析...")
+        print("        -> [筹码情报最高司令部 V260.0] 启动，正在执行一体化分析...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
@@ -1004,19 +997,18 @@ class TrendFollowStrategy:
 
         required_cols = [
             'concentration_90pct_D', 'concentration_90pct_slope_5d_D',
-            'SLOPE_21_concentration_90pct_D', # 【修复】原为 concentration_90pct_slope_21d_D
             'SLOPE_5_peak_cost_D', 'SLOPE_5_total_winner_rate_D',
             'SLOPE_5_peak_stability_D', 'SLOPE_5_peak_percent_D',
             'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D',
-            'chip_health_score_D' # 【修复】原为 chip_health_score
+            'chip_health_score_D'
         ]
+        
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states, triggers
 
         # --- 2. 基础情报分析 (Basic Intelligence Analysis) ---
-        # (原 _diagnose_chip_intelligence 的核心逻辑)
         p_struct = p.get('structure_params', {})
         conc_col = 'concentration_90pct_D'
         conc_slope_col = 'concentration_90pct_slope_5d_D'
@@ -1045,13 +1037,12 @@ class TrendFollowStrategy:
             states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
 
         # --- 4. 历史背景政审 (Historical Context Vetting) ---
-        # (原 _diagnose_historical_context 的逻辑)
-        long_term_conc_slope_col = 'SLOPE_21_concentration_90pct_D'
-        distribution_threshold = 0.0001 
-        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[long_term_conc_slope_col] > distribution_threshold
+        # 如果今天的筹码集中度，比21天前恶化(变大)了超过20%，就视为一次成功的“长期派发”。
+        worsening_threshold = 1.2 # 恶化20%
+        concentration_21d_ago = df[conc_col].shift(21)
+        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[conc_col] > (concentration_21d_ago * worsening_threshold)
 
         # --- 5. 核心戒备等级裁定 (CHIPCON Level Adjudication) ---
-        # (原 _diagnose_chip_alert_conditions 的逻辑)
         is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
         is_rapidly_concentrating = states.get('CHIP_RAPID_CONCENTRATION', default_series)
         is_cost_rising = df.get('SLOPE_5_peak_cost_D', default_series) > 0
@@ -1059,18 +1050,14 @@ class TrendFollowStrategy:
         is_winner_rate_rising = df.get('SLOPE_5_total_winner_rate_D', default_series) > 0
         is_long_term_distributing = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
 
-        # CHIPCON 4: 战备状态 (有潜力，值得关注)
         states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
-        # CHIPCON 3: 高度戒备 (即将发动进攻的迹象)
         states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
-        # CHIPCON 2: 战前状态 (进攻迹象非常明显)
         states['CHIPCON_2_PRE_WAR'] = states.get('CHIPCON_3_HIGH_ALERT', default_series) & is_rapidly_concentrating
-        # CHIPCON 1: 战争状态 (已确认的、最危险的派发信号)
         states['CHIPCON_1_WAR'] = is_long_term_distributing & (df.get('SLOPE_5_total_winner_rate_D', default_series) < 0)
 
-        print("        -> [筹码情报最高司令部 V256.0] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V260.0] 分析完毕。")
         return states, triggers
-
+    
     def _diagnose_chip_price_action(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V228.0 新增】筹码-价格行为联合分析部
