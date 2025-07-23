@@ -1804,30 +1804,46 @@ class TrendFollowStrategy:
 
     def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V250.0 升级版】认知智能总署 (已安装“战况识别滤镜”)
-        - 核心升级: 所有模式识别，都必须基于“价格行为上下文”进行。
+        【V252.0 最终版】认知智能总署 (多时间框架交叉验证)
+        - 核心升级: 引入了您提出的“更大时间级别斜率校准”思想，建立了“双重验证”机制。
+        - 新规则:
+          1. “真实筹码集中”的定义被彻底重写。
+          2. 它必须同时满足：
+             a) 【战略层面】21日筹码集中度斜率必须为负 (表明主力在进行长周期、持续的吸筹)。
+             b) 【战术层面】5日筹码集中度斜率也必须为负 (表明近期的拉升并未导致派发)。
+        - 收益: 彻底根除了因“价格脱离平台”导致的短期斜率失真问题。
+                现在，只有在长、短期趋势共振的情况下，系统才会判定为最高级别的“锁仓拉升”。
+                这是对主力真实意图最深刻、最可靠的洞察。
         """
-        print("        -> [认知智能总署 V250.0] 启动，正在识别高维战场模式...")
+        print("        -> [认知智能总署 V252.0] 启动，正在执行多时间框架交叉验证...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 情报准备 ---
         is_healthy_rally = atomic_states.get('CONTEXT_HEALTHY_RALLY', default_series)
         is_violent_breakout = atomic_states.get('CONTEXT_VIOLENT_BREAKOUT_RALLY', default_series)
-        
         is_cost_rising_fast = df.get('SLOPE_5_peak_cost_D', default_series) > 0.5
-        is_chip_concentrating = df.get('concentration_90pct_slope_5d_D', default_series) < -0.001
+        is_price_detached = atomic_states.get('CONTEXT_PRICE_DETACHED_FROM_PEAK', default_series)
+        
+        # 短期侦察兵（5日斜率）
+        short_term_concentrating = df.get('concentration_90pct_slope_5d_D', default_series) < -0.001
+        # 战略情报官（21日斜率）- 只要为负，就代表长期趋势是收集
+        long_term_accumulating = df.get('concentration_90pct_slope_21d_D', default_series) < 0
+        
+        # 【双重验证】只有战术和战略都确认，才认为是“真实集中”
+        is_chip_truly_concentrating = short_term_concentrating & long_term_accumulating
+        
+        # 风险信号：筹码发散（短期即可判断）
         is_chip_dispersing = df.get('concentration_90pct_slope_5d_D', default_series) > 0.001
 
-        # --- 2. 模式识别与裁决 (基于上下文) ---
+        # --- 2. 模式识别与裁决 (基于“双重验证”) ---
         # 【S级机会模式】锁仓拉升 (Lock-Chip Rally)
-        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & is_chip_concentrating
+        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & is_chip_truly_concentrating & ~is_price_detached
 
         # 【S级风险模式】突破派发 (Breakout Distribution)
-        # 风险模式的识别不受影响，因为派发可能在任何上涨情景中发生
         states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = (is_healthy_rally | is_violent_breakout) & is_cost_rising_fast & is_chip_dispersing
 
-        print(f"        -> [认知智能总署 V250.0] 识别完成，定义了 {len(states)} 种高维模式。")
+        print(f"        -> [认知智能总署 V252.0] 识别完成，定义了 {len(states)} 种高维模式。")
         return states
 
     def _diagnose_battlefield_stability(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
