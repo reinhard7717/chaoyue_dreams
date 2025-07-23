@@ -173,6 +173,22 @@ class TrendFollowStrategy:
             print("      -> 所有数值列类型正常，无需转换。")
         return df
 
+    # ▼▼▼ “信号名称标准化”工具函数 ▼▼▼
+    def _standardize_signal_name(self, name: str) -> str:
+        """
+        【V1.0 新增】信号名称标准化总校对官。
+        - 核心职责: 识别并剥离如 'pos_', 'dyn_', 'trg_', 'risk_' 等内部前缀，
+                    返回一个干净、标准化的信号名称，用于后续的查阅和存档。
+        """
+        # 定义所有已知的内部前缀
+        prefixes_to_strip = ['pos_', 'dyn_', 'trg_', 'risk_']
+        for prefix in prefixes_to_strip:
+            if name.startswith(prefix):
+                # 如果名称以前缀开头，则返回剥离前缀后的部分
+                return name[len(prefix):]
+        # 如果没有匹配的前缀，则返回原名称
+        return name
+
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
         default_series = pd.Series(False, index=df.index)
@@ -2223,127 +2239,85 @@ class TrendFollowStrategy:
     #  ─> 战报司令部 (Battle Report Command)
     #    -> 核心职责: 生成标准化的战报记录，供数据库存档。
     #    -> 总指挥: prepare_db_records()
-    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
         """
-        【V202.16 健壮性修复版】统一战报司令部
-        - 核心修复: 解决了 `np.select` 在退出规则配置为空时崩溃的问题。
-                    在计算 `exit_severity_level` 之前，增加了一个保护性检查。
-                    如果从配置中未找到任何有效的退出规则，则安全地将严重级别设置为0，而不是尝试执行会导致错误的 `np.select`。
-        - 业务逻辑: 保持不变。
+        【V300.0 标准化重构版】统一战报司令部
+        - 核心重构:
+          1. 函数签名变更: 现在接收 score_details_df 和 risk_details_df，以获取最原始的信号构成。
+          2. 引入“总校对官”: 调用 _standardize_signal_name 方法，在存档前对所有信号名称进行标准化处理。
+          3. 引入“翻译官”: 从配置中加载 metadata，将标准化后的信号名翻译成中文。
+          4. 流程再造: 完全使用向量化操作，为每一条信号记录生成一个干净、标准、易读的 `playbook_details` 字段。
+        - 最终产出: 存入数据库的将是经过“校对”和“翻译”后的最终战报，彻底解决前后端名称不统一的问题。
         """
-        required_cols = ['signal_entry', 'exit_signal_code', f'close_{result_timeframe}', 'risk_score']
-        if not all(col in result_df.columns for col in required_cols):
-            print(f"      -> [错误] prepare_db_records 缺少必要列: {required_cols}")
+        # ▼▼▼【代码修改】: 以下为 V300.0 版全新实现 ▼▼▼
+        print("      -> [战报司令部 V300.0] 启动，正在执行标准化归档...")
+        
+        # --- 步骤1: 筛选需要记录的日期 ---
+        # 只处理那些有买入信号或有风险分的日期
+        signal_dates = result_df[(result_df['signal_entry'] == True) | (result_df['risk_score'] > 0)].index
+        if signal_dates.empty:
+            print("      -> 无需归档的信号，跳过。")
             return []
         
-        df = result_df[(result_df['signal_entry'] == True) | (result_df['risk_score'] > 0)].copy()
-        if df.empty: return []
+        df_to_process = result_df.loc[signal_dates].copy()
 
-        # --- 准备工作 ---
+        # --- 步骤2: 准备“翻译电码本”和基础信息 ---
+        scoring_params = self._get_params_block('four_layer_scoring_params')
+        metadata = scoring_params.get('metadata', {})
         strategy_info = self._get_params_block('strategy_info')
         strategy_name = self._get_param_value(strategy_info.get('name'), 'unknown_strategy')
-        playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
-        risk_playbook_map = {p['name']: p.get('cn_name', p['name']) for p in self.risk_playbook_blueprints}
-        exit_cfg = params.get('exit_strategy_params', {})
-        warning_thresh = exit_cfg.get('warning_threshold_params', {})
-        min_warning_level = min([cfg['level'] for cfg in warning_thresh.values() if isinstance(cfg, dict)]) if warning_thresh else 30
-        exit_thresh = exit_cfg.get('exit_threshold_params', {})
 
-        # --- 向量化计算 ---
-        is_exit = df['exit_signal_code'] > 0
-        is_entry = df['signal_entry']
-        is_warning = (df['risk_score'] >= min_warning_level) & ~is_exit & ~is_entry
-        
-        df['stock_code'] = stock_code
-        df['timeframe'] = result_timeframe
-        df['strategy_name'] = strategy_name
-        df['trade_time'] = df.index
-        df['close_price'] = df[f'close_{result_timeframe}'].apply(lambda x: float(x) if pd.notna(x) else None)
-
-        df['entry_signal'] = is_entry
-        df['is_risk_warning'] = is_warning
-        
-        df['stable_platform_price'] = np.where(
-            is_entry, df['PLATFORM_PRICE_STABLE'].apply(lambda x: float(x) if pd.notna(x) else None), None
-        )
-
-        # 步骤1: 过滤出有效的退出规则，排除"说明"等非字典项，确保迭代安全
-        valid_exit_rules = {name: cfg for name, cfg in exit_thresh.items() if isinstance(cfg, dict) and 'code' in cfg}
-        
-        # 步骤2: 增加保护，仅在存在有效规则时才执行np.select
-        if valid_exit_rules:
-            print(f"    -> 检测到 {len(valid_exit_rules)} 条有效退出规则，正在计算严重等级...")
-            conditions = [df['exit_signal_code'] == self._get_param_value(rule.get('code')) for name, rule in valid_exit_rules.items()]
-            choices = [3 if name == "CRITICAL" else 2 for name in valid_exit_rules.keys()]
-            df['exit_severity_level'] = np.select(conditions, choices, default=0)
-        else:
-            # 如果没有定义任何退出规则，则将严重级别安全地设置为0
-            print("    -> 未检测到有效退出规则，所有信号的严重等级将设为0。")
-            df['exit_severity_level'] = 0
-
-        def get_playbooks(timestamp, is_entry_signal):
-            df_details = self._last_score_details_df if is_entry_signal else self._last_risk_details_df
-            if df_details is None or timestamp not in df_details.index: return [], []
+        # --- 步骤3: 定义核心的“战报生成”函数 ---
+        def generate_playbook_details(row):
+            trade_date = row.name
+            active_signals = []
             
-            details_row = df_details.loc[timestamp]
-            # 注意：这里我们取所有大于0的项，因为认知模式分也是正分
-            active_items = details_row[details_row > 0].index
+            # 从 score_details_df 中提取当日激活的进攻信号
+            if not score_details_df.empty and trade_date in score_details_df.index:
+                score_row = score_details_df.loc[trade_date]
+                active_score_signals = score_row[score_row > 0].index.tolist()
+                for signal in active_score_signals:
+                    # 标准化 -> 翻译
+                    std_name = self._standardize_signal_name(signal)
+                    cn_name = metadata.get(std_name, std_name) # 如果找不到翻译，则使用标准名
+                    active_signals.append(cn_name)
+
+            # 从 risk_details_df 中提取当日激活的风险信号
+            if not risk_details_df.empty and trade_date in risk_details_df.index:
+                risk_row = risk_details_df.loc[trade_date]
+                active_risk_signals = risk_row[risk_row > 0].index.tolist()
+                for signal in active_risk_signals:
+                    # 标准化 -> 翻译
+                    std_name = self._standardize_signal_name(signal)
+                    cn_name = metadata.get(std_name, f"风险-{std_name}")
+                    active_signals.append(cn_name)
             
-            playbooks_en = []
-            playbooks_cn = []
+            return ", ".join(active_signals) if active_signals else "无"
 
-            if is_entry_signal:
-                # 1. 提取战术剧本 (Playbooks)
-                excluded = ('BASE_', 'BONUS_', 'PENALTY_', 'INDUSTRY_', 'WATCHING_SETUP', 'CHIP_PURITY_MULTIPLIER', 'VOLATILITY_SILENCE_MULTIPLIER', 'RISK_SCORE_', 'COGNITIVE_PATTERN_')
-                tactical_playbooks_en = [item for item in active_items if not item.startswith(excluded)]
-                tactical_playbooks_cn = [playbook_map.get(p, p) for p in tactical_playbooks_en]
-                
-                # 2. 提取认知模式 (Cognitive Patterns)
-                cognitive_patterns_en = [item for item in active_items if item.startswith('COGNITIVE_PATTERN_')]
-                # (未来可以为认知模式建立独立的中文名映射)
-                cognitive_patterns_cn = [item.replace('COGNITIVE_PATTERN_', '认知模式:') for item in cognitive_patterns_en]
+        # --- 步骤4: 向量化生成标准化的“剧本详情”列 ---
+        print("      -> 正在调用“总校对官”和“翻译官”生成标准战报...")
+        df_to_process['playbook_details'] = df_to_process.apply(generate_playbook_details, axis=1)
 
-                # 3. 合并，并将认知模式放在最前，以彰显其重要性
-                playbooks_en = cognitive_patterns_en + tactical_playbooks_en
-                playbooks_cn = cognitive_patterns_cn + tactical_playbooks_cn
-            else: # 风险信号逻辑不变
-                playbooks_en = [item.replace('RISK_SCORE_', '') for item in active_items]
-                playbooks_cn = [risk_playbook_map.get(p, p) for p in playbooks_en]
-
-            return playbooks_en, playbooks_cn
-
-        playbook_results = df.apply(lambda row: get_playbooks(row.name, row['signal_entry']), axis=1)
-        df[['triggered_playbooks', 'triggered_playbooks_cn']] = pd.DataFrame(playbook_results.tolist(), index=df.index)
-
-        def build_final_details(row):
-            reason = self._quantify_risk_reasons(row)            
-            playbook_details = {}
-            if self._last_score_details_df is not None and row.name in self._last_score_details_df.index:
-                score_row = self._last_score_details_df.loc[row.name].dropna()
-                playbook_details['score_components'] = score_row.to_dict()
-
-            if self._last_risk_details_df is not None and row.name in self._last_risk_details_df.index:
-                risk_row = self._last_risk_details_df.loc[row.name].dropna()
-                playbook_details['risk_components'] = risk_row.to_dict()
-            
-            return {'reason': reason, 'playbook_details': playbook_details}
-
-        final_details = df.apply(build_final_details, axis=1)
-        df[['exit_signal_reason', 'context_snapshot']] = pd.DataFrame(final_details.tolist(), index=df.index)
-
-        final_cols = [
-            "stock_code", "trade_time", "timeframe", "strategy_name", "close_price",
-            "entry_score", "stable_platform_price", "entry_signal", "is_risk_warning",
-            "exit_signal_code", "exit_severity_level", "exit_signal_reason",
-            "triggered_playbooks", "triggered_playbooks_cn", "context_snapshot"
-        ]
-        for col in final_cols:
-            if col not in df.columns:
-                df[col] = None if col not in ['entry_score', 'exit_signal_code', 'exit_severity_level'] else 0.0
-
-        sanitized_df = df[final_cols].replace({np.nan: None})
-
-        return sanitized_df.to_dict('records')
+        # --- 步骤5: 组装最终的数据库记录列表 ---
+        records = []
+        for idx, row in df_to_process.iterrows():
+            record = {
+                'stock_code': stock_code,
+                'timeframe': result_timeframe,
+                'strategy_name': strategy_name,
+                'trade_time': idx.to_pydatetime(), # 转换为python datetime对象
+                'signal_type': row['signal_type'],
+                'final_score': float(row['final_score']),
+                'risk_score': float(row['risk_score']),
+                'playbook_details': row['playbook_details'], # 使用我们新生成的标准字段
+                'is_risk_warning': row['risk_score'] > 0 and not row['signal_entry'],
+                'entry_signal': row['signal_entry'],
+                'close_price': float(row[f'close_{result_timeframe}']) if pd.notna(row[f'close_{result_timeframe}']) else None,
+            }
+            records.append(record)
+        
+        print(f"      -> [战报司令部 V300.0] 标准化归档完成，共生成 {len(records)} 条记录。")
+        return records
 
     # ─> 风险量化局 (Risk Quantifier Bureau)
     #    -> 核心职责: 将抽象的风险原因，翻译成直观的“仪表盘”读数。

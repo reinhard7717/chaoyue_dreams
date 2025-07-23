@@ -267,6 +267,28 @@
           "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
           "TRIGGER_BREAKOUT_CANDLE": 40,
           "TRIGGER_ENERGY_RELEASE": 50
+        },
+        "metadata": {
+          "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
+          "CHIP_STATE_HIGHLY_CONCENTRATED": "【筹码】高度集中",
+          "CHIP_RAPID_CONCENTRATION": "【筹码】快速集中",
+          "CHIP_HEALTH_EXCELLENT": "【筹码】健康度优秀",
+          "CHIPCON_4_READINESS": "【筹码戒备】4级-整备待命",
+          "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": "【资本】主力支撑上涨",
+          "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": "【资本】主力下跌吸筹 (黄金坑)",
+          "DYN_TREND_HEALTHY_ACCELERATING": "【动能】趋势健康加速",
+          "DYN_TREND_MATURE_STABLE": "【动能】趋势成熟稳定",
+          "MA_STATE_STABLE_BULLISH": "【均线】稳定多头排列",
+          "MA_STATE_PRICE_ABOVE_LONG_MA": "【均线】价格位于长期均线之上",
+          "PLATFORM_STATE_STABLE_FORMED": "【形态】稳固平台形成",
+          "CONTEXT_STRONG_BREAKOUT_RALLY": "【K线】强力突破阳线",
+          "CONTEXT_EXPLOSIVE_RALLY": "【K线】爆炸性拉升阳线",
+          "trg_TRIGGER_CHIP_IGNITION": "【触发】筹码点火",
+          "trg_TRIGGER_ENERGY_RELEASE": "【触发】能量释放阳线",
+          "trg_TRIGGER_DOMINANT_REVERSAL": "【触发】显性反转阳线",
+          "trg_TRIGGER_PLATFORM_PULLBACK_REBOUND": "【触发】平台回踩反弹",
+          "trg_TRIGGER_BREAKOUT_CANDLE": "【触发】突破确认阳线",
+          "trg_VOL_BREAKOUT_FROM_SQUEEZE": "【触发】波动压缩后突破"
         }
       },
       "trigger_event_params": {
