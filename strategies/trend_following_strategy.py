@@ -1709,7 +1709,7 @@ class TrendFollowStrategy:
             cognitive_states['CONTEXT_STRONG_BREAKOUT_RALLY'] = (df[pct_change_col] > 0.04) & (df[pct_change_col] <= 0.07)
             # 爆炸性拉升 (涨幅 > 7%)
             cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
-        
+
         # --- 步骤2: 战场稳定性评估 (Stability Assessment) ---
         # (原 _diagnose_battlefield_stability 的逻辑)
         print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
@@ -1732,7 +1732,7 @@ class TrendFollowStrategy:
         # --- 步骤4: 最终认知模式形成 (Cognitive Pattern Formation) ---
         # (原 _diagnose_cognitive_patterns 的逻辑)
         print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
-        
+
         # 4.1 “锁仓拉升”进攻模式 (COGNITIVE_PATTERN_LOCK_CHIP_RALLY)
         # 情报来源:
         is_healthy_rally = cognitive_states.get('CONTEXT_HEALTHY_RALLY', default_series) # 来自本引擎步骤1
@@ -1742,13 +1742,17 @@ class TrendFollowStrategy:
         # 最终裁决:
         cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & ~is_price_detached & is_chip_truly_concentrating
 
-        # 4.2 “突破派发”风险模式 (COGNITIVE_RISK_BREAKOUT_DISTRIBUTION)
-        # 情报来源:
-        is_strong_rally = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) | cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series) # 来自本引擎步骤1
-        is_main_force_distributing = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        is_chip_diverging = atomic_states.get('CHIP_STATE_DIVERGENCE', default_series)
-        # 最终裁决:
-        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_main_force_distributing & is_chip_diverging
+        # 4.2 “突破派发”风险模式 (BREAKOUT_DISTRIBUTION)
+        # 情报来源
+        is_strong_rally = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) | cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series)
+        # 派发证据1: 当天主力就在卖出 (即时证据)
+        is_main_force_distributing_today = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        # 派发证据2: 历史档案显示，过去一个月都在派发 (历史证据)
+        has_long_term_distribution_record = atomic_states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+
+        # 最终裁决: 只要是强力拉升，且满足以下任一派发证据，就判定为最高风险！
+        # 这就覆盖了“边拉边出”和“拉高出货”两种最经典的派发模式。
+        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & (is_main_force_distributing_today | has_long_term_distribution_record)
 
         print("        -> [认知综合引擎 V257.0] 认知合成完毕。")
         return cognitive_states
