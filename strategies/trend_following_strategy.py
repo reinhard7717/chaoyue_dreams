@@ -1980,17 +1980,22 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _make_final_decisions(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V282.0 最终净化版】
-        - 核心修复: 再次强调并实施V278的修复逻辑，确保其不可被覆盖。此BUG极其顽固，必须根除。
+        【V283.0 通讯协议修复版】
+        - 核心修复: 解决了因调用 `_calculate_exit_signals` 时缺少 `risk_score` 参数而导致的致命TypeError。
         - 作战条例:
-          1. 当 `exit_signal_code` 为高风险等级(>=88)时，必须将 `signal_type` 强制设定为“卖出信号”。
-          2. 同时，必须将 `final_score` 强制设定为当日的 `risk_score`，以反映真实的风险等级。
-        - 收益: 彻底杜绝内部计算与最终输出不一致的问题，确保指挥链情报的绝对准确！
+          1. 在调用 `_calculate_exit_signals` 之前，`risk_score` 列必须已经存在于DataFrame中。
+          2. 在调用时，必须将 `df['risk_score']` 作为独立的参数，明确地传递给该方法。
+        - 收益: 修复了导致整个回溯引擎崩溃的严重BUG，恢复了指挥系统的正常运作。
         """
-        print("    -> [总司令部 V282.0 最终净化版] 启动，正在下达最终作战指令...")
+        print("    -> [总司令部 V283.0 通讯协议修复版] 启动，正在下达最终作战指令...")
         
         # --- 步骤1: 计算离场信号 ---
-        df = self._calculate_exit_signals(df, params)
+        # 确保 risk_score 列存在
+        if 'risk_score' not in df.columns:
+            raise ValueError("[严重错误] 在调用 _calculate_exit_signals 之前, 'risk_score' 列不存在于DataFrame中！")
+        
+        # 修复调用，传入必需的 risk_score 参数
+        df = self._calculate_exit_signals(df, params, df['risk_score'])
 
         # --- 步骤2: 风险否决 ---
         risk_veto_params = self._get_params_block('risk_veto_params')
@@ -2003,20 +2008,15 @@ class TrendFollowStrategy:
         
         df.loc[veto_condition, 'entry_score'] = 0
         
-        # --- 步骤3: 生成最终决策列 ---
+        # --- 步骤3: 生成最终决策列 (V282.0 最终净化版逻辑保持不变) ---
         df['final_score'] = df['entry_score']
         df['signal_type'] = '中性'
 
         buy_condition = df['final_score'] > 0
         df.loc[buy_condition, 'signal_type'] = '买入信号'
 
-        # 条件: 凡是触发高风险离场信号的日子
         exit_condition = df['exit_signal_code'] >= 88
-        
-        # 动作1: 信号类型必须是“卖出信号”
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
-        
-        # 动作2: 最终分数必须是“风险分”
         df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
 
         if exit_condition.any():
