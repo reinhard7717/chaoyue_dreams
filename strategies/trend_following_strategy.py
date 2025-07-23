@@ -191,40 +191,33 @@ class TrendFollowStrategy:
     # -> 核心入口: apply_strategy()
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V223.0 指挥链重塑版】
-        - 核心重构: 将主作战流程严格按照“情报->评估->决策->执行”的指挥链进行重塑。
-                    每一个步骤都由一个权责清晰的独立模块完成，确保指挥体系的绝对清晰。
+        【V288.0 最高指挥部版】
+        - 核心重构: 废除了旧的、分离的评估与决策流程，转而调用统一的、坚不可摧的
+                    “最高作战指挥部”(_run_assessment_and_decision_engine)。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V223.0 指挥链重塑版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V288.0 最高指挥部版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
         df = self._ensure_numeric_types(df)
 
         # --- 步骤1：情报总局 (Intelligence Gathering) ---
-        # 运行所有诊断模块，收集所有正面和负面的“原子情报”。
-        print("--- [指挥链 1/4] 情报总局：正在收集所有战场情报... ---")
+        print("--- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
         df, trigger_events = self._run_all_diagnostics(df, params)
 
-        # --- 步骤2：参谋部联席会议 (Assessment & Scoring) ---
-        # 对所有情报进行量化评估，形成“进攻价值分”和“战场风险分”。
-        print("--- [指挥链 2/4] 参谋部：正在对情报进行量化评估... ---")
-        df, score_details_df, risk_details_df = self._run_scoring_and_assessment(df, params, trigger_events)
-        self._last_score_details_df = score_details_df
-        self._last_risk_details_df = risk_details_df
-
-        # --- 步骤3：总司令部 (Final Decision Making) ---
-        # 根据进攻价值和战场风险，下达最终的作战指令（是否进攻、是否撤退）。
-        print("--- [指挥链 3/4] 总司令部：正在下达最终作战指令... ---")
-        df = self._make_final_decisions(df, params)
+        # ▼▼▼【代码修改 V288.0】: 启用全新的“最高作战指挥部”！▼▼▼
+        # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
+        # 将“评估”与“决策”合并为一步，彻底杜绝情报交接失误
+        print("--- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
+        df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+        # ▲▲▲【代码修改 V288.0】▲▲▲
         
-        # --- 步骤4：沙盘推演 (Position Management Simulation) ---
-        # 模拟从建仓到离场的全过程。
-        print("--- [指挥链 4/4] 作战推演：正在模拟全程战术动作... ---")
+        # --- 步骤3：沙盘推演 (Position Management Simulation) ---
+        print("--- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V223.0】执行完毕 ======")
+        print(f"====== 【战术引擎 V288.0】执行完毕 ======")
         
         debug_params = self._get_params_block('debug_params')
         probe_date = self._get_param_value(debug_params.get('probe_date'))
@@ -232,7 +225,6 @@ class TrendFollowStrategy:
             self._deploy_field_coroner_probe(df, probe_date)
 
         return df, self.atomic_states
-
 
     # 1. 情报总局 (Intelligence General Administration)
     #    -> 核心职责: 统一收集所有战场情报，形成原子状态报告
@@ -1794,51 +1786,6 @@ class TrendFollowStrategy:
         print("        -> [认知综合引擎 V257.0] 认知合成完毕。")
         return cognitive_states
 
-    # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 
-    #     -> 核心职责: 对情报进行量化评估，计算进攻价值分与战场风险分。
-    #     -> 总指挥: _run_scoring_and_assessment()
-    def _run_scoring_and_assessment(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        【V287.0 联合作战情报中心】
-        - 核心改革: 彻底废除旧的、传递零散参数的官僚流程。
-        - 新流程:
-          1. 首先，调用“作战计划推演室”生成 `playbook_states`。
-          2. 然后，将所有评估所需的情报，统一打包进一个标准化的 `scoring_context` 字典。
-          3. 最后，将这同一个、完整的“情报档案包”分发给所有下级评估单位。
-        - 收益: 这是一个终极的、一劳永逸的解决方案。它使得通讯协议极度稳定，
-                未来即使增加新的情报，也只需向context中添加一个键，而无需改动任何函数签名。
-                此类因参数遗漏而导致的崩溃，将从我军的历史中被彻底抹去！
-        """
-        print("    -> [联合作战情报中心 V287.0] 启动，正在准备标准化的作战情报档案包...")
-
-        # --- 步骤1: 生成动态作战剧本 ---
-        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
-        
-        # --- 步骤2: 【核心】建立标准化的“作战情报档案包” ---
-        scoring_context = {
-            "df": df,
-            "params": params,
-            "trigger_events": trigger_events,
-            "playbook_states": playbook_states,
-            "atomic_states": self.atomic_states, # 将中央情报局的数据也一并打包
-            "setup_scores": setup_scores
-        }
-        print("      -> 标准化“作战情报档案包”创建完毕。")
-
-        # --- 步骤3: 将同一个、完整的“档案包”分发给所有下级单位 ---
-        print("      -> 正在向各评估单位分发档案包...")
-        entry_score, score_details_df = self._calculate_entry_score(scoring_context)
-        risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
-
-        # --- 步骤4: 强制执行“战情上图”条例 (逻辑保持不变) ---
-        df['entry_score'] = entry_score
-        df['risk_score'] = risk_score
-        
-        print("    -> [联合作战情报中心 V287.0] 评估计分完成。")
-
-        # --- 步骤5: 返回最终结果 ---
-        return df, score_details_df, risk_details_df
-
     # ─> 进攻方案评估中心 (Entry Scoring Center)
     #    -> 核心职责: 计算最终的入场分。
     #    -> 指挥官: _calculate_entry_score()
@@ -2002,25 +1949,50 @@ class TrendFollowStrategy:
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
-    def _make_final_decisions(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> pd.DataFrame:
         """
-        【V283.0 通讯协议修复版】
-        - 核心修复: 解决了因调用 `_calculate_exit_signals` 时缺少 `risk_score` 参数而导致的致命TypeError。
-        - 作战条例:
-          1. 在调用 `_calculate_exit_signals` 之前，`risk_score` 列必须已经存在于DataFrame中。
-          2. 在调用时，必须将 `df['risk_score']` 作为独立的参数，明确地传递给该方法。
-        - 收益: 修复了导致整个回溯引擎崩溃的严重BUG，恢复了指挥系统的正常运作。
+        【V288.0 最高作战指挥部】
+        - 核心改革: 彻底废除 _run_scoring_and_assessment 和 _make_final_decisions 这两个独立部门，
+                    将“评估”与“决策”合并为一个权责统一的指挥中心。
+        - 作战流程 (情报闭环):
+          1. [评估阶段] 在本指挥部内部，完成所有进攻分和风险分的计算。
+          2. [情报上图] 将计算出的分数，立刻、就地添加到主作战地图(df)上。
+          3. [决策阶段] 使用刚刚添加的分数，立刻、就地进行最终的作战决策和离场信号计算。
+        - 收益: 这是一个终极的、结构性的解决方案。它通过消除部门间的情报交接，
+                从根本上杜绝了所有因参数遗漏、数据丢失而导致的崩溃。
+                此类“KeyError”问题，将从我军的历史中被彻底抹去！
         """
-        print("    -> [总司令部 V283.0 通讯协议修复版] 启动，正在下达最终作战指令...")
+        print("--- [最高作战指挥部 V288.0] 启动，正在执行“评估-决策”一体化流程... ---")
+
+        # --- 阶段一：评估 (原 _run_scoring_and_assessment 的核心逻辑) ---
+        print("    -> [评估单元] 启动...")
+        # 1.1 生成动态作战剧本
+        setup_scores, playbook_states = self._generate_playbook_states(df, trigger_events)
         
-        # --- 步骤1: 计算离场信号 ---
-        if 'risk_score' not in df.columns:
-            raise ValueError("[严重错误] 在调用 _calculate_exit_signals 之前, 'risk_score' 列不存在于DataFrame中！")
+        # 1.2 建立标准化的“作战情报档案包”
+        scoring_context = {
+            "df": df, "params": params, "trigger_events": trigger_events,
+            "playbook_states": playbook_states, "atomic_states": self.atomic_states,
+            "setup_scores": setup_scores
+        }
         
-        # 此处调用逻辑保持V283的修复结果
+        # 1.3 计算进攻分和风险分
+        entry_score, score_details_df = self._calculate_entry_score(scoring_context)
+        risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
+        
+        # 1.4 【关键】情报上图，确保分数在本指挥部内部可用
+        df['entry_score'] = entry_score
+        df['risk_score'] = risk_score
+        self._last_score_details_df = score_details_df
+        self._last_risk_details_df = risk_details_df
+        print("    -> [评估单元] 评估完成，分数已内部锁定。")
+
+        # --- 阶段二：决策 (原 _make_final_decisions 的核心逻辑) ---
+        print("    -> [决策单元] 启动...")
+        # 2.1 计算离场信号
         df = self._calculate_exit_signals(df, params, df['risk_score'])
 
-        # --- 步骤2: 风险否决 ---
+        # 2.2 风险否决
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
         min_absolute_risk_for_veto = self._get_param_value(risk_veto_params.get('min_absolute_risk_for_veto'), 50)
@@ -2028,23 +2000,19 @@ class TrendFollowStrategy:
         is_risk_too_high_relative = df['risk_score'] > (df['entry_score'] * risk_tolerance_ratio)
         is_risk_high_absolute = df['risk_score'] >= min_absolute_risk_for_veto
         veto_condition = is_risk_too_high_relative & is_risk_high_absolute
-        
         df.loc[veto_condition, 'entry_score'] = 0
         
-        # --- 步骤3: 生成最终决策列 (V282.0 最终净化版逻辑保持不变) ---
+        # 2.3 生成最终决策列
         df['final_score'] = df['entry_score']
         df['signal_type'] = '中性'
-
         buy_condition = df['final_score'] > 0
         df.loc[buy_condition, 'signal_type'] = '买入信号'
-
         exit_condition = df['exit_signal_code'] >= 88
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
         df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
+        print("    -> [决策单元] 决策完成。")
 
-        if exit_condition.any():
-            print(f"      -> [总司令部] 检测到 {exit_condition.sum()} 天高风险卖出信号，已强制记录风险分。")
-
+        print("--- [最高作战指挥部 V288.0] 一体化流程执行完毕。 ---")
         return df
 
     #    └─> 离场指令部 (Exit Command)
