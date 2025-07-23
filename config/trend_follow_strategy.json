@@ -103,7 +103,7 @@
 
         "说明_CHIP": "--- 以下为筹码相关指标，注意已移除CHIP_前缀 ---",
         "peak_cost_D": [5, 8, 21, 55],
-        "concentration_90pct_D": [5],
+        "concentration_90pct_D": [5, 21],
         "total_winner_rate_D": [5, 21],
         "peak_stability_D": [5, 21],
         "peak_percent_D": [5],
