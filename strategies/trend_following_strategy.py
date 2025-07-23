@@ -279,6 +279,7 @@ class TrendFollowStrategy:
         
         # 在所有基础和复合状态诊断完成后，进行最高维度的模式识别
         atomic_states.update(self._diagnose_cognitive_patterns(df, atomic_states))
+        atomic_states.update(self._diagnose_battlefield_stability(df))
         # 在所有基础情报诊断完成后，进行筹码与价格的联合分析
         atomic_states.update(self._diagnose_chip_price_action(df, atomic_states))
 
@@ -1799,6 +1800,73 @@ class TrendFollowStrategy:
         
         return states
 
+    def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V248.0 新增】认知智能总署 (Cognitive Intelligence Agency)
+        - 核心职责: 识别由多个底层指标构成的、高维度的“主力作案模式”。
+                    这是将策略从“看指标”升维到“读战局”的关键一步。
+        """
+        print("        -> [认知智能总署 V248.0] 启动，正在识别高维战场模式...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 情报准备 ---
+        # 价格行为
+        is_strong_rally = df.get('pct_change_D', default_series) > 0.03
+        # 成本动态
+        is_cost_rising_fast = df.get('SLOPE_5_peak_cost_D', default_series) > 0.5
+        # 【核心】筹码结构动态
+        is_chip_concentrating = df.get('concentration_90pct_slope_5d_D', default_series) < -0.001
+        is_chip_dispersing = df.get('concentration_90pct_slope_5d_D', default_series) > 0.001
+
+        # --- 2. 模式识别与裁决 ---
+
+        # 【S级机会模式】锁仓拉升 (Lock-Chip Rally)
+        # 定义: 股价显著上涨的同时，筹码非但没有发散，反而进一步集中。这是主力高度控盘、志存高远的铁证。
+        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_strong_rally & is_cost_rising_fast & is_chip_concentrating
+
+        # 【S级风险模式】突破派发 (Breakout Distribution)
+        # 定义: 股价显著上涨，看似强势，但筹码却在急速发散。这是主力利用拉高吸引跟风盘，进行高位换手出货的经典陷阱。
+        states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_cost_rising_fast & is_chip_dispersing
+
+        print(f"        -> [认知智能总署 V248.0] 识别完成，定义了 {len(states)} 种高维模式。")
+        return states
+
+    def _diagnose_battlefield_stability(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V249.0 新增】战场稳定性评估局 (Battlefield Stability Assessment Bureau)
+        - 核心职责: 量化主力资金的“内战”烈度，识别“绞杀市”。
+        - 作战武器: 计算主力净流入金额在短期（5日）内的标准差，并将其与当日成交额进行对比，
+                    得到一个标准化的“资金博弈烈度”。
+        - 核心产出: 当博弈烈度超过阈值时，生成“RISK_CAPITAL_VIOLENT_WHIPSAW”风险信号。
+        """
+        print("        -> [战场稳定性评估局 V249.0] 启动，正在量化主力资金内战烈度...")
+        states = {}
+        
+        inflow_col = 'main_force_net_inflow_amount_D'
+        turnover_col = 'turnover_D' # 假设有日成交额字段，如果没有，可以用 close * volume 估算
+        
+        if inflow_col not in df.columns or turnover_col not in df.columns:
+            print("          -> [警告] 缺少主力资金或成交额数据，无法评估战场稳定性。")
+            return states
+
+        # 1. 计算主力资金流的5日滚动标准差（波动性）
+        inflow_std = df[inflow_col].rolling(window=5).std()
+        
+        # 2. 计算5日平均成交额，作为标准化的基准
+        avg_turnover = df[turnover_col].rolling(window=5).mean()
+        
+        # 3. 计算“资金博弈烈度”：波动 / 平均成交额。避免除以0。
+        # 这个比率代表了资金流的波动幅度占总交易规模的比例。
+        whipsaw_ratio = (inflow_std / avg_turnover.replace(0, np.nan)).fillna(0)
+        
+        # 4. 定义风险阈值：当资金博弈烈度超过25%时，认为战场极度不稳定
+        # 这个值意味着资金流的短期标准差已经达到了平均成交额的1/4，说明多空转换极其剧烈。
+        threshold = 0.25 
+        states['RISK_CAPITAL_VIOLENT_WHIPSAW'] = whipsaw_ratio > threshold
+        
+        print(f"        -> [战场稳定性评估局 V249.0] 评估完成。")
+        return states
 
     # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 
     #     -> 核心职责: 对情报进行量化评估，计算进攻价值分与战场风险分。
@@ -2876,53 +2944,7 @@ class TrendFollowStrategy:
                 for name, score in triggered_playbooks.items():
                     cn_name = risk_playbook_cn_map.get(name, name)
                     print(f"                 -> 触发: '{cn_name}', 风险分 +{score:.0f}")
-
-
-    def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V226.0 新增】战场模式识别与认知智能总署 (雏形)
-        - 核心职责: 将多个原子/复合状态，升维成与市场行为阶段明确挂钩的、可被理解的“认知模式”。
-                    这是对现有高阶战术的梳理，并为未来引入机器学习模型进行模式挖掘和自动标注奠定基础。
-        - 作战意图: 我们不采用穷举式的排列组合，而是通过专家知识，定义出最高效、最经典的战场模式，
-                    实现对市场的“升维打击”。
-        """
-        print("        -> [认知智能总署 V226.0] 启动，正在识别高维战场模式...")
-        patterns = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 模式分类 1: 底部反转阶段 (Bottoming & Reversal Phase) ---
-        # 模式 1.1: “深渊凝视” - 市场极度恐慌后的强力反转
-        patterns['COGNITIVE_PATTERN_ABYSS_REVERSAL'] = atomic_states.get('STRUCTURE_STATE_REVERSAL_AT_SUPPORT', default_series) & \
-                                                      atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', default_series)
-        
-        # 模式 1.2: “资本逆行” - 在下跌中出现主力与散户的行为背离
-        patterns['COGNITIVE_PATTERN_CAPITAL_DIVERGENCE'] = atomic_states.get('CAPITAL_STRUCT_BULLISH_DIVERGENCE', default_series) & \
-                                                          atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-
-        # --- 模式分类 2: 上升趋势中继阶段 (Uptrend Continuation Phase) ---
-        # 模式 2.1: “上升旗形” - 多头趋势中的健康、缩量盘整
-        patterns['COGNITIVE_PATTERN_BULL_FLAG'] = atomic_states.get('STRUCTURE_STATE_BULL_FLAG_CONSOLIDATION', default_series) & \
-                                                  atomic_states.get('VOL_STATE_SHRINKING', default_series)
-
-        # 模式 2.2: “高控盘主升” - 筹码高度集中下的趋势加速
-        patterns['COGNITIVE_PATTERN_HIGH_CONTROL_MARKUP'] = atomic_states.get('STRATEGIC_SETUP_HIGH_CONTROL_MARKUP', default_series)
-
-        # --- 模式分类 3: 潜在风险与派发阶段 (Risk & Distribution Phase) ---
-        # 模式 3.1: “死亡背离” - 趋势向上但主力资金已在派发
-        patterns['COGNITIVE_PATTERN_DEATH_DIVERGENCE'] = atomic_states.get('RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE', default_series) & \
-                                                        atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        
-        # 模式 3.2: “动能衰竭” - 趋势减速且短期均线掉头向下
-        patterns['COGNITIVE_PATTERN_MOMENTUM_EXHAUSTION'] = atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
-
-        # --- 最终将识别出的认知模式，合并回 atomic_states，供下游使用 ---
-        print(f"        -> [认知智能总署 V226.0] 识别完成，共定义 {len(patterns)} 种高维模式。")
-        return patterns
-    
-    
-    
-    
-    
+ 
 
     def _create_persistent_state(
         self, 

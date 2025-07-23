@@ -215,59 +215,56 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V235.0 CHIPCON版】计分体系。进攻与风险评估彻底分离，风险评估以CHIPCON为核心。",
+        "说明": "【V247.0 战略定力版】计分体系。核心改革：大幅降低瞬时触发分的权重，提升阵地分和核心风险的权重，引入持仓逻辑。",
         "positional_scoring": {
-          "说明": "【进攻评估 - 阵地分】评估静态战场优势，只负责加分。",
+          "说明": "【进攻评估 - 阵地分】提升核心阵地优势的权重。",
           "positive_signals": {
+            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 400,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "CHIP_FUND_FLOW_CONSENSUS_INFLOW": 120,
             "CHIP_HEALTH_EXCELLENT": 100,
             "PLATFORM_STATE_STABLE_FORMED": 70,
             "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
             "MA_STATE_STABLE_BULLISH": 50,
-            "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 50,
+            "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 80,
             "CHIP_PROFIT_CUSHION_HIGH": 40,
             "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30
           }
         },
         "dynamic_scoring": {
-          "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为，只负责加分。",
+          "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为。",
           "positive_signals": {
-            "DYN_TREND_HEALTHY_ACCELERATING": 250,
+            "DYN_TREND_HEALTHY_ACCELERATING": 200,
             "STRUCTURE_BREAKOUT_EVE_A": 150,
-            "CHIP_RAPID_CONCENTRATION": 70,
-            "CHIP_HEALTH_IMPROVING": 60
+            "CHIP_RAPID_CONCENTRATION": 80,
+            "CHIP_HEALTH_IMPROVING": 70
           }
         },
         "risk_scoring": {
-          "说明": "【最高风险裁决所】以CHIPCON为核心，统一评估所有风险。",
+          "说明": "【最高风险裁决所】提升核心风险的否决权重。",
           "signals": {
             "说明_CHIPCON": "--- 核心戒备等级风险 (CHIPCON-based Risk) ---",
+            "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
             "CHIPCON_1_WAR": 1000,
-            "说明_CHIPCON_1": "【战争状态】灾难性溃败，赋予最高风险分，必须无条件离场。",
             "CHIPCON_2_PRE_WAR": 700,
-            "说明_CHIPCON_2": "【临战状态】高危信号出现，赋予次高风险分，触发战术性离场。",
+            "RISK_CAPITAL_VIOLENT_WHIPSAW": 350,
             "CHIPCON_3_HIGH_ALERT": 300,
-            "说明_CHIPCON_3": "【高度戒备】明确的恶化趋势，赋予显著风险分，作为强力预警。",
             "CHIPCON_4_READINESS": 50,
-            "说明_CHIPCON_4": "【常规戒备】轻微不良信号，赋予少量风险分，用于风险累积计算。",
-            "说明_ADDITIONAL": "--- 补充性风险 (用于叠加) ---",
+            "说明_ADDITIONAL": "--- 【权重提升】补充性核心风险 ---",
+            "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": 250,
             "STRUCTURE_TOPPING_DANGER_S": 200,
-            "说明_TOPPING": "顶部背离是独立于CHIPCON的结构性风险，可与CHIPCON风险叠加。",
             "PLATFORM_FAILURE": 150,
-            "说明_PLATFORM": "关键平台破位是重要的结构性风险，可叠加。",
-            "DYN_TREND_WEAKENING_DECELERATING": 80,
-            "说明_DYN_WEAK": "动能衰减可作为CHIPCON的补充风险信号。"
+            "DYN_TREND_WEAKENING_DECELERATING": 100
           }
         },
         "trigger_events": {
-          "说明": "【触发分】在进攻总分之上，提供额外的爆发力加成。",
-          "TRIGGER_CHIP_IGNITION": 120,
-          "VOL_BREAKOUT_FROM_SQUEEZE": 120,
-          "TRIGGER_DOMINANT_REVERSAL": 80,
-          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 80,
-          "TRIGGER_BREAKOUT_CANDLE": 60,
-          "TRIGGER_ENERGY_RELEASE": 70
+          "说明": "【触发分 - 权重降低】大幅降低K线等瞬时信号的权重，减少追高冲动。",
+          "TRIGGER_CHIP_IGNITION": 80,
+          "VOL_BREAKOUT_FROM_SQUEEZE": 70,
+          "TRIGGER_DOMINANT_REVERSAL": 50,
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
+          "TRIGGER_BREAKOUT_CANDLE": 40,
+          "TRIGGER_ENERGY_RELEASE": 50
         }
       },
       "trigger_event_params": {
@@ -505,13 +502,9 @@
   },
   "risk_veto_params": {
     "enabled": true,
-    "说明": "【V98.0 动态否决版】基于攻防力量对比，动态决定是否否决买入信号。",
-
-    "risk_tolerance_ratio": 0.3,
-    "说明_ratio": "风险容忍系数。允许的风险分 = 买入分 * 此系数。例如0.5代表风险分超过买入分的一半时，才可能被否决。",
-
-    "min_absolute_risk_for_veto": 30,
-    "说明_min_risk": "触发否决的最低绝对风险分。用于避免一个极低的风险分(如5分)否决一个同样很低的买入分(如10分)。"
+    "说明": "【V247.0 战略定力版】更严格的风险否决。",
+    "risk_tolerance_ratio": 0.4,
+    "min_absolute_risk_for_veto": 50
   },
   "risk_quantifier_params": {
     "enabled": true,
