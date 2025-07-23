@@ -223,8 +223,8 @@
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "CHIP_FUND_FLOW_CONSENSUS_INFLOW": 120,
             "CHIP_HEALTH_EXCELLENT": 100,
-            "PLATFORM_STATE_STABLE_FORMED": 70,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 60,
+            "PLATFORM_STATE_STABLE_FORMED": 120,
+            "CHIP_STATE_HIGHLY_CONCENTRATED": 100,
             "MA_STATE_STABLE_BULLISH": 50,
             "CHIPCON_4_READINESS": 40,
             "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 80,
@@ -236,8 +236,8 @@
           "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为。",
           "positive_signals": {
             "CONTEXT_EXPLOSIVE_RALLY": 250,
-            "DYN_TREND_HEALTHY_ACCELERATING": 200,
-            "CONTEXT_STRONG_BREAKOUT_RALLY": 180,
+            "DYN_TREND_HEALTHY_ACCELERATING": 180,
+            "CONTEXT_STRONG_BREAKOUT_RALLY": 160,
             "STRUCTURE_BREAKOUT_EVE_A": 150,
             "CHIP_RAPID_CONCENTRATION": 70,
             "CHIP_HEALTH_IMPROVING": 60
