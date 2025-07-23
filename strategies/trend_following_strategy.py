@@ -226,10 +226,10 @@ class TrendFollowStrategy:
 
         print(f"====== 【战术引擎 V223.0】执行完毕 ======")
         
-        # debug_params = self._get_params_block('debug_params')
-        # probe_date = self._get_param_value(debug_params.get('probe_date'))
-        # if probe_date:
-        #     self._deploy_field_coroner_probe(df, probe_date)
+        debug_params = self._get_params_block('debug_params')
+        probe_date = self._get_param_value(debug_params.get('probe_date'))
+        if probe_date:
+            self._deploy_field_coroner_probe(df, probe_date)
 
         return df, atomic_states
 
