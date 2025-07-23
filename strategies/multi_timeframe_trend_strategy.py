@@ -351,9 +351,9 @@ class MultiTimeframeTrendStrategy:
             
             db_records = self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=result_df,
-                score_details_df=score_details_df,  # <--- 新增的情报卷宗
-                risk_details_df=risk_details_df,    # <--- 新增的风险档案
+                result_df=daily_analysis_df,        # 修正: 使用战术引擎返回的 `daily_analysis_df`
+                score_details_df=score_details_df,
+                risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
