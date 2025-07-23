@@ -350,8 +350,12 @@ class MultiTimeframeTrendStrategy:
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             
             db_records = self.tactical_engine.prepare_db_records(
-                stock_code, self.daily_analysis_df,
-                params=self.unified_config, result_timeframe='D'
+                stock_code=stock_code,
+                result_df=result_df,
+                score_details_df=score_details_df,  # <--- 新增的情报卷宗
+                risk_details_df=risk_details_df,    # <--- 新增的风险档案
+                params=self.tactical_engine.unified_config,
+                result_timeframe='D'
             )
             print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
 

@@ -1984,7 +1984,7 @@ class TrendFollowStrategy:
                 # 在风险详情中也更新这一项的分数
                 risk_details_df.loc[is_washout_suspicion, f'risk_{main_force_dist_risk_name}'] *= reduction_factor
                 
-                print(f"          -> [洗盘侦察连] 发现 {is_washout_suspicion.sum()} 天存在“洗盘嫌疑”！已对“主力派发”风险分进行 {reduction_factor:.0%} 折扣处理。")
+                # print(f"          -> [洗盘侦察连] 发现 {is_washout_suspicion.sum()} 天存在“洗盘嫌疑”！已对“主力派发”风险分进行 {reduction_factor:.0%} 折扣处理。")
         
         print("        -> [最高风险裁决所 V288.0] 风险评估完成。")
         return risk_score, risk_details_df
