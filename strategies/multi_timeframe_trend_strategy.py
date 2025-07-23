@@ -122,6 +122,33 @@ class MultiTimeframeTrendStrategy:
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_records)} 条记录。")
         return all_records
 
+    async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """
+        【V204.0 闪电突袭模式】
+        为日常任务设计的轻量化、高性能分析模式。
+        - 作战流程:
+          1. 依然调用“全面战役”模式，获取所有历史信号。
+          2. 【核心优化】在获取所有信号后，只筛选出【最后一个交易日】的信号返回。
+        - 收益: 极大减少了下游（数据库、状态更新）的处理负担，显著提升了日常任务的执行效率。
+        """
+        print(f"\n⚡️ [总指挥层-闪电突袭] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
+        
+        # 步骤1: 调用“全面战役”模式，获取所有分析结果
+        all_records = await self.run_for_stock(stock_code, trade_time)
+        
+        if not all_records:
+            print(f"  - [闪电突袭] 未发现任何历史信号，任务完成。")
+            return []
+            
+        # 步骤2: 【核心优化】找出最后一个交易日
+        latest_date = max(rec['trade_time'].date() for rec in all_records)
+        
+        # 步骤3: 只返回属于最后一个交易日的信号
+        latest_records = [rec for rec in all_records if rec['trade_time'].date() == latest_date]
+        
+        print(f"🏁 [总指挥层-闪电突袭] 完成处理 {stock_code}, 从 {len(all_records)} 条记录中筛选出最新的 {len(latest_records)} 条信号。")
+        return latest_records
+
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
         """
         【情报融合模块】
