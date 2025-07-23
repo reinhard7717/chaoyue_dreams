@@ -183,14 +183,12 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V2.0：深度解剖版】 - 已晋升至总司令部
-        - 新增功能: 引入“法医证据清单”，能够展示触发每一条规则背后的具体数据指标。
-        - 核心逻辑:
-          1. 定义一个规则到证据列的映射字典。
-          2. 在验尸时，根据触发的规则名，查找其需要展示的证据列。
-          3. 从当日的DataFrame行中提取这些证据的数值并打印。
+        【首席法医官 V2.1：文书修正版】 - 已晋升至总司令部
+        - 核心修正: 修复了因 'trade_date' 列名不存在而导致的 KeyError。
+        - 新逻辑: 采用更健壮的方式筛选目标日期的案卷，优先使用 DatetimeIndex，
+                   如果索引不是日期，则回退到检查 'trade_date' 列。
         """
-        print("\n    ========================= [战地验尸总署-探针报告 V2.0] =========================")
+        print("\n    ========================= [战地验尸总署-探针报告 V2.1] =========================")
         
         rule_to_evidence_mapping = {
             # --- 风险规则的证据清单 ---
@@ -207,18 +205,48 @@ class MultiTimeframeTrendStrategy:
         }
 
         try:
-            # 关键修正：验尸官现在直接使用总司令部持有的、最完整的 df_daily_prepared
-            probe_row = df.loc[df.index.date == pd.to_datetime(probe_date).date()].iloc[0]
-            # 从 probe_row 中获取 stock_code，而不是从外部传入
+            probe_dt = pd.to_datetime(probe_date).date()
+            probe_row = df.loc[df.index.date == probe_dt].iloc[0]
             stock_code = probe_row.get('stock_code', 'N/A')
             print(f"      [验尸目标]: 股票代码 {stock_code} @ {probe_date}")
         except (IndexError, KeyError):
-            print(f"      [错误] 未能在数据中找到目标日期 {probe_date} 的记录。")
+            print(f"      [错误] 未能在主数据流中找到目标日期 {probe_date} 的记录。")
             return
+
+        # ▼▼▼【代码修改 V2.1】: 使用更健壮的日期筛选逻辑 ▼▼▼
+        def filter_details_by_date(details_df: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
+            """一个健壮的函数，用于按日期筛选详情DataFrame。"""
+            if details_df is None or details_df.empty:
+                return pd.DataFrame()
+            
+            target_date = pd.to_datetime(target_date_str).date()
+            
+            # 方案一：如果索引是 DatetimeIndex (最常见、最标准的情况)
+            if isinstance(details_df.index, pd.DatetimeIndex):
+                return details_df[details_df.index.date == target_date]
+            
+            # 方案二：如果索引不是日期，但存在 'trade_date' 列
+            elif 'trade_date' in details_df.columns:
+                # 确保 'trade_date' 列是日期对象，以便比较
+                dates_to_compare = pd.to_datetime(details_df['trade_date']).dt.date
+                return details_df[dates_to_compare == target_date]
+            
+            # 方案三：如果存在 'trade_time' 列
+            elif 'trade_time' in details_df.columns:
+                dates_to_compare = pd.to_datetime(details_df['trade_time']).dt.date
+                return details_df[dates_to_compare == target_date]
+
+            # 如果以上都不满足，返回空DataFrame，并打印警告
+            else:
+                print(f"      [警告] 无法在详情案卷中找到可用的日期信息（索引、'trade_date'或'trade_time'列）。")
+                return pd.DataFrame()
+
+        risk_rules = filter_details_by_date(risk_details, probe_date)
+        score_rules = filter_details_by_date(score_details, probe_date)
+        # ▲▲▲【代码修改 V2.1】▲▲▲
 
         # --- 风险验尸科 ---
         print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
-        risk_rules = risk_details[risk_details['trade_date'] == probe_date]
         if not risk_rules.empty:
             print(f"  [目标日期 {probe_date} 风险详情]:")
             print(f"    -> 当日总风险分: {risk_rules['score'].sum():.2f}")
@@ -242,7 +270,6 @@ class MultiTimeframeTrendStrategy:
 
         # --- 进攻分验尸科 ---
         print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
-        score_rules = score_details[score_details['trade_date'] == probe_date]
         if not score_rules.empty:
             print(f"      [目标日期 {probe_date} 得分详情]:")
             print(f"        -> 当日总得分: {score_rules['score'].sum():.2f}")
