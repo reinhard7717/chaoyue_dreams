@@ -70,8 +70,6 @@ class TrendFollowStrategy:
         self.debug_params = self._get_params_block('debug_params')
         self.kline_params = self._get_params_block('kline_pattern_params')
         self.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-        self._last_score_details_df = None
-        self._last_risk_details_df = None
 
         # 调用方法获取静态蓝图，并将其存储为实例属性，供后续所有方法安全调用
         self.playbook_blueprints = self._get_playbook_blueprints()
@@ -206,12 +204,10 @@ class TrendFollowStrategy:
         print("--- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
         df, trigger_events = self._run_all_diagnostics(df, params)
 
-        # ▼▼▼【代码修改 V288.0】: 启用全新的“最高作战指挥部”！▼▼▼
         # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
         # 将“评估”与“决策”合并为一步，彻底杜绝情报交接失误
         print("--- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
         df = self._run_assessment_and_decision_engine(df, params, trigger_events)
-        # ▲▲▲【代码修改 V288.0】▲▲▲
         
         # --- 步骤3：沙盘推演 (Position Management Simulation) ---
         print("--- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
@@ -219,10 +215,12 @@ class TrendFollowStrategy:
 
         print(f"====== 【战术引擎 V288.0】执行完毕 ======")
         
+        # --- 战地验尸 (按需直递) ---
         debug_params = self._get_params_block('debug_params')
         probe_date = self._get_param_value(debug_params.get('probe_date'))
         if probe_date:
-            self._deploy_field_coroner_probe(df, probe_date)
+            print(f"--- [战地验尸] 启动，正在向验尸官直递 {probe_date} 的临时档案...")
+            self._deploy_field_coroner_probe(df, probe_date, score_details_df, risk_details_df)
 
         return df, self.atomic_states
 
@@ -1983,8 +1981,6 @@ class TrendFollowStrategy:
         # 1.4 【关键】情报上图，确保分数在本指挥部内部可用
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
-        self._last_score_details_df = score_details_df
-        self._last_risk_details_df = risk_details_df
         print("    -> [评估单元] 评估完成，分数已内部锁定。")
 
         # --- 阶段二：决策 (原 _make_final_decisions 的核心逻辑) ---
@@ -2017,7 +2013,7 @@ class TrendFollowStrategy:
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
 
         print("--- [最高作战指挥部 V288.0] 一体化流程执行完毕。 ---")
-        return df
+        return df, score_details_df, risk_details_df
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
@@ -2383,82 +2379,20 @@ class TrendFollowStrategy:
     # ─> 战地验尸官 (Field Coroner)
     #    -> 核心职责: 对特定日期的完整计分流程进行法医级解剖。
     #    -> 首席验尸官: _deploy_field_coroner_probe()
-    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date_str: str):
+    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame):
         """
-        【V245.0 智能寻路版】战地验尸探针
-        - 核心升级: 解决了因指定日期为非交易日而导致验尸失败的问题。
-        - 新规则:
-          1. 尝试定位指定的 `probe_date`。
-          2. 如果找不到，不再直接放弃，而是自动向后搜索，直到找到第一个存在的交易日为止。
-          3. 在报告中明确告知指挥部，实际验尸的日期是哪个替代日期。
-        - 收益: 极大提升了探针的实战适应性和易用性，确保验尸任务总能成功执行。
+        【V291.0 改造版】
+        - 核心升级: 不再从 self._last_..._df 读取可能过时或错误的旧档案。
+                    而是直接接收由上级单位实时传递过来的、最新的、临时的评估报告。
         """
-        try:
-            # ▼▼▼【代码修改 V245.0】: 引入智能寻路逻辑 ▼▼▼
-            target_date = pd.to_datetime(probe_date_str, utc=True)
-            
-            # 智能寻路：如果指定日期不存在，则向后寻找最近的下一个有效交易日
-            if target_date not in df.index:
-                # 获取所有在指定日期之后（包含）的有效交易日索引
-                future_dates = df.index[df.index >= target_date]
-                if not future_dates.empty:
-                    actual_probe_date = future_dates[0]
-                    print(f"\n--- [战地验尸总署-情报] 指定日期 {probe_date_str} 非交易日，自动选用下一个交易日 {actual_probe_date.strftime('%Y-%m-%d')} 进行验尸 ---")
-                else:
-                    print(f"\n--- [战地验尸总署-警告] 未在数据中找到指定的验尸日期 {probe_date_str} 或任何后续日期 ---")
-                    return
-            else:
-                actual_probe_date = target_date
-            
-            print("\n" + "="*25 + " [战地验尸总署-探针报告] " + "="*25)
-            print(f"  [验尸目标]: {self._get_param_value(self.strategy_info.get('name'))} @ {actual_probe_date.strftime('%Y-%m-%d')}")
-            
-            # 提取当日的完整数据行
-            row = df.loc[actual_probe_date]
-            # ▲▲▲【代码修改 V245.0】▲▲▲
+        print(f"========================= [战地验尸总署-探针报告] =========================")
+        print(f"  [验尸目标]: {self.strategy_info.get('name', 'Unknown Strategy')} @ {probe_date}")
 
-            # --- 核心矛盾点审查 ---
-            print("\n--- [1. 核心矛盾点审查] ---")
-            risk_score = row.get('risk_score', 'N/A')
-            exit_signal_code = row.get('exit_signal_code', 'N/A')
-            alert_level, alert_reason = self._check_tactical_alerts(row, self.unified_config)
-            print(f"  - 当日风险分 (risk_score): {risk_score}")
-            print(f"  - 当日离场码 (exit_signal_code): {exit_signal_code}")
-            print(f"  - 当日预警级别 (alert_level from _check_tactical_alerts): {alert_level}")
-            print(f"  - 当日预警原因 (alert_reason from _check_tactical_alerts): {alert_reason}")
-
-            # --- 风险评估溯源 ---
-            print("\n--- [2. 风险评估溯源] ---")
-            if self._last_risk_details_df is not None and actual_probe_date in self._last_risk_details_df.index:
-                risk_components = self._last_risk_details_df.loc[actual_probe_date].dropna()
-                if not risk_components.empty:
-                    print("  - 风险分构成:")
-                    for k, v in risk_components.to_dict().items():
-                        print(f"    - {k}: {v}")
-                else:
-                    print("  - 当日无任何风险项被激活。")
-            else:
-                print("  - 未找到当日的风险构成详情。")
-
-            # --- 进攻评估溯源 ---
-            print("\n--- [3. 进攻评估溯源] ---")
-            entry_score = row.get('entry_score', 'N/A')
-            print(f"  - 当日进攻分 (entry_score): {entry_score}")
-            if self._last_score_details_df is not None and actual_probe_date in self._last_score_details_df.index:
-                score_components = self._last_score_details_df.loc[actual_probe_date].dropna()
-                if not score_components.empty:
-                    print("  - 进攻分构成:")
-                    for k, v in score_components.to_dict().items():
-                        print(f"    - {k}: {v}")
-                else:
-                    print("  - 当日无任何进攻项被激活。")
-            else:
-                print("  - 未找到当日的进攻构成详情。")
-            
-            print("\n" + "="*30 + " [验尸报告结束] " + "="*30 + "\n")
-
-        except Exception as e:
-            print(f"\n--- [战地验尸总署-严重错误] 探针在执行验尸过程中发生异常: {e} ---")
+        # 直接使用传递进来的 score_details 和 risk_details 进行验尸
+        self._probe_risk_score_details(risk_details, probe_date)
+        self._probe_entry_score_details(score_details, probe_date)
+        
+        print(f"============================== [验尸报告结束] ==============================")
 
     # ─> 专项调查组 (Special Investigation Group)
     #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
