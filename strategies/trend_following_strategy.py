@@ -226,7 +226,7 @@ class TrendFollowStrategy:
         if probe_date:
             print(f"--- [战地验尸] 启动，正在向验尸官直递 {probe_date} 的临时档案...")
             # 此处的 score_details_df 和 risk_details_df 也是被正确解包后的变量
-            self._deploy_field_coroner_probe(df, probe_date, score_details_df, risk_details_df)
+            self._deploy_field_coroner_probe(df, probe_date, score_details_df, risk_details_df, params)
 
         return df, self.atomic_states
 
