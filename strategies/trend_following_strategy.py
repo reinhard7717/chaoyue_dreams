@@ -1037,8 +1037,8 @@ class TrendFollowStrategy:
             states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
 
         # --- 4. 历史背景政审 (Historical Context Vetting) ---
-        # 如果今天的筹码集中度，比21天前恶化(变大)了超过20%，就视为一次成功的“长期派发”。
-        worsening_threshold = 1.2 # 恶化20%
+        # 如果今天的筹码集中度，比21天前恶化(变大)了超过5%，就视为一次成功的“长期派发”。
+        worsening_threshold = 1.05 # 恶化5%
         concentration_21d_ago = df[conc_col].shift(21)
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[conc_col] > (concentration_21d_ago * worsening_threshold)
 
