@@ -280,12 +280,12 @@ class TrendFollowStrategy:
         self.atomic_states.update(self._diagnose_chip_price_action(df))
         
         # 5. 市场结构总参谋部
-        self.atomic_states.update(self._diagnose_market_structure_states(df, params, self.atomic_states))
+        self.atomic_states.update(self._diagnose_market_structure_states(df, params))
         
         # --- 启动认知综合引擎，完成从“情报”到“认知”的最终升华 ---
         
         # 6. 认知综合引擎
-        self.atomic_states.update(self._run_cognitive_synthesis_engine(df, self.atomic_states))
+        self.atomic_states.update(self._run_cognitive_synthesis_engine(df))
 
         # --- 基于所有情报和认知，定义最终的战术触发事件 ---
         
@@ -447,7 +447,7 @@ class TrendFollowStrategy:
     #    └─> 作战计划推演室 (War Gaming Section)
     #        -> 核心职责: 将静态“蓝图”与实时战况结合，生成可执行的动态作战计划。
     #        -> 对应方法: _get_playbook_definitions()
-    def _generate_playbook_states(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series], atomic_states: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, Dict[str, pd.Series]]]:
+    def _generate_playbook_states(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, Dict[str, pd.Series]]]:
         """
         【V264.0 内存优化版】剧本情报生成中心
         - 核心重构: 彻底取代了旧的、基于 deepcopy 的 _get_playbook_definitions 方法。
@@ -1572,88 +1572,81 @@ class TrendFollowStrategy:
     # └─> 联合作战司令部 (Joint Operations Command)
     #    -> 核心职责: 融合多源情报，形成复合战略判断。
     #    ├─> 市场结构分析室: _diagnose_market_structure_states()
-    def _diagnose_market_structure_states(self, df: pd.DataFrame, params: dict, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _diagnose_market_structure_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V232.0 A股实战版 - 联合作战司令部】
-        - 核心职责: 作为“战局大脑”，融合各部门的原子情报，识别出A股市场最经典的五大战局形态。
-        - 作战思想: 聚焦于“趋势、筹码、资金”三位一体的共振与背离，为总司令部提供最高级别的战略洞察。
+        【V277.0 五重共振版 - 联合作战司令部】
+        - 核心升级:
+          1. 将 `is_dyn_trend_healthy` (动能) 重新引入S级主升浪的定义，与 `is_ma_bullish` (结构) 形成黄金搭档。
+          2. 清除了已被取代的、未被使用的 `is_chip_health_good` 变量，保持代码的绝对整洁。
+        - 新定义: S级主升浪现在是“结构+动能+筹码+资金+位置”的五重共振，是理论上最强的做多信号。
+        - 收益: S级信号的含金量达到顶峰，误报率被进一步压缩，代码逻辑更加严谨。
         """
-        print("        -> [联合作战司令部 V232.0 A股实战版] 启动，正在识别核心战局...")
+        print("        -> [联合作战司令部 V277.0 五重共振版] 启动，正在打造终极S级战局信号...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1：情报总览 (从各部门接收原子情报) ---
-        # [趋势部] 均线状态
-        is_ma_bullish = atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        is_ma_bearish = atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-        is_ma_converging = atomic_states.get('MA_STATE_CONVERGING', default_series)
-        is_price_above_long_ma = atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
-        is_recent_reversal = atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
-        is_ma_short_slope_positive = atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
-
-        # [动态部] 趋势动态
-        is_dyn_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
-        is_dyn_trend_weakening = atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
-
-        # [筹码部] 新旧筹码情报
-        is_chip_concentrating = atomic_states.get('CHIP_RAPID_CONCENTRATION', default_series)
-        is_chip_health_good = atomic_states.get('CHIP_HEALTH_GOOD', default_series)
-        is_chip_health_excellent = atomic_states.get('CHIP_HEALTH_EXCELLENT', default_series)
-        is_chip_health_deteriorating = atomic_states.get('CHIP_HEALTH_DETERIORATING', default_series)
-
-        # [资金部] 资金流情报
-        is_fund_flow_consensus_inflow = atomic_states.get('CHIP_FUND_FLOW_CONSENSUS_INFLOW', default_series)
-        is_fund_flow_consensus_outflow = atomic_states.get('CHIP_FUND_FLOW_CONSENSUS_OUTFLOW', default_series)
-        is_capital_bearish_divergence = atomic_states.get('RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE', default_series)
-
-        # [波动率部] 波动状态
-        is_vol_squeeze = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        # --- 步骤1：情报总览 (精确调阅，杜绝浪费) ---
+        is_ma_bullish = self.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        is_ma_bearish = self.atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
+        is_ma_converging = self.atomic_states.get('MA_STATE_CONVERGING', default_series)
+        is_price_above_long_ma = self.atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+        is_recent_reversal = self.atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
+        is_ma_short_slope_positive = self.atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
+        is_dyn_trend_healthy = self.atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series) # 【修正】重新启用此关键情报
+        is_dyn_trend_weakening = self.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
+        is_chip_concentrating = self.atomic_states.get('CHIP_RAPID_CONCENTRATION', default_series)
+        is_chip_health_excellent = self.atomic_states.get('CHIP_HEALTH_EXCELLENT', default_series)
+        is_chip_health_deteriorating = self.atomic_states.get('CHIP_HEALTH_DETERIORATING', default_series)
+        is_fund_flow_consensus_inflow = self.atomic_states.get('CHIP_FUND_FLOW_CONSENSUS_INFLOW', default_series)
+        is_fund_flow_consensus_outflow = self.atomic_states.get('CHIP_FUND_FLOW_CONSENSUS_OUTFLOW', default_series)
+        is_capital_bearish_divergence = self.atomic_states.get('RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE', default_series)
+        is_vol_squeeze = self.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
 
         # --- 步骤2：联合裁定 (识别五大经典战局) ---
 
-        # 【战局1: S级主升浪·黄金航道】 - 所有力量的完美共振
-        # 定义: 趋势健康加速 + 筹码结构良好 + 资金共识性流入
+        # 【战局1: S级主升浪·黄金航道】 - 五重力量的完美共振
+        # ▼▼▼【代码修改 V277.0】: 升级为“五重共振”定义 ▼▼▼
         structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = (
-            is_dyn_trend_healthy &
-            is_chip_health_good &
-            is_fund_flow_consensus_inflow
+            is_ma_bullish &                          # 1. 结构: 完美多头排列
+            is_dyn_trend_healthy &                   # 2. 动能: 趋势正在健康加速
+            is_chip_health_excellent &               # 3. 筹码: 王牌部队状态极佳
+            is_fund_flow_consensus_inflow &          # 4. 资金: 主力部队共识性流入
+            is_price_above_long_ma                   # 5. 位置: 占据战略制高点
         )
+        # ▲▲▲【代码修改 V277.0】▲▲▲
 
         # 【战局2: A级突破前夜·能量压缩】 - 大战前的寂静
-        # 定义: 波动率极度压缩 + 筹码正在加速集中 + 均线系统收敛
         structure_states['STRUCTURE_BREAKOUT_EVE_A'] = (
             is_vol_squeeze &
             is_chip_concentrating &
-            is_ma_converging
+            is_ma_converging &
+            is_price_above_long_ma
         )
 
         # 【战局3: B级反转初期·黎明微光】 - 从左侧到右侧的脆弱过渡
-        # 定义: 近期出现过反转信号 + 短期均线开始走平或向上
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = (
             is_recent_reversal &
             is_ma_short_slope_positive
         )
 
         # 【战局4: S级风险·顶部背离】 - 最危险的诱多陷阱
-        # 定义: 资金出现顶背离 或 筹码健康度持续恶化
         structure_states['STRUCTURE_TOPPING_DANGER_S'] = (
             is_capital_bearish_divergence |
             is_chip_health_deteriorating
         )
 
         # 【战局5: F级禁区·下跌通道】 - 绝对的回避区域
-        # 定义: 均线空头排列 + 趋势动能衰减 + 资金共识性流出
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = (
             is_ma_bearish &
             is_dyn_trend_weakening &
             is_fund_flow_consensus_outflow
         )
 
-        print("        -> [联合作战司令部 V232.0] 核心战局识别完成。")
+        print("        -> [联合作战司令部 V277.0] 核心战局定义升级完成。")
         return structure_states
 
     #    └─> 精英态势研判室: _diagnose_strategic_setups()
-    def _run_cognitive_synthesis_engine(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V257.0 一体化整编版】认知综合引擎 (Cognitive Synthesis Engine)
         - 核心重构: 将原有的四个独立认知层方法
@@ -1688,18 +1681,18 @@ class TrendFollowStrategy:
         # (原 _diagnose_battlefield_stability 的逻辑)
         print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
         # 假设这些原子状态已由其他司令部提供
-        is_cost_stable = atomic_states.get('CHIP_STATE_COST_STABLE', default_series)
-        is_winner_rate_stable = atomic_states.get('CHIP_STATE_WINNER_RATE_STABLE', default_series)
-        is_peak_stable = atomic_states.get('CHIP_STATE_PEAK_STABLE', default_series)
+        is_cost_stable = self.atomic_states.get('CHIP_STATE_COST_STABLE', default_series)
+        is_winner_rate_stable = self.atomic_states.get('CHIP_STATE_WINNER_RATE_STABLE', default_series)
+        is_peak_stable = self.atomic_states.get('CHIP_STATE_PEAK_STABLE', default_series)
         cognitive_states['BATTLEFIELD_STABLE'] = is_cost_stable & is_winner_rate_stable & is_peak_stable
 
         # --- 步骤3: 战略布局识别 (Strategic Setup Recognition) ---
         # (原 _diagnose_strategic_setups 的逻辑)
         print("          -> [认知链 3/4] 正在识别高价值战略布局...")
         # 假设这些原子状态已由其他司令部提供
-        is_highly_concentrated = atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        is_winner_rate_low = atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
-        is_cost_stable_or_rising = atomic_states.get('CHIP_STATE_COST_STABLE_OR_RISING', default_series)
+        is_highly_concentrated = self.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
+        is_winner_rate_low = self.atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
+        is_cost_stable_or_rising = self.atomic_states.get('CHIP_STATE_COST_STABLE_OR_RISING', default_series)
         # “深度吸筹”布局：筹码高度集中 + 场内获利盘极少 + 成本稳定或抬高
         cognitive_states['SETUP_DEEP_ACCUMULATION'] = is_highly_concentrated & is_winner_rate_low & is_cost_stable_or_rising
 
@@ -1710,9 +1703,9 @@ class TrendFollowStrategy:
         # 4.1 “锁仓拉升”进攻模式 (COGNITIVE_PATTERN_LOCK_CHIP_RALLY)
         # 情报来源:
         is_healthy_rally = cognitive_states.get('CONTEXT_HEALTHY_RALLY', default_series) # 来自本引擎步骤1
-        is_cost_rising_fast = atomic_states.get('CHIP_STATE_COST_RISING_FAST', default_series)
-        is_price_detached = atomic_states.get('CHIP_STATE_PRICE_DETACHED_FROM_COST', default_series)
-        is_chip_truly_concentrating = atomic_states.get('CHIP_STATE_TRUE_CONCENTRATION', default_series)
+        is_cost_rising_fast = self.atomic_states.get('CHIP_STATE_COST_RISING_FAST', default_series)
+        is_price_detached = self.atomic_states.get('CHIP_STATE_PRICE_DETACHED_FROM_COST', default_series)
+        is_chip_truly_concentrating = self.atomic_states.get('CHIP_STATE_TRUE_CONCENTRATION', default_series)
         # 最终裁决:
         cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & ~is_price_detached & is_chip_truly_concentrating
 
@@ -1720,9 +1713,9 @@ class TrendFollowStrategy:
         # 情报来源
         is_strong_rally = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) | cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series)
         # 派发证据1: 当天主力就在卖出 (即时证据)
-        is_main_force_distributing_today = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        is_main_force_distributing_today = self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
         # 派发证据2: 历史档案显示，过去一个月都在派发 (历史证据)
-        has_long_term_distribution_record = atomic_states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+        has_long_term_distribution_record = self.atomic_states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
 
         # 最终裁决: 只要是强力拉升，且满足以下任一派发证据，就判定为最高风险！
         # 这就覆盖了“边拉边出”和“拉高出货”两种最经典的派发模式。
