@@ -1884,24 +1884,32 @@ class TrendFollowStrategy:
 
     def _diagnose_price_action_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V250.0 新增】价格行为上下文识别模块 (战况识别滤镜)
-        - 核心职责: 将单纯的日内涨跌幅，升维为具有战术意义的“上下文”。
-        - 作战意图: 为“认知智能总署”提供决策依据，防止其在错误的情景下，
-                    套用不合适的战术模式，从根本上解决对“暴力突破”的误判。
+        【V253.0 自适应校准版】价格行为上下文识别模块 (战况识别滤镜)
+        - 核心升级: 废除了原有的二级(健康/暴力)分类，引入了更精细、更有弹性的三级上下文体系。
+        - 新规则:
+          1. 健康上涨 (Healthy Rally): 涨幅 2% ~ 4%。稳健的集团军推进。
+          2. 强力突破 (Strong Breakout): 涨幅 4% ~ 7%。装甲师的重点突破。
+          3. 爆炸性拉升 (Explosive Rally): 涨幅 > 7%。空天军的战略奇袭。
+        - 收益: 极大提升了系统对不同强度上涨行情的识别精度和定性能力，使战报更精确、可读。
         """
-        print("        -> [战况识别滤镜 V250.0] 启动，正在定义价格行为上下文...")
+        print("        -> [战况识别滤镜 V253.0] 启动，正在执行三级上下文精细化定义...")
         states = {}
         pct_change_col = 'pct_change_D'
         if pct_change_col not in df.columns:
             return states
 
-        # 定义“暴力突破”上下文：日涨幅超过6%
-        states['CONTEXT_VIOLENT_BREAKOUT_RALLY'] = df[pct_change_col] > 0.06
+        # ▼▼▼【代码修改 V253.0】: 建立三级上下文体系 ▼▼▼
+        # 1. 健康上涨 (2% < 涨幅 <= 4%)
+        states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.04)
         
-        # 定义“健康上涨”上下文：日涨幅在2%到6%之间
-        states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.06)
+        # 2. 强力突破 (4% < 涨幅 <= 7%) - 这将能正确识别 07-18 的 4.72%
+        states['CONTEXT_STRONG_BREAKOUT_RALLY'] = (df[pct_change_col] > 0.04) & (df[pct_change_col] <= 0.07)
 
-        print(f"        -> [战况识别滤镜 V250.0] 上下文定义完成。")
+        # 3. 爆炸性拉升 (涨幅 > 7%)
+        states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
+        # ▲▲▲【代码修改 V253.0】▲▲▲
+
+        print(f"        -> [战况识别滤镜 V253.0] 上下文定义完成。")
         return states
 
     # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 

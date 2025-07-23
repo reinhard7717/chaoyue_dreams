@@ -234,11 +234,12 @@
         "dynamic_scoring": {
           "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为。",
           "positive_signals": {
+            "CONTEXT_EXPLOSIVE_RALLY": 250,
             "DYN_TREND_HEALTHY_ACCELERATING": 200,
-            "CONTEXT_VIOLENT_BREAKOUT_RALLY": 180,
+            "CONTEXT_STRONG_BREAKOUT_RALLY": 180,
             "STRUCTURE_BREAKOUT_EVE_A": 150,
-            "CHIP_RAPID_CONCENTRATION": 80,
-            "CHIP_HEALTH_IMPROVING": 70
+            "CHIP_RAPID_CONCENTRATION": 70,
+            "CHIP_HEALTH_IMPROVING": 60
           }
         },
         "risk_scoring": {
