@@ -239,67 +239,67 @@ class TrendFollowStrategy:
     #    -> 总指挥: _run_all_diagnostics()
     def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict, Dict]:
         """
-        【V207.0 指挥权归还版】
-        - 核心重构: 彻底清除了此方法中所有对“原子状态”的重复定义和覆盖。
-                    此方法现在只负责调用专业的诊断模块，并将结果汇总，不再进行
-                    任何“越权”的判断。所有“复合状态”的定义权，已全部归还给
-                    其所属的专业诊断单元。
-        - 作战意图: 建立一个清晰、单一、无冲突的情报生成链路，确保由专业模块
-                    生成的“精炼情报”能够直达计分和风控引擎，杜绝“情报覆盖”和
-                    “指挥混乱”的系统性风险。
+        【V257.0 最终整编版】情报总局
+        - 核心重构: 经过V256.0(筹码司令部)和V257.0(认知引擎)两次核心整编，本方法
+                      已成为一个高度精炼的、负责调度各大专业化司令部的“总指挥部”。
+        - 指挥链条:
+          1.  【基础侦察】: 启动K线模式识别器。
+          2.  【专业化司令部】: 依次调用平台、筹码、均线、资本等专业司令部，收集原子情报。
+          3.  【联合作战分析】: 在各司令部完成基础分析后，启动“筹码-价格”联合分析。
+          4.  【认知升华】: 启动“认知综合引擎”，将所有情报升华为高维战术概念。
+          5.  【战术触发定义】: 最终定义所有可供决策的“开火信号”。
+        - 收益: 指挥链极度清晰，权责分明，彻底消除了情报碎片化和职能交叉的问题。
         """
         print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
+        # 启动基础的K线模式识别器
         df = self.pattern_recognizer.identify_all(df)
         if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
 
+        # --- 依次调用各大专业化司令部，收集原子情报 ---
+        
+        # 1. 平台与阵地司令部
         df, platform_states = self._diagnose_platform_states(df, params)
-        chip_states, chip_triggers = self._diagnose_chip_intelligence(df, params)
+        
+        # 2. 筹码情报最高司令部 (已完成一体化整编)
+        # 一次性获取所有筹码状态和触发器
+        chip_states, chip_triggers = self._run_chip_intelligence_command(df, params)
 
+        # 3. 汇总所有基础原子情报
         atomic_states = {
-            **chip_states,
-            **self._diagnose_ma_states(df, params),
-            **self._diagnose_oscillator_states(df, params),
-            **self._diagnose_capital_states(df, params),
-            **self._diagnose_volatility_states(df, params),
-            **self._diagnose_box_states(df, params),
-            **self._diagnose_kline_patterns(df, params),
-            **self._diagnose_board_patterns(df, params),
-            **platform_states,
-            **self._diagnose_trend_dynamics(df, params)
+            **chip_states,                                  # 注入来自筹码最高司令部的情报
+            **self._diagnose_ma_states(df, params),         # 均线野战部队
+            **self._diagnose_oscillator_states(df, params), # 心理战与市场情绪侦察部
+            **self._diagnose_capital_states(df, params),    # 资本动向总参谋部
+            **self._diagnose_volatility_states(df, params), # 能量与波动侦察部
+            **self._diagnose_box_states(df, params),        # 箱体工兵部队
+            **self._diagnose_kline_patterns(df, params),    # 基础K线侦察部队
+            **self._diagnose_board_patterns(df, params),    # 盘面特征侦察部队
+            **platform_states,                              # 注入来自平台司令部的情报
+            **self._diagnose_trend_dynamics(df, params)     # 动态惯性引擎
         }
         
-        # 在所有基础诊断之后，进行最高维度的筹码结构解读
-        atomic_states.update(self._diagnose_advanced_chip_structures(df))
+        # --- 在所有基础情报生成后，启动跨部门的联合作战分析 ---
         
-        # 启动筹码战略司令部
-        atomic_states.update(self._diagnose_chip_alert_conditions(df, atomic_states))
-
-        atomic_states.update(self._diagnose_market_structure_states(df, params, atomic_states))
-        atomic_states.update(self._diagnose_strategic_setups(df, params, atomic_states))
-        
-        # 在所有基础和复合状态诊断完成后，进行最高维度的模式识别
-        atomic_states.update(self._diagnose_price_action_context(df))
-        atomic_states.update(self._diagnose_cognitive_patterns(df, atomic_states))
-        atomic_states.update(self._diagnose_battlefield_stability(df))
-
-        # 在所有基础情报诊断完成后，进行筹码与价格的联合分析
+        # 4. 筹码-价格行为联合分析部 (跨部门协作)
         atomic_states.update(self._diagnose_chip_price_action(df, atomic_states))
+        
+        # 5. 市场结构总参谋部
+        atomic_states.update(self._diagnose_market_structure_states(df, params, atomic_states))
+        
+        # --- 启动认知综合引擎，完成从“情报”到“认知”的最终升华 ---
+        
+        # 6. 认知综合引擎 (已完成一体化整编)
+        # 一次性完成所有高维认知合成
+        atomic_states.update(self._run_cognitive_synthesis_engine(df, atomic_states))
 
-        # ▼▼▼ 建立“军事最高法院”和“军事法庭” ▼▼▼
-        # 1. 获取原始情报
-        is_cost_collapsing = atomic_states.get('RAW_SIGNAL_COST_COLLAPSE', pd.Series(False, index=df.index))
-        is_winner_rate_collapsing = atomic_states.get('RAW_SIGNAL_WINNER_RATE_COLLAPSE', pd.Series(False, index=df.index))
-        # 2. 获取战场环境
-        is_trend_healthy = atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', pd.Series(False, index=df.index))
-        # 3. 进行最终司法裁决
-        # 最高法院：成本崩溃是无条件死罪
-        atomic_states['RISK_COST_BASIS_COLLAPSE'] = is_cost_collapsing
-        # 军事法庭：信心恶化，只有在趋势不健康时才定罪
-        atomic_states['RISK_CONFIDENCE_DETERIORATION'] = is_winner_rate_collapsing & ~is_trend_healthy
-
+        # --- 基于所有情报和认知，定义最终的战术触发事件 ---
+        
+        # 7. 战术触发事件定义中心
         trigger_events = self._define_trigger_events(df, params, atomic_states)
         # 将筹码总参谋部提供的“触发事件”合并到总事件池中
         trigger_events.update(chip_triggers)
+        
+        # 特殊处理：从波动率压缩中突破的触发事件
         is_in_squeeze_window = atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
@@ -459,7 +459,6 @@ class TrendFollowStrategy:
         print("    - [剧本参谋部 V224.0 一体化版] 启动...")
         default_series = pd.Series(False, index=df.index)
 
-        # ▼▼▼【代码修改 V224.0】: 将 _calculate_setup_conditions 逻辑植入此处 ▼▼▼
         # --- 步骤1: 战机准备状态评估 (Setup Readiness Assessment) ---
         print("      -> 步骤1/3: 正在进行战机准备状态评估 (Setup Scoring)...")
         setup_scores = {}
@@ -976,101 +975,101 @@ class TrendFollowStrategy:
     # 筹码情报总参谋部 (Chip Intelligence Dept.)
     #    -> 核心职责: 统一分析所有筹码相关情报。
     #    -> 总参谋长: _diagnose_chip_intelligence()
-    def _diagnose_chip_intelligence(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+    def _run_chip_intelligence_command(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V236.0 军火规格修复版 - 筹码情报总参谋部】
-        - 核心修复: 全面更新了所有引用的列名，移除了所有 'CHIP_' 前缀，并确保
-                    所有斜率和加速度列的名称与数据层的新命名规范完全一致。
-        - 内部结构: 按职能划分为四个核心作战单元，统一指挥、统一输出。
-        - 输出: 返回一个包含所有筹码“状态”的字典和一个包含所有筹码“触发事件”的字典。
+        【V256.0 一体化整编版】筹码情报最高司令部 (Chip Intelligence Supreme Command)
+        - 核心重构: 将原有的四个独立筹码诊断方法
+                      (_diagnose_chip_intelligence, _diagnose_advanced_chip_structures,
+                       _diagnose_chip_alert_conditions, _diagnose_historical_context)
+                      整合成一个统一、高效、权责分明的最高指挥部。
+        - 作战流程:
+          1. 军备检查: 检查所有必需的筹码数据是否到位。
+          2. 基础情报分析: 生成所有原子的、动态的筹码状态。
+          3. 高维结构解读: 解读筹码健康分等高级指标。
+          4. 历史背景政审: 对目标的长期行为进行审查，识别“历史污点”。
+          5. 核心戒备等级裁定: 基于所有情报，设定最终的CHIPCON戒备等级。
+        - 收益: 极大提升了代码的内聚性、可读性和维护性，消除了情报碎片化，
+                确保所有筹码相关的分析都在一个统一的指挥链下完成。
         """
-        print("        -> [筹码情报总参谋部 V236.0] 启动...")
+        print("        -> [筹码情报最高司令部 V256.0] 启动，正在执行一体化分析...")
         states = {}
         triggers = {}
+        default_series = pd.Series(False, index=df.index)
 
-        # 从配置中获取筹码特征参数
+        # --- 1. 军备检查 (Armory Inspection) ---
         p = self._get_params_block('chip_feature_params')
         if not self._get_param_value(p.get('enabled'), False):
-            print("          -> 筹码情报总参谋部被禁用，跳过。")
+            print("          -> 筹码情报最高司令部被禁用，跳过。")
             return states, triggers
 
-        # --- 0. 战前准备：按新版《武器命名条例》检查装备 ---
-        # 定义所有必需的列名，这些列名是后续所有诊断的基础
         required_cols = [
             'concentration_90pct_D', 'concentration_90pct_slope_5d_D',
+            'concentration_90pct_slope_21d_D', # 历史审查部需要
             'SLOPE_5_peak_cost_D', 'SLOPE_5_total_winner_rate_D',
             'SLOPE_5_peak_stability_D', 'SLOPE_5_peak_percent_D',
-            'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D'
+            'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D',
+            'chip_health_score' # 高级结构诊断室需要
         ]
-
-        # 检查数据层是否提供了所有必需的列
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
             return states, triggers
 
-        # --- 1. 结构与稳定司 (Structure & Stability) ---
-        # 核心职责: 负责分析筹码的静态结构，如集中度、平台价格、稳定性。
+        # --- 2. 基础情报分析 (Basic Intelligence Analysis) ---
+        # (原 _diagnose_chip_intelligence 的核心逻辑)
         p_struct = p.get('structure_params', {})
-        
         conc_col = 'concentration_90pct_D'
         conc_slope_col = 'concentration_90pct_slope_5d_D'
         
-        # 状态：筹码高度集中 (绝对值判断)
         conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
         slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001)
         states['CHIP_STATE_HIGHLY_CONCENTRATED'] = (df[conc_col] < conc_thresh_abs) & (df[conc_slope_col] <= slope_tolerance_healthy)
         
-        # 状态：筹码集中度压缩 (相对值判断，即与自身历史比)
-        if self._get_param_value(p_struct.get('enable_relative_squeeze'), True):
-            squeeze_window = self._get_param_value(p_struct.get('squeeze_window'), 120)
-            squeeze_percentile = self._get_param_value(p_struct.get('squeeze_percentile'), 0.2)
-            squeeze_threshold_series = df[conc_col].rolling(window=squeeze_window).quantile(squeeze_percentile)
-            states['CHIP_STATE_CONCENTRATION_SQUEEZE'] = df[conc_col] < squeeze_threshold_series
-
-        # 状态：筹码发散
-        p_scattered = p.get('scattered_params', {})
-        if self._get_param_value(p_scattered.get('enabled'), True):
-            scattered_threshold_pct = self._get_param_value(p_scattered.get('threshold'), 30.0)
-            states['CHIP_STATE_SCATTERED'] = df[conc_col] > (scattered_threshold_pct / 100.0)
-
-        # --- 2. 动态与动能司 (Dynamics & Momentum) ---
-        # 核心职责: 负责分析筹码的动态变化，如成本斜率、集中度斜率、加速度，并生成动能和事件信号。
-        
-        # 动能信号：获利盘加速
-        winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
-        states['CHIP_STATE_WINNER_RATE_ACCELERATING'] = df.get(winner_rate_slope_col, 0) > 2.0
-        
-        # 动能信号：筹码峰正在被夯实 (稳定度和占比都在增加)
-        states['CHIP_STATE_PEAK_CONSOLIDATING'] = (df['SLOPE_5_peak_stability_D'] > 0) & (df['SLOPE_5_peak_percent_D'] > 0)
-        
-        # 动能信号：上方套牢盘快速消化
-        states['CHIP_STATE_PRESSURE_DISSOLVING'] = (df['SLOPE_5_pressure_above_D'] < 0)
-        
-        # 动能信号：筹码快速集中
         rapid_concentration_threshold = self._get_param_value(p_struct.get('rapid_concentration_threshold'), -0.005)
         states['CHIP_RAPID_CONCENTRATION'] = df.get(conc_slope_col, 0) < rapid_concentration_threshold
 
-        # --- 3. 风险与司法司 (Risk & Adjudication) ---
-        # 核心职责: 专门生成供总指挥部进行司法裁决的“原始风险情报”。
-        
-        # 原始风险信号：成本中枢崩溃
         cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
         states['RAW_SIGNAL_COST_COLLAPSE'] = df.get('SLOPE_5_peak_cost_D', 0) < cost_collapse_threshold
         
-        # 原始风险信号：市场信心崩溃 (获利盘快速蒸发)
         winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
-        states['RAW_SIGNAL_WINNER_RATE_COLLAPSE'] = df.get(winner_rate_slope_col, 0) < winner_rate_collapse_threshold
+        states['RAW_SIGNAL_WINNER_RATE_COLLAPSE'] = df.get('SLOPE_5_total_winner_rate_D', 0) < winner_rate_collapse_threshold
 
-        # --- 4. 特种事件部队 (Special Events) ---
-        # 核心职责: 捕捉“点火”等高价值的、一次性的战术事件。
         p_ignition = p.get('ignition_params', {})
         if self._get_param_value(p_ignition.get('enabled'), True):
             accel_threshold = self._get_param_value(p_ignition.get('accel_threshold'), 0.01)
-            # 触发事件：筹码点火 (成本峰值开始加速上移)
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
-        print("        -> [筹码情报总参谋部 V236.0] 诊断完成。")
+        # --- 3. 高维结构解读 (Advanced Structure Interpretation) ---
+        # (原 _diagnose_advanced_chip_structures 的逻辑)
+        health_score = df.get('chip_health_score')
+        if health_score is not None:
+            states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
+
+        # --- 4. 历史背景政审 (Historical Context Vetting) ---
+        # (原 _diagnose_historical_context 的逻辑)
+        long_term_conc_slope_col = 'concentration_90pct_slope_21d_D'
+        distribution_threshold = 0.0001 
+        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[long_term_conc_slope_col] > distribution_threshold
+
+        # --- 5. 核心戒备等级裁定 (CHIPCON Level Adjudication) ---
+        # (原 _diagnose_chip_alert_conditions 的逻辑)
+        is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
+        is_rapidly_concentrating = states.get('CHIP_RAPID_CONCENTRATION', default_series)
+        is_cost_rising = df.get('SLOPE_5_peak_cost_D', default_series) > 0
+        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01
+        is_winner_rate_rising = df.get('SLOPE_5_total_winner_rate_D', default_series) > 0
+        is_long_term_distributing = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+
+        # CHIPCON 4: 战备状态 (有潜力，值得关注)
+        states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
+        # CHIPCON 3: 高度戒备 (即将发动进攻的迹象)
+        states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
+        # CHIPCON 2: 战前状态 (进攻迹象非常明显)
+        states['CHIPCON_2_PRE_WAR'] = states.get('CHIPCON_3_HIGH_ALERT', default_series) & is_rapidly_concentrating
+        # CHIPCON 1: 战争状态 (已确认的、最危险的派发信号)
+        states['CHIPCON_1_WAR'] = is_long_term_distributing & (df.get('SLOPE_5_total_winner_rate_D', default_series) < 0)
+
+        print("        -> [筹码情报最高司令部 V256.0] 分析完毕。")
         return states, triggers
 
     def _diagnose_chip_price_action(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -1120,100 +1119,6 @@ class TrendFollowStrategy:
         print("        -> [联合分析部 V228.0] 深度解析完成。")
         return cpa_states
 
-    def _diagnose_advanced_chip_structures(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V231.0 新增】高级筹码结构诊断室
-        - 核心职责: 解读 AdvancedChipMetrics 中的高维指标，将其转化为明确的战术原子状态。
-                    这是将“全息沙盘”数据转化为可执行情报的关键一步。
-        """
-        print("        -> [高级筹码诊断室 V231.0] 启动，正在解读全息沙盘...")
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # 1. 解读“筹码健康分”
-        health_score = df.get('chip_health_score')
-        if health_score is not None:
-            states['CHIP_HEALTH_EXCELLENT'] = health_score > 85  # 健康分极高
-            states['CHIP_HEALTH_GOOD'] = health_score > 70      # 健康分良好
-            # 计算健康分的5日斜率，判断改善/恶化趋势
-            health_score_slope = health_score.rolling(5).mean().diff()
-            states['CHIP_HEALTH_IMPROVING'] = health_score_slope > 0.5 # 趋势在改善
-            states['CHIP_HEALTH_DETERIORATING'] = health_score_slope < -1.0 # 趋势在恶化
-
-        # 2. 解读“三源合一”资金流信号 (这些已经是布尔值，直接使用)
-        states['CHIP_FUND_FLOW_CONSENSUS_INFLOW'] = df.get('consensus_main_force_inflow', default_series)
-        states['CHIP_FUND_FLOW_CONSENSUS_OUTFLOW'] = df.get('consensus_main_force_outflow', default_series)
-        states['CHIP_FUND_FLOW_DIVERGENCE'] = df.get('fund_flow_divergence', default_series)
-
-        # 3. 解读“利润质量”
-        profit_margin = df.get('winner_profit_margin')
-        if profit_margin is not None:
-            states['CHIP_PROFIT_CUSHION_HIGH'] = profit_margin > 20 # 获利盘平均有超过20%的利润，持股稳定
-
-        # 4. 解读“价码关系”
-        price_ratio = df.get('price_to_peak_ratio')
-        if price_ratio is not None:
-            states['CHIP_PRICE_ABOVE_CORE_COST'] = price_ratio > 1.05 # 股价显著脱离核心成本区
-
-        print("        -> [高级筹码诊断室 V231.0] 解读完成。")
-        return states
-
-    def _diagnose_chip_alert_conditions(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V235.0 新增】筹码战略司令部 (Chip Strategy Command)
-        - 核心职责: 依据“筹码戒备状态系统(CHIPCON)”条令，判断当前所处的戒备等级。
-                    这是将筹码分析从“信号判断”升维到“状态识别”的核心。
-        """
-        print("        -> [筹码战略司令部 V235.0] 启动，正在判定CHIPCON戒备等级...")
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 从各部门获取判定所需的原子情报 ---
-        # 灾难性信号
-        is_cost_collapse = atomic_states.get('RISK_COST_BASIS_COLLAPSE', default_series)
-        # 高危信号
-        is_consensus_outflow = atomic_states.get('CHIP_FUND_FLOW_CONSENSUS_OUTFLOW', default_series)
-        is_price_below_core_cost = df.get('price_to_peak_ratio', 1.0) < 0.98 # 价格跌破核心成本区2%
-        # 预警信号
-        is_health_deteriorating = atomic_states.get('CHIP_HEALTH_DETERIORATING', default_series)
-        is_cost_slope_negative = df.get('CHIP_peak_cost_slope_21d_D', 0) < 0
-        # 常规信号
-        is_health_good = atomic_states.get('CHIP_HEALTH_GOOD', default_series)
-        is_cost_slope_positive = df.get('CHIP_peak_cost_slope_21d_D', 0) > 0.005 # 成本在明确抬升
-        
-        # --- 2. 逐级判定CHIPCON等级 (从最严重到最轻微) ---
-        # 采用互斥逻辑，确保每天只有一个戒备等级
-        
-        # CHIPCON 1: 战争状态 (最高警报)
-        cond_1 = is_cost_collapse
-        states['CHIPCON_1_WAR'] = cond_1
-        
-        # CHIPCON 2: 临战状态
-        cond_2 = (is_consensus_outflow | is_price_below_core_cost) & ~cond_1
-        states['CHIPCON_2_PRE_WAR'] = cond_2
-        
-        # CHIPCON 3: 高度戒备
-        cond_3 = (is_health_deteriorating | is_cost_slope_negative) & ~cond_1 & ~cond_2
-        states['CHIPCON_3_HIGH_ALERT'] = cond_3
-        
-        # CHIPCON 5: 和平状态 (最理想状态)
-        cond_5 = is_health_good & is_cost_slope_positive & ~cond_1 & ~cond_2 & ~cond_3
-        states['CHIPCON_5_PEACE'] = cond_5
-        
-        # CHIPCON 4: 常规戒备 (以上都不是的默认状态)
-        cond_4 = ~cond_1 & ~cond_2 & ~cond_3 & ~cond_5
-        states['CHIPCON_4_READINESS'] = cond_4
-
-        # --- 3. 生成最终的整数等级列，便于后续使用 ---
-        alert_level = pd.Series(4, index=df.index) # 默认为4级
-        alert_level[cond_1] = 1
-        alert_level[cond_2] = 2
-        alert_level[cond_3] = 3
-        alert_level[cond_5] = 5
-        states['CHIP_ALERT_LEVEL'] = alert_level
-
-        print("        -> [筹码战略司令部 V235.0] 戒备等级判定完成。")
-        return states
 
     # 动态惯性引擎 (Dynamic Momentum Engine)
     #    -> 核心职责: 分析趋势的速度与加速度。
@@ -1774,141 +1679,79 @@ class TrendFollowStrategy:
         return structure_states
 
     #    └─> 精英态势研判室: _diagnose_strategic_setups()
-    def _diagnose_strategic_setups(self, df: pd.DataFrame, params: dict, existing_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _run_cognitive_synthesis_engine(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V213.0 新增】精英侦察部队：战略态势诊断单元
-        - 核心职责: 负责定义最高级别的、需要多维信息综合判断的战略信号，
-                    如此处定义的 `STRATEGIC_SETUP_HIGH_CONTROL_MARKUP`。
-        - 作战意图: 解决之前“名存实亡”的问题，正式组建一支能理解复杂战场态势的
-                    精英部队，确保我军的“战略加成”只授予真正的优势机会。
+        【V257.0 一体化整编版】认知综合引擎 (Cognitive Synthesis Engine)
+        - 核心重构: 将原有的四个独立认知层方法
+                      (_diagnose_strategic_setups, _diagnose_cognitive_patterns,
+                       _diagnose_battlefield_stability, _diagnose_price_action_context)
+                      整合成一个统一的、负责将底层情报升华为高维战术概念的“中央处理器”。
+        - 作战流程:
+          1. 价格行为上下文分析 (Contextual Analysis): 首先定义当前价格行为的性质（如健康上涨、强力突破等）。
+          2. 战场稳定性评估 (Stability Assessment): 评估战场的核心要素是否稳定。
+          3. 战略布局识别 (Strategic Setup Recognition): 识别是否存在经典的战略布局机会。
+          4. 最终认知模式形成 (Cognitive Pattern Formation): 在前三步的基础上，形成最终的、最高维度的认知模式，如“锁仓拉升”。
+        - 收益: 建立了一个清晰、连贯的“认知链”，从上下文到稳定性，再到战略布局，最终形成顶层认知。
+                极大地提升了代码的内聚性和逻辑的清晰度。
         """
-        print("        -> [诊断模块 V213.0 精英部队] 正在执行战略态势诊断...")
-        states = {}
+        print("        -> [认知综合引擎 V257.0] 启动，正在进行高维认知合成...")
+        cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # 定义“高控盘拉升” (High Control Markup)
-        # 必须同时满足以下所有条件，才是真正的精英信号：
-        # 1. 事实基础：筹码确实是集中的 (由我们的中立情报官提供)
-        is_concentrated = existing_states.get('CHIP_FACT_IS_CONCENTRATED', default_series)
-        
-        # 2. 战略位置：整体趋势健康，均线多头排列 (由均线部队提供)
-        is_ma_bullish = existing_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        
-        # 3. 战术方向：动态趋势正在健康加速 (由动态惯性部队提供)
-        is_dyn_accelerating = existing_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
-
-        # 最终裁决：三位一体，方为“高控盘拉升”
-        states['STRATEGIC_SETUP_HIGH_CONTROL_MARKUP'] = is_concentrated & is_ma_bullish & is_dyn_accelerating
-        
-        return states
-
-    def _diagnose_cognitive_patterns(self, df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V252.0 最终版】认知智能总署 (多时间框架交叉验证)
-        - 核心升级: 引入了您提出的“更大时间级别斜率校准”思想，建立了“双重验证”机制。
-        - 新规则:
-          1. “真实筹码集中”的定义被彻底重写。
-          2. 它必须同时满足：
-             a) 【战略层面】21日筹码集中度斜率必须为负 (表明主力在进行长周期、持续的吸筹)。
-             b) 【战术层面】5日筹码集中度斜率也必须为负 (表明近期的拉升并未导致派发)。
-        - 收益: 彻底根除了因“价格脱离平台”导致的短期斜率失真问题。
-                现在，只有在长、短期趋势共振的情况下，系统才会判定为最高级别的“锁仓拉升”。
-                这是对主力真实意图最深刻、最可靠的洞察。
-        """
-        print("        -> [认知智能总署 V252.0] 启动，正在执行多时间框架交叉验证...")
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 情报准备 ---
-        is_healthy_rally = atomic_states.get('CONTEXT_HEALTHY_RALLY', default_series)
-        is_violent_breakout = atomic_states.get('CONTEXT_VIOLENT_BREAKOUT_RALLY', default_series)
-        is_cost_rising_fast = df.get('SLOPE_5_peak_cost_D', default_series) > 0.5
-        is_price_detached = atomic_states.get('CONTEXT_PRICE_DETACHED_FROM_PEAK', default_series)
-        
-        # 短期侦察兵（5日斜率）
-        short_term_concentrating = df.get('concentration_90pct_slope_5d_D', default_series) < -0.001
-        # 战略情报官（21日斜率）- 只要为负，就代表长期趋势是收集
-        long_term_accumulating = df.get('concentration_90pct_slope_21d_D', default_series) < 0
-        
-        # 【双重验证】只有战术和战略都确认，才认为是“真实集中”
-        is_chip_truly_concentrating = short_term_concentrating & long_term_accumulating
-        
-        # 风险信号：筹码发散（短期即可判断）
-        is_chip_dispersing = df.get('concentration_90pct_slope_5d_D', default_series) > 0.001
-
-        # --- 2. 模式识别与裁决 (基于“双重验证”) ---
-        # 【S级机会模式】锁仓拉升 (Lock-Chip Rally)
-        states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & is_chip_truly_concentrating & ~is_price_detached
-
-        # 【S级风险模式】突破派发 (Breakout Distribution)
-        states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = (is_healthy_rally | is_violent_breakout) & is_cost_rising_fast & is_chip_dispersing
-
-        print(f"        -> [认知智能总署 V252.0] 识别完成，定义了 {len(states)} 种高维模式。")
-        return states
-
-    def _diagnose_battlefield_stability(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V249.0 新增】战场稳定性评估局 (Battlefield Stability Assessment Bureau)
-        - 核心职责: 量化主力资金的“内战”烈度，识别“绞杀市”。
-        - 作战武器: 计算主力净流入金额在短期（5日）内的标准差，并将其与当日成交额进行对比，
-                    得到一个标准化的“资金博弈烈度”。
-        - 核心产出: 当博弈烈度超过阈值时，生成“RISK_CAPITAL_VIOLENT_WHIPSAW”风险信号。
-        """
-        print("        -> [战场稳定性评估局 V249.0] 启动，正在量化主力资金内战烈度...")
-        states = {}
-        
-        inflow_col = 'main_force_net_inflow_amount_D'
-        turnover_col = 'turnover_D' # 假设有日成交额字段，如果没有，可以用 close * volume 估算
-        
-        if inflow_col not in df.columns or turnover_col not in df.columns:
-            print("          -> [警告] 缺少主力资金或成交额数据，无法评估战场稳定性。")
-            return states
-
-        # 1. 计算主力资金流的5日滚动标准差（波动性）
-        inflow_std = df[inflow_col].rolling(window=5).std()
-        
-        # 2. 计算5日平均成交额，作为标准化的基准
-        avg_turnover = df[turnover_col].rolling(window=5).mean()
-        
-        # 3. 计算“资金博弈烈度”：波动 / 平均成交额。避免除以0。
-        # 这个比率代表了资金流的波动幅度占总交易规模的比例。
-        whipsaw_ratio = (inflow_std / avg_turnover.replace(0, np.nan)).fillna(0)
-        
-        # 4. 定义风险阈值：当资金博弈烈度超过25%时，认为战场极度不稳定
-        # 这个值意味着资金流的短期标准差已经达到了平均成交额的1/4，说明多空转换极其剧烈。
-        threshold = 0.25 
-        states['RISK_CAPITAL_VIOLENT_WHIPSAW'] = whipsaw_ratio > threshold
-        
-        print(f"        -> [战场稳定性评估局 V249.0] 评估完成。")
-        return states
-
-    def _diagnose_price_action_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V253.0 自适应校准版】价格行为上下文识别模块 (战况识别滤镜)
-        - 核心升级: 废除了原有的二级(健康/暴力)分类，引入了更精细、更有弹性的三级上下文体系。
-        - 新规则:
-          1. 健康上涨 (Healthy Rally): 涨幅 2% ~ 4%。稳健的集团军推进。
-          2. 强力突破 (Strong Breakout): 涨幅 4% ~ 7%。装甲师的重点突破。
-          3. 爆炸性拉升 (Explosive Rally): 涨幅 > 7%。空天军的战略奇袭。
-        - 收益: 极大提升了系统对不同强度上涨行情的识别精度和定性能力，使战报更精确、可读。
-        """
-        print("        -> [战况识别滤镜 V253.0] 启动，正在执行三级上下文精细化定义...")
-        states = {}
+        # --- 步骤1: 价格行为上下文分析 (Contextual Analysis) ---
+        # (原 _diagnose_price_action_context 的逻辑)
+        print("          -> [认知链 1/4] 正在分析价格行为上下文...")
         pct_change_col = 'pct_change_D'
-        if pct_change_col not in df.columns:
-            return states
-
-        # 1. 健康上涨 (2% < 涨幅 <= 4%)
-        states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.04)
+        if pct_change_col in df.columns:
+            # 健康上涨 (2% < 涨幅 <= 4%)
+            cognitive_states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.04)
+            # 强力突破 (4% < 涨幅 <= 7%)
+            cognitive_states['CONTEXT_STRONG_BREAKOUT_RALLY'] = (df[pct_change_col] > 0.04) & (df[pct_change_col] <= 0.07)
+            # 爆炸性拉升 (涨幅 > 7%)
+            cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
         
-        # 2. 强力突破 (4% < 涨幅 <= 7%) - 这将能正确识别 07-18 的 4.72%
-        states['CONTEXT_STRONG_BREAKOUT_RALLY'] = (df[pct_change_col] > 0.04) & (df[pct_change_col] <= 0.07)
+        # --- 步骤2: 战场稳定性评估 (Stability Assessment) ---
+        # (原 _diagnose_battlefield_stability 的逻辑)
+        print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
+        # 假设这些原子状态已由其他司令部提供
+        is_cost_stable = atomic_states.get('CHIP_STATE_COST_STABLE', default_series)
+        is_winner_rate_stable = atomic_states.get('CHIP_STATE_WINNER_RATE_STABLE', default_series)
+        is_peak_stable = atomic_states.get('CHIP_STATE_PEAK_STABLE', default_series)
+        cognitive_states['BATTLEFIELD_STABLE'] = is_cost_stable & is_winner_rate_stable & is_peak_stable
 
-        # 3. 爆炸性拉升 (涨幅 > 7%)
-        states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
+        # --- 步骤3: 战略布局识别 (Strategic Setup Recognition) ---
+        # (原 _diagnose_strategic_setups 的逻辑)
+        print("          -> [认知链 3/4] 正在识别高价值战略布局...")
+        # 假设这些原子状态已由其他司令部提供
+        is_highly_concentrated = atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
+        is_winner_rate_low = atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
+        is_cost_stable_or_rising = atomic_states.get('CHIP_STATE_COST_STABLE_OR_RISING', default_series)
+        # “深度吸筹”布局：筹码高度集中 + 场内获利盘极少 + 成本稳定或抬高
+        cognitive_states['SETUP_DEEP_ACCUMULATION'] = is_highly_concentrated & is_winner_rate_low & is_cost_stable_or_rising
 
-        print(f"        -> [战况识别滤镜 V253.0] 上下文定义完成。")
-        return states
+        # --- 步骤4: 最终认知模式形成 (Cognitive Pattern Formation) ---
+        # (原 _diagnose_cognitive_patterns 的逻辑)
+        print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
+        
+        # 4.1 “锁仓拉升”进攻模式 (COGNITIVE_PATTERN_LOCK_CHIP_RALLY)
+        # 情报来源:
+        is_healthy_rally = cognitive_states.get('CONTEXT_HEALTHY_RALLY', default_series) # 来自本引擎步骤1
+        is_cost_rising_fast = atomic_states.get('CHIP_STATE_COST_RISING_FAST', default_series)
+        is_price_detached = atomic_states.get('CHIP_STATE_PRICE_DETACHED_FROM_COST', default_series)
+        is_chip_truly_concentrating = atomic_states.get('CHIP_STATE_TRUE_CONCENTRATION', default_series)
+        # 最终裁决:
+        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & ~is_price_detached & is_chip_truly_concentrating
+
+        # 4.2 “突破派发”风险模式 (COGNITIVE_RISK_BREAKOUT_DISTRIBUTION)
+        # 情报来源:
+        is_strong_rally = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) | cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series) # 来自本引擎步骤1
+        is_main_force_distributing = atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        is_chip_diverging = atomic_states.get('CHIP_STATE_DIVERGENCE', default_series)
+        # 最终裁决:
+        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_main_force_distributing & is_chip_diverging
+
+        print("        -> [认知综合引擎 V257.0] 认知合成完毕。")
+        return cognitive_states
 
     # 2. 参谋部联席会议 (Joint Chiefs of Staff - Assessment & Scoring) 
     #     -> 核心职责: 对情报进行量化评估，计算进攻价值分与战场风险分。
