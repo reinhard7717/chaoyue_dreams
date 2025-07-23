@@ -189,17 +189,14 @@ class TrendFollowStrategy:
     # -> 核心入口: apply_strategy()
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V292.0 开箱验货版】
-        - 核心修复: 解决了因未对“最高作战指挥部”返回的元组(tuple)进行解包，
-                    而导致下游模块接收到错误数据类型并崩溃的致命问题。
-        - 新军事条例 (开箱验货):
-          1. 在接收到 `_run_assessment_and_decision_engine` 返回的情报包裹后，
-             必须立即进行解包，将 df, score_details_df, risk_details_df 
-             分别赋值给正确的变量。
-        - 收益: 确保了指挥链上每一环接收到的都是正确格式的情报，彻底根除了此类TypeError。
+        【V296.0 验尸权移交版】
+        - 核心重构: 彻底移除了本部门的“战地验尸”指挥权。
+                    验尸操作现在被嵌入到“最高作战指挥部”内部，以确保能访问到所有
+                    未被销毁的原始情报。
+        - 返回值简化: _run_assessment_and_decision_engine 现在只返回一个 df。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V292.0 开箱验货版】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V296.0 验尸权移交版】 ======")
         print("======================================================================")
 
         if df is None or df.empty: return pd.DataFrame(), {}
@@ -211,22 +208,15 @@ class TrendFollowStrategy:
 
         # --- 步骤2：最高作战指挥部 (Assessment & Decision) ---
         print("--- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
-        df, score_details_df, risk_details_df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+        # ▼▼▼【代码修改 V296.0】: 调用关系简化，不再接收验尸报告 ▼▼▼
+        df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+        # ▲▲▲【代码修改 V296.0】▲▲▲
         
         # --- 步骤3：沙盘推演 (Position Management Simulation) ---
-        # 此刻传递给下游的 df，已经是被正确解包后的、真正的作战地图(DataFrame)！
         print("--- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
         df = self._run_position_management_simulation(df, params)
 
-        print(f"====== 【战术引擎 V292.0】执行完毕 ======")
-        
-        # --- 战地验尸 (按需直递) ---
-        debug_params = self._get_params_block('debug_params')
-        probe_date = self._get_param_value(debug_params.get('probe_date'))
-        if probe_date:
-            print(f"--- [战地验尸] 启动，正在向验尸官直递 {probe_date} 的临时档案...")
-            # 此处的 score_details_df 和 risk_details_df 也是被正确解包后的变量
-            self._deploy_field_coroner_probe(df, probe_date, score_details_df, risk_details_df, params)
+        print(f"====== 【战术引擎 V296.0】执行完毕 ======")
 
         return df, self.atomic_states
 
@@ -2017,9 +2007,27 @@ class TrendFollowStrategy:
         df['signal_entry'] = False
         # 当信号类型为“买入信号”时，将“进攻许可”设置为True
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
+        
+        debug_params = self._get_params_block('debug_params')
+        probe_date = self._get_param_value(debug_params.get('probe_date'))
+        if probe_date:
+            print(f"--- [现场验尸] 启动，正在向验尸官直递 {probe_date} 的全部原始案情卷宗...")
+            # 就地调用验尸官，并把所有它需要的、尚未被销毁的本地变量全部传过去
+            self._deploy_field_coroner_probe(
+                df=df,
+                probe_date=probe_date,
+                score_details=score_details_df,
+                risk_details=risk_details_df,
+                params=params,
+                # 补全所有缺失的案情卷宗
+                playbook_states=playbook_states,
+                atomic_states=self.atomic_states, # atomic_states 是实例属性，可以直接用
+                setup_scores=setup_scores,
+                trigger_events=trigger_events
+            )
 
         print("--- [最高作战指挥部 V288.0] 一体化流程执行完毕。 ---")
-        return df, score_details_df, risk_details_df
+        return df
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
