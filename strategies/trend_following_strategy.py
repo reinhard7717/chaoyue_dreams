@@ -979,14 +979,15 @@ class TrendFollowStrategy:
     #    -> 总参谋长: _diagnose_chip_intelligence()
     def _run_chip_intelligence_command(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V260.0 新条令版】筹码情报最高司令部 (Chip Intelligence Supreme Command)
-        - 核心修复: 彻底废除了基于“斜率”的、已被证明无效的旧历史审查条令。
-                      采用了全新的、基于“事实结果”的《领土占领新条令》。
-        - 新条令: 不再关心筹码分散的“过程”(斜率)，只关心其“结果”。如果今天的筹码
-                    集中度比21天前恶化(变大)了超过20%，就直接判定为“长期派发”。
-        - 收益: 新条令更加健壮、直接，无法被过程中的战术佯动所欺骗。
+        【V279.0 战略欺骗识别版】筹码情报最高司令部
+        - 核心升级: 为“长期派发”风险的判断，增加了一个至关重要的前置条件——“高位区域识别”。
+        - 新条令:
+          1. 首先，判断当前股价是否处于近期（如60日）的高位区域。
+          2. 只有在“高位区域”这个前提下，如果筹码集中度相比21天前显著恶化，才将其判定为“长期派发”。
+        - 收益: 此模块能有效区分“高位真派发”和“坑底暴力换防”这两种外在相似、本质截然不同的行为。
+                  它让我军的执行系统，拥有了接近人类专家的伪装识别能力。
         """
-        print("        -> [筹码情报最高司令部 V260.0] 启动，正在执行一体化分析...")
+        print("        -> [筹码情报最高司令部 V279.0] 启动，正在执行一体化分析...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
@@ -1039,10 +1040,16 @@ class TrendFollowStrategy:
             states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
 
         # --- 4. 历史背景政审 (Historical Context Vetting) ---
-        # 如果今天的筹码集中度，比21天前恶化(变大)了超过5%，就视为一次成功的“长期派发”。
+        # 模块1: 定义“高位区域”。如果当前收盘价，处于过去60日最高价的90%分位之上，则视为高位。
+        is_in_high_level_zone = self._define_high_level_distribution_zone(df)
+
+        # 模块2: 定义筹码恶化事实。
         worsening_threshold = 1.05 # 恶化5%
         concentration_21d_ago = df[conc_col].shift(21)
-        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = df[conc_col] > (concentration_21d_ago * worsening_threshold)
+        is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
+
+        # 最终裁定: 只有“在高位区域”并且“筹码显著恶化”，才判定为“长期派发”风险。
+        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
 
         # --- 5. 核心戒备等级裁定 (CHIPCON Level Adjudication) ---
         is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
@@ -1057,9 +1064,9 @@ class TrendFollowStrategy:
         states['CHIPCON_2_PRE_WAR'] = states.get('CHIPCON_3_HIGH_ALERT', default_series) & is_rapidly_concentrating
         states['CHIPCON_1_WAR'] = is_long_term_distributing & (df.get('SLOPE_5_total_winner_rate_D', default_series) < 0)
 
-        print("        -> [筹码情报最高司令部 V260.0] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V279.0] 分析完毕。")
         return states, triggers
-    
+
     def _diagnose_chip_price_action(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V228.0 新增】筹码-价格行为联合分析部
@@ -1107,6 +1114,52 @@ class TrendFollowStrategy:
         print("        -> [联合分析部 V228.0] 深度解析完成。")
         return cpa_states
 
+    def _define_high_level_distribution_zone(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V280.0 三维扫描模块】
+        - 核心升级: 彻底抛弃了旧的、基于静态高点的“一维标尺”定义。
+        - 新定义: 从三个维度，综合判断是否进入了真正的“高风险派发区”。
+          1. 【乖离维度】: 价格是否相对其攻击均线(如EMA21)出现了极端“超买”？
+          2. 【波动维度】: 价格是否已经超越了其自身波动率(ATR)定义的“异常拉升”范围？
+          3. 【动能维度】: 在价格高位，短期均线的攻击动能是否已经开始衰竭或转向？
+        - 收益: 这是一个自适应的、多维度的风险识别系统，能更精准地捕捉到派发的真实前兆。
+        """
+        # 扫描仪1: 【乖离维度】 - BIAS指标
+        # 当BIAS21(21日乖离率)超过一个动态阈值(如过去120日的95%分位数)时，视为极端超买
+        bias_col = 'BIAS_21_D'
+        if bias_col not in df.columns:
+            is_overextended_bias = pd.Series(False, index=df.index)
+        else:
+            dynamic_overbought_threshold = df[bias_col].rolling(120).quantile(0.95)
+            is_overextended_bias = df[bias_col] > dynamic_overbought_threshold
+            print(f"          -> [三维扫描-乖离] BIAS超买信号已生成。")
+
+        # 扫描仪2: 【波动维度】 - ATR通道
+        # 当价格超过“EMA21 + 2.5倍ATR14”时，视为波动率异常拉升
+        atr_col = 'ATRr_14_D'
+        ma_col = 'EMA_21_D'
+        if atr_col not in df.columns or ma_col not in df.columns:
+            is_overextended_atr = pd.Series(False, index=df.index)
+        else:
+            atr_channel_upper = df[ma_col] + (df[atr_col] * 2.5)
+            is_overextended_atr = df['close_D'] > atr_channel_upper
+            print(f"          -> [三维扫描-波动] ATR通道突破信号已生成。")
+
+        # 扫描仪3: 【动能维度】 - 短期均线斜率
+        # 在价格处于60日高位区域时，如果短期攻击均线(EMA13)的斜率开始走平或转负，视为动能衰竭
+        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
+        if short_ma_slope_col not in df.columns:
+            is_momentum_exhausted = pd.Series(False, index=df.index)
+        else:
+            is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85 # 这里仍可保留一个宽松的位置判断
+            is_slope_weakening = df[short_ma_slope_col] < 0.001 # 斜率趋于0或为负
+            is_momentum_exhausted = is_at_high_price & is_slope_weakening
+            print(f"          -> [三维扫描-动能] 高位动能衰竭信号已生成。")
+
+        # 最终裁定：只要满足上述任一条件，就认为进入了高风险派发区
+        final_high_zone_signal = is_overextended_bias | is_overextended_atr | is_momentum_exhausted
+        print(f"          -> [三维扫描] 综合高风险区信号已生成，共激活 {final_high_zone_signal.sum()} 天。")
+        return final_high_zone_signal
 
     # 动态惯性引擎 (Dynamic Momentum Engine)
     #    -> 核心职责: 分析趋势的速度与加速度。
