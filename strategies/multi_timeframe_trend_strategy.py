@@ -183,12 +183,18 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V2.1：文书修正版】 - 已晋升至总司令部
-        - 核心修正: 修复了因 'trade_date' 列名不存在而导致的 KeyError。
-        - 新逻辑: 采用更健壮的方式筛选目标日期的案卷，优先使用 DatetimeIndex，
-                   如果索引不是日期，则回退到检查 'trade_date' 列。
+        【首席法医官 V2.2：宽表兼容版】
+        - 核心修正: 彻底重构了对 score_details 和 risk_details 的处理方式，以兼容
+                    从一线部队传来的“宽表”格式（每个规则一列），并将其动态转换为
+                    法医官所需的“长表”格式（包含'rule'和'score'列）。
+        - 新逻辑:
+          1. 新增内部函数 `transform_wide_to_long`。
+          2. 此函数接收宽表DataFrame和目标日期。
+          3. 它会筛选出目标日期的数据，并使用 pandas 的 melt 方法，将宽表高效地
+             转换为包含规则名称和分值的标准长表。
+          4. 后续的验尸流程，都基于这个转换后的标准长表进行，从而根治 KeyError。
         """
-        print("\n    ========================= [战地验尸总署-探针报告 V2.1] =========================")
+        print("\n    ========================= [战地验尸总署-探针报告 V2.2] =========================")
         
         rule_to_evidence_mapping = {
             # --- 风险规则的证据清单 ---
@@ -213,50 +219,55 @@ class MultiTimeframeTrendStrategy:
             print(f"      [错误] 未能在主数据流中找到目标日期 {probe_date} 的记录。")
             return
 
-        # ▼▼▼【代码修改 V2.1】: 使用更健壮的日期筛选逻辑 ▼▼▼
-        def filter_details_by_date(details_df: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
-            """一个健壮的函数，用于按日期筛选详情DataFrame。"""
+        # ▼▼▼【代码修改 V2.2】: 新增“宽表转长表”的核心转换器 ▼▼▼
+        def transform_wide_to_long(details_df: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
+            """一个健壮的函数，用于将宽格式的详情DataFrame转换为长格式。"""
             if details_df is None or details_df.empty:
-                return pd.DataFrame()
-            
+                return pd.DataFrame(columns=['rule', 'score'])
+
             target_date = pd.to_datetime(target_date_str).date()
             
-            # 方案一：如果索引是 DatetimeIndex (最常见、最标准的情况)
+            # 筛选出目标日期的数据行
             if isinstance(details_df.index, pd.DatetimeIndex):
-                return details_df[details_df.index.date == target_date]
-            
-            # 方案二：如果索引不是日期，但存在 'trade_date' 列
-            elif 'trade_date' in details_df.columns:
-                # 确保 'trade_date' 列是日期对象，以便比较
-                dates_to_compare = pd.to_datetime(details_df['trade_date']).dt.date
-                return details_df[dates_to_compare == target_date]
-            
-            # 方案三：如果存在 'trade_time' 列
-            elif 'trade_time' in details_df.columns:
-                dates_to_compare = pd.to_datetime(details_df['trade_time']).dt.date
-                return details_df[dates_to_compare == target_date]
-
-            # 如果以上都不满足，返回空DataFrame，并打印警告
+                day_details = details_df[details_df.index.date == target_date]
             else:
-                print(f"      [警告] 无法在详情案卷中找到可用的日期信息（索引、'trade_date'或'trade_time'列）。")
-                return pd.DataFrame()
+                print(f"      [警告] 详情案卷的索引不是日期格式，无法进行验尸。")
+                return pd.DataFrame(columns=['rule', 'score'])
 
-        risk_rules = filter_details_by_date(risk_details, probe_date)
-        score_rules = filter_details_by_date(score_details, probe_date)
-        # ▲▲▲【代码修改 V2.1】▲▲▲
+            if day_details.empty:
+                return pd.DataFrame(columns=['rule', 'score'])
+
+            # 使用 melt 方法将宽表转换为长表
+            # id_vars=None, value_vars=所有列, var_name='rule', value_name='score'
+            long_df = day_details.melt(var_name='rule', value_name='score')
+            
+            # 只保留得分不为0的规则
+            long_df = long_df[long_df['score'] != 0].reset_index(drop=True)
+            
+            return long_df
+        
+        risk_rules_long = transform_wide_to_long(risk_details, probe_date)
+        score_rules_long = transform_wide_to_long(score_details, probe_date)
+        # ▲▲▲【代码修改 V2.2】▲▲▲
 
         # --- 风险验尸科 ---
         print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
-        if not risk_rules.empty:
+        # ▼▼▼【代码修改 V2.2】: 使用转换后的长表进行操作 ▼▼▼
+        if not risk_rules_long.empty:
             print(f"  [目标日期 {probe_date} 风险详情]:")
-            print(f"    -> 当日总风险分: {risk_rules['score'].sum():.2f}")
+            print(f"    -> 当日总风险分: {risk_rules_long['score'].sum():.2f}")
             print(f"    -> 风险构成:")
-            for _, rule_row in risk_rules.iterrows():
+            for _, rule_row in risk_rules_long.iterrows():
+                # 从长表中直接读取 rule 和 score
                 rule_name = rule_row['rule']
                 rule_score = rule_row['score']
                 print(f"      - {rule_name}: {rule_score:.2f} 分")
                 
+                # 证据查找逻辑保持不变，但规则名现在是正确的
                 evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
+                if not evidence_cols: # 如果在主映射中找不到，尝试去掉 'risk_' 前缀再找一次
+                    evidence_cols = rule_to_evidence_mapping.get(rule_name.replace('risk_', ''), [])
+
                 if evidence_cols:
                     print(f"        -> [法医证据]:")
                     for col in evidence_cols:
@@ -267,14 +278,16 @@ class MultiTimeframeTrendStrategy:
                             print(f"          - [警告] 证据列 '{col}' 不存在!")
         else:
             print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
+        # ▲▲▲【代码修改 V2.2】▲▲▲
 
         # --- 进攻分验尸科 ---
         print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
-        if not score_rules.empty:
+        # ▼▼▼【代码修改 V2.2】: 使用转换后的长表进行操作 ▼▼▼
+        if not score_rules_long.empty:
             print(f"      [目标日期 {probe_date} 得分详情]:")
-            print(f"        -> 当日总得分: {score_rules['score'].sum():.2f}")
+            print(f"        -> 当日总得分: {score_rules_long['score'].sum():.2f}")
             print(f"        -> 得分构成:")
-            for _, rule_row in score_rules.iterrows():
+            for _, rule_row in score_rules_long.iterrows():
                 rule_name = rule_row['rule']
                 rule_score = rule_row['score']
                 print(f"          - {rule_name}: {rule_score:.2f} 分")
@@ -290,6 +303,7 @@ class MultiTimeframeTrendStrategy:
                             print(f"              - [警告] 证据列 '{col}' 不存在!")
         else:
             print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻得分信号。")
+        # ▲▲▲【代码修改 V2.2】▲▲▲
         
         print("    ============================== [验尸报告结束] ==============================")
 
