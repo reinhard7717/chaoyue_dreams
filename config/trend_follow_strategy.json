@@ -208,7 +208,7 @@
         "enabled": { "value": true },
         "verbose_logging": { "value": true },
         "probe_start_date": "2025-03-01",
-        "probe_date": "2025-07-21"
+        "probe_date": "2025-07-15"
       },
       "strategy_info": {
         "name": { "value": "CHIPCON核心_V238", "说明": "策略唯一标识名称" }
