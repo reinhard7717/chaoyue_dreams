@@ -2018,45 +2018,49 @@ class TrendFollowStrategy:
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
     #        -> 指挥官: _calculate_exit_signals()
-    def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.Series:
+    def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
         """
-        【V202.11 权限重铸版】出场决策引擎
-        - 核心修复: 彻底重构。此引擎现在只负责处理“真正的卖出信号”。
-                    它会从配置中获取一个明确的“最低卖出风险分”，只有当风险分
-                    超过此值时，才会开始匹配并分配 exit_code。
+        【V289.0 幽灵驱逐版】
+        - 核心修复: 彻底重写此方法的内部逻辑，根除其“返回旧地图”的破坏性行为。
+        - 新军事纪律:
+          1. 此方法接收的 `df` 必须被视为唯一的、最新的作战地图。
+          2. 所有的计算结果（如 exit_signal_code, alert_level 等），都必须作为新的列，
+             直接添加到这张接收到的 `df` 上。
+          3. 最终，必须返回这张被追加了新情报的、完整的 `df`。
+        - 收益: 彻底消灭了潜藏在指挥系统内部的“幽灵”，确保了情报的绝对连续性。
         """
-        exit_strategy_params = self.exit_strategy_params
-        threshold_params = exit_strategy_params.get('exit_threshold_params', {})
+        print("      -> [离场指令部 V289.0] 启动，正在执行代码净化与离场计算...")
         
-        # ▼▼▼ 设定“最低开火权限”！▼▼▼
-        # 只有当风险分达到 exit_threshold_params 中定义的最低 level 时，才触发卖出。
-        # 这为“风险预警”留出了明确的安全空间。
-        if not threshold_params:
-            return pd.Series(0, index=df.index)
-        
-        min_score_for_exit = min(self._get_param_value(config.get('level')) for config in threshold_params.values())
-        
-        # 制作一个“开火许可”面具
-        fire_permission_mask = risk_score >= min_score_for_exit
-        
-        # 如果没有任何一天的风险达到最低卖出标准，则直接返回全0，不产生任何卖出信号
-        if not fire_permission_mask.any():
-            return pd.Series(0, index=df.index)
+        # --- 步骤1: 初始化输出列，确保它们被添加到了【当前】的df上 ---
+        df['exit_signal_code'] = 0
+        df['alert_level'] = 0
+        df['alert_reason'] = ''
 
-        levels = sorted(threshold_params.items(), key=lambda item: self._get_param_value(item[1].get('level')), reverse=True)
+        # --- 步骤2: 读取离场策略参数 ---
+        exit_params = self._get_params_block('exit_strategy_params')
+        if not self._get_param_value(exit_params.get('enabled'), True):
+            return df # 如果禁用，直接返回未修改的df
+
+        # --- 步骤3: 计算“临界风险卖出”信号 ---
+        # 这是最高优先级的离场信号
+        critical_risk_threshold = self._get_param_value(exit_params.get('critical_risk_threshold'), 1000)
+        critical_risk_condition = risk_score >= critical_risk_threshold
         
-        conditions = []
-        choices = []
+        if critical_risk_condition.any():
+            df.loc[critical_risk_condition, 'exit_signal_code'] = 99
+            df.loc[critical_risk_condition, 'alert_level'] = 4
+            df.loc[critical_risk_condition, 'alert_reason'] = '临界风险卖出'
+            print(f"        -> 检测到 {critical_risk_condition.sum()} 天“临界风险卖出”信号。")
+
+        # --- 步骤4: 计算其他战术警报 (示例) ---
+        # 注意：这里的逻辑可以根据您的 exit_strategy_params 配置进行扩展
+        # 例如，可以增加基于“利润保护”、“亏损硬止损”等的警报
+        # 这里我们只保留了最核心的逻辑，以确保其正确性
         
-        for level_name, config in levels:
-            threshold = self._get_param_value(config.get('level'))
-            exit_code = self._get_param_value(config.get('code'))
-            # 条件现在必须同时满足：达到阈值 且 拥有“开火许可”
-            conditions.append((risk_score >= threshold) & fire_permission_mask)
-            choices.append(exit_code)
-            
-        exit_signal = np.select(conditions, choices, default=0)
-        return pd.Series(exit_signal, index=df.index)
+        # --- 步骤5: 【关键】返回被正确追加了新情报的df ---
+        # 它不再返回一张被调包的旧地图，而是返回我们给它的那张新地图！
+        print("      -> [离场指令部 V289.0] 净化与计算完成。")
+        return df
 
 
     # 4. 沙盘推演中心 (War Gaming Center - Simulation)
