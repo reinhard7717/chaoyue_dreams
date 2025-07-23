@@ -191,7 +191,7 @@ def analyze_all_stocks(self):
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='full_history_queue')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 def analyze_all_stocks_full_history(self):
     """
     【V4.0 战略预备队 - 全面战役模式】
