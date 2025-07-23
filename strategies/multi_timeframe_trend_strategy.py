@@ -181,26 +181,104 @@ class MultiTimeframeTrendStrategy:
         print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
         return df_merged
 
+    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
+        """
+        【首席法医官 V2.0：深度解剖版】 - 已晋升至总司令部
+        - 新增功能: 引入“法医证据清单”，能够展示触发每一条规则背后的具体数据指标。
+        - 核心逻辑:
+          1. 定义一个规则到证据列的映射字典。
+          2. 在验尸时，根据触发的规则名，查找其需要展示的证据列。
+          3. 从当日的DataFrame行中提取这些证据的数值并打印。
+        """
+        print("\n    ========================= [战地验尸总署-探针报告 V2.0] =========================")
+        
+        rule_to_evidence_mapping = {
+            # --- 风险规则的证据清单 ---
+            'risk_RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': ['main_force_net_inflow_5d_sum', 'main_force_net_inflow_10d_sum', 'retail_net_inflow_5d_sum'],
+            'risk_STRUCTURE_TOPPING_DANGER_S': ['close', 'high_20d', 'macd_hist', 'rsi_12', 'bias_24'],
+            
+            # --- 进攻规则的证据清单 ---
+            'CAPITAL_DIVERGENCE_REVERSAL': ['main_force_net_inflow_amount', 'main_force_net_inflow_3d_sum', 'price_change_pct_3d'],
+            'CHIP_HEALTH_EXCELLENT': ['chip_health_score', 'winner_profit_margin'],
+            'PLATFORM_STATE_STABLE_FORMED': ['platform_stability_score', 'platform_days'],
+            'CHIP_STATE_HIGHLY_CONCENTRATED': ['concentration_90pct', 'peak_stability'],
+            'DYN_TREND_HEALTHY_ACCELERATING': ['dyn_trend_score', 'dyn_trend_momentum', 'adx_14'],
+            'CONTEXT_STRONG_BREAKOUT_RALLY': ['close', 'high_20d', 'vol', 'vol_ma_20', 'pct_change']
+        }
+
+        try:
+            # 关键修正：验尸官现在直接使用总司令部持有的、最完整的 df_daily_prepared
+            probe_row = df.loc[df.index.date == pd.to_datetime(probe_date).date()].iloc[0]
+            # 从 probe_row 中获取 stock_code，而不是从外部传入
+            stock_code = probe_row.get('stock_code', 'N/A')
+            print(f"      [验尸目标]: 股票代码 {stock_code} @ {probe_date}")
+        except (IndexError, KeyError):
+            print(f"      [错误] 未能在数据中找到目标日期 {probe_date} 的记录。")
+            return
+
+        # --- 风险验尸科 ---
+        print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
+        risk_rules = risk_details[risk_details['trade_date'] == probe_date]
+        if not risk_rules.empty:
+            print(f"  [目标日期 {probe_date} 风险详情]:")
+            print(f"    -> 当日总风险分: {risk_rules['score'].sum():.2f}")
+            print(f"    -> 风险构成:")
+            for _, rule_row in risk_rules.iterrows():
+                rule_name = rule_row['rule']
+                rule_score = rule_row['score']
+                print(f"      - {rule_name}: {rule_score:.2f} 分")
+                
+                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
+                if evidence_cols:
+                    print(f"        -> [法医证据]:")
+                    for col in evidence_cols:
+                        try:
+                            value = probe_row[col]
+                            print(f"          - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"          - {col}: {value}")
+                        except KeyError:
+                            print(f"          - [警告] 证据列 '{col}' 不存在!")
+        else:
+            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
+
+        # --- 进攻分验尸科 ---
+        print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
+        score_rules = score_details[score_details['trade_date'] == probe_date]
+        if not score_rules.empty:
+            print(f"      [目标日期 {probe_date} 得分详情]:")
+            print(f"        -> 当日总得分: {score_rules['score'].sum():.2f}")
+            print(f"        -> 得分构成:")
+            for _, rule_row in score_rules.iterrows():
+                rule_name = rule_row['rule']
+                rule_score = rule_row['score']
+                print(f"          - {rule_name}: {rule_score:.2f} 分")
+
+                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
+                if evidence_cols:
+                    print(f"            -> [法医证据]:")
+                    for col in evidence_cols:
+                        try:
+                            value = probe_row[col]
+                            print(f"              - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"              - {col}: {value}")
+                        except KeyError:
+                            print(f"              - [警告] 证据列 '{col}' 不存在!")
+        else:
+            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻得分信号。")
+        
+        print("    ============================== [验尸报告结束] ==============================")
+
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V301.0 总司令部集权版】
+        【V301.1 总司令部验尸版】
         - 核心重构: 将“临时情报中心”的建立与销毁职责，完全上移至本总司令部。
-        - 新流程 (Project Overlord):
-          1. 【建立保险柜】: 在本方法内部，建立一个坚不可摧的 try...finally 结构。
-          2. 【获取情报】: 调用下属战术引擎，获取包含详细报告的情报包。
-          3. 【亲自归档】: 将详细报告作为临时属性，【亲自】存入战术引擎实例中。
-          4. 【授权访问】: 调用战报司令部，此时它可以安全地访问临时档案。
-          5. 【亲自销毁】: 在 finally 块中，【亲自】销毁所有临时档案，确保内存安全。
-        - 收益: 这是一个终极的、符合正确生命周期的解决方案，彻底根除了所有AttributeError。
+        - 新增功能: 在获取所有情报后，由总司令部直接部署“首席法医官”进行验尸。
         """
-        df_daily_prepared = all_dfs.get('D')
+        # 关键修正：验尸官现在直接使用总司令部持有的、最完整的 df_daily_prepared
+        df_daily_prepared = all_dfs.get('D_CONTEXT') # 使用融合了周线上下文的日线数据
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
             return []
 
-        # 步骤1: 建立坚不可摧的“总司令部级”临时情报中心
         try:
-            # 步骤2: 核心调用，获取包含详细报告的情报包
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
             )
@@ -210,23 +288,33 @@ class MultiTimeframeTrendStrategy:
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return []
 
-            # 步骤3: 【总司令亲自归档】将详细报告存入下属单位的“临时情报柜”
+            # ▼▼▼【代码修改 V2.0】: 总司令部直接部署验尸官！▼▼▼
+            debug_params = self.tactical_engine._get_params_block('debug_params')
+            probe_date = self.tactical_engine._get_param_value(debug_params.get('probe_date'))
+            
+            if probe_date:
+                print(f"    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
+                # 调用自己内部的验尸官，并移交所有最原始的案情卷宗
+                self._deploy_field_coroner_probe(
+                    df=df_daily_prepared, # 传递最完整的、带有上下文的日线数据
+                    probe_date=probe_date,
+                    score_details=score_details_df,
+                    risk_details=risk_details_df
+                )
+            # ▲▲▲【代码修改 V2.0】▲▲▲
+
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
             print("    -> [总司令部] 已完成现场归档，所有下属单位可访问。")
 
-            # 将主分析结果保存到实例变量，供其他盘中引擎使用
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             
-            # 步骤4: 【授权访问】统一调用唯一的“战报司令部”
-            # 此时，它可以安全地访问刚刚存入的临时档案
             db_records = self.tactical_engine.prepare_db_records(
                 stock_code, self.daily_analysis_df,
                 params=self.unified_config, result_timeframe='D'
             )
             print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
 
-            # 【情报下放】(逻辑不变)
             cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
             existing_cols = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
             if existing_cols:
@@ -241,7 +329,6 @@ class MultiTimeframeTrendStrategy:
             return db_records
 
         finally:
-            # 步骤5: 【总司令亲自销毁】无论成功与否，都必须销毁临时档案
             print("    -> [总司令部] 正在执行“阅后即焚”条令...")
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df

@@ -214,28 +214,6 @@ class TrendFollowStrategy:
         # --- 指挥链 3/3: 沙盘推演 ---
         print("    --- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
         df = self._run_position_management_simulation(df, params)
-        
-        # ▼▼▼【代码修改 V301.1】: 在此处植入“首席验尸官”！▼▼▼
-        # 检查配置文件中是否下达了验尸指令
-        debug_params = self._get_params_block('debug_params')
-        probe_date = self._get_param_value(debug_params.get('probe_date'))
-        
-        # 如果指令明确，且当前数据包含目标日期，则立即执行验尸
-        if probe_date and pd.to_datetime(probe_date).date() in df.index.date:
-            print(f"    --- [首席验尸官] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-            # 调用验尸官，并移交所有相关的原始案情卷宗
-            self._deploy_field_coroner_probe(
-                df=df,
-                probe_date=probe_date,
-                score_details=score_details_df,
-                risk_details=risk_details_df,
-                params=params,
-                # 确保传递在 _run_all_diagnostics 中生成的实例属性
-                playbook_states=getattr(self, 'playbook_states', {}),
-                atomic_states=getattr(self, 'atomic_states', {}),
-                setup_scores=getattr(self, 'setup_scores', {}),
-                trigger_events=trigger_events
-            )
 
         print(f"    ====== 【战术引擎 V301.0】执行完毕 ======")
         
@@ -2374,100 +2352,6 @@ class TrendFollowStrategy:
         # 构建可读的风险描述字符串
         reasons = [f"{item['name']}({item['score']})" for item in risk_scores]
         return "; ".join(reasons)
-
-    #  ★ 军事监察与战地验尸总署 (Inspector General & Field Forensics Administration)
-    #     -> 核心职责: (非作战序列) 负责调试、审查与战后复盘，确保作战系统的正确性。
-    # ─> 战地验尸官 (Field Coroner)
-    #    -> 核心职责: 对特定日期的完整计分流程进行法医级解剖。
-    #    -> 首席验尸官: _deploy_field_coroner_probe()
-    def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
-        """
-        【首席法医官 V2.0：深度解剖版】
-        - 新增功能: 引入“法医证据清单”，能够展示触发每一条规则背后的具体数据指标。
-        - 核心逻辑:
-          1. 定义一个规则到证据列的映射字典。
-          2. 在验尸时，根据触发的规则名，查找其需要展示的证据列。
-          3. 从当日的DataFrame行中提取这些证据的数值并打印。
-        """
-        print("\n    ========================= [战地验尸总署-探针报告 V2.0] =========================")
-        
-        # ▼▼▼【代码修改 V2.0】: 定义“法医证据清单” ▼▼▼
-        # 这个清单是新版验尸官的核心，您可以根据策略中实际的列名不断扩充它
-        rule_to_evidence_mapping = {
-            # --- 风险规则的证据清单 ---
-            'risk_RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': ['main_force_net_inflow_5d_sum', 'main_force_net_inflow_10d_sum', 'retail_net_inflow_5d_sum'],
-            'risk_STRUCTURE_TOPPING_DANGER_S': ['close', 'high_20d', 'macd_hist', 'rsi_12', 'bias_24'],
-            
-            # --- 进攻规则的证据清单 ---
-            'CAPITAL_DIVERGENCE_REVERSAL': ['main_force_net_inflow_amount', 'main_force_net_inflow_3d_sum', 'price_change_pct_3d'],
-            'CHIP_HEALTH_EXCELLENT': ['chip_health_score', 'winner_profit_margin'],
-            'PLATFORM_STATE_STABLE_FORMED': ['platform_stability_score', 'platform_days'],
-            'CHIP_STATE_HIGHLY_CONCENTRATED': ['concentration_90pct', 'peak_stability'],
-            'DYN_TREND_HEALTHY_ACCELERATING': ['dyn_trend_score', 'dyn_trend_momentum', 'adx_14'],
-            'CONTEXT_STRONG_BREAKOUT_RALLY': ['close', 'high_20d', 'vol', 'vol_ma_20', 'pct_change']
-        }
-        # ▲▲▲【代码修改 V2.0】▲▲▲
-
-        try:
-            probe_row = df.loc[df.index.date == pd.to_datetime(probe_date).date()].iloc[0]
-            print(f"      [验尸目标]: 股票代码 {probe_row['stock_code']} @ {probe_date}")
-        except (IndexError, KeyError):
-            print(f"      [错误] 未能在数据中找到目标日期 {probe_date} 的记录。")
-            return
-
-        # --- 风险验尸科 ---
-        print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
-        risk_rules = risk_details[risk_details['trade_date'] == probe_date]
-        if not risk_rules.empty:
-            print(f"  [目标日期 {probe_date} 风险详情]:")
-            print(f"    -> 当日总风险分: {risk_rules['score'].sum():.2f}")
-            print(f"    -> 风险构成:")
-            for _, rule_row in risk_rules.iterrows():
-                rule_name = rule_row['rule']
-                rule_score = rule_row['score']
-                print(f"      - {rule_name}: {rule_score:.2f} 分")
-                
-                # ▼▼▼【代码修改 V2.0】: 展示风险证据 ▼▼▼
-                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
-                if evidence_cols:
-                    print(f"        -> [法医证据]:")
-                    for col in evidence_cols:
-                        try:
-                            value = probe_row[col]
-                            print(f"          - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"          - {col}: {value}")
-                        except KeyError:
-                            print(f"          - [警告] 证据列 '{col}' 不存在!")
-                # ▲▲▲【代码修改 V2.0】▲▲▲
-        else:
-            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
-
-        # --- 进攻分验尸科 ---
-        print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
-        score_rules = score_details[score_details['trade_date'] == probe_date]
-        if not score_rules.empty:
-            print(f"      [目标日期 {probe_date} 得分详情]:")
-            print(f"        -> 当日总得分: {score_rules['score'].sum():.2f}")
-            print(f"        -> 得分构成:")
-            for _, rule_row in score_rules.iterrows():
-                rule_name = rule_row['rule']
-                rule_score = rule_row['score']
-                print(f"          - {rule_name}: {rule_score:.2f} 分")
-
-                # ▼▼▼【代码修改 V2.0】: 展示进攻证据 ▼▼▼
-                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
-                if evidence_cols:
-                    print(f"            -> [法医证据]:")
-                    for col in evidence_cols:
-                        try:
-                            value = probe_row[col]
-                            print(f"              - {col}: {value:.2f}" if isinstance(value, (int, float)) else f"              - {col}: {value}")
-                        except KeyError:
-                            print(f"              - [警告] 证据列 '{col}' 不存在!")
-                # ▲▲▲【代码修改 V2.0】▲▲▲
-        else:
-            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻得分信号。")
-        
-        print("    ============================== [验尸报告结束] ==============================")
 
     # ─> 专项调查组 (Special Investigation Group)
     #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
