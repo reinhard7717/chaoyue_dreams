@@ -1739,6 +1739,23 @@ class TrendFollowStrategy:
         # 最终裁决: 只要是强力拉升，且满足以下任一派发证据，就判定为最高风险！
         # 这就覆盖了“边拉边出”和“拉高出货”两种最经典的派发模式。
         cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & (is_main_force_distributing_today | has_long_term_distribution_record)
+        
+        # 4.3 “天量对倒”风险模式 (DECEPTIVE_CHURN)
+        # 证据1: 发生了爆炸性的上涨
+        is_explosive_rally = cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series)
+        # 证据2: 成交量是平日的数倍 (例如2.5倍以上)
+        vol_ma_col = 'VOL_MA_21_D'
+        is_massive_volume = df['volume_D'] > (df.get(vol_ma_col, 0) * 2.5)
+        # 证据3: 成本中枢几乎原地踏步 (变化小于1%)
+        is_cost_stagnant = df['peak_cost_D'].diff().abs() < (df['peak_cost_D'] * 0.01)
+        
+        # 最终裁决: 如果三个证据同时成立，则判定为“对倒”骗局！
+        cognitive_states['COGNITIVE_RISK_DECEPTIVE_CHURN'] = is_explosive_rally & is_massive_volume & is_cost_stagnant
+        
+        # 调试信息
+        churn_detected_days = cognitive_states['COGNITIVE_RISK_DECEPTIVE_CHURN'].sum()
+        if churn_detected_days > 0:
+            print(f"          -> [对倒识别模块] 警告！检测到 {churn_detected_days} 天存在“天量对倒”的重大风险！")
 
         print("        -> [认知综合引擎 V257.0] 认知合成完毕。")
         return cognitive_states

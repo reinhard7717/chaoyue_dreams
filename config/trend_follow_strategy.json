@@ -247,6 +247,7 @@
           "signals": {
             "说明_CHIPCON": "--- 核心戒备等级风险 (CHIPCON-based Risk) ---",
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
+            "COGNITIVE_RISK_DECEPTIVE_CHURN": 1000,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
             "CHIPCON_1_WAR": 1000,
             "CHIPCON_2_PRE_WAR": 700,
