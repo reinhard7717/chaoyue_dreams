@@ -467,7 +467,7 @@ CELERY_BEAT_SCHEDULE = {
     'run-strategy': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         # 每天9:30-21:30，每5分钟执行一次
-        'schedule': crontab( minute='*/5', hour='9-21' ),
+        'schedule': crontab( minute='*/5', hour='0-1' ),
     },
     'save_stocks_minute_data_realtime_task-0925': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
