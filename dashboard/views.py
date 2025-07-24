@@ -128,10 +128,10 @@ def trend_following_list(request):
     latest_buy_logs_qs = TrendFollowStrategySignalLog.objects.filter(
         id__in=list(latest_buy_log_ids)
     ).select_related('stock')
-    print(f"--- [View] 步骤1完成: 获取到 {latest_buy_logs_qs.count()} 条最新买入信号")
+    # print(f"--- [View] 步骤1完成: 获取到 {latest_buy_logs_qs.count()} 条最新买入信号")
     # 步骤2: 一次性获取所有相关股票的最新“卖出”时间
     stock_ids = latest_buy_logs_qs.values_list('stock_id', flat=True)
-    print("--- [View] 步骤2: 开始查询最新卖出时间...")
+    # print("--- [View] 步骤2: 开始查询最新卖出时间...")
     latest_sell_times_qs = TrendFollowStrategySignalLog.objects.filter(
         stock_id__in=stock_ids,
         exit_signal_code__gt=0,
@@ -140,9 +140,9 @@ def trend_following_list(request):
         latest_sell_time=Max('trade_time')
     )
     sell_time_map = {item['stock_id']: item['latest_sell_time'] for item in latest_sell_times_qs}
-    print(f"--- [View] 步骤2完成: 获取到 {len(sell_time_map)} 个股票的最新卖出时间")
+    # print(f"--- [View] 步骤2完成: 获取到 {len(sell_time_map)} 个股票的最新卖出时间")
     # 步骤3: 在Python内存中进行数据合并和持仓过滤
-    print("--- [View] 步骤3: 开始在内存中合并数据并筛选持仓股...")
+    # print("--- [View] 步骤3: 开始在内存中合并数据并筛选持仓股...")
     held_logs = []
     for buy_log in latest_buy_logs_qs.iterator():
         latest_sell_time = sell_time_map.get(buy_log.stock_id)
@@ -160,19 +160,19 @@ def trend_following_list(request):
                 # 如果字段为空或不是字符串，则确保它是一个空列表以保持类型一致
                 buy_log.triggered_playbooks = []
             held_logs.append(buy_log)
-    print(f"--- [View] 步骤3完成: 筛选出 {len(held_logs)} 只持仓股")
+    # print(f"--- [View] 步骤3完成: 筛选出 {len(held_logs)} 只持仓股")
     # 步骤4: 高效地从内存数据中提取所有可用剧本，用于筛选器
     # 此处代码无需修改，因为它现在接收到的是正确的列表嵌套列表
-    print("--- [View] 步骤4: 开始从内存中聚合剧本列表...")
+    # print("--- [View] 步骤4: 开始从内存中聚合剧本列表...")
     all_playbook_lists = [log.triggered_playbooks for log in held_logs if log.triggered_playbooks]
     unique_playbooks = sorted(
         list(set(chain.from_iterable(all_playbook_lists))),
         key=get_playbook_priority
     )
-    print(f"--- [View] 步骤4完成: 找到 {len(unique_playbooks)} 个唯一剧本")
+    # print(f"--- [View] 步骤4完成: 找到 {len(unique_playbooks)} 个唯一剧本")
     # 步骤5: 在内存中根据请求参数进行剧本筛选
     # 此处代码无需修改，因为它现在可以正确地在列表中检查成员
-    print("--- [View] 步骤5: 开始根据用户选择筛选剧本...")
+    # print("--- [View] 步骤5: 开始根据用户选择筛选剧本...")
     selected_playbooks = request.GET.getlist('playbooks')
     final_logs = held_logs # 默认是全部持仓记录
     if selected_playbooks:
@@ -180,20 +180,20 @@ def trend_following_list(request):
             log for log in held_logs
             if all(p in log.triggered_playbooks for p in selected_playbooks)
         ]
-    print(f"--- [View] 步骤5完成: 筛选后剩余 {len(final_logs)} 条记录")
+    # print(f"--- [View] 步骤5完成: 筛选后剩余 {len(final_logs)} 条记录")
     # 步骤6: 在内存中对最终结果进行排序
-    print("--- [View] 步骤6: 开始排序...")
+    # print("--- [View] 步骤6: 开始排序...")
     final_logs.sort(key=lambda log: (log.trade_time, log.entry_score or 0), reverse=True)
-    print("--- [View] 步骤6完成: 排序完成")
+    # print("--- [View] 步骤6完成: 排序完成")
     # 步骤7: 使用Paginator对Python列表进行分页
-    print("--- [View] 步骤7: 开始分页...")
+    # print("--- [View] 步骤7: 开始分页...")
     paginator = Paginator(final_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-    print("--- [View] 步骤7完成: 分页完成")
+    # print("--- [View] 步骤7完成: 分页完成")
     # 步骤8: 格式化当前页的数据用于模板渲染
     # 此处代码无需修改，因为它现在接收到的是正确的列表
-    print("--- [View] 步骤8: 开始格式化最终数据...")
+    # print("--- [View] 步骤8: 开始格式化最终数据...")
     final_list_for_template = []
     for log in page_obj.object_list:
         final_list_for_template.append({
@@ -206,7 +206,7 @@ def trend_following_list(request):
             'strategy_names': [log.strategy_name],
             'stable_platform_price': log.stable_platform_price,
         })
-    print("--- [View] 步骤8完成: 格式化完成，准备渲染模板")
+    # print("--- [View] 步骤8完成: 格式化完成，准备渲染模板")
     # 步骤9: 准备上下文
     context = {
         'page_title': '策略状态监控中心',
