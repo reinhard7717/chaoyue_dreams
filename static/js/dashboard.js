@@ -69,23 +69,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // === 主控台页面 (home.html) 功能 =========================================
     // =========================================================================
     function initializeHomePage() {
-        // ▼▼▼【代码修改】: 新增“卫兵子句” (Guard Clause) ▼▼▼
-        // 这是主控台页面的核心元素之一。如果它不存在，说明当前不是主控台页面，
-        // 应该立即退出函数，防止后续代码因找不到元素而报错。
         const addFavoriteForm = document.getElementById('add-favorite-form');
-        if (!addFavoriteForm) {
-            return; // 如果找不到添加表单，说明不是主控台页面，直接退出
+        const favoritesTbody = document.getElementById('favorites-tbody');
+
+        // 卫兵子句：如果连最基本的自选列表tbody都找不到，直接退出，不执行任何主控台逻辑
+        if (!favoritesTbody) {
+            return;
         }
-        // ▲▲▲【代码修改结束】▲▲▲
 
         console.log('正在初始化【主控台】页面功能...');
 
-        // 因为上面的卫兵子句确保了我们在正确的页面，所以现在可以安全地获取所有元素
-        const favoritesTbody = document.getElementById('favorites-tbody');
         const favoritesEmpty = document.getElementById('favorites-empty');
         
         // 检查自选股列表是否为空
-        if (favoritesTbody && favoritesEmpty) {
+        if (favoritesEmpty) {
             favoritesEmpty.style.display = favoritesTbody.children.length === 0 ? 'block' : 'none';
         }
 
@@ -135,7 +132,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function addStockRow(favData) {
-            if (!favoritesTbody) return;
             const existRow = favoritesTbody.querySelector(`tr[data-id="${favData.id}"]`);
             if (existRow) {
                 updateStockRow(favData);
@@ -165,7 +161,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function removeStockRow(favoriteId) {
-            if (!favoritesTbody) return;
             const rowToRemove = favoritesTbody.querySelector(`tr[data-id="${favoriteId}"]`);
             if (rowToRemove) {
                 rowToRemove.classList.add('flash-remove');
@@ -179,7 +174,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function renderFavoritesTable(favoritesData) {
-            if (!favoritesTbody) return;
             favoritesTbody.innerHTML = '';
             if (!favoritesData || favoritesData.length === 0) {
                 if(favoritesEmpty) favoritesEmpty.style.display = 'block';
@@ -190,7 +184,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function updateStockRow(updateData) {
-            if (!favoritesTbody) return;
             const row = updateData.id 
                 ? favoritesTbody.querySelector(`tr[data-id="${updateData.id}"]`)
                 : favoritesTbody.querySelector(`tr[data-stock-code="${updateData.code}"]`);
@@ -213,155 +206,158 @@ document.addEventListener('DOMContentLoaded', function() {
             flashRow(row, 'update');
         }
 
-        if (favoritesTbody) {
-            favoritesTbody.addEventListener('click', async function(event) {
-                const removeButton = event.target.closest('button[data-action="remove"]');
-                if (!removeButton) return;
+        favoritesTbody.addEventListener('click', async function(event) {
+            const removeButton = event.target.closest('button[data-action="remove"]');
+            if (!removeButton) return;
 
-                const row = removeButton.closest('tr');
-                const stockCode = row.dataset.stockCode;
-                const stockName = row.dataset.stockName;
-                const favoriteId = row.dataset.id;
+            const row = removeButton.closest('tr');
+            const stockCode = row.dataset.stockCode;
+            const stockName = row.dataset.stockName;
+            const favoriteId = row.dataset.id;
 
-                if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
-                    removeButton.disabled = true;
-                    removeButton.textContent = '移除中...';
+            if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
+                removeButton.disabled = true;
+                removeButton.textContent = '移除中...';
+                try {
+                    const csrfToken = getCookie('csrftoken');
+                    const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
+                        method: 'DELETE',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken }
+                    });
+                    if (response.ok || response.status === 204) {
+                        showNotification(`股票 ${stockCode} 已移除`, 'success');
+                        removeStockRow(favoriteId); // 即时反馈
+                    } else {
+                        throw new Error('移除失败');
+                    }
+                } catch (error) {
+                    showNotification(`移除股票 ${stockCode} 时出错`, 'error');
+                    removeButton.disabled = false;
+                    removeButton.textContent = '移除';
+                }
+            }
+        });
+        
+        // ▼▼▼【代码修改】: 增加保护性检查，确保只在搜索框存在时才执行相关逻辑 ▼▼▼
+        const searchInput = document.getElementById('stock-search-input');
+        // 只有当 searchInput 元素存在时，才初始化所有搜索和添加相关的逻辑
+        if (searchInput) {
+            const searchResultsContainer = document.getElementById('search-results');
+            let debounceTimer;
+            let selectedStockCode = null;
+
+            // 1. 监听搜索框的输入事件
+            searchInput.addEventListener('keyup', (event) => {
+                const query = searchInput.value.trim();
+                clearTimeout(debounceTimer);
+
+                if (query.length === 0) {
+                    searchResultsContainer.innerHTML = '';
+                    searchResultsContainer.style.display = 'none';
+                    selectedStockCode = null;
+                    return;
+                }
+
+                debounceTimer = setTimeout(async () => {
+                    console.log(`[Search] 正在搜索: ${query}`);
+                    try {
+                        const response = await fetch(`/dashboard/api/stock-search/?q=${encodeURIComponent(query)}`);
+                        if (!response.ok) {
+                            throw new Error('网络响应错误');
+                        }
+                        const stocks = await response.json();
+                        renderSearchResults(stocks);
+                    } catch (error) {
+                        console.error('[Search] 搜索API请求失败:', error);
+                        searchResultsContainer.innerHTML = '<div class="search-result-item">搜索出错，请稍后重试。</div>';
+                        searchResultsContainer.style.display = 'block';
+                    }
+                }, 300);
+            });
+
+            // 2. 渲染搜索结果
+            function renderSearchResults(stocks) {
+                searchResultsContainer.innerHTML = '';
+                if (stocks.length === 0) {
+                    searchResultsContainer.innerHTML = '<div class="search-result-item">未找到相关股票</div>';
+                } else {
+                    stocks.forEach(stock => {
+                        const item = document.createElement('div');
+                        item.className = 'search-result-item';
+                        item.textContent = `${stock.stock_code} - ${stock.stock_name}`;
+                        item.dataset.stockCode = stock.stock_code;
+                        item.dataset.stockName = stock.stock_name;
+                        searchResultsContainer.appendChild(item);
+                    });
+                }
+                searchResultsContainer.style.display = 'block';
+            }
+
+            // 3. 监听搜索结果容器的点击事件（事件委托）
+            searchResultsContainer.addEventListener('click', (event) => {
+                const targetItem = event.target.closest('.search-result-item');
+                if (targetItem && targetItem.dataset.stockCode) {
+                    console.log(`[Search] 选中了: ${targetItem.dataset.stockCode}`);
+                    searchInput.value = `${targetItem.dataset.stockCode} - ${targetItem.dataset.stockName}`;
+                    selectedStockCode = targetItem.dataset.stockCode;
+                    searchResultsContainer.innerHTML = '';
+                    searchResultsContainer.style.display = 'none';
+                }
+            });
+
+            // 4. 监听表单提交事件 (确保 addFavoriteForm 存在)
+            if (addFavoriteForm) {
+                addFavoriteForm.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    
+                    if (!selectedStockCode) {
+                        showNotification('请先从搜索结果中选择一只股票', 'warning');
+                        return;
+                    }
+
+                    const addButton = document.getElementById('add-favorite-btn');
+                    addButton.disabled = true;
+                    addButton.innerHTML = '<span class="icon">+</span> 添加中...';
+
                     try {
                         const csrfToken = getCookie('csrftoken');
-                        const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
-                            method: 'DELETE',
-                            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken }
+                        const response = await fetch('/dashboard/api/favorites/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRFToken': csrfToken
+                            },
+                            body: JSON.stringify({ stock_code: selectedStockCode })
                         });
-                        if (response.ok || response.status === 204) {
-                            showNotification(`股票 ${stockCode} 已移除`, 'success');
-                            removeStockRow(favoriteId); // 即时反馈
+
+                        if (response.ok) {
+                            const newFavorite = await response.json();
+                            showNotification(`股票 ${newFavorite.stock.stock_code} 添加成功！`, 'success');
+                            searchInput.value = '';
+                            selectedStockCode = null;
                         } else {
-                            throw new Error('移除失败');
+                            const errorData = await response.json();
+                            const errorMsg = errorData.detail || (errorData.stock_code ? `代码: ${errorData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
+                            showNotification(errorMsg, 'error');
                         }
                     } catch (error) {
-                        showNotification(`移除股票 ${stockCode} 时出错`, 'error');
-                        removeButton.disabled = false;
-                        removeButton.textContent = '移除';
+                        console.error('[Favorite Add] 添加自选失败:', error);
+                        showNotification('网络错误，添加失败', 'error');
+                    } finally {
+                        addButton.disabled = false;
+                        addButton.innerHTML = '<span class="icon">+</span> 添加到自选';
                     }
+                });
+            }
+
+            // 点击页面其他地方，隐藏搜索结果
+            document.addEventListener('click', (event) => {
+                if (addFavoriteForm && !addFavoriteForm.contains(event.target)) {
+                    searchResultsContainer.style.display = 'none';
                 }
             });
         }
-        
-        // ▼▼▼【代码修改】: 此部分逻辑现在是安全的，因为函数入口有卫兵子句 ▼▼▼
-        const searchInput = document.getElementById('stock-search-input');
-        const searchResultsContainer = document.getElementById('search-results');
-        let debounceTimer;
-        let selectedStockCode = null;
-
-        // 1. 监听搜索框的输入事件
-        searchInput.addEventListener('keyup', (event) => {
-            const query = searchInput.value.trim();
-            clearTimeout(debounceTimer);
-
-            if (query.length === 0) {
-                searchResultsContainer.innerHTML = '';
-                searchResultsContainer.style.display = 'none';
-                selectedStockCode = null;
-                return;
-            }
-
-            debounceTimer = setTimeout(async () => {
-                console.log(`[Search] 正在搜索: ${query}`);
-                try {
-                    const response = await fetch(`/dashboard/api/stock-search/?q=${encodeURIComponent(query)}`);
-                    if (!response.ok) {
-                        throw new Error('网络响应错误');
-                    }
-                    const stocks = await response.json();
-                    renderSearchResults(stocks);
-                } catch (error) {
-                    console.error('[Search] 搜索API请求失败:', error);
-                    searchResultsContainer.innerHTML = '<div class="search-result-item">搜索出错，请稍后重试。</div>';
-                    searchResultsContainer.style.display = 'block';
-                }
-            }, 300);
-        });
-
-        // 2. 渲染搜索结果
-        function renderSearchResults(stocks) {
-            searchResultsContainer.innerHTML = '';
-            if (stocks.length === 0) {
-                searchResultsContainer.innerHTML = '<div class="search-result-item">未找到相关股票</div>';
-            } else {
-                stocks.forEach(stock => {
-                    const item = document.createElement('div');
-                    item.className = 'search-result-item';
-                    item.textContent = `${stock.stock_code} - ${stock.stock_name}`;
-                    item.dataset.stockCode = stock.stock_code;
-                    item.dataset.stockName = stock.stock_name;
-                    searchResultsContainer.appendChild(item);
-                });
-            }
-            searchResultsContainer.style.display = 'block';
-        }
-
-        // 3. 监听搜索结果容器的点击事件（事件委托）
-        searchResultsContainer.addEventListener('click', (event) => {
-            const targetItem = event.target.closest('.search-result-item');
-            if (targetItem && targetItem.dataset.stockCode) {
-                console.log(`[Search] 选中了: ${targetItem.dataset.stockCode}`);
-                searchInput.value = `${targetItem.dataset.stockCode} - ${targetItem.dataset.stockName}`;
-                selectedStockCode = targetItem.dataset.stockCode;
-                searchResultsContainer.innerHTML = '';
-                searchResultsContainer.style.display = 'none';
-            }
-        });
-
-        // 4. 监听表单提交事件
-        addFavoriteForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            
-            if (!selectedStockCode) {
-                showNotification('请先从搜索结果中选择一只股票', 'warning');
-                return;
-            }
-
-            const addButton = document.getElementById('add-favorite-btn');
-            addButton.disabled = true;
-            addButton.innerHTML = '<span class="icon">+</span> 添加中...';
-
-            try {
-                const csrfToken = getCookie('csrftoken');
-                const response = await fetch('/dashboard/api/favorites/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({ stock_code: selectedStockCode })
-                });
-
-                if (response.ok) {
-                    const newFavorite = await response.json();
-                    showNotification(`股票 ${newFavorite.stock.stock_code} 添加成功！`, 'success');
-                    searchInput.value = '';
-                    selectedStockCode = null;
-                } else {
-                    const errorData = await response.json();
-                    const errorMsg = errorData.detail || (errorData.stock_code ? `代码: ${errorData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
-                    showNotification(errorMsg, 'error');
-                }
-            } catch (error) {
-                console.error('[Favorite Add] 添加自选失败:', error);
-                showNotification('网络错误，添加失败', 'error');
-            } finally {
-                addButton.disabled = false;
-                addButton.innerHTML = '<span class="icon">+</span> 添加到自选';
-            }
-        });
-
-        // 点击页面其他地方，隐藏搜索结果
-        document.addEventListener('click', (event) => {
-            if (!addFavoriteForm.contains(event.target)) {
-                searchResultsContainer.style.display = 'none';
-            }
-        });
         // ▲▲▲【代码修改结束】▲▲▲
 
         // 启动WebSocket
@@ -372,10 +368,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // === 策略监控中心 (trend_following_list.html) 功能 =======================
     // =========================================================================
     function initializeTrendListPage() {
-        console.log('正在初始化【策略监控中心】页面功能...');
-
         const tableBody = document.getElementById('trend-table-body');
-        if (!tableBody) return;
+        if (!tableBody) return; // 卫兵子句
+
+        console.log('正在初始化【策略监控中心】页面功能...');
 
         // --- 折叠功能 ---
         tableBody.addEventListener('click', function(event) {
@@ -486,9 +482,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function initializeFavTrendListPage() {
         const tableBody = document.getElementById('fav-trend-table-body');
         if (!tableBody) {
-            console.error('[JS] 错误：在自选股监控页面未找到 ID 为 "fav-trend-table-body" 的元素。');
-            return;
+            return; // 卫兵子句
         }
+        console.log('正在初始化【自选股监控】页面功能...');
 
         // --- 整合原有的折叠功能 和 新增移除自选股功能 ---
         tableBody.addEventListener('click', async function(event) {
@@ -559,28 +555,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 return; // 处理完移除后，不再继续执行
             }
         });
-    }
-
-    // =========================================================================
-    // === 全局功能 (例如: 搜索框) ============================================
-    // =========================================================================
-    function initializeGlobalSearch() {
-        // 根据错误信息，我们假设页面上可能有一个ID为'searchInput'的元素
-        const searchInput = document.getElementById('searchInput');
-        console.log('[JS] 正在检查全局搜索框 #searchInput...');
-
-        // 这是关键的保护性检查：仅当元素存在时，才为其添加事件监听器
-        if (searchInput) {
-            console.log('[JS] 找到了 #searchInput 元素，正在为其绑定事件。');
-            searchInput.addEventListener('keyup', function(event) {
-                // 在这里实现你的搜索逻辑
-                // 例如：const query = event.target.value;
-                // console.log('搜索内容:', query);
-            });
-        } else {
-            // 如果元素不存在，我们只在控制台打印一条信息，而不会报错
-            console.log('[JS] 未在当前页面找到 #searchInput 元素，跳过事件绑定。');
-        }
     }
 
     // =========================================================================
