@@ -1300,7 +1300,7 @@ class TrendFollowStrategy:
         #    - 如果过去10天内，有任何一天是“派发日”，那么今天就处于“近期派发压力”之下
         lookback_window = self._get_param_value(dist_context_params.get('lookback_days'), 10)
         # .any() 是关键，它检查窗口内是否有至少一个 True
-        atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = is_distribution_day.rolling(
+        self.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = is_distribution_day.rolling(
             window=lookback_window, min_periods=1
         ).apply(np.any, raw=True).fillna(0).astype(bool)
         
