@@ -454,6 +454,8 @@ section h2 .icon {
 /* 表格中的剧本标签 */
 /* 表格中的剧本标签 - 增加了 .data-table 前缀 */
 .data-table .playbook-tag {
+    display: inline-flex;                       /* 新增: 使其表现为行内块级元素，让padding生效 */
+    align-items: center;                        /* 新增: 垂直居中标签内的文字和图标 */
     background-color: rgba(99, 164, 255, 0.15);  /* 基础剧本颜色，使用与主题一致的rgba */
     color: #81b9ff;                             /* 蓝色字体 */
     padding: 2px 8px;
