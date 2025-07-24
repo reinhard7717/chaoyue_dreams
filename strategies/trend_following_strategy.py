@@ -192,49 +192,36 @@ class TrendFollowStrategy:
     # ▼▼▼ 标准化战报生成器 (保持不变，作为稳定的基础服务) ▼▼▼
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
         """
-        【V1.0 中央战报总署】 - 全军唯一的标准化战报生成器
-        - 核心职责: 确保所有引擎生成的数据库记录，都遵循完全统一的、标准化的数据契约。
-        - 关键修正:
-          1. 将 'entry_score' 字段名统一为 'final_score'，解决命名不一致问题。
-          2. 增加了对 'risk_score' 的处理。
-          3. 增加了对 'signal_type' 的智能判断。
+        【V3.0 绝对忠诚版】 - 全军唯一的标准化战报生成器
+        - 核心升级: 移除所有内部逻辑判断。它现在只负责忠实地、精确地记录
+                    由上级单位（如 prepare_db_records）传递过来的所有标准化情报。
         """
         trade_time_input = kwargs.get('trade_time')
         if trade_time_input is None:
             raise ValueError("创建信号记录时必须提供 'trade_time'")
 
-        # 标准化时间
         ts = pd.to_datetime(trade_time_input)
         if ts.tzinfo is None:
             standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime()
         else:
             standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
 
-        # 标准战报模板
+        # ▼▼▼【代码修改 V3.0】: 简化为纯粹的记录模板 ▼▼▼
         record = {
-            "stock_code": None,
-            "trade_time": standard_trade_time,
-            "timeframe": "N/A",
-            "strategy_name": "UNKNOWN",
-            "signal_type": "中性",
-            "final_score": 0.0,
-            "risk_score": 0.0,
-            "playbook_details": "",
-            "close_price": None,
+            "stock_code": None, "trade_time": standard_trade_time, "timeframe": "N/A",
+            "strategy_name": "UNKNOWN", "signal_type": "中性", "final_score": 0.0,
+            "risk_score": 0.0, "playbook_details": "", "close_price": None,
+            "entry_signal": False, "is_risk_warning": False
         }
         record.update(kwargs)
-
-        # 根据传入的 signal_type 设置布尔标志
-        record['entry_signal'] = record['signal_type'] == '买入信号'
-        record['is_risk_warning'] = record['signal_type'] in ['卖出信号', '风险预警']
         
         # 数据净化
         record['close_price'] = sanitize_for_json(record.get('close_price'))
         record['final_score'] = float(record['final_score'])
         record['risk_score'] = float(record['risk_score'])
+        # ▲▲▲【代码修改 V3.0】▲▲▲
 
         return record
-
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
         default_series = pd.Series(False, index=df.index)
@@ -2298,56 +2285,64 @@ class TrendFollowStrategy:
         - 核心重构: 废除所有本地的记录构建逻辑，强制调用唯一的“中央战报总署”
                     (`_create_signal_record`) 来生成标准化的战报。
         """
-        # ▼▼▼【代码修改】: 以下为 V301.0 版全新实现 ▼▼▼
-        print("      -> [战报司令部 V301.0] 启动，正在调用“中央战报总署”进行归档...")
+        print("      -> [战报司令部 V303.0 最终修正版] 启动，正在执行“双轨记录制”归档...")
         
-        signal_dates = result_df[(result_df['signal_entry'] == True) | (result_df['risk_score'] > 0)].index
+        signal_dates = result_df[(result_df['signal_type'] != '中性')].index
         if signal_dates.empty:
             print("      -> 无需归档的信号，跳过。")
             return []
         
         df_to_process = result_df.loc[signal_dates].copy()
 
-        scoring_params = self._get_params_block('four_layer_scoring_params')
-        metadata = scoring_params.get('metadata', {})
         strategy_info = self._get_params_block('strategy_info')
         strategy_name = self._get_param_value(strategy_info.get('name'), 'unknown_strategy')
+        metadata = self.scoring_params.get('metadata', {})
 
         def generate_playbook_details(row):
             trade_date = row.name
             active_signals = []
-            if not score_details_df.empty and trade_date in score_details_df.index:
-                score_row = score_details_df.loc[trade_date]
-                for signal in score_row[score_row > 0].index:
-                    std_name = self._standardize_signal_name(signal)
-                    cn_name = metadata.get(std_name, std_name)
-                    active_signals.append(cn_name)
-            if not risk_details_df.empty and trade_date in risk_details_df.index:
-                risk_row = risk_details_df.loc[trade_date]
-                for signal in risk_row[risk_row > 0].index:
-                    std_name = self._standardize_signal_name(signal)
-                    cn_name = metadata.get(std_name, f"风险-{std_name}")
-                    active_signals.append(cn_name)
+            # 根据信号类型，决定是从进攻案卷还是风险案卷中提取详情
+            if row['signal_type'] == '买入信号':
+                if not score_details_df.empty and trade_date in score_details_df.index:
+                    score_row = score_details_df.loc[trade_date]
+                    for signal in score_row[score_row > 0].index:
+                        std_name = self._standardize_signal_name(signal)
+                        cn_name = metadata.get(std_name, std_name)
+                        active_signals.append(cn_name)
+            else: # 卖出或风险预警
+                if not risk_details_df.empty and trade_date in risk_details_df.index:
+                    risk_row = risk_details_df.loc[trade_date]
+                    for signal in risk_row[risk_row > 0].index:
+                        std_name = self._standardize_signal_name(signal)
+                        cn_name = metadata.get(std_name, f"风险-{std_name}")
+                        active_signals.append(cn_name)
             return ", ".join(active_signals) if active_signals else "无"
 
         df_to_process['playbook_details'] = df_to_process.apply(generate_playbook_details, axis=1)
 
         records = []
         for idx, row in df_to_process.iterrows():
-            # 强制调用唯一的“中央战报总署”
+            # --- 【核心裁决逻辑】 ---
+            score_to_save = 0.0
+            if row['signal_type'] == '买入信号':
+                score_to_save = row['final_score'] # 买入信号，记录进攻分
+            else: # 卖出或风险预警
+                score_to_save = row['risk_score']  # 卖出信号，记录风险分
+
             record = self._create_signal_record(
                 stock_code=stock_code,
                 timeframe=result_timeframe,
                 strategy_name=strategy_name,
                 trade_time=idx.to_pydatetime(),
-                final_score=row['final_score'],
-                risk_score=row['risk_score'],
+                signal_type=row['signal_type'],
+                final_score=score_to_save, # <--- 使用我们裁决后的分数！
+                risk_score=row['risk_score'], # risk_score 字段依然保留，用于记录原始风险
                 playbook_details=row['playbook_details'],
-                close_price=row[f'close_{result_timeframe}'],
+                close_price=row.get(f'close_{result_timeframe}'),
             )
             records.append(record)
         
-        print(f"      -> [战报司令部 V301.0] 标准化归档完成，共生成 {len(records)} 条记录。")
+        print(f"      -> [战报司令部 V303.0] “双轨记录制”归档完成，共生成 {len(records)} 条记录。")
         return records
 
     # ─> 风险量化局 (Risk Quantifier Bureau)
