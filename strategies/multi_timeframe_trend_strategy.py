@@ -695,18 +695,17 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V204.0 职责修正版】
-        - 核心修正: 彻底修正了战报发布官的职责，解决了中文战报被撕碎的问题。
-        - 新军事纪律: “只发布，不篡改！”
-          1. 本方法现在正确地认识到，从 `record` 中获取的 `triggered_playbooks` 字段
-             已经是【最终的、翻译好的、可以直接显示的字符串】。
-          2. 废除了所有对该字符串进行二次迭代、二次翻译的错误逻辑。
-          3. 直接将获取到的 `playbooks_str` 字符串用于最终的报告拼接。
-        - 收益: 确保了情报在指挥链的最后一环被正确呈现，战报恢复了其应有的
-                清晰度和可读性。
+        【V204.1 报告修正版】
+        - 核心修正:
+          1. **信号类型修正**: 为“买入信号”分支补充了 `signal_type` 的赋值逻辑，
+             彻底解决了此前买入信号被错误归类为“未知信号”的问题。
+          2. **数据清洗**: 在显示 `triggered_playbooks` 之前，使用正则表达式清除了
+             其中可能存在的换行符和多余空格。这确保了日志输出的格式整洁，
+             并解决了因原始数据格式问题导致的显示错乱。
+        - 收益: 调试报告现在能准确、清晰地反映所有类型的信号，提升了可读性和调试效率。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V204.0 职责修正版)] ---")
+        print(f"--- [历史回溯调试启动 (V204.1 报告修正版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -752,12 +751,16 @@ class MultiTimeframeTrendStrategy:
                 
                 elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # ▼▼▼【代码修改 V204.0】: 修正战报发布逻辑！▼▼▼
-                    # 1. 直接获取已经翻译好的、完整的剧本字符串
-                    playbooks_str = record.get('triggered_playbooks', '无剧本信息')
-                    # 2. 直接使用该字符串，不再进行任何二次处理
+                    # ▼▼▼【代码修改 V204.1】: 修正战报发布逻辑！▼▼▼
+                    # 1. 获取原始剧本字符串
+                    playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
+                    # 2. 清理字符串中的换行符和多余空格，确保单行输出
+                    playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
+                    # 3. 格式化详情
                     details = f"得分: {score:<7.2f} | 剧本: {playbooks_str}"
-                    # ▲▲▲【代码修改 V204.0】▲▲▲
+                    # 4. 修正信号类型，解决“未知信号”问题
+                    signal_type = "综合买入"
+                    # ▲▲▲【代码修改 V204.1】▲▲▲
                 
                 elif record.get('is_risk_warning'):
                     signal_type = "风险预警"
