@@ -362,7 +362,8 @@ class IndicatorService:
                 stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
             all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
-
+        # 调用VPA效率生产线，它必须在斜率计算之前执行！
+        all_dfs = await self._calculate_vpa_features(all_dfs, config)
         # 在所有基础指标计算完毕后，调用斜率计算
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
@@ -924,6 +925,43 @@ class IndicatorService:
             all_dfs[timeframe] = df
 
         print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
+        return all_dfs
+
+    async def _calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】VPA效率指标生产线
+        - 核心职责: 计算全新的自定义指标 VPA_EFFICIENCY_D (资金攻击效率)。
+        - 计算公式: 当日涨幅 / (当日成交量 / 21日均量)
+        - 意义: 衡量每一单位的相对成交量，能换来多大的价格涨幅。
+                 数值极低时，是典型的“天量滞涨”危险信号。
+        """
+        print("    - [VPA效率生产线 V1.0 @ IndicatorService] 启动...")
+        timeframe = 'D' # VPA效率是一个日线级别的概念
+        if timeframe not in all_dfs:
+            return all_dfs
+        
+        df = all_dfs[timeframe]
+        
+        # --- 1. 军备检查 ---
+        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"      -> [严重警告] VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
+            return all_dfs
+
+        # --- 2. 计算相对成交量倍数 ---
+        # 为防止除以0的错误，将0替换为NaN，后续计算结果也会是NaN，最后统一填充为0
+        volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
+
+        # --- 3. 计算VPA效率 ---
+        # 再次防止除以0
+        vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
+        
+        # 将新指标添加到DataFrame中，并将计算过程中可能产生的NaN和inf填充为0
+        df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
+        
+        all_dfs[timeframe] = df
+        print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
         return all_dfs
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:

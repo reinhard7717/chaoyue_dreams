@@ -92,7 +92,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V236.0 军火规格修复版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
+      "说明": "【V237.0 量价动态版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
       "series_to_slope": {
         "close_D": [5],
         "EMA_13_D": [5, 13],
@@ -109,7 +109,11 @@
         "peak_stability_D": [5, 21],
         "peak_percent_D": [5],
         "pressure_above_D": [5],
-        "chip_health_score_D": [5]
+        "chip_health_score_D": [5],
+
+        "说明_VPA": "--- ▼▼▼【代码修改】: 新增量价动态分析所需指标 ▼▼▼ ---",
+        "volume_D": [5],
+        "VPA_EFFICIENCY_D": [5]
       }
     }
   },
