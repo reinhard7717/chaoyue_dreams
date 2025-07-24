@@ -2126,22 +2126,27 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V300.0 协议统一版】
-        - 核心修复: 强制其汇报协议与上级单位(apply_strategy)的期望完全统一，
-                    返回一个包含 (df, score_details_df, risk_details_df) 的三联式标准情报包。
-                    并彻底移除内部的验尸逻辑。
+        【V301.0 风险否决版】
+        - 核心升级: 引入了“风险一票否决权”，重构了最终决策流程。
+        - 新三层决策体系:
+          1. 【初步判断】: 首先，将所有 `entry_score > 0` 的日子初步标记为“买入信号”。
+          2. 【风险否决】: 然后，检查是否存在 `risk_score > entry_score` 的情况。
+                         如果存在，则将初步的“买入信号”【覆盖】为“卖出信号”。
+                         这是最关键的风险控制。
+          3. 【常规卖出】: 最后，处理那些 `entry_score` 为0的纯粹卖出日。
+        - 收益: 确保了在任何情况下，风险都得到最高优先级的考量，
+                指挥系统既能抓住机会，更能规避陷阱。
         """
-        print("    --- [最高作战指挥部 V300.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V301.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
         # --- 阶段一：评估 ---
         print("        -> [评估单元] 启动...")
-        # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
             "df": df, 
-            "params": params, # 恢复这一行，为 _calculate_entry_score 提供补给
+            "params": params,
             "trigger_events": trigger_events,
             "playbook_states": self.playbook_states, 
-            "atomic_states": self.atomic_states, # _calculate_entry_score 仍在使用
+            "atomic_states": self.atomic_states,
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
@@ -2151,23 +2156,41 @@ class TrendFollowStrategy:
         df['risk_score'] = risk_score
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
-        # --- 阶段二：决策 (逻辑不变) ---
-        df = self._calculate_exit_signals(df, params, df['risk_score'])
-        risk_veto_params = self._get_params_block('risk_veto_params')
-        risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
-        min_absolute_risk_for_veto = self._get_param_value(risk_veto_params.get('min_absolute_risk_for_veto'), 50)
-        is_risk_too_high_relative = df['risk_score'] > (df['entry_score'] * risk_tolerance_ratio)
-        is_risk_high_absolute = df['risk_score'] >= min_absolute_risk_for_veto
-        veto_condition = is_risk_too_high_relative & is_risk_high_absolute
-        df.loc[veto_condition, 'entry_score'] = 0
-        df['final_score'] = df['entry_score']
+        # --- 阶段二：决策 (三层裁定) ---
+        print("        -> [决策单元] 启动，正在执行三层决策裁定...")
+
+        # 1. 初始化最终决策列
+        df['final_score'] = 0.0
         df['signal_type'] = '中性'
-        buy_condition = df['final_score'] > 0
-        df.loc[buy_condition, 'signal_type'] = '买入信号'
-        exit_condition = df['exit_signal_code'] >= 88
-        df.loc[exit_condition, 'signal_type'] = '卖出信号'
-        df['signal_entry'] = False
-        df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
+        
+        # 2. 定义三层裁定条件
+        # 条件A: 潜在买入 (进攻分 > 0)
+        is_potential_buy = df['entry_score'] > 0
+        
+        # ▼▼▼【代码修改 V301.0】: 定义“风险一票否决权”！▼▼▼
+        # 条件B: 风险压倒进攻 (这是否决买入的关键)
+        risk_overrides_entry = df['risk_score'] > df['entry_score']
+        
+        # 条件C: 纯粹卖出 (调用已修正的离场指令部，它只处理非潜在买入日)
+        df = self._calculate_exit_signals(df, params, df['risk_score'])
+        is_pure_sell = df['exit_signal_code'] >= 88
+        # ▲▲▲【代码修改 V301.0】▲▲▲
+
+        # 3. 执行三层裁定 (注意顺序，高优先级覆盖低优先级)
+        # 第一层：默认标记所有潜在买入日为“买入信号”
+        df.loc[is_potential_buy, 'signal_type'] = '买入信号'
+        
+        # 第二层：【风险否决】如果风险压倒了进攻，则将“买入信号”覆盖为“卖出信号”
+        df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
+        
+        # 第三层：【常规卖出】标记纯粹的卖出日 (例如 entry_score=0 但 risk_score 很高)
+        df.loc[is_pure_sell, 'signal_type'] = '卖出信号'
+
+        # 4. 根据最终的 signal_type，计算 final_score 和 signal_entry
+        buy_condition = df['signal_type'] == '买入信号'
+        df.loc[buy_condition, 'final_score'] = df.loc[buy_condition, 'entry_score']
+        df['signal_entry'] = buy_condition
+
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
@@ -2176,7 +2199,7 @@ class TrendFollowStrategy:
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V300.1] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V301.0] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
 
 
@@ -2185,15 +2208,18 @@ class TrendFollowStrategy:
     #        -> 指挥官: _calculate_exit_signals()
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
         """
-        【V291.0 悖论修正版】
-        - 核心修复: 彻底斩断了导致系统崩溃的“因果悖论”循环。
-        - 新逻辑:
-          1. 不再依赖于尚未生成的 'signal_type' 列。
-          2. 而是根据【已经存在】的 'entry_score' 来判断当天是否【有潜力】成为买入日。
-          3. 只有在 'entry_score' 为0的日子里，才进行风险预警等级的计算。
-        - 收益: 恢复了指挥链的线性逻辑，确保了决策流程的正确性和系统的稳定性。
+        【V292.0 指挥权修正版】
+        - 核心修复: 彻底解决了“指令覆盖”BUG。
+        - 新军事纪律:
+          1. 明确规定，在任何有进攻意图 (`entry_score > 0`) 的日子里，
+             “离场指令部”必须保持完全静默。
+          2. 所有的预警 (`alert_level`, `alert_reason`) 和卖出代码
+             (`exit_signal_code`) 的计算，都必须在 `~is_potential_buy_day`
+             这个先决条件下进行。
+        - 收益: 确保了“进攻”命令的最高优先权，买入信号将不再被任何
+                下级风险信号所错误覆盖。
         """
-        print("      -> [离场指令部 V291.0] 启动，正在执行代码净化与离场计算...")
+        print("      -> [离场指令部 V292.0] 启动，正在执行代码净化与离场计算...")
         
         df['exit_signal_code'] = 0
         df['alert_level'] = 0
@@ -2203,36 +2229,34 @@ class TrendFollowStrategy:
         if not self._get_param_value(exit_params.get('enabled'), True):
             return df
 
-        # 1. 根据【已存在】的 entry_score 判断当天是否有买入潜力。
-        #    注意：此时 final_score 和 signal_type 尚未计算，不能使用！
         is_potential_buy_day = df['entry_score'] > 0
         
-        # 2. 只在【没有】买入潜力的日子，才进行风险预警等级的计算
+        # --- 只有在【非】潜在买入日，才允许计算任何预警或卖出信号 ---
+        
+        # 1. 计算风险预警信号
         warning_params = exit_params.get('warning_threshold_params', {})
-        # 确保按阈值从低到高排序，以便正确覆盖
         for level_name, level_info in sorted(warning_params.items(), key=lambda item: item[1]['level']):
             threshold = level_info['level']
             cn_name = level_info['cn_name']
-            # 使用 .loc 和 ~is_potential_buy_day 进行精确操作
             condition = (risk_score >= threshold) & (~is_potential_buy_day)
             df.loc[condition, 'alert_level'] = level_info.get('level', 0)
             df.loc[condition, 'alert_reason'] = cn_name
-
-        # 3. 卖出信号的计算保持不变，因为它具有最高优先级，会覆盖预警信号
+        
+        # 2. 计算最高优先级的卖出信号
         exit_threshold_params = exit_params.get('exit_threshold_params', {})
         for level_name, level_info in exit_threshold_params.items():
             threshold = level_info['level']
             code = level_info['code']
             cn_name = level_info['cn_name']
-            condition = risk_score >= threshold
+            # 同样，必须在【非】潜在买入日这个条件下！
+            condition = (risk_score >= threshold) & (~is_potential_buy_day)
             df.loc[condition, 'exit_signal_code'] = code
-            # 卖出信号的 alert_level 应该反映其严重性，而不是预警等级
             df.loc[condition, 'alert_level'] = level_info.get('level', 0) 
             df.loc[condition, 'alert_reason'] = cn_name
         
         print(f"        -> 风险与离场信号计算完成。")
         return df
-
+    
     # 4. 沙盘推演中心 (War Gaming Center - Simulation)
     #    -> 核心职责: 模拟从建仓到离场的全过程战术动作。
     #    -> 总指挥: _run_position_management_simulation()
