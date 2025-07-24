@@ -75,42 +75,12 @@ class TrendFollowStrategy:
         self.playbook_blueprints = self._get_playbook_blueprints()
         self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
         
-        # 1. 从配置中加载基础的中文元数据
+        # 1. 加载所有得分信号的中文元数据
         self.signal_metadata = self.scoring_params.get('metadata', {})
-        
-        # 2. 自动扫描所有计分项，提取所有需要翻译的英文键
-        all_signal_keys = set()
-        scoring_sections = ['positional_scoring', 'dynamic_scoring', 'trigger_events']
-        for section_name in scoring_sections:
-            section = self.scoring_params.get(section_name, {})
-            # 兼容两种可能的结构: 'positive_signals' 或 'scoring'
-            signals = section.get('positive_signals', section.get('scoring', {}))
-            all_signal_keys.update(signals.keys())
-
-        # 3. 自动扫描风险计分项
-        risk_section = self.scoring_params.get('risk_scoring', {})
-        risk_signals = risk_section.get('signals', {})
-        all_signal_keys.update(risk_signals.keys())
-
-        # 4. 将剧本名称也加入待翻译列表
-        playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
-        all_signal_keys.update(playbook_cn_map.keys())
-
-        # 5. 构建最终的、全覆盖的翻译词典
-        # 规则：如果 metadata 中有，则用 metadata 的；如果没有，则用 playbook 的；如果还没有，则保留英文原名
-        final_metadata = {}
-        for key in all_signal_keys:
-            if key in self.signal_metadata:
-                final_metadata[key] = self.signal_metadata[key]
-            elif key in playbook_cn_map:
-                final_metadata[key] = playbook_cn_map[key]
-            else:
-                # 对于没有提供中文名的原子信号，提供一个默认翻译格式
-                # 例如: MA_STATE_AGGRESSIVE_BULLISH -> 【均线】攻击性多头排列
-                # 这是一个简化的处理，实际应用中最好在JSON中补全
-                final_metadata[key] = f"【原子信号】{key}"
-
-        self.signal_metadata = final_metadata
+        # 2. 构建作战剧本的“英中翻译词典”
+        self.playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        # 将两个词典合并，形成统一的翻译总署
+        self.signal_metadata.update(self.playbook_cn_map)
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -2156,25 +2126,22 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V301.0 最高指挥条令版】
-        - 核心重构: 彻底重写了最终信号的决策逻辑，解决了“指令覆盖”BUG。
-        - 新指挥条令 (np.select):
-          1. 建立一个拥有绝对优先级的决策序列。
-          2. 【最高优先级】: 首先检查卖出条件 (`exit_condition`)。
-          3. 【次级优先级】: 只有在不满足卖出条件时，才检查买入条件 (`buy_condition`)。
-          4. 【默认】: 如果两者都不满足，则信号为“中性”。
-        - 收益: 确保了指令的互斥性和正确性，卖出信号不再错误地覆盖买入信号。
+        【V300.0 协议统一版】
+        - 核心修复: 强制其汇报协议与上级单位(apply_strategy)的期望完全统一，
+                    返回一个包含 (df, score_details_df, risk_details_df) 的三联式标准情报包。
+                    并彻底移除内部的验尸逻辑。
         """
-        print("    --- [最高作战指挥部 V301.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V300.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
-        # --- 阶段一：评估 (逻辑不变) ---
+        # --- 阶段一：评估 ---
         print("        -> [评估单元] 启动...")
+        # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
             "df": df, 
-            "params": params,
+            "params": params, # 恢复这一行，为 _calculate_entry_score 提供补给
             "trigger_events": trigger_events,
             "playbook_states": self.playbook_states, 
-            "atomic_states": self.atomic_states,
+            "atomic_states": self.atomic_states, # _calculate_entry_score 仍在使用
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
@@ -2184,7 +2151,7 @@ class TrendFollowStrategy:
         df['risk_score'] = risk_score
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
-        # --- 阶段二：决策 ---
+        # --- 阶段二：决策 (逻辑不变) ---
         df = self._calculate_exit_signals(df, params, df['risk_score'])
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
@@ -2194,28 +2161,13 @@ class TrendFollowStrategy:
         veto_condition = is_risk_too_high_relative & is_risk_high_absolute
         df.loc[veto_condition, 'entry_score'] = 0
         df['final_score'] = df['entry_score']
-        
-        # ▼▼▼【代码修改 V301.0】: 颁布《最高指挥条令》！▼▼▼
-        # 1. 定义指令的优先级
-        exit_condition = df['exit_signal_code'] >= 88
+        df['signal_type'] = '中性'
         buy_condition = df['final_score'] > 0
-        
-        # 2. 使用 np.select 建立拥有优先级的决策流程
-        conditions = [
-            exit_condition,  # 最高优先级：卖出
-            buy_condition    # 次级优先级：买入
-        ]
-        choices = [
-            '卖出信号',
-            '买入信号'
-        ]
-        # 3. 应用条令，生成最终信号类型
-        df['signal_type'] = np.select(conditions, choices, default='中性')
-        # ▲▲▲【代码修改 V301.0】▲▲▲
-
+        df.loc[buy_condition, 'signal_type'] = '买入信号'
+        exit_condition = df['exit_signal_code'] >= 88
+        df.loc[exit_condition, 'signal_type'] = '卖出信号'
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
-        
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
@@ -2224,21 +2176,18 @@ class TrendFollowStrategy:
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V301.0] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V300.1] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
+
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
     #        -> 指挥官: _calculate_exit_signals()
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
         """
-        【V290.0 逻辑净化版】
-        - 核心重构: 彻底重写风险等级判定逻辑，使用清晰的 if/elif 结构，
-                    确保每日只有一个唯一的、明确的风险状态，根除了“精神分裂”BUG。
-        - 新规则:
-          1. 从最高风险等级开始检查。
-          2. 一旦满足某个等级的条件，立即设置对应的 code, level, reason，然后跳过后续检查。
-          3. 对于预警信号，只设置 level 和 reason，确保 code 保持为0。
+        【V290.0 职责净化版】
+        - 核心修正: 增加了严格的职责边界。本模块现在只对【非买入信号日】
+                    进行风险预警等级的计算，彻底杜绝了对买入信号的“情报污染”。
         """
         print("      -> [离场指令部 V290.0] 启动，正在执行代码净化与离场计算...")
         
@@ -2250,41 +2199,31 @@ class TrendFollowStrategy:
         if not self._get_param_value(exit_params.get('enabled'), True):
             return df
 
-        # 从配置中获取所有阈值
-        thresholds = self._get_params_block('exit_threshold_params', {})
-        critical_threshold = thresholds.get('CRITICAL', {}).get('level', 120)
-        high_threshold = thresholds.get('HIGH', {}).get('level', 80)
+        # 1. 识别出哪些是买入信号日
+        is_buy_signal = df['signal_type'] == '买入信号'
         
-        warning_thresholds = self._get_params_block('warning_threshold_params', {})
-        medium_threshold = warning_thresholds.get('MEDIUM', {}).get('level', 50)
-        low_threshold = warning_thresholds.get('LOW', {}).get('level', 30)
+        # 2. 只在【非】买入信号日，才进行风险预警等级的计算
+        warning_params = exit_params.get('warning_threshold_params', {})
+        for level_name, level_info in sorted(warning_params.items(), key=lambda item: item[1]['level']):
+            threshold = level_info['level']
+            cn_name = level_info['cn_name']
+            # 使用 .loc 和 ~is_buy_signal 进行精确操作
+            condition = (risk_score >= threshold) & (~is_buy_signal)
+            df.loc[condition, 'alert_level'] = warning_params[level_name].get('level', 0) # 使用level作为警报级别
+            df.loc[condition, 'alert_reason'] = cn_name
 
-        # 按风险从高到低进行判断
-        # 条件1: 临界风险 (最高优先级)
-        cond_critical = risk_score >= critical_threshold
-        df.loc[cond_critical, 'exit_signal_code'] = thresholds.get('CRITICAL', {}).get('code', 99)
-        df.loc[cond_critical, 'alert_level'] = 4
-        df.loc[cond_critical, 'alert_reason'] = thresholds.get('CRITICAL', {}).get('cn_name', '临界风险卖出')
-
-        # 条件2: 高度风险 (当不满足临界风险时)
-        cond_high = (risk_score >= high_threshold) & (~cond_critical)
-        df.loc[cond_high, 'exit_signal_code'] = thresholds.get('HIGH', {}).get('code', 88)
-        df.loc[cond_high, 'alert_level'] = 3
-        df.loc[cond_high, 'alert_reason'] = thresholds.get('HIGH', {}).get('cn_name', '高度风险卖出')
-
-        # 条件3: 中度风险预警 (当不满足卖出条件时)
-        cond_medium = (risk_score >= medium_threshold) & (~cond_critical) & (~cond_high)
-        df.loc[cond_medium, 'alert_level'] = 2
-        df.loc[cond_medium, 'alert_reason'] = warning_thresholds.get('MEDIUM', {}).get('cn_name', '中度风险')
-
-        # 条件4: 低度风险预警 (当不满足以上所有条件时)
-        cond_low = (risk_score >= low_threshold) & (~cond_critical) & (~cond_high) & (~cond_medium)
-        df.loc[cond_low, 'alert_level'] = 1
-        df.loc[cond_low, 'alert_reason'] = warning_thresholds.get('LOW', {}).get('cn_name', '低度风险')
-
-        print(f"        -> 检测到 {df[df['exit_signal_code'] > 0].shape[0]} 天“卖出”信号。")
-        print(f"        -> 检测到 {df[(df['alert_level'] > 0) & (df['exit_signal_code'] == 0)].shape[0]} 天“风险预警”信号。")
-        print("      -> [离场指令部 V290.0] 净化与计算完成。")
+        # 3. 卖出信号的计算保持不变，因为它具有最高优先级
+        exit_threshold_params = exit_params.get('exit_threshold_params', {})
+        for level_name, level_info in exit_threshold_params.items():
+            threshold = level_info['level']
+            code = level_info['code']
+            cn_name = level_info['cn_name']
+            condition = risk_score >= threshold
+            df.loc[condition, 'exit_signal_code'] = code
+            df.loc[condition, 'alert_level'] = exit_threshold_params[level_name].get('level', 0) # 使用level作为警报级别
+            df.loc[condition, 'alert_reason'] = cn_name
+        
+        print(f"        -> 临界风险卖出信号检测完成。")
         return df
 
     # 4. 沙盘推演中心 (War Gaming Center - Simulation)
@@ -2440,18 +2379,22 @@ class TrendFollowStrategy:
     #    -> 总指挥: prepare_db_records()
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> List[Dict[str, Any]]:
         """
-        【V304.0 档案条例版】战报司令部 - 数据库记录生成中心
-        - 核心职责: 严格按照《档案记录条例》，生成需要永久存档的、
-                    完全翻译为中文的标准化战报记录。
+        【V306.0 最终修正版】战报司令部
+        - 核心修复: 修正了 is_risk_warning 的判断逻辑，确保只有在
+                    【非买入/非卖出】的纯预警日，该标志才为True。
         """
-        print(f"      -> [战报司令部 V304.0] 启动，正在执行“双轨记录制”归档...")
+        print(f"      -> [战报司令部 V306.0] 启动，正在执行“双轨记录制”归档...")
         db_records = []
         
-        # 筛选出所有需要记录的信号日（买入、卖出、预警）
         signal_days_df = result_df[result_df['signal_type'] != '中性'].copy()
 
         for trade_time, row in signal_days_df.iterrows():
-            # 1. 创建标准化的记录模板
+            # ▼▼▼【代码修改 V306.0】: 修正 is_risk_warning 的判断逻辑！▼▼▼
+            is_pure_warning = (row['signal_type'] != '买入信号') and \
+                              (row['signal_type'] != '卖出信号') and \
+                              (row.get('alert_level', 0) > 0)
+            # ▲▲▲【代码修改 V306.0】▲▲▲
+
             record = self._create_signal_record(
                 stock_code=stock_code,
                 trade_time=trade_time,
@@ -2462,17 +2405,16 @@ class TrendFollowStrategy:
                 risk_score=row.get('risk_score', 0.0),
                 close_price=row.get('close_D'),
                 entry_signal=row.get('signal_entry', False),
-                is_risk_warning=(row.get('alert_level', 0) > 0),
+                is_risk_warning=is_pure_warning, # 使用修正后的标志
                 exit_signal_code=row.get('exit_signal_code', 0),
                 exit_severity_level=row.get('alert_level', 0)
             )
             
-            # 2. 调用“档案详情填充”模块，获取经过翻译的详细原因
             record = self._fill_signal_details(record, row, score_details_df, risk_details_df)
             
             db_records.append(record)
             
-        print(f"      -> [战报司令部 V304.0] “双轨记录制”归档完成，共生成 {len(db_records)} 条记录。")
+        print(f"      -> [战报司令部 V306.0] “双轨记录制”归档完成，共生成 {len(db_records)} 条记录。")
         return db_records
 
     def _fill_signal_details(self, record: Dict, signal_row: pd.Series, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> Dict:
