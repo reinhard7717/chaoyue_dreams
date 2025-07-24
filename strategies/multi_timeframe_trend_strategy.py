@@ -1,10 +1,7 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
 # 版本: V203.0 总指挥重构版
-import io
-import sys
-import re
-from contextlib import redirect_stdout
-from collections import defaultdict
+import os # 确保导入 os 模块
+from django.conf import settings # 导入 Django settings
 from copy import deepcopy
 from datetime import datetime, time
 import json
