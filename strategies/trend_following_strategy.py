@@ -2156,22 +2156,25 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V300.0 协议统一版】
-        - 核心修复: 强制其汇报协议与上级单位(apply_strategy)的期望完全统一，
-                    返回一个包含 (df, score_details_df, risk_details_df) 的三联式标准情报包。
-                    并彻底移除内部的验尸逻辑。
+        【V301.0 最高指挥条令版】
+        - 核心重构: 彻底重写了最终信号的决策逻辑，解决了“指令覆盖”BUG。
+        - 新指挥条令 (np.select):
+          1. 建立一个拥有绝对优先级的决策序列。
+          2. 【最高优先级】: 首先检查卖出条件 (`exit_condition`)。
+          3. 【次级优先级】: 只有在不满足卖出条件时，才检查买入条件 (`buy_condition`)。
+          4. 【默认】: 如果两者都不满足，则信号为“中性”。
+        - 收益: 确保了指令的互斥性和正确性，卖出信号不再错误地覆盖买入信号。
         """
-        print("    --- [最高作战指挥部 V300.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V301.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
-        # --- 阶段一：评估 ---
+        # --- 阶段一：评估 (逻辑不变) ---
         print("        -> [评估单元] 启动...")
-        # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
             "df": df, 
-            "params": params, # 恢复这一行，为 _calculate_entry_score 提供补给
+            "params": params,
             "trigger_events": trigger_events,
             "playbook_states": self.playbook_states, 
-            "atomic_states": self.atomic_states, # _calculate_entry_score 仍在使用
+            "atomic_states": self.atomic_states,
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
@@ -2181,7 +2184,7 @@ class TrendFollowStrategy:
         df['risk_score'] = risk_score
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
-        # --- 阶段二：决策 (逻辑不变) ---
+        # --- 阶段二：决策 ---
         df = self._calculate_exit_signals(df, params, df['risk_score'])
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
@@ -2191,13 +2194,28 @@ class TrendFollowStrategy:
         veto_condition = is_risk_too_high_relative & is_risk_high_absolute
         df.loc[veto_condition, 'entry_score'] = 0
         df['final_score'] = df['entry_score']
-        df['signal_type'] = '中性'
-        buy_condition = df['final_score'] > 0
-        df.loc[buy_condition, 'signal_type'] = '买入信号'
+        
+        # ▼▼▼【代码修改 V301.0】: 颁布《最高指挥条令》！▼▼▼
+        # 1. 定义指令的优先级
         exit_condition = df['exit_signal_code'] >= 88
-        df.loc[exit_condition, 'signal_type'] = '卖出信号'
+        buy_condition = df['final_score'] > 0
+        
+        # 2. 使用 np.select 建立拥有优先级的决策流程
+        conditions = [
+            exit_condition,  # 最高优先级：卖出
+            buy_condition    # 次级优先级：买入
+        ]
+        choices = [
+            '卖出信号',
+            '买入信号'
+        ]
+        # 3. 应用条令，生成最终信号类型
+        df['signal_type'] = np.select(conditions, choices, default='中性')
+        # ▲▲▲【代码修改 V301.0】▲▲▲
+
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
+        
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
@@ -2206,9 +2224,8 @@ class TrendFollowStrategy:
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V300.1] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V301.0] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
-
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
