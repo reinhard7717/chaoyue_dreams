@@ -2032,14 +2032,21 @@ class TrendFollowStrategy:
     #    -> 首席裁决官: _calculate_risk_score()
     def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V287.0 净化归源版】最高风险裁决所
-        - 核心升级 (归源): 不再从 `context` 中接收 `params` 和 `atomic_states`。
-                          强制所有配置从 `self._get_params_block()` 获取，
-                          所有原子情报从 `self.atomic_states` 中央情报局获取。
-        - 收益: 彻底解决了“军备冗余”和“情报来源混乱”两大架构隐患，确保了
-                决策的稳定性和可维护性。
+        【V290.0 战略覆盖版】最高风险裁决所
+        - 核心思想升级: 彻底抛弃“局部对冲”模式，引入“战略覆盖”思想。
+        - 新裁决流程:
+          1. 正常计算出初步的、未被干预的“总风险分”。
+          2. 【新增】检查战场上是否存在任何一个S级的、足以改变战局的战略机遇信号
+             (如“筹码加速集中”、“健康吸筹箱体”等)。
+          3. 【最终裁决】:
+             - 如果存在S级机遇，则认为其巨大的确定性可以“覆盖”掉大部分常规风险。
+               此时，对计算出的“总风险分”直接进行一次决定性的、全局性的削减
+               (例如，总分直接乘以一个0.3的“战略覆盖系数”)。
+             - 如果不存在S级机遇，则维持原始的总风险分不变。
+        - 收益: 使得系统在面对“高风险、高回报”的洗盘博弈时，能够更果断地识别出
+                机遇大于风险，从而敢于在关键时刻下达进攻指令。
         """
-        print("        -> [最高风险裁决所 V287.0 净化归源版] 启动...")
+        print("        -> [最高风险裁决所 V290.0 战略覆盖版] 启动...")
         
         df = context['df']
 
@@ -2050,59 +2057,36 @@ class TrendFollowStrategy:
         
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1: 提取所有S级的“机遇”信号，作为对冲工具 ---
-        mitigating_opportunity_signals = {
-            'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
-            'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
-            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
-        }
-        has_mitigating_opportunity = pd.Series(False, index=df.index)
-        for signal in mitigating_opportunity_signals.values():
-            has_mitigating_opportunity |= signal
-
-        # --- 步骤2: 遍历所有风险规则，进行融合裁决 ---
+        # --- 步骤1: 计算初步的、未被干预的总风险分 ---
         for rule_name, score in risk_rules.items():
             signal_series = self.atomic_states.get(rule_name, default_series)
-            
-            is_veto_risk_rule = rule_name in [
-                'CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 
-                'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'
-            ]
+            risk_score_df.loc[signal_series, rule_name] = score
+            total_risk_score += signal_series * score
 
-            if is_veto_risk_rule and signal_series.any():
-                final_score = pd.Series(0.0, index=df.index)
-                # ▼▼▼【代码修改 V287.0】: 不再需要 params，直接调用 self._get_param_value ▼▼▼
-                mitigated_score = self._get_param_value(risk_params.get('mitigated_veto_score'), 300)
-                # ▲▲▲【代码修改 V287.0】▲▲▲
-                final_score.loc[signal_series & has_mitigating_opportunity] = mitigated_score
-                final_score.loc[signal_series & ~has_mitigating_opportunity] = score
-                
-                risk_score_df[rule_name] = final_score
-                total_risk_score += final_score
-            else:
-                risk_score_df.loc[signal_series, rule_name] = score
-                total_risk_score += signal_series * score
+        # --- 步骤2: 检查是否存在S级战略机遇信号 ---
+        # 这些信号如同战场上的“核武器”，一旦出现，将改变整个战局的评估
+        strategic_opportunity_signals = {
+            'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
+            'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
+            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series),
+            'STRUCTURE_BREAKOUT_EVE_S': self.atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series)
+        }
+        # 只要有一个S级机遇信号存在，就认为具备了“战略覆盖”的条件
+        has_strategic_opportunity = pd.Series(False, index=df.index)
+        for signal in strategic_opportunity_signals.values():
+            has_strategic_opportunity |= signal
 
-        # --- 步骤3: 应用“洗盘侦察连”的最终裁决 ---
-        p_washout = self._get_params_block('washout_suspicion_params', {})
-        if self._get_param_value(p_washout.get('enabled'), True):
-            # ▼▼▼【代码修改 V287.0】: 强制从 self.atomic_states 获取情报 ▼▼▼
-            is_washout_suspicion = self.atomic_states.get('CHIP_STATE_WASHOUT_SUSPICION', default_series)
-            # ▲▲▲【代码修改 V287.0】▲▲▲
-            reduction_factor = self._get_param_value(p_washout.get('reduction_factor'), 0.5)
-            
-            target_col = 'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'
-            if target_col in risk_score_df.columns:
-                original_scores = risk_score_df[target_col].copy()
-                reduced_scores = original_scores.where(~is_washout_suspicion, original_scores * reduction_factor)
-                total_risk_score -= (original_scores - reduced_scores)
-                risk_score_df[target_col] = reduced_scores
-        
-        # risk_score_df['total_risk_score'] = total_risk_score
-        print("        -> [最高风险裁决所 V287.0] 融合裁决完成。")
+        # --- 步骤3: 执行“战略覆盖” ---
+        if has_strategic_opportunity.any():
+            # 从配置中读取“战略覆盖系数”，例如0.3
+            strategic_coverage_factor = self._get_param_value(risk_params.get('strategic_coverage_factor'), 0.3)
+            # 对那些存在S级机遇的日子的“总风险分”，直接进行全局削减
+            total_risk_score = total_risk_score.where(~has_strategic_opportunity, total_risk_score * strategic_coverage_factor)
+            print(f"          -> [战略覆盖] 检测到S级机遇！已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
+        print("        -> [最高风险裁决所 V290.0] 战略覆盖裁决完成。")
         
         return total_risk_score, risk_score_df
-    
+
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()

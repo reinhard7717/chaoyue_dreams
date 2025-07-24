@@ -248,7 +248,7 @@
         },
         "risk_scoring": {
           "说明": "【最高风险裁决所】提升核心风险的否决权重。",
-          "mitigated_veto_score": 300,
+          "strategic_coverage_factor": 0.3,
           "signals": {
             "说明_CRITICAL": "--- 临界风险 (一票否决级) ---",
             "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
