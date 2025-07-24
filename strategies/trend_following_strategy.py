@@ -2126,80 +2126,88 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V301.0 风险否决版】
-        - 核心升级: 引入了“风险一票否决权”，重构了最终决策流程。
-        - 新三层决策体系:
-          1. 【初步判断】: 首先，将所有 `entry_score > 0` 的日子初步标记为“买入信号”。
-          2. 【风险否决】: 然后，检查是否存在 `risk_score > entry_score` 的情况。
-                         如果存在，则将初步的“买入信号”【覆盖】为“卖出信号”。
-                         这是最关键的风险控制。
-          3. 【常规卖出】: 最后，处理那些 `entry_score` 为0的纯粹卖出日。
-        - 收益: 确保了在任何情况下，风险都得到最高优先级的考量，
-                指挥系统既能抓住机会，更能规避陷阱。
+        【V302.0 逻辑修正版】
+        - 核心修复: 彻底重构了决策流程，遵循“先决断，后计算”的核心原则，根除了买入信号被
+                    离场数据污染的BUG。
+        - 新决策流程:
+          1. 【评估单元】: 与旧版相同，首先完成 entry_score 和 risk_score 的计算。
+          2. 【最终裁决】: 基于分数，直接对 `signal_type` 做出最终裁决（买入/卖出/中性）。
+                         这是最关键的一步，确保了每个日期的最终性质被优先确定。
+          3. 【隔离计算】: **仅对那些最终信号不为“买入”的日期**，调用 `_calculate_exit_signals`
+                         来计算具体的离场代码和严重等级。
+          4. 【数据净化】: 确保所有最终为“买入信号”的日期，其离场相关字段
+                         (`exit_signal_code`, `exit_severity_level`) 被强制置为0。
+        - 收益: 确保了买入信号的纯粹性，`exit_severity_level` 等离场指标只会在
+                真正需要离场的日子里出现，解决了数据交叉污染的根本问题。
         """
-        print("    --- [最高作战指挥部 V301.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V302.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
         # --- 阶段一：评估 ---
         print("        -> [评估单元] 启动...")
         scoring_context = {
-            "df": df, 
-            "params": params,
-            "trigger_events": trigger_events,
-            "playbook_states": self.playbook_states, 
-            "atomic_states": self.atomic_states,
+            "df": df, "params": params, "trigger_events": trigger_events,
+            "playbook_states": self.playbook_states, "atomic_states": self.atomic_states,
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
-        risk_scoring_context = { "df": df }
-        risk_score, risk_details_df = self._calculate_risk_score(risk_scoring_context)
+        risk_score, risk_details_df = self._calculate_risk_score({"df": df})
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
-        # --- 阶段二：决策 (三层裁定) ---
+        # --- 阶段二：决策 (采用“先决断，后计算”的新流程) ---
         print("        -> [决策单元] 启动，正在执行三层决策裁定...")
 
-        # 1. 初始化最终决策列
+        # 1. 初始化所有决策相关列，确保一个干净的起点
         df['final_score'] = 0.0
         df['signal_type'] = '中性'
-        
-        # 2. 定义三层裁定条件
-        # 条件A: 潜在买入 (进攻分 > 0)
-        is_potential_buy = df['entry_score'] > 0
-        
-        # ▼▼▼【代码修改 V301.0】: 定义“风险一票否决权”！▼▼▼
-        # 条件B: 风险压倒进攻 (这是否决买入的关键)
-        risk_overrides_entry = df['risk_score'] > df['entry_score']
-        
-        # 条件C: 纯粹卖出 (调用已修正的离场指令部，它只处理非潜在买入日)
-        df = self._calculate_exit_signals(df, params, df['risk_score'])
-        is_pure_sell = df['exit_signal_code'] >= 88
-        # ▲▲▲【代码修改 V301.0】▲▲▲
+        df['signal_entry'] = False
+        df['exit_signal_code'] = 0
+        df['exit_severity_level'] = 0
 
-        # 3. 执行三层裁定 (注意顺序，高优先级覆盖低优先级)
-        # 第一层：默认标记所有潜在买入日为“买入信号”
+        # 2. 定义裁决条件
+        is_potential_buy = df['entry_score'] > 0
+        risk_overrides_entry = df['risk_score'] > df['entry_score']
+
+        # 3. 【第一层裁决】: 初步标记所有潜在的买入和卖出日
         df.loc[is_potential_buy, 'signal_type'] = '买入信号'
-        
-        # 第二层：【风险否决】如果风险压倒了进攻，则将“买入信号”覆盖为“卖出信号”
+        # 【第二层裁决 - 风险否决】: 如果风险压倒了进攻，则将“买入信号”覆盖为“卖出信号”
         df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
-        
-        # 第三层：【常规卖出】标记纯粹的卖出日 (例如 entry_score=0 但 risk_score 很高)
+
+        # 4. 【隔离计算】: 仅对非买入日计算具体的离场信号
+        #    这是解决问题的核心：将离场计算与买入决策完全隔离
+        non_buy_mask = df['signal_type'] != '买入信号'
+        if non_buy_mask.any():
+            # 创建一个只包含非买入日的数据副本进行计算
+            df_for_exit_calc = df[non_buy_mask].copy()
+            
+            # 调用离场指令部，它现在只处理它该处理的数据
+            exit_results_df = self._calculate_exit_signals(df_for_exit_calc, params, df_for_exit_calc['risk_score'])
+            
+            # 将计算结果安全地更新回主DataFrame
+            df.update(exit_results_df)
+
+        # 5. 【第三层裁决】: 根据离场计算结果，确认纯粹的卖出日
+        is_pure_sell = df['exit_signal_code'] >= 88
         df.loc[is_pure_sell, 'signal_type'] = '卖出信号'
 
-        # 4. 根据最终的 signal_type，计算 final_score 和 signal_entry
-        buy_condition = df['signal_type'] == '买入信号'
-        df.loc[buy_condition, 'final_score'] = df.loc[buy_condition, 'entry_score']
-        df['signal_entry'] = buy_condition
+        # 6. 【最终确认与净化】: 根据最终的 signal_type，计算 final_score 和 signal_entry
+        final_buy_condition = df['signal_type'] == '买入信号'
+        df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
+        df.loc[final_buy_condition, 'signal_entry'] = True
+        
+        # 再次净化，确保买入日的离场字段绝对干净
+        df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level']] = 0
 
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
             print("          -> [最终分数审查报告]:")
-            print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type']])
+            print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type', 'exit_severity_level']])
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V301.0] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V302.0] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
 
 
