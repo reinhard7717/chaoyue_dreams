@@ -192,9 +192,11 @@ class TrendFollowStrategy:
     # ▼▼▼ 标准化战报生成器 (保持不变，作为稳定的基础服务) ▼▼▼
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
         """
-        【V3.0 绝对忠诚版】 - 全军唯一的标准化战报生成器
-        - 核心升级: 移除所有内部逻辑判断。它现在只负责忠实地、精确地记录
-                    由上级单位（如 prepare_db_records）传递过来的所有标准化情报。
+        【V4.0 数据库正名版】 - 全军唯一的标准化战报生成器
+        - 核心修正: 彻底修正输出字典的键名，使其与数据库模型
+                    (TrendFollowStrategySignalLog) 的字段名完全一致。
+                    - 'final_score' -> 'entry_score'
+                    - 'playbook_details' -> 'triggered_playbooks'
         """
         trade_time_input = kwargs.get('trade_time')
         if trade_time_input is None:
@@ -206,22 +208,32 @@ class TrendFollowStrategy:
         else:
             standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
 
-        # ▼▼▼【代码修改 V3.0】: 简化为纯粹的记录模板 ▼▼▼
+        # ▼▼▼【代码修改 V4.0】: 修正键名以匹配数据库模型！ ▼▼▼
         record = {
-            "stock_code": None, "trade_time": standard_trade_time, "timeframe": "N/A",
-            "strategy_name": "UNKNOWN", "signal_type": "中性", "final_score": 0.0,
-            "risk_score": 0.0, "playbook_details": "", "close_price": None,
-            "entry_signal": False, "is_risk_warning": False
+            "stock_code": None,
+            "trade_time": standard_trade_time,
+            "timeframe": "N/A",
+            "strategy_name": "UNKNOWN",
+            "signal_type": "中性", # 这是一个临时字段，不会存入数据库
+            "entry_score": 0.0,   # 修正: 使用 'entry_score'
+            "risk_score": 0.0,    # 这是一个新字段，需要确认数据库模型中是否存在
+            "triggered_playbooks": "", # 修正: 使用 'triggered_playbooks'
+            "close_price": None,
+            "entry_signal": False,
+            "is_risk_warning": False
         }
         record.update(kwargs)
         
         # 数据净化
         record['close_price'] = sanitize_for_json(record.get('close_price'))
-        record['final_score'] = float(record['final_score'])
-        record['risk_score'] = float(record['risk_score'])
-        # ▲▲▲【代码修改 V3.0】▲▲▲
+        record['entry_score'] = float(record['entry_score'])
+        # 如果数据库中没有 risk_score 字段，DAO会自动忽略它
+        if 'risk_score' in record:
+            record['risk_score'] = float(record['risk_score'])
+        # ▲▲▲【代码修改 V4.0】▲▲▲
 
         return record
+    
     # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
     def _define_context_trend_deteriorating(self, df, atomic_states):
         default_series = pd.Series(False, index=df.index)
@@ -2335,10 +2347,12 @@ class TrendFollowStrategy:
                 strategy_name=strategy_name,
                 trade_time=idx.to_pydatetime(),
                 signal_type=row['signal_type'],
-                final_score=score_to_save, # <--- 使用我们裁决后的分数！
-                risk_score=row['risk_score'], # risk_score 字段依然保留，用于记录原始风险
-                playbook_details=row['playbook_details'],
+                entry_score=score_to_save, # 修正: 使用 entry_score
+                risk_score=row['risk_score'],
+                triggered_playbooks=row['playbook_details'], # 修正: 使用 triggered_playbooks
                 close_price=row.get(f'close_{result_timeframe}'),
+                entry_signal=row['signal_type'] == '买入信号',
+                is_risk_warning=row['signal_type'] in ['卖出信号', '风险预警']
             )
             records.append(record)
         

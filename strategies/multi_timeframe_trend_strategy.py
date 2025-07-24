@@ -479,11 +479,13 @@ class MultiTimeframeTrendStrategy:
                 trade_time=timestamp, 
                 timeframe=minute_tf,
                 strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                signal_type='买入信号', # 明确信号类型
-                final_score=final_score, # 使用正确的 final_score 字段
-                risk_score=0.0,          # 盘中确认无风险
-                playbook_details=playbook_details,
+                signal_type='买入信号',
+                entry_score=final_score, # 修正: 使用 entry_score
+                risk_score=0.0,
+                triggered_playbooks=playbook_details, # 修正: 使用 triggered_playbooks
                 close_price=row.get(f'close_{minute_tf}'),
+                entry_signal=True,
+                is_risk_warning=False
             )
             final_entry_records.append(record)
             
@@ -570,11 +572,13 @@ class MultiTimeframeTrendStrategy:
                 trade_time=first_break_timestamp, 
                 timeframe=minute_tf,
                 strategy_name="INTRADAY_RISK_ALERT", 
-                signal_type=signal_type, # 明确信号类型
-                final_score=0.0,         # 风险预警没有进攻分
-                risk_score=float(final_code), # 将风险代码作为 risk_score
-                playbook_details=final_reason,
+                signal_type=signal_type,
+                entry_score=float(final_code), # 修正: 将风险分存入 entry_score
+                risk_score=float(final_code),
+                triggered_playbooks=final_reason, # 修正: 使用 triggered_playbooks
                 close_price=first_alert_row[close_col],
+                entry_signal=False,
+                is_risk_warning=True
             )
 
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
