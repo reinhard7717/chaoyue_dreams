@@ -73,8 +73,14 @@ class TrendFollowStrategy:
 
         # 调用方法获取静态蓝图，并将其存储为实例属性，供后续所有方法安全调用
         self.playbook_blueprints = self._get_playbook_blueprints()
-        # 在初始化时建立“风险档案室”
         self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
+        
+        # 1. 加载所有得分信号的中文元数据
+        self.signal_metadata = self.scoring_params.get('metadata', {})
+        # 2. 构建作战剧本的“英中翻译词典”
+        self.playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        # 将两个词典合并，形成统一的翻译总署
+        self.signal_metadata.update(self.playbook_cn_map)
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -2371,73 +2377,72 @@ class TrendFollowStrategy:
     #  ─> 战报司令部 (Battle Report Command)
     #    -> 核心职责: 生成标准化的战报记录，供数据库存档。
     #    -> 总指挥: prepare_db_records()
-    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str = 'D') -> List[Dict[str, Any]]:
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> List[Dict[str, Any]]:
         """
-        【V301.0 中央集权版】
-        - 核心重构: 废除所有本地的记录构建逻辑，强制调用唯一的“中央战报总署”
-                    (`_create_signal_record`) 来生成标准化的战报。
+        【V304.0 档案条例版】战报司令部 - 数据库记录生成中心
+        - 核心职责: 严格按照《档案记录条例》，生成需要永久存档的、
+                    完全翻译为中文的标准化战报记录。
         """
-        print("      -> [战报司令部 V303.0 最终修正版] 启动，正在执行“双轨记录制”归档...")
+        print(f"      -> [战报司令部 V304.0] 启动，正在执行“双轨记录制”归档...")
+        db_records = []
         
-        signal_dates = result_df[(result_df['signal_type'] != '中性')].index
-        if signal_dates.empty:
-            print("      -> 无需归档的信号，跳过。")
-            return []
-        
-        df_to_process = result_df.loc[signal_dates].copy()
+        # 筛选出所有需要记录的信号日（买入、卖出、预警）
+        signal_days_df = result_df[result_df['signal_type'] != '中性'].copy()
 
-        strategy_info = self._get_params_block('strategy_info')
-        strategy_name = self._get_param_value(strategy_info.get('name'), 'unknown_strategy')
-        metadata = self.scoring_params.get('metadata', {})
-
-        def generate_playbook_details(row):
-            trade_date = row.name
-            active_signals = []
-            # 根据信号类型，决定是从进攻案卷还是风险案卷中提取详情
-            if row['signal_type'] == '买入信号':
-                if not score_details_df.empty and trade_date in score_details_df.index:
-                    score_row = score_details_df.loc[trade_date]
-                    for signal in score_row[score_row > 0].index:
-                        std_name = self._standardize_signal_name(signal)
-                        cn_name = metadata.get(std_name, std_name)
-                        active_signals.append(cn_name)
-            else: # 卖出或风险预警
-                if not risk_details_df.empty and trade_date in risk_details_df.index:
-                    risk_row = risk_details_df.loc[trade_date]
-                    for signal in risk_row[risk_row > 0].index:
-                        std_name = self._standardize_signal_name(signal)
-                        cn_name = metadata.get(std_name, f"风险-{std_name}")
-                        active_signals.append(cn_name)
-            return ", ".join(active_signals) if active_signals else "无"
-
-        df_to_process['playbook_details'] = df_to_process.apply(generate_playbook_details, axis=1)
-
-        records = []
-        for idx, row in df_to_process.iterrows():
-            # --- 【核心裁决逻辑】 ---
-            score_to_save = 0.0
-            if row['signal_type'] == '买入信号':
-                score_to_save = row['final_score'] # 买入信号，记录进攻分
-            else: # 卖出或风险预警
-                score_to_save = row['risk_score']  # 卖出信号，记录风险分
-
+        for trade_time, row in signal_days_df.iterrows():
+            # 1. 创建标准化的记录模板
             record = self._create_signal_record(
                 stock_code=stock_code,
+                trade_time=trade_time,
                 timeframe=result_timeframe,
-                strategy_name=strategy_name,
-                trade_time=idx.to_pydatetime(),
+                strategy_name=self._get_param_value(self.strategy_info.get('name'), 'TrendFollow'),
                 signal_type=row['signal_type'],
-                entry_score=score_to_save, # 修正: 使用 entry_score
-                risk_score=row['risk_score'],
-                triggered_playbooks=row['playbook_details'], # 修正: 使用 triggered_playbooks
-                close_price=row.get(f'close_{result_timeframe}'),
-                entry_signal=row['signal_type'] == '买入信号',
-                is_risk_warning=row['signal_type'] in ['卖出信号', '风险预警']
+                entry_score=row.get('final_score', 0.0),
+                risk_score=row.get('risk_score', 0.0),
+                close_price=row.get('close_D'),
+                entry_signal=row.get('signal_entry', False),
+                is_risk_warning=(row.get('alert_level', 0) > 0)
             )
-            records.append(record)
+            
+            # 2. 调用“档案详情填充”模块，获取经过翻译的详细原因
+            record = self._fill_signal_details(record, row, score_details_df, risk_details_df)
+            
+            db_records.append(record)
+            
+        print(f"      -> [战报司令部 V304.0] “双轨记录制”归档完成，共生成 {len(db_records)} 条记录。")
+        return db_records
+
+    def _fill_signal_details(self, record: Dict, signal_row: pd.Series, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> Dict:
+        """
+        【V304.0 新增】档案详情填充与翻译模块
+        - 核心职责: 根据信号类型，从评分详情中提取原因，并使用“翻译总署”
+                    将其转换为中文，最终填充到记录的 `triggered_playbooks` 字段。
+        """
+        trade_time = record['trade_time']
+        details_list = []
+
+        if record['signal_type'] == '买入信号':
+            if not score_details_df.empty and trade_time in score_details_df.index:
+                score_details_today = score_details_df.loc[trade_time]
+                # 找出当天所有得分项的英文名
+                activated_rules_en = score_details_today[score_details_today > 0].index.tolist()
+                # 使用翻译总署进行翻译
+                details_list = [self.signal_metadata.get(rule, rule) for rule in activated_rules_en]
         
-        print(f"      -> [战报司令部 V303.0] “双轨记录制”归档完成，共生成 {len(records)} 条记录。")
-        return records
+        elif record['signal_type'] == '卖出信号':
+            # 对于卖出信号，原因通常比较明确，直接使用alert_reason
+            details_list.append(signal_row.get('alert_reason', '未知风险'))
+            if not risk_details_df.empty and trade_time in risk_details_df.index:
+                risk_details_today = risk_details_df.loc[trade_time]
+                activated_risks_en = risk_details_today[risk_details_today > 0].index.tolist()
+                # 将风险项也翻译并附上，作为补充证据
+                risk_details_cn = [self.signal_metadata.get(risk, risk) for risk in activated_risks_en]
+                if risk_details_cn:
+                    details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
+
+        # 将翻译后的详情列表格式化为字符串，存入指定字段
+        record['triggered_playbooks'] = ", ".join(details_list)
+        return record
 
     # ─> 风险量化局 (Risk Quantifier Bureau)
     #    -> 核心职责: 将抽象的风险原因，翻译成直观的“仪表盘”读数。
