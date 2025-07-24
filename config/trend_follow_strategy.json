@@ -251,6 +251,7 @@
           "signals": {
             "说明_CRITICAL": "--- 临界风险 (一票否决级) ---",
             "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
+            "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN": 1000,
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
             "说明_HIGH": "--- 高度风险 ---",
@@ -370,6 +371,11 @@
             "low_level": { "value": -0.5, "说明": "MACD低位金叉的位置阈值。" }
           }
         }
+      },
+      "vpa_dynamics_params": {
+        "enabled": true,
+        "volume_ratio_high": 2.5,
+        "pct_change_low": 0.01
       },
       "chip_feature_params": {
         "enabled": true,

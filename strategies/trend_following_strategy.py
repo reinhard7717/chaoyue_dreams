@@ -1789,99 +1789,127 @@ class TrendFollowStrategy:
         return structure_states
 
     #    └─> 精英态势研判室: _diagnose_strategic_setups()
+    def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V284.0 新增】量价关系动态分析中心 (CT扫描室)
+        - 核心职责: 对“成交量”和“资金攻击效率”进行全面的斜率与加速度分析，
+                    将“天量对倒”这个模糊概念，升级为可量化、可跟踪的动态风险信号。
+        """
+        print("          -> [量价动态分析中心 V284.0] 启动，正在对“天量对倒”进行CT扫描...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'volume_D', 'VOL_MA_21_D', 'pct_change_D',
+            'SLOPE_5_volume_D', 'ACCEL_5_volume_D',
+            'VPA_EFFICIENCY_D', 'SLOPE_5_VPA_EFFICIENCY_D' # 假设数据工程层已提供
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"            -> [严重警告] 量价动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 风险分析：识别“无效天量”和“效率衰竭” ---
+        
+        # 风险信号1: 【滞涨】天量但价格不涨 (最经典的顶部风险)
+        # 定义: 成交量远超均线，但日涨幅却很小。
+        p_vpa = params.get('vpa_dynamics_params', {})
+        volume_ratio_high = self._get_param_value(p_vpa.get('volume_ratio_high'), 2.5)
+        pct_change_low = self._get_param_value(p_vpa.get('pct_change_low'), 0.01)
+        is_huge_volume = df['volume_D'] > (df['VOL_MA_21_D'] * volume_ratio_high)
+        is_price_stagnant = df['pct_change_D'].abs() < pct_change_low
+        states['RISK_VPA_STAGNATION'] = is_huge_volume & is_price_stagnant
+        
+        # 风险信号2: 【效率衰竭】资金攻击效率持续下降
+        # 定义: 资金效率的5日斜率为负。
+        states['RISK_VPA_EFFICIENCY_DECLINING'] = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
+        
+        # 风险信号3: 【量能失控】成交量仍在加速放大
+        # 定义: 成交量的5日加速度为正，说明市场情绪可能过热，换手失控。
+        states['RISK_VPA_VOLUME_ACCELERATING'] = df['ACCEL_5_volume_D'] > 0
+
+        # --- 3. 【S级风险融合】定义“动态对倒风险” ---
+        # 最终裁决: 只要出现“滞涨”或“效率衰竭”，就视为高风险。如果同时伴随“量能失控”，则是最高级别的风险。
+        is_high_risk = states.get('RISK_VPA_STAGNATION', default_series) | states.get('RISK_VPA_EFFICIENCY_DECLINING', default_series)
+        is_critical_risk = is_high_risk & states.get('RISK_VPA_VOLUME_ACCELERATING', default_series)
+        
+        # 我们将这个融合后的S级风险，命名为“动态对倒风险”
+        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_high_risk | is_critical_risk
+        
+        print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
+        return states
+
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V257.0 一体化整编版】认知综合引擎 (Cognitive Synthesis Engine)
-        - 核心重构: 将原有的四个独立认知层方法
-                      (_diagnose_strategic_setups, _diagnose_cognitive_patterns,
-                       _diagnose_battlefield_stability, _diagnose_price_action_context)
-                      整合成一个统一的、负责将底层情报升华为高维战术概念的“中央处理器”。
-        - 作战流程:
-          1. 价格行为上下文分析 (Contextual Analysis): 首先定义当前价格行为的性质（如健康上涨、强力突破等）。
-          2. 战场稳定性评估 (Stability Assessment): 评估战场的核心要素是否稳定。
-          3. 战略布局识别 (Strategic Setup Recognition): 识别是否存在经典的战略布局机会。
-          4. 最终认知模式形成 (Cognitive Pattern Formation): 在前三步的基础上，形成最终的、最高维度的认知模式，如“锁仓拉升”。
-        - 收益: 建立了一个清晰、连贯的“认知链”，从上下文到稳定性，再到战略布局，最终形成顶层认知。
-                极大地提升了代码的内聚性和逻辑的清晰度。
+        【V284.0 认知升级版】
+        - 核心升级: 引入新建的 `_diagnose_volume_price_dynamics` 模块，
+                    用精确定量的“动态对倒风险”分析，取代旧的、模糊的“对倒”概念。
+        - 作战原则: 不再满足于“主力资金大幅进出”的表象，而是通过分析“资金攻击效率”
+                    及其动态趋势，直击“天量对倒”的本质——投入的弹药是否换来了战果。
         """
-        print("        -> [认知综合引擎 V257.0] 启动，正在进行高维认知合成...")
+        print("        -> [认知综合引擎 V284.0] 启动，正在进行高维认知合成...")
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1: 价格行为上下文分析 (Contextual Analysis) ---
-        # (原 _diagnose_price_action_context 的逻辑)
+        # --- 认知链 1/4: 价格行为上下文 (Price Action Context) ---
         print("          -> [认知链 1/4] 正在分析价格行为上下文...")
-        pct_change_col = 'pct_change_D'
-        if pct_change_col in df.columns:
-            # 健康上涨 (2% < 涨幅 <= 4%)
-            cognitive_states['CONTEXT_HEALTHY_RALLY'] = (df[pct_change_col] > 0.02) & (df[pct_change_col] <= 0.04)
-            # 强力突破 (4% < 涨幅 <= 7%)
-            cognitive_states['CONTEXT_STRONG_BREAKOUT_RALLY'] = (df[pct_change_col] > 0.04) & (df[pct_change_col] <= 0.07)
-            # 爆炸性拉升 (涨幅 > 7%)
-            cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = df[pct_change_col] > 0.07
+        # 强力突破阳线
+        is_strong_body = (df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan) > 0.6
+        is_breaking_recent_high = df['close_D'] > df['high_D'].shift(1).rolling(20).max()
+        is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.5
+        cognitive_states['CONTEXT_STRONG_BREAKOUT_RALLY'] = is_strong_body & is_breaking_recent_high & is_high_volume
 
-        # --- 步骤2: 战场稳定性评估 (Stability Assessment) ---
-        # (原 _diagnose_battlefield_stability 的逻辑)
+        # 爆炸性拉升阳线 (在强力突破基础上，要求涨幅巨大)
+        is_explosive_change = df['pct_change_D'] > 0.07
+        cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) & is_explosive_change
+
+        # --- 认知链 2/4: 战场核心稳定性 (Core Stability Assessment) ---
         print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
-        # 假设这些原子状态已由其他司令部提供
-        is_cost_stable = self.atomic_states.get('CHIP_STATE_COST_STABLE', default_series)
-        is_winner_rate_stable = self.atomic_states.get('CHIP_STATE_WINNER_RATE_STABLE', default_series)
-        is_peak_stable = self.atomic_states.get('CHIP_STATE_PEAK_STABLE', default_series)
-        cognitive_states['BATTLEFIELD_STABLE'] = is_cost_stable & is_winner_rate_stable & is_peak_stable
+        is_chip_stable = self.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
+        is_trend_stable = self.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        is_platform_stable = self.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        cognitive_states['COGNITIVE_STATE_CORE_STABILITY'] = is_chip_stable & is_trend_stable & is_platform_stable
 
-        # --- 步骤3: 战略布局识别 (Strategic Setup Recognition) ---
-        # (原 _diagnose_strategic_setups 的逻辑)
-        print("          -> [认知链 3/4] 正在识别高价值战略布局...")
-        # 假设这些原子状态已由其他司令部提供
-        is_highly_concentrated = self.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        is_winner_rate_low = self.atomic_states.get('CHIP_STATE_LOW_PROFIT', default_series)
-        is_cost_stable_or_rising = self.atomic_states.get('CHIP_STATE_COST_STABLE_OR_RISING', default_series)
-        # “深度吸筹”布局：筹码高度集中 + 场内获利盘极少 + 成本稳定或抬高
-        cognitive_states['SETUP_DEEP_ACCUMULATION'] = is_highly_concentrated & is_winner_rate_low & is_cost_stable_or_rising
+        # --- 认知链 3/4: 【升级】高价值/高风险战略布局识别 ---
+        print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
+        # ▼▼▼【代码修改 V284.0】: 调用新的“量价动态分析中心” ▼▼▼
+        # 从总配置中获取传递给VPA模块的参数
+        vpa_params = self._get_params_block('strategy_params').get('trend_follow', {})
+        # 调用新模块，获取动态量价分析结果
+        vpa_states = self._diagnose_volume_price_dynamics(df, vpa_params)
+        cognitive_states.update(vpa_states)
+        # ▲▲▲【代码修改 V284.0】▲▲▲
 
-        # --- 步骤4: 最终认知模式形成 (Cognitive Pattern Formation) ---
-        # (原 _diagnose_cognitive_patterns 的逻辑)
+        # 识别“锁筹拉升”模式 (高价值布局)
+        is_concentrating = self.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_cost_rising = self.atomic_states.get('CHIP_DYN_COST_RISING', default_series)
+        is_price_rallying = df['pct_change_D'] > 0.03
+        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_concentrating & is_cost_rising & is_price_rallying
+
+        # --- 认知链 4/4: 形成最终顶层认知模式 ---
         print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
+        # 识别“突破派发”风险 (高风险模式)
+        is_breakout_day = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series)
+        is_main_force_selling = self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_breakout_day & is_main_force_selling
 
-        # 4.1 “锁仓拉升”进攻模式 (COGNITIVE_PATTERN_LOCK_CHIP_RALLY)
-        # 情报来源:
-        is_healthy_rally = cognitive_states.get('CONTEXT_HEALTHY_RALLY', default_series) # 来自本引擎步骤1
-        is_cost_rising_fast = self.atomic_states.get('CHIP_STATE_COST_RISING_FAST', default_series)
-        is_price_detached = self.atomic_states.get('CHIP_STATE_PRICE_DETACHED_FROM_COST', default_series)
-        is_chip_truly_concentrating = self.atomic_states.get('CHIP_STATE_TRUE_CONCENTRATION', default_series)
-        # 最终裁决:
-        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_healthy_rally & is_cost_rising_fast & ~is_price_detached & is_chip_truly_concentrating
-
-        # 4.2 “突破派发”风险模式 (BREAKOUT_DISTRIBUTION)
-        # 情报来源
-        is_strong_rally = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) | cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series)
-        # 派发证据1: 当天主力就在卖出 (即时证据)
-        is_main_force_distributing_today = self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        # 派发证据2: 历史档案显示，过去一个月都在派发 (历史证据)
-        has_long_term_distribution_record = self.atomic_states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-
-        # 最终裁决: 只要是强力拉升，且满足以下任一派发证据，就判定为最高风险！
-        # 这就覆盖了“边拉边出”和“拉高出货”两种最经典的派发模式。
-        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & (is_main_force_distributing_today | has_long_term_distribution_record)
+        # 识别“高位横盘，主力对倒”风险 (高风险模式)
+        # 旧的、模糊的“对倒”概念，现在被新的、精确的“动态量价对倒”风险所取代
+        if 'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN' in cognitive_states:
+            churn_risk_days = cognitive_states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()
+            if churn_risk_days > 0:
+                print(f"          -> [认知确认] 检测到 {churn_risk_days} 天存在“动态量价对倒”的重大风险！")
         
-        # 4.3 “天量对倒”风险模式 (DECEPTIVE_CHURN)
-        # 证据1: 发生了爆炸性的上涨
-        is_explosive_rally = cognitive_states.get('CONTEXT_EXPLOSIVE_RALLY', default_series)
-        # 证据2: 成交量是平日的数倍 (例如2.5倍以上)
-        vol_ma_col = 'VOL_MA_21_D'
-        is_massive_volume = df['volume_D'] > (df.get(vol_ma_col, 0) * 2.5)
-        # 证据3: 成本中枢几乎原地踏步 (变化小于1%)
-        is_cost_stagnant = df['peak_cost_D'].diff().abs() < (df['peak_cost_D'] * 0.01)
-        
-        # 最终裁决: 如果三个证据同时成立，则判定为“对倒”骗局！
-        cognitive_states['COGNITIVE_RISK_DECEPTIVE_CHURN'] = is_explosive_rally & is_massive_volume & is_cost_stagnant
-        
-        # 调试信息
-        churn_detected_days = cognitive_states['COGNITIVE_RISK_DECEPTIVE_CHURN'].sum()
-        if churn_detected_days > 0:
-            print(f"          -> [对倒识别模块] 警告！检测到 {churn_detected_days} 天存在“天量对倒”的重大风险！")
+        # 汇总近期派发压力
+        p_dist = self._get_params_block('distribution_context_params', {})
+        lookback = self._get_param_value(p_dist.get('lookback_days'), 10)
+        # 使用新的动态对倒风险作为派发事件的来源之一
+        distribution_event = self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series) | \
+                             cognitive_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
+        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback).sum() > 0
 
-        print("        -> [认知综合引擎 V257.0] 认知合成完毕。")
+        print("        -> [认知综合引擎 V284.0] 认知合成完毕。")
         return cognitive_states
 
     # ─> 进攻方案评估中心 (Entry Scoring Center)
