@@ -75,12 +75,42 @@ class TrendFollowStrategy:
         self.playbook_blueprints = self._get_playbook_blueprints()
         self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
         
-        # 1. 加载所有得分信号的中文元数据
+        # 1. 从配置中加载基础的中文元数据
         self.signal_metadata = self.scoring_params.get('metadata', {})
-        # 2. 构建作战剧本的“英中翻译词典”
-        self.playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
-        # 将两个词典合并，形成统一的翻译总署
-        self.signal_metadata.update(self.playbook_cn_map)
+        
+        # 2. 自动扫描所有计分项，提取所有需要翻译的英文键
+        all_signal_keys = set()
+        scoring_sections = ['positional_scoring', 'dynamic_scoring', 'trigger_events']
+        for section_name in scoring_sections:
+            section = self.scoring_params.get(section_name, {})
+            # 兼容两种可能的结构: 'positive_signals' 或 'scoring'
+            signals = section.get('positive_signals', section.get('scoring', {}))
+            all_signal_keys.update(signals.keys())
+
+        # 3. 自动扫描风险计分项
+        risk_section = self.scoring_params.get('risk_scoring', {})
+        risk_signals = risk_section.get('signals', {})
+        all_signal_keys.update(risk_signals.keys())
+
+        # 4. 将剧本名称也加入待翻译列表
+        playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        all_signal_keys.update(playbook_cn_map.keys())
+
+        # 5. 构建最终的、全覆盖的翻译词典
+        # 规则：如果 metadata 中有，则用 metadata 的；如果没有，则用 playbook 的；如果还没有，则保留英文原名
+        final_metadata = {}
+        for key in all_signal_keys:
+            if key in self.signal_metadata:
+                final_metadata[key] = self.signal_metadata[key]
+            elif key in playbook_cn_map:
+                final_metadata[key] = playbook_cn_map[key]
+            else:
+                # 对于没有提供中文名的原子信号，提供一个默认翻译格式
+                # 例如: MA_STATE_AGGRESSIVE_BULLISH -> 【均线】攻击性多头排列
+                # 这是一个简化的处理，实际应用中最好在JSON中补全
+                final_metadata[key] = f"【原子信号】{key}"
+
+        self.signal_metadata = final_metadata
 
     #  日志格式化辅助函数 ▼▼▼
     def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
@@ -2185,48 +2215,60 @@ class TrendFollowStrategy:
     #        -> 指挥官: _calculate_exit_signals()
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
         """
-        【V289.0 幽灵驱逐版】
-        - 核心修复: 彻底重写此方法的内部逻辑，根除其“返回旧地图”的破坏性行为。
-        - 新军事纪律:
-          1. 此方法接收的 `df` 必须被视为唯一的、最新的作战地图。
-          2. 所有的计算结果（如 exit_signal_code, alert_level 等），都必须作为新的列，
-             直接添加到这张接收到的 `df` 上。
-          3. 最终，必须返回这张被追加了新情报的、完整的 `df`。
-        - 收益: 彻底消灭了潜藏在指挥系统内部的“幽灵”，确保了情报的绝对连续性。
+        【V290.0 逻辑净化版】
+        - 核心重构: 彻底重写风险等级判定逻辑，使用清晰的 if/elif 结构，
+                    确保每日只有一个唯一的、明确的风险状态，根除了“精神分裂”BUG。
+        - 新规则:
+          1. 从最高风险等级开始检查。
+          2. 一旦满足某个等级的条件，立即设置对应的 code, level, reason，然后跳过后续检查。
+          3. 对于预警信号，只设置 level 和 reason，确保 code 保持为0。
         """
-        print("      -> [离场指令部 V289.0] 启动，正在执行代码净化与离场计算...")
+        print("      -> [离场指令部 V290.0] 启动，正在执行代码净化与离场计算...")
         
-        # --- 步骤1: 初始化输出列，确保它们被添加到了【当前】的df上 ---
         df['exit_signal_code'] = 0
         df['alert_level'] = 0
         df['alert_reason'] = ''
 
-        # --- 步骤2: 读取离场策略参数 ---
         exit_params = self._get_params_block('exit_strategy_params')
         if not self._get_param_value(exit_params.get('enabled'), True):
-            return df # 如果禁用，直接返回未修改的df
+            return df
 
-        # --- 步骤3: 计算“临界风险卖出”信号 ---
-        # 这是最高优先级的离场信号
-        critical_risk_threshold = self._get_param_value(exit_params.get('critical_risk_threshold'), 1000)
-        critical_risk_condition = risk_score >= critical_risk_threshold
+        # 从配置中获取所有阈值
+        thresholds = self._get_params_block('exit_threshold_params', {})
+        critical_threshold = thresholds.get('CRITICAL', {}).get('level', 120)
+        high_threshold = thresholds.get('HIGH', {}).get('level', 80)
         
-        if critical_risk_condition.any():
-            df.loc[critical_risk_condition, 'exit_signal_code'] = 99
-            df.loc[critical_risk_condition, 'alert_level'] = 4
-            df.loc[critical_risk_condition, 'alert_reason'] = '临界风险卖出'
-            print(f"        -> 检测到 {critical_risk_condition.sum()} 天“临界风险卖出”信号。")
+        warning_thresholds = self._get_params_block('warning_threshold_params', {})
+        medium_threshold = warning_thresholds.get('MEDIUM', {}).get('level', 50)
+        low_threshold = warning_thresholds.get('LOW', {}).get('level', 30)
 
-        # --- 步骤4: 计算其他战术警报 (示例) ---
-        # 注意：这里的逻辑可以根据您的 exit_strategy_params 配置进行扩展
-        # 例如，可以增加基于“利润保护”、“亏损硬止损”等的警报
-        # 这里我们只保留了最核心的逻辑，以确保其正确性
-        
-        # --- 步骤5: 【关键】返回被正确追加了新情报的df ---
-        # 它不再返回一张被调包的旧地图，而是返回我们给它的那张新地图！
-        print("      -> [离场指令部 V289.0] 净化与计算完成。")
+        # 按风险从高到低进行判断
+        # 条件1: 临界风险 (最高优先级)
+        cond_critical = risk_score >= critical_threshold
+        df.loc[cond_critical, 'exit_signal_code'] = thresholds.get('CRITICAL', {}).get('code', 99)
+        df.loc[cond_critical, 'alert_level'] = 4
+        df.loc[cond_critical, 'alert_reason'] = thresholds.get('CRITICAL', {}).get('cn_name', '临界风险卖出')
+
+        # 条件2: 高度风险 (当不满足临界风险时)
+        cond_high = (risk_score >= high_threshold) & (~cond_critical)
+        df.loc[cond_high, 'exit_signal_code'] = thresholds.get('HIGH', {}).get('code', 88)
+        df.loc[cond_high, 'alert_level'] = 3
+        df.loc[cond_high, 'alert_reason'] = thresholds.get('HIGH', {}).get('cn_name', '高度风险卖出')
+
+        # 条件3: 中度风险预警 (当不满足卖出条件时)
+        cond_medium = (risk_score >= medium_threshold) & (~cond_critical) & (~cond_high)
+        df.loc[cond_medium, 'alert_level'] = 2
+        df.loc[cond_medium, 'alert_reason'] = warning_thresholds.get('MEDIUM', {}).get('cn_name', '中度风险')
+
+        # 条件4: 低度风险预警 (当不满足以上所有条件时)
+        cond_low = (risk_score >= low_threshold) & (~cond_critical) & (~cond_high) & (~cond_medium)
+        df.loc[cond_low, 'alert_level'] = 1
+        df.loc[cond_low, 'alert_reason'] = warning_thresholds.get('LOW', {}).get('cn_name', '低度风险')
+
+        print(f"        -> 检测到 {df[df['exit_signal_code'] > 0].shape[0]} 天“卖出”信号。")
+        print(f"        -> 检测到 {df[(df['alert_level'] > 0) & (df['exit_signal_code'] == 0)].shape[0]} 天“风险预警”信号。")
+        print("      -> [离场指令部 V290.0] 净化与计算完成。")
         return df
-
 
     # 4. 沙盘推演中心 (War Gaming Center - Simulation)
     #    -> 核心职责: 模拟从建仓到离场的全过程战术动作。
