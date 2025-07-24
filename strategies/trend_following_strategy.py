@@ -2030,78 +2030,90 @@ class TrendFollowStrategy:
     # ─> 最高风险裁决所 (Supreme Risk Adjudication)
     #    -> 核心职责: 对风险简报进行量化打分。
     #    -> 首席裁决官: _calculate_risk_score()
-    def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
+    def _calculate_risk_score(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
-        【V288.0 洗盘识别版】
-        - 核心升级: 新增【洗盘嫌疑 V1.0】战术模块。
-        - 新作战流程:
-          1. 首先，按常规计算所有风险信号的原始得分。
-          2. 然后，专门部署“洗盘侦察连”，判断是否满足“洗盘”的三个核心特征：
-             a. 主力资金在流出。
-             b. 但价格并未跌破关键支撑位 (如EMA_21_D)。
-             c. 成交量并未持续放出天量。
-          3. 如果“洗盘嫌疑”成立，则对“主力派发”这一项风险的得分进行战术性削减（打折），
-             从而让AI能够区分“真派发”和“假洗盘”。
+        【V285.0 融合裁决版】最高风险裁决所
+        - 核心升级: 建立“风险-机遇融合裁决机制”，彻底改造“一刀切”的旧模式。
+        - 新裁决流程:
+          1. 正常计算所有常规风险分。
+          2. 【新增】当检测到“近期派发压力”这种拥有1000分否决权的S级风险时，
+             不再立即应用惩罚，而是启动“战术对冲审查”。
+          3. 【战术对冲审查】: 检查战场上是否存在同样强大的、可以对冲此风险的
+             S级机遇信号（如“筹码加速集中”或“健康吸筹箱体”）。
+          4. 【最终裁决】:
+             - 如果存在对冲信号，则将此风险定性为“高风险高回报的洗盘博弈”，
+               大幅削减其风险分（例如只给300分），允许进攻评估中心的得分胜出。
+             - 如果不存在对冲信号，则将其定性为“纯粹的出货风险”，维持1000分惩罚。
         """
-        print("        -> [最高风险裁决所 V288.0 洗盘识别版] 启动，正在启动风险评估...")
-
-        # --- 步骤1: 解压标准化的“作战情报档案包” ---
-        df = context['df']
-        params = context['params']
-        atomic_states = context['atomic_states']
-
-        # --- 步骤2: 初始化计分板与读取风险规则 ---
-        risk_score = pd.Series(0.0, index=df.index)
-        risk_details_df = pd.DataFrame(index=df.index)
-        scoring_params = self._get_params_block('four_layer_scoring_params')
-        risk_rules = scoring_params.get('risk_scoring', {}).get('signals', {})
-        print(f"          -> 正在根据《风险评分手册》中的 {len(risk_rules)} 条规则进行裁决...")
+        print("        -> [最高风险裁决所 V285.0 融合裁决版] 启动...")
+        risk_params = self._get_params_block('four_layer_scoring_params').get('risk_scoring', {})
+        risk_rules = risk_params.get('signals', {})
+        risk_score_df = pd.DataFrame(0, index=df.index, columns=list(risk_rules.keys()))
+        total_risk_score = pd.Series(0.0, index=df.index)
         
-        # --- 步骤3: 按常规计算所有原始风险分 ---
-        for signal_name, score in risk_rules.items():
-            if "说明" in signal_name: continue
-            signal_series = atomic_states.get(signal_name)
-            if signal_series is not None and signal_series.any():
-                risk_score.loc[signal_series] += score
-                risk_details_df[f'risk_{signal_name}'] = signal_series * score
-        
-        # ▼▼▼ 部署【洗盘嫌疑 V1.0】战术模块 ▼▼▼
-        washout_params = self._get_params_block('washout_suspicion_params')
-        if self._get_param_value(washout_params.get('enabled'), True):
-            print("          -> [洗盘侦察连] 已部署，正在甄别“主力派发”信号的真伪...")
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 步骤1: 提取所有S级的“机遇”信号，作为对冲工具 ---
+        # 这些是我军最精锐的部队，他们的存在可以改变对风险的解读
+        mitigating_opportunity_signals = {
+            'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
+            'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
+            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
+        }
+        # 只要有一个S级机遇信号存在，就认为具备了对冲风险的潜力
+        has_mitigating_opportunity = pd.Series(False, index=df.index)
+        for signal in mitigating_opportunity_signals.values():
+            has_mitigating_opportunity |= signal
+
+        # --- 步骤2: 遍历所有风险规则，进行融合裁决 ---
+        for rule_name, score in risk_rules.items():
+            signal_series = self.atomic_states.get(rule_name, default_series)
             
-            # --- 条件A: 必须存在“主力派发”这个风险信号 ---
-            main_force_dist_risk_name = 'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'
-            is_main_force_distributing = atomic_states.get(main_force_dist_risk_name, pd.Series(False, index=df.index))
+            # 检查是否是需要特殊处理的“一票否决”级风险
+            is_veto_risk_rule = rule_name in [
+                'CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 
+                'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'
+            ]
 
-            # --- 条件B: 价格并未跌破关键支撑位 ---
-            support_ma_period = self._get_param_value(washout_params.get('support_ma_period'), 21)
-            support_ma_col = f'EMA_{support_ma_period}_D'
-            price_above_support = df['close_D'] > df.get(support_ma_col, 0)
+            if is_veto_risk_rule and signal_series.any():
+                # 是“一票否决”风险，启动“战术对冲审查”
+                final_score = pd.Series(0.0, index=df.index)
+                
+                # 在触发风险的日子里，检查是否存在对冲信号
+                # 如果存在对冲，说明是“洗盘博弈”，大幅降低风险分
+                mitigated_score = self._get_param_value(risk_params.get('mitigated_veto_score'), 300)
+                final_score.loc[signal_series & has_mitigating_opportunity] = mitigated_score
+                
+                # 如果不存在对冲，说明是“纯粹出货”，维持原始高风险分
+                final_score.loc[signal_series & ~has_mitigating_opportunity] = score
+                
+                risk_score_df[rule_name] = final_score
+                total_risk_score += final_score
+            else:
+                # 对于普通风险，按原逻辑计算
+                risk_score_df.loc[signal_series, rule_name] = score
+                total_risk_score += signal_series * score
 
-            # --- 条件C: 成交量并未持续放出天量 ---
-            volume_ma_col = 'VOL_MA_21_D'
-            volume_threshold_ratio = self._get_param_value(washout_params.get('volume_threshold_ratio'), 2.0)
-            volume_not_excessive = df['volume_D'] < (df.get(volume_ma_col, 0) * volume_threshold_ratio)
-
-            # --- 最终裁定: “洗盘嫌疑”成立！ ---
-            is_washout_suspicion = is_main_force_distributing & price_above_support & volume_not_excessive
+        # --- 步骤3: 应用“洗盘侦察连”的最终裁决 ---
+        p_washout = self._get_params_block('washout_suspicion_params', {})
+        if self._get_param_value(p_washout.get('enabled'), True):
+            is_washout_suspicion = self.atomic_states.get('CHIP_STATE_WASHOUT_SUSPICION', default_series)
+            reduction_factor = self._get_param_value(p_washout.get('reduction_factor'), 0.5)
             
-            if is_washout_suspicion.any():
-                # --- 执行“风险对冲” ---
-                reduction_factor = self._get_param_value(washout_params.get('reduction_factor'), 0.5)
-                original_risk_score = risk_rules.get(main_force_dist_risk_name, 0)
-                score_reduction = original_risk_score * (1 - reduction_factor)
-                
-                # 从总风险分中减去折扣部分
-                risk_score.loc[is_washout_suspicion] -= score_reduction
-                # 在风险详情中也更新这一项的分数
-                risk_details_df.loc[is_washout_suspicion, f'risk_{main_force_dist_risk_name}'] *= reduction_factor
-                
-                # print(f"          -> [洗盘侦察连] 发现 {is_washout_suspicion.sum()} 天存在“洗盘嫌疑”！已对“主力派发”风险分进行 {reduction_factor:.0%} 折扣处理。")
+            # 定位到“主力派发”这一列
+            target_col = 'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'
+            if target_col in risk_score_df.columns:
+                original_scores = risk_score_df[target_col].copy()
+                # 对有“洗盘嫌疑”的日子的分数进行削减
+                reduced_scores = original_scores.where(~is_washout_suspicion, original_scores * reduction_factor)
+                # 更新总分和明细分
+                total_risk_score -= (original_scores - reduced_scores)
+                risk_score_df[target_col] = reduced_scores
         
-        print("        -> [最高风险裁决所 V288.0] 风险评估完成。")
-        return risk_score, risk_details_df
+        risk_score_df['total_risk_score'] = total_risk_score
+        print("        -> [最高风险裁决所 V285.0] 融合裁决完成。")
+        return risk_score_df
+
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
