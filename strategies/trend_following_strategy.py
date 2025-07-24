@@ -1304,7 +1304,7 @@ class TrendFollowStrategy:
             window=lookback_window, min_periods=1
         ).apply(np.any, raw=True).fillna(0).astype(bool)
         
-        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{self._format_debug_dates(atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
+        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{self._format_debug_dates(self.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
         
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
         capital_params = self._get_params_block('capital_state_params')
