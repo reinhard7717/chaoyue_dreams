@@ -2120,12 +2120,15 @@ class TrendFollowStrategy:
         # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
             "df": df, 
+            "params": params, # 恢复这一行，为 _calculate_entry_score 提供补给
             "trigger_events": trigger_events,
             "playbook_states": self.playbook_states, 
+            "atomic_states": self.atomic_states, # _calculate_entry_score 仍在使用
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
-        risk_score, risk_details_df = self._calculate_risk_score(scoring_context)
+        risk_scoring_context = { "df": df }
+        risk_score, risk_details_df = self._calculate_risk_score(risk_scoring_context)
         df['entry_score'] = entry_score
         df['risk_score'] = risk_score
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
