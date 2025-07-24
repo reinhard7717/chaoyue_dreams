@@ -413,7 +413,7 @@ class MultiTimeframeTrendStrategy:
         setup_days_df.dropna(subset=['monitoring_date'], inplace=True)
         if setup_days_df.empty: return []
 
-        # 4. ▼▼▼【代码修改】修正合并逻辑，强制保留时间戳索引 ▼▼▼
+        # 4. ▼▼▼ 强制保留时间戳索引 ▼▼▼
         context_cols = ['monitoring_date', 'entry_score', 'PLATFORM_PRICE_STABLE']
         existing_context_cols = [col for col in context_cols if col in setup_days_df.columns]
         
@@ -432,7 +432,6 @@ class MultiTimeframeTrendStrategy:
         
         # 步骤 4.3: 将 'trade_time' 列恢复为 DatetimeIndex
         merged_minute_df.set_index('trade_time', inplace=True)
-        # ▲▲▲【代码修改】▲▲▲
 
         # 5. 向量化计算：在合并后的分钟线数据上，一次性计算所有确认信号
         final_confirmation_signal = pd.Series(True, index=merged_minute_df.index)
@@ -476,13 +475,14 @@ class MultiTimeframeTrendStrategy:
             confirmed_playbooks = [playbook_name]
             confirmed_playbooks_cn = [playbook_cn_map.get(p, p) for p in confirmed_playbooks]
 
-            record = self._create_signal_record(
-                stock_code=stock_code, trade_time=timestamp, timeframe=minute_tf,
+            record = self.tactical_engine._create_signal_record(
+                stock_code=stock_code, 
+                trade_time=timestamp, 
+                timeframe=minute_tf,
                 strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                close_price=row.get(f'close_{minute_tf}'), entry_score=final_score, entry_signal=True,
-                triggered_playbooks=confirmed_playbooks, triggered_playbooks_cn=confirmed_playbooks_cn,
-                stable_platform_price=row.get('PLATFORM_PRICE_STABLE'),
-                context_snapshot={'close': row.get(f'close_{minute_tf}'), 'daily_score': daily_score, 'bonus': bonus_score, 'intraday_confirmed': True}
+                close_price=row.get(f'close_{minute_tf}'), 
+                final_score=final_score, # 修正: 使用 final_score
+                playbook_details=", ".join(confirmed_playbooks_cn),
             )
             final_entry_records.append(record)
             
@@ -549,13 +549,8 @@ class MultiTimeframeTrendStrategy:
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
             
             if not first_break_mask.any(): return None
-            
-            # ▼▼▼【代码修改】因为索引已正确恢复为 DatetimeIndex，idxmax() 现在会直接返回 Timestamp 对象 ▼▼▼
             first_break_timestamp = first_break_mask.idxmax()
-            # ▲▲▲【代码修改】▲▲▲
-            
             first_alert_row = day_df.loc[first_break_timestamp]
-            
             df_after_alert = day_df[day_df.index > first_break_timestamp]
             is_reclaimed = (df_after_alert[close_col] > df_after_alert[vwap_col]).any()
             
@@ -568,13 +563,14 @@ class MultiTimeframeTrendStrategy:
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
                 final_severity = get_val(upthrust_params.get('severity_level'), 3)
 
-            return self._create_signal_record(
-                stock_code=stock_code, trade_time=first_break_timestamp, timeframe=minute_tf,
-                strategy_name="INTRADAY_RISK_ALERT", close_price=first_alert_row[close_col],
-                exit_signal_code=final_code, exit_severity_level=final_severity,
-                exit_signal_reason=final_reason,
-                triggered_playbooks=[get_val(upthrust_params.get('alert_playbook_name'), 'EXIT_INTRADAY_UPTHRUST_REJECTION')],
-                context_snapshot={'close': first_alert_row[close_col], 'vwap': first_alert_row[vwap_col], 'reclaimed': is_reclaimed},
+            return self.tactical_engine._create_signal_record(
+                stock_code=stock_code, 
+                trade_time=first_break_timestamp, 
+                timeframe=minute_tf,
+                strategy_name="INTRADAY_RISK_ALERT", 
+                close_price=first_alert_row[close_col],
+                risk_score=float(final_code), # 修正: 将风险码作为risk_score传递
+                playbook_details=final_reason,
             )
 
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
@@ -646,40 +642,7 @@ class MultiTimeframeTrendStrategy:
 
         return df_copy
 
-    # ▼▼▼ 标准化战报生成器 (保持不变，作为稳定的基础服务) ▼▼▼
-    def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
-        """
-        【标准化战报生成器】
-        创建一个结构统一的信号记录字典，确保数据契约的一致性。
-        """
-        trade_time_input = kwargs.get('trade_time')
-        if trade_time_input is None: raise ValueError("创建信号记录时必须提供 'trade_time'")
-        
-        # 标准化时间为带UTC时区的datetime对象
-        ts = pd.to_datetime(trade_time_input)
-        if ts.tzinfo is None:
-            standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime()
-        else:
-            standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
-
-        # 标准战报模板
-        record = {
-            "stock_code": None, "trade_time": standard_trade_time, "timeframe": "N/A",
-            "strategy_name": "UNKNOWN", "close_price": 0.0, "entry_score": 0.0,
-            "entry_signal": False, "is_risk_warning": False, "exit_signal_code": 0,
-            "exit_severity_level": 0, "exit_signal_reason": None,
-            "triggered_playbooks": [], "triggered_playbooks_cn": [],
-            "stable_platform_price": None, "context_snapshot": {},
-        }
-        record.update(kwargs)
-        
-        # 数据净化，确保可以被序列化 (例如转为JSON)
-        record['close_price'] = sanitize_for_json(record['close_price'])
-        record['context_snapshot'] = sanitize_for_json(record['context_snapshot'])
-        record['stable_platform_price'] = sanitize_for_json(record['stable_platform_price'])
-
-        return record
-
+    
     # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
         stock_code = record.get("stock_code", "N/A")
