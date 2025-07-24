@@ -271,7 +271,7 @@ class StockBasicInfoDao(BaseDAO):
             print(f"调试: 从API获取了 {len(df)} 条公司数据，涉及 {len(unique_ts_codes)} 个独立股票代码。")
             
             # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
-            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            stock_map = await self.get_stocks_by_codes(unique_ts_codes)
             print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
 
             # 4. 准备批量写入的数据

@@ -387,7 +387,7 @@ class IndexBasicDAO(BaseDAO):
         # --- 1. 定义常量和初始化 ---
         BATCH_SAVE_SIZE = 100000  # 每10万条数据保存一次
         API_REQUEST_LIMIT = 8000  # Tushare API单次请求最大行数
-        API_CALL_DELAY_SECONDS = 0.7 # Tushare API调用间隔，避免频率超限
+        API_CALL_DELAY_SECONDS = 0.5 # Tushare API调用间隔，避免频率超限
         
         today = datetime.date.today() # 代码修改处: 使用 date 对象，与 start_date/end_date 类型统一
         
