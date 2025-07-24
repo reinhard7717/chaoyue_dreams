@@ -2032,21 +2032,22 @@ class TrendFollowStrategy:
     #    -> 首席裁决官: _calculate_risk_score()
     def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V290.0 战略覆盖版】最高风险裁决所
-        - 核心思想升级: 彻底抛弃“局部对冲”模式，引入“战略覆盖”思想。
-        - 新裁决流程:
-          1. 正常计算出初步的、未被干预的“总风险分”。
-          2. 【新增】检查战场上是否存在任何一个S级的、足以改变战局的战略机遇信号
-             (如“筹码加速集中”、“健康吸筹箱体”等)。
-          3. 【最终裁决】:
-             - 如果存在S级机遇，则认为其巨大的确定性可以“覆盖”掉大部分常规风险。
-               此时，对计算出的“总风险分”直接进行一次决定性的、全局性的削减
-               (例如，总分直接乘以一个0.3的“战略覆盖系数”)。
-             - 如果不存在S级机遇，则维持原始的总风险分不变。
-        - 收益: 使得系统在面对“高风险、高回报”的洗盘博弈时，能够更果断地识别出
-                机遇大于风险，从而敢于在关键时刻下达进攻指令。
+        【V291.0 联合作战版】最高风险裁决所
+        - 核心思想升级: 引入“联合作战条令”，让“局部对冲”与“战略覆盖”协同作战。
+        - 新裁决流程 (两阶段打击):
+          1. 【第一阶段：外科手术 (局部对冲)】
+             - 遍历所有风险规则。当遇到拥有“一票否决权”的S级风险时，检查是否存在
+               对冲性的S级机遇。
+             - 如果存在，则对【该单个风险项】的分数进行手术式降级 (如1000 -> 300)。
+             - 此阶段结束后，得到一个初步的、已排除极端风险的总分。
+          2. 【第二阶段：战略压制 (全局覆盖)】
+             - 检查战场上是否存在任何S级战略机遇。
+             - 如果存在，则对【第一阶段处理后的总风险分】进行全局性的战略削减
+               (如总分 x 0.3)。
+        - 收益: 这是最完善、最强大的风险评估机制，既能精确处理极端风险，又能
+                从全局视角把握战局，确保在关键时刻做出正确决策。
         """
-        print("        -> [最高风险裁决所 V290.0 战略覆盖版] 启动...")
+        print("        -> [最高风险裁决所 V291.0 联合作战版] 启动...")
         
         df = context['df']
 
@@ -2057,33 +2058,59 @@ class TrendFollowStrategy:
         
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1: 计算初步的、未被干预的总风险分 ---
-        for rule_name, score in risk_rules.items():
-            signal_series = self.atomic_states.get(rule_name, default_series)
-            risk_score_df.loc[signal_series, rule_name] = score
-            total_risk_score += signal_series * score
-
-        # --- 步骤2: 检查是否存在S级战略机遇信号 ---
-        # 这些信号如同战场上的“核武器”，一旦出现，将改变整个战局的评估
+        # --- 准备S级机遇信号，供两个阶段共同使用 ---
         strategic_opportunity_signals = {
             'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
             'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
             'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series),
             'STRUCTURE_BREAKOUT_EVE_S': self.atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series)
         }
-        # 只要有一个S级机遇信号存在，就认为具备了“战略覆盖”的条件
         has_strategic_opportunity = pd.Series(False, index=df.index)
         for signal in strategic_opportunity_signals.values():
             has_strategic_opportunity |= signal
 
-        # --- 步骤3: 执行“战略覆盖” ---
+        # --- 第一阶段打击：外科手术 (局部对冲) ---
+        print("          -> [第一阶段] 正在执行“外科手术式”局部对冲...")
+        for rule_name, score in risk_rules.items():
+            signal_series = self.atomic_states.get(rule_name, default_series)
+            
+            is_veto_risk_rule = rule_name in [
+                'CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 
+                'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'
+            ]
+
+            if is_veto_risk_rule and signal_series.any():
+                # 发现S级否决风险，立即进行手术评估
+                final_score = pd.Series(0.0, index=df.index)
+                mitigated_score = self._get_param_value(risk_params.get('mitigated_veto_score'), 300)
+                
+                # 在触发风险的日子里，如果存在S级机遇，则降级处理
+                final_score.loc[signal_series & has_strategic_opportunity] = mitigated_score
+                # 否则，维持原始高风险分
+                final_score.loc[signal_series & ~has_strategic_opportunity] = score
+                
+                risk_score_df[rule_name] = final_score
+                total_risk_score += final_score
+            else:
+                # 对于普通风险，直接计分
+                risk_score_df.loc[signal_series, rule_name] = score
+                total_risk_score += signal_series * score
+        
+        print(f"          -> [第一阶段完成] 初步总风险分计算完毕。")
+
+        # --- 第二阶段打击：战略压制 (全局覆盖) ---
+        print("          -> [第二阶段] 正在评估是否执行“战略覆盖”...")
         if has_strategic_opportunity.any():
-            # 从配置中读取“战略覆盖系数”，例如0.3
             strategic_coverage_factor = self._get_param_value(risk_params.get('strategic_coverage_factor'), 0.3)
+            
             # 对那些存在S级机遇的日子的“总风险分”，直接进行全局削减
             total_risk_score = total_risk_score.where(~has_strategic_opportunity, total_risk_score * strategic_coverage_factor)
-            print(f"          -> [战略覆盖] 检测到S级机遇！已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
-        print("        -> [最高风险裁决所 V290.0] 战略覆盖裁决完成。")
+            
+            print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
+        else:
+            print("          -> [第二阶段完成] 未发现S级战略机遇，无需执行战略覆盖。")
+        
+        print("        -> [最高风险裁决所 V291.0] 联合作战裁决完成。")
         
         return total_risk_score, risk_score_df
 
