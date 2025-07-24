@@ -221,20 +221,17 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V137.0 标准化战报接收版】
+    【V137.1 格式修正版】
     - 核心重构: 再次重构视图逻辑，使其能完美处理新的、统一的“标准化战报”。
+    - 核心修正: 增加了对 triggered_playbooks 字段的解析逻辑，将数据库中的逗号分隔字符串正确转换为Python列表，解决剧本显示错误的问题。
     - 收益: 彻底解决所有状态显示不一致、信息丢失的问题。
     """
-    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.0 ---")
+    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.1 格式修正版 ---")
     user_dao = UserDAO()
-    
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
-    fav_id_map = {fav.stock.stock_code: fav.id for fav in user_favorites if fav.stock}
-
     if not fav_codes:
         return render(request, 'dashboard/fav_trend_following_list.html', {'page_title': '自选股持仓监控', 'page_obj': None, 'total_count': 0})
-
     # 步骤1.1: 获取每个自选股的最新“买入”信号ID
     latest_buy_signal_ids = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes,
@@ -242,11 +239,9 @@ def fav_trend_following_list(request):
     ).values('stock_id').annotate(
         latest_id=Max('id')
     ).values_list('latest_id', flat=True)
-    
     # 步骤1.2: 根据ID列表获取完整的买入信号对象
     buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_buy_signal_ids)).select_related('stock')
-    buy_logs_map = {log.stock_id: log for log in buy_logs}
-
+    buy_logs_map = {log.stock.stock_code: log for log in buy_logs} # [修正] 使用 stock_code 作为 key，与 fav_codes 匹配
     # 步骤2.1: 获取每个自选股的最新“退出类”信号ID
     latest_sell_signal_ids = TrendFollowStrategySignalLog.objects.filter(
         stock__stock_code__in=fav_codes,
@@ -254,35 +249,34 @@ def fav_trend_following_list(request):
     ).values('stock_id').annotate(
         latest_id=Max('id')
     ).values_list('latest_id', flat=True)
-
     # 步骤2.2: 根据ID列表获取完整的退出信号对象
     sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_sell_signal_ids)).select_related('stock')
-    sell_logs_map = {log.stock_id: log for log in sell_logs}
-
+    sell_logs_map = {log.stock.stock_code: log for log in sell_logs} # [修正] 使用 stock_code 作为 key，与 fav_codes 匹配
     # 步骤3: 遍历所有自选股，构建最终的展示列表
     processed_list = []
     for fav in user_favorites:
         stock_obj = fav.stock
         if not stock_obj: continue
-
         buy_log = buy_logs_map.get(stock_obj.stock_code)
         sell_log = sell_logs_map.get(stock_obj.stock_code)
-
         # 默认状态
         item = {'stock': stock_obj, 'favorite_id': fav.id, 'buy_info': None, 'sell_info': None, 'swing_status': '等待建仓', 'status_class': 'status-wait', 'sort_priority': 4}
-
         if buy_log:
+            # [新增] 核心修正：将数据库中的剧本字符串转换为Python列表
+            parsed_playbooks = [] # 默认空列表
+            if buy_log.triggered_playbooks and isinstance(buy_log.triggered_playbooks, str):
+                # 按逗号分割，并去除每个剧本名称前后的空白字符，过滤掉空字符串
+                parsed_playbooks = [p.strip() for p in buy_log.triggered_playbooks.split(',') if p.strip()]
             item['buy_info'] = {
                 'time': buy_log.trade_time,
                 'strategy_name': buy_log.strategy_name,
                 'time_level': buy_log.timeframe,
                 'stable_platform_price': buy_log.stable_platform_price,
                 'score': buy_log.entry_score,
-                'playbooks': sorted(buy_log.triggered_playbooks, key=get_playbook_priority)
+                # [修改] 使用解析后的列表进行排序和展示
+                'playbooks': sorted(parsed_playbooks, key=get_playbook_priority)
             }
-            
             is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
-            
             if is_holding:
                 item['swing_status'] = '持仓观察'
                 item['status_class'] = 'status-holding'
@@ -312,17 +306,13 @@ def fav_trend_following_list(request):
             item['swing_status'] = '空仓预警'
             item['status_class'] = f'status-alert-level-{sell_log.exit_severity_level or 2}'
             item['sort_priority'] = 4
-
         processed_list.append(item)
-
     # 步骤4: 排序和分页
     processed_list.sort(key=lambda x: (x['sort_priority'], -(x['buy_info']['time'].timestamp() if x.get('buy_info') and x['buy_info'].get('time') else 0)))
     paginator = Paginator(processed_list, 25)
     page_obj = paginator.get_page(request.GET.get('page'))
-
     context = {'page_title': '自选股持仓监控', 'page_obj': page_obj, 'total_count': len(processed_list)}
     return render(request, 'dashboard/fav_trend_following_list.html', context)
-
 
 
 
