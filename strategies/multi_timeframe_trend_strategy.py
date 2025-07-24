@@ -695,19 +695,18 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V203.0 首席翻译官版】
-        - 核心升级: 为战报司令部配备了“首席翻译官”，解决了剧本名称无法显示中文的问题。
-        - 新增逻辑:
-          1. 在函数内部，首先从战术引擎的“蓝图知识库”中，构建一个
-             `英文代号 -> 中文名称` 的翻译词典。
-          2. 在处理每一条买入信号记录时，遍历其包含的英文剧本列表
-             (`triggered_playbooks`)。
-          3. 使用翻译词典，将每一个英文代号翻译成中文名称。
-          4. 将翻译后的中文剧本列表用于最终的战报展示。
-        - 收益: 确保所有战报都能以清晰、易懂的中文呈现，极大提升了战报的可读性。
+        【V204.0 职责修正版】
+        - 核心修正: 彻底修正了战报发布官的职责，解决了中文战报被撕碎的问题。
+        - 新军事纪律: “只发布，不篡改！”
+          1. 本方法现在正确地认识到，从 `record` 中获取的 `triggered_playbooks` 字段
+             已经是【最终的、翻译好的、可以直接显示的字符串】。
+          2. 废除了所有对该字符串进行二次迭代、二次翻译的错误逻辑。
+          3. 直接将获取到的 `playbooks_str` 字符串用于最终的报告拼接。
+        - 收益: 确保了情报在指挥链的最后一环被正确呈现，战报恢复了其应有的
+                清晰度和可读性。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V203.0 首席翻译官版)] ---")
+        print(f"--- [历史回溯调试启动 (V204.0 职责修正版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -734,12 +733,6 @@ class MultiTimeframeTrendStrategy:
             debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            # ▼▼▼【代码修改 V203.0】: 首席翻译官上任！▼▼▼
-            # 1. 从战术引擎的蓝图库中，构建“英中翻译词典”
-            playbook_blueprints = self.tactical_engine.playbook_blueprints
-            playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
-            # ▲▲▲【代码修改 V203.0】▲▲▲
-
             for record in debug_period_records:
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -759,16 +752,12 @@ class MultiTimeframeTrendStrategy:
                 
                 elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # ▼▼▼【代码修改 V203.0】: 执行翻译任务！▼▼▼
-                    # 2. 从记录中获取英文剧本列表
-                    playbooks_en = record.get('triggered_playbooks', [])
-                    # 3. 使用词典进行翻译，如果找不到中文名，则使用英文原名
-                    playbooks_cn = [playbook_cn_map.get(name, name) for name in playbooks_en]
-                    # ▲▲▲【代码修改 V203.0】▲▲▲
-                    
-                    signal_type = "买入信号"
-                    # 4. 使用翻译后的中文列表生成战报
-                    details = f"得分: {score:<7.2f} | 剧本: {', '.join(playbooks_cn)}"
+                    # ▼▼▼【代码修改 V204.0】: 修正战报发布逻辑！▼▼▼
+                    # 1. 直接获取已经翻译好的、完整的剧本字符串
+                    playbooks_str = record.get('triggered_playbooks', '无剧本信息')
+                    # 2. 直接使用该字符串，不再进行任何二次处理
+                    details = f"得分: {score:<7.2f} | 剧本: {playbooks_str}"
+                    # ▲▲▲【代码修改 V204.0】▲▲▲
                 
                 elif record.get('is_risk_warning'):
                     signal_type = "风险预警"
