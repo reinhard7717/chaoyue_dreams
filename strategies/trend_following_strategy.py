@@ -226,7 +226,9 @@ class TrendFollowStrategy:
             "triggered_playbooks": "", # 修正: 使用 'triggered_playbooks'
             "close_price": None,
             "entry_signal": False,
-            "is_risk_warning": False
+            "is_risk_warning": False,
+            "exit_signal_code": 0,
+            "exit_severity_level": 0
         }
         record.update(kwargs)
         
@@ -2401,7 +2403,9 @@ class TrendFollowStrategy:
                 risk_score=row.get('risk_score', 0.0),
                 close_price=row.get('close_D'),
                 entry_signal=row.get('signal_entry', False),
-                is_risk_warning=(row.get('alert_level', 0) > 0)
+                is_risk_warning=(row.get('alert_level', 0) > 0),
+                exit_signal_code=row.get('exit_signal_code', 0),
+                exit_severity_level=row.get('alert_level', 0)
             )
             
             # 2. 调用“档案详情填充”模块，获取经过翻译的详细原因
@@ -2431,13 +2435,19 @@ class TrendFollowStrategy:
         
         elif record['signal_type'] == '卖出信号':
             # 对于卖出信号，原因通常比较明确，直接使用alert_reason
-            details_list.append(signal_row.get('alert_reason', '未知风险'))
+            reason = signal_row.get('alert_reason')
+            if reason:
+                details_list.append(reason)
+
             if not risk_details_df.empty and trade_time in risk_details_df.index:
                 risk_details_today = risk_details_df.loc[trade_time]
                 activated_risks_en = risk_details_today[risk_details_today > 0].index.tolist()
-                # 将风险项也翻译并附上，作为补充证据
+                
+                # 使用翻译总署进行翻译
                 risk_details_cn = [self.signal_metadata.get(risk, risk) for risk in activated_risks_en]
+                
                 if risk_details_cn:
+                    # 使用一个干净的、没有前导逗号的格式
                     details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
 
         # 将翻译后的详情列表格式化为字符串，存入指定字段
