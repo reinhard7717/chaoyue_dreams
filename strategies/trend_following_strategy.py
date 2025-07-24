@@ -2185,11 +2185,15 @@ class TrendFollowStrategy:
     #        -> 指挥官: _calculate_exit_signals()
     def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
         """
-        【V290.0 职责净化版】
-        - 核心修正: 增加了严格的职责边界。本模块现在只对【非买入信号日】
-                    进行风险预警等级的计算，彻底杜绝了对买入信号的“情报污染”。
+        【V291.0 悖论修正版】
+        - 核心修复: 彻底斩断了导致系统崩溃的“因果悖论”循环。
+        - 新逻辑:
+          1. 不再依赖于尚未生成的 'signal_type' 列。
+          2. 而是根据【已经存在】的 'entry_score' 来判断当天是否【有潜力】成为买入日。
+          3. 只有在 'entry_score' 为0的日子里，才进行风险预警等级的计算。
+        - 收益: 恢复了指挥链的线性逻辑，确保了决策流程的正确性和系统的稳定性。
         """
-        print("      -> [离场指令部 V290.0] 启动，正在执行代码净化与离场计算...")
+        print("      -> [离场指令部 V291.0] 启动，正在执行代码净化与离场计算...")
         
         df['exit_signal_code'] = 0
         df['alert_level'] = 0
@@ -2199,20 +2203,22 @@ class TrendFollowStrategy:
         if not self._get_param_value(exit_params.get('enabled'), True):
             return df
 
-        # 1. 识别出哪些是买入信号日
-        is_buy_signal = df['signal_type'] == '买入信号'
+        # 1. 根据【已存在】的 entry_score 判断当天是否有买入潜力。
+        #    注意：此时 final_score 和 signal_type 尚未计算，不能使用！
+        is_potential_buy_day = df['entry_score'] > 0
         
-        # 2. 只在【非】买入信号日，才进行风险预警等级的计算
+        # 2. 只在【没有】买入潜力的日子，才进行风险预警等级的计算
         warning_params = exit_params.get('warning_threshold_params', {})
+        # 确保按阈值从低到高排序，以便正确覆盖
         for level_name, level_info in sorted(warning_params.items(), key=lambda item: item[1]['level']):
             threshold = level_info['level']
             cn_name = level_info['cn_name']
-            # 使用 .loc 和 ~is_buy_signal 进行精确操作
-            condition = (risk_score >= threshold) & (~is_buy_signal)
-            df.loc[condition, 'alert_level'] = warning_params[level_name].get('level', 0) # 使用level作为警报级别
+            # 使用 .loc 和 ~is_potential_buy_day 进行精确操作
+            condition = (risk_score >= threshold) & (~is_potential_buy_day)
+            df.loc[condition, 'alert_level'] = level_info.get('level', 0)
             df.loc[condition, 'alert_reason'] = cn_name
 
-        # 3. 卖出信号的计算保持不变，因为它具有最高优先级
+        # 3. 卖出信号的计算保持不变，因为它具有最高优先级，会覆盖预警信号
         exit_threshold_params = exit_params.get('exit_threshold_params', {})
         for level_name, level_info in exit_threshold_params.items():
             threshold = level_info['level']
@@ -2220,10 +2226,11 @@ class TrendFollowStrategy:
             cn_name = level_info['cn_name']
             condition = risk_score >= threshold
             df.loc[condition, 'exit_signal_code'] = code
-            df.loc[condition, 'alert_level'] = exit_threshold_params[level_name].get('level', 0) # 使用level作为警报级别
+            # 卖出信号的 alert_level 应该反映其严重性，而不是预警等级
+            df.loc[condition, 'alert_level'] = level_info.get('level', 0) 
             df.loc[condition, 'alert_reason'] = cn_name
         
-        print(f"        -> 临界风险卖出信号检测完成。")
+        print(f"        -> 风险与离场信号计算完成。")
         return df
 
     # 4. 沙盘推演中心 (War Gaming Center - Simulation)
