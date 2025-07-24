@@ -300,7 +300,7 @@ class TrendFollowStrategy:
         if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
 
         # --- 依次调用各大专业化司令部，收集原子情报 ---
-        
+        self.atomic_states = {}
         # 1. 市场结构战区司令部 (统一指挥MA, Box, Platform部队)
         df, structure_states = self._diagnose_market_structure_command(df, params)
         
@@ -309,16 +309,14 @@ class TrendFollowStrategy:
 
         # 3. 【建立中央情报局】汇总所有基础原子情报，并存入 self.atomic_states
         # 这是本次改革的核心：将所有情报统一存入实例属性，而不是作为局部变量传递
-        self.atomic_states = {
-            **structure_states,                             # 注入来自市场结构战区司令部的所有情报
-            **chip_states,                                  # 注入来自筹码最高司令部的情报
-            **self._diagnose_oscillator_states(df, params), # 心理战与市场情绪侦察部
-            **self._diagnose_capital_states(df, params),    # 资本动向总参谋部
-            **self._diagnose_volatility_states(df, params), # 能量与波动侦察部
-            **self._diagnose_kline_patterns(df, params),    # 基础K线侦察部队
-            **self._diagnose_board_patterns(df, params),    # 盘面特征侦察部队
-            **self._diagnose_trend_dynamics(df, params)     # 动态惯性引擎
-        }
+        self.atomic_states.update(structure_states)
+        self.atomic_states.update(chip_states)
+        self.atomic_states.update(self._diagnose_oscillator_states(df, params))
+        self.atomic_states.update(self._diagnose_capital_states(df, params)) # <--- 现在调用它时，self.atomic_states 已存在
+        self.atomic_states.update(self._diagnose_volatility_states(df, params))
+        self.atomic_states.update(self._diagnose_kline_patterns(df, params))
+        self.atomic_states.update(self._diagnose_board_patterns(df, params))
+        self.atomic_states.update(self._diagnose_trend_dynamics(df, params))
         
         # --- 在所有基础情报生成后，启动跨部门的联合作战分析 ---
         # 后续所有部门，都直接从 self.atomic_states 调阅情报并更新
