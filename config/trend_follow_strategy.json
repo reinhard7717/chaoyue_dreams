@@ -577,7 +577,7 @@
   "risk_veto_params": {
     "enabled": true,
     "说明": "【V247.0 战略定力版】更严格的风险否决。",
-    "risk_tolerance_ratio": 0.4,
+    "risk_tolerance_ratio": 0.65,
     "min_absolute_risk_for_veto": 50
   },
   "risk_quantifier_params": {
