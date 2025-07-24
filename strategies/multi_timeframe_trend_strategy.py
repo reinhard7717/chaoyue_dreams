@@ -50,14 +50,25 @@ class MultiTimeframeTrendStrategy:
         - 核心修正: 恢复使用 self.indicator_service，移除了错误的 self.data_loader 引用。
         """
         print("--- [总指挥部] 正在初始化 (V203.1)... ---")
-        # 加载唯一的全局配置文件，作为所有决策的依据
-        unified_config_path = 'config/trend_follow_strategy.json'
+        # 1. 构建配置文件的绝对路径
+        config_file_name = 'config/trend_follow_strategy.json'
+        unified_config_path = os.path.join(settings.BASE_DIR, config_file_name)
+        
+        # 2. 加载唯一的全局配置文件
         self.unified_config = load_strategy_config(unified_config_path)
         
-        # ▼▼▼【代码修改】修正错误的变量名，恢复使用 indicator_service ▼▼▼
+        # 3. 【关键探针】增加配置加载确认日志
+        strategy_info = self.unified_config.get('strategy_info', {})
+        strategy_name = strategy_info.get('name', '未找到策略名称！')
+        if '未找到' in strategy_name:
+            logger.error(f"  - [致命错误] 配置文件加载失败！路径: {unified_config_path}")
+            print(f"  - [致命错误] 配置文件加载失败！路径: {unified_config_path}")
+        else:
+            logger.info(f"  - [配置确认] 成功加载配置文件，策略名称: '{strategy_name}'")
+            print(f"  - [配置确认] 成功加载配置文件，策略名称: '{strategy_name}'")
+
         # 初始化下属的核心服务与引擎
         self.indicator_service = IndicatorService() # 数据工程部门
-        # ▲▲▲【代码修改】▲▲▲
         
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
