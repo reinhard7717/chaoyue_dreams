@@ -869,43 +869,47 @@ class TrendFollowStrategy:
     #    -> 指挥官: _diagnose_volatility_states()
     def _diagnose_volatility_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V271.0 状态机引擎改造版】
-        - 核心重构: 彻底移除了内部硬编码的 for 循环“代码化石”。
-        - 新架构: 现在通过调用我们新建的、通用的 `_create_persistent_state` 状态机引擎，
-                  用一行代码就完成了“能量待爆发窗口”的创建。
-        - 收益: 代码极度精简、逻辑清晰、完全解耦，展示了现代化架构的强大威力。
+        【V283.0 融合思想版】
+        - 核心升级: 引入“极致压缩”信号。
+          - VOL_STATE_SQUEEZE_WINDOW: 基础的波动率压缩窗口 (静态)。
+          - VOL_STATE_EXTREME_SQUEEZE: 在压缩窗口内，要求波动率带宽仍在收缩 (动态)，是更高质量的突破前兆。
         """
+        print("        -> [能量与波动侦察部 V283.0] 启动，正在执行融合分析...")
         states = {}
         p = self._get_params_block('volatility_state_params')
         if not self._get_param_value(p.get('enabled'), False): return states
+        
         default_series = pd.Series(False, index=df.index)
         bbw_col = 'BBW_21_2.0_D'
+        bbw_slope_col = 'SLOPE_5_BBW_21_2.0_D'
         vol_ma_col = 'VOL_MA_21_D'
-        # --- 步骤1: 定义“进入事件” ---
-        if bbw_col in df.columns:
-            squeeze_threshold = df[bbw_col].rolling(60).quantile(self._get_param_value(p.get('squeeze_percentile'), 0.1))
-            squeeze_event = (df[bbw_col] < squeeze_threshold) & (df[bbw_col].shift(1) >= squeeze_threshold)
-            states['VOL_EVENT_SQUEEZE'] = squeeze_event
-        else:
-            squeeze_event = default_series
-        if 'volume_D' in df.columns and vol_ma_col in df.columns:
-            states['VOL_STATE_SHRINKING'] = df['volume_D'] < df[vol_ma_col] * self._get_param_value(p.get('shrinking_ratio'), 0.8)
-        # --- 步骤2: 定义“打破条件” ---
+
+        if not all(c in df.columns for c in [bbw_col, bbw_slope_col, vol_ma_col]):
+            print(f"          -> [警告] 缺少诊断波动所需列，跳过。")
+            return states
+
+        # --- 1. 静态分析：定义压缩事件和缩量状态 ---
+        squeeze_threshold = df[bbw_col].rolling(60).quantile(self._get_param_value(p.get('squeeze_percentile'), 0.1))
+        squeeze_event = (df[bbw_col] < squeeze_threshold) & (df[bbw_col].shift(1) >= squeeze_threshold)
+        states['VOL_EVENT_SQUEEZE'] = squeeze_event
+        states['VOL_STATE_SHRINKING'] = df['volume_D'] < df[vol_ma_col] * self._get_param_value(p.get('shrinking_ratio'), 0.8)
+
+        # --- 2. 状态机：生成基础的“压缩窗口” ---
         p_context = p.get('squeeze_context', {})
-        if vol_ma_col in df.columns:
-            volume_break_ratio = self._get_param_value(p_context.get('volume_break_ratio'), 1.5)
-            break_condition = df['volume_D'] > df[vol_ma_col] * volume_break_ratio
-        else:
-            break_condition = default_series
-        # --- 步骤3: 调用“状态机引擎”生成持续性状态 ---
+        volume_break_ratio = self._get_param_value(p_context.get('volume_break_ratio'), 1.5)
+        break_condition = df['volume_D'] > df[vol_ma_col] * volume_break_ratio
         persistence_days = self._get_param_value(p_context.get('persistence_days'), 10)
-        states['VOL_STATE_SQUEEZE_WINDOW'] = self._create_persistent_state(
-            df=df,
-            entry_event_series=squeeze_event,
-            persistence_days=persistence_days,
-            break_condition_series=break_condition,
-            state_name='VOL_STATE_SQUEEZE_WINDOW'
+        squeeze_window = self._create_persistent_state(
+            df=df, entry_event_series=squeeze_event, persistence_days=persistence_days,
+            break_condition_series=break_condition, state_name='VOL_STATE_SQUEEZE_WINDOW'
         )
+        states['VOL_STATE_SQUEEZE_WINDOW'] = squeeze_window
+
+        # --- 3. 【融合生成】高质量信号 ---
+        # “极致压缩” (S级信号): 在压缩窗口内，要求波动率仍在收缩 (斜率为负)
+        is_still_squeezing = df[bbw_slope_col] < 0
+        states['VOL_STATE_EXTREME_SQUEEZE'] = squeeze_window & is_still_squeezing
+
         return states
 
     # 风险情报总局 (Risk Intelligence Bureau)
@@ -1024,94 +1028,116 @@ class TrendFollowStrategy:
     # 筹码情报总参谋部 (Chip Intelligence Dept.)
     #    -> 核心职责: 统一分析所有筹码相关情报。
     #    -> 总参谋长: _diagnose_chip_intelligence()
+    def _diagnose_dynamic_chip_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V283.0 新增】全指标动态分析中心
+        - 核心职责: 集中处理所有关键筹码指标的斜率与加速度，系统性地生成
+                    高维度的动态机遇与风险信号。这是对动态分析能力的终极整合。
+        """
+        print("          -> [动态分析中心 V283.0] 已部署，正在对全筹码指标进行动态扫描...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
+        required_cols = [
+            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
+            'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
+            'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 对“筹码集中度”进行动态分析 (机遇/风险) ---
+        states['CHIP_DYN_CONCENTRATING'] = df['SLOPE_5_concentration_90pct_D'] < 0
+        states['CHIP_DYN_ACCEL_CONCENTRATING'] = df['ACCEL_5_concentration_90pct_D'] < 0
+        states['RISK_DYN_DIVERGING'] = df['SLOPE_5_concentration_90pct_D'] > 0
+        states['RISK_DYN_ACCEL_DIVERGING'] = df['ACCEL_5_concentration_90pct_D'] > 0
+
+        # --- 3. 对“筹码成本”进行动态分析 (机遇/风险) ---
+        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
+        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0 # 主力猛攻信号
+        states['RISK_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
+
+        # --- 4. 对“总获利盘”进行动态分析 (机遇/风险) ---
+        winner_rate_collapse_threshold = -1.0 # 斜率小于-1才算崩盘
+        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
+        states['RISK_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
+        states['RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0 # 获利盘加速崩盘
+
+        # --- 5. 对“筹码健康分”进行动态分析 (机遇/风险) ---
+        states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
+        states['RISK_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
+        
+        print("          -> [动态分析中心 V283.0] 动态扫描完成。")
+        return states
+
     def _run_chip_intelligence_command(self, df: pd.DataFrame, params: dict) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V279.0 战略欺骗识别版】筹码情报最高司令部
-        - 核心升级: 为“长期派发”风险的判断，增加了一个至关重要的前置条件——“高位区域识别”。
-        - 新条令:
-          1. 首先，判断当前股价是否处于近期（如60日）的高位区域。
-          2. 只有在“高位区域”这个前提下，如果筹码集中度相比21天前显著恶化，才将其判定为“长期派发”。
-        - 收益: 此模块能有效区分“高位真派发”和“坑底暴力换防”这两种外在相似、本质截然不同的行为。
-                  它让我军的执行系统，拥有了接近人类专家的伪装识别能力。
+        【V283.0 动静分离版】筹码情报最高司令部
+        - 核心重构: 将所有动态分析(斜率/加速度)的职责，移交给新建的
+                    `_diagnose_dynamic_chip_states` 动态分析中心。
+        - 新职责: 本模块现在专注于筹码的“静态”和“结构性”分析，并整合动态中心的
+                  情报，形成最终的筹码态势报告。
         """
-        print("        -> [筹码情报最高司令部 V279.0] 启动，正在执行一体化分析...")
+        print("        -> [筹码情报最高司令部 V283.0 动静分离版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 军备检查 (Armory Inspection) ---
+        # --- 1. 读取参数并检查基础数据 ---
         p = self._get_params_block('chip_feature_params')
         if not self._get_param_value(p.get('enabled'), False):
             print("          -> 筹码情报最高司令部被禁用，跳过。")
             return states, triggers
 
-        required_cols = [
-            'concentration_90pct_D', 'concentration_90pct_slope_5d_D',
-            'SLOPE_5_peak_cost_D', 'SLOPE_5_total_winner_rate_D',
-            'SLOPE_5_peak_stability_D', 'SLOPE_5_peak_percent_D',
-            'SLOPE_5_pressure_above_D', 'peak_cost_accel_5d_D',
-            'chip_health_score_D'
-        ]
-        
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            print(f"          -> [严重警告] 缺少筹码诊断所需的列: {missing}。引擎将返回空结果。")
+        required_cols = ['concentration_90pct_D', 'chip_health_score_D', 'peak_cost_accel_5d_D']
+        if any(col not in df.columns for col in required_cols):
+            print(f"          -> [警告] 筹码司令部缺少基础数据，跳过。")
             return states, triggers
 
-        # --- 2. 基础情报分析 (Basic Intelligence Analysis) ---
+        # --- 2. 【新增】调用“全指标动态分析中心”，获取所有动态情报 ---
+        dynamic_states = self._diagnose_dynamic_chip_states(df, p)
+        states.update(dynamic_states)
+
+        # --- 3. 执行静态与结构性分析 ---
         p_struct = p.get('structure_params', {})
         conc_col = 'concentration_90pct_D'
-        conc_slope_col = 'concentration_90pct_slope_5d_D'
         
-        conc_thresh_abs = self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        slope_tolerance_healthy = self._get_param_value(p_struct.get('slope_tolerance_healthy'), 0.001)
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = (df[conc_col] < conc_thresh_abs) & (df[conc_slope_col] <= slope_tolerance_healthy)
-        
-        rapid_concentration_threshold = self._get_param_value(p_struct.get('rapid_concentration_threshold'), -0.005)
-        states['CHIP_RAPID_CONCENTRATION'] = df.get(conc_slope_col, 0) < rapid_concentration_threshold
+        # “高度集中”状态的定义，现在依赖动态中心的健康信号
+        is_concentrated_static = df[conc_col] < self._get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+        is_trend_healthy = ~states.get('RISK_DYN_DIVERGING', default_series) # 只要没在发散，趋势就是健康的
+        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_concentrated_static & is_trend_healthy
 
-        cost_collapse_threshold = self._get_param_value(p_struct.get('cost_collapse_threshold'), -0.01)
-        states['RAW_SIGNAL_COST_COLLAPSE'] = df.get('SLOPE_5_peak_cost_D', 0) < cost_collapse_threshold
-        
-        winner_rate_collapse_threshold = self._get_param_value(p_struct.get('winner_rate_collapse_threshold'), -1.0)
-        states['RAW_SIGNAL_WINNER_RATE_COLLAPSE'] = df.get('SLOPE_5_total_winner_rate_D', 0) < winner_rate_collapse_threshold
-
+        # “筹码点火”触发器 (这是唯一保留的加速度直接应用，因为它是一个瞬时trigger)
         p_ignition = p.get('ignition_params', {})
         if self._get_param_value(p_ignition.get('enabled'), True):
             accel_threshold = self._get_param_value(p_ignition.get('accel_threshold'), 0.01)
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
-        # --- 3. 高维结构解读 (Advanced Structure Interpretation) ---
-        health_score = df.get('chip_health_score_D')
-        if health_score is not None:
-            states['CHIP_HEALTH_EXCELLENT'] = health_score > 85
+        # “健康分优秀”状态
+        states['CHIP_HEALTH_EXCELLENT'] = df.get('chip_health_score_D', 0) > 85
 
-        # --- 4. 历史背景政审 (Historical Context Vetting) ---
-        # 模块1: 定义“高位区域”。如果当前收盘价，处于过去60日最高价的90%分位之上，则视为高位。
+        # “长期派发”风险 (这是一个结构性判断，予以保留)
         is_in_high_level_zone = self._define_high_level_distribution_zone(df)
-
-        # 模块2: 定义筹码恶化事实。
-        worsening_threshold = 1.05 # 恶化5%
+        worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
-
-        # 最终裁定: 只有“在高位区域”并且“筹码显著恶化”，才判定为“长期派发”风险。
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
 
-        # --- 5. 核心戒备等级裁定 (CHIPCON Level Adjudication) ---
+        # --- 4. 基于整合后的情报，裁定 CHIPCON 等级 ---
         is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        is_rapidly_concentrating = states.get('CHIP_RAPID_CONCENTRATION', default_series)
-        is_cost_rising = df.get('SLOPE_5_peak_cost_D', default_series) > 0
-        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01
-        is_winner_rate_rising = df.get('SLOPE_5_total_winner_rate_D', default_series) > 0
+        is_cost_rising = states.get('CHIP_DYN_COST_RISING', default_series)
+        is_winner_rate_rising = states.get('CHIP_DYN_WINNER_RATE_RISING', default_series)
         is_long_term_distributing = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01 # 临时保留
 
         states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
         states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
-        states['CHIPCON_2_PRE_WAR'] = states.get('CHIPCON_3_HIGH_ALERT', default_series) & is_rapidly_concentrating
-        states['CHIPCON_1_WAR'] = is_long_term_distributing & (df.get('SLOPE_5_total_winner_rate_D', default_series) < 0)
-
-        print("        -> [筹码情报最高司令部 V279.0] 分析完毕。")
+        
+        print("        -> [筹码情报最高司令部 V283.0 动静分离版] 分析完毕。")
         return states, triggers
 
     def _diagnose_chip_price_action(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1392,15 +1418,17 @@ class TrendFollowStrategy:
 
     def _diagnose_ma_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V274.0 装备同步版】
-        - 核心修复: 修正了内部对 `_create_persistent_state` 的调用，使其完全兼容 V271.0 “状态机引擎”。
-        - 新增逻辑: 引入了“均线钝化企稳”的持续性状态，这是一个重要的左侧交易信号。
-        - 收益: 确保了均线部队与全军的装备和通讯协议完全同步，消除了最后的兼容性隐患。
+        【V283.0 融合思想版】
+        - 核心升级: 引入“攻击性多头排列”信号。
+          - MA_STATE_STABLE_BULLISH: 基础的多头排列状态 (静态位置)。
+          - MA_STATE_AGGRESSIVE_BULLISH: 在多头排列基础上，要求短期均线斜率陡峭 (动态趋势)，是更高质量的信号。
         """
+        print("          -> [均线野战部队 V283.0] 启动，正在执行融合分析...")
         states = {}
         p = self._get_params_block('ma_state_params')
         if not self._get_param_value(p.get('enabled'), False): return states
 
+        # --- 0. 读取参数并检查数据完整性 ---
         short_ma_period = self._get_param_value(p.get('short_ma'), 13)
         mid_ma_period = self._get_param_value(p.get('mid_ma'), 21)
         long_ma_period = self._get_param_value(p.get('long_ma'), 55)
@@ -1408,40 +1436,48 @@ class TrendFollowStrategy:
         short_ma = f'EMA_{short_ma_period}_D'
         mid_ma = f'EMA_{mid_ma_period}_D'
         long_ma = f'EMA_{long_ma_period}_D'
+        short_ma_slope_col = f'SLOPE_5_{short_ma}'
+        long_ma_slope_col = f'SLOPE_21_{long_ma}'
         
-        required_cols = [short_ma, mid_ma, long_ma, f'SLOPE_5_{short_ma}', f'SLOPE_21_{long_ma}']
+        required_cols = [short_ma, mid_ma, long_ma, short_ma_slope_col, long_ma_slope_col]
         if not all(col in df.columns for col in required_cols):
-            print(f"          -> [警告] 缺少诊断MA状态所需列，跳过。所需列: {required_cols}")
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            print(f"          -> [警告] 缺少诊断MA状态所需列: {missing_cols}，跳过。")
             return states
 
-        # --- 1. 价格与均线位置关系 ---
+        # --- 1. 静态位置分析 (价格与均线的关系) ---
         states['MA_STATE_PRICE_ABOVE_SHORT_MA'] = df['close_D'] > df[short_ma]
         states['MA_STATE_PRICE_ABOVE_MID_MA'] = df['close_D'] > df[mid_ma]
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
-
-        # --- 2. 均线排列与趋势方向 ---
-        states['MA_STATE_STABLE_BULLISH'] = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
-        states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
         
-        # --- 3. 均线斜率与趋势速度 ---
-        states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[f'SLOPE_5_{short_ma}'] > 0
-        states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[f'SLOPE_21_{long_ma}'] > 0
+        # 基础的“稳定多头/空头排列”信号 (纯静态位置判断)
+        stable_bullish = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
+        states['MA_STATE_STABLE_BULLISH'] = stable_bullish
+        states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
 
-        # --- 4. 均线发散与收敛 (使用Z-score) ---
+        # --- 2. 动态趋势分析 (均线斜率) ---
+        states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[short_ma_slope_col] > 0
+        states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[long_ma_slope_col] > 0
+
+        # --- 3. 【融合生成】高质量信号 ---
+        # “攻击性多头排列” (S级信号): 在稳定多头排列的基础上，要求短期均线斜率陡峭
+        # 从配置中读取“陡峭”的定义，若无则使用默认值0.01
+        aggressive_slope_threshold = self._get_param_value(p.get('aggressive_slope_threshold'), 0.01)
+        is_aggressive_slope = df[short_ma_slope_col] > aggressive_slope_threshold
+        states['MA_STATE_AGGRESSIVE_BULLISH'] = stable_bullish & is_aggressive_slope
+        
+        # --- 4. 其他复合状态分析 ---
+        # 均线发散与收敛 (使用Z-score)
         zscore_col = 'MA_ZSCORE_D' # 假设这个Z-score在数据工程层计算
         if zscore_col in df.columns:
-            converging_zscore = self._get_param_value(p.get('converging_zscore'), -1.0)
-            diverging_zscore = self._get_param_value(p.get('diverging_zscore'), 1.0)
-            states['MA_STATE_CONVERGING'] = df[zscore_col] < converging_zscore
-            states['MA_STATE_DIVERGING'] = df[zscore_col] > diverging_zscore
+            states['MA_STATE_CONVERGING'] = df[zscore_col] < self._get_param_value(p.get('converging_zscore'), -1.0)
+            states['MA_STATE_DIVERGING'] = df[zscore_col] > self._get_param_value(p.get('diverging_zscore'), 1.0)
 
-        # --- 5. 【装备换代】定义“均线钝化企稳”的持续性状态 ---
-        # 定义“进入事件”：长期均线斜率首次由负转平（或转正）
-        long_ma_slope = df[f'SLOPE_21_{long_ma}']
+        # “均线钝化企稳”的持续性状态 (左侧信号)
+        long_ma_slope = df[long_ma_slope_col]
         entry_event = (long_ma_slope >= 0) & (long_ma_slope.shift(1) < 0)
         
-        # 定义“打破条件”：短期均线斜率再次转为明确的负值
-        short_ma_slope = df[f'SLOPE_5_{short_ma}']
+        short_ma_slope = df[short_ma_slope_col]
         break_condition = short_ma_slope < -0.005 # 允许轻微波动，但明确下跌则打破
 
         states['MA_STATE_BOTTOM_PASSIVATION'] = self._create_persistent_state(
@@ -1452,49 +1488,35 @@ class TrendFollowStrategy:
             state_name='MA_STATE_BOTTOM_PASSIVATION'
         )
         return states
-    
+
     # ─> 工兵部队 (Engineer Corps - Structure Analysis)
     #    -> 核心职责: 识别箱体、平台等静态结构。
     #    -> 指挥官: _diagnose_box_states()
     def _diagnose_box_states(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V147.0 实战化地形识别版】
-        - 核心重构: 彻底废弃了过于学术化、无法识别平坦整理区的 find_peaks 算法。
-        - 新逻辑:
-          采用更贴近实战的“振幅比率”法。只要股价在过去N天内的振幅
-          (rolling_high - rolling_low) / rolling_low 小于一个阈值(如5%)，
-          就认为形成了一个有效的“战术平台”或“箱体”。
-        - 收益: 能够精准识别各种形态的盘整区，特别是像06-25至06-27日那种
-                极其平坦的“空中加油”平台，从根本上解决了因此类平台无法被识别
-                而错失突破信号的问题。
+        【V283.0 融合思想版】
+        - 核心升级: 引入“健康吸筹箱体”信号。
+          - BOX_STATE_HEALTHY_CONSOLIDATION: 基础的、位于趋势线上方的箱体 (静态)。
+          - BOX_STATE_HEALTHY_ACCUMULATION: 在健康箱体内，要求同时满足“缩量”和“筹码集中” (动态)，是更高质量的突破前兆。
         """
-        print("        -> [诊断模块 V147.0] 正在执行箱体状态诊断(实战化地形识别版)...")
+        print("        -> [工兵部队 V283.0] 启动，正在执行融合分析...")
         states = {}
         box_params = self._get_params_block('dynamic_box_params')
         if not self._get_param_value(box_params.get('enabled'), False) or df.empty:
-            print("          -> 箱体诊断模块被禁用或数据为空，跳过。")
             return states
 
-        # --- 新逻辑参数 ---
+        # --- 1. 静态分析：识别箱体结构 ---
         lookback_window = self._get_param_value(box_params.get('lookback_window'), 8)
-        max_amplitude_ratio = self._get_param_value(box_params.get('max_amplitude_ratio'), 0.05) # 振幅小于5%
-
-        # --- 步骤1: 计算滚动窗口内的高点、低点和振幅 ---
+        max_amplitude_ratio = self._get_param_value(box_params.get('max_amplitude_ratio'), 0.05)
         rolling_high = df['high_D'].rolling(window=lookback_window).max()
         rolling_low = df['low_D'].rolling(window=lookback_window).min()
-        
-        # 计算振幅比率，分母使用rolling_low避免除以0，且更符合涨跌幅定义
         amplitude_ratio = (rolling_high - rolling_low) / rolling_low.replace(0, np.nan)
-
-        # --- 步骤2: 识别有效的“箱体”/“平台” ---
-        # 只要近期振幅足够小，就认为是一个有效的箱体
         is_valid_box = (amplitude_ratio < max_amplitude_ratio).fillna(False)
         
-        # 箱体的顶部和底部就是滚动窗口的高点和低点
         box_top = rolling_high
         box_bottom = rolling_low
 
-        # --- 步骤3: 定义突破与跌破事件 (逻辑不变，但基于新的箱体定义) ---
+        # --- 2. 定义基础事件和状态 ---
         was_below_top = df['close_D'].shift(1) <= box_top.shift(1)
         is_above_top = df['close_D'] > box_top
         states['BOX_EVENT_BREAKOUT'] = is_valid_box & is_above_top & was_below_top
@@ -1503,27 +1525,31 @@ class TrendFollowStrategy:
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
-        # --- 步骤4: 诊断“健康箱体盘整”状态 (逻辑不变) ---
+        is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
+        
+        # 基础的“健康箱体”
         ma_params = self._get_params_block('ma_state_params')
         mid_ma_period = self._get_param_value(ma_params.get('mid_ma'), 55)
         mid_ma_col = f"EMA_{mid_ma_period}_D"
-        
-        is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         if mid_ma_col in df.columns:
             box_midpoint = (box_top + box_bottom) / 2
             is_box_above_ma = box_midpoint > df[mid_ma_col]
-            states['BOX_STATE_HEALTHY_CONSOLIDATION'] = is_valid_box & is_in_box & is_box_above_ma
+            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma
         else:
-            # 如果没有参考均线，则只要在箱体内就算
-            states['BOX_STATE_HEALTHY_CONSOLIDATION'] = is_valid_box & is_in_box
+            healthy_consolidation = is_valid_box & is_in_box
+        states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
+
+        # --- 3. 【融合生成】高质量信号 ---
+        # “健康吸筹箱体” (S级信号): 在健康箱体内，要求缩量+筹码集中
+        is_shrinking_volume = self.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
+        is_chip_concentrating = self.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
+        states['BOX_STATE_HEALTHY_ACCUMULATION'] = healthy_consolidation & is_shrinking_volume & is_chip_concentrating
         
-        # --- 步骤5: 清理与返回 ---
         for key in states:
             if key not in states or states[key] is None:
                 states[key] = pd.Series(False, index=df.index)
             else:
                 states[key] = states[key].fillna(False)
-        
         return states
 
     #    -> (下辖): 平台引力侦察模块: _diagnose_platform_states()

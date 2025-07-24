@@ -100,6 +100,7 @@
         "EMA_89_D": [10],
         "EMA_105_D": [25],
         "EMA_21_W": [5, 13],
+        "BBW_21_2.0_D": [5],
 
         "说明_CHIP": "--- 以下为筹码相关指标，注意已移除CHIP_前缀 ---",
         "peak_cost_D": [5, 8, 21, 55],
@@ -107,7 +108,8 @@
         "total_winner_rate_D": [5, 21],
         "peak_stability_D": [5, 21],
         "peak_percent_D": [5],
-        "pressure_above_D": [5]
+        "pressure_above_D": [5],
+        "chip_health_score_D": [5]
       }
     }
   },
@@ -217,45 +219,49 @@
         "enabled": { "value": true },
         "说明": "【V247.0 战略定力版】计分体系。核心改革：大幅降低瞬时触发分的权重，提升阵地分和核心风险的权重，引入持仓逻辑。",
         "positional_scoring": {
-          "说明": "【进攻评估 - 阵地分】提升核心阵地优势的权重。",
+          "说明": "【阵地分】评估静态位置和健康趋势。",
           "positive_signals": {
             "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 350,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
-            "CHIP_FUND_FLOW_CONSENSUS_INFLOW": 120,
-            "CHIP_HEALTH_EXCELLENT": 100,
+            "BOX_STATE_HEALTHY_ACCUMULATION": 150,
+            "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "PLATFORM_STATE_STABLE_FORMED": 120,
             "CHIP_STATE_HIGHLY_CONCENTRATED": 100,
+            "CHIP_DYN_COST_RISING": 80,
+            "CHIP_DYN_CONCENTRATING": 80,
             "MA_STATE_STABLE_BULLISH": 70,
-            "CHIPCON_4_READINESS": 40,
-            "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": 80,
-            "CHIP_PROFIT_CUSHION_HIGH": 40,
+            "CHIP_DYN_WINNER_RATE_RISING": 60,
             "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30
           }
         },
         "dynamic_scoring": {
-          "说明": "【进攻评估 - 动能分】评估动态趋势和主力行为。",
+          "说明": "【动能分】评估加速行为和爆发潜力。",
           "positive_signals": {
+            "CHIP_DYN_COST_ACCELERATING": 250,
             "CONTEXT_EXPLOSIVE_RALLY": 250,
+            "CHIP_DYN_ACCEL_CONCENTRATING": 200,
             "DYN_TREND_HEALTHY_ACCELERATING": 180,
             "CONTEXT_STRONG_BREAKOUT_RALLY": 160,
-            "STRUCTURE_BREAKOUT_EVE_A": 150,
-            "CHIP_RAPID_CONCENTRATION": 70,
-            "CHIP_HEALTH_IMPROVING": 60
+            "VOL_STATE_EXTREME_SQUEEZE": 130,
+            "CHIP_DYN_HEALTH_IMPROVING": 60
           }
         },
         "risk_scoring": {
           "说明": "【最高风险裁决所】提升核心风险的否决权重。",
           "signals": {
-            "说明_CHIPCON": "--- 核心戒备等级风险 (CHIPCON-based Risk) ---",
+            "说明_CRITICAL": "--- 临界风险 (一票否决级) ---",
             "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
-            "COGNITIVE_RISK_DECEPTIVE_CHURN": 1000,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
-            "CHIPCON_1_WAR": 1000,
-            "RISK_CAPITAL_VIOLENT_WHIPSAW": 350,
-            "说明_ADDITIONAL": "--- 【权重提升】补充性核心风险 ---",
+            "说明_HIGH": "--- 高度风险 ---",
+            "RISK_DYN_ACCEL_DIVERGING": 400,
+            "RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING": 350,
+            "RISK_DYN_DIVERGING": 300,
+            "RISK_DYN_WINNER_RATE_COLLAPSING": 250,
             "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": 250,
             "STRUCTURE_TOPPING_DANGER_S": 200,
+            "RISK_DYN_COST_FALLING": 200,
+            "RISK_DYN_HEALTH_DETERIORATING": 150,
             "PLATFORM_FAILURE": 150,
             "DYN_TREND_WEAKENING_DECELERATING": 100
           }
