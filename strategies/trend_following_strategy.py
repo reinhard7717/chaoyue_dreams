@@ -297,7 +297,6 @@ class TrendFollowStrategy:
         print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
         # 启动基础的K线模式识别器
         df = self.pattern_recognizer.identify_all(df)
-        if 'close_D' in df.columns: df['pct_change_D'] = df['close_D'].pct_change()
 
         # --- 依次调用各大专业化司令部，收集原子情报 ---
         self.atomic_states = {}

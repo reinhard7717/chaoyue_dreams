@@ -322,8 +322,17 @@ class IndicatorService:
 
         # --- 步骤 1: 调用重构后的核心数据准备函数 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
+        
+        if not all_dfs:
+            return {}
+        
+        # --- 步骤 2: 【流程再造】在所有基础指标生成后，计算VPA效率指标 ---
+        all_dfs = await self._calculate_vpa_features(all_dfs, config)
 
-        # --- 后续逻辑保持不变，注入行业背景、游资信号等 ---
+        # --- 步骤 3: 【流程再造】在所有指标（包括VPA）都生成后，统一计算斜率 ---
+        all_dfs = await self._calculate_all_slopes(all_dfs, config)
+        
+        # --- 步骤 4: 注入其他上下文信息（如行业、游资等），这部分逻辑可以保持在最后 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             # logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
             return all_dfs
@@ -362,10 +371,6 @@ class IndicatorService:
                 stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
             all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
-        # 调用VPA效率生产线，它必须在斜率计算之前执行！
-        all_dfs = await self._calculate_vpa_features(all_dfs, config)
-        # 在所有基础指标计算完毕后，调用斜率计算
-        all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
         #  调用军械库清单生成器 ▼▼▼
         # self._log_final_data_columns(all_dfs)
@@ -712,6 +717,10 @@ class IndicatorService:
 
         # 创建一个副本用于计算，避免修改原始传入的DataFrame
         df_for_calc = df.copy()
+
+        # 在所有指标计算之前，先计算基础的 pct_change
+        if 'close' in df_for_calc.columns:
+            df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
         
         # 定义指标计算方法的映射
         indicator_method_map = {
