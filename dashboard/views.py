@@ -116,9 +116,9 @@ def trend_following_list(request):
     - 核心修正: 增加了对 triggered_playbooks 字段的解析逻辑，将数据库中的逗号分隔字符串正确转换为Python列表，解决剧本显示错误的问题。
     - 收益: 页面加载速度从分钟级提升至秒级，实现了质的飞跃，同时保证业务逻辑完全不变。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V119.1 格式修正版 ---")
+    # print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V119.1 格式修正版 ---")
     # 步骤1: 使用更高效的 GROUP BY + IN 查询，一次性获取所有最新的日线级别“买入”信号记录
-    print("--- [View] 步骤1: 开始查询最新买入信号ID...")
+    # print("--- [View] 步骤1: 开始查询最新买入信号ID...")
     latest_buy_log_ids = TrendFollowStrategySignalLog.objects.filter(
         entry_signal=True,
         timeframe='D'
@@ -226,7 +226,7 @@ def fav_trend_following_list(request):
     - 核心修正: 增加了对 triggered_playbooks 字段的解析逻辑，将数据库中的逗号分隔字符串正确转换为Python列表，解决剧本显示错误的问题。
     - 收益: 彻底解决所有状态显示不一致、信息丢失的问题。
     """
-    print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.1 格式修正版 ---")
+    # print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.1 格式修正版 ---")
     user_dao = UserDAO()
     user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
     fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
