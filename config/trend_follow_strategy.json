@@ -247,6 +247,7 @@
           "说明": "【最高风险裁决所】提升核心风险的否决权重。",
           "signals": {
             "说明_CHIPCON": "--- 核心戒备等级风险 (CHIPCON-based Risk) ---",
+            "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
             "COGNITIVE_RISK_DECEPTIVE_CHURN": 1000,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
@@ -463,6 +464,18 @@
             "squeeze_window": 60,
             "squeeze_percentile": 0.2
           }
+        }
+      },
+      "distribution_context_params": {
+        "enabled": true,
+        "description": "【新增】危险战区感知模块参数，用于识别近期是否发生过主力大规模派发。",
+        "lookback_days": {
+          "value": 10,
+          "description": "记忆回溯期（天）。检查过去10天内有无派发行为。"
+        },
+        "outflow_threshold_M": {
+          "value": -20,
+          "description": "单日派发阈值（百万元）。主力单日净流出超过2000万，即视为一次“派发事件”。"
         }
       },
       "washout_suspicion_params": {

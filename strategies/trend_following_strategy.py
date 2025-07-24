@@ -1289,6 +1289,23 @@ class TrendFollowStrategy:
         states = {}
         default_series = pd.Series(False, index=df.index)
         
+        # 1. 定义“主力大规模派发”的单日行为
+        #    - 从配置中读取参数，例如单日净流出超过2000万就视为危险
+        dist_context_params = self._get_params_block('distribution_context_params', {})
+        outflow_threshold = self._get_param_value(dist_context_params.get('outflow_threshold_M'), -20) * 1_000_000
+        
+        is_distribution_day = df.get('main_force_net_inflow_amount_D', default_series) < outflow_threshold
+
+        # 2. 建立“战场记忆”：使用滚动窗口检查近期是否发生过派发
+        #    - 如果过去10天内，有任何一天是“派发日”，那么今天就处于“近期派发压力”之下
+        lookback_window = self._get_param_value(dist_context_params.get('lookback_days'), 10)
+        # .any() 是关键，它检查窗口内是否有至少一个 True
+        atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = is_distribution_day.rolling(
+            window=lookback_window, min_periods=1
+        ).apply(np.any, raw=True).fillna(0).astype(bool)
+        
+        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{self._format_debug_dates(atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
+        
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
         capital_params = self._get_params_block('capital_state_params')
         if self._get_param_value(capital_params.get('enabled'), True):
