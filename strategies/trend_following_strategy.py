@@ -216,23 +216,17 @@ class TrendFollowStrategy:
             "trade_time": standard_trade_time,
             "timeframe": "N/A",
             "strategy_name": "UNKNOWN",
-            "signal_type": "中性", # 默认信号类型
-            "final_score": 0.0,   # 统一使用 final_score
+            "signal_type": "中性",
+            "final_score": 0.0,
             "risk_score": 0.0,
             "playbook_details": "",
-            "is_risk_warning": False,
-            "entry_signal": False,
             "close_price": None,
         }
         record.update(kwargs)
 
-        # 智能判断信号类型
-        if record['final_score'] > 0 and record['risk_score'] == 0:
-            record['signal_type'] = '买入信号'
-            record['entry_signal'] = True
-        elif record['risk_score'] > 0 and record['final_score'] == 0:
-            record['signal_type'] = '风险预警'
-            record['is_risk_warning'] = True
+        # 根据传入的 signal_type 设置布尔标志
+        record['entry_signal'] = record['signal_type'] == '买入信号'
+        record['is_risk_warning'] = record['signal_type'] in ['卖出信号', '风险预警']
         
         # 数据净化
         record['close_price'] = sanitize_for_json(record.get('close_price'))
@@ -2083,10 +2077,17 @@ class TrendFollowStrategy:
         df.loc[buy_condition, 'signal_type'] = '买入信号'
         exit_condition = df['exit_signal_code'] >= 88
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
-        df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
+        # df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
-        print("        -> [决策单元] 决策完成。")
+        print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
+        # 筛选出有信号的最后5天进行打印
+        final_check_df = df[(df['signal_type'] != '中性')].tail(5)
+        if not final_check_df.empty:
+            print("          -> [最终分数审查报告]:")
+            print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type']])
+        else:
+            print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
         print("    --- [最高作战指挥部 V300.0] 一体化流程执行完毕。 ---")
         # 强制执行现代化三联式汇报协议！
