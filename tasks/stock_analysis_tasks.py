@@ -218,11 +218,11 @@ def analyze_all_stocks_full_history(self):
         # --- 为自选股调度“全面战役”任务 ---
         for stock_code in favorite_codes:
             # 调用 run_multi_timeframe_strategy，但将 latest_only 明确设置为 False
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='full_history_queue').apply_async()
+            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
         
         # --- 为非自选股调度“全面战役”任务 ---
         for stock_code in non_favorite_codes:
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='full_history_queue').apply_async()
+            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
         
         logger.info(f"[战略预备队] 已为 {stock_count} 只股票下达了“全面战役”指令。")
         return {"status": "started",  "stock_count": stock_count}
