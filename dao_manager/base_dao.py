@@ -645,7 +645,8 @@ class BaseDAO(Generic[T]):
         total_records = len(data_list)
         failed_count = 0
         # 2. 字段元数据分析
-        # all_model_fields = {f.name for f in model_class._meta.get_fields() if getattr(f, 'editable', True) and not f.auto_created}
+        # 【代码修改】使用 model_class._meta.fields 替代 get_fields()，避免包含没有列的反向关系。
+        # .fields 只包含模型中定义的具体字段，更安全、更准确。
         all_model_fields = {f.name for f in model_class._meta.fields}
         unique_field_set = set(unique_fields)
         for field_name in unique_fields:
@@ -676,7 +677,8 @@ class BaseDAO(Generic[T]):
         # 4. 将准备好的数据转换为DataFrame
         df = pd.DataFrame(prepared_data_list)
         # 5. 转换关系字段列
-        for field in model_class._meta.get_fields():
+        # 【代码修改】同样使用 model_class._meta.fields，因为外键（ForeignKey）也包含在 .fields 中。
+        for field in model_class._meta.fields:
             if field.is_relation and not field.auto_created:
                 field_name = field.name
                 column_name = field.column
@@ -743,13 +745,11 @@ class BaseDAO(Generic[T]):
         """
         if df.empty:
             return 0
-
         # 为了代码整洁，我将复制一份DataFrame进行修改，避免潜在的SettingWithCopyWarning
         df = df.copy()
         table_name = model_class._meta.db_table
         now = timezone.now()
         auto_now_fields = []
-
         # --- 数据准备阶段 ---
         for field in model_class._meta.fields:
             if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
@@ -757,7 +757,6 @@ class BaseDAO(Generic[T]):
             if hasattr(field, 'auto_now') and field.auto_now:
                 auto_now_fields.append(field.column)
                 df[field.column] = now
-        
         for field in model_class._meta.fields:
             if field.default is not models.NOT_PROVIDED:
                 default_value = field.get_default()
@@ -766,19 +765,18 @@ class BaseDAO(Generic[T]):
                 elif df[field.column].isnull().any():
                     if default_value is not None:
                         df[field.column].fillna(default_value, inplace=True)
-
         json_field_names = [f.column for f in model_class._meta.fields if isinstance(f, models.JSONField)]
         for col_name in json_field_names:
             if col_name in df.columns:
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
-
         all_columns = list(df.columns)
-
         # --- SQL构建阶段 (与V21完全相同) ---
-        # 创建一个从模型字段名到数据库列名的映射字典，例如 {'index': 'index_code'}
-        field_to_column_map = {f.name: f.column for f in model_class._meta.get_fields()}
+        # 【代码修改】修复 'ManyToOneRel' object has no attribute 'column' 错误
+        # 错误原因：model_class._meta.get_fields() 会包含反向关系（如 ManyToOneRel），这些关系对象没有 .column 属性。
+        # 解决方案：改用 model_class._meta.fields，它只包含模型中定义的具体字段，确保每个字段都有 .column 属性。
+        field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
         # 直接使用DataFrame的列名构建INSERT部分的列清单，确保与数据顺序一致
         all_columns = list(df.columns)
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
@@ -802,9 +800,7 @@ class BaseDAO(Generic[T]):
             f"VALUES {placeholders_sql} "
             f"ON DUPLICATE KEY UPDATE {update_sql}"
         )
-
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
-        
         # ▼▼▼ 使用 executemany 实现真正的批量操作 ▼▼▼
         try:
             with transaction.atomic():
@@ -832,28 +828,23 @@ class BaseDAO(Generic[T]):
                 code_value = fk_dict.get(code_field_name)
             elif code_field_name in prepared_data:
                 code_value = prepared_data.pop(code_field_name)
-
             if code_value is not None:
                 if code_value is None:
                     prepared_data[fk_field_name] = None
                     continue
-
                 fk_model = model_class._meta.get_field(fk_field_name).related_model
                 fk_instance = await self.get_or_create_fk_instance(fk_model, code_value, prepared_data)
-
                 if fk_instance is None:
                     error_msg = (
                         f"为外键字段 '{fk_field_name}' 准备实例失败！"
                         f"无法为代码 '{code_value}' 找到或创建对应的 '{fk_model.__name__}' 实例。"
                     )
                     raise ValueError(error_msg)
-                
                 prepared_data[fk_field_name] = fk_instance
-
-        model_field_names = {f.name for f in model_class._meta.get_fields()}
+        # 【代码修改】使用 model_class._meta.fields 确保只清理模型中实际定义的字段。
+        model_field_names = {f.name for f in model_class._meta.fields}
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
         return cleaned_data
-
 
     @staticmethod
     @sync_to_async
