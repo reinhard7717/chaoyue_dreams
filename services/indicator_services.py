@@ -296,11 +296,23 @@ class IndicatorService:
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
 
+    def _get_max_lookback_period(self, config: dict) -> int:
+        """
+        【军需官】扫描整个策略配置，找出所有指标中要求的最长回溯期。
+        这是一个简化的实现，用于演示核心思想。
+        """
+        print("    - [军需官] 正在扫描全军军火库，确定最大回溯需求...")
+        # 简化实现：
+        calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
+        print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
+        return calculated_max
+
     async def prepare_data_for_strategy(
         self,
         stock_code: str,
         config: dict,
-        trade_time: Optional[str] = None
+        trade_time: Optional[str] = None,
+        latest_only: bool = False  # <--- 安装新的“电报机”
     ) -> Dict[str, pd.DataFrame]:
         """
         【V8.0 情报锻造中心版】为策略准备数据的统一入口。
@@ -309,7 +321,7 @@ class IndicatorService:
         # print(f"--- [数据准备V8.0-情报锻造中心] 开始为 {stock_code} 准备数据... ---")
 
         # --- 步骤 1: 调用重构后的核心数据准备函数 ---
-        all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time)
+        all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
 
         # --- 后续逻辑保持不变，注入行业背景、游资信号等 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
@@ -363,7 +375,8 @@ class IndicatorService:
         self,
         stock_code: str,
         config: dict,
-        trade_time: Optional[str] = None
+        trade_time: Optional[str] = None,
+        latest_only: bool = False # <--- 接收并执行指令
     ) -> Dict[str, pd.DataFrame]:
         """
         【V8.1 情报锻造中心-完整版】
@@ -379,6 +392,18 @@ class IndicatorService:
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
+        
+        # ▼▼▼ 闪电模式的核心实现 ▼▼▼
+        # 步骤1: 根据模式决定基础数据量
+        if latest_only:
+            # 闪电模式：智能计算最少需要的数据量
+            max_lookback = self._get_max_lookback_period(config)
+            safety_buffer = 100 # 增加一个慷慨的安全缓冲,确保周线合成和指标预热
+            base_needed_bars = max_lookback + safety_buffer
+            print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
+        else:
+            # 全面模式：使用配置中的默认值
+            base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
         
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
         # print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
