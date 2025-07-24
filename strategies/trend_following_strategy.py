@@ -2098,7 +2098,7 @@ class TrendFollowStrategy:
                 total_risk_score -= (original_scores - reduced_scores)
                 risk_score_df[target_col] = reduced_scores
         
-        risk_score_df['total_risk_score'] = total_risk_score
+        # risk_score_df['total_risk_score'] = total_risk_score
         print("        -> [最高风险裁决所 V287.0] 融合裁决完成。")
         
         return total_risk_score, risk_score_df
