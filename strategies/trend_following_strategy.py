@@ -2030,22 +2030,19 @@ class TrendFollowStrategy:
     # ─> 最高风险裁决所 (Supreme Risk Adjudication)
     #    -> 核心职责: 对风险简报进行量化打分。
     #    -> 首席裁决官: _calculate_risk_score()
-    def _calculate_risk_score(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V285.0 融合裁决版】最高风险裁决所
-        - 核心升级: 建立“风险-机遇融合裁决机制”，彻底改造“一刀切”的旧模式。
-        - 新裁决流程:
-          1. 正常计算所有常规风险分。
-          2. 【新增】当检测到“近期派发压力”这种拥有1000分否决权的S级风险时，
-             不再立即应用惩罚，而是启动“战术对冲审查”。
-          3. 【战术对冲审查】: 检查战场上是否存在同样强大的、可以对冲此风险的
-             S级机遇信号（如“筹码加速集中”或“健康吸筹箱体”）。
-          4. 【最终裁决】:
-             - 如果存在对冲信号，则将此风险定性为“高风险高回报的洗盘博弈”，
-               大幅削减其风险分（例如只给300分），允许进攻评估中心的得分胜出。
-             - 如果不存在对冲信号，则将其定性为“纯粹的出货风险”，维持1000分惩罚。
+        【V287.0 净化归源版】最高风险裁决所
+        - 核心升级 (归源): 不再从 `context` 中接收 `params` 和 `atomic_states`。
+                          强制所有配置从 `self._get_params_block()` 获取，
+                          所有原子情报从 `self.atomic_states` 中央情报局获取。
+        - 收益: 彻底解决了“军备冗余”和“情报来源混乱”两大架构隐患，确保了
+                决策的稳定性和可维护性。
         """
-        print("        -> [最高风险裁决所 V285.0 融合裁决版] 启动...")
+        print("        -> [最高风险裁决所 V287.0 净化归源版] 启动...")
+        
+        df = context['df']
+
         risk_params = self._get_params_block('four_layer_scoring_params').get('risk_scoring', {})
         risk_rules = risk_params.get('signals', {})
         risk_score_df = pd.DataFrame(0, index=df.index, columns=list(risk_rules.keys()))
@@ -2054,13 +2051,11 @@ class TrendFollowStrategy:
         default_series = pd.Series(False, index=df.index)
 
         # --- 步骤1: 提取所有S级的“机遇”信号，作为对冲工具 ---
-        # 这些是我军最精锐的部队，他们的存在可以改变对风险的解读
         mitigating_opportunity_signals = {
             'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
             'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
             'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
         }
-        # 只要有一个S级机遇信号存在，就认为具备了对冲风险的潜力
         has_mitigating_opportunity = pd.Series(False, index=df.index)
         for signal in mitigating_opportunity_signals.values():
             has_mitigating_opportunity |= signal
@@ -2069,51 +2064,45 @@ class TrendFollowStrategy:
         for rule_name, score in risk_rules.items():
             signal_series = self.atomic_states.get(rule_name, default_series)
             
-            # 检查是否是需要特殊处理的“一票否决”级风险
             is_veto_risk_rule = rule_name in [
                 'CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 
                 'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'
             ]
 
             if is_veto_risk_rule and signal_series.any():
-                # 是“一票否决”风险，启动“战术对冲审查”
                 final_score = pd.Series(0.0, index=df.index)
-                
-                # 在触发风险的日子里，检查是否存在对冲信号
-                # 如果存在对冲，说明是“洗盘博弈”，大幅降低风险分
+                # ▼▼▼【代码修改 V287.0】: 不再需要 params，直接调用 self._get_param_value ▼▼▼
                 mitigated_score = self._get_param_value(risk_params.get('mitigated_veto_score'), 300)
+                # ▲▲▲【代码修改 V287.0】▲▲▲
                 final_score.loc[signal_series & has_mitigating_opportunity] = mitigated_score
-                
-                # 如果不存在对冲，说明是“纯粹出货”，维持原始高风险分
                 final_score.loc[signal_series & ~has_mitigating_opportunity] = score
                 
                 risk_score_df[rule_name] = final_score
                 total_risk_score += final_score
             else:
-                # 对于普通风险，按原逻辑计算
                 risk_score_df.loc[signal_series, rule_name] = score
                 total_risk_score += signal_series * score
 
         # --- 步骤3: 应用“洗盘侦察连”的最终裁决 ---
         p_washout = self._get_params_block('washout_suspicion_params', {})
         if self._get_param_value(p_washout.get('enabled'), True):
+            # ▼▼▼【代码修改 V287.0】: 强制从 self.atomic_states 获取情报 ▼▼▼
             is_washout_suspicion = self.atomic_states.get('CHIP_STATE_WASHOUT_SUSPICION', default_series)
+            # ▲▲▲【代码修改 V287.0】▲▲▲
             reduction_factor = self._get_param_value(p_washout.get('reduction_factor'), 0.5)
             
-            # 定位到“主力派发”这一列
             target_col = 'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'
             if target_col in risk_score_df.columns:
                 original_scores = risk_score_df[target_col].copy()
-                # 对有“洗盘嫌疑”的日子的分数进行削减
                 reduced_scores = original_scores.where(~is_washout_suspicion, original_scores * reduction_factor)
-                # 更新总分和明细分
                 total_risk_score -= (original_scores - reduced_scores)
                 risk_score_df[target_col] = reduced_scores
         
         risk_score_df['total_risk_score'] = total_risk_score
-        print("        -> [最高风险裁决所 V285.0] 融合裁决完成。")
-        return risk_score_df
-
+        print("        -> [最高风险裁决所 V287.0] 融合裁决完成。")
+        
+        return total_risk_score, risk_score_df
+    
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
@@ -2130,9 +2119,9 @@ class TrendFollowStrategy:
         print("        -> [评估单元] 启动...")
         # 注意：这里需要从self获取playbook_states和setup_scores
         scoring_context = {
-            "df": df, "params": params, "trigger_events": trigger_events,
+            "df": df, 
+            "trigger_events": trigger_events,
             "playbook_states": self.playbook_states, 
-            "atomic_states": self.atomic_states,
             "setup_scores": self.setup_scores
         }
         entry_score, score_details_df = self._calculate_entry_score(scoring_context)
@@ -2142,7 +2131,6 @@ class TrendFollowStrategy:
         print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
 
         # --- 阶段二：决策 (逻辑不变) ---
-        print("        -> [决策单元] 启动...")
         df = self._calculate_exit_signals(df, params, df['risk_score'])
         risk_veto_params = self._get_params_block('risk_veto_params')
         risk_tolerance_ratio = self._get_param_value(risk_veto_params.get('risk_tolerance_ratio'), 0.4)
@@ -2157,11 +2145,9 @@ class TrendFollowStrategy:
         df.loc[buy_condition, 'signal_type'] = '买入信号'
         exit_condition = df['exit_signal_code'] >= 88
         df.loc[exit_condition, 'signal_type'] = '卖出信号'
-        # df.loc[exit_condition, 'final_score'] = df.loc[exit_condition, 'risk_score']
         df['signal_entry'] = False
         df.loc[df['signal_type'] == '买入信号', 'signal_entry'] = True
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
-        # 筛选出有信号的最后5天进行打印
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
             print("          -> [最终分数审查报告]:")
@@ -2169,9 +2155,9 @@ class TrendFollowStrategy:
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V300.0] 一体化流程执行完毕。 ---")
-        # 强制执行现代化三联式汇报协议！
+        print("    --- [最高作战指挥部 V300.1] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
+
 
     #    └─> 离场指令部 (Exit Command)
     #       -> 核心职责: 根据风险分生成具体的撤退信号码。
