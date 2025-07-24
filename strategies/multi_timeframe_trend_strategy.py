@@ -695,17 +695,18 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V204.1 报告修正版】
+        【V204.2 全面报告修正版】
         - 核心修正:
-          1. **信号类型修正**: 为“买入信号”分支补充了 `signal_type` 的赋值逻辑，
-             彻底解决了此前买入信号被错误归类为“未知信号”的问题。
-          2. **数据清洗**: 在显示 `triggered_playbooks` 之前，使用正则表达式清除了
-             其中可能存在的换行符和多余空格。这确保了日志输出的格式整洁，
-             并解决了因原始数据格式问题导致的显示错乱。
-        - 收益: 调试报告现在能准确、清晰地反映所有类型的信号，提升了可读性和调试效率。
+          1. **新增卖出信号处理**: 增加了一个专门的 `elif` 分支来处理 `signal_type == '卖出信号'` 的情况。
+             这解决了卖出信号被错误归类为“未知信号”的根本问题。
+          2. **统一数据清洗**: 对买入和卖出信号的 `triggered_playbooks` 字段统一应用了数据清洗逻辑，
+             移除了换行符和多余空格，确保日志输出格式的整洁。
+          3. **保留买入信号修正**: 继承了上一版本对买入信号的修正，确保其类型被正确识别。
+        - 收益: 调试报告现在能够准确、清晰地反映所有核心信号类型（买入、卖出、警报），
+                极大地提升了回溯分析的效率和可读性。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V204.1 报告修正版)] ---")
+        print(f"--- [历史回溯调试启动 (V204.2 全面报告修正版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -739,32 +740,32 @@ class MultiTimeframeTrendStrategy:
                 signal_type = "未知信号"
                 details = "无详细信息"
                 
-                context = record.get('context_snapshot', {})
-                risk_score = context.get('risk_score', 0)
-                
-                reason = record.get('exit_signal_reason') or "原因未知"
+                reason = record.get('exit_signal_reason') or record.get('triggered_playbooks') or "原因未知"
 
                 if record.get('exit_signal_code', 0) > 0:
                     severity = record.get('exit_severity_level', 0)
                     signal_type = f"卖出警报(L{severity})"
-                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
+                    details = f"风险分: {record.get('risk_score', 0):<3.0f} | 原因: {reason}"
                 
+                # ▼▼▼【代码修改 V204.2】: 新增对 '卖出信号' 的专门处理 ▼▼▼
+                elif record.get('signal_type') == '卖出信号':
+                    risk_score = record.get('risk_score', 0.0)
+                    playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
+                    playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
+                    details = f"风险分: {risk_score:<7.2f} | 剧本: {playbooks_str}"
+                    signal_type = "综合卖出"
+                # ▲▲▲【代码修改 V204.2】▲▲▲
+
                 elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)
-                    # ▼▼▼【代码修改 V204.1】: 修正战报发布逻辑！▼▼▼
-                    # 1. 获取原始剧本字符串
                     playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
-                    # 2. 清理字符串中的换行符和多余空格，确保单行输出
                     playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
-                    # 3. 格式化详情
                     details = f"得分: {score:<7.2f} | 剧本: {playbooks_str}"
-                    # 4. 修正信号类型，解决“未知信号”问题
                     signal_type = "综合买入"
-                    # ▲▲▲【代码修改 V204.1】▲▲▲
                 
                 elif record.get('is_risk_warning'):
                     signal_type = "风险预警"
-                    details = f"风险分: {risk_score:<3.0f} | 原因: {reason}"
+                    details = f"风险分: {record.get('risk_score', 0):<3.0f} | 原因: {reason}"
                 
                 elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
                     signal_type = f"盘中异动"
