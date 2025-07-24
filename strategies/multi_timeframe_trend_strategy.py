@@ -1,7 +1,10 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
 # 版本: V203.0 总指挥重构版
-import os # 确保导入 os 模块
-from django.conf import settings # 导入 Django settings
+import io
+import sys
+import re
+from contextlib import redirect_stdout
+from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, time
 import json
@@ -47,25 +50,14 @@ class MultiTimeframeTrendStrategy:
         - 核心修正: 恢复使用 self.indicator_service，移除了错误的 self.data_loader 引用。
         """
         print("--- [总指挥部] 正在初始化 (V203.1)... ---")
-        # 1. 构建配置文件的绝对路径
-        config_file_name = 'config/trend_follow_strategy.json'
-        unified_config_path = os.path.join(settings.BASE_DIR, config_file_name)
-        
-        # 2. 加载唯一的全局配置文件
+        # 加载唯一的全局配置文件，作为所有决策的依据
+        unified_config_path = 'config/trend_follow_strategy.json'
         self.unified_config = load_strategy_config(unified_config_path)
         
-        # 3. 【关键探针】增加配置加载确认日志
-        strategy_info = self.unified_config.get('strategy_info', {})
-        strategy_name = strategy_info.get('name', '未找到策略名称！')
-        if '未找到' in strategy_name:
-            logger.error(f"  - [致命错误] 配置文件加载失败！路径: {unified_config_path}")
-            print(f"  - [致命错误] 配置文件加载失败！路径: {unified_config_path}")
-        else:
-            logger.info(f"  - [配置确认] 成功加载配置文件，策略名称: '{strategy_name}'")
-            print(f"  - [配置确认] 成功加载配置文件，策略名称: '{strategy_name}'")
-
+        # ▼▼▼【代码修改】修正错误的变量名，恢复使用 indicator_service ▼▼▼
         # 初始化下属的核心服务与引擎
         self.indicator_service = IndicatorService() # 数据工程部门
+        # ▲▲▲【代码修改】▲▲▲
         
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
@@ -82,17 +74,18 @@ class MultiTimeframeTrendStrategy:
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
         print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False) -> List[Dict[str, Any]]:
         """
-        【总指挥层核心 - V203.3 修复版】
-        为单个股票执行完整的多时间框架分析流程。
-        - **修复 (V203.3)**: 修复了因缺少 await 关键字导致的 TypeError。
+        【总指挥层核心 - V205.0 战略重构版】
+        - 核心升级: 新增 latest_only 参数。当为 True 时，将指令传递给数据服务，
+                    从源头上只加载少量近期数据，实现真正的“闪电突袭”。
         """
-        print(f"\n🚀 [总指挥层] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
+        mode_str = "闪电突袭" if latest_only else "全面战役"
+        print(f"\n🚀 [总指挥层 - {mode_str}] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
 
-        # 1. 数据准备：获取所有需要的时间框架数据
+        # 1. 数据准备：将 latest_only 指令传递给数据引擎！
         all_dfs = await self.indicator_service.prepare_data_for_strategy(
-            stock_code, self.unified_config, trade_time
+            stock_code, self.unified_config, trade_time, latest_only=latest_only
         )
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
@@ -139,22 +132,20 @@ class MultiTimeframeTrendStrategy:
           2. 【核心优化】在获取所有信号后，只筛选出【最后一个交易日】的信号返回。
         - 收益: 极大减少了下游（数据库、状态更新）的处理负担，显著提升了日常任务的执行效率。
         """
-        print(f"\n⚡️ [总指挥层-闪电突袭] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
+        print(f"\n⚡️ [总指挥层] 接到“闪电突袭”指令，正在以高效模式处理: {stock_code}")
         
-        # 步骤1: 调用“全面战役”模式，获取所有分析结果
-        all_records = await self.run_for_stock(stock_code, trade_time)
+        # 直接调用“全面战役”引擎，但命令它以“闪电模式”运行！
+        all_records = await self.run_for_stock(stock_code, trade_time, latest_only=True)
         
         if not all_records:
-            print(f"  - [闪电突袭] 未发现任何历史信号，任务完成。")
+            print(f"  - [闪电突袭] 未发现任何信号，任务完成。")
             return []
             
-        # 步骤2: 【核心优化】找出最后一个交易日
+        # 由于数据层已经做了优化，这里理论上只会返回近期的少量信号，但为保险起见，仍然执行筛选
         latest_date = max(rec['trade_time'].date() for rec in all_records)
-        
-        # 步骤3: 只返回属于最后一个交易日的信号
         latest_records = [rec for rec in all_records if rec['trade_time'].date() == latest_date]
         
-        print(f"🏁 [总指挥层-闪电突袭] 完成处理 {stock_code}, 从 {len(all_records)} 条记录中筛选出最新的 {len(latest_records)} 条信号。")
+        print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_records)} 条最新信号。")
         return latest_records
 
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
@@ -480,17 +471,19 @@ class MultiTimeframeTrendStrategy:
             final_score = daily_score + bonus_score
             
             playbook_name = get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')
-            confirmed_playbooks = [playbook_name]
-            confirmed_playbooks_cn = [playbook_cn_map.get(p, p) for p in confirmed_playbooks]
+            playbook_cn_name = self.tactical_engine.scoring_params.get('metadata', {}).get(playbook_name, playbook_name)
+            playbook_details = f"盘中确认: {playbook_cn_name}"
 
             record = self.tactical_engine._create_signal_record(
                 stock_code=stock_code, 
                 trade_time=timestamp, 
                 timeframe=minute_tf,
                 strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                close_price=row.get(f'close_{minute_tf}'), 
-                final_score=final_score, # 修正: 使用 final_score
-                playbook_details=", ".join(confirmed_playbooks_cn),
+                signal_type='买入信号', # 明确信号类型
+                final_score=final_score, # 使用正确的 final_score 字段
+                risk_score=0.0,          # 盘中确认无风险
+                playbook_details=playbook_details,
+                close_price=row.get(f'close_{minute_tf}'),
             )
             final_entry_records.append(record)
             
@@ -570,15 +563,18 @@ class MultiTimeframeTrendStrategy:
                 final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
                 final_severity = get_val(upthrust_params.get('severity_level'), 3)
+                signal_type = '风险预警'
 
             return self.tactical_engine._create_signal_record(
                 stock_code=stock_code, 
                 trade_time=first_break_timestamp, 
                 timeframe=minute_tf,
                 strategy_name="INTRADAY_RISK_ALERT", 
-                close_price=first_alert_row[close_col],
-                risk_score=float(final_code), # 修正: 将风险码作为risk_score传递
+                signal_type=signal_type, # 明确信号类型
+                final_score=0.0,         # 风险预警没有进攻分
+                risk_score=float(final_code), # 将风险代码作为 risk_score
                 playbook_details=final_reason,
+                close_price=first_alert_row[close_col],
             )
 
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
