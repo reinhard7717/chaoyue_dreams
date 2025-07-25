@@ -605,6 +605,17 @@
     "risk_tolerance_ratio": 0.65,
     "min_absolute_risk_for_veto": 50
   },
+  "absolute_veto_params": {
+    "enabled": true,
+    "说明": "【V303.0 新增】绝对否决权。定义了拥有最高决策否决权的风险信号。一旦触发，将无视任何进攻分数，直接否决买入。",
+    "veto_signals": [
+      "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING",
+      "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
+      "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
+      "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
+      "STRUCTURE_TOPPING_DANGER_S"
+    ]
+  },
   "risk_quantifier_params": {
     "enabled": true,
     "说明": "【V99.0 风险仪表盘】将原始风险指标翻译成 0-100 的直观得分。",

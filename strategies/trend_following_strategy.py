@@ -2126,21 +2126,21 @@ class TrendFollowStrategy:
     #    -> 总司令: _make_final_decisions()
     def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V302.0 逻辑修正版】
-        - 核心修复: 彻底重构了决策流程，遵循“先决断，后计算”的核心原则，根除了买入信号被
-                    离场数据污染的BUG。
+        【V303.0 绝对否决权版】
+        - 核心升级: 引入“绝对否决权”机制，根治“主力派发日买入”的致命BUG。
         - 新决策流程:
-          1. 【评估单元】: 与旧版相同，首先完成 entry_score 和 risk_score 的计算。
-          2. 【最终裁决】: 基于分数，直接对 `signal_type` 做出最终裁决（买入/卖出/中性）。
-                         这是最关键的一步，确保了每个日期的最终性质被优先确定。
-          3. 【隔离计算】: **仅对那些最终信号不为“买入”的日期**，调用 `_calculate_exit_signals`
-                         来计算具体的离场代码和严重等级。
-          4. 【数据净化】: 确保所有最终为“买入信号”的日期，其离场相关字段
-                         (`exit_signal_code`, `exit_severity_level`) 被强制置为0。
-        - 收益: 确保了买入信号的纯粹性，`exit_severity_level` 等离场指标只会在
-                真正需要离场的日子里出现，解决了数据交叉污染的根本问题。
+          1. 【评估单元】: 计算 entry_score 和 risk_score。
+          2. 【第一层裁决】: 基于分数比较，初步判断买入/卖出。
+          3. 【★★★ 绝对否决权 ★★★】: 在分数裁决后，进行最终审查。如果当天触发了
+                         `absolute_veto_params` 中定义的任何一个“红牌”风险，
+                         则无视所有得分，强制将信号覆盖为“卖出信号”。
+                         这是对 600330.SH 案例的直接修正。
+          4. 【隔离计算】: 仅对非买入日计算离场细节。
+          5. 【数据净化】: 确保最终的买入信号是纯粹的。
+        - 收益: 建立了一个“否决权优先，分数在后”的二级决策体系，使模型具备了识别
+                并规避“技术陷阱”的更高智慧。
         """
-        print("    --- [最高作战指挥部 V302.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        print("    --- [最高作战指挥部 V303.0] 启动，正在执行“评估-决策”一体化流程... ---")
 
         # --- 阶段一：评估 ---
         print("        -> [评估单元] 启动...")
@@ -2158,33 +2158,42 @@ class TrendFollowStrategy:
         # --- 阶段二：决策 (采用“先决断，后计算”的新流程) ---
         print("        -> [决策单元] 启动，正在执行三层决策裁定...")
 
-        # 1. 初始化所有决策相关列，确保一个干净的起点
+        # 1. 初始化所有决策相关列
         df['final_score'] = 0.0
         df['signal_type'] = '中性'
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
         df['exit_severity_level'] = 0
 
-        # 2. 定义裁决条件
+        # 2. 【第一层裁决 - 分数对决】: 初步标记所有潜在的买入和卖出日
         is_potential_buy = df['entry_score'] > 0
         risk_overrides_entry = df['risk_score'] > df['entry_score']
-
-        # 3. 【第一层裁决】: 初步标记所有潜在的买入和卖出日
         df.loc[is_potential_buy, 'signal_type'] = '买入信号'
-        # 【第二层裁决 - 风险否决】: 如果风险压倒了进攻，则将“买入信号”覆盖为“卖出信号”
         df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
 
+        # 3. 【★★★ 第二层裁决 - 绝对否决权 (Absolute Veto) ★★★】
+        # 这是解决问题的核心：无论分数多高，一旦触犯天条，立即否决。
+        print("        -> [军事监察部] 正在执行“绝对否决权”审查...")
+        veto_params = self._get_params_block('absolute_veto_params')
+        if self._get_param_value(veto_params.get('enabled'), True):
+            veto_signals = self._get_param_value(veto_params.get('veto_signals'), [])
+            has_absolute_veto_risk = pd.Series(False, index=df.index)
+            
+            for signal_name in veto_signals:
+                # 从原子状态中获取“红牌”风险信号
+                risk_series = self.atomic_states.get(signal_name, pd.Series(False, index=df.index))
+                has_absolute_veto_risk |= risk_series
+            
+            # 如果存在任何一个“红牌”风险，则强制覆盖为卖出信号
+            if has_absolute_veto_risk.any():
+                df.loc[has_absolute_veto_risk, 'signal_type'] = '卖出信号'
+                print(f"          -> [审查报告] “绝对否决权”已触发！在 {has_absolute_veto_risk.sum()} 天内强制覆盖了买入信号。")
+
         # 4. 【隔离计算】: 仅对非买入日计算具体的离场信号
-        #    这是解决问题的核心：将离场计算与买入决策完全隔离
         non_buy_mask = df['signal_type'] != '买入信号'
         if non_buy_mask.any():
-            # 创建一个只包含非买入日的数据副本进行计算
             df_for_exit_calc = df[non_buy_mask].copy()
-            
-            # 调用离场指令部，它现在只处理它该处理的数据
             exit_results_df = self._calculate_exit_signals(df_for_exit_calc, params, df_for_exit_calc['risk_score'])
-            
-            # 将计算结果安全地更新回主DataFrame
             df.update(exit_results_df)
 
         # 5. 【第三层裁决】: 根据离场计算结果，确认纯粹的卖出日
@@ -2207,7 +2216,7 @@ class TrendFollowStrategy:
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 
-        print("    --- [最高作战指挥部 V302.0] 一体化流程执行完毕。 ---")
+        print("    --- [最高作战指挥部 V303.0] 一体化流程执行完毕。 ---")
         return df, score_details_df, risk_details_df
 
 
