@@ -1187,7 +1187,12 @@ class AdvancedChipMetrics(models.Model):
     price_to_peak_ratio = models.FloatField(verbose_name='股价/筹码峰成本比', null=True, blank=True, help_text="收盘价 / 主筹码峰成本。 >1 表示股价脱离成本区，<1 表示被压制。")
     chip_zscore = models.FloatField(verbose_name='筹码Z-Score', null=True, blank=True, help_text="收盘价在整个筹码分布中的标准分位置。衡量股价相对于整体持仓成本的偏离度。绝对值越大，偏离越远。")
 
-    # --- 11. 【超级指标】最终裁决 ---
+    # --- 11. 【升维】筹码断层指标 (Chip Fault Metrics) ---
+    chip_fault_strength = models.FloatField(verbose_name='筹码断层强度', null=True, blank=True, help_text="收盘价脱离主筹码峰的相对距离((收盘价-峰成本)/峰成本)，值越大，脱离越远。")
+    chip_fault_vacuum_percent = models.FloatField(verbose_name='断层真空区筹码占比(%)', null=True, blank=True, help_text="主筹码峰与收盘价之间的筹码占比，值越小，代表上涨过程越轻松，抛压越小。")
+    is_chip_fault_formed = models.BooleanField(verbose_name='是否形成筹码断层', default=False, help_text="综合断层强度和真空度判断是否形成有效的筹码断层结构，是极强的看涨信号。")
+
+    # --- 12. 【超级指标】最终裁决 ---
     chip_health_score = models.FloatField(verbose_name='筹码健康分(0-100)', null=True, blank=True, help_text="综合控盘度、利润质量、集中度等多个维度得出的最终评分，全面评估当前筹码结构的健康状况。")
 
 
@@ -1210,6 +1215,7 @@ class AdvancedChipMetrics(models.Model):
             models.Index(fields=['consensus_main_force_outflow']),
             models.Index(fields=['fund_flow_divergence']),
             models.Index(fields=['chip_health_score']), # 为超级指标建立索引
+            models.Index(fields=['is_chip_fault_formed']), # 【新增】为筹码断层信号建立索引
         ]
 
     def __str__(self):

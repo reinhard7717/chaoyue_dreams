@@ -55,6 +55,16 @@ logger = logging.getLogger(__name__)
 # |    └─> _deploy_field_coroner_probe(), _probe_entry_score_details(), _probe_risk_score_details()|
 # ================================================================================================
 
+class MainForceState(Enum):
+    """
+    定义主力操盘的宏观行为阶段
+    """
+    IDLE = 0                # 休眠/观望期: 股价长期横盘或下跌后，无明显主力活动
+    ACCUMULATING = 1        # 吸筹期: 主力在低位悄悄收集筹码，筹码趋于集中
+    WASHING = 2             # 洗盘期: 主力通过震荡清洗浮筹，通常在吸筹后或拉升中途
+    MARKUP = 3              # 拉升期: 主力暴力拉升股价，脱离成本区，出现筹码断层
+    DISTRIBUTING = 4        # 派发期: 主力在高位将筹码卖给散户，筹码趋于发散
+    COLLAPSE = 5            # 崩盘期: 派发完成，股价快速下跌，回归价值
 
 class TrendFollowStrategy:
     """
@@ -275,6 +285,8 @@ class TrendFollowStrategy:
         # --- 指挥链 1/3: 情报总局 ---
         print("    --- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
         df, trigger_events = self._run_all_diagnostics(df, params)
+        
+        df = self._determine_main_force_behavior_sequence(df)
 
         # --- 指挥链 2/3: 最高作战指挥部 ---
         print("    --- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
@@ -1880,13 +1892,11 @@ class TrendFollowStrategy:
 
         # --- 认知链 3/4: 【升级】高价值/高风险战略布局识别 ---
         print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
-        # ▼▼▼【代码修改 V284.0】: 调用新的“量价动态分析中心” ▼▼▼
         # 从总配置中获取传递给VPA模块的参数
         vpa_params = self._get_params_block('strategy_params').get('trend_follow', {})
         # 调用新模块，获取动态量价分析结果
         vpa_states = self._diagnose_volume_price_dynamics(df, vpa_params)
         cognitive_states.update(vpa_states)
-        # ▲▲▲【代码修改 V284.0】▲▲▲
 
         # 识别“锁筹拉升”模式 (高价值布局)
         is_concentrating = self.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
@@ -2121,6 +2131,85 @@ class TrendFollowStrategy:
         
         return total_risk_score, risk_score_df
 
+    def _determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V304.0 战略大脑版 - 新增】
+        推演主力行为序列状态机。
+        - 核心: 遍历每一天，根据前一天的状态和当天的信号，决定当天的状态。
+        - 价值: 将离散的每日信号，串联成一个连续的、有逻辑的操盘故事。
+        """
+        print("    --- [战略推演单元 V304.0] 启动，正在生成主力行为序列... ---")
+        
+        # 初始化状态列，默认都是休眠期
+        df['main_force_state'] = MainForceState.IDLE.value
+        
+        # 从第二个交易日开始遍历
+        for i in range(1, len(df)):
+            prev_state_val = df.at[df.index[i-1], 'main_force_state']
+            prev_state = MainForceState(prev_state_val)
+            
+            # 获取当天的关键原子状态 (用 .get(key, False) 避免KeyError)
+            s = {
+                # 吸筹信号
+                'is_concentrating': self.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).iloc[i],
+                'is_mild_inflow': self.atomic_states.get('CAPITAL_MAIN_FORCE_INFLOW_MILD', pd.Series(False, index=df.index)).iloc[i],
+                # 洗盘信号
+                'is_sharp_drop': self.atomic_states.get('RISK_PRICE_SHARP_DROP_S', pd.Series(False, index=df.index)).iloc[i],
+                'is_sideways': abs(self.df_indicators.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).iloc[i]) < 0.01,
+                # 拉升信号
+                'is_markup_breakout': self.atomic_states.get('BREAKOUT_S', pd.Series(False, index=df.index)).iloc[i],
+                'is_chip_fault': self.atomic_states.get('CHIP_FAULT_FORMED', pd.Series(False, index=df.index)).iloc[i], # 假设已实现
+                'is_strong_inflow': self.atomic_states.get('CAPITAL_MAIN_FORCE_INFLOW_STRONG', pd.Series(False, index=df.index)).iloc[i],
+                # 派发信号
+                'is_distributing': self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', pd.Series(False, index=df.index)).iloc[i],
+                'is_diverging': self.atomic_states.get('RISK_DYN_DIVERGING', pd.Series(False, index=df.index)).iloc[i],
+                'is_stagnation': self.atomic_states.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).iloc[i],
+                # 崩盘信号
+                'is_below_long_ma': df.at[df.index[i], 'close_D'] < df.at[df.index[i], 'EMA_55_D'],
+            }
+
+            current_state = prev_state # 默认继承前一天的状态
+
+            # --- 状态转移逻辑 ---
+            if prev_state == MainForceState.IDLE:
+                if s['is_concentrating'] and s['is_mild_inflow']:
+                    current_state = MainForceState.ACCUMULATING
+            
+            elif prev_state == MainForceState.ACCUMULATING:
+                if s['is_markup_breakout'] or s['is_chip_fault']:
+                    current_state = MainForceState.MARKUP
+                elif s['is_sharp_drop'] and s['is_concentrating']: # 缩量下跌洗盘
+                    current_state = MainForceState.WASHING
+                elif s['is_distributing'] or s['is_diverging']: # 提前叛变
+                    current_state = MainForceState.DISTRIBUTING
+
+            elif prev_state == MainForceState.WASHING:
+                if s['is_markup_breakout'] or s['is_chip_fault']:
+                    current_state = MainForceState.MARKUP
+                elif not s['is_concentrating']: # 洗盘时筹码开始发散，说明洗盘失败，可能转派发
+                    current_state = MainForceState.DISTRIBUTING
+                elif s['is_sideways'] and s['is_concentrating']: # 洗盘成功，回归吸筹/横盘状态
+                    current_state = MainForceState.ACCUMULATING
+
+            elif prev_state == MainForceState.MARKUP:
+                if s['is_distributing'] or s['is_diverging'] or s['is_stagnation']:
+                    current_state = MainForceState.DISTRIBUTING
+                elif s['is_sharp_drop'] and s['is_concentrating']: # 拉升途中的洗盘
+                    current_state = MainForceState.WASHING
+
+            elif prev_state == MainForceState.DISTRIBUTING:
+                if s['is_below_long_ma']: # 跌破长期均线，确认派发完成
+                    current_state = MainForceState.COLLAPSE
+            
+            elif prev_state == MainForceState.COLLAPSE:
+                if s['is_sideways'] and not s['is_below_long_ma']: # 长期横盘，企稳
+                    current_state = MainForceState.IDLE
+
+            df.at[df.index[i], 'main_force_state'] = current_state.value
+            
+        print("    --- [战略推演单元 V304.0] 主力行为序列已生成。 ---")
+        return df
+
     # 3. 总司令部 (General Headquarters - Final Decision Making)
     #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
     #    -> 总司令: _make_final_decisions()
@@ -2188,6 +2277,25 @@ class TrendFollowStrategy:
             if has_absolute_veto_risk.any():
                 df.loc[has_absolute_veto_risk, 'signal_type'] = '卖出信号'
                 print(f"          -> [审查报告] “绝对否决权”已触发！在 {has_absolute_veto_risk.sum()} 天内强制覆盖了买入信号。")
+
+        # 4. 【★★★ 第三层裁决 - 战略审查 (Strategic Review) ★★★】
+        print("        -> [战略参谋部] 正在执行“主力行为序列”审查...")
+        # 战略否决：如果当前处于派发或崩盘期，直接否决买入
+        is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
+        df.loc[is_in_distribution_phase, 'signal_type'] = '卖出信号'
+        if is_in_distribution_phase.any():
+            print(f"          -> [战略报告] “派发/崩盘期”否决已触发！在 {is_in_distribution_phase.sum()} 天内强制覆盖了买入信号。")
+
+        # 战略确认：识别“黄金买点”（从吸筹/洗盘 -> 拉升的转折点）
+        prev_state = df['main_force_state'].shift(1)
+        is_entering_markup = (
+            prev_state.isin([MainForceState.ACCUMULATING.value, MainForceState.WASHING.value]) &
+            (df['main_force_state'] == MainForceState.MARKUP.value)
+        )
+        # 对于黄金买点，即使分数略微不利，也强制确认为买入信号（给予战略优先权）
+        df.loc[is_entering_markup, 'signal_type'] = '买入信号'
+        if is_entering_markup.any():
+            print(f"          -> [战略报告] “黄金买点”已确认！在 {is_entering_markup.sum()} 天内发现了战略建仓机会。")
 
         # 4. 【隔离计算】: 仅对非买入日计算具体的离场信号
         non_buy_mask = df['signal_type'] != '买入信号'

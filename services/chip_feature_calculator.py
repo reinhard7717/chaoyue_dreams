@@ -34,6 +34,7 @@ class ChipFeatureCalculator:
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
         fund_flow_info = self._calculate_fund_flow_metrics()
+        fault_info = self._calculate_chip_fault(context_for_advanced)
         
         # 将之前计算的结果作为输入，传递给新的计算单元
         context_for_advanced = {**self.ctx, **peaks_info, **concentration_info, **winner_structure_info}
@@ -46,6 +47,7 @@ class ChipFeatureCalculator:
             **pressure_support_info,
             **turnover_info,
             **fund_flow_info,
+            **fault_info,
             **advanced_structure_info # 合并最终结果
         }
 
@@ -392,7 +394,44 @@ class ChipFeatureCalculator:
             return daily_turnover * effective_ratio
         return 0
 
+    def _calculate_chip_fault(self, context: dict) -> dict:
+        """
+        【V11.0 新增】计算筹码断层指标。
+        识别股价脱离核心成本区后形成的“真空地带”。
+        """
+        results = {}
+        peak_cost = context.get('peak_cost')
+        close_price = self.ctx.get('close_price')
 
+        if not all([peak_cost, close_price]):
+            return results
+
+        # 1. 计算断层强度 (Fault Strength)
+        # 定义：当前价格脱离主筹码峰的程度
+        fault_strength = (close_price - peak_cost) / peak_cost if peak_cost > 0 else 0
+        results['chip_fault_strength'] = fault_strength
+
+        # 2. 识别断层真空区 (Fault Vacuum)
+        # 定义：主筹码峰与当前价格之间，筹码的稀疏程度
+        # 选取主峰上方1%到收盘价下方1%的区间作为“断层带”
+        fault_zone_low = peak_cost * 1.01
+        fault_zone_high = close_price * 0.99
+        
+        if fault_zone_high > fault_zone_low:
+            fault_zone_df = self.df[(self.df['price'] >= fault_zone_low) & (self.df['price'] <= fault_zone_high)]
+            # 真空区的筹码占比，越低越好
+            vacuum_chip_percent = fault_zone_df['percent'].sum()
+            results['chip_fault_vacuum_percent'] = vacuum_chip_percent
+        else:
+            results['chip_fault_vacuum_percent'] = 0 # 如果没有空间，则真空度为0
+
+        # 3. 最终断层信号 (Fault Signal)
+        # 定义：断层强度足够大（如脱离成本区20%以上），且真空区足够“空”（如筹码占比低于5%）
+        is_strong_fault = fault_strength > 0.20
+        is_vacuum_clear = results.get('chip_fault_vacuum_percent', 100) < 5.0
+        results['is_chip_fault_formed'] = is_strong_fault and is_vacuum_clear
+
+        return results
 
 
 
