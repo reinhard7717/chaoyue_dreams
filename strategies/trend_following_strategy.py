@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following_strategy.py
 # 版本: V62.0 - 增强调试日志版
 from copy import deepcopy
+from enum import Enum
 import json
 import logging
 from decimal import Decimal
