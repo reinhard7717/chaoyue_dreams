@@ -71,13 +71,14 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_peaks(self) -> dict:
-        # 筹码峰计算：此部分逻辑一直正确，无需修改
+        # 【代码修改】: 增加 width 参数，让 find_peaks 计算山峰宽度
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
         if len(peaks) == 0:
             peak_idx = self.df['percent'].idxmax()
+            peak_price = self.df.loc[peak_idx, 'price']
             return {
-                'peak_cost': self.df.loc[peak_idx, 'price'],
+                'peak_cost': peak_price,
                 'peak_percent': self.df.loc[peak_idx, 'percent'],
                 'peak_volume': int(self.df.loc[peak_idx, 'percent'] / 100 * self.ctx['total_chip_volume']),
                 'peak_stability': 1.0,
@@ -85,6 +86,9 @@ class ChipFeatureCalculator:
                 'secondary_peak_cost': None,
                 'peak_distance_ratio': None,
                 'peak_strength_ratio': None,
+                # 【新增】: 为单峰情况提供一个默认的范围
+                'peak_range_low': peak_price * 0.99,
+                'peak_range_high': peak_price * 1.01,
             }
 
         prominences = properties['prominences']
@@ -96,12 +100,28 @@ class ChipFeatureCalculator:
         main_peak_volume = int(main_peak_percent / 100 * self.ctx['total_chip_volume'])
         peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean() if self.df['percent'].mean() > 0 else 1.0
 
+        # ▼▼▼【核心修改】: 提取主峰的精确左右边界 ▼▼▼
+        # 'left_ips' 和 'right_ips' 是 find_peaks 返回的、基于插值计算的精确边界索引（可以是浮点数）
+        # 我们需要将它们转换为实际的价格
+        left_boundary_idx = properties['left_ips'][main_peak_idx_in_peaks]
+        right_boundary_idx = properties['right_ips'][main_peak_idx_in_peaks]
+        
+        # 使用 np.interp 进行线性插值，从浮点索引精确映射到价格
+        price_indices = self.df.index.to_numpy()
+        price_values = self.df['price'].to_numpy()
+        peak_range_low = np.interp(left_boundary_idx, price_indices, price_values)
+        peak_range_high = np.interp(right_boundary_idx, price_indices, price_values)
+        # ▲▲▲【核心修改】▲▲▲
+
         result = {
             'peak_cost': main_peak_cost,
             'peak_percent': main_peak_percent,
             'peak_volume': main_peak_volume,
             'peak_stability': peak_stability,
             'is_multi_peak': len(peaks) > 1,
+            # 【新增】: 将计算出的精确范围加入返回结果
+            'peak_range_low': peak_range_low,
+            'peak_range_high': peak_range_high,
         }
 
         if result['is_multi_peak']:
@@ -334,16 +354,18 @@ class ChipFeatureCalculator:
             results['peak_control_ratio'] = (peak_volume / total_float_share) * 100
 
         # 计算筹码峰吸筹强度需要筹码峰的宽度信息
-        # (这是一个简化实现，更精确的需要从find_peaks获取宽度)
         peak_cost = context.get('peak_cost')
         daily_turnover = self.ctx.get('daily_turnover_volume')
-        if peak_cost is not None and daily_turnover and daily_turnover > 0:
-            # 假设主峰的核心范围是其成本价的上下1%
-            peak_range_low = peak_cost * 0.99
-            peak_range_high = peak_cost * 1.01
-            # 估算在主峰范围内的换手比例
+        # 从 context 中直接获取由 _calculate_peaks 计算好的精确范围
+        peak_range_low = context.get('peak_range_low')
+        peak_range_high = context.get('peak_range_high')
+
+        if daily_turnover and daily_turnover > 0 and peak_range_low is not None and peak_range_high is not None:
+            # 使用精确的、数据驱动的范围来估算换手
             turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
-            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover if daily_turnover > 0 else 0
+            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover
+        else:
+            results['peak_absorption_intensity'] = 0
 
         # --- 2. 利润质量指标 (Profit Quality Metrics) ---
         close_price = self.ctx.get('close_price')
@@ -372,9 +394,14 @@ class ChipFeatureCalculator:
         # --- 4. 超级指标: 筹码健康分 (Chip Health Score) ---
         # 这是一个可以持续优化的专家打分系统，这里提供一个初始版本
         score = 50.0 # 基础分
+        
+        # ▼▼▼【代码修改】: 增加对 None 值的健壮性检查 ▼▼▼
         # 集中度越高越好
-        conc_90 = context.get('concentration_90pct', 1.0)
-        score += (0.3 - min(conc_90, 0.3)) * 100 # 集中度低于30%开始加分，最多加30分
+        conc_90 = context.get('concentration_90pct') # 直接获取值，可能是 None
+        if conc_90 is not None: # 只有在值有效时才进行计算
+            score += (0.3 - min(conc_90, 0.3)) * 100 # 集中度低于30%开始加分，最多加30分
+        # ▲▲▲【代码修改】▲▲▲
+
         # 集中度在收敛加分
         conc_slope = context.get('concentration_90pct_slope_5d', 0)
         if conc_slope < 0: score += 5

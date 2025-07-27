@@ -1,0 +1,1234 @@
+# 文件: strategies/trend_following_strategy.py
+# 版本: V62.0 - 增强调试日志版
+from copy import deepcopy
+from enum import Enum
+import json
+import logging
+from decimal import Decimal
+import os
+from utils.data_sanitizer import sanitize_for_json
+from typing import Any, Dict, List, Optional, Tuple
+from scipy.signal import find_peaks
+import numpy as np
+import pandas as pd
+from scipy.signal import find_peaks, peak_prominences
+from strategies.kline_pattern_recognizer import KlinePatternRecognizer
+from utils.config_loader import load_strategy_config
+
+logger = logging.getLogger(__name__)
+
+# ================================================================================================
+# |   最高统帅部 (Supreme Headquarters) -> apply_strategy()                                      |
+# ================================================================================================
+#           │
+#           ├─> 1. 情报总局 (Intelligence General Administration) -> _run_all_diagnostics()
+#           │      │
+#           │      ├─> 风险情报总局 -> _diagnose_all_risk_signals()
+#           │      ├─> 筹码情报总参谋部 -> _diagnose_chip_intelligence()
+#           │      ├─> 动态惯性引擎 -> _diagnose_trend_dynamics()
+#           │      ├─> 资本动向总参谋部 -> _diagnose_capital_states()
+#           │      ├─> 野战部队 (均线) -> _diagnose_ma_states()
+#           │      ├─> 工兵部队 (箱体/平台) -> _diagnose_box_states(), _diagnose_platform_states()
+#           │      ├─> 基础侦察部队 (K线/盘面) -> _diagnose_kline_patterns(), _diagnose_board_patterns()
+#           │      └─> 联合作战司令部 (情报融合) -> _diagnose_market_structure_states(), _diagnose_strategic_setups()
+#           │
+#           ├─> 2. 参谋部联席会议 (Assessment & Scoring) -> _run_scoring_and_assessment()
+#           │      │
+#           │      ├─> 进攻方案评估中心 -> _calculate_entry_score()
+#           │      │      └─> (下辖) 指挥棒模型 -> _apply_final_score_adjustments()
+#           │      └─> 最高风险裁决所 -> _calculate_risk_score()
+#           │
+#           ├─> 3. 总司令部 (Final Decision Making) -> _make_final_decisions()
+#           │      │
+#           │      └─> (下辖) 离场指令部 -> _calculate_exit_signals()
+#           │
+#           ├─> 4. 沙盘推演中心 (Simulation) -> _run_position_management_simulation()
+#           │
+#           └─> 5. 后勤与战报总署 (Logistics & Reporting)
+#                  │
+#                  ├─> 战报司令部 -> prepare_db_records()
+#                  │      └─> (下辖) _create_db_record_template(), _fill_risk_details()
+#                  ├─> 风险量化局 -> _quantify_risk_reasons()
+#                  └─> 盘中预警中心 -> generate_intraday_alerts()
+
+# ================================================================================================
+# | ★ 军事监察与战地验尸总署 (Inspector General & Field Forensics) - [非作战序列]                |
+# |    └─> _deploy_field_coroner_probe(), _probe_entry_score_details(), _probe_risk_score_details()|
+# ================================================================================================
+
+class MainForceState(Enum):
+    """
+    定义主力操盘的宏观行为阶段
+    """
+    IDLE = 0                # 休眠/观望期: 股价长期横盘或下跌后，无明显主力活动
+    ACCUMULATING = 1        # 吸筹期: 主力在低位悄悄收集筹码，筹码趋于集中
+    WASHING = 2             # 洗盘期: 主力通过震荡清洗浮筹，通常在吸筹后或拉升中途
+    MARKUP = 3              # 拉升期: 主力暴力拉升股价，脱离成本区，出现筹码断层
+    DISTRIBUTING = 4        # 派发期: 主力在高位将筹码卖给散户，筹码趋于发散
+    COLLAPSE = 5            # 崩盘期: 派发完成，股价快速下跌，回归价值
+
+class TrendFollowStrategy:
+    """
+    趋势跟踪策略 (V62.0 - 增强调试日志版)
+    - 核心升级: 新增 _format_debug_dates 辅助函数，并全局应用于所有诊断日志，使其能输出具体发生日期，极大提升调试效率。
+    """   
+    def __init__(self, config: dict):
+        self.unified_config = config
+        self.strategy_info = self._get_params_block('strategy_info')
+        self.scoring_params = self._get_params_block('four_layer_scoring_params')
+        self.exit_strategy_params = self._get_params_block('exit_strategy_params')
+        self.risk_veto_params = self._get_params_block('risk_veto_params')
+        self.debug_params = self._get_params_block('debug_params')
+        self.kline_params = self._get_params_block('kline_pattern_params')
+        self.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
+
+        # 调用方法获取静态蓝图，并将其存储为实例属性，供后续所有方法安全调用
+        self.playbook_blueprints = self._get_playbook_blueprints()
+        self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
+        
+        # 1. 加载所有得分信号的中文元数据
+        self.signal_metadata = self.scoring_params.get('metadata', {})
+        # 2. 构建作战剧本的“英中翻译词典”
+        self.playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in self.playbook_blueprints}
+        # 将两个词典合并，形成统一的翻译总署
+        self.signal_metadata.update(self.playbook_cn_map)
+
+    #  日志格式化辅助函数 ▼▼▼
+    def _format_debug_dates(self, signal_series: pd.Series, display_limit: int = 10) -> str:
+        """
+        【V92.1 修复版】
+        - 核心修复: 恢复了显示具体日期的能力，对调试至关重要。
+        - 特性: 当日期不多时全部显示；日期过多时，显示最近的N个并附上总数。
+        """
+        if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:
+            return ""
+        
+        active_dates = signal_series.index[signal_series]
+        count = len(active_dates)
+        
+        if count == 0:
+            return ""
+            
+        date_strings = [d.strftime('%Y-%m-%d') for d in active_dates]
+        
+        if count > display_limit:
+            # 如果日期太多，只显示最近的N个并附上总数
+            return f" -> 日期: [...{date_strings[-display_limit:]}] (共 {count} 天)"
+        else:
+            # 否则全部显示
+            return f" -> 日期: {date_strings}"
+
+    def _get_param_value(self, param: Any, default: Any = None) -> Any:
+        """
+        【V40.3 新增】健壮的参数值解析器。
+        """
+        if isinstance(param, dict) and 'value' in param:
+            return param['value']
+        if param is not None:
+            return param
+        return default
+
+    def _get_params_block(self, block_name: str, default_return: Any = None) -> dict:
+        """
+        【V240.0 通用情报检索版】终极参数块获取器。
+        - 核心重构: 废除旧的单一路径查找逻辑，建立一个智能的多路径搜索系统。
+        - 新规则:
+          1. 首先，在核心战术模块 'strategy_params.trend_follow' 中查找。
+          2. 如果未找到，则将搜索范围扩大到整个配置文件的根级别。
+          3. 如果仍然未找到，才返回默认值。
+        - 收益: 无论参数块在JSON中处于哪个层级，都能被准确找到。
+                此方法现在对JSON结构具有极高的适应性和鲁棒性，是此类问题的最终解决方案。
+        """
+        if default_return is None:
+            default_return = {}
+
+        # 搜索路径1: 核心战术模块内部 (strategy_params -> trend_follow)
+        trend_follow_params = self.unified_config.get('strategy_params', {}).get('trend_follow', {})
+        params = trend_follow_params.get(block_name)
+
+        # 如果在路径1未找到，则启动路径2: 在整个配置文件的根级别进行搜索
+        if params is None:
+            params = self.unified_config.get(block_name)
+
+        # 最终裁定：如果找到了，就返回；否则返回默认值
+        if params is not None:
+            return params
+        
+        return default_return
+
+    def _get_periods_for_timeframe(self, indicator_params: dict, timeframe: str) -> Optional[list]:
+        """
+        【V5.0 】根据时间周期从指标配置中智能获取正确的'periods'。
+        """
+        if not indicator_params:
+            return None
+        if 'configs' in indicator_params and isinstance(indicator_params['configs'], list):
+            for config_item in indicator_params['configs']:
+                if timeframe in config_item.get('apply_on', []):
+                    return config_item.get('periods')
+            return None
+        elif 'periods' in indicator_params:
+            apply_on = indicator_params.get('apply_on', [])
+            if not apply_on or timeframe in apply_on:
+                return indicator_params.get('periods')
+            else:
+                return None
+        return None
+
+    def _ensure_numeric_types(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V40.6 智能净化版】数据类型标准化引擎
+        """
+        converted_cols = []
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                first_valid_item = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                if isinstance(first_valid_item, Decimal):
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    converted_cols.append(col)
+        if not converted_cols:
+            print("      -> 所有数值列类型正常，无需转换。")
+        return df
+
+    # ▼▼▼ “信号名称标准化”工具函数 ▼▼▼
+    def _standardize_signal_name(self, name: str) -> str:
+        """
+        【V1.0 新增】信号名称标准化总校对官。
+        - 核心职责: 识别并剥离如 'pos_', 'dyn_', 'trg_', 'risk_' 等内部前缀，
+                    返回一个干净、标准化的信号名称，用于后续的查阅和存档。
+        """
+        # 定义所有已知的内部前缀
+        prefixes_to_strip = ['pos_', 'dyn_', 'trg_', 'risk_']
+        for prefix in prefixes_to_strip:
+            if name.startswith(prefix):
+                # 如果名称以前缀开头，则返回剥离前缀后的部分
+                return name[len(prefix):]
+        # 如果没有匹配的前缀，则返回原名称
+        return name
+
+    # ▼▼▼ 标准化战报生成器 (保持不变，作为稳定的基础服务) ▼▼▼
+    def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
+        """
+        【V4.0 数据库正名版】 - 全军唯一的标准化战报生成器
+        - 核心修正: 彻底修正输出字典的键名，使其与数据库模型
+                    (TrendFollowStrategySignalLog) 的字段名完全一致。
+                    - 'final_score' -> 'entry_score'
+                    - 'playbook_details' -> 'triggered_playbooks'
+        """
+        trade_time_input = kwargs.get('trade_time')
+        if trade_time_input is None:
+            raise ValueError("创建信号记录时必须提供 'trade_time'")
+
+        ts = pd.to_datetime(trade_time_input)
+        if ts.tzinfo is None:
+            standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime()
+        else:
+            standard_trade_time = ts.tz_convert('UTC').to_pydatetime()
+
+        # ▼▼▼【代码修改 V4.0】: 修正键名以匹配数据库模型！ ▼▼▼
+        record = {
+            "stock_code": None,
+            "trade_time": standard_trade_time,
+            "timeframe": "N/A",
+            "strategy_name": "UNKNOWN",
+            "signal_type": "中性", # 这是一个临时字段，不会存入数据库
+            "entry_score": 0.0,   # 修正: 使用 'entry_score'
+            "risk_score": 0.0,    # 这是一个新字段，需要确认数据库模型中是否存在
+            "triggered_playbooks": "", # 修正: 使用 'triggered_playbooks'
+            "close_price": None,
+            "entry_signal": False,
+            "is_risk_warning": False,
+            "exit_signal_code": 0,
+            "exit_severity_level": 0
+        }
+        record.update(kwargs)
+        
+        # 数据净化
+        record['close_price'] = sanitize_for_json(record.get('close_price'))
+        record['entry_score'] = float(record['entry_score'])
+        # 如果数据库中没有 risk_score 字段，DAO会自动忽略它
+        if 'risk_score' in record:
+            record['risk_score'] = float(record['risk_score'])
+        # ▲▲▲【代码修改 V4.0】▲▲▲
+
+        return record
+    
+    # 辅助函数，用于定义 CONTEXT_TREND_DETERIORATING
+    def _define_context_trend_deteriorating(self, df, atomic_states):
+        default_series = pd.Series(False, index=df.index)
+        is_in_divergence_window = atomic_states.get('CAPITAL_STATE_DIVERGENCE_WINDOW', default_series)
+        is_long_ma_slope_negative = df.get('SLOPE_21_EMA_55_D', 0) < 0
+        is_short_ma_slope_negative = df.get('SLOPE_5_EMA_13_D', 0) < 0
+        is_long_ma_accel_negative = df.get('ACCEL_21_EMA_55_D', 0) < 0
+        is_long_chip_slope_negative = df.get('peak_cost_slope_55d_D', 0) < 0
+        unconditional_deterioration = (is_long_ma_slope_negative & is_short_ma_slope_negative & is_long_ma_accel_negative & is_long_chip_slope_negative)
+        return unconditional_deterioration & ~is_in_divergence_window
+
+
+    # 最高统帅部 (Supreme Headquarters)
+    # -> 核心入口: apply_strategy()
+    def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        【V301.0 职责简化版】
+        - 核心重构: 彻底移除本方法的情报管理职责。
+        - 新职责: 只负责执行核心分析，并向上级（总司令部）返回完整的情报包。
+                  不再建立任何 try...finally 结构。
+        """
+        print("======================================================================")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【战术引擎 V301.0 职责简化版】 ======")
+        print("======================================================================")
+
+        if df is None or df.empty: 
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        df = self._ensure_numeric_types(df)
+
+        # --- 指挥链 1/3: 情报总局 ---
+        print("    --- [指挥链 1/3] 情报总局：正在收集所有战场情报... ---")
+        df, trigger_events = self._run_all_diagnostics(df, params)
+        
+        df = self._determine_main_force_behavior_sequence(df)
+
+        # --- 指挥链 2/3: 最高作战指挥部 ---
+        print("    --- [指挥链 2/3] 最高作战指挥部：正在执行一体化评估与决策... ---")
+        df, score_details_df, risk_details_df = self._run_assessment_and_decision_engine(df, params, trigger_events)
+        
+        # --- 指挥链 3/3: 沙盘推演 ---
+        print("    --- [指挥链 3/3] 作战推演：正在模拟全程战术动作... ---")
+        df = self._run_position_management_simulation(df, params)
+
+        print(f"    ====== 【战术引擎 V301.0】执行完毕 ======")
+        
+        # 向上级返回完整的情报包
+        return df, score_details_df, risk_details_df
+
+    # 1. 情报总局 (Intelligence General Administration)
+    #    -> 核心职责: 统一收集所有战场情报，形成原子状态报告
+    #    -> 总指挥: _run_all_diagnostics()
+    def _run_all_diagnostics(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, Dict]:
+        """
+        【V269.0 中央情报局版】情报总局
+        - 核心重构:
+          1. 不再返回 atomic_states。而是将其作为实例属性 self.atomic_states 进行存储。
+             这使得 atomic_states 成为一个可供策略内所有方法按需调阅的“中央数据库”，
+             彻底解决了参数层层传递导致的臃肿和高耦合问题。
+          2. 所有下游的诊断模块，现在都直接从 self.atomic_states 读取或向其更新情报。
+        - 返回值变更: 现在只返回 df 和 trigger_events，指挥链变得极度清晰。
+        """
+        print("--- [总指挥] 步骤1: 运行所有诊断模块... ---")
+        # 启动基础的K线模式识别器
+        df = self.pattern_recognizer.identify_all(df)
+
+        # --- 依次调用各大专业化司令部，收集原子情报 ---
+        self.atomic_states = {}
+        # 1. 市场结构战区司令部 (统一指挥MA, Box, Platform部队)
+        df, structure_states = self._diagnose_market_structure_command(df, params)
+        
+        # 2. 筹码情报最高司令部
+        chip_states, chip_triggers = self._run_chip_intelligence_command(df, params)
+
+        # 3. 【建立中央情报局】汇总所有基础原子情报，并存入 self.atomic_states
+        # 这是本次改革的核心：将所有情报统一存入实例属性，而不是作为局部变量传递
+        self.atomic_states.update(structure_states)
+        self.atomic_states.update(chip_states)
+        self.atomic_states.update(self._diagnose_oscillator_states(df, params))
+        self.atomic_states.update(self._diagnose_capital_states(df, params)) # <--- 现在调用它时，self.atomic_states 已存在
+        self.atomic_states.update(self._diagnose_volatility_states(df, params))
+        self.atomic_states.update(self._diagnose_kline_patterns(df, params))
+        self.atomic_states.update(self._diagnose_board_patterns(df, params))
+        self.atomic_states.update(self._diagnose_trend_dynamics(df, params))
+        
+        # --- 在所有基础情报生成后，启动跨部门的联合作战分析 ---
+        # 后续所有部门，都直接从 self.atomic_states 调阅情报并更新
+        
+        # 4. 筹码-价格行为联合分析部 (跨部门协作)
+        self.atomic_states.update(self._diagnose_chip_price_action(df))
+        
+        # 5. 市场结构总参谋部
+        self.atomic_states.update(self._diagnose_market_structure_states(df, params))
+        
+        # --- 启动认知综合引擎，完成从“情报”到“认知”的最终升华 ---
+        
+        # 6. 认知综合引擎
+        self.atomic_states.update(self._run_cognitive_synthesis_engine(df))
+
+        # --- 基于所有情报和认知，定义最终的战术触发事件 ---
+        
+        # 7. 战术触发事件定义中心
+        trigger_events = self._define_trigger_events(df, params)
+        # 将筹码总参谋部提供的“触发事件”合并到总事件池中
+        trigger_events.update(chip_triggers)
+        
+        self.setup_scores, self.playbook_states = self._generate_playbook_states(df, trigger_events)
+        
+        # 特殊处理：从波动率压缩中突破的触发事件
+        is_in_squeeze_window = self.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
+        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
+        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+
+        # 修改返回值，不再传递 atomic_states，因为它已经是全策略可访问的实例属性
+        return df, trigger_events
+
+    # ─> 战术条令与剧本参谋部 (Tactical Doctrine & Playbook Dept.)
+    #    -> 核心职责: 负责全军作战计划的理论制定与动态应用。
+    #    ├─> 军事档案馆 (Military Archives)
+    #    │   -> 核心职责: 存储静态的、不变的作战预案“蓝图”。
+    #    │   ├─> _get_playbook_blueprints()
+    
+    #    │   └─> _get_risk_playbook_blueprints()
+    
+    #    └─> 作战计划推演室 (War Gaming Section)
+    #        -> 核心职责: 将静态“蓝图”与实时战况结合，生成可执行的动态作战计划。
+    #        -> 对应方法: _get_playbook_definitions()
+    
+    # ─> 战术触发事件定义中心 (Tactical Trigger Definition Center)
+    #    -> 核心职责: 识别那些可以作为“开火信号”的瞬时战术事件(Trigger)。
+    #    -> 指挥官: _define_trigger_events()
+
+
+    
+
+
+    # ─> 进攻方案评估中心 (Entry Scoring Center)
+    #    -> 核心职责: 计算最终的入场分。
+    #    -> 指挥官: _calculate_entry_score()
+    def _calculate_entry_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V287.0 现代化改造版】
+        - 核心升级: 不再接收一长串零散的参数，而是接收一个标准化的`context`字典。
+                    这使得通讯协议极度稳定，彻底根除了因参数遗漏而导致的崩溃。
+        - 作战流程:
+          1. 从`context`档案包中解压所有必需的情报。
+          2. 依次启动“剧本火力”、“阵地火力”、“动能火力”和“触发器火力”四层评估体系。
+          3. 将所有火力得分相加，形成最终的“进攻分”。
+        """
+        print("        -> [进攻方案评估中心 V287.0] 已接收档案包，正在启动四层火力评估...")
+
+        # --- 步骤1: 解压标准化的“作战情报档案包” ---
+        df = context['df']
+        params = context['params']
+        playbook_states = context['playbook_states']
+        trigger_events = context['trigger_events']
+        atomic_states = context['atomic_states']
+        
+        # --- 步骤2: 初始化计分板 ---
+        entry_score = pd.Series(0.0, index=df.index)
+        score_details_df = pd.DataFrame(index=df.index)
+        scoring_params = self._get_params_block('four_layer_scoring_params')
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 步骤3: 启动四层火力评估体系 ---
+
+        # 【第一层火力：剧本得分 (Playbook Scoring)】
+        # 这是最核心的得分来源，代表着一个完整的、经过深思熟虑的作战计划。
+        print("          -> 正在评估“剧本火力”...")
+        for blueprint in self.playbook_blueprints:
+            playbook_name = blueprint['name']
+            # 从动态情报中获取该剧本的“准备就绪”和“开火”信号
+            setup_series = playbook_states.get(playbook_name, {}).get('setup', default_series)
+            trigger_series = playbook_states.get(playbook_name, {}).get('trigger', default_series)
+            
+            # 当“准备就绪”且“开火信号”同时满足时，剧本被激活
+            is_playbook_activated = setup_series & trigger_series
+            
+            if is_playbook_activated.any():
+                score = self._get_param_value(blueprint.get('score'), 0)
+                entry_score.loc[is_playbook_activated] += score
+                score_details_df[playbook_name] = is_playbook_activated * score
+
+        # 【第二层火力：阵地得分 (Positional Scoring)】
+        # 评估那些能够提供持续性战略优势的“阵地”状态。
+        print("          -> 正在评估“阵地火力”...")
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
+        for signal_name, score in positional_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
+
+        # 【第三层火力：动能得分 (Dynamic Scoring)】
+        # 评估那些代表市场动能正在增强的短期信号。
+        print("          -> 正在评估“动能火力”...")
+        dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
+        for signal_name, score in dynamic_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
+
+        # 【第四层火力：触发器得分 (Trigger Scoring)】
+        # 为那些关键的“开火信号”本身，提供额外的确认分。
+        print("          -> 正在评估“触发器火力”...")
+        trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
+        for signal_name, score in trigger_rules.items():
+            signal_series = trigger_events.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[f'trg_{signal_name}'] = signal_series * score
+        
+        print("        -> [进攻方案评估中心 V287.0] 四层火力评估完成。")
+        return entry_score, score_details_df
+
+    #       └─> 指挥棒模型 (Score Adjustment Module)
+    #          -> 核心职责: 对基础分进行最终的乘数加成或削弱。
+    #          -> 对应方法: _apply_final_score_adjustments()
+    def _apply_final_score_adjustments(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V267.0 标准实现版】指挥棒模型 (最终得分调整)
+        - 核心职责: 在所有基础分数计算完毕后，根据特定的战场状态(atomic_states)，
+                    对最终的 entry_score 进行乘数调整。
+        - 参数要求: 必须接收 atomic_states 才能工作。
+        """
+        adjustment_params = self._get_params_block('final_score_adjustments')
+        if not self._get_param_value(adjustment_params.get('enabled'), False):
+            return df # 如果在配置中被禁用，则直接返回，不进行任何操作
+
+        multipliers = adjustment_params.get('multipliers', [])
+        if not multipliers:
+            return df
+
+        # 初始化一个全为1的乘数序列
+        final_multiplier = pd.Series(1.0, index=df.index)
+
+        # 遍历所有乘数规则
+        for rule in multipliers:
+            state_name = rule.get('if_state')
+            multiplier_value = rule.get('multiply_by')
+            
+            if state_name and multiplier_value:
+                # 从原子状态中获取对应的布尔序列
+                condition_series = self.atomic_states.get(state_name, pd.Series(False, index=df.index))
+                # 在满足条件的地方，应用乘数
+                final_multiplier.loc[condition_series] *= multiplier_value
+        # 将最终的乘数应用到 entry_score 上
+        df['entry_score'] *= final_multiplier
+        return df
+
+    # ─> 最高风险裁决所 (Supreme Risk Adjudication)
+    #    -> 核心职责: 对风险简报进行量化打分。
+    #    -> 首席裁决官: _calculate_risk_score()
+    def _calculate_risk_score(self, context: dict) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V291.0 联合作战版】最高风险裁决所
+        - 核心思想升级: 引入“联合作战条令”，让“局部对冲”与“战略覆盖”协同作战。
+        - 新裁决流程 (两阶段打击):
+          1. 【第一阶段：外科手术 (局部对冲)】
+             - 遍历所有风险规则。当遇到拥有“一票否决权”的S级风险时，检查是否存在
+               对冲性的S级机遇。
+             - 如果存在，则对【该单个风险项】的分数进行手术式降级 (如1000 -> 300)。
+             - 此阶段结束后，得到一个初步的、已排除极端风险的总分。
+          2. 【第二阶段：战略压制 (全局覆盖)】
+             - 检查战场上是否存在任何S级战略机遇。
+             - 如果存在，则对【第一阶段处理后的总风险分】进行全局性的战略削减
+               (如总分 x 0.3)。
+        - 收益: 这是最完善、最强大的风险评估机制，既能精确处理极端风险，又能
+                从全局视角把握战局，确保在关键时刻做出正确决策。
+        """
+        print("        -> [最高风险裁决所 V291.0 联合作战版] 启动...")
+        
+        df = context['df']
+
+        risk_params = self._get_params_block('four_layer_scoring_params').get('risk_scoring', {})
+        risk_rules = risk_params.get('signals', {})
+        risk_score_df = pd.DataFrame(0, index=df.index, columns=list(risk_rules.keys()))
+        total_risk_score = pd.Series(0.0, index=df.index)
+        
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 准备S级机遇信号，供两个阶段共同使用 ---
+        strategic_opportunity_signals = {
+            'CHIP_DYN_ACCEL_CONCENTRATING': self.atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
+            'BOX_STATE_HEALTHY_ACCUMULATION': self.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
+            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': self.atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series),
+            'STRUCTURE_BREAKOUT_EVE_S': self.atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series)
+        }
+        has_strategic_opportunity = pd.Series(False, index=df.index)
+        for signal in strategic_opportunity_signals.values():
+            has_strategic_opportunity |= signal
+
+        # --- 第一阶段打击：外科手术 (局部对冲) ---
+        print("          -> [第一阶段] 正在执行“外科手术式”局部对冲...")
+        for rule_name, score in risk_rules.items():
+            signal_series = self.atomic_states.get(rule_name, default_series)
+            
+            is_veto_risk_rule = rule_name in [
+                'CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 
+                'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'
+            ]
+
+            if is_veto_risk_rule and signal_series.any():
+                # 发现S级否决风险，立即进行手术评估
+                final_score = pd.Series(0.0, index=df.index)
+                mitigated_score = self._get_param_value(risk_params.get('mitigated_veto_score'), 300)
+                
+                # 在触发风险的日子里，如果存在S级机遇，则降级处理
+                final_score.loc[signal_series & has_strategic_opportunity] = mitigated_score
+                # 否则，维持原始高风险分
+                final_score.loc[signal_series & ~has_strategic_opportunity] = score
+                
+                risk_score_df[rule_name] = final_score
+                total_risk_score += final_score
+            else:
+                # 对于普通风险，直接计分
+                risk_score_df.loc[signal_series, rule_name] = score
+                total_risk_score += signal_series * score
+        
+        print(f"          -> [第一阶段完成] 初步总风险分计算完毕。")
+
+        # --- 第二阶段打击：战略压制 (全局覆盖) ---
+        print("          -> [第二阶段] 正在评估是否执行“战略覆盖”...")
+        if has_strategic_opportunity.any():
+            strategic_coverage_factor = self._get_param_value(risk_params.get('strategic_coverage_factor'), 0.3)
+            
+            # 对那些存在S级机遇的日子的“总风险分”，直接进行全局削减
+            total_risk_score = total_risk_score.where(~has_strategic_opportunity, total_risk_score * strategic_coverage_factor)
+            
+            print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
+        else:
+            print("          -> [第二阶段完成] 未发现S级战略机遇，无需执行战略覆盖。")
+        
+        print("        -> [最高风险裁决所 V291.0] 联合作战裁决完成。")
+        
+        return total_risk_score, risk_score_df
+
+    def _determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V304.0 战略大脑版 - 新增】
+        推演主力行为序列状态机。
+        - 核心: 遍历每一天，根据前一天的状态和当天的信号，决定当天的状态。
+        - 价值: 将离散的每日信号，串联成一个连续的、有逻辑的操盘故事。
+        """
+        print("    --- [战略推演单元 V304.0] 启动，正在生成主力行为序列... ---")
+        
+        # 初始化状态列，默认都是休眠期
+        df['main_force_state'] = MainForceState.IDLE.value
+        
+        # 从第二个交易日开始遍历
+        for i in range(1, len(df)):
+            prev_state_val = df.at[df.index[i-1], 'main_force_state']
+            prev_state = MainForceState(prev_state_val)
+            
+            # 获取当天的关键原子状态 (用 .get(key, False) 避免KeyError)
+            s = {
+                # 吸筹信号
+                'is_concentrating': self.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).iloc[i],
+                'is_mild_inflow': self.atomic_states.get('CAPITAL_MAIN_FORCE_INFLOW_MILD', pd.Series(False, index=df.index)).iloc[i],
+                # 洗盘信号
+                'is_sharp_drop': self.atomic_states.get('RISK_PRICE_SHARP_DROP_S', pd.Series(False, index=df.index)).iloc[i],
+                'is_sideways': abs(self.df_indicators.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).iloc[i]) < 0.01,
+                # 拉升信号
+                'is_markup_breakout': self.atomic_states.get('BREAKOUT_S', pd.Series(False, index=df.index)).iloc[i],
+                'is_chip_fault': self.atomic_states.get('CHIP_FAULT_FORMED', pd.Series(False, index=df.index)).iloc[i], # 假设已实现
+                'is_strong_inflow': self.atomic_states.get('CAPITAL_MAIN_FORCE_INFLOW_STRONG', pd.Series(False, index=df.index)).iloc[i],
+                # 派发信号
+                'is_distributing': self.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', pd.Series(False, index=df.index)).iloc[i],
+                'is_diverging': self.atomic_states.get('RISK_DYN_DIVERGING', pd.Series(False, index=df.index)).iloc[i],
+                'is_stagnation': self.atomic_states.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).iloc[i],
+                # 崩盘信号
+                'is_below_long_ma': df.at[df.index[i], 'close_D'] < df.at[df.index[i], 'EMA_55_D'],
+            }
+
+            current_state = prev_state # 默认继承前一天的状态
+
+            # --- 状态转移逻辑 ---
+            if prev_state == MainForceState.IDLE:
+                if s['is_concentrating'] and s['is_mild_inflow']:
+                    current_state = MainForceState.ACCUMULATING
+            
+            elif prev_state == MainForceState.ACCUMULATING:
+                if s['is_markup_breakout'] or s['is_chip_fault']:
+                    current_state = MainForceState.MARKUP
+                elif s['is_sharp_drop'] and s['is_concentrating']: # 缩量下跌洗盘
+                    current_state = MainForceState.WASHING
+                elif s['is_distributing'] or s['is_diverging']: # 提前叛变
+                    current_state = MainForceState.DISTRIBUTING
+
+            elif prev_state == MainForceState.WASHING:
+                if s['is_markup_breakout'] or s['is_chip_fault']:
+                    current_state = MainForceState.MARKUP
+                elif not s['is_concentrating']: # 洗盘时筹码开始发散，说明洗盘失败，可能转派发
+                    current_state = MainForceState.DISTRIBUTING
+                elif s['is_sideways'] and s['is_concentrating']: # 洗盘成功，回归吸筹/横盘状态
+                    current_state = MainForceState.ACCUMULATING
+
+            elif prev_state == MainForceState.MARKUP:
+                if s['is_distributing'] or s['is_diverging'] or s['is_stagnation']:
+                    current_state = MainForceState.DISTRIBUTING
+                elif s['is_sharp_drop'] and s['is_concentrating']: # 拉升途中的洗盘
+                    current_state = MainForceState.WASHING
+
+            elif prev_state == MainForceState.DISTRIBUTING:
+                if s['is_below_long_ma']: # 跌破长期均线，确认派发完成
+                    current_state = MainForceState.COLLAPSE
+            
+            elif prev_state == MainForceState.COLLAPSE:
+                if s['is_sideways'] and not s['is_below_long_ma']: # 长期横盘，企稳
+                    current_state = MainForceState.IDLE
+
+            df.at[df.index[i], 'main_force_state'] = current_state.value
+            
+        print("    --- [战略推演单元 V304.0] 主力行为序列已生成。 ---")
+        return df
+
+    # 3. 总司令部 (General Headquarters - Final Decision Making)
+    #    -> 核心职责: 权衡利弊，下达最终的“进攻”、“撤退”或“否决”指令。
+    #    -> 总司令: _make_final_decisions()
+    def _run_assessment_and_decision_engine(self, df: pd.DataFrame, params: dict, trigger_events: Dict[str, pd.Series]) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        【V303.0 绝对否决权版】
+        - 核心升级: 引入“绝对否决权”机制，根治“主力派发日买入”的致命BUG。
+        - 新决策流程:
+          1. 【评估单元】: 计算 entry_score 和 risk_score。
+          2. 【第一层裁决】: 基于分数比较，初步判断买入/卖出。
+          3. 【★★★ 绝对否决权 ★★★】: 在分数裁决后，进行最终审查。如果当天触发了
+                         `absolute_veto_params` 中定义的任何一个“红牌”风险，
+                         则无视所有得分，强制将信号覆盖为“卖出信号”。
+                         这是对 600330.SH 案例的直接修正。
+          4. 【隔离计算】: 仅对非买入日计算离场细节。
+          5. 【数据净化】: 确保最终的买入信号是纯粹的。
+        - 收益: 建立了一个“否决权优先，分数在后”的二级决策体系，使模型具备了识别
+                并规避“技术陷阱”的更高智慧。
+        """
+        print("    --- [最高作战指挥部 V303.0] 启动，正在执行“评估-决策”一体化流程... ---")
+
+        # --- 阶段一：评估 ---
+        print("        -> [评估单元] 启动...")
+        scoring_context = {
+            "df": df, "params": params, "trigger_events": trigger_events,
+            "playbook_states": self.playbook_states, "atomic_states": self.atomic_states,
+            "setup_scores": self.setup_scores
+        }
+        entry_score, score_details_df = self._calculate_entry_score(scoring_context)
+        risk_score, risk_details_df = self._calculate_risk_score({"df": df})
+        df['entry_score'] = entry_score
+        df['risk_score'] = risk_score
+        print("        -> [评估单元] 评估完成，所有案情卷宗已生成。")
+
+        # --- 阶段二：决策 (采用“先决断，后计算”的新流程) ---
+        print("        -> [决策单元] 启动，正在执行三层决策裁定...")
+
+        # 1. 初始化所有决策相关列
+        df['final_score'] = 0.0
+        df['signal_type'] = '中性'
+        df['signal_entry'] = False
+        df['exit_signal_code'] = 0
+        df['exit_severity_level'] = 0
+
+        # 2. 【第一层裁决 - 分数对决】: 初步标记所有潜在的买入和卖出日
+        is_potential_buy = df['entry_score'] > 0
+        risk_overrides_entry = df['risk_score'] > df['entry_score']
+        df.loc[is_potential_buy, 'signal_type'] = '买入信号'
+        df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
+
+        # 3. 【★★★ 第二层裁决 - 绝对否决权 (Absolute Veto) ★★★】
+        # 这是解决问题的核心：无论分数多高，一旦触犯天条，立即否决。
+        print("        -> [军事监察部] 正在执行“绝对否决权”审查...")
+        veto_params = self._get_params_block('absolute_veto_params')
+        if self._get_param_value(veto_params.get('enabled'), True):
+            veto_signals = self._get_param_value(veto_params.get('veto_signals'), [])
+            has_absolute_veto_risk = pd.Series(False, index=df.index)
+            
+            for signal_name in veto_signals:
+                # 从原子状态中获取“红牌”风险信号
+                risk_series = self.atomic_states.get(signal_name, pd.Series(False, index=df.index))
+                has_absolute_veto_risk |= risk_series
+            
+            # 如果存在任何一个“红牌”风险，则强制覆盖为卖出信号
+            if has_absolute_veto_risk.any():
+                df.loc[has_absolute_veto_risk, 'signal_type'] = '卖出信号'
+                print(f"          -> [审查报告] “绝对否决权”已触发！在 {has_absolute_veto_risk.sum()} 天内强制覆盖了买入信号。")
+
+        # 4. 【★★★ 第三层裁决 - 战略审查 (Strategic Review) ★★★】
+        print("        -> [战略参谋部] 正在执行“主力行为序列”审查...")
+        # 战略否决：如果当前处于派发或崩盘期，直接否决买入
+        is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
+        df.loc[is_in_distribution_phase, 'signal_type'] = '卖出信号'
+        if is_in_distribution_phase.any():
+            print(f"          -> [战略报告] “派发/崩盘期”否决已触发！在 {is_in_distribution_phase.sum()} 天内强制覆盖了买入信号。")
+
+        # 战略确认：识别“黄金买点”（从吸筹/洗盘 -> 拉升的转折点）
+        prev_state = df['main_force_state'].shift(1)
+        is_entering_markup = (
+            prev_state.isin([MainForceState.ACCUMULATING.value, MainForceState.WASHING.value]) &
+            (df['main_force_state'] == MainForceState.MARKUP.value)
+        )
+        # 对于黄金买点，即使分数略微不利，也强制确认为买入信号（给予战略优先权）
+        df.loc[is_entering_markup, 'signal_type'] = '买入信号'
+        if is_entering_markup.any():
+            print(f"          -> [战略报告] “黄金买点”已确认！在 {is_entering_markup.sum()} 天内发现了战略建仓机会。")
+
+        # 4. 【隔离计算】: 仅对非买入日计算具体的离场信号
+        non_buy_mask = df['signal_type'] != '买入信号'
+        if non_buy_mask.any():
+            df_for_exit_calc = df[non_buy_mask].copy()
+            exit_results_df = self._calculate_exit_signals(df_for_exit_calc, params, df_for_exit_calc['risk_score'])
+            df.update(exit_results_df)
+
+        # 5. 【第三层裁决】: 根据离场计算结果，确认纯粹的卖出日
+        is_pure_sell = df['exit_signal_code'] >= 88
+        df.loc[is_pure_sell, 'signal_type'] = '卖出信号'
+
+        # 6. 【最终确认与净化】: 根据最终的 signal_type，计算 final_score 和 signal_entry
+        final_buy_condition = df['signal_type'] == '买入信号'
+        df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
+        df.loc[final_buy_condition, 'signal_entry'] = True
+        
+        # 再次净化，确保买入日的离场字段绝对干净
+        df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level']] = 0
+
+        print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
+        final_check_df = df[(df['signal_type'] != '中性')].tail(5)
+        if not final_check_df.empty:
+            print("          -> [最终分数审查报告]:")
+            print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type', 'exit_severity_level']])
+        else:
+            print("          -> [最终分数审查报告]: 未发现任何有效信号。")
+
+        print("    --- [最高作战指挥部 V303.0] 一体化流程执行完毕。 ---")
+        return df, score_details_df, risk_details_df
+
+
+    #    └─> 离场指令部 (Exit Command)
+    #       -> 核心职责: 根据风险分生成具体的撤退信号码。
+    #        -> 指挥官: _calculate_exit_signals()
+    def _calculate_exit_signals(self, df: pd.DataFrame, params: dict, risk_score: pd.Series) -> pd.DataFrame:
+        """
+        【V292.0 指挥权修正版】
+        - 核心修复: 彻底解决了“指令覆盖”BUG。
+        - 新军事纪律:
+          1. 明确规定，在任何有进攻意图 (`entry_score > 0`) 的日子里，
+             “离场指令部”必须保持完全静默。
+          2. 所有的预警 (`alert_level`, `alert_reason`) 和卖出代码
+             (`exit_signal_code`) 的计算，都必须在 `~is_potential_buy_day`
+             这个先决条件下进行。
+        - 收益: 确保了“进攻”命令的最高优先权，买入信号将不再被任何
+                下级风险信号所错误覆盖。
+        """
+        print("      -> [离场指令部 V292.0] 启动，正在执行代码净化与离场计算...")
+        
+        df['exit_signal_code'] = 0
+        df['alert_level'] = 0
+        df['alert_reason'] = ''
+
+        exit_params = self._get_params_block('exit_strategy_params')
+        if not self._get_param_value(exit_params.get('enabled'), True):
+            return df
+
+        is_potential_buy_day = df['entry_score'] > 0
+        
+        # --- 只有在【非】潜在买入日，才允许计算任何预警或卖出信号 ---
+        
+        # 1. 计算风险预警信号
+        warning_params = exit_params.get('warning_threshold_params', {})
+        for level_name, level_info in sorted(warning_params.items(), key=lambda item: item[1]['level']):
+            threshold = level_info['level']
+            cn_name = level_info['cn_name']
+            condition = (risk_score >= threshold) & (~is_potential_buy_day)
+            df.loc[condition, 'alert_level'] = level_info.get('level', 0)
+            df.loc[condition, 'alert_reason'] = cn_name
+        
+        # 2. 计算最高优先级的卖出信号
+        exit_threshold_params = exit_params.get('exit_threshold_params', {})
+        for level_name, level_info in exit_threshold_params.items():
+            threshold = level_info['level']
+            code = level_info['code']
+            cn_name = level_info['cn_name']
+            # 同样，必须在【非】潜在买入日这个条件下！
+            condition = (risk_score >= threshold) & (~is_potential_buy_day)
+            df.loc[condition, 'exit_signal_code'] = code
+            df.loc[condition, 'alert_level'] = level_info.get('level', 0) 
+            df.loc[condition, 'alert_reason'] = cn_name
+        
+        print(f"        -> 风险与离场信号计算完成。")
+        return df
+    
+    # 4. 沙盘推演中心 (War Gaming Center - Simulation)
+    #    -> 核心职责: 模拟从建仓到离场的全过程战术动作。
+    #    -> 总指挥: _run_position_management_simulation()
+    def _run_position_management_simulation(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """
+        【V190.0 新增】战术持仓管理模拟引擎
+        - 核心功能: 模拟一个完整的交易周期，包括入场、持仓、风险预警、动态减仓和最终离场。
+        - 输出: 在DataFrame中增加仓位状态、预警级别、交易动作等列，用于最终分析。
+        """
+        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
+        
+        # --- 1. 参数初始化 ---
+        sim_params = self._get_params_block('position_management_params')
+        if not self._get_param_value(sim_params.get('enabled'), False):
+            print("    - 持仓管理模拟被禁用，跳过。")
+            return df
+
+        # 从配置中读取减仓比例
+        level_2_reduction = self._get_param_value(sim_params.get('level_2_alert_reduction_pct'), 0.3)
+        level_3_reduction = self._get_param_value(sim_params.get('level_3_alert_reduction_pct'), 0.5)
+        
+        # 初始化状态列
+        df['position_size'] = 0.0
+        df['alert_level'] = 0
+        df['alert_reason'] = ''
+        df['trade_action'] = ''
+
+        # 初始化状态变量
+        in_position = False
+        position_size = 0.0
+        entry_price = 0.0
+        partial_exit_level_2_done = False # 标记L2减仓是否已执行，避免重复减仓
+
+        # --- 2. 逐日迭代，模拟交易状态机 ---
+        for row in df.itertuples():
+            current_date = row.Index
+            
+            if not in_position:
+                # --- 入场逻辑 ---
+                if row.signal_entry:
+                    in_position = True
+                    position_size = 1.0
+                    entry_price = row.close_D
+                    partial_exit_level_2_done = False # 重置减仓标记
+                    df.loc[current_date, 'trade_action'] = 'ENTRY'
+            else:
+                # --- 持仓期间的逻辑 ---
+                
+                # a. 检查硬性离场信号 (最高优先级)
+                if row.exit_signal_code > 0:
+                    in_position = False
+                    position_size = 0.0
+                    df.loc[current_date, 'trade_action'] = f'EXIT (Code:{row.exit_signal_code})'
+                    df.loc[current_date, 'position_size'] = position_size
+                    continue # 当天直接离场，不再执行后续预警判断
+
+                # b. 检查战术预警信号
+                alert_level, alert_reason = self._check_tactical_alerts(row, params)
+                df.loc[current_date, 'alert_level'] = alert_level
+                df.loc[current_date, 'alert_reason'] = alert_reason
+
+                # c. 根据预警级别执行仓位调整
+                if alert_level == 3: # 红色预警
+                    if position_size > 0:
+                        reduction_amount = position_size * level_3_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L3 ({level_3_reduction:.0%})'
+                
+                elif alert_level == 2 and not partial_exit_level_2_done: # 橙色预警，且尚未执行过
+                    if position_size > 0:
+                        reduction_amount = position_size * level_2_reduction
+                        position_size -= reduction_amount
+                        df.loc[current_date, 'trade_action'] = f'REDUCE_L2 ({level_2_reduction:.0%})'
+                        partial_exit_level_2_done = True # 标记已执行
+                
+                # d. 如果没有交易动作，则标记为持仓
+                if df.loc[current_date, 'trade_action'] == '':
+                    df.loc[current_date, 'trade_action'] = 'HOLD'
+
+            # 更新每日的最终仓位
+            df.loc[current_date, 'position_size'] = position_size
+        
+        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
+        return df# ▼▼▼【代码新增 V190.0】: 新增独立的“战术预警”诊断模块 ▼▼▼
+
+    def _check_tactical_alerts(self, row: pd.Series, params: dict) -> Tuple[int, str]:
+        """
+        【V243.0 统一风险视图版】战术预警中心
+        - 核心修复: 彻底根治了风险评估体系的“精神分裂症”。
+        - 新规则:
+          1. 同时读取 "warning_threshold_params" (预警) 和 "exit_threshold_params" (卖出) 两个配置块。
+          2. 将所有风险等级（从低到高）合并到一个统一的列表中。
+          3. 根据当日的 risk_score，对照这个完整的风险光谱，返回唯一、正确的预警级别。
+        - 收益: 确保了沙盘推演模块能获取到与总司令部一致的、完整的风险认知，
+                从根本上杜绝了“幽灵警报”和逻辑矛盾。
+        """
+        exit_params = self._get_params_block('exit_strategy_params')
+        warning_params = exit_params.get('warning_threshold_params', {})
+        exit_threshold_params = exit_params.get('exit_threshold_params', {})
+
+        # 如果没有任何风险配置，则不发出任何预警
+        if not warning_params and not exit_threshold_params:
+            return 0, ''
+
+        # 获取当日的风险分
+        risk_score = getattr(row, 'risk_score', 0)
+        if risk_score <= 0:
+            return 0, ''
+
+        # --- 建立统一的、全谱系的风险等级清单 ---
+        all_alerts = []
+        # 定义从配置名到数字等级的映射
+        level_map = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+
+        # 1. 加载“卖出”级别
+        for name, config in exit_threshold_params.items():
+            level_name_upper = name.upper()
+            if level_name_upper in level_map:
+                all_alerts.append({
+                    'level_code': level_map[level_name_upper],
+                    'threshold': self._get_param_value(config.get('level'), float('inf')),
+                    'reason': self._get_param_value(config.get('cn_name'), name)
+                })
+
+        # 2. 加载“预警”级别
+        for name, config in warning_params.items():
+            level_name_upper = name.upper()
+            if level_name_upper in level_map:
+                all_alerts.append({
+                    'level_code': level_map[level_name_upper],
+                    'threshold': self._get_param_value(config.get('level'), float('inf')),
+                    'reason': self._get_param_value(config.get('cn_name'), name)
+                })
+        
+        # --- 按风险阈值从高到低排序，确保优先匹配最严重的风险 ---
+        sorted_alerts = sorted(all_alerts, key=lambda x: x['threshold'], reverse=True)
+
+        # --- 对照全谱系清单，进行最终裁决 ---
+        for alert in sorted_alerts:
+            if risk_score >= alert['threshold']:
+                # 一旦触发最高级别的预警，立即返回
+                return alert['level_code'], alert['reason']
+
+        # 如果风险分未达到任何预警阈值，则返回无预警
+        return 0, ''
+
+    #  5. 后勤与战报总署 (Logistics & Reporting General Administration)
+    #     -> 核心职责: 负责所有战后数据的处理、格式化、记录以及特殊警报的生成。
+    #  ─> 战报司令部 (Battle Report Command)
+    #    -> 核心职责: 生成标准化的战报记录，供数据库存档。
+    #    -> 总指挥: prepare_db_records()
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> List[Dict[str, Any]]:
+        """
+        【V306.0 最终修正版】战报司令部
+        - 核心修复: 修正了 is_risk_warning 的判断逻辑，确保只有在
+                    【非买入/非卖出】的纯预警日，该标志才为True。
+        """
+        print(f"      -> [战报司令部 V306.0] 启动，正在执行“双轨记录制”归档...")
+        db_records = []
+        
+        signal_days_df = result_df[result_df['signal_type'] != '中性'].copy()
+
+        for trade_time, row in signal_days_df.iterrows():
+            # ▼▼▼【代码修改 V306.0】: 修正 is_risk_warning 的判断逻辑！▼▼▼
+            is_pure_warning = (row['signal_type'] != '买入信号') and \
+                              (row['signal_type'] != '卖出信号') and \
+                              (row.get('alert_level', 0) > 0)
+            # ▲▲▲【代码修改 V306.0】▲▲▲
+
+            record = self._create_signal_record(
+                stock_code=stock_code,
+                trade_time=trade_time,
+                timeframe=result_timeframe,
+                strategy_name=self._get_param_value(self.strategy_info.get('name'), 'TrendFollow'),
+                signal_type=row['signal_type'],
+                entry_score=row.get('final_score', 0.0),
+                risk_score=row.get('risk_score', 0.0),
+                close_price=row.get('close_D'),
+                entry_signal=row.get('signal_entry', False),
+                is_risk_warning=is_pure_warning, # 使用修正后的标志
+                exit_signal_code=row.get('exit_signal_code', 0),
+                exit_severity_level=row.get('alert_level', 0)
+            )
+            
+            record = self._fill_signal_details(record, row, score_details_df, risk_details_df)
+            
+            db_records.append(record)
+            
+        print(f"      -> [战报司令部 V306.0] “双轨记录制”归档完成，共生成 {len(db_records)} 条记录。")
+        return db_records
+
+    def _fill_signal_details(self, record: Dict, signal_row: pd.Series, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> Dict:
+        """
+        【V304.0 新增】档案详情填充与翻译模块
+        - 核心职责: 根据信号类型，从评分详情中提取原因，并使用“翻译总署”
+                    将其转换为中文，最终填充到记录的 `triggered_playbooks` 字段。
+        """
+        trade_time = record['trade_time']
+        details_list = []
+
+        if record['signal_type'] == '买入信号':
+            if not score_details_df.empty and trade_time in score_details_df.index:
+                score_details_today = score_details_df.loc[trade_time]
+                # 找出当天所有得分项的英文名
+                activated_rules_en = score_details_today[score_details_today > 0].index.tolist()
+                # 使用翻译总署进行翻译
+                details_list = [self.signal_metadata.get(rule, rule) for rule in activated_rules_en]
+        
+        elif record['signal_type'] == '卖出信号':
+            # 对于卖出信号，原因通常比较明确，直接使用alert_reason
+            reason = signal_row.get('alert_reason')
+            if reason:
+                details_list.append(reason)
+
+            if not risk_details_df.empty and trade_time in risk_details_df.index:
+                risk_details_today = risk_details_df.loc[trade_time]
+                activated_risks_en = risk_details_today[risk_details_today > 0].index.tolist()
+                
+                # 使用翻译总署进行翻译
+                risk_details_cn = [self.signal_metadata.get(risk, risk) for risk in activated_risks_en]
+                
+                if risk_details_cn:
+                    # 使用一个干净的、没有前导逗号的格式
+                    details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
+
+        # 将翻译后的详情列表格式化为字符串，存入指定字段
+        record['triggered_playbooks'] = ", ".join(details_list)
+        return record
+
+    # ─> 风险量化局 (Risk Quantifier Bureau)
+    #    -> 核心职责: 将抽象的风险原因，翻译成直观的“仪表盘”读数。
+    #    -> 局长: _quantify_risk_reasons()
+    def _quantify_risk_reasons(self, record: pd.Series) -> str:
+        """
+        【V237.2 情报来源修复版】风险量化局
+        - 核心修复: 修正了获取参数的来源，从错误的 self.daily_params 改为
+                    正确的 self.unified_config，确保能正确读取到 risk_quantifier_params。
+        """
+        quantifier_params = self._get_params_block('risk_quantifier_params')
+        if not self._get_param_value(quantifier_params.get('enabled'), False):
+            return "风险量化未启用"
+        risk_scores = []
+        for name, params in quantifier_params.items():
+            if not isinstance(params, dict) or 'source_metric' not in params:
+                continue
+            source_metric = params['source_metric']
+            if source_metric not in record.index or pd.isna(record[source_metric]):
+                continue
+            value = record[source_metric]
+            direction = params.get('direction', 1)
+            center_point = params.get('center_point', 0)
+            steepness = params.get('steepness', 1.0)
+            cn_name = params.get('cn_name', name)
+            # 使用 sigmoid 函数将原始指标值映射到 0-100 的风险分数
+            # direction * (value - center_point) 确保了正确的风险方向
+            normalized_value = direction * (value - center_point)
+            score = 100 / (1 + np.exp(-steepness * normalized_value))
+            if score > 20: # 只报告有意义的风险项
+                risk_scores.append({'name': cn_name, 'score': int(score), 'value': value})
+        if not risk_scores:
+            return "无显著量化风险"
+        # 按风险分数从高到低排序
+        risk_scores.sort(key=lambda x: x['score'], reverse=True)
+        # 构建可读的风险描述字符串
+        reasons = [f"{item['name']}({item['score']})" for item in risk_scores]
+        return "; ".join(reasons)
+
+    # ─> 专项调查组 (Special Investigation Group)
+    #    -> 核心职责: 针对“入场分”或“风险分”进行专项调查与复盘。
+    #    ├─> 入场分调查员: _probe_entry_score_details()
+    def _probe_entry_score_details(self, score_details_df: pd.DataFrame, probe_date: str, params: dict, playbook_states: dict, atomic_states: dict, setup_scores: dict, trigger_events: dict):
+        """
+        【V300.0 全装备通讯协议版】
+        - 核心升级: 本验尸科现在能接收到所有必需的案情卷宗，可以执行完整的验尸流程。
+        """
+        print("      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
+        
+        if score_details_df is None or score_details_df.empty:
+            print("        -> [信息] 进攻分详情报告为空，无法进行解剖。")
+            return
+
+        try:
+            target_day_scores = score_details_df.loc[probe_date]
+            active_scores = target_day_scores[target_day_scores > 0]
+            
+            if not active_scores.empty:
+                print(f"      [目标日期 {probe_date} 得分详情]:")
+                print(f"        -> 当日总得分: {active_scores.sum():.2f}")
+                print("        -> 得分构成:")
+                for score_name, score in active_scores.items():
+                    print(f"          - {score_name}: {score:.2f} 分")
+            else:
+                print(f"        -> [信息] 在目标日期 {probe_date} 未发现任何进攻分。")
+
+        except KeyError:
+            print(f"        -> [错误] 无法在进攻分详情报告中找到日期 {probe_date}。")
+        except Exception as e:
+            print(f"        -> [严重错误] 在解剖 {probe_date} 的进攻分时发生未知异常: {e}")
+
+    #    └─> 风险分调查员: _probe_risk_score_details()
+    def _probe_risk_score_details(self, risk_details_df: pd.DataFrame, probe_date: str, params: dict):
+        """
+        【V297.0 协议同步确认版】
+        - 确认: 本方法的函数签名是正确的，无需修改。
+        """
+        print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
+        
+        if risk_details_df is None or risk_details_df.empty:
+            print("    -> [信息] 风险详情报告为空，无法进行解剖。")
+            return
+
+        total_risk_score = risk_details_df.sum(axis=1)
+        key_dates = total_risk_score.index[total_risk_score > 0]
+        
+        if probe_date not in key_dates.strftime('%Y-%m-%d'):
+            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
+            return
+
+        print(f"  [目标日期 {probe_date} 风险详情]:")
+        try:
+            target_day_risks = risk_details_df.loc[probe_date]
+            active_risks = target_day_risks[target_day_risks > 0]
+            
+            if active_risks.empty:
+                print("    -> 当天总风险分 > 0，但未找到具体风险项（可能为多个小项累加），请检查评分逻辑。")
+            else:
+                print(f"    -> 当日总风险分: {active_risks.sum():.2f}")
+                print("    -> 风险构成:")
+                for risk_name, score in active_risks.items():
+                    print(f"      - {risk_name}: {score:.2f} 分")
+
+        except KeyError:
+            print(f"    -> [错误] 无法在风险详情报告中找到日期 {probe_date}。")
+        except Exception as e:
+            print(f"    -> [严重错误] 在解剖 {probe_date} 的风险时发生未知异常: {e}")
+
+    def _create_persistent_state(self, df: pd.DataFrame, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series, state_name: str) -> pd.Series:
+        """
+        【V271.0 状态机引擎版】
+        - 核心功能: 创建一个“持续性状态窗口”。该状态从一个“进入事件”开始，
+                    持续指定的天数，或者直到一个“打破条件”被满足时提前结束。
+        - 参数:
+            - entry_event_series: 标记“进入事件”的布尔序列。
+            - persistence_days: 状态默认的持续天数。
+            - break_condition_series: 标记“打破条件”的布尔序列，会提前终止状态。
+            - state_name: 状态的名称，用于调试日志。
+        - 收益: 这是一个高度可重用的通用工具，可以将任何“事件”转化为“持续性状态”，
+                极大地增强了策略的灵活性和可维护性，彻底杜绝了代码重复。
+        """
+        persistent_series = pd.Series(False, index=df.index)
+        entry_indices = df.index[entry_event_series]
+
+        if entry_indices.empty:
+            return persistent_series # 如果没有进入事件，直接返回空状态
+
+        print(f"          -> [状态机引擎] 正在为 '{state_name}' 创建持续状态窗口 (共 {len(entry_indices)} 个进入点)...")
+
+        for entry_idx in entry_indices:
+            # 计算窗口的理论结束日期
+            window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
+            
+            # 确定实际的窗口范围，确保不超出数据末尾
+            actual_window_mask = (df.index >= entry_idx) & (df.index <= window_end_date)
+            
+            # 在此窗口内查找第一个“打破条件”满足的位置
+            break_points = df.index[actual_window_mask & break_condition_series]
+            
+            # 确定状态的最终结束日期
+            if not break_points.empty:
+                # 如果找到了打破点，则状态持续到打破点（包含打破当天）
+                end_date = break_points[0]
+            else:
+                # 如果没找到，则状态持续整个窗口期
+                end_date = df.index[actual_window_mask][-1] if actual_window_mask.any() else entry_idx
+
+            # 将此时间段内的状态设置为 True
+            persistent_series.loc[entry_idx:end_date] = True
+            
+        return persistent_series
+
+
+
+
+
+
+
+
+
+
+
