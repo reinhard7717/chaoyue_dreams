@@ -46,7 +46,7 @@ class IntelligenceLayer:
         
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
-        trigger_events = self._define_trigger_events()
+        trigger_events = self._define_trigger_events(df)
         trigger_events.update(chip_triggers)
         
         self.strategy.setup_scores, self.strategy.playbook_states = self._generate_playbook_states(trigger_events)
