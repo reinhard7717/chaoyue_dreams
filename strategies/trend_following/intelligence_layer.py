@@ -1478,6 +1478,41 @@ class IntelligenceLayer:
         print(f"          -> [三维扫描] 综合高风险区信号已生成，共激活 {final_high_zone_signal.sum()} 天。")
         return final_high_zone_signal
 
+    def _generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+        """
+        【V285.0 新增】剧本状态生成引擎
+        - 核心职责: 基于原子状态和触发事件，识别并生成所有预定义的“剧本”状态。
+        - 剧本: 一个剧本是多个原子状态和触发事件的特定组合，代表一个高胜率的交易设置。
+        """
+        print("        -> [剧本状态生成引擎 V285.0] 启动，正在识别所有交易剧本...")
+        playbook_states = {}
+        setup_scores = {}
+        df = self.strategy.df_indicators
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 剧本1: S级 - 波动压缩突破 (Squeeze Breakout) ---
+        # 定义: 处于波动率压缩窗口，然后出现能量释放阳线或放量突破
+        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        is_breakout_trigger = trigger_events.get('TRIGGER_ENERGY_RELEASE', default_series) | trigger_events.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
+        playbook_states['PLAYBOOK_SQUEEZE_BREAKOUT_S'] = is_in_squeeze.shift(1).fillna(False) & is_breakout_trigger
+        setup_scores['PLAYBOOK_SQUEEZE_BREAKOUT_S'] = playbook_states['PLAYBOOK_SQUEEZE_BREAKOUT_S'] * 100 # S-level gets 100 points
+
+        # --- 剧本2: A级 - 趋势回踩反弹 (Pullback Rebound) ---
+        # 定义: 处于主升浪结构中，然后出现回踩均线反弹的触发信号
+        is_in_main_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        is_rebound_trigger = trigger_events.get('TRIGGER_PULLBACK_REBOUND', default_series)
+        playbook_states['PLAYBOOK_PULLBACK_REBOUND_A'] = is_in_main_uptrend & is_rebound_trigger
+        setup_scores['PLAYBOOK_PULLBACK_REBOUND_A'] = playbook_states['PLAYBOOK_PULLBACK_REBOUND_A'] * 80 # A-level gets 80 points
+
+        # --- 剧本3: B级 - 黄金坑吸筹 (Golden Pit Accumulation) ---
+        # 定义: 出现主力吸筹的下跌（黄金坑信号），并伴随反转确认K线
+        is_golden_pit = self.strategy.atomic_states.get('CPA_FALL_WITH_MAIN_FORCE_ABSORBING', default_series)
+        is_reversal_trigger = trigger_events.get('TRIGGER_REVERSAL_CONFIRMATION_CANDLE', default_series)
+        playbook_states['PLAYBOOK_GOLDEN_PIT_B'] = is_golden_pit & is_reversal_trigger
+        setup_scores['PLAYBOOK_GOLDEN_PIT_B'] = playbook_states['PLAYBOOK_GOLDEN_PIT_B'] * 60 # B-level gets 60 points
+
+        print(f"        -> [剧本状态生成引擎 V285.0] 分析完毕，共生成 {len(playbook_states)} 个剧本状态。")
+        return setup_scores, playbook_states
 
 
 
