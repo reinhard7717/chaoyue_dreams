@@ -1,7 +1,7 @@
 # 文件: strategies/trend_following/warning_layer.py
 # 预警层
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 from .utils import get_params_block, get_param_value
 
 class WarningLayer:
