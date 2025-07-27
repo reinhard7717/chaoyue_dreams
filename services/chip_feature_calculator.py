@@ -59,7 +59,7 @@ class ChipFeatureCalculator:
         fault_info = self._calculate_chip_fault(context_for_derived_metrics) # 使用重构后的上下文
 
         # --- 4. 合并所有结果并返回 ---
-        return {
+        all_metrics = {
             **peaks_info,
             **concentration_info,
             **winner_structure_info,
@@ -67,8 +67,15 @@ class ChipFeatureCalculator:
             **turnover_info,
             **fund_flow_info,
             **advanced_structure_info,
-            **fault_info # 合并筹码断层指标的最终结果
+            **fault_info
         }
+
+        # 这两个值是计算 peak_absorption_intensity 的中间产物，不需要存入数据库
+        all_metrics.pop('peak_range_low', None)
+        all_metrics.pop('peak_range_high', None)
+
+        # --- 5. 返回清理后的最终结果 ---
+        return all_metrics
 
     def _calculate_peaks(self) -> dict:
         # 【代码修改】: 增加 width 参数，让 find_peaks 计算山峰宽度
