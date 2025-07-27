@@ -71,7 +71,7 @@ class IntelligenceLayer:
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 读取参数并检查基础数据 ---
-        p = get_params_block('chip_feature_params')
+        p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
             print("          -> 筹码情报最高司令部被禁用，跳过。")
             return states, triggers
@@ -126,7 +126,7 @@ class IntelligenceLayer:
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """【V234.0 最终净化版】震荡指标状态诊断中心"""
         states = {}
-        p = get_params_block('oscillator_state_params')
+        p = get_params_block(self.strategy, 'oscillator_state_params')
         if not get_param_value(p.get('enabled'), False): return states
         
         # --- RSI 相关状态 ---
@@ -168,7 +168,7 @@ class IntelligenceLayer:
         """
         print("        -> [能量与波动侦察部 V283.0] 启动，正在执行融合分析...")
         states = {}
-        p = get_params_block('volatility_state_params')
+        p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
 
         bbw_col = 'BBW_21_2.0_D'
@@ -484,7 +484,7 @@ class IntelligenceLayer:
         
         # 1. 定义“主力大规模派发”的单日行为
         #    - 从配置中读取参数，例如单日净流出超过2000万就视为危险
-        dist_context_params = get_params_block('distribution_context_params', {})
+        dist_context_params = get_params_block(self.strategy, 'distribution_context_params', {})
         outflow_threshold = get_param_value(dist_context_params.get('outflow_threshold_M'), -20) * 1_000_000
         
         is_distribution_day = df.get('main_force_net_inflow_amount_D', default_series) < outflow_threshold
@@ -500,7 +500,7 @@ class IntelligenceLayer:
         print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{self._format_debug_dates(self.strategy.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
         
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
-        capital_params = get_params_block('capital_state_params')
+        capital_params = get_params_block(self.strategy, 'capital_state_params')
         if get_param_value(capital_params.get('enabled'), True):
             cmf_bullish_threshold = get_param_value(capital_params.get('cmf_bullish_threshold'), 0.05)
             states['CAPITAL_STATE_INFLOW_CONFIRMED'] = df.get('CMF_21_D', 0) > cmf_bullish_threshold
@@ -591,7 +591,7 @@ class IntelligenceLayer:
         """
         print("          -> [均线野战部队 V283.0] 启动，正在执行融合分析...")
         states = {}
-        p = get_params_block('ma_state_params')
+        p = get_params_block(self.strategy, 'ma_state_params')
         if not get_param_value(p.get('enabled'), False): return states
 
         # --- 0. 读取参数并检查数据完整性 ---
@@ -664,7 +664,7 @@ class IntelligenceLayer:
         """
         print("        -> [工兵部队 V283.0] 启动，正在执行融合分析...")
         states = {}
-        box_params = get_params_block('dynamic_box_params')
+        box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
             return states
 
@@ -691,7 +691,7 @@ class IntelligenceLayer:
         is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         
         # 基础的“健康箱体”
-        ma_params = get_params_block('ma_state_params')
+        ma_params = get_params_block(self.strategy, 'ma_state_params')
         mid_ma_period = get_param_value(ma_params.get('mid_ma'), 55)
         mid_ma_col = f"EMA_{mid_ma_period}_D"
         if mid_ma_col in df.columns:
@@ -785,7 +785,7 @@ class IntelligenceLayer:
         - 收益: 确保了基础侦察部队能够正确使用现代化的通用工具，实现了全军装备的同步。
         """
         states = {}
-        p = get_params_block('kline_pattern_params')
+        p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
         
         default_series = pd.Series(False, index=df.index)
@@ -842,7 +842,7 @@ class IntelligenceLayer:
         """
         # print("        -> [诊断模块] 正在执行板形态诊断...")
         states = {}
-        p = get_params_block('board_pattern_params')
+        p = get_params_block(self.strategy, 'board_pattern_params')
         if not get_param_value(p.get('enabled'), False):
             return states
         prev_close = df['close_D'].shift(1)
@@ -1044,7 +1044,7 @@ class IntelligenceLayer:
         default_series = pd.Series(False, index=df.index)
         
         # ▼▼▼【代码修改 V234.0】: 统一从 trigger_event_params 获取所有参数 ▼▼▼
-        trigger_params = get_params_block('trigger_event_params')
+        trigger_params = get_params_block(self.strategy, 'trigger_event_params')
         if not get_param_value(trigger_params.get('enabled'), True):
             print("          -> 触发事件引擎被禁用，跳过。")
             return triggers
@@ -1208,7 +1208,7 @@ class IntelligenceLayer:
         # --- 认知链 3/4: 【升级】高价值/高风险战略布局识别 ---
         print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
         # 从总配置中获取传递给VPA模块的参数
-        vpa_params = get_params_block('strategy_params').get('trend_follow', {})
+        vpa_params = get_params_block(self.strategy, 'strategy_params').get('trend_follow', {})
         # 调用新模块，获取动态量价分析结果
         vpa_states = self._diagnose_volume_price_dynamics(df, vpa_params)
         cognitive_states.update(vpa_states)
@@ -1264,7 +1264,7 @@ class IntelligenceLayer:
         print("      -> 步骤1/3: 正在进行战机准备状态评估 (Setup Scoring)...")
         setup_scores = {}
         # 假设 setup_scoring_matrix 从配置文件加载，这是更健壮的做法
-        scoring_matrix = get_params_block('setup_scoring_matrix', {}) 
+        scoring_matrix = get_params_block(self.strategy, 'setup_scoring_matrix', {}) 
         for setup_name, rules in scoring_matrix.items():
             if not get_param_value(rules.get('enabled'), True):
                 continue
