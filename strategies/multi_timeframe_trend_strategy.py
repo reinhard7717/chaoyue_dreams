@@ -1,26 +1,20 @@
 # 文件: strategies/multi_timeframe_trend_strategy.py
 # 版本: V203.0 总指挥重构版
-import io
-import sys
 import re
-from contextlib import redirect_stdout
-from collections import defaultdict
-from copy import deepcopy
 from datetime import datetime, time
-import json
 import logging
 from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 import numpy as np
-from scipy.signal import find_peaks
 
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.weekly_context_engine import WeeklyContextEngine
 from utils.config_loader import load_strategy_config
-from utils.data_sanitizer import sanitize_for_json
+from strategies.trend_following.utils import get_params_block, get_param_value
+
 
 # 初始化日志记录器
 logger = logging.getLogger(__name__)
@@ -307,12 +301,11 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V301.1 总司令部验尸版】
-        - 核心重构: 将“临时情报中心”的建立与销毁职责，完全上移至本总司令部。
-        - 新增功能: 在获取所有情报后，由总司令部直接部署“首席法医官”进行验尸。
+        【V301.2 修正版】
+        - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式，
+                    不再将其作为 tactical_engine 的方法调用，而是作为独立的工具函数使用。
         """
-        # 关键修正：验尸官现在直接使用总司令部持有的、最完整的 df_daily_prepared
-        df_daily_prepared = all_dfs.get('D_CONTEXT') # 使用融合了周线上下文的日线数据
+        df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
             return []
@@ -327,20 +320,19 @@ class MultiTimeframeTrendStrategy:
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return []
 
-            # ▼▼▼【代码修改 V2.0】: 总司令部直接部署验尸官！▼▼▼
-            debug_params = self.tactical_engine._get_params_block('debug_params')
-            probe_date = self.tactical_engine._get_param_value(debug_params.get('probe_date'))
+            # ▼▼▼【代码修改】: 使用导入的工具函数，并传入 tactical_engine 实例 ▼▼▼
+            debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            probe_date = get_param_value(debug_params.get('probe_date'))
             
             if probe_date:
                 print(f"    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-                # 调用自己内部的验尸官，并移交所有最原始的案情卷宗
                 self._deploy_field_coroner_probe(
-                    df=df_daily_prepared, # 传递最完整的、带有上下文的日线数据
+                    df=df_daily_prepared,
                     probe_date=probe_date,
                     score_details=score_details_df,
                     risk_details=risk_details_df
                 )
-            # ▲▲▲【代码修改 V2.0】▲▲▲
+            # ▲▲▲【代码修改】▲▲▲
 
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
@@ -350,7 +342,7 @@ class MultiTimeframeTrendStrategy:
             
             db_records = self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=daily_analysis_df,        # 修正: 使用战术引擎返回的 `daily_analysis_df`
+                result_df=daily_analysis_df,
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
@@ -381,12 +373,13 @@ class MultiTimeframeTrendStrategy:
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V203.5 根源修正版】盘中入场确认引擎
-        - 致命错误修正: 同步应用 reset_index/set_index 模式，在 merge 操作中强制保留 DatetimeIndex。
+        【V203.6 修正版】盘中入场确认引擎
+        - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式。
         """
-        # 1. 加载配置并进行健壮性检查
-        entry_params = self.tactical_engine._get_params_block('intraday_entry_params')
-        get_val = self.tactical_engine._get_param_value
+        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
+        entry_params = get_params_block(self.tactical_engine, 'intraday_entry_params')
+        get_val = get_param_value
+        # ▲▲▲【代码修改】▲▲▲
         
         if not get_val(entry_params.get('enabled'), False): return []
         if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
@@ -395,12 +388,11 @@ class MultiTimeframeTrendStrategy:
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty: return []
 
-        # 2. 向量化筛选：一次性找出所有满足条件的“预备日”
+        # ... (方法内后续代码保持不变) ...
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold].copy()
         if setup_days_df.empty: return []
 
-        # 3. 准备上下文信息
         setup_days_df['setup_date'] = setup_days_df.index.date
         
         trade_dates_series = pd.Series(await TradeCalendar.get_trade_dates_in_range_async(
@@ -412,15 +404,12 @@ class MultiTimeframeTrendStrategy:
         setup_days_df.dropna(subset=['monitoring_date'], inplace=True)
         if setup_days_df.empty: return []
 
-        # 4. ▼▼▼ 强制保留时间戳索引 ▼▼▼
         context_cols = ['monitoring_date', 'entry_score', 'PLATFORM_PRICE_STABLE']
         existing_context_cols = [col for col in context_cols if col in setup_days_df.columns]
         
-        # 步骤 4.1: 将 minute_df 的 DatetimeIndex 显式转换为一个名为 'trade_time' 的列
         minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
         minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
         
-        # 步骤 4.2: 在列上进行合并
         merged_minute_df = pd.merge(
             minute_df_with_ts,
             setup_days_df[existing_context_cols],
@@ -429,10 +418,8 @@ class MultiTimeframeTrendStrategy:
         )
         if merged_minute_df.empty: return []
         
-        # 步骤 4.3: 将 'trade_time' 列恢复为 DatetimeIndex
         merged_minute_df.set_index('trade_time', inplace=True)
 
-        # 5. 向量化计算：在合并后的分钟线数据上，一次性计算所有确认信号
         final_confirmation_signal = pd.Series(True, index=merged_minute_df.index)
         rules = entry_params.get('confirmation_rules', {})
         
@@ -453,14 +440,11 @@ class MultiTimeframeTrendStrategy:
         market_open_time = time(9, 30 + min_time_after_open)
         final_confirmation_signal &= (merged_minute_df.index.time >= market_open_time)
 
-        # 6. Groupby + idxmin: 高效找出每个监控日的“首次”确认信号
         triggered_df = merged_minute_df[final_confirmation_signal]
         if triggered_df.empty: return []
         
-        # 因为索引是 DatetimeIndex, idxmin() 会返回 Timestamp 索引，可以直接用于 .loc
         first_confirmations_df = triggered_df.loc[triggered_df.groupby('monitoring_date').idxmin().iloc[:, 0]]
 
-        # 7. 生成最终战报记录
         final_entry_records = []
         playbook_blueprints = self.tactical_engine.playbook_blueprints
         playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
@@ -480,9 +464,9 @@ class MultiTimeframeTrendStrategy:
                 timeframe=minute_tf,
                 strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
                 signal_type='买入信号',
-                entry_score=final_score, # 修正: 使用 entry_score
+                entry_score=final_score,
                 risk_score=0.0,
-                triggered_playbooks=playbook_details, # 修正: 使用 triggered_playbooks
+                triggered_playbooks=playbook_details,
                 close_price=row.get(f'close_{minute_tf}'),
                 entry_signal=True,
                 is_risk_warning=False
@@ -493,13 +477,13 @@ class MultiTimeframeTrendStrategy:
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V203.5 根源修正版】盘中风险预警引擎
-        - 致命错误修正: 通过 reset_index/set_index 模式，在 merge 操作中强制保留 DatetimeIndex，
-                        彻底解决 idxmax 返回整数并导致程序崩溃的根源性问题。
+        【V203.6 修正版】盘中风险预警引擎
+        - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式。
         """
-        # 1. 加载配置并进行健壮性检查
-        exec_params = self.tactical_engine._get_params_block('intraday_execution_params')
-        get_val = self.tactical_engine._get_param_value
+        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
+        exec_params = get_params_block(self.tactical_engine, 'intraday_execution_params')
+        get_val = get_param_value
+        # ▲▲▲【代码修改】▲▲▲
         if not get_val(exec_params.get('enabled'), False): return []
         
         df_daily = all_dfs.get('D')
@@ -509,34 +493,30 @@ class MultiTimeframeTrendStrategy:
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty: return []
 
-        # 2. 向量化筛选：一次性找出所有“风险预备日”
         rules_container = exec_params.get('rules', {})
         upthrust_params = rules_container.get('upthrust_rejection', {})
         if not get_val(upthrust_params.get('enabled'), False): return []
         
-        upthrust_calc_params = self.tactical_engine._get_params_block('exit_strategy_params').get('upthrust_distribution_params', {})
+        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
+        upthrust_calc_params = get_params_block(self.tactical_engine, 'exit_strategy_params').get('upthrust_distribution_params', {})
+        # ▲▲▲【代码修改】▲▲▲
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
         setup_days_df = df_daily[is_upthrust_day].copy()
         if setup_days_df.empty: return []
 
-        # 3. ▼▼▼【代码修改】修正合并逻辑，强制保留时间戳索引 ▼▼▼
+        # ... (方法内后续代码保持不变) ...
         setup_days_df['monitoring_date'] = (setup_days_df.index + pd.Timedelta(days=1)).date
         
-        # 步骤 3.1: 将 minute_df 的 DatetimeIndex 显式转换为一个名为 'trade_time' 的列
         minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
         minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
         
-        # 步骤 3.2: 在列上进行合并
         merged_minute_df = pd.merge(minute_df_with_ts, setup_days_df[['monitoring_date']], on='monitoring_date', how='inner')
         if merged_minute_df.empty: return []
         
-        # 步骤 3.3: 将 'trade_time' 列恢复为 DatetimeIndex，确保数据完整性
         merged_minute_df.set_index('trade_time', inplace=True)
-        # ▲▲▲【代码修改】▲▲▲
 
-        # 4. 向量化计算：找出所有“跌破VWAP”的时刻
         close_col, vwap_col = f'close_{minute_tf}', f'VWAP_{minute_tf}'
         if vwap_col not in merged_minute_df.columns or close_col not in merged_minute_df.columns: return []
         
@@ -546,7 +526,6 @@ class MultiTimeframeTrendStrategy:
         alert_days = merged_minute_df[first_breakdown_signal]['monitoring_date'].unique()
         if len(alert_days) == 0: return []
 
-        # 5. Groupby + Apply: 对每个发生首次跌破的监控日，应用状态机逻辑
         def process_alert_day(day_df: pd.DataFrame) -> Optional[Dict]:
             is_breaking = day_df[close_col] < day_df[vwap_col]
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
@@ -557,6 +536,7 @@ class MultiTimeframeTrendStrategy:
             df_after_alert = day_df[day_df.index > first_break_timestamp]
             is_reclaimed = (df_after_alert[close_col] > df_after_alert[vwap_col]).any()
             
+            signal_type = '风险预警'
             if is_reclaimed:
                 reclaim_time = df_after_alert[df_after_alert[close_col] > df_after_alert[vwap_col]].index[0]
                 final_reason = f"[威胁解除] 曾于{first_break_timestamp.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
@@ -565,7 +545,6 @@ class MultiTimeframeTrendStrategy:
                 final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
                 final_severity = get_val(upthrust_params.get('severity_level'), 3)
-                signal_type = '风险预警'
 
             return self.tactical_engine._create_signal_record(
                 stock_code=stock_code, 
@@ -573,9 +552,9 @@ class MultiTimeframeTrendStrategy:
                 timeframe=minute_tf,
                 strategy_name="INTRADAY_RISK_ALERT", 
                 signal_type=signal_type,
-                entry_score=float(final_code), # 修正: 将风险分存入 entry_score
+                entry_score=float(final_code),
                 risk_score=float(final_code),
-                triggered_playbooks=final_reason, # 修正: 使用 triggered_playbooks
+                triggered_playbooks=final_reason,
                 close_price=first_alert_row[close_col],
                 entry_signal=False,
                 is_risk_warning=True
