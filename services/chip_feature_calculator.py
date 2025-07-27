@@ -24,22 +24,41 @@ class ChipFeatureCalculator:
                 self.ctx[key] = float(self.ctx[key])
 
     def calculate_all_metrics(self) -> dict:
-        # 主计算函数：按顺序调用所有子计算模块
+        """
+        【V11.0 健壮版】
+        - 修复: 彻底解决 UnboundLocalError 问题。
+        - 重构: 优化计算流程，将计算分为“基础指标 -> 增强上下文 -> 升维指标”三步，
+                确保所有升维计算模块共享同一个、完整的上下文，逻辑更清晰，代码更健壮。
+        """
+        # --- 0. 前置检查 ---
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg_cost', 'close_price', 'total_chip_volume']):
             return {}
 
+        # --- 1. 基础指标计算 ---
+        # 这一步计算所有不相互依赖的基础模块
         peaks_info = self._calculate_peaks()
         concentration_info = self._calculate_concentration()
         winner_structure_info = self._calculate_winner_structure()
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
         fund_flow_info = self._calculate_fund_flow_metrics()
-        fault_info = self._calculate_chip_fault(context_for_advanced)
         
-        # 将之前计算的结果作为输入，传递给新的计算单元
-        context_for_advanced = {**self.ctx, **peaks_info, **concentration_info, **winner_structure_info}
-        advanced_structure_info = self._calculate_advanced_structures(context_for_advanced)
+        # --- 2. 构建升维计算所需的“增强上下文” ---
+        # 将所有基础计算结果合并到上下文中，供后续所有升维计算模块使用
+        context_for_derived_metrics = {
+            **self.ctx, 
+            **peaks_info, 
+            **concentration_info, 
+            **winner_structure_info,
+            **fund_flow_info # 将资金流信息也加入，供未来更复杂的指标使用
+        }
 
+        # --- 3. 升维指标计算 (所有这些模块都使用同一个增强上下文) ---
+        # 现在，所有高级计算都从同一个、确定的上下文中取数，不会再出现 UnboundLocalError
+        advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
+        fault_info = self._calculate_chip_fault(context_for_derived_metrics) # 使用重构后的上下文
+
+        # --- 4. 合并所有结果并返回 ---
         return {
             **peaks_info,
             **concentration_info,
@@ -47,8 +66,8 @@ class ChipFeatureCalculator:
             **pressure_support_info,
             **turnover_info,
             **fund_flow_info,
-            **fault_info,
-            **advanced_structure_info # 合并最终结果
+            **advanced_structure_info,
+            **fault_info # 合并筹码断层指标的最终结果
         }
 
     def _calculate_peaks(self) -> dict:
