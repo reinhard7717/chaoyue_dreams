@@ -284,6 +284,8 @@
         },
         "metadata": {
           "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
+          "POST_ACCUMULATION_ASCENT_C": "【剧本】初升浪启动",
+          "STRUCTURE_POST_ACCUMULATION_ASCENT_C": "【结构】初升浪期间",
           "CHIP_STATE_HIGHLY_CONCENTRATED": "【筹码】高度集中",
           "CHIP_RAPID_CONCENTRATION": "【筹码】快速集中",
           "CHIP_HEALTH_EXCELLENT": "【筹码】健康度优秀",
@@ -491,8 +493,12 @@
         "max_amplitude_ratio": 0.05
       },
       "final_score_adjustments": {
-        "enabled": false,
+        "enabled": true,
         "说明": "【V80.0 指挥棒模型】最终得分调整层。在新的计分体系下，暂时禁用以观察基础分效果。",
+        "ascent_multiplier": {
+            "value": 1.2,
+            "description": "【新增】当处于“初升浪”期间，所有买入信号的得分乘以该系数，以体现顺势而为。"
+        },
         "multipliers": []
       },
       "intraday_entry_params": {
@@ -538,6 +544,26 @@
         "reduction_factor": {
           "value": 0.5,
           "description": "风险对冲系数。如果确认为“洗盘嫌疑”，则“主力派发”风险分乘以该系数（例如0.5代表打5折）。"
+        }
+      },
+      "post_accumulation_params": {
+        "enabled": true,
+        "description": "【V310.0 新增】初升浪诊断模块参数 (A股特化)",
+        "lookback_days": {
+          "value": 15,
+          "description": "定义“吸筹区”的回看窗口期（天）。"
+        },
+        "min_accumulation_days": {
+          "value": 3,
+          "description": "在回看窗口期内，至少需要多少天存在吸筹迹象才算作“吸筹区”。"
+        },
+        "persistence_days": {
+          "value": 15,
+          "description": "“初升浪”状态从突破日开始，可以持续的最大天数。"
+        },
+        "break_ma_period": {
+          "value": 21,
+          "description": "定义破坏“初升浪”状态的关键均线周期，跌破此均线则状态提前结束。"
         }
       }
     }

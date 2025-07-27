@@ -43,6 +43,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
+        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
@@ -1171,6 +1172,84 @@ class IntelligenceLayer:
                 
         print("        -> [触发事件中心 V234.0] 所有触发事件定义完成。")
         return triggers
+
+    def _diagnose_post_accumulation_phase(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V310.0 新增】初升浪诊断模块 (A股特化)
+        - 核心职责: 识别并标注那些刚刚完成“震荡吸筹”阶段，并开始“初升浪”的股票。
+                    这是A股市场中一个典型的高价值阶段。
+        - 诊断逻辑:
+          1. 定义“吸筹区”: 识别出存在“健康吸筹箱体”或“稳固筹码平台”的时期。
+          2. 定义“突破事件”: 捕捉从吸筹区向上放量突破的关键K线。
+          3. 生成“初升状态”: 从突破日开始，生成一个持续15个交易日的“初升浪”状态标签，
+                           如果期间出现结构性破位，则该状态提前终止。
+        """
+        print("        -> [诊断模块 V310.0] 启动，正在扫描“初升浪”模式...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 步骤1: 定义“吸筹区”上下文 ---
+        # 依赖于其他模块已经生成的原子状态
+        is_healthy_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
+        is_stable_platform = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        
+        # 只要满足其中一个条件，就认为当天有吸筹迹象
+        is_accumulating_day = is_healthy_box | is_stable_platform
+        
+        # 定义一个更宽松的“吸筹区”上下文：过去15天内至少有3天存在吸筹迹象
+        accumulation_context_params = get_params_block(self.strategy, 'post_accumulation_params', {})
+        lookback = get_param_value(accumulation_context_params.get('lookback_days'), 15)
+        min_days = get_param_value(accumulation_context_params.get('min_accumulation_days'), 3)
+        is_in_accumulation_zone = is_accumulating_day.rolling(window=lookback, min_periods=1).sum() >= min_days
+        
+        # --- 步骤2: 定义“突破事件” ---
+        breakout_params = get_params_block(self.strategy, 'trigger_event_params', {}).get('volume_spike_breakout', {})
+        vol_ratio = get_param_value(breakout_params.get('volume_ratio'), 2.0)
+        price_lookback = get_param_value(breakout_params.get('lookback_period'), 20)
+        
+        vol_ma_col = 'VOL_MA_21_D'
+        if vol_ma_col not in df.columns:
+            print("          -> [警告] 缺少 VOL_MA_21_D 列，无法定义突破事件，跳过初升浪诊断。")
+            return states
+
+        is_volume_spike = df['volume_D'] > df[vol_ma_col] * vol_ratio
+        is_price_breakout = df['close_D'] > df['high_D'].shift(1).rolling(price_lookback).max()
+        breakout_event = is_volume_spike & is_price_breakout
+
+        # --- 步骤3: 生成并维持“初升浪”状态 ---
+        # 进入条件：前一天处于“吸筹区”，且今天发生了“突破事件”
+        entry_event = is_in_accumulation_zone.shift(1).fillna(False) & breakout_event
+        
+        # 退出条件：趋势被破坏
+        persistence_days = get_param_value(accumulation_context_params.get('persistence_days'), 15)
+        break_ma_period = get_param_value(accumulation_context_params.get('break_ma_period'), 21)
+        break_ma_col = f'EMA_{break_ma_period}_D'
+        
+        if break_ma_col not in df.columns:
+            print(f"          -> [警告] 缺少 {break_ma_col} 列，无法定义退出条件，跳过初升浪诊断。")
+            return states
+            
+        is_breaking_ma = df['close_D'] < df[break_ma_col]
+        is_topping_danger = self.strategy.atomic_states.get('STRUCTURE_TOPPING_DANGER_S', default_series)
+        break_condition = is_breaking_ma | is_topping_danger
+
+        # 使用状态机生成持续性状态
+        post_accumulation_state = create_persistent_state(
+            df=df,
+            entry_event_series=entry_event,
+            persistence_days=persistence_days,
+            break_condition_series=break_condition,
+            state_name='STRUCTURE_POST_ACCUMULATION_ASCENT_C'
+        )
+        
+        states['STRUCTURE_POST_ACCUMULATION_ASCENT_C'] = post_accumulation_state
+        
+        active_days = post_accumulation_state.sum()
+        if active_days > 0:
+            print(f"        -> [诊断模块 V310.0] “初升浪”模式诊断完成，共识别到 {active_days} 天。")
+
+        return states
+
 
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

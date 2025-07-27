@@ -66,20 +66,38 @@ class OffensiveLayer:
     # ... (所有 _get_playbook_blueprints, _generate_playbook_states, _define_trigger_events, _apply_final_score_adjustments 方法从原文件复制到这里)
     # ... (同样，注意修改 self 引用)
     def _apply_final_score_adjustments(self, entry_score: pd.Series) -> pd.Series:
+        """
+        【V2.0 初升浪适配版】最终得分指挥棒模型
+        - 新增逻辑: 对处于“初升浪”期间的所有买入信号，应用全局分数乘数加成。
+        """
         df = self.strategy.df_indicators
         adjustment_params = get_params_block(self.strategy, 'final_score_adjustments')
         if not get_param_value(adjustment_params.get('enabled'), False):
             return entry_score
-        multipliers = adjustment_params.get('multipliers', [])
-        if not multipliers:
-            return entry_score
+        
         final_multiplier = pd.Series(1.0, index=df.index)
+
+        # 1. 应用配置文件中定义的通用乘数
+        multipliers = adjustment_params.get('multipliers', [])
         for rule in multipliers:
             state_name = rule.get('if_state')
             multiplier_value = rule.get('multiply_by')
             if state_name and multiplier_value:
                 condition_series = self.strategy.atomic_states.get(state_name, pd.Series(False, index=df.index))
                 final_multiplier.loc[condition_series] *= multiplier_value
+        
+        # ▼▼▼【功能适配】: 为“初升浪”模式应用全局分数加成 ▼▼▼
+        ascent_state_name = 'STRUCTURE_POST_ACCUMULATION_ASCENT_C'
+        # 优先从配置读取加成系数，若无则使用默认值1.2
+        ascent_multiplier = get_param_value(adjustment_params.get('ascent_multiplier'), 1.2) 
+        
+        if ascent_state_name in self.strategy.atomic_states:
+            ascent_condition = self.strategy.atomic_states[ascent_state_name]
+            if ascent_condition.any():
+                final_multiplier.loc[ascent_condition] *= ascent_multiplier
+                print(f"          -> [指挥棒] 已为 {ascent_condition.sum()} 天的“初升浪”期间应用 {ascent_multiplier}x 分数加成。")
+        # ▲▲▲【功能适配】▲▲▲
+
         return entry_score * final_multiplier
 
     def _get_playbook_blueprints(self) -> List[Dict]:
@@ -115,6 +133,15 @@ class OffensiveLayer:
             {
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳', 'family': 'REVERSAL_CONTRARIAN',
                 'type': 'setup', 'score': 190, 'side': 'left', 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线。'
+            },
+            {
+                'name': 'POST_ACCUMULATION_ASCENT_C', 
+                'cn_name': '【C+级】初升浪启动', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'setup', 
+                'score': 195, 
+                'side': 'right', 
+                'comment': 'C+级: 识别完成震荡吸筹后，首次放量突破启动的信号，代表初升浪的开始。'
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
