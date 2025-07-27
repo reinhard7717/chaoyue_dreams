@@ -29,19 +29,19 @@ class IntelligenceLayer:
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states = {}
         
-        df, structure_states = self._diagnose_market_structure_command(df, params)
-        chip_states, chip_triggers = self._run_chip_intelligence_command(df, params)
+        df, structure_states = self._diagnose_market_structure_command(df)
+        chip_states, chip_triggers = self._run_chip_intelligence_command(df)
         
         self.strategy.atomic_states.update(structure_states)
         self.strategy.atomic_states.update(chip_states)
-        self.strategy.atomic_states.update(self._diagnose_oscillator_states(df, params))
-        self.strategy.atomic_states.update(self._diagnose_capital_states(df, params))
-        self.strategy.atomic_states.update(self._diagnose_volatility_states(df, params))
-        self.strategy.atomic_states.update(self._diagnose_kline_patterns(df, params))
-        self.strategy.atomic_states.update(self._diagnose_board_patterns(df, params))
-        self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df, params))
+        self.strategy.atomic_states.update(self._diagnose_oscillator_states(df))
+        self.strategy.atomic_states.update(self._diagnose_capital_states(df))
+        self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
+        self.strategy.atomic_states.update(self._diagnose_kline_patterns(df))
+        self.strategy.atomic_states.update(self._diagnose_board_patterns(df))
+        self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
-        self.strategy.atomic_states.update(self._diagnose_market_structure_states(df, params))
+        self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
@@ -82,7 +82,7 @@ class IntelligenceLayer:
             return states, triggers
 
         # --- 2. 【新增】调用“全指标动态分析中心”，获取所有动态情报 ---
-        dynamic_states = self._diagnose_dynamic_chip_states(df, p)
+        dynamic_states = self._diagnose_dynamic_chip_states(df)
         states.update(dynamic_states)
 
         # --- 3. 执行静态与结构性分析 ---
@@ -534,7 +534,7 @@ class IntelligenceLayer:
 
         return states
 
-    def _diagnose_market_structure_command(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+    def _diagnose_market_structure_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V272.0 市场结构战区司令部】
         - 核心重构: 这不是一次合并，而是一次战略整合。
@@ -548,9 +548,9 @@ class IntelligenceLayer:
         
         # --- 1. 依次调动下属的专业化兵种，收集原子情报 ---
         print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
-        ma_states = self._diagnose_ma_states(df, params)
-        box_states = self._diagnose_box_states(df, params)
-        df, platform_states = self._diagnose_platform_states(df, params) # 平台诊断会修改df，需要接收
+        ma_states = self._diagnose_ma_states(df)
+        box_states = self._diagnose_box_states(df)
+        df, platform_states = self._diagnose_platform_states(df) # 平台诊断会修改df，需要接收
         
         # 将所有原子情报汇总
         atomic_structure_states = {**ma_states, **box_states, **platform_states}
