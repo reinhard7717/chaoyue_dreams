@@ -264,9 +264,7 @@ class IntelligenceLayer:
         is_overextended = (df['close_D'] / df[ma_col] - 1) > overextension_threshold
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         
-        # ▼▼▼【代码修改 V91.2】: 使用 np.maximum 替代 pd.max ▼▼▼
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
-        # ▲▲▲【代码修改 V91.2】▲▲▲
         
         has_long_upper_shadow = (upper_shadow / total_range) >= upper_shadow_ratio
         volume_threshold = df['volume_D'].rolling(window=21).quantile(high_volume_quantile)
@@ -274,7 +272,7 @@ class IntelligenceLayer:
         is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
         
         signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
-        # print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        # print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
         return signal
 
     # 结构破位侦察连: _diagnose_structure_breakdown()
@@ -313,7 +311,7 @@ class IntelligenceLayer:
         # 3. 组合所有条件
         signal = is_decisive_negative_candle & is_high_volume & is_breaking_ma
         
-        # print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{self._format_debug_dates(signal)}")
+        # print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
         return signal
 
     def _diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -497,7 +495,7 @@ class IntelligenceLayer:
             window=lookback_window, min_periods=1
         ).apply(np.any, raw=True).fillna(0).astype(bool)
         
-        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{self._format_debug_dates(self.strategy.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
+        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{format_debug_dates(self.strategy.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
         
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
         capital_params = get_params_block(self.strategy, 'capital_state_params')
@@ -857,14 +855,14 @@ class IntelligenceLayer:
         states['BOARD_EVENT_EARTH_HEAVEN'] = is_limit_down_low & is_limit_up_close
         
         # signal = states['BOARD_EVENT_EARTH_HEAVEN']
-        # dates_str = self._format_debug_dates(signal)
+        # dates_str = format_debug_dates(signal)
         # print(f"          -> '地天板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         is_limit_down_close = df['close_D'] <= limit_down_price * (1 + price_buffer)
         states['BOARD_EVENT_HEAVEN_EARTH'] = is_limit_up_high & is_limit_down_close
         
         # signal = states['BOARD_EVENT_HEAVEN_EARTH']
-        # dates_str = self._format_debug_dates(signal)
+        # dates_str = format_debug_dates(signal)
         # print(f"          -> '天地板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
         
         return states
