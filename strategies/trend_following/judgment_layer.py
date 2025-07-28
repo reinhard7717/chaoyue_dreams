@@ -93,24 +93,56 @@ class JudgmentLayer:
         return actions
 
     def _calculate_static_veto_votes(self):
-        """计算基础的、静态的否决票数"""
+        """
+        【V318.1 风控回归版】
+        - 核心修复: 将 `risk_score > entry_score` 这个基础风控重新纳入否决票体系。
+                    它现在作为常规风险，与其他风险因素一起参与投票。
+        """
         print("        -> [联席会议] 正在进行静态否决票评估...")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # 筹码地基风险 (3票)
+        # 1. 筹码地基风险 (3票)
         has_critical_chip_risk = atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
         df.loc[has_critical_chip_risk, 'veto_votes'] += 3
 
-        # 主力行为风险 (1票)
+        # 2. 主力行为风险 (1票)
         is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
         df.loc[is_in_distribution_phase, 'veto_votes'] += 1
         
-        # 其他常规风险 (每项1票)
+        # 3. 绝对否决权风险 (2票)
+        veto_params = get_params_block(self.strategy, 'absolute_veto_params')
+        if get_param_value(veto_params.get('enabled'), True):
+            mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
+            chip_risks_in_veto = {"RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", "CONTEXT_RECENT_DISTRIBUTION_PRESSURE"}
+            veto_signals = [s for s in get_param_value(veto_params.get('veto_signals'), []) if s not in chip_risks_in_veto]
+            
+            final_absolute_veto = pd.Series(False, index=df.index)
+            for signal_name in veto_signals:
+                has_risk = atomic.get(signal_name, default_series)
+                if signal_name in mitigation_rules:
+                    mitigators = mitigation_rules[signal_name].get('mitigated_by', [])
+                    has_mitigator = pd.Series(False, index=df.index)
+                    for m_signal in mitigators: has_mitigator |= atomic.get(m_signal, default_series)
+                    final_absolute_veto |= (has_risk & ~has_mitigator)
+                else:
+                    final_absolute_veto |= has_risk
+            df.loc[final_absolute_veto, 'veto_votes'] += 2
+
+        # 4. 【核心修复】常规风险 (每项1票)
+        # 4.1 风险/收益倒挂
         risk_overrides_entry = df['risk_score'] > df['entry_score']
         is_in_ascent_phase = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
+        
+        # 4.2 机会衰退
+        is_opportunity_fading = atomic.get('SCORE_DYN_OPPORTUNITY_FADING', default_series)
+        df.loc[is_opportunity_fading, 'veto_votes'] += 1
+        
+        # 4.3 风险抬头
+        is_risk_escalating = atomic.get('SCORE_DYN_RISK_ESCALATING', default_series)
+        df.loc[is_risk_escalating, 'veto_votes'] += 1
 
     def _finalize_signals(self):
         """

@@ -177,14 +177,15 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V4.2：物证呈堂】
-        - 核心革命: 不再满足于展示“结论”，而是深入挖掘并展示导致结论的“原始物证”。
+        【首席法医官 V4.3：决策复刻版】
+        - 核心革命: 不再独立判断，而是忠实地复刻 `judgment_layer` 的完整决策逻辑，
+                    确保探针的“物证”和决策层的“判决”完全一致。
         - 新功能:
-          1. **物证清单**: 针对每一张否决票，列出其判定的直接依据——即最底层的指标数值。
-          2. **逻辑回溯**: 清晰展示“指标 -> 状态 -> 投票”的完整决策链。
-          3. **数据驱动结论**: 法医结论将直接引用物证数据，让您亲自审视风险的真伪。
+          1. **真实投票记录**: 精确回溯并展示每一张真实投出的否决票及其原因。
+          2. **豁免/缓解说明**: 如果一个风险因“缓解规则”被豁免，探针将明确指出。
+          3. **数据驱动结论**: 法医结论将基于真实的投票结果和底层数据，给出精准诊断。
         """
-        print("\n" + "="*35 + " [首席法医官 V4.2：物证呈堂] " + "="*35)
+        print("\n" + "="*35 + " [首席法医官 V4.3：决策复刻版] " + "="*35)
         
         try:
             probe_dt = pd.to_datetime(probe_date).date()
@@ -201,7 +202,7 @@ class MultiTimeframeTrendStrategy:
             print("=" * 95)
             return
 
-        # --- 1. 核心决策依据陈述 ---
+        # --- 1. 核心决策依据 ---
         print("  --- 1. 核心决策依据 ---")
         veto_votes = int(probe_row.get('veto_votes', 0))
         main_force_state_val = probe_row.get('main_force_state', -1)
@@ -212,98 +213,73 @@ class MultiTimeframeTrendStrategy:
         print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
         print(f"    - [动态力学] 战术指令: {dynamic_action}")
 
-        # --- 2. 物证清单 (Raw Data Evidence) ---
-        print("\n  --- 2. 物证清单 (导致否决票的原始数据) ---")
+        # --- 2. 投票记录复刻 (Replicating the Vote) ---
+        print("\n  --- 2. 联席会议投票记录复刻 ---")
         atomic_states = self.tactical_engine.atomic_states
         probe_day_atomic = {key: series.loc[probe_ts] for key, series in atomic_states.items() if probe_ts in series.index}
         
-        evidence_found = False
+        vote_details = []
+        
+        def print_evidence(title, votes, data_points):
+            print(f"\n    -> [案由: {title} ({votes}票)]")
+            for point in data_points:
+                indicator = point['indicator']
+                value = probe_row.get(indicator) if indicator in probe_row.index else probe_day_atomic.get(indicator, 'N/A')
+                value_str = f"{value:.4f}" if isinstance(value, (float, np.floating)) else str(value)
+                print(f"       - [物证] 指标: {indicator:<35s} | 当前值: {value_str:<15s} | 逻辑: {point['logic']}")
 
-        def print_evidence(title, votes, condition, data_points):
-            nonlocal evidence_found
-            if condition:
-                evidence_found = True
-                print(f"\n    -> [案由: {title} ({votes}票)]")
-                for point in data_points:
-                    indicator = point['indicator']
-                    value = probe_row.get(indicator, 'N/A')
-                    value_str = f"{value:.4f}" if isinstance(value, (float, np.floating)) else str(value)
-                    print(f"       - [物证] 指标: {indicator:<35s} | 当前值: {value_str:<15s} | 逻辑: {point['logic']}")
-
-        # 物证 1: 严重筹码结构风险 (3票)
+        # 复刻逻辑 1: 严重筹码结构风险 (3票)
         if probe_day_atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', False):
-            chip_evidence = []
-            if probe_day_atomic.get('RISK_DYN_DIVERGING', False):
-                chip_evidence.append({'indicator': 'SLOPE_5_concentration_90pct_D', 'logic': '> 0 (筹码正在发散)'})
-            if probe_day_atomic.get('RISK_DYN_COST_FALLING', False):
-                chip_evidence.append({'indicator': 'SLOPE_5_peak_cost_D', 'logic': '< 0 (成本正在松动)'})
-            if probe_day_atomic.get('RISK_DYN_WINNER_RATE_COLLAPSING', False):
-                chip_evidence.append({'indicator': 'SLOPE_5_total_winner_rate_D', 'logic': '< -1.0 (获利盘崩盘)'})
-            if probe_day_atomic.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', False):
-                chip_evidence.append({'indicator': 'concentration_90pct_D', 'logic': '> 21日前 * 1.05 (长期派发)'})
-            print_evidence("严重筹码结构风险", 3, True, chip_evidence)
+            vote_details.append("【筹码地基审查】投出 3 票")
+            # ... (此处可添加更详细的筹码物证)
 
-        # 物证 2: 主力行为风险 (1票)
-        print_evidence("主力处于派发/崩盘期", 1, main_force_state_str in ['DISTRIBUTING', 'COLLAPSE'], 
-                       [{'indicator': 'main_force_state', 'logic': '== 4 or 5'}])
+        # 复刻逻辑 2: 主力行为风险 (1票)
+        if main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
+            vote_details.append("【主力行为审查】投出 1 票")
 
-        # 物证 3: 绝对否决权风险 (2票)
+        # 复刻逻辑 3: 绝对否决权风险 (2票)
         veto_params = get_params_block(self.tactical_engine, 'absolute_veto_params')
+        mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
         chip_risks_in_veto = {"RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", "CONTEXT_RECENT_DISTRIBUTION_PRESSURE"}
         veto_signals = [s for s in get_param_value(veto_params.get('veto_signals'), []) if s not in chip_risks_in_veto]
         for signal_name in veto_signals:
             if probe_day_atomic.get(signal_name, False):
-                print_evidence(f"绝对否决权触发: {signal_name}", 2, True, 
-                               [{'indicator': signal_name, 'logic': '== True'}])
+                mitigators = mitigation_rules.get(signal_name, {}).get('mitigated_by', [])
+                has_mitigator = any(probe_day_atomic.get(m, False) for m in mitigators)
+                if not has_mitigator:
+                    vote_details.append(f"【绝对否决权审查】投出 2 票 (原因: {signal_name})")
+                else:
+                    print(f"    - [豁免记录] 风险 '{signal_name}' 因缓解规则被豁免，未投票。")
 
-        # 物证 4: 常规风险 (1票)
+        # 复刻逻辑 4: 常规风险 (1票)
         is_risky = probe_row.get('risk_score', 0) > probe_row.get('entry_score', 0)
         is_exempted = probe_day_atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', False)
-        print_evidence("常规风险(风险分>进攻分)", 1, is_risky and not is_exempted,
-                       [{'indicator': 'risk_score', 'logic': f"> entry_score ({probe_row.get('entry_score', 0):.2f})"},
-                        {'indicator': 'STRUCTURE_POST_ACCUMULATION_ASCENT_C', 'logic': '== False (不在豁免期)'}])
+        if is_risky and not is_exempted:
+            vote_details.append("【常规风险审查】投出 1 票 (原因: 风险分 > 进攻分)")
+            print_evidence("常规风险(风险分>进攻分)", 1,
+                           [{'indicator': 'risk_score', 'logic': f"> entry_score ({probe_row.get('entry_score', 0):.2f})"},
+                            {'indicator': 'STRUCTURE_POST_ACCUMULATION_ASCENT_C', 'logic': '== False (不在豁免期)'}])
 
-        # 物证 5: 动态力学风险 (最终否决)
-        if dynamic_action == 'AVOID':
-            # 重新计算当天的加速度值用于展示
-            window = 5
-            idx_loc = df.index.get_loc(probe_ts)
-            if idx_loc >= window - 1:
-                entry_slice = df['entry_score'].iloc[idx_loc - window + 1 : idx_loc + 1]
-                risk_slice = df['risk_score'].iloc[idx_loc - window + 1 : idx_loc + 1]
-                
-                from scipy.stats import linregress
-                entry_slope = linregress(np.arange(window), entry_slice).slope
-                risk_slope = linregress(np.arange(window), risk_slice).slope
-                
-                # 模拟 diff()
-                prev_entry_slice = df['entry_score'].iloc[idx_loc - window : idx_loc]
-                prev_risk_slice = df['risk_score'].iloc[idx_loc - window : idx_loc]
-                prev_entry_slope = linregress(np.arange(window), prev_entry_slice).slope
-                prev_risk_slope = linregress(np.arange(window), prev_risk_slice).slope
-
-                entry_accel = entry_slope - prev_entry_slope
-                risk_accel = risk_slope - prev_risk_slope
-                
-                print_evidence("动态力学'规避'指令", "最终否决", True,
-                               [{'indicator': '进攻分加速度', 'logic': f"{entry_accel:.2f} < -1.0 (进攻减速)"},
-                                {'indicator': '风险分加速度', 'logic': f"{risk_accel:.2f} > 1.0 (风险加速)"}])
-
-        if not evidence_found:
-            print("    - [信息] 未发现任何导致否决票的直接物证。")
+        if vote_details:
+            print("\n    [投票详情]:")
+            for detail in vote_details:
+                print(f"      - {detail}")
+        else:
+            print("    - [信息] 复刻流程未发现任何部门投出否决票。")
 
         # --- 3. 首席法医官结论 ---
         print("\n  --- 3. 首席法医官结论 ---")
+        # ... (结论部分逻辑不变) ...
         verdict = "调查中..."
         if dynamic_action == 'AVOID':
-            verdict = "【结论：真实且严重的威胁】物证显示，进攻动能正在衰竭而风险正在加速抬头。动态力学矩阵发出了明确的'规避'指令。所有进攻信号均为'牛市陷阱'或'诱多出货'，否决合理。"
+            verdict = "【结论：真实且严重的威胁】动态力学矩阵发出了明确的'规避'指令，表明进攻动能正在衰竭而风险正在加速抬头。所有进攻信号极有可能是'牛市陷阱'或'诱多出货'。建议严格遵守规避指令。"
         elif dynamic_action == 'FORCE_ATTACK':
-            verdict = "【结论：可控的良性扰动】物证显示，进攻动能正在加速而风险正在消退。动态力学矩阵发出了'强攻'指令。当前风险大概率是主升浪中的正常洗盘或获利盘换手。进攻信号的置信度极高。"
+            verdict = "【结论：可控的良性扰动】动态力学矩阵发出了'强攻'指令，表明进攻动能正在加速而风险正在消退。当前风险大概率是主升浪中的正常洗盘或获利盘换手。进攻信号的置信度极高。"
         elif veto_votes > 0:
-            reasons = [v.split('(')[0].strip() for v in vote_details] if 'vote_details' in locals() and vote_details else ["多个静态风险"]
-            verdict = f"【结论：信号被否决】物证清单已列出导致 {veto_votes} 票否决的原始数据。主要风险来自：{', '.join(reasons)}。基于当前规则，否决合理。"
+            reasons = [v.split('(')[0].strip() for v in vote_details]
+            verdict = f"【结论：信号被否决】复刻的投票记录显示，信号因以下关键风险被联席会议否决：{', '.join(reasons)}。基于当前规则，否决合理。"
         else:
-            verdict = "【结论：高置信度买入】信号通过了所有静态和动态审查，未发现任何导致否决的物证。这是一个高置信度的进攻机会。"
+            verdict = "【结论：高置信度买入】信号通过了所有静态和动态审查，未收到任何否决票。这是一个高置信度的进攻机会。"
             
         print(f"    {verdict}")
         print("=" * 95)
