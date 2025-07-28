@@ -12,6 +12,8 @@ class JudgmentLayer:
         print("    --- [最高作战指挥部 V304.0] 启动，正在执行“评估-决策”一体化流程... ---")
         df = self.strategy.df_indicators
         
+        self._diagnose_score_dynamics()
+        
         df['final_score'] = 0.0
         df['signal_type'] = '中性'
         df['signal_entry'] = False
@@ -21,6 +23,21 @@ class JudgmentLayer:
         is_potential_buy = df['entry_score'] > 0
         risk_overrides_entry = df['risk_score'] > df['entry_score']
         df.loc[is_potential_buy, 'signal_type'] = '买入信号'
+
+        print("        -> [战略参谋部] 正在评估“初升浪”战术豁免权...")
+        is_in_ascent_phase = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', pd.Series(False, index=df.index))
+        
+        risk_overrides_entry = df['risk_score'] > df['entry_score']
+        # 核心修改：只有在“非初升浪”期间，风险分才能常规地否决进攻分
+        final_risk_override_condition = is_potential_buy & risk_overrides_entry & ~is_in_ascent_phase
+        
+        df.loc[final_risk_override_condition, 'signal_type'] = '卖出信号'
+        
+        # 打印豁免日志
+        exempted_days = is_potential_buy & risk_overrides_entry & is_in_ascent_phase
+        if exempted_days.any():
+             print(f"          -> [豁免报告] “初升浪”豁免权已触发！在 {exempted_days.sum()} 天内，风险分被禁止否决进攻分，以保护趋势。")
+        
         df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
 
         print("        -> [军事监察部] 正在执行“绝对否决权”审查...")
@@ -47,6 +64,19 @@ class JudgmentLayer:
         if is_entering_markup.any():
             print(f"          -> [战略报告] “黄金买点”已确认！在 {is_entering_markup.sum()} 天内发现了战略建仓机会。")
 
+        print("        -> [元决策单元] 正在应用分数动态进行最终裁决...")
+        # 裁决1: 如果机会正在衰退，则否决买入信号 (防范冲高回落的陷阱)
+        is_opportunity_fading = self.strategy.atomic_states.get('SCORE_DYN_OPPORTUNITY_FADING', pd.Series(False, index=df.index))
+        df.loc[is_opportunity_fading, 'signal_type'] = '卖出信号'
+        if (is_opportunity_fading & is_potential_buy).any():
+            print(f"          -> [元裁决] “机会衰退”否决已触发！在 {(is_opportunity_fading & is_potential_buy).sum()} 天内否决了潜在买点。")
+
+        # 裁决2: 如果风险正在抬头，则否决买入信号 (防范风险累积)
+        is_risk_escalating = self.strategy.atomic_states.get('SCORE_DYN_RISK_ESCALATING', pd.Series(False, index=df.index))
+        df.loc[is_risk_escalating, 'signal_type'] = '卖出信号'
+        if (is_risk_escalating & is_potential_buy).any():
+            print(f"          -> [元裁决] “风险抬头”否决已触发！在 {(is_risk_escalating & is_potential_buy).sum()} 天内否决了潜在买点。")
+
         # 调用离场层
         self.strategy.exit_layer.calculate_exit_signals()
 
@@ -65,3 +95,48 @@ class JudgmentLayer:
             print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type', 'exit_severity_level', 'main_force_state']])
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
+
+    def _diagnose_score_dynamics(self):
+        """
+        【V311.1 线性回归升级版】元情报诊断模块
+        - 核心升级: 使用基于5日滚动窗口的线性回归计算斜率，取代简单的差分。
+                    这能有效过滤掉分数的日常噪音，捕捉更可靠的趋势变化，
+                    极大提升了“元状态”的信号质量。
+        """
+        print("        -> [元情报诊断单元 V311.1] 正在分析分数动态(线性回归)...")
+        df = self.strategy.df_indicators
+        
+        # 定义滚动窗口
+        window = 5
+
+        # 使用 apply 和线性回归计算滚动斜率
+        # np.arange(window) 创建一个 [0, 1, 2, 3, 4] 的时间序列作为 x
+        # .iloc[-1] 是因为 linregress 返回多个值，我们只需要斜率(slope)
+        entry_score_slope = df['entry_score'].rolling(window).apply(
+            lambda y: linregress(np.arange(window), y).slope, raw=False
+        )
+        risk_score_slope = df['risk_score'].rolling(window).apply(
+            lambda y: linregress(np.arange(window), y).slope, raw=False
+        )
+
+        # 定义斜率阈值，防止趋势过于平缓时产生信号
+        # 对于线性回归斜率，阈值可以设置得更小
+        opportunity_threshold = 2.0 
+        risk_threshold = 2.0
+
+        # 生成元状态并存入 atomic_states
+        self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_RISING'] = entry_score_slope > opportunity_threshold
+        self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = entry_score_slope < -opportunity_threshold
+        self.strategy.atomic_states['SCORE_DYN_RISK_ESCALATING'] = risk_score_slope > risk_threshold
+        self.strategy.atomic_states['SCORE_DYN_RISK_SUBSIDING'] = risk_score_slope < -risk_threshold
+        
+        print("          -> [元情报] “机会/风险”的动态趋势已生成。")
+
+
+
+
+
+
+
+
+
