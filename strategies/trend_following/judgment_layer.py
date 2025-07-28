@@ -11,104 +11,126 @@ class JudgmentLayer:
         self.strategy = strategy_instance
 
     def make_final_decisions(self):
-        print("    --- [最高作战指挥部 V304.0] 启动，正在执行“评估-决策”一体化流程... ---")
+        """
+        【V316.0 筹码加权版】
+        - 核心重构: 恢复并强化“联席会议”加权否决票体系。
+        - 筹码地基: “严重筹码结构风险”将投出3张否决票，权重最高。
+        - 动态容忍: 进攻分越高的信号，能容忍的否决票越多，为极端机会保留可能。
+        - 决策流程: 筹码风险 -> 主力行为 -> 其他风险 -> 联席会议投票 -> 最终裁决。
+        """
+        print("    --- [最高作战指挥部 V316.0 筹码加权版] 启动... ---")
         df = self.strategy.df_indicators
-        
-        self._diagnose_score_dynamics()
         
         df['final_score'] = 0.0
         df['signal_type'] = '中性'
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
         df['exit_severity_level'] = 0
+        df['veto_votes'] = 0
 
+        self._diagnose_score_dynamics()
+        
+        # --- 联席会议开始：各部门提交否决意见 ---
         is_potential_buy = df['entry_score'] > 0
-        risk_overrides_entry = df['risk_score'] > df['entry_score']
-        df.loc[is_potential_buy, 'signal_type'] = '买入信号'
+        default_series = pd.Series(False, index=df.index)
 
-        print("        -> [战略参谋部] 正在评估“初升浪”战术豁免权...")
-        is_in_ascent_phase = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', pd.Series(False, index=df.index))
-        
-        risk_overrides_entry = df['risk_score'] > df['entry_score']
-        # 核心修改：只有在“非初升浪”期间，风险分才能常规地否决进攻分
-        final_risk_override_condition = is_potential_buy & risk_overrides_entry & ~is_in_ascent_phase
-        
-        df.loc[final_risk_override_condition, 'signal_type'] = '卖出信号'
-        
-        # 打印豁免日志
-        exempted_days = is_potential_buy & risk_overrides_entry & is_in_ascent_phase
-        if exempted_days.any():
-             print(f"          -> [豁免报告] “初升浪”豁免权已触发！在 {exempted_days.sum()} 天内，风险分被禁止否决进攻分，以保护趋势。")
+        # 1. 【最高权重】筹码地基审查
+        print("        -> [联席会议] 正在执行“筹码地基”审查...")
+        has_critical_chip_risk = self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
+        df.loc[has_critical_chip_risk, 'veto_votes'] += 3 # 投出3票！
+        if has_critical_chip_risk.any():
+            print(f"          -> [筹码地基审查] 发现严重筹码结构风险，在 {has_critical_chip_risk.sum()} 天内投出3张否决票！")
 
-        print("        -> [军事监察部] 正在执行“绝对否决权”审查...")
+        # 2. 主力行为分析部
+        print("        -> [联席会议] 正在执行“主力行为”审查...")
+        is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
+        df.loc[is_in_distribution_phase, 'veto_votes'] += 1
+        if is_in_distribution_phase.any():
+            print(f"          -> [主力行为审查] 因处于“派发/崩盘期”，在 {is_in_distribution_phase.sum()} 天内投出1张否决票。")
+
+        # 3. 军事监察部：评估“绝对否决权”风险（非筹码类）
+        print("        -> [联席会议] 正在执行“绝对否决权”审查...")
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
         if get_param_value(veto_params.get('enabled'), True):
-            veto_signals = get_param_value(veto_params.get('veto_signals'), [])
-            has_absolute_veto_risk = pd.Series(False, index=df.index)
+            # 注意：这里的 veto_signals 应该排除已在筹码审查中处理过的信号
+            chip_risks_in_veto = {
+                "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", # 假设这个与主力行为有关
+                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE" # 假设这个与主力行为有关
+            }
+            veto_signals = [s for s in get_param_value(veto_params.get('veto_signals'), []) if s not in chip_risks_in_veto]
+            mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
+            
+            final_absolute_veto = pd.Series(False, index=df.index)
             for signal_name in veto_signals:
-                risk_series = self.strategy.atomic_states.get(signal_name, pd.Series(False, index=df.index))
-                has_absolute_veto_risk |= risk_series
-            if has_absolute_veto_risk.any():
-                df.loc[has_absolute_veto_risk, 'signal_type'] = '卖出信号'
-                print(f"          -> [审查报告] “绝对否决权”已触发！在 {has_absolute_veto_risk.sum()} 天内强制覆盖了买入信号。")
+                has_risk = self.strategy.atomic_states.get(signal_name, default_series)
+                if signal_name in mitigation_rules:
+                    mitigators = mitigation_rules[signal_name].get('mitigated_by', [])
+                    has_mitigator = pd.Series(False, index=df.index)
+                    for m_signal in mitigators: has_mitigator |= self.strategy.atomic_states.get(m_signal, default_series)
+                    final_absolute_veto |= (has_risk & ~has_mitigator)
+                else:
+                    final_absolute_veto |= has_risk
+            df.loc[final_absolute_veto, 'veto_votes'] += 2 # 投出2票
+            if final_absolute_veto.any():
+                print(f"          -> [绝对否决权审查] 在 {final_absolute_veto.sum()} 天内投出2张否决票。")
 
-        print("        -> [战略参谋部] 正在执行“主力行为序列”审查...")
-        is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
-        df.loc[is_in_distribution_phase, 'signal_type'] = '卖出信号'
-        if is_in_distribution_phase.any():
-            print(f"          -> [战略报告] “派发/崩盘期”否决已触发！在 {is_in_distribution_phase.sum()} 天内强制覆盖了买入信号。")
+        # 4. 其他常规风险评估
+        print("        -> [联席会议] 正在执行其他常规风险评估...")
+        is_in_ascent_phase = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
+        risk_overrides_entry = df['risk_score'] > df['entry_score']
+        regular_risk_veto = risk_overrides_entry & ~is_in_ascent_phase
+        df.loc[regular_risk_veto, 'veto_votes'] += 1
 
+        is_opportunity_fading = self.strategy.atomic_states.get('SCORE_DYN_OPPORTUNITY_FADING', default_series)
+        df.loc[is_opportunity_fading, 'veto_votes'] += 1
+        is_risk_escalating = self.strategy.atomic_states.get('SCORE_DYN_RISK_ESCALATING', default_series)
+        df.loc[is_risk_escalating, 'veto_votes'] += 1
+
+        # --- 最高指挥部最终裁决：基于进攻分和总否决票数 ---
+        print("        -> [最高指挥部] 正在根据“进攻分”与“总否决票数”进行最终裁决...")
+        
+        # 动态容忍度规则
+        buy_condition = (
+            is_potential_buy & 
+            (
+                (df['entry_score'] < 400) & (df['veto_votes'] == 0) |
+                (df['entry_score'].between(400, 799)) & (df['veto_votes'] <= 1) |
+                (df['entry_score'].between(800, 1199)) & (df['veto_votes'] <= 2) |
+                (df['entry_score'] >= 1200) & (df['veto_votes'] <= 3) # 只有天选之子才能承受筹码地基风险
+            )
+        )
+
+        # 特殊情况：黄金买点，拥有最高优先权，但仍需通过筹码地基审查
         prev_state = df['main_force_state'].shift(1)
         is_entering_markup = (prev_state.isin([MainForceState.ACCUMULATING.value, MainForceState.WASHING.value]) & (df['main_force_state'] == MainForceState.MARKUP.value))
-        df.loc[is_entering_markup, 'signal_type'] = '买入信号'
-        if is_entering_markup.any():
-            print(f"          -> [战略报告] “黄金买点”已确认！在 {is_entering_markup.sum()} 天内发现了战略建仓机会。")
+        golden_buy_point = is_entering_markup & ~has_critical_chip_risk
+        if golden_buy_point.any():
+            print(f"          -> [最高指令] “黄金买点”已确认！在 {golden_buy_point.sum()} 天内，无视战术否决票，强制生成买入信号。")
+        
+        final_buy_condition = buy_condition | golden_buy_point
+        
+        df.loc[final_buy_condition, 'signal_type'] = '买入信号'
+        df.loc[is_potential_buy & ~final_buy_condition, 'signal_type'] = '卖出信号'
 
-        print("        -> [元决策单元] 正在应用分数动态进行最终裁决...")
-        # 裁决1: 如果机会正在衰退，则否决买入信号 (防范冲高回落的陷阱)
-        is_opportunity_fading = self.strategy.atomic_states.get('SCORE_DYN_OPPORTUNITY_FADING', pd.Series(False, index=df.index))
-        df.loc[is_opportunity_fading, 'signal_type'] = '卖出信号'
-        if (is_opportunity_fading & is_potential_buy).any():
-            print(f"          -> [元裁决] “机会衰退”否决已触发！在 {(is_opportunity_fading & is_potential_buy).sum()} 天内否决了潜在买点。")
-
-        # 裁决2: 如果风险正在抬头，则否决买入信号 (防范风险累积)
-        is_risk_escalating = self.strategy.atomic_states.get('SCORE_DYN_RISK_ESCALATING', pd.Series(False, index=df.index))
-        df.loc[is_risk_escalating, 'signal_type'] = '卖出信号'
-        if (is_risk_escalating & is_potential_buy).any():
-            print(f"          -> [元裁决] “风险抬头”否决已触发！在 {(is_risk_escalating & is_potential_buy).sum()} 天内否决了潜在买点。")
-
-        # 调用离场层
+        # --- 后续处理 ---
         self.strategy.exit_layer.calculate_exit_signals()
-
-        # 目标：即使买入被否决，也要在最终结果中记录原始的 entry_score 和 risk_score，
-        #       而不是简单地归零，这对于事后分析至关重要。
-
-        # 步骤1: 识别最终的买入和卖出条件
-        final_buy_condition = df['signal_type'] == '买入信号'
-        # 卖出条件现在更宽泛：任何非中性且非买入的信号，都视为一种“卖出”或“观望”状态
-        final_sell_condition = (df['signal_type'] != '中性') & (~final_buy_condition)
-
-        # 步骤2: 为买入信号设置最终状态
+        
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
-        # 如果是明确的买入，则清除所有离场/预警信号
         df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level']] = 0
 
-        # 步骤3: 【核心改造】为被否决的信号（即卖出信号）记录信息
-        # 我们不再将它们的 final_score 设为0，而是保留 entry_score 用于分析
-        # 这样在数据库中，我们能看到一个高 entry_score 但 entry_signal=0 的记录，立刻明白它被否决了
+        final_sell_condition = (df['signal_type'] == '卖出信号')
         df.loc[final_sell_condition, 'final_score'] = df.loc[final_sell_condition, 'entry_score']
         df.loc[final_sell_condition, 'signal_entry'] = False
         
-        # 检查是否有离场层生成的明确卖出代码 (如风险分过高)
         is_explicit_exit = df['exit_signal_code'] >= 88
-        df.loc[is_explicit_exit, 'signal_type'] = '卖出信号' # 确保 signal_type 统一
+        df.loc[is_explicit_exit, 'signal_type'] = '卖出信号'
 
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
         if not final_check_df.empty:
             print("          -> [最终分数审查报告]:")
-            print(final_check_df[['entry_score', 'risk_score', 'final_score', 'signal_type', 'exit_severity_level', 'main_force_state']])
+            print(final_check_df[['entry_score', 'risk_score', 'veto_votes', 'final_score', 'signal_type', 'main_force_state']])
         else:
             print("          -> [最终分数审查报告]: 未发现任何有效信号。")
 

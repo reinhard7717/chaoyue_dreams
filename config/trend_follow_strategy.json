@@ -225,17 +225,18 @@
         "positional_scoring": {
           "说明": "【阵地分】评估静态位置和健康趋势。",
           "positive_signals": {
-            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 350,
+            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 500,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 150,
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "PLATFORM_STATE_STABLE_FORMED": 120,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 100,
+            "CHIP_DYN_COST_ACCELERATING": 400,
+            "CHIP_STATE_HIGHLY_CONCENTRATED": 200,
             "CHIP_DYN_COST_RISING": 80,
             "CHIP_DYN_CONCENTRATING": 80,
             "MA_STATE_STABLE_BULLISH": 70,
             "CHIP_DYN_WINNER_RATE_RISING": 60,
-            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 30
+            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150
           }
         },
         "dynamic_scoring": {
@@ -275,7 +276,7 @@
         },
         "trigger_events": {
           "说明": "【触发分 - 权重降低】大幅降低K线等瞬时信号的权重，减少追高冲动。",
-          "TRIGGER_CHIP_IGNITION": 80,
+          "TRIGGER_CHIP_IGNITION": 150,
           "VOL_BREAKOUT_FROM_SQUEEZE": 70,
           "TRIGGER_DOMINANT_REVERSAL": 50,
           "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
@@ -633,14 +634,28 @@
   },
   "absolute_veto_params": {
     "enabled": true,
-    "说明": "【V303.0 新增】绝对否决权。定义了拥有最高决策否决权的风险信号。一旦触发，将无视任何进攻分数，直接否决买入。",
+    "说明": "【V314.0 弹性否决版】绝对否决权。引入'缓解规则'，允许在特定条件下对冲部分否决信号，增加策略弹性。",
     "veto_signals": [
       "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING",
       "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
       "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
       "STRUCTURE_TOPPING_DANGER_S"
-    ]
+    ],
+    "mitigation_rules": {
+      "说明": "【新增】豁免/缓解规则。当强大的正面信号出现时，可以抵消掉某些'绝对否决'风险。",
+      "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": {
+        "mitigated_by": [
+          "COGNITIVE_PATTERN_LOCK_CHIP_RALLY",
+          "STRUCTURE_MAIN_UPTREND_WAVE_S"
+        ],
+        "description": "如果只是'近期派发压力'，但同时处于'锁筹拉升'或'S级主升浪'的认知模式下，则此风险可被豁免。"
+      },
+      "STRUCTURE_TOPPING_DANGER_S": {
+        "mitigated_by": ["CONTEXT_EXPLOSIVE_RALLY"],
+        "description": "如果出现'S级顶部危险'结构，但当日K线是'爆炸性拉升阳线'，则可能是最后的疯狂或洗盘，暂时豁免，交由风险分处理。"
+      }
+    }
   },
   "risk_quantifier_params": {
     "enabled": true,

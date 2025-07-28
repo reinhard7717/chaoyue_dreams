@@ -60,68 +60,66 @@ class IntelligenceLayer:
     
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V283.0 动静分离版】筹码情报最高司令部
-        - 核心重构: 将所有动态分析(斜率/加速度)的职责，移交给新建的
-                    `_diagnose_dynamic_chip_states` 动态分析中心。
-        - 新职责: 本模块现在专注于筹码的“静态”和“结构性”分析，并整合动态中心的
-                  情报，形成最终的筹码态势报告。
+        【V316.0 筹码加权版】筹码情报最高司令部
+        - 核心重构: 不再生成绝对的`CHIP_STRUCTURE_OK`，而是提炼一个综合性的
+                    “严重筹码结构风险”信号: `RISK_CHIP_STRUCTURE_CRITICAL_FAILURE`。
+                    这为决策层提供了更具权重的、可量化的地基风险评估依据。
         """
-        print("        -> [筹码情报最高司令部 V283.0 动静分离版] 启动...")
+        print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 读取参数并检查基础数据 ---
         p = get_params_block(self.strategy, 'chip_feature_params')
-        if not get_param_value(p.get('enabled'), False):
-            print("          -> 筹码情报最高司令部被禁用，跳过。")
-            return states, triggers
+        if not get_param_value(p.get('enabled'), False): return states, triggers
 
         required_cols = ['concentration_90pct_D', 'chip_health_score_D', 'peak_cost_accel_5d_D']
-        if any(col not in df.columns for col in required_cols):
-            print(f"          -> [警告] 筹码司令部缺少基础数据，跳过。")
-            return states, triggers
+        if any(col not in df.columns for col in required_cols): return states, triggers
 
-        # --- 2. 【新增】调用“全指标动态分析中心”，获取所有动态情报 ---
         dynamic_states = self._diagnose_dynamic_chip_states(df)
         states.update(dynamic_states)
 
-        # --- 3. 执行静态与结构性分析 ---
         p_struct = p.get('structure_params', {})
         conc_col = 'concentration_90pct_D'
         
-        # “高度集中”状态的定义，现在依赖动态中心的健康信号
         is_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        is_trend_healthy = ~states.get('RISK_DYN_DIVERGING', default_series) # 只要没在发散，趋势就是健康的
+        is_trend_healthy = ~states.get('RISK_DYN_DIVERGING', default_series)
         states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_concentrated_static & is_trend_healthy
 
-        # “筹码点火”触发器 (这是唯一保留的加速度直接应用，因为它是一个瞬时trigger)
         p_ignition = p.get('ignition_params', {})
         if get_param_value(p_ignition.get('enabled'), True):
             accel_threshold = get_param_value(p_ignition.get('accel_threshold'), 0.01)
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
-        # “健康分优秀”状态
         states['CHIP_HEALTH_EXCELLENT'] = df.get('chip_health_score_D', 0) > 85
 
-        # “长期派发”风险 (这是一个结构性判断，予以保留)
         is_in_high_level_zone = self._define_high_level_distribution_zone(df)
         worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
 
-        # --- 4. 基于整合后的情报，裁定 CHIPCON 等级 ---
+        chip_risk_1 = states.get('RISK_DYN_DIVERGING', default_series)
+        chip_risk_2 = states.get('RISK_DYN_COST_FALLING', default_series)
+        chip_risk_3 = states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
+        chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+        
+        # 只要有任何一个核心筹码风险存在，就标记为严重结构性风险
+        is_chip_structure_unhealthy = chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4
+        states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
+        if is_chip_structure_unhealthy.any():
+            print(f"          -> [地基风险报告] 在 {is_chip_structure_unhealthy.sum()} 天内，侦测到严重筹码结构风险。")
+
         is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
         is_cost_rising = states.get('CHIP_DYN_COST_RISING', default_series)
         is_winner_rate_rising = states.get('CHIP_DYN_WINNER_RATE_RISING', default_series)
         is_long_term_distributing = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01 # 临时保留
+        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01
 
         states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
         states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
         
-        print("        -> [筹码情报最高司令部 V283.0 动静分离版] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 分析完毕。")
         return states, triggers
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
