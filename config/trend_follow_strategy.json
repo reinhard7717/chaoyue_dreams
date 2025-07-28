@@ -116,7 +116,7 @@
         "VPA_EFFICIENCY_D": [5],
 
         "说明_FRACTAL": "--- 【新增】分形与力学指标 ---",
-        "hurst_60d_D": [5],
+        "hurst_120d_D": [5],
         "price_cv_60d_D": [5],
         "energy_ratio_D": [5]
       }
