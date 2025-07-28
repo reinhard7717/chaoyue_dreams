@@ -327,9 +327,10 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V319.0 生产模式精简版】
-        - 核心优化: 移除了所有与“探针”相关的调试代码，使其成为一个纯粹的、
-                    高性能的信号生成引擎，专用于生产环境。
+        【V320.0 报告净化版】
+        - 核心修复: 在调用报告层之前，对最终的分析结果执行一次“主动净化”，
+                    确保买入信号日的所有风险/卖出相关字段都被重置为默认值，
+                    彻底解决“幽灵标签”问题。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -337,7 +338,7 @@ class MultiTimeframeTrendStrategy:
             return []
 
         try:
-            # 1. 调用核心策略引擎
+            # 1. 调用核心策略引擎 (逻辑不变)
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
             )
@@ -347,16 +348,29 @@ class MultiTimeframeTrendStrategy:
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return []
 
-            # 2. 【重要】保存分析结果以供其他引擎（如盘中引擎）使用
+            # 2. 【重要】保存分析结果 (逻辑不变)
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
-            # 同时保存细节DataFrame，以备调试模式下使用
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
             
-            # 3. 调用报告层生成数据库记录
+            # --- 【核心修复】主动净化报告数据源 ---
+            # 在将数据送去生成报告前，进行最后一次清洗，确保逻辑的最终正确性。
+            is_buy_signal_day = daily_analysis_df['signal_type'] == '买入信号'
+            
+            # 在所有识别为“买入信号”的日子里，强制将所有与卖出/风险相关的字段重置为默认值
+            columns_to_clean = ['exit_signal_code', 'alert_level', 'alert_reason', 'exit_severity_level', 'exit_signal_reason']
+            for col in columns_to_clean:
+                if col in daily_analysis_df.columns:
+                    # 根据列的数据类型设置合适的默认值
+                    default_value = 0 if 'code' in col or 'level' in col else ''
+                    daily_analysis_df.loc[is_buy_signal_day, col] = default_value
+            
+            print("    -> [报告净化单元] 已对买入信号日的风险标签执行最终净化。")
+            
+            # 3. 调用报告层生成数据库记录 (现在使用净化后的DataFrame)
             db_records = self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=daily_analysis_df,
+                result_df=daily_analysis_df, # <--- 传递净化后的版本
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
