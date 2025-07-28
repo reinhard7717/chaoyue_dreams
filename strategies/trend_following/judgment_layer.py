@@ -80,13 +80,29 @@ class JudgmentLayer:
         # 调用离场层
         self.strategy.exit_layer.calculate_exit_signals()
 
-        is_pure_sell = df['exit_signal_code'] >= 88
-        df.loc[is_pure_sell, 'signal_type'] = '卖出信号'
+        # 目标：即使买入被否决，也要在最终结果中记录原始的 entry_score 和 risk_score，
+        #       而不是简单地归零，这对于事后分析至关重要。
 
+        # 步骤1: 识别最终的买入和卖出条件
         final_buy_condition = df['signal_type'] == '买入信号'
+        # 卖出条件现在更宽泛：任何非中性且非买入的信号，都视为一种“卖出”或“观望”状态
+        final_sell_condition = (df['signal_type'] != '中性') & (~final_buy_condition)
+
+        # 步骤2: 为买入信号设置最终状态
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
+        # 如果是明确的买入，则清除所有离场/预警信号
         df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level']] = 0
+
+        # 步骤3: 【核心改造】为被否决的信号（即卖出信号）记录信息
+        # 我们不再将它们的 final_score 设为0，而是保留 entry_score 用于分析
+        # 这样在数据库中，我们能看到一个高 entry_score 但 entry_signal=0 的记录，立刻明白它被否决了
+        df.loc[final_sell_condition, 'final_score'] = df.loc[final_sell_condition, 'entry_score']
+        df.loc[final_sell_condition, 'signal_entry'] = False
+        
+        # 检查是否有离场层生成的明确卖出代码 (如风险分过高)
+        is_explicit_exit = df['exit_signal_code'] >= 88
+        df.loc[is_explicit_exit, 'signal_type'] = '卖出信号' # 确保 signal_type 统一
 
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         final_check_df = df[(df['signal_type'] != '中性')].tail(5)
