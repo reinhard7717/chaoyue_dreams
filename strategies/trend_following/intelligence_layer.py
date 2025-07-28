@@ -2,6 +2,7 @@
 # 情报层
 import pandas as pd
 import numpy as np
+from scipy.stats import linregress
 from typing import Dict, Tuple
 from enum import Enum
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
