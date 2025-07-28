@@ -92,7 +92,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V237.0 量价动态版】为所有诊断模块，提供了其必需的、全部的、正确的斜率计算周期。",
+      "说明": "【V237.0 + 分形动态版】...",
       "series_to_slope": {
         "close_D": [5],
         "EMA_13_D": [5, 13],
@@ -102,7 +102,7 @@
         "EMA_21_W": [5, 13],
         "BBW_21_2.0_D": [5],
 
-        "说明_CHIP": "--- 以下为筹码相关指标，注意已移除CHIP_前缀 ---",
+        "说明_CHIP": "--- 以下为筹码相关指标 ---",
         "peak_cost_D": [5, 8, 21, 55],
         "concentration_90pct_D": [5, 21],
         "total_winner_rate_D": [5, 21],
@@ -113,7 +113,12 @@
 
         "说明_VPA": "量价动态分析所需指标",
         "volume_D": [5],
-        "VPA_EFFICIENCY_D": [5]
+        "VPA_EFFICIENCY_D": [5],
+
+        "说明_FRACTAL": "--- 【新增】分形与力学指标 ---",
+        "hurst_60d_D": [5],
+        "price_cv_60d_D": [5],
+        "energy_ratio_D": [5]
       }
     }
   },
@@ -236,7 +241,9 @@
             "CHIP_DYN_CONCENTRATING": 80,
             "MA_STATE_STABLE_BULLISH": 70,
             "CHIP_DYN_WINNER_RATE_RISING": 60,
-            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150
+            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150,
+            "MECHANICS_ENERGY_ADVANTAGE": 100,
+            "FRACTAL_STATE_STRONG_TREND": 150
           }
         },
         "dynamic_scoring": {
@@ -248,7 +255,10 @@
             "DYN_TREND_HEALTHY_ACCELERATING": 180,
             "CONTEXT_STRONG_BREAKOUT_RALLY": 160,
             "VOL_STATE_EXTREME_SQUEEZE": 130,
-            "CHIP_DYN_HEALTH_IMPROVING": 60
+            "CHIP_DYN_HEALTH_IMPROVING": 60,
+            "MECHANICS_COST_ACCELERATING": 200,
+            "MECHANICS_INERTIA_DECREASING": 180,
+            "FRACTAL_DYN_TREND_ACCELERATING": 220
           }
         },
         "risk_scoring": {
@@ -271,7 +281,9 @@
             "RISK_DYN_COST_FALLING": 200,
             "RISK_DYN_HEALTH_DETERIORATING": 150,
             "PLATFORM_FAILURE": 150,
-            "DYN_TREND_WEAKENING_DECELERATING": 100
+            "DYN_TREND_WEAKENING_DECELERATING": 100,
+            "FRACTAL_RISK_TOP_DIVERGENCE": 800, "说明_FRACTAL_RISK_TOP_DIVERGENCE": "分形顶背离，给予极高风险分",
+            "FRACTAL_EVENT_TREND_EXHAUSTION": 500, "说明_FRACTAL_EVENT_TREND_EXHAUSTION": "趋势衰竭，给予高风险分"
           }
         },
         "trigger_events": {
@@ -281,7 +293,9 @@
           "TRIGGER_DOMINANT_REVERSAL": 50,
           "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
           "TRIGGER_BREAKOUT_CANDLE": 40,
-          "TRIGGER_ENERGY_RELEASE": 50
+          "TRIGGER_ENERGY_RELEASE": 50,
+          "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
+          "FRACTAL_EVENT_TREND_FORMING": 100
         },
         "metadata": {
           "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
@@ -330,7 +344,16 @@
           "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": "【认知】近期派发压力",
           "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN": "【认知】动态欺骗性换手",
           "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": "【认知】突破派发",
-          "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": "【风险】长期派发"
+          "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": "【风险】长期派发",
+          "MECHANICS_ENERGY_ADVANTAGE": "【力学】势能优势",
+          "FRACTAL_STATE_STRONG_TREND": "【分形】强趋势状态",
+          "MECHANICS_COST_ACCELERATING": "【力学】成本加速",
+          "MECHANICS_INERTIA_DECREASING": "【力学】惯量减小(锁定)",
+          "FRACTAL_DYN_TREND_ACCELERATING": "【分形】趋势加速形成",
+          "FRACTAL_RISK_TOP_DIVERGENCE": "【风险】分形顶背离",
+          "FRACTAL_EVENT_TREND_EXHAUSTION": "【风险】趋势结构衰竭",
+          "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": "【触发】压缩突破确认",
+          "FRACTAL_EVENT_TREND_FORMING": "【触发】趋势结构形成"
         }
       },
       "trigger_event_params": {
@@ -682,6 +705,7 @@
     "veto_signals": [
       "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING",
       "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
+      "FRACTAL_RISK_TOP_DIVERGENCE",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
       "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
       "STRUCTURE_TOPPING_DANGER_S"

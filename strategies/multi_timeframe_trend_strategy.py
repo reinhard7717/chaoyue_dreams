@@ -203,6 +203,35 @@ class MultiTimeframeTrendStrategy:
         print("  --- 1. 联席会议投票沙盘推演 ---")
         atomic_states = self.tactical_engine.atomic_states
         probe_day_atomic = {key: series.loc[probe_ts] for key, series in atomic_states.items() if probe_ts in series.index}
+
+        # --- 1. 战场环境评估 (Battlefield Environment Assessment) ---
+        print("  --- 1. 战场环境评估 ---")
+        hurst_col = next((col for col in df.columns if 'hurst' in col), None)
+        if hurst_col:
+            hurst_val = probe_row.get(hurst_col, np.nan)
+            hurst_slope_col = f"SLOPE_5_{hurst_col}"
+            hurst_slope_val = probe_row.get(hurst_slope_col, np.nan)
+            
+            hurst_status = "未知"
+            if probe_day_atomic.get('FRACTAL_STATE_STRONG_TREND', False): hurst_status = "强趋势"
+            elif probe_day_atomic.get('FRACTAL_STATE_MEAN_REVERSION', False): hurst_status = "均值回归"
+            elif probe_day_atomic.get('FRACTAL_STATE_RANDOM_WALK', False): hurst_status = "随机游走"
+            
+            print(f"    - [分形结构] 赫斯特指数: {hurst_val:.3f} (状态: {hurst_status})")
+            print(f"    - [结构动态] 赫斯特斜率: {hurst_slope_val:.4f} {'(趋势形成中)' if hurst_slope_val > 0 else '(趋势衰竭中)' if hurst_slope_val < 0 else ''}")
+        else:
+            print("    - [分形结构] 未找到赫斯特指数数据。")
+
+        mechanics_signals = {
+            "成本加速抬高": "MECHANICS_COST_ACCELERATING",
+            "筹码加速锁定": "MECHANICS_INERTIA_DECREASING",
+            "多头势能优势": "MECHANICS_ENERGY_ADVANTAGE"
+        }
+        active_mechanics = [name for name, key in mechanics_signals.items() if probe_day_atomic.get(key, False)]
+        if active_mechanics:
+            print(f"    - [结构力学] 激活的力学状态: {', '.join(active_mechanics)}")
+        else:
+            print("    - [结构力学] 未激活任何关键力学状态。")
         
         vote_details = []
         calculated_veto_votes = 0
@@ -215,6 +244,23 @@ class MultiTimeframeTrendStrategy:
         # 推演逻辑 2: 主力行为风险 (1票)
         main_force_state_val = probe_row.get('main_force_state', -1)
         main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
+        print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
+        
+        # 【增强】展示所有被激活的S级信号
+        s_level_signals = {
+            "S级主升浪": "STRUCTURE_MAIN_UPTREND_WAVE_S",
+            "S级顶部危险": "STRUCTURE_TOPPING_DANGER_S",
+            "S级突破前夜": "STRUCTURE_BREAKOUT_EVE_S",
+            "S级黄金坑": "CPA_FALL_WITH_MAIN_FORCE_ABSORBING",
+            "S级分形突破": "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED",
+            "S级分形顶背离": "FRACTAL_RISK_TOP_DIVERGENCE"
+        }
+        active_s_signals = [name for name, key in s_level_signals.items() if probe_day_atomic.get(key, False)]
+        if active_s_signals:
+            print(f"    - [S级信号] 激活的S级信号: {', '.join(active_s_signals)}")
+        else:
+            print("    - [S级信号] 未激活任何S级信号。")
+
         if main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
             vote_details.append("【主力行为审查】投出 1 票")
             calculated_veto_votes += 1

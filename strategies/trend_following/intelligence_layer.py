@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress
+from utils.math_tools import hurst_exponent
 from typing import Dict, Tuple
 from enum import Enum
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
@@ -43,6 +44,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
+        self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         
@@ -817,6 +819,86 @@ class IntelligenceLayer:
 
         return df, states
 
+    def _diagnose_structural_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 - 赫斯特指数增强版】
+        - 核心升级: 深度集成赫斯特指数，从中提炼出多种关于市场宏观阶段、
+                    趋势可持续性与衰竭的原子状态。
+        """
+        print("        -> [结构力学诊断模块 V2.0] 启动，正在进行物理建模与分形分析...")
+        states = {}
+        
+        # --- 1. 成本质心分析 (逻辑不变) ---
+        if 'SLOPE_5_peak_cost_D' in df.columns and 'ACCEL_5_peak_cost_D' in df.columns:
+            states['MECHANICS_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
+            states['MECHANICS_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0.01
+
+        # --- 2. 结构转动惯量分析 (逻辑不变) ---
+        if 'SLOPE_5_concentration_90pct_D' in df.columns:
+            states['MECHANICS_INERTIA_DECREASING'] = df['SLOPE_5_concentration_90pct_D'] < -0.001
+        
+        # --- 3. 结构势能分析 (逻辑不变) ---
+        if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns:
+            energy_ratio = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
+            states['MECHANICS_ENERGY_ADVANTAGE'] = energy_ratio > 1.5
+
+        # --- 4. 【核心改造】分形与混沌分析 ---
+        hurst_window = self.strategy.unified_config.get('hurst_window', 60) # 从配置读取窗口期
+        
+        try:
+            # 4.1 计算赫斯特指数
+            hurst_col = f'hurst_{hurst_window}d'
+            df[hurst_col] = df['close_D'].rolling(hurst_window).apply(hurst_exponent, raw=True)
+            
+            # 4.2 定义绝对状态 (Absolute State)
+            # 强趋势状态: H > 0.7，表明市场具有很强的记忆性，趋势很可能会持续
+            states['FRACTAL_STATE_STRONG_TREND'] = df[hurst_col] > 0.7
+            # 均值回归状态: H < 0.4，表明市场倾向于反向运动，是震荡市的特征
+            states['FRACTAL_STATE_MEAN_REVERSION'] = df[hurst_col] < 0.4
+            # 随机游走状态: 介于两者之间，市场方向不明
+            states['FRACTAL_STATE_RANDOM_WALK'] = (df[hurst_col] >= 0.4) & (df[hurst_col] <= 0.7)
+
+            # 4.3 定义动态变化 (Dynamic Change)
+            # 趋势形成事件: H指数从“均值回归/随机”区域，向上突破了趋势阈值(0.7)
+            was_not_trending = df[hurst_col].shift(1) <= 0.7
+            is_trending = df[hurst_col] > 0.7
+            states['FRACTAL_EVENT_TREND_FORMING'] = was_not_trending & is_trending
+            
+            # 趋势衰竭事件: H指数从“强趋势”区域，向下跌破了随机游走上沿(0.7)
+            was_trending = df[hurst_col].shift(1) > 0.7
+            is_not_trending = df[hurst_col] <= 0.7
+            states['FRACTAL_EVENT_TREND_EXHAUSTION'] = was_trending & is_not_trending
+
+            # 基于斜率
+            hurst_slope_col = f'SLOPE_5_hurst_{hurst_window}d_D'
+            if hurst_slope_col in df.columns:
+                # 趋势加速形成: H值本身在上升，且斜率也为正
+                states['FRACTAL_DYN_TREND_ACCELERATING'] = (df[hurst_col] > df[hurst_col].shift(1)) & (df[hurst_slope_col] > 0)
+                # 趋势加速衰竭: H值本身在下降，且斜率为负
+                states['FRACTAL_DYN_TREND_DECELERATING'] = (df[hurst_col] < df[hurst_col].shift(1)) & (df[hurst_slope_col] < 0)
+
+            # 4.4 定义组合信号 (Combined Signal)
+            # 【S级机会】波动率压缩 + 趋势形成: 
+            # 这是最经典的“Squeeze Breakout”模式的深层确认。
+            # 能量在极度压缩后，市场结构从随机/震荡，转变为强趋势，是最高质量的突破信号。
+            is_in_squeeze = self.strategy.atomic_states.get('FRACTAL_VOLATILITY_SQUEEZE', pd.Series(False, index=df.index))
+            states['FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED'] = is_in_squeeze.shift(1) & states['FRACTAL_EVENT_TREND_FORMING']
+
+            # 【S级风险】价格新高 + 趋势衰竭 (顶背离)
+            # 价格还在创近期新高，但驱动趋势的内在结构已经瓦解，是极其危险的顶背离信号。
+            is_new_high = df['high_D'] >= df['high_D'].shift(1).rolling(window=20).max()
+            states['FRACTAL_RISK_TOP_DIVERGENCE'] = is_new_high & states['FRACTAL_EVENT_TREND_EXHAUSTION']
+
+        except Exception as e:
+            print(f"          -> [警告] 赫斯特指数计算或状态诊断失败: {e}")
+
+        # 波动率压缩 (变异系数) - 逻辑不变
+        price_cv = df['close_D'].rolling(60).std() / df['close_to_mean']
+        is_in_squeeze = price_cv < price_cv.rolling(120).quantile(0.1)
+        states['FRACTAL_VOLATILITY_SQUEEZE'] = is_in_squeeze
+
+        return states
+
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V273.0 装备换代版】
@@ -1292,6 +1374,32 @@ class IntelligenceLayer:
 
         return states
 
+    def _diagnose_mean_reversion_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """【新增】均值回归剧本诊断模块"""
+        states = {}
+        
+        # 1. 定义Setup: 统计学超卖
+        is_oversold_boll = df['close_D'] < df.get('BBL_21_2.0_D', float('inf'))
+        is_oversold_bias = self.strategy.atomic_states.get('OPP_STATE_NEGATIVE_DEVIATION', pd.Series(False, index=df.index))
+        is_oversold_rsi = self.strategy.atomic_states.get('OSC_STATE_RSI_OVERSOLD', pd.Series(False, index=df.index))
+        
+        # 至少满足两个超卖条件
+        oversold_conditions = pd.concat([is_oversold_boll, is_oversold_bias, is_oversold_rsi], axis=1)
+        setup_stat_oversold = oversold_conditions.sum(axis=1) >= 2
+        
+        # 2. 定义Trigger: 力量衰竭与反转
+        is_panic_selling = df.get('volume_zscore_D', 0) > 3 # 假设已计算
+        is_reversal_candle = self.strategy.atomic_states.get('TRIGGER_HAMMER_REVERSAL', pd.Series(False, index=df.index)) # 示例
+        is_main_force_absorbing = self.strategy.atomic_states.get('CPA_FALL_WITH_MAIN_FORCE_ABSORBING', pd.Series(False, index=df.index))
+        
+        trigger_reversal = is_panic_selling | is_reversal_candle | is_main_force_absorbing
+        
+        # 3. 组合成剧本状态
+        self.strategy.playbook_states['MEAN_REVERSION_BOUNCE_A'] = {
+            'setup': setup_stat_oversold,
+            'trigger': trigger_reversal
+        }
+        return {} # 这个函数直接修改 playbook_states，不返回新的原子状态
 
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

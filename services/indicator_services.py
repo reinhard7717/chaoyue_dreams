@@ -320,21 +320,24 @@ class IndicatorService:
         """
         # print(f"--- [数据准备V8.0-情报锻造中心] 开始为 {stock_code} 准备数据... ---")
 
-        # --- 步骤 1: 调用重构后的核心数据准备函数 ---
+        # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         
         if not all_dfs:
             return {}
         
-        # --- 步骤 2: 【流程再造】在所有基础指标生成后，计算VPA效率指标 ---
+        # --- 步骤 2: 【新增】【第二道工序】计算元特征 (Hurst, CV等) ---
+        all_dfs = await self._calculate_meta_features(all_dfs, config)
+
+        # --- 步骤 3: 【原步骤2】计算VPA效率指标 ---
         all_dfs = await self._calculate_vpa_features(all_dfs, config)
 
-        # --- 步骤 3: 【流程再造】在所有指标（包括VPA）都生成后，统一计算斜率 ---
+        # --- 步骤 4: 【原步骤3】【第三道工序】统一计算所有斜率 ---
+        # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
-        # --- 步骤 4: 注入其他上下文信息（如行业、游资等），这部分逻辑可以保持在最后 ---
+        # --- 步骤 5: 【原步骤4】注入其他上下文信息 (逻辑不变) ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
-            # logger.warning(f"[{stock_code}] 基础数据准备失败，无法继续。")
             return all_dfs
         
         df_daily = all_dfs['D']
@@ -906,6 +909,53 @@ class IndicatorService:
         
         all_dfs[timeframe] = df
         print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
+        return all_dfs
+
+    async def _calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【新增】【第二道工序】元特征计算车间
+        - 核心职责: 在基础指标计算完毕后，专门计算那些依赖原始数据进行复杂
+                    滚窗计算的“元指标”，如赫斯特指数、变异系数等。
+        - 执行时机: 在基础指标计算之后，在斜率计算之前。
+        """
+        print("    - [元特征车间] 启动，正在计算赫斯特指数、CV等复杂特征...")
+        
+        # 我们主要关心日线数据
+        timeframe = 'D'
+        if timeframe not in all_dfs:
+            return all_dfs
+            
+        df = all_dfs[timeframe]
+        
+        # --- 1. 计算赫斯特指数 ---
+        # 从配置中读取参数，如果未来需要的话
+        # hurst_params = self._find_params_recursively(config, 'hurst_params')
+        hurst_window = 60 # 暂时硬编码，或从配置读取
+        hurst_col = f'hurst_{hurst_window}d_D'
+        if 'close_D' in df.columns and hurst_col not in df.columns:
+            try:
+                df[hurst_col] = df['close_D'].rolling(hurst_window).apply(hurst_exponent, raw=True)
+                print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
+            except Exception as e:
+                print(f"      -> [警告] 赫斯特指数计算失败: {e}")
+
+        # --- 2. 计算价格变异系数 (Price CV) ---
+        cv_window = 60 # 暂时硬编码，或从配置读取
+        cv_col = f'price_cv_{cv_window}d_D'
+        if 'close_D' in df.columns and cv_col not in df.columns:
+            price_mean = df['close_D'].rolling(cv_window).mean()
+            price_std = df['close_D'].rolling(cv_window).std()
+            df[cv_col] = price_std / (price_mean + 1e-6)
+            print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
+
+        # --- 3. 计算日线结构势能 (Energy Ratio) ---
+        # 注意：这需要筹码数据已经合并到df中
+        energy_col = 'energy_ratio_D'
+        if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns and energy_col not in df.columns:
+            df[energy_col] = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
+            print(f"      -> 结构势能 ({energy_col}) 计算完成。")
+
+        all_dfs[timeframe] = df
         return all_dfs
 
     async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:

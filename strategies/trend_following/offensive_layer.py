@@ -26,7 +26,15 @@ class OffensiveLayer:
             playbook_name = blueprint['name']
             setup_series = playbook_states.get(playbook_name, {}).get('setup', default_series)
             trigger_series = playbook_states.get(playbook_name, {}).get('trigger', default_series)
-            is_playbook_activated = setup_series & trigger_series
+            confirmation_series = pd.Series(True, index=df.index) # 默认所有都满足确认条件
+            confirmation_states = blueprint.get('confirmation_states', [])
+            if confirmation_states:
+                for state_name in confirmation_states:
+                    # 将多个确认条件用“与”逻辑连接起来
+                    confirmation_series &= atomic_states.get(state_name, default_series)
+            
+            # 最终的剧本激活信号，必须同时满足 setup, trigger 和 confirmation
+            is_playbook_activated = setup_series & trigger_series & confirmation_series
             if is_playbook_activated.any():
                 score = get_param_value(blueprint.get('score'), 0)
                 entry_score.loc[is_playbook_activated] += score
@@ -103,6 +111,19 @@ class OffensiveLayer:
             if trend_condition.any():
                 final_multiplier.loc[trend_condition] *= healthy_trend_multiplier
                 print(f"          -> [指挥棒] 已为 {trend_condition.sum()} 天的“S级主升浪”期间应用 {healthy_trend_multiplier}x 分数加成。")
+        
+        # --- 战场环境调节器 ---
+        # 1. 在强趋势市场中，放大所有进攻信号的价值
+        is_strong_trend = self.strategy.atomic_states.get('FRACTAL_STATE_STRONG_TREND', pd.Series(False, index=df.index))
+        if is_strong_trend.any():
+            final_multiplier.loc[is_strong_trend] *= 1.2 # 强趋势下，得分提升20%
+            print(f"          -> [战场环境] 已为 {is_strong_trend.sum()} 天的“强趋势”期间应用 1.2x 分数加成。")
+
+        # 2. 在均值回归市场中，惩罚所有趋势类信号
+        is_mean_reversion = self.strategy.atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', pd.Series(False, index=df.index))
+        if is_mean_reversion.any():
+            final_multiplier.loc[is_mean_reversion] *= 0.6 # 均值回归下，得分削弱40%
+            print(f"          -> [战场环境] 已为 {is_mean_reversion.sum()} 天的“均值回归”期间应用 0.6x 分数惩罚。")
 
         return entry_score * final_multiplier
 
@@ -166,9 +187,21 @@ class OffensiveLayer:
                 'scoring_rules': { 'min_setup_score_to_trigger': 51, 'base_score': 200, 'score_multiplier': 1.5, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
             },
             {
-                'name': 'ENERGY_COMPRESSION_BREAKOUT', 'cn_name': '【动态】能量压缩突破', 'family': 'TREND_MOMENTUM',
-                'type': 'precondition_score', 'side': 'right', 'comment': '根据当天前提和历史准备共同给分。若伴随筹码点火，则确定性更高。',
-                'scoring_rules': { 'base_score': 150, 'min_score_to_trigger': 180, 'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1}, 'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} }
+                'name': 'ENERGY_COMPRESSION_BREAKOUT', 
+                'cn_name': '【动态】能量压缩突破', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'precondition_score', 
+                'side': 'right', 
+                'comment': '根据当天前提和历史准备共同给分。若伴随筹码点火或力学确认，则确定性更高。',
+                # 确认条件：要求突破必须发生在“惯量减小”（筹码锁定）的背景下
+                'confirmation_states': ['MECHANICS_INERTIA_DECREASING'], 
+                'scoring_rules': { 
+                    'base_score': 150, 
+                    'min_score_to_trigger': 180, 
+                    'conditions': {'VOL_STATE_SQUEEZE_WINDOW': 50, 'CHIP_STATE_CONCENTRATION_SQUEEZE': 30, 'MA_STATE_CONVERGING': 20}, 
+                    'setup_bonus': {'ENERGY_COMPRESSION': 0.2, 'HEALTHY_MARKUP': 0.1}, 
+                    'trigger_bonus': {'CHIP_EVENT_IGNITION': 60} 
+                }
             },
             {
                 'name': 'PLATFORM_SUPPORT_PULLBACK', 
@@ -185,8 +218,15 @@ class OffensiveLayer:
                 }
             },
             {
-                'name': 'HEALTHY_BOX_BREAKOUT', 'cn_name': '【A-级】健康箱体突破', 'family': 'TREND_MOMENTUM',
-                'type': 'setup', 'score': 220, 'side': 'right', 'comment': 'A-级: 在一个位于趋势均线上方的健康箱体内盘整后，发生的向上突破。'
+                'name': 'HEALTHY_BOX_BREAKOUT', 
+                'cn_name': '【A-级】健康箱体突破', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'setup', 
+                'score': 220, 
+                'side': 'right', 
+                'comment': 'A-级: 在一个位于趋势均线上方的健康箱体内盘整后，发生的向上突破。',
+                # 确认条件：要求箱体突破必须得到“趋势正在形成”的分形确认
+                'confirmation_states': ['FRACTAL_EVENT_TREND_FORMING']
             },
             {
                 'name': 'HEALTHY_MARKUP_A', 'cn_name': '【A级】健康主升浪', 'family': 'TREND_MOMENTUM',
@@ -221,6 +261,16 @@ class OffensiveLayer:
                 'score': 350, 
                 'side': 'left', 
                 'comment': 'S级: 识别因成本断层导致的筹码结构重置，是极高价值的特殊事件信号。'
+            },
+            # --- 均值回归家族 (MEAN_REVERSION) ---
+            {
+                'name': 'MEAN_REVERSION_BOUNCE_A', 
+                'cn_name': '【A级】恐慌坑反弹', 
+                'family': 'MEAN_REVERSION',
+                'type': 'setup', 
+                'score': 280, # 给予一个较高的分数
+                'side': 'left', # 这是一个典型的左侧交易信号
+                'comment': 'A级: 在统计学超卖、卖盘衰竭和多头反击的共振点入场。'
             },
         ]
     

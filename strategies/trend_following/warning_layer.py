@@ -10,65 +10,81 @@ class WarningLayer:
         self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
 
     def calculate_risk_score(self) -> Tuple[pd.Series, pd.DataFrame]:
-        print("        -> [最高风险裁决所 V291.0 联合作战版] 启动...")
+        """
+        【V292.0 赫斯特指数增强版】
+        - 核心升级: 深度集成赫斯特指数，实现风险的“环境自适应”调节。
+          1. 将分形风险直接纳入计分。
+          2. 根据市场宏观状态（趋势/震荡）动态放大或缩小风险权重。
+        """
+        print("        -> [最高风险裁决所 V292.0 赫斯特指数增强版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
         risk_params = get_params_block(self.strategy, 'four_layer_scoring_params').get('risk_scoring', {})
         risk_rules = risk_params.get('signals', {})
-        risk_score_df = pd.DataFrame(0, index=df.index, columns=list(risk_rules.keys()))
+        
+        # --- 步骤 1: 基础风险分计算 (逻辑不变) ---
+        # 直接从配置文件中读取所有风险规则并计算基础分
         total_risk_score = pd.Series(0.0, index=df.index)
+        risk_score_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
-        strategic_opportunity_signals = {
-            'CHIP_DYN_ACCEL_CONCENTRATING': atomic_states.get('CHIP_DYN_ACCEL_CONCENTRATING', default_series),
-            'BOX_STATE_HEALTHY_ACCUMULATION': atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series),
-            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series),
-            'STRUCTURE_BREAKOUT_EVE_S': atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series)
-        }
-        has_strategic_opportunity = pd.Series(False, index=df.index)
-        for signal in strategic_opportunity_signals.values():
-            has_strategic_opportunity |= signal
-
-        print("          -> [第一阶段] 正在执行“外科手术式”局部对冲...")
         for rule_name, score in risk_rules.items():
             signal_series = atomic_states.get(rule_name, default_series)
-            is_veto_risk_rule = rule_name in ['CONTEXT_RECENT_DISTRIBUTION_PRESSURE', 'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN']
-            if is_veto_risk_rule and signal_series.any():
-                final_score = pd.Series(0.0, index=df.index)
-                mitigated_score = get_param_value(risk_params.get('mitigated_veto_score'), 300)
-                final_score.loc[signal_series & has_strategic_opportunity] = mitigated_score
-                final_score.loc[signal_series & ~has_strategic_opportunity] = score
-                risk_score_df[rule_name] = final_score
-                total_risk_score += final_score
-            else:
-                risk_score_df.loc[signal_series, rule_name] = score
-                total_risk_score += signal_series * score
+            if signal_series.any():
+                total_risk_score.loc[signal_series] += score
+                risk_score_df[rule_name] = signal_series * score
+        
+        # --- 步骤 2: 【核心改造】应用“战场环境”调节器 ---
+        # 我们将创建一个全局的风险乘数，根据赫斯特指数的状态进行调整
+        risk_multiplier = pd.Series(1.0, index=df.index)
 
-        healthy_trend_state = 'STRUCTURE_MAIN_UPTREND_WAVE_S'
-        trend_reduction_factor = 0.7 # 在S级主升浪中，非致命风险的重要性降低30%
+        # 2.1 风险放大器: 在震荡或随机市场中，放大风险
+        is_mean_reversion = atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', default_series)
+        is_random_walk = atomic_states.get('FRACTAL_STATE_RANDOM_WALK', default_series)
+        is_unstable_market = is_mean_reversion | is_random_walk
         
-        if healthy_trend_state in atomic_states:
-            trend_condition = atomic_states[healthy_trend_state]
-            if trend_condition.any():
-                # 创建一个布尔掩码，标记哪些风险规则不是“一票否决”级的临界风险
-                critical_risks = {"CONTEXT_RECENT_DISTRIBUTION_PRESSURE", "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN", 
-                                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION", "RISK_CONTEXT_LONG_TERM_DISTRIBUTION"}
-                non_critical_columns = [col for col in risk_score_df.columns if col not in critical_risks]
-                
-                # 只对非临界风险应用折减
-                risk_score_df.loc[trend_condition, non_critical_columns] *= trend_reduction_factor
-                print(f"          -> [趋势折减已执行！] 已对 {trend_condition.sum()} 天的非临界风险应用了 {trend_reduction_factor} 的折减系数。")
-        
-        # 重新计算总分
+        if is_unstable_market.any():
+            instability_multiplier = 1.3 # 风险权重提升30%
+            risk_multiplier.loc[is_unstable_market] *= instability_multiplier
+            print(f"          -> [风险放大器] 已为 {is_unstable_market.sum()} 天的“不稳定市场”应用 {instability_multiplier}x 风险乘数。")
+
+        # 2.2 风险对冲器: 在强趋势市场中，折减非核心风险
+        is_strong_trend = atomic_states.get('FRACTAL_STATE_STRONG_TREND', default_series)
+        if is_strong_trend.any():
+            # 定义哪些风险是“核心/结构性”风险，它们不应被折减
+            core_risks = {
+                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
+                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
+                "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
+                "FRACTAL_RISK_TOP_DIVERGENCE", # 新增的分形风险也是核心风险
+                "STRUCTURE_TOPPING_DANGER_S"
+            }
+            
+            # 对非核心风险应用折减系数
+            trend_reduction_factor = 0.7 # 非核心风险重要性降低30%
+            for col in risk_score_df.columns:
+                if col not in core_risks:
+                    # 使用 .loc 对特定条件下的列进行乘法操作
+                    risk_score_df.loc[is_strong_trend, col] *= trend_reduction_factor
+            
+            print(f"          -> [风险对冲器] 已为 {is_strong_trend.sum()} 天的“强趋势市场”期间，对非核心风险应用了 {trend_reduction_factor}x 折减系数。")
+
+        # 重新计算应用了“风险对冲器”后的总分
         total_risk_score = risk_score_df.sum(axis=1)
         
-        print("          -> [第二阶段] 正在评估是否执行“战略覆盖”...")
+        # 将“风险放大器”的全局乘数应用到总分上
+        total_risk_score *= risk_multiplier
+
+        # --- 步骤 3: 战略机会覆盖 (逻辑微调) ---
+        # 这里的逻辑可以保持，但现在它是在经过环境调节后的风险分基础上进行覆盖
+        has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series) # 简化为最强的机会信号
         if has_strategic_opportunity.any():
             strategic_coverage_factor = get_param_value(risk_params.get('strategic_coverage_factor'), 0.3)
             total_risk_score = total_risk_score.where(~has_strategic_opportunity, total_risk_score * strategic_coverage_factor)
             print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
         
+        print("        -> [最高风险裁决所 V292.0] 风险评估完成。")
         return total_risk_score, risk_score_df
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
