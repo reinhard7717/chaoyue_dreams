@@ -39,8 +39,6 @@ class JudgmentLayer:
         exempted_days = is_potential_buy & risk_overrides_entry & is_in_ascent_phase
         if exempted_days.any():
              print(f"          -> [豁免报告] “初升浪”豁免权已触发！在 {exempted_days.sum()} 天内，风险分被禁止否决进攻分，以保护趋势。")
-        
-        df.loc[is_potential_buy & risk_overrides_entry, 'signal_type'] = '卖出信号'
 
         print("        -> [军事监察部] 正在执行“绝对否决权”审查...")
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
