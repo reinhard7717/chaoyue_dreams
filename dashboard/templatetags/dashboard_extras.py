@@ -45,6 +45,19 @@ def make_utc_aware(value):
     # 如果时间已经是感知的 (aware)，则直接返回原值，避免重复处理
     return value
 
+@register.filter
+@stringfilter
+def replace(value, args):
+    """
+    自定义模板过滤器，用于替换字符串中的子串。
+    用法: {{ some_string|replace:"old,new" }}
+    """
+    if len(args.split(',')) != 2:
+        return value
+
+    old, new = args.split(',')
+    return value.replace(old, new)
+
 @register.simple_tag(takes_context=True)
 def query_builder(context, **kwargs):
     """
