@@ -117,31 +117,31 @@ def execute_save_today_fund_flow_method(self, method_name: str, trade_date: date
 def save_fund_flow_daily_data_today(self):
     """
     [修改] 调度器任务（编排者）：
-    负责并行分派获取当日三种渠道资金流数据的子任务。
+    负责并行分派获取当日三种渠道资金流数据的子任务，并等待全部完成。
     """
     logger.info(f"任务启动: save_fund_flow_daily_data_today (编排者模式) - 准备分派并行子任务")
     print(f"调试信息：主任务 {self.request.id} 启动，准备分派当日资金流数据获取任务组。")
     try:
         today_date = timezone.now().date()
-        # [修改] 定义需要并行执行的所有异步数据保存方法名
         target_methods = [
             'save_history_fund_flow_daily_data',
             'save_history_fund_flow_daily_ths_data',
             'save_history_fund_flow_cnt_ths_data',
             'save_history_fund_flow_industry_ths_data'
         ]
-        # [修改] 使用列表推导式和 .s() 方法创建一组任务签名
         task_signatures = [
-            execute_save_today_fund_flow_method.s(method_name=method,trade_date=today_date)
+            execute_save_today_fund_flow_method.s(method_name=method, trade_date=today_date)
             for method in target_methods
         ]
-        # [修改] 使用 group 将所有任务签名组合成一个可并行执行的任务组
         task_group = group(task_signatures)
-        # [修改] 异步执行任务组
         result = task_group.apply_async()
         logger.info(f"任务组成功分派. Group ID: {result.id}. 包含 {len(target_methods)} 个子任务.")
         print(f"调试信息：任务组 {result.id} 已成功分派，包含 {len(target_methods)} 个子任务。")
-        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(target_methods)}
+        # 等待所有子任务完成
+        result.get()  # 阻塞等待所有子任务完成
+        logger.info(f"所有资金流子任务已全部完成。")
+        print(f"调试信息：任务组 {result.id} 所有子任务已完成。")
+        return {"status": "success", "group_id": result.id, "dispatched_tasks": len(target_methods)}
     except Exception as e:
         logger.error(f"执行 save_fund_flow_daily_data_today (编排者模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}

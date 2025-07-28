@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import datetime
+from celery import group
 from django.db import models
 from django.utils import timezone
 import time
@@ -121,19 +122,11 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task', queue='celery')
 def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310):
     """
-    调度器任务（已优化）：
-    1. 修改：使用 TradeCalendar.is_trade_date() 检查今天是否为交易日。
-    2. 获取所有股票代码。
-    3. 将代码分成批次。
-    4. 为每个批次分派 save_stocks_minute_data_today_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    调度器任务（已优化）：等待所有子任务完成后再返回。
     """
     logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 批次大小: {batch_size}")
     try:
-        # 修改：调用新的类方法来检查今天是否为交易日，代码更清晰、更符合封装原则
-        # 因为 is_trade_date 默认检查当天，所以无需传递参数
         if not TradeCalendar.is_trade_date():
-            # is_trade_date() 方法内部已经包含了调试用的print语句
             message = f"今天 ({timezone.now().date()}) 不是交易日，跳过所有分钟数据获取任务。"
             logger.info(message)
             return {"status": "skipped", "message": message}
@@ -142,20 +135,29 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
         stock_basic_dao = StockBasicInfoDao()
         all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
         all_stock_codes = [stock.stock_code for stock in all_stocks]
-        
         if not all_stock_codes:
             logger.warning("未找到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未找到任何股票代码"}
-            
         total_codes_count = len(all_stock_codes)
         logger.info(f"今天是交易日，准备为 {total_codes_count} 个股票分派批量任务...")
-        
+
+        # 用group批量分派所有子任务
+        batch_tasks = []
         for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
             if batch_codes:
-                save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str).set().apply_async()
+                batch_tasks.append(save_stocks_minute_data_today_batch.s(stock_codes=batch_codes, trade_time_str=trade_time_str))
                 total_dispatched_batches += 1
-                
+
+        if batch_tasks:
+            job = group(batch_tasks)
+            result = job.apply_async()
+            logger.info(f"已分派 {total_dispatched_batches} 个批量任务，等待全部完成...")
+            result.get()  # 阻塞等待所有子任务完成
+            logger.info("所有分钟数据批量任务已全部完成。")
+        else:
+            logger.warning("没有需要分派的分钟数据批量任务。")
+
         logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
         return {"status": "success", "dispatched_batches": total_dispatched_batches}
     except Exception as e:
@@ -241,20 +243,20 @@ def save_stocks_daily_basic_data_today_task(self):
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
     """
     logger.info(f"开始处理今日股票重要的基本面指标...")
-    # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
-    # service = IndicatorService()
+    service = IndicatorService()
     try:
         today_date = timezone.now().date()
         print("开始保存 今日股票重要的基本面指标...")
         result = asyncio.run(stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date))
         print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
+
+        # 行业轮动分析也放在try块内
+        rotation_report = asyncio.run(service.analyze_industry_rotation(datetime.date.today(), lookback_days=10))
+        print("--- 行业轮动强度报告 ---")
+        print(rotation_report.head(10)) # 打印出动量最强的10个板块
     except Exception as e:
         logger.error(f"save_stocks_daily_basic_data_today_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
-    service = IndicatorService()
-    rotation_report = asyncio.run(service.analyze_industry_rotation(datetime.date.today(), lookback_days=10))
-    print("--- 行业轮动强度报告 ---")
-    print(rotation_report.head(10)) # 打印出动量最强的10个板块
 
 #  ================ 昨日基本信息 数据任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveHistoryData_TimeTrade')
@@ -279,20 +281,23 @@ def save_stocks_daily_basic_data_yesterday_task(self):
 def save_day_data_today_task(self):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
         print("开始保存 日线数据任务（当日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
-        save_cyq_data_today_task.delay()
-        # print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+
+        # 分派每日筹码分布任务，并等待其完成
+        cyq_task_result = save_cyq_data_today_task.apply_async()
+        print("已分派 日线数据任务（当日） 数据任务，等待其完成...")
+        cyq_task_result.get()  # 阻塞等待子任务完成
+        print("日线数据任务（当日） 数据任务已完成。")
+
+        # 继续后续同步任务
         result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
-        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+        print(f"保存 日线数据任务（当日） 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -300,20 +305,22 @@ def save_day_data_today_task(self):
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_day_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
 def save_day_data_yesterday_task(self):
     """
-    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
+    保存昨日日线数据，并等待筹码数据任务完成后再返回。
     """
-    # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
-        yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
+        yesterday = today_date - datetime.timedelta(days=1)
         print("开始保存 日线数据任务（当日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=yesterday))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
-        save_cyq_data_yesterday_task.delay()
-        print(f"保存 每日筹码分布、每日筹码及胜率 数据完成。")
+
+        # 分派筹码数据任务，并等待其完成
+        cyq_result = save_cyq_data_yesterday_task.apply_async()
+        print("已分派 每日筹码分布、每日筹码及胜率 数据任务，等待其完成...")
+        cyq_result.get()  # 阻塞等待筹码任务完成
+        print("每日筹码分布、每日筹码及胜率 数据任务已完成。")
+
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -322,20 +329,13 @@ def save_day_data_yesterday_task(self):
 def save_week_data_today_task(self):
     """
     从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
-        print("开始保存 日线数据任务（当日）...")
+        print("开始保存 周线数据任务（当日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
-        print(f"保存 日线数据任务（当日） 完成。result: {result}")
-        save_cyq_data_today_task.delay()
-        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
-        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
-        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
+        print(f"保存 周线数据任务（当日） 完成。result: {result}")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -363,20 +363,13 @@ def save_week_data_yesterday_task(self):
 def save_month_data_today_task(self):
     """
     从Tushare批量获取月线数据（当日）并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
     stock_time_trade_dao = StockTimeTradeDAO()
     try:
         today_date = timezone.now().date()
         print("开始保存 月线数据（当日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 月线数据（当日） 完成。result: {result}")
-        save_cyq_data_today_task.delay()
-        print(f"保存 每日筹码分布 数据完成。 result: {result} ")
-        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
-        print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
