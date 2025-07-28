@@ -43,11 +43,12 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V100.0 模块化版】
-        - 新职责: 作为总指挥，按顺序调用各大作战分层，完成从情报收集到最终决策的全过程。
+        【V317.0 动态指挥链版】
+        - 核心重组: 调整了指挥链的顺序，以适配“动态力学引擎”的需求。
+        - 新流程: 基础情报 -> 攻防评分 -> 力学分析 -> 最终决策。
         """
         print("======================================================================")
-        print(f"====== 日期: {df.index[-1].date()} | 正在执行【模块化战术引擎 V100.0】 ======")
+        print(f"====== 日期: {df.index[-1].date()} | 正在执行【动态力学引擎 V317.0】 ======")
         print("======================================================================")
 
         if df is None or df.empty:
@@ -55,43 +56,46 @@ class TrendFollowStrategy:
 
         self.df_indicators = ensure_numeric_types(df)
 
-        # --- 指挥链 1/7: 情报层 ---
-        # 收集所有战场情报，生成原子状态、认知状态和主力行为序列
-        print("    --- [指挥链 1/7] 情报层: 正在收集所有战场情报... ---")
+        # --- 指挥链 1/8: 基础情报层 ---
+        # 收集所有不依赖于分数的战场情报
+        print("    --- [指挥链 1/8] 基础情报层: 正在收集战场静态情报... ---")
         trigger_events = self.intelligence_layer.run_all_diagnostics()
 
-        # --- 指挥链 2/7: 进攻层 ---
+        # --- 指挥链 2/8: 进攻层 ---
         # 评估所有进攻机会，计算 entry_score
-        print("    --- [指挥链 2/7] 进攻层: 正在评估所有进攻方案... ---")
+        print("    --- [指挥链 2/8] 进攻层: 正在评估所有进攻方案... ---")
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(trigger_events)
         self.df_indicators['entry_score'] = entry_score
 
-        # --- 指挥链 3/7: 预警层 ---
+        # --- 指挥链 3/8: 预警层 ---
         # 评估所有风险信号，计算 risk_score
-        print("    --- [指挥链 3/7] 预警层: 正在评估所有战场风险... ---")
+        print("    --- [指挥链 3/8] 预警层: 正在评估所有战场风险... ---")
         risk_score, risk_details_df = self.warning_layer.calculate_risk_score()
         self.df_indicators['risk_score'] = risk_score
 
-        # --- 指挥链 4/7: 离场层 ---
-        # 在非潜在买入日，计算具体的离场信号
-        print("    --- [指挥链 4/7] 离场层: 正在计算所有离场指令... ---")
-        # 注意：离场层现在在判断层内部被调用，以确保决策顺序正确
-        
-        # --- 指挥链 5/7: 统合判断层 ---
-        # 综合攻防分数，并应用绝对否决权和战略审查，做出最终决策
-        print("    --- [指挥链 5/7] 统合判断层: 正在进行最终决策... ---")
+        # ▼▼▼【V317.0 核心调整】新增指挥环节 ▼▼▼
+        # --- 指挥链 4/8: 力学分析层 ---
+        # 在获得攻防分数后，计算双向加速度，生成“势能”情报
+        print("    --- [指挥链 4/8] 力学分析层: 正在分析攻防“势能”... ---")
+        self.intelligence_layer.run_force_vector_analysis()
+        # ▲▲▲【V317.0 核心调整】结束 ▲▲▲
+
+        # --- 指挥链 5/8: 统合判断层 ---
+        # 综合静态分数和动态力学指令，做出最终决策
+        print("    --- [指挥链 5/8] 统合判断层: 正在进行最终决策... ---")
         self.judgment_layer.make_final_decisions()
 
-        # --- 指挥链 6/7: 模拟层 ---
+        # --- 指挥链 6/8: 离场层 (由判断层内部调用) ---
+        print("    --- [指挥链 6/8] 离场层: 已在判断层内部完成计算... ---")
+        
+        # --- 指挥链 7/8: 模拟层 ---
         # 根据最终决策，进行沙盘推演
-        print("    --- [指挥链 6/7] 模拟层: 正在进行全程战术推演... ---")
+        print("    --- [指挥链 7/8] 模拟层: 正在进行全程战术推演... ---")
         self.simulation_layer.run_position_management_simulation()
 
-        print(f"    ====== 【模块化战术引擎 V100.0】执行完毕 ======")
+        print(f"    ====== 【动态力学引擎 V317.0】执行完毕 ======")
 
-        # --- 指挥链 7/7: 报告层 (隐式调用) ---
-        # prepare_db_records 方法现在由外部调用，使用 self.reporting_layer.prepare_db_records
-        
+        # --- 指挥链 8/8: 报告层 (隐式调用) ---
         return self.df_indicators, score_details_df, risk_details_df
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str):

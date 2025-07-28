@@ -44,6 +44,24 @@ class WarningLayer:
             else:
                 risk_score_df.loc[signal_series, rule_name] = score
                 total_risk_score += signal_series * score
+
+        healthy_trend_state = 'STRUCTURE_MAIN_UPTREND_WAVE_S'
+        trend_reduction_factor = 0.7 # 在S级主升浪中，非致命风险的重要性降低30%
+        
+        if healthy_trend_state in atomic_states:
+            trend_condition = atomic_states[healthy_trend_state]
+            if trend_condition.any():
+                # 创建一个布尔掩码，标记哪些风险规则不是“一票否决”级的临界风险
+                critical_risks = {"CONTEXT_RECENT_DISTRIBUTION_PRESSURE", "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN", 
+                                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION", "RISK_CONTEXT_LONG_TERM_DISTRIBUTION"}
+                non_critical_columns = [col for col in risk_score_df.columns if col not in critical_risks]
+                
+                # 只对非临界风险应用折减
+                risk_score_df.loc[trend_condition, non_critical_columns] *= trend_reduction_factor
+                print(f"          -> [趋势折减已执行！] 已对 {trend_condition.sum()} 天的非临界风险应用了 {trend_reduction_factor} 的折减系数。")
+        
+        # 重新计算总分
+        total_risk_score = risk_score_df.sum(axis=1)
         
         print("          -> [第二阶段] 正在评估是否执行“战略覆盖”...")
         if has_strategic_opportunity.any():

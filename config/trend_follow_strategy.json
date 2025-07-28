@@ -502,6 +502,50 @@
         },
         "multipliers": []
       },
+      "dynamic_mechanics_params": {
+        "enabled": true,
+        "说明": "【V317.0 新增】动态力学引擎专属配置区，用于控制趋势和加速度的分析与决策。",
+        "force_vector_analysis": {
+          "enabled": true,
+          "说明": "进攻/风险“力矢量”分析参数。",
+          "window": {
+            "value": 5,
+            "说明": "计算斜率和加速度的滚动窗口期（天）。"
+          },
+          "accel_threshold": {
+            "value": 1.0,
+            "说明": "判定“显著加速”所需的最小加速度变化量。"
+          }
+        },
+        "trend_adjustment": {
+          "enabled": true,
+          "说明": "基于宏观趋势对攻防分数进行调整的参数。",
+          "healthy_trend_multiplier": {
+            "value": 1.1,
+            "说明": "当处于'S级主升浪'时，为进攻分提供的全局加成系数。"
+          },
+          "trend_reduction_factor": {
+            "value": 0.7,
+            "说明": "当处于'S级主升浪'时，为非临界风险分提供的全局折减系数。"
+          }
+        },
+        "tactical_matrix_rules": {
+          "enabled": true,
+          "说明": "最终决策矩阵中，关于“否决票”的容忍度规则。",
+          "tolerance_tiers": [
+            {
+              "score_max": 799,
+              "max_veto_votes": 1,
+              "description": "常规信号（分数低于800），容忍度较低，最多允许1张否决票。"
+            },
+            {
+              "score_min": 800,
+              "max_veto_votes": 3,
+              "description": "强信号（分数高于800），容忍度较高，最多允许3张否-决票。"
+            }
+          ]
+        }
+      },
       "intraday_entry_params": {
         "enabled": false,
         "daily_score_threshold": 100,

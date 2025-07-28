@@ -63,8 +63,6 @@ class OffensiveLayer:
         
         return entry_score, score_details_df
 
-    # ... (所有 _get_playbook_blueprints, _generate_playbook_states, _define_trigger_events, _apply_final_score_adjustments 方法从原文件复制到这里)
-    # ... (同样，注意修改 self 引用)
     def _apply_final_score_adjustments(self, entry_score: pd.Series) -> pd.Series:
         """
         【V2.0 初升浪适配版】最终得分指挥棒模型
@@ -96,7 +94,15 @@ class OffensiveLayer:
             if ascent_condition.any():
                 final_multiplier.loc[ascent_condition] *= ascent_multiplier
                 print(f"          -> [指挥棒] 已为 {ascent_condition.sum()} 天的“初升浪”期间应用 {ascent_multiplier}x 分数加成。")
-        # ▲▲▲【功能适配】▲▲▲
+        
+        healthy_trend_state = 'STRUCTURE_MAIN_UPTREND_WAVE_S'
+        healthy_trend_multiplier = 1.1 # 健康主升浪中，所有信号价值提升10%
+        
+        if healthy_trend_state in self.strategy.atomic_states:
+            trend_condition = self.strategy.atomic_states[healthy_trend_state]
+            if trend_condition.any():
+                final_multiplier.loc[trend_condition] *= healthy_trend_multiplier
+                print(f"          -> [指挥棒] 已为 {trend_condition.sum()} 天的“S级主升浪”期间应用 {healthy_trend_multiplier}x 分数加成。")
 
         return entry_score * final_multiplier
 
