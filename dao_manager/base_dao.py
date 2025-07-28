@@ -9,18 +9,16 @@ import re # 用于异步操作
 from django.utils import timezone
 from zoneinfo import ZoneInfo
 from django.db.models import Q, Model # Django 查询和模型基类
-import math
-from functools import reduce
+import time
+import random
+from django.db.utils import OperationalError
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
-from datetime import datetime, date, timedelta
-import dateutil.parser
+from datetime import datetime, date
 from django.db import connection, models # Django 模型
 from decimal import Decimal
 
 import numpy as np
 import pandas as pd # 导入 Decimal
-from stock_models.index import IndexInfo
-from stock_models.stock_basic import StockInfo
 import tushare as ts
 from django.conf import settings # Django 设置
 import pytz # 时区处理
@@ -736,27 +734,28 @@ class BaseDAO(Generic[T]):
 
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V22 - 终极性能版】使用 executemany 实现真正的原生SQL批量操作。
+        【V24 - 死锁优化版】使用 executemany 并增加排序和重试机制来处理死锁。
         - 策略:
-          1. 数据准备阶段的逻辑与V21完全相同，确保数据完整性和正确性。
-          2. 在数据库执行阶段，将V21中的 for 循环 + cursor.execute() 替换为单次的 cursor.executemany()。
-          3. `executemany` 将所有数据一次性发送到数据库，极大减少了网络通信开销，是最高效的批量插入/更新方式。
-        - 结果: 在功能正确的基础上，实现了性能的最大化。
+        1. 【新增】排序: 在插入前，对DataFrame按唯一键进行排序，确保所有事务以相同顺序请求锁，极大降低死锁概率。
+        2. 【新增】重试: 捕获 (1213, 'Deadlock found...') 异常，等待一个短暂的随机时间后自动重试，以处理偶发的死锁情况。
+        3.  保留了原有的高效 executemany 批量操作。
         """
         if df.empty:
             return 0
-        # 为了代码整洁，我将复制一份DataFrame进行修改，避免潜在的SettingWithCopyWarning
+
         df = df.copy()
         table_name = model_class._meta.db_table
         now = timezone.now()
         auto_now_fields = []
-        # --- 数据准备阶段 ---
+
+        # --- 数据准备阶段 (与之前版本相同) ---
         for field in model_class._meta.fields:
             if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
                 df[field.column] = now
             if hasattr(field, 'auto_now') and field.auto_now:
                 auto_now_fields.append(field.column)
                 df[field.column] = now
+        
         for field in model_class._meta.fields:
             if field.default is not models.NOT_PROVIDED:
                 default_value = field.get_default()
@@ -765,35 +764,38 @@ class BaseDAO(Generic[T]):
                 elif df[field.column].isnull().any():
                     if default_value is not None:
                         df[field.column].fillna(default_value, inplace=True)
+
         json_field_names = [f.column for f in model_class._meta.fields if isinstance(f, models.JSONField)]
         for col_name in json_field_names:
             if col_name in df.columns:
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
-        all_columns = list(df.columns)
-        # --- SQL构建阶段 (与V21完全相同) ---
-        # 【代码修改】修复 'ManyToOneRel' object has no attribute 'column' 错误
-        # 错误原因：model_class._meta.get_fields() 会包含反向关系（如 ManyToOneRel），这些关系对象没有 .column 属性。
-        # 解决方案：改用 model_class._meta.fields，它只包含模型中定义的具体字段，确保每个字段都有 .column 属性。
+
+        # --- 【代码修改】死锁预防：按唯一键排序 ---
+        # 创建字段名到列名的映射
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
-        # 直接使用DataFrame的列名构建INSERT部分的列清单，确保与数据顺序一致
+        # 获取唯一键对应的数据库列名
+        unique_columns = [field_to_column_map.get(f, f) for f in unique_key_fields]
+        # 检查排序列是否存在于DataFrame中，然后排序
+        if all(col in df.columns for col in unique_columns):
+            print(f"调试信息: 正在按唯一键 {unique_columns} 对批次数据进行排序以防止死锁。")
+            df.sort_values(by=unique_columns, inplace=True)
+        else:
+            print(f"调试信息: 无法按唯一键排序，因为列 {unique_columns} 不完全存在于DataFrame中。")
+
+        # --- SQL构建阶段 (与之前版本相同) ---
         all_columns = list(df.columns)
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
-        # 注意：executemany 的占位符格式与 execute 相同
         placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
         update_columns_set = set()
         for field_name in update_fields:
-            # 从映射中获取真实的数据库列名，如果找不到则使用字段名本身（作为安全备份）
             column_name = field_to_column_map.get(field_name, field_name)
             update_columns_set.add(column_name)
         update_columns_set.update(auto_now_fields)
         if not update_columns_set:
-            # 如果没有要更新的字段，执行一个空操作以触发ON DUPLICATE KEY逻辑，避免语法错误
-            # 这里使用主键的列名(pk.column)而不是字段名(pk.name)以保证健壮性
             update_sql = f"`{model_class._meta.pk.column}` = `{model_class._meta.pk.column}`"
         else:
-            # 使用正确的数据库列名构建UPDATE子句
             update_sql = ", ".join([f"`{col}` = VALUES(`{col}`)" for col in update_columns_set])
         final_sql_template = (
             f"INSERT INTO `{table_name}` ({cols_sql}) "
@@ -801,19 +803,33 @@ class BaseDAO(Generic[T]):
             f"ON DUPLICATE KEY UPDATE {update_sql}"
         )
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
-        # ▼▼▼ 使用 executemany 实现真正的批量操作 ▼▼▼
-        try:
-            with transaction.atomic():
-                with connection.cursor() as cursor:
-                    # 使用 executemany 一次性执行所有数据的插入/更新
-                    # 这比在循环中逐条执行 cursor.execute() 高效得多
-                    # executemany 会返回总共受影响的行数
-                    total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
-            return total_affected_rows
-        except Exception as e:
-            # 错误日志现在会记录整个批次的失败，而不是单行
-            logger.error(f"执行批量Upsert (executemany) 时数据库出错。SQL模板: {final_sql_template[:500]}... Error: {e}", exc_info=True)
-            raise
+        
+        # --- 【代码修改】数据库执行阶段：增加死锁重试逻辑 ---
+        max_retries = 3 # 定义最大重试次数
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+                return total_affected_rows # 成功则直接返回
+            except OperationalError as e:
+                # 检查是否为死锁错误 (MySQL error code 1213)
+                if e.args[0] == 1213:
+                    # 如果是最后一次尝试，则记录错误并抛出异常
+                    if attempt == max_retries - 1:
+                        logger.error(f"执行批量Upsert时发生死锁，已达到最大重试次数 {max_retries}。SQL: {final_sql_template[:500]}...", exc_info=True)
+                        raise
+                    
+                    # 计算随机等待时间并重试
+                    wait_time = (0.1 + random.uniform(0, 0.2)) * (attempt + 1)
+                    logger.warning(f"捕获到数据库死锁，将在 {wait_time:.2f} 秒后进行第 {attempt + 1}/{max_retries} 次重试...")
+                    print(f"调试信息: 捕获到数据库死锁，将在 {wait_time:.2f} 秒后进行第 {attempt + 1}/{max_retries} 次重试...")
+                    time.sleep(wait_time)
+                else:
+                    # 如果是其他数据库错误，则直接抛出
+                    logger.error(f"执行批量Upsert (executemany) 时发生非死锁数据库错误。SQL: {final_sql_template[:500]}... Error: {e}", exc_info=True)
+                    raise
+        return 0 # 理论上不会执行到这里，但为保持函数完整性
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
