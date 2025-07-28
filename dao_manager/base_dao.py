@@ -732,11 +732,11 @@ class BaseDAO(Generic[T]):
                 # 在这种关键失败情况下，可以选择抛出异常以停止操作，避免无保护的并发写入
                 raise ConnectionError("无法获取 Redis 客户端，数据库操作被中止以保证数据安全。")
 
-            print(f"调试信息: 准备为表 {model_class._meta.db_table} 获取分布式锁: {lock_key}")
+            # print(f"调试信息: 准备为表 {model_class._meta.db_table} 获取分布式锁: {lock_key}")
             # 3. 使用获取到的客户端执行加锁操作
             # blocking_timeout 设置了获取锁的最长等待时间，防止无限等待
             async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
-                print(f"调试信息: 成功获取锁 {lock_key}，开始处理批次...")
+                # print(f"调试信息: 成功获取锁 {lock_key}，开始处理批次...")
                 for i in range(0, len(df), batch_size):
                     batch_df = df.iloc[i:i + batch_size]
                     try:
@@ -753,7 +753,7 @@ class BaseDAO(Generic[T]):
                         logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}", exc_info=True)
                 
                 logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
-                print(f"调试信息: 批处理完成，即将释放锁 {lock_key}")
+                # print(f"调试信息: 批处理完成，即将释放锁 {lock_key}")
 
         except Exception as lock_error:
             # 处理获取锁时可能发生的错误（例如，等待锁超时或连接失败）
@@ -809,10 +809,8 @@ class BaseDAO(Generic[T]):
         unique_columns = [field_to_column_map.get(f, f) for f in unique_key_fields]
         # 检查排序列是否存在于DataFrame中，然后排序
         if all(col in df.columns for col in unique_columns):
-            print(f"调试信息: 正在按唯一键 {unique_columns} 对批次数据进行排序以防止死锁。")
+            # print(f"调试信息: 正在按唯一键 {unique_columns} 对批次数据进行排序以防止死锁。")
             df.sort_values(by=unique_columns, inplace=True)
-        else:
-            print(f"调试信息: 无法按唯一键排序，因为列 {unique_columns} 不完全存在于DataFrame中。")
 
         # --- SQL构建阶段 (与之前版本相同) ---
         all_columns = list(df.columns)
