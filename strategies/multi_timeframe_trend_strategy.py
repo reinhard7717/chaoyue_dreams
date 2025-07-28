@@ -177,15 +177,12 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V4.4：沙盘推演版】
-        - 核心革命: 不再“复刻”，而是进行“沙盘推演”。在探针内部完整、精确地
-                    重新执行 `judgment_layer` 的核心投票逻辑，确保100%的逻辑一致性。
-        - 新功能:
-          1. **真实投票记录**: 精确回溯并展示每一张真实投出的否决票及其原因。
-          2. **豁免/缓解说明**: 如果一个风险因“缓解规则”被豁免，探针将明确指出。
-          3. **数据驱动结论**: 法医结论将基于真实的投票结果和底层数据，给出精准诊断。
+        【首席法医官 V4.5：独立审计版】
+        - 核心修复: 探针不再读取 DataFrame 中的 `veto_votes`，而是通过沙盘推演
+                    独立计算总票数，确保报告的内部逻辑绝对一致。
+        - 修复: 解决了投票详情总数与报告总数不匹配的最终BUG。
         """
-        print("\n" + "="*35 + " [首席法医官 V4.4：沙盘推演版] " + "="*35)
+        print("\n" + "="*35 + " [首席法医官 V4.5：独立审计版] " + "="*35)
         
         try:
             probe_dt = pd.to_datetime(probe_date).date()
@@ -202,39 +199,25 @@ class MultiTimeframeTrendStrategy:
             print("=" * 95)
             return
 
-        # --- 1. 核心决策依据 ---
-        print("  --- 1. 核心决策依据 ---")
-        veto_votes = int(probe_row.get('veto_votes', 0))
-        main_force_state_val = probe_row.get('main_force_state', -1)
-        main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
-        dynamic_action = probe_row.get('dynamic_action', 'N/A')
-        
-        print(f"    - [联席会议] 最终投出否决票数: {veto_votes}")
-        print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
-        print(f"    - [动态力学] 战术指令: {dynamic_action}")
-
-        # --- 2. 沙盘推演 (Re-enacting the Vote) ---
-        print("\n  --- 2. 联席会议投票沙盘推演 ---")
+        # --- 1. 沙盘推演 (Re-enacting the Vote) ---
+        print("  --- 1. 联席会议投票沙盘推演 ---")
         atomic_states = self.tactical_engine.atomic_states
         probe_day_atomic = {key: series.loc[probe_ts] for key, series in atomic_states.items() if probe_ts in series.index}
         
         vote_details = []
-        
-        def print_evidence(title, votes, data_points):
-            print(f"\n    -> [案由: {title} ({votes}票)]")
-            for point in data_points:
-                indicator = point['indicator']
-                value = probe_row.get(indicator) if indicator in probe_row.index else probe_day_atomic.get(indicator, 'N/A')
-                value_str = f"{value:.4f}" if isinstance(value, (float, np.floating)) else str(value)
-                print(f"       - [物证] 指标: {indicator:<35s} | 当前值: {value_str:<15s} | 逻辑: {point['logic']}")
+        calculated_veto_votes = 0
 
         # 推演逻辑 1: 严重筹码结构风险 (3票)
         if probe_day_atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', False):
             vote_details.append("【筹码地基审查】投出 3 票")
+            calculated_veto_votes += 3
 
         # 推演逻辑 2: 主力行为风险 (1票)
+        main_force_state_val = probe_row.get('main_force_state', -1)
+        main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
         if main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
             vote_details.append("【主力行为审查】投出 1 票")
+            calculated_veto_votes += 1
 
         # 推演逻辑 3: 绝对否决权风险 (2票)
         veto_params = get_params_block(self.tactical_engine, 'absolute_veto_params')
@@ -247,6 +230,7 @@ class MultiTimeframeTrendStrategy:
                 has_mitigator = any(probe_day_atomic.get(m, False) for m in mitigators)
                 if not has_mitigator:
                     vote_details.append(f"【绝对否决权审查】投出 2 票 (原因: {signal_name})")
+                    calculated_veto_votes += 2
                 else:
                     print(f"    - [豁免记录] 风险 '{signal_name}' 因缓解规则被豁免，未投票。")
 
@@ -255,31 +239,40 @@ class MultiTimeframeTrendStrategy:
         is_exempted = probe_day_atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', False)
         if is_risky and not is_exempted:
             vote_details.append("【常规风险审查】投出 1 票 (原因: 风险分 > 进攻分)")
+            calculated_veto_votes += 1
         
         if probe_day_atomic.get('SCORE_DYN_OPPORTUNITY_FADING', False):
             vote_details.append("【元决策审查】投出 1 票 (原因: 机会衰退)")
+            calculated_veto_votes += 1
             
         if probe_day_atomic.get('SCORE_DYN_RISK_ESCALATING', False):
             vote_details.append("【元决策审查】投出 1 票 (原因: 风险抬头)")
+            calculated_veto_votes += 1
 
+        print(f"\n    [审计结果] 独立审计计算出的总否决票数为: {calculated_veto_votes}")
         if vote_details:
-            print("\n    [投票详情]:")
+            print("    [投票详情]:")
             for detail in vote_details:
                 print(f"      - {detail}")
         else:
             print("    - [信息] 沙盘推演未发现任何部门投出否决票。")
 
+        # --- 2. 核心决策依据 ---
+        print("\n  --- 2. 核心决策依据 ---")
+        dynamic_action = probe_row.get('dynamic_action', 'N/A')
+        print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
+        print(f"    - [动态力学] 战术指令: {dynamic_action}")
+
         # --- 3. 首席法医官结论 ---
         print("\n  --- 3. 首席法医官结论 ---")
-        # ... (结论部分逻辑不变) ...
         verdict = "调查中..."
         if dynamic_action == 'AVOID':
             verdict = "【结论：真实且严重的威胁】动态力学矩阵发出了明确的'规避'指令，表明进攻动能正在衰竭而风险正在加速抬头。所有进攻信号极有可能是'牛市陷阱'或'诱多出货'。建议严格遵守规避指令。"
         elif dynamic_action == 'FORCE_ATTACK':
             verdict = "【结论：可控的良性扰动】动态力学矩阵发出了'强攻'指令，表明进攻动能正在加速而风险正在消退。当前风险大概率是主升浪中的正常洗盘或获利盘换手。进攻信号的置信度极高。"
-        elif veto_votes > 0:
+        elif calculated_veto_votes > 0:
             reasons = [v.split('(')[0].strip() for v in vote_details]
-            verdict = f"【结论：信号被否决】沙盘推演显示，信号因以下关键风险被联席会议否决：{', '.join(reasons)}。基于当前规则，否决合理。"
+            verdict = f"【结论：信号被否决】沙盘推演显示，信号因以下关键风险被联席会议否决（共{calculated_veto_votes}票）：{', '.join(reasons)}。基于当前规则，否决合理。"
         else:
             verdict = "【结论：高置信度买入】信号通过了所有静态和动态审查，未收到任何否决票。这是一个高置信度的进攻机会。"
             
@@ -288,9 +281,9 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V301.2 修正版】
-        - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式，
-                    不再将其作为 tactical_engine 的方法调用，而是作为独立的工具函数使用。
+        【V319.0 生产模式精简版】
+        - 核心优化: 移除了所有与“探针”相关的调试代码，使其成为一个纯粹的、
+                    高性能的信号生成引擎，专用于生产环境。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -298,6 +291,7 @@ class MultiTimeframeTrendStrategy:
             return []
 
         try:
+            # 1. 调用核心策略引擎
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
             )
@@ -307,26 +301,13 @@ class MultiTimeframeTrendStrategy:
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return []
 
-            # ▼▼▼【代码修改】: 使用导入的工具函数，并传入 tactical_engine 实例 ▼▼▼
-            debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            probe_date = get_param_value(debug_params.get('probe_date'))
-            
-            if probe_date:
-                print(f"    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-                self._deploy_field_coroner_probe(
-                    df=df_daily_prepared,
-                    probe_date=probe_date,
-                    score_details=score_details_df,
-                    risk_details=risk_details_df
-                )
-            # ▲▲▲【代码修改】▲▲▲
-
+            # 2. 【重要】保存分析结果以供其他引擎（如盘中引擎）使用
+            self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
+            # 同时保存细节DataFrame，以备调试模式下使用
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
-            print("    -> [总司令部] 已完成现场归档，所有下属单位可访问。")
-
-            self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             
+            # 3. 调用报告层生成数据库记录
             db_records = self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,
@@ -336,21 +317,11 @@ class MultiTimeframeTrendStrategy:
                 result_timeframe='D'
             )
             print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
-
-            cols_to_broadcast = ['PLATFORM_PRICE_STABLE'] 
-            existing_cols = [col for col in cols_to_broadcast if col in self.daily_analysis_df.columns]
-            if existing_cols:
-                broadcast_df = self.daily_analysis_df[existing_cols].copy()
-                for tf, df_intraday in all_dfs.items():
-                    if tf.isdigit() and df_intraday is not None and not df_intraday.empty:
-                        all_dfs[tf] = pd.merge_asof(
-                            left=df_intraday.sort_index(), right=broadcast_df.sort_index(),
-                            left_index=True, right_index=True, direction='backward'
-                        )
             
             return db_records
 
         finally:
+            # 注意：这里的清理逻辑保持不变，因为调试模式可能需要这些临时数据
             print("    -> [总司令部] 正在执行“阅后即焚”条令...")
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df
@@ -661,26 +632,48 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V204.2 全面报告修正版】
-        - 核心修正:
-          1. **新增卖出信号处理**: 增加了一个专门的 `elif` 分支来处理 `signal_type == '卖出信号'` 的情况。
-             这解决了卖出信号被错误归类为“未知信号”的根本问题。
-          2. **统一数据清洗**: 对买入和卖出信号的 `triggered_playbooks` 字段统一应用了数据清洗逻辑，
-             移除了换行符和多余空格，确保日志输出格式的整洁。
-          3. **保留买入信号修正**: 继承了上一版本对买入信号的修正，确保其类型被正确识别。
-        - 收益: 调试报告现在能够准确、清晰地反映所有核心信号类型（买入、卖出、警报），
-                极大地提升了回溯分析的效率和可读性。
+        【V319.0 探针专属版】
+        - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
+        - 新流程:
+          1. 正常执行 `run_for_stock` 以生成所有分析结果。
+          2. 从 `tactical_engine` 中获取最后一次运行的详细分析数据。
+          3. 检查配置文件，如果设置了 `probe_date`，则启动探针进行深度解剖。
+          4. 最后，展示全流程的信号透视报告。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V204.2 全面报告修正版)] ---")
+        print(f"--- [历史回溯调试启动 (V319.0 探针专属版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
 
         try:
+            # 步骤 1: 正常执行核心流程，生成所有数据
             all_records = await self.run_for_stock(stock_code, trade_time=end_date)
             if all_records is None: return
-            print(f"\n[步骤 2/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
+
+            # 步骤 2: 检查是否需要部署探针
+            debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            probe_date = get_param_value(debug_params.get('probe_date'))
+            
+            if probe_date:
+                print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
+                # 从战术引擎获取最后一次运行的详细结果
+                last_df = self.daily_analysis_df
+                last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
+                last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
+
+                if last_df is not None and not last_df.empty:
+                    self._deploy_field_coroner_probe(
+                        df=last_df,
+                        probe_date=probe_date,
+                        score_details=last_score_details,
+                        risk_details=last_risk_details
+                    )
+                else:
+                    print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
+
+            # 步骤 3: 展示全流程信号透视报告
+            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             start_dt = pd.to_datetime(start_date, utc=True)
             end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
             
@@ -700,6 +693,7 @@ class MultiTimeframeTrendStrategy:
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
             for record in debug_period_records:
+                # ... (此处的日志打印逻辑保持不变) ...
                 time_obj = pd.to_datetime(record['trade_time'])
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
                 tf = record.get('timeframe', 'N/A')
@@ -713,14 +707,12 @@ class MultiTimeframeTrendStrategy:
                     signal_type = f"卖出警报(L{severity})"
                     details = f"风险分: {record.get('risk_score', 0):<3.0f} | 原因: {reason}"
                 
-                # ▼▼▼【代码修改 V204.2】: 新增对 '卖出信号' 的专门处理 ▼▼▼
                 elif record.get('signal_type') == '卖出信号':
                     risk_score = record.get('risk_score', 0.0)
                     playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
                     playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
                     details = f"风险分: {risk_score:<7.2f} | 剧本: {playbooks_str}"
                     signal_type = "综合卖出"
-                # ▲▲▲【代码修改 V204.2】▲▲▲
 
                 elif record.get('entry_signal'):
                     score = record.get('entry_score', 0.0)

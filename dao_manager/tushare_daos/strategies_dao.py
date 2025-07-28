@@ -755,6 +755,45 @@ class StrategiesDAO(BaseDAO):
 
         return df
 
+    async def get_daily_buy_signals(self, trade_date: date) -> List[TrendFollowStrategySignalLog]:
+        """
+        【V1.0 - 盘中引擎专用】
+        获取指定交易日的所有日线级别最终买入信号。
+
+        - 核心逻辑: 筛选 entry_signal=True, timeframe='D' 的记录。
+        - 性能优化: 使用 .select_related('stock') 预先加载关联的股票信息，
+                    避免 N+1 查询问题，大幅提升性能。
+        - 异步执行: 使用 Django 的异步ORM接口 (`async for`) 执行查询。
+
+        Args:
+            trade_date (date): 需要查询的交易日期 (注意: 类型是 date)。
+
+        Returns:
+            List[TrendFollowStrategySignalLog]: 包含所有符合条件的信号日志模型实例列表。
+        """
+        logger.info(f"正在从数据库查询 {trade_date} 的日线级别买入信号...")
+        try:
+            # 1. 构建基础查询集
+            queryset = TrendFollowStrategySignalLog.objects.filter(
+                # 条件1: 必须是最终的买入信号
+                entry_signal=True,
+                # 条件2: 必须是日线('D')级别
+                timeframe='D',
+                # 条件3: 信号的生成日期必须是指定的交易日
+                # __date 是Django ORM提供的强大查询，可直接匹配DateTimeField的日期部分
+                trade_time__date=trade_date
+            ).select_related('stock') # 【关键性能优化】
+
+            # 2. 使用异步迭代器执行查询
+            signals = [signal async for signal in queryset]
+
+            logger.info(f"查询完成，共找到 {len(signals)} 条日线买入信号。")
+            return signals
+
+        except Exception as e:
+            logger.error(f"查询日线买入信号时发生严重错误: {e}", exc_info=True)
+            # 在生产环境中，发生错误时返回空列表是安全的做法
+            return []
 
 
 

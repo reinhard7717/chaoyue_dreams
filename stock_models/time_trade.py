@@ -318,6 +318,34 @@ class StockMinuteData(models.Model):
     def __str__(self):
         return f"{self.stock} {self.trade_time}"
 
+class StockMinuteData_1_SZ(models.Model):
+    """A股分钟行情"""
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='stock_code',
+        on_delete=models.CASCADE,
+        related_name='minute_data_1_sz',
+        verbose_name='股票'
+    )
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
+    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
+    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
+    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    vol = models.BigIntegerField(verbose_name='成交量')
+    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
+    class Meta:
+        verbose_name = 'A股分钟行情'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_minute_1_sz'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock} {self.trade_time}"
+
 class StockMinuteData_5_SZ(models.Model):
     """A股分钟行情"""
     stock = models.ForeignKey(
@@ -424,6 +452,34 @@ class StockMinuteData_60_SZ(models.Model):
         verbose_name = 'A股分钟行情'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_minute_60_sz'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock} {self.trade_time}"
+
+class StockMinuteData_1_SH(models.Model):
+    """A股分钟行情"""
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='stock_code',
+        on_delete=models.CASCADE,
+        related_name='minute_data_1_sh',
+        verbose_name='股票'
+    )
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
+    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
+    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
+    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    vol = models.BigIntegerField(verbose_name='成交量')
+    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
+    class Meta:
+        verbose_name = 'A股分钟行情'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_minute_1_sh'
         unique_together = ('stock', 'trade_time')
         ordering = ['-trade_time']
 
@@ -542,6 +598,34 @@ class StockMinuteData_60_SH(models.Model):
     def __str__(self):
         return f"{self.stock} {self.trade_time}"
 
+class StockMinuteData_1_BJ(models.Model):
+    """A股分钟行情"""
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='stock_code',
+        on_delete=models.CASCADE,
+        related_name='minute_data_1_bj',
+        verbose_name='股票'
+    )
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
+    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
+    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
+    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    vol = models.BigIntegerField(verbose_name='成交量')
+    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
+    class Meta:
+        verbose_name = 'A股分钟行情'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_minute_1_bj'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock} {self.trade_time}"
+
 class StockMinuteData_5_BJ(models.Model):
     """A股分钟行情"""
     stock = models.ForeignKey(
@@ -648,6 +732,34 @@ class StockMinuteData_60_BJ(models.Model):
         verbose_name = 'A股分钟行情'
         verbose_name_plural = verbose_name
         db_table = 'stock_time_trade_minute_60_bj'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock} {self.trade_time}"
+
+class StockMinuteData_1_CY(models.Model):
+    """A股分钟行情"""
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='stock_code',
+        on_delete=models.CASCADE,
+        related_name='minute_data_1_cy',
+        verbose_name='股票'
+    )
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
+    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
+    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
+    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    vol = models.BigIntegerField(verbose_name='成交量')
+    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
+    class Meta:
+        verbose_name = 'A股分钟行情'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_minute_1_cy'
         unique_together = ('stock', 'trade_time')
         ordering = ['-trade_time']
 
@@ -766,6 +878,34 @@ class StockMinuteData_60_CY(models.Model):
     def __str__(self):
         return f"{self.stock} {self.trade_time}"
 
+class StockMinuteData_1_KC(models.Model):
+    """A股分钟行情"""
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='stock_code',
+        on_delete=models.CASCADE,
+        related_name='minute_data_1_kc',
+        verbose_name='股票'
+    )
+    trade_time = models.DateTimeField(verbose_name='交易时间', db_index=True)
+    open = models.FloatField(null=True, blank=True, verbose_name='开盘价')
+    high = models.FloatField(null=True, blank=True, verbose_name='最高价')
+    low = models.FloatField(null=True, blank=True, verbose_name='最低价')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    vol = models.BigIntegerField(verbose_name='成交量')
+    amount = models.DecimalField(max_digits=20, decimal_places=3, verbose_name='成交金额')
+
+    class Meta:
+        verbose_name = 'A股分钟行情'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_minute_1_kc'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock} {self.trade_time}"
+
 class StockMinuteData_5_KC(models.Model):
     """A股分钟行情"""
     stock = models.ForeignKey(
@@ -877,7 +1017,6 @@ class StockMinuteData_60_KC(models.Model):
 
     def __str__(self):
         return f"{self.stock} {self.trade_time}"
-
 
 # 周线行情模型（StockWeeklyData）
 class StockWeeklyData(models.Model):

@@ -21,6 +21,7 @@ from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
 from stock_models.time_trade import StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 from stock_models.time_trade import (
+            StockMinuteData_1_SZ, StockMinuteData_1_SH, StockMinuteData_1_BJ, StockMinuteData_1_CY, StockMinuteData_1_KC,
             StockMinuteData_5_SZ, StockMinuteData_5_SH, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC,
             StockMinuteData_15_SZ, StockMinuteData_15_SH, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC,
             StockMinuteData_30_SZ, StockMinuteData_30_SH, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC,
@@ -415,29 +416,29 @@ class StockTimeTradeDAO(BaseDAO):
         根据stock_code和time_level返回对应的分钟数据模型
         """
         # 只分5/15/30/60，1min默认用原表
-        if time_level not in ['5', '15', '30', '60']:
+        if time_level not in ['1', '5', '15', '30', '60']:
             return StockMinuteData
         if stock_code.endswith('.SZ'):
             if stock_code.startswith('3'):
                 return {
-                    '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY
+                    '1': StockMinuteData_1_CY, '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY
                 }[time_level]
             else:
                 return {
-                    '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ
+                    '1': StockMinuteData_1_SZ, '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ
                 }[time_level]
         elif stock_code.endswith('.SH'):
             if stock_code.startswith('68'):
                 return {
-                    '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC
+                    '1': StockMinuteData_1_KC, '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC
                 }[time_level]
             else:
                 return {
-                    '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH
+                    '1': StockMinuteData_1_SH, '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH
                 }[time_level]
         elif stock_code.endswith('.BJ'):
             return {
-                '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ
+                '1': StockMinuteData_1_BJ, '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ
             }[time_level]
         else:
             return StockMinuteData
@@ -705,100 +706,68 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
-        【V4.0 - 防御性健壮版】保存股票的实时分钟级交易数据
-        核心优化:
-        1.  【向量化处理】用Pandas向量化操作替代原有的逐行循环，大幅提升数据预处理性能。
-        2.  【精确时区转换】在向量化处理中，将Tushare返回的本地时间精确转换为UTC时间，以适配原生SQL插入。
-        3.  【并发持久化】保留原有的asyncio.gather并发执行数据库和缓存的写入操作。
-        修正点:
-        -   【防御机制】Tushare接口返回的时间格式不稳定，有时缺少日期。
-        -   使用 `pd.to_datetime` 的 `errors='coerce'` 参数，将任何不符合 'YYYY-MM-DD HH:MM:SS' 格式的行标记为无效(NaT)。
-        -   随后使用 `dropna` 清除这些无效数据行，确保只有格式正确的数据被处理和保存。
+        【V5.0 - 双轨持久化版】保存股票的实时分钟级交易数据。
+        - 核心升级: 只调用一次API，然后将数据并发地、双轨写入到
+                    1. 数据库 (PostgreSQL): 用于长期历史存储和盘后分析。
+                    2. 缓存 (Redis ZSET): 用于高性能的盘中实时策略计算。
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-        # 1. 从API获取数据 (保持不变)
+        # 1. 数据采集：只调用一次API
         stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.rt_min(**{
-            "topic": "", "freq": time_level + "MIN", "ts_code": stock_codes_str, "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "freq", "time", "open", "close", "high", "low", "vol", "amount"
+        df = self.ts_pro.rt_min(ts_code=stock_codes_str, freq=f"{time_level}min", fields=[
+            "ts_code", "time", "open", "close", "high", "low", "vol", "amount"
         ])
 
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-        # 2. 向量化数据准备阶段
-        # 2.1 数据清洗
-        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        # 2. 数据预处理 (与之前版本相同)
         df.dropna(subset=['time', 'ts_code'], inplace=True)
+        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+        df.dropna(subset=['trade_time'], inplace=True)
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
 
-        # 2.2 向量化时间转换 (核心修改：增加防御机制)
-        initial_rows = len(df)
-        # print(f"调试信息：时间转换前，共有 {initial_rows} 条记录。")
-        # print(f"调试信息：从API获取到的原始时间字符串前5条:\n{df['time'].head()}")
-
-        # a. 【防御性转换】使用 `errors='coerce'`。
-        #    如果 'time' 字段的格式不是 '%Y-%m-%d %H:%M:%S'，则转换结果为 NaT (Not a Time)，而不是抛出异常。
-        df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-
-        # b. 【数据清洗】丢弃所有转换失败的行（即 trade_time 为 NaT 的行）。
-        #    这是我们的核心防御机制，确保只有格式正确的数据进入后续流程。
-        df.dropna(subset=['trade_time'], inplace=True)
+        # 3. 【核心改造】准备双轨数据载荷
+        model_grouped_data_dicts = {} # 轨道1: 数据库载荷
+        cache_payload = {}            # 轨道2: Redis ZSET 载荷
         
-        filtered_rows = len(df)
-        if initial_rows > filtered_rows:
-            dropped_count = initial_rows - filtered_rows
-            # logger.warning(f"数据清洗：因时间格式不正确，已过滤掉 {dropped_count} 条记录。")
-            # print(f"调试信息：因时间格式不正确，已过滤掉 {dropped_count} 条记录。剩余 {filtered_rows} 条有效记录。")
-        
-        if df.empty:
-            logger.warning("所有记录因时间格式问题被过滤，任务终止。")
-            return {"尝试处理": initial_rows, "失败": initial_rows, "创建/更新成功": 0}
-
-        # c. 本地化为北京时间
-        df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-        # d. 转换为UTC时间
-        df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-        # e. 去除时区信息，得到适合原生SQL的“天真UTC时间”
-        df['trade_time'] = df['trade_time'].dt.tz_localize(None)
-
-        # 2.3 向量化外键关联 (保持不变)
-        unique_codes = list(df['ts_code'].unique())
-        stocks_map = await self.stock_basic_dao.get_stocks_by_codes(unique_codes)
-        df['stock'] = df['ts_code'].map(stocks_map)
-        df.dropna(subset=['stock'], inplace=True)
-        if df.empty:
-            logger.warning("所有记录都未能关联到有效的股票基础信息，任务终止。")
-            return {"尝试处理": len(stock_codes), "失败": len(stock_codes), "创建/更新成功": 0}
-
-        # 3. 按模型分组数据 (保持不变)
-        model_grouped_data_dicts = {}
-        cache_payload = {}
-        
-        final_df = df[['stock', 'trade_time', 'open', 'close', 'high', 'low', 'vol', 'amount', 'ts_code']]
-        data_records = final_df.to_dict('records')
+        data_records = df.to_dict('records')
 
         for record in data_records:
-            ts_code = record['ts_code']
-            model_class = self.get_minute_model(ts_code, time_level)
+            stock_code = record['ts_code']
+            
+            # 3.1 准备数据库载荷
+            model_class = self.get_minute_model(stock_code, time_level)
             if model_class:
                 db_record = record.copy()
-                del db_record['ts_code']
-                
-                if model_class not in model_grouped_data_dicts:
-                    model_grouped_data_dicts[model_class] = []
-                model_grouped_data_dicts[model_class].append(db_record)
-                
-                cache_payload[ts_code] = db_record
+                # 为数据库准备：关联stock对象，转换时区
+                stock_obj = await self.stock_basic_dao.get_stock_by_code(stock_code)
+                if stock_obj:
+                    db_record['stock'] = stock_obj
+                    # 转换为带时区的UTC时间，再去除时区信息以适配原生SQL
+                    utc_time = db_record['trade_time'].tz_localize('Asia/Shanghai').tz_convert('UTC')
+                    db_record['trade_time'] = utc_time.tz_localize(None)
+                    del db_record['ts_code']
+                    
+                    model_grouped_data_dicts.setdefault(model_class, []).append(db_record)
 
-        # 4. 数据持久化阶段 (保持不变)
-        if not model_grouped_data_dicts:
+            # 3.2 准备Redis缓存载荷
+            cache_record = {
+                "open": record['open'], "high": record['high'],
+                "low": record['low'], "close": record['close'],
+                "volume": record['vol'], "amount": record['amount'],
+                "trade_time": record['trade_time'] # 保留原始datetime对象
+            }
+            cache_payload.setdefault(stock_code, []).append(cache_record)
+
+        # 4. 并发执行双轨持久化
+        if not model_grouped_data_dicts and not cache_payload:
             return {"尝试处理": len(df), "失败": len(df), "创建/更新成功": 0}
 
+        # 4.1 创建所有数据库写入任务
         db_save_tasks = []
         for model_class, data_list in model_grouped_data_dicts.items():
             task = self._save_all_to_db_native_upsert(
@@ -808,11 +777,14 @@ class StockTimeTradeDAO(BaseDAO):
             )
             db_save_tasks.append(task)
 
-        cache_save_task = self.cache_set.batch_set_latest_time_trade(cache_payload, time_level)
+        # 4.2 创建Redis缓存写入任务
+        cache_save_task = self.cache_set.batch_set_intraday_minute_kline(cache_payload, time_level)
+        
+        # 4.3 并发执行所有任务
         all_tasks = db_save_tasks + [cache_save_task]
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
-        # 5. 结果统计 (保持不变)
+        # 5. 结果统计 (与之前版本相同)
         final_result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         total_records = sum(len(data) for data in model_grouped_data_dicts.values())
         final_result["尝试处理"] = total_records
@@ -831,28 +803,138 @@ class StockTimeTradeDAO(BaseDAO):
         cache_result = results[-1]
         if isinstance(cache_result, Exception):
             logger.error(f"批量写入分钟线缓存时发生异常: {cache_result}", exc_info=cache_result)
-
+        
         return final_result
 
-    async def get_minute_time_trade_history(self, stock_code: str, time_level: str) -> None:
+    async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
         """
-        获取股票的历史分钟级交易数据
+        【V2.0 - 盘中引擎专用】从数据库(MySQL/PostgreSQL)获取指定时间范围内的分钟K线数据。
+        
+        - 核心技术: 使用 Django ORM 的异步查询接口 (`.afilter()`)，进行高效的数据库操作。
+        - 性能优化: 使用 `.values()` 直接将查询结果转换为字典列表，避免创建完整的
+                    Django模型实例，显著减少内存开销和序列化成本。
+        - 返回值: 返回一个按时间排序的、干净的 Pandas DataFrame。
+
+        Args:
+            stock_code (str): 股票代码。
+            time_level (str): 分钟级别 (e.g., '1', '5')。
+            start_dt (datetime): 查询的开始时间 (UTC, naive)。
+            end_dt (datetime): 查询的结束时间 (UTC, naive)。
+
+        Returns:
+            Optional[pd.DataFrame]: 包含查询结果的DataFrame，如果无数据或出错则返回None。
         """
-        # 从Redis缓存中获取数据
-        cache_key = self.cache_key.history_time_trade(stock_code, time_level)
-        data_dicts = await self.cache_get.history_time_trade(cache_key)
-        stock_minute_data_list = []
-        if data_dicts:
+        try:
+            # 1. 根据股票代码和时间级别，动态获取对应的Django模型类
             model_class = self.get_minute_model(stock_code, time_level)
-            for data_dict in data_dicts:
-                stock_minute_data_list.append(model_class(**data_dict))
-            return stock_minute_data_list
-        # 从数据库中获取数据
-        model_class = self.get_minute_model(stock_code, time_level)
-        stock_minute_data_list = model_class.objects.filter(
-            stock__stock_code=stock_code
-        ).order_by('-trade_time')[:self.cache_limit]
-        return stock_minute_data_list
+            if not model_class:
+                logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
+                return None
+
+            # 2. 使用 Django ORM 的异步接口进行查询
+            #    - .aobjects 是 async-enabled manager
+            #    - .afilter() 是异步的 filter
+            #    - __range 查询时间范围
+            #    - .values() 直接返回字典，性能更高
+            kline_queryset = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__range=(start_dt, end_dt)
+            ).order_by('trade_time')
+            
+            # 使用 .values() 选择需要的字段
+            kline_values = await sync_to_async(list)(kline_queryset.values(
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            ))
+
+            if not kline_values:
+                logger.info(f"在数据库中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level}分钟 K线数据。")
+                return None
+
+            # 3. 将查询结果转换为 Pandas DataFrame
+            df = pd.DataFrame.from_records(kline_values)
+            
+            # 4. 数据后处理
+            #    - 将 trade_time 设置为索引
+            #    - 将 vol 和 amount 重命名为 volume 和 turnover_value 以保持一致性
+            df.set_index('trade_time', inplace=True)
+            df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)
+            
+            logger.debug(f"成功从数据库获取 {len(df)} 条 {time_level}分钟 K线 for {stock_code}")
+            return df
+
+        except Exception as e:
+            logger.error(f"从数据库获取分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
+            return None
+
+    async def get_minute_time_trade_history(self, stock_code: str, time_level: str, limit: int = 500) -> Optional[pd.DataFrame]:
+        """
+        【V2.0 - 重构版】获取最新的N条历史分钟级交易数据。
+        此方法现在是 get_minute_kline_by_daterange 的一个便捷封装。
+        """
+        # 注意：由于我们需要最新的N条，而不知道具体时间范围，
+        # 直接使用 order_by + limit 的方式更高效。
+        try:
+            model_class = self.get_minute_model(stock_code, time_level)
+            if not model_class:
+                return None
+
+            kline_queryset = model_class.objects.filter(
+                stock__stock_code=stock_code
+            ).order_by('-trade_time')[:limit] # 使用倒序和切片获取最新的N条
+
+            kline_values = await sync_to_async(list)(kline_queryset.values(
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            ))
+
+            if not kline_values:
+                return None
+
+            df = pd.DataFrame.from_records(kline_values)
+            df.set_index('trade_time', inplace=True)
+            df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)
+            df.sort_index(inplace=True) # 重新按时间正序排列
+            
+            return df
+        except Exception as e:
+            logger.error(f"获取最新 {limit} 条分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
+            return None
+
+    async def get_intraday_minute_kline_from_cache(self, stock_code: str, time_level: str, trade_date: str) -> Optional[pd.DataFrame]:
+        """
+        【V3.0】从Redis缓存中获取指定股票、指定日期的所有分钟K线数据。
+        """
+        try:
+            # 1. 生成用于查询 ZSET 的缓存键
+            cache_key = self.cache_key_stock.intraday_minute_kline(stock_code, time_level, trade_date)
+            
+            # 2. 从 Redis 的 ZSET 中获取所有成员
+            kline_data_with_scores = await self.cache_manager.zrangebyscore(
+                key=cache_key, min_score='-inf', max_score='+inf', withscores=True
+            )
+
+            if not kline_data_with_scores:
+                logger.info(f"缓存未命中: 盘中分钟K线 for {stock_code} on {trade_date}")
+                return None
+
+            # 3. 将数据转换为 DataFrame
+            records = []
+            for kline_dict, timestamp in kline_data_with_scores:
+                if isinstance(kline_dict, dict):
+                    kline_dict['trade_time'] = datetime.fromtimestamp(timestamp)
+                    records.append(kline_dict)
+            
+            if not records: return None
+
+            df = pd.DataFrame.from_records(records)
+            df.set_index('trade_time', inplace=True)
+            df.sort_index(inplace=True)
+            
+            logger.debug(f"成功从Redis ZSET获取 {len(df)} 条盘中分钟K线 for {stock_code}")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取盘中分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
+            return None
 
     #  =============== A股周线行情 ===============
     async def save_weekly_time_trade_by_stock_codes(self, stock_codes: List[str], trade_date: date = None, start_date: date=None) -> None:

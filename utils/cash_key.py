@@ -480,6 +480,57 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
+    # 【盘中引擎专用】生成单个股票指定日期的分钟K线ZSET缓存键
+    def intraday_minute_kline(self, stock_code: str, time_level: str, date_str: str) -> str:
+        """
+        【盘中引擎专用】生成单个股票指定日期的分钟K线ZSET缓存键。
+        
+        Args:
+            stock_code (str): 股票代码
+            time_level (str): 分钟级别 (e.g., '1', '5')
+            date_str (str): 日期字符串, 格式 'YYYYMMDD'
+        
+        Returns:
+            str: 用于存储分钟K线ZSET的缓存键
+        """
+        # 使用 'ts' (timeseries) 类型
+        # 使用 'kline_minute' 作为子类型
+        # 将 time_level 和 date 作为参数
+        cache_key = self.generate_key(
+            cache_type=cc.TYPE_TIMESERIES,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype=f"kline_{time_level}min",
+            date=date_str
+        )
+        return cache_key
+
+    # 【盘中引擎专用】生成单个股票指定日期的实时行情Tick ZSET缓存键
+    def intraday_ticks_realtime(self, stock_code: str, date_str: str) -> str:
+        """
+        【盘中引擎专用】生成单个股票指定日期的实时行情Tick ZSET缓存键。
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_TIMESERIES,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype='ticks_realtime',
+            date=date_str
+        )
+
+    # 【盘中引擎专用】生成单个股票指定日期的五档盘口Tick ZSET缓存键
+    def intraday_ticks_level5(self, stock_code: str, date_str: str) -> str:
+        """
+        【盘中引擎专用】生成单个股票指定日期的五档盘口Tick ZSET缓存键。
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_TIMESERIES,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype='ticks_level5',
+            date=date_str
+        )
+
 class StrategyCashKey(CashKey):
     def __init__(self):
         self.cache_manager = None  # 修改: 改为 None，等待异步初始化
@@ -497,4 +548,31 @@ class StrategyCashKey(CashKey):
         )
         return cache_key
 
+class IntradayEngineCashKey(CashKey):
+    """
+    盘中引擎专用缓存键生成器
+    """
+    def _engine_base_key(self, date_str: str) -> str:
+        """引擎当日的基础键前缀"""
+        return self.generate_key(
+            cache_type=cc.TYPE_STRATEGY,
+            entity_type='intraday_engine',
+            entity_id=date_str
+        )
 
+    def watchlist_key(self, date_str: str) -> str:
+        """待买入池的缓存键 (使用Redis Set)"""
+        return f"{self._engine_base_key(date_str)}:watchlist"
+
+    def position_list_key(self, date_str: str) -> str:
+        """持仓监控池的缓存键 (使用Redis Hash)"""
+        return f"{self._engine_base_key(date_str)}:position_list"
+
+    def user_signals_key(self, user_id: int, date_str: str) -> str:
+        """单个用户当日盘中信号的缓存键 (使用Redis List)"""
+        return self.generate_key(
+            cache_type=cc.TYPE_USER,
+            entity_type='intraday_signals',
+            entity_id=str(user_id),
+            date=date_str
+        )

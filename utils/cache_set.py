@@ -507,6 +507,60 @@ class StockTimeTradeCacheSet(CacheSet):
             logger.error(f"批量写入分钟线缓存时发生异常: {e}", exc_info=True)
             return False
 
+    async def batch_set_intraday_minute_kline(self, payload: Dict[str, List[Dict]], time_level: str) -> bool:
+        """
+        【V2.0 - 盘中引擎专用】使用 Pipeline 批量将分钟K线数据写入 Redis ZSET。
+        Args:
+            payload (Dict[str, List[Dict]]): 载荷字典。
+                - key: 股票代码 (e.g., '000001.SZ')
+                - value: 该股票当天的分钟K线列表，每个元素是一个K线数据字典。
+            time_level (str): 分钟级别 (e.g., '1', '5')
+        Returns:
+            bool: 操作是否成功提交。
+        """
+        if not payload:
+            return True
+
+        try:
+            await self.cache_manager._ensure_client()
+            async with self.cache_manager.redis_client.pipeline() as pipe:
+                today_str = datetime.now().strftime('%Y%m%d')
+                
+                for stock_code, kline_list in payload.items():
+                    if not kline_list:
+                        continue
+                    
+                    # 1. 生成 ZSET 的缓存键
+                    cache_key = self.cache_key_stock.intraday_minute_kline(stock_code, time_level, today_str)
+                    
+                    # 2. 准备 ZADD 的 mapping 数据
+                    #    - score: 使用 trade_time 的 timestamp() 作为分数，确保排序正确
+                    #    - member: 序列化后的K线数据字典
+                    zadd_mapping = {}
+                    for kline_data in kline_list:
+                        trade_time_obj = kline_data.get('trade_time')
+                        if isinstance(trade_time_obj, datetime):
+                            score = trade_time_obj.timestamp()
+                            # 从字典中移除 trade_time，因为它已经作为 score 存在了
+                            member_data = kline_data.copy()
+                            del member_data['trade_time']
+                            zadd_mapping[self.cache_manager._serialize(member_data)] = score
+                    
+                    if zadd_mapping:
+                        # 3. 将 ZADD 命令添加到 pipeline
+                        pipe.zadd(cache_key, zadd_mapping)
+                        # 4. 为这个 ZSET 设置过期时间（例如24小时）
+                        pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
+
+                # 5. 原子化地执行所有命令
+                await pipe.execute()
+            
+            logger.debug(f"成功批量写入 {len(payload)} 只股票的盘中分钟K线到Redis ZSET。")
+            return True
+        except Exception as e:
+            logger.error(f"批量写入盘中分钟K线缓存时发生异常: {e}", exc_info=True)
+            return False
+
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
         self.cache_key_stock = StockCashKey()
@@ -659,6 +713,56 @@ class StockRealtimeCacheSet(CacheSet):
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
+
+    async def batch_append_intraday_ticks(self, realtime_payload: Dict, level5_payload: Dict) -> bool:
+        """
+        【V2.0 - 盘中引擎专用】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
+        
+        Args:
+            realtime_payload (Dict): 实时行情Tick数据载荷。
+                                     {'stock_code': {'trade_time': dt, ...}, ...}
+            level5_payload (Dict): 五档盘口Tick数据载荷。
+                                   {'stock_code': {'trade_time': dt, ...}, ...}
+        Returns:
+            bool: 操作是否成功提交。
+        """
+        if not realtime_payload and not level5_payload:
+            return True
+
+        try:
+            await self.cache_manager._ensure_client()
+            async with self.cache_manager.redis_client.pipeline() as pipe:
+                today_str = datetime.now().strftime('%Y%m%d')
+                
+                # 处理实时行情 Ticks
+                for stock_code, tick_data in realtime_payload.items():
+                    trade_time_obj = tick_data.get('trade_time')
+                    if isinstance(trade_time_obj, datetime):
+                        cache_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, today_str)
+                        score = trade_time_obj.timestamp()
+                        member_data = tick_data.copy()
+                        del member_data['trade_time']
+                        pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
+                        pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
+
+                # 处理五档盘口 Ticks
+                for stock_code, tick_data in level5_payload.items():
+                    trade_time_obj = tick_data.get('trade_time')
+                    if isinstance(trade_time_obj, datetime):
+                        cache_key = self.cache_key_stock.intraday_ticks_level5(stock_code, today_str)
+                        score = trade_time_obj.timestamp()
+                        member_data = tick_data.copy()
+                        del member_data['trade_time']
+                        pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
+                        pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
+
+                await pipe.execute()
+            
+            logger.debug(f"成功批量追加 {len(realtime_payload)} 条行情Ticks和 {len(level5_payload)} 条盘口Ticks到Redis ZSET。")
+            return True
+        except Exception as e:
+            logger.error(f"批量追加盘中Ticks缓存时发生异常: {e}", exc_info=True)
+            return False
 
 class StrategyCacheSet(CacheSet):
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):
