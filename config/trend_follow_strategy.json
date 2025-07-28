@@ -218,8 +218,8 @@
       "debug_params": {
         "enabled": { "value": false },
         "verbose_logging": { "value": true },
-        "probe_start_date": "2025-06-01",
-        "probe_date": "2025-07-24"
+        "probe_start_date": "2025-07-01",
+        "probe_date": "2025-07-28"
       },
       "strategy_info": {
         "name": { "value": "CHIPCON核心_V238", "说明": "策略唯一标识名称" }
