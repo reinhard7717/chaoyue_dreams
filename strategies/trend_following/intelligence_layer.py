@@ -893,9 +893,14 @@ class IntelligenceLayer:
             print(f"          -> [警告] 赫斯特指数计算或状态诊断失败: {e}")
 
         # 波动率压缩 (变异系数) - 逻辑不变
-        price_cv = df['close_D'].rolling(60).std() / df['close_to_mean']
+        price_mean = df['close_D'].rolling(60).mean()
+        price_std = df['close_D'].rolling(60).std()
+        price_cv = price_std / (price_mean + 1e-6) # 加上一个极小值防止除以0
+
+        # 当日波动率处于过去120天的最低10%水平
         is_in_squeeze = price_cv < price_cv.rolling(120).quantile(0.1)
         states['FRACTAL_VOLATILITY_SQUEEZE'] = is_in_squeeze
+
 
         return states
 
