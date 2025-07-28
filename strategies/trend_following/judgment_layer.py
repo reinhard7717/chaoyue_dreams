@@ -113,17 +113,30 @@ class JudgmentLayer:
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
 
     def _finalize_signals(self):
-        """整理并最终确定信号列"""
+        """
+        【V318.2 终极净化版】
+        - 核心修复: 将信号净化步骤移至整个决策流程的绝对末端。
+        - 新逻辑: 在确定了最终的买入/卖出信号后，再进行净化。
+                  - 对最终的买入信号，强制清除所有与之冲突的卖出/预警信息。
+                  - 对最终的卖出信号，保留其卖出信息。
+        - 收益: 彻底根除因计算顺序导致的“决策幽灵”问题，确保报告的绝对纯净。
+        """
         df = self.strategy.df_indicators
+        
+        # 1. 识别最终的信号类型
         final_buy_condition = df['signal_type'] == '买入信号'
+        final_sell_condition = df['signal_type'] == '卖出信号'
+
+        # 2. 为买入信号设置最终状态并执行“终极净化”
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
 
-        final_sell_condition = (df['signal_type'] == '卖出信号')
+        # 3. 为卖出信号设置最终状态
         df.loc[final_sell_condition, 'final_score'] = df.loc[final_sell_condition, 'entry_score']
         df.loc[final_sell_condition, 'signal_entry'] = False
         
+        # 4. 确保由离场层生成的明确卖出代码被正确标记
         is_explicit_exit = df['exit_signal_code'] >= 88
         df.loc[is_explicit_exit, 'signal_type'] = '卖出信号'
 
