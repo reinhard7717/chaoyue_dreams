@@ -51,12 +51,14 @@ def make_utc_aware(value):
 def replace(value, args):
     """
     自定义模板过滤器，用于替换字符串中的子串。
-    用法: {{ some_string|replace:"old,new" }}
+    用法: {{ some_string|replace:"old|new" }}
     """
-    if len(args.split(',')) != 2:
-        return value
+    # --- 【核心修改】---
+    # 使用竖线 '|' 作为新的分隔符
+    if '|' not in args:
+        return value # 如果参数格式不正确，直接返回原值
 
-    old, new = args.split(',')
+    old, new = args.split('|', 1) # 使用 split('|', 1) 只分割一次，更健壮
     return value.replace(old, new)
 
 @register.simple_tag(takes_context=True)

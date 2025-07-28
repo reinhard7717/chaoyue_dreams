@@ -70,7 +70,7 @@
         <div class="signal-stream-wrapper" style="margin-top: 20px;">
             <div id="signal-stream">
                 {% for signal in initial_signals %}
-                    <div class="signal-card {{ signal.signal_type|lower|replace:'_','-' }}">
+                    <div class="signal-card {{ signal.signal_type|lower|replace:"_|-" }}">
                         <div class="signal-icon">
                             {% if signal.signal_type == 'BUY' %}🚀买入
                             {% elif signal.signal_type == 'TAKE_PROFIT_T' %}💰高抛
