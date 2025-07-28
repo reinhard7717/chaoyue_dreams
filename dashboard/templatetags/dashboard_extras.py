@@ -5,6 +5,7 @@
 import datetime
 from django import template
 from django.utils import timezone
+from django.template.defaultfilters import stringfilter
 from django.utils.http import urlencode
 from utils.display_maps import DISPLAY_MAP
 
