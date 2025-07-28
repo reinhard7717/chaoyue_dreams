@@ -1035,23 +1035,66 @@ class FundFlowDao(BaseDAO):
     # ============== 游资每日明细 ==============
     async def save_hm_detail_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存游资每日明细数据，并同步更新游资名录 (借鉴V3客户端分块策略)
-        1. [借鉴] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
-        2. [借鉴] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
-        3. [适配] API接口从 moneyflow 更换为 hm_detail。
-        4. [适配] 数据处理和入库逻辑适配 HmDetail 模型。
-        5. [新增] 在保存明细数据的同时，提取游资信息，更新至 HmList (游资名录) 表。
+        【V2 - API调用限制版】保存游资每日明细数据。
+        - 策略:
+        1. 【核心修改】引入基于Redis的每日API调用计数器，确保 hm_detail 接口每天最多被调用2次。
+        2. 在每次分页循环（即每次API调用）前，检查并增加计数器。
+        3. 如果超出限制，则立即停止获取数据，并处理已获取的数据。
         """
-        # --- 1 & 2. [借鉴] 客户端日期分块逻辑 & 分页获取数据 ---
-        all_dfs = [] # 用于收集所有分块的数据
+        # --- 1. [新增] 初始化API调用限制相关的变量 ---
+        # 确保可以访问到在 BaseDAO.__init__ 中创建的 cache_manager
+        if not hasattr(self, 'cache_manager'):
+            logger.error("DAO实例中未找到 cache_manager，无法执行API调用限制。")
+            return
+        
+        try:
+            await self.cache_manager._ensure_client()
+            redis_client = self.cache_manager.redis_client
+            if not redis_client:
+                raise ConnectionError("无法从 CacheManager 获取 Redis 客户端。")
+        except Exception as e:
+            logger.error(f"初始化Redis客户端以进行API限制检查时失败: {e}", exc_info=True)
+            return
+
+        # 定义一个每日更新的、用于API计数器的Redis键
+        api_limit_key = f"api_limit:hm_detail:{date.today().isoformat()}"
+        API_DAILY_LIMIT = 2 # 每日API调用上限
+
+        # --- 2. [修改] 调整分页获取逻辑以集成限制检查 ---
+        all_dfs = []
         offset = 0
-        limit = 2000 # 根据Tushare接口文档调整limit
+        limit = 2000
         
         while True:
+            # 【代码修改】在每次API调用前，检查并更新调用次数
             try:
-                # API调用更换为 hm_detail 接口
+                # 对Redis键执行原子+1操作，返回操作后的值
+                current_count = await redis_client.incr(api_limit_key)
+
+                # 如果是当天的第一次调用 (值为1)，则为该键设置过期时间，确保第二天计数器自动重置
+                if current_count == 1:
+                    # 设置25小时过期，比一天稍长，可避免午夜时区的微小误差
+                    await redis_client.expire(api_limit_key, 3600 * 25)
+
+                # 检查是否已超出每日限制
+                if current_count > API_DAILY_LIMIT:
+                    # print(f"调试信息: hm_detail 接口今日调用次数已达上限({API_DAILY_LIMIT}次)，停止获取新数据。")
+                    logger.warning(f"接口 hm_detail 今日调用次数已达上限({API_DAILY_LIMIT}次)，Key: {api_limit_key}")
+                    # 将刚刚多加的1次减回去，保持计数准确
+                    await redis_client.decr(api_limit_key)
+                    break # 退出循环，不再调用API
+
+                print(f"调试信息: 正在进行今日第 {current_count}/{API_DAILY_LIMIT} 次 hm_detail 接口调用...")
+
+            except Exception as e:
+                logger.error(f"执行Redis API调用限制检查时出错: {e}", exc_info=True)
+                # 如果Redis检查失败，为安全起见，直接中断任务
+                break
+
+            # --- 原有的API调用逻辑 ---
+            try:
                 df = self.ts_pro.hm_detail(**{
-                    "trade_date": "", # 范围查询时，trade_date应为空
+                    "trade_date": "",
                     "start_date": "",
                     "end_date": "",
                     "limit": limit,
@@ -1060,41 +1103,38 @@ class FundFlowDao(BaseDAO):
                     "trade_date", "ts_code", "ts_name", "buy_amount", "sell_amount",
                     "net_amount", "hm_name", "hm_orgs"
                 ])
-                await asyncio.sleep(0.55) # 保持友好的API调用频率
+                await asyncio.sleep(0.55)
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (hm_detail): {e}")
-                await asyncio.sleep(5) # 出错时等待更长时间
+                await asyncio.sleep(5)
                 df = pd.DataFrame()
 
             if df.empty:
-                break # 当前分块的当前分页无数据，结束此分块的分页
+                break
             
             all_dfs.append(df)
             
             if len(df) < limit:
-                break # 当前分块的数据已全部获取完毕
+                break
             
             offset += limit
         
+        # --- 后续的数据处理逻辑保持不变 ---
         if not all_dfs:
-            logger.info("在所有日期块中均未获取到任何游资明细数据。")
+            logger.info("未获取到任何游资明细数据。")
             return
 
-        # --- 3. [适配] 向量化数据处理 ---
-        print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
+        print("DAO: 数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        # 联合唯一键变更为 'trade_date', 'ts_code', 'hm_name'
         combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'hm_name'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', 'None', ''], np.nan, inplace=True)
-        combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True) # 关键字段不能为空
+        combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True)
 
-        # --- 4. [新增] 更新游资名录 (HmList) ---
-        # 从获取的明细数据中提取唯一的游资信息
+        # 更新游资名录 (HmList)
         hm_list_df = combined_df[['hm_name', 'hm_orgs']].copy()
         hm_list_df.drop_duplicates(subset=['hm_name'], keep='first', inplace=True)
         hm_list_df.rename(columns={'hm_name': 'name', 'hm_orgs': 'orgs'}, inplace=True)
-        hm_list_df['orgs'] = hm_list_df['orgs'].fillna('') # 确保 orgs 字段为字符串，以匹配模型定义
-        
+        hm_list_df['orgs'] = hm_list_df['orgs'].fillna('')
         hm_list_data = hm_list_df.to_dict('records')
 
         if hm_list_data:
@@ -1102,13 +1142,11 @@ class FundFlowDao(BaseDAO):
             await self._save_all_to_db_native_upsert(
                 model_class=HmList,
                 data_list=hm_list_data,
-                unique_fields=['name'] # HmList模型的唯一键是'name'
+                unique_fields=['name']
             )
             print(f"DAO: 游资名录更新完成。")
-        # --- 游资名录更新逻辑结束 ---
 
-        # --- 5. [适配] 处理并保存游资每日明细 (HmDetail) ---
-        # 关联股票外键 (逻辑复用)
+        # 处理并保存游资每日明细 (HmDetail)
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
@@ -1118,31 +1156,27 @@ class FundFlowDao(BaseDAO):
             logger.info("游资数据关联股票基础信息后为空，任务结束。")
             return
 
-        # 数据类型转换以匹配模型
         combined_df['trade_date'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # 将金额从“万元”转换为“元”
         amount_cols = ['buy_amount', 'sell_amount', 'net_amount']
         for col in amount_cols:
             combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce').fillna(0) * 10000
 
-        # 准备数据列表用于入库
-        final_df = combined_df.drop(columns=['ts_code']) # 已经有stock外键，ts_code列不再需要
+        final_df = combined_df.drop(columns=['ts_code'])
         data_list = final_df.to_dict('records')
 
         if not data_list:
             logger.info("最终处理后没有可供保存的游资数据。")
             return
 
-        # 调用批量更新插入方法，适配HmDetail模型
         await self._save_all_to_db_native_upsert(
             model_class=HmDetail,
             data_list=data_list,
-            unique_fields=['trade_date', 'stock', 'hm_name'] # 使用模型定义的联合唯一键
+            unique_fields=['trade_date', 'stock', 'hm_name']
         )
         
         print(f"所有游资每日明细数据处理完成，共处理/保存 {len(data_list)} 条记录。")
         return
-
+    
     async def get_hm_detail_data(self, start_date: date, end_date: date, stock_codes: list[str] = None, hm_names: list[str] = None) -> pd.DataFrame:
         """
         查询游资每日明细数据
