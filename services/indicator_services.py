@@ -2396,7 +2396,7 @@ class IndicatorService:
         elif rising_ratio > 0.3:
             score = 0.2 # 弱协同性：部分上涨
             
-        print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
+        # print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
         return score
 
     async def _calculate_limit_up_echelon_score(self, industry_code: str, trade_date: datetime.date) -> float:
@@ -2428,7 +2428,7 @@ class IndicatorService:
         elif limit_up_count >= 1:
             score = 0.4 # 有涨停股，热点发酵
             
-        print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
+        # print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
         return score
 
     async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
