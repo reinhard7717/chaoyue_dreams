@@ -19,6 +19,7 @@ from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from core.constants import TimeLevel
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from utils.math_tools import hurst_exponent
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
 warnings.filterwarnings(action='ignore', category=FutureWarning, message=".*Passing 'suffixes' which cause duplicate columns.*")
