@@ -1,11 +1,13 @@
 # dashboard/views.py
 import asyncio
 import json
+from amqp import NotFound
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Q, OuterRef, Subquery
 from datetime import date, datetime
 from collections import OrderedDict # 导入 OrderedDict
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.forms import ValidationError
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
@@ -14,7 +16,7 @@ from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from django.core.serializers.json import DjangoJSONEncoder
-from stock_models.stock_analytics import TrendFollowStrategySignalLog, TrendFollowStrategyState
+from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
@@ -224,97 +226,52 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V137.1 格式修正版】
-    - 核心重构: 再次重构视图逻辑，使其能完美处理新的、统一的“标准化战报”。
-    - 核心修正: 增加了对 triggered_playbooks 字段的解析逻辑，将数据库中的逗号分隔字符串正确转换为Python列表，解决剧本显示错误的问题。
-    - 收益: 彻底解决所有状态显示不一致、信息丢失的问题。
+    【V3.0 状态驱动版】
+    - 核心升级: 直接从 FavoriteStockTracker 模型中读取预计算好的持仓状态，
+                查询逻辑极度简化，性能大幅提升。
+    - 新增功能: 增加了状态筛选功能，可以查看“持仓中”或“已平仓”的记录。
     """
-    # print("--- [View] 开始渲染自选股持仓监控 (fav_trend_following_list) V137.1 格式修正版 ---")
-    user_dao = UserDAO()
-    user_favorites = async_to_sync(user_dao.get_user_favorites)(request.user.id)
-    fav_codes = [fav.stock.stock_code for fav in user_favorites if fav.stock]
-    if not fav_codes:
-        return render(request, 'dashboard/fav_trend_following_list.html', {'page_title': '自选股持仓监控', 'page_obj': None, 'total_count': 0})
-    # 步骤1.1: 获取每个自选股的最新“买入”信号ID
-    latest_buy_signal_ids = TrendFollowStrategySignalLog.objects.filter(
-        stock__stock_code__in=fav_codes,
-        entry_signal=True
-    ).values('stock_id').annotate(
-        latest_id=Max('id')
-    ).values_list('latest_id', flat=True)
-    # 步骤1.2: 根据ID列表获取完整的买入信号对象
-    buy_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_buy_signal_ids)).select_related('stock')
-    buy_logs_map = {log.stock.stock_code: log for log in buy_logs} # [修正] 使用 stock_code 作为 key，与 fav_codes 匹配
-    # 步骤2.1: 获取每个自选股的最新“退出类”信号ID
-    latest_sell_signal_ids = TrendFollowStrategySignalLog.objects.filter(
-        stock__stock_code__in=fav_codes,
-        entry_signal=False
-    ).values('stock_id').annotate(
-        latest_id=Max('id')
-    ).values_list('latest_id', flat=True)
-    # 步骤2.2: 根据ID列表获取完整的退出信号对象
-    sell_logs = TrendFollowStrategySignalLog.objects.filter(id__in=list(latest_sell_signal_ids)).select_related('stock')
-    sell_logs_map = {log.stock.stock_code: log for log in sell_logs} # [修正] 使用 stock_code 作为 key，与 fav_codes 匹配
-    # 步骤3: 遍历所有自选股，构建最终的展示列表
-    processed_list = []
-    for fav in user_favorites:
-        stock_obj = fav.stock
-        if not stock_obj: continue
-        buy_log = buy_logs_map.get(stock_obj.stock_code)
-        sell_log = sell_logs_map.get(stock_obj.stock_code)
-        # 默认状态
-        item = {'stock': stock_obj, 'favorite_id': fav.id, 'buy_info': None, 'sell_info': None, 'swing_status': '等待建仓', 'status_class': 'status-wait', 'sort_priority': 4}
-        if buy_log:
-            # [新增] 核心修正：将数据库中的剧本字符串转换为Python列表
-            parsed_playbooks = [] # 默认空列表
-            if buy_log.triggered_playbooks and isinstance(buy_log.triggered_playbooks, str):
-                # 按逗号分割，并去除每个剧本名称前后的空白字符，过滤掉空字符串
-                parsed_playbooks = [p.strip() for p in buy_log.triggered_playbooks.split(',') if p.strip()]
-            item['buy_info'] = {
-                'time': buy_log.trade_time,
-                'strategy_name': buy_log.strategy_name,
-                'time_level': buy_log.timeframe,
-                'stable_platform_price': buy_log.stable_platform_price,
-                'score': buy_log.entry_score,
-                # [修改] 使用解析后的列表进行排序和展示
-                'playbooks': sorted(parsed_playbooks, key=get_playbook_priority)
-            }
-            is_holding = sell_log is None or sell_log.trade_time < buy_log.trade_time
-            if is_holding:
-                item['swing_status'] = '持仓观察'
-                item['status_class'] = 'status-holding'
-                item['sort_priority'] = 1
-            else: # 已平仓 (最新的退出信号在买入之后)
-                item['sell_info'] = {
-                    'time': sell_log.trade_time,
-                    'reason': sell_log.exit_signal_reason,
-                    'time_level': sell_log.timeframe,
-                    'severity_level': sell_log.exit_severity_level
-                }
-                if sell_log.exit_signal_code > 0:
-                    item['swing_status'] = f'{sell_log.exit_severity_level}级警报'
-                    item['status_class'] = f'status-alert-level-{sell_log.exit_severity_level}'
-                    item['sort_priority'] = 2
-                else:
-                    item['swing_status'] = '风险已解除'
-                    item['status_class'] = 'status-wait'
-                    item['sort_priority'] = 3
-        elif sell_log: # 无买入信号，但有历史卖出信号
-            item['sell_info'] = {
-                'time': sell_log.trade_time,
-                'reason': sell_log.exit_signal_reason,
-                'time_level': sell_log.timeframe,
-                'severity_level': sell_log.exit_severity_level
-            }
-            item['swing_status'] = '空仓预警'
-            item['status_class'] = f'status-alert-level-{sell_log.exit_severity_level or 2}'
-            item['sort_priority'] = 4
-        processed_list.append(item)
-    # 步骤4: 排序和分页
-    processed_list.sort(key=lambda x: (x['sort_priority'], -(x['buy_info']['time'].timestamp() if x.get('buy_info') and x['buy_info'].get('time') else 0)))
-    paginator = Paginator(processed_list, 25)
-    page_obj = paginator.get_page(request.GET.get('page'))
-    context = {'page_title': '自选股持仓监控', 'page_obj': page_obj, 'total_count': len(processed_list)}
+    # --- 步骤1: 获取用户的所有追踪器 ---
+    base_queryset = FavoriteStockTracker.objects.filter(
+        user=request.user
+    ).select_related(
+        'stock', 
+        'entry_log', 
+        'latest_log',
+        'exit_log'
+    )
+
+    # --- 步骤2: 根据前端请求进行状态筛选 ---
+    status_filter = request.GET.get('status', 'holding') # 默认只显示持仓中的
+    if status_filter == 'holding':
+        queryset = base_queryset.filter(status='HOLDING')
+        page_title = '自选股持仓监控'
+    elif status_filter == 'sold':
+        queryset = base_queryset.filter(status='SOLD')
+        page_title = '自选股历史平仓'
+    else:
+        queryset = base_queryset
+        page_title = '全部自选追踪'
+
+    # --- 步骤3: 排序 ---
+    # 持仓中的按最新更新时间倒序，已平仓的按平仓时间倒序
+    if status_filter == 'sold':
+        ordered_queryset = queryset.order_by('-exit_date')
+    else:
+        ordered_queryset = queryset.order_by('-latest_date')
+
+    # --- 步骤4: 分页 ---
+    paginator = Paginator(ordered_queryset, 25) # 每页显示25条
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    # --- 步骤5: 准备上下文并渲染 ---
+    context = {
+        'page_title': page_title,
+        'page_obj': page_obj,
+        'total_count': paginator.count,
+        'status_filter': status_filter, # 将当前筛选状态传给模板，用于高亮显示按钮
+    }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
 
 @login_required
@@ -377,12 +334,82 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         return FavoriteStock.objects.filter(user=self.request.user).select_related('stock')
 
     def perform_create(self, serializer):
-        favorite = serializer.save(user=self.request.user)
-        payload = {
+        """
+        【V2.1 完整实现版】
+        - 核心逻辑: “加入自选”即“模拟建仓”。
+        - 流程:
+          1. 验证前端是否传递了有效的建仓信号ID (signal_log_id)。
+          2. 以此信号为依据，创建 FavoriteStock 记录。
+          3. 以此信号为依据，创建或更新一个状态为“持仓中”的 FavoriteStockTracker 记录。
+          4. 发送 WebSocket 通知，实时更新前端UI。
+          5. 触发 Celery 后台任务，为新持仓股预热数据。
+        """
+        user = self.request.user
+        
+        # --- 步骤1: 验证建仓信号 ---
+        signal_log_id = self.request.data.get('signal_log_id')
+        if not signal_log_id:
+            logger.warning(f"用户 {user.username} 尝试添加自选但未提供 signal_log_id。")
+            raise ValidationError({'detail': '必须提供一个有效的建仓信号ID (signal_log_id)。'})
+
+        try:
+            # 确保信号存在，且确实是一个买入信号
+            entry_log = TrendFollowStrategySignalLog.objects.select_related('stock').get(
+                id=signal_log_id, 
+                entry_signal=True
+            )
+        except TrendFollowStrategySignalLog.DoesNotExist:
+            logger.error(f"用户 {user.username} 尝试使用无效的 signal_log_id: {signal_log_id} 添加自选。")
+            raise NotFound('指定的建仓信号不存在或无效。')
+
+        stock = entry_log.stock
+
+        # --- 步骤2: 创建 FavoriteStock (如果尚不存在) ---
+        # 使用 get_or_create 确保原子性，避免并发问题
+        favorite, favorite_created = FavoriteStock.objects.get_or_create(
+            user=user, 
+            stock=stock
+        )
+        if favorite_created:
+            logger.info(f"为用户 {user.username} 创建了新的 FavoriteStock 记录 for {stock.stock_code}。")
+        
+        # --- 步骤3: 创建或更新 FavoriteStockTracker ---
+        # 使用 update_or_create 来处理重复建仓的场景（例如，用户移除了又用同一个信号加回来）
+        tracker, tracker_created = FavoriteStockTracker.objects.update_or_create(
+            user=user,
+            stock=stock,
+            entry_log=entry_log, # 使用 entry_log 作为唯一性约束的一部分
+            defaults={
+                'status': 'HOLDING',
+                'entry_price': entry_log.close_price,
+                'entry_date': entry_log.trade_time,
+                'entry_score': entry_log.entry_score or 0.0,
+                
+                # 初始时，最新状态就是建仓时的状态
+                'latest_log': entry_log,
+                'latest_price': entry_log.close_price,
+                'latest_date': entry_log.trade_time,
+                'holding_health_score': entry_log.holding_health_score or 0.0,
+                'score_change_vs_entry': 0.0,
+                'profit_loss_pct': 0.0,
+
+                # 清空可能的历史平仓信息，确保这是一次全新的持仓记录
+                'exit_log': None,
+                'exit_price': None,
+                'exit_date': None,
+            }
+        )
+        
+        log_action = "创建了新的" if tracker_created else "更新了现有的"
+        logger.info(f"用户 {user.username} {log_action} 持仓追踪器 for {stock.stock_code}，关联建仓信号ID: {signal_log_id}。")
+
+        # --- 步骤4: 发送 WebSocket 通知，实时更新前端UI ---
+        # 准备一个与 dashboard home 页面兼容的 payload
+        websocket_payload = {
             'id': favorite.id,
-            'code': favorite.stock.stock_code,
-            'name': favorite.stock.stock_name,
-            "current_price": None,
+            'code': stock.stock_code,
+            'name': stock.stock_name,
+            "current_price": None, # 这些字段将由前端的实时行情WebSocket填充
             "high_price": None,
             "low_price": None,
             "open_price": None,
@@ -392,27 +419,37 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             'change_percent': None,
             'signal': None,
         }
+        
+        # 使用 async_to_sync 包装器在同步代码中调用异步函数
         send_update_to_user_sync(
-            user_id=self.request.user.id,
+            user_id=user.id,
             sub_type='favorite_added_with_data',
-            payload=payload
+            payload=websocket_payload
         )
+        logger.info(f"已通过 WebSocket向用户 {user.username} 推送新自选股 {stock.stock_code} 的更新。")
+
+        # --- 步骤5: 触发 Celery 后台任务，为新持仓股预热数据 ---
+        # 这是一个耗时操作，适合异步执行，避免阻塞API响应
         try:
+            # 动态导入任务，避免循环依赖
             from tasks.tushare.stock_tasks import fetch_data_for_new_favorite
+            
             task_args = (
-                self.request.user.id,
-                favorite.stock.stock_code,
+                user.id,
+                stock.stock_code,
                 favorite.id
             )
             
             fetch_data_for_new_favorite.apply_async(
                 args=task_args,
-                queue=target_queue,
+                queue=target_queue, # 发送到指定的队列
             )
-            logger.info(f"已将后台任务发送到队列 '{target_queue}' 为用户 {self.request.user.id} 的新自选股 {favorite.stock.stock_code} 获取数据")
+            logger.info(f"已将后台任务发送到队列 '{target_queue}' 为用户 {user.id} 的新自选股 {stock.stock_code} 获取数据。")
+        except ImportError:
+            logger.error("无法导入后台任务 'fetch_data_for_new_favorite'，跳过任务触发。请检查 Celery 配置和任务路径。")
         except Exception as task_error:
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
-    
+
     def perform_destroy(self, instance):
         user_id = instance.user.id
         instance.delete()

@@ -5,10 +5,11 @@ import logging
 from django.contrib.auth import get_user_model
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog
 from utils.websockets import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
 from chaoyue_dreams.celery import app as celery_app
 import time
-import random
+from django.db.models import OuterRef, Subquery
 from users.models import FavoriteStock
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
@@ -82,6 +83,36 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                 queue='dashboard'  # 指定队列为dashboard
             )
             # print(f"已推送{code}最新tick数据到用户{uid}")
+
+@celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
+def update_favorite_stock_trackers():
+    """
+    【V2.0 交易持仓版】
+    每日运行，只更新状态为“持仓中”的追踪器。
+    """
+    # 只选择需要更新的追踪器
+    trackers_to_update = FavoriteStockTracker.objects.filter(status='HOLDING')
+    stock_ids = list(trackers_to_update.values_list('stock_id', flat=True))
+    if not stock_ids:
+        return "没有需要更新的持仓追踪器。"
+
+    # 1. 一次性获取所有相关股票的最新信号
+    latest_log_subquery = TrendFollowStrategySignalLog.objects.filter(
+        stock_id=OuterRef('stock_id')
+    ).order_by('-trade_time').values('id')[:1]
+    latest_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_log_subquery)).filter(stock_id__in=stock_ids)
+    latest_logs_map = {log.stock_id: log for log in latest_logs}
+
+    # 2. 遍历并更新每个追踪器
+    updated_count = 0
+    for tracker in trackers_to_update:
+        latest_log = latest_logs_map.get(tracker.stock_id)
+        # 确保最新的信号晚于或等于当前追踪器的最新信号
+        if latest_log and (tracker.latest_date is None or latest_log.trade_time > tracker.latest_date):
+            tracker.update_latest_status(latest_log)
+            updated_count += 1
+
+    return f"成功更新 {updated_count} / {len(trackers_to_update)} 个持仓追踪器。"
 
 # 你还需要配置 Celery Beat 来定时运行这些任务
 # 例如，在 settings.py 中配置:

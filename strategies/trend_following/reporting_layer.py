@@ -22,11 +22,11 @@ class ReportingLayer:
 
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> List[Dict[str, Any]]:
         """
-        【V314.0 健壮合并版】
-        - 核心升级: 采用新的 `_create_signal_record` 逻辑，确保所有计算出的数据都能
-                    正确覆盖默认模板，实现真正的“全息记录”。
+        【V314.1 risk_score 修正版】
+        - 核心修复: 在构建 record_data 时，明确地从 row 中提取 risk_score，
+                    确保其能被正确传递给 _create_signal_record 并存入数据库。
         """
-        print(f"      -> [战报司令部 V314.0 健壮合并版] 启动，正在执行归档...")
+        print(f"      -> [战报司令部 V314.1 risk_score 修正版] 启动，正在执行归档...")
         db_records = []
         signal_days_df = result_df[result_df['signal_type'] != '中性'].copy()
 
@@ -35,7 +35,7 @@ class ReportingLayer:
 
             for df_col, db_col in self.COLUMN_MAP.items():
                 if df_col in record_data:
-                    record_data[db_col] = record_data.pop(df_col) # 使用 pop 避免重复
+                    record_data[db_col] = record_data.pop(df_col)
 
             record_data.update({
                 'stock_code': stock_code,
@@ -43,6 +43,11 @@ class ReportingLayer:
                 'timeframe': result_timeframe,
                 'strategy_name': get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
                 'entry_score': row.get('final_score', 0.0),
+                
+                # --- 【核心修复】明确传递 risk_score ---
+                # 从 result_df 的当前行(row)中获取 risk_score 的值
+                'risk_score': row.get('risk_score', 0.0),
+                
                 'is_risk_warning': (row['signal_type'] != '买入信号') and (row['signal_type'] != '卖出信号') and (row.get('alert_level', 0) > 0)
             })
 
@@ -51,7 +56,7 @@ class ReportingLayer:
             
             db_records.append(record)
             
-        print(f"      -> [战报司令部 V314.0] 归档完成，共生成 {len(db_records)} 条全息记录。")
+        print(f"      -> [战报司令部 V314.1] 归档完成，共生成 {len(db_records)} 条全息记录。")
         return db_records
 
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:

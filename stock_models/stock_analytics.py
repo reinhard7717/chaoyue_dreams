@@ -661,6 +661,7 @@ class TrendFollowStrategySignalLog(models.Model):
     # 解释: 使用DecimalField替代FloatField以保证金融数据计算的精确性。
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
     entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
+    risk_score = models.FloatField(default=0.0, help_text="风险信号的综合得分")
     stable_platform_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="[趋势策略]识别出的稳固筹码平台价格")
     
     # --- 信号类型 (细分) ---
@@ -713,6 +714,97 @@ class TrendFollowStrategySignalLog(models.Model):
         signal_type = "买入" if self.entry_signal else f"卖出({self.exit_signal_code})" if self.exit_signal_code > 0 else "观察"
         return (f"[{self.strategy_name}/{self.timeframe}] {self.stock.stock_code} @ "
                 f"{self.trade_time.strftime('%Y-%m-%d %H:%M')} - {signal_type}")
+
+class FavoriteStockTracker(models.Model):
+    """
+    【V2.0 交易持仓版】
+    - 核心定位: 作为用户自选股的“持仓卡片”，记录从建仓到平仓的全过程。
+    - 业务逻辑: “加入自选”即“模拟建仓”。
+    """
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='favorite_trackers')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='favorite_trackers')
+    
+    # --- 核心状态 ---
+    STATUS_CHOICES = [
+        ('HOLDING', '持仓中'),
+        ('SOLD', '已平仓'),
+    ]
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='HOLDING', db_index=True)
+
+    # --- 建仓信息 (Entry Info) ---
+    entry_log = models.ForeignKey(
+        TrendFollowStrategySignalLog, 
+        on_delete=models.CASCADE, # 建仓信号是核心，如果被删除，追踪记录也应删除
+        related_name='entry_tracker',
+        help_text="关联的建仓信号日志"
+    )
+    entry_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="建仓价格 (来自建仓信号)")
+    entry_date = models.DateTimeField(help_text="建仓日期 (来自建仓信号)")
+    entry_score = models.FloatField(default=0.0, help_text="建仓时的进攻分数")
+
+    # --- 最新追踪信息 (Latest Tracking Info) ---
+    latest_log = models.ForeignKey(
+        TrendFollowStrategySignalLog, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='latest_tracker',
+        help_text="关联的最新信号日志 (每日更新)"
+    )
+    latest_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="最新收盘价")
+    latest_date = models.DateTimeField(null=True, blank=True, help_text="最新信号日期")
+    
+    # --- 预计算的追踪指标 ---
+    holding_health_score = models.FloatField(default=0.0, help_text="最新的持仓健康分")
+    score_change_vs_entry = models.FloatField(default=0.0, help_text="最新分数相比建仓时的变化量")
+    profit_loss_pct = models.FloatField(default=0.0, help_text="当前持仓的浮动盈亏百分比")
+
+    # --- 平仓信息 (Exit Info) ---
+    exit_log = models.ForeignKey(
+        TrendFollowStrategySignalLog, 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='exit_tracker',
+        help_text="关联的平仓信号日志"
+    )
+    exit_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="平仓价格")
+    exit_date = models.DateTimeField(null=True, blank=True, help_text="平仓日期")
+    
+    # --- 时间戳 ---
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "favorite_stock_tracker"
+        unique_together = ('user', 'stock', 'entry_log') # 同一个用户对同一只股票的同一次建仓，只能有一个追踪记录
+        ordering = ['-entry_date']
+        verbose_name = "自选股持仓追踪器"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return f"{self.user.username} - {self.stock} (建仓于: {self.entry_date.strftime('%Y-%m-%d')})"
+
+    def update_latest_status(self, latest_log_instance: TrendFollowStrategySignalLog):
+        """
+        一个实例方法，用于根据最新的信号日志更新自身状态。
+        """
+        self.latest_log = latest_log_instance
+        self.latest_price = latest_log_instance.close_price
+        self.latest_date = latest_log_instance.trade_time
+        
+        # 更新预计算指标
+        self.holding_health_score = latest_log_instance.holding_health_score or 0.0
+        self.score_change_vs_entry = (latest_log_instance.entry_score or 0.0) - self.entry_score
+        if self.entry_price and self.entry_price > 0:
+            self.profit_loss_pct = ((self.latest_price / self.entry_price) - 1) * 100
+
+        # 更新状态
+        if latest_log_instance.exit_signal_code > 0:
+            self.status = 'SOLD'
+            self.exit_log = latest_log_instance
+            self.exit_price = latest_log_instance.close_price
+            self.exit_date = latest_log_instance.trade_time
+        
+        self.save()
 
 class TrendFollowStrategyState(models.Model):
     """

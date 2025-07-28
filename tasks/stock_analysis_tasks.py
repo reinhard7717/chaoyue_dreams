@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import logging
 from celery import Celery
+from celery import group, chain
 from asgiref.sync import async_to_sync
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from services.chip_feature_calculator import ChipFeatureCalculator
@@ -160,33 +162,66 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 def analyze_all_stocks(self):
     """
-    【V3.0 双模式引擎版】
-    - 核心升级: 在调度每日任务时，强制开启 `latest_only=True` 开关，命令引擎执行“闪电突袭”。
+    【V4.0 追踪器联动版】
+    - 核心升级: 使用 Celery chain 工作流，确保在所有股票分析任务完成后，
+                自动触发 `update_favorite_stock_trackers` 任务。
     """
     try:
-        logger.info("开始调度所有股票的分析任务 (V3.0 双模式引擎版)")
+        logger.info("开始调度所有股票的分析任务 (V4.0 追踪器联动版)")
+        
+        # 动态导入，避免在Celery worker启动时就加载Django模型
+        from dashboard.tasks import update_favorite_stock_trackers
+        
+        # 假设这个函数能正确获取股票代码列表
         favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
+            
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"找到 {stock_count} 只股票待分析.")
         
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
         logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
         
-        # ▼▼▼【核心改造】在调用任务时，强制开启“闪电突袭”模式！▼▼▼
-        # --- 为自选股调度新任务 (闪电突袭模式) ---
+        # --- 步骤1: 创建所有股票分析任务的签名列表 ---
+        # 使用 group 来并行执行所有分析任务
+        analysis_tasks = []
+        
+        # 为自选股创建任务签名，并指定到高优先级队列
         for stock_code in favorite_codes:
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='favorite_calculate_strategy').apply_async()
+            analysis_tasks.append(
+                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='favorite_calculate_strategy')
+            )
         
-        # --- 为非自选股调度新任务 (闪电突袭模式) ---
+        # 为非自选股创建任务签名
         for stock_code in non_favorite_codes:
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='calculate_strategy').apply_async()
+            analysis_tasks.append(
+                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='calculate_strategy')
+            )
+            
+        # 将所有分析任务打包成一个 group，让它们可以并行执行
+        parallel_analysis_group = group(analysis_tasks)
         
-        logger.info(f"已为 {len(favorite_codes)} 只自选股调度 '闪电突袭' 任务")
-        logger.info(f"已为 {len(non_favorite_codes)} 只非自选股调度 '闪电突袭' 任务")
-        return {"status": "started",  "stock_count": stock_count}
+        # --- 步骤2: 创建追踪器更新任务的签名 ---
+        # 这个任务将在所有分析任务完成后执行
+        update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery') # 假设更新任务在默认队列
+
+        # --- 步骤3: 使用 chain 将两个步骤链接起来 ---
+        # (并行分析组 | 更新追踪器任务)
+        # 这意味着，只有当 group 中的所有任务都成功完成后，update_tracker_task 才会开始执行。
+        workflow = chain(parallel_analysis_group, update_tracker_task)
+        
+        # --- 步骤4: 启动工作流 ---
+        workflow.apply_async()
+        
+        logger.info(f"已成功创建并启动工作流：")
+        logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票 (自选: {len(favorite_codes)}, 其他: {len(non_favorite_codes)})")
+        logger.info(f"  - 步骤2: 更新所有自选股持仓追踪器")
+        
+        return {"status": "workflow_started", "stock_count": stock_count}
+        
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
