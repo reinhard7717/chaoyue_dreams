@@ -929,7 +929,7 @@ class IndicatorService:
         df = all_dfs[timeframe]
         
         # --- 1. 计算赫斯特指数 ---
-        hurst_window = 60
+        hurst_window = 120
         hurst_col = f'hurst_{hurst_window}d_D'
         if 'close_D' in df.columns and hurst_col not in df.columns:
             try:

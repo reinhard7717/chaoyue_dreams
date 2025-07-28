@@ -8,7 +8,7 @@ def hurst_exponent(series: np.ndarray) -> float:
         return np.nan
 
     # 2. 检查长度
-    if len(series) < 20:
+    if len(series) < 100:
         return np.nan
 
     # 3. 【关键】检查数据是否包含NaN或inf
