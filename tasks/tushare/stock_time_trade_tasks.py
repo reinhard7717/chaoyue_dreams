@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import datetime
-from celery import group
+from celery import chord, group
 from django.db import models
 from django.utils import timezone
 import time
@@ -119,11 +119,14 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
         logger.error(f"save_stocks_minute_data_today_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
+@celery_app.task
+def on_all_minute_data_saved(results, trade_time_str=None):
+    logger.info(f"所有分钟数据批量任务已全部完成。")
+    # 这里可以做收尾工作，比如汇总、通知等
+    return {"status": "success", "batches": len(results)}
+
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task', queue='celery')
 def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310):
-    """
-    调度器任务（已优化）：等待所有子任务完成后再返回。
-    """
     logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 批次大小: {batch_size}")
     try:
         if not TradeCalendar.is_trade_date():
@@ -141,7 +144,6 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
         total_codes_count = len(all_stock_codes)
         logger.info(f"今天是交易日，准备为 {total_codes_count} 个股票分派批量任务...")
 
-        # 用group批量分派所有子任务
         batch_tasks = []
         for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
@@ -150,16 +152,14 @@ def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: in
                 total_dispatched_batches += 1
 
         if batch_tasks:
-            job = group(batch_tasks)
-            result = job.apply_async()
-            logger.info(f"已分派 {total_dispatched_batches} 个批量任务，等待全部完成...")
-            result.get()  # 阻塞等待所有子任务完成
-            logger.info("所有分钟数据批量任务已全部完成。")
+            # 用chord分派任务组，并指定回调
+            callback = on_all_minute_data_saved.s(trade_time_str=trade_time_str)
+            job = chord(batch_tasks)(callback)
+            logger.info(f"已分派 {total_dispatched_batches} 个批量任务，等待全部完成后自动回调。")
+            return {"status": "dispatched", "dispatched_batches": total_dispatched_batches, "chord_id": job.id}
         else:
             logger.warning("没有需要分派的分钟数据批量任务。")
-
-        logger.info(f"任务结束: save_stocks_minute_data_today_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-        return {"status": "success", "dispatched_batches": total_dispatched_batches}
+            return {"status": "skipped", "message": "没有需要分派的分钟数据批量任务。"}
     except Exception as e:
         logger.error(f"执行 save_stocks_minute_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
@@ -289,15 +289,6 @@ def save_day_data_today_task(self):
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date))
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
 
-        # 分派每日筹码分布任务，并等待其完成
-        cyq_task_result = save_cyq_data_today_task.apply_async()
-        print("已分派 日线数据任务（当日） 数据任务，等待其完成...")
-        cyq_task_result.get()  # 阻塞等待子任务完成
-        print("日线数据任务（当日） 数据任务已完成。")
-
-        # 继续后续同步任务
-        result = asyncio.run(stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date))
-        print(f"保存 日线数据任务（当日） 数据完成。 result: {result} ")
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -311,15 +302,9 @@ def save_day_data_yesterday_task(self):
     try:
         today_date = timezone.now().date()
         yesterday = today_date - datetime.timedelta(days=1)
-        print("开始保存 日线数据任务（当日）...")
+        print("开始保存 日线数据任务（昨日）...")
         result = asyncio.run(stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=yesterday))
-        print(f"保存 日线数据任务（当日） 完成。result: {result}")
-
-        # 分派筹码数据任务，并等待其完成
-        cyq_result = save_cyq_data_yesterday_task.apply_async()
-        print("已分派 每日筹码分布、每日筹码及胜率 数据任务，等待其完成...")
-        cyq_result.get()  # 阻塞等待筹码任务完成
-        print("每日筹码分布、每日筹码及胜率 数据任务已完成。")
+        print(f"保存 日线数据任务（昨日） 完成。result: {result}")
 
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
@@ -430,20 +415,49 @@ def save_cyq_perf_today_batch(self):
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.on_all_cyq_batches_done')
+def on_all_cyq_batches_done(results):
+    logger.info("所有筹码批量任务已完成。")
+    return {"status": "success", "batches": len(results)}
+
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_today_task', queue='celery')
-def save_cyq_data_today_task(self):
+def save_cyq_data_today_task(self, batch_size=300):
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_minute_data_history_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    2. 按批次分组。
+    3. 分派 save_minute_data_history_batch 任务。
+    4. 等所有批次任务完成后再返回。
     """
     logger.info(f"任务启动: save_cyq_data_today_task (调度器模式) - 获取股票列表并分派批量任务")
     try:
-        save_cyq_chips_today_batch.s().set().apply_async()
-        save_cyq_perf_today_batch.s().set().apply_async()
-        logger.info(f"任务结束: save_cyq_data_today_task (调度器模式)")
+        # 1. 获取股票代码（请根据实际DAO方法替换）
+        stock_basic_dao = StockBasicInfoDao()
+        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stock_codes = [stock.stock_code for stock in all_stocks]
+        if not all_stock_codes:
+            logger.warning("未找到任何股票代码，跳过任务")
+            return {"status": "skipped", "message": "未找到任何股票代码"}
+        total_codes_count = len(all_stock_codes)
+        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
+
+        # 2. 按批次分组
+        batch_tasks = []
+        for i in range(0, total_codes_count, batch_size):
+            batch_codes = all_stock_codes[i:i + batch_size]
+            if batch_codes:
+                batch_tasks.append(save_minute_data_history_batch.s(stock_codes=batch_codes))
+
+        if batch_tasks:
+            # 3. 用chord分派所有批次任务，所有批次完成后自动回调
+            callback = on_all_cyq_batches_done.s()
+            job = chord(batch_tasks)(callback)
+            logger.info(f"已分派 {len(batch_tasks)} 个批量任务，等待全部完成后自动回调。")
+            return {"status": "dispatched", "dispatched_batches": len(batch_tasks), "chord_id": job.id}
+        else:
+            logger.warning("没有需要分派的批量任务。")
+            return {"status": "skipped", "message": "没有需要分派的批量任务"}
+
     except Exception as e:
         logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
