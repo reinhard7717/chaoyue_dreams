@@ -55,14 +55,12 @@ class BaseDAO(Generic[T]):
         self.model_class = model_class
         self.api_service = api_service # API 服务实例，子类可以覆盖或使用
         self.cache_timeout = cache_timeout # 默认缓存超时时间
+        self.cache_manager = CacheManager()
         self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
         self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
 
         # 只有当 model_class 不为 None 时才设置 model_name，用于生成缓存键前缀
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
-
-        # 初始化 CacheManager 为 None，按需创建
-        self.cache_manager: Optional[CacheManager] = None
 
     def _ensure_cache_objects(self):
         """
@@ -709,27 +707,59 @@ class BaseDAO(Generic[T]):
 
     async def process_batch_async(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list, batch_size=1000):
         """
-        【V22 - 终极性能版】的异步批处理调度器。
-        此方法负责将大的DataFrame切分为小批次，并调用最终的同步执行方法。逻辑保持不变。
+        【V25 - 分布式锁版】的异步批处理调度器。
+        - 策略:
+          1. 【核心修改】在处理任何批次前，通过 self.cache_manager 为当前目标表获取一个Redis分布式锁。
+          2. 这可以确保在同一时间内，只有一个进程/任务流可以向该表写入数据，从根本上消除并发写入导致的死锁。
+          3. 锁会在所有批次处理完毕或发生异常后自动释放。
         """
         if df.empty:
             return 0
+
+        # 【代码修改】为目标表定义一个唯一的锁键
+        lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
-        # logger.info(f"开始异步批处理 {len(df)} 条数据到表 {model_class._meta.db_table}。更新字段: {update_fields}, 唯一键: {unique_key_fields}")
-        for i in range(0, len(df), batch_size):
-            batch_df = df.iloc[i:i + batch_size]
-            try:
-                processed_count = await sync_to_async(self._process_batch_mysql_upsert_sync)(
-                    df=batch_df,
-                    model_class=model_class,
-                    update_fields=update_fields,
-                    unique_key_fields=unique_key_fields
-                )
-                if processed_count is not None:
-                    total_processed += processed_count
-            except Exception as e:
-                logger.error(f"原生SQL批处理时遇到意外错误: {e}", exc_info=True)
-        logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
+        
+        # 【代码修改】通过 CacheManager 获取 Redis 客户端并加锁
+        try:
+            # 1. 确保 CacheManager 中的 Redis 客户端已初始化
+            await self.cache_manager._ensure_client()
+            redis_client = self.cache_manager.redis_client
+
+            # 2. 检查客户端是否成功获取
+            if not redis_client:
+                logger.error(f"无法从 CacheManager 获取 Redis 客户端，跳过分布式锁。表: {model_class._meta.db_table}")
+                # 在这种关键失败情况下，可以选择抛出异常以停止操作，避免无保护的并发写入
+                raise ConnectionError("无法获取 Redis 客户端，数据库操作被中止以保证数据安全。")
+
+            print(f"调试信息: 准备为表 {model_class._meta.db_table} 获取分布式锁: {lock_key}")
+            # 3. 使用获取到的客户端执行加锁操作
+            # blocking_timeout 设置了获取锁的最长等待时间，防止无限等待
+            async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
+                print(f"调试信息: 成功获取锁 {lock_key}，开始处理批次...")
+                for i in range(0, len(df), batch_size):
+                    batch_df = df.iloc[i:i + batch_size]
+                    try:
+                        # 内部的 _process_batch_mysql_upsert_sync 仍然保留排序和重试逻辑，作为双重保险
+                        processed_count = await sync_to_async(self._process_batch_mysql_upsert_sync)(
+                            df=batch_df,
+                            model_class=model_class,
+                            update_fields=update_fields,
+                            unique_key_fields=unique_key_fields
+                        )
+                        if processed_count is not None:
+                            total_processed += processed_count
+                    except Exception as e:
+                        logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}", exc_info=True)
+                
+                logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
+                print(f"调试信息: 批处理完成，即将释放锁 {lock_key}")
+
+        except Exception as lock_error:
+            # 处理获取锁时可能发生的错误（例如，等待锁超时或连接失败）
+            logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
+            return 0 # 返回0表示没有记录被处理
+            
         return total_processed
 
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
