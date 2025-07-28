@@ -3,7 +3,6 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress
-from utils.math_tools import hurst_exponent
 from typing import Dict, Tuple
 from enum import Enum
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
@@ -826,6 +825,7 @@ class IntelligenceLayer:
                     趋势可持续性与衰竭的原子状态。
         """
         print("        -> [结构力学诊断模块 V2.0] 启动，正在进行物理建模与分形分析...")
+        from utils.math_tools import hurst_exponent
         states = {}
         
         # --- 1. 成本质心分析 (逻辑不变) ---
