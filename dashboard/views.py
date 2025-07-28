@@ -314,7 +314,43 @@ def fav_trend_following_list(request):
     context = {'page_title': '自选股持仓监控', 'page_obj': page_obj, 'total_count': len(processed_list)}
     return render(request, 'dashboard/fav_trend_following_list.html', context)
 
+@login_required
+def realtime_engine_view(request):
+    """
+    【V1.0】渲染盘中引擎实时监控页面。
+    - 核心职责:
+      1. 从Redis中获取当前用户今日已产生的所有盘中信号作为初始数据。
+      2. 将初始数据传递给模板进行渲染。
+      3. 页面后续的更新将通过WebSocket实时推送。
+    """
+    user_id = request.user.id
+    today_str = date.today().strftime('%Y-%m-%d')
+    
+    cache_manager = CacheManager()
+    cache_key_builder = IntradayEngineCashKey()
+    
+    # 1. 生成当前用户今日的信号缓存键
+    signals_key = cache_key_builder.user_signals_key(user_id, today_str)
+    
+    # 2. 从Redis的List中获取所有信号
+    # 使用 async_to_sync 来在同步视图中调用异步缓存方法
+    async def get_initial_signals():
+        await cache_manager.initialize()
+        # lrange(key, 0, -1) 获取列表中的所有元素
+        raw_signals = await cache_manager.redis_client.lrange(signals_key, 0, -1)
+        # Redis返回的是bytes，需要解码并用json加载
+        return [json.loads(s.decode()) for s in raw_signals]
 
+    initial_signals = async_to_sync(get_initial_signals)()
+    
+    # 3. 准备传递给模板的上下文
+    context = {
+        'page_title': '盘中引擎实时监控',
+        'initial_signals': initial_signals,
+        'total_count': len(initial_signals),
+    }
+    
+    return render(request, 'dashboard/realtime_engine.html', context)
 
 # --- DRF API 视图 ---
 

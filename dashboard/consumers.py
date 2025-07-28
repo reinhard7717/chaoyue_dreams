@@ -1,6 +1,6 @@
 # dashboard/consumers.py
 import json
-from asgiref.sync import async_to_sync
+from django.core.serializers.json import DjangoJSONEncoder
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async # 异步访问数据库
@@ -122,15 +122,18 @@ class DashboardConsumer(AsyncWebsocketConsumer):
     # --- 处理从 Channel Layer 发送到 Group 的消息 ---
     # 处理发送到 user_{id} 组的消息
     async def user_message(self, event):
-        message_type = event.get('type') # 'user.message' -> 'message'
+        """
+        处理通用的、发送到用户私有组的消息。
+        """
         data = event.get('data', {})
-        message_sub_type = data.get('sub_type') # 例如 'favorite_update', 'private_signal'
+        message_sub_type = data.get('sub_type')
+        payload = data.get('payload', {})
 
         # 将消息发送给 WebSocket 客户端
         await self.send(text_data=json.dumps({
             'type': message_sub_type, # 使用子类型作为前端判断依据
-            'payload': data.get('payload', {})
-        }))
+            'payload': payload
+        }, cls=DjangoJSONEncoder))
 
     # 处理发送到 dashboard_public 组的消息
     async def public_message(self, event):
@@ -143,84 +146,18 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             'payload': data.get('payload', {})
         }))
 
-    # --- 辅助方法 (示例) ---
-    # @database_sync_to_async
-    # def get_initial_favorites_data(self):
-    #     favorites = FavoriteStock.objects.filter(user=self.user).select_related('stock')
-    #     # 这里需要序列化数据，但不能直接用 DRF 序列化器，需要手动构建或写简单序列化函数
-    #     data = [
-    #         {
-    #             'code': fav.stock.code,
-    #             'name': fav.stock.name,
-    #             # ... 其他需要初始加载的数据 ...
-    #             'latest_price': None, # 初始可以为空，等后续推送
-    #             'change_percent': None,
-    #             'volume': None,
-    #             'signal': None,
-    #         } for fav in favorites
-    #     ]
-    #     return data
-
-    # async def send_initial_favorites(self):
-    #     favorites_data = await self.get_initial_favorites_data()
-    #     await self.send(text_data=json.dumps({
-    #         'type': 'initial_favorites',
-    #         'payload': favorites_data
-    #     }))
-
-# --- 如何从其他地方 (如 Celery 任务或 API 视图) 发送消息 ---
-# from channels.layers import get_channel_layer
-# from asgiref.sync import async_to_sync
-
-# async def send_update_to_user(user_id, sub_type, payload):
-#     channel_layer = get_channel_layer()
-#     await channel_layer.group_send(
-#         f'user_{user_id}',
-#         {
-#             'type': 'user.message', # 对应 consumer 中的 user_message 方法
-#             'data': {
-#                 'sub_type': sub_type,
-#                 'payload': payload,
-#             }
-#         }
-#     )
-
-# def send_update_to_user_sync(user_id, sub_type, payload):
-#     """同步版本，用于普通 Django 视图或 Celery 任务"""
-#     channel_layer = get_channel_layer()
-#     async_to_sync(channel_layer.group_send)(
-#         f'user_{user_id}',
-#         {
-#             'type': 'user.message',
-#             'data': {
-#                 'sub_type': sub_type,
-#                 'payload': payload,
-#             }
-#         }
-#     )
-
-# async def broadcast_public_message(sub_type, payload):
-#      channel_layer = get_channel_layer()
-#      await channel_layer.group_send(
-#          'dashboard_public',
-#          {
-#              'type': 'public.message', # 对应 consumer 中的 public_message 方法
-#              'data': {
-#                  'sub_type': sub_type,
-#                  'payload': payload,
-#              }
-#          }
-#      )
-# def broadcast_public_message_sync(sub_type, payload):
-#      channel_layer = get_channel_layer()
-#      async_to_sync(channel_layer.group_send)(
-#          'dashboard_public',
-#          {
-#              'type': 'public.message',
-#              'data': {
-#                  'sub_type': sub_type,
-#                  'payload': payload,
-#              }
-#          }
-#      )
-
+    # 【新增】专门处理盘中引擎信号的方法
+    async def intraday_signal_update(self, event):
+        """
+        处理由后端引擎通过Channel Layer发送来的盘中信号。
+        这个方法名 (intraday_signal_update) 必须与 channel_layer.group_send 中
+        指定的 'type' 完全匹配。
+        """
+        payload = event.get('payload', {})
+        
+        # 将信号封装成标准格式，发送给前端WebSocket客户端
+        # 使用 DjangoJSONEncoder 可以安全地处理 datetime 等特殊类型
+        await self.send(text_data=json.dumps({
+            'type': 'intraday_signal_update', # 前端JS将根据这个type来识别消息
+            'payload': payload
+        }, cls=DjangoJSONEncoder))

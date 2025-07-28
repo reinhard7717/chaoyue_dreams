@@ -1,0 +1,88 @@
+{# 文件: templates/dashboard/realtime_engine.html #}
+{% extends 'base.html' %}
+{% load static %}
+{% load tz %}
+{% load dashboard_extras %}
+
+{% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .signal-card {
+        background-color: #2a2a2e;
+        border-left: 5px solid #444;
+        margin-bottom: 15px;
+        padding: 15px;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        transition: all 0.3s ease;
+        opacity: 0;
+        transform: translateY(20px);
+        animation: fadeIn 0.5s forwards;
+    }
+
+    @keyframes fadeIn {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .signal-icon { font-size: 2.5em; margin-right: 20px; }
+    .signal-content { flex-grow: 1; }
+    .signal-header { display: flex; justify-content: space-between; align-items: baseline; }
+    .signal-stock { font-size: 1.5em; font-weight: bold; }
+    .signal-time { font-size: 0.9em; color: #aaa; }
+    .signal-reason { margin-top: 5px; font-size: 1.1em; }
+    .signal-playbook { font-style: italic; color: #ccc; font-size: 0.9em; }
+
+    /* 根据信号类型设置不同颜色 */
+    .signal-card.buy { border-left-color: #28a745; } /* 绿色 - 买入 */
+    .signal-card.take-profit-t { border-left-color: #ffc107; } /* 黄色 - 高抛 */
+    .signal-card.buy-dip-t { border-left-color: #17a2b8; } /* 蓝色 - 低吸 */
+    .signal-card.stop-loss { border-left-color: #dc3545; } /* 红色 - 止损 */
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <section class="realtime-engine-section">
+        <h2><span class="icon">⚡</span> {{ page_title }} (今日已产生 <span id="signal-count">{{ total_count }}</span> 条信号)</h2>
+        
+        <div id="signal-stream">
+            {% for signal in initial_signals %}
+                <div class="signal-card {{ signal.signal_type|lower|replace:'_','-' }}">
+                    <div class="signal-icon">
+                        {% if signal.signal_type == 'BUY' %}🚀
+                        {% elif signal.signal_type == 'TAKE_PROFIT_T' %}💰
+                        {% elif signal.signal_type == 'BUY_DIP_T' %}📥
+                        {% elif signal.signal_type == 'STOP_LOSS' %}🛑
+                        {% endif %}
+                    </div>
+                    <div class="signal-content">
+                        <div class="signal-header">
+                            <span class="signal-stock">{{ signal.stock_code }}</span>
+                            <span class="signal-time">{{ signal.entry_time|date:"H:i:s" }}</span>
+                        </div>
+                        <div class="signal-reason">
+                            {{ signal.reason }} @ {{ signal.entry_price|floatformat:2 }}
+                        </div>
+                        <div class="signal-playbook">
+                            剧本: {{ signal.playbook }}
+                        </div>
+                    </div>
+                </div>
+            {% empty %}
+                <div id="no-signals-message" style="text-align: center; padding: 40px; color: #888;">
+                    盘中引擎正在运行，暂未产生任何交易信号...
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
