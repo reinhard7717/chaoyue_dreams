@@ -1,6 +1,8 @@
 # 文件: strategies/trend_following/judgment_layer.py
 # 统合判断层
 import pandas as pd
+import numpy as np # 确保numpy也被导入
+from scipy.stats import linregress # 导入线性回归函数
 from .utils import get_params_block, get_param_value
 from .intelligence_layer import MainForceState
 
