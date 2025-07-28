@@ -14,6 +14,7 @@ from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.weekly_context_engine import WeeklyContextEngine
 from utils.config_loader import load_strategy_config
 from strategies.trend_following.utils import get_params_block, get_param_value
+from .trend_following.intelligence_layer import MainForceState
 
 
 # 初始化日志记录器
