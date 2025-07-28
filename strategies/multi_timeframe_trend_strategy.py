@@ -176,128 +176,88 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V2.3：证据清单修正版】
-        - 核心修正: 根据实际的DataFrame列名清单，全面重写了 rule_to_evidence_mapping。
-                    确保法医官能够根据正确的标签，在军火库中找到所有需要的证据。
-        - 新增逻辑:
-          1. 所有列名都精确匹配了实际的命名约定（如 `_D` 后缀）。
-          2. 对于不存在的“概念性”指标，暂时移除或替换为可观察的基础指标。
-          3. 调整了部分指标的参数以匹配实际情况 (如 RSI_13_D)。
+        【首席法医官 V4.0：联席审判庭】
+        - 核心升级: 专为深度分析“矛盾信号”而设计。
+        - 新功能:
+          1. **并列陈堂**: 同时展示进攻方和风险方的所有证据细节。
+          2. **传唤证人**: 调取并展示决策层的核心依据，包括“否决票数”、“主力行为”和“动态力学指令”。
+          3. **法医结论**: 基于所有证据，给出一个综合性的、可解释的“首席法医官结论”，
+                         明确判断风险是“真实威胁”还是“可控扰动”。
         """
-        print("\n    ========================= [战地验尸总署-探针报告 V2.3] =========================")
+        print("\n" + "="*35 + " [首席法医官 V4.0：联席审判庭] " + "="*35)
         
-        # ▼▼▼【代码修改 V2.3】: 全面修正“法医证据清单”以匹配实际列名 ▼▼▼
-        rule_to_evidence_mapping = {
-            # --- 风险规则的证据清单 ---
-            # 注意：主力资金的5日/10日合计值可能需要数据工程层计算并输出，这里暂时使用单日值作为替代证据
-            'risk_RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': ['main_force_net_inflow_amount_D', 'retail_net_inflow_volume_D'],
-            'risk_STRUCTURE_TOPPING_DANGER_S': ['close_D', 'high_D', 'MACDh_13_34_8_D', 'RSI_13_D', 'BIAS_21_D', 'BIAS_55_D'],
-            
-            # --- 进攻规则的证据清单 ---
-            # 注意：3日合计值和价格变动也需要数据工程层计算，暂时使用单日值
-            'CAPITAL_DIVERGENCE_REVERSAL': ['main_force_net_inflow_amount_D', 'close_D', 'prev_20d_close_D'],
-            'CHIP_HEALTH_EXCELLENT': ['chip_health_score_D', 'winner_profit_margin_D'],
-            # 'platform_stability_score' 是概念分数，替换为可观察的基础指标
-            'PLATFORM_STATE_STABLE_FORMED': ['peak_cost_slope_5d_D', 'peak_stability_D', 'close_D', 'EMA_55_D'],
-            'CHIP_STATE_HIGHLY_CONCENTRATED': ['concentration_90pct_D', 'peak_stability_D'],
-            # 'dyn_trend_score' 是概念分数，替换为构成它的核心斜率和加速度指标
-            'DYN_TREND_HEALTHY_ACCELERATING': ['SLOPE_55_EMA_55_D', 'ACCEL_55_EMA_55_D', 'SLOPE_13_EMA_13_D'],
-            # 'high_20d' 不存在，替换为与前20日收盘价的比较
-            'CONTEXT_STRONG_BREAKOUT_RALLY': ['close_D', 'prev_20d_close_D', 'volume_D', 'VOL_MA_21_D', 'pct_change_D']
-        }
-        # ▲▲▲【代码修改 V2.3】▲▲▲
-
         try:
             probe_dt = pd.to_datetime(probe_date).date()
             probe_row = df.loc[df.index.date == probe_dt].iloc[0]
-            # 修正：从 probe_row 中获取 stock_code，而不是依赖外部传入
             stock_code = probe_row.get('stock_code', 'N/A')
             if stock_code == 'N/A' and 'stock_id_D' in probe_row:
                  stock_code = probe_row['stock_id_D']
-            print(f"      [验尸目标]: 股票代码 {stock_code} @ {probe_date}")
+            print(f"  [案件编号]: {stock_code} @ {probe_date}")
+            print(f"  [案情摘要]: 出现高进攻分与高风险并存的矛盾信号，启动深度调查。")
+            print(f"  [初步报告]: 进攻分={probe_row.get('entry_score', 0):.2f}, 风险分={probe_row.get('risk_score', 0):.2f}, 最终信号='{probe_row.get('signal_type', 'N/A')}'")
+            print("-" * 95)
         except (IndexError, KeyError):
-            print(f"      [错误] 未能在主数据流中找到目标日期 {probe_date} 的记录。")
+            print(f"  [错误] 未能在主数据流中找到目标日期 {probe_date} 的记录。调查终止。")
+            print("=" * 95)
             return
 
         def transform_wide_to_long(details_df: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
-            if details_df is None or details_df.empty:
-                return pd.DataFrame(columns=['rule', 'score'])
+            if details_df is None or details_df.empty: return pd.DataFrame()
             target_date = pd.to_datetime(target_date_str).date()
             if isinstance(details_df.index, pd.DatetimeIndex):
                 day_details = details_df[details_df.index.date == target_date]
             else:
-                print(f"      [警告] 详情案卷的索引不是日期格式，无法进行验尸。")
-                return pd.DataFrame(columns=['rule', 'score'])
-            if day_details.empty:
-                return pd.DataFrame(columns=['rule', 'score'])
+                return pd.DataFrame()
+            if day_details.empty: return pd.DataFrame()
             long_df = day_details.melt(var_name='rule', value_name='score')
-            long_df = long_df[long_df['score'] != 0].reset_index(drop=True)
-            return long_df
+            return long_df[long_df['score'] != 0].sort_values(by='score', ascending=False).reset_index(drop=True)
         
         risk_rules_long = transform_wide_to_long(risk_details, probe_date)
         score_rules_long = transform_wide_to_long(score_details, probe_date)
 
-        # --- 风险验尸科 ---
-        print("  --- [风险验尸科 V297.0] 开始解剖风险成因 (协议已同步) ---")
+        # --- 第一部分: 控方证据（风险） ---
+        print("  --- 1. 控方证据陈述 (风险因素) ---")
         if not risk_rules_long.empty:
-            print(f"  [目标日期 {probe_date} 风险详情]:")
-            print(f"    -> 当日总风险分: {risk_rules_long['score'].sum():.2f}")
-            print(f"    -> 风险构成:")
             for _, rule_row in risk_rules_long.iterrows():
-                rule_name = rule_row['rule']
-                rule_score = rule_row['score']
-                print(f"      - {rule_name}: {rule_score:.2f} 分")
-                
-                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
-                if not evidence_cols:
-                    evidence_cols = rule_to_evidence_mapping.get(rule_name.replace('risk_', ''), [])
-
-                if evidence_cols:
-                    print(f"        -> [法医证据]:")
-                    for col in evidence_cols:
-                        try:
-                            value = probe_row[col]
-                            # 修正：对 pct_change_D 进行特殊格式化
-                            if col == 'pct_change_D':
-                                print(f"          - {col}: {value:.2%}")
-                            elif isinstance(value, (int, float)):
-                                print(f"          - {col}: {value:.2f}")
-                            else:
-                                print(f"          - {col}: {value}")
-                        except KeyError:
-                            print(f"          - [警告] 证据列 '{col}' 不存在!")
+                print(f"    - [证据] {self.tactical_engine.reporting_layer.signal_metadata.get(rule_row['rule'], rule_row['rule'])}: {rule_row['score']:.2f} 分")
         else:
-            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何风险信号。")
+            print("    - [信息] 未提交任何风险证据。")
 
-        # --- 进攻分验尸科 ---
-        print(f"      --- [进攻分验尸科 V300.0] 开始解剖得分构成 (已接收全套案情卷宗) ---")
+        # --- 第二部分: 辩方证据（机会） ---
+        print("\n  --- 2. 辩方证据陈述 (机会因素) ---")
         if not score_rules_long.empty:
-            print(f"      [目标日期 {probe_date} 得分详情]:")
-            print(f"        -> 当日总得分: {score_rules_long['score'].sum():.2f}")
-            print(f"        -> 得分构成:")
             for _, rule_row in score_rules_long.iterrows():
-                rule_name = rule_row['rule']
-                rule_score = rule_row['score']
-                print(f"          - {rule_name}: {rule_score:.2f} 分")
-
-                evidence_cols = rule_to_evidence_mapping.get(rule_name, [])
-                if evidence_cols:
-                    print(f"            -> [法医证据]:")
-                    for col in evidence_cols:
-                        try:
-                            value = probe_row[col]
-                            if col == 'pct_change_D':
-                                print(f"              - {col}: {value:.2%}")
-                            elif isinstance(value, (int, float)):
-                                print(f"              - {col}: {value:.2f}")
-                            else:
-                                print(f"              - {col}: {value}")
-                        except KeyError:
-                            print(f"              - [警告] 证据列 '{col}' 不存在!")
+                print(f"    - [证据] {self.tactical_engine.reporting_layer.signal_metadata.get(rule_row['rule'], rule_row['rule'])}: {rule_row['score']:.2f} 分")
         else:
-            print(f"    -> [信息] 在目标日期 {probe_date} 未发现任何进攻得分信号。")
+            print("    - [信息] 未提交任何机会证据。")
+
+        # --- 第三部分: 关键证人证词（决策依据） ---
+        print("\n  --- 3. 关键证人质询 (决策层依据) ---")
+        veto_votes = probe_row.get('veto_votes', 'N/A')
+        main_force_state_val = probe_row.get('main_force_state', -1)
+        main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
+        dynamic_action = probe_row.get('dynamic_action', 'N/A')
         
-        print("    ============================== [验尸报告结束] ==============================")
+        print(f"    - [证人1: 联席会议] 最终投出否决票数: {veto_votes}")
+        print(f"    - [证人2: 主力行为分析部] 当日主力行为状态: {main_force_state_str} ({main_force_state_val})")
+        print(f"    - [证人3: 动态力学矩阵] 最终战术指令: {dynamic_action}")
+
+        # --- 第四部分: 首席法医官结论 ---
+        print("\n  --- 4. 首席法医官结论 ---")
+        verdict = "调查中..."
+        if dynamic_action == 'AVOID':
+            verdict = "【结论：真实且严重的威胁】动态力学矩阵发出了明确的'规避'指令，表明进攻动能正在衰竭而风险正在加速抬头。所有进攻信号极有可能是'牛市陷阱'或'诱多出货'。建议严格遵守规避指令。"
+        elif dynamic_action == 'FORCE_ATTACK':
+            verdict = "【结论：可控的良性扰动】动态力学矩阵发出了'强攻'指令，表明进攻动能正在加速而风险正在消退。当前风险大概率是主升浪中的正常洗盘或获利盘换手。进攻信号的置信度极高。"
+        elif veto_votes > 2:
+            verdict = f"【结论：多重风险共振】尽管动态力学未发出致命警告，但静态风险因素过多（{veto_votes}票否决），形成了共振。地基不稳，进攻信号的可靠性存疑，观望为宜。"
+        elif main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
+             verdict = "【结论：主力意图背离】尽管战术信号尚可，但主力行为已明确进入派发或崩盘阶段。所有进攻信号均为'与主力意图相悖'的危险操作，应予以否决。"
+        else:
+            verdict = "【结论：高烈度多空缠斗】进攻与风险因素势均力敌，且动态力学未给出明确方向。市场处于'方向选择'的临界点，信号模糊，不确定性高。建议等待更清晰的信号出现。"
+            
+        print(f"    {verdict}")
+        print("=" * 95)
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """

@@ -11,55 +11,46 @@ class JudgmentLayer:
 
     def make_final_decisions(self):
         """
-        【V317.0 动态力学版】
-        - 核心革命: 引入“动态力学战术矩阵”，基于进攻与风险的“双向加速度”进行最终裁决。
-        - 决策流程:
-          1. 联席会议投票，形成基础否决票数。
-          2. 启动战术矩阵，根据四个“力学象限”给出最终的“行动指令”（强攻/暂缓/规避/死守）。
-          3. 结合“黄金买点”等特殊指令，形成最终决策。
+        【V318.1 探针适配版】
+        - 核心适配: 将“动态力学指令”(`final_action`) 保存到DataFrame中，
+                    以便下游的“首席法医官”探针能够获取并进行深度分析。
         """
-        print("    --- [最高作战指挥部 V317.0 动态力学版] 启动... ---")
+        print("    --- [最高作战指挥部 V318.0 主动净化版] 启动... ---")
         df = self.strategy.df_indicators
         
         df['final_score'], df['signal_type'], df['signal_entry'] = 0.0, '中性', False
         df['exit_signal_code'], df['exit_severity_level'], df['veto_votes'] = 0, 0, 0
+        df['dynamic_action'] = 'HOLD' # 初始化
 
         is_potential_buy = df['entry_score'] > 0
         
-        # 步骤1: 联席会议投票，计算基础否决票数
+        print("        -> [决策预处理] 正在对所有潜在买入日执行“主动净化”...")
+        df.loc[is_potential_buy, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
+        if is_potential_buy.any():
+            print(f"          -> [净化完成] 已为 {is_potential_buy.sum()} 个潜在买入日清理了决策环境。")
+
         self._calculate_static_veto_votes()
 
-        # 步骤2: 启动“动态力学战术矩阵”进行最终裁决
         print("        -> [战术矩阵] 正在启动“动态力学战术矩阵”...")
         final_action = self._get_dynamic_combat_action()
-        
-        # 步骤3: 结合静态评估和动态指令，形成最终买入条件
-        # 基础条件：有买入意图，且静态否决票在可容忍范围内
+        df['dynamic_action'] = final_action # <-- 【核心适配】记录动态指令
+
         base_buy_condition = is_potential_buy & (
             (df['entry_score'] < 800) & (df['veto_votes'] <= 1) |
             (df['entry_score'] >= 800) & (df['veto_votes'] <= 3)
         )
-        
-        # 最终条件：满足基础条件，并且动态指令不是“规避”
         tactical_buy_condition = base_buy_condition & (final_action != 'AVOID')
-        
-        # 动态指令可以覆盖基础条件：如果指令是“强攻”，则无视部分否决票
         force_attack_condition = is_potential_buy & (final_action == 'FORCE_ATTACK')
-        
         final_buy_condition = tactical_buy_condition | force_attack_condition
 
-        # 特殊情况：黄金买点，拥有最高优先权，但不能处于“死亡象限”
         prev_state = df['main_force_state'].shift(1)
         is_entering_markup = (prev_state.isin([MainForceState.ACCUMULATING.value, MainForceState.WASHING.value]) & (df['main_force_state'] == MainForceState.MARKUP.value))
         golden_buy_point = is_entering_markup & (final_action != 'AVOID')
-        
         final_buy_condition |= golden_buy_point
 
-        # 应用最终决策
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         df.loc[is_potential_buy & ~final_buy_condition, 'signal_type'] = '卖出信号'
 
-        # --- 后续处理 ---
         self.strategy.exit_layer.calculate_exit_signals()
         self._finalize_signals()
 
@@ -127,7 +118,7 @@ class JudgmentLayer:
         final_buy_condition = df['signal_type'] == '买入信号'
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
-        df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level']] = 0
+        df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
 
         final_sell_condition = (df['signal_type'] == '卖出信号')
         df.loc[final_sell_condition, 'final_score'] = df.loc[final_sell_condition, 'entry_score']
