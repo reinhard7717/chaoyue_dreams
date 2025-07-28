@@ -177,15 +177,15 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
         """
-        【首席法医官 V4.3：决策复刻版】
-        - 核心革命: 不再独立判断，而是忠实地复刻 `judgment_layer` 的完整决策逻辑，
-                    确保探针的“物证”和决策层的“判决”完全一致。
+        【首席法医官 V4.4：沙盘推演版】
+        - 核心革命: 不再“复刻”，而是进行“沙盘推演”。在探针内部完整、精确地
+                    重新执行 `judgment_layer` 的核心投票逻辑，确保100%的逻辑一致性。
         - 新功能:
           1. **真实投票记录**: 精确回溯并展示每一张真实投出的否决票及其原因。
           2. **豁免/缓解说明**: 如果一个风险因“缓解规则”被豁免，探针将明确指出。
           3. **数据驱动结论**: 法医结论将基于真实的投票结果和底层数据，给出精准诊断。
         """
-        print("\n" + "="*35 + " [首席法医官 V4.3：决策复刻版] " + "="*35)
+        print("\n" + "="*35 + " [首席法医官 V4.4：沙盘推演版] " + "="*35)
         
         try:
             probe_dt = pd.to_datetime(probe_date).date()
@@ -213,8 +213,8 @@ class MultiTimeframeTrendStrategy:
         print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
         print(f"    - [动态力学] 战术指令: {dynamic_action}")
 
-        # --- 2. 投票记录复刻 (Replicating the Vote) ---
-        print("\n  --- 2. 联席会议投票记录复刻 ---")
+        # --- 2. 沙盘推演 (Re-enacting the Vote) ---
+        print("\n  --- 2. 联席会议投票沙盘推演 ---")
         atomic_states = self.tactical_engine.atomic_states
         probe_day_atomic = {key: series.loc[probe_ts] for key, series in atomic_states.items() if probe_ts in series.index}
         
@@ -228,16 +228,15 @@ class MultiTimeframeTrendStrategy:
                 value_str = f"{value:.4f}" if isinstance(value, (float, np.floating)) else str(value)
                 print(f"       - [物证] 指标: {indicator:<35s} | 当前值: {value_str:<15s} | 逻辑: {point['logic']}")
 
-        # 复刻逻辑 1: 严重筹码结构风险 (3票)
+        # 推演逻辑 1: 严重筹码结构风险 (3票)
         if probe_day_atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', False):
             vote_details.append("【筹码地基审查】投出 3 票")
-            # ... (此处可添加更详细的筹码物证)
 
-        # 复刻逻辑 2: 主力行为风险 (1票)
+        # 推演逻辑 2: 主力行为风险 (1票)
         if main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
             vote_details.append("【主力行为审查】投出 1 票")
 
-        # 复刻逻辑 3: 绝对否决权风险 (2票)
+        # 推演逻辑 3: 绝对否决权风险 (2票)
         veto_params = get_params_block(self.tactical_engine, 'absolute_veto_params')
         mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
         chip_risks_in_veto = {"RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", "CONTEXT_RECENT_DISTRIBUTION_PRESSURE"}
@@ -251,21 +250,24 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print(f"    - [豁免记录] 风险 '{signal_name}' 因缓解规则被豁免，未投票。")
 
-        # 复刻逻辑 4: 常规风险 (1票)
+        # 推演逻辑 4: 常规风险 (1票)
         is_risky = probe_row.get('risk_score', 0) > probe_row.get('entry_score', 0)
         is_exempted = probe_day_atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', False)
         if is_risky and not is_exempted:
             vote_details.append("【常规风险审查】投出 1 票 (原因: 风险分 > 进攻分)")
-            print_evidence("常规风险(风险分>进攻分)", 1,
-                           [{'indicator': 'risk_score', 'logic': f"> entry_score ({probe_row.get('entry_score', 0):.2f})"},
-                            {'indicator': 'STRUCTURE_POST_ACCUMULATION_ASCENT_C', 'logic': '== False (不在豁免期)'}])
+        
+        if probe_day_atomic.get('SCORE_DYN_OPPORTUNITY_FADING', False):
+            vote_details.append("【元决策审查】投出 1 票 (原因: 机会衰退)")
+            
+        if probe_day_atomic.get('SCORE_DYN_RISK_ESCALATING', False):
+            vote_details.append("【元决策审查】投出 1 票 (原因: 风险抬头)")
 
         if vote_details:
             print("\n    [投票详情]:")
             for detail in vote_details:
                 print(f"      - {detail}")
         else:
-            print("    - [信息] 复刻流程未发现任何部门投出否决票。")
+            print("    - [信息] 沙盘推演未发现任何部门投出否决票。")
 
         # --- 3. 首席法医官结论 ---
         print("\n  --- 3. 首席法医官结论 ---")
@@ -277,7 +279,7 @@ class MultiTimeframeTrendStrategy:
             verdict = "【结论：可控的良性扰动】动态力学矩阵发出了'强攻'指令，表明进攻动能正在加速而风险正在消退。当前风险大概率是主升浪中的正常洗盘或获利盘换手。进攻信号的置信度极高。"
         elif veto_votes > 0:
             reasons = [v.split('(')[0].strip() for v in vote_details]
-            verdict = f"【结论：信号被否决】复刻的投票记录显示，信号因以下关键风险被联席会议否决：{', '.join(reasons)}。基于当前规则，否决合理。"
+            verdict = f"【结论：信号被否决】沙盘推演显示，信号因以下关键风险被联席会议否决：{', '.join(reasons)}。基于当前规则，否决合理。"
         else:
             verdict = "【结论：高置信度买入】信号通过了所有静态和动态审查，未收到任何否决票。这是一个高置信度的进攻机会。"
             

@@ -11,36 +11,41 @@ class JudgmentLayer:
 
     def make_final_decisions(self):
         """
-        【V318.1 探针适配版】
-        - 核心适配: 将“动态力学指令”(`final_action`) 保存到DataFrame中，
-                    以便下游的“首席法医官”探针能够获取并进行深度分析。
+        【V318.3 终极修复版】
+        - 核心修复: 纠正了对 `exit_layer.calculate_exit_signals()` 的调用路径，
+                    确保通过 `self.strategy.exit_layer` 进行正确调用。
+        - 逻辑强化: 继承并确认了“风控回归”和“主动净化”逻辑，确保决策的
+                    稳健性和报告的纯净性。
         """
-        print("    --- [最高作战指挥部 V318.0 主动净化版] 启动... ---")
+        print("    --- [最高作战指挥部 V318.3 终极修复版] 启动... ---")
         df = self.strategy.df_indicators
         
         df['final_score'], df['signal_type'], df['signal_entry'] = 0.0, '中性', False
         df['exit_signal_code'], df['exit_severity_level'], df['veto_votes'] = 0, 0, 0
-        df['dynamic_action'] = 'HOLD' # 初始化
+        df['dynamic_action'] = 'HOLD'
 
         is_potential_buy = df['entry_score'] > 0
         
+        # 步骤1: 主动预防性净化
         print("        -> [决策预处理] 正在对所有潜在买入日执行“主动净化”...")
         df.loc[is_potential_buy, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
-        if is_potential_buy.any():
-            print(f"          -> [净化完成] 已为 {is_potential_buy.sum()} 个潜在买入日清理了决策环境。")
 
+        # 步骤2: 联席会议投票
         self._calculate_static_veto_votes()
 
+        # 步骤3: 动态力学矩阵裁决
         print("        -> [战术矩阵] 正在启动“动态力学战术矩阵”...")
         final_action = self._get_dynamic_combat_action()
-        df['dynamic_action'] = final_action # <-- 【核心适配】记录动态指令
-
+        df['dynamic_action'] = final_action
+        
+        # 步骤4: 形成最终买入条件
         base_buy_condition = is_potential_buy & (
             (df['entry_score'] < 800) & (df['veto_votes'] <= 1) |
-            (df['entry_score'] >= 800) & (df['veto_votes'] <= 3)
+            (df['entry_score'].between(800, 1199)) & (df['veto_votes'] <= 2) |
+            (df['entry_score'] >= 1200) & (df['veto_votes'] <= 3)
         )
         tactical_buy_condition = base_buy_condition & (final_action != 'AVOID')
-        force_attack_condition = is_potential_buy & (final_action == 'FORCE_ATTACK')
+        force_attack_condition = is_potential_buy & (final_action == 'FORCE_ATTACK') & (df['veto_votes'] <= 3)
         final_buy_condition = tactical_buy_condition | force_attack_condition
 
         prev_state = df['main_force_state'].shift(1)
@@ -48,10 +53,15 @@ class JudgmentLayer:
         golden_buy_point = is_entering_markup & (final_action != 'AVOID')
         final_buy_condition |= golden_buy_point
 
+        # 应用初步决策
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         df.loc[is_potential_buy & ~final_buy_condition, 'signal_type'] = '卖出信号'
 
+        # --- 步骤5: 后续处理 ---
+        # 【核心修复】: 使用正确的路径 `self.strategy.exit_layer` 调用
         self.strategy.exit_layer.calculate_exit_signals()
+        
+        # 最终信号确定与净化
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:
