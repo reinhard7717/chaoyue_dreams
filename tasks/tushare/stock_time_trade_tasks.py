@@ -415,52 +415,24 @@ def save_cyq_perf_today_batch(self):
     except Exception as e:
         logger.error(f"save_day_data_history_task.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.on_all_cyq_batches_done')
-def on_all_cyq_batches_done(results):
-    logger.info("所有筹码批量任务已完成。")
-    return {"status": "success", "batches": len(results)}
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.on_cyq_two_tasks_done')
+def on_cyq_two_tasks_done(results):
+    logger.info("两个CYQ子任务已完成。")
+    return {"status": "success", "results": results}
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_today_task', queue='celery')
-def save_cyq_data_today_task(self, batch_size=300):
-    """
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 按批次分组。
-    3. 分派 save_minute_data_history_batch 任务。
-    4. 等所有批次任务完成后再返回。
-    """
-    logger.info(f"任务启动: save_cyq_data_today_task (调度器模式) - 获取股票列表并分派批量任务")
+def save_cyq_data_today_task(self):
+    logger.info(f"任务启动: save_cyq_data_today_task (调度器模式)")
     try:
-        # 1. 获取股票代码（请根据实际DAO方法替换）
-        stock_basic_dao = StockBasicInfoDao()
-        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
-        all_stock_codes = [stock.stock_code for stock in all_stocks]
-        if not all_stock_codes:
-            logger.warning("未找到任何股票代码，跳过任务")
-            return {"status": "skipped", "message": "未找到任何股票代码"}
-        total_codes_count = len(all_stock_codes)
-        logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
-
-        # 2. 按批次分组
-        batch_tasks = []
-        for i in range(0, total_codes_count, batch_size):
-            batch_codes = all_stock_codes[i:i + batch_size]
-            if batch_codes:
-                batch_tasks.append(save_minute_data_history_batch.s(stock_codes=batch_codes))
-
-        if batch_tasks:
-            # 3. 用chord分派所有批次任务，所有批次完成后自动回调
-            callback = on_all_cyq_batches_done.s()
-            job = chord(batch_tasks)(callback)
-            logger.info(f"已分派 {len(batch_tasks)} 个批量任务，等待全部完成后自动回调。")
-            return {"status": "dispatched", "dispatched_batches": len(batch_tasks), "chord_id": job.id}
-        else:
-            logger.warning("没有需要分派的批量任务。")
-            return {"status": "skipped", "message": "没有需要分派的批量任务"}
-
+        job = chord([
+            save_cyq_chips_today_batch.s(),
+            save_cyq_perf_today_batch.s()
+        ])(on_cyq_two_tasks_done.s())
+        logger.info("已分派两个CYQ子任务，等待全部完成后自动回调。")
+        return {"status": "dispatched", "chord_id": job.id}
     except Exception as e:
         logger.error(f"执行 save_cyq_data_today_task (调度器模式) 时出错: {e}", exc_info=True)
-        return {"status": "error", "message": str(e), "dispatched_batches": 0}
+        return {"status": "error", "message": str(e)}
 
 # ============== 每日筹码分布任务（昨日） ==============
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_cyq_chips_today_batch', queue='SaveHistoryData_TimeTrade', rate_limit='180/m')
