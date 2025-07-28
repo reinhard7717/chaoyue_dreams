@@ -3,24 +3,26 @@ import numpy as np
 from hurst import compute_Hc
 
 def hurst_exponent(series: np.ndarray) -> float:
-    """
-    一个包装函数，用于计算赫斯特指数，使其能被 rolling().apply() 调用。
-    
-    Args:
-        series (np.ndarray): 一个时间序列（例如价格）。
-    
-    Returns:
-        float: 赫斯特指数 (H)。
-    """
-    # compute_Hc 需要一个list或numpy array，并且不能有NaN
-    # rolling().apply() 传递过来的已经是处理好的numpy array
-    if len(series) < 20: # 赫斯特指数需要足够的数据点才有意义
+    # 1. 检查传入的是否是有效的numpy数组
+    if not isinstance(series, np.ndarray) or series.ndim != 1:
         return np.nan
-    
+
+    # 2. 检查长度
+    if len(series) < 20:
+        return np.nan
+
+    # 3. 【关键】检查数据是否包含NaN或inf
+    if np.any(np.isnan(series)) or np.any(np.isinf(series)):
+        return np.nan
+
+    # 4. 【关键】检查数据是否为常数（导致标准差为0）
+    if np.std(series) < 1e-9: # 如果标准差极小，视为常数
+        return 0.5 # 常数序列或白噪声的H值理论上是0.5
+
     try:
-        # kind='price' 表示这是一个价格序列
         H, c, data = compute_Hc(series, kind='price', simplified=True)
         return H
-    except Exception:
-        # 在计算过程中可能出现各种数学错误，返回NaN是安全的
+    except Exception as e:
+        # 打印更详细的错误，便于调试
+        print(f"[DEBUG] hurst_exponent failed with error: {e} for series: {series[:5]}...")
         return np.nan

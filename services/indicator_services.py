@@ -929,16 +929,29 @@ class IndicatorService:
         df = all_dfs[timeframe]
         
         # --- 1. 计算赫斯特指数 ---
-        # 从配置中读取参数，如果未来需要的话
-        # hurst_params = self._find_params_recursively(config, 'hurst_params')
-        hurst_window = 60 # 暂时硬编码，或从配置读取
+        hurst_window = 60
         hurst_col = f'hurst_{hurst_window}d_D'
         if 'close_D' in df.columns and hurst_col not in df.columns:
             try:
-                df[hurst_col] = df['close_D'].rolling(hurst_window).apply(hurst_exponent, raw=True)
-                print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
+                # 【核心防御代码】
+                # 1. 创建一个没有NaN的副本用于计算
+                close_series_for_hurst = df['close_D'].dropna()
+                
+                # 2. 检查处理后数据是否仍然充足
+                if len(close_series_for_hurst) < hurst_window:
+                    print(f"      -> [警告] 去除NaN后，数据量不足以计算赫斯特指数，跳过。")
+                    df[hurst_col] = np.nan # 将整列设为NaN
+                else:
+                    # 3. 在干净的数据上进行计算
+                    hurst_values = close_series_for_hurst.rolling(hurst_window).apply(hurst_exponent, raw=True)
+                    
+                    # 4. 将计算结果对齐回原始的DataFrame索引
+                    df[hurst_col] = hurst_values.reindex(df.index)
+                    print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
+
             except Exception as e:
                 print(f"      -> [警告] 赫斯特指数计算失败: {e}")
+                df[hurst_col] = np.nan # 确保即使出错，列也存在
 
         # --- 2. 计算价格变异系数 (Price CV) ---
         cv_window = 60 # 暂时硬编码，或从配置读取
