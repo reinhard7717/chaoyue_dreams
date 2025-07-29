@@ -200,6 +200,7 @@ class CacheSet():
 
 class UserCacheSet(CacheSet):
     def __init__(self):
+        super().__init__() # <--- 确保这行存在
         self.cache_key_user = UserCashKey()
 
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
@@ -231,6 +232,7 @@ class UserCacheSet(CacheSet):
 
 class IndexCacheSet(CacheSet):
     def __init__(self):
+        super().__init__()
         self.cache_key_index = IndexCashKey()
         self.data_format_process = IndexDataFormatProcess()
     
@@ -369,6 +371,7 @@ class IndexCacheSet(CacheSet):
 
 class StockInfoCacheSet(CacheSet):
     def __init__(self):
+        super().__init__()
         self.cache_key_stock = StockCashKey()
    
     async def all_stocks(self, data_to_cache: Dict[str, Any]) -> bool:
@@ -383,6 +386,8 @@ class StockInfoCacheSet(CacheSet):
         return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 
 class StockTimeTradeCacheSet(CacheSet):
+    def __init__(self):
+        super().__init__()
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
@@ -537,6 +542,7 @@ class StockTimeTradeCacheSet(CacheSet):
 
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self):
+        super().__init__()
         self.cache_key_stock = StockCashKey()
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -563,6 +569,8 @@ class StockIndicatorsCacheSet(CacheSet):
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
+    def __init__(self):
+        super().__init__()
 
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
@@ -730,6 +738,9 @@ class StockRealtimeCacheSet(CacheSet):
             return False
 
 class StrategyCacheSet(CacheSet):
+    def __init__(self):
+        super().__init__()
+
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
