@@ -716,7 +716,7 @@ class StockTimeTradeDAO(BaseDAO):
 
         # 1. 数据采集：只调用一次API
         stock_codes_str = ",".join(stock_codes)
-        df = self.ts_pro.rt_min(ts_code=stock_codes_str, freq=f"{time_level}min", fields=[
+        df = self.ts_pro.rt_min(ts_code=stock_codes_str, freq=f"{time_level}MIN", fields=[
             "ts_code", "time", "open", "close", "high", "low", "vol", "amount"
         ])
 
