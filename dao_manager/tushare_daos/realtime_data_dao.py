@@ -26,7 +26,7 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         self.cache_get = StockRealtimeCacheGet()  # 先实例化
         self.stock_cache_get = StockInfoCacheGet()
-        token = getattr(settings, 'TUSHARE_TOKEN', None)
+        token = getattr(settings, 'API_LICENCES_TUSHARE', None)
         if not token:
             # 如果在settings中找不到token，记录一个严重的错误，防止程序静默失败
             logger.critical("TUSHARE_TOKEN 未在Django settings中配置！Tushare功能将无法使用。")
