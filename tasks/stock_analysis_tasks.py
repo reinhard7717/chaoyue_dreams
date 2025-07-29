@@ -575,6 +575,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     【执行器 V10.1 - 数据源诊断版】
     - 核心逻辑与V10.0完全一致，确保数据源和计算的正确性。
     """
+    # 【诊断日志 1】
+    print(f"--- TASK ENTRY: precompute_advanced_chips_for_stock for {stock_code} ---")
+    logger.info(f"--- TASK ENTRY: precompute_advanced_chips_for_stock for {stock_code} ---")
+
     async def main():
         # 创建CacheManager实例
         cache_manager = CacheManager()
@@ -584,6 +588,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         # 其余业务逻辑保持不变，原地粘贴原有代码
         mode = "增量更新" if is_incremental else "全量刷新"
         print(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.1 数据源诊断版, 模式: {mode})...")
+        
         try:
             stock_info = StockInfo.objects.get(stock_code=stock_code)
             max_lookback_days = 160
