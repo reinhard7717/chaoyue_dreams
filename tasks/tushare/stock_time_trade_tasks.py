@@ -516,7 +516,7 @@ def save_minute_data_this_week_batch(self, stock_codes: str):
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_this_week_task', queue='celery')
-def save_stocks_minute_data_this_week_task(self, batch_size: int = 50): # 限量：单次最大8000行数据
+def save_stocks_minute_data_this_week_task(self, batch_size: int = 10): # 限量：单次最大8000行数据
     """
     调度器任务：
     1. 获取自选股和非自选股代码。
