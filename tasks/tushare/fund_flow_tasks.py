@@ -51,7 +51,7 @@ def get_last_monday_and_friday():
 
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
 # [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_today_fund_flow_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_today_fund_flow_method', queue='SaveHistoryData_TimeTrade', acks_late=True)
 def execute_save_today_fund_flow_method(self, method_name: str, trade_date: datetime.date):
     """
     通用子任务：执行FundFlowDao中的指定异步方法来保存当日数据。
@@ -77,7 +77,7 @@ def execute_save_today_fund_flow_method(self, method_name: str, trade_date: date
 
 
 # [修改] 原任务被重构为编排和分派任务
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_today(self):
     """
     [修改] 调度器任务（编排者）：
@@ -111,7 +111,7 @@ def save_fund_flow_daily_data_today(self):
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
 
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_hm_detail_data_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_hm_detail_data_today', queue='SaveHistoryData_TimeTrade')
 def save_hm_detail_data_today(self):
     """
     Celery任务：获取并保存【当天】的游资每日明细数据。
@@ -134,7 +134,7 @@ def save_hm_detail_data_today(self):
 
 
 #  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_fund_flow_dao_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_fund_flow_dao_method', queue='SaveHistoryData_TimeTrade', acks_late=True)
 def execute_fund_flow_dao_method(self, method_name: str, trade_date: str):
     """
     通用执行者子任务：执行FundFlowDao中的指定异步方法。
@@ -160,7 +160,7 @@ def execute_fund_flow_dao_method(self, method_name: str, trade_date: str):
 
     
 # [修改] 原任务被重构为编排和分派任务
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_yesterday(self):
     """
     [修改] 调度器任务（编排者）：
@@ -369,7 +369,7 @@ def save_fund_flow_daily_data_history_task(self):
         return {"status": "error", "message": str(e), "dispatched_tasks": 0}
 
 # ================ （当日）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_ths_today(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -392,7 +392,7 @@ def save_fund_flow_daily_data_ths_today(self):
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # ================ （昨日）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_yesterday', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_yesterday', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_ths_yesterday(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -413,7 +413,7 @@ def save_fund_flow_daily_data_ths_yesterday(self):
 
 
 # ================ （本周）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_this_week_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_this_week_batch', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_ths_this_week_batch(self, this_monday: datetime.date, this_friday: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -450,7 +450,7 @@ def save_fund_flow_daily_data_ths_this_week_task(self):
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
 # ================ （历史）板块、行业资金流向数据 - 同花顺 ================
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch', queue=STOCKS_SAVE_API_DATA_QUEUE)
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_batch', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_ths_history_batch(self, trade_date: datetime.date):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
@@ -469,7 +469,7 @@ def save_fund_flow_daily_data_ths_history_batch(self, trade_date: datetime.date)
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 
-@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_task')
+@celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_task', queue='celery')
 def save_fund_flow_daily_data_ths_history_task(self):
     """
     调度器任务：
