@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 from asgiref.sync import sync_to_async # 异步转换工具
-from datetime import datetime, date
+from datetime import datetime, date, time
 from typing import Dict, List, Set
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -11,6 +11,7 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.index import TradeCalendar
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
+from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from strategies.realtime_strategy import RealtimeStrategy
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
@@ -50,7 +51,30 @@ class IntradayEngineOrchestrator:
         logger.info(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
 
         # --- 2. 构建“待买入池” (Watchlist) (逻辑不变) ---
-        daily_buy_signals = await self.strategies_dao.get_daily_buy_signals(trade_date=previous_trade_date)
+        # 构建一个从当天 00:00:00 到 23:59:59 的 naive datetime 范围
+        # 这将精确匹配数据库中存储的无时区信息的时间
+        start_of_day = datetime.combine(previous_trade_date, time.min)
+        end_of_day = datetime.combine(previous_trade_date, time.max)
+
+        # 使用 __range 查询，并传入 naive datetime 对象
+        # Django 在处理 naive datetime 时，会根据 settings.TIME_ZONE (通常是'UTC')
+        # 来解释它们，但对于 __range 查询，它通常会直接使用你提供的值生成SQL，
+        # 这恰好能匹配数据库中的存储方式。
+        buy_signals_qs = TrendFollowStrategySignalLog.objects.filter(
+            entry_signal=True,
+            timeframe='D',
+            trade_time__range=(start_of_day, end_of_day)
+        ).select_related('stock')
+        
+        # 使用 sync_to_async 将同步的数据库查询转换为异步操作
+        @sync_to_async
+        def get_signals_list(qs):
+            return list(qs)
+
+        daily_buy_signals = await get_signals_list(buy_signals_qs)
+        
+        logger.info(f"查询完成，共找到 {len(daily_buy_signals)} 条日线买入信号。")
+        
         watchlist = {signal.stock.stock_code for signal in daily_buy_signals}
         
         # --- 3. 构建“持仓监控池” (Position List) ---
