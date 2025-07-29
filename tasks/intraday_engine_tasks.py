@@ -1,6 +1,6 @@
 # 文件: tasks/intraday_engine_tasks.py
 import logging
-from celery import shared_task
+from chaoyue_dreams.celery import app as celery_app
 from asgiref.sync import async_to_sync
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 
@@ -9,7 +9,7 @@ from intraday_engine.orchestrator import IntradayEngineOrchestrator
 logger = logging.getLogger("celery_tasks")
 
 # --- 任务一：盘前准备任务 ---
-@shared_task(bind=True, name='tasks.intraday_engine.prepare_pools')
+@celery_app.task(bind=True, name='tasks.intraday_engine.prepare_pools', queue='intraday_queue')
 def prepare_pools(self):
     """
     【最佳实践】盘前准备任务，只负责构建监控池并写入Redis。
@@ -27,7 +27,7 @@ def prepare_pools(self):
         return {"status": "error", "reason": str(e)}
 
 # --- 任务二：核心盘中循环任务 ---
-@shared_task(bind=True, name='tasks.intraday_engine.run_cycle')
+@celery_app.task(bind=True, name='tasks.intraday_engine.run_cycle', queue='intraday_queue')
 def run_cycle(self):
     """
     【最佳实践】核心盘中循环任务，只负责执行一轮分析。
@@ -51,8 +51,7 @@ def run_cycle(self):
 # --- 任务三：引擎调度器 (启动/停止) ---
 # 这部分可以简化为一个管理命令或在Django Admin中手动操作，
 # 但用Celery任务来自动化是更佳实践。
-
-@shared_task(name='tasks.intraday_engine.scheduler')
+@celery_app.task(bind=True, name='tasks.intraday_engine.scheduler', queue='celery')
 def scheduler(action: str):
     """
     【最佳实践】统一的引擎调度器，负责启动和停止盘中循环任务。
