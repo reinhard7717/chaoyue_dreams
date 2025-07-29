@@ -4,7 +4,9 @@ import logging
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+import pytz # <--- 1. 导入 pytz
 from typing import Dict, Optional
+from datetime import datetime, time # <--- 2. 导入 time
 from datetime import datetime
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
@@ -33,13 +35,37 @@ class RealtimeServices:
         
         # --- 1. 获取基础数据 ---
         # 1.1 获取分钟K线 (基础画布)
-        start_dt = datetime.strptime(trade_date, '%Y-%m-%d').replace(hour=1, minute=29)
-        end_dt = datetime.strptime(trade_date, '%Y-%m-%d').replace(hour=7, minute=1)
+        
+        # 【核心修复】构建时区感知的查询范围
+        try:
+            # 1. 定义上海时区
+            shanghai_tz = pytz.timezone('Asia/Shanghai')
+            
+            # 2. 解析日期字符串
+            target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
+            
+            # 3. 定义上海时间的开盘和收盘时间 (稍微扩大范围以防万一)
+            market_open_time = time(9, 25, 0) 
+            market_close_time = time(15, 5, 0)
+
+            # 4. 创建 naive datetime 对象
+            start_naive = datetime.combine(target_date_obj, market_open_time)
+            end_naive = datetime.combine(target_date_obj, market_close_time)
+
+            # 5. 使用 .localize() 将 naive 对象本地化为上海时间
+            start_dt_aware = shanghai_tz.localize(start_naive)
+            end_dt_aware = shanghai_tz.localize(end_naive)
+        except Exception as e:
+            logger.error(f"为 {stock_code} 构建时间范围时出错: {e}", exc_info=True)
+            return None
+
+        # 6. 使用这两个时区感知的对象进行查询
         df_minute = await self.timetrade_dao.get_minute_kline_by_daterange(
-            stock_code, time_level, start_dt, end_dt
+            stock_code, time_level, start_dt_aware, end_dt_aware
         )
+        
         if df_minute is None or df_minute.empty:
-            logger.warning(f"未能从数据库获取 {stock_code} 的 {time_level}分钟 K线数据。")
+            logger.warning(f"未能在数据库获取 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
             return None
 
         # 1.2 获取全天Ticks (原始颜料)
