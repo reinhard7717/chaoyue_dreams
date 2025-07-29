@@ -9,6 +9,68 @@ class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
+    def _evaluate_holding_health(self):
+        """
+        【新增】持仓大脑 - 评估持仓健康度 (HHS)
+        - 核心职责: 在持仓期间，每日计算一个“持仓健康分”，
+                    并根据分数变化定义不同的持仓状态。
+        """
+        print("        -> [持仓大脑] 正在评估所有活跃持仓的健康状况...")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 定义健康评分的构成项 (正向/负向) ---
+        health_factors = {
+            # 趋势强度 (最高权重)
+            'FRACTAL_STATE_STRONG_TREND': 30,
+            'DYN_TREND_HEALTHY_ACCELERATING': 25,
+            'STRUCTURE_MAIN_UPTREND_WAVE_S': 20,
+            # 主力行为
+            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': 30,
+            'MECHANICS_COST_ACCELERATING': 20,
+            'CPA_RISE_WITH_MAIN_FORCE_SUPPORT': 15,
+            'MECHANICS_INERTIA_DECREASING': 15,
+        }
+        
+        worsening_factors = {
+            # 结构性风险 (最高权重)
+            'FRACTAL_RISK_TOP_DIVERGENCE': -50,
+            'FRACTAL_EVENT_TREND_EXHAUSTION': -40,
+            'STRUCTURE_TOPPING_DANGER_S': -40,
+            # 主力派发
+            'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': -30,
+            'CONTEXT_RECENT_DISTRIBUTION_PRESSURE': -20,
+            # 趋势减弱
+            'DYN_TREND_WEAKENING_DECELERATING': -20,
+            'RISK_DYN_DIVERGING': -15,
+        }
+
+        # --- 2. 计算每日的健康分 ---
+        hhs = pd.Series(0.0, index=df.index)
+        for factor, score in health_factors.items():
+            hhs += atomic.get(factor, default_series) * score
+        
+        for factor, score in worsening_factors.items():
+            hhs += atomic.get(factor, default_series) * score
+            
+        df['holding_health_score'] = hhs
+
+        # --- 3. 定义持仓状态 (状态机) ---
+        # 状态1: 强力持仓 (可以考虑加仓)
+        df['HOLDING_STATE_STRONG'] = (hhs >= 50) & (df['risk_score'] < 300)
+        
+        # 状态2: 正常持仓 (继续持有)
+        df['HOLDING_STATE_NORMAL'] = (hhs.between(20, 49)) & (df['risk_score'] < 500)
+        
+        # 状态3: 警告状态 (应上移止损，准备减仓)
+        df['HOLDING_STATE_WARNING'] = (hhs < 20) | (df['risk_score'] >= 500)
+        
+        # 状态4: 风险恶化 (应主动减仓)
+        # 例如：健康分连续3天下降，且今日为负
+        is_hhs_declining_3d = (hhs < hhs.shift(1)) & (hhs.shift(1) < hhs.shift(2))
+        df['HOLDING_STATE_DETERIORATING'] = is_hhs_declining_3d & (hhs < 0)
+
     def make_final_decisions(self):
         """
         【V318.3 终极修复版】
@@ -25,6 +87,10 @@ class JudgmentLayer:
         df['dynamic_action'] = 'HOLD'
 
         is_potential_buy = df['entry_score'] > 0
+
+        # --- 【新增】步骤0: 评估持仓健康度 ---
+        # 这个评估独立于买入决策，为后续的持仓管理提供依据
+        self._evaluate_holding_health()
         
         # 步骤1: 主动预防性净化
         print("        -> [决策预处理] 正在对所有潜在买入日执行“主动净化”...")
@@ -58,8 +124,27 @@ class JudgmentLayer:
         df.loc[is_potential_buy & ~final_buy_condition, 'signal_type'] = '卖出信号'
 
         # --- 步骤5: 后续处理 ---
-        # 【核心修复】: 使用正确的路径 `self.strategy.exit_layer` 调用
         self.strategy.exit_layer.calculate_exit_signals()
+
+        # --- 步骤6: 根据持仓状态，生成“持仓建议”信号 ---
+        # 这个信号不直接触发买卖，而是作为一种“预警”或“建议”
+        is_strong_hold = df.get('HOLDING_STATE_STRONG', pd.Series(False, index=df.index))
+        is_warning_hold = df.get('HOLDING_STATE_WARNING', pd.Series(False, index=df.index))
+        is_deteriorating = df.get('HOLDING_STATE_DETERIORATING', pd.Series(False, index=df.index))
+
+        # 我们可以在 alert_reason 中增加这些状态信息
+        # 注意：这里的 .loc 条件要确保不覆盖已有的卖出信号
+        no_exit_signal = df['exit_signal_code'] == 0
+        df.loc[is_strong_hold & no_exit_signal, 'alert_reason'] = '强力持仓(可加仓)'
+        df.loc[is_warning_hold & no_exit_signal, 'alert_reason'] = '持仓预警(收紧止损)'
+        df.loc[is_deteriorating & no_exit_signal, 'alert_reason'] = '健康度恶化(应减仓)'
+        
+        # 对于“健康度恶化”，我们可以生成一个1级预警
+        df.loc[is_deteriorating & no_exit_signal, 'alert_level'] = 10 # 使用一个自定义的level
+        df.loc[is_deteriorating & no_exit_signal, 'is_risk_warning'] = True
+
+        # --- 步骤7: 最终信号确定与净化 ---
+        self._finalize_signals()
         
         # 最终信号确定与净化
         self._finalize_signals()

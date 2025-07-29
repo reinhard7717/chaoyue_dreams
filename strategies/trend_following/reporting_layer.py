@@ -43,11 +43,8 @@ class ReportingLayer:
                 'timeframe': result_timeframe,
                 'strategy_name': get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
                 'entry_score': row.get('final_score', 0.0),
-                
-                # --- 【核心修复】明确传递 risk_score ---
-                # 从 result_df 的当前行(row)中获取 risk_score 的值
                 'risk_score': row.get('risk_score', 0.0),
-                
+                'holding_health_score': row.get('holding_health_score', 0.0),
                 'is_risk_warning': (row['signal_type'] != '买入信号') and (row['signal_type'] != '卖出信号') and (row.get('alert_level', 0) > 0)
             })
 

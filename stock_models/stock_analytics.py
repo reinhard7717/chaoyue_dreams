@@ -662,6 +662,7 @@ class TrendFollowStrategySignalLog(models.Model):
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
     entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
     risk_score = models.FloatField(default=0.0, help_text="风险信号的综合得分")
+    holding_health_score = models.FloatField(default=0.0, null=True, blank=True, help_text="持仓健康分 (每日计算)")
     stable_platform_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="[趋势策略]识别出的稳固筹码平台价格")
     
     # --- 信号类型 (细分) ---
