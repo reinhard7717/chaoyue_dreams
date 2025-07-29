@@ -479,7 +479,7 @@ CELERY_BEAT_SCHEDULE = {
         # 每天9:30-21:30，每5分钟执行一次
         'schedule': crontab( minute='*/5', hour='0-1' ),
     },
-    'save_stocks_minute_data_realtime_task-0940': {
+    'save_stocks_minute_data_realtime_task_1min': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
         'schedule': crontab( minute='1', hour='0-1' ),
