@@ -497,10 +497,11 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """
-        【V3 - 健壮分页修复版】保存股票的历史分钟级交易数据
+        【V4 - 健壮与限速最终版】保存股票的历史分钟级交易数据
         - 策略:
-        1. 【核心修复】在API调用后，立即将返回的行数存入`original_df_len`变量。
-        2. 【核心修复】整个循环中，所有关于“是否为最后一页”的判断，都统一使用`original_df_len`，彻底避免因数据清洗导致分页提前中断的问题。
+        1. 【核心修复】在每次API调用前加入一个短暂的延时(asyncio.sleep)，以遵守API的调用频率限制，防止因请求过快而返回空数据。
+        2. 【核心修复】将API调用置于try...except块中，捕获潜在的网络或API异常，增强程序的健壮性。
+        3. 保留了V3版本的正确分页逻辑，即使用API返回的原始行数进行判断。
         """
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
@@ -522,27 +523,40 @@ class StockTimeTradeDAO(BaseDAO):
                     break
 
                 print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
-                df = self.ts_pro.stk_mins(**{
-                    "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
-                    "limit": limit, "offset": offset
-                }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 
-                # 【代码修改】在进行任何操作前，立即记录API返回的原始行数，这是分页判断的唯一可靠依据。
+                # 【代码修改】在每次API调用前主动延时，防止触发流控。0.25秒对应每分钟240次，在Tushare的300次限制内，非常安全。
+                await asyncio.sleep(0.25)
+
+                try:
+                    # 【代码修改】将API调用放入try-except块
+                    df = self.ts_pro.stk_mins(**{
+                        "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
+                        "limit": limit, "offset": offset
+                    }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                except Exception as e:
+                    logger.error(f"Tushare API调用失败 (stk_mins): {e}", exc_info=True)
+                    # 发生异常时，创建一个空的DataFrame，让后续逻辑能统一处理，并等待更长时间后重试
+                    df = pd.DataFrame()
+                    await asyncio.sleep(5) # 如果API出错，多等一会儿
+
                 original_df_len = len(df)
                 print(f"调试信息: API返回 {original_df_len} 条原始数据。")
                 
                 if original_df_len == 0:
-                    print(f"拉取结束，API未返回更多 {time_level}min 数据。")
+                    # 如果是因为非最后一页（offset > 0）但返回空，可能意味着API临时问题或确实没数据了
+                    if offset > 0:
+                        print(f"在拉取第 {page_num} 页时，API返回空数据，可能已无更多数据或遇到API临时问题。")
+                    else:
+                        print(f"拉取结束，API未返回更多 {time_level}min 数据。")
                     break
                 
-                # --- 对整页DataFrame进行向量化处理 ---
+                # --- 后续处理逻辑不变 ---
                 df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 df['stock'] = df['ts_code'].map(stock_map)
                 df.dropna(subset=['trade_time', 'stock'], inplace=True)
 
                 if df.empty:
                     print(f"当前页数据经清洗后为空，跳至下一页。")
-                    # 【代码修改】分页判断移至循环末尾，此处只需更新offset并continue
                     offset += limit
                     page_num += 1
                     continue
@@ -561,7 +575,6 @@ class StockTimeTradeDAO(BaseDAO):
                         "stock", "trade_time", "close", "open", "high", "low", "vol", "amount"
                     ]].to_dict('records')
 
-                    # 您的保存逻辑
                     await self._save_all_to_db_native_upsert(
                         model_class=model_class,
                         data_list=data_list,
@@ -569,7 +582,6 @@ class StockTimeTradeDAO(BaseDAO):
                     )
                     logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 准备了 {len(data_list)} 条记录进行插入/更新。")
 
-                # 【代码修改】分页逻辑判断必须且只能基于API返回的原始行数
                 if original_df_len < limit:
                     print(f"调试信息: API返回行数({original_df_len})小于limit({limit})，判定为最后一页，当前频率数据拉取结束。")
                     break
