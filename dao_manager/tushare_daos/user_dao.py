@@ -3,6 +3,7 @@ from typing import List
 from django.core.cache import cache
 from dao_manager.base_dao import BaseDAO
 from users.models import FavoriteStock
+from utils.cache_manager import CacheManager
 from utils.cache_set import UserCacheSet
 from utils.cache_get import UserCacheGet
 from utils.data_format_process import UserDataFormatProcess
@@ -13,15 +14,13 @@ class UserDAO(BaseDAO):
     """
     用户DAO，用于管理用户相关操作
     """
-    def __init__(self):
-        super().__init__(None, None, 3600)
-        self.cache_set = None
-        self.cache_get = None
-        self.data_format_process = UserDataFormatProcess()
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
-    async def initialize_cache_objects(self):
-        self.cache_set = UserCacheSet()
-        self.cache_get = UserCacheGet()
+        self.cache_set = UserCacheSet(self.cache_manager)
+        self.cache_get = UserCacheGet(self.cache_manager)
+        self.data_format_process = UserDataFormatProcess()
 
     async def get_user_favorites(self, user_id: int) -> List[FavoriteStock]:
         """

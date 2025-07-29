@@ -1,15 +1,11 @@
 import logging
-import pickle
 from typing import Any, Dict, List
-from asgiref.sync import sync_to_async
 import pandas as pd
 import umsgpack
 from datetime import datetime, date # 同时导入 date 类，如果需要处理的话
 from decimal import Decimal # 导入 Decimal
 from utils import cache_constants as cc
 import json
-
-from utils.cache_manager import cache_manager
 from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
@@ -50,16 +46,16 @@ def convert_decimals(obj):
 
 
 class CacheSet():
-    def __init__(self):
+    def __init__(self, cache_manager_instance):
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
-        # 注意：CacheManager 是异步的，这里无法直接初始化。建议在异步上下文中使用。
+        # 【核心修改】接收一个 CacheManager 实例
+        self.cache_manager = cache_manager_instance
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
         self.cache_key_user = UserCashKey()
-        self.cache_manager = cache_manager
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
@@ -199,8 +195,9 @@ class CacheSet():
         return data_to_cache
 
 class UserCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__() # <--- 确保这行存在
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
         self.cache_key_user = UserCashKey()
 
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
@@ -231,8 +228,9 @@ class UserCacheSet(CacheSet):
         return await self.user_favorites(user_id, fav_data)
 
 class IndexCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
         self.cache_key_index = IndexCashKey()
         self.data_format_process = IndexDataFormatProcess()
     
@@ -370,8 +368,9 @@ class IndexCacheSet(CacheSet):
         return await self._history_data(index_code, time_level, data_to_cache, cache_key)
 
 class StockInfoCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
         self.cache_key_stock = StockCashKey()
    
     async def all_stocks(self, data_to_cache: Dict[str, Any]) -> bool:
@@ -386,8 +385,9 @@ class StockInfoCacheSet(CacheSet):
         return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 
 class StockTimeTradeCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
@@ -541,8 +541,9 @@ class StockTimeTradeCacheSet(CacheSet):
             return False
 
 class StockIndicatorsCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
         self.cache_key_stock = StockCashKey()
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -569,8 +570,9 @@ class StockIndicatorsCacheSet(CacheSet):
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
@@ -738,8 +740,9 @@ class StockRealtimeCacheSet(CacheSet):
             return False
 
 class StrategyCacheSet(CacheSet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):
         data_to_cache = await self._format_conversion(data_to_cache)

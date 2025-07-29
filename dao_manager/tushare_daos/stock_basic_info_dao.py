@@ -7,7 +7,7 @@ import time
 from django.db import OperationalError
 import numpy as np
 import pandas as pd
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 from django.contrib.auth.models import AbstractUser
 from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import HSConst, StockCompany, StockInfo
@@ -15,21 +15,21 @@ from utils.cache_get import UserCacheGet, StockInfoCacheGet
 from utils.cache_set import StockInfoCacheSet, UserCacheSet
 from django.contrib.auth import get_user_model
 from users.models import FavoriteStock
+from utils.data_format_process import StockInfoFormatProcess
     
 
 logger = logging.getLogger("dao")
 User = get_user_model()
 
 class StockBasicInfoDao(BaseDAO):
-    def __init__(self):
-        super().__init__(None, None, 3600)
-        from utils.data_format_process import StockInfoFormatProcess
-        self.cache_manager = cache_manager  # 初始化缓存管理器
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
         self.data_format_process = StockInfoFormatProcess()
-        self.stock_cache_set = StockInfoCacheSet()
-        self.stock_cache_get = StockInfoCacheGet()
-        self.user_cache_set = UserCacheSet()
-        self.user_cache_get = UserCacheGet()
+        self.stock_cache_set = StockInfoCacheSet(self.cache_manager)
+        self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
+        self.user_cache_set = UserCacheSet(self.cache_manager)
+        self.user_cache_get = UserCacheGet(self.cache_manager)
 
     async def get_stock_list(self) -> List['StockInfo']:
         """

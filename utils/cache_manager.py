@@ -1,4 +1,3 @@
-import asyncio
 from decimal import Decimal
 import json
 import urllib.parse  # 已存在，不变
@@ -45,9 +44,6 @@ class CacheManager:
     """
     统一管理股票量化系统的Redis缓存
     """
-
-    _instance = None
-    _lock = asyncio.Lock() # 使用异步锁来保证线程安全
     
     # 默认过期时间（秒）
     DEFAULT_TIMEOUTS = {
@@ -58,36 +54,16 @@ class CacheManager:
         'user': 1800,         # 用户数据缓存30分钟
         'strategy': 86400,    # 策略数据缓存1天
     }
-
-    def __new__(cls, *args, **kwargs):
-        # __new__ 是同步的，所以这里不能用 async with
-        # 但由于我们使用了懒加载，真正的初始化在异步方法中，所以这里是安全的
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
     
     def __init__(self):
-        """
-        初始化方法。由于是单例，这个方法可能被多次调用，
-        但我们使用一个标志位来确保真正的初始化只执行一次。
-        """
-        if getattr(self, '_initialized', False):
-            return
-        
-        self.redis_client: Optional[Redis] = None
-        self._initialized = True
+        """初始化时不创建连接，采用懒加载方式"""
+        self.redis_client: Optional[Redis] = None # 明确类型提示
 
     async def initialize(self):
-        """异步初始化Redis客户端连接，带锁防止并发初始化"""
+        """异步初始化Redis客户端连接"""
+        # 避免重复初始化
         if self.redis_client is not None:
             return
-
-        async with self._lock:
-            # 双重检查，防止在等待锁的过程中其他协程已经完成了初始化
-            if self.redis_client is not None:
-                return
 
         # logger.info("正在初始化 Redis 客户端...")
         try:
@@ -131,32 +107,12 @@ class CacheManager:
 
     async def _ensure_client(self):
         """
-        (内部方法) 确保 Redis 客户端已初始化且连接有效。
-        【V2.2 - API兼容性修复版】
-        - 核心修复: 不再访问已移除的 .loop 属性，改为直接检查连接池的
-                    disconnect 状态，以兼容新版 redis-py 库。
+        【核心修改】简化，不再需要处理事件循环关闭的问题
         """
-        # 检查1: 客户端从未初始化
         if self.redis_client is None:
             await self.initialize()
-            
-        # 检查2: 客户端已初始化，但其连接池可能已经因为事件循环关闭而失效
-        # 【核心修复】直接检查连接池的 _disconnected 标志位
-        elif getattr(self.redis_client.connection_pool, '_disconnected', False):
-            logger.warning("检测到Redis连接池已断开，将强制重新初始化连接...")
-            # 先尝试断开旧的、无效的连接
-            try:
-                await self.redis_client.close()
-            except Exception:
-                pass # 忽略断开时的错误
-            
-            # 重置客户端并重新初始化
-            self.redis_client = None
-            await self.initialize()
-
-        # 再次检查，如果 initialize 失败则 redis_client 仍为 None
         if self.redis_client is None:
-             raise ConnectionError("无法连接到 Redis 服务器，请检查配置和网络。")
+             raise ConnectionError("无法连接到 Redis 服务器。")
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
@@ -731,4 +687,3 @@ class CacheManager:
             # 默认格式
             return f"{cache_type}:" + ":".join(map(str, args))
 
-cache_manager = CacheManager()

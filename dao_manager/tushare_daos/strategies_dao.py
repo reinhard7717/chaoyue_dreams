@@ -16,6 +16,7 @@ from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollow
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf
 from utils.cache_get import StrategyCacheGet
+from utils.cache_manager import CacheManager
 from utils.cache_set import StrategyCacheSet
 from functools import reduce
 import operator
@@ -23,11 +24,13 @@ import operator
 logger = logging.getLogger("dao")
 
 class StrategiesDAO(BaseDAO):
-    def __init__(self):
-        self.cache_set = StrategyCacheSet()
-        self.cache_get = StrategyCacheGet()
-        self.stock_basic_dao = StockBasicInfoDao()
-        self.fund_flow_dao = FundFlowDao()
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+        self.cache_set = StrategyCacheSet(self.cache_manager)
+        self.cache_get = StrategyCacheGet(self.cache_manager)
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+        self.fund_flow_dao = FundFlowDao(cache_manager_instance)
 
     def get_cyq_chips_model_by_code(self, stock_code: str):
         """

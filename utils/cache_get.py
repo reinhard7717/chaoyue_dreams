@@ -4,20 +4,21 @@ import json
 from typing import Any, Dict, List, Optional
 from users.models import FavoriteStock
 from utils import cache_constants as cc
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
 logger = logging.getLogger("dao")
 
 class CacheGet():
-    def __init__(self):
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】接收一个 CacheManager 实例
+        self.cache_manager = cache_manager_instance
         self.cache_key_user = UserCashKey()
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
-        self.cache_manager = cache_manager
 
     async def _index_latest_data(self, index_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
@@ -146,8 +147,9 @@ class CacheGet():
             return [] # 发生异常时返回空列表，确保返回类型一致
         
 class UserCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def initialize(self):
         """
@@ -196,8 +198,9 @@ class UserCacheGet(CacheGet):
         cache_key = self.cache_key_user.all_favorites()  # 例如 "user:favorites:all"
 
 class IndexCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def all_indexes(self) -> Optional[List[Dict]]:
         """
@@ -299,8 +302,9 @@ class IndexCacheGet(CacheGet):
         return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
 
 class StockInfoCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def all_stocks(self) -> Optional[List[Dict]]:
         """
@@ -329,8 +333,9 @@ class StockInfoCacheGet(CacheGet):
         return None
 
 class StockTimeTradeCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def stock_day_basic_info_by_limit(self, stock_code: str, limit: int) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
@@ -357,8 +362,9 @@ class StockTimeTradeCacheGet(CacheGet):
         return await self._history_data_by_limit(cache_key, limit)
 
 class StockRealtimeCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def latest_tick_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
@@ -378,8 +384,9 @@ class StockRealtimeCacheGet(CacheGet):
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
 class StockIndicatorsCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def latest_kdj(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_kdj(stock_code, time_level)
@@ -421,8 +428,9 @@ class StockIndicatorsCacheGet(CacheGet):
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
 
 class StrategyCacheGet(CacheGet):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, cache_manager_instance):
+        # 【核心修改】调用父类并传递实例
+        super().__init__(cache_manager_instance)
 
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str):
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)

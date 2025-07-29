@@ -15,7 +15,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
@@ -33,19 +33,20 @@ logger = logging.getLogger("dao")
 time_levels = ["5", "15", "30", "60"] # "1", 
 
 class StockTimeTradeDAO(BaseDAO):
-    def __init__(self):
-        """初始化StockIndicatorsDAO"""
-        super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
-        self.stock_basic_dao = StockBasicInfoDao()
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.cache_limit = 500 # 定义缓存数量上限
-        self.cache_manager = cache_manager
+
         self.cache_key = StockCashKey()
         self.data_format_process_trade = StockTimeTradeFormatProcess()
         self.data_format_process_stock = StockInfoFormatProcess()
-        self.cache_set = StockTimeTradeCacheSet()
-        self.cache_get = StockTimeTradeCacheGet()
-        self.stock_cache_set = StockInfoCacheSet()
-        self.stock_cache_get = StockInfoCacheGet()
+        self.cache_set = StockTimeTradeCacheSet(self.cache_manager)
+        self.cache_get = StockTimeTradeCacheGet(self.cache_manager)
+        self.stock_cache_set = StockInfoCacheSet(self.cache_manager)
+        self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
 
     # =============== A股日线行情 ===============
     def get_daily_data_model_by_code(self, stock_code: str):
@@ -937,7 +938,7 @@ class StockTimeTradeDAO(BaseDAO):
             return None
 
     #  =============== A股周线行情 ===============
-    async def save_weekly_time_trade_by_stock_codes(self, stock_codes: List[str], trade_date: date = None, start_date: date=None) -> None:
+    async def save_weekly_time_trade(self, trade_date: date = None, start_date: date=None) -> None:
         """
         保存股票的周线交易数据 (优化版)
         接口：weekly
@@ -949,27 +950,20 @@ class StockTimeTradeDAO(BaseDAO):
         """
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "19900101"
-        if not stock_codes:
-            logger.warning("输入的股票代码列表为空，任务终止。")
-            return []
-
         # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
-        stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
-        if not stock_map:
-            logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
-            return []
-        stock_codes_str = ",".join(stock_codes)
+        stock_map = await self.stock_basic_dao.get_stock_list()
+        
         # --- 初始化用于分批保存的列表和批次大小，并修复分页逻辑 ---
         all_data_dicts = []
         offset = 0
-        limit = 4500  # 根据接口文档设置合理的limit
+        limit = 6000  # 根据接口文档设置合理的limit
         page_num = 1
 
         # --- 添加分页循环，修复数据丢失BUG ---
         while True:
             # 拉取数据，并修正了重复的字段
             df = self.ts_pro.stk_week_month_adj(**{
-                "ts_code": stock_codes_str, "trade_date": trade_date_str, "start_date": start_date_str, "end_date": "", "freq": "week", "limit": limit, "offset": offset
+                "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": "", "freq": "week", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"
             ])
@@ -1041,7 +1035,7 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_weekly_data_list
 
     #  =============== A股月线行情 ===============
-    async def save_monthly_time_trade_by_stock_codes(self, stock_codes: List[str], start_date: str = "1990-01-01") -> List:
+    async def save_monthly_time_trade(self, start_date: str = "1990-01-01") -> List:
         """
         【V3.0 - 健壮性与数据一致性优化版】
         保存股票的月线交易数据 (前复权)。
@@ -1055,12 +1049,9 @@ class StockTimeTradeDAO(BaseDAO):
         4. [可读性] 使用列名映射字典，使代码意图更清晰，便于维护。
         5. [类型提示] 修正了返回值类型提示。
         """
-        if not stock_codes:
-            logger.warning("输入的股票代码列表为空，任务终止。")
-            return []
 
         # --- 1. 批量预加载股票信息，根除N+1查询 ---
-        stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
+        stock_map = await self.stock_basic_dao.get_stock_list()
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
             return []
@@ -1084,15 +1075,13 @@ class StockTimeTradeDAO(BaseDAO):
 
         all_data_to_save = []
         offset = 0
-        limit = 5000  # 根据Tushare积分调整，一般不超过6000
-        stock_codes_str = ",".join(stock_codes)
+        limit = 6000  # 根据Tushare积分调整，一般不超过6000
 
         # --- 3. 分页循环拉取数据 ---
         while True:
             # 修改开始：增加对单次API调用的异常捕获，增强健壮性
             try:
                 df = self.ts_pro.stk_week_month_adj(
-                    ts_code=stock_codes_str,
                     start_date=start_date,
                     freq="month",
                     limit=limit,
@@ -1203,7 +1192,7 @@ class StockTimeTradeDAO(BaseDAO):
         else:
             logger.info("所有数据均已分批保存，无剩余数据。")
             
-        logger.info(f"股票 {stock_codes_str} 的月线数据保存任务全部完成。")
+        logger.info(f"股票的月线数据保存任务全部完成。")
         return final_result
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:

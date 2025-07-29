@@ -9,6 +9,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
 from utils.cache_get import StockInfoCacheGet, StockRealtimeCacheGet
+from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
@@ -19,14 +20,15 @@ class StockRealtimeDAO(BaseDAO):
     """
     股票实时数据DAO，整合所有相关的实时数据访问功能
     """
-    def __init__(self):
-        """初始化StockRealtimeDAO"""
-        super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
-        self.stock_basic_dao = StockBasicInfoDao()
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.data_format_process = StockRealtimeDataFormatProcess()
-        self.cache_set = StockRealtimeCacheSet()  # 先实例化
-        self.cache_get = StockRealtimeCacheGet()  # 先实例化
-        self.stock_cache_get = StockInfoCacheGet()
+        self.cache_set = StockRealtimeCacheSet(self.cache_manager)  # 先实例化
+        self.cache_get = StockRealtimeCacheGet(self.cache_manager)  # 先实例化
+        self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.cache_key_stock = StockCashKey()
         self.ts = ts
 

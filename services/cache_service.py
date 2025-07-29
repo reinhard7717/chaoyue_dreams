@@ -7,7 +7,7 @@ class CacheService:
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
-            from utils.cache_manager import cache_manager
+            from utils.cache_manager import CacheManager
             cls._instance = cache_manager
         return cls._instance
 

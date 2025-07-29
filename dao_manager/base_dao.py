@@ -8,7 +8,6 @@ import asyncio
 import re # 用于异步操作
 from django.utils import timezone
 from zoneinfo import ZoneInfo
-from django.db.models import Q, Model # Django 查询和模型基类
 import time
 import random
 from django.db.utils import OperationalError
@@ -21,13 +20,10 @@ import numpy as np
 import pandas as pd # 导入 Decimal
 import tushare as ts
 from django.conf import settings # Django 设置
-import pytz # 时区处理
 
 from django.db import DatabaseError, IntegrityError, models, transaction # Django 数据库异常和事务
-
-# from django.core.cache import cache
 from asgiref.sync import sync_to_async # 异步转换工具
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 
 
 logger = logging.getLogger("dao") # 获取日志记录器
@@ -38,27 +34,36 @@ T = TypeVar('T', bound=models.Model)
 class BaseDAO(Generic[T]):
     """
     基础数据访问对象 (DAO) 类。
-    提供通用的异步 CRUD (创建、读取、更新、删除) 操作和基于 Redis 的缓存机制。
-    旨在作为所有具体 DAO 类的基类，统一数据访问逻辑和缓存策略。
-    使用 CacheManager 和全局 Redis 连接池。
+    【V2.0 - 依赖注入版】
     """
 
-    def __init__(self, model_class: Optional[Type[T]] = None, api_service: Any = None, cache_timeout: int = 3600):
+    def __init__(self, 
+                 cache_manager_instance: CacheManager, # <--- 1. 新增参数
+                 model_class: Optional[Type[T]] = None, 
+                 api_service: Any = None, 
+                 cache_timeout: int = 3600):
         """
         初始化 BaseDAO。
+        【V2.0 - 依赖注入版】
+        - 核心修改: 不再自己创建 CacheManager，而是接收一个外部传入的实例。
+
         Args:
-            model_class: 此 DAO 主要操作的 Django 模型类。可以为 None，表示 DAO 管理多个模型。
+            cache_manager_instance: 一个已经初始化的 CacheManager 实例。
+            model_class: 此 DAO 主要操作的 Django 模型类。
             api_service: (可选) 用于从外部 API 获取数据的服务实例。
-            cache_timeout: (可选) 默认缓存超时时间（秒），默认为 3600 秒 (1 小时)。
+            cache_timeout: (可选) 默认缓存超时时间（秒）。
         """
         self.model_class = model_class
-        self.api_service = api_service # API 服务实例，子类可以覆盖或使用
-        self.cache_timeout = cache_timeout # 默认缓存超时时间
-        self.cache_manager = cache_manager 
-        self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
-        self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
+        self.api_service = api_service
+        self.cache_timeout = cache_timeout
+        
+        # 【核心修改】直接使用传入的 CacheManager 实例
+        self.cache_manager = cache_manager_instance # <--- 2. 赋值
 
-        # 只有当 model_class 不为 None 时才设置 model_name，用于生成缓存键前缀
+        self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
+        # ts.set_token(...) 返回 None，所以不需要赋值
+        ts.set_token(settings.API_LICENCES_TUSHARE)
+
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
 
     def _get_cache_key(self, key_suffix: str) -> str:

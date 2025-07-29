@@ -19,7 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync

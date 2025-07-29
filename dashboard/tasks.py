@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog
+from utils.cache_manager import CacheManager
 from utils.websockets import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
 from chaoyue_dreams.celery import app as celery_app
 import time
@@ -32,9 +33,7 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
     """
     from users.models import FavoriteStock
     from dashboard.tasks import send_update_to_user_task_celery
-    stock_basic_dao = StockBasicInfoDao()
-    stock_realtime_dao = StockRealtimeDAO()
-    strategy_dao = StrategiesDAO()
+    
     if not updated_stock_codes:
         logger.info("没有更新的股票代码，跳过推送任务。")
         return
@@ -45,44 +44,80 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
         return
     
     for stock_code in updated_stock_codes:
-        stock_obj = async_to_sync(stock_basic_dao.get_stock_by_code)(stock_code)
-        latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(stock_code)
-        latest_strategy_result = async_to_sync(strategy_dao.get_latest_strategy_result)(stock_code)
-        # 获取所有关注该股票的用户
-        user_ids = list(FavoriteStock.objects.filter(stock__stock_code=stock_code).values_list('user_id', flat=True))
-        if not user_ids:
-            # logger.info(f"股票{code}没有关注用户，跳过推送")
-            continue
-        # 获取最新tick数据（调用异步方法，转同步）
-        
-        if not latest_tick:
-            logger.warning(f"未获取到股票{stock_obj}的最新tick数据，跳过推送")
-            continue
-        # --- 保证signal字段为对象 ---
-        signal = latest_strategy_result.score
-        if not isinstance(signal, dict):
-            signal = {'type': 'hold', 'text': signal or 'N/A'}
-        # --- 构造payload，字段名与前端updateStockRow完全一致 ---
-        payload = {
-            'code': stock_code,
-            'current_price': latest_tick.get('current_price'),
-            'high_price': latest_tick.get('high_price'),
-            'low_price': latest_tick.get('low_price'),
-            'open_price': latest_tick.get('open_price'),
-            'prev_close_price': latest_tick.get('prev_close_price'),
-            'trade_time': latest_tick.get('trade_time'),
-            'turnover_value': latest_tick.get('turnover_value'),
-            'volume': latest_tick.get('volume'),
-            'change_percent': latest_tick.get("change_percent"),
-            'signal': signal,
-        }
-        # 推送给所有关注该股票的用户
-        for uid in user_ids:
-            send_update_to_user_task_celery.apply_async(
-                args=[uid, 'realtime_tick_update', payload],
-                queue='dashboard'  # 指定队列为dashboard
+        async def main():
+            # 1. 在异步上下文中创建顶层的 CacheManager
+            cache_manager_instance = CacheManager()
+            
+            # 2. 创建所有需要的 DAO 实例，并注入 cache_manager
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            stock_realtime_dao = StockRealtimeDAO(cache_manager_instance)
+            strategy_dao = StrategiesDAO(cache_manager_instance)
+            
+            # 3. 使用 asyncio.gather 并发执行所有数据获取任务
+            #    这比串行调用 async_to_sync 快得多！
+            results = await asyncio.gather(
+                stock_basic_dao.get_stock_by_code(stock_code),
+                stock_realtime_dao.get_latest_tick_data(stock_code),
+                strategy_dao.get_latest_strategy_result(stock_code),
+                return_exceptions=True # 捕获异常，防止一个失败导致全部失败
             )
-            # print(f"已推送{code}最新tick数据到用户{uid}")
+            
+            # 4. 解包结果
+            stock_obj, latest_tick, latest_strategy_result = results
+            
+            # 检查是否有异常发生
+            if isinstance(stock_obj, Exception):
+                logger.error(f"获取股票基本信息失败 for {stock_code}: {stock_obj}")
+                return # 无法继续，直接返回
+            if isinstance(latest_tick, Exception):
+                logger.error(f"获取最新Tick失败 for {stock_code}: {latest_tick}")
+                # 即使tick失败，可能也想推送其他信息，这里先不返回
+            if isinstance(latest_strategy_result, Exception):
+                logger.error(f"获取最新策略结果失败 for {stock_code}: {latest_strategy_result}")
+
+            # 5. 获取关注该股票的用户 (这是同步DB操作，放在main之外)
+            user_ids = list(FavoriteStock.objects.filter(stock=stock_obj).values_list('user_id', flat=True))
+            
+            if not user_ids:
+                return
+
+            if not latest_tick or isinstance(latest_tick, Exception):
+                logger.warning(f"未获取到股票 {stock_code} 的最新tick数据，跳过推送")
+                return
+
+            # 6. 构造 payload
+            signal_score = getattr(latest_strategy_result, 'score', None) if latest_strategy_result and not isinstance(latest_strategy_result, Exception) else None
+            signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
+            
+            payload = {
+                'code': stock_code,
+                'current_price': latest_tick.get('current_price'),
+                'high_price': latest_tick.get('high_price'),
+                'low_price': latest_tick.get('low_price'),
+                'open_price': latest_tick.get('open_price'),
+                'prev_close_price': latest_tick.get('prev_close_price'),
+                'trade_time': latest_tick.get('trade_time'),
+                'turnover_value': latest_tick.get('turnover_value'),
+                'volume': latest_tick.get('volume'),
+                'change_percent': latest_tick.get("change_percent"),
+                'signal': signal,
+            }
+
+            # 7. 推送给所有关注该股票的用户
+            for uid in user_ids:
+                send_update_to_user_task_celery.apply_async(
+                    args=[uid, 'realtime_tick_update', payload],
+                    queue='dashboard'  # 指定队列为dashboard
+                )
+                # print(f"已推送{code}最新tick数据到用户{uid}")
+
+        # 使用 async_to_sync 运行这个总的 main 函数
+        try:
+            async_to_sync(main)()
+        except Exception as e:
+            logger.error(f"执行推送任务 for {stock_code} 时发生顶层错误: {e}", exc_info=True)
+
+            
 
 @celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
 def update_favorite_stock_trackers():

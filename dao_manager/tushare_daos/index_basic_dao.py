@@ -13,6 +13,7 @@ from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexDailyBasic, IndexInfo, IndexWeight, TradeCalendar
 from stock_models.time_trade import IndexDaily
 from utils.cache_get import IndexCacheGet
+from utils.cache_manager import CacheManager
 from utils.cache_set import IndexCacheSet
 from utils.data_format_process import IndexDataFormatProcess
 
@@ -20,11 +21,13 @@ from utils.data_format_process import IndexDataFormatProcess
 logger = logging.getLogger("dao")
 
 class IndexBasicDAO(BaseDAO):
-    def __init__(self):
-        super().__init__(None, None, 3600)
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
         self.data_format_process = IndexDataFormatProcess()
-        self.index_cache_set = IndexCacheSet()
-        self.index_cache_get = IndexCacheGet()
+        self.index_cache_set = IndexCacheSet(self.cache_manager)
+        self.index_cache_get = IndexCacheGet(self.cache_manager)
 
     def get_month_first_last_day(self, date=None):
         """

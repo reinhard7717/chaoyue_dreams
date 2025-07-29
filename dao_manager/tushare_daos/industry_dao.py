@@ -17,16 +17,19 @@ from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
+from utils.cache_manager import CacheManager
 from utils.data_format_process import IndustryFormatProcess
 
 logger = logging.getLogger("dao")
 BATCH_SAVE_SIZE = 100000
 
 class IndustryDao(BaseDAO):
-    def __init__(self):
-        super().__init__(None, None, 3600)
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
         self.data_format_process = IndustryFormatProcess()
-        self.stock_cache_get = StockInfoCacheGet()
+        self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
 
     # ============== 申万行业分类 ==============
     async def get_swan_industry_list(self) -> List['SwIndustry']:

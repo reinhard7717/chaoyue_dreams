@@ -13,7 +13,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
 from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from strategies.realtime_strategy import RealtimeStrategy
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
 
 logger = logging.getLogger("intraday_engine")

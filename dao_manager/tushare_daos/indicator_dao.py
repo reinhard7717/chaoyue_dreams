@@ -15,11 +15,13 @@ from django.utils import timezone
 from dao_manager.base_dao import BaseDAO
 from core.constants import TimeLevel, FINTA_OHLCV_MAP # 确保 FINTA_OHLCV_MAP 导入且包含 'vol': 'volume'
 from dao_manager.tushare_daos.industry_dao import IndustryDao
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.industry import ThsIndex, ThsIndexDaily, ThsIndexMember # 导入 ThsIndexMember 模型
 from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyBasic, StockDailyData, StockDailyData_BJ, StockDailyData_CY, StockDailyData_KC, StockDailyData_SH, StockDailyData_SZ, StockMinuteData, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC, StockMinuteData_15_SH, StockMinuteData_15_SZ, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC, StockMinuteData_30_SH, StockMinuteData_30_SZ, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC, StockMinuteData_5_SH, StockMinuteData_5_SZ, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC, StockMinuteData_60_SH, StockMinuteData_60_SZ, StockMonthlyData, StockTimeTrade, StockWeeklyData
 # 导入资金流向相关模型
 from stock_models.fund_flow import FundFlowCntTHS, FundFlowIndustryTHS
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
+from utils.cache_manager import CacheManager
 
 logger = logging.getLogger("dao")
 
@@ -132,14 +134,13 @@ class IndicatorDAO(BaseDAO):
     """
     指标数据访问对象，负责指标数据的读取和存储
     """
-    def __init__(self):
-         # 依赖注入基础DAO和缓存工具
-        from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-        self.stock_basic_dao = StockBasicInfoDao()
-        self.industry_dao = IndustryDao()
-        self.index_basic_dao = IndexBasicDAO()  # 添加 IndexBasicDAO 的初始化
-        self.cache_manager = None # 缓存管理器
-        self.cache_get = None # 缓存获取工具
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+        
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+        self.industry_dao = IndustryDao(cache_manager_instance)
+        self.index_basic_dao = IndexBasicDAO(cache_manager_instance)  # 添加 IndexBasicDAO 的初始化
         self.ta = ta
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:

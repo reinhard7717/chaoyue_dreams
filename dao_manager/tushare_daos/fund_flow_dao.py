@@ -7,6 +7,10 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+from utils.cache_manager import CacheManager
+from utils.cache_get import StockInfoCacheGet, UserCacheGet
+from utils.cache_set import StockInfoCacheSet, UserCacheSet
+from utils.cash_key import StockCashKey
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -20,21 +24,19 @@ from utils.data_format_process import FundFlowFormatProcess
 logger = logging.getLogger("dao")
 
 class FundFlowDao(BaseDAO):
-    def __init__(self):
-        super().__init__()
-        from utils.cache_get import StockInfoCacheGet, UserCacheGet
-        from utils.cache_set import StockInfoCacheSet, UserCacheSet
-        from utils.cash_key import StockCashKey
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
         self.data_format_process = FundFlowFormatProcess()
-        self.index_dao = IndexBasicDAO()
-        self.stock_basic_dao = StockBasicInfoDao()
-        self.industry_dao = IndustryDao()
+        self.index_dao = IndexBasicDAO(cache_manager_instance)
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+        self.industry_dao = IndustryDao(cache_manager_instance)
         self.stock_cache_key = StockCashKey()
-        self.stock_cache_set = StockInfoCacheSet()
-        self.stock_cache_get = StockInfoCacheGet()
-        self.user_cache_set = UserCacheSet()
-        self.user_cache_get = UserCacheGet()
+        self.stock_cache_set = StockInfoCacheSet(self.cache_manager)
+        self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
+        self.user_cache_set = UserCacheSet(self.cache_manager)
+        self.user_cache_get = UserCacheGet(self.cache_manager)
 
     # ============== 日级资金流向数据 ==============
     def get_fund_flow_model_by_code(self, stock_code: str):

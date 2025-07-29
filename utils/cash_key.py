@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Union
 from datetime import datetime
 from utils import cache_constants as cc
-from utils.cache_manager import cache_manager
+from utils.cache_manager import CacheManager
 
 # 缓存类型枚举
 CACHE_TYPES = {
