@@ -10,6 +10,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
 from utils.cache_get import StockInfoCacheGet, StockRealtimeCacheGet
 from utils.cache_set import StockRealtimeCacheSet
+from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
 
 logger = logging.getLogger("dao")
@@ -26,6 +27,7 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         self.cache_get = StockRealtimeCacheGet()  # 先实例化
         self.stock_cache_get = StockInfoCacheGet()
+        self.cache_key_stock = StockCashKey()
         self.ts = ts
 
     # ================= 实时盘口TICK快照(爬虫版) =================
