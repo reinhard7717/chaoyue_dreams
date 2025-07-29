@@ -261,7 +261,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 debounceTimer = setTimeout(async () => {
                     console.log(`[Search] 正在搜索: ${query}`);
                     try {
-                        const response = await fetch(`/dashboard/api/stock-search/?q=${encodeURIComponent(query)}`);
+                        const response = await fetch(`/dashboard/api/search/?q=${encodeURIComponent(query)}`);
                         if (!response.ok) {
                             throw new Error('网络响应错误');
                         }

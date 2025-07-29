@@ -51,66 +51,67 @@
                     </tr>
                 </thead>
                 <tbody id="fav-trend-table-body">
-                    {% for item_wrapper in items_for_display %}
-                        {% with tracker=item_wrapper.tracker score_diff=item_wrapper.score_diff %}
-                        <tr data-id="{{ tracker.id }}">
-                            <td>
-                                <strong>{{ tracker.stock.stock_code }}</strong><br>
-                                <small>{{ tracker.stock.stock_name|default:"-" }}</small>
-                            </td>
-                            <td>
-                                <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
-                            </td>
-                            <td>
-                                {% if tracker.entry_log %}
-                                    <strong>买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
-                                    <br>
-                                    <small>建仓分数: {{ tracker.entry_score|floatformat:0 }}</small>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if tracker.status == 'HOLDING' and tracker.latest_log %}
-                                    <div class="score-tracker">
-                                        <span class="{% if score_diff > 0 %}score-up{% elif score_diff < 0 %}score-down{% else %}score-neutral{% endif %}">
-                                            📈 {{ tracker.latest_log.entry_score|floatformat:0 }}
-                                            <span class="score-delta">
-                                                ({% if score_diff > 0 %}+{% endif %}{{ score_diff|floatformat:0 }})
+                    {% for tracker in page_obj %}
+                    <tr data-id="{{ tracker.id }}">
+                        <td>
+                            <strong>{{ tracker.stock.stock_code }}</strong><br>
+                            <small>{{ tracker.stock.stock_name|default:"-" }}</small>
+                        </td>
+                        <td>
+                            <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
+                        </td>
+                        <td>
+                            {% if tracker.entry_log %}
+                                <strong>买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
+                                <br>
+                                <small>建仓分数: {{ tracker.entry_score|floatformat:0 }}</small>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if tracker.status == 'HOLDING' and tracker.latest_log and tracker.entry_log %}
+                                {% with buy_score=tracker.entry_score|default:0 latest_score=tracker.latest_log.entry_score|default:0 %}
+                                    {% with score_diff=latest_score|add:buy_score|multiply:-1 %}
+                                        <div class="score-tracker">
+                                            <span class="{% if score_diff > 0 %}score-up{% elif score_diff < 0 %}score-down{% else %}score-neutral{% endif %}">
+                                                📈 {{ latest_score|floatformat:0 }}
+                                                <span class="score-delta">
+                                                    ({% if score_diff > 0 %}+{% endif %}{{ score_diff|floatformat:0 }})
+                                                </span>
                                             </span>
-                                        </span>
-                                        {% if tracker.latest_log.risk_score > 0 %}
-                                            <span class="risk-score-display" title="当前风险分">
-                                                &nbsp; | &nbsp; 当前风险分⚠️ {{ tracker.latest_log.risk_score|floatformat:0 }}
-                                            </span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="signal-details" style="margin-top: 5px;">
-                                        <span class="time-info">
-                                            更新于: {{ tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
-                                        </span>
-                                    </div>
-                                {% elif tracker.status == 'SOLD' and tracker.exit_log %}
-                                    <div class="signal-details">
-                                        <span class="reason reason-level-{{ tracker.exit_log.exit_severity_level|default:2 }}">
-                                            平仓原因: {{ tracker.exit_log.exit_signal_reason|playbook_display }}
-                                        </span>
-                                        <br>
-                                        <span class="time-info">
-                                            平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
-                                        </span>
-                                    </div>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td class="actions">
-                                {# ... (保留移除按钮) ... #}
-                            </td>
-                        </tr>
-                        {% endwith %}
+                                            {% if tracker.latest_log.risk_score > 0 %}
+                                                <span class="risk-score-display" title="当前风险分">
+                                                    &nbsp; | &nbsp;风险分 ⚠️ {{ tracker.latest_log.risk_score|floatformat:0 }}
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    {% endwith %}
+                                {% endwith %}
+                                <div class="signal-details" style="margin-top: 5px;">
+                                    <span class="time-info">
+                                        更新于: {{ tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
+                                    </span>
+                                </div>
+                            {% elif tracker.status == 'SOLD' and tracker.exit_log %}
+                                {# ... (平仓信息的显示逻辑) ... #}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td class="actions">
+                            {# 【功能恢复】删除按钮现在可以正确获取 tracker.id #}
+                            <button class="btn btn-sm btn-danger remove-favorite-btn" 
+                                    data-action="remove" 
+                                    data-id="{{ tracker.id }}"
+                                    data-stock-code="{{ tracker.stock.stock_code }}"
+                                    data-stock-name="{{ tracker.stock.stock_name }}">
+                                &times;
+                            </button>
+                        </td>
+                    </tr>
                     {% empty %}
-                        <tr><td colspan="5" style="text-align: center; padding: 20px;">暂无追踪记录。</td></tr>
+                    <tr><td colspan="5" style="text-align: center; padding: 20px;">暂无追踪记录。</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
