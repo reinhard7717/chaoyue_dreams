@@ -341,7 +341,7 @@ def save_day_data_yesterday_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
+            return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=yesterday)
         result = async_to_sync(main)()
         print(f"保存 日线数据任务（昨日） 完成。result: {result}")
     except Exception as e:
