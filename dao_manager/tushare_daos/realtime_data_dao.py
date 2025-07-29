@@ -4,6 +4,7 @@ import pandas as pd
 from typing import List, Optional
 import tushare as ts
 from datetime import datetime
+from chaoyue_dreams import settings
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
@@ -25,6 +26,7 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         self.cache_get = StockRealtimeCacheGet()  # 先实例化
         self.stock_cache_get = StockInfoCacheGet()
+        self.ts = ts.set_token(settings.TUSHARE_TOKEN)
 
     # ================= 实时盘口TICK快照(爬虫版) =================
     # 获取所有股票的实时盘口TICK快照数据并保存到数据库
@@ -82,7 +84,7 @@ class StockRealtimeDAO(BaseDAO):
         try:
             # 1. 数据采集：只调用一次API
             stock_codes_str = ','.join(stock_codes)
-            df = ts.realtime_quote(ts_code=stock_codes_str)
+            df = self.ts.realtime_quote(ts_code=stock_codes_str)
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情数据。")
                 return []
