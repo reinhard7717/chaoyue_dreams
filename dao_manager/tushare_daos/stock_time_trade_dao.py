@@ -513,7 +513,7 @@ class StockTimeTradeDAO(BaseDAO):
             return
         
         stock_codes_str = ",".join(stock_codes)
-        for time_level in ['5', '15', '30', '60']:
+        for time_level in ['1', '5', '15', '30', '60']:
             offset = 0
             limit = 8000
             page_num = 1
