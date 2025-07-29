@@ -30,31 +30,40 @@ from utils.cache_manager import CacheManager
 
 logger = logging.getLogger('tasks')
 
-async def _get_all_relevant_stock_codes_for_processing():
-    # ... 此函数保持不变 ...
-    stock_basic_dao = StockBasicInfoDao()
+async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBasicInfoDao):
+    """
+    【V2.0 依赖注入版】
+    异步获取所有需要处理的股票代码列表。
+    - 核心修改: 不再自己创建DAO，而是接收一个外部传入的DAO实例。
+    """
     favorite_stock_codes = set()
     all_stock_codes = set()
+    
     try:
+        # 直接使用传入的DAO实例
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
-        for fav in favorite_stocks:
-            favorite_stock_codes.add(fav.get("stock_code"))
+        if favorite_stocks:
+            for fav in favorite_stocks:
+                if fav and fav.get("stock_code"):
+                    favorite_stock_codes.add(fav.get("stock_code"))
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
+        
     try:
+        # 直接使用传入的DAO实例
         all_stocks = await stock_basic_dao.get_stock_list()
-        for stock in all_stocks:
-            if not stock.stock_code.endswith('.BJ'):
-                all_stock_codes.add(stock.stock_code)
+        if all_stocks:
+            for stock in all_stocks:
+                if stock and not stock.stock_code.endswith('.BJ'):
+                    all_stock_codes.add(stock.stock_code)
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
+        
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
-    favorite_stock_codes_list = sorted(favorite_stock_codes_list)
-    non_favorite_stock_codes = sorted(non_favorite_stock_codes)
-    if not favorite_stock_codes_list and not non_favorite_stock_codes:
-        logger.warning("未能获取到任何需要处理的股票代码")
-    return favorite_stock_codes_list, non_favorite_stock_codes
+    
+    # 返回排序后的列表，保证每次结果一致
+    return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_stock_over_period', queue='debug_tasks')
 def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: str):
@@ -205,19 +214,42 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 def analyze_all_stocks(self):
     """
-    【V4.0 追踪器联动版】
-    - 核心升级: 使用 Celery chain 工作流，确保在所有股票分析任务完成后，
-                自动触发 `update_favorite_stock_trackers` 任务。
+    【V4.2 依赖注入修复版】
+    - 核心修改: 保留了可复用的异步辅助函数，并通过依赖注入为其提供DAO实例，
+                确保了代码的复用性和异步调用的正确性。
+    - 工作流: 使用 Celery chain，确保在所有股票分析任务完成后，
+              自动触发 `update_favorite_stock_trackers` 任务。
     """
     try:
-        logger.info("开始调度所有股票的分析任务 (V4.0 追踪器联动版)")
+        logger.info("开始调度所有股票的分析任务 (V4.2 依赖注入修复版)")
         
         # 动态导入，避免在Celery worker启动时就加载Django模型
         from dashboard.tasks import update_favorite_stock_trackers
         
-        # 假设这个函数能正确获取股票代码列表
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
+        # 初始化用于接收结果的列表
+        favorite_codes = []
+        non_favorite_codes = []
+
+        # 1. 定义一个异步 main 函数，用于安全地执行所有需要异步环境的操作
+        async def main():
+            # nonlocal 关键字允许内部函数修改外部函数的变量
+            nonlocal favorite_codes, non_favorite_codes
+            
+            # 在异步上下文中创建 CacheManager 和 DAO
+            cache_manager_instance = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            
+            # 调用改造后的辅助函数，并将DAO实例作为参数传递进去
+            fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
+            
+            # 将获取到的结果赋值给外部变量
+            favorite_codes.extend(fav_codes)
+            non_favorite_codes.extend(non_fav_codes)
+
+        # 2. 在同步代码中，安全地执行异步的 main 函数来准备数据
+        async_to_sync(main)()
         
+        # 3. 回到同步代码中，执行分派任务的逻辑
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
@@ -249,7 +281,7 @@ def analyze_all_stocks(self):
         
         # --- 步骤2: 创建追踪器更新任务的签名 ---
         # 这个任务将在所有分析任务完成后执行
-        update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery') # 假设更新任务在默认队列
+        update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery')
 
         # --- 步骤3: 使用 chain 将两个步骤链接起来 ---
         # (并行分析组 | 更新追踪器任务)
@@ -272,38 +304,42 @@ def analyze_all_stocks(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 def analyze_all_stocks_full_history(self):
     """
-    【V4.0 战略预备队 - 全面战役模式】
-    - 核心职责: 对【所有股票】的【全部历史】进行一次完整的、深度策略分析。
-    - 作战模式: 强制调用核心引擎的“全面战役”模式 (latest_only=False)。
-    - 资源警告: 这是一个资源密集型任务，仅应在必要时手动触发，切勿用于每日定时任务！
-    - 专属队列: 为了防止堵塞日常任务，此任务被指派到独立的 'full_history_queue' 队列。
+    【V4.1 依赖注入修复版】
     """
     try:
-        logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.0) ======")
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
+        logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.1) ======")
+        
+        favorite_codes = []
+        non_favorite_codes = []
+
+        async def main():
+            nonlocal favorite_codes, non_favorite_codes
+            cache_manager_instance = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
+            favorite_codes.extend(fav_codes)
+            non_favorite_codes.extend(non_fav_codes)
+
+        async_to_sync(main)()
+
         if not non_favorite_codes and not favorite_codes:
             logger.warning("[战略预备队] 未找到任何股票数据，总动员任务终止")
             return {"status": "failed", "reason": "no stocks found"}
+            
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"[战略预备队] 发现 {stock_count} 只股票需要进行全面历史分析。")
         
-        # 对于历史回溯，使用当前日期作为名义上的截止日期
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
         
-        # --- 强制执行“全面战役”模式 (latest_only=False) ---
-        # --- 并将任务派发到专属的“战略任务队列” (full_history_queue) ---
-
-        # --- 为自选股调度“全面战役”任务 ---
         for stock_code in favorite_codes:
-            # 调用 run_multi_timeframe_strategy，但将 latest_only 明确设置为 False
             run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
         
-        # --- 为非自选股调度“全面战役”任务 ---
         for stock_code in non_favorite_codes:
             run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
         
         logger.info(f"[战略预备队] 已为 {stock_count} 只股票下达了“全面战役”指令。")
         return {"status": "started",  "stock_count": stock_count}
+        
     except Exception as e:
         logger.error(f"[战略预备队] 执行总动员任务时发生严重错误: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
@@ -344,23 +380,28 @@ def prepare_pools():
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_cycle', queue='intraday_queue')
 def run_cycle(self):
     """
-    【最佳实践】核心盘中循环任务，只负责执行一轮分析。
-    它从Redis读取状态，执行计算，并将结果写回Redis。
+    【V2.0 依赖注入修复版】核心盘中循环任务。
     """
     try:
-        params = {} # 从配置加载
-        orchestrator = IntradayEngineOrchestrator(params)
+        async def main():
+            cache_manager_instance = CacheManager()
+            params = {} # 从配置加载
+            orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
+            
+            # 直接执行循环
+            signals = await orchestrator.run_single_cycle()
+            
+            if signals:
+                print(f"本轮循环产生 {len(signals)} 条交易信号。")
+            
+            return {"status": "success", "signals_found": len(signals)}
+
+        return async_to_sync(main)()
         
-        # 直接执行循环，不再需要初始化
-        signals = async_to_sync(orchestrator.run_single_cycle)()
-        
-        if signals:
-            print(f"本轮循环产生 {len(signals)} 条交易信号。")
-        
-        return {"status": "success", "signals_found": len(signals)}
     except Exception as e:
         print(f"盘中引擎循环任务失败: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
+
 
 # --- 任务三：引擎调度器 (启动/停止) ---
 # 这部分可以简化为一个管理命令或在Django Admin中手动操作，
@@ -441,18 +482,24 @@ def run_alpha_hunter_for_stock(self, stock_code: str):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_all_stocks', queue='celery')
 def run_alpha_hunter_for_all_stocks(self):
     """
-    【V118.3 全市场阿尔法扫描调度器】
-    调度“阿尔法猎手”任务对所有相关股票进行全历史回测和策略盲点扫描。
-    这是一个顶层调度任务，它本身不进行计算，只负责将单个股票的扫描任务分发到工作队列中。
+    【V118.4 依赖注入修复版】
     """
     try:
         logger.info("="*80)
-        logger.info("--- [全市场阿尔法扫描调度器启动] ---")
+        logger.info("--- [全市场阿尔法扫描调度器启动] (V118.4) ---")
         
-        # 1. 获取所有需要进行扫描的股票代码
-        #    我们复用现有的逻辑来获取自选股和非自选股列表
-        #    注意：_get_all_relevant_stock_codes_for_processing 需要在异步上下文中运行
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
+        favorite_codes = []
+        non_favorite_codes = []
+
+        async def main():
+            nonlocal favorite_codes, non_favorite_codes
+            cache_manager_instance = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
+            favorite_codes.extend(fav_codes)
+            non_favorite_codes.extend(non_fav_codes)
+
+        async_to_sync(main)()
         
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，全市场扫描任务终止。")
@@ -461,14 +508,9 @@ def run_alpha_hunter_for_all_stocks(self):
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"发现 {stock_count} 只股票待进行阿尔法扫描。")
         
-        # 2. 将单个股票的扫描任务分发到专用的长时任务队列
-        #    我们使用之前创建的 run_alpha_hunter_for_stock 任务
-        
-        # --- 为自选股调度扫描任务 (可以优先分配到性能更好的队列) ---
         for stock_code in favorite_codes:
             run_alpha_hunter_for_stock.s(stock_code).set(queue='debug_tasks').apply_async()
         
-        # --- 为非自选股调度扫描任务 ---
         for stock_code in non_favorite_codes:
             run_alpha_hunter_for_stock.s(stock_code).set(queue='debug_tasks').apply_async()
         
@@ -490,13 +532,22 @@ def run_alpha_hunter_for_all_stocks(self):
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='celery')
 def schedule_precompute_advanced_chips(self):
     """
-    【调度器】
-    调度所有股票的高级筹码指标预计算任务。
+    【V2.0 依赖注入修复版】
     """
     try:
         logger.info("开始调度 [高级筹码指标预计算] 任务...")
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
-        all_codes = favorite_codes + non_favorite_codes
+        
+        all_codes = []
+        
+        async def main():
+            nonlocal all_codes
+            cache_manager_instance = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            favorite_codes, non_favorite_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
+            all_codes.extend(favorite_codes)
+            all_codes.extend(non_favorite_codes)
+
+        async_to_sync(main)()
         
         if not all_codes:
             logger.warning("未找到任何股票数据，预计算任务终止。")
@@ -510,6 +561,7 @@ def schedule_precompute_advanced_chips(self):
         
         logger.info(f"已为 {stock_count} 只股票调度 '高级筹码指标预计算' 任务。")
         return {"status": "started", "stock_count": stock_count}
+        
     except Exception as e:
         logger.error(f"调度高级筹码预计算任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
