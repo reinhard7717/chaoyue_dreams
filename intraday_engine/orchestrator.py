@@ -36,12 +36,14 @@ class IntradayEngineOrchestrator:
 
     async def initialize_pools(self):
         """
-        【盘前准备 V2.1 - 并发获取行情版】
-        在交易日开始前，构建两个核心的监控池。
+        【盘前准备 V2.2 - 数据库时区修复版】
+        - 核心修复: 放弃使用DAO，直接在方法内构建一个明确的、时区感知的
+                    范围查询，以解决因数据库存储与Django时区设置不匹配
+                    导致的信号查询失败问题。
         """
         logger.info("盘中引擎开始盘前准备，正在构建监控池并存入Redis...")
         
-        # --- 1. 获取上一个交易日 (逻辑不变) ---
+        # --- 1. 获取上一个交易日 ---
         today = date.today()
         get_prev_trade_date_async = sync_to_async(TradeCalendar.get_latest_trade_date, thread_sensitive=True)
         previous_trade_date = await get_prev_trade_date_async(reference_date=today)
@@ -50,7 +52,9 @@ class IntradayEngineOrchestrator:
             return
         logger.info(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
 
-        # --- 2. 构建“待买入池” (Watchlist) (逻辑不变) ---
+        # --- 2. 构建“待买入池” (Watchlist) ---
+        # 【核心修复】在这里直接执行正确的查询
+        
         # 构建一个从当天 00:00:00 到 23:59:59 的 naive datetime 范围
         # 这将精确匹配数据库中存储的无时区信息的时间
         start_of_day = datetime.combine(previous_trade_date, time.min)
