@@ -312,18 +312,18 @@ def analyze_all_stocks_full_history(self):
 
 # --- 任务一：盘前准备任务 ---
 @celery_app.task(name='tasks.stock_analysis_tasks.prepare_pools')
-def prepare_pools(self, params: dict):
+def prepare_pools(self):
     """
     盘前准备任务：为所有相关股票池生成当日的分钟K线和衍生特征。
     【V2.0 - 异步上下文修复版】
     """
     logger.info("开始执行盘前准备任务...")
-
+    
     # 【核心修复】定义一个异步的 main 函数
     async def main():
         # 1. 在异步上下文中创建顶层的 CacheManager
         cache_manager_instance = CacheManager()
-        
+        params = {} # 从配置加载
         # 2. 创建 Orchestrator 实例，并注入 cache_manager
         orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
         
