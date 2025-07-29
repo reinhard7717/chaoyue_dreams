@@ -464,6 +464,16 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(seconds=15),  # 每5秒执行一次
         'options': {'expires': 300, 'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
+    'init_realtime_engine_task': {
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
+        'options': {'queue': 'intraday_queue'},
+    },
+    'run_realtime_engine_task': {
+        'task': 'tasks.tushare.stock_realtime_tasks.run_cycle', # 任务函数名
+        'schedule': timedelta(seconds=15),
+        'options': {'queue': 'intraday_queue'},
+    },
     'run-strategy': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         # 每天9:30-21:30，每5分钟执行一次
