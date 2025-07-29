@@ -341,10 +341,16 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         
         # --- 步骤2: 准备序列化器需要的数据 ---
         # 序列化器可能只需要 stock_id 或 stock_code，我们从 entry_log 中提取
-        serializer_data = {'stock': stock.id} # 假设序列化器接受 stock 的主键
+        serializer_data = {'stock': stock.stock_code}
         
         serializer = self.get_serializer(data=serializer_data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            # 增加日志，捕获序列化器验证失败的详细原因
+            logger.error(f"序列化器验证失败 for stock {stock.stock_code}: {e}")
+            # 将详细错误返回给前端，便于调试
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         # --- 步骤3: 调用 perform_create，但传递额外的信息 ---
         # 我们将 entry_log 实例直接传递过去
