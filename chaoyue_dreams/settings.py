@@ -482,7 +482,7 @@ CELERY_BEAT_SCHEDULE = {
     'save_stocks_minute_data_realtime_task_1min': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
-        'schedule': crontab( minute='1', hour='0-1' ),
+        'schedule': crontab( minute='1', hour='9-15' ),
         'kwargs': {'time_level': '1'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
