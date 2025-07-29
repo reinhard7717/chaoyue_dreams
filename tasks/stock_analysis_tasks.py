@@ -52,8 +52,6 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.warning("未能获取到任何需要处理的股票代码")
     return favorite_stock_codes_list, non_favorite_stock_codes
 
-
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.debug_stock_over_period', queue='debug_tasks')
 def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: str):
     """

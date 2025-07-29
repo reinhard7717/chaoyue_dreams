@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+from asgiref.sync import sync_to_async # 异步转换工具
 from datetime import datetime, date
 from typing import Dict, List, Set
 from channels.layers import get_channel_layer
