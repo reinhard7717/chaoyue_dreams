@@ -24,13 +24,13 @@ class IntradayEngineOrchestrator:
     - 核心升级: 将监控池等状态信息持久化到Redis，解决了Celery任务的无状态问题。
     """
     def __init__(self, params: Dict):
+        cache_manager = CacheManager()
         self.params = params
-        self.stock_dao = StockBasicInfoDao()
-        self.stock_time_trade_dao = StockTimeTradeDAO()
-        self.strategies_dao = StrategiesDAO()
+        self.stock_dao = StockBasicInfoDao(cache_manager)
+        self.stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        self.strategies_dao = StrategiesDAO(cache_manager)
         self.services = RealtimeServices()
         self.strategy = RealtimeStrategy(params)
-        self.cache_manager = cache_manager
         self.cache_key = IntradayEngineCashKey()
         self.today_str = date.today().strftime('%Y-%m-%d')
 
