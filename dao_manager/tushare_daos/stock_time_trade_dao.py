@@ -497,16 +497,15 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """
-        保存股票的历史分钟级交易数据 (完全向量化优化版)
-        1. 一次性预加载全部所需股票信息，根除所有N+1查询。
-        2. 对每一页数据进行完全向量化处理，包括数据清洗、对象映射、时区转换和模型分类。
-        3. 使用`groupby`对处理后的DataFrame进行高效分组，并分批保存。
+        【V3 - 健壮分页修复版】保存股票的历史分钟级交易数据
+        - 策略:
+        1. 【核心修复】在API调用后，立即将返回的行数存入`original_df_len`变量。
+        2. 【核心修复】整个循环中，所有关于“是否为最后一页”的判断，都统一使用`original_df_len`，彻底避免因数据清洗导致分页提前中断的问题。
         """
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
             return
 
-        # --- 在所有循环开始前，一次性预加载全部股票信息 (逻辑不变) ---
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息，任务终止。")
@@ -522,70 +521,59 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
 
+                print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
                 df = self.ts_pro.stk_mins(**{
                     "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                     "limit": limit, "offset": offset
                 }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
                 
-                if df.empty:
-                    print(f"拉取结束，未返回更多 {time_level}min 数据。")
+                # 【代码修改】在进行任何操作前，立即记录API返回的原始行数，这是分页判断的唯一可靠依据。
+                original_df_len = len(df)
+                print(f"调试信息: API返回 {original_df_len} 条原始数据。")
+                
+                if original_df_len == 0:
+                    print(f"拉取结束，API未返回更多 {time_level}min 数据。")
                     break
                 
-                # --- 对整页DataFrame进行向量化处理 (逻辑不变) ---
-                # 1. 数据清洗
+                # --- 对整页DataFrame进行向量化处理 ---
                 df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-                
-                # 2. 向量化映射stock对象
                 df['stock'] = df['ts_code'].map(stock_map)
-                
-                # 3. 丢弃关键字段为空或找不到对应stock的行
                 df.dropna(subset=['trade_time', 'stock'], inplace=True)
 
                 if df.empty:
                     print(f"当前页数据经清洗后为空，跳至下一页。")
-                    # 注意：这里的分页判断逻辑可能需要用原始df长度
-                    original_df_len = len(df) # 在dropna前记录长度
-                    if original_df_len < limit:
-                        break
+                    # 【代码修改】分页判断移至循环末尾，此处只需更新offset并continue
                     offset += limit
                     page_num += 1
                     continue
-                # 4. 向量化转换日期时间格式，并进行精确时区处理
-                #    这是适配原生SQL批量插入的关键步骤，必须手动将本地时间转为UTC。
-                # a. 将字符串转换为“天真”的datetime对象
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
-                # b. 将“天真”时间本地化为北京时间，使其变为“时区感知”
-                df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-                # c. 将时区感知的时间（北京时间）转换为UTC时区
-                df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-                # d. 去除UTC时区信息，得到适合原生SQL的“天真UTC时间”
-                df['trade_time'] = df['trade_time'].dt.tz_localize(None)
 
-                # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类 (逻辑不变)
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
+                df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
+                df['trade_time'] = df['trade_time'].dt.tz_localize(None)
                 df['model_class'] = df['ts_code'].apply(lambda code: self.get_minute_model(code, time_level))
-                # --- 使用groupby对处理好的DataFrame进行高效分组并保存 (逻辑不变) ---
+
                 for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty:
                         continue
                     
-                    # 6. 从分组后的DataFrame中直接选择所需列，并转换为字典列表
                     data_list = group_df[[
-                        "stock", "trade_time", "close", "open", "high", "low", "vol", "amount" # 移除了freq，因为它通常不是模型字段
+                        "stock", "trade_time", "close", "open", "high", "low", "vol", "amount"
                     ]].to_dict('records')
 
-                    # 7. 批量保存该模型的数据
-                    # 注意：原代码返回的是一个字典，这里我们只取成功数量
-                    result_dict = await self._save_all_to_db_native_upsert(
+                    # 您的保存逻辑
+                    await self._save_all_to_db_native_upsert(
                         model_class=model_class,
                         data_list=data_list,
                         unique_fields=['stock', 'trade_time']
                     )
-                    saved_count = result_dict.get("创建/更新成功", 0)
-                    logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 插入/更新了 {saved_count} 条记录。")
+                    logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 准备了 {len(data_list)} 条记录进行插入/更新。")
 
-                # 分页逻辑判断应基于API返回的原始行数
-                if len(df) < limit:
+                # 【代码修改】分页逻辑判断必须且只能基于API返回的原始行数
+                if original_df_len < limit:
+                    print(f"调试信息: API返回行数({original_df_len})小于limit({limit})，判定为最后一页，当前频率数据拉取结束。")
                     break
+                
                 offset += limit
                 page_num += 1
 
