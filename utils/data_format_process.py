@@ -12,6 +12,7 @@ from stock_models.index import IndexInfo
 from stock_models.industry import DcIndex, KplConcept, SwIndustry, ThsIndex
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
+from utils.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,15 @@ def safe_value(val):
     return val
 
 class UserDataFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     def set_user_favorites(self, user_id: int, api_data: Any) -> Dict:
         if isinstance(api_data, FavoriteStock):
             data_dict = {
@@ -58,6 +68,15 @@ class UserDataFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndexDataFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     # 指数基础信息
     def set_index_info_data(self, api_data: Any) -> Dict:
         data_dict = {
@@ -137,6 +156,15 @@ class IndexDataFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockInfoFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     def set_stock_info_data(self, api_data: Any) -> Dict:
         data_dict = {
             'stock_code': getattr(api_data, 'ts_code', getattr(api_data, 'stock_code', None)),  # 股票代码
@@ -205,6 +233,15 @@ class StockInfoFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockTimeTradeFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -326,6 +363,15 @@ class StockTimeTradeFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StockRealtimeDataFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     # ================ 数据格式 ================
     def set_realtime_tick_data(self, stock: StockInfo, df_data: Any) -> Dict:
         # 兼容不同字段名
@@ -420,6 +466,15 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class StrategiesDataFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     def set_strategies_data(self, api_data: Dict) -> Dict:
         data_dict = {
             "generated_at": api_data.get('generated_at'),
@@ -433,6 +488,15 @@ class StrategiesDataFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class FundFlowFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -612,6 +676,15 @@ class FundFlowFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class IndustryFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     # 申万行业分类
     def set_sw_industry_data(self, index: IndexInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -785,6 +858,15 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
 class MarketFormatProcess(BaseDAO):
+    def __init__(self, cache_manager_instance: CacheManager):
+        """
+        初始化 StockInfoFormatProcess。
+        由于继承自 BaseDAO，必须接收 cache_manager_instance 并传递给父类。
+        """
+        # 调用父类的 __init__ 方法，并将“接力棒”传递下去
+        # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
+        super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
+
     # 市场交易统计(MarketDailyInfo)
     def set_market_daily_info_data(self, df_data: Any) -> Dict:
         data_dict = {
