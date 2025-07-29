@@ -12,6 +12,7 @@ from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.weekly_context_engine import WeeklyContextEngine
+from utils.cache_manager import CacheManager
 from utils.config_loader import load_strategy_config
 from strategies.trend_following.utils import get_params_block, get_param_value
 from .trend_following.intelligence_layer import MainForceState
@@ -39,20 +40,17 @@ class MultiTimeframeTrendStrategy:
     - **可读性**: 提供了全面的高级别和细节注释，阐明了架构设计和代码逻辑。
     """
 
-    def __init__(self):
+    def __init__(self, cache_manager_instance: CacheManager):
         """
-        【V203.1 修正版】初始化总指挥部。
-        - 核心修正: 恢复使用 self.indicator_service，移除了错误的 self.data_loader 引用。
+        【V203.2 依赖注入版】初始化总指挥部。
+        - 核心修改: 接收 CacheManager 实例，并将其注入所有下属服务和引擎。
         """
-        print("--- [总指挥部] 正在初始化 (V203.1)... ---")
-        # 加载唯一的全局配置文件，作为所有决策的依据
+        print("--- [总指挥部] 正在初始化 (V203.2)... ---")
+        
         unified_config_path = 'config/trend_follow_strategy.json'
         self.unified_config = load_strategy_config(unified_config_path)
         
-        # ▼▼▼【代码修改】修正错误的变量名，恢复使用 indicator_service ▼▼▼
-        # 初始化下属的核心服务与引擎
-        self.indicator_service = IndicatorService() # 数据工程部门
-        # ▲▲▲【代码修改】▲▲▲
+        self.indicator_service = IndicatorService(cache_manager_instance)
         
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)

@@ -135,6 +135,8 @@ class IntradayEngineOrchestrator:
             
         logger.info(f"待买入池 ({len(watchlist)}只) 和持仓池 ({len(position_list)}只) 已成功写入Redis。")
 
+        return True
+
     async def run_single_cycle(self, time_level: str = '1'):
         """
         【盘中循环】从Redis读取状态，执行分析，并将结果写回Redis。

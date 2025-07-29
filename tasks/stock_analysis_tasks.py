@@ -328,7 +328,7 @@ def prepare_pools():
         orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
         
         # 3. 执行业务逻辑
-        success = await orchestrator.prepare_all_pools()
+        success = await orchestrator.initialize_pools()
         if success:
             logger.info("盘前准备任务成功完成。")
         else:

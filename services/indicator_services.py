@@ -19,6 +19,7 @@ from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from core.constants import TimeLevel
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from utils.cache_manager import CacheManager
 from utils.math_tools import hurst_exponent
 
 warnings.filterwarnings(action='ignore', category=UserWarning, message='.*drop timezone information.*')
@@ -36,17 +37,18 @@ class IndicatorService:
     - 新增功能: 引入 _calculate_synthetic_weekly_indicators 辅助函数，专门负责
                 计算像CMF这类必须依赖日线过程的复杂周线指标，确保情报的绝对准确性。
     """
-    def __init__(self):
+    def __init__(self, cache_manager_instance: CacheManager):
         """
-        初始化 IndicatorService。
-        设置 DAO 对象，并动态导入 pandas_ta 库。
+        【V8.1 依赖注入版】初始化 IndicatorService。
+        - 核心修改: 接收 CacheManager 实例，并将其注入所有内部创建的DAO。
         """
-        self.indicator_dao = IndicatorDAO()
-        self.industry_dao = IndustryDao()
-        self.stock_basic_dao = StockBasicInfoDao()
-        self.stock_trade_dao = StockTimeTradeDAO()
-        self.index_dao = IndexBasicDAO()
-        self.strategies_dao = StrategiesDAO() # 实例化DAO
+        # 【核心修复】将 cache_manager_instance 传递给所有DAO的构造函数
+        self.indicator_dao = IndicatorDAO(cache_manager_instance)
+        self.industry_dao = IndustryDao(cache_manager_instance)
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+        self.stock_trade_dao = StockTimeTradeDAO(cache_manager_instance)
+        self.index_dao = IndexBasicDAO(cache_manager_instance)
+        self.strategies_dao = StrategiesDAO(cache_manager_instance)
 
         self.momentum_lookback = 60 # 动量计算回看周期
         self.fund_flow_lookback = 5   # 资金流计算回看周期
