@@ -49,45 +49,6 @@ def get_last_monday_and_friday():
     last_friday = last_monday + datetime.timedelta(days=4)
     return last_monday, last_friday
 
-
-# --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
-async def _get_all_relevant_stock_codes_for_processing():
-    """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicInfoDao()
-    favorite_stock_codes = set()
-    all_stock_codes = set()
-    # 获取自选股
-    try:
-        favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
-        for fav in favorite_stocks:
-            favorite_stock_codes.add(fav.get("stock_code"))
-        logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
-    except Exception as e:
-        logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-    # 获取所有A股 (或者你需要的范围)
-    try:
-        # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
-        all_stocks = await stock_basic_dao.get_stock_list()
-        for stock in all_stocks:
-            code = str(stock.stock_code)
-            if not code.endswith('.BJ'):
-                all_stock_codes.add(code)
-        logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
-    except Exception as e:
-        logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-
-    # 计算非自选股代码 (在所有代码中，但不在自选代码中)
-    non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
-    favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
-
-    total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
-    # logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
-
-    if not favorite_stock_codes_list and not non_favorite_stock_codes:
-         logger.warning("未能获取到任何需要处理的股票代码")
-
-    return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
-
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
 # [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.execute_save_today_fund_flow_method', queue=STOCKS_SAVE_API_DATA_QUEUE, acks_late=True)

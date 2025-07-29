@@ -579,8 +579,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     - 性能优化: 将所有同步的Django ORM调用都使用 sync_to_async 包装，并使用
                 asyncio.gather 并发获取数据。
     """
-    logger.info(f"--- TASK ENTRY: precompute_advanced_chips_for_stock for {stock_code} ---")
-
     # 1. 【核心修改】在同步上下文中创建所有依赖对象
     try:
         cache_manager = CacheManager()
@@ -798,10 +796,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 
     # 3. 调用 async_to_sync，并将依赖作为参数传入
     try:
-        logger.info(f"--- BEFORE async_to_sync for {stock_code} ---")
         # 将创建好的DAO实例作为参数传递给main函数
         result = async_to_sync(main)(fund_flow_dao, time_trade_dao, is_incremental)
-        logger.info(f"--- AFTER async_to_sync for {stock_code} ---")
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
