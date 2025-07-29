@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Union
 from datetime import datetime
 from utils import cache_constants as cc
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 
 # 缓存类型枚举
 CACHE_TYPES = {
@@ -536,7 +536,7 @@ class StrategyCashKey(CashKey):
         self.cache_manager = None  # 修改: 改为 None，等待异步初始化
 
     async def initialize(self):
-        self.cache_manager = await CacheManager()  # 异步初始化
+        self.cache_manager = await cache_manager  # 异步初始化
 
     def analyze_signals_trend_following(self, stock_code: str) -> str:
         cache_key = self.generate_key(

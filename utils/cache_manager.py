@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 import json
 import urllib.parse  # 已存在，不变
@@ -44,6 +45,9 @@ class CacheManager:
     """
     统一管理股票量化系统的Redis缓存
     """
+
+    _instance = None
+    _lock = asyncio.Lock() # 使用异步锁来保证线程安全
     
     # 默认过期时间（秒）
     DEFAULT_TIMEOUTS = {
@@ -54,16 +58,36 @@ class CacheManager:
         'user': 1800,         # 用户数据缓存30分钟
         'strategy': 86400,    # 策略数据缓存1天
     }
+
+    def __new__(cls, *args, **kwargs):
+        # __new__ 是同步的，所以这里不能用 async with
+        # 但由于我们使用了懒加载，真正的初始化在异步方法中，所以这里是安全的
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     
     def __init__(self):
-        """初始化时不创建连接，采用懒加载方式"""
-        self.redis_client: Optional[Redis] = None # 明确类型提示
+        """
+        初始化方法。由于是单例，这个方法可能被多次调用，
+        但我们使用一个标志位来确保真正的初始化只执行一次。
+        """
+        if getattr(self, '_initialized', False):
+            return
+        
+        self.redis_client: Optional[Redis] = None
+        self._initialized = True
 
     async def initialize(self):
-        """异步初始化Redis客户端连接"""
-        # 避免重复初始化
+        """异步初始化Redis客户端连接，带锁防止并发初始化"""
         if self.redis_client is not None:
             return
+
+        async with self._lock:
+            # 双重检查，防止在等待锁的过程中其他协程已经完成了初始化
+            if self.redis_client is not None:
+                return
 
         # logger.info("正在初始化 Redis 客户端...")
         try:
@@ -686,34 +710,4 @@ class CacheManager:
             # 默认格式
             return f"{cache_type}:" + ":".join(map(str, args))
 
-# 使用示例（异步版本）保持不变
-async def save_stock_realtime(cache_manager: CacheManager, stock_code: str, data: dict):
-    key = cache_manager.generate_key('rt', 'stock', stock_code, 'quote')
-    await cache_manager.set(key, data)
-
-async def get_stock_realtime(cache_manager: CacheManager, stock_code: str) -> Optional[Any]:
-    from stock_models.stock_realtime import StockRealtimeData
-    key = cache_manager.generate_key('rt', 'stock', stock_code, 'quote')
-    return await cache_manager.get_model(key, StockRealtimeData)
-
-async def save_index_kline(cache_manager: CacheManager, index_code: str, period: str, date: str, data: dict):
-    key = cache_manager.generate_key('ts', 'index', index_code, period, date)
-    await cache_manager.set(key, data)
-
-async def get_batch_stock_realtime(cache_manager: CacheManager, stock_codes: List[str]) -> Dict[str, dict]:
-    keys = [cache_manager.generate_key('rt', 'stock', code, 'quote') for code in stock_codes]
-    values = await cache_manager.mget(keys)
-    result = {}
-    for code, value in zip(stock_codes, values):
-        if value:
-            result[code] = value
-    return result
-
-async def save_market_overview(cache_manager: CacheManager, overview_data: dict):
-    key = cache_manager.generate_key('rt', 'market', 'overview')
-    for field, value in overview_data.items():
-        await cache_manager.hset(key, field, value)
-
-async def get_market_overview(cache_manager: CacheManager) -> dict:
-    key = cache_manager.generate_key('rt', 'market', 'overview')
-    return await cache_manager.hgetall(key)
+cache_manager = CacheManager()

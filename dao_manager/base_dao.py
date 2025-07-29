@@ -24,12 +24,11 @@ from django.conf import settings # Django 设置
 import pytz # 时区处理
 
 from django.db import DatabaseError, IntegrityError, models, transaction # Django 数据库异常和事务
-# 移除 django.core.cache 的导入，改用 CacheManager
+
 # from django.core.cache import cache
 from asgiref.sync import sync_to_async # 异步转换工具
+from utils.cache_manager import cache_manager
 
-# 导入自定义的 CacheManager
-from utils.cache_manager import CacheManager
 
 logger = logging.getLogger("dao") # 获取日志记录器
 
@@ -55,21 +54,12 @@ class BaseDAO(Generic[T]):
         self.model_class = model_class
         self.api_service = api_service # API 服务实例，子类可以覆盖或使用
         self.cache_timeout = cache_timeout # 默认缓存超时时间
-        self.cache_manager = CacheManager()
+        self.cache_manager = cache_manager 
         self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
         self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
 
         # 只有当 model_class 不为 None 时才设置 model_name，用于生成缓存键前缀
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
-
-    def _ensure_cache_objects(self):
-        """
-        (内部方法) 确保 CacheManager 实例存在。
-        如果实例不存在，则创建它。CacheManager 内部使用全局 Redis 连接池。
-        """
-        if self.cache_manager is None:
-            self.cache_manager = CacheManager()
-            logger.debug(f"CacheManager instance created for DAO (model: {self.model_name}).")
 
     def _get_cache_key(self, key_suffix: str) -> str:
         """

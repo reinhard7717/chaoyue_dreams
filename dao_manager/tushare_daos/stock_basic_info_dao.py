@@ -7,7 +7,7 @@ import time
 from django.db import OperationalError
 import numpy as np
 import pandas as pd
-from utils import cache_constants as cc
+from utils.cache_manager import cache_manager
 from django.contrib.auth.models import AbstractUser
 from dao_manager.base_dao import BaseDAO
 from stock_models.stock_basic import HSConst, StockCompany, StockInfo
@@ -24,8 +24,7 @@ class StockBasicInfoDao(BaseDAO):
     def __init__(self):
         super().__init__(None, None, 3600)
         from utils.data_format_process import StockInfoFormatProcess
-        from utils.cache_manager import CacheManager
-        self.cache_manager = CacheManager()  # 初始化缓存管理器
+        self.cache_manager = cache_manager  # 初始化缓存管理器
         self.data_format_process = StockInfoFormatProcess()
         self.stock_cache_set = StockInfoCacheSet()
         self.stock_cache_get = StockInfoCacheGet()

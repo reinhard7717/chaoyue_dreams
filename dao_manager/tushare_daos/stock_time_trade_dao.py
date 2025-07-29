@@ -15,7 +15,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
@@ -38,7 +38,7 @@ class StockTimeTradeDAO(BaseDAO):
         super().__init__(None, None, 3600)  # 基类使用None作为model_class，因为本DAO管理多个模型
         self.stock_basic_dao = StockBasicInfoDao()
         self.cache_limit = 500 # 定义缓存数量上限
-        self.cache_manager = CacheManager()
+        self.cache_manager = cache_manager
         self.cache_key = StockCashKey()
         self.data_format_process_trade = StockTimeTradeFormatProcess()
         self.data_format_process_stock = StockInfoFormatProcess()

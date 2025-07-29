@@ -19,7 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
@@ -268,7 +268,7 @@ def realtime_engine_view(request):
     user_id = request.user.id
     today_str = date.today().strftime('%Y-%m-%d')
     
-    cache_manager = CacheManager()
+    cache_manager = cache_manager
     cache_key_builder = IntradayEngineCashKey()
     
     # 1. 生成当前用户今日的信号缓存键

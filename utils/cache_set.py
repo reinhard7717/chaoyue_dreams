@@ -9,7 +9,7 @@ from decimal import Decimal # 导入 Decimal
 from utils import cache_constants as cc
 import json
 
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 from utils.cash_key import IndexCashKey, StockCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
@@ -51,7 +51,7 @@ def convert_decimals(obj):
 
 class CacheSet():
     def __init__(self):
-        from utils.cache_manager import CacheManager
+        from utils.cache_manager import cache_manager
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
         # 注意：CacheManager 是异步的，这里无法直接初始化。建议在异步上下文中使用。
@@ -60,12 +60,6 @@ class CacheSet():
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
         self.cache_key_user = UserCashKey()
-
-    async def get_cache_manager(self):
-        from utils.cache_manager import CacheManager
-        cm = CacheManager()
-        await cm.initialize()
-        return cm
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
@@ -400,15 +394,6 @@ class StockInfoCacheSet(CacheSet):
         return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 
 class StockTimeTradeCacheSet(CacheSet):
-    def __init__(self):
-        """
-        初始化方法。
-        修改点:
-        1. 调用 super().__init__() 继承父类初始化。
-        2. 创建并持有 CacheManager 的实例，供所有方法使用。
-        """
-        super().__init__() # 调用父类的 __init__
-        self.cache_manager = CacheManager()
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
@@ -589,15 +574,6 @@ class StockIndicatorsCacheSet(CacheSet):
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
 
 class StockRealtimeCacheSet(CacheSet):
-    def __init__(self):
-        """
-        初始化方法。
-        修改点:
-        1. 调用 super().__init__() 继承父类初始化。
-        2. 创建并持有 CacheManager 的实例，供所有方法使用。
-        """
-        super().__init__()
-        self.cache_manager = CacheManager()
 
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """

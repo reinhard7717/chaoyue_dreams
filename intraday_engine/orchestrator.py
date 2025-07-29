@@ -13,7 +13,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
 from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from strategies.realtime_strategy import RealtimeStrategy
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 from utils.cash_key import IntradayEngineCashKey
 
 logger = logging.getLogger("intraday_engine")
@@ -30,7 +30,7 @@ class IntradayEngineOrchestrator:
         self.strategies_dao = StrategiesDAO()
         self.services = RealtimeServices()
         self.strategy = RealtimeStrategy(params)
-        self.cache_manager = CacheManager()
+        self.cache_manager = cache_manager
         self.cache_key = IntradayEngineCashKey()
         self.today_str = date.today().strftime('%Y-%m-%d')
 

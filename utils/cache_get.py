@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict, List, Optional
 from users.models import FavoriteStock
 from utils import cache_constants as cc
-from utils.cache_manager import CacheManager
+from utils.cache_manager import cache_manager
 from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
 from utils.data_format_process import IndexDataFormatProcess
 
@@ -19,8 +19,8 @@ class CacheGet():
         self.data_format_process = IndexDataFormatProcess()
 
     async def get_cache_manager(self):
-        from utils.cache_manager import CacheManager
-        cm = CacheManager()
+        from utils.cache_manager import cache_manager
+        cm = cache_manager
         await cm.initialize()
         return cm
 
