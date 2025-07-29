@@ -5,7 +5,8 @@ from amqp import NotFound
 from asgiref.sync import async_to_sync
 from django.db.models import Max, F, Q, OuterRef, Subquery
 from datetime import date, datetime
-from collections import OrderedDict # 导入 OrderedDict
+from rest_framework import viewsets, status
+from rest_framework.response import Response
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.forms import ValidationError
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
@@ -28,27 +29,6 @@ import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
 target_queue = 'dashboard'
-
-# 内部辅助函数，用于处理所有策略列表页的通用逻辑
-def _render_strategy_list_page(request, base_queryset, page_title, template_name):
-    """
-    一个通用的辅助函数，用于渲染策略列表页面。
-    """
-    print(f"--- [View] 开始渲染页面: {page_title} ---")
-    
-    ordered_queryset = base_queryset
-    print("--- [View] DAO已提供完整数据，跳过视图层注解 ---")
-
-    paginator = Paginator(ordered_queryset, 25)  # 每页显示25条
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
-    context = {
-        'page_obj': page_obj,
-        'total_count': paginator.count,
-        'page_title': page_title,
-    }
-    return render(request, template_name, context)
 
 # --- 页面视图 ---
 @login_required
@@ -334,52 +314,72 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return FavoriteStock.objects.filter(user=self.request.user).select_related('stock')
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
         """
-        【V2.1 完整实现版】
-        - 核心逻辑: “加入自选”即“模拟建仓”。
-        - 流程:
-          1. 验证前端是否传递了有效的建仓信号ID (signal_log_id)。
-          2. 以此信号为依据，创建 FavoriteStock 记录。
-          3. 以此信号为依据，创建或更新一个状态为“持仓中”的 FavoriteStockTracker 记录。
-          4. 发送 WebSocket 通知，实时更新前端UI。
-          5. 触发 Celery 后台任务，为新持仓股预热数据。
+        【V2.2 绕过序列化器过滤版】
+        - 核心重构: 重写 create 方法，以确保在序列化器验证之前，
+                    就能捕获并处理自定义的 `signal_log_id` 字段。
         """
-        user = self.request.user
+        user = request.user
         
-        # --- 步骤1: 验证建仓信号 ---
-        signal_log_id = self.request.data.get('signal_log_id')
+        # --- 步骤1: 直接从原始请求中获取并验证建仓信号 ---
+        signal_log_id = request.data.get('signal_log_id')
         if not signal_log_id:
             logger.warning(f"用户 {user.username} 尝试添加自选但未提供 signal_log_id。")
-            raise ValidationError({'detail': '必须提供一个有效的建仓信号ID (signal_log_id)。'})
+            return Response({'detail': '必须提供一个有效的建仓信号ID (signal_log_id)。'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 确保信号存在，且确实是一个买入信号
             entry_log = TrendFollowStrategySignalLog.objects.select_related('stock').get(
                 id=signal_log_id, 
                 entry_signal=True
             )
         except TrendFollowStrategySignalLog.DoesNotExist:
             logger.error(f"用户 {user.username} 尝试使用无效的 signal_log_id: {signal_log_id} 添加自选。")
-            raise NotFound('指定的建仓信号不存在或无效。')
+            return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
 
         stock = entry_log.stock
+        
+        # --- 步骤2: 准备序列化器需要的数据 ---
+        # 序列化器可能只需要 stock_id 或 stock_code，我们从 entry_log 中提取
+        serializer_data = {'stock': stock.id} # 假设序列化器接受 stock 的主键
+        
+        serializer = self.get_serializer(data=serializer_data)
+        serializer.is_valid(raise_exception=True)
+        
+        # --- 步骤3: 调用 perform_create，但传递额外的信息 ---
+        # 我们将 entry_log 实例直接传递过去
+        self.perform_create(serializer, entry_log=entry_log)
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # --- 步骤2: 创建 FavoriteStock (如果尚不存在) ---
-        # 使用 get_or_create 确保原子性，避免并发问题
+    def perform_create(self, serializer, entry_log):
+        """
+        【V2.2 完整实现版】
+        - 核心修改: 此方法现在接收一个由 create 方法验证并传递过来的 entry_log 对象。
+        - 职责: 纯粹地执行数据库创建/更新操作，以及触发后续的异步任务。
+        """
+        user = self.request.user
+        stock = entry_log.stock
+
+        # --- 步骤A: 创建或获取 FavoriteStock 记录 ---
+        # 使用 get_or_create 确保用户-股票的关联是唯一的，避免重复
         favorite, favorite_created = FavoriteStock.objects.get_or_create(
             user=user, 
             stock=stock
         )
+        
         if favorite_created:
             logger.info(f"为用户 {user.username} 创建了新的 FavoriteStock 记录 for {stock.stock_code}。")
-        
-        # --- 步骤3: 创建或更新 FavoriteStockTracker ---
-        # 使用 update_or_create 来处理重复建仓的场景（例如，用户移除了又用同一个信号加回来）
+        else:
+            logger.info(f"用户 {user.username} 已有 FavoriteStock 记录 for {stock.stock_code}，无需重复创建。")
+
+        # --- 步骤B: 创建或更新 FavoriteStockTracker 记录 ---
+        # 使用 update_or_create 来处理对同一次建仓信号的重复添加操作，确保幂等性。
         tracker, tracker_created = FavoriteStockTracker.objects.update_or_create(
             user=user,
             stock=stock,
-            entry_log=entry_log, # 使用 entry_log 作为唯一性约束的一部分
+            entry_log=entry_log, # 唯一性约束的关键部分
             defaults={
                 'status': 'HOLDING',
                 'entry_price': entry_log.close_price,
@@ -394,7 +394,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
                 'score_change_vs_entry': 0.0,
                 'profit_loss_pct': 0.0,
 
-                # 清空可能的历史平仓信息，确保这是一次全新的持仓记录
+                # 清空可能的历史平仓信息，确保这是一次全新的或重置的持仓记录
                 'exit_log': None,
                 'exit_price': None,
                 'exit_date': None,
@@ -402,9 +402,9 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         )
         
         log_action = "创建了新的" if tracker_created else "更新了现有的"
-        logger.info(f"用户 {user.username} {log_action} 持仓追踪器 for {stock.stock_code}，关联建仓信号ID: {signal_log_id}。")
+        logger.info(f"用户 {user.username} {log_action} 持仓追踪器 for {stock.stock_code}，关联建仓信号ID: {entry_log.id}。")
 
-        # --- 步骤4: 发送 WebSocket 通知，实时更新前端UI ---
+        # --- 步骤C: 发送 WebSocket 通知，实时更新前端UI ---
         # 准备一个与 dashboard home 页面兼容的 payload
         websocket_payload = {
             'id': favorite.id,
@@ -429,7 +429,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         )
         logger.info(f"已通过 WebSocket向用户 {user.username} 推送新自选股 {stock.stock_code} 的更新。")
 
-        # --- 步骤5: 触发 Celery 后台任务，为新持仓股预热数据 ---
+        # --- 步骤D: 触发 Celery 后台任务，为新持仓股预热数据 ---
         # 这是一个耗时操作，适合异步执行，避免阻塞API响应
         try:
             # 动态导入任务，避免循环依赖
@@ -450,6 +450,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             logger.error("无法导入后台任务 'fetch_data_for_new_favorite'，跳过任务触发。请检查 Celery 配置和任务路径。")
         except Exception as task_error:
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
+
 
     def perform_destroy(self, instance):
         user_id = instance.user.id
