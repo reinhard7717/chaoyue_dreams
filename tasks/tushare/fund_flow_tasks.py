@@ -63,7 +63,7 @@ def execute_save_today_fund_flow_method(self, method_name: str, trade_date: date
         cache_manager_instance = CacheManager()
         fund_flow_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(fund_flow_dao, method_name)
-        await save_method(trade_date)
+        return await save_method(trade_date)
 
     try:
         async_to_sync(main)()
@@ -121,7 +121,7 @@ def save_hm_detail_data_today(self):
     async def main():
         cache_manager_instance = CacheManager()
         dao = FundFlowDao(cache_manager_instance)
-        await dao.save_hm_detail_data()
+        return await dao.save_hm_detail_data()
 
     try:
         async_to_sync(main)()
@@ -146,7 +146,7 @@ def execute_fund_flow_dao_method(self, method_name: str, trade_date: str):
         cache_manager_instance = CacheManager()
         fund_flow_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(fund_flow_dao, method_name)
-        await save_method(trade_date)
+        return await save_method(trade_date)
 
     try:
         async_to_sync(main)()
@@ -208,7 +208,7 @@ def execute_save_fund_flow_method(self, method_name: str, start_date: str, end_d
         cache_manager_instance = CacheManager()
         ff_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(ff_dao, method_name)
-        await save_method(start_date=start_date, end_date=end_date)
+        return await save_method(start_date=start_date, end_date=end_date)
 
     try:
         async_to_sync(main)()
@@ -384,7 +384,7 @@ def save_fund_flow_daily_data_ths_today(self):
         fund_flow_dao = FundFlowDao(cache_manager_instance)
         # 3. 执行业务逻辑
         today_date = timezone.now().date()
-        await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=today_date)
+        return await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=today_date)
 
     try:
         async_to_sync(main)()  # 用async_to_sync运行main
@@ -404,7 +404,7 @@ def save_fund_flow_daily_data_ths_yesterday(self):
         fund_flow_dao = FundFlowDao(cache_manager_instance)
         today_date = timezone.now().date()
         yesterday = today_date - datetime.timedelta(days=1)
-        await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday)
+        return await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday)
 
     try:
         async_to_sync(main)()

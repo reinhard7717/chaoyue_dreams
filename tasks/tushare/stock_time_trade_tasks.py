@@ -207,7 +207,7 @@ def save_stocks_minute_data_yesterday_batch(self, stock_codes: list):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
+            return await stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
                 stock_codes=stock_codes,
                 start_date_str=start_date_str,
                 end_date_str=end_date_str
@@ -272,7 +272,7 @@ def save_stocks_daily_basic_data_today_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date)
+            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date)
         result = async_to_sync(main)()
         print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
         rotation_report = async_to_sync(service.analyze_industry_rotation)(datetime.date.today(), lookback_days=10)
@@ -298,7 +298,7 @@ def save_stocks_daily_basic_data_yesterday_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
+            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
         result = async_to_sync(main)()
         print(f"保存 昨日股票重要的基本面指标 完成。result: {result}")
     except Exception as e:
@@ -319,7 +319,7 @@ def save_day_data_today_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date)
+            return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=today_date)
         result = async_to_sync(main)()
         print(f"保存 日线数据任务（当日） 完成。result: {result}")
     except Exception as e:
@@ -341,7 +341,7 @@ def save_day_data_yesterday_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
+            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
         result = async_to_sync(main)()
         print(f"保存 日线数据任务（昨日） 完成。result: {result}")
     except Exception as e:
@@ -363,7 +363,7 @@ def save_week_data_today_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
+            return await stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
         result = async_to_sync(main)()
         print(f"保存 周线数据任务（当日） 完成。result: {result}")
     except Exception as e:
@@ -387,7 +387,7 @@ def save_week_data_yesterday_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
+            return await stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
         result = async_to_sync(main)()
         print(f"保存 周线数据任务（昨日） 完成。result: {result}")
     except Exception as e:
@@ -409,7 +409,7 @@ def save_month_data_today_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
+            return await stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
         result = async_to_sync(main)()
         print(f"保存 月线数据（当日） 完成。result: {result}")
     except Exception as e:
@@ -432,7 +432,7 @@ def save_month_data_yesterday_task(self):
             # 2. 创建 DAO 实例，并注入 cache_manager
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
+            return await stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
         result = async_to_sync(main)()
         print(f"保存 月线数据（昨日） 完成。result: {result}")
         save_cyq_data_yesterday_task.delay()
@@ -454,7 +454,7 @@ def save_cyq_chips_today_batch(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_all_cyq_chips_history(trade_date=today_date)
+            return await stock_time_trade_dao.save_all_cyq_chips_history(trade_date=today_date)
         result = async_to_sync(main)()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
@@ -474,7 +474,7 @@ def save_cyq_perf_today_batch(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date)
+            return await stock_time_trade_dao.save_all_cyq_perf_history(trade_date=today_date)
         result = async_to_sync(main)()
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
@@ -514,7 +514,7 @@ def save_cyq_chips_yesterday_batch(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_all_cyq_chips_history(trade_date=yesterday)
+            return await stock_time_trade_dao.save_all_cyq_chips_history(trade_date=yesterday)
         result = async_to_sync(main)()
         print(f"保存 每日筹码分布 数据完成。 result: {result} ")
     except Exception as e:
@@ -534,7 +534,7 @@ def save_cyq_perf_yesterday_batch(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_all_cyq_perf_history(trade_date=yesterday)
+            return await stock_time_trade_dao.save_all_cyq_perf_history(trade_date=yesterday)
         result = async_to_sync(main)()
         print(f"保存 每日筹码及胜率 数据完成。 result: {result} ")
     except Exception as e:
@@ -582,7 +582,7 @@ def save_minute_data_this_week_batch(self, stock_codes: str):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(stock_codes=stock_codes, start_date_str=this_monday_str, end_date_str=this_friday_str)
+            return await stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(stock_codes=stock_codes, start_date_str=this_monday_str, end_date_str=this_friday_str)
         result = async_to_sync(main)()
         # logger.info(f"保存股票 {stock_codes} 的分钟级交易数据完成. 结果: {result}")
     except Exception as e:
@@ -643,7 +643,7 @@ def save_day_data_this_week_batch(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(start_date=this_monday, end_date=this_friday)
+            return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(start_date=this_monday, end_date=this_friday)
         return_info = async_to_sync(main)()
         print(f"完成 {this_monday} - {this_friday} 的日线数据保存，{return_info}。")
         time.sleep(5)
@@ -663,7 +663,7 @@ def save_stocks_daily_basic_data_this_week_task(self):
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
             stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
-            stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(start_date=this_monday, end_date=this_friday)
+            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(start_date=this_monday, end_date=this_friday)
         print(f"开始保存 本周 股票重要的基本面指标...")
         result = async_to_sync(main)()
     except Exception as e:
@@ -935,7 +935,7 @@ def save_daily_basic_data_history_batch(self, stock_codes: List[str]):
         # 2. 创建 DAO 实例，并注入 cache_manager
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         # 3. 执行业务逻辑
-        await stock_time_trade_dao.save_stock_daily_basic_history_by_stock_codes(stock_codes)
+        return await stock_time_trade_dao.save_stock_daily_basic_history_by_stock_codes(stock_codes)
 
     try:
         async_to_sync(main)()
@@ -997,7 +997,7 @@ def save_week_data_history_batch(self, stock_codes: List[str]):
         # 2. 创建 DAO 实例，并注入 cache_manager
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         # 3. 执行业务逻辑
-        await stock_time_trade_dao.save_weekly_time_trade_by_stock_codes(stock_codes)
+        return await stock_time_trade_dao.save_weekly_time_trade_by_stock_codes(stock_codes)
 
     try:
         async_to_sync(main)()
@@ -1098,7 +1098,7 @@ def save_month_data_history_batch(self, stock_codes: List[str]):
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         # 3. 执行业务逻辑
         result = await stock_time_trade_dao.save_monthly_time_trade_by_stock_codes(stock_codes)
-        # logger.info(f"历史(月线)数据任务 结果：{result}")
+        logger.info(f"历史(月线)数据任务 结果：{result}")
 
     try:
         async_to_sync(main)()

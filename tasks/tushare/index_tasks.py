@@ -229,7 +229,7 @@ def save_index_daily_basic_history(self):
         # 创建DAO实例并注入cache_manager
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
-        await index_basic_dao.save_index_daily_basic_history()
+        return await index_basic_dao.save_index_daily_basic_history()
 
     try:
         print(f"开始处理 指数每日指标...")
