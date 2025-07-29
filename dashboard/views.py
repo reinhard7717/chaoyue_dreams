@@ -207,12 +207,12 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V3.0 状态驱动版】
-    - 核心升级: 直接从 FavoriteStockTracker 模型中读取预计算好的持仓状态，
-                查询逻辑极度简化，性能大幅提升。
-    - 新增功能: 增加了状态筛选功能，可以查看“持仓中”或“已平仓”的记录。
+    【V3.1 预计算版】
+    - 核心升级: 直接从 FavoriteStockTracker 模型中读取预计算好的持仓状态。
+    - 核心修复: 将分数差异的计算逻辑从模板移至视图中，解决模板语法错误。
     """
     # --- 步骤1: 获取用户的所有追踪器 ---
+    # 使用 select_related 预加载关联数据，一次性获取所有需要的信息，避免N+1查询
     base_queryset = FavoriteStockTracker.objects.filter(
         user=request.user
     ).select_related(
@@ -239,6 +239,7 @@ def fav_trend_following_list(request):
     if status_filter == 'sold':
         ordered_queryset = queryset.order_by('-exit_date')
     else:
+        # 假设 FavoriteStockTracker 模型中有 latest_date 字段
         ordered_queryset = queryset.order_by('-latest_date')
 
     # --- 步骤4: 分页 ---
@@ -246,10 +247,25 @@ def fav_trend_following_list(request):
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # --- 步骤5: 准备上下文并渲染 ---
+    # --- 步骤5: 准备最终传递给模板的上下文列表 ---
+    # 这一步现在是可选的，因为模型已经很完善了，但为了解耦和清晰，我们仍然构建一个 context list
+    items_for_display = []
+    for tracker in page_obj.object_list:
+        item_data = {
+            'tracker': tracker, # 直接将整个 tracker 对象传递过去
+            'score_diff': 0, # 初始化
+        }
+        if tracker.status == 'HOLDING' and tracker.latest_log and tracker.entry_log:
+            buy_score = tracker.entry_log.entry_score or 0.0
+            latest_score = tracker.latest_log.entry_score or 0.0
+            item_data['score_diff'] = latest_score - buy_score
+        items_for_display.append(item_data)
+
+    # --- 步骤6: 准备最终上下文并渲染 ---
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
+        'items_for_display': items_for_display, # 传递处理后的列表
         'total_count': paginator.count,
         'status_filter': status_filter, # 将当前筛选状态传给模板，用于高亮显示按钮
     }
