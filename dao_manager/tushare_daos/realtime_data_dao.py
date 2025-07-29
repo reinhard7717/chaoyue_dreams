@@ -26,7 +26,14 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         self.cache_get = StockRealtimeCacheGet()  # 先实例化
         self.stock_cache_get = StockInfoCacheGet()
-        self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
+        token = getattr(settings, 'TUSHARE_TOKEN', None)
+        if not token:
+            # 如果在settings中找不到token，记录一个严重的错误，防止程序静默失败
+            logger.critical("TUSHARE_TOKEN 未在Django settings中配置！Tushare功能将无法使用。")
+            self.ts = None # 明确设置为None
+        else:
+            ts.set_token(token)
+            self.ts = ts # 将初始化好的ts模块赋给实例变量
 
     # ================= 实时盘口TICK快照(爬虫版) =================
     # 获取所有股票的实时盘口TICK快照数据并保存到数据库
