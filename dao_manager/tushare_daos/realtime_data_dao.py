@@ -26,7 +26,7 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_set = StockRealtimeCacheSet()  # 先实例化
         self.cache_get = StockRealtimeCacheGet()  # 先实例化
         self.stock_cache_get = StockInfoCacheGet()
-        self.ts = ts.set_token(settings.TUSHARE_TOKEN)
+        self.ts = ts.set_token(settings.API_LICENCES_TUSHARE)
 
     # ================= 实时盘口TICK快照(爬虫版) =================
     # 获取所有股票的实时盘口TICK快照数据并保存到数据库
