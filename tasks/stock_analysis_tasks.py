@@ -591,9 +591,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         return {"status": "failed", "reason": "DAO initialization failed"}
 
     # 2. 定义异步 main 函数，它现在只接收依赖，不创建依赖
-    async def main(fund_dao, time_dao):
-        mode = "增量更新" if is_incremental else "全量刷新"
-        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.3, 模式: {mode})...")
+    async def main(fund_dao, time_dao, incremental_flag: bool):
+        
+        # 【核心修改 2】使用传入的参数 incremental_flag
+        mode = "增量更新" if incremental_flag else "全量刷新"
+        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.4, 模式: {mode})...")
         
         # --- 将所有同步ORM操作包装成可复用的异步函数 ---
         get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
@@ -627,16 +629,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             max_lookback_days = 160
             last_metric_date = None
             
-            if is_incremental:
+            if incremental_flag:
                 last_metric = await get_latest_metric_async(stock_info)
                 if last_metric:
                     last_metric_date = last_metric.trade_time
                 else:
                     logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
-                    is_incremental = False
+                    incremental_flag = False
             
             fetch_start_date = None
-            if is_incremental and last_metric_date:
+            if incremental_flag and last_metric_date:
                 fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
 
             # --- 并发获取所有数据源 ---
@@ -730,7 +732,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             grouped_data = merged_df.groupby('trade_time')
             all_metrics_list = []
             for trade_date, daily_full_df in grouped_data:
-                if is_incremental and last_metric_date and trade_date <= last_metric_date:
+                if incremental_flag and last_metric_date and trade_date <= last_metric_date:
                     continue
                 context_data = daily_full_df.iloc[0].to_dict()
                 chip_data_for_calc = daily_full_df[['price', 'percent']]
@@ -748,7 +750,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
             final_metrics_df = new_metrics_df
             
-            if is_incremental and last_metric_date:
+            if incremental_flag and last_metric_date:
                 # 注意：这里的同步ORM调用也需要异步化
                 past_metrics_df = await get_data_async(
                     AdvancedChipMetrics, stock_info, 
@@ -782,7 +784,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
             
             # --- 异步保存到数据库 ---
-            await save_metrics_async(stock_info, records_to_create, not is_incremental)
+            await save_metrics_async(stock_info, records_to_create, not incremental_flag)
             
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": len(records_to_create)}
@@ -798,7 +800,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     try:
         logger.info(f"--- BEFORE async_to_sync for {stock_code} ---")
         # 将创建好的DAO实例作为参数传递给main函数
-        result = async_to_sync(main)(fund_flow_dao, time_trade_dao)
+        result = async_to_sync(main)(fund_flow_dao, time_trade_dao, is_incremental)
         logger.info(f"--- AFTER async_to_sync for {stock_code} ---")
         return result
     except Exception as e:
