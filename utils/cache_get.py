@@ -17,17 +17,11 @@ class CacheGet():
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
-
-    async def get_cache_manager(self):
-        from utils.cache_manager import cache_manager
-        cm = cache_manager
-        await cm.initialize()
-        return cm
+        self.cache_manager = cache_manager
 
     async def _index_latest_data(self, index_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
-            cache_manager = await self.get_cache_manager()
-            cached_data = await cache_manager.get(key=cache_key)
+            cached_data = await self.cache_manager.get(key=cache_key)
             if cached_data is not None and isinstance(cached_data, dict):
                 return cached_data
             return None
@@ -42,8 +36,7 @@ class CacheGet():
         min_score = start_time.timestamp()
         max_score = end_time.timestamp()
         try:
-            cache_manager = await self.get_cache_manager()
-            cached_data_list = await cache_manager.zrangebyscore(key=cache_key, min_score=min_score, max_score=max_score)
+            cached_data_list = await self.cache_manager.zrangebyscore(key=cache_key, min_score=min_score, max_score=max_score)
             return cached_data_list
         except Exception as e:
             logger.error(f"从缓存获取时间序列数据时发生异常: {str(e)}", exc_info=True)
@@ -51,8 +44,7 @@ class CacheGet():
 
     async def _history_data_by_limit(self, cache_key: str, limit: int,) -> Optional[List[Dict[str, Any]]]:
         try:
-            cache_manager = await self.get_cache_manager()
-            cached_data_list = await cache_manager.zrange_by_limit(key=cache_key, limit=limit)
+            cached_data_list = await self.cache_manager.zrange_by_limit(key=cache_key, limit=limit)
             return cached_data_list
         except Exception as e:
             logger.error(f"从缓存 (ZSET) 获取时间序列数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
@@ -60,8 +52,7 @@ class CacheGet():
 
     async def _realtime_data(self, stock_code: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
-            cache_manager = await self.get_cache_manager()
-            cached_data = await cache_manager.get(key=cache_key)
+            cached_data = await self.cache_manager.get(key=cache_key)
             if cached_data is not None:
                 if isinstance(cached_data, dict):
                     # logger.info(f"缓存命中: 成功获取到股票[{stock_code}]实时数据, key: {cache_key}")
@@ -78,15 +69,14 @@ class CacheGet():
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
             # logger.info(f"尝试从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
             # 2. 调用 CacheManager 获取数据
-            cache_manager = await self.get_cache_manager()
-            cached_data = await cache_manager.get(key=cache_key)
+            cached_data = await self.cache_manager.get(key=cache_key)
             if cached_data is not None:
                 if isinstance(cached_data, dict):
                     # logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
                     return cached_data
                 else:
                     logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 时间级别[{time_level}] 的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
-                    cache_manager.delete(cache_key) # 可选：删除错误数据
+                    self.cache_manager.delete(cache_key) # 可选：删除错误数据
                     return None
             else:
                 logger.info(f"缓存未命中: 未找到股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
@@ -100,7 +90,6 @@ class CacheGet():
         try:
             # 调试信息：尝试从缓存获取股票策略数据
             logger.info(f"尝试从缓存获取股票[{stock_code}] 近三日策略数据, key: {cache_key}")
-            cache_manager = await self.get_cache_manager()
 
             # 修改开始: 计算近三日的时间戳范围
             end_timestamp = datetime.now().timestamp() # 当前时间戳作为分数上限
@@ -110,7 +99,7 @@ class CacheGet():
             # 修改行: 使用 zrangebyscore 获取 ZSET 中分数在指定时间戳范围内的所有成员
             # zrangebyscore(key, min_score, max_score) 用于获取分数在 min_score 和 max_score 之间的所有成员
             # 这里 min_score 是三天前的时间戳，max_score 是当前时间戳
-            cached_members = await cache_manager.zrangebyscore(
+            cached_members = await self.cache_manager.zrangebyscore(
                 key=cache_key,
                 min=start_timestamp,
                 max=end_timestamp,
@@ -168,10 +157,9 @@ class UserCacheGet(CacheGet):
         从缓存中异步读取用户自选股列表，并将字典转换为模型实例。
         """
         from users.models import FavoriteStock
-        cache_manager = await self.get_cache_manager()
         cache_key = self.cache_key_user.user_favorites(user_id)  # 例如 "user:favorites:123"
         try:
-            cached_data_dict = await cache_manager.hgetall(cache_key)  # 获取 Hash 数据，返回 Dict[str, Dict]
+            cached_data_dict = await self.cache_manager.hgetall(cache_key)  # 获取 Hash 数据，返回 Dict[str, Dict]
             # logger.info(f"缓存命中用户 {user_id} 的自选股列表: {cached_data_dict}, key: {cache_key}")
             if cached_data_dict:
                 favorite_list = []  # 用于存储转换后的模型实例
@@ -212,10 +200,9 @@ class IndexCacheGet(CacheGet):
             Optional[List[Dict]]: 按指数代码排序的指数列表，如果缓存未命中则返回None
         """
         try:
-            cache_manager = await self.get_cache_manager()
             cache_key = self.cache_key_index.indexs_data()
             # 获取缓存数据
-            cached_data = cache_manager.get(cache_key)
+            cached_data = self.cache_manager.get(cache_key)
             logger.info(f"cache_key：{cache_key}, cached_data: {cached_data}")
             if cached_data:
                 # 对缓存数据按code字段排序
@@ -233,9 +220,8 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的基础信息字典，如果未命中或发生错误则返回 None。
         """
-        cache_manager = await self.get_cache_manager()
         cache_key = self.cache_key_index.index_data(index_code)
-        cached_data = await cache_manager.get(cache_key)
+        cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
         return None
@@ -248,9 +234,9 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[List[Dict[str, Any]]]: 缓存中的成分权重列表，如果未命中或发生错误则返回 None。
         """
-        cache_manager = await self.get_cache_manager()
+
         cache_key = self.cache_key_index.index_weight(index_code)
-        cached_data = await cache_manager.get(cache_key)
+        cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
         return None
@@ -265,13 +251,13 @@ class IndexCacheGet(CacheGet):
                                       返回的字典格式应与 _cache_realtime_data 存入的格式一致。
         """
         try:
-            cache_manager = await self.get_cache_manager()
+    
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
             cache_key = self.cache_key_index.realtime_data(index_code)
             logger.info(f"尝试从缓存获取指数[{index_code}]实时数据, key: {cache_key}")
             # 2. 调用 CacheManager 获取数据
             # cache_manager.get 会自动处理反序列化和解压缩
-            cached_data = cache_manager.get(key=cache_key)
+            cached_data = self.cache_manager.get(key=cache_key)
             if cached_data is not None:
                 # 验证数据类型是否符合预期（可选但推荐）
                 if isinstance(cached_data, dict):
@@ -280,7 +266,7 @@ class IndexCacheGet(CacheGet):
                 else:
                     logger.warning(f"缓存数据格式错误: 指数[{index_code}]的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
                     # 可以考虑删除错误的缓存项
-                    cache_manager.delete(cache_key)
+                    self.cache_manager.delete(cache_key)
                     return None
             else:
                 logger.info(f"缓存未命中: 未找到指数[{index_code}]的实时数据, key: {cache_key}")
@@ -314,9 +300,9 @@ class StockInfoCacheGet(CacheGet):
         """
         从缓存中获取所有股票列表，按照股票代码排序
         """
-        cache_manager = await self.get_cache_manager()
+
         cache_key = self.cache_key_stock.stocks_data()
-        cached_data = await cache_manager.get(cache_key)
+        cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return sorted(cached_data, key=lambda x: x['stock_code'])
         return None
@@ -329,9 +315,9 @@ class StockInfoCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的股票数据字典，如果未命中或发生错误则返回 None。
         """
-        cache_manager = await self.get_cache_manager()
+
         cache_key = self.cache_key_stock.stock_data(stock_code)
-        cached_data = await cache_manager.get(cache_key)
+        cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
         return None
@@ -433,15 +419,15 @@ class StrategyCacheGet(CacheGet):
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str):
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         # 2. 调用 CacheManager 获取数据
-        cache_manager = await self.get_cache_manager()
-        cached_data = await cache_manager.get(key=cache_key)
+
+        cached_data = await self.cache_manager.get(key=cache_key)
         if cached_data is not None:
             if isinstance(cached_data, dict):
                 # logger.info(f"缓存命中: 成功获取到股票[{stock_code}] 最新策略判断, key: {cache_key}")
                 return cached_data
             else:
                 logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 最新策略判断的缓存值不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}. 将视为未命中。")
-                cache_manager.delete(cache_key) # 可选：删除错误数据
+                self.cache_manager.delete(cache_key) # 可选：删除错误数据
                 return None
         else:
             logger.info(f"缓存未命中: 未找到股票[{stock_code}] 最新策略判断, key: {cache_key}")
@@ -452,12 +438,12 @@ class StrategyCacheGet(CacheGet):
         获取全部股票的最新趋势跟踪策略数据（从Redis缓存）。
         返回: dict，key为stock_code，value为策略数据
         """
-        cache_manager = await self.get_cache_manager()
+
         # 构造key的前缀
         key_prefix = "strategy:stock:"
         pattern = f"{key_prefix}*:trend_following"
         # 获取所有匹配的key
-        keys = await cache_manager.scan_keys(pattern)
+        keys = await self.cache_manager.scan_keys(pattern)
         print(f"all_analyze_signals_trend_following_data: 匹配到{len(keys)}个key")
         result = {}
         for key in keys:
@@ -468,7 +454,7 @@ class StrategyCacheGet(CacheGet):
             except Exception as e:
                 print(f"解析key出错: {key}, 错误: {e}")
                 continue
-            data = await cache_manager.get(key)
+            data = await self.cache_manager.get(key)
             if data is not None:
                 result[stock_code] = data
         return result
@@ -480,9 +466,9 @@ class StrategyCacheGet(CacheGet):
     
     async def analyze_signals_trend_following_datas_by_timestamp(self, stock_code: str, timestamp: int) -> Optional[List[Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
-        cache_manager = await self.get_cache_manager()
+
         try:
-            members = await cache_manager.zrangebyscore(
+            members = await self.cache_manager.zrangebyscore(
                 key=cache_key,
                 min_score=timestamp,
                 max_score=timestamp,

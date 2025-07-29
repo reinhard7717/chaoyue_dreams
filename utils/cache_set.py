@@ -51,7 +51,6 @@ def convert_decimals(obj):
 
 class CacheSet():
     def __init__(self):
-        from utils.cache_manager import cache_manager
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
         # 注意：CacheManager 是异步的，这里无法直接初始化。建议在异步上下文中使用。
@@ -60,15 +59,15 @@ class CacheSet():
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess()
         self.cache_key_user = UserCashKey()
+        self.cache_manager = cache_manager
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{index_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
-        cache_manager = await self.get_cache_manager()
         try:
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_REALTIME)
-            success = await cache_manager.set(  # 添加 await
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
+            success = await self.cache_manager.set(  # 添加 await
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -87,10 +86,9 @@ class CacheSet():
             logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
             return False
         try:
-            cache_manager = await self.get_cache_manager()
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
             # 3. 调用 CacheManager 设置缓存
-            success = await cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -111,9 +109,8 @@ class CacheSet():
             logger.warning(f"试图缓存股票[{stock_code}] 的空实时数据，操作跳过。")
             return False
         try:    
-            cache_manager = await self.get_cache_manager()
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
-            success = await cache_manager.set(
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME) # 或者 cc.TYPE_TIMESERIES
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -132,9 +129,8 @@ class CacheSet():
             logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
             return False
         try:
-            cache_manager = await self.get_cache_manager()
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_STRATEGY)
-            success = await cache_manager.set(
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STRATEGY)
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -161,7 +157,6 @@ class CacheSet():
             logger.error(f"缓存失败: 数据点缺少 'trade_time' 字段。数据: {data_to_cache}")
             return False
         try:
-            cache_manager = await self.get_cache_manager()
             trade_datetime = base_dao._parse_datetime(trade_time_str)
             score = trade_datetime.timestamp()
             data_to_serialize = data_to_cache.copy()
@@ -176,8 +171,8 @@ class CacheSet():
             
             member_bytes = umsgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer)
             mapping_to_send = {member_bytes: score}
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_TIMESERIES)
-            success = await cache_manager.zadd(cache_key, mapping_to_send, cache_timeout)
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
+            success = await self.cache_manager.zadd(cache_key, mapping_to_send, cache_timeout)
             if success is not None:
                 return True
             else:
@@ -213,10 +208,9 @@ class UserCacheSet(CacheSet):
         """
         cache_key = self.cache_key_user.user_favorites(int(user_id))  # 假设返回如 "user:favorites:123"
         try:
-            cache_manager = await self.get_cache_manager()
             for index, item in enumerate(data_to_cache):
                 field = str(item.get('id', index))  # 使用 'id' 作为 field，如果没有则用索引
-                success = await cache_manager.hset(cache_key, field, item)  # 异步调用 hset
+                success = await self.cache_manager.hset(cache_key, field, item)  # 异步调用 hset
                 if not success:
                     logger.warning(f"缓存用户 {user_id} 自选股失败: field {field}")
                     return False  # 如果任何一个 field 失败，整个操作失败
@@ -246,9 +240,8 @@ class IndexCacheSet(CacheSet):
         """
         cache_key = self.cache_key_index.index_data(index_code)  # 假设返回如 "index:info:000001"
         try:
-            cache_manager = await self.get_cache_manager()
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
-            return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+            return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
         except Exception as e:
             logger.error(f"缓存指数 {index_code} 基本信息失败: {str(e)}", exc_info=True)
 
@@ -264,7 +257,6 @@ class IndexCacheSet(CacheSet):
         Returns:
             bool: 操作是否成功。
         """
-        cache_manager = await self.get_cache_manager()
         # 1. 输入验证 (可选但推荐)
         if not isinstance(indexes, list):
             logger.error("set_indexes_to_cache 失败: 输入数据不是列表")
@@ -282,12 +274,12 @@ class IndexCacheSet(CacheSet):
             entity_id=cc.ID_ALL
         )
         # 3. 获取缓存超时时间
-        cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
         logger.info(f"准备将 {len(data_dicts)} 条指数数据设置到缓存, key: {cache_key}, timeout: {cache_timeout}s")
         # 4. 调用 CacheManager 设置缓存
         try:
             # 直接使用传入的 indexes_data，因为它已经是期望的格式
-            success = await cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_dicts,
                 timeout=cache_timeout
@@ -317,15 +309,14 @@ class IndexCacheSet(CacheSet):
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{index_code}]的空实时数据，操作跳过。")
             return False
-        cache_manager = await self.get_cache_manager()
         try:
             # 1. 生成缓存键
             cache_key = self.cache_key_index.realtime_data(index_code)
             # 2. 获取缓存超时时间 (实时数据通常较短)
-            cache_timeout = cache_manager.get_timeout(cc.TYPE_REALTIME)
+            cache_timeout = self.cache_manager.get_timeout(cc.TYPE_REALTIME)
             # 3. 调用 CacheManager 设置缓存
             # data_to_cache 应该是可以直接序列化的字典
-            success = await cache_manager.set(
+            success = await self.cache_manager.set(
                 key=cache_key,
                 data=data_to_cache,
                 timeout=cache_timeout
@@ -381,17 +372,15 @@ class StockInfoCacheSet(CacheSet):
         self.cache_key_stock = StockCashKey()
    
     async def all_stocks(self, data_to_cache: Dict[str, Any]) -> bool:
-        cache_manager = await self.get_cache_manager()
         cache_key = self.cache_key_stock.stocks_data()
-        cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
-        return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
     
     async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
-        cache_manager = await self.get_cache_manager()
         cache_key = self.cache_key_stock.stock_data(stock_code)
         # print(f"StockInfoCacheSet.stock_basic_info.cache_key: {cache_key}")
-        cache_timeout = cache_manager.get_timeout(cc.TYPE_STATIC)
-        return await cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
+        cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
+        return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
 
 class StockTimeTradeCacheSet(CacheSet):
 

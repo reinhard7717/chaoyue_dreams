@@ -4,9 +4,6 @@
 """
 
 # 使用延迟导入来避免Django应用注册表未准备好的问题
-def get_cache_manager():
-    from .cache_manager import CacheManager
-    return CacheManager
 
 def get_model_json_encoder():
     from .models import ModelJSONEncoder
