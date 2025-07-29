@@ -41,7 +41,7 @@ class IntradayEngineOrchestrator:
                     范围查询，以解决因数据库存储与Django时区设置不匹配
                     导致的信号查询失败问题。
         """
-        logger.info("盘中引擎开始盘前准备，正在构建监控池并存入Redis...")
+        print("盘中引擎开始盘前准备，正在构建监控池并存入Redis...")
         
         # --- 1. 获取上一个交易日 ---
         today = date.today()
@@ -50,7 +50,7 @@ class IntradayEngineOrchestrator:
         if not previous_trade_date:
             logger.error(f"无法从交易日历中找到 {today} 的上一个交易日，盘前准备任务终止。")
             return
-        logger.info(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
+        print(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
 
         # --- 2. 构建“待买入池” (Watchlist) ---
         # 【核心修复】在这里直接执行正确的查询
@@ -77,7 +77,7 @@ class IntradayEngineOrchestrator:
 
         daily_buy_signals = await get_signals_list(buy_signals_qs)
         
-        logger.info(f"查询完成，共找到 {len(daily_buy_signals)} 条日线买入信号。")
+        print(f"查询完成，共找到 {len(daily_buy_signals)} 条日线买入信号。")
         
         watchlist = {signal.stock.stock_code for signal in daily_buy_signals}
         
