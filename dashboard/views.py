@@ -316,102 +316,47 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V2.2 绕过序列化器过滤版】
-        - 核心重构: 重写 create 方法，以确保在序列化器验证之前，
-                    就能捕获并处理自定义的 `signal_log_id` 字段。
+        【V2.5 最终简化版】
+        - 核心重构: 将所有逻辑集中在 create 方法中，不再依赖 perform_create
+                    和 serializer.create，代码更直观。
         """
         user = request.user
         
-        # --- 步骤1: 直接从原始请求中获取并验证建仓信号 ---
+        # --- 步骤1: 验证建仓信号 ---
         signal_log_id = request.data.get('signal_log_id')
         if not signal_log_id:
-            logger.warning(f"用户 {user.username} 尝试添加自选但未提供 signal_log_id。")
-            return Response({'detail': '必须提供一个有效的建仓信号ID (signal_log_id)。'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': '必须提供一个有效的建仓信号ID。'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            entry_log = TrendFollowStrategySignalLog.objects.select_related('stock').get(
-                id=signal_log_id, 
-                entry_signal=True
-            )
+            entry_log = TrendFollowStrategySignalLog.objects.select_related('stock').get(id=signal_log_id, entry_signal=True)
         except TrendFollowStrategySignalLog.DoesNotExist:
-            logger.error(f"用户 {user.username} 尝试使用无效的 signal_log_id: {signal_log_id} 添加自选。")
             return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
 
         stock = entry_log.stock
-        
-        # --- 步骤2: 准备序列化器需要的数据 ---
-        # 序列化器可能只需要 stock_id 或 stock_code，我们从 entry_log 中提取
-        serializer_data = {'stock': stock.stock_code}
-        
-        serializer = self.get_serializer(data=serializer_data)
-        try:
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            # 增加日志，捕获序列化器验证失败的详细原因
-            logger.error(f"序列化器验证失败 for stock {stock.stock_code}: {e}")
-            # 将详细错误返回给前端，便于调试
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        # --- 步骤3: 调用 perform_create，但传递额外的信息 ---
-        # 我们将 entry_log 实例直接传递过去
-        self.perform_create(serializer, entry_log=entry_log)
-        
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-    def perform_create(self, serializer, entry_log):
-        """
-        【V2.2 完整实现版】
-        - 核心修改: 此方法现在接收一个由 create 方法验证并传递过来的 entry_log 对象。
-        - 职责: 纯粹地执行数据库创建/更新操作，以及触发后续的异步任务。
-        """
-        user = self.request.user
-        stock = entry_log.stock
-
-        # --- 步骤A: 创建或获取 FavoriteStock 记录 ---
-        # 使用 get_or_create 确保用户-股票的关联是唯一的，避免重复
-        favorite, favorite_created = FavoriteStock.objects.get_or_create(
-            user=user, 
-            stock=stock
-        )
-        
-        if favorite_created:
-            logger.info(f"为用户 {user.username} 创建了新的 FavoriteStock 记录 for {stock.stock_code}。")
+        # --- 步骤2: 手动验证和创建 FavoriteStock ---
+        if FavoriteStock.objects.filter(user=user, stock=stock).exists():
+            favorite = FavoriteStock.objects.get(user=user, stock=stock)
         else:
-            logger.info(f"用户 {user.username} 已有 FavoriteStock 记录 for {stock.stock_code}，无需重复创建。")
+            # 验证 stock_code 是否有效 (这一步其实可以省略，因为 entry_log 已经保证了 stock 存在)
+            serializer = self.get_serializer(data={'stock_code': stock.stock_code})
+            serializer.is_valid(raise_exception=True)
+            favorite = FavoriteStock.objects.create(user=user, stock=stock)
 
-        # --- 步骤B: 创建或更新 FavoriteStockTracker 记录 ---
-        # 使用 update_or_create 来处理对同一次建仓信号的重复添加操作，确保幂等性。
-        tracker, tracker_created = FavoriteStockTracker.objects.update_or_create(
-            user=user,
-            stock=stock,
-            entry_log=entry_log, # 唯一性约束的关键部分
+        # --- 步骤3: 创建或更新 FavoriteStockTracker ---
+        tracker, _ = FavoriteStockTracker.objects.update_or_create(
+            user=user, stock=stock, entry_log=entry_log,
             defaults={
-                'status': 'HOLDING',
-                'entry_price': entry_log.close_price,
-                'entry_date': entry_log.trade_time,
-                'entry_score': entry_log.entry_score or 0.0,
-                
-                # 初始时，最新状态就是建仓时的状态
-                'latest_log': entry_log,
-                'latest_price': entry_log.close_price,
-                'latest_date': entry_log.trade_time,
-                'holding_health_score': entry_log.holding_health_score or 0.0,
-                'score_change_vs_entry': 0.0,
-                'profit_loss_pct': 0.0,
-
-                # 清空可能的历史平仓信息，确保这是一次全新的或重置的持仓记录
-                'exit_log': None,
-                'exit_price': None,
-                'exit_date': None,
+                'status': 'HOLDING', 'entry_price': entry_log.close_price,
+                'entry_date': entry_log.trade_time, 'entry_score': entry_log.entry_score or 0.0,
+                'latest_log': entry_log, 'latest_price': entry_log.close_price,
+                'latest_date': entry_log.trade_time, 'holding_health_score': entry_log.holding_health_score or 0.0,
+                'score_change_vs_entry': 0.0, 'profit_loss_pct': 0.0,
+                'exit_log': None, 'exit_price': None, 'exit_date': None,
             }
         )
-        
-        log_action = "创建了新的" if tracker_created else "更新了现有的"
-        logger.info(f"用户 {user.username} {log_action} 持仓追踪器 for {stock.stock_code}，关联建仓信号ID: {entry_log.id}。")
 
-        # --- 步骤C: 发送 WebSocket 通知，实时更新前端UI ---
-        # 准备一个与 dashboard home 页面兼容的 payload
+        # --- 步骤4: WebSocket 和 Celery 任务 ---
         websocket_payload = {
             'id': favorite.id,
             'code': stock.stock_code,
@@ -456,6 +401,12 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             logger.error("无法导入后台任务 'fetch_data_for_new_favorite'，跳过任务触发。请检查 Celery 配置和任务路径。")
         except Exception as task_error:
             logger.error(f"触发后台任务 fetch_data_for_new_favorite 时出错: {task_error}", exc_info=True)
+
+        # --- 步骤5: 返回成功的响应 ---
+        # 手动构建返回数据，以匹配序列化器的输出格式
+        response_data = FavoriteStockSerializer(instance=favorite).data
+        return Response(response_data, status=status.HTTP_201_CREATED)
+       
 
 
     def perform_destroy(self, instance):
