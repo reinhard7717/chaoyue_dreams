@@ -145,12 +145,16 @@ class IntradayEngineOrchestrator:
         position_list_key = self.cache_key.position_list_key(self.today_str)
 
         # 1. 从Redis读取监控池
-        watchlist = await self.cache_manager.redis_client.smembers(watchlist_key)
+        watchlist_bytes = await self.cache_manager.redis_client.smembers(watchlist_key)
         position_list_raw = await self.cache_manager.redis_client.hgetall(position_list_key)
+        
+        # 【核心修复】在这里进行解码，统一数据类型
+        watchlist = {code.decode('utf-8') for code in watchlist_bytes}
         
         # 反序列化持仓信息
         position_list = {
-            code.decode(): json.loads(info.decode()) for code, info in position_list_raw.items()
+            code.decode('utf-8'): json.loads(info.decode('utf-8')) 
+            for code, info in position_list_raw.items()
         }
 
         all_stocks_to_analyze = set(watchlist) | set(position_list.keys())
