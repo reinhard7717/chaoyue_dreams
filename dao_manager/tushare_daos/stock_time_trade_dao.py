@@ -41,8 +41,8 @@ class StockTimeTradeDAO(BaseDAO):
         self.cache_limit = 500 # 定义缓存数量上限
 
         self.cache_key = StockCashKey()
-        self.data_format_process_trade = StockTimeTradeFormatProcess()
-        self.data_format_process_stock = StockInfoFormatProcess()
+        self.data_format_process_trade = StockTimeTradeFormatProcess(cache_manager_instance)
+        self.data_format_process_stock = StockInfoFormatProcess(cache_manager_instance)
         self.cache_set = StockTimeTradeCacheSet(self.cache_manager)
         self.cache_get = StockTimeTradeCacheGet(self.cache_manager)
         self.stock_cache_set = StockInfoCacheSet(self.cache_manager)

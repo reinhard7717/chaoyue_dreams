@@ -28,7 +28,7 @@ class FundFlowDao(BaseDAO):
         # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
-        self.data_format_process = FundFlowFormatProcess()
+        self.data_format_process = FundFlowFormatProcess(cache_manager_instance)
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.industry_dao = IndustryDao(cache_manager_instance)

@@ -18,7 +18,7 @@ class CacheGet():
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
-        self.data_format_process = IndexDataFormatProcess()
+        self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
 
     async def _index_latest_data(self, index_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:

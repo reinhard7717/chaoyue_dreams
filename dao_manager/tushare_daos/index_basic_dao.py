@@ -25,7 +25,7 @@ class IndexBasicDAO(BaseDAO):
         # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
-        self.data_format_process = IndexDataFormatProcess()
+        self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
         self.index_cache_set = IndexCacheSet(self.cache_manager)
         self.index_cache_get = IndexCacheGet(self.cache_manager)
 

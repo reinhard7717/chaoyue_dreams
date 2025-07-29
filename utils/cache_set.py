@@ -54,7 +54,7 @@ class CacheSet():
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
-        self.data_format_process = IndexDataFormatProcess()
+        self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
         self.cache_key_user = UserCashKey()
 
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
@@ -232,7 +232,7 @@ class IndexCacheSet(CacheSet):
         # 【核心修改】调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_index = IndexCashKey()
-        self.data_format_process = IndexDataFormatProcess()
+        self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
     
     async def index_info(self, index_code: str, data_to_cache: Dict) -> bool:
         """

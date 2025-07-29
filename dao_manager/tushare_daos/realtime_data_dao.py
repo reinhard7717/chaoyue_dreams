@@ -25,7 +25,7 @@ class StockRealtimeDAO(BaseDAO):
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
-        self.data_format_process = StockRealtimeDataFormatProcess()
+        self.data_format_process = StockRealtimeDataFormatProcess(cache_manager_instance)
         self.cache_set = StockRealtimeCacheSet(self.cache_manager)  # 先实例化
         self.cache_get = StockRealtimeCacheGet(self.cache_manager)  # 先实例化
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)

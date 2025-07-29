@@ -28,7 +28,7 @@ class IndustryDao(BaseDAO):
         # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
-        self.data_format_process = IndustryFormatProcess()
+        self.data_format_process = IndustryFormatProcess(cache_manager_instance)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
 
     # ============== 申万行业分类 ==============
