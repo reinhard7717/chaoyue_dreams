@@ -529,6 +529,46 @@ def run_alpha_hunter_for_all_stocks(self):
 # ==============================================================================
 # 调度任务 (Dispatcher Task) - 此部分无需修改，保持原样
 # ==============================================================================
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='celery')
+def schedule_precompute_advanced_chips(self):
+    """
+    【V2.0 依赖注入修复版】
+    """
+    try:
+        logger.info("开始调度 [高级筹码指标预计算] 任务...")
+        
+        all_codes = []
+        
+        async def main():
+            nonlocal all_codes
+            cache_manager_instance = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
+            favorite_codes, non_favorite_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
+            all_codes.extend(favorite_codes)
+            all_codes.extend(non_favorite_codes)
+
+        async_to_sync(main)()
+        
+        if not all_codes:
+            logger.warning("未找到任何股票数据，预计算任务终止。")
+            return {"status": "failed", "reason": "no stocks found"}
+            
+        stock_count = len(all_codes)
+        logger.info(f"找到 {stock_count} 只股票待进行高级筹码预计算。")
+        
+        for stock_code in all_codes:
+            precompute_advanced_chips_for_stock.s(stock_code).set(queue='SaveHistoryData_TimeTrade').apply_async()
+        
+        logger.info(f"已为 {stock_count} 只股票调度 '高级筹码指标预计算' 任务。")
+        return {"status": "started", "stock_count": stock_count}
+        
+    except Exception as e:
+        logger.error(f"调度高级筹码预计算任务时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
+
+# ==============================================================================
+# 执行任务 (Executor Task) - 【V4.4.1 ORM调用修正版】
+# ==============================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
@@ -683,172 +723,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
                 AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
             print(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
-            return {"status": "success", "processed_days": len(records_to_create)}
-        except StockInfo.DoesNotExist:
-            logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
-            return {"status": "failed", "reason": "stock_code not found in StockInfo"}
-        except Exception as e:
-            logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
-            return {"status": "failed", "reason": str(e)}
-    return async_to_sync(main)()
-
-# ==============================================================================
-# 执行任务 (Executor Task) - 【V4.4.1 ORM调用修正版】
-# ==============================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
-def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True):
-    """
-    【执行器 V10.1 - 数据源诊断版】
-    - 核心逻辑与V10.0完全一致，确保数据源和计算的正确性。
-    """
-    async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        fund_flow_dao = FundFlowDao(cache_manager)
-        time_trade_dao = StockTimeTradeDAO(cache_manager)
-        # 其余业务逻辑保持不变，原地粘贴原有代码
-        mode = "增量更新" if is_incremental else "全量刷新"
-        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.1 数据源诊断版, 模式: {mode})...")
-        try:
-            stock_info = StockInfo.objects.get(stock_code=stock_code)
-            max_lookback_days = 160
-            last_metric_date = None
-            if is_incremental:
-                try:
-                    last_metric = AdvancedChipMetrics.objects.filter(stock=stock_info).latest('trade_time')
-                    last_metric_date = last_metric.trade_time
-                except AdvancedChipMetrics.DoesNotExist:
-                    logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
-                    is_incremental = False
-            fetch_start_date = None
-            if is_incremental and last_metric_date:
-                fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
-            def get_data(model, fields: tuple, date_field='trade_time'):
-                qs = model.objects.filter(stock=stock_info)
-                if fetch_start_date:
-                    filter_kwargs = {f'{date_field}__gte': fetch_start_date}
-                    qs = qs.filter(**filter_kwargs)
-                return pd.DataFrame.from_records(qs.values(*fields))
-            chip_model = time_trade_dao.get_cyq_chips_model_by_code(stock_code)
-            cyq_chips_data = get_data(chip_model, fields=('trade_time', 'price', 'percent'))
-            if cyq_chips_data.empty:
-                logger.warning(f"[{stock_code}] 在指定范围内找不到原始筹码数据，任务终止。")
-                return {"status": "skipped", "reason": "no raw chip data in range"}
-            cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
-            daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
-            mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
-            if mask_sum_to_one.any():
-                cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
-            daily_data_model = time_trade_dao.get_daily_data_model_by_code(stock_code)
-            daily_data = get_data(daily_data_model, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'))
-            daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-            daily_basic_data = get_data(StockDailyBasic, fields=('trade_time', 'float_share'))
-            daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
-            perf_data = get_data(StockCyqPerf, fields=('trade_time', 'weight_avg'))
-            perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
-            fund_flow_cy_model = fund_flow_dao.get_fund_flow_model_by_code(stock_code)
-            cy_fields = (
-                'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
-                'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
-                'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
-                'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount'
-            )
-            fund_flow_cy_data = get_data(fund_flow_cy_model, fields=cy_fields)
-            if not fund_flow_cy_data.empty:
-                fund_flow_cy_data['trade_time'] = pd.to_datetime(fund_flow_cy_data['trade_time']).dt.date
-            fund_flow_ths_model = fund_flow_dao.get_fund_flow_ths_model_by_code(stock_code)
-            ths_fields = ('trade_time', 'buy_lg_amount')
-            fund_flow_ths_data = get_data(fund_flow_ths_model, fields=ths_fields)
-            if not fund_flow_ths_data.empty:
-                fund_flow_ths_data['trade_time'] = pd.to_datetime(fund_flow_ths_data['trade_time']).dt.date
-                fund_flow_ths_data = fund_flow_ths_data.rename(columns={'buy_lg_amount': 'ths_buy_lg_amount'})
-            fund_flow_dc_model = fund_flow_dao.get_fund_flow_dc_model_by_code(stock_code)
-            dc_fields = ('trade_time', 'net_amount')
-            fund_flow_dc_data = get_data(fund_flow_dc_model, fields=dc_fields)
-            if not fund_flow_dc_data.empty:
-                fund_flow_dc_data['trade_time'] = pd.to_datetime(fund_flow_dc_data['trade_time']).dt.date
-                fund_flow_dc_data = fund_flow_dc_data.rename(columns={'net_amount': 'dc_net_amount'})
-            cyq_days = cyq_chips_data['trade_time'].nunique()
-            daily_days = len(daily_data)
-            fund_cy_days = len(fund_flow_cy_data) if not fund_flow_cy_data.empty else 0
-            fund_ths_days = len(fund_flow_ths_data) if not fund_flow_ths_data.empty else 0
-            fund_dc_days = len(fund_flow_dc_data) if not fund_flow_dc_data.empty else 0
-            logger.info(f"[{stock_code}] 数据源诊断: 筹码({cyq_days}天), 行情({daily_days}天), 资金流[CY]({fund_cy_days}天), [THS]({fund_ths_days}天), [DC]({fund_dc_days}天)")
-            daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
-            daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
-            daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
-            daily_basic_data = daily_basic_data.drop(columns=['float_share'])
-            perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
-            merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
-            merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
-            merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
-            if not fund_flow_cy_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
-            if not fund_flow_ths_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_ths_data, on='trade_time', how='left')
-            if not fund_flow_dc_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_dc_data, on='trade_time', how='left')
-            if merged_df.empty:
-                logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
-                return {"status": "skipped", "reason": "data sources could not be merged"}
-            merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
-            daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
-            daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
-            merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-            grouped_data = merged_df.groupby('trade_time')
-            all_metrics_list = []
-            for trade_date, daily_full_df in grouped_data:
-                if is_incremental and last_metric_date and trade_date <= last_metric_date:
-                    continue
-                context_data = daily_full_df.iloc[0].to_dict()
-                chip_data_for_calc = daily_full_df[['price', 'percent']]
-                calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
-                daily_metrics = calculator.calculate_all_metrics()
-                if daily_metrics:
-                    daily_metrics['trade_time'] = trade_date
-                    daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
-                    all_metrics_list.append(daily_metrics)
-            if not all_metrics_list:
-                logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
-                return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
-            new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
-            final_metrics_df = new_metrics_df
-            if is_incremental and last_metric_date:
-                past_metrics_df = pd.DataFrame.from_records(
-                    AdvancedChipMetrics.objects.filter(
-                        stock=stock_info, 
-                        trade_time__gte=fetch_start_date, 
-                        trade_time__lte=last_metric_date
-                    ).values()
-                ).set_index('trade_time')
-                if not past_metrics_df.empty:
-                    final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
-            slope_periods = [5, 8, 13, 21, 34, 55, 89, 144]
-            accel_periods = [5, 21]
-            if 'peak_cost' in final_metrics_df.columns:
-                for period in slope_periods:
-                    slope = final_metrics_df['peak_cost'].rolling(window=period, min_periods=2).apply(
-                        lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
-                    )
-                    final_metrics_df[f'peak_cost_slope_{period}d'] = slope
-                for period in accel_periods:
-                    final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
-            if 'concentration_90pct' in final_metrics_df.columns:
-                final_metrics_df['concentration_90pct_slope_5d'] = final_metrics_df['concentration_90pct'].rolling(5).mean().diff()
-            records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
-            records_to_create = []
-            for trade_date, row in records_to_save_df.iterrows():
-                record_data = row.dropna().to_dict()
-                if 'id' in record_data: del record_data['id']
-                if 'stock_id' in record_data: del record_data['stock_id']
-                records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
-            with transaction.atomic():
-                if not is_incremental:
-                    logger.info(f"[{stock_code}] 全量模式：删除所有旧数据...")
-                    AdvancedChipMetrics.objects.filter(stock=stock_info).delete()
-                AdvancedChipMetrics.objects.bulk_create(records_to_create, batch_size=5000)
-            logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": len(records_to_create)}
         except StockInfo.DoesNotExist:
             logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
