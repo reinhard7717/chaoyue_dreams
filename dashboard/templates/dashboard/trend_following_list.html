@@ -144,7 +144,9 @@
                             {% endif %}
                         </td>
                         <td class="actions">
-                            <button class="btn btn-sm btn-outline add-to-favorites-btn" data-stock-code="{{ item.stock.stock_code }}">
+                            <button class="btn btn-sm btn-outline add-to-favorites-btn" 
+                                    data-stock-code="{{ item.stock.stock_code }}"
+                                    data-log-id="{{ item.log_id }}"> {# <--- 在这里也加上 #}
                                 <span class="btn-icon">+</span>
                                 <span class="btn-text">添加自选</span>
                             </button>

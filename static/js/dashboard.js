@@ -439,6 +439,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!button || button.disabled) return;
 
             const stockCode = button.dataset.stockCode;
+            const signalLogId = button.dataset.logId;
+            // 【防御性检查】如果因为某些原因没获取到ID，则阻止操作并提示
+            if (!signalLogId) {
+                showNotification('无法获取信号ID，操作已取消', 'error');
+                console.error('错误：点击了添加自选按钮，但未能从 data-log-id 属性中获取到值。');
+                return;
+            }
             updateButtonState(button, false, true); // 设置为加载中状态
 
             try {
@@ -450,7 +457,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRFToken': csrfToken
                     },
-                    body: JSON.stringify({ stock_code: stockCode })
+                    body: JSON.stringify({ 
+                        stock_code: stockCode,
+                        signal_log_id: signalLogId 
+                    })
                 });
 
                 if (response.ok) {

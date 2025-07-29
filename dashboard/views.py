@@ -202,6 +202,7 @@ def trend_following_list(request):
     final_list_for_template = []
     for log in page_obj.object_list:
         final_list_for_template.append({
+            'log_id': log.id,
             'stock': log.stock,
             'latest_trade_time': log.trade_time,
             'latest_score': log.entry_score,
