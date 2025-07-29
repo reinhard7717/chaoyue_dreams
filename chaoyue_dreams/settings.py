@@ -465,7 +465,7 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'expires': 300, 'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     'init_realtime_engine_task': {
-        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
+        'task': 'tasks.tushare.stock_realtime_tasks.prepare_pools', # 任务函数名
         'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
         'options': {'queue': 'intraday_queue'},
     },

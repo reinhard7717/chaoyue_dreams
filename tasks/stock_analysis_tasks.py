@@ -301,11 +301,11 @@ def run_cycle(self):
         signals = async_to_sync(orchestrator.run_single_cycle)()
         
         if signals:
-            logger.info(f"本轮循环产生 {len(signals)} 条交易信号。")
+            print(f"本轮循环产生 {len(signals)} 条交易信号。")
         
         return {"status": "success", "signals_found": len(signals)}
     except Exception as e:
-        logger.error(f"盘中引擎循环任务失败: {e}", exc_info=True)
+        print(f"盘中引擎循环任务失败: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
 # --- 任务三：引擎调度器 (启动/停止) ---
