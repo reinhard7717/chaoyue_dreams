@@ -13,6 +13,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from utils.cache_manager import CacheManager
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
@@ -84,32 +85,29 @@ def save_tick_data_batch(self, stock_codes: List[str]):
         logger.info("收到空的股票代码列表，任务结束")
         return {"processed": 0, "success": 0, "errors": 0}
     logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(Tick)数据任务...")
-    stock_realtime_dao = StockRealtimeDAO()
-    strategy_dao = StrategiesDAO()
-    try:
+
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        stock_realtime_dao = StockRealtimeDAO(cache_manager)
+        strategy_dao = StrategiesDAO(cache_manager)
         # 1. 保存tick数据
-        async_to_sync(stock_realtime_dao.save_tick_data_by_stock_codes)(stock_codes)
-        # logger.info("批量tick数据保存完成，准备推送到前台")
+        await stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes)
         from users.models import FavoriteStock
         from dashboard.tasks import send_update_to_user_task_celery
-
         for code in stock_codes:
-            # 获取所有关注该股票的用户
             user_ids = list(FavoriteStock.objects.filter(stock__stock_code=code).values_list('user_id', flat=True))
             if not user_ids:
-                # logger.info(f"股票{code}没有关注用户，跳过推送")
                 continue
-            # 获取最新tick数据（调用异步方法，转同步）
-            latest_tick = async_to_sync(stock_realtime_dao.get_latest_tick_data)(code)
-            latest_strategy_result = async_to_sync(strategy_dao.get_latest_strategy_result)(code)
+            latest_tick = await stock_realtime_dao.get_latest_tick_data(code)
+            latest_strategy_result = await strategy_dao.get_latest_strategy_result(code)
             if not latest_tick:
                 logger.warning(f"未获取到股票{code}的最新tick数据，跳过推送")
                 continue
-            # --- 保证signal字段为对象 ---
-            signal = latest_strategy_result.score  #latest_tick.get('signal')
+            signal = latest_strategy_result.score
             if not isinstance(signal, dict):
                 signal = {'type': 'hold', 'text': signal or 'N/A'}
-            # --- 构造payload，字段名与前端updateStockRow完全一致 ---
             payload = {
                 'code': code,
                 'current_price': latest_tick.get('current_price'),
@@ -123,15 +121,16 @@ def save_tick_data_batch(self, stock_codes: List[str]):
                 'change_percent': latest_tick.get("change_percent"),
                 'signal': signal,
             }
-            # 推送给所有关注该股票的用户
             for uid in user_ids:
                 send_update_to_user_task_celery.apply_async(
                     args=[uid, 'realtime_tick_update', payload],
-                    queue='dashboard'  # 指定队列为dashboard
+                    queue='dashboard'
                 )
-                # print(f"已推送{code}最新tick数据到用户{uid}")
+    try:
+        async_to_sync(main)()
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+
 
 
 # --- 修改后的调度器任务 ---
@@ -203,13 +202,21 @@ def save_minute_data_realtime_batch(self, stock_codes: List[str], time_level: st
         logger.info("收到空的股票代码列表，任务结束")
         return {"processed": 0, "success": 0, "errors": 0}
     logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(分钟) ({time_level}) 数据任务...")
-    # 在任务开始时创建一次 DAO 实例
-    stock_time_trade_dao = StockTimeTradeDAO()
+
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        # 执行业务逻辑
+        await stock_time_trade_dao.save_minute_time_trade_realtime_by_stock_codes_and_time_level(stock_codes, time_level)
+
     try:
-        async_to_sync(stock_time_trade_dao.save_minute_time_trade_realtime_by_stock_codes_and_time_level)(stock_codes, time_level)
+        async_to_sync(main)()
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
     return stock_codes
+
 
 # --- 修改后的调度器任务 ---
 @celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')

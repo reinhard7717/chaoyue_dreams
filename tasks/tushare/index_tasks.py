@@ -6,6 +6,7 @@ import datetime
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
+from utils.cache_manager import CacheManager
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
@@ -39,85 +40,110 @@ def get_this_monday_and_friday():
 def save_trade_cal(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
     print(f"开始处理 交易日历数据...")
-    # 在任务开始时创建一次 DAO 实例
-    index_info_dao = IndexBasicDAO()
+
+    # 结构调整：主业务逻辑放入main异步函数
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_info_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_info_dao.save_trade_cal()
+
     try:
-        # 异步获取数据并保存
-        async_to_sync(index_info_dao.save_trade_cal)()
+        async_to_sync(main)()
         print("任务完成 - 交易日历数据")
     except Exception as e:
         logger.error(f"执行 交易日历数据 任务时发生意外错误: {e}", exc_info=True)
+
 
 #  ================ 指数基本信息 ================
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_infos', queue='SaveData_TimeTrade')
 def save_index_infos(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
+    print(f"开始处理 指数基本信息...")
+
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_indexs()
+
     try:
-        # 异步获取数据并保存
-        print(f"开始处理 指数基本信息...")
-        async_to_sync(index_basic_dao.save_indexs)()
+        async_to_sync(main)()
         print("任务完成 - 指数基本信息")
-        # async_to_sync(index_basic_dao.save_index_weight_monthly())
-        # print("任务完成 - 指数成分和权重")
     except Exception as e:
         logger.error(f"执行 指数基本信息 任务时发生意外错误: {e}", exc_info=True)
+
 
 #  ================ 指数每日指标 ================
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_today_task', queue='SaveData_TimeTrade')
 def save_index_daily_today_task(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_index_daily_basic_today()
+
     try:
-        async_to_sync(index_basic_dao.save_index_daily_basic_today)()
+        async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
+
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_yesterday_task', queue='SaveData_TimeTrade')
 def save_index_daily_yesterday_task(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_index_daily_basic_yesterday()
+
     try:
-        async_to_sync(index_basic_dao.save_index_daily_basic_yesterday)()
+        async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
+
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_this_week', queue='SaveData_TimeTrade')
 def save_index_daily_this_week_task(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
     this_monday, this_friday = get_this_monday_and_friday()
+
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_index_daily_history(start_date=this_monday, end_date=this_friday)
+
     try:
-        async_to_sync(index_basic_dao.save_index_daily_history)(start_date=this_monday, end_date=this_friday)
+        async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
+
 
 INDEX_SLICE_SIZE = 100 # 优化：将切片大小从10增加到100，减少任务总数，降低系统开销
 
@@ -128,23 +154,23 @@ def save_index_daily_history_slice(self, index_codes_slice: List[str]):
     Args:
         index_codes_slice: 指数代码列表切片
     """
-    # 在任务开始时创建 DAO 实例
-    index_basic_dao = IndexBasicDAO()
-    task_id = self.request.id # 代码修改处: 获取任务ID用于日志追踪
-    
-    try:
-        # 代码修改处: 使用Celery logger记录信息，并包含任务ID
-        logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
-        
-        # 调用DAO方法处理获取到的IndexInfo列表
-        async_to_sync(index_basic_dao.save_index_daily_history)(index_codes=index_codes_slice)
+    task_id = self.request.id  # 获取任务ID用于日志追踪
 
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_index_daily_history(index_codes=index_codes_slice)
+
+    try:
+        logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
+        async_to_sync(main)()
         logger.info(f"[{task_id}] 任务成功 - 指数切片处理完成，包含 {len(index_codes_slice)} 个代码。")
     except Exception as e:
-        # 代码修改处: 使用Celery logger记录错误，并包含任务ID
         logger.error(f"[{task_id}] 执行指数切片任务时发生错误 (切片: {index_codes_slice[:3]}...): {e}", exc_info=True)
-        # 可以选择重新抛出异常，让Celery根据配置进行重试
-        # raise self.retry(exc=e, countdown=60)
+
 
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery') # 代码修改处: 任务名修改为 dispatch_... 更清晰
@@ -196,15 +222,18 @@ def save_index_daily_history_task(self):
 def save_index_daily_basic_history(self):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
-    this_monday, this_friday = get_this_monday_and_friday()
+    async def main():
+        # 创建CacheManager实例
+        cache_manager = CacheManager()
+        # 创建DAO实例并注入cache_manager
+        index_basic_dao = IndexBasicDAO(cache_manager)
+        # 执行业务逻辑
+        await index_basic_dao.save_index_daily_basic_history()
+
     try:
         print(f"开始处理 指数每日指标...")
-        async_to_sync(index_basic_dao.save_index_daily_basic_history)()
+        async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
