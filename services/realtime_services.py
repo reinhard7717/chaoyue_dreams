@@ -10,6 +10,7 @@ from datetime import datetime, time # <--- 2. 导入 time
 from datetime import datetime
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from utils.cache_manager import CacheManager
 
 
 logger = logging.getLogger("services")
@@ -21,9 +22,12 @@ class RealtimeServices:
                 转化为一个包含力学、统计学、分形等多维度特征的战术情报矩阵。
     - 技术栈: Pandas, Numpy, Pandas-TA
     """
-    def __init__(self):
-        self.realtime_dao = StockRealtimeDAO()
-        self.timetrade_dao = StockTimeTradeDAO()
+    def __init__(self, cache_manager_instance: CacheManager):
+        # 【核心修复】接收 cache_manager_instance
+        
+        # 使用传入的实例来创建 DAO
+        self.realtime_dao = StockRealtimeDAO(cache_manager_instance)
+        self.timetrade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.slope_window = 5
         self.stats_window = 20
 

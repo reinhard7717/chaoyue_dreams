@@ -311,22 +311,34 @@ def analyze_all_stocks_full_history(self):
 
 
 # --- 任务一：盘前准备任务 ---
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.prepare_pools', queue='intraday_queue')
-def prepare_pools(self):
+@celery_app.task(name='tasks.stock_analysis_tasks.prepare_pools')
+def prepare_pools(params: dict):
     """
-    【最佳实践】盘前准备任务，只负责构建监控池并写入Redis。
-    应在交易日开盘前（如 09:15）由Celery Beat触发一次。
+    盘前准备任务：为所有相关股票池生成当日的分钟K线和衍生特征。
+    【V2.0 - 异步上下文修复版】
     """
+    logger.info("开始执行盘前准备任务...")
+
+    # 【核心修复】定义一个异步的 main 函数
+    async def main():
+        # 1. 在异步上下文中创建顶层的 CacheManager
+        cache_manager_instance = CacheManager()
+        
+        # 2. 创建 Orchestrator 实例，并注入 cache_manager
+        orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
+        
+        # 3. 执行业务逻辑
+        success = await orchestrator.prepare_all_pools()
+        if success:
+            logger.info("盘前准备任务成功完成。")
+        else:
+            logger.error("盘前准备任务执行失败。")
+
     try:
-        logger.info("盘中引擎盘前准备任务启动...")
-        params = {} # 从配置加载
-        orchestrator = IntradayEngineOrchestrator(params)
-        async_to_sync(orchestrator.initialize_pools)()
-        logger.info("盘中引擎盘前准备任务完成。")
-        return {"status": "success"}
+        # 使用 async_to_sync 运行这个总的 main 函数
+        async_to_sync(main)()
     except Exception as e:
         logger.error(f"盘前准备任务失败: {e}", exc_info=True)
-        return {"status": "error", "reason": str(e)}
 
 # --- 任务二：核心盘中循环任务 ---
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_cycle', queue='intraday_queue')
