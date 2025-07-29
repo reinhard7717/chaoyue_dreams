@@ -312,7 +312,7 @@ def analyze_all_stocks_full_history(self):
 
 # --- 任务一：盘前准备任务 ---
 @celery_app.task(name='tasks.stock_analysis_tasks.prepare_pools')
-def prepare_pools(self):
+def prepare_pools():
     """
     盘前准备任务：为所有相关股票池生成当日的分钟K线和衍生特征。
     【V2.0 - 异步上下文修复版】
