@@ -6,8 +6,9 @@ from asgiref.sync import sync_to_async # 异步转换工具
 from datetime import datetime, date
 from typing import Dict, List, Set
 from channels.layers import get_channel_layer
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.index import TradeCalendar
-from dao_manager.tushare_daos.user_dao import UserDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
 from strategies.realtime_strategy import RealtimeStrategy
@@ -23,7 +24,8 @@ class IntradayEngineOrchestrator:
     """
     def __init__(self, params: Dict):
         self.params = params
-        self.user_dao = UserDAO()
+        self.stock_dao = StockBasicInfoDao()
+        self.stock_time_trade_dao = StockTimeTradeDAO()
         self.strategies_dao = StrategiesDAO()
         self.services = RealtimeServices()
         self.strategy = RealtimeStrategy(params)
@@ -33,45 +35,62 @@ class IntradayEngineOrchestrator:
 
     async def initialize_pools(self):
         """
-        【盘前准备 V2.0 - 交易日历适配版】
+        【盘前准备 V2.1 - 并发获取行情版】
         在交易日开始前，构建两个核心的监控池。
         """
         logger.info("盘中引擎开始盘前准备，正在构建监控池并存入Redis...")
         
-        # --- 【核心修改】使用交易日历获取上一个交易日 ---
-        # 1. 获取今天的日期
+        # --- 1. 获取上一个交易日 (逻辑不变) ---
         today = date.today()
-        
-        # 2. 调用 TradeCalendar 的类方法获取上一个交易日
-        #    注意：由于 get_latest_trade_date 是同步方法，我们需要用 sync_to_async 包装
         get_prev_trade_date_async = sync_to_async(TradeCalendar.get_latest_trade_date, thread_sensitive=True)
         previous_trade_date = await get_prev_trade_date_async(reference_date=today)
-
         if not previous_trade_date:
             logger.error(f"无法从交易日历中找到 {today} 的上一个交易日，盘前准备任务终止。")
             return
-
         logger.info(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
 
-        # 3. 构建“待买入池” (Watchlist)
-        #    使用获取到的上一个交易日进行查询
+        # --- 2. 构建“待买入池” (Watchlist) (逻辑不变) ---
         daily_buy_signals = await self.strategies_dao.get_daily_buy_signals(trade_date=previous_trade_date)
         watchlist = {signal.stock.stock_code for signal in daily_buy_signals}
         
-        # 4. 构建“持仓监控池” (Position List)
-        favorite_stocks = await self.user_dao.get_all_favorite_stocks()
+        # --- 3. 构建“持仓监控池” (Position List) ---
+        # 【核心修改】使用 asyncio.gather 并发调用 get_latest_daily_quote
+        # 3.1 获取基础的自选股信息（字典列表）
+        favorite_stocks_list = await self.stock_dao.get_all_favorite_stocks()
         position_list = {}
-        for fav_stock in favorite_stocks:
-            stock_code = fav_stock.stock.stock_code
-            if stock_code not in position_list:
-                position_list[stock_code] = {
-                    "stock_code": stock_code,
-                    "cost_price": float(fav_stock.stock.latest_quote.get('close', 10.0)),
-                    "user_id": fav_stock.user.id
-                }
-
-        # 5. 将监控池写入Redis (逻辑不变)
-        self.today_str = today.strftime('%Y-%m-%d') # 确保 self.today_str 是当天的日期
+        if favorite_stocks_list:
+            # 3.2 提取所有不重复的股票代码
+            stock_codes_to_fetch = sorted(list({fav.get("stock_code") for fav in favorite_stocks_list if fav.get("stock_code")}))
+            print(f"调试: 需要为持仓池获取 {len(stock_codes_to_fetch)} 只股票的最新日线行情。")
+            quotes_map = {}
+            if stock_codes_to_fetch:
+                # 3.3 创建一个包含所有异步查询任务的列表
+                print(f"调试: 准备并发执行 {len(stock_codes_to_fetch)} 个数据库查询任务...")
+                tasks = [self.stock_time_trade_dao.get_latest_daily_quote(code) for code in stock_codes_to_fetch]
+                # 3.4 使用 asyncio.gather 并发执行所有任务
+                # results 将是一个列表，其顺序与 tasks 列表的顺序完全对应
+                results = await asyncio.gather(*tasks)
+                print(f"调试: 并发查询完成，获取到 {len([r for r in results if r])} 条有效的行情数据。")
+                # 3.5 将返回的报价列表转换成 "代码 -> 报价字典" 的映射，便于查找
+                for code, quote_result in zip(stock_codes_to_fetch, results):
+                    if quote_result:
+                        quotes_map[code] = quote_result
+            # 3.6 遍历自选股列表，结合报价数据，构建最终的 position_list
+            for fav_stock_dict in favorite_stocks_list:
+                stock_code = fav_stock_dict.get("stock_code")
+                if not stock_code:
+                    continue
+                if stock_code not in position_list:
+                    # 从刚刚构建的 quotes_map 中查找报价
+                    stock_quote = quotes_map.get(stock_code, {}) # 如果没找到报价，返回空字典
+                    position_list[stock_code] = {
+                        "stock_code": stock_code,
+                        # 从报价字典中获取收盘价，如果不存在则使用默认值10.0
+                        "cost_price": float(stock_quote.get('close', 10.0)),
+                        "user_id": fav_stock_dict.get("user_id")
+                    }
+        # --- 4. 将监控池写入Redis (逻辑不变) ---
+        self.today_str = today.strftime('%Y-%m-%d')
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
         

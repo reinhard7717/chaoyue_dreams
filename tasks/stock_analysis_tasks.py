@@ -311,8 +311,8 @@ def run_cycle(self):
 # --- 任务三：引擎调度器 (启动/停止) ---
 # 这部分可以简化为一个管理命令或在Django Admin中手动操作，
 # 但用Celery任务来自动化是更佳实践。
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.scheduler', queue='celery')
-def scheduler(action: str):
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.realtime_engine_scheduler', queue='celery')
+def realtime_engine_scheduler(action: str):
     """
     【最佳实践】统一的引擎调度器，负责启动和停止盘中循环任务。
     """

@@ -38,18 +38,4 @@ class UserDAO(BaseDAO):
             logger.error(f"获取用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
             print(f"获取用户 {user_id} 自选股列表失败: {str(e)}")  # 调试信息
             return []
-
-    async def get_all_favorite_stocks(self) -> List[FavoriteStock]:
-        """
-        仅从数据库获取所有用户的自选股列表，不使用缓存
-        """
-        try:
-            # 直接异步查询数据库，获取所有自选股
-            all_favorite_stocks = [fav async for fav in FavoriteStock.objects.all()]
-            print(f"从数据库获取所有用户自选股数量: {len(all_favorite_stocks)}")  # 调试信息
-            return all_favorite_stocks
-        except Exception as e:
-            logger.error(f"获取所有用户自选股列表失败: {str(e)}", exc_info=True)
-            print(f"获取所有用户自选股列表失败: {str(e)}")  # 调试信息
-            return []
     
