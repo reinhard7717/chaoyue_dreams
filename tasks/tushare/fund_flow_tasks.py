@@ -1,5 +1,6 @@
 # tasks/tushare/fund_flow_tasks.py
 import asyncio
+from asgiref.sync import async_to_sync
 import logging
 import datetime
 from django.utils import timezone
@@ -101,8 +102,8 @@ def execute_save_today_fund_flow_method(self, method_name: str, trade_date: date
         fund_flow_dao = FundFlowDao()
         # 使用getattr动态获取DAO实例的异步方法
         save_method = getattr(fund_flow_dao, method_name, trade_date)
-        # [关键修改] 在独立的子任务中正确使用 asyncio.run()
-        asyncio.run(save_method())
+        # [关键修改] 在独立的子任务中正确使用 async_to_sync()
+        async_to_sync(save_method)()
         logger.info(f"子任务成功: {method_name}")
         print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
         return {"status": "success", "method": method_name}
@@ -162,10 +163,10 @@ def save_hm_detail_data_today(self):
         # 【核心逻辑】
         # 因为 save_hm_detail_data 是一个异步(async)方法，
         # 而Celery任务函数本身是同步(def)的，
-        # 所以我们需要使用 asyncio.run() 来创建一个事件循环并运行这个异步方法。
+        # 所以我们需要使用 async_to_sync() 来创建一个事件循环并运行这个异步方法。
         # 我们不向 save_hm_detail_data 传递任何日期参数，
         # 它将自动使用默认逻辑，获取当天的日期进行处理。
-        asyncio.run(dao.save_hm_detail_data())
+        async_to_sync(dao.save_hm_detail_data)()
         
         # 打印任务成功结束信息
         print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行成功。")
@@ -195,8 +196,8 @@ def execute_fund_flow_dao_method(self, method_name: str, trade_date: str):
         fund_flow_dao = FundFlowDao()
         # 使用getattr动态获取DAO实例的异步方法
         save_method = getattr(fund_flow_dao, method_name, trade_date)
-        # 在独立的子任务中正确使用 asyncio.run() 来桥接同步和异步
-        asyncio.run(save_method())
+        # 在独立的子任务中正确使用 async_to_sync() 来桥接同步和异步
+        async_to_sync(save_method)()
         logger.info(f"通用子任务成功: {method_name}")
         print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
         return {"status": "success", "method": method_name}
@@ -346,8 +347,8 @@ def save_fund_flow_daily_data_history_batch(self, start_date: datetime.date, end
         return not has_error # 如果没有错误，返回True
 
     try:
-        # [修改] 只需调用一次 asyncio.run() 来执行异步主函数
-        success = asyncio.run(main())
+        # [修改] 只需调用一次 async_to_sync() 来执行异步主函数
+        success = async_to_sync(main)()
         
         if success:
             logger.info(f"成功完成日期范围 {start_date}-{end_date} 的所有资金流数据保存任务。")
@@ -358,7 +359,7 @@ def save_fund_flow_daily_data_history_batch(self, start_date: datetime.date, end
             return {"status": "partial_success"}
 
     except Exception as e:
-        # 这个异常捕获主要用于处理asyncio.run本身或之前同步代码的错误
+        # 这个异常捕获主要用于处理async_to_sync本身或之前同步代码的错误
         logger.error(f"执行批量保存任务({start_date} to {end_date})时发生意外错误: {e}", exc_info=True)
         # [修改] 明确返回错误状态
         raise self.retry(exc=e, countdown=60) # 发生未知严重错误时，可以考虑重试
@@ -430,7 +431,7 @@ def save_fund_flow_daily_data_ths_today(self):
     try:
         today_date = timezone.now().date()
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=today_date))
+        async_to_sync(fund_flow_dao.save_history_fund_flow_cnt_ths_data)(trade_date=today_date)
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -449,7 +450,7 @@ def save_fund_flow_daily_data_ths_yesterday(self):
         today_date = timezone.now().date()
         yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday))
+        async_to_sync(fund_flow_dao.save_history_fund_flow_cnt_ths_data)(trade_date=yesterday)
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -466,8 +467,8 @@ def save_fund_flow_daily_data_ths_this_week_batch(self, this_monday: datetime.da
     fund_flow_dao = FundFlowDao()
     try:
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(start_date=this_monday, end_date=this_friday))
-        asyncio.run(fund_flow_dao.save_history_fund_flow_industry_ths_data(start_date=this_monday, end_date=this_friday))
+        async_to_sync(fund_flow_dao.save_history_fund_flow_cnt_ths_data)(start_date=this_monday, end_date=this_friday)
+        async_to_sync(fund_flow_dao.save_history_fund_flow_industry_ths_data)(start_date=this_monday, end_date=this_friday)
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -501,8 +502,8 @@ def save_fund_flow_daily_data_ths_history_batch(self, trade_date: datetime.date)
     fund_flow_dao = FundFlowDao()
     try:
         # 异步获取数据并保存
-        asyncio.run(fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date))
-        asyncio.run(fund_flow_dao.save_history_fund_flow_industry_ths_data(trade_date))
+        async_to_sync(fund_flow_dao.save_history_fund_flow_cnt_ths_data)(trade_date)
+        async_to_sync(fund_flow_dao.save_history_fund_flow_industry_ths_data)(trade_date)
     except Exception as e:
         logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
@@ -518,7 +519,7 @@ def save_fund_flow_daily_data_ths_history_task(self):
     logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式)")
     try:
         index_info_dao = IndexBasicDAO()
-        trade_days = asyncio.run(index_info_dao.get_last_n_trade_cal_open(n=1500))
+        trade_days = async_to_sync(index_info_dao.get_last_n_trade_cal_open)(n=1500)
         total_dispatched_batches = 0
         for cal_date in trade_days:
             # cal_date格式为'YYYYMMDD'，转为date对象

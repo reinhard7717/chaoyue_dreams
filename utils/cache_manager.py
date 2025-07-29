@@ -130,9 +130,29 @@ class CacheManager:
             raise # 将异常重新抛出，以便调用者知道初始化失败
 
     async def _ensure_client(self):
-        """(内部方法) 确保 Redis 客户端已初始化"""
+        """
+        (内部方法) 确保 Redis 客户端已初始化且连接有效。
+        【V2.1 - 事件循环修复版】
+        - 核心修复: 检查底层连接的事件循环是否已关闭，如果关闭则强制重新初始化。
+        """
+        loop = asyncio.get_running_loop()
+        
+        # 检查1: 客户端从未初始化
         if self.redis_client is None:
             await self.initialize()
+        # 检查2: 客户端已初始化，但其连接池所关联的事件循环已经关闭
+        elif self.redis_client.connection_pool.loop is None or self.redis_client.connection_pool.loop.is_closed():
+            logger.warning("检测到Redis连接的事件循环已关闭，将强制重新初始化连接...")
+            # 先断开旧的、无效的连接
+            try:
+                await self.redis_client.close()
+            except Exception:
+                pass # 忽略断开时的错误
+            
+            # 重置客户端并重新初始化
+            self.redis_client = None
+            await self.initialize()
+
         # 再次检查，如果 initialize 失败则 redis_client 仍为 None
         if self.redis_client is None:
              raise ConnectionError("无法连接到 Redis 服务器，请检查配置和网络。")

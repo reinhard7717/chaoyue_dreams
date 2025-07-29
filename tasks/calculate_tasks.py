@@ -1,5 +1,6 @@
 # tasks\calculate_tasks.py
 import asyncio
+from asgiref.sync import async_to_sync
 import logging
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from core.constants import TIME_TEADE_TIME_LEVELS_PER_TRADING
@@ -38,8 +39,8 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
     它调用内部的异步函数来完成工作。
     """
     # logger.info(f"Celery 任务开始处理股票 {stock_code}...")
-    # 使用 asyncio.run() 在同步任务中运行异步代码
-    result = asyncio.run(_calculate_stock_indicators_async(stock_code))
+    # 使用 async_to_sync() 在同步任务中运行异步代码
+    result = async_to_sync(_calculate_stock_indicators_async)(stock_code)
     # logger.info(f"Celery 任务完成处理股票 {stock_code}，结果: {result}")
     # 返回异步函数的结果，这个结果应该是可序列化的（字符串）
     return result
@@ -98,7 +99,7 @@ def calculate_stock_indicators(self):
     logger.info("任务启动: calculate_stock_indicators (调度器模式) - 获取股票列表并分派细粒度任务链")
     try:
         # 在同步任务中运行异步代码来获取列表
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
         if not favorite_codes and not non_favorite_codes:
             logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
             return "未获取到股票代码"

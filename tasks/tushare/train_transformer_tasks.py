@@ -1,10 +1,8 @@
 # tasks/tushare/train_transformer_tasks.py
-import json
-import os
 import logging
 import asyncio
+from asgiref.sync import async_to_sync
 from pathlib import Path # 导入 asyncio
-from celery import group
 from django.conf import settings
 import numpy as np
 # 假设 StockBasicInfoDao 存在且可用
@@ -12,8 +10,6 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 import pandas as pd
 # 假设 celery 实例存在且可用
 from chaoyue_dreams.celery import app as celery_app
-# 假设 IndicatorService 存在且可用
-from services.indicator_services import IndicatorService
 # 导入修改后的 TrendFollowStrategy 类
 from strategies.trend_following_strategy import TrendFollowStrategy
 # 导入 prepare_data_for_transformer 函数
@@ -60,7 +56,7 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         logger.info(f"{task_id_str} [{stock_code}]：开始使用 IndicatorService 准备数据...")
         # 调用策略的 prepare_data 方法，该方法内部调用 IndicatorService
         # prepare_data 返回包含所有 OHLCV, 指标, 外部特征, 衍生特征的 DataFrame 和实际使用的指标配置列表
-        data_df, actual_indicator_configs = asyncio.run(strategy.prepare_data(stock_code=stock_code, base_needed_count=base_bars))
+        data_df, actual_indicator_configs = async_to_sync(strategy.prepare_data)(stock_code=stock_code, base_needed_count=base_bars)
         # 检查返回的数据是否为空
         if data_df is None or data_df.empty:
             # 记录警告信息
@@ -304,8 +300,8 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
     total_stocks_checked = 0
     try:
         stock_basic_dao = StockBasicInfoDao()
-        # 使用 asyncio.run 来执行异步方法
-        all_stocks = asyncio.run(stock_basic_dao.get_stock_list()) #[::-1]
+        # 使用 async_to_sync 来执行异步方法
+        all_stocks = async_to_sync(stock_basic_dao.get_stock_list)() #[::-1]
         if not all_stocks:
             logger.warning("未获取到股票列表，跳过数据处理任务分派。")
             return {"status": "warning", "message": "未获取到股票列表", "dispatched_tasks": 0}
@@ -409,7 +405,7 @@ def schedule_transformer_training_chain(self): # 参数名一致性
     try:
         total_dispatched_chains = 0
         stock_basic_dao = StockBasicInfoDao()
-        all_stocks = asyncio.run(stock_basic_dao.get_stock_list())
+        all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         if not all_stocks:
              logger.warning("未获取到股票列表，跳过任务链分派。")
              return {"status": "warning", "message": "未获取到股票列表", "dispatched_chains": 0}

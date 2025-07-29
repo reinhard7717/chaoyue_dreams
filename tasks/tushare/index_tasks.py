@@ -1,14 +1,11 @@
 # tasks/tushare/index_tasks.py
 import asyncio
+from asgiref.sync import async_to_sync
 import logging
 import datetime
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
-from celery.utils.log import get_task_logger
-from dao_manager.tushare_daos import fund_flow_dao
-from dao_manager.tushare_daos import index_basic_dao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_TimeTrade'
@@ -50,7 +47,7 @@ def save_trade_cal(self):
     index_info_dao = IndexBasicDAO()
     try:
         # 异步获取数据并保存
-        asyncio.run(index_info_dao.save_trade_cal())
+        async_to_sync(index_info_dao.save_trade_cal)()
         print("任务完成 - 交易日历数据")
     except Exception as e:
         logger.error(f"执行 交易日历数据 任务时发生意外错误: {e}", exc_info=True)
@@ -68,9 +65,9 @@ def save_index_infos(self):
     try:
         # 异步获取数据并保存
         print(f"开始处理 指数基本信息...")
-        asyncio.run(index_basic_dao.save_indexs())
+        async_to_sync(index_basic_dao.save_indexs)()
         print("任务完成 - 指数基本信息")
-        # asyncio.run(index_basic_dao.save_index_weight_monthly())
+        # async_to_sync(index_basic_dao.save_index_weight_monthly())
         # print("任务完成 - 指数成分和权重")
     except Exception as e:
         logger.error(f"执行 指数基本信息 任务时发生意外错误: {e}", exc_info=True)
@@ -86,7 +83,7 @@ def save_index_daily_today_task(self):
     # 在任务开始时创建一次 DAO 实例
     index_basic_dao = IndexBasicDAO()
     try:
-        asyncio.run(index_basic_dao.save_index_daily_basic_today())
+        async_to_sync(index_basic_dao.save_index_daily_basic_today)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
@@ -101,7 +98,7 @@ def save_index_daily_yesterday_task(self):
     # 在任务开始时创建一次 DAO 实例
     index_basic_dao = IndexBasicDAO()
     try:
-        asyncio.run(index_basic_dao.save_index_daily_basic_yesterday())
+        async_to_sync(index_basic_dao.save_index_daily_basic_yesterday)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
@@ -117,7 +114,7 @@ def save_index_daily_this_week_task(self):
     index_basic_dao = IndexBasicDAO()
     this_monday, this_friday = get_this_monday_and_friday()
     try:
-        asyncio.run(index_basic_dao.save_index_daily_history(start_date=this_monday, end_date=this_friday))
+        async_to_sync(index_basic_dao.save_index_daily_history)(start_date=this_monday, end_date=this_friday)
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)
@@ -140,7 +137,7 @@ def save_index_daily_history_slice(self, index_codes_slice: List[str]):
         logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
         
         # 调用DAO方法处理获取到的IndexInfo列表
-        asyncio.run(index_basic_dao.save_index_daily_history(index_codes=index_codes_slice))
+        async_to_sync(index_basic_dao.save_index_daily_history)(index_codes=index_codes_slice)
 
         logger.info(f"[{task_id}] 任务成功 - 指数切片处理完成，包含 {len(index_codes_slice)} 个代码。")
     except Exception as e:
@@ -163,9 +160,9 @@ def save_index_daily_history_task(self):
         logger.info(f"[{task_id}] 开始调度 [指数每日指标] 任务...")
         
         # 代码修改处: 直接调用高效的DAO方法获取所有指数代码列表
-        # 无需在Celery任务中再嵌套一层 asyncio.run
+        # 无需在Celery任务中再嵌套一层 async_to_sync
         logger.info(f"[{task_id}] 正在从数据库获取所有指数代码列表...")
-        all_index_codes = asyncio.run(index_basic_dao.get_all_index_codes())
+        all_index_codes = async_to_sync(index_basic_dao.get_all_index_codes)()
         
         if not all_index_codes:
             logger.warning(f"[{task_id}] 未获取到任何指数代码，调度任务结束。")
@@ -207,7 +204,7 @@ def save_index_daily_basic_history(self):
     this_monday, this_friday = get_this_monday_and_friday()
     try:
         print(f"开始处理 指数每日指标...")
-        asyncio.run(index_basic_dao.save_index_daily_basic_history())
+        async_to_sync(index_basic_dao.save_index_daily_basic_history)()
         print("任务完成 - 大盘指数每日指标")
     except Exception as e:
         logger.error(f"执行 指数每日指标 任务时发生意外错误: {e}", exc_info=True)

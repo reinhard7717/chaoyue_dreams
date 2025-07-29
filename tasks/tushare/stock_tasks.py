@@ -1,12 +1,11 @@
 # stock_data_app/tasks.py
 import asyncio
-from celery import shared_task
+from asgiref.sync import async_to_sync
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from utils.websockets import send_update_to_user_sync # 导入推送函数
-from asgiref.sync import async_to_sync
 import logging
 
 # 自选股队列
@@ -21,11 +20,11 @@ def save_stock_list_data(self):
     """
     stock_basic_dao = StockBasicInfoDao()
     print("开始保存股票列表数据...")
-    result = asyncio.run(stock_basic_dao.save_stocks())
+    result = async_to_sync(stock_basic_dao.save_stocks)()
     print(f"保存股票列表数据成功: {result}")
-    result = asyncio.run(stock_basic_dao.save_company_info())
+    result = async_to_sync(stock_basic_dao.save_company_info)()
     print(f"保存公司信息数据成功: {result}")
-    result = asyncio.run(stock_basic_dao.save_hs_const())
+    result = async_to_sync(stock_basic_dao.save_hs_const)()
     print(f"保存沪深港通数据成功: {result}")
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.fetch_data_for_new_favorite')

@@ -174,7 +174,7 @@ def analyze_all_stocks(self):
         from dashboard.tasks import update_favorite_stock_trackers
         
         # 假设这个函数能正确获取股票代码列表
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
         
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
@@ -238,7 +238,7 @@ def analyze_all_stocks_full_history(self):
     """
     try:
         logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.0) ======")
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
         if not non_favorite_codes and not favorite_codes:
             logger.warning("[战略预备队] 未找到任何股票数据，总动员任务终止")
             return {"status": "failed", "reason": "no stocks found"}
@@ -396,7 +396,7 @@ def run_alpha_hunter_for_all_stocks(self):
         # 1. 获取所有需要进行扫描的股票代码
         #    我们复用现有的逻辑来获取自选股和非自选股列表
         #    注意：_get_all_relevant_stock_codes_for_processing 需要在异步上下文中运行
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
         
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，全市场扫描任务终止。")
@@ -439,7 +439,7 @@ def schedule_precompute_advanced_chips(self):
     """
     try:
         logger.info("开始调度 [高级筹码指标预计算] 任务...")
-        favorite_codes, non_favorite_codes = asyncio.run(_get_all_relevant_stock_codes_for_processing())
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)()
         all_codes = favorite_codes + non_favorite_codes
         
         if not all_codes:
