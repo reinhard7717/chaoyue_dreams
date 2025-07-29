@@ -470,7 +470,7 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'intraday_queue'},
     },
     'run_realtime_engine_task': {
-        'task': 'tasks.tushare.stock_analysis_tasks.run_cycle', # 任务函数名
+        'task': 'tasks.stock_analysis_tasks.run_cycle', # 任务函数名
         'schedule': timedelta(seconds=15),
         'options': {'queue': 'intraday_queue'},
     },
