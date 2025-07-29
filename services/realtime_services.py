@@ -6,7 +6,9 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, Optional
 from datetime import datetime
-from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO, StockTimeTradeDAO
+from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+
 
 logger = logging.getLogger("services")
 
