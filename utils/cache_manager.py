@@ -87,7 +87,7 @@ class CacheManager:
         """
         为指定的 event loop 初始化 Redis 客户端连接。
         """
-        print(f"DEBUG: 正在为 Event Loop {id(loop)} 初始化 Redis 客户端连接池...")
+        # print(f"DEBUG: 正在为 Event Loop {id(loop)} 初始化 Redis 客户端连接池...")
         try:
             cache_config = settings.CACHES['default']
             location = cache_config.get('LOCATION', 'redis://localhost:6379/0')
@@ -116,7 +116,7 @@ class CacheManager:
                 max_connections=max_conns
             )
             await redis_client.ping()
-            print(f"DEBUG: Redis 客户端连接池为 Event Loop {id(loop)} 初始化并连接成功。")
+            # print(f"DEBUG: Redis 客户端连接池为 Event Loop {id(loop)} 初始化并连接成功。")
             return redis_client
         except Exception as e:
             logger.error(f"为 Event Loop {id(loop)} 初始化 Redis 客户端失败: {e}", exc_info=True)
@@ -140,7 +140,7 @@ class CacheManager:
         with self._context_lock:
             # 双重检查：可能在等待锁时，其他线程已创建了上下文
             if loop_id not in self._contexts:
-                print(f"DEBUG: 正在为 Event Loop {loop_id} 创建新的上下文...")
+                # print(f"DEBUG: 正在为 Event Loop {loop_id} 创建新的上下文...")
                 # 只创建上下文结构，客户端初始化由异步锁保护
                 self._contexts[loop_id] = {
                     'client': None,
@@ -156,7 +156,7 @@ class CacheManager:
             if self._contexts[loop_id]['client']:
                 return self._contexts[loop_id]['client']
 
-            print(f"DEBUG: Event loop {loop_id} 的 Redis 客户端不存在，开始异步初始化...")
+            # print(f"DEBUG: Event loop {loop_id} 的 Redis 客户端不存在，开始异步初始化...")
             try:
                 # 调用私有初始化方法
                 new_client = await self._initialize_for_loop(current_loop)

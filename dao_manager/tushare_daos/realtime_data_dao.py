@@ -123,8 +123,8 @@ class StockRealtimeDAO(BaseDAO):
                 return []
 
             # MODIFIED: 添加调试打印，显示准备写入Redis ZSET的载荷内容
-            print(f"DEBUG: Prepared realtime ZSET payload (first 2 items): {dict(list(cache_append_realtime.items())[:2])}")
-            print(f"DEBUG: Prepared level5 ZSET payload (first 2 items): {dict(list(cache_append_level5.items())[:2])}")
+            # print(f"DEBUG: Prepared realtime ZSET payload (first 2 items): {dict(list(cache_append_realtime.items())[:2])}")
+            # print(f"DEBUG: Prepared level5 ZSET payload (first 2 items): {dict(list(cache_append_level5.items())[:2])}")
 
             # 3. 并发执行所有持久化任务
             tasks = [
