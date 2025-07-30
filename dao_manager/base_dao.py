@@ -718,7 +718,6 @@ class BaseDAO(Generic[T]):
         # 【代码修改】通过 CacheManager 获取 Redis 客户端并加锁
         try:
             # 1. 确保 CacheManager 中的 Redis 客户端已初始化
-            await self.cache_manager._ensure_client()
             redis_client = await self.cache_manager._ensure_client()
 
             # 2. 检查客户端是否成功获取

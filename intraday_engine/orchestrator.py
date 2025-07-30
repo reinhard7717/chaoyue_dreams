@@ -121,7 +121,8 @@ class IntradayEngineOrchestrator:
         position_list_key = self.cache_key.position_list_key(self.today_str)
         
         await self.cache_manager.initialize()
-        async with await self.cache_manager._ensure_client().pipeline() as pipe:
+        redis_client = await self.cache_manager._ensure_client()
+        async with redis_client.pipeline() as pipe:
             pipe.delete(watchlist_key)
             pipe.delete(position_list_key)
             if watchlist:
@@ -209,7 +210,8 @@ class IntradayEngineOrchestrator:
 
         if not user_signals_map: return
 
-        async with await self.cache_manager._ensure_client().pipeline() as pipe:
+        redis_client = await self.cache_manager._ensure_client()
+        async with redis_client.pipeline() as pipe:
             for user_id, signal_list in user_signals_map.items():
                 key = self.cache_key.user_signals_key(user_id, self.today_str)
                 # 使用 lpush 将最新信号推到列表头部

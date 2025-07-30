@@ -1050,7 +1050,6 @@ class FundFlowDao(BaseDAO):
             return
         
         try:
-            await self.cache_manager._ensure_client()
             redis_client = await self.cache_manager._ensure_client()
             if not redis_client:
                 raise ConnectionError("无法从 CacheManager 获取 Redis 客户端。")

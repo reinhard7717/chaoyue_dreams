@@ -461,10 +461,10 @@ class StockTimeTradeCacheSet(CacheSet):
         # 3. 使用 Pipeline 执行批量写入和设置过期时间
         try:
             # 确保 Redis 客户端已连接
-            await self.cache_manager._ensure_client()
+            redis_client = await self.cache_manager._ensure_client()
             
             # 从 CacheManager 获取底层的 redis-py pipeline 对象
-            async with await self.cache_manager._ensure_client().pipeline() as pipe:
+            async with redis_client.pipeline() as pipe:
                 # 步骤 A: 一次性设置所有键值对
                 pipe.mset(mset_data)
 
@@ -499,8 +499,8 @@ class StockTimeTradeCacheSet(CacheSet):
             return True
 
         try:
-            await self.cache_manager._ensure_client()
-            async with await self.cache_manager._ensure_client().pipeline() as pipe:
+            redis_client = await self.cache_manager._ensure_client()
+            async with redis_client.pipeline() as pipe:
                 today_str = datetime.now().strftime('%Y%m%d')
                 
                 for stock_code, kline_list in payload.items():
@@ -604,8 +604,8 @@ class StockRealtimeCacheSet(CacheSet):
             return False
 
         try:
-            await self.cache_manager._ensure_client()
-            async with await self.cache_manager._ensure_client().pipeline() as pipe:
+            redis_client = await self.cache_manager._ensure_client()
+            async with redis_client.pipeline() as pipe:
                 pipe.mset(mset_data)
                 timeout = self.cache_manager.get_timeout('rt') # 实时数据使用 'rt' 类型超时
                 for key in keys_to_expire:
@@ -650,8 +650,8 @@ class StockRealtimeCacheSet(CacheSet):
             return False
 
         try:
-            await self.cache_manager._ensure_client()
-            async with await self.cache_manager._ensure_client().pipeline() as pipe:
+            redis_client = await self.cache_manager._ensure_client()
+            async with redis_client.pipeline() as pipe:
                 pipe.mset(mset_data)
                 timeout = self.cache_manager.get_timeout('rt') # 实时数据使用 'rt' 类型超时
                 for key in keys_to_expire:
@@ -695,8 +695,8 @@ class StockRealtimeCacheSet(CacheSet):
             return True
 
         try:
-            await self.cache_manager._ensure_client()
-            async with await self.cache_manager._ensure_client().pipeline() as pipe:
+            redis_client = await self.cache_manager._ensure_client()
+            async with redis_client.pipeline() as pipe:
                 today_str = datetime.now().strftime('%Y%m%d')
                 
                 # 处理实时行情 Ticks
