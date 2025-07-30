@@ -460,7 +460,7 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使
 CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
     '每 15 秒运行一次所有股票的实时Tick数据获取': {
-        'task': 'tasks.stock_realtime_tasks.save_stocks_tick_data_task',
+        'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task',
         'schedule': timedelta(seconds=15),  # 每5秒执行一次
         'options': {'expires': 300, 'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
