@@ -11,6 +11,7 @@ CACHE_TYPES = {
     'calc': 'calculation', # 计算结果
     'user': 'user',       # 用户数据
     'strategy': 'strategy', # 策略数据
+    'app': 'app', # 应用数据
 }
 
 class CashKey:
