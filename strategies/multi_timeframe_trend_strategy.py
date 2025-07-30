@@ -325,10 +325,10 @@ class MultiTimeframeTrendStrategy:
 
     def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
-        【V320.0 报告净化版】
-        - 核心修复: 在调用报告层之前，对最终的分析结果执行一次“主动净化”，
-                    确保买入信号日的所有风险/卖出相关字段都被重置为默认值，
-                    彻底解决“幽灵标签”问题。
+        【V322.0 终极架构重构版】
+        - 核心重构: 总指挥层不再执行任何情报分析。它的唯一职责是将带有周线战略背景的
+                    日线数据，完整地移交给日线战术引擎，由其独立完成所有后续分析。
+                    这彻底解决了情报收集的重复和逻辑混乱问题。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -336,16 +336,8 @@ class MultiTimeframeTrendStrategy:
             return []
 
         try:
-            # --- 【核心修复】步骤 1: 由总指挥层的情报模块统一生成原子状态 ---
-            # 将准备好的数据和自身实例传递给战术引擎的情报层
-            self.tactical_engine.df_indicators = df_daily_prepared
-            # IntelligenceLayer 的 __init__ 接收的是 strategy_instance
-            intelligence_module = self.tactical_engine.intelligence_layer 
-            
-            # 运行情报层的所有诊断，这将填充 self.tactical_engine.atomic_states
-            trigger_events = intelligence_module.run_all_diagnostics()
-            
-            # --- 步骤 2: 调用核心策略引擎，它现在已经拥有了完整的原子状态 ---
+            # --- 【核心修改】直接调用战术引擎，不再进行任何预处理 ---
+            # TrendFollowStrategy 将独立负责运行其内部的情报层和所有分析
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
             )

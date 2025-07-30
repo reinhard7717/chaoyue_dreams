@@ -182,8 +182,8 @@ class JudgmentLayer:
         actions.loc[is_avoid] = 'AVOID'
         actions.loc[is_caution] = 'PROCEED_WITH_CAUTION'
         
-        if is_force_attack.any(): print(f"          -> [战术矩阵] 在 {is_force_attack.sum()} 天内发出“强攻”指令！")
-        if is_avoid.any(): print(f"          -> [战术矩阵] 在 {is_avoid.sum()} 天内发出“规避”指令！")
+        # if is_force_attack.any(): print(f"          -> [战术矩阵] 在 {is_force_attack.sum()} 天内发出“强攻”指令！")
+        # if is_avoid.any(): print(f"          -> [战术矩阵] 在 {is_avoid.sum()} 天内发出“规避”指令！")
         
         return actions
 
