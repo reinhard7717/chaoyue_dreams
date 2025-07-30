@@ -433,7 +433,7 @@ def aggregate_intraday_results(results: list):
         print("="*30 + "\n")
         return "Aggregation complete: No valid results."
 
-    redis_keys_for_signals = async_to_sync(save_full_data_to_redis)(valid_results)
+    redis_keys_for_signals = asyncio.run(save_full_data_to_redis(valid_results))
     
     total_stocks = len(valid_results)
     print(f"【回调任务】存储完成。成功处理了 {total_stocks} 支股票的完整数据。")
@@ -488,7 +488,7 @@ def generate_signals_from_data(calculated_data_key: str):
     3. 使用 IntradayEngineCashKey 将信号存入ZSET。
     """
     print(f"    -> [信号生成器] 开始处理数据键: {calculated_data_key}")
-    async_to_sync(process_and_save_signals)(calculated_data_key)
+    asyncio.run(process_and_save_signals(calculated_data_key))
 
 async def process_and_save_signals(calculated_data_key: str):
     cache_manager = CacheManager()

@@ -94,7 +94,7 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
 # ===================================================
 
 #  ================ 分钟数据任务（当日收盘后） ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch', queue='SaveData_TimeTrade')
 def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     try:
         today_date = timezone.now().date()
