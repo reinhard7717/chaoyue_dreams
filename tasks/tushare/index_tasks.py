@@ -147,8 +147,8 @@ def save_index_daily_this_week_task(self):
 
 INDEX_SLICE_SIZE = 100 # 优化：将切片大小从10增加到100，减少任务总数，降低系统开销
 
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_slice', queue='SaveData_TimeTrade', rate_limit='180/m')
-def save_index_daily_history_slice(self, index_codes_slice: List[str]):
+@celery_app.task(queue='SaveData_TimeTrade', rate_limit='180/m')
+def save_index_daily_history_slice(index_codes_slice: List[str]):
     """
     【优化版】执行保存单个指数切片的历史日级指标数据到数据库
     Args:
@@ -171,9 +171,7 @@ def save_index_daily_history_slice(self, index_codes_slice: List[str]):
     except Exception as e:
         logger.error(f"[{task_id}] 执行指数切片任务时发生错误 (切片: {index_codes_slice[:3]}...): {e}", exc_info=True)
 
-
-
-@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery') # 代码修改处: 任务名修改为 dispatch_... 更清晰
+@celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery')
 def save_index_daily_history_task(self):
     """
     【优化版】从数据库获取所有指数代码，切片后分发给执行器任务进行处理（调度任务）

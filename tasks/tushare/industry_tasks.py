@@ -48,7 +48,6 @@ def save_ths_index_member_task(self):
 
     async_to_sync(main)()
 
-
 # 每日任务：同花顺板块 & 指数行情
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_today_task', queue='SaveData_TimeTrade')
 def save_ths_index_today_task(self):

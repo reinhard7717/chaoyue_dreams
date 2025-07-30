@@ -1586,32 +1586,26 @@ class StockTimeTradeDAO(BaseDAO):
         if not all_stocks:
             logger.warning("股票基础信息列表为空，任务终止。")
             return
-        
-        # [修改] 引入适应分表的批处理数据结构
         # 键是Model类，值是待保存的数据列表
         batched_data_by_model = {}
         total_stocks = len(all_stocks)
-        
         for i, stock in enumerate(all_stocks):
             print(f"【cyq_chips每日筹码分布】开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
             # [新增] 移植10万行追溯逻辑
             current_end_date_str = initial_end_date_str
             all_dfs_for_one_stock = [] # 用于收集单只股票的所有追溯轮次数据
-            
             # 外层追溯循环
             while True:
                 offset = 0
                 limit = 6000 # Tushare的cyq_chips单次限制较高，可以使用6000
                 dfs_for_this_cycle = []
                 limit_hit = False
-                
                 # 内层分页循环
                 while True:
                     if offset >= 100000:
                         logger.warning(f"股票 {stock.stock_code} 的每日筹码分布 offset已达10万，将进行追溯抓取。")
                         limit_hit = True
                         break
-                    
                     try:
                         df = self.ts_pro.cyq_chips(**{
                             "ts_code": stock.stock_code, "trade_date": trade_date_str, 
@@ -1619,25 +1613,21 @@ class StockTimeTradeDAO(BaseDAO):
                             "limit": limit, "offset": offset
                         }, fields=["ts_code", "trade_date", "price", "percent"])
                         # [修改] 使用异步sleep，并调整为标准限速值
-                        await asyncio.sleep(0.7)
+                        await asyncio.sleep(0.6)
                     except Exception as e:
                         logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
                         await asyncio.sleep(5) # 异常时等待更久
                         df = pd.DataFrame()
-
                     if df.empty:
                         break
                     dfs_for_this_cycle.append(df)
                     if len(df) < limit:
                         break
                     offset += limit
-
                 if not dfs_for_this_cycle:
                     # 当前轮次无数据，说明此时间段已无更多历史，结束追溯
                     break
-                
                 all_dfs_for_one_stock.extend(dfs_for_this_cycle)
-                
                 if limit_hit:
                     # 触及10万行，更新end_date，继续外层追溯循环
                     last_df_in_cycle = dfs_for_this_cycle[-1]
@@ -1648,32 +1638,26 @@ class StockTimeTradeDAO(BaseDAO):
                 else:
                     # 未触及限制，说明该股票数据已全部获取，跳出追溯循环
                     break
-
             # --- 对单只股票的全部数据进行统一处理 ---
             if all_dfs_for_one_stock:
                 combined_df = pd.concat(all_dfs_for_one_stock, ignore_index=True)
                 combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
                 combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
-                
                 if not combined_df.empty:
                     combined_df['stock'] = stock
                     combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
                     final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
                     data_dicts_for_stock = final_df.to_dict('records')
-
                     # [修改] 分表批处理核心逻辑
                     if data_dicts_for_stock:
                         # 1. 获取当前股票对应的正确Model
                         target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
-                        
                         # 2. 如果该Model是第一次出现，在字典中初始化一个空列表
                         if target_model not in batched_data_by_model:
                             batched_data_by_model[target_model] = []
-                        
                         # 3. 将数据添加到对应Model的列表中
                         batched_data_by_model[target_model].extend(data_dicts_for_stock)
-                        
                         # 4. 检查该Model的列表是否已满，如果满了就保存并清空
                         if len(batched_data_by_model[target_model]) >= BATCH_SAVE_SIZE:
                             logger.info(f"为数据表 {target_model.__name__} 保存一批数据，数量：{len(batched_data_by_model[target_model])}")
@@ -1683,7 +1667,6 @@ class StockTimeTradeDAO(BaseDAO):
                                 unique_fields=['stock', 'trade_time', 'price']
                             )
                             batched_data_by_model[target_model] = [] # 清空已保存的批次
-
         # --- [修改] 在所有股票处理完毕后，保存所有分表中剩余的数据 ---
         logger.info("所有股票数据拉取完成，开始保存剩余的最后一批数据...")
         for model, data_list in batched_data_by_model.items():
@@ -1694,7 +1677,6 @@ class StockTimeTradeDAO(BaseDAO):
                     data_list=data_list,
                     unique_fields=['stock', 'trade_time', 'price']
                 )
-        
         logger.info(f"所有股票的每日筹码分布数据处理和保存完成。")
         # 因为存在多次保存，返回单一结果已无意义，故返回None
         return None
