@@ -290,7 +290,8 @@ def realtime_engine_view(request):
     async def get_initial_signals():
         await cache_manager.initialize()
         # lrange(key, 0, -1) 获取列表中的所有元素
-        raw_signals = await cache_manager.redis_client.lrange(signals_key, 0, -1)
+        redis_client = await cache_manager._ensure_client()
+        raw_signals = await redis_client.lrange(signals_key, 0, -1)
         # Redis返回的是bytes，需要解码并用json加载
         return [json.loads(s.decode()) for s in raw_signals]
 

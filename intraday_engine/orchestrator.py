@@ -121,7 +121,7 @@ class IntradayEngineOrchestrator:
         position_list_key = self.cache_key.position_list_key(self.today_str)
         
         await self.cache_manager.initialize()
-        async with self.cache_manager.redis_client.pipeline() as pipe:
+        async with await self.cache_manager._ensure_client().pipeline() as pipe:
             pipe.delete(watchlist_key)
             pipe.delete(position_list_key)
             if watchlist:
@@ -145,8 +145,9 @@ class IntradayEngineOrchestrator:
         position_list_key = self.cache_key.position_list_key(self.today_str)
 
         # 1. 从Redis读取监控池
-        watchlist_bytes = await self.cache_manager.redis_client.smembers(watchlist_key)
-        position_list_raw = await self.cache_manager.redis_client.hgetall(position_list_key)
+        redis_client = await self.cache_manager._ensure_client()
+        watchlist_bytes = await redis_client.smembers(watchlist_key)
+        position_list_raw = await redis_client.hgetall(position_list_key)
         
         # 在这里进行解码，统一数据类型
         watchlist = {code.decode('utf-8') for code in watchlist_bytes}
@@ -178,7 +179,7 @@ class IntradayEngineOrchestrator:
             if buy_signal:
                 all_signals.append(buy_signal)
                 # 标记为待移除
-                await self.cache_manager.redis_client.srem(watchlist_key, stock_code)
+                await redis_client.srem(watchlist_key, stock_code)
 
         # 分析持仓池
         for stock_code, pos_info in position_list.items():
@@ -208,7 +209,7 @@ class IntradayEngineOrchestrator:
 
         if not user_signals_map: return
 
-        async with self.cache_manager.redis_client.pipeline() as pipe:
+        async with await self.cache_manager._ensure_client().pipeline() as pipe:
             for user_id, signal_list in user_signals_map.items():
                 key = self.cache_key.user_signals_key(user_id, self.today_str)
                 # 使用 lpush 将最新信号推到列表头部
