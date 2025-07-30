@@ -380,15 +380,14 @@ class StockRealtimeCacheGet(CacheGet):
                 level5_ticks = []
 
             # 5. 将原始数据转换为DataFrame并合并
-            # MODIFIED: 此处 datetime.fromtimestamp 调用现在是正确的，因为我们已从 datetime 模块导入了 datetime 类
             df_realtime = pd.DataFrame(
                 [data for data, score in realtime_ticks],
-                index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in realtime_ticks])
+                index=pd.to_datetime([datetime.datetime.fromtimestamp(score) for data, score in realtime_ticks])
             )
             if level5_ticks:
                 df_level5 = pd.DataFrame(
                     [data for data, score in level5_ticks],
-                    index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in level5_ticks])
+                    index=pd.to_datetime([datetime.datetime.fromtimestamp(score) for data, score in level5_ticks])
                 )
                 df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
             else:
@@ -456,13 +455,13 @@ async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional
             # 5. 将原始数据转换为DataFrame并合并
             df_realtime = pd.DataFrame(
                 [data for data, score in realtime_ticks],
-                index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in realtime_ticks])
+                index=pd.to_datetime([datetime.datetime.fromtimestamp(score) for data, score in realtime_ticks])
             )
             
             if level5_ticks:
                 df_level5 = pd.DataFrame(
                     [data for data, score in level5_ticks],
-                    index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in level5_ticks])
+                    index=pd.to_datetime([datetime.datetime.fromtimestamp(score) for data, score in level5_ticks])
                 )
                 # 使用 merge_asof 进行高效合并
                 df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
