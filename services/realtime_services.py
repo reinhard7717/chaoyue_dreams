@@ -25,40 +25,49 @@ logger = logging.getLogger("services")
 
 @celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')
 def cpu_bound_calculation_task(
-    stock_data_package: Tuple[str, pd.DataFrame, Optional[pd.DataFrame], Optional[pd.DataFrame]],
+    # 注意：类型提示现在是 dict 而不是 DataFrame
+    stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]],
     time_level: str,
     slope_window: int,
     stats_window: int
-) -> Optional[pd.DataFrame]:
+) -> Optional[dict]: # 返回值也改为 dict
     """
-    【V5.1 - Celery并行计算任务】这是一个纯CPU计算任务，用于在独立的Celery worker中处理单只股票的数据。
+    【V5.2 - 可序列化版】接收字典格式的数据，在内部重建DataFrame进行计算，并返回字典。
     """
-    # ... (这里的内容和之前 _cpu_bound_calculation_worker 函数的内部逻辑完全一样) ...
-    # ▼▼▼ 将之前顶级函数的内容完整复制到这里 ▼▼▼
-    stock_code, df_minute, df_ticks, df_level5 = stock_data_package
-
-    if df_minute is None or df_minute.empty:
-        print(f"    -> [Celery Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
-        return None
-
+    stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
     try:
-        # --- 1. 聚合Tick数据 ---
+        # 辅助函数，用于从 'split' 格式的字典重建DataFrame，并正确处理时间索引
+        def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
+            if data is None:
+                return None
+            # 使用 orient='split' 的输出来重建DataFrame
+            df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
+            # JSON序列化会把datetime索引变成字符串，这里必须转换回来
+            df.index = pd.to_datetime(df.index)
+            return df
+
+        df_minute = _reconstruct_df_from_dict(serialized_minute)
+        df_ticks = _reconstruct_df_from_dict(serialized_ticks)
+        df_level5 = _reconstruct_df_from_dict(serialized_level5)
+
+        if df_minute is None or df_minute.empty:
+            print(f"    -> [Celery Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
+            return None
+
+        # --- 1. 聚合Tick数据 (逻辑不变) ---
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
             df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
             df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
             df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
             df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
             df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
-            
             aggregation_rules = {
                 'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
                 'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
                 'volume': ['sum', 'count']
             }
-            
             df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
             df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
-            
             df_aggregated.rename(columns={
                 'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
                 'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
@@ -66,20 +75,15 @@ def cpu_bound_calculation_task(
                 'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
                 'volume_count': 'tick_count',
             }, inplace=True)
-            
             df_minute = df_minute.join(df_aggregated, how='left')
 
-        # --- 2. 计算各种技术指标 ---
+        # --- 2. 计算各种技术指标 (逻辑不变) ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
-        
-        if df_minute.empty: return df_minute
-        
+        if df_minute.empty: return None
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
-        
         df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=1)
-
         custom_strategy = ta.Strategy(
             name="Intraday_Advanced_Features",
             ta=[
@@ -92,32 +96,29 @@ def cpu_bound_calculation_task(
             ]
         )
         df_minute.ta.strategy(custom_strategy, cores=1)
-
         if 'net_agg_vol_slope' in df_minute.columns:
             df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=1)
-        
         if 'net_aggressive_volume' in df_minute.columns:
             bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=1)
             df_minute = df_minute.join(bbands_df)
-        
         stdev = df_minute.ta.stdev(length=stats_window, cores=1)
         sma = df_minute.ta.sma(length=stats_window, cores=1)
         df_minute['price_cv'] = stdev / (sma + 1e-6)
-        
         if 'net_aggressive_volume' in df_minute.columns:
             df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
-            
         try:
             df_minute.ta.fractal(append=True, cores=1)
             rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
             df_minute.rename(columns=rename_map, inplace=True)
         except Exception:
             pass
-            
-        return df_minute
+
+        # 重置索引，让时间成为普通列，方便后续处理
+        df_minute.reset_index(inplace=True)
+        return df_minute.to_dict('records') # 返回一个字典列表，这是最通用的格式
 
     except Exception as e:
-        print(f"    -> [Celery Worker] 处理 {stock_code} 时发生错误: {e}")
+        print(f"    -> [Celery Worker] 处理 {stock_code} 时发生严重错误: {e}")
         return None
 
 class RealtimeServices:
@@ -232,32 +233,50 @@ class RealtimeServices:
         return stock_codes
 
     async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
-        # ... 此方法内部代码完全不变 ...
-        print(f"【V5.1】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
+        """
+        【V5.2 - 可序列化版】在分发任务前，将DataFrame转换为字典。
+        """
+        print(f"【V5.2】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
+        
+        # --- 步骤 1: I/O 阶段 (逻辑不变) ---
         print("  -> 阶段 1/2: 正在集中获取所有股票的原始数据...")
         all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
         if not all_bulk_data:
             logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks/Level5 数据，日期: {trade_date}。任务终止。")
             return
+
         shanghai_tz = pytz.timezone('Asia/Shanghai')
         target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
         start_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(9, 25, 0)))
         end_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(15, 5, 0)))
+
         kline_tasks = [
             self.timetrade_dao.get_minute_kline_by_daterange(code, time_level, start_dt_aware, end_dt_aware)
             for code in stock_codes
         ]
         all_minute_klines_results = await asyncio.gather(*kline_tasks, return_exceptions=True)
+        
         job_packages = []
         for i, code in enumerate(stock_codes):
             df_minute = all_minute_klines_results[i]
             if isinstance(df_minute, Exception) or df_minute is None or df_minute.empty:
                 continue
+
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            job_packages.append((code, df_minute, df_ticks, df_level5))
+            
+            # 使用 to_dict('split')，它能保留索引、列名和数据，方便重建
+            serialized_minute = df_minute.to_dict('split') if df_minute is not None else None
+            serialized_ticks = df_ticks.to_dict('split') if df_ticks is not None else None
+            serialized_level5 = df_level5.to_dict('split') if df_level5 is not None else None
+            
+            job_packages.append((code, serialized_minute, serialized_ticks, serialized_level5))
+        
         print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务提交到Celery。")
+
+        # --- 步骤 2: 并行计算阶段 (逻辑不变) ---
         print(f"  -> 阶段 2/2: 正在使用 Celery Group 并行执行计算任务...")
+        
         calculation_signatures = [
             cpu_bound_calculation_task.s(
                 stock_data_package=pkg,
@@ -266,22 +285,30 @@ class RealtimeServices:
                 stats_window=self.stats_window
             ) for pkg in job_packages
         ]
+
         if not calculation_signatures:
             print("没有可执行的计算任务，流程结束。")
             return
+
         job_group = group(calculation_signatures)
         result_group = job_group.apply_async()
+        
         print("  -> 任务已提交，正在等待所有并行计算完成...")
         final_results = result_group.get(timeout=1800)
+        
         print(f"  -> 所有 {len(final_results)} 个计算任务已在Celery Worker中完成。")
-        processed_count = 0
-        for result_df in final_results:
-            if result_df is not None and not result_df.empty:
-                stock_code_in_df = result_df.iloc[0].get('stock_code', '未知代码')
-                print(f"    -> 成功生成股票 {stock_code_in_df} 的盘中数据矩阵，共 {len(result_df)} 条。")
-                processed_count += 1
-        print(f"【V5.1】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
 
+        # --- 结果处理 ---
+        processed_count = 0
+        for result_dict_list in final_results:
+            # ▼▼▼ 核心修改：现在接收的是字典列表，而不是DataFrame ▼▼▼
+            if result_dict_list and isinstance(result_dict_list, list):
+                # 从结果的第一条记录中获取股票代码
+                stock_code = result_dict_list[0].get('stock_code', '未知代码')
+                print(f"    -> 成功生成股票 {stock_code} 的盘中数据矩阵，共 {len(result_dict_list)} 条。")
+                processed_count += 1
+        
+        print(f"【V5.2】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
 
 
 
