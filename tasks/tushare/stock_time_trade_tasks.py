@@ -95,7 +95,7 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
 
 #  ================ 分钟数据任务（当日收盘后） ================
 @celery_app.task(queue='SaveData_TimeTrade')
-def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
+def save_stocks_minute_data_today_batch(stock_codes, trade_time_str=None):
     try:
         # 1. 在异步上下文中创建顶层的 CacheManager
         cache_manager_instance = CacheManager()
