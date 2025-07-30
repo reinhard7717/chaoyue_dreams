@@ -359,11 +359,11 @@ def prepare_pools():
     # 【核心修复】定义一个异步的 main 函数
     async def main():
         # 1. 在异步上下文中创建顶层的 CacheManager
-        cache_manager_instance = CacheManager()
+        # cache_manager_instance = CacheManager()
         params = {} # 从配置加载
         # 2. 创建 Orchestrator 实例，并注入 cache_manager
-        orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
-        
+        # orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
+        orchestrator = IntradayEngineOrchestrator(params)
         # 3. 执行业务逻辑
         success = await orchestrator.initialize_pools()
         if success:
@@ -385,9 +385,10 @@ def run_cycle(self):
     """
     try:
         async def main():
-            cache_manager_instance = CacheManager()
+            # cache_manager_instance = CacheManager()
             params = {} # 从配置加载
-            orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
+            # orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
+            orchestrator = IntradayEngineOrchestrator(params)
             
             # 直接执行循环
             signals = await orchestrator.run_single_cycle()

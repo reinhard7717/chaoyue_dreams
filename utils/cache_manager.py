@@ -44,6 +44,8 @@ class CacheManager:
     """
     统一管理股票量化系统的Redis缓存
     """
+    # MODIFIED: 添加一个类级别的变量来存储唯一的实例
+    _instance = None
     
     # 默认过期时间（秒）
     DEFAULT_TIMEOUTS = {
@@ -55,55 +57,68 @@ class CacheManager:
         'strategy': 86400,    # 策略数据缓存1天
     }
     
+    def __new__(cls, *args, **kwargs):
+        # 如果 _instance 还未被创建
+        if not cls._instance:
+            print("DEBUG: Initializing new CacheManager singleton instance...") # 调试打印：首次创建实例
+            # 使用 super().__new__ 创建实例
+            cls._instance = super().__new__(cls)
+            # 将 redis_client 初始化为 None，确保 __init__ 只被有效执行一次
+            cls._instance.redis_client = None
+        else:
+            print("DEBUG: Returning existing CacheManager singleton instance.") # 调试打印：返回现有实例
+        return cls._instance
+    
     def __init__(self):
         """初始化时不创建连接，采用懒加载方式"""
-        self.redis_client: Optional[Redis] = None # 明确类型提示
+        if self.redis_client is not None:
+            return # 如果已经初始化，直接返回，避免重复操作
+
+        print("DEBUG: CacheManager __init__ is executing...") # 调试打印：执行初始化逻辑
 
     async def initialize(self):
         """异步初始化Redis客户端连接"""
-        # 避免重复初始化
         if self.redis_client is not None:
             return
 
-        # logger.info("正在初始化 Redis 客户端...")
+        print("DEBUG: 正在初始化 Redis 客户端连接池...") # 调试打印：连接池初始化
         try:
             cache_config = settings.CACHES['default']
             location = cache_config.get('LOCATION', 'redis://localhost:6379/0')
-            password = cache_config.get('OPTIONS', {}).get('PASSWORD', None)
+            options = cache_config.get('OPTIONS', {})
+            password = options.get('PASSWORD', None)
 
-            # --- URL 解析和密码处理逻辑保持不变 ---
+            # ... URL 解析和密码处理逻辑保持不变 ...
             parsed_url = urllib.parse.urlparse(location)
-            # 检查密码是否已在 URL 中
             if not parsed_url.password and password:
-                 # 如果 URL 中没有密码但 OPTIONS 中有，则重建 URL
                  new_netloc = f"{parsed_url.username or ''}:{password}@{parsed_url.hostname}"
                  if parsed_url.port:
                      new_netloc += f":{parsed_url.port}"
-                 # 使用 _replace 创建新 URL，确保路径和查询参数保留
                  new_url_parts = parsed_url._replace(netloc=new_netloc)
                  new_url = new_url_parts.geturl()
                  logger.debug("已将密码添加到 Redis 连接 URL 中。")
             else:
-                 new_url = location # 使用原始或已包含密码的 URL
+                 new_url = location
 
-            # --- Redis 连接创建 ---
-            # 注意：decode_responses=False 是关键，因为 umsgpack 处理 bytes
+            # MODIFIED: 优化连接池参数读取逻辑，使其能正确使用 settings.py 中的配置
+            pool_kwargs = options.get('CONNECTION_POOL_KWARGS', {})
+            max_conns = pool_kwargs.get('max_connections', options.get('MAX_CONNECTIONS', 100))
+            print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}") # 调试打印：显示最大连接数
+
             self.redis_client = await Redis.from_url(
                 new_url,
-                # encoding="utf-8", # decode_responses=False 时，encoding 通常不生效或不需要
-                decode_responses=False, # <--- 确保为 False
-                socket_connect_timeout=cache_config.get('OPTIONS', {}).get('SOCKET_CONNECT_TIMEOUT', 10),
-                socket_timeout=cache_config.get('OPTIONS', {}).get('SOCKET_TIMEOUT', 15),
-                retry_on_timeout=cache_config.get('OPTIONS', {}).get('RETRY_ON_TIMEOUT', True),
-                max_connections=cache_config.get('OPTIONS', {}).get('MAX_CONNECTIONS', 100)
+                decode_responses=False,
+                socket_connect_timeout=options.get('SOCKET_CONNECT_TIMEOUT', 10),
+                socket_timeout=options.get('SOCKET_TIMEOUT', 15),
+                retry_on_timeout=options.get('RETRY_ON_TIMEOUT', True),
+                max_connections=max_conns # 使用正确读取的连接数
             )
-            # 测试连接 (可选但推荐)
             await self.redis_client.ping()
-            # logger.info("Redis 客户端初始化并连接成功。")
+            print("DEBUG: Redis 客户端连接池初始化并连接成功。") # 调试打印：连接成功
         except Exception as e:
             logger.error(f"初始化 Redis 客户端失败: {e}", exc_info=True)
-            self.redis_client = None # 初始化失败，重置为 None
-            raise # 将异常重新抛出，以便调用者知道初始化失败
+            self.redis_client = None
+            raise
 
     async def _ensure_client(self):
         """
