@@ -179,29 +179,37 @@ class StockRealtimeDAO(BaseDAO):
 
     async def get_daily_ticks_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
-        【V2.2 - 键名生成Bug修复版】使用 Redis Pipeline 一次性获取多支股票的日内 Ticks 和 Level-5 数据。
+        【V2.4 - Score格式终极修复版】使用与写入时完全一致的Unix时间戳作为Score进行查询。
         """
-        print(f"DEBUG: [DAO层 V2.2] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
+        print(f"DEBUG: [DAO层 V2.4] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
         if not stock_codes:
             return {}
 
-        date_str_no_hyphen = trade_date.replace('-', '')
-        min_score = int(f"{date_str_no_hyphen}091500000")
-        max_score = int(f"{date_str_no_hyphen}150500000")
-
         try:
+            # --- 核心修复：将查询时间范围转换为 Unix 时间戳 ---
+            shanghai_tz = pytz.timezone('Asia/Shanghai')
+            # 根据交易日期，构建带时区的开盘和收盘时间对象
+            start_dt_aware = shanghai_tz.localize(datetime.strptime(f"{trade_date} 09:15:00", "%Y-%m-%d %H:%M:%S"))
+            end_dt_aware = shanghai_tz.localize(datetime.strptime(f"{trade_date} 15:05:00", "%Y-%m-%d %H:%M:%S"))
+            
+            # 将时间对象转换为整数形式的 Unix 时间戳，与 Redis 中存储的 Score 格式完全匹配
+            min_score = int(start_dt_aware.timestamp())
+            max_score = int(end_dt_aware.timestamp())
+            
+            # 增加关键调试打印，验证我们生成的 Score 格式是否正确
+            print(f"DEBUG: [DAO层 V2.4] 使用 Unix 时间戳查询 Score 范围: {min_score} - {max_score}")
+            
+            date_str_no_hyphen = trade_date.replace('-', '')
             pipe = await self.cache_manager.pipeline()
             
             for code in stock_codes:
-                # 修改: 调用 cash_key.py 中存在的正确方法 intraday_ticks_realtime
                 ticks_key = self.cache_key_stock.intraday_ticks_realtime(code, date_str_no_hyphen)
-                # 修改: 调用 cash_key.py 中存在的正确方法 intraday_ticks_level5
                 level5_key = self.cache_key_stock.intraday_ticks_level5(code, date_str_no_hyphen)
                 pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=False)
                 pipe.zrangebyscore(level5_key, min_score, max_score, withscores=False)
             
             results = await pipe.execute()
-            print(f"DEBUG: [DAO层 V2.2] Pipeline 执行完毕，收到 {len(results)} 组结果。")
+            print(f"DEBUG: [DAO层 V2.4] Pipeline 执行完毕，收到 {len(results)} 组结果。")
 
             bulk_data_map = {}
             for i, stock_code in enumerate(stock_codes):
@@ -214,7 +222,7 @@ class StockRealtimeDAO(BaseDAO):
                 if df_ticks is not None or df_level5 is not None:
                     bulk_data_map[stock_code] = (df_ticks, df_level5)
             
-            print(f"DEBUG: [DAO层 V2.2] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
+            print(f"DEBUG: [DAO层 V2.4] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
             return bulk_data_map
 
         except Exception as e:
