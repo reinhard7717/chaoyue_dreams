@@ -74,19 +74,20 @@ class StockRealtimeDAO(BaseDAO):
     # 根据传入的股票代码列表，获取实时盘口TICK快照数据并保存到数据库
     async def save_tick_data_by_stock_codes(self, stock_codes: List[str]) -> List:
         """
-        【V3.0 - 双轨持久化版】
-        只调用一次API，然后将Tick数据并发地写入：
-        1. 数据库 (PostgreSQL): 用于长期历史归档。
-        2. Redis SET: 存储最新的Tick快照，用于实时展示。
-        3. Redis ZSET: 追加存储当日的Tick时间序列，用于盘中引擎聚合计算。
+        【V3.1 - 增强调试版】
+        增加调试打印，以跟踪从API到缓存写入前的数据流。
         """
         if not stock_codes:
             return []
         
         try:
-            # 1. 数据采集：只调用一次API
+            # 1. 数据采集
             stock_codes_str = ','.join(stock_codes)
             df = self.ts.realtime_quote(ts_code=stock_codes_str)
+            
+            # MODIFIED: 添加调试打印，显示从Tushare获取的原始DataFrame
+            print(f"DEBUG: Tushare realtime_quote DF for codes '{stock_codes_str[:100]}...':\n{df.head().to_string()}")
+
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情数据。")
                 return []
@@ -94,25 +95,21 @@ class StockRealtimeDAO(BaseDAO):
             # 2. 数据预处理与载荷准备
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
             
-            db_realtime_list = []       # 轨道1: 数据库
+            db_realtime_list = []
             db_level5_list = []
-            
-            cache_latest_realtime = {}  # 轨道2: Redis SET (最新快照)
+            cache_latest_realtime = {}
             cache_latest_level5 = {}
-            
-            cache_append_realtime = {}  # 轨道3: Redis ZSET (当日时间序列)
+            cache_append_realtime = {}
             cache_append_level5 = {}
 
             for row in df.itertuples():
                 stock = stocks_dict.get(row.TS_CODE)
                 if stock:
-                    # 准备数据库数据
                     real_dict_db = self.data_format_process.set_realtime_tick_data(stock, row)
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
                     db_realtime_list.append(real_dict_db)
                     db_level5_list.append(level5_dict_db)
                     
-                    # 准备缓存数据 (注意：缓存数据不需要stock对象)
                     real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
                     level5_dict_cache = self.data_format_process.set_level5_data(None, row)
                     
@@ -125,23 +122,21 @@ class StockRealtimeDAO(BaseDAO):
             if not db_realtime_list:
                 return []
 
+            # MODIFIED: 添加调试打印，显示准备写入Redis ZSET的载荷内容
+            print(f"DEBUG: Prepared realtime ZSET payload (first 2 items): {dict(list(cache_append_realtime.items())[:2])}")
+            print(f"DEBUG: Prepared level5 ZSET payload (first 2 items): {dict(list(cache_append_level5.items())[:2])}")
+
             # 3. 并发执行所有持久化任务
             tasks = [
-                # 轨道1: 写入数据库
                 self._save_all_to_db_native_upsert(StockRealtimeData, db_realtime_list, ['stock', 'trade_time']),
                 self._save_all_to_db_native_upsert(StockLevel5Data, db_level5_list, ['stock', 'trade_time']),
-                
-                # 轨道2: 写入Redis SET (最新快照)
                 self.cache_set.batch_set_latest_realtime_data(cache_latest_realtime),
                 self.cache_set.batch_set_latest_level5_data(cache_latest_level5),
-                
-                # 轨道3: 写入Redis ZSET (当日时间序列)
                 self.cache_set.batch_append_intraday_ticks(cache_append_realtime, cache_append_level5)
             ]
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 检查并记录异常
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"并发持久化任务 {i} 执行失败: {result}", exc_info=result)
@@ -154,27 +149,50 @@ class StockRealtimeDAO(BaseDAO):
 
     async def get_daily_ticks_from_cache(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
-        【V3.0】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
+        【V3.1 - 增强诊断版】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
+        - 移除了不必要的 initialize() 调用。
+        - 增加了健壮的日期格式化。
+        - 增加了详细的读取诊断日志。
         """
         try:
-            await self.cache_manager.initialize() # 确保客户端已初始化
-            today_str = pd.to_datetime(trade_date).strftime('%Y%m%d')
+            # MODIFIED: 移除 await self.cache_manager.initialize()
+            
+            # MODIFIED: 使用更健壮的方式处理日期字符串，确保得到 'YYYYMMDD' 格式
+            try:
+                # 尝试将各种可能的日期格式（如 '2025-07-30', '20250730'）统一转换
+                date_obj = pd.to_datetime(trade_date)
+                today_str = date_obj.strftime('%Y%m%d')
+            except ValueError:
+                logger.error(f"无效的日期格式: {trade_date}。无法继续获取Ticks。")
+                return None
 
             # 1. 定义当天的缓存键
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, today_str)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, today_str)
+
+            # MODIFIED: 添加详细的读取日志
+            print(f"DEBUG_READ: [Ticks] ZRANGEBYSCORE from realtime_key='{realtime_key}', range='-inf' to '+inf'")
+            print(f"DEBUG_READ: [Ticks] ZRANGEBYSCORE from level5_key='{level5_key}', range='-inf' to '+inf'")
 
             # 2. 并发地从Redis获取两种Tick数据
             tasks = [
                 self.cache_manager.zrangebyscore(realtime_key, '-inf', '+inf', withscores=True),
                 self.cache_manager.zrangebyscore(level5_key, '-inf', '+inf', withscores=True)
             ]
-            realtime_ticks, level5_ticks = await asyncio.gather(*tasks)
+            realtime_ticks, level5_ticks = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 检查并发任务是否出错
+            if isinstance(realtime_ticks, Exception):
+                logger.error(f"从Redis获取realtime_ticks时出错: {realtime_ticks}", exc_info=realtime_ticks)
+                realtime_ticks = [] # 出错时视为空
+            if isinstance(level5_ticks, Exception):
+                logger.error(f"从Redis获取level5_ticks时出错: {level5_ticks}", exc_info=level5_ticks)
+                level5_ticks = [] # 出错时视为空
 
             if not realtime_ticks:
-                # MODIFIED: Added debug print to show raw result when empty
+                # 这里的日志现在可以更精确地判断问题
                 print(f"DEBUG: realtime_ticks is empty for {stock_code} on {today_str}. Raw result from zrangebyscore: {realtime_ticks}")
-                logger.warning(f"未能从缓存获取 {stock_code} on {today_str} 的实时行情Ticks。")
+                logger.warning(f"未能从缓存获取 {stock_code} on {today_str} 的实时行情Ticks。请检查写入日志中是否有对应的key: '{realtime_key}'")
                 return None
 
             # 3. 将原始数据转换为DataFrame
@@ -207,19 +225,24 @@ class StockRealtimeDAO(BaseDAO):
         """
         获取最新价格
         """
-        # 从Redis缓存中获取数据
         data_dict = await self.cache_get.latest_tick_data(stock_code)
         if data_dict:
-            change_percent = (data_dict.get('current_price') - data_dict.get('prev_close_price')) / data_dict.get('prev_close_price') * 100
-            change_percent = round(change_percent, 2)  # 保留两位小数
-            data_dict['change_percent'] = change_percent  # 计算涨跌幅（change_percent），并加入data_dict
+            # 增加健壮性检查，防止因数据缺失导致计算错误
+            current_price = data_dict.get('current_price')
+            prev_close_price = data_dict.get('prev_close_price')
+            if current_price is not None and prev_close_price is not None and prev_close_price != 0:
+                change_percent = (current_price - prev_close_price) / prev_close_price * 100
+                data_dict['change_percent'] = round(change_percent, 2)
+            else:
+                data_dict['change_percent'] = 0.0
+
             volume = data_dict.get('volume')
-            volume = round(volume / 100, 2)
-            data_dict['volume'] = volume
+            if volume is not None:
+                data_dict['volume'] = round(volume / 100, 2)
+            
             return data_dict
         else:
             return None
-
 
 
 

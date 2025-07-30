@@ -58,37 +58,35 @@ class CacheManager:
     }
     
     def __new__(cls, *args, **kwargs):
-        # 如果 _instance 还未被创建
         if not cls._instance:
-            print("DEBUG: Initializing new CacheManager singleton instance...") # 调试打印：首次创建实例
-            # 使用 super().__new__ 创建实例
+            print("DEBUG: Initializing new CacheManager singleton instance...")
             cls._instance = super().__new__(cls)
-            # 将 redis_client 初始化为 None，确保 __init__ 只被有效执行一次
+            # MODIFIED: 初始化时将 redis_client 和 loop 都设为 None
             cls._instance.redis_client = None
+            cls._instance.loop = None  # NEW: 新增一个变量来存储 event loop
         else:
-            print("DEBUG: Returning existing CacheManager singleton instance.") # 调试打印：返回现有实例
+            print("DEBUG: Returning existing CacheManager singleton instance.")
         return cls._instance
-    
+
     def __init__(self):
-        """初始化时不创建连接，采用懒加载方式"""
-        if self.redis_client is not None:
-            return # 如果已经初始化，直接返回，避免重复操作
-
-        print("DEBUG: CacheManager __init__ is executing...") # 调试打印：执行初始化逻辑
-
-    async def initialize(self):
-        """异步初始化Redis客户端连接"""
-        if self.redis_client is not None:
+        # 初始化方法保持不变，实际逻辑已移至异步的 initialize
+        if hasattr(self, 'is_initialized') and self.is_initialized:
             return
+        self.is_initialized = True
+        print("DEBUG: CacheManager __init__ is executing (once per instance).")
 
-        print("DEBUG: 正在初始化 Redis 客户端连接池...") # 调试打印：连接池初始化
+    # MODIFIED: 修改 initialize 方法，接收 loop 对象
+    async def initialize(self, loop: asyncio.AbstractEventLoop):
+        """
+        为指定的 event loop 初始化 Redis 客户端连接。
+        """
+        print(f"DEBUG: 正在为 Event Loop {id(loop)} 初始化 Redis 客户端连接池...")
         try:
+            # ... 这部分配置读取逻辑保持不变 ...
             cache_config = settings.CACHES['default']
             location = cache_config.get('LOCATION', 'redis://localhost:6379/0')
             options = cache_config.get('OPTIONS', {})
             password = options.get('PASSWORD', None)
-
-            # ... URL 解析和密码处理逻辑保持不变 ...
             parsed_url = urllib.parse.urlparse(location)
             if not parsed_url.password and password:
                  new_netloc = f"{parsed_url.username or ''}:{password}@{parsed_url.hostname}"
@@ -96,14 +94,11 @@ class CacheManager:
                      new_netloc += f":{parsed_url.port}"
                  new_url_parts = parsed_url._replace(netloc=new_netloc)
                  new_url = new_url_parts.geturl()
-                 logger.debug("已将密码添加到 Redis 连接 URL 中。")
             else:
                  new_url = location
-
-            # MODIFIED: 优化连接池参数读取逻辑，使其能正确使用 settings.py 中的配置
             pool_kwargs = options.get('CONNECTION_POOL_KWARGS', {})
             max_conns = pool_kwargs.get('max_connections', options.get('MAX_CONNECTIONS', 100))
-            print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}") # 调试打印：显示最大连接数
+            print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}")
 
             self.redis_client = await Redis.from_url(
                 new_url,
@@ -111,23 +106,44 @@ class CacheManager:
                 socket_connect_timeout=options.get('SOCKET_CONNECT_TIMEOUT', 10),
                 socket_timeout=options.get('SOCKET_TIMEOUT', 15),
                 retry_on_timeout=options.get('RETRY_ON_TIMEOUT', True),
-                max_connections=max_conns # 使用正确读取的连接数
+                max_connections=max_conns
             )
             await self.redis_client.ping()
-            print("DEBUG: Redis 客户端连接池初始化并连接成功。") # 调试打印：连接成功
+            # MODIFIED: 存储当前成功初始化的 event loop
+            self.loop = loop
+            print(f"DEBUG: Redis 客户端连接池为 Event Loop {id(loop)} 初始化并连接成功。")
         except Exception as e:
             logger.error(f"初始化 Redis 客户端失败: {e}", exc_info=True)
             self.redis_client = None
+            self.loop = None
             raise
 
+    # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
     async def _ensure_client(self):
         """
-        【核心修改】简化，不再需要处理事件循环关闭的问题
+        【核心】确保 redis_client 存在且与当前的 event loop 匹配。
+        如果 loop 不匹配，则关闭旧连接并为新 loop 创建新连接。
         """
-        if self.redis_client is None:
-            await self.initialize()
-        if self.redis_client is None:
-             raise ConnectionError("无法连接到 Redis 服务器。")
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.error("CacheManager._ensure_client 必须在运行的 event loop 中调用。")
+            raise
+
+        # 条件：1. 客户端从未初始化过  2. 当前的loop和客户端绑定的loop不一致
+        if self.redis_client is None or self.loop is not current_loop:
+            # 如果存在一个旧的、属于不同loop的客户端，先尝试关闭它
+            if self.redis_client:
+                print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在关闭旧的 Redis 连接...")
+                try:
+                    await self.redis_client.close()
+                except Exception as e:
+                    logger.warning(f"关闭旧的 Redis 客户端时出错: {e}")
+                self.redis_client = None
+                self.loop = None
+
+            # 为当前的 loop 初始化一个新的客户端
+            await self.initialize(current_loop)
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
@@ -278,6 +294,7 @@ class CacheManager:
         #       反序列化后的数据类型（例如，字符串形式的 Decimal/datetime）。
         #       如果不行，应使用 DAO 层的方法（如 BaseDAO.get_by_id）
         #       它包含更健壮的 _build_model_from_cache 逻辑。
+        await self._ensure_client()
         data = await self.get(key)
         if data and isinstance(data, dict):
             try:

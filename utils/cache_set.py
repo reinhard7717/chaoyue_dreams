@@ -689,15 +689,7 @@ class StockRealtimeCacheSet(CacheSet):
 
     async def batch_append_intraday_ticks(self, realtime_payload: Dict, level5_payload: Dict) -> bool:
         """
-        【V2.0 - 盘中引擎专用】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
-        
-        Args:
-            realtime_payload (Dict): 实时行情Tick数据载荷。
-                                     {'stock_code': {'trade_time': dt, ...}, ...}
-            level5_payload (Dict): 五档盘口Tick数据载荷。
-                                   {'stock_code': {'trade_time': dt, ...}, ...}
-        Returns:
-            bool: 操作是否成功提交。
+        【V2.1 - 增强诊断】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
         """
         if not realtime_payload and not level5_payload:
             return True
@@ -715,10 +707,12 @@ class StockRealtimeCacheSet(CacheSet):
                         score = trade_time_obj.timestamp()
                         member_data = tick_data.copy()
                         del member_data['trade_time']
-                        # MODIFIED: 添加调试打印，显示即将序列化的实时行情Tick数据
-                        print(f"DEBUG: Serializing realtime tick for {stock_code}, key: {cache_key}, score: {score}, member_data: {member_data}")
-                        pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
-                        pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
+                        serialized_member = self.cache_manager._serialize(member_data)
+                        pipe.zadd(cache_key, {serialized_member: score})
+                        timeout = self.cache_manager.get_timeout('rt')
+                        pipe.expire(cache_key, timeout)
+                        # MODIFIED: 添加详细的写入日志
+                        print(f"DEBUG_WRITE: [RealtimeTick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
 
                 # 处理五档盘口 Ticks
                 for stock_code, tick_data in level5_payload.items():
@@ -728,10 +722,12 @@ class StockRealtimeCacheSet(CacheSet):
                         score = trade_time_obj.timestamp()
                         member_data = tick_data.copy()
                         del member_data['trade_time']
-                        # MODIFIED: 添加调试打印，显示即将序列化的五档盘口Tick数据
-                        print(f"DEBUG: Serializing level5 tick for {stock_code}, key: {cache_key}, score: {score}, member_data: {member_data}")
-                        pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
-                        pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
+                        serialized_member = self.cache_manager._serialize(member_data)
+                        pipe.zadd(cache_key, {serialized_member: score})
+                        timeout = self.cache_manager.get_timeout('rt')
+                        pipe.expire(cache_key, timeout)
+                        # MODIFIED: 添加详细的写入日志
+                        print(f"DEBUG_WRITE: [Level5Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
 
                 await pipe.execute()
             
