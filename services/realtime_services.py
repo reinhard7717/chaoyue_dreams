@@ -19,7 +19,7 @@ from stock_models.index import TradeCalendar
 from utils.cash_key import StockCashKey
 
 from celery import group, chord # 确保 group 和 chord 都已导入
-from tasks.stock_analysis_tasks import cpu_bound_calculation_task, aggregate_intraday_results # 导入两个任务
+from tasks.stock_analysis_tasks import aggregate_intraday_results
 
 logger = logging.getLogger("services")
 
