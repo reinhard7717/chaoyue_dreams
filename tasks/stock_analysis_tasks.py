@@ -351,7 +351,7 @@ def analyze_all_stocks_full_history(self):
 #                盘中引擎任务
 # ==============================================================================
 # --- 任务一：盘前准备任务 ---
-@celery_app.task(name='tasks.prepare_pools', queue='long_running_queue')
+@celery_app.task(name='tasks.prepare_pools', queue='intraday_queue')
 def prepare_pools():
     """
     【V2.1 - 逻辑重构】盘前准备任务，负责生成当日的监控股票池并存入Redis。
