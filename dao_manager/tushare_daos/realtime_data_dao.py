@@ -1,10 +1,8 @@
 import asyncio
 import logging
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Dict
 import tushare as ts
-from datetime import datetime
-from chaoyue_dreams import settings
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
