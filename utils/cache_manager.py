@@ -65,6 +65,8 @@ class CacheManager:
             # MODIFIED: 初始化时将 redis_client 和 loop 都设为 None
             cls._instance.redis_client = None
             cls._instance.loop = None  # NEW: 新增一个变量来存储 event loop
+            # MODIFIED: 为单例实例创建一个异步锁
+            cls._instance._lock = asyncio.Lock()
         else:
             print("DEBUG: Returning existing CacheManager singleton instance.")
         return cls._instance
@@ -123,7 +125,7 @@ class CacheManager:
     async def _ensure_client(self):
         """
         【核心】确保 redis_client 存在且与当前的 event loop 匹配。
-        如果 loop 不匹配，则关闭旧连接并为新 loop 创建新连接。
+        使用 asyncio.Lock 保证此操作在并发环境下是安全的。
         """
         try:
             current_loop = asyncio.get_running_loop()
@@ -131,20 +133,25 @@ class CacheManager:
             logger.error("CacheManager._ensure_client 必须在运行的 event loop 中调用。")
             raise
 
-        # 条件：1. 客户端从未初始化过  2. 当前的loop和客户端绑定的loop不一致
+        # 只有在 loop 不匹配时才需要获取锁，避免不必要的锁开销
         if self.redis_client is None or self.loop is not current_loop:
-            # 如果存在一个旧的、属于不同loop的客户端，先尝试关闭它
-            if self.redis_client:
-                print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在关闭旧的 Redis 连接...")
-                try:
-                    await self.redis_client.close()
-                except Exception as e:
-                    logger.warning(f"关闭旧的 Redis 客户端时出错: {e}")
-                self.redis_client = None
-                self.loop = None
-
-            # 为当前的 loop 初始化一个新的客户端
-            await self.initialize(current_loop)
+            # MODIFIED: 使用异步锁来保护关键的重建区域
+            async with self._lock:
+                # 双重检查：在获得锁之后，再次检查条件。
+                # 因为可能在等待锁的时候，已经有其他协程完成了重建工作。
+                if self.redis_client is None or self.loop is not current_loop:
+                    if self.redis_client:
+                        print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在关闭旧的 Redis 连接...")
+                        try:
+                            await self.redis_client.close()
+                        except Exception as e:
+                            # 这个警告现在应该很少或不会出现了
+                            logger.warning(f"关闭旧的 Redis 客户端时出错: {e}")
+                        self.redis_client = None
+                        self.loop = None
+                    
+                    # 为当前的 loop 初始化一个新的客户端
+                    await self.initialize(current_loop)
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
