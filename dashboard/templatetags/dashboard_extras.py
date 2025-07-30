@@ -107,3 +107,33 @@ def query_builder(context, **kwargs):
     # 这会确保列表值被正确编码为多个同名参数 (e.g., key=value1&key=value2)
     # 而不是编码成一个字符串 (e.g., key=%5B%27value1%27%2C+%27value2%27%5D)
     return f"?{urlencode(query_dict, doseq=True)}" if query_dict else '?'
+
+@register.filter
+def multiply(value, arg):
+    """
+    Multiplies the value with the argument.
+    Usage: {{ value|multiply:arg }}
+    """
+    try:
+        return float(value) * float(arg)
+    except (ValueError, TypeError):
+        print(f"DEBUG: multiply filter error - value: {value}, arg: {arg}") # 调试信息
+        return 0.0 # 发生错误时返回0.0，或根据业务需求处理
+
+# 新增代码行：定义 subtract 过滤器
+@register.filter
+def subtract(value, arg):
+    """
+    Subtracts the argument from the value.
+    Usage: {{ value|subtract:arg }}
+    """
+    try:
+        return float(value) - float(arg)
+    except (ValueError, TypeError):
+        print(f"DEBUG: subtract filter error - value: {value}, arg: {arg}") # 调试信息
+        return 0.0 # 发生错误时返回0.0，或根据业务需求处理
+
+
+
+
+
