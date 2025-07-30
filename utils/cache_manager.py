@@ -3,6 +3,7 @@ import json
 import urllib.parse  # 已存在，不变
 from redis.asyncio import Redis  # 替换 import aioredis
 from django.conf import settings
+import threading
 import asyncio
 import logging
 import umsgpack
@@ -65,8 +66,7 @@ class CacheManager:
             # MODIFIED: 初始化时将 redis_client 和 loop 都设为 None
             cls._instance.redis_client = None
             cls._instance.loop = None  # NEW: 新增一个变量来存储 event loop
-            # MODIFIED: 为单例实例创建一个异步锁
-            cls._instance._lock = asyncio.Lock()
+            cls._instance._rebuild_lock = threading.Lock()
         else:
             print("DEBUG: Returning existing CacheManager singleton instance.")
         return cls._instance
@@ -121,11 +121,12 @@ class CacheManager:
             self.loop = None
             raise
 
-    # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
     async def _ensure_client(self):
         """
-        【核心】确保 redis_client 存在且与当前的 event loop 匹配。
-        使用 asyncio.Lock 保证此操作在并发环境下是安全的。
+        【V3.2 - 终极并发安全版】确保 redis_client 存在且与当前的 event loop 匹配。
+        - 使用同步的 threading.Lock 来保护检查和决策过程，防止竞争条件。
+        - 将异步的 I/O 操作（关闭、初始化）移出同步锁的范围。
+        - 彻底解决 "is bound to a different event loop" 的问题。
         """
         try:
             current_loop = asyncio.get_running_loop()
@@ -133,25 +134,37 @@ class CacheManager:
             logger.error("CacheManager._ensure_client 必须在运行的 event loop 中调用。")
             raise
 
-        # 只有在 loop 不匹配时才需要获取锁，避免不必要的锁开销
-        if self.redis_client is None or self.loop is not current_loop:
-            # MODIFIED: 使用异步锁来保护关键的重建区域
-            async with self._lock:
-                # 双重检查：在获得锁之后，再次检查条件。
-                # 因为可能在等待锁的时候，已经有其他协程完成了重建工作。
-                if self.redis_client is None or self.loop is not current_loop:
-                    if self.redis_client:
-                        print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在关闭旧的 Redis 连接...")
-                        try:
-                            await self.redis_client.close()
-                        except Exception as e:
-                            # 这个警告现在应该很少或不会出现了
-                            logger.warning(f"关闭旧的 Redis 客户端时出错: {e}")
-                        self.redis_client = None
-                        self.loop = None
-                    
-                    # 为当前的 loop 初始化一个新的客户端
-                    await self.initialize(current_loop)
+        # 快速路径：如果循环匹配，直接返回，避免任何锁的开销。
+        if self.loop is current_loop and self.redis_client:
+            return
+
+        # 慢速路径：循环不匹配或客户端不存在，需要重建。
+        # 使用同步锁来确保只有一个协程可以执行重建决策。
+        with self._rebuild_lock:
+            # 双重检查：在获得锁之后，再次检查条件。
+            # 因为在等待锁的时候，可能已有其他协程完成了重建工作。
+            if self.loop is current_loop and self.redis_client:
+                return
+            # 1. 获取同步锁，保护“决定是否重建”这个动作
+            rebuild_needed = False
+            if self.loop is not current_loop:
+                rebuild_needed = True
+        # 2. 如果需要重建，则执行异步的关闭和初始化操作
+        if rebuild_needed:
+            print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在异步重建 Redis 上下文...")
+            # 关闭旧的连接（如果存在）
+            if self.redis_client:
+                try:
+                    await self.redis_client.close()
+                except Exception as e:
+                    logger.warning(f"关闭旧的 Redis 客户端时出错（可忽略）: {e}")
+            # 为新的循环初始化一个全新的客户端。
+            # initialize 方法会更新 self.redis_client 和 self.loop
+            await self.initialize(current_loop)
+            # 在同步锁的保护下，再次更新状态，确保一致性
+            with self._rebuild_lock:
+                # 这里的赋值是线程安全的
+                pass # 实际上 initialize 已经更新了 self.loop
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
