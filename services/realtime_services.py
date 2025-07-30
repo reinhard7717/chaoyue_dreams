@@ -97,7 +97,7 @@ def cpu_bound_calculation_task(
         if df_minute.empty: return None
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
-        df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=1)
+        df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
         custom_strategy = ta.Strategy(
             name="Intraday_Advanced_Features",
             ta=[
@@ -109,19 +109,24 @@ def cpu_bound_calculation_task(
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
             ]
         )
-        df_minute.ta.strategy(custom_strategy, cores=1)
+        df_minute.ta.strategy(custom_strategy, cores=0)
+        
         if 'net_agg_vol_slope' in df_minute.columns:
-            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=1)
+            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
+        
         if 'net_aggressive_volume' in df_minute.columns:
-            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=1)
+            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
             df_minute = df_minute.join(bbands_df)
-        stdev = df_minute.ta.stdev(length=stats_window, cores=1)
-        sma = df_minute.ta.sma(length=stats_window, cores=1)
+            
+        stdev = df_minute.ta.stdev(length=stats_window, cores=0)
+        sma = df_minute.ta.sma(length=stats_window, cores=0)
         df_minute['price_cv'] = stdev / (sma + 1e-6)
+        
         if 'net_aggressive_volume' in df_minute.columns:
             df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
+            
         try:
-            df_minute.ta.fractal(append=True, cores=1)
+            df_minute.ta.fractal(append=True, cores=0)
             rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
             df_minute.rename(columns=rename_map, inplace=True)
         except Exception:
