@@ -753,6 +753,96 @@ class CacheManager:
             logger.error(f"scan_keys 时发生未知 Redis 错误: pattern='{pattern}', error='{e}'", exc_info=True)
             return []
 
+    async def sadd(self, key: str, *values: Any) -> Optional[int]:
+        """
+        【新增】(异步) 向集合添加一个或多个成员。
+        
+        Args:
+            key (str): 集合的键。
+            *values: 一个或多个要添加到集合的成员。
+        
+        Returns:
+            Optional[int]: 成功添加到集合中的新成员数量，如果发生错误则返回None。
+        """
+        if not values:
+            return 0
+        try:
+            redis_client = await self._ensure_client()
+            # 序列化所有要添加的值
+            serialized_values = [self._serialize(v) for v in values]
+            # SADD 命令返回成功添加的新成员数量
+            added_count = await redis_client.sadd(key, *serialized_values)
+            logger.debug(f"SADD 操作成功: key='{key}', 添加了 {len(values)} 个成员, 新增 {added_count} 个。")
+            return added_count
+        except ValueError as e: # 捕获序列化失败
+            logger.error(f"SADD 操作失败 (序列化错误): key='{key}', error='{e}'")
+            return None
+        except ConnectionError as e:
+            logger.error(f"SADD 操作失败 (Redis 连接错误): key='{key}', error='{e}'")
+            return None
+        except Exception as e:
+            logger.error(f"SADD 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
+            return None
+
+    async def smembers(self, key: str) -> Optional[List[Any]]:
+        """
+        【新增】(异步) 获取集合中的所有成员。
+        
+        Args:
+            key (str): 集合的键。
+        
+        Returns:
+            Optional[List[Any]]: 包含所有成员的列表，如果键不存在或发生错误则返回None。
+        """
+        try:
+            redis_client = await self._ensure_client()
+            # SMEMBERS 返回一个包含所有成员（bytes）的集合
+            serialized_members = await redis_client.smembers(key)
+            if not serialized_members:
+                logger.debug(f"SMEMBERS 未找到成员或集合为空: key='{key}'")
+                return [] # 返回空列表表示集合为空
+            
+            logger.debug(f"SMEMBERS 命中: key='{key}', 找到 {len(serialized_members)} 个成员。")
+            # 反序列化每个成员
+            deserialized_list = [self._deserialize(member) for member in serialized_members]
+            return deserialized_list
+        except ConnectionError as e:
+            logger.error(f"SMEMBERS 操作失败 (Redis 连接错误): key='{key}', error='{e}'")
+            return None
+        except Exception as e:
+            logger.error(f"SMEMBERS 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
+            return None
+
+    async def expire(self, key: str, timeout: int) -> bool:
+        """
+        【新增】(异步) 为指定的键设置过期时间。
+        
+        Args:
+            key (str): 目标键。
+            timeout (int): 过期时间，单位为秒。
+        
+        Returns:
+            bool: 如果成功设置了过期时间则返回True，否则返回False。
+        """
+        if timeout <= 0:
+            logger.warning(f"EXPIRE: 无效的超时时间 {timeout}，操作取消。")
+            return False
+        try:
+            redis_client = await self._ensure_client()
+            # EXPIRE 命令返回 1 (成功) 或 0 (键不存在或未设置成功)
+            success = await redis_client.expire(key, timeout)
+            if success:
+                logger.debug(f"EXPIRE 操作成功: key='{key}', timeout={timeout}s")
+            else:
+                logger.warning(f"EXPIRE 操作失败: key='{key}' 可能不存在。")
+            return bool(success)
+        except ConnectionError as e:
+            logger.error(f"EXPIRE 操作失败 (Redis 连接错误): key='{key}', error='{e}'")
+            return False
+        except Exception as e:
+            logger.error(f"EXPIRE 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
+            return False
+
     # --- 辅助方法 ---
     def generate_key(self, cache_type: str, *args: str) -> str:
         """生成标准化的缓存键"""
