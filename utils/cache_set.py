@@ -729,7 +729,7 @@ class StockRealtimeCacheSet(CacheSet):
                         timeout = self.cache_manager.get_timeout('rt')
                         pipe_instance.expire(cache_key, timeout)
                         # 调试日志现在应该可以正常打印了
-                        print(f"DEBUG_WRITE: [Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
+                        # print(f"DEBUG_WRITE: [Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
                     else:
                         logger.warning(f"跳过股票 {stock_code} 的Tick数据，因为缺少有效的 'trade_time'。")
 

@@ -86,7 +86,7 @@ class StockRealtimeDAO(BaseDAO):
             df = self.ts.realtime_quote(ts_code=stock_codes_str)
             
             # MODIFIED: 添加调试打印，显示从Tushare获取的原始DataFrame
-            print(f"DEBUG: Tushare realtime_quote DF for codes '{stock_codes_str[:100]}...':\n{df.head().to_string()}")
+            # print(f"DEBUG: Tushare realtime_quote DF for codes '{stock_codes_str[:100]}...':\n{df.head().to_string()}")
 
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情数据。")
