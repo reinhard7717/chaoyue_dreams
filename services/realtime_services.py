@@ -5,6 +5,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+from chaoyue_dreams.celery import app as celery_app
 import pytz # <--- 1. 导入 pytz
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, time # <--- 2. 导入 time
