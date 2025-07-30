@@ -31,6 +31,7 @@ class StrategiesDAO(BaseDAO):
         self.cache_get = StrategyCacheGet(self.cache_manager)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
+        self.cache_manager = cache_manager_instance
 
     def get_cyq_chips_model_by_code(self, stock_code: str):
         """
@@ -56,9 +57,9 @@ class StrategiesDAO(BaseDAO):
         :param stock_code: 股票代码
         :return: 最新的策略信号对象或None
         """
-        stock_basic_info_dao = StockBasicInfoDao()
+        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
         # 异步获取股票对象
-        stock_obj = await stock_basic_info_dao.get_stock_by_code(stock_code)
+        stock_obj = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:
             print(f"未找到股票代码为{stock_code}的股票信息")
             return None
@@ -77,9 +78,9 @@ class StrategiesDAO(BaseDAO):
         :param timestamp: 时间戳
         :return: 策略信号对象列表
         """
-        stock_basic_info_dao = StockBasicInfoDao()
+        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
         # 异步获取股票对象
-        stock_obj = await stock_basic_info_dao.get_stock_by_code(stock_code)
+        stock_obj = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:
             print(f"未找到股票代码为{stock_code}的股票信息")
             return []
@@ -100,9 +101,9 @@ class StrategiesDAO(BaseDAO):
         :param timestamp: 时间戳
         :param defaults_kwargs: 策略分析结果数据
         """
-        stock_basic_info_dao = StockBasicInfoDao()
+        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
         # 异步获取股票对象
-        stock_obj = await stock_basic_info_dao.get_stock_by_code(stock_code)
+        stock_obj = await self.stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:
             print(f"未找到股票代码为{stock_code}的股票信息")
             return None
@@ -173,7 +174,7 @@ class StrategiesDAO(BaseDAO):
             print("调试信息: [DAO] 传入的报告数据列表为空，不执行任何操作。")
             return 0
 
-        stock_basic_dao = StockBasicInfoDao()
+        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
         data_list_for_db = []
 
         for report_dict in reports_data:
@@ -184,7 +185,7 @@ class StrategiesDAO(BaseDAO):
                 continue
             
             # 异步获取StockInfo对象
-            stock_instance = await stock_basic_dao.get_stock_by_code(stock_code)
+            stock_instance = await self.stock_basic_dao.get_stock_by_code(stock_code)
             if not stock_instance:
                 print(f"调试信息: [DAO] 在数据库中未找到股票: {stock_code}，跳过此条记录。")
                 continue
@@ -235,7 +236,7 @@ class StrategiesDAO(BaseDAO):
             # print("调试信息: [DAO-TrendFollow] 传入的报告数据列表为空，不执行任何操作。")
             return 0
 
-        stock_basic_dao = StockBasicInfoDao()
+        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
         data_list_for_db = []
 
         for report_dict in reports_data:
@@ -244,7 +245,7 @@ class StrategiesDAO(BaseDAO):
                 print(f"调试信息: [DAO-TrendFollow] 报告字典缺少 'stock_code'，跳过: {report_dict}")
                 continue
             
-            stock_instance = await stock_basic_dao.get_stock_by_code(stock_code)
+            stock_instance = await self.stock_basic_dao.get_stock_by_code(stock_code)
             if not stock_instance:
                 print(f"调试信息: [DAO-TrendFollow] 在数据库中未找到股票: {stock_code}，跳过。")
                 continue
