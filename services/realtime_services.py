@@ -31,8 +31,8 @@ def cpu_bound_calculation_task(
     stats_window: int
 ) -> Optional[dict]:
     """
-    【V5.5 - 最终修复版】
-    通过直接修改 pandas_ta 实例的 .cores 属性，强制其在单核模式下运行。
+    【V5.6 - 健壮计算最终版】
+    动态构建计算策略，仅当源数据列存在时才执行相应计算，避免因数据缺失导致警告和失败。
     """
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
 
@@ -57,11 +57,7 @@ def cpu_bound_calculation_task(
             for col in decimal_cols_ticks:
                 if col in df_ticks.columns:
                     df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
-        
-        # ▼▼▼ 核心的、决定性的修改 ▼▼▼
-        # 在进行任何 TA 计算之前，强制将 pandas_ta 实例的 cores 属性设置为 0
         df_minute.ta.cores = 0
-        # ▲▲▲ 修改结束 ▲▲▲
 
         # ... (聚合Tick数据的代码保持不变) ...
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
@@ -86,7 +82,7 @@ def cpu_bound_calculation_task(
             }, inplace=True)
             df_minute = df_minute.join(df_aggregated, how='left')
 
-        # --- 2. 计算各种技术指标 (为保险起见，仍然保留 cores=0 参数) ---
+        # --- 2. 动态构建计算策略并执行 ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         if df_minute.empty: return None
@@ -94,39 +90,50 @@ def cpu_bound_calculation_task(
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
         
         df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
-        custom_strategy = ta.Strategy(
-            name="Intraday_Advanced_Features",
-            ta=[
+        
+        # ▼▼▼ 核心修改：动态构建策略 ▼▼▼
+        strategy_ta_list = []
+        
+        # 检查依赖列是否存在，如果存在，则添加相应计算任务
+        if 'net_aggressive_volume' in df_minute.columns:
+            strategy_ta_list.extend([
                 {"kind": "slope", "close": "net_aggressive_volume", "length": slope_window, "col_names": "net_agg_vol_slope"},
-                {"kind": "slope", "close": "buy_com_mean", "length": slope_window, "col_names": "buy_com_slope"},
-                {"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"},
-                {"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"},
                 {"kind": "zscore", "close": "net_aggressive_volume", "length": stats_window, "col_names": "net_agg_vol_zscore"},
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
-            ]
-        )
-        df_minute.ta.strategy(custom_strategy, cores=0)
-        
+            ])
+        if 'buy_com_mean' in df_minute.columns:
+            strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": slope_window, "col_names": "buy_com_slope"})
+        if 'energy_ratio_mean' in df_minute.columns:
+            strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"})
+        if 'volume' in df_minute.columns:
+            strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"})
+
+        # 只有当策略列表不为空时，才执行 strategy
+        if strategy_ta_list:
+            custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
+            df_minute.ta.strategy(custom_strategy, cores=0)
+        # ▲▲▲ 动态构建结束 ▲▲▲
+
+        # ▼▼▼ 核心修改：对后续所有计算也进行防御性检查 ▼▼▼
         if 'net_agg_vol_slope' in df_minute.columns:
             df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
         
         if 'net_aggressive_volume' in df_minute.columns:
             bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
             df_minute = df_minute.join(bbands_df)
-            
-        stdev = df_minute.ta.stdev(length=stats_window, cores=0)
-        sma = df_minute.ta.sma(length=stats_window, cores=0)
-        df_minute['price_cv'] = stdev / (sma + 1e-6)
-        
-        if 'net_aggressive_volume' in df_minute.columns:
             df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
-            
-        try:
-            df_minute.ta.fractal(append=True, cores=0)
-            rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
-            df_minute.rename(columns=rename_map, inplace=True)
-        except Exception:
-            pass
+
+        if 'close' in df_minute.columns:
+            stdev = df_minute.ta.stdev(length=stats_window, cores=0)
+            sma = df_minute.ta.sma(length=stats_window, cores=0)
+            df_minute['price_cv'] = stdev / (sma + 1e-6)
+            try:
+                df_minute.ta.fractal(append=True, cores=0)
+                rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
+                df_minute.rename(columns=rename_map, inplace=True)
+            except Exception:
+                pass
+        # ▲▲▲ 防御性检查结束 ▲▲▲
             
         df_minute.reset_index(inplace=True)
         return df_minute.to_dict('records')
@@ -145,7 +152,6 @@ class RealtimeServices:
         self.realtime_dao = StockRealtimeDAO(cache_manager_instance)
         self.timetrade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.cache_key = StockCashKey()
-        # self.trade_calendar = ATradeCalendar() # <-- 删除这一行
         self.slope_window = 5
         self.stats_window = 20
 
