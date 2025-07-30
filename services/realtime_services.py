@@ -22,26 +22,25 @@ from celery import group, chord # 确保 group 和 chord 都已导入
 
 logger = logging.getLogger("services")
 
+
 @celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')
 def cpu_bound_calculation_task(
-    # 注意：类型提示现在是 dict 而不是 DataFrame
     stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]],
     time_level: str,
     slope_window: int,
     stats_window: int
-) -> Optional[dict]: # 返回值也改为 dict
+) -> Optional[dict]:
     """
-    【V5.2 - 可序列化版】接收字典格式的数据，在内部重建DataFrame进行计算，并返回字典。
+    【V5.3 - 修复Decimal/Float冲突版】
+    在计算前，将所有 Decimal 类型强制转换为 float，以保证数值计算的兼容性。
     """
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
+
     try:
-        # 辅助函数，用于从 'split' 格式的字典重建DataFrame，并正确处理时间索引
         def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
             if data is None:
                 return None
-            # 使用 orient='split' 的输出来重建DataFrame
             df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
-            # JSON序列化会把datetime索引变成字符串，这里必须转换回来
             df.index = pd.to_datetime(df.index)
             return df
 
@@ -52,6 +51,22 @@ def cpu_bound_calculation_task(
         if df_minute is None or df_minute.empty:
             print(f"    -> [Celery Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
             return None
+
+        # ▼▼▼ 核心修改：强制转换 Decimal 类型为 float ▼▼▼
+        # 定义可能为 Decimal 类型的列名列表
+        decimal_cols_minute = ['open', 'high', 'low', 'close', 'turnover_value']
+        decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1'] # 根据您的tick数据结构调整
+        
+        for col in decimal_cols_minute:
+            if col in df_minute.columns:
+                # 使用 pd.to_numeric 转换，它比 .astype 更稳健
+                df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
+
+        if df_ticks is not None:
+            for col in decimal_cols_ticks:
+                if col in df_ticks.columns:
+                    df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
+        # ▲▲▲ 类型转换结束，后续所有计算都将在 float 类型上进行 ▲▲▲
 
         # --- 1. 聚合Tick数据 (逻辑不变) ---
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
@@ -111,14 +126,15 @@ def cpu_bound_calculation_task(
             df_minute.rename(columns=rename_map, inplace=True)
         except Exception:
             pass
-
-        # 重置索引，让时间成为普通列，方便后续处理
+            
         df_minute.reset_index(inplace=True)
-        return df_minute.to_dict('records') # 返回一个字典列表，这是最通用的格式
+        return df_minute.to_dict('records')
 
     except Exception as e:
-        print(f"    -> [Celery Worker] 处理 {stock_code} 时发生严重错误: {e}")
+        # 增加 exc_info=True 来打印完整的堆栈跟踪，方便调试
+        logger.error(f"    -> [Celery Worker] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
         return None
+
 
 class RealtimeServices:
     """
