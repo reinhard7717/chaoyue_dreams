@@ -27,7 +27,7 @@ class IndustryDao(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
+        self.index_info_dao = IndexBasicDAO(self.cache_manager)
         self.data_format_process = IndustryFormatProcess(cache_manager_instance)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
 
@@ -88,11 +88,11 @@ class IndustryDao(BaseDAO):
             "index_code": "", "level": "", "src": "", "parent_code": "", "limit": "", "offset": ""
         }, fields=[ "index_code", "industry_name", "level", "industry_code", "is_pub", "parent_code", "src" ])
         industry_dicts = []
-        index_info_dao = IndexBasicDAO()
+        
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_basic = await index_info_dao.get_index_by_code(row.index_code)
+                index_basic = await self.index_info_dao.get_index_by_code(row.index_code)
                 industry_dict = self.data_format_process.set_sw_industry_data(index=index_basic,df_data=row)
                 industry_dicts.append(industry_dict)
         if industry_dicts:
@@ -127,7 +127,6 @@ class IndustryDao(BaseDAO):
             Dict: 保存结果
         """
         result = {}
-        index_info_dao = IndexBasicDAO()
         industry_member_dicts = []
         # 获取所有申万一级行业
         sw_l1_indexs = await self.get_swan_industry_l1_list()
@@ -176,7 +175,6 @@ class IndustryDao(BaseDAO):
             Dict: 保存结果
         """
         result = {}
-        index_basic_dao = IndexBasicDAO()
         industry_daily_basic_dicts = []
         if trade_time is None:
             # 获取当前日期
@@ -193,7 +191,7 @@ class IndustryDao(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_basic = index_basic_dao.get_index_by_code(row.ts_code)
+                index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
                 industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic,df_data=row)
                 industry_daily_basic_dicts.append(industry_daily_basic_dict)
         if industry_daily_basic_dicts:
@@ -455,7 +453,6 @@ class IndustryDao(BaseDAO):
         # 转换为YYYYMMDD格式
         today_str = today.strftime('%Y%m%d')
         result = {}
-        index_basic_dao = IndexBasicDAO()
         # 拉取数据
         df = self.ts_pro.ths_daily(**{
                 "ts_code": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
@@ -467,7 +464,7 @@ class IndustryDao(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
-                index_basic = index_basic_dao.get_index_by_code(row.ts_code)
+                index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
                 ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
                 ths_index_daily_dicts.append(ths_index_daily_dict)
         if ths_index_daily_dicts:
@@ -491,7 +488,6 @@ class IndustryDao(BaseDAO):
         # 转换为YYYYMMDD格式
         trade_date_str = trade_date.strftime('%Y%m%d')
         result = {}
-        index_basic_dao = IndexBasicDAO()
         # 拉取数据
         df = self.ts_pro.ths_daily(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
@@ -534,7 +530,6 @@ class IndustryDao(BaseDAO):
         else:
             end_date_str = end_date.strftime.strftime('%Y%m%d')
         result = {}
-        index_basic_dao = IndexBasicDAO()
         # 拉取数据
         offset = 0
         limit = 3000
@@ -556,8 +551,8 @@ class IndustryDao(BaseDAO):
                 df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
                 df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
                 for row in df.itertuples():
-                    index_basic = index_basic_dao.get_index_by_code(row.ts_code)
-                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
+                    index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
+                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=index_basic,df_data=row)
                     ths_index_daily_dicts.append(ths_index_daily_dict)
             time.sleep(0.5)
             if len(df) < limit:

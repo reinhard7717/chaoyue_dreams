@@ -6,6 +6,7 @@ from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 
 from core.constants import TIME_TEADE_TIME_LEVELS_PER_TRADING
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from services.indicator_services import IndicatorService
+from utils.cache_manager import CacheManager
 
 logger = logging.getLogger('tasks')
 
@@ -15,7 +16,8 @@ STOCKS_CALCULATE_INDICATORS_QUEUE = 'calculate_indicators'
 # --- 内部异步逻辑：计算单支股票 ---
 async def _calculate_stock_indicators_async(stock_code: str):
     """实际执行异步计算的内部函数"""
-    service = IndicatorService()
+    cache_manager = CacheManager()
+    service = IndicatorService(cache_manager)
     # logger.info(f"开始异步计算股票 {stock_code} 的指标...")
     try:
         tasks = [
@@ -48,7 +50,8 @@ def calculate_stock_indicators_for_single_stock(self, stock_code: str):
 # --- 异步辅助函数：获取需要处理的股票代码 (区分自选和非自选) ---
 async def _get_all_relevant_stock_codes_for_processing():
     """异步获取所有需要处理的股票代码列表，区分为自选股和非自选股"""
-    stock_basic_dao = StockBasicInfoDao()
+    cache_manager = CacheManager()
+    stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_stock_codes = set()
     all_stock_codes = set()
 

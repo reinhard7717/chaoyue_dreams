@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+from utils.cache_manager import CacheManager
 from services.indicator_services import IndicatorService
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
@@ -22,7 +23,9 @@ class MonthlyTrendFollowStrategy:
         """
         构造函数，初始化服务和事件循环。
         """
-        self.indicator_service = IndicatorService()
+        cache_manager = CacheManager()
+        self.stock_basic_dao = StockBasicInfoDao(cache_manager)
+        self.indicator_service = IndicatorService(cache_manager)
         self.favorite_stock_set = None
         self.params = None
         try:
@@ -284,8 +287,8 @@ class MonthlyTrendFollowStrategy:
         - 现在返回一个符合通用信号日志模型的记录列表。
         """
         if self.favorite_stock_set is None:
-            stock_basic_dao = StockBasicInfoDao()
-            favorite_stocks = self.loop.run_until_complete(stock_basic_dao.get_all_favorite_stocks())
+            
+            favorite_stocks = self.loop.run_until_complete(self.stock_basic_dao.get_all_favorite_stocks())
             self.favorite_stock_set = {stock.stock_id for stock in favorite_stocks}
 
         if data_df is None:

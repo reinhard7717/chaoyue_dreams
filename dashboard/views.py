@@ -13,7 +13,7 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
-
+from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
@@ -269,39 +269,37 @@ def fav_trend_following_list(request):
 @login_required
 def realtime_engine_view(request):
     """
-    【V1.0】渲染盘中引擎实时监控页面。
-    - 核心职责:
-      1. 从Redis中获取当前用户今日已产生的所有盘中信号作为初始数据。
-      2. 将初始数据传递给模板进行渲染。
-      3. 页面后续的更新将通过WebSocket实时推送。
+    【V2.1 - 真实Key版】
+    - 使用 IntradayEngineCashKey 从Redis拉取最终信号。
     """
-    user_id = request.user.id
+    user = request.user
     today_str = date.today().strftime('%Y-%m-%d')
-    
     cache_manager = CacheManager()
     cache_key_builder = IntradayEngineCashKey()
-    
-    # 1. 生成当前用户今日的信号缓存键
-    signals_key = cache_key_builder.user_signals_key(user_id, today_str)
-    
-    # 2. 从Redis的List中获取所有信号
-    # 使用 async_to_sync 来在同步视图中调用异步缓存方法
-    async def get_initial_signals():
-        # lrange(key, 0, -1) 获取列表中的所有元素
-        redis_client = await cache_manager._ensure_client()
-        raw_signals = await redis_client.lrange(signals_key, 0, -1)
-        # Redis返回的是bytes，需要解码并用json加载
-        return [json.loads(s.decode()) for s in raw_signals]
-
-    initial_signals = async_to_sync(get_initial_signals)()
-    
-    # 3. 准备传递给模板的上下文
+    user_dao = UserDAO(cache_manager_instance=cache_manager)
+    async def get_initial_signals_for_favorites():
+        favorite_stocks = await user_dao.get_user_favorites(user.id)
+        if not favorite_stocks:
+            return []
+        fav_stock_codes = [fav.stock.stock_code for fav in favorite_stocks if fav.stock]
+        # 使用新的方法生成信号键列表
+        redis_keys = [cache_key_builder.stock_signals_key(code, today_str) for code in fav_stock_codes]
+        fetch_tasks = []
+        for key in redis_keys:
+            fetch_tasks.append(cache_manager.zrange_by_limit(key, limit=20, desc=True))
+        results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        all_signals = []
+        for stock_signals in results:
+            if isinstance(stock_signals, list) and stock_signals:
+                all_signals.extend(stock_signals)
+        all_signals.sort(key=lambda s: s.get('trade_time', ''), reverse=True)
+        return all_signals
+    initial_signals = async_to_sync(get_initial_signals_for_favorites)()
     context = {
         'page_title': '盘中引擎实时监控',
         'initial_signals': initial_signals,
         'total_count': len(initial_signals),
     }
-    
     return render(request, 'dashboard/realtime_engine.html', context)
 
 # --- DRF API 视图 ---

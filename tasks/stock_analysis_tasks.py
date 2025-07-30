@@ -18,6 +18,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
+from utils.cash_key import IntradayEngineCashKey
 
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from intraday_engine.orchestrator import IntradayEngineOrchestrator
@@ -114,8 +115,9 @@ def _execute_strategy_logic(stock_code: str, trade_date: str, latest_only: bool 
     logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
     try:
         # 1. 实例化总指挥策略和DAO
-        strategy_orchestrator = MultiTimeframeTrendStrategy()
-        strategies_dao = StrategiesDAO()
+        cache_manager = CacheManager()
+        strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
+        strategies_dao = StrategiesDAO(cache_manager)
 
         analysis_end_time = f"{trade_date} 16:00:00"
 
@@ -416,27 +418,125 @@ def run_cycle():
 @celery_app.task(name='tasks.aggregate_intraday_results', queue='intraday_queue')
 def aggregate_intraday_results(results: list):
     """
-    【V1.0 - Chord回调任务】
-    在所有并行计算任务完成后，此任务被自动调用以聚合和报告结果。
+    【V3.1 - 真实Key版】
+    1. 接收所有计算结果。
+    2. 使用 IntradayEngineCashKey 将完整数据存入Redis。
+    3. 触发下一步的信号生成任务。
     """
     print("\n" + "="*30)
-    print("【回调任务】所有并行计算已完成，开始聚合结果...")
+    print("【回调任务】所有并行计算已完成，开始存储完整计算结果...")
     
-    processed_count = 0
-    total_tasks = len(results)
+    valid_results = [res for res in results if res and isinstance(res, list)]
     
-    for result_dict_list in results:
-        if result_dict_list and isinstance(result_dict_list, list):
-            # 从结果的第一条记录中获取股票代码
-            stock_code = result_dict_list[0].get('stock_code', '未知代码')
-            print(f"    -> [回调] 成功处理股票 {stock_code} 的数据，共 {len(result_dict_list)} 条。")
-            processed_count += 1
-            
-    print(f"【回调任务】聚合完成。成功处理了 {processed_count} / {total_tasks} 支股票。")
+    if not valid_results:
+        print("【回调任务】没有任何有效的计算结果，任务结束。")
+        print("="*30 + "\n")
+        return "Aggregation complete: No valid results."
+
+    redis_keys_for_signals = async_to_sync(save_full_data_to_redis)(valid_results)
+    
+    total_stocks = len(valid_results)
+    print(f"【回调任务】存储完成。成功处理了 {total_stocks} 支股票的完整数据。")
+    
+    if redis_keys_for_signals:
+        print(f"【回调任务】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
+        signal_generation_workflow = group(
+            generate_signals_from_data.s(redis_key) for redis_key in redis_keys_for_signals
+        )
+        signal_generation_workflow.apply_async()
+        print("【回调任务】信号生成任务已全部派发。")
+
     print("="*30 + "\n")
-    return f"Aggregation complete: {processed_count}/{total_tasks} stocks processed."
+    return f"Aggregation and dispatch complete: {total_stocks} stocks processed."
 
+async def save_full_data_to_redis(results: list) -> list:
+    """
+    (异步) 将每个股票的完整计算结果存入Redis。
+    """
+    cache_manager = CacheManager()
+    # ▼▼▼ 核心修改：实例化我们自己的Key生成器 ▼▼▼
+    cache_key_builder = IntradayEngineCashKey()
+    # ▲▲▲ 修改结束 ▲▲▲
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    save_tasks = []
+    redis_keys = []
+    for stock_data_list in results:
+        if not stock_data_list:
+            continue
+        
+        stock_code = stock_data_list[0].get('stock_code')
+        if not stock_code:
+            continue
+            
+        # 使用新的方法生成键
+        redis_key = cache_key_builder.stock_calculated_data_key(stock_code, today_str)
+        redis_keys.append(redis_key)
+        
+        save_tasks.append(cache_manager.set(redis_key, stock_data_list, timeout=3600))
+        
+    await asyncio.gather(*save_tasks, return_exceptions=True)
+    return redis_keys
 
+# [修改后]
+@celery_app.task(name='tasks.generate_signals_from_data', queue='cpu_intensive_queue')
+def generate_signals_from_data(calculated_data_key: str):
+    """
+    【V1.1 - 真实Key版】
+    1. 从Redis加载数据。
+    2. 运行信号检测逻辑。
+    3. 使用 IntradayEngineCashKey 将信号存入ZSET。
+    """
+    print(f"    -> [信号生成器] 开始处理数据键: {calculated_data_key}")
+    async_to_sync(process_and_save_signals)(calculated_data_key)
+
+async def process_and_save_signals(calculated_data_key: str):
+    cache_manager = CacheManager()
+    # ▼▼▼ 核心修改：实例化我们自己的Key生成器 ▼▼▼
+    cache_key_builder = IntradayEngineCashKey()
+    # ▲▲▲ 修改结束 ▲▲▲
+    
+    data_list = await cache_manager.get(calculated_data_key)
+    if not data_list:
+        print(f"    -> [信号生成器] 数据键 {calculated_data_key} 中没有数据，跳过。")
+        return
+
+    df_minute = pd.DataFrame(data_list)
+    df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'])
+    stock_code = df_minute['stock_code'].iloc[0]
+    today_str = datetime.now().strftime('%Y-%m-%d')
+
+    # 信号检测逻辑 (保持不变)
+    signals = []
+    for _, row in df_minute.iterrows():
+        if 'net_agg_vol_slope' in row and 'volume_zscore' in row and pd.notna(row['net_agg_vol_slope']) and pd.notna(row['volume_zscore']):
+            if row['net_agg_vol_slope'] > 1.5 and row['volume_zscore'] > 2.0:
+                signals.append({
+                    'stock_code': stock_code, 'trade_time': row['trade_time'].isoformat(),
+                    'signal_type': '强力资金流入', 'signal_level': '高',
+                    'description': f"净主动买入斜率({row['net_agg_vol_slope']:.2f})且成交量Z-Score({row['volume_zscore']:.2f})均超阈值。",
+                    'close_price': row['close'],
+                })
+        if 'energy_ratio_mean' in row and pd.notna(row['energy_ratio_mean']):
+            if row['energy_ratio_mean'] > 2.5:
+                signals.append({
+                    'stock_code': stock_code, 'trade_time': row['trade_time'].isoformat(),
+                    'signal_type': '委买能量突破', 'signal_level': '中',
+                    'description': f"平均委买/委卖量比值达到 {row['energy_ratio_mean']:.2f}。",
+                    'close_price': row['close'],
+                })
+
+    if not signals:
+        return
+
+    # 使用新的方法生成信号键
+    signals_redis_key = cache_key_builder.stock_signals_key(stock_code, today_str)
+    zadd_mapping = {
+        signal: datetime.fromisoformat(signal['trade_time']).timestamp()
+        for signal in signals
+    }
+    await cache_manager.zadd_and_trim(signals_redis_key, zadd_mapping, limit=100)
+    print(f"    -> [信号生成器] 为 {stock_code} 成功存储 {len(signals)} 条信号。")
 
 # ▼▼▼ “阿尔法猎手”的Celery后台任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_stock', queue='debug_tasks')

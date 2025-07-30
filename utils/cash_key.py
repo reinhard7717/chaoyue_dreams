@@ -593,3 +593,40 @@ class IntradayEngineCashKey(CashKey):
             entity_id=str(user_id),
             date=date_str
         )
+    """
+    【新增】盘中实时计算引擎专用的缓存键生成器。
+    """
+    def stock_calculated_data_key(self, stock_code: str, trade_date: str) -> str:
+        """
+        为单支股票的【完整计算结果】生成的键 (中间数据)。
+        使用 'calc' 类型，表示这是一个计算过程的产物。
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_CALC,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype='intraday_full_metrics', # 子类型明确指出是盘中全量指标
+            date=trade_date.replace('-', '') # 使用 YYYYMMDD 格式的日期
+        )
+
+    def stock_signals_key(self, stock_code: str, trade_date: str) -> str:
+        """
+        为单支股票的【最终信号】生成的键 (给前端使用)。
+        使用 'strategy' 类型，因为信号是策略的一部分。
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_STRATEGY,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype='intraday_signals', # 子类型明确指出是盘中信号
+            date=trade_date.replace('-', '') # 使用 YYYYMMDD 格式的日期
+        )
+
+
+
+
+
+
+
+
+

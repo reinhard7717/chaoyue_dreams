@@ -7,6 +7,7 @@ from channels.db import database_sync_to_async # 异步访问数据库
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
+from utils.cache_manager import CacheManager
 
 class DashboardConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -66,8 +67,9 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             return data
         favorites_data = await get_favorites_data(self.user)
         # 获取行情
-        realtime_dao = StockRealtimeDAO()
-        strategy_dao = StrategiesDAO()
+        cache_manager = CacheManager()
+        realtime_dao = StockRealtimeDAO(cache_manager_instance=cache_manager)
+        strategy_dao = StrategiesDAO(cache_manager_instance=cache_manager)
         data = []
         for fav in favorites_data:
             stock_code = fav['code']

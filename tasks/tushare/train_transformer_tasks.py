@@ -299,7 +299,10 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
     total_skipped_tasks = 0
     total_stocks_checked = 0
     try:
-        stock_basic_dao = StockBasicInfoDao()
+        # 1. 创建 CacheManager 实例
+        cache_manager = CacheManager()
+        # 2. 创建 DAO 实例并注入 cache_manager
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
         # 使用 async_to_sync 来执行异步方法
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)() #[::-1]
         if not all_stocks:
@@ -404,7 +407,10 @@ def schedule_transformer_training_chain(self): # 参数名一致性
     logger.info(f"任务启动: schedule_transformer_training_chain (调度器模式) - 获取股票列表并分派任务")
     try:
         total_dispatched_chains = 0
-        stock_basic_dao = StockBasicInfoDao()
+        # 1. 创建 CacheManager 实例
+        cache_manager = CacheManager()
+        # 2. 创建 DAO 实例并注入 cache_manager
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         if not all_stocks:
              logger.warning("未获取到股票列表，跳过任务链分派。")

@@ -270,8 +270,8 @@ def save_fund_flow_daily_data_history_batch(self, start_date: datetime.date, end
     """
     log_msg = f"开始并发处理 {start_date} 到 {end_date} 的历史日级资金流向数据..."
     logger.info(log_msg)
-    
-    fund_flow_dao = FundFlowDao()
+    cache_manager = CacheManager()
+    fund_flow_dao = FundFlowDao(cache_manager)
 
     # [优化] 定义一个异步主函数来使用asyncio.gather并发执行所有数据获取任务
     async def main():
@@ -480,7 +480,8 @@ def save_fund_flow_daily_data_ths_history_task(self):
  
     logger.info(f"任务启动: save_fund_flow_daily_data_ths_history_task (调度器模式)")
     try:
-        index_info_dao = IndexBasicDAO()
+        cache_manager_instance = CacheManager()
+        index_info_dao = IndexBasicDAO(cache_manager_instance)
         trade_days = async_to_sync(index_info_dao.get_last_n_trade_cal_open)(n=1500)
         total_dispatched_batches = 0
         for cal_date in trade_days:

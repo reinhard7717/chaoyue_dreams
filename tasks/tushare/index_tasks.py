@@ -178,8 +178,10 @@ def save_index_daily_history_task(self):
     """
     【优化版】从数据库获取所有指数代码，切片后分发给执行器任务进行处理（调度任务）
     """
-    # 在任务开始时创建一次 DAO 实例
-    index_basic_dao = IndexBasicDAO()
+    # 在任务开始时创建一次 CacheManager 实例
+    cache_manager = CacheManager()
+    # 创建 DAO 实例并注入 cache_manager
+    index_basic_dao = IndexBasicDAO(cache_manager)
     task_id = self.request.id
     
     try:
