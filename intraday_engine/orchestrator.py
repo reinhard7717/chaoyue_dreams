@@ -25,6 +25,7 @@ class IntradayEngineOrchestrator:
     """
     def __init__(self, params: Dict, cache_manager_instance: CacheManager):
         self.params = params
+        self.cache_manager = cache_manager_instance
         self.stock_dao = StockBasicInfoDao(cache_manager_instance)
         self.stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.strategies_dao = StrategiesDAO(cache_manager_instance)
