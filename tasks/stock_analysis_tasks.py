@@ -4,7 +4,6 @@
 import asyncio
 from datetime import datetime, timedelta
 import logging
-from utils.time_utils import TimeUtils
 from asgiref.sync import sync_to_async
 from celery import Celery
 from celery import group, chain
