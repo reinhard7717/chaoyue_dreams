@@ -10,7 +10,7 @@ from celery import group
 from chaoyue_dreams.celery import app as celery_app
 import pytz # <--- 1. 导入 pytz
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, time # <--- 2. 导入 time
+from datetime import datetime, time, date # <--- 2. 导入 time
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
