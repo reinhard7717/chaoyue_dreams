@@ -133,9 +133,9 @@ def cpu_bound_calculation_task(
                 df_minute.rename(columns=rename_map, inplace=True)
             except Exception:
                 pass
-        # ▲▲▲ 防御性检查结束 ▲▲▲
             
         df_minute.reset_index(inplace=True)
+        df_minute['stock_code'] = stock_code
         return df_minute.to_dict('records')
 
     except Exception as e:

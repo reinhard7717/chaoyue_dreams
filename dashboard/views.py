@@ -8,8 +8,6 @@ from datetime import date, datetime
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.forms import ValidationError
-from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
@@ -33,7 +31,8 @@ target_queue = 'dashboard'
 # --- 页面视图 ---
 @login_required
 def dashboard_view(request):
-    user_dao = UserDAO()
+    cache_manager = CacheManager()
+    user_dao = UserDAO(cache_manager_instance=cache_manager)
     """渲染主控台页面"""
     get_favorites_async = user_dao.get_user_favorites
     user_favorites = async_to_sync(get_favorites_async)(request.user.id)
@@ -279,7 +278,7 @@ def realtime_engine_view(request):
     user_id = request.user.id
     today_str = date.today().strftime('%Y-%m-%d')
     
-    cache_manager = cache_manager
+    cache_manager = CacheManager()
     cache_key_builder = IntradayEngineCashKey()
     
     # 1. 生成当前用户今日的信号缓存键
@@ -288,7 +287,6 @@ def realtime_engine_view(request):
     # 2. 从Redis的List中获取所有信号
     # 使用 async_to_sync 来在同步视图中调用异步缓存方法
     async def get_initial_signals():
-        await cache_manager.initialize()
         # lrange(key, 0, -1) 获取列表中的所有元素
         redis_client = await cache_manager._ensure_client()
         raw_signals = await redis_client.lrange(signals_key, 0, -1)
