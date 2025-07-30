@@ -336,7 +336,16 @@ class MultiTimeframeTrendStrategy:
             return []
 
         try:
-            # 1. 调用核心策略引擎 (逻辑不变)
+            # --- 【核心修复】步骤 1: 由总指挥层的情报模块统一生成原子状态 ---
+            # 将准备好的数据和自身实例传递给战术引擎的情报层
+            self.tactical_engine.df_indicators = df_daily_prepared
+            # IntelligenceLayer 的 __init__ 接收的是 strategy_instance
+            intelligence_module = self.tactical_engine.intelligence_layer 
+            
+            # 运行情报层的所有诊断，这将填充 self.tactical_engine.atomic_states
+            trigger_events = intelligence_module.run_all_diagnostics()
+            
+            # --- 步骤 2: 调用核心策略引擎，它现在已经拥有了完整的原子状态 ---
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
             )

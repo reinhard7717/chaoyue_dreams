@@ -560,6 +560,7 @@ class IntelligenceLayer:
         # --- 作战单元2: 【王牌】新型资本结构诊断 (基于主力/散户资金) ---
         main_force_col = 'main_force_net_inflow_amount_D'
         retail_col = 'retail_net_inflow_volume_D'
+        print(f"          -> [情报检查] 正在检查资金流数据... 主力资金列 '{main_force_col}' 是否存在: {main_force_col in df.columns}")
         # 检查情报是否送达
         if all(c in df.columns for c in [main_force_col, retail_col]):
             print("          -> [情报确认] 主力/散户资金数据已接收，开始结构分析...")
