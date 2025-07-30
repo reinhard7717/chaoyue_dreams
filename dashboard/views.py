@@ -213,6 +213,14 @@ def fav_trend_following_list(request):
     - 修复: 恢复了删除功能所需的数据传递。
     """
     # --- 步骤1: 获取用户的所有追踪器 ---
+    # 新增代码行：定义子查询以获取对应的 FavoriteStock ID
+    favorite_stock_id_subquery = Subquery(
+        FavoriteStock.objects.filter(
+            user=OuterRef('user'), # 匹配外部查询 (FavoriteStockTracker) 的用户
+            stock=OuterRef('stock') # 匹配外部查询 (FavoriteStockTracker) 的股票
+        ).values('id')[:1] # 获取 ID 并限制为1个，因为 user 和 stock 组合是唯一的
+    )
+
     base_queryset = FavoriteStockTracker.objects.filter(
         user=request.user
     ).select_related(
@@ -220,6 +228,8 @@ def fav_trend_following_list(request):
         'entry_log', 
         'latest_log',
         'exit_log'
+    ).annotate(
+        favorite_id=favorite_stock_id_subquery # 新增代码行：将 FavoriteStock ID 注释到 tracker 对象上
     )
 
     # --- 步骤2: 根据前端请求进行状态筛选 ---
@@ -231,8 +241,9 @@ def fav_trend_following_list(request):
         queryset = base_queryset.filter(status='SOLD')
         page_title = '自选股历史平仓'
     else:
+        # 修改代码行：修正变量名，确保 page_title 被正确赋值
+        page_title = '全部自选追踪' 
         queryset = base_queryset
-        page_title = '全部自选追踪'
 
     # --- 步骤3: 排序 ---
     if status_filter == 'sold':
