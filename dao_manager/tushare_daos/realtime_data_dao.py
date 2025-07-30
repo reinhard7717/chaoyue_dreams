@@ -14,11 +14,6 @@ from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
 
-from asgiref.sync import sync_to_async
-from datetime import date, timedelta
-from stock_models.strategy_log import TrendFollowStrategySignalLog
-from stock_models.user_models import UserStockSelection
-
 logger = logging.getLogger("dao")
 
 class StockRealtimeDAO(BaseDAO):
