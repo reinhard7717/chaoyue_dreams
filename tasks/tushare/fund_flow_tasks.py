@@ -90,8 +90,7 @@ def save_fund_flow_daily_data_today(self):
         target_methods = [
             'save_history_fund_flow_daily_data',
             'save_history_fund_flow_daily_ths_data',
-            'save_history_fund_flow_cnt_ths_data',
-            'save_history_fund_flow_industry_ths_data'
+            'save_history_fund_flow_daily_dc_data'
         ]
         task_signatures = [
             execute_save_today_fund_flow_method.s(method_name=method, trade_date=today_date)
@@ -175,8 +174,7 @@ def save_fund_flow_daily_data_yesterday(self):
         target_methods = [
             'save_history_fund_flow_daily_data',
             'save_history_fund_flow_daily_ths_data',
-            'save_history_fund_flow_cnt_ths_data',
-            'save_history_fund_flow_industry_ths_data'
+            'save_history_fund_flow_daily_dc_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组对【通用执行者】的任务签名
         task_signatures = [
@@ -237,7 +235,7 @@ def save_fund_flow_data_this_week_task(self):
         target_methods = [
             'save_history_fund_flow_daily_data',
             'save_history_fund_flow_daily_ths_data',
-            'save_history_fund_flow_cnt_ths_data'
+            'save_history_fund_flow_daily_dc_data'
         ]
         # [修改] 使用列表推导式和 .s() 方法创建一组任务签名 (signature)
         # .s() 创建了一个任务的“签名”，它包含了任务名和所有参数，但不会立即执行
