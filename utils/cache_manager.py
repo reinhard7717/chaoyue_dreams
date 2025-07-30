@@ -125,48 +125,69 @@ class CacheManager:
     # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
     async def _ensure_client(self) -> Redis:
         """
-        【核心】确保返回一个与当前事件循环匹配的、已初始化的 Redis 客户端。
-        此方法是完全并发安全的。
+        【核心 V3.4】确保返回一个与当前事件循环匹配的、已初始化的 Redis 客户端。
+        此方法修复了可能返回 None 的竞争条件。
         """
         current_loop = asyncio.get_running_loop()
         loop_id = id(current_loop)
 
-        # 快速路径：如果当前循环的上下文已存在，直接返回客户端
-        if loop_id in self._contexts:
+        # 快速路径: 如果客户端已完全初始化，直接返回
+        if loop_id in self._contexts and self._contexts[loop_id].get('client'):
             return self._contexts[loop_id]['client']
 
-        # 慢速路径：当前循环的上下文不存在，需要创建
-        # 使用同步锁来保护上下文词典的修改
+        # 慢速路径: 上下文不存在或客户端未初始化
+        # 使用同步锁保护上下文词典的创建，防止多线程冲突
         with self._context_lock:
-            # 双重检查：可能在等待锁时，其他协程已创建了上下文
-            if loop_id in self._contexts:
-                return self._contexts[loop_id]['client']
-            
-            # 我们是第一个为这个新循环创建上下文的协程
-            # 创建一个与当前循环绑定的新 asyncio.Lock
-            async_lock = asyncio.Lock()
-            self._contexts[loop_id] = {
-                'client': None,
-                'lock': async_lock
-            }
-
-        # 获取刚刚为这个循环创建的异步锁
+            # 双重检查：可能在等待锁时，其他线程已创建了上下文
+            if loop_id not in self._contexts:
+                print(f"DEBUG: 正在为 Event Loop {loop_id} 创建新的上下文...")
+                # 只创建上下文结构，客户端初始化由异步锁保护
+                self._contexts[loop_id] = {
+                    'client': None,
+                    'lock': asyncio.Lock()
+                }
+        
+        # 获取当前事件循环专属的异步锁
         loop_async_lock = self._contexts[loop_id]['lock']
 
-        # 使用这个与当前循环绑定的异步锁来保护 I/O 密集型的初始化过程
+        # 使用异步锁来保护 I/O 密集型的初始化过程，防止同一事件循环内的多协程冲突
         async with loop_async_lock:
-            # 再次双重检查，因为在等待异步锁时，可能已有协程完成了初始化
+            # 三重检查：可能在等待异步锁时，已有协程完成了初始化
             if self._contexts[loop_id]['client']:
                 return self._contexts[loop_id]['client']
 
-            print(f"DEBUG: Event loop {loop_id} 的 Redis 上下文不存在，开始异步初始化...")
-            # 调用私有初始化方法
-            new_client = await self._initialize_for_loop(current_loop)
-            
-            # 将新创建的客户端存入上下文
-            self._contexts[loop_id]['client'] = new_client
-            
-            return new_client
+            print(f"DEBUG: Event loop {loop_id} 的 Redis 客户端不存在，开始异步初始化...")
+            try:
+                # 调用私有初始化方法
+                new_client = await self._initialize_for_loop(current_loop)
+                # 将新创建的客户端存入上下文
+                self._contexts[loop_id]['client'] = new_client
+                return new_client
+            except Exception as e:
+                logger.error(f"Redis 客户端初始化失败，loop_id: {loop_id}。正在清理损坏的上下文以便重试。错误: {e}", exc_info=True)
+                # 如果初始化失败，必须移除损坏的上下文，否则后续调用将永远等待一个无法被创建的客户端
+                with self._context_lock:
+                    self._contexts.pop(loop_id, None)
+                # 将异常向上抛出，让调用者知道操作失败了
+                raise
+
+    # NEW: 新增并修正 get_redis_lock 方法
+    async def get_redis_lock(self, lock_name: str, timeout: int = 30, blocking_timeout: int = 5):
+        """
+        (异步) 获取一个 Redis 分布式锁。
+        如果获取客户端失败，会向上抛出 ConnectionError。
+        """
+        try:
+            # 1. 正确地 await 获取客户端
+            redis_client = await self._ensure_client()
+            # 2. 使用获取到的客户端实例来创建锁
+            return redis_client.lock(lock_name, timeout=timeout, blocking_timeout=blocking_timeout)
+        except Exception as e:
+            # 捕获 _ensure_client() 抛出的连接异常，或 redis.lock() 本身的异常
+            logger.error(f"获取 Redis 锁 '{lock_name}' 时发生异常: {e}", exc_info=True)
+            # 向上抛出一个明确的异常，让调用者（如 BaseDAO）知道操作失败，而不是静默返回 None。
+            # 这使得 BaseDAO 可以正确地中止数据库操作。
+            raise ConnectionError(f"获取 Redis 锁 '{lock_name}' 失败。") from e
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
