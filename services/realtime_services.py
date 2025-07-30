@@ -19,7 +19,6 @@ from stock_models.index import TradeCalendar
 from utils.cash_key import StockCashKey
 
 from celery import group, chord # 确保 group 和 chord 都已导入
-from tasks.stock_analysis_tasks import aggregate_intraday_results
 
 logger = logging.getLogger("services")
 
@@ -237,6 +236,7 @@ class RealtimeServices:
         【V5.3 - Chord异步工作流版】
         使用 Celery Chord 将并行计算与结果聚合解耦，避免阻塞。
         """
+        from tasks.stock_analysis_tasks import aggregate_intraday_results
         print(f"【V5.3】开始为 {len(stock_codes)} 支股票构建 Chord 异步工作流...")
         
         # --- 步骤 1: I/O 阶段 (逻辑不变) ---
