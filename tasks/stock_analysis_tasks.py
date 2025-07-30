@@ -405,49 +405,6 @@ def run_cycle(self):
         return {"status": "error", "reason": str(e)}
 
 
-# --- 任务三：引擎调度器 (启动/停止) ---
-# 这部分可以简化为一个管理命令或在Django Admin中手动操作，
-# 但用Celery任务来自动化是更佳实践。
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.realtime_engine_scheduler', queue='celery')
-def realtime_engine_scheduler(self, action: str):
-    """
-    【最佳实践】统一的引擎调度器，负责启动和停止盘中循环任务。
-    """
-    task_name = 'intraday-engine-main-loop'
-    
-    if action == 'start':
-        logger.info("调度器：正在启动盘中引擎...")
-        schedule, _ = CrontabSchedule.objects.get_or_create(
-            minute='*', hour='9-11, 13-14', day_of_week='1-5',
-            month_of_year='*', timezone='Asia/Shanghai'
-        )
-        PeriodicTask.objects.update_or_create(
-            name=task_name,
-            defaults={
-                'task': 'tasks.intraday_engine.run_cycle',
-                'crontab': schedule,
-                'enabled': True,
-                'queue': 'intraday_queue'
-            }
-        )
-        logger.info("调度器：盘中引擎已设置为每分钟运行。")
-        return {"status": "started"}
-        
-    elif action == 'stop':
-        logger.info("调度器：正在停止盘中引擎...")
-        try:
-            task = PeriodicTask.objects.get(name=task_name)
-            task.enabled = False
-            task.save()
-            logger.info("调度器：盘中引擎的定时任务已禁用。")
-            return {"status": "stopped"}
-        except PeriodicTask.DoesNotExist:
-            logger.warning(f"未找到名为 '{task_name}' 的定时任务，无需停止。")
-            return {"status": "not_found"}
-    else:
-        return {"status": "error", "reason": "Invalid action"}
-
-
 # ▼▼▼ “阿尔法猎手”的Celery后台任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_stock', queue='debug_tasks')
 def run_alpha_hunter_for_stock(self, stock_code: str):

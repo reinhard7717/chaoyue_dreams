@@ -689,7 +689,8 @@ class StockRealtimeCacheSet(CacheSet):
 
     async def batch_append_intraday_ticks(self, realtime_payload: Dict, level5_payload: Dict) -> bool:
         """
-        【V2.1 - 增强诊断】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
+        【V2.2 - 健壮版】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
+        - 修复了因 trade_time 为字符串而导致写入被跳过的问题。
         """
         if not realtime_payload and not level5_payload:
             return True
@@ -699,35 +700,46 @@ class StockRealtimeCacheSet(CacheSet):
             async with redis_client.pipeline() as pipe:
                 today_str = datetime.now().strftime('%Y%m%d')
                 
-                # 处理实时行情 Ticks
-                for stock_code, tick_data in realtime_payload.items():
-                    trade_time_obj = tick_data.get('trade_time')
-                    if isinstance(trade_time_obj, datetime):
-                        cache_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, today_str)
+                # 统一处理函数，避免代码重复
+                def process_tick(stock_code: str, tick_data: dict, key_func, pipe_instance):
+                    trade_time_val = tick_data.get('trade_time')
+                    trade_time_obj = None
+
+                    # 核心修正：如果 trade_time 是字符串，则尝试从ISO格式转换
+                    if isinstance(trade_time_val, str):
+                        try:
+                            trade_time_obj = datetime.fromisoformat(trade_time_val)
+                        except (ValueError, TypeError):
+                            logger.warning(f"无法解析Tick中的时间字符串: '{trade_time_val}' for stock {stock_code}")
+                            return # 跳过此条错误记录
+                    elif isinstance(trade_time_val, datetime):
+                        trade_time_obj = trade_time_val
+
+                    # 如果成功获取到 datetime 对象，则执行写入
+                    if trade_time_obj:
+                        cache_key = key_func(stock_code, today_str)
                         score = trade_time_obj.timestamp()
                         member_data = tick_data.copy()
-                        del member_data['trade_time']
+                        # trade_time 不存入 member，因为它已经作为 score 使用
+                        if 'trade_time' in member_data:
+                            del member_data['trade_time']
+                        
                         serialized_member = self.cache_manager._serialize(member_data)
-                        pipe.zadd(cache_key, {serialized_member: score})
+                        pipe_instance.zadd(cache_key, {serialized_member: score})
                         timeout = self.cache_manager.get_timeout('rt')
-                        pipe.expire(cache_key, timeout)
-                        # MODIFIED: 添加详细的写入日志
-                        print(f"DEBUG_WRITE: [RealtimeTick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
+                        pipe_instance.expire(cache_key, timeout)
+                        # 调试日志现在应该可以正常打印了
+                        print(f"DEBUG_WRITE: [Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
+                    else:
+                        logger.warning(f"跳过股票 {stock_code} 的Tick数据，因为缺少有效的 'trade_time'。")
+
+                # 处理实时行情 Ticks
+                for stock_code, tick_data in realtime_payload.items():
+                    process_tick(stock_code, tick_data, self.cache_key_stock.intraday_ticks_realtime, pipe)
 
                 # 处理五档盘口 Ticks
                 for stock_code, tick_data in level5_payload.items():
-                    trade_time_obj = tick_data.get('trade_time')
-                    if isinstance(trade_time_obj, datetime):
-                        cache_key = self.cache_key_stock.intraday_ticks_level5(stock_code, today_str)
-                        score = trade_time_obj.timestamp()
-                        member_data = tick_data.copy()
-                        del member_data['trade_time']
-                        serialized_member = self.cache_manager._serialize(member_data)
-                        pipe.zadd(cache_key, {serialized_member: score})
-                        timeout = self.cache_manager.get_timeout('rt')
-                        pipe.expire(cache_key, timeout)
-                        # MODIFIED: 添加详细的写入日志
-                        print(f"DEBUG_WRITE: [Level5Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
+                    process_tick(stock_code, tick_data, self.cache_key_stock.intraday_ticks_level5, pipe)
 
                 await pipe.execute()
             

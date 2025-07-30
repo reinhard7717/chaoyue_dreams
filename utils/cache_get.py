@@ -363,6 +363,65 @@ class StockRealtimeCacheGet(CacheGet):
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
+async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 - 新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
+        这是从 DAO 层重构过来的标准缓存获取方法。
+        """
+        try:
+            # 1. 统一日期格式
+            try:
+                date_obj = pd.to_datetime(trade_date)
+                date_str_yyyymmdd = date_obj.strftime('%Y%m%d')
+            except ValueError:
+                logger.error(f"无效的日期格式: {trade_date}。无法继续获取Ticks。")
+                return None
+
+            # 2. 定义当天的缓存键
+            realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
+            level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
+            
+            print(f"DEBUG_READ: [Ticks] ZRANGE from realtime_key='{realtime_key}'")
+            print(f"DEBUG_READ: [Ticks] ZRANGE from level5_key='{level5_key}'")
+
+            # 3. 并发地从Redis获取两种Tick数据
+            tasks = [
+                self.cache_manager.zrangebyscore(realtime_key, '-inf', '+inf', withscores=True),
+                self.cache_manager.zrangebyscore(level5_key, '-inf', '+inf', withscores=True)
+            ]
+            realtime_ticks, level5_ticks = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 4. 检查并处理结果
+            if isinstance(realtime_ticks, Exception) or not realtime_ticks:
+                logger.warning(f"未能从缓存获取 {stock_code} on {date_str_yyyymmdd} 的实时行情Ticks。Key: '{realtime_key}'")
+                return None
+            if isinstance(level5_ticks, Exception):
+                logger.error(f"从Redis获取level5_ticks时出错: {level5_ticks}", exc_info=level5_ticks)
+                level5_ticks = [] # 出错时视为空，不影响主流程
+
+            # 5. 将原始数据转换为DataFrame并合并
+            df_realtime = pd.DataFrame(
+                [data for data, score in realtime_ticks],
+                index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in realtime_ticks])
+            )
+            
+            if level5_ticks:
+                df_level5 = pd.DataFrame(
+                    [data for data, score in level5_ticks],
+                    index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in level5_ticks])
+                )
+                # 使用 merge_asof 进行高效合并
+                df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
+            else:
+                df_ticks = df_realtime
+
+            logger.debug(f"成功从Redis获取并合并了 {len(df_ticks)} 条Tick数据 for {stock_code}")
+            return df_ticks
+
+        except Exception as e:
+            logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
+            return None
+
 class StockIndicatorsCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 【核心修改】调用父类并传递实例
