@@ -31,44 +31,39 @@ def cpu_bound_calculation_task(
     stats_window: int
 ) -> Optional[dict]:
     """
-    【V5.3 - 修复Decimal/Float冲突版】
-    在计算前，将所有 Decimal 类型强制转换为 float，以保证数值计算的兼容性。
+    【V5.5 - 最终修复版】
+    通过直接修改 pandas_ta 实例的 .cores 属性，强制其在单核模式下运行。
     """
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
 
     try:
+        # ... (重建 DataFrame 和类型转换的代码保持不变) ...
         def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
-            if data is None:
-                return None
+            if data is None: return None
             df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
             df.index = pd.to_datetime(df.index)
             return df
-
         df_minute = _reconstruct_df_from_dict(serialized_minute)
         df_ticks = _reconstruct_df_from_dict(serialized_ticks)
         df_level5 = _reconstruct_df_from_dict(serialized_level5)
-
         if df_minute is None or df_minute.empty:
-            print(f"    -> [Celery Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
             return None
-
-        # ▼▼▼ 核心修改：强制转换 Decimal 类型为 float ▼▼▼
-        # 定义可能为 Decimal 类型的列名列表
         decimal_cols_minute = ['open', 'high', 'low', 'close', 'turnover_value']
-        decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1'] # 根据您的tick数据结构调整
-        
+        decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1']
         for col in decimal_cols_minute:
             if col in df_minute.columns:
-                # 使用 pd.to_numeric 转换，它比 .astype 更稳健
                 df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
-
         if df_ticks is not None:
             for col in decimal_cols_ticks:
                 if col in df_ticks.columns:
                     df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
-        # ▲▲▲ 类型转换结束，后续所有计算都将在 float 类型上进行 ▲▲▲
+        
+        # ▼▼▼ 核心的、决定性的修改 ▼▼▼
+        # 在进行任何 TA 计算之前，强制将 pandas_ta 实例的 cores 属性设置为 0
+        df_minute.ta.cores = 0
+        # ▲▲▲ 修改结束 ▲▲▲
 
-        # --- 1. 聚合Tick数据 (逻辑不变) ---
+        # ... (聚合Tick数据的代码保持不变) ...
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
             df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
             df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
@@ -91,12 +86,13 @@ def cpu_bound_calculation_task(
             }, inplace=True)
             df_minute = df_minute.join(df_aggregated, how='left')
 
-        # --- 2. 计算各种技术指标 (逻辑不变) ---
+        # --- 2. 计算各种技术指标 (为保险起见，仍然保留 cores=0 参数) ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         if df_minute.empty: return None
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
+        
         df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
         custom_strategy = ta.Strategy(
             name="Intraday_Advanced_Features",
@@ -136,10 +132,8 @@ def cpu_bound_calculation_task(
         return df_minute.to_dict('records')
 
     except Exception as e:
-        # 增加 exc_info=True 来打印完整的堆栈跟踪，方便调试
         logger.error(f"    -> [Celery Worker] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
         return None
-
 
 class RealtimeServices:
     """
