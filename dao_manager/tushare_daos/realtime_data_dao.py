@@ -177,69 +177,82 @@ class StockRealtimeDAO(BaseDAO):
         else:
             return None
 
-    async def get_daily_ticks_for_stocks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
+    async def get_daily_ticks_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
-        【V2.0 - 批量优化版】使用 Redis Pipeline 一次性获取多支股票的日内 Ticks 数据。
-        这能显著减少 Redis 连接数和网络往返次数，解决 "Too many connections" 问题。
+        【V2.1 - 终极批量优化版】使用 Redis Pipeline 一次性获取多支股票的日内 Ticks 和 Level-5 数据。
+        在一次网络往返中完成所有数据获取，从根本上解决 "Too many connections" 问题。
 
         Args:
             stock_codes (List[str]): 股票代码列表。
             trade_date (str): 交易日期，格式 'YYYY-MM-DD'。
 
         Returns:
-            Dict[str, pd.DataFrame]: 一个字典，键为股票代码，值为对应的 Ticks DataFrame。
-                                     如果某支股票没有数据，则字典中不会包含该键。
+            Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
+            一个字典，键为股票代码，值为一个元组 (df_ticks, df_level5)。
+            如果某支股票没有数据，则字典中不会包含该键。
         """
-        print(f"DEBUG: [DAO层] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 数据...")
+        print(f"DEBUG: [DAO层] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
         if not stock_codes:
             return {}
 
-        # 根据错误日志和现有逻辑推断 key 和 score 的格式
         date_str_no_hyphen = trade_date.replace('-', '')
-        # 注意：这里的 score 范围应与数据写入时保持一致，这里假设为全天范围
         min_score = int(f"{date_str_no_hyphen}091500000")
         max_score = int(f"{date_str_no_hyphen}150500000")
 
         try:
-            # 1. 获取一个 pipeline 对象
-            pipe = await self.cache.pipeline()
+            pipe = await self.cache_manager.pipeline()
             
-            # 2. 将所有 zrangebyscore 命令添加到 pipeline 中
-            # 使用 cache_key_stock 来生成键名，确保与写入时一致
-            key_map = {code: self.cache_key_stock.get_ts_ticks_realtime_key(code, date_str_no_hyphen) for code in stock_codes}
-            for key in key_map.values():
-                pipe.zrangebyscore(key, min_score, max_score, withscores=False)
+            # 为每支股票添加两个命令到 pipeline：一个获取 Ticks，一个获取 Level5
+            for code in stock_codes:
+                ticks_key = self.cache_key_stock.get_ts_ticks_realtime_key(code, date_str_no_hyphen)
+                level5_key = self.cache_key_stock.get_ts_ticks_level5_key(code, date_str_no_hyphen)
+                pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=False)
+                pipe.zrangebyscore(level5_key, min_score, max_score, withscores=False)
             
-            # 3. 一次性执行所有命令
-            # results 是一个列表，每个元素对应一个 zrangebyscore 的结果
+            # 一次性执行所有命令
+            # results 列表的顺序将是 [stock1_ticks, stock1_level5, stock2_ticks, stock2_level5, ...]
             results = await pipe.execute()
             print(f"DEBUG: [DAO层] Pipeline 执行完毕，收到 {len(results)} 组结果。")
 
-            # 4. 处理返回的结果，将原始数据转换为 DataFrame 字典
-            ticks_data_map = {}
-            # 使用 zip 将股票代码和其对应的结果关联起来
-            for stock_code, serialized_ticks in zip(key_map.keys(), results):
-                if serialized_ticks:
-                    # 反序列化并创建 DataFrame
-                    # 注意：这里的 self.cache._deserialize 是 CacheManager 的内部方法，直接调用
-                    deserialized_data = [self.cache._deserialize(tick) for tick in serialized_ticks]
-                    # 过滤掉反序列化失败的 None 值
-                    valid_data = [d for d in deserialized_data if d is not None and isinstance(d, dict)]
-                    
-                    if valid_data:
-                        df = pd.DataFrame(valid_data)
-                        # 确保 trade_time 列是 datetime 类型并设为索引
-                        df['trade_time'] = pd.to_datetime(df['trade_time'])
-                        df.set_index('trade_time', inplace=True)
-                        ticks_data_map[stock_code] = df
+            # 处理返回的结果
+            bulk_data_map = {}
+            for i, stock_code in enumerate(stock_codes):
+                # 从结果列表中成对取出 Ticks 和 Level5 的数据
+                serialized_ticks = results[i * 2]
+                serialized_level5 = results[i * 2 + 1]
+
+                df_ticks = self._process_serialized_data(serialized_ticks)
+                df_level5 = self._process_serialized_data(serialized_level5)
+
+                # 只有当至少有一份数据存在时，才加入到结果字典中
+                if df_ticks is not None or df_level5 is not None:
+                    bulk_data_map[stock_code] = (df_ticks, df_level5)
             
-            print(f"DEBUG: [DAO层] 批量数据处理完成，成功解析了 {len(ticks_data_map)} 支股票的 Ticks。")
-            return ticks_data_map
+            print(f"DEBUG: [DAO层] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
+            return bulk_data_map
 
         except Exception as e:
-            logger.error(f"批量获取 Ticks 数据时发生严重错误: {e}", exc_info=True)
-            return {} # 发生错误时返回空字典
+            logger.error(f"批量获取 Ticks 和 Level5 数据时发生严重错误: {e}", exc_info=True)
+            return {}
 
+    # [新增辅助方法] - 提取公共处理逻辑
+    def _process_serialized_data(self, serialized_data: list) -> Optional[pd.DataFrame]:
+        """
+        将从 Redis 获取的序列化列表数据转换为 DataFrame。
+        """
+        if not serialized_data:
+            return None
+        
+        deserialized_data = [self.cache_manager._deserialize(item) for item in serialized_data]
+        valid_data = [d for d in deserialized_data if d is not None and isinstance(d, dict)]
+        
+        if not valid_data:
+            return None
+            
+        df = pd.DataFrame(valid_data)
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df.set_index('trade_time', inplace=True)
+        return df
 
 
 
