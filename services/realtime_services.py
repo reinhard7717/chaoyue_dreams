@@ -1,6 +1,7 @@
 # 文件: services/realtime_services.py
 
 import logging
+import asyncio
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -31,14 +32,75 @@ class RealtimeServices:
         self.slope_window = 5
         self.stats_window = 20
 
-    async def prepare_intraday_data(self, stock_code: str, time_level: str, trade_date: str) -> Optional[pd.DataFrame]:
+    async def process_all_stocks_intraday_data(self, stock_codes: List[str], time_level: str, trade_date: str):
         """
-        为盘中策略准备所有需要的数据。
+        【V4.3 - 批量调度器】处理所有给定股票的盘中数据准备和特征计算。
+        此方法是解决 "Too many connections" 问题的核心调度逻辑。
         """
-        print(f"    -> [实时服务层 V4.2] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
+        print(f"开始为 {len(stock_codes)} 支股票批量处理盘中数据...")
         
-        # --- 1. 获取基础数据 ---
-        # 1.1 获取分钟K线 (基础画布)
+        # 步骤 1: 使用新的 DAO 方法一次性批量获取所有股票的 Ticks 数据
+        # 这一步只发生一次 Redis 通信，从根本上解决了连接数过多的问题。
+        all_ticks_data = await self.realtime_dao.get_daily_ticks_for_stocks_in_bulk(stock_codes, trade_date)
+        
+        if not all_ticks_data:
+            logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks 数据，日期: {trade_date}。任务终止。")
+            return
+
+        # 步骤 2: 为每支有数据的股票创建一个并发处理任务
+        tasks = []
+        for stock_code in stock_codes:
+            stock_ticks_df = all_ticks_data.get(stock_code)
+            
+            if stock_ticks_df is None or stock_ticks_df.empty:
+                logger.warning(f"股票 {stock_code} 在批量获取结果中没有 Ticks 数据，已跳过。")
+                continue
+
+            # 创建任务，并将预先获取的 Ticks DataFrame 作为参数传递给下游处理函数
+            task = asyncio.create_task(
+                self.process_stock_intraday_data(stock_code, time_level, trade_date, preloaded_ticks=stock_ticks_df)
+            )
+            tasks.append(task)
+
+        if not tasks:
+            logger.warning("没有有效的股票数据可以处理。")
+            return
+
+        # 步骤 3: 并发执行所有计算任务（这些任务不再有 Redis I/O）
+        await asyncio.gather(*tasks, return_exceptions=True)
+        print(f"所有股票的盘中数据处理完成。")
+
+    # [新增方法]
+    async def process_stock_intraday_data(self, stock_code: str, time_level: str, trade_date: str, preloaded_ticks: pd.DataFrame):
+        """
+        【V4.3 - 单股处理器】处理单支股票的数据准备和特征计算。
+        此方法接收预加载的 Ticks DataFrame，避免了重复的 Redis 查询。
+        """
+        try:
+            # 调用核心准备函数，并将预加载的 Ticks 传入
+            intraday_df = await self.prepare_intraday_data(stock_code, time_level, trade_date, preloaded_ticks=preloaded_ticks)
+            
+            if intraday_df is None or intraday_df.empty:
+                print(f"信息: 股票 {stock_code} 未生成有效的盘中数据矩阵。")
+                return
+
+            # 此处可以添加后续的数据保存或进一步处理逻辑
+            # 例如: await self.intraday_repo.save_intraday_features(intraday_df)
+            print(f"成功处理了股票 {stock_code} 的盘中数据。")
+
+        except Exception as e:
+            logger.error(f"处理股票 {stock_code} 数据时发生严重异常: {e}", exc_info=True)
+
+    # [修改后方法]
+    async def prepare_intraday_data(self, stock_code: str, time_level: str, trade_date: str, preloaded_ticks: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
+        """
+        【V4.3 - 批量兼容版】为盘中策略准备所有需要的数据。
+        如果提供了 preloaded_ticks，则跳过从缓存中获取 Ticks 的步骤。
+        """
+        print(f"    -> [实时服务层 V4.3] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
+        
+        # --- 1. 获取分钟K线 (基础画布) ---
+        # 此部分逻辑保持不变
         try:
             shanghai_tz = pytz.timezone('Asia/Shanghai')
             target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
@@ -65,16 +127,21 @@ class RealtimeServices:
             if col in df_minute.columns:
                 df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
 
-        # 1.2 获取全天Ticks (原始颜料)
-        df_ticks = await self.realtime_dao.get_daily_ticks_from_cache(stock_code, trade_date)
+        # --- 修改: Ticks 获取逻辑 ---
+        df_ticks = preloaded_ticks
+        if df_ticks is None:
+            # 修改: 仅在没有提供预加载数据时，才从缓存中单独获取（用于单股调试或兼容旧流程）
+            print(f"DEBUG: 没有预加载的 Ticks，为 {stock_code} 单独从缓存获取...")
+            df_ticks = await self.realtime_dao.get_daily_ticks_from_cache(stock_code, trade_date)
+        else:
+            print(f"DEBUG: 使用为 {stock_code} 预加载的 Ticks 数据。")
+        # --- 结束修改 ---
 
         # --- 2. 聚合Tick数据，生成分钟级盘口特征 ---
+        # 此部分逻辑保持不变
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
-            # 新增: 解决 "Cannot join tz-naive with tz-aware DatetimeIndex" 错误
-            # 检查 df_ticks 的索引是否为 "时区朴素" (naive)
             if df_ticks.index.tz is None:
                 print(f"DEBUG: 为 {stock_code} 的 Ticks 索引添加 'Asia/Shanghai' 时区信息。")
-                # 将其本地化为上海时区，与 df_minute 的时区保持一致
                 df_ticks.index = df_ticks.index.tz_localize(shanghai_tz)
             
             df_ticks = self._calculate_tick_level_indicators(df_ticks)
@@ -85,13 +152,15 @@ class RealtimeServices:
             df_minute = df_minute.join(df_aggregated, how='left')
         
         # --- 3. 计算基础盘中指标 (如VWAP) ---
+        # 此部分逻辑保持不变
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         
         # --- 4. 【核心】计算所有高级衍生特征 ---
+        # 此部分逻辑保持不变
         df_minute = self._calculate_advanced_features_with_ta(df_minute)
 
-        print(f"    -> [实时服务层 V4.2] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
+        print(f"    -> [实时服务层 V4.3] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
         return df_minute
 
     # MODIFIED: 修改此方法以增加数据类型转换
