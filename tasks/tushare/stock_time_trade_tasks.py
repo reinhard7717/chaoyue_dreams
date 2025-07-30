@@ -122,7 +122,6 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     except Exception as e:
         logger.error(f"save_stocks_minute_data_today_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-
 # --- 修改后的调度器任务 ---
 @celery_app.task
 def on_all_minute_data_saved(results, trade_time_str=None):
@@ -132,34 +131,25 @@ def on_all_minute_data_saved(results, trade_time_str=None):
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task', queue='celery')
 def save_stocks_minute_data_today_task(self, trade_time_str=None, batch_size: int = 310):
+    # 1. 在异步上下文中创建顶层的 CacheManager
+    cache_manager_instance = CacheManager()
+    stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
     logger.info(f"任务启动: save_stocks_minute_data_today_task (调度器模式) - 批次大小: {batch_size}")
-    
     # 将 all_stocks 的定义移到 try 块之外，以便在 except 中也能访问
     all_stocks = None 
-    
     try:
         if not TradeCalendar.is_trade_date():
             message = f"今天 ({timezone.now().date()}) 不是交易日，跳过所有分钟数据获取任务。"
             logger.info(message)
             return {"status": "skipped", "message": message}
-
-        # 【核心修改】定义一个正确的 main 函数
         async def main():
-            # 1. 在异步上下文中创建顶层的 CacheManager
-            cache_manager_instance = CacheManager()
-            stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
-            
-            # 2. 【核心修复】使用 await 来执行异步方法，并用 return 返回结果
             return await stock_basic_dao.get_stock_list()
-
         # 执行 main 函数并获取返回值
-        all_stocks = async_to_sync(main)()
-        
+        all_stocks = async_to_sync(main)()        
         # 【核心修复】在获取到 all_stocks 后，再进行检查
         if not all_stocks:
             logger.warning("未能从DAO获取到任何股票代码，跳过任务")
             return {"status": "skipped", "message": "未能从DAO获取到任何股票代码"}
-
         all_stock_codes = [stock.stock_code for stock in all_stocks]
         total_codes_count = len(all_stock_codes)
         logger.info(f"今天是交易日，准备为 {total_codes_count} 个股票分派批量任务...")
