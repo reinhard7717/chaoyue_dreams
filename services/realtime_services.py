@@ -206,13 +206,28 @@ class RealtimeServices:
 
     # [以下方法保持不变]
     async def get_monitoring_pool_from_cache(self) -> List[str]:
-        # ... 此方法内部代码完全不变 ...
+        """
+        【盘中任务入口 - V2.1 修正版】从Redis中获取盘中监控的股票池。
+        - 修正: 移除了对已反序列化字符串的多余 .decode() 操作。
+        """
         redis_key = self.cache_key.intraday_monitoring_pool()
-        stock_codes_bytes = await self.cache_manager.smembers(redis_key)
-        if not stock_codes_bytes:
+        
+        # 1. 调用 self.cache_manager.smembers，它已经返回了反序列化后的字符串列表
+        stock_codes_from_cache = await self.cache_manager.smembers(redis_key)
+        
+        # 2. 检查返回结果
+        if stock_codes_from_cache is None:
+            # smembers 在连接失败时可能返回 None
+            logger.error(f"从Redis缓存键 {redis_key} 获取股票池失败（连接错误？）。")
+            return []
+        
+        if not stock_codes_from_cache:
             logger.warning(f"无法从Redis缓存键 {redis_key} 中获取到任何股票，监控池为空！")
             return []
-        stock_codes = [code.decode('utf-8') for code in stock_codes_bytes]
+            
+        # 3. 直接使用结果，不再需要解码
+        stock_codes = stock_codes_from_cache # 直接赋值即可
+        
         print(f"成功从Redis加载监控池，共 {len(stock_codes)} 支股票。")
         return stock_codes
 
