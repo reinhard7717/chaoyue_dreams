@@ -4,7 +4,7 @@ import json
 import logging
 from asgiref.sync import sync_to_async # 异步转换工具
 from datetime import datetime, date, time
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union # MODIFIED: 导入 Union
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
@@ -15,14 +15,12 @@ from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from strategies.realtime_strategy import RealtimeStrategy
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
+import pandas as pd # MODIFIED: 导入 pandas
 
 logger = logging.getLogger("intraday_engine")
 
 class IntradayEngineOrchestrator:
-    """
-    【盘中引擎 - 总指挥 V2.0 - Redis状态持久化版】
-    - 核心升级: 将监控池等状态信息持久化到Redis，解决了Celery任务的无状态问题。
-    """
+    # ... __init__ 和 initialize_pools 方法保持不变 ...
     def __init__(self, params: Dict):
         self.params = params
         # MODIFIED: 直接调用 CacheManager() 获取单例实例
@@ -136,9 +134,11 @@ class IntradayEngineOrchestrator:
 
         return True
 
+    # MODIFIED: 重写此方法以增加健壮性
     async def run_single_cycle(self, time_level: str = '1'):
         """
-        【盘中循环】从Redis读取状态，执行分析，并将结果写回Redis。
+        【盘中循环 V2.1 - 健壮版】从Redis读取状态，执行分析，并将结果写回Redis。
+        - 核心修改: 使用 asyncio.gather(..., return_exceptions=True) 来防止单个股票分析失败导致整个循环崩溃。
         """
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
@@ -148,52 +148,65 @@ class IntradayEngineOrchestrator:
         watchlist_bytes = await redis_client.smembers(watchlist_key)
         position_list_raw = await redis_client.hgetall(position_list_key)
         
-        # 在这里进行解码，统一数据类型
         watchlist = {code.decode('utf-8') for code in watchlist_bytes}
-        
-        # 反序列化持仓信息
         position_list = {
             code.decode('utf-8'): json.loads(info.decode('utf-8')) 
             for code, info in position_list_raw.items()
         }
 
-        all_stocks_to_analyze = set(watchlist) | set(position_list.keys())
+        all_stocks_to_analyze = sorted(list(set(watchlist) | set(position_list.keys())))
         if not all_stocks_to_analyze:
             logger.info("监控池为空，本轮循环跳过。")
             return []
+        
+        print(f"本轮循环准备分析 {len(all_stocks_to_analyze)} 只股票: {all_stocks_to_analyze[:5]}...")
 
         # 2. 并发获取所有需要分析的股票的盘中数据
         tasks = [self.services.prepare_intraday_data(code, time_level, self.today_str) for code in all_stocks_to_analyze]
-        results = await asyncio.gather(*tasks)
+        # MODIFIED: 添加 return_exceptions=True，这是解决问题的关键！
+        results: List[Union[pd.DataFrame, Exception]] = await asyncio.gather(*tasks, return_exceptions=True)
         
-        intraday_data_map = {code: df for code, df in zip(all_stocks_to_analyze, results) if df is not None}
+        intraday_data_map = {}
+        # MODIFIED: 循环检查结果，分离成功和失败的任务
+        for stock_code, result in zip(all_stocks_to_analyze, results):
+            if isinstance(result, Exception):
+                # 如果是异常，打印详细错误日志，而不是让程序崩溃
+                logger.error(f"为股票 {stock_code} 准备盘中数据时发生异常: {result}", exc_info=False) # exc_info=False避免打印冗长的堆栈
+                print(f"错误: 股票 {stock_code} 数据准备失败，已跳过。异常: {result}")
+            elif result is not None and not result.empty:
+                # 只有成功返回了非空DataFrame才加入到待分析映射中
+                intraday_data_map[stock_code] = result
+            else:
+                # 数据为空或None，也记录一下
+                logger.warning(f"股票 {stock_code} 未能获取到有效的盘中数据，已跳过。")
 
-        # 3. 循环决策并准备信号
+        # 3. 循环决策并准备信号 (此部分逻辑不变)
         all_signals = []
         # 分析待买入池
         for stock_code in watchlist:
             df = intraday_data_map.get(stock_code)
             if df is None: continue
+            print(f"-> 正在为待买入池中的 {stock_code} 执行策略分析...") # 新增调试信息
             buy_signal = self.strategy.run_strategy(df, {"stock_code": stock_code})
             if buy_signal:
                 all_signals.append(buy_signal)
-                # 标记为待移除
                 await redis_client.srem(watchlist_key, stock_code)
 
         # 分析持仓池
         for stock_code, pos_info in position_list.items():
             df = intraday_data_map.get(stock_code)
             if df is None: continue
+            print(f"-> 正在为持仓池中的 {stock_code} 执行策略分析...") # 新增调试信息
             t_signal = self.strategy.run_t_and_risk_control(df, pos_info)
             if t_signal:
-                # 附加用户信息，用于前端展示
                 t_signal['user_id'] = pos_info.get('user_id')
                 all_signals.append(t_signal)
 
-        # 4. 将信号写入Redis，供Dashboard使用
+        # 4. 将信号写入Redis，供Dashboard使用 (此部分逻辑不变)
         if all_signals:
             await self._save_signals_to_cache(all_signals)
             
+        print(f"本轮循环分析完成。产出 {len(all_signals)} 条信号。")
         return all_signals
 
     async def _save_signals_to_cache(self, signals: List[Dict]):
