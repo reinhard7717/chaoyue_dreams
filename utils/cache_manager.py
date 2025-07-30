@@ -44,10 +44,13 @@ def custom_encode_default(obj):
 
 class CacheManager:
     """
-    统一管理股票量化系统的Redis缓存
+    【V3.3 - 工业级并发安全单例】
+    - 使用一个同步的 threading.Lock 来保护一个 per-loop 上下文的字典。
+    - 每个事件循环都有自己独立的 Redis 客户端和 asyncio.Lock，从根本上杜绝跨循环调用问题。
+    - 实现了在复杂并发环境（如 Celery + asyncio.gather）下的终极健壮性。
     """
-    # MODIFIED: 添加一个类级别的变量来存储唯一的实例
     _instance = None
+    _lock = threading.Lock() # 用于保护 _instance 创建的同步锁
     
     # 默认过期时间（秒）
     DEFAULT_TIMEOUTS = {
@@ -60,36 +63,37 @@ class CacheManager:
     }
     
     def __new__(cls, *args, **kwargs):
+        # 使用线程安全的双重检查锁定来创建单例
         if not cls._instance:
-            print("DEBUG: Initializing new CacheManager singleton instance...")
-            cls._instance = super().__new__(cls)
-            # MODIFIED: 初始化时将 redis_client 和 loop 都设为 None
-            cls._instance.redis_client = None
-            cls._instance.loop = None  # NEW: 新增一个变量来存储 event loop
-            cls._instance._rebuild_lock = threading.Lock()
-        else:
-            print("DEBUG: Returning existing CacheManager singleton instance.")
+            with cls._lock:
+                if not cls._instance:
+                    print("DEBUG: Initializing new CacheManager singleton instance...")
+                    instance = super().__new__(cls)
+                    # MODIFIED: 初始化上下文管理器和保护它的同步锁
+                    instance._contexts = {}
+                    instance._context_lock = threading.Lock()
+                    cls._instance = instance
         return cls._instance
 
     def __init__(self):
-        # 初始化方法保持不变，实际逻辑已移至异步的 initialize
+        # 初始化方法保持不变
         if hasattr(self, 'is_initialized') and self.is_initialized:
             return
         self.is_initialized = True
         print("DEBUG: CacheManager __init__ is executing (once per instance).")
 
-    # MODIFIED: 修改 initialize 方法，接收 loop 对象
-    async def initialize(self, loop: asyncio.AbstractEventLoop):
+    # MODIFIED: initialize 方法现在是私有的，因为它由 _ensure_client 内部调用
+    async def _initialize_for_loop(self, loop: asyncio.AbstractEventLoop):
         """
         为指定的 event loop 初始化 Redis 客户端连接。
         """
         print(f"DEBUG: 正在为 Event Loop {id(loop)} 初始化 Redis 客户端连接池...")
         try:
-            # ... 这部分配置读取逻辑保持不变 ...
             cache_config = settings.CACHES['default']
             location = cache_config.get('LOCATION', 'redis://localhost:6379/0')
             options = cache_config.get('OPTIONS', {})
             password = options.get('PASSWORD', None)
+            # ... URL 和连接池参数处理逻辑保持不变 ...
             parsed_url = urllib.parse.urlparse(location)
             if not parsed_url.password and password:
                  new_netloc = f"{parsed_url.username or ''}:{password}@{parsed_url.hostname}"
@@ -103,7 +107,7 @@ class CacheManager:
             max_conns = pool_kwargs.get('max_connections', options.get('MAX_CONNECTIONS', 100))
             print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}")
 
-            self.redis_client = await Redis.from_url(
+            redis_client = await Redis.from_url(
                 new_url,
                 decode_responses=False,
                 socket_connect_timeout=options.get('SOCKET_CONNECT_TIMEOUT', 10),
@@ -111,60 +115,58 @@ class CacheManager:
                 retry_on_timeout=options.get('RETRY_ON_TIMEOUT', True),
                 max_connections=max_conns
             )
-            await self.redis_client.ping()
-            # MODIFIED: 存储当前成功初始化的 event loop
-            self.loop = loop
+            await redis_client.ping()
             print(f"DEBUG: Redis 客户端连接池为 Event Loop {id(loop)} 初始化并连接成功。")
+            return redis_client
         except Exception as e:
-            logger.error(f"初始化 Redis 客户端失败: {e}", exc_info=True)
-            self.redis_client = None
-            self.loop = None
+            logger.error(f"为 Event Loop {id(loop)} 初始化 Redis 客户端失败: {e}", exc_info=True)
             raise
 
-    async def _ensure_client(self):
+    # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
+    async def _ensure_client(self) -> Redis:
         """
-        【V3.2 - 终极并发安全版】确保 redis_client 存在且与当前的 event loop 匹配。
-        - 使用同步的 threading.Lock 来保护检查和决策过程，防止竞争条件。
-        - 将异步的 I/O 操作（关闭、初始化）移出同步锁的范围。
-        - 彻底解决 "is bound to a different event loop" 的问题。
+        【核心】确保返回一个与当前事件循环匹配的、已初始化的 Redis 客户端。
+        此方法是完全并发安全的。
         """
-        try:
-            current_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            logger.error("CacheManager._ensure_client 必须在运行的 event loop 中调用。")
-            raise
+        current_loop = asyncio.get_running_loop()
+        loop_id = id(current_loop)
 
-        # 快速路径：如果循环匹配，直接返回，避免任何锁的开销。
-        if self.loop is current_loop and self.redis_client:
-            return
+        # 快速路径：如果当前循环的上下文已存在，直接返回客户端
+        if loop_id in self._contexts:
+            return self._contexts[loop_id]['client']
 
-        # 慢速路径：循环不匹配或客户端不存在，需要重建。
-        # 使用同步锁来确保只有一个协程可以执行重建决策。
-        with self._rebuild_lock:
-            # 双重检查：在获得锁之后，再次检查条件。
-            # 因为在等待锁的时候，可能已有其他协程完成了重建工作。
-            if self.loop is current_loop and self.redis_client:
-                return
-            # 1. 获取同步锁，保护“决定是否重建”这个动作
-            rebuild_needed = False
-            if self.loop is not current_loop:
-                rebuild_needed = True
-        # 2. 如果需要重建，则执行异步的关闭和初始化操作
-        if rebuild_needed:
-            print(f"DEBUG: Event loop 已从 {id(self.loop)} 变为 {id(current_loop)}。正在异步重建 Redis 上下文...")
-            # 关闭旧的连接（如果存在）
-            if self.redis_client:
-                try:
-                    await self.redis_client.close()
-                except Exception as e:
-                    logger.warning(f"关闭旧的 Redis 客户端时出错（可忽略）: {e}")
-            # 为新的循环初始化一个全新的客户端。
-            # initialize 方法会更新 self.redis_client 和 self.loop
-            await self.initialize(current_loop)
-            # 在同步锁的保护下，再次更新状态，确保一致性
-            with self._rebuild_lock:
-                # 这里的赋值是线程安全的
-                pass # 实际上 initialize 已经更新了 self.loop
+        # 慢速路径：当前循环的上下文不存在，需要创建
+        # 使用同步锁来保护上下文词典的修改
+        with self._context_lock:
+            # 双重检查：可能在等待锁时，其他协程已创建了上下文
+            if loop_id in self._contexts:
+                return self._contexts[loop_id]['client']
+            
+            # 我们是第一个为这个新循环创建上下文的协程
+            # 创建一个与当前循环绑定的新 asyncio.Lock
+            async_lock = asyncio.Lock()
+            self._contexts[loop_id] = {
+                'client': None,
+                'lock': async_lock
+            }
+
+        # 获取刚刚为这个循环创建的异步锁
+        loop_async_lock = self._contexts[loop_id]['lock']
+
+        # 使用这个与当前循环绑定的异步锁来保护 I/O 密集型的初始化过程
+        async with loop_async_lock:
+            # 再次双重检查，因为在等待异步锁时，可能已有协程完成了初始化
+            if self._contexts[loop_id]['client']:
+                return self._contexts[loop_id]['client']
+
+            print(f"DEBUG: Event loop {loop_id} 的 Redis 上下文不存在，开始异步初始化...")
+            # 调用私有初始化方法
+            new_client = await self._initialize_for_loop(current_loop)
+            
+            # 将新创建的客户端存入上下文
+            self._contexts[loop_id]['client'] = new_client
+            
+            return new_client
 
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
@@ -250,8 +252,8 @@ class CacheManager:
     async def set(self, key: str, data: Any, timeout: Optional[int] = None, nx: bool = False) -> bool:
         """(异步) 将数据序列化后存入 Redis"""
         try:
-            await self._ensure_client() # 确保客户端已初始化
-            serialized_data = self._serialize(data) # 调用已修改的序列化方法
+            redis_client = await self._ensure_client() # 获取当前循环的客户端
+            serialized_data = self._serialize(data)
 
             # 确定超时时间
             effective_timeout = timeout
@@ -265,10 +267,10 @@ class CacheManager:
             # 执行 Redis set 命令
             if nx:
                 # set if not exists
-                success = await self.redis_client.set(key, serialized_data, ex=effective_timeout, nx=True)
+                success = await redis_client.set(key, serialized_data, ex=effective_timeout, nx=True)
             else:
                 # 普通 set (覆盖)
-                success = await self.redis_client.set(key, serialized_data, ex=effective_timeout)
+                success = await redis_client.set(key, serialized_data, ex=effective_timeout)
 
             if success:
                  logger.debug(f"缓存设置成功: key='{key}', timeout={effective_timeout}s, nx={nx}")
@@ -290,8 +292,8 @@ class CacheManager:
     async def get(self, key: str, default: Any = None) -> Any:
         """(异步) 从 Redis 获取数据并反序列化"""
         try:
-            await self._ensure_client()
-            serialized_data = await self.redis_client.get(key)
+            redis_client = await self._ensure_client()
+            serialized_data = await redis_client.get(key)
             if serialized_data:
                 logger.debug(f"缓存命中: key='{key}'")
                 # 调用反序列化
@@ -340,8 +342,8 @@ class CacheManager:
     async def delete(self, key: str) -> bool:
         """(异步) 删除指定的缓存键"""
         try:
-            await self._ensure_client()
-            result = await self.redis_client.delete(key)
+            redis_client = await self._ensure_client()
+            result = await redis_client.delete(key)
             deleted = bool(result > 0)
             if deleted:
                  logger.debug(f"缓存删除成功: key='{key}'")
@@ -358,9 +360,9 @@ class CacheManager:
     async def exists(self, key: str) -> bool:
         """(异步) 检查缓存键是否存在"""
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # exists 返回整数 (存在的键数量)，需要转为 bool
-            return bool(await self.redis_client.exists(key))
+            return bool(await redis_client.exists(key))
         except ConnectionError as e:
              logger.error(f"缓存检查失败 (Redis 连接错误): key='{key}', error='{e}'")
              return False # 连接失败视为不存在
@@ -371,9 +373,9 @@ class CacheManager:
     async def ttl(self, key: str) -> int:
         """(异步) 获取缓存键的剩余生存时间 (秒)"""
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # ttl 返回 -2 (键不存在), -1 (无过期时间), 或剩余秒数
-            return await self.redis_client.ttl(key)
+            return await redis_client.ttl(key)
         except ConnectionError as e:
              logger.error(f"获取 TTL 失败 (Redis 连接错误): key='{key}', error='{e}'")
              return -2 # 连接失败视为不存在
@@ -383,18 +385,18 @@ class CacheManager:
 
     async def pipeline(self) -> Pipeline:
         """(异步) 获取一个 Redis pipeline 对象"""
-        await self._ensure_client() # 确保客户端已初始化
+        redis_client = await self._ensure_client() # 确保客户端已初始化
         # redis-py 的 pipeline() 方法直接返回 pipeline 对象
-        return self.redis_client.pipeline()
+        return redis_client.pipeline()
 
     async def hset(self, key: str, field: str, value: Any, timeout: Optional[int] = None) -> bool:
         """(异步) 设置哈希表中的字段值"""
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             serialized_value = self._serialize(value) # 序列化值
 
             # 使用 pipeline 保证 hset 和 expire 原子性（如果需要设置超时）
-            async with self.redis_client.pipeline() as pipe:
+            async with redis_client.pipeline() as pipe:
                 pipe.hset(key, field, serialized_value) # 设置哈希字段
 
                 # 处理超时逻辑
@@ -402,7 +404,7 @@ class CacheManager:
                 if effective_timeout is None:
                     # 如果未指定超时，检查哈希键是否已存在且有 TTL
                     # 如果不存在或无 TTL，则设置默认 TTL
-                    current_ttl = await self.redis_client.ttl(key) # 在 pipeline 外检查 TTL
+                    current_ttl = await redis_client.ttl(key) # 在 pipeline 外检查 TTL
                     if current_ttl == -2 or current_ttl == -1: # 键不存在或无过期
                         try:
                             prefix = key.split(':')[0]
@@ -432,8 +434,8 @@ class CacheManager:
     async def hget(self, key: str, field: str, default: Any = None) -> Any:
         """(异步) 获取哈希表中的字段值"""
         try:
-            await self._ensure_client()
-            serialized_value = await self.redis_client.hget(key, field)
+            redis_client = await self._ensure_client()
+            serialized_value = await redis_client.hget(key, field)
             if serialized_value:
                 logger.debug(f"Hash 获取命中: key='{key}', field='{field}'")
                 return self._deserialize(serialized_value)
@@ -451,9 +453,9 @@ class CacheManager:
         """(异步) 获取哈希表中的所有字段和值"""
         result_dict = {}
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # hgetall 返回 bytes:bytes 字典 (因为 decode_responses=False)
-            raw_dict = await self.redis_client.hgetall(key)
+            raw_dict = await redis_client.hgetall(key)
             if not raw_dict:
                  logger.debug(f"Hash 获取全部未命中或为空: key='{key}'")
                  return {}
@@ -482,9 +484,9 @@ class CacheManager:
         if not keys:
             return []
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # mget 返回 bytes 列表或 None 列表
-            serialized_values = await self.redis_client.mget(keys)
+            serialized_values = await redis_client.mget(keys)
             logger.debug(f"批量获取完成: keys={keys}")
             # 逐个反序列化
             return [self._deserialize(v) if v is not None else None for v in serialized_values]
@@ -500,7 +502,7 @@ class CacheManager:
         if not mapping:
             return 0
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # 序列化 mapping 中的成员 (member)
             serialized_mapping = {}
             for member, score in mapping.items():
@@ -518,7 +520,7 @@ class CacheManager:
                 except IndexError:
                     effective_timeout = self.get_timeout('')
             # 使用 pipeline 保证原子性
-            async with self.redis_client.pipeline() as pipe:
+            async with redis_client.pipeline() as pipe:
                 pipe.zadd(key, serialized_mapping)
                 if effective_timeout is not None and effective_timeout > 0:
                      pipe.expire(key, effective_timeout) # 仅在需要时设置过期
@@ -539,8 +541,8 @@ class CacheManager:
                             withscores: bool = False) -> Optional[List[Any]]:
         """(异步) 通过分数区间返回有序集合的成员"""
         try:
-            await self._ensure_client()
-            serialized_result = await self.redis_client.zrangebyscore(key, min_score, max_score, withscores=withscores)
+            redis_client = await self._ensure_client()
+            serialized_result = await redis_client.zrangebyscore(key, min_score, max_score, withscores=withscores)
 
             if serialized_result is None:
                 logger.debug(f"ZRANGEBYSCORE 未找到匹配项: key='{key}', range=[{min_score}, {max_score}]")
@@ -584,15 +586,15 @@ class CacheManager:
         if limit <= 0:
             return []
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             start = 0
             end = limit - 1
             if desc:
                 # zrevrange 返回 bytes 列表或 (bytes, float) 元组列表
-                serialized_result = await self.redis_client.zrevrange(key, start, end, withscores=withscores)
+                serialized_result = await redis_client.zrevrange(key, start, end, withscores=withscores)
             else:
                 # zrange 返回 bytes 列表或 (bytes, float) 元组列表
-                serialized_result = await self.redis_client.zrange(key, start, end, withscores=withscores)
+                serialized_result = await redis_client.zrange(key, start, end, withscores=withscores)
 
             if serialized_result is None:
                 logger.debug(f"ZRANGE/ZREVRANGE 未找到成员: key='{key}', limit={limit}, desc={desc}")
@@ -627,18 +629,16 @@ class CacheManager:
         """(异步) 修剪有序集合，只保留最新的 N 个成员 (按分数降序)"""
         if keep_latest <= 0:
             logger.warning(f"ZTRIMBYRANK: keep_latest 必须大于 0, key='{key}'")
-            # 可以选择删除所有元素或返回 0
-            # return await self.redis_client.delete(key) # 删除所有
             return 0 # 不做任何操作
 
         try:
-            await self._ensure_client()
+            redis_client =await self._ensure_client()
             # zremrangebyrank(key, start, stop) 移除指定排名范围内的成员
             # 排名从 0 开始，负数表示从尾部开始 (-1 是最高分，-2 是第二高分)
             # 要保留最新的 keep_latest 个，需要移除排名在 0 到 -(keep_latest + 1) 之间的成员
             # 例如：保留 100 个，移除排名 0 到 -101 的成员
             stop_rank = -(keep_latest + 1)
-            removed_count = await self.redis_client.zremrangebyrank(key, 0, stop_rank)
+            removed_count = await redis_client.zremrangebyrank(key, 0, stop_rank)
             if removed_count is not None:
                  logger.debug(f"ZTRIMBYRANK 操作成功: key='{key}', 保留 {keep_latest} 个, 移除了 {removed_count} 个")
             return removed_count
@@ -657,7 +657,7 @@ class CacheManager:
              logger.warning(f"ZADD_AND_TRIM: limit 必须大于 0, key='{key}'")
              return 0
         try:
-            await self._ensure_client()
+            redis_client = await self._ensure_client()
             # 序列化成员
             serialized_mapping = {}
             for member, score in mapping.items():
@@ -675,7 +675,7 @@ class CacheManager:
                 except IndexError:
                     effective_timeout = self.get_timeout('')
             # 使用 pipeline 保证原子性
-            async with self.redis_client.pipeline() as pipe:
+            async with redis_client.pipeline() as pipe:
                 # 1. 添加新成员
                 pipe.zadd(key, serialized_mapping)
                 # 2. 修剪旧成员 (保留最新的 limit 个)
@@ -709,12 +709,12 @@ class CacheManager:
         :return: 匹配到的 key 列表（str 类型）
         """
         try:
-            await self._ensure_client()  # 确保 Redis 客户端已初始化
+            redis_client = await self._ensure_client()  # 确保 Redis 客户端已初始化
             keys = []
             cursor = 0  # 初始游标
             while True:
                 # aioredis 的 scan 返回 (cursor, [keys])
-                cursor, batch = await self.redis_client.scan(cursor=cursor, match=pattern, count=100)
+                cursor, batch = await redis_client.scan(cursor=cursor, match=pattern, count=100)
                 # 兼容 bytes 和 str
                 for k in batch:
                     if isinstance(k, bytes):
