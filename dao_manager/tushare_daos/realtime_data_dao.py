@@ -154,9 +154,7 @@ class StockRealtimeDAO(BaseDAO):
         - 增加了健壮的日期格式化。
         - 增加了详细的读取诊断日志。
         """
-        try:
-            # MODIFIED: 移除 await self.cache_manager.initialize()
-            
+        try:            
             # MODIFIED: 使用更健壮的方式处理日期字符串，确保得到 'YYYYMMDD' 格式
             try:
                 # 尝试将各种可能的日期格式（如 '2025-07-30', '20250730'）统一转换

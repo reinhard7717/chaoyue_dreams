@@ -119,8 +119,7 @@ class IntradayEngineOrchestrator:
         self.today_str = today.strftime('%Y-%m-%d')
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
-        
-        await self.cache_manager.initialize()
+
         redis_client = await self.cache_manager._ensure_client()
         async with redis_client.pipeline() as pipe:
             pipe.delete(watchlist_key)
@@ -141,7 +140,6 @@ class IntradayEngineOrchestrator:
         """
         【盘中循环】从Redis读取状态，执行分析，并将结果写回Redis。
         """
-        await self.cache_manager.initialize()
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
 
