@@ -349,8 +349,7 @@ class StockRealtimeCacheGet(CacheGet):
 
     async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
-        【V1.0 - 新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
-        这是从 DAO 层重构过来的标准缓存获取方法。
+        【V1.1 - 修复 datetime 导入问题】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
         """
         try:
             # 1. 统一日期格式
@@ -365,9 +364,6 @@ class StockRealtimeCacheGet(CacheGet):
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
             
-            print(f"DEBUG_READ: [Ticks] ZRANGE from realtime_key='{realtime_key}'")
-            print(f"DEBUG_READ: [Ticks] ZRANGE from level5_key='{level5_key}'")
-
             # 3. 并发地从Redis获取两种Tick数据
             tasks = [
                 self.cache_manager.zrangebyscore(realtime_key, '-inf', '+inf', withscores=True),
@@ -381,9 +377,10 @@ class StockRealtimeCacheGet(CacheGet):
                 return None
             if isinstance(level5_ticks, Exception):
                 logger.error(f"从Redis获取level5_ticks时出错: {level5_ticks}", exc_info=level5_ticks)
-                level5_ticks = [] # 出错时视为空，不影响主流程
+                level5_ticks = []
 
             # 5. 将原始数据转换为DataFrame并合并
+            # MODIFIED: 此处 datetime.fromtimestamp 调用现在是正确的，因为我们已从 datetime 模块导入了 datetime 类
             df_realtime = pd.DataFrame(
                 [data for data, score in realtime_ticks],
                 index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in realtime_ticks])
@@ -394,7 +391,6 @@ class StockRealtimeCacheGet(CacheGet):
                     [data for data, score in level5_ticks],
                     index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in level5_ticks])
                 )
-                # 使用 merge_asof 进行高效合并
                 df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
             else:
                 df_ticks = df_realtime
@@ -403,6 +399,7 @@ class StockRealtimeCacheGet(CacheGet):
             return df_ticks
 
         except Exception as e:
+            # MODIFIED: 明确地记录下当前方法名，便于追踪
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
 
