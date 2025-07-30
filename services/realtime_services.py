@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 import pytz # <--- 1. 导入 pytz
-from typing import Dict, Optional
+from typing import List, Dict, Optional
 from datetime import datetime, time # <--- 2. 导入 time
 from datetime import datetime
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
