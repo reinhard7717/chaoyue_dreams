@@ -183,7 +183,7 @@ CACHES = {
             'RETRY_DELAY': 0.5,  # 重试间隔0.5秒.
             # 添加连接池配置
             'CONNECTION_POOL_KWARGS': {
-                'max_connections': 2000,
+                'max_connections': 20000,
                 'socket_timeout': 20,
                 'socket_connect_timeout': 10,  # 连接超时
                 'socket_keepalive': True,      # 保持连接活跃

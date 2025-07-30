@@ -12,7 +12,7 @@ logger = logging.getLogger("dao")
 
 class CacheGet():
     def __init__(self, cache_manager_instance):
-        # 【核心修改】接收一个 CacheManager 实例
+        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         self.cache_manager = cache_manager_instance
         self.cache_key_user = UserCashKey()
         self.cache_key_index = IndexCashKey()
@@ -87,65 +87,44 @@ class CacheGet():
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
 
-    async def _stock_strategy_datas(self, stock_code: str, cache_key: str, days_count: int) -> List[Dict[str, Any]]: # 修改行: 返回类型从 Optional[Dict[str, Any]] 变更为 List[Dict[str, Any]]
+    async def _stock_strategy_datas(self, stock_code: str, cache_key: str, days_count: int) -> List[Dict[str, Any]]:
         try:
-            # 调试信息：尝试从缓存获取股票策略数据
             logger.info(f"尝试从缓存获取股票[{stock_code}] 近三日策略数据, key: {cache_key}")
+            end_timestamp = datetime.now().timestamp()
+            start_datetime = datetime.now() - datetime.timedelta(days=days_count)
+            start_timestamp = start_datetime.timestamp()
 
-            # 修改开始: 计算近三日的时间戳范围
-            end_timestamp = datetime.now().timestamp() # 当前时间戳作为分数上限
-            start_datetime = datetime.now() - datetime.timedelta(days=days_count) # 计算N天前的时间
-            start_timestamp = start_datetime.timestamp() # N天前的时间戳作为分数下限
-
-            # 修改行: 使用 zrangebyscore 获取 ZSET 中分数在指定时间戳范围内的所有成员
-            # zrangebyscore(key, min_score, max_score) 用于获取分数在 min_score 和 max_score 之间的所有成员
-            # 这里 min_score 是三天前的时间戳，max_score 是当前时间戳
             cached_members = await self.cache_manager.zrangebyscore(
                 key=cache_key,
                 min=start_timestamp,
                 max=end_timestamp,
-                withscores=False # 只需要成员值，不需要分数
+                withscores=False
             )
-            # 初始化一个空列表，用于存储解析后的有效数据
             result_data: List[Dict[str, Any]] = []
             if cached_members:
-                # 调试信息：缓存命中，找到数据
                 logger.info(f"缓存命中: 找到股票[{stock_code}] 近三日策略数据, 共 {len(cached_members)} 条原始数据, key: {cache_key}")
-                # 遍历所有获取到的缓存成员
-                for json_data_bytes in cached_members: # Redis 返回的成员通常是字节串
+                for json_data_bytes in cached_members:
                     try:
-                        # 修改行: 将字节串解码为字符串，然后反序列化 JSON 字符串为字典
-                        json_data_str = json_data_bytes.decode('utf-8') # 解码字节串
-                        cached_data = json.loads(json_data_str)
-                        # 检查解析后的数据是否为字典类型
+                        # MODIFIED: 使用 CacheManager 的 _deserialize 方法来反序列化数据
+                        cached_data = self.cache_manager._deserialize(json_data_bytes)
                         if isinstance(cached_data, dict):
-                            result_data.append(cached_data) # 将有效数据添加到结果列表中
+                            result_data.append(cached_data)
                         else:
-                            # 警告信息：缓存数据格式错误，不是字典类型
-                            logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值解析后不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}, 值: {json_data_str}. 将跳过此条数据。")
-                    except json.JSONDecodeError as e:
-                        # 错误信息：缓存数据解析失败，不是有效的 JSON 格式
-                        logger.error(f"缓存数据解析失败: 股票[{stock_code}] 的缓存值不是有效的 JSON 格式, key: {cache_key}, 值: {json_data_bytes.decode('utf-8', errors='ignore')}, 错误: {e}. 将跳过此条数据。")
-                    except UnicodeDecodeError as e:
-                        # 错误信息：字节串解码失败
-                        logger.error(f"缓存数据解码失败: 股票[{stock_code}] 的缓存值无法解码为UTF-8字符串, key: {cache_key}, 错误: {e}. 将跳过此条数据。")
-                # 检查是否有有效数据被解析
+                            logger.warning(f"缓存数据格式错误: 股票[{stock_code}] 的缓存值解析后不是字典类型 (实际类型: {type(cached_data)}), key: {cache_key}, 值: {json_data_bytes.decode('utf-8', errors='ignore')}. 将跳过此条数据。")
+                    # MODIFIED: 捕获更通用的 Exception，因为 _deserialize 内部已处理具体错误
+                    except Exception as e:
+                        logger.error(f"缓存数据解析失败: 股票[{stock_code}] 的缓存值不是有效的 MessagePack 格式, key: {cache_key}, 值: {json_data_bytes.decode('utf-8', errors='ignore')}, 错误: {e}. 将跳过此条数据。")
                 if result_data:
-                    # 调试信息：成功解析有效数据
                     logger.info(f"成功解析股票[{stock_code}] 近三日策略数据, 共 {len(result_data)} 条有效数据, key: {cache_key}")
                 else:
-                    # 警告信息：虽然有缓存成员，但无有效解析数据
                     logger.warning(f"股票[{stock_code}] 近三日策略数据虽然有缓存成员，但无有效解析数据, key: {cache_key}")
             else:
-                # 调试信息：缓存未命中
                 logger.info(f"缓存未命中: 未找到股票[{stock_code}] 近三日策略数据或 ZSET 在指定时间范围内为空, key: {cache_key}")
-            return result_data # 返回解析后的数据列表
-            # 修改结束
+            return result_data
         except Exception as e:
-            # 错误信息：从缓存获取数据时发生异常
             logger.error(f"StrategyCacheGet._stock_strategy_data从缓存获取股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
-            return [] # 发生异常时返回空列表，确保返回类型一致
-        
+            return []
+    
 class UserCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 【核心修改】调用父类并传递实例
@@ -363,8 +342,9 @@ class StockTimeTradeCacheGet(CacheGet):
 
 class StockRealtimeCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
+
 
     async def latest_tick_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)

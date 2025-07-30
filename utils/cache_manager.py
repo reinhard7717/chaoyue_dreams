@@ -139,10 +139,14 @@ class CacheManager:
     def _deserialize(self, data: bytes) -> Any:
         """反序列化数据"""
         if not data:
+            # MODIFIED: 添加调试打印，显示当传入空数据时的情况
+            print("DEBUG: _deserialize received empty data.")
             return None
         try:
             return umsgpack.unpackb(data, raw=False)
         except Exception as e:
+            # MODIFIED: 添加调试打印，显示反序列化失败时的原始数据（截断）和错误信息
+            print(f"DEBUG: _deserialize failed for data: {data[:100]}... (truncated). Error: {e}")
             logger.error(f"反序列化失败: {e}", exc_info=True)
             return None
 
@@ -483,32 +487,37 @@ class CacheManager:
         """(异步) 通过分数区间返回有序集合的成员"""
         try:
             await self._ensure_client()
-            # zrangebyscore 返回 bytes 列表 (成员) 或 (bytes, float) 元组列表 (如果 withscores=True)
             serialized_result = await self.redis_client.zrangebyscore(key, min_score, max_score, withscores=withscores)
 
             if serialized_result is None:
                 logger.debug(f"ZRANGEBYSCORE 未找到匹配项: key='{key}', range=[{min_score}, {max_score}]")
-                return [] # 返回空列表
+                # MODIFIED: 添加调试打印，显示zrangebyscore返回None的情况
+                print(f"DEBUG: zrangebyscore returned None for key: {key}")
+                return []
 
             logger.debug(f"ZRANGEBYSCORE 命中: key='{key}', range=[{min_score}, {max_score}], withscores={withscores}")
             deserialized_list = []
             if withscores:
-                # 处理 (成员, 分数) 元组列表
                 for member_bytes, score in serialized_result:
                     deserialized_member = self._deserialize(member_bytes)
                     if deserialized_member is not None:
                         deserialized_list.append((deserialized_member, score))
                     else:
+                        # MODIFIED: 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
+                        print(f"DEBUG: zrangebyscore: Deserialized member is None for key: {key}, member_bytes: {member_bytes[:50]}...")
                         logger.warning(f"ZRANGEBYSCORE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
             else:
-                # 处理成员列表
                 for member_bytes in serialized_result:
                     deserialized_member = self._deserialize(member_bytes)
                     if deserialized_member is not None:
                         deserialized_list.append(deserialized_member)
                     else:
+                         # MODIFIED: 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
+                         print(f"DEBUG: zrangebyscore: Deserialized member is None for key: {key}, member_bytes: {member_bytes[:50]}...")
                          logger.warning(f"ZRANGEBYSCORE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
 
+            # MODIFIED: 添加调试打印，显示最终反序列化成功的项目数量
+            print(f"DEBUG: zrangebyscore returning {len(deserialized_list)} deserialized items for key: {key}")
             return deserialized_list
         except ConnectionError as e:
              logger.error(f"ZRANGEBYSCORE 操作失败 (Redis 连接错误): key='{key}', error='{e}'")

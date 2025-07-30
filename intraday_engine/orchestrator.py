@@ -53,8 +53,6 @@ class IntradayEngineOrchestrator:
         print(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
 
         # --- 2. 构建“待买入池” (Watchlist) ---
-        # 【核心修复】在这里直接执行正确的查询
-        
         # 构建一个从当天 00:00:00 到 23:59:59 的 naive datetime 范围
         # 这将精确匹配数据库中存储的无时区信息的时间
         start_of_day = datetime.combine(previous_trade_date, time.min)
@@ -82,7 +80,6 @@ class IntradayEngineOrchestrator:
         watchlist = {signal.stock.stock_code for signal in daily_buy_signals}
         
         # --- 3. 构建“持仓监控池” (Position List) ---
-        # 【核心修改】使用 asyncio.gather 并发调用 get_latest_daily_quote
         # 3.1 获取基础的自选股信息（字典列表）
         favorite_stocks_list = await self.stock_dao.get_all_favorite_stocks()
         position_list = {}
@@ -150,7 +147,7 @@ class IntradayEngineOrchestrator:
         watchlist_bytes = await self.cache_manager.redis_client.smembers(watchlist_key)
         position_list_raw = await self.cache_manager.redis_client.hgetall(position_list_key)
         
-        # 【核心修复】在这里进行解码，统一数据类型
+        # 在这里进行解码，统一数据类型
         watchlist = {code.decode('utf-8') for code in watchlist_bytes}
         
         # 反序列化持仓信息

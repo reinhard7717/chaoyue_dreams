@@ -21,19 +21,17 @@ class StockRealtimeDAO(BaseDAO):
     股票实时数据DAO，整合所有相关的实时数据访问功能
     """
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance 和 model_class=None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.data_format_process = StockRealtimeDataFormatProcess(cache_manager_instance)
-        self.cache_set = StockRealtimeCacheSet(self.cache_manager)  # 先实例化
-        self.cache_get = StockRealtimeCacheGet(self.cache_manager)  # 先实例化
+        self.cache_set = StockRealtimeCacheSet(self.cache_manager)
+        self.cache_get = StockRealtimeCacheGet(self.cache_manager)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.cache_key_stock = StockCashKey()
         self.ts = ts
 
     # ================= 实时盘口TICK快照(爬虫版) =================
-    # 获取所有股票的实时盘口TICK快照数据并保存到数据库
     async def save_all_tick_data(self) -> Optional[StockRealtimeData]:
         """
         通过tushare获取实时盘口TICK快照数据并保存到数据库
@@ -174,6 +172,8 @@ class StockRealtimeDAO(BaseDAO):
             realtime_ticks, level5_ticks = await asyncio.gather(*tasks)
 
             if not realtime_ticks:
+                # MODIFIED: Added debug print to show raw result when empty
+                print(f"DEBUG: realtime_ticks is empty for {stock_code} on {today_str}. Raw result from zrangebyscore: {realtime_ticks}")
                 logger.warning(f"未能从缓存获取 {stock_code} on {today_str} 的实时行情Ticks。")
                 return None
 
@@ -219,7 +219,6 @@ class StockRealtimeDAO(BaseDAO):
             return data_dict
         else:
             return None
-
 
 
 

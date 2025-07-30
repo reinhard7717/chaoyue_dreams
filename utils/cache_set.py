@@ -49,7 +49,7 @@ class CacheSet():
     def __init__(self, cache_manager_instance):
         from utils.cash_key import IndexCashKey, StockCashKey, StrategyCashKey, UserCashKey
         from utils.data_format_process import IndexDataFormatProcess
-        # 【核心修改】接收一个 CacheManager 实例
+        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         self.cache_manager = cache_manager_instance
         self.cache_key_index = IndexCashKey()
         self.cache_key_stock = StockCashKey()
@@ -185,13 +185,11 @@ class CacheSet():
             if isinstance(value, datetime):
                 data_to_cache[key] = value.isoformat()
             elif isinstance(value, StockInfo):
-                try:
-                    data_to_cache[key] = value.__code__()
-                except AttributeError:
-                    logger.error(f"StockInfo模型 for key '{key}' 没有找到 '__code__' 的方法.")
-                    return None
+                # MODIFIED: 修正了 StockInfo 对象的属性访问，从 __code__() 改为 stock_code
+                data_to_cache[key] = value.stock_code
             elif isinstance(value, IndexInfo):
-                data_to_cache[key] = value.__code__()
+                # MODIFIED: 修正了 IndexInfo 对象的属性访问，从 __code__() 改为 code
+                data_to_cache[key] = value.code
         return data_to_cache
 
 class UserCacheSet(CacheSet):
@@ -571,7 +569,7 @@ class StockIndicatorsCacheSet(CacheSet):
 
 class StockRealtimeCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
 
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
@@ -717,6 +715,8 @@ class StockRealtimeCacheSet(CacheSet):
                         score = trade_time_obj.timestamp()
                         member_data = tick_data.copy()
                         del member_data['trade_time']
+                        # MODIFIED: 添加调试打印，显示即将序列化的实时行情Tick数据
+                        print(f"DEBUG: Serializing realtime tick for {stock_code}, key: {cache_key}, score: {score}, member_data: {member_data}")
                         pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
                         pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
 
@@ -728,6 +728,8 @@ class StockRealtimeCacheSet(CacheSet):
                         score = trade_time_obj.timestamp()
                         member_data = tick_data.copy()
                         del member_data['trade_time']
+                        # MODIFIED: 添加调试打印，显示即将序列化的五档盘口Tick数据
+                        print(f"DEBUG: Serializing level5 tick for {stock_code}, key: {cache_key}, score: {score}, member_data: {member_data}")
                         pipe.zadd(cache_key, {self.cache_manager._serialize(member_data): score})
                         pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
 
