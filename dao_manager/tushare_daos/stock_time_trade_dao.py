@@ -809,58 +809,50 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
         """
-        【V2.0 - 盘中引擎专用】从数据库(MySQL/PostgreSQL)获取指定时间范围内的分钟K线数据。
-        
-        - 核心技术: 使用 Django ORM 的异步查询接口 (`.afilter()`)，进行高效的数据库操作。
-        - 性能优化: 使用 `.values()` 直接将查询结果转换为字典列表，避免创建完整的
-                    Django模型实例，显著减少内存开销和序列化成本。
-        - 返回值: 返回一个按时间排序的、干净的 Pandas DataFrame。
-
-        Args:
-            stock_code (str): 股票代码。
-            time_level (str): 分钟级别 (e.g., '1', '5')。
-            start_dt (datetime): 查询的开始时间 (UTC, naive)。
-            end_dt (datetime): 查询的结束时间 (UTC, naive)。
-
-        Returns:
-            Optional[pd.DataFrame]: 包含查询结果的DataFrame，如果无数据或出错则返回None。
+        【V2.1 - time_level 参数解析Bug修复版】
+        - 核心修复: 正确处理 '1T', '5T' 这样的Pandas频率字符串，提取出数字部分传给 get_minute_model。
         """
         try:
-            # 1. 根据股票代码和时间级别，动态获取对应的Django模型类
-            model_class = self.get_minute_model(stock_code, time_level)
+            # --- 核心修复开始 ---
+            # 从 '1T', '5T' 等字符串中提取出数字部分 '1', '5'
+            # 使用 isdigit() 过滤掉非数字字符
+            time_level_digit = "".join(filter(str.isdigit, time_level))
+            if not time_level_digit:
+                logger.error(f"无法从 time_level='{time_level}' 中提取出有效的数字级别。")
+                return None
+            
+            # 使用提取出的数字 '1', '5' 等来获取正确的模型
+            model_class = self.get_minute_model(stock_code, time_level_digit)
+            # --- 核心修复结束 ---
+
             if not model_class:
-                logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
+                logger.error(f"未能找到股票 {stock_code} 对应的 {time_level} K线模型。")
                 return None
 
-            # 2. 使用 Django ORM 的异步接口进行查询
-            #    - .aobjects 是 async-enabled manager
-            #    - .afilter() 是异步的 filter
-            #    - __range 查询时间范围
-            #    - .values() 直接返回字典，性能更高
+            # 查询逻辑保持不变，Django的ORM会自动处理带时区的datetime对象的查询
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__range=(start_dt, end_dt)
             ).order_by('trade_time')
             
-            # 使用 .values() 选择需要的字段
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
 
             if not kline_values:
-                logger.info(f"在数据库中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level}分钟 K线数据。")
+                # 修改日志输出，使其更清晰地反映查询参数
+                logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level} K线数据。")
                 return None
 
-            # 3. 将查询结果转换为 Pandas DataFrame
             df = pd.DataFrame.from_records(kline_values)
             
-            # 4. 数据后处理
-            #    - 将 trade_time 设置为索引
-            #    - 将 vol 和 amount 重命名为 volume 和 turnover_value 以保持一致性
+            # 数据后处理
+            # 核心：将从数据库取出的UTC时间转换为上海时间，并设置为索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True).dt.tz_convert('Asia/Shanghai')
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)
             
-            logger.debug(f"成功从数据库获取 {len(df)} 条 {time_level}分钟 K线 for {stock_code}")
+            logger.debug(f"成功从数据库获取 {len(df)} 条 {time_level} K线 for {stock_code}")
             return df
 
         except Exception as e:
