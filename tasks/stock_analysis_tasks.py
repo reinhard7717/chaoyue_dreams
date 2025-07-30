@@ -347,85 +347,73 @@ def analyze_all_stocks_full_history(self):
         return {"status": "failed", "reason": str(e)}
 
 
-
+# ==============================================================================
+#                盘中引擎任务
+# ==============================================================================
 # --- 任务一：盘前准备任务 ---
-@celery_app.task(name='tasks.stock_analysis_tasks.prepare_pools', queue='intraday_queue')
+@celery_app.task(name='tasks.prepare_pools', queue='long_running_queue')
 def prepare_pools():
     """
-    盘前准备任务：为所有相关股票池生成当日的分钟K线和衍生特征。
-    【V2.0 - 异步上下文修复版】
+    【V2.1 - 逻辑重构】盘前准备任务，负责生成当日的监控股票池并存入Redis。
     """
-    logger.info("开始执行盘前准备任务...")
+    print("【V2.1】开始执行盘前准备任务: 生成监控股票池...")
     
-    # 【核心修复】定义一个异步的 main 函数
     async def main():
-        # 1. 在异步上下文中创建顶层的 CacheManager
-        # cache_manager_instance = CacheManager()
-        params = {} # 从配置加载
-        # 2. 创建 Orchestrator 实例，并注入 cache_manager
-        # orchestrator = IntradayEngineOrchestrator(params, cache_manager_instance)
-        orchestrator = IntradayEngineOrchestrator(params)
-        # 3. 执行业务逻辑
-        success = await orchestrator.initialize_pools()
-        if success:
-            logger.info("盘前准备任务成功完成。")
-        else:
-            logger.error("盘前准备任务执行失败。")
+        cache_manager = CacheManager()
+        # 初始化 RealtimeServices，它现在包含了股票池管理逻辑
+        realtime_services = RealtimeServices(cache_manager)
+        
+        # 调用服务来更新股票池
+        await realtime_services.update_and_cache_monitoring_pool()
+        
+        await cache_manager.close()
 
     try:
-        # 使用 async_to_sync 运行这个总的 main 函数
         async_to_sync(main)()
+        print("【V2.1】盘前准备任务成功完成。")
     except Exception as e:
-        logger.error(f"盘前准备任务失败: {e}", exc_info=True)
+        logger.error(f"盘前准备任务(prepare_pools)失败: {e}", exc_info=True)
+        raise
 
 # --- 任务二：核心盘中循环任务 ---
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_cycle', queue='intraday_queue')
-def run_cycle(self):
+@celery_app.task(name='tasks.run_cycle', queue='intraday_queue')
+def run_cycle():
     """
-    【V3.1 - 依赖修复版】核心盘中循环任务。
-    此版本为解决 "Too many connections" 问题的核心入口。
+    【V3.3 - 逻辑重构】核心盘中批量循环任务。
+    - 从Redis加载由prepare_pools任务生成的监控池，只处理池内股票。
     """
-    logger.info("【V3.1】开始执行核心盘中批量循环任务...")
-    try:
-        async def main():
-            # 1. 初始化依赖
-            cache_manager = CacheManager()
-            stock_basic_dao = StockBasicInfoDao(cache_manager)
-            realtime_services = RealtimeServices(cache_manager) # 确保将 cache_manager 注入
+    print("【V3.3】开始执行核心盘中批量循环任务...")
+    
+    async def main():
+        cache_manager = CacheManager()
+        realtime_services = RealtimeServices(cache_manager)
 
-            # 2. 获取所有需要处理的股票代码
-            logger.info("正在获取全市场股票代码列表...")
-            favorite_codes, non_favorite_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-            all_stock_codes = favorite_codes + non_favorite_codes
+        # 1. 从Redis加载当天要监控的股票池
+        stock_codes_to_monitor = await realtime_services.get_monitoring_pool_from_cache()
 
-            if not all_stock_codes:
-                logger.error("未能获取到任何股票代码，盘中循环任务终止。")
-                return {"status": "skipped", "reason": "no stocks found"}
+        if not stock_codes_to_monitor:
+            logger.error("监控股票池为空！盘前任务(prepare_pools)可能未成功执行。本次盘中循环任务终止。")
+            await cache_manager.close()
+            return
 
-            logger.info(f"共获取到 {len(all_stock_codes)} 支股票，准备进行批量数据处理。")
-
-            # 3. 定义处理参数
-            time_level = '1T' 
-            # 修改: 使用标准的 datetime 模块获取当前日期字符串，不再需要 TimeUtils
-            trade_date = datetime.now().strftime('%Y-%m-%d')
-            
-            # 4. 【关键调用】
-            #    调用我们之前重构好的批量处理总调度器。
-            await realtime_services.process_all_stocks_intraday_data(
-                stock_codes=all_stock_codes,
-                time_level=time_level,
-                trade_date=trade_date
-            )
-
-            logger.info(f"【V3.1】核心盘中批量循环任务成功完成，处理了 {len(all_stock_codes)} 支股票。")
-            return {"status": "success", "processed_stocks": len(all_stock_codes)}
-
-        # 使用 async_to_sync 运行异步的 main 函数
-        return async_to_sync(main)()
+        # 2. 只对监控池中的股票进行处理
+        await realtime_services.process_all_stocks_intraday_data(
+            stock_codes=stock_codes_to_monitor,
+            time_level='1T',
+            trade_date=datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d')
+        )
         
+        await cache_manager.close()
+
+    try:
+        async_to_sync(main)()
+        print(f"【V3.3】核心盘中批量循环任务成功完成。")
     except Exception as e:
-        logger.error(f"【V3.1】核心盘中批量循环任务失败: {e}", exc_info=True)
-        return {"status": "error", "reason": str(e)}
+        logger.error(f"【V3.3】核心盘中批量循环任务失败: {e}", exc_info=True)
+        raise
+
+
+
 
 
 # ▼▼▼ “阿尔法猎手”的Celery后台任务 ▼▼▼

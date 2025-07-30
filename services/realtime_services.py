@@ -5,6 +5,8 @@ import asyncio
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+from asgiref.sync import sync_to_async
+from celery import group
 from chaoyue_dreams.celery import app as celery_app
 import pytz # <--- 1. 导入 pytz
 from typing import List, Dict, Optional, Tuple
@@ -12,6 +14,9 @@ from datetime import datetime, time # <--- 2. 导入 time
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
+from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog
+from stock_models.index import TradeCalendar
+from utils.cash_key import StockCashKey
 
 from concurrent.futures import ProcessPoolExecutor
 import functools
@@ -117,63 +122,127 @@ def cpu_bound_calculation_task(
 
 class RealtimeServices:
     """
-    【盘中引擎 - 服务层 V4.1 - 最终形态】
-    - 核心能力: 将原始Tick和分钟K线，通过深度解析、聚合和高级数学计算，
-                转化为一个包含力学、统计学、分形等多维度特征的战术情报矩阵。
-    - 技术栈: Pandas, Numpy, Pandas-TA
+    【盘中引擎 - 服务层 V4.3 - 使用数据库交易日历】
+    - 改造: 使用数据库中的 TradeCalendar 模型替代外部工具类。
     """
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修复】接收 cache_manager_instance
-        
-        # 使用传入的实例来创建 DAO
+        self.cache_manager = cache_manager_instance
         self.realtime_dao = StockRealtimeDAO(cache_manager_instance)
         self.timetrade_dao = StockTimeTradeDAO(cache_manager_instance)
+        self.cache_key = StockCashKey()
+        # self.trade_calendar = ATradeCalendar() # <-- 删除这一行
         self.slope_window = 5
         self.stats_window = 20
 
-    async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
+    @sync_to_async
+    def _get_monitoring_pool_from_sources(self, trade_date: date) -> tuple[list[str], list[str]]:
         """
-        【V5.1 - Celery Group 并行版】
-        此版本利用 Celery Group 来并行执行CPU密集型计算任务，解决了守护进程无法创建子进程的问题。
+        【内部方法】从数据库并发获取策略Top100股和所有自选股。
+        (此方法保持不变)
         """
-        print(f"【V5.1】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
+        # ... 此方法内部代码完全不变 ...
+        try:
+            top_stocks_qs = TrendFollowStrategySignalLog.objects.filter(
+                trade_time__date=trade_date,
+                timeframe='D',
+                entry_signal=True
+            ).order_by('-entry_score').values_list('stock__stock_code', flat=True)[:100]
+            strategy_stocks = list(top_stocks_qs)
+        except Exception as e:
+            logger.error(f"获取 {trade_date} Top策略股时出错: {e}", exc_info=True)
+            strategy_stocks = []
+        try:
+            watchlist_qs = FavoriteStockTracker.objects.filter(
+                status='HOLDING'
+            ).select_related('stock').values_list('stock__stock_code', flat=True).distinct()
+            watchlist_stocks = list(watchlist_qs)
+        except Exception as e:
+            logger.error(f"获取所有自选股时出错: {e}", exc_info=True)
+            watchlist_stocks = []
+        return strategy_stocks, watchlist_stocks
+
+    # [修改后方法]
+    async def update_and_cache_monitoring_pool(self):
+        """
+        【盘前任务入口 - V2.0】使用数据库中的TradeCalendar模型更新监控池。
+        """
+        print("开始更新盘中监控股票池...")
         
-        # --- 步骤 1: I/O 阶段 - 集中获取所有原始数据 (逻辑不变) ---
+        # ▼▼▼ 核心修改 ▼▼▼
+        # 1. 将同步的类方法包装成异步函数
+        get_prev_date_async = sync_to_async(TradeCalendar.get_latest_trade_date, thread_sensitive=True)
+        
+        # 2. 异步调用，获取前一个交易日
+        previous_trade_date = await get_prev_date_async(reference_date=date.today())
+        
+        # 3. 关键的健壮性检查
+        if not previous_trade_date:
+            logger.error("无法从数据库TradeCalendar中获取到前一个交易日，盘前准备任务终止！")
+            return
+        # ▲▲▲ 核心修改结束 ▲▲▲
+
+        print(f"  -> 目标策略日期 (前一交易日): {previous_trade_date}")
+
+        strategy_stocks, watchlist_stocks = await self._get_monitoring_pool_from_sources(previous_trade_date)
+        
+        print(f"  -> 获取到自选股: {len(watchlist_stocks)} 支")
+        print(f"  -> 获取到策略Top100股: {len(strategy_stocks)} 支")
+
+        final_pool_set = set(watchlist_stocks) | set(strategy_stocks)
+        final_pool_list = list(final_pool_set)
+        
+        print(f"  -> 合并去重后，最终监控池大小为: {len(final_pool_list)} 支")
+
+        if not final_pool_list:
+            logger.warning("生成的最终监控股票池为空，不进行缓存操作。")
+            return
+
+        redis_key = self.cache_key.intraday_monitoring_pool()
+        await self.cache_manager.delete(redis_key)
+        await self.cache_manager.sadd(redis_key, *final_pool_list)
+        await self.cache_manager.expire(redis_key, 86400)
+        
+        print(f"  -> 成功将 {len(final_pool_list)} 支股票存入Redis缓存键: {redis_key}")
+
+    # [以下方法保持不变]
+    async def get_monitoring_pool_from_cache(self) -> List[str]:
+        # ... 此方法内部代码完全不变 ...
+        redis_key = self.cache_key.intraday_monitoring_pool()
+        stock_codes_bytes = await self.cache_manager.smembers(redis_key)
+        if not stock_codes_bytes:
+            logger.warning(f"无法从Redis缓存键 {redis_key} 中获取到任何股票，监控池为空！")
+            return []
+        stock_codes = [code.decode('utf-8') for code in stock_codes_bytes]
+        print(f"成功从Redis加载监控池，共 {len(stock_codes)} 支股票。")
+        return stock_codes
+
+    async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
+        # ... 此方法内部代码完全不变 ...
+        print(f"【V5.1】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
         print("  -> 阶段 1/2: 正在集中获取所有股票的原始数据...")
         all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
         if not all_bulk_data:
             logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks/Level5 数据，日期: {trade_date}。任务终止。")
             return
-
         shanghai_tz = pytz.timezone('Asia/Shanghai')
         target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
         start_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(9, 25, 0)))
         end_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(15, 5, 0)))
-
         kline_tasks = [
             self.timetrade_dao.get_minute_kline_by_daterange(code, time_level, start_dt_aware, end_dt_aware)
             for code in stock_codes
         ]
         all_minute_klines_results = await asyncio.gather(*kline_tasks, return_exceptions=True)
-        
         job_packages = []
         for i, code in enumerate(stock_codes):
             df_minute = all_minute_klines_results[i]
             if isinstance(df_minute, Exception) or df_minute is None or df_minute.empty:
                 continue
-
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            
             job_packages.append((code, df_minute, df_ticks, df_level5))
-        
         print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务提交到Celery。")
-
-        # --- 步骤 2: 并行计算阶段 - 使用 Celery Group ---
         print(f"  -> 阶段 2/2: 正在使用 Celery Group 并行执行计算任务...")
-        
-        # 创建一个任务签名列表
-        # .s() 是 .signature() 的缩写，它创建了一个任务的“签名”，包含了任务名和参数
         calculation_signatures = [
             cpu_bound_calculation_task.s(
                 stock_data_package=pkg,
@@ -182,36 +251,21 @@ class RealtimeServices:
                 stats_window=self.stats_window
             ) for pkg in job_packages
         ]
-
         if not calculation_signatures:
             print("没有可执行的计算任务，流程结束。")
             return
-
-        # 使用 group 将所有任务签名组合成一个可并行执行的组
         job_group = group(calculation_signatures)
-        
-        # 异步执行任务组，并等待结果
-        # .apply_async() 会立即返回一个 AsyncResult 对象
         result_group = job_group.apply_async()
-        
-        # 在异步代码中，我们需要一个循环来检查结果是否准备好
-        # 或者，更简单的方式是，如果后续逻辑依赖结果，可以阻塞等待
-        # 注意：在生产环境中，长时间阻塞等待可能不是最佳选择，但对于调试和理解流程很有效
         print("  -> 任务已提交，正在等待所有并行计算完成...")
-        final_results = result_group.get(timeout=1800) # 设置一个较长的超时时间，例如30分钟
-        
+        final_results = result_group.get(timeout=1800)
         print(f"  -> 所有 {len(final_results)} 个计算任务已在Celery Worker中完成。")
-
-        # --- 结果处理 ---
         processed_count = 0
         for result_df in final_results:
             if result_df is not None and not result_df.empty:
-                stock_code = result_df['stock_code'].iloc[0]
-                print(f"    -> 成功生成股票 {stock_code} 的盘中数据矩阵，共 {len(result_df)} 条。")
+                stock_code_in_df = result_df.iloc[0].get('stock_code', '未知代码')
+                print(f"    -> 成功生成股票 {stock_code_in_df} 的盘中数据矩阵，共 {len(result_df)} 条。")
                 processed_count += 1
-        
         print(f"【V5.1】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
-
 
 
 

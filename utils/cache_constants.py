@@ -4,6 +4,7 @@
 TYPE_STATIC = 'st'
 TYPE_REALTIME = 'rt'
 TYPE_TIMESERIES = 'ts'
+TYPE_APP = "app"
 TYPE_CALCULATION = 'calc'
 TYPE_USER = 'user'
 TYPE_STRATEGY = 'strategy'
@@ -15,13 +16,17 @@ ENTITY_MARKET = 'market'
 ENTITY_STRATEGY = 'strategy'
 ENTITY_USERINFO = 'user_info'
 ENTITY_USERFAVORITES = 'favorite_stocks'
+ENTITY_POOL = "pool"
 # ... 其他实体类型
 
 # --- Entity IDs / Subtypes / Identifiers ---
 ID_ALL = 'all'
+ID_INTRADAY_MONITORING = "intraday_monitoring"
 ID_OVERVIEW = 'overview'
 ID_TIME_SERIES = 'time_series'
 ID_REALTIME = 'realtime'
+
+SUBTYPE_BASIC_INFO = "basic"
 SUBTYPE_QUOTE = 'quote'
 SUBTYPE_KLINE = 'kline'
 SUBTYPE_BASIC_INFO = 'info'

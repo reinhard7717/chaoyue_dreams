@@ -531,6 +531,22 @@ class StockCashKey(CashKey):
             date=date_str
         )
 
+    # 【盘中引擎专用】生成当日监控股票池的缓存键
+    def intraday_monitoring_pool(self) -> str:
+        """
+        【盘中引擎专用】生成用于存储当日监控股票池的缓存键。
+        这是一个全局键，不针对任何特定股票。
+        """
+        # 使用 'app' (application) 类型，表示这是一个应用级别的、非特定实体的数据
+        # 使用 'pool' (股票池) 作为实体类型
+        # 使用 'intraday_monitoring' 作为ID，明确其用途
+        cache_key = self.generate_key(
+            cache_type=cc.TYPE_APP,
+            entity_type=cc.ENTITY_POOL,
+            entity_id=cc.ID_INTRADAY_MONITORING
+        )
+        return cache_key
+
 class StrategyCashKey(CashKey):
     def __init__(self):
         self.cache_manager = None  # 修改: 改为 None，等待异步初始化
