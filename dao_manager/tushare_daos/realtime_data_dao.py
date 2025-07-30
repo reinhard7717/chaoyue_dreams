@@ -179,19 +179,9 @@ class StockRealtimeDAO(BaseDAO):
 
     async def get_daily_ticks_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
-        【V2.1 - 终极批量优化版】使用 Redis Pipeline 一次性获取多支股票的日内 Ticks 和 Level-5 数据。
-        在一次网络往返中完成所有数据获取，从根本上解决 "Too many connections" 问题。
-
-        Args:
-            stock_codes (List[str]): 股票代码列表。
-            trade_date (str): 交易日期，格式 'YYYY-MM-DD'。
-
-        Returns:
-            Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
-            一个字典，键为股票代码，值为一个元组 (df_ticks, df_level5)。
-            如果某支股票没有数据，则字典中不会包含该键。
+        【V2.2 - 键名生成Bug修复版】使用 Redis Pipeline 一次性获取多支股票的日内 Ticks 和 Level-5 数据。
         """
-        print(f"DEBUG: [DAO层] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
+        print(f"DEBUG: [DAO层 V2.2] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
         if not stock_codes:
             return {}
 
@@ -202,33 +192,29 @@ class StockRealtimeDAO(BaseDAO):
         try:
             pipe = await self.cache_manager.pipeline()
             
-            # 为每支股票添加两个命令到 pipeline：一个获取 Ticks，一个获取 Level5
             for code in stock_codes:
-                ticks_key = self.cache_key_stock.get_ts_ticks_realtime_key(code, date_str_no_hyphen)
-                level5_key = self.cache_key_stock.get_ts_ticks_level5_key(code, date_str_no_hyphen)
+                # 修改: 调用 cash_key.py 中存在的正确方法 intraday_ticks_realtime
+                ticks_key = self.cache_key_stock.intraday_ticks_realtime(code, date_str_no_hyphen)
+                # 修改: 调用 cash_key.py 中存在的正确方法 intraday_ticks_level5
+                level5_key = self.cache_key_stock.intraday_ticks_level5(code, date_str_no_hyphen)
                 pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=False)
                 pipe.zrangebyscore(level5_key, min_score, max_score, withscores=False)
             
-            # 一次性执行所有命令
-            # results 列表的顺序将是 [stock1_ticks, stock1_level5, stock2_ticks, stock2_level5, ...]
             results = await pipe.execute()
-            print(f"DEBUG: [DAO层] Pipeline 执行完毕，收到 {len(results)} 组结果。")
+            print(f"DEBUG: [DAO层 V2.2] Pipeline 执行完毕，收到 {len(results)} 组结果。")
 
-            # 处理返回的结果
             bulk_data_map = {}
             for i, stock_code in enumerate(stock_codes):
-                # 从结果列表中成对取出 Ticks 和 Level5 的数据
                 serialized_ticks = results[i * 2]
                 serialized_level5 = results[i * 2 + 1]
 
                 df_ticks = self._process_serialized_data(serialized_ticks)
                 df_level5 = self._process_serialized_data(serialized_level5)
 
-                # 只有当至少有一份数据存在时，才加入到结果字典中
                 if df_ticks is not None or df_level5 is not None:
                     bulk_data_map[stock_code] = (df_ticks, df_level5)
             
-            print(f"DEBUG: [DAO层] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
+            print(f"DEBUG: [DAO层 V2.2] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
             return bulk_data_map
 
         except Exception as e:
