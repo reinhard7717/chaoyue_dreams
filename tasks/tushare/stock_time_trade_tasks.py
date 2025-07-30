@@ -97,6 +97,10 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
 @celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch', queue='SaveData_TimeTrade')
 def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     try:
+        # 1. 在异步上下文中创建顶层的 CacheManager
+        cache_manager_instance = CacheManager()
+        # 2. 创建 DAO 实例，并注入 cache_manager
+        stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         today_date = timezone.now().date()
         if trade_time_str:
             start_date_str = trade_time_str
@@ -107,10 +111,6 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
             end_date_str = f"{today_date} 23:59:59"
             print(f"开始保存 分钟数据任务（当日全天）...")
         async def main():
-            # 1. 在异步上下文中创建顶层的 CacheManager
-            cache_manager_instance = CacheManager()
-            # 2. 创建 DAO 实例，并注入 cache_manager
-            stock_time_trade_dao = StockTimeTradeDAO(cache_manager_instance)
             # 3. 执行业务逻辑
             stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
                 stock_codes=stock_codes,

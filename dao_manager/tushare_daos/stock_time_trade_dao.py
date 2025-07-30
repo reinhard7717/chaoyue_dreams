@@ -507,12 +507,10 @@ class StockTimeTradeDAO(BaseDAO):
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
             return
-
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息，任务终止。")
             return
-        
         stock_codes_str = ",".join(stock_codes)
         for time_level in ['1', '5', '15', '30', '60']:
             offset = 0
@@ -522,12 +520,8 @@ class StockTimeTradeDAO(BaseDAO):
                 if offset >= 100000:
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
-
                 print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
-                
-                # 【代码修改】在每次API调用前主动延时，防止触发流控。0.25秒对应每分钟240次，在Tushare的300次限制内，非常安全。
                 await asyncio.sleep(0.25)
-
                 try:
                     # 【代码修改】将API调用放入try-except块
                     df = self.ts_pro.stk_mins(**{
@@ -539,10 +533,8 @@ class StockTimeTradeDAO(BaseDAO):
                     # 发生异常时，创建一个空的DataFrame，让后续逻辑能统一处理，并等待更长时间后重试
                     df = pd.DataFrame()
                     await asyncio.sleep(5) # 如果API出错，多等一会儿
-
                 original_df_len = len(df)
                 print(f"调试信息: API返回 {original_df_len} 条原始数据。")
-                
                 if original_df_len == 0:
                     # 如果是因为非最后一页（offset > 0）但返回空，可能意味着API临时问题或确实没数据了
                     if offset > 0:
@@ -550,46 +542,37 @@ class StockTimeTradeDAO(BaseDAO):
                     else:
                         print(f"拉取结束，API未返回更多 {time_level}min 数据。")
                     break
-                
                 # --- 后续处理逻辑不变 ---
                 df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                 df['stock'] = df['ts_code'].map(stock_map)
                 df.dropna(subset=['trade_time', 'stock'], inplace=True)
-
                 if df.empty:
                     print(f"当前页数据经清洗后为空，跳至下一页。")
                     offset += limit
                     page_num += 1
                     continue
-
                 df['trade_time'] = pd.to_datetime(df['trade_time'])
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
                 df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
                 df['trade_time'] = df['trade_time'].dt.tz_localize(None)
                 df['model_class'] = df['ts_code'].apply(lambda code: self.get_minute_model(code, time_level))
-
                 for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty:
                         continue
-                    
                     data_list = group_df[[
                         "stock", "trade_time", "close", "open", "high", "low", "vol", "amount"
                     ]].to_dict('records')
-
                     await self._save_all_to_db_native_upsert(
                         model_class=model_class,
                         data_list=data_list,
                         unique_fields=['stock', 'trade_time']
                     )
                     logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 准备了 {len(data_list)} 条记录进行插入/更新。")
-
                 if original_df_len < limit:
                     print(f"调试信息: API返回行数({original_df_len})小于limit({limit})，判定为最后一页，当前频率数据拉取结束。")
                     break
-                
                 offset += limit
                 page_num += 1
-
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
         return
 
