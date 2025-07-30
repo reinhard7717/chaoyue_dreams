@@ -94,7 +94,7 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
 # ===================================================
 
 #  ================ 分钟数据任务（当日收盘后） ================
-@celery_app.task(bind=True, name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_batch', queue='SaveData_TimeTrade')
+@celery_app.task(queue='SaveData_TimeTrade')
 def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
     try:
         # 1. 在异步上下文中创建顶层的 CacheManager
@@ -112,7 +112,7 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
             print(f"开始保存 分钟数据任务（当日全天）...")
         async def main():
             # 3. 执行业务逻辑
-            stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
+            await stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
                 stock_codes=stock_codes,
                 start_date_str=start_date_str,
                 end_date_str=end_date_str
@@ -123,7 +123,7 @@ def save_stocks_minute_data_today_batch(self, stock_codes, trade_time_str=None):
         logger.error(f"save_stocks_minute_data_today_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
 # --- 修改后的调度器任务 ---
-@celery_app.task
+@celery_app.task(queue='SaveData_TimeTrade')
 def on_all_minute_data_saved(results, trade_time_str=None):
     logger.info(f"所有分钟数据批量任务已全部完成。")
     # 这里可以做收尾工作，比如汇总、通知等
