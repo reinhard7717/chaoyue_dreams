@@ -385,7 +385,6 @@ class StockRealtimeCacheGet(CacheGet):
                 [data for data, score in realtime_ticks],
                 index=pd.to_datetime([datetime.fromtimestamp(score) for data, score in realtime_ticks])
             )
-            
             if level5_ticks:
                 df_level5 = pd.DataFrame(
                     [data for data, score in level5_ticks],
@@ -394,10 +393,8 @@ class StockRealtimeCacheGet(CacheGet):
                 df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
             else:
                 df_ticks = df_realtime
-
             logger.debug(f"成功从Redis获取并合并了 {len(df_ticks)} 条Tick数据 for {stock_code}")
             return df_ticks
-
         except Exception as e:
             # MODIFIED: 明确地记录下当前方法名，便于追踪
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)

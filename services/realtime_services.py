@@ -39,31 +39,19 @@ class RealtimeServices:
         
         # --- 1. 获取基础数据 ---
         # 1.1 获取分钟K线 (基础画布)
-        
-        # 【核心修复】构建时区感知的查询范围
         try:
-            # 1. 定义上海时区
             shanghai_tz = pytz.timezone('Asia/Shanghai')
-            
-            # 2. 解析日期字符串
             target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
-            
-            # 3. 定义上海时间的开盘和收盘时间 (稍微扩大范围以防万一)
             market_open_time = time(9, 25, 0) 
             market_close_time = time(15, 5, 0)
-
-            # 4. 创建 naive datetime 对象
             start_naive = datetime.combine(target_date_obj, market_open_time)
             end_naive = datetime.combine(target_date_obj, market_close_time)
-
-            # 5. 使用 .localize() 将 naive 对象本地化为上海时间
             start_dt_aware = shanghai_tz.localize(start_naive)
             end_dt_aware = shanghai_tz.localize(end_naive)
         except Exception as e:
             logger.error(f"为 {stock_code} 构建时间范围时出错: {e}", exc_info=True)
             return None
 
-        # 6. 使用这两个时区感知的对象进行查询
         df_minute = await self.timetrade_dao.get_minute_kline_by_daterange(
             stock_code, time_level, start_dt_aware, end_dt_aware
         )
@@ -71,6 +59,14 @@ class RealtimeServices:
         if df_minute is None or df_minute.empty:
             logger.warning(f"未能在数据库获取 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
             return None
+
+        # 新增: 强制类型转换，防止 Decimal 和 float 混合运算错误
+        # 这是解决 'unsupported operand type(s) for /: 'decimal.Decimal' and 'float'' 问题的关键
+        numeric_cols = ['open', 'close', 'high', 'low', 'volume', 'turnover_value']
+        for col in numeric_cols:
+            if col in df_minute.columns:
+                # 使用 pd.to_numeric 保证所有数值列都转换为Python可计算的浮点数类型
+                df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
 
         # 1.2 获取全天Ticks (原始颜料)
         df_ticks = await self.realtime_dao.get_daily_ticks_from_cache(stock_code, trade_date)
@@ -93,6 +89,44 @@ class RealtimeServices:
 
         print(f"    -> [实时服务层 V4.1] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
         return df_minute
+
+    # MODIFIED: 修改此方法以增加数据类型转换
+    def _calculate_tick_level_indicators(self, df_ticks: pd.DataFrame) -> pd.DataFrame:
+        """(私有方法) 计算所有Tick级别的衍生指标，包括高级力学指标"""
+        # 新增: 强制类型转换，防止 Decimal 和 float 混合运算错误
+        # 这是解决 'unsupported operand type(s) for /: 'decimal.Decimal' and 'float'' 问题的关键
+        price_cols = [f'{prefix}_price{i}' for prefix in ['buy', 'sell'] for i in range(1, 6)] + ['current_price']
+        volume_cols = [f'{prefix}_volume{i}' for prefix in ['buy', 'sell'] for i in range(1, 6)] + ['volume']
+        all_cols_to_convert = price_cols + volume_cols
+        for col in all_cols_to_convert:
+            if col in df_ticks.columns:
+                # 使用 pd.to_numeric 保证所有数值列都转换为Python可计算的浮点数类型
+                df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
+
+        buy_cols = [f'buy_volume{i}' for i in range(1, 6)]
+        sell_cols = [f'sell_volume{i}' for i in range(1, 6)]
+        buy_price_cols = [f'buy_price{i}' for i in range(1, 6)]
+        sell_price_cols = [f'sell_price{i}' for i in range(1, 6)]
+        
+        df_ticks['total_buy_volume'] = df_ticks[buy_cols].sum(axis=1)
+        df_ticks['total_sell_volume'] = df_ticks[sell_cols].sum(axis=1)
+        
+        # 质心
+        df_ticks['buy_com'] = sum(df_ticks[p] * df_ticks[v] for p, v in zip(buy_price_cols, buy_cols)) / (df_ticks['total_buy_volume'] + 1e-6)
+        df_ticks['sell_com'] = sum(df_ticks[p] * df_ticks[v] for p, v in zip(sell_price_cols, sell_cols)) / (df_ticks['total_sell_volume'] + 1e-6)
+        
+        # 势能
+        axis_price = df_ticks['current_price']
+        df_ticks['buy_potential_energy'] = sum((axis_price - df_ticks[p]) * df_ticks[v] for p, v in zip(buy_price_cols, buy_cols))
+        df_ticks['sell_potential_energy'] = sum((df_ticks[p] - axis_price) * df_ticks[v] for p, v in zip(sell_price_cols, sell_cols))
+        df_ticks['energy_ratio'] = df_ticks['buy_potential_energy'] / (df_ticks['sell_potential_energy'] + 1e-6)
+        
+        # 主动性成交
+        df_ticks['tick_volume'] = df_ticks['volume'].diff().fillna(0)
+        df_ticks['aggressive_buy_volume'] = np.where(df_ticks['current_price'] >= df_ticks['sell_price1'].shift(1), df_ticks['tick_volume'], 0)
+        df_ticks['aggressive_sell_volume'] = np.where(df_ticks['current_price'] <= df_ticks['buy_price1'].shift(1), df_ticks['tick_volume'], 0)
+        
+        return df_ticks
 
     def _calculate_tick_level_indicators(self, df_ticks: pd.DataFrame) -> pd.DataFrame:
         """(私有方法) 计算所有Tick级别的衍生指标，包括高级力学指标"""
