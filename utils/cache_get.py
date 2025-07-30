@@ -1,6 +1,7 @@
 import datetime
 import logging
 import json
+import pandas as pd
 from typing import Any, Dict, List, Optional
 from users.models import FavoriteStock
 from utils import cache_constants as cc
