@@ -413,7 +413,28 @@ def run_cycle():
         logger.error(f"【V3.3】核心盘中批量循环任务失败: {e}", exc_info=True)
         raise
 
-
+@celery_app.task(name='tasks.aggregate_intraday_results', queue='intraday_queue')
+def aggregate_intraday_results(results: list):
+    """
+    【V1.0 - Chord回调任务】
+    在所有并行计算任务完成后，此任务被自动调用以聚合和报告结果。
+    """
+    print("\n" + "="*30)
+    print("【回调任务】所有并行计算已完成，开始聚合结果...")
+    
+    processed_count = 0
+    total_tasks = len(results)
+    
+    for result_dict_list in results:
+        if result_dict_list and isinstance(result_dict_list, list):
+            # 从结果的第一条记录中获取股票代码
+            stock_code = result_dict_list[0].get('stock_code', '未知代码')
+            print(f"    -> [回调] 成功处理股票 {stock_code} 的数据，共 {len(result_dict_list)} 条。")
+            processed_count += 1
+            
+    print(f"【回调任务】聚合完成。成功处理了 {processed_count} / {total_tasks} 支股票。")
+    print("="*30 + "\n")
+    return f"Aggregation complete: {processed_count}/{total_tasks} stocks processed."
 
 
 

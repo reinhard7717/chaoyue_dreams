@@ -18,8 +18,8 @@ from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrate
 from stock_models.index import TradeCalendar
 from utils.cash_key import StockCashKey
 
-from concurrent.futures import ProcessPoolExecutor
-import functools
+from celery import group, chord # 确保 group 和 chord 都已导入
+from tasks.stock_analysis_tasks import cpu_bound_calculation_task, aggregate_intraday_results # 导入两个任务
 
 logger = logging.getLogger("services")
 
@@ -234,82 +234,67 @@ class RealtimeServices:
 
     async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
         """
-        【V5.2 - 可序列化版】在分发任务前，将DataFrame转换为字典。
+        【V5.3 - Chord异步工作流版】
+        使用 Celery Chord 将并行计算与结果聚合解耦，避免阻塞。
         """
-        print(f"【V5.2】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
+        print(f"【V5.3】开始为 {len(stock_codes)} 支股票构建 Chord 异步工作流...")
         
         # --- 步骤 1: I/O 阶段 (逻辑不变) ---
+        # ... (这部分数据准备的代码完全不变) ...
         print("  -> 阶段 1/2: 正在集中获取所有股票的原始数据...")
         all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
         if not all_bulk_data:
             logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks/Level5 数据，日期: {trade_date}。任务终止。")
             return
-
         shanghai_tz = pytz.timezone('Asia/Shanghai')
         target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
         start_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(9, 25, 0)))
         end_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(15, 5, 0)))
-
         kline_tasks = [
             self.timetrade_dao.get_minute_kline_by_daterange(code, time_level, start_dt_aware, end_dt_aware)
             for code in stock_codes
         ]
         all_minute_klines_results = await asyncio.gather(*kline_tasks, return_exceptions=True)
-        
         job_packages = []
         for i, code in enumerate(stock_codes):
             df_minute = all_minute_klines_results[i]
             if isinstance(df_minute, Exception) or df_minute is None or df_minute.empty:
                 continue
-
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            
-            # 使用 to_dict('split')，它能保留索引、列名和数据，方便重建
             serialized_minute = df_minute.to_dict('split') if df_minute is not None else None
             serialized_ticks = df_ticks.to_dict('split') if df_ticks is not None else None
             serialized_level5 = df_level5.to_dict('split') if df_level5 is not None else None
-            
             job_packages.append((code, serialized_minute, serialized_ticks, serialized_level5))
         
-        print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务提交到Celery。")
+        print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务打包到 Chord 中。")
 
-        # --- 步骤 2: 并行计算阶段 (逻辑不变) ---
-        print(f"  -> 阶段 2/2: 正在使用 Celery Group 并行执行计算任务...")
-        
-        calculation_signatures = [
+        # --- 步骤 2: 构建并启动 Chord 工作流 ---
+        if not job_packages:
+            print("没有可执行的计算任务，流程结束。")
+            return
+
+        # 2.1 创建并行任务组 (Header)
+        calculation_group = group(
             cpu_bound_calculation_task.s(
                 stock_data_package=pkg,
                 time_level=time_level,
                 slope_window=self.slope_window,
                 stats_window=self.stats_window
             ) for pkg in job_packages
-        ]
+        )
 
-        if not calculation_signatures:
-            print("没有可执行的计算任务，流程结束。")
-            return
+        # 2.2 创建回调任务签名 (Body)
+        # .s() 创建一个不带参数的签名，它将自动接收 group 的结果
+        callback_task = aggregate_intraday_results.s()
 
-        job_group = group(calculation_signatures)
-        result_group = job_group.apply_async()
+        # 2.3 构建 Chord 并异步执行
+        # chord(header, body)
+        workflow = chord(calculation_group, callback_task)
+        workflow.apply_async()
         
-        print("  -> 任务已提交，正在等待所有并行计算完成...")
-        final_results = result_group.get(timeout=1800)
-        
-        print(f"  -> 所有 {len(final_results)} 个计算任务已在Celery Worker中完成。")
-
-        # --- 结果处理 ---
-        processed_count = 0
-        for result_dict_list in final_results:
-            # ▼▼▼ 核心修改：现在接收的是字典列表，而不是DataFrame ▼▼▼
-            if result_dict_list and isinstance(result_dict_list, list):
-                # 从结果的第一条记录中获取股票代码
-                stock_code = result_dict_list[0].get('stock_code', '未知代码')
-                print(f"    -> 成功生成股票 {stock_code} 的盘中数据矩阵，共 {len(result_dict_list)} 条。")
-                processed_count += 1
-        
-        print(f"【V5.2】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
-
+        # ▼▼▼ 核心修改：不再有 .get()，任务启动后立即结束 ▼▼▼
+        print(f"  -> Celery Chord 工作流已成功启动，包含 {len(job_packages)} 个计算任务。主任务退出，结果将由回调任务处理。")
 
 
 
