@@ -381,7 +381,7 @@ def prepare_pools():
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_cycle', queue='intraday_queue')
 def run_cycle(self):
     """
-    【V3.0 - 批量处理版】核心盘中循环任务。
+    【V3.0 - 批量处理修复版】核心盘中循环任务。
     此版本为解决 "Too many connections" 问题的核心入口。
     它会获取所有股票列表，然后调用服务层进行一次性的批量数据处理和计算。
     """
@@ -389,11 +389,11 @@ def run_cycle(self):
     try:
         async def main():
             # 1. 初始化依赖
-            #    - DAOFactory 用于创建访问数据库和缓存的工具
+            #    - CacheManager 是所有DAO和服务的基础
             #    - RealtimeServices 是我们之前修改的、包含批量处理逻辑的服务
-            dao_factory = DAOFactory()
-            stock_basic_dao = await dao_factory.get_dao('StockBasicInfoDao')
-            realtime_services = RealtimeServices() # RealtimeServices 内部会自动初始化其依赖
+            cache_manager = CacheManager()
+            stock_basic_dao = StockBasicInfoDao(cache_manager)
+            realtime_services = RealtimeServices(cache_manager) # 确保将 cache_manager 注入
 
             # 2. 获取所有需要处理的股票代码
             #    我们复用项目已有的 _get_all_relevant_stock_codes_for_processing 方法
@@ -423,17 +423,16 @@ def run_cycle(self):
                 trade_date=trade_date
             )
 
-            # 注意：原有的 run_single_cycle 返回 signals，这里的逻辑已变更为数据准备。
-            # 如果需要生成信号，应在 process_all_stocks_intraday_data 内部或之后处理。
-            # 当前主要目标是解决连接数问题。
             logger.info(f"【V3.0】核心盘中批量循环任务成功完成，处理了 {len(all_stock_codes)} 支股票。")
             return {"status": "success", "processed_stocks": len(all_stock_codes)}
 
+        # 使用 async_to_sync 运行异步的 main 函数
         return async_to_sync(main)()
         
     except Exception as e:
         logger.error(f"【V3.0】核心盘中批量循环任务失败: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
+
 
 # ▼▼▼ “阿尔法猎手”的Celery后台任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_alpha_hunter_for_stock', queue='debug_tasks')
