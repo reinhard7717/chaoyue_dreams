@@ -200,7 +200,7 @@ class RealtimeServices:
                 {"kind": "zscore", "close": "volume", "length": self.stats_window, "col_names": "volume_zscore"},
                 {"kind": "zscore", "close": "net_aggressive_volume", "length": self.stats_window, "col_names": "net_agg_vol_zscore"},
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
-                {"kind": "fractal", "col_names": ("fractal_low", "fractal_high")}
+                # {"kind": "fractal", "col_names": ("fractal_low", "fractal_high")}
             ]
         )
         df.ta.strategy(custom_strategy)
@@ -212,12 +212,33 @@ class RealtimeServices:
         if 'net_aggressive_volume' in df.columns:
             bbands_df = df.ta.bbands(close=df['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'))
             df = df.join(bbands_df)
-        
-        stdev = df.ta.stdev(length=self.stats_window)
-        sma = df.ta.sma(length=self.stats_window)
-        df['price_cv'] = stdev / (sma + 1e-6)
-        
-        if 'net_aggressive_volume' in df.columns:
-            df['corr_price_net_agg_vol'] = df['price_pct_change'].rolling(self.stats_window).corr(df['net_aggressive_volume'])
             
-        return df
+        print(f"DEBUG: 准备为股票直接计算分形指标...")
+        try:
+            # 直接调用 fractal，使用 append=True 将结果列添加到 df 中
+            df.ta.fractal(append=True)
+            
+            # pandas_ta 默认生成的列名是 FRACTAL_low_2 和 FRACTAL_high_2
+            # 我们需要将它们重命名为策略所期望的列名
+            # 注意: 列名中的数字'2'是默认的lookback周期，如果将来修改fractal的参数，这里也可能需要调整
+            rename_map = {
+                'FRACTAL_low_2': 'fractal_low',
+                'FRACTAL_high_2': 'fractal_high'
+            }
+            df.rename(columns=rename_map, inplace=True)
+            print(f"DEBUG: 分形指标计算并重命名成功。")
+
+        except Exception as e:
+            # 增加详细的日志，以防直接调用也失败
+            stock_code_for_log = df['stock_code'].iloc[0] if not df.empty and 'stock_code' in df.columns else "未知股票"
+            print(f"错误: 为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}")
+            logger.error(f"为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}", exc_info=True)
+            
+            stdev = df.ta.stdev(length=self.stats_window)
+            sma = df.ta.sma(length=self.stats_window)
+            df['price_cv'] = stdev / (sma + 1e-6)
+            
+            if 'net_aggressive_volume' in df.columns:
+                df['corr_price_net_agg_vol'] = df['price_pct_change'].rolling(self.stats_window).corr(df['net_aggressive_volume'])
+                
+            return df
