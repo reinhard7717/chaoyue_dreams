@@ -32,9 +32,10 @@ class RealtimeServices:
         self.slope_window = 5
         self.stats_window = 20
 
-    async def process_all_stocks_intraday_data(self, stock_codes: List[str], time_level: str, trade_date: str):
+    async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
         """
         【V4.4 - 终极批量调度器】
+        此方法是解决 "Too many connections" 问题的核心调度逻辑。
         """
         print(f"开始为 {len(stock_codes)} 支股票批量处理盘中数据...")
         
@@ -47,7 +48,6 @@ class RealtimeServices:
 
         tasks = []
         for stock_code in stock_codes:
-            # 从批量结果中获取包含 (df_ticks, df_level5) 的元组
             data_tuple = all_bulk_data.get(stock_code)
             
             if data_tuple is None:
@@ -92,15 +92,13 @@ class RealtimeServices:
         except Exception as e:
             logger.error(f"处理股票 {stock_code} 数据时发生严重异常: {e}", exc_info=True)
 
-    async def prepare_intraday_data(self, stock_code: str, time_level: str, trade_date: str, preloaded_ticks: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
+    async def prepare_intraday_data(self, stock_code: str, time_level: str, trade_date: str, preloaded_ticks: Optional[pd.DataFrame] = None, preloaded_level5: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
         """
-        【V4.3 - 批量兼容版】为盘中策略准备所有需要的数据。
-        如果提供了 preloaded_ticks，则跳过从缓存中获取 Ticks 的步骤。
+        【V4.4 - 批量兼容版】接收预加载的 Ticks 和 Level5 数据。
         """
-        print(f"    -> [实时服务层 V4.3] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
+        print(f"    -> [实时服务层 V4.4] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
         
-        # --- 1. 获取分钟K线 (基础画布) ---
-        # 此部分逻辑保持不变
+        # --- 1. 获取分钟K线 (逻辑不变) ---
         try:
             shanghai_tz = pytz.timezone('Asia/Shanghai')
             target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
@@ -128,6 +126,8 @@ class RealtimeServices:
                 df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
 
         # --- 修改: Ticks 获取逻辑 ---
+        # 注意：这里我们只使用 preloaded_ticks，因为 Level-5 数据已经包含在 Ticks 数据中
+        # 如果您的 Level-5 数据有额外字段，需要在这里合并
         df_ticks = preloaded_ticks
         if df_ticks is None:
             print(f"DEBUG: 没有预加载的 Ticks，为 {stock_code} 单独从缓存获取...")
@@ -136,11 +136,10 @@ class RealtimeServices:
             print(f"DEBUG: 使用为 {stock_code} 预加载的 Ticks 数据。")
         # --- 结束修改 ---
 
-        # --- 2. 聚合Tick数据，生成分钟级盘口特征 ---
-        # 此部分逻辑保持不变
+        # --- 2. 聚合Tick数据 (逻辑不变) ---
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
             if df_ticks.index.tz is None:
-                # print(f"DEBUG: 为 {stock_code} 的 Ticks 索引添加 'Asia/Shanghai' 时区信息。")
+                print(f"DEBUG: 为 {stock_code} 的 Ticks 索引添加 'Asia/Shanghai' 时区信息。")
                 df_ticks.index = df_ticks.index.tz_localize(shanghai_tz)
             
             df_ticks = self._calculate_tick_level_indicators(df_ticks)
@@ -150,16 +149,13 @@ class RealtimeServices:
             df_aggregated = self._rename_aggregated_columns(df_aggregated)
             df_minute = df_minute.join(df_aggregated, how='left')
         
-        # --- 3. 计算基础盘中指标 (如VWAP) ---
-        # 此部分逻辑保持不变
+        # --- 3 & 4. 计算指标 (逻辑不变) ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         
-        # --- 4. 【核心】计算所有高级衍生特征 ---
-        # 此部分逻辑保持不变
         df_minute = self._calculate_advanced_features_with_ta(df_minute)
 
-        print(f"    -> [实时服务层 V4.3] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
+        print(f"    -> [实时服务层 V4.4] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
         return df_minute
 
     # MODIFIED: 修改此方法以增加数据类型转换
@@ -248,19 +244,22 @@ class RealtimeServices:
             'energy_ratio_min': 'energy_ratio_min',
             'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
             'aggressive_sell_volume_sum': 'agg_sell_vol_sum',
-            'volume_sum': 'volume', # 将聚合后的成交量总和重命名为 'volume'
+            # 修改: 将聚合后的成交量重命名为 'agg_volume' 以避免与分钟K线的 'volume' 列冲突
+            'volume_sum': 'agg_volume', 
             'volume_count': 'tick_count',
         }, inplace=True)
         return df_agg
 
     def _calculate_advanced_features_with_ta(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【V4.3 - 核心计算模块 - Celery兼容版】使用 pandas_ta 并强制单进程计算"""
+        """【V4.4 - 核心计算模块 - Celery兼容增强版】"""
         if df.empty: return df
         
         # 准备基础数据列
         if 'agg_buy_vol_sum' in df.columns and 'agg_sell_vol_sum' in df.columns:
             df['net_aggressive_volume'] = df['agg_buy_vol_sum'] - df['agg_sell_vol_sum']
-        df['price_pct_change'] = df.ta.percent_return(length=1)
+        
+        # 修改: 为 percent_return 添加 cores=1 参数，修复 'daemonic processes' 错误
+        df['price_pct_change'] = df.ta.percent_return(length=1, cores=1)
 
         # 定义并执行 pandas_ta 策略
         custom_strategy = ta.Strategy(
@@ -274,20 +273,20 @@ class RealtimeServices:
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
             ]
         )
-        # MODIFIED: 新增 cores=1 参数，强制单进程运行，防止在Celery中创建子进程
+        # 修改: 确保 strategy 调用也使用单核
         df.ta.strategy(custom_strategy, cores=1)
 
         # 计算需要二次处理或手动组合的指标
         if 'net_agg_vol_slope' in df.columns:
-            # MODIFIED: 新增 cores=1 参数
+            # 修改: 确保 slope 调用也使用单核
             df['net_agg_vol_accel'] = df.ta.slope(close=df['net_agg_vol_slope'], length=self.slope_window, cores=1)
         
         if 'net_aggressive_volume' in df.columns:
-            # MODIFIED: 新增 cores=1 参数
+            # 修改: 确保 bbands 调用也使用单核
             bbands_df = df.ta.bbands(close=df['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=1)
             df = df.join(bbands_df)
         
-        # MODIFIED: 新增 cores=1 参数
+        # 修改: 确保 stdev 和 sma 调用也使用单核
         stdev = df.ta.stdev(length=self.stats_window, cores=1)
         sma = df.ta.sma(length=self.stats_window, cores=1)
         df['price_cv'] = stdev / (sma + 1e-6)
@@ -295,16 +294,26 @@ class RealtimeServices:
         if 'net_aggressive_volume' in df.columns:
             df['corr_price_net_agg_vol'] = df['price_pct_change'].rolling(self.stats_window).corr(df['net_aggressive_volume'])
             
-        print(f"DEBUG: 准备为股票直接计算分形指标...")
         try:
-            # MODIFIED: 新增 cores=1 参数
+            # 修改: 确保 fractal 调用也使用单核
             df.ta.fractal(append=True, cores=1)
             rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
             df.rename(columns=rename_map, inplace=True)
-            print(f"DEBUG: 分形指标计算并重命名成功。")
         except Exception as e:
             stock_code_for_log = df['stock_code'].iloc[0] if not df.empty and 'stock_code' in df.columns else "未知股票"
-            print(f"错误: 为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}")
             logger.error(f"为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}", exc_info=True)
             
         return df
+
+
+
+
+
+
+
+
+
+
+
+
+
