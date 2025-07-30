@@ -35,7 +35,7 @@ class RealtimeServices:
         """
         为盘中策略准备所有需要的数据。
         """
-        print(f"    -> [实时服务层 V4.1] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
+        print(f"    -> [实时服务层 V4.2] 正在为 {stock_code} on {trade_date} 生成战术情报矩阵...")
         
         # --- 1. 获取基础数据 ---
         # 1.1 获取分钟K线 (基础画布)
@@ -60,12 +60,9 @@ class RealtimeServices:
             logger.warning(f"未能在数据库获取 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
             return None
 
-        # 新增: 强制类型转换，防止 Decimal 和 float 混合运算错误
-        # 这是解决 'unsupported operand type(s) for /: 'decimal.Decimal' and 'float'' 问题的关键
         numeric_cols = ['open', 'close', 'high', 'low', 'volume', 'turnover_value']
         for col in numeric_cols:
             if col in df_minute.columns:
-                # 使用 pd.to_numeric 保证所有数值列都转换为Python可计算的浮点数类型
                 df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
 
         # 1.2 获取全天Ticks (原始颜料)
@@ -73,6 +70,13 @@ class RealtimeServices:
 
         # --- 2. 聚合Tick数据，生成分钟级盘口特征 ---
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
+            # 新增: 解决 "Cannot join tz-naive with tz-aware DatetimeIndex" 错误
+            # 检查 df_ticks 的索引是否为 "时区朴素" (naive)
+            if df_ticks.index.tz is None:
+                print(f"DEBUG: 为 {stock_code} 的 Ticks 索引添加 'Asia/Shanghai' 时区信息。")
+                # 将其本地化为上海时区，与 df_minute 的时区保持一致
+                df_ticks.index = df_ticks.index.tz_localize(shanghai_tz)
+            
             df_ticks = self._calculate_tick_level_indicators(df_ticks)
             aggregation_rules = self._get_aggregation_rules()
             df_aggregated = df_ticks.resample(f'{time_level}T').agg(aggregation_rules)
@@ -87,7 +91,7 @@ class RealtimeServices:
         # --- 4. 【核心】计算所有高级衍生特征 ---
         df_minute = self._calculate_advanced_features_with_ta(df_minute)
 
-        print(f"    -> [实时服务层 V4.1] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
+        print(f"    -> [实时服务层 V4.2] 战术情报矩阵生成完毕，共 {len(df_minute)} 条记录。")
         return df_minute
 
     # MODIFIED: 修改此方法以增加数据类型转换
@@ -182,7 +186,7 @@ class RealtimeServices:
         return df_agg
 
     def _calculate_advanced_features_with_ta(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【V4.1 - 核心计算模块】使用 pandas_ta 统一计算所有高级衍生指标"""
+        """【V4.3 - 核心计算模块 - Celery兼容版】使用 pandas_ta 并强制单进程计算"""
         if df.empty: return df
         
         # 准备基础数据列
@@ -200,45 +204,39 @@ class RealtimeServices:
                 {"kind": "zscore", "close": "volume", "length": self.stats_window, "col_names": "volume_zscore"},
                 {"kind": "zscore", "close": "net_aggressive_volume", "length": self.stats_window, "col_names": "net_agg_vol_zscore"},
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
-                # {"kind": "fractal", "col_names": ("fractal_low", "fractal_high")}
             ]
         )
-        df.ta.strategy(custom_strategy)
+        # MODIFIED: 新增 cores=1 参数，强制单进程运行，防止在Celery中创建子进程
+        df.ta.strategy(custom_strategy, cores=1)
 
         # 计算需要二次处理或手动组合的指标
         if 'net_agg_vol_slope' in df.columns:
-            df['net_agg_vol_accel'] = df.ta.slope(close=df['net_agg_vol_slope'], length=self.slope_window)
+            # MODIFIED: 新增 cores=1 参数
+            df['net_agg_vol_accel'] = df.ta.slope(close=df['net_agg_vol_slope'], length=self.slope_window, cores=1)
         
         if 'net_aggressive_volume' in df.columns:
-            bbands_df = df.ta.bbands(close=df['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'))
+            # MODIFIED: 新增 cores=1 参数
+            bbands_df = df.ta.bbands(close=df['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=1)
             df = df.join(bbands_df)
+        
+        # MODIFIED: 新增 cores=1 参数
+        stdev = df.ta.stdev(length=self.stats_window, cores=1)
+        sma = df.ta.sma(length=self.stats_window, cores=1)
+        df['price_cv'] = stdev / (sma + 1e-6)
+        
+        if 'net_aggressive_volume' in df.columns:
+            df['corr_price_net_agg_vol'] = df['price_pct_change'].rolling(self.stats_window).corr(df['net_aggressive_volume'])
             
         print(f"DEBUG: 准备为股票直接计算分形指标...")
         try:
-            # 直接调用 fractal，使用 append=True 将结果列添加到 df 中
-            df.ta.fractal(append=True)
-            
-            # pandas_ta 默认生成的列名是 FRACTAL_low_2 和 FRACTAL_high_2
-            # 我们需要将它们重命名为策略所期望的列名
-            # 注意: 列名中的数字'2'是默认的lookback周期，如果将来修改fractal的参数，这里也可能需要调整
-            rename_map = {
-                'FRACTAL_low_2': 'fractal_low',
-                'FRACTAL_high_2': 'fractal_high'
-            }
+            # MODIFIED: 新增 cores=1 参数
+            df.ta.fractal(append=True, cores=1)
+            rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
             df.rename(columns=rename_map, inplace=True)
             print(f"DEBUG: 分形指标计算并重命名成功。")
-
         except Exception as e:
-            # 增加详细的日志，以防直接调用也失败
             stock_code_for_log = df['stock_code'].iloc[0] if not df.empty and 'stock_code' in df.columns else "未知股票"
             print(f"错误: 为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}")
             logger.error(f"为 {stock_code_for_log} 直接调用分形指标时发生异常: {e}", exc_info=True)
             
-            stdev = df.ta.stdev(length=self.stats_window)
-            sma = df.ta.sma(length=self.stats_window)
-            df['price_cv'] = stdev / (sma + 1e-6)
-            
-            if 'net_aggressive_volume' in df.columns:
-                df['corr_price_net_agg_vol'] = df['price_pct_change'].rolling(self.stats_window).corr(df['net_aggressive_volume'])
-                
-            return df
+        return df
