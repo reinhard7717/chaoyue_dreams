@@ -3,6 +3,7 @@ import json
 import urllib.parse  # 已存在，不变
 from redis.asyncio import Redis  # 替换 import aioredis
 from django.conf import settings
+import asyncio
 import logging
 import umsgpack
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar, Mapping
