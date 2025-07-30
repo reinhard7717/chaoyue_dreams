@@ -606,12 +606,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 return None
 
         @sync_to_async(thread_sensitive=True)
-        def get_data_async(model, stock_info_obj, fields: tuple, date_field='trade_time', start_date=None):
+        def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             qs = model.objects.filter(stock=stock_info_obj)
             if start_date:
                 filter_kwargs = {f'{date_field}__gte': start_date}
                 qs = qs.filter(**filter_kwargs)
-            return pd.DataFrame.from_records(qs.values(*fields))
+            
+            # 如果 fields 不为 None，则解包；否则，不传参数调用 .values()
+            if fields:
+                return pd.DataFrame.from_records(qs.values(*fields))
+            else:
+                return pd.DataFrame.from_records(qs.values())
 
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(stock_info_obj, records_to_create_list, do_delete_first: bool):
@@ -749,10 +754,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             final_metrics_df = new_metrics_df
             
             if incremental_flag and last_metric_date:
-                # 注意：这里的同步ORM调用也需要异步化
+                # 当需要获取所有字段时，不传递 fields 参数（它会使用默认值 None）
                 past_metrics_df = await get_data_async(
                     AdvancedChipMetrics, stock_info, 
-                    fields=None, # .values() without args gets all fields
                     start_date=fetch_start_date
                 )
                 if not past_metrics_df.empty:
