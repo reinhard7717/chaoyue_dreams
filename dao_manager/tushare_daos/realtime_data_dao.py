@@ -181,25 +181,21 @@ class StockRealtimeDAO(BaseDAO):
 
     async def get_daily_ticks_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
-        【V2.4 - Score格式终极修复版】使用与写入时完全一致的Unix时间戳作为Score进行查询。
+        【V2.5 - 终极正确版】通过 withscores=True 获取时间戳，解决 level5 数据无 trade_time 字段的问题。
         """
-        print(f"DEBUG: [DAO层 V2.4] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
+        print(f"DEBUG: [DAO层 V2.5] 准备使用 Pipeline 批量获取 {len(stock_codes)} 支股票在 {trade_date} 的 Ticks 和 Level5 数据...")
         if not stock_codes:
             return {}
 
         try:
-            # --- 核心修复：将查询时间范围转换为 Unix 时间戳 ---
             shanghai_tz = pytz.timezone('Asia/Shanghai')
-            # 根据交易日期，构建带时区的开盘和收盘时间对象
             start_dt_aware = shanghai_tz.localize(datetime.strptime(f"{trade_date} 09:15:00", "%Y-%m-%d %H:%M:%S"))
             end_dt_aware = shanghai_tz.localize(datetime.strptime(f"{trade_date} 15:05:00", "%Y-%m-%d %H:%M:%S"))
             
-            # 将时间对象转换为整数形式的 Unix 时间戳，与 Redis 中存储的 Score 格式完全匹配
             min_score = int(start_dt_aware.timestamp())
             max_score = int(end_dt_aware.timestamp())
             
-            # 增加关键调试打印，验证我们生成的 Score 格式是否正确
-            print(f"DEBUG: [DAO层 V2.4] 使用 Unix 时间戳查询 Score 范围: {min_score} - {max_score}")
+            print(f"DEBUG: [DAO层 V2.5] 使用 Unix 时间戳查询 Score 范围: {min_score} - {max_score}")
             
             date_str_no_hyphen = trade_date.replace('-', '')
             pipe = await self.cache_manager.pipeline()
@@ -207,24 +203,26 @@ class StockRealtimeDAO(BaseDAO):
             for code in stock_codes:
                 ticks_key = self.cache_key_stock.intraday_ticks_realtime(code, date_str_no_hyphen)
                 level5_key = self.cache_key_stock.intraday_ticks_level5(code, date_str_no_hyphen)
-                pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=False)
-                pipe.zrangebyscore(level5_key, min_score, max_score, withscores=False)
+                # 修改: 增加 withscores=True，同时获取值和分数
+                pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=True)
+                pipe.zrangebyscore(level5_key, min_score, max_score, withscores=True)
             
             results = await pipe.execute()
-            print(f"DEBUG: [DAO层 V2.4] Pipeline 执行完毕，收到 {len(results)} 组结果。")
+            print(f"DEBUG: [DAO层 V2.5] Pipeline 执行完毕，收到 {len(results)} 组结果。")
 
             bulk_data_map = {}
             for i, stock_code in enumerate(stock_codes):
-                serialized_ticks = results[i * 2]
-                serialized_level5 = results[i * 2 + 1]
+                # 注意：现在 results 里的每一项都是一个包含 (值, 分数) 元组的列表
+                ticks_with_scores = results[i * 2]
+                level5_with_scores = results[i * 2 + 1]
 
-                df_ticks = self._process_serialized_data(serialized_ticks)
-                df_level5 = self._process_serialized_data(serialized_level5)
+                df_ticks = self._process_serialized_data(ticks_with_scores)
+                df_level5 = self._process_serialized_data(level5_with_scores)
 
                 if df_ticks is not None or df_level5 is not None:
                     bulk_data_map[stock_code] = (df_ticks, df_level5)
             
-            print(f"DEBUG: [DAO层 V2.4] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
+            print(f"DEBUG: [DAO层 V2.5] 批量数据处理完成，成功解析了 {len(bulk_data_map)} 支股票的数据。")
             return bulk_data_map
 
         except Exception as e:
@@ -232,21 +230,34 @@ class StockRealtimeDAO(BaseDAO):
             return {}
 
     # [新增辅助方法] - 提取公共处理逻辑
-    def _process_serialized_data(self, serialized_data: list) -> Optional[pd.DataFrame]:
+    def _process_serialized_data(self, data_with_scores: list) -> Optional[pd.DataFrame]:
         """
-        将从 Redis 获取的序列化列表数据转换为 DataFrame。
+        【V2.5 - 终极正确版】将从 Redis 获取的带分数的序列化列表数据转换为 DataFrame。
+        此版本从 score 直接生成 trade_time 列，不再依赖于序列化值。
         """
-        if not serialized_data:
+        if not data_with_scores:
             return None
         
-        deserialized_data = [self.cache_manager._deserialize(item) for item in serialized_data]
-        valid_data = [d for d in deserialized_data if d is not None and isinstance(d, dict)]
-        
-        if not valid_data:
+        processed_data = []
+        # 遍历 (值, 分数) 元组的列表
+        for serialized_item, score in data_with_scores:
+            deserialized_dict = self.cache_manager._deserialize(serialized_item)
+            if deserialized_dict is None or not isinstance(deserialized_dict, dict):
+                continue
+            
+            # 核心修复：无论原始数据有无 trade_time，都用 score (Unix时间戳) 来创建它
+            deserialized_dict['trade_time'] = pd.to_datetime(score, unit='s')
+            processed_data.append(deserialized_dict)
+            
+        if not processed_data:
             return None
             
-        df = pd.DataFrame(valid_data)
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df = pd.DataFrame(processed_data)
+        
+        # 确保时间是上海时区
+        if df['trade_time'].dt.tz is None:
+            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+        
         df.set_index('trade_time', inplace=True)
         return df
 
