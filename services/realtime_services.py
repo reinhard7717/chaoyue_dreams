@@ -144,7 +144,7 @@ class RealtimeServices:
             
             df_ticks = self._calculate_tick_level_indicators(df_ticks)
             aggregation_rules = self._get_aggregation_rules()
-            df_aggregated = df_ticks.resample(f'{time_level}T').agg(aggregation_rules)
+            df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
             df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
             df_aggregated = self._rename_aggregated_columns(df_aggregated)
             df_minute = df_minute.join(df_aggregated, how='left')

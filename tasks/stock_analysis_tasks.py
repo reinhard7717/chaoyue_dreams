@@ -382,22 +382,18 @@ def prepare_pools():
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_cycle', queue='intraday_queue')
 def run_cycle(self):
     """
-    【V3.0 - 批量处理修复版】核心盘中循环任务。
+    【V3.1 - 依赖修复版】核心盘中循环任务。
     此版本为解决 "Too many connections" 问题的核心入口。
-    它会获取所有股票列表，然后调用服务层进行一次性的批量数据处理和计算。
     """
-    logger.info("【V3.0】开始执行核心盘中批量循环任务...")
+    logger.info("【V3.1】开始执行核心盘中批量循环任务...")
     try:
         async def main():
             # 1. 初始化依赖
-            #    - CacheManager 是所有DAO和服务的基础
-            #    - RealtimeServices 是我们之前修改的、包含批量处理逻辑的服务
             cache_manager = CacheManager()
             stock_basic_dao = StockBasicInfoDao(cache_manager)
             realtime_services = RealtimeServices(cache_manager) # 确保将 cache_manager 注入
 
             # 2. 获取所有需要处理的股票代码
-            #    我们复用项目已有的 _get_all_relevant_stock_codes_for_processing 方法
             logger.info("正在获取全市场股票代码列表...")
             favorite_codes, non_favorite_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             all_stock_codes = favorite_codes + non_favorite_codes
@@ -409,29 +405,26 @@ def run_cycle(self):
             logger.info(f"共获取到 {len(all_stock_codes)} 支股票，准备进行批量数据处理。")
 
             # 3. 定义处理参数
-            #    - time_level: K线级别，这里硬编码为'1T'
-            #    - trade_date: 获取当天的交易日期
             time_level = '1T' 
-            trade_date = TimeUtils.get_current_trade_date_str()
+            # 修改: 使用标准的 datetime 模块获取当前日期字符串，不再需要 TimeUtils
+            trade_date = datetime.now().strftime('%Y-%m-%d')
             
             # 4. 【关键调用】
             #    调用我们之前重构好的批量处理总调度器。
-            #    这一步会完成所有股票的 Ticks 和 Level5 数据的批量获取、聚合及特征计算。
-            #    所有的 Redis I/O 都被封装在这一步的 Pipeline 调用中，从根本上解决连接数问题。
             await realtime_services.process_all_stocks_intraday_data(
                 stock_codes=all_stock_codes,
                 time_level=time_level,
                 trade_date=trade_date
             )
 
-            logger.info(f"【V3.0】核心盘中批量循环任务成功完成，处理了 {len(all_stock_codes)} 支股票。")
+            logger.info(f"【V3.1】核心盘中批量循环任务成功完成，处理了 {len(all_stock_codes)} 支股票。")
             return {"status": "success", "processed_stocks": len(all_stock_codes)}
 
         # 使用 async_to_sync 运行异步的 main 函数
         return async_to_sync(main)()
         
     except Exception as e:
-        logger.error(f"【V3.0】核心盘中批量循环任务失败: {e}", exc_info=True)
+        logger.error(f"【V3.1】核心盘中批量循环任务失败: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
 
