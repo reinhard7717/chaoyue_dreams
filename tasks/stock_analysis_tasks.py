@@ -16,6 +16,7 @@ from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from services.realtime_services import RealtimeServices
 
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from intraday_engine.orchestrator import IntradayEngineOrchestrator
