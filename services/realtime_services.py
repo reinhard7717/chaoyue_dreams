@@ -17,45 +17,42 @@ import functools
 
 logger = logging.getLogger("services")
 
-def _cpu_bound_calculation_worker(
+@celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')
+def cpu_bound_calculation_task(
     stock_data_package: Tuple[str, pd.DataFrame, Optional[pd.DataFrame], Optional[pd.DataFrame]],
     time_level: str,
     slope_window: int,
     stats_window: int
 ) -> Optional[pd.DataFrame]:
     """
-    【并行计算工人】这是一个纯CPU计算函数，用于在独立的进程中处理单只股票的数据。
-    它不包含任何I/O操作，因此可以完美地并行化。
+    【V5.1 - Celery并行计算任务】这是一个纯CPU计算任务，用于在独立的Celery worker中处理单只股票的数据。
     """
+    # ... (这里的内容和之前 _cpu_bound_calculation_worker 函数的内部逻辑完全一样) ...
+    # ▼▼▼ 将之前顶级函数的内容完整复制到这里 ▼▼▼
     stock_code, df_minute, df_ticks, df_level5 = stock_data_package
 
     if df_minute is None or df_minute.empty:
-        # 在工作进程中打印日志可能不直接显示在主控台，但有助于调试
-        print(f"    -> [Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
+        print(f"    -> [Celery Worker] 跳过 {stock_code}，因为没有分钟K线数据。")
         return None
 
     try:
-        # --- 1. 聚合Tick数据 (复制自原_calculate_tick_level_indicators等方法的逻辑) ---
+        # --- 1. 聚合Tick数据 ---
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
-            # 计算Tick级指标
             df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
             df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
             df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
             df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
             df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
             
-            # 定义聚合规则
             aggregation_rules = {
                 'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
                 'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
                 'volume': ['sum', 'count']
             }
             
-            # 重采样和聚合
             df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
             df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
             
-            # 重命名
             df_aggregated.rename(columns={
                 'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
                 'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
@@ -64,10 +61,9 @@ def _cpu_bound_calculation_worker(
                 'volume_count': 'tick_count',
             }, inplace=True)
             
-            # 合并到分钟线
             df_minute = df_minute.join(df_aggregated, how='left')
 
-        # --- 2. 计算各种技术指标 (复制自原_calculate_advanced_features_with_ta的逻辑) ---
+        # --- 2. 计算各种技术指标 ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         
@@ -110,12 +106,12 @@ def _cpu_bound_calculation_worker(
             rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
             df_minute.rename(columns=rename_map, inplace=True)
         except Exception:
-            pass # 在worker中静默处理分形指标的异常
+            pass
             
         return df_minute
 
     except Exception as e:
-        print(f"    -> [Worker] 处理 {stock_code} 时发生错误: {e}")
+        print(f"    -> [Celery Worker] 处理 {stock_code} 时发生错误: {e}")
         return None
 
 class RealtimeServices:
@@ -136,21 +132,18 @@ class RealtimeServices:
 
     async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
         """
-        【V5.0 - 多进程并行计算版】
-        此方法利用 ProcessPoolExecutor 将 CPU 密集型计算分发到多个核心，大幅提升处理速度。
+        【V5.1 - Celery Group 并行版】
+        此版本利用 Celery Group 来并行执行CPU密集型计算任务，解决了守护进程无法创建子进程的问题。
         """
-        print(f"【V5.0】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
+        print(f"【V5.1】开始为 {len(stock_codes)} 支股票并行处理盘中数据...")
         
-        # --- 步骤 1: I/O 阶段 - 集中获取所有原始数据 ---
-        print("  -> 阶段 1/3: 正在集中获取所有股票的原始数据...")
-        
-        # 1.1 批量获取所有 Ticks 和 Level5 数据
+        # --- 步骤 1: I/O 阶段 - 集中获取所有原始数据 (逻辑不变) ---
+        print("  -> 阶段 1/2: 正在集中获取所有股票的原始数据...")
         all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
         if not all_bulk_data:
             logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks/Level5 数据，日期: {trade_date}。任务终止。")
             return
 
-        # 1.2 异步并发获取所有分钟K线数据
         shanghai_tz = pytz.timezone('Asia/Shanghai')
         target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
         start_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(9, 25, 0)))
@@ -162,58 +155,61 @@ class RealtimeServices:
         ]
         all_minute_klines_results = await asyncio.gather(*kline_tasks, return_exceptions=True)
         
-        # 1.3 准备计算任务的数据包
         job_packages = []
         for i, code in enumerate(stock_codes):
             df_minute = all_minute_klines_results[i]
             if isinstance(df_minute, Exception) or df_minute is None or df_minute.empty:
-                continue # 如果分钟线获取失败或为空，则跳过该股票
+                continue
 
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
             
-            # 将所有需要的数据打包成一个元组
             job_packages.append((code, df_minute, df_ticks, df_level5))
         
-        print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务提交到进程池。")
+        print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务提交到Celery。")
 
-        # --- 步骤 2: CPU 计算阶段 - 使用进程池并行处理 ---
-        print(f"  -> 阶段 2/3: 正在将计算任务提交到多核CPU进程池...")
+        # --- 步骤 2: 并行计算阶段 - 使用 Celery Group ---
+        print(f"  -> 阶段 2/2: 正在使用 Celery Group 并行执行计算任务...")
         
-        loop = asyncio.get_running_loop()
-        # 使用 with 语句确保进程池被正确关闭
-        with ProcessPoolExecutor() as executor:
-            # 使用 functools.partial 预先绑定不变的参数
-            worker_func = functools.partial(
-                _cpu_bound_calculation_worker,
+        # 创建一个任务签名列表
+        # .s() 是 .signature() 的缩写，它创建了一个任务的“签名”，包含了任务名和参数
+        calculation_signatures = [
+            cpu_bound_calculation_task.s(
+                stock_data_package=pkg,
                 time_level=time_level,
                 slope_window=self.slope_window,
                 stats_window=self.stats_window
-            )
-            
-            # run_in_executor 可以在 asyncio 事件循环中运行阻塞的、CPU密集型的代码
-            # executor.map 会将 job_packages 中的每个元素作为参数传递给 worker_func
-            results = await loop.run_in_executor(
-                executor,
-                list, # 将 map 的结果转换为列表
-                map(worker_func, job_packages)
-            )
-        
-        print(f"  -> 所有 {len(results)} 个计算任务已在子进程中完成。")
+            ) for pkg in job_packages
+        ]
 
-        # --- 步骤 3: 结果处理阶段 ---
-        print(f"  -> 阶段 3/3: 正在处理计算结果...")
+        if not calculation_signatures:
+            print("没有可执行的计算任务，流程结束。")
+            return
+
+        # 使用 group 将所有任务签名组合成一个可并行执行的组
+        job_group = group(calculation_signatures)
+        
+        # 异步执行任务组，并等待结果
+        # .apply_async() 会立即返回一个 AsyncResult 对象
+        result_group = job_group.apply_async()
+        
+        # 在异步代码中，我们需要一个循环来检查结果是否准备好
+        # 或者，更简单的方式是，如果后续逻辑依赖结果，可以阻塞等待
+        # 注意：在生产环境中，长时间阻塞等待可能不是最佳选择，但对于调试和理解流程很有效
+        print("  -> 任务已提交，正在等待所有并行计算完成...")
+        final_results = result_group.get(timeout=1800) # 设置一个较长的超时时间，例如30分钟
+        
+        print(f"  -> 所有 {len(final_results)} 个计算任务已在Celery Worker中完成。")
+
+        # --- 结果处理 ---
         processed_count = 0
-        for result_df in results:
+        for result_df in final_results:
             if result_df is not None and not result_df.empty:
-                # 在这里，你可以对计算完成的 DataFrame 进行后续操作
-                # 例如：保存到数据库、推送到消息队列等
-                # 为了保持和之前逻辑一致，我们暂时只打印信息
                 stock_code = result_df['stock_code'].iloc[0]
                 print(f"    -> 成功生成股票 {stock_code} 的盘中数据矩阵，共 {len(result_df)} 条。")
                 processed_count += 1
         
-        print(f"【V5.0】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
+        print(f"【V5.1】所有股票的盘中数据并行处理完成，成功处理了 {processed_count} / {len(job_packages)} 支股票。")
 
 
 
