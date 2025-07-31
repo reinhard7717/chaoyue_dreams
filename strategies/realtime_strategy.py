@@ -1,5 +1,6 @@
 # 文件: strategies/realtime_strategy.py
 import logging
+import traceback
 import pandas as pd
 from typing import Dict, Optional, Tuple
 from datetime import time
@@ -27,43 +28,63 @@ class RealtimeStrategy:
     def run_strategy(self, df_intraday: pd.DataFrame, daily_signal_info: Dict) -> Optional[Dict]:
         """
         对单个股票执行所有交易剧本，寻找第一个满足条件的入场信号。
-        
-        Args:
-            df_intraday (pd.DataFrame): 由RealtimeServices准备好的战术情报矩阵。
-            daily_signal_info (Dict): 盘后信号的关键信息。
-
-        Returns:
-            Optional[Dict]: 如果找到入场信号，返回包含详细信息的字典；否则返回None。
         """
-        print(f"    -> [盘中策略引擎 V3.0] 开始对 {daily_signal_info.get('stock_code')} 执行多剧本共振分析...")
+        stock_code = daily_signal_info.get('stock_code', 'Unknown')
+        print(f"    -> [盘中策略引擎 V3.1] 开始对 {stock_code} 执行多剧本共振分析...")
         
-        # 忽略数据不足的情况
+        # ▼▼▼ 调试：检查传入的DataFrame ▼▼▼
+        print(f"      - 调试: 传入DataFrame的行数: {len(df_intraday)}")
+        if df_intraday.empty:
+            print("      - 调试: DataFrame为空，直接返回。")
+            return None
+        print(f"      - 调试: DataFrame的列: {df_intraday.columns.tolist()}")
+        print(f"      - 调试: DataFrame的索引类型: {type(df_intraday.index)}")
+        # ▲▲▲ 调试结束 ▲▲▲
+
         if len(df_intraday) < self.params.get('min_data_points', 21):
+            print(f"      - 调试: 数据点 ({len(df_intraday)}) 少于最小要求 ({self.params.get('min_data_points', 21)})，跳过。")
             return None
 
         # 遍历每一根分钟K线，寻找交易机会
         for i in range(1, len(df_intraday)):
-            current_kline = df_intraday.iloc[i]
-            prev_kline = df_intraday.iloc[i-1]
+            try:
+                current_kline = df_intraday.iloc[i]
+                prev_kline = df_intraday.iloc[i-1]
+                
+                # ▼▼▼ 调试：检查当前K线的时间 ▼▼▼
+                kline_time = current_kline.name
+                if not hasattr(kline_time, 'time'):
+                    print(f"      - 调试错误: 第 {i} 行的索引 '{kline_time}' (类型: {type(kline_time)}) 没有 .time() 方法。循环终止。")
+                    return None
+                # ▲▲▲ 调试结束 ▲▲▲
+
+                if not (self.trade_start_time <= kline_time.time() <= self.trade_end_time):
+                    continue
+
+                # --- 按优先级执行剧本 ---
+                breakout_signal = self._check_momentum_breakout(current_kline, prev_kline)
+                if breakout_signal:
+                    print(f"      - [信号触发!] {breakout_signal['reason']}")
+                    return breakout_signal
+
+                reversal_signal = self._check_potential_reversal(current_kline, prev_kline)
+                if reversal_signal:
+                    print(f"      - [信号触发!] {reversal_signal['reason']}")
+                    return reversal_signal
             
-            # 检查是否在有效交易时间内
-            if not (self.trade_start_time <= current_kline.name.time() <= self.trade_end_time):
-                continue
-
-            # --- 按优先级执行剧本 ---
-            # 剧本1: 动能引爆点突破
-            breakout_signal = self._check_momentum_breakout(current_kline, prev_kline)
-            if breakout_signal:
-                print(f"      - [信号触发!] {breakout_signal['reason']}")
-                return breakout_signal
-
-            # 剧本2: 势能反转抄底
-            reversal_signal = self._check_potential_reversal(current_kline, prev_kline)
-            if reversal_signal:
-                print(f"      - [信号触发!] {reversal_signal['reason']}")
-                return reversal_signal
+            except Exception as e:
+                # ▼▼▼ 调试：捕获循环中的任何异常 ▼▼▼
+                print(f"      - 调试错误: 在处理第 {i} 行K线时发生异常!")
+                print(f"        - 异常类型: {type(e)}")
+                print(f"        - 异常信息: {e}")
+                print(f"        - 堆栈跟踪:")
+                traceback.print_exc()
+                # 发生一次错误后就没必要继续了，直接返回
+                return None
+                # ▲▲▲ 调试结束 ▲▲▲
         
-        return None # 当天没有找到任何满足条件的信号
+        print(f"    -> [盘中策略引擎 V3.1] {stock_code} 分析完成，未触发任何信号。")
+        return None
 
     def _check_momentum_breakout(self, kline: pd.Series, prev_kline: pd.Series) -> Optional[Dict]:
         """剧本1: 动能引爆点突破"""
