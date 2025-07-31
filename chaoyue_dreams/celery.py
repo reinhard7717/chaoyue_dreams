@@ -1,3 +1,5 @@
+# 文件: chaoyue_dreams/celery.py
+
 """
 Celery配置文件
 使用Redis作为消息代理和结果后端
@@ -18,13 +20,11 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 # 仅在指定包内查找任务，并且命名为tasks.py的模块
 # 使用 include 显式指定包含任务的模块 (推荐)
 app.conf.update(
-    # worker_concurrency = 16, # 保留你原来的设置
-    # worker_prefetch_multiplier = 1, # 保留你原来的设置
-    # task_time_limit = 1800, # 保留你原来的设置
-    # worker_hijack_root_logger=False, # 保留你原来的设置
-    # worker_log_color=False, # 保留你原来的设置
+    accept_content=['pickle', 'json'],
+    task_serializer='pickle',
+    result_serializer='pickle',
 
-    # ****** 添加 include 配置 ******
+    # ****** 包含的任务模块列表 ******
     include=[
         'tasks.tushare.stock_time_trade_tasks',
         'tasks.tushare.stock_tasks',
@@ -37,12 +37,14 @@ app.conf.update(
         'tasks.tushare.cal_daily_tasks',
         'dashboard.tasks'
     ],
+    
+    # ****** 其他性能和健壮性配置 ******
     worker_concurrency=5,                 # Worker并发数
     worker_prefetch_multiplier=1,          # Worker预取因子 (设置为1，结合acks_late=True，确保worker完成当前任务后再取下一个)
-    task_time_limit=14400,                  # 任务硬超时时间 (秒)，当前为30分钟。
-    task_acks_late=False,                   # 新增配置：设置为True，任务执行成功完成后才向Broker发送确认信号。
-    broker_transport_options={             # 新增配置：配置Broker（Redis）的传输选项。
-        'visibility_timeout': 14400         # 新增配置：任务可见性超时时间 (秒)，当前设置为1小时 (3600秒)。
+    task_time_limit=14400,                  # 任务硬超时时间 (秒)，当前为4小时。
+    task_acks_late=False,                   # 任务执行成功完成后才向Broker发送确认信号。
+    broker_transport_options={             # 配置Broker（Redis）的传输选项。
+        'visibility_timeout': 14400         # 任务可见性超时时间 (秒)，应大于等于task_time_limit。
     },
     worker_hijack_root_logger=False,       # 避免Celery劫持根日志记录器
     worker_log_color=True,                # 在Windows上或不需要颜色日志时可以禁用
@@ -54,3 +56,4 @@ def setup_celery_logging(**kwargs):
     from django.conf import settings
     import logging.config
     logging.config.dictConfig(settings.LOGGING)
+
