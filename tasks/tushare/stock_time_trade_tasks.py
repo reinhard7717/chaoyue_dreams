@@ -867,7 +867,7 @@ def save_month_data_history_batch(stock_codes: List[str], cache_manager=None):
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main():
         # 3. 执行业务逻辑
-        result = await stock_time_trade_dao.save_monthly_time_trade_by_stock_codes(stock_codes)
+        result = await stock_time_trade_dao.save_monthly_time_trade(stock_codes)
         logger.info(f"历史(月线)数据任务 结果：{result}")
     async_to_sync(main)()
 
