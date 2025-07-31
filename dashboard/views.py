@@ -276,38 +276,65 @@ def fav_trend_following_list(request):
 @with_cache_manager_for_views
 def realtime_engine_view(request, cache_manager=None):
     """
-    【已重构】渲染盘中引擎实时监控页面。
-    使用 @with_cache_manager_for_views 装饰器自动管理Redis连接。
+    【V2.1 - 策略信号版】渲染盘中引擎实时监控页面。
+    - 核心修改: 只从最终的策略信号键 (ZSET) 中获取数据。
     """
     user = request.user
     today_str = date.today().strftime('%Y-%m-%d')
-    # 【代码修改】直接使用由装饰器注入的 cache_manager 实例
     cache_key_builder = IntradayEngineCashKey()
     user_dao = UserDAO(cache_manager_instance=cache_manager)
+
     async def get_initial_signals_for_favorites():
+        # 1. 获取用户的自选股列表
         favorite_stocks = await user_dao.get_user_favorites(user.id)
         if not favorite_stocks:
             return []
+        
         fav_stock_codes = [fav.stock.stock_code for fav in favorite_stocks if fav.stock]
-        # 使用新的方法生成信号键列表
+        
+        # 2. 构建所有自选股的信号键
         redis_keys = [cache_key_builder.stock_signals_key(code, today_str) for code in fav_stock_codes]
-        fetch_tasks = []
-        for key in redis_keys:
-            fetch_tasks.append(cache_manager.zrange_by_limit(key, limit=20, desc=True))
+        
+        # 3. 并发地从每个ZSET中获取所有信号
+        fetch_tasks = [cache_manager.zrange(key, 0, -1, desc=True) for key in redis_keys]
         results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        
+        # 4. 合并和处理结果
         all_signals = []
-        for stock_signals in results:
-            if isinstance(stock_signals, list) and stock_signals:
-                all_signals.extend(stock_signals)
-        all_signals.sort(key=lambda s: s.get('trade_time', ''), reverse=True)
+        for stock_signals_json in results:
+            if isinstance(stock_signals_json, list) and stock_signals_json:
+                # 反序列化从Redis取出的JSON字符串
+                for signal_json in stock_signals_json:
+                    try:
+                        all_signals.append(json.loads(signal_json))
+                    except json.JSONDecodeError:
+                        continue # 忽略无法解析的脏数据
+        
+        # 5. 按时间倒序排序所有信号
+        all_signals.sort(key=lambda s: s.get('entry_time', ''), reverse=True)
+        
         return all_signals
+
+    # 在同步视图中调用异步函数
     initial_signals = async_to_sync(get_initial_signals_for_favorites)()
+    
     context = {
         'page_title': '盘中引擎实时监控',
         'initial_signals': initial_signals,
         'total_count': len(initial_signals),
     }
     return render(request, 'dashboard/realtime_engine.html', context)
+
+
+
+
+
+
+
+
+
+
+
 
 # --- DRF API 视图 ---
 

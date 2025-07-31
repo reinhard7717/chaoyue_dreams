@@ -409,6 +409,58 @@ def run_cycle():
         logger.error(f"【V3.3】核心盘中批量循环任务失败: {e}", exc_info=True)
         raise
 
+@celery_app.task(name='tasks.run_realtime_strategy_for_stock', queue='cpu_intensive_queue')
+def run_realtime_strategy_for_stock(calculated_data: list):
+    """
+    【V2.0 - 流式处理版】
+    - 直接接收上游计算任务传递过来的数据 (list of dicts)。
+    - 不再需要从Redis加载数据。
+    """
+    if not calculated_data or not isinstance(calculated_data, list):
+        # 如果上游任务失败或数据为空，直接退出
+        return
+
+    stock_code = calculated_data[0].get('stock_code', 'Unknown')
+    print(f"    -> [策略执行器 V2.0] 开始为 {stock_code} 执行策略分析...")
+    
+    cache_manager = CacheManager()
+    cache_key_builder = IntradayEngineCashKey()
+
+    async def main():
+        # 1. 将 list of dicts 转换为 DataFrame
+        df_minute = pd.DataFrame(calculated_data)
+        df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'])
+        df_minute.set_index('trade_time', inplace=True)
+        
+        today_str = datetime.now().strftime('%Y-%m-%d')
+
+        # 2. 初始化并运行策略 (与之前版本相同)
+        strategy_params = {
+            'min_data_points': 21,
+            'breakout_vol_zscore': 2.5,
+            'breakout_agg_zscore': 2.0,
+            'max_price_cv': 0.005,
+            'min_correlation': 0.6,
+            'reversal_energy_ratio': 1.5,
+        }
+        strategy = RealtimeStrategy(strategy_params)
+        daily_info = {'stock_code': stock_code}
+        final_signal = strategy.run_strategy(df_minute, daily_info)
+
+        # 3. 如果有信号，存入Redis (与之前版本相同)
+        if final_signal:
+            print(f"    -> [策略执行器 V2.0] 股票 {stock_code} 触发信号: {final_signal.get('playbook')}")
+            signals_redis_key = cache_key_builder.stock_signals_key(stock_code, today_str)
+            signal_json = json.dumps(final_signal, default=str)
+            timestamp = final_signal['entry_time'].timestamp()
+            await cache_manager.zadd(signals_redis_key, {signal_json: timestamp})
+            await cache_manager.expire(signals_redis_key, 86400)
+            print(f"    -> [策略执行器 V2.0] 已将信号存入Redis键: {signals_redis_key}")
+        else:
+            print(f"    -> [策略执行器 V2.0] 股票 {stock_code} 未触发任何盘中信号。")
+
+    async_to_sync(main)()
+
 @celery_app.task(name='tasks.aggregate_intraday_results', queue='cpu_intensive_queue')
 def aggregate_intraday_results(job_id: str, total_tasks: int):
     """

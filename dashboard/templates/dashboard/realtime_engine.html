@@ -8,7 +8,7 @@
 
 {% block extra_head %}
 <style>
-    /* 这里的样式保持不变，专注于展示信号卡片 */
+    /* 样式与您提供的完全一致，保持不变 */
     .signal-card {
         background-color: #2a2a2e;
         border-left: 5px solid #444;
@@ -38,6 +38,7 @@
     .signal-reason { margin-top: 5px; font-size: 1.1em; }
     .signal-playbook { font-style: italic; color: #ccc; font-size: 0.9em; }
 
+    /* 核心修改：将类名选择器中的下划线替换为横杠，以匹配CSS命名惯例和JS中的处理 */
     .signal-card.buy { border-left-color: #28a745; }
     .signal-card.take-profit-t { border-left-color: #ffc107; }
     .signal-card.buy-dip-t { border-left-color: #17a2b8; }
@@ -45,7 +46,6 @@
 </style>
 {% endblock %}
 
-{# --- 【新增】左侧导航栏 --- #}
 {% block sidebar %}
     <aside class="site-sidebar">
         <nav class="sidebar-nav">
@@ -60,28 +60,29 @@
     </aside>
 {% endblock sidebar %}
 
-{# --- 【修改】主内容区域 --- #}
 {% block content %}
 <div class="dashboard-container">
-    <section class="trend-list-section"> {# 复用 fav_trend_following_list 的 section class #}
+    <section class="trend-list-section">
         <h2><span class="icon">⚡</span> {{ page_title }} (今日已产生 <span id="signal-count">{{ total_count }}</span> 条信号)</h2>
         
-        {# 这里我们不使用 table，直接使用 div 作为信号流容器 #}
         <div class="signal-stream-wrapper" style="margin-top: 20px;">
             <div id="signal-stream">
                 {% for signal in initial_signals %}
-                    <div class="signal-card {{ signal.signal_type|lower|replace:"_|-" }}">
+                    {# 核心修改：动态类名生成。使用 slugify 过滤器将 'TAKE_PROFIT_T' 转换为 'take-profit-t'，确保CSS能正确匹配 #}
+                    <div class="signal-card {{ signal.signal_type|slugify }}">
                         <div class="signal-icon">
+                            {# 图标逻辑保持不变 #}
                             {% if signal.signal_type == 'BUY' %}🚀买入
                             {% elif signal.signal_type == 'TAKE_PROFIT_T' %}💰高抛
                             {% elif signal.signal_type == 'BUY_DIP_T' %}📥低吸
                             {% elif signal.signal_type == 'STOP_LOSS' %}🛑止损
+                            {% else %}ℹ️其他
                             {% endif %}
                         </div>
                         <div class="signal-content">
                             <div class="signal-header">
                                 <span class="signal-stock">{{ signal.stock_code }}</span>
-                                {# 解析并格式化时间字符串 #}
+                                {# 时间格式化逻辑保持不变，它能正确处理ISO格式字符串 #}
                                 <span class="signal-time">{{ signal.entry_time|date:"H:i:s" }}</span>
                             </div>
                             <div class="signal-reason">
@@ -100,12 +101,11 @@
             </div>
         </div>
         
-        {# 这个页面通常不需要分页，因为是实时滚动更新 #}
     </section>
 </div>
 {% endblock %}
 
-{# JavaScript部分保持不变，由外部的 dashboard.js 文件处理 #}
 {% block extra_js %}
+{# JavaScript部分保持不变，由外部的 dashboard.js 文件处理 #}
 <script src="{% static 'js/dashboard.js' %}"></script>
 {% endblock %}
