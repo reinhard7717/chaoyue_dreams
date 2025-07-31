@@ -318,7 +318,8 @@ class RealtimeServices:
                 time_level=time_level,
                 slope_window=self.slope_window,
                 stats_window=self.stats_window
-            ) for pkg in job_packages
+            ).set(queue='cpu_intensive_queue')  # <--- 强制路由到此队列
+            for pkg in job_packages
         )
 
         # 2.2 创建回调任务签名 (Body)
