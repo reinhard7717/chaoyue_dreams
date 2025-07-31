@@ -30,6 +30,12 @@ class StockRealtimeDAO(BaseDAO):
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.cache_key_stock = StockCashKey()
         self.ts = ts
+        try:
+            self.ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
+        except Exception as e:
+            logger.error(f"Tushare Token设置失败: {e}", exc_info=True)
+            # 如果Token设置失败，后续API调用很可能会失败，这里只记录错误
+            pass
 
     # ================= 实时盘口TICK快照(爬虫版) =================
     async def save_all_tick_data(self) -> Optional[StockRealtimeData]:
