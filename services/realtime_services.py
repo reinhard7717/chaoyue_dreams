@@ -31,63 +31,30 @@ def cpu_bound_calculation_task(
     stats_window: int
 ) -> Optional[dict]:
     """
-    【V5.9 - 重装甲调试版】
-    - 在任务内部增加大量诊断打印，追踪数据在Celery Worker中的重建过程。
+    【V5.10 - 文件写入终极调试版】
+    - 在任务返回前，将最终结果写入临时文件，以绕过Celery进行验证。
     """
-    # ▼▼▼ 调试点 1: 确认任务是否被执行 ▼▼▼
-    print("\n" + "!"*20 + " [WORKER] " + "!"*20)
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
-    print(f"    -> [WORKER] 任务已启动，正在处理股票: {stock_code}")
-    # ▲▲▲ 调试点 1 结束 ▲▲▲
+    
+    # ▼▼▼ 调试：定义临时文件路径 ▼▼▼
+    # 您可以根据需要修改这个路径，确保Celery worker有权限写入
+    temp_debug_dir = '/tmp/celery_debug' 
+    os.makedirs(temp_debug_dir, exist_ok=True)
+    debug_file_path = os.path.join(temp_debug_dir, f"{stock_code}.json")
+    # ▲▲▲ 调试路径定义结束 ▲▲▲
 
     try:
-        def _reconstruct_df_from_dict(data: Optional[dict], name: str) -> Optional[pd.DataFrame]:
-            # ▼▼▼ 调试点 2: 检查传入的序列化数据 ▼▼▼
-            print(f"    -> [WORKER] 正在重建 '{name}' DataFrame...")
-            if data is None:
-                print(f"    -> [WORKER] '{name}' 的序列化数据为 None，跳过重建。")
-                return None
-            
-            # 打印接收到的原始字典结构和数据样本
-            print(f"    -> [WORKER] '{name}' 接收到的字典键: {list(data.keys())}")
-            print(f"    -> [WORKER] '{name}' 索引样本: {data.get('index', [])[:3]}")
-            print(f"    -> [WORKER] '{name}' 列名: {data.get('columns')}")
-            # ▲▲▲ 调试点 2 结束 ▲▲▲
-
-            try:
-                df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
-                # ▼▼▼ 调试点 3: 检查初步重建的DataFrame ▼▼▼
-                print(f"    -> [WORKER] '{name}' 初步重建成功，Shape: {df.shape}")
-                if not df.empty:
-                    print(f"    -> [WORKER] '{name}' 的索引类型: {type(df.index)}")
-                    # 关键步骤：将索引转换为 DatetimeIndex
-                    df.index = pd.to_datetime(df.index)
-                    print(f"    -> [WORKER] '{name}' 索引转换为datetime后，Shape: {df.shape}")
-                else:
-                    print(f"    -> [WORKER] !!! 警告: '{name}' 初步重建后为空DataFrame！")
-                # ▲▲▲ 调试点 3 结束 ▲▲▲
-                return df
-            except Exception as recon_e:
-                # ▼▼▼ 调试点 4: 捕获重建过程中的具体错误 ▼▼▼
-                print(f"    -> [WORKER] !!! 严重错误: 在重建 '{name}' DataFrame 时失败: {recon_e}")
-                import traceback
-                traceback.print_exc()
-                # ▲▲▲ 调试点 4 结束 ▲▲▲
-                return None
-
-        df_minute = _reconstruct_df_from_dict(serialized_minute, "df_minute")
-        df_ticks = _reconstruct_df_from_dict(serialized_ticks, "df_ticks")
-        df_level5 = _reconstruct_df_from_dict(serialized_level5, "df_level5")
-        
-        # ▼▼▼ 调试点 5: 检查重建后的 df_minute 是否有效 ▼▼▼
+        # ... (所有的数据重建和计算逻辑保持完全不变) ...
+        def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
+            if data is None: return None
+            df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
+            df.index = pd.to_datetime(df.index)
+            return df
+        df_minute = _reconstruct_df_from_dict(serialized_minute)
+        df_ticks = _reconstruct_df_from_dict(serialized_ticks)
+        df_level5 = _reconstruct_df_from_dict(serialized_level5)
         if df_minute is None or df_minute.empty:
-            print(f"    -> [WORKER] !!! 失败: 股票 {stock_code} 的 df_minute 重建失败或为空，任务终止。")
-            print("!"*50 + "\n")
             return None
-        print(f"    -> [WORKER] 股票 {stock_code} 的 df_minute 重建成功，准备开始计算。Shape: {df_minute.shape}")
-        # ▲▲▲ 调试点 5 结束 ▲▲▲
-
-        # ... (这里是您所有的计算逻辑，保持不变) ...
         decimal_cols_minute = ['open', 'high', 'low', 'close', 'turnover_value']
         decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1']
         for col in decimal_cols_minute:
@@ -161,20 +128,37 @@ def cpu_bound_calculation_task(
         df_minute.reset_index(inplace=True)
         df_minute['stock_code'] = stock_code
         
-        # ▼▼▼ 调试点 6: 确认任务是否成功完成并返回结果 ▼▼▼
-        print(f"    -> [WORKER] 股票 {stock_code} 所有计算已完成，准备返回结果。")
-        print("!"*50 + "\n")
-        # ▲▲▲ 调试点 6 结束 ▲▲▲
-        return df_minute.to_dict('records')
+        # ▼▼▼ 终极调试：在返回前，将结果写入文件 ▼▼▼
+        try:
+            # 1. 先生成要返回的对象
+            result_to_return = df_minute.to_dict('records')
+            
+            # 2. 将这个对象写入文件
+            with open(debug_file_path, 'w', encoding='utf-8') as f:
+                # 使用 json.dump，并提供一个 default 转换函数来处理特殊类型
+                json.dump(result_to_return, f, ensure_ascii=False, indent=4, default=str)
+            
+            print(f"    -> [WORKER] 股票 {stock_code} 的结果已成功写入调试文件: {debug_file_path}")
+            
+            # 3. 最后再返回这个对象
+            return result_to_return
+
+        except Exception as write_error:
+            print(f"    -> [WORKER] !!! 严重错误: 在写入调试文件或返回结果时失败: {write_error}")
+            # 如果写入都失败了，那问题就出在 to_dict('records') 这一步
+            # 尝试返回一个简单的成功标志
+            with open(debug_file_path, 'w', encoding='utf-8') as f:
+                f.write(f"Error during final conversion: {write_error}")
+            return [{"status": "conversion_error"}]
+        # ▲▲▲ 终极调试结束 ▲▲▲
 
     except Exception as e:
-        # ▼▼▼ 调试点 7: 捕获任何未预料到的全局错误 ▼▼▼
-        print("\n" + "!"*20 + f" [WORKER CRITICAL ERROR on {stock_code}] " + "!"*20)
-        print(f"    -> [WORKER] 处理 {stock_code} 时发生无法捕获的严重错误: {e}")
+        print(f"    -> [WORKER] !!! 严重错误: 处理 {stock_code} 时发生全局异常: {e}")
         import traceback
         traceback.print_exc()
-        print("!"*70 + "\n")
-        # ▲▲▲ 调试点 7 结束 ▲▲▲
+        # 在全局异常时也写入错误信息到文件
+        with open(debug_file_path, 'w', encoding='utf-8') as f:
+            f.write(f"Global exception: {e}\n\n{traceback.format_exc()}")
         return None
 
 class RealtimeServices:
