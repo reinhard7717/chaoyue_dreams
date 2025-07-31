@@ -31,23 +31,63 @@ def cpu_bound_calculation_task(
     stats_window: int
 ) -> Optional[dict]:
     """
-    【V5.6 - 健壮计算最终版】
-    动态构建计算策略，仅当源数据列存在时才执行相应计算，避免因数据缺失导致警告和失败。
+    【V5.9 - 重装甲调试版】
+    - 在任务内部增加大量诊断打印，追踪数据在Celery Worker中的重建过程。
     """
+    # ▼▼▼ 调试点 1: 确认任务是否被执行 ▼▼▼
+    print("\n" + "!"*20 + " [WORKER] " + "!"*20)
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
+    print(f"    -> [WORKER] 任务已启动，正在处理股票: {stock_code}")
+    # ▲▲▲ 调试点 1 结束 ▲▲▲
 
     try:
-        # ... (重建 DataFrame 和类型转换的代码保持不变) ...
-        def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
-            if data is None: return None
-            df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
-            df.index = pd.to_datetime(df.index)
-            return df
-        df_minute = _reconstruct_df_from_dict(serialized_minute)
-        df_ticks = _reconstruct_df_from_dict(serialized_ticks)
-        df_level5 = _reconstruct_df_from_dict(serialized_level5)
+        def _reconstruct_df_from_dict(data: Optional[dict], name: str) -> Optional[pd.DataFrame]:
+            # ▼▼▼ 调试点 2: 检查传入的序列化数据 ▼▼▼
+            print(f"    -> [WORKER] 正在重建 '{name}' DataFrame...")
+            if data is None:
+                print(f"    -> [WORKER] '{name}' 的序列化数据为 None，跳过重建。")
+                return None
+            
+            # 打印接收到的原始字典结构和数据样本
+            print(f"    -> [WORKER] '{name}' 接收到的字典键: {list(data.keys())}")
+            print(f"    -> [WORKER] '{name}' 索引样本: {data.get('index', [])[:3]}")
+            print(f"    -> [WORKER] '{name}' 列名: {data.get('columns')}")
+            # ▲▲▲ 调试点 2 结束 ▲▲▲
+
+            try:
+                df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
+                # ▼▼▼ 调试点 3: 检查初步重建的DataFrame ▼▼▼
+                print(f"    -> [WORKER] '{name}' 初步重建成功，Shape: {df.shape}")
+                if not df.empty:
+                    print(f"    -> [WORKER] '{name}' 的索引类型: {type(df.index)}")
+                    # 关键步骤：将索引转换为 DatetimeIndex
+                    df.index = pd.to_datetime(df.index)
+                    print(f"    -> [WORKER] '{name}' 索引转换为datetime后，Shape: {df.shape}")
+                else:
+                    print(f"    -> [WORKER] !!! 警告: '{name}' 初步重建后为空DataFrame！")
+                # ▲▲▲ 调试点 3 结束 ▲▲▲
+                return df
+            except Exception as recon_e:
+                # ▼▼▼ 调试点 4: 捕获重建过程中的具体错误 ▼▼▼
+                print(f"    -> [WORKER] !!! 严重错误: 在重建 '{name}' DataFrame 时失败: {recon_e}")
+                import traceback
+                traceback.print_exc()
+                # ▲▲▲ 调试点 4 结束 ▲▲▲
+                return None
+
+        df_minute = _reconstruct_df_from_dict(serialized_minute, "df_minute")
+        df_ticks = _reconstruct_df_from_dict(serialized_ticks, "df_ticks")
+        df_level5 = _reconstruct_df_from_dict(serialized_level5, "df_level5")
+        
+        # ▼▼▼ 调试点 5: 检查重建后的 df_minute 是否有效 ▼▼▼
         if df_minute is None or df_minute.empty:
+            print(f"    -> [WORKER] !!! 失败: 股票 {stock_code} 的 df_minute 重建失败或为空，任务终止。")
+            print("!"*50 + "\n")
             return None
+        print(f"    -> [WORKER] 股票 {stock_code} 的 df_minute 重建成功，准备开始计算。Shape: {df_minute.shape}")
+        # ▲▲▲ 调试点 5 结束 ▲▲▲
+
+        # ... (这里是您所有的计算逻辑，保持不变) ...
         decimal_cols_minute = ['open', 'high', 'low', 'close', 'turnover_value']
         decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1']
         for col in decimal_cols_minute:
@@ -58,8 +98,6 @@ def cpu_bound_calculation_task(
                 if col in df_ticks.columns:
                     df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
         df_minute.ta.cores = 0
-
-        # ... (聚合Tick数据的代码保持不变) ...
         if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
             df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
             df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
@@ -81,20 +119,13 @@ def cpu_bound_calculation_task(
                 'volume_count': 'tick_count',
             }, inplace=True)
             df_minute = df_minute.join(df_aggregated, how='left')
-
-        # --- 2. 动态构建计算策略并执行 ---
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
         if df_minute.empty: return None
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
-        
         df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
-        
-        # ▼▼▼ 核心修改：动态构建策略 ▼▼▼
         strategy_ta_list = []
-        
-        # 检查依赖列是否存在，如果存在，则添加相应计算任务
         if 'net_aggressive_volume' in df_minute.columns:
             strategy_ta_list.extend([
                 {"kind": "slope", "close": "net_aggressive_volume", "length": slope_window, "col_names": "net_agg_vol_slope"},
@@ -107,22 +138,15 @@ def cpu_bound_calculation_task(
             strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"})
         if 'volume' in df_minute.columns:
             strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"})
-
-        # 只有当策略列表不为空时，才执行 strategy
         if strategy_ta_list:
             custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
             df_minute.ta.strategy(custom_strategy, cores=0)
-        # ▲▲▲ 动态构建结束 ▲▲▲
-
-        # ▼▼▼ 核心修改：对后续所有计算也进行防御性检查 ▼▼▼
         if 'net_agg_vol_slope' in df_minute.columns:
             df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
-        
         if 'net_aggressive_volume' in df_minute.columns:
             bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
             df_minute = df_minute.join(bbands_df)
             df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
-
         if 'close' in df_minute.columns:
             stdev = df_minute.ta.stdev(length=stats_window, cores=0)
             sma = df_minute.ta.sma(length=stats_window, cores=0)
@@ -133,13 +157,24 @@ def cpu_bound_calculation_task(
                 df_minute.rename(columns=rename_map, inplace=True)
             except Exception:
                 pass
-            
+        
         df_minute.reset_index(inplace=True)
         df_minute['stock_code'] = stock_code
+        
+        # ▼▼▼ 调试点 6: 确认任务是否成功完成并返回结果 ▼▼▼
+        print(f"    -> [WORKER] 股票 {stock_code} 所有计算已完成，准备返回结果。")
+        print("!"*50 + "\n")
+        # ▲▲▲ 调试点 6 结束 ▲▲▲
         return df_minute.to_dict('records')
 
     except Exception as e:
-        logger.error(f"    -> [Celery Worker] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
+        # ▼▼▼ 调试点 7: 捕获任何未预料到的全局错误 ▼▼▼
+        print("\n" + "!"*20 + f" [WORKER CRITICAL ERROR on {stock_code}] " + "!"*20)
+        print(f"    -> [WORKER] 处理 {stock_code} 时发生无法捕获的严重错误: {e}")
+        import traceback
+        traceback.print_exc()
+        print("!"*70 + "\n")
+        # ▲▲▲ 调试点 7 结束 ▲▲▲
         return None
 
 class RealtimeServices:
