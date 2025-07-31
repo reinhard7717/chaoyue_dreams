@@ -418,6 +418,7 @@ def run_realtime_strategy_for_stock(calculated_data: list):
     """
     if not calculated_data or not isinstance(calculated_data, list):
         # 如果上游任务失败或数据为空，直接退出
+        print("上游任务失败或数据为空，直接退出")
         return
 
     stock_code = calculated_data[0].get('stock_code', 'Unknown')
