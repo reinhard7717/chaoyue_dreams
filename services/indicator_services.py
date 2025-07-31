@@ -838,7 +838,13 @@ class IndicatorService:
                     try:
                         method_to_call = indicator_method_map[indicator_name]
                         # 注意：此处传递空的suffix，因为后缀将统一添加
-                        result_df = await method_to_call(df=df_for_calc, params=params)
+                        new_style_composite_indicators = ['fibonacci_levels', 'ma_convergence']
+                        if indicator_name in new_style_composite_indicators:
+                            # 对新式函数，使用不带 suffix 的调用
+                            result_df = await method_to_call(df=df_for_calc, params=params)
+                        else:
+                            # 对旧式函数，保持带 suffix 的调用
+                            result_df = await method_to_call(df=df_for_calc, params=params, suffix='')
                         merge_results(result_df, df_for_calc)
                     except Exception as e:
                         logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
