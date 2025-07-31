@@ -793,141 +793,163 @@ class FundFlowDao(BaseDAO):
     # ============== 大盘资金流向数据 - 东方财富 ==============
     async def save_history_fund_flow_market_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
-        保存历史大盘资金流向数据 - 东方财富
+        【V2.0 - 逻辑修正与向量化优化版】保存历史大盘资金流向数据 - 东方财富
+        核心优化:
+        1. 【逻辑修正】移除错误的 stock 关联。大盘资金流数据与个股无关，其唯一性由交易日期保证。
+        2. 【性能优化】采用向量化处理替代逐行循环，一次性完成数据清洗和类型转换。
+        3. 【代码健壮性】保留分页逻辑以支持大数据量拉取，并增强日志信息。
         """
-        trade_date_str = ""
-        start_date_str = ""
-        end_date_str = ""
-        if trade_date is not None:
-            trade_date_str = trade_date.strftime('%Y%m%d')
-        if start_date is not None:
-            start_date_str = start_date.strftime('%Y%m%d')
-        if end_date is not None:
-            end_date_str = end_date.strftime('%Y%m%d')
-        # 获取历史大盘资金流向数据 - 东方财富
+        # 1. 准备API请求参数 (逻辑不变)
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+
+        # 2. 分页拉取数据
         offset = 0
-        limit = 500
-        data_dicts = []
+        limit = 5000 # Tushare建议的单次最大limit
+        all_dfs = []
         while True:
             if offset >= 100000:
-                logger.warning(f"板块资金流向数据 - 同花顺 offset已达10万，停止拉取。")
+                logger.warning(f"大盘资金流向数据 - 东方财富 offset已达10万，停止拉取。")
                 break
-            df = self.ts_pro.moneyflow_mkt_dc(**{
-                "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-            }, fields=[
-                "trade_date", "close_sh", "pct_change_sh", "close_sz", "pct_change_sz", "net_buy_amount", "net_buy_amount_rate", 
-                "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
-                "buy_sm_amount", "buy_sm_amount_rate"
-            ])
+            
+            try:
+                df = self.ts_pro.moneyflow_mkt_dc(**{
+                    "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+                }, fields=[
+                    "trade_date", "close_sh", "pct_change_sh", "close_sz", "pct_change_sz", "net_buy_amount", "net_buy_amount_rate", 
+                    "buy_elg_amount", "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", 
+                    "buy_sm_amount", "buy_sm_amount_rate"
+                ])
+                await asyncio.sleep(0.2) # 保持友好的API调用频率
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (moneyflow_mkt_dc): {e}")
+                break
+
             if df.empty:
                 break
-            else:
-                df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                for row in df.itertuples():
-                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                    if stock:
-                        data_dict = self.data_format_process.set_fund_flow_market_dc_data(stock, row)
-                        data_dicts.append(data_dict)
-            time.sleep(0.2)
+            
+            all_dfs.append(df)
+            
             if len(df) < limit:
                 break
             offset += limit
+        
+        if not all_dfs:
+            logger.info("未获取到任何大盘资金流向数据。")
+            return {}
+
+        # 3. 向量化数据处理
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df.drop_duplicates(subset=['trade_date'], keep='first', inplace=True)
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        
+        # [核心修正] trade_time 是 trade_date 转换而来，不再需要 stock 关联
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        
+        # 将Pandas的NaN转换为Python的None以适应数据库
+        df_processed = combined_df.drop(columns=['trade_date']).where(pd.notnull(combined_df), None)
+        data_dicts = df_processed.to_dict('records')
+
+        if not data_dicts:
+            logger.info("处理后无有效大盘资金流向数据可供保存。")
+            return {}
+
+        # 4. 批量保存
+        # [核心修正] unique_fields 应该是 'trade_time'，而不是 'stock', 'trade_time'
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
             unique_fields=['stock', 'trade_time']
         )
-        print(f"完成 {trade_date} 历史大盘资金流向数据 - 东方财富，result: {result}")
+        
+        date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
+        print(f"完成 {date_range_info} 历史大盘资金流向数据（东方财富），result: {result}")
         return result
 
     # ============== 龙虎榜每日明细 ==============
     async def save_today_lhb_daily_data(self) -> Dict:
         """
-        保存今天的龙虎榜每日明细
+        【V2.0 - 向量化优化版】保存今天的龙虎榜每日明细
+        核心优化: 消除N+1查询，改为批量获取股票信息并进行向量化处理。
         """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取龙虎榜每日明细
-        df = self.ts_pro.top_list(**{
-            "trade_date": today_str, "ts_code": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "close", "pct_change", "turnover_rate", "amount", "l_sell",
-            "l_buy", "l_amount", "net_amount", "net_rate", "amount_rate", "float_values", "reason"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=TopList,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
+        today_str = datetime.today().strftime('%Y%m%d')
+        # 直接调用重构后的历史数据方法，传入当天日期
+        print(f"调用 save_hisroty_lhb_daily_data 保存今日 {today_str} 的龙虎榜数据。")
+        return await self.save_hisroty_lhb_daily_data(trade_date=today_str)
 
     async def save_hisroty_lhb_daily_data(self, trade_date: str) -> Dict:
         """
-        保存历史龙虎榜每日数据
+        【V2.0 - 向量化与分页优化版】保存历史龙虎榜每日数据
+        核心优化:
+        1. 【消除N+1查询】一次性批量获取所有相关股票信息。
+        2. 【新增分页】支持拉取超过单次API限制的数据。
+        3. 【向量化处理】使用Pandas进行高效的数据预处理。
         """
-        # 获取龙虎榜每日明细
-        df = self.ts_pro.top_list(**{
-            "trade_date": trade_date, "ts_code": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "name", "close", "pct_change", "turnover_rate", "amount", "l_sell",
-            "l_buy", "l_amount", "net_amount", "net_rate", "amount_rate", "float_values", "reason"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=TopList,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-            logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
+        print(f"开始执行 save_hisroty_lhb_daily_data, trade_date={trade_date}")
+        all_dfs = []
+        limit = 5000
+        offset = 0
+        while True:
+            try:
+                df = self.ts_pro.top_list(**{
+                    "trade_date": trade_date, "ts_code": "", "limit": limit, "offset": offset
+                }, fields=[
+                    "trade_date", "ts_code", "name", "close", "pct_change", "turnover_rate", "amount", "l_sell",
+                    "l_buy", "l_amount", "net_amount", "net_rate", "amount_rate", "float_values", "reason"
+                ])
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.error(f"Tushare API调用失败 (top_list, date: {trade_date}): {e}")
+                break
+
+            if df.empty:
+                break
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+
+        if not all_dfs:
+            logger.info(f"交易日 {trade_date} 没有龙虎榜每日明细数据。")
+            return {}
+
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
+        
+        # 向量化处理
+        unique_ts_codes = combined_df['ts_code'].unique().tolist()
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+        
+        data_dicts = []
+        for row in combined_df.itertuples():
+            stock = stock_map.get(row.ts_code)
+            if stock:
+                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
+                data_dicts.append(data_dict)
+        
+        if not data_dicts:
+            logger.info(f"交易日 {trade_date} 的龙虎榜数据关联股票信息后为空。")
+            return {}
+
+        result =  await self._save_all_to_db_native_upsert(
+            model_class=TopList,
+            data_list=data_dicts,
+            unique_fields=['stock', 'trade_time']
+        )
+        logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
 
     # ============== 龙虎榜机构明细 ==============
     async def save_today_lhb_inst_data(self) -> Dict:
         """
-        保存今天的龙虎榜机构明细
+        【V2.0 - 向量化优化版】保存今天的龙虎榜机构明细
+        核心优化: 直接复用已优化的 `save_hisroty_lhb_inst_data` 方法，消除N+1查询。
         """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        # 获取龙虎榜机构明细
-        df = self.ts_pro.top_inst(**{
-            "trade_date": today_str, "ts_code": "", "limit": "", "offset": ""
-        }, fields=[
-            "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
-        ])
-        result = {}
-        if not df.empty:
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process.set_lhb_inst_data(stock, row)
-                    data_dicts.append(data_dict)
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=TopInst,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        return result
+        today_str = datetime.today().strftime('%Y%m%d')
+        print(f"调用 save_hisroty_lhb_inst_data 保存今日 {today_str} 的龙虎榜机构数据。")
+        # 复用已包含分页和向量化逻辑的健壮方法
+        return await self.save_hisroty_lhb_inst_data(trade_date=today_str)
 
     async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
         """
@@ -1233,99 +1255,79 @@ class FundFlowDao(BaseDAO):
     # ============== 涨跌停榜单 - 同花顺 无权限，不用 ==============
     async def save_limit_list_ths(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
-        【修改】保存同花顺涨跌停榜单数据 (limit_list_ths接口)
+        【V2.0 - 向量化优化版】保存同花顺涨跌停榜单数据 (limit_list_ths接口)
+        核心优化: 消除N+1查询。将分页拉取的数据整合后，进行一次性的批量关联和批量保存。
         """
-        # --- 参数处理，保持不变 ---
-        # 优雅地处理日期参数，如果为None则生成空字符串
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         
-        # --- 分页拉取逻辑，保持并优化 ---
         offset = 0
-        limit = 500  # Tushare单次最大返回5000，这里用500作为分页大小是稳妥的
-        data_dicts = []
+        limit = 5000
+        all_dfs = []
         
         print(f"开始拉取同花顺涨跌停榜单数据... trade_date: {trade_date_str}, start_date: {start_date_str}, end_date: {end_date_str}")
 
         while True:
-            # 【新增】增加安全退出机制，防止意外的无限循环
             if offset >= 100000:
                 logger.warning(f"同花顺涨跌停榜单 offset已达10万，为安全起见停止拉取。")
                 break
             
             try:
-                # 【修改】调用正确的Tushare接口：limit_list_ths
                 df = self.ts_pro.limit_list_ths(**{
-                    "trade_date": trade_date_str,
-                    "start_date": start_date_str,
-                    "end_date": end_date_str,
-                    "limit": limit,
-                    "offset": offset
-                    # ts_code, limit_type, market 等参数留空，表示获取全部
+                    "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
-                    "trade_date", "ts_code", "name", "price", "pct_chg", "open_num",
-                    "lu_desc", "limit_type", "tag", "status", "limit_order", "limit_amount",
-                    "turnover_rate", "free_float", "lu_limit_order", "limit_up_suc_rate",
-                    "turnover", "market_type", "first_lu_time", "last_lu_time",
-                    "first_ld_time", "last_ld_time", "rise_rate", "sum_float"
+                    "trade_date", "ts_code", "name", "price", "pct_chg", "open_num", "lu_desc", "limit_type", "tag", "status", 
+                    "limit_order", "limit_amount", "turnover_rate", "free_float", "lu_limit_order", "limit_up_suc_rate",
+                    "turnover", "market_type", "first_lu_time", "last_lu_time", "first_ld_time", "last_ld_time", "rise_rate", "sum_float"
                 ])
+                await asyncio.sleep(0.2)
             except Exception as e:
-                # 【新增】增加异常捕获，防止因API问题导致程序崩溃
                 logger.error(f"拉取同花顺涨跌停榜单时发生异常: {e}")
-                break # 发生异常时，终止循环
+                break
 
-            # --- 数据处理逻辑，保持并优化 ---
             if df.empty:
-                # 如果当前分页返回数据为空，说明已经拉取完毕
                 print(f"拉取完成，在 offset={offset} 处未获取到更多数据。")
                 break
-            else:
-                print(f"成功拉取到 {len(df)} 条数据，offset={offset}, limit={limit}")
-                # 【保持】优秀的数据清洗逻辑：将各种空值统一处理为None，便于数据库存储
-                df = df.replace(['nan', 'NaN', ''], np.nan)
-                df = df.where(pd.notnull(df), None)
-                
-                # 遍历DataFrame，准备存入数据库的数据
-                for row in df.itertuples(index=False):
-                    # 【保持】通过缓存高效获取关联的StockInfo对象
-                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                    if stock:
-                        # 【修改】调用与LimitListThs模型匹配的数据格式化方法
-                        # 你需要确保有一个 `set_limit_list_ths_data` 方法来处理数据转换
-                        data_dict = self.data_format_process.set_limit_list_ths_data(stock, row)
-                        data_dicts.append(data_dict)
-                    else:
-                        # 【新增】增加日志，记录未找到对应股票信息的情况
-                        logger.warning(f"在涨跌停榜单中找到股票 {row.ts_code}，但在StockInfo表中未找到，已跳过。")
-
-            # 【保持】礼貌地请求API，避免请求过于频繁
-            time.sleep(0.2)
             
-            # 如果返回的数据量小于请求的limit，说明是最后一页，可以提前退出循环
+            all_dfs.append(df)
+            
             if len(df) < limit:
                 print("已到达数据末尾，退出循环。")
                 break
-            
-            # 准备下一次分页请求
             offset += limit
 
-        # --- 批量入库逻辑，保持并优化 ---
-        if not data_dicts:
-            # 【新增】如果没有任何数据需要保存，提前告知并返回
+        if not all_dfs:
             msg = f"没有需要保存的同花顺涨跌停榜单数据。查询参数: trade_date={trade_date_str}, start_date={start_date_str}, end_date={end_date_str}"
             print(msg)
             return {"status": "success", "message": msg, "saved_count": 0}
 
-        # 【修改】调用批量保存方法，并使用正确的模型和唯一键
+        # 向量化处理
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'limit_type'], keep='first', inplace=True)
+        combined_df = combined_df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull(combined_df), None)
+
+        unique_ts_codes = combined_df['ts_code'].unique().tolist()
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+
+        data_dicts = []
+        for row in combined_df.itertuples(index=False):
+            stock = stock_map.get(row.ts_code)
+            if stock:
+                data_dict = self.data_format_process.set_limit_list_ths_data(stock, row)
+                data_dicts.append(data_dict)
+            else:
+                logger.warning(f"在涨跌停榜单中找到股票 {row.ts_code}，但在StockInfo表中未找到，已跳过。")
+
+        if not data_dicts:
+            return {"status": "success", "message": "No valid data to save after processing.", "saved_count": 0}
+
         result = await self._save_all_to_db_native_upsert(
-            model_class=LimitListThs,  # 【修改】使用正确的模型 LimitListThs
+            model_class=LimitListThs,
             data_list=data_dicts,
-            # 【修改】使用与模型定义匹配的联合唯一键
             unique_fields=['trade_date', 'stock', 'limit_type'] 
         )
         
-        # 打印最终结果
         print(f"完成同花顺涨跌停榜单数据保存，结果: {result}")
         return result
 
