@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import json
 import logging
+import traceback
 import pytz
 from asgiref.sync import sync_to_async
 from celery import Celery
@@ -414,53 +415,80 @@ def run_cycle():
 @celery_app.task(name='tasks.run_realtime_strategy_for_stock', queue='cpu_intensive_queue')
 def run_realtime_strategy_for_stock(calculated_data: list):
     """
-    【V2.0 - 流式处理版】
-    - 直接接收上游计算任务传递过来的数据 (list of dicts)。
-    - 不再需要从Redis加载数据。
+    【V2.1 - 调试增强版】
+    - 核心修改: 在 async def main() 内部增加了详细的调试打印和
+                一个完整的 try...except 块，以捕获在数据转换或
+                策略调用期间可能发生的任何静默错误。
     """
     if not calculated_data or not isinstance(calculated_data, list):
-        # 如果上游任务失败或数据为空，直接退出
-        print("{stock_code} 上游任务失败或数据为空，直接退出")
+        print("    -> [策略执行器 V2.1] 上游任务失败或数据为空，直接退出。")
         return
 
+    # 提前获取股票代码，以防数据列表为空导致后续出错
     stock_code = calculated_data[0].get('stock_code', 'Unknown')
-    print(f"    -> [策略执行器 V2.0] 开始为 {stock_code} 执行策略分析...")
+    print(f"    -> [策略执行器 V2.1] 开始为 {stock_code} 执行策略分析...")
     
     cache_manager = CacheManager()
     cache_key_builder = IntradayEngineCashKey()
 
     async def main():
-        # 1. 将 list of dicts 转换为 DataFrame
-        df_minute = pd.DataFrame(calculated_data)
-        df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'])
-        df_minute.set_index('trade_time', inplace=True)
-        
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        # ▼▼▼ 核心修改：添加完整的异常捕获和调试打印 ▼▼▼
+        try:
+            print(f"      - 调试: 进入 async main 函数。准备将 {len(calculated_data)} 条记录转换为DataFrame。")
+            
+            # 1. 将 list of dicts 转换为 DataFrame
+            df_minute = pd.DataFrame(calculated_data)
+            print("      - 调试: DataFrame 创建成功。")
+            
+            if 'trade_time' not in df_minute.columns:
+                print("      - 调试错误: DataFrame中缺少 'trade_time' 列！任务终止。")
+                return
 
-        # 2. 初始化并运行策略 (与之前版本相同)
-        strategy_params = {
-            'min_data_points': 21,
-            'breakout_vol_zscore': 2.5,
-            'breakout_agg_zscore': 2.0,
-            'max_price_cv': 0.005,
-            'min_correlation': 0.6,
-            'reversal_energy_ratio': 1.5,
-        }
-        strategy = RealtimeStrategy(strategy_params)
-        daily_info = {'stock_code': stock_code}
-        final_signal = strategy.run_strategy(df_minute, daily_info)
+            df_minute['trade_time'] = pd.to_datetime(df_minute['trade_time'])
+            print("      - 调试: 'trade_time' 列已转换为datetime对象。")
 
-        # 3. 如果有信号，存入Redis (与之前版本相同)
-        if final_signal:
-            print(f"    -> [策略执行器 V2.0] 股票 {stock_code} 触发信号: {final_signal.get('playbook')}")
-            signals_redis_key = cache_key_builder.stock_signals_key(stock_code, today_str)
-            signal_json = json.dumps(final_signal, default=str)
-            timestamp = final_signal['entry_time'].timestamp()
-            await cache_manager.zadd(signals_redis_key, {signal_json: timestamp})
-            await cache_manager.expire(signals_redis_key, 86400)
-            print(f"    -> [策略执行器 V2.0] 已将信号存入Redis键: {signals_redis_key}")
-        else:
-            print(f"    -> [策略执行器 V2.0] 股票 {stock_code} 未触发任何盘中信号。")
+            df_minute.set_index('trade_time', inplace=True)
+            print(f"      - 调试: 'trade_time' 已设置为索引。DataFrame现在有 {len(df_minute)} 行。")
+            
+            today_str = datetime.now().strftime('%Y-%m-%d')
+
+            # 2. 初始化并运行策略
+            strategy_params = {
+                'min_data_points': 21,
+                'breakout_vol_zscore': 2.5,
+                'breakout_agg_zscore': 2.0,
+                'max_price_cv': 0.005,
+                'min_correlation': 0.6,
+                'reversal_energy_ratio': 1.5,
+            }
+            strategy = RealtimeStrategy(strategy_params)
+            print("      - 调试: RealtimeStrategy 实例已创建。准备调用 run_strategy...")
+            
+            daily_info = {'stock_code': stock_code}
+            final_signal = strategy.run_strategy(df_minute, daily_info)
+            print("      - 调试: strategy.run_strategy 调用完成。")
+
+            # 3. 如果有信号，存入Redis
+            if final_signal:
+                print(f"    -> [策略执行器 V2.1] 股票 {stock_code} 触发信号: {final_signal.get('playbook')}")
+                signals_redis_key = cache_key_builder.stock_signals_key(stock_code, today_str)
+                signal_json = json.dumps(final_signal, default=str)
+                timestamp = final_signal['entry_time'].timestamp()
+                await cache_manager.zadd(signals_redis_key, {signal_json: timestamp})
+                await cache_manager.expire(signals_redis_key, 86400)
+                print(f"    -> [策略执行器 V2.1] 已将信号存入Redis键: {signals_redis_key}")
+            else:
+                # 这个打印现在应该能看到了
+                print(f"    -> [策略执行器 V2.1] 股票 {stock_code} 未触发任何盘中信号。")
+
+        except Exception as e:
+            print(f"      - 调试错误: 在 async main 函数中发生严重异常!")
+            print(f"        - 股票代码: {stock_code}")
+            print(f"        - 异常类型: {type(e)}")
+            print(f"        - 异常信息: {e}")
+            print(f"        - 堆栈跟踪:")
+            traceback.print_exc()
+        # ▲▲▲ 修改结束 ▲▲▲
 
     async_to_sync(main)()
 
