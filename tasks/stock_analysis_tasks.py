@@ -410,38 +410,73 @@ def run_cycle():
         raise
 
 @celery_app.task(name='tasks.aggregate_intraday_results', queue='cpu_intensive_queue')
-def aggregate_intraday_results(results, *args, **kwargs):
+def aggregate_intraday_results(job_id: str, total_tasks: int):
     """
-    【V3.4 - Chord队列修复版】
-    - 核心修复: 将此任务的队列更改为 'cpu_intensive_queue'，与并行计算任务保持一致。
+    【V7.0 - 两阶段解耦版】
+    - 接收批次ID (job_id)，从Redis中收集所有该批次的结果。
     """
     print("\n" + "="*30)
-    print("【回调任务】所有并行计算已完成，开始存储完整计算结果...")
+    print(f"【聚合任务 V7.0】开始聚合批次 {job_id} 的结果...")
     
-    actual_results = []
-    if isinstance(results, (list, tuple)) and results:
-        actual_results = results[0] if isinstance(results[0], list) else results
+    # 实例化 CacheManager 和 Key 生成器
+    cache_manager = CacheManager()
+    cache_key_builder = IntradayEngineCashKey()
+
+    # --- 从Redis中收集所有结果 ---
+    async def gather_results():
+        # 1. 获取该批次所有股票代码的键
+        #    注意：这里需要一种方法来知道哪些股票代码属于这个job_id。
+        #    为简单起见，我们假设可以通过某种模式匹配获取。
+        #    一个更健壮的方法是在分派任务时将所有股票代码存入一个Redis Set。
+        #    这里我们使用一个简化的方法：直接从Redis中scan键。
+        #    注意：SCAN在生产环境中可能较慢，但对于调试和验证此逻辑是可行的。
+        
+        # 修正：我们不需要知道所有股票代码，因为计算任务已经把结果存好了。
+        # 我们只需要一个方法来知道哪些键属于这个job_id。
+        # 我们在计算任务中存入的键是 stock_calculated_data_key(stock_code, job_id)
+        # 它的模式是 calc:stock:{stock_code}:intraday_full_metrics:{job_id}
+        
+        # 使用 SCAN 来查找所有匹配这个 job_id 的键
+        pattern = f"calc:stock:*:intraday_full_metrics:{job_id}"
+        print(f"  -> 正在使用 SCAN 模式 '{pattern}' 查找结果键...")
+        result_keys = await cache_manager.scan_keys(pattern)
+        
+        print(f"  -> 找到了 {len(result_keys)} 个结果键。")
+        if not result_keys:
+            return []
+
+        # 批量获取所有结果
+        fetch_tasks = [cache_manager.get(key) for key in result_keys]
+        all_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        
+        # 过滤掉空结果和异常
+        valid_results = [res for res in all_results if res and not isinstance(res, Exception) and isinstance(res, list)]
+        return valid_results
+
+    all_results_list = asyncio.run(gather_results())
     
-    valid_results = [res for res in actual_results if res and isinstance(res, list)]
-    
-    if not valid_results:
-        print("【回调任务】没有任何有效的计算结果，任务结束。")
+    if not all_results_list:
+        print("【聚合任务 V7.0】没有任何有效的计算结果，任务结束。")
         print("="*30 + "\n")
         return "Aggregation complete: No valid results."
 
-    redis_keys_for_signals = asyncio.run(save_full_data_to_redis(valid_results))
+    # --- 后续逻辑保持不变 ---
+    # 注意：这里的 save_full_data_to_redis 实际上是多余的了，因为数据已经存好了。
+    # 我们直接从 all_results_list 中提取 redis_keys 用于下一步。
+    # 但为了最小化改动，我们暂时保留它，它会覆盖已有的键，没有副作用。
+    redis_keys_for_signals = asyncio.run(save_full_data_to_redis(all_results_list))
     
-    total_stocks = len(valid_results)
-    print(f"【回调任务】存储完成。成功处理了 {total_stocks} 支股票的完整数据。")
+    total_stocks = len(all_results_list)
+    print(f"【聚合任务 V7.0】聚合完成。成功处理了 {total_stocks} 支股票的完整数据。")
     
     if redis_keys_for_signals:
-        print(f"【回调任务】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
-        # 注意：这里的信号生成任务仍然可以发送到它自己的队列
+        print(f"【聚合任务 V7.0】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
         signal_generation_workflow = group(
-            generate_signals_from_data.s(redis_key) for redis_key in redis_keys_for_signals
+            generate_signals_from_data.s(redis_key).set(queue='cpu_intensive_queue', routing_key='cpu_intensive_queue')
+            for redis_key in redis_keys_for_signals
         )
         signal_generation_workflow.apply_async()
-        print("【回调任务】信号生成任务已全部派发。")
+        print("【聚合任务 V7.0】信号生成任务已全部派发。")
 
     print("="*30 + "\n")
     return f"Aggregation and dispatch complete: {total_stocks} stocks processed."

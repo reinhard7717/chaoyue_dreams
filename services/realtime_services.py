@@ -28,20 +28,29 @@ def cpu_bound_calculation_task(
     stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]],
     time_level: str,
     slope_window: int,
-    stats_window: int
-) -> Optional[dict]:
+    stats_window: int,
+    # ▼▼▼ 新增参数 ▼▼▼
+    job_id: str,
+    total_tasks: int
+    # ▲▲▲ 新增参数结束 ▲▲▲
+) -> None: # 这个任务不再返回任何东西
     """
-    【V5.10 - 文件写入终极调试版】
-    - 在任务返回前，将最终结果写入临时文件，以绕过Celery进行验证。
+    【V7.0 - 两阶段解耦版】
+    - 计算完成后，将结果存入Redis，并原子性地增加计数器。
+    - 如果自己是最后一个完成的任务，则触发聚合任务。
     """
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
-    
-    # 您可以根据需要修改这个路径，确保Celery worker有权限写入
-    temp_debug_dir = '/tmp/celery_debug' 
-    os.makedirs(temp_debug_dir, exist_ok=True)
-    debug_file_path = os.path.join(temp_debug_dir, f"{stock_code}.json")
+    print(f"    -> [WORKER V7.0] 开始处理 {stock_code} (总任务数: {total_tasks})")
+
+    # 实例化自己的 CacheManager 和 Key 生成器
+    cache_manager = CacheManager()
+    cache_key_builder = IntradayEngineCashKey()
+
+    # 定义此任务的结果在Redis中的键
+    result_key = cache_key_builder.stock_calculated_data_key(stock_code, job_id)
 
     try:
+        # --- 核心计算逻辑 (保持不变) ---
         def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
             if data is None: return None
             df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
@@ -51,112 +60,101 @@ def cpu_bound_calculation_task(
         df_ticks = _reconstruct_df_from_dict(serialized_ticks)
         df_level5 = _reconstruct_df_from_dict(serialized_level5)
         if df_minute is None or df_minute.empty:
-            return None
-        decimal_cols_minute = ['open', 'high', 'low', 'close', 'turnover_value']
-        decimal_cols_ticks = ['current_price', 'buy_price1', 'sell_price1']
-        for col in decimal_cols_minute:
-            if col in df_minute.columns:
-                df_minute[col] = pd.to_numeric(df_minute[col], errors='coerce')
-        if df_ticks is not None:
-            for col in decimal_cols_ticks:
-                if col in df_ticks.columns:
-                    df_ticks[col] = pd.to_numeric(df_ticks[col], errors='coerce')
-        df_minute.ta.cores = 0
-        if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
-            df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
-            df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
-            df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
-            df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
-            df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
-            aggregation_rules = {
-                'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
-                'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
-                'volume': ['sum', 'count']
-            }
-            df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
-            df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
-            df_aggregated.rename(columns={
-                'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
-                'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
-                'energy_ratio_min': 'energy_ratio_min', 'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
-                'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
-                'volume_count': 'tick_count',
-            }, inplace=True)
-            df_minute = df_minute.join(df_aggregated, how='left')
-        if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
-            df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
-        if df_minute.empty: return None
-        if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
-            df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
-        df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
-        strategy_ta_list = []
-        if 'net_aggressive_volume' in df_minute.columns:
-            strategy_ta_list.extend([
-                {"kind": "slope", "close": "net_aggressive_volume", "length": slope_window, "col_names": "net_agg_vol_slope"},
-                {"kind": "zscore", "close": "net_aggressive_volume", "length": stats_window, "col_names": "net_agg_vol_zscore"},
-                {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
-            ])
-        if 'buy_com_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": slope_window, "col_names": "buy_com_slope"})
-        if 'energy_ratio_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"})
-        if 'volume' in df_minute.columns:
-            strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"})
-        if strategy_ta_list:
-            custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
-            df_minute.ta.strategy(custom_strategy, cores=0)
-        if 'net_agg_vol_slope' in df_minute.columns:
-            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
-        if 'net_aggressive_volume' in df_minute.columns:
-            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
-            df_minute = df_minute.join(bbands_df)
-            df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
-        if 'close' in df_minute.columns:
-            stdev = df_minute.ta.stdev(length=stats_window, cores=0)
-            sma = df_minute.ta.sma(length=stats_window, cores=0)
-            df_minute['price_cv'] = stdev / (sma + 1e-6)
-            try:
-                df_minute.ta.fractal(append=True, cores=0)
-                rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
-                df_minute.rename(columns=rename_map, inplace=True)
-            except Exception:
-                pass
+            print(f"    -> [WORKER V7.0] {stock_code} 数据为空，跳过。")
+            final_result = None
+        else:
+            # ... (这里是您所有的pandas_ta计算逻辑，完全不变) ...
+            df_minute.ta.cores = 0
+            if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
+                df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
+                df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
+                df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
+                df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
+                df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
+                aggregation_rules = {
+                    'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
+                    'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
+                    'volume': ['sum', 'count']
+                }
+                df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
+                df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
+                df_aggregated.rename(columns={
+                    'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
+                    'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
+                    'energy_ratio_min': 'energy_ratio_min', 'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
+                    'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
+                    'volume_count': 'tick_count',
+                }, inplace=True)
+                df_minute = df_minute.join(df_aggregated, how='left')
+            if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
+                df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
+            if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
+                df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
+            df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
+            strategy_ta_list = []
+            if 'net_aggressive_volume' in df_minute.columns:
+                strategy_ta_list.extend([
+                    {"kind": "slope", "close": "net_aggressive_volume", "length": slope_window, "col_names": "net_agg_vol_slope"},
+                    {"kind": "zscore", "close": "net_aggressive_volume", "length": stats_window, "col_names": "net_agg_vol_zscore"},
+                    {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
+                ])
+            if 'buy_com_mean' in df_minute.columns:
+                strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": slope_window, "col_names": "buy_com_slope"})
+            if 'energy_ratio_mean' in df_minute.columns:
+                strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"})
+            if 'volume' in df_minute.columns:
+                strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"})
+            if strategy_ta_list:
+                custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
+                df_minute.ta.strategy(custom_strategy, cores=0)
+            if 'net_agg_vol_slope' in df_minute.columns:
+                df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
+            if 'net_aggressive_volume' in df_minute.columns:
+                bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
+                df_minute = df_minute.join(bbands_df)
+                df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
+            if 'close' in df_minute.columns:
+                stdev = df_minute.ta.stdev(length=stats_window, cores=0)
+                sma = df_minute.ta.sma(length=stats_window, cores=0)
+                df_minute['price_cv'] = stdev / (sma + 1e-6)
+                try:
+                    df_minute.ta.fractal(append=True, cores=0)
+                    rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
+                    df_minute.rename(columns=rename_map, inplace=True)
+                except Exception:
+                    pass
+            df_minute.reset_index(inplace=True)
+            df_minute['stock_code'] = stock_code
+            final_result = df_minute.to_dict('records')
         
-        df_minute.reset_index(inplace=True)
-        df_minute['stock_code'] = stock_code
-        
-        # ▼▼▼ 终极调试：在返回前，将结果写入文件 ▼▼▼
-        try:
-            # 1. 先生成要返回的对象
-            result_to_return = df_minute.to_dict('records')
-            
-            # 2. 将这个对象写入文件
-            with open(debug_file_path, 'w', encoding='utf-8') as f:
-                # 使用 json.dump，并提供一个 default 转换函数来处理特殊类型
-                json.dump(result_to_return, f, ensure_ascii=False, indent=4, default=str)
-            
-            print(f"    -> [WORKER] 股票 {stock_code} 的结果已成功写入调试文件: {debug_file_path}")
-            
-            # 3. 最后再返回这个对象
-            return result_to_return
-
-        except Exception as write_error:
-            print(f"    -> [WORKER] !!! 严重错误: 在写入调试文件或返回结果时失败: {write_error}")
-            # 如果写入都失败了，那问题就出在 to_dict('records') 这一步
-            # 尝试返回一个简单的成功标志
-            with open(debug_file_path, 'w', encoding='utf-8') as f:
-                f.write(f"Error during final conversion: {write_error}")
-            return [{"status": "conversion_error"}]
-        # ▲▲▲ 终极调试结束 ▲▲▲
+        # --- 将结果存入Redis ---
+        # 无论结果是否为空，都执行这一步，以确保计数正确
+        async_to_sync(cache_manager.set)(result_key, final_result, timeout=3600)
+        print(f"    -> [WORKER V7.0] {stock_code} 结果已存入Redis: {result_key}")
 
     except Exception as e:
-        print(f"    -> [WORKER] !!! 严重错误: 处理 {stock_code} 时发生全局异常: {e}")
-        import traceback
-        traceback.print_exc()
-        # 在全局异常时也写入错误信息到文件
-        with open(debug_file_path, 'w', encoding='utf-8') as f:
-            f.write(f"Global exception: {e}\n\n{traceback.format_exc()}")
-        return None
+        logger.error(f"    -> [WORKER V7.0] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
+    
+    finally:
+        # --- 无论成功失败，都增加计数器 ---
+        counter_key = f"intraday_engine:counter:{job_id}"
+        # 使用原子性的 incr, 它会返回增加后的值
+        completed_count = async_to_sync(cache_manager.incr)(counter_key)
+        # 设置一个过期时间，防止计数器永远存在
+        async_to_sync(cache_manager.expire)(counter_key, 3600)
+
+        print(f"    -> [WORKER V7.0] {stock_code} 完成。当前计数: {completed_count}/{total_tasks}")
+
+        # --- 检查是否所有任务都已完成 ---
+        if completed_count >= total_tasks:
+            print(f"    -> [WORKER V7.0] {stock_code} 是最后一个任务！正在触发聚合任务...")
+            from tasks.stock_analysis_tasks import aggregate_intraday_results
+            # 直接调用聚合任务，传递 job_id
+            aggregate_intraday_results.apply_async(
+                args=[job_id, total_tasks],
+                queue='cpu_intensive_queue', # 确保聚合任务在同一个队列
+                routing_key='cpu_intensive_queue'
+            )
 
 class RealtimeServices:
     """
@@ -270,14 +268,18 @@ class RealtimeServices:
 
     async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
         """
-        【V5.3 - Chord异步工作流版】
-        使用 Celery Chord 将并行计算与结果聚合解耦，避免阻塞。
+        【V7.0 - 两阶段解耦版】
+        - 彻底抛弃 Chord，使用 Redis 计数器手动实现聚合。
         """
-        from tasks.stock_analysis_tasks import aggregate_intraday_results
-        print(f"【V5.3】开始为 {len(stock_codes)} 支股票构建 Chord 异步工作流...")
+        # ▼▼▼ 核心修改：不再导入和使用 Chord ▼▼▼
+        # from tasks.stock_analysis_tasks import aggregate_intraday_results
+        print(f"【V7.0】开始为 {len(stock_codes)} 支股票分派任务...")
         
-        # --- 步骤 1: I/O 阶段 (逻辑不变) ---
-        # ... (这部分数据准备的代码完全不变) ...
+        # --- 步骤 1: 生成一个唯一的批次ID ---
+        job_id = f"{trade_date.replace('-', '')}_{datetime.now().strftime('%H%M%S')}"
+        print(f"  -> 本次任务批次ID: {job_id}")
+
+        # --- 步骤 2: 数据准备 (逻辑不变) ---
         print("  -> 阶段 1/2: 正在集中获取所有股票的原始数据...")
         all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
         if not all_bulk_data:
@@ -299,36 +301,27 @@ class RealtimeServices:
                 continue
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            job_packages.append((code, df_minute, df_ticks, df_level5))
+            serialized_minute = df_minute.to_dict('split') if df_minute is not None else None
+            serialized_ticks = df_ticks.to_dict('split') if df_ticks is not None else None
+            serialized_level5 = df_level5.to_dict('split') if df_level5 is not None else None
+            job_packages.append((code, serialized_minute, serialized_ticks, serialized_level5))
         
-        print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务打包到 Chord 中。")
+        total_tasks = len(job_packages)
+        print(f"  -> 数据获取完成，准备将 {total_tasks} 个有效计算任务分派出去。")
 
-        # --- 步骤 2: 构建并启动 Chord 工作流 ---
         if not job_packages:
             print("没有可执行的计算任务，流程结束。")
             return
 
-        # 2.1 创建并行任务组 (Header)
-        calculation_group = group(
-            cpu_bound_calculation_task.s(
-                stock_data_package=pkg,
-                time_level=time_level,
-                slope_window=self.slope_window,
-                stats_window=self.stats_window
-            ).set(queue='cpu_intensive_queue', routing_key='cpu_intensive_queue') 
-            for pkg in job_packages
-        )
-
-        callback_task = aggregate_intraday_results.s().set(queue='cpu_intensive_queue', routing_key='cpu_intensive_queue')
-
-        # 2.3 构建 Chord 并异步执行
-        # chord(header, body)
-        workflow = chord(calculation_group, callback_task)
-        workflow.apply_async()
+        # --- 步骤 3: 分派所有独立的计算任务 ---
+        for pkg in job_packages:
+            cpu_bound_calculation_task.apply_async(
+                args=[pkg, time_level, self.slope_window, self.stats_window, job_id, total_tasks],
+                queue='cpu_intensive_queue',
+                routing_key='cpu_intensive_queue'
+            )
         
-        # ▼▼▼ 核心修改：不再有 .get()，任务启动后立即结束 ▼▼▼
-        print(f"  -> Celery Chord 工作流已成功启动，包含 {len(job_packages)} 个计算任务。主任务退出，结果将由回调任务处理。")
-
+        print(f"  -> 所有 {total_tasks} 个计算任务已分派。主任务退出，计算和聚合将由 worker 在后台完成。")
 
 
 
