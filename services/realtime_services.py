@@ -302,10 +302,7 @@ class RealtimeServices:
                 continue
             bulk_data = all_bulk_data.get(code)
             df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            serialized_minute = df_minute.to_dict('split') if df_minute is not None else None
-            serialized_ticks = df_ticks.to_dict('split') if df_ticks is not None else None
-            serialized_level5 = df_level5.to_dict('split') if df_level5 is not None else None
-            job_packages.append((code, serialized_minute, serialized_ticks, serialized_level5))
+            job_packages.append((code, df_minute, df_ticks, df_level5))
         
         print(f"  -> 数据获取完成，准备将 {len(job_packages)} 个有效计算任务打包到 Chord 中。")
 
@@ -326,7 +323,7 @@ class RealtimeServices:
 
         # 2.2 创建回调任务签名 (Body)
         # .s() 创建一个不带参数的签名，它将自动接收 group 的结果
-        callback_task = aggregate_intraday_results.s()
+        callback_task = aggregate_intraday_results.s().set(queue='cpu_intensive_queue')
 
         # 2.3 构建 Chord 并异步执行
         # chord(header, body)

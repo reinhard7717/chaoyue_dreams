@@ -409,20 +409,19 @@ def run_cycle():
         logger.error(f"【V3.3】核心盘中批量循环任务失败: {e}", exc_info=True)
         raise
 
-@celery_app.task(name='tasks.aggregate_intraday_results', queue='intraday_queue')
+@celery_app.task(name='tasks.aggregate_intraday_results', queue='cpu_intensive_queue')
 def aggregate_intraday_results(results, *args, **kwargs):
     """
-    【V3.3 - Chord回调修复版】
-    - 核心修复: 修改函数签名，使用 `results, *args, **kwargs` 来健壮地接收
-                来自Celery Chord的结果，该结果总是一个元组。
+    【V3.4 - Chord队列修复版】
+    - 核心修复: 将此任务的队列更改为 'cpu_intensive_queue'，与并行计算任务保持一致。
     """
     print("\n" + "="*30)
     print("【回调任务】所有并行计算已完成，开始存储完整计算结果...")
+    
     actual_results = []
     if isinstance(results, (list, tuple)) and results:
         actual_results = results[0] if isinstance(results[0], list) else results
     
-    # 使用 actual_results 进行后续操作
     valid_results = [res for res in actual_results if res and isinstance(res, list)]
     
     if not valid_results:
@@ -430,7 +429,6 @@ def aggregate_intraday_results(results, *args, **kwargs):
         print("="*30 + "\n")
         return "Aggregation complete: No valid results."
 
-    # 恢复使用 asyncio.run，因为它本身是正确的，之前的问题在于调用失败
     redis_keys_for_signals = asyncio.run(save_full_data_to_redis(valid_results))
     
     total_stocks = len(valid_results)
@@ -438,6 +436,7 @@ def aggregate_intraday_results(results, *args, **kwargs):
     
     if redis_keys_for_signals:
         print(f"【回调任务】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
+        # 注意：这里的信号生成任务仍然可以发送到它自己的队列
         signal_generation_workflow = group(
             generate_signals_from_data.s(redis_key) for redis_key in redis_keys_for_signals
         )
