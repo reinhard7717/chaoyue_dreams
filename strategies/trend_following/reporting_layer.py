@@ -58,15 +58,14 @@ class ReportingLayer:
 
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
         """
-        【V314.0 核心修复】
-        创建一个基础记录字典。采用“模板优先，数据覆盖”的健壮合并逻辑。
+        【V314.1 健壮净化版】
+        创建一个基础记录字典，并对所有数值字段进行严格的NaN净化。
         """
         trade_time_input = kwargs.get('trade_time')
         if trade_time_input is None: raise ValueError("创建信号记录时必须提供 'trade_time'")
         ts = pd.to_datetime(trade_time_input)
         standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime() if ts.tzinfo is None else ts.tz_convert('UTC').to_pydatetime()
         
-        # 1. 定义数据库字段的完整模板和默认值
         db_template = {
             "stock_code": None, "trade_time": standard_trade_time, "timeframe": "N/A",
             "strategy_name": "UNKNOWN", "close_price": None, "entry_signal": False,
@@ -76,24 +75,44 @@ class ReportingLayer:
             "pullback_target_price": None, "is_long_term_bullish": False, "is_mid_term_bullish": False,
             "is_pullback_setup": False, "exit_severity_level": 0, "exit_signal_reason": "",
             "stable_platform_price": None, "is_risk_warning": False, "risk_score": 0.0,
-            "signal_type": "中性" # 确保 signal_type 有默认值
+            "signal_type": "中性",
+            # ▼▼▼ 确保所有 judgment_layer 中可能产生的列都在模板里 ▼▼▼
+            "holding_health_score": 0.0,
+            "veto_votes": 0
         }
         
-        # 2. 以模板为基础，用传入的实际数据 kwargs 进行覆盖
-        #    这能确保所有来自策略计算的值都被使用，同时所有数据库列都存在。
         final_record = db_template.copy()
         final_record.update(kwargs)
 
-        # 3. 只保留数据库模板中存在的键，移除多余的（如 close_D）
         record = {key: final_record.get(key) for key in db_template}
 
-        # 4. 类型净化
-        for key in ['close_price', 'pullback_target_price', 'stable_platform_price']:
-            if key in record:
-                record[key] = sanitize_for_json(record.get(key))
-        for key in ['entry_score', 'risk_score', 'washout_score']:
-             if key in record:
-                record[key] = float(sanitize_for_json(record.get(key, 0.0)))
+        numeric_fields_with_defaults = {
+            'close_price': None,
+            'pullback_target_price': None,
+            'stable_platform_price': None,
+            'entry_score': 0.0,
+            'risk_score': 0.0,
+            'holding_health_score': 0.0,
+            'washout_score': 0,
+            'exit_signal_code': 0,
+            'exit_severity_level': 0,
+            'rejection_code': 0,
+            'veto_votes': 0
+        }
+
+        for field, default_value in numeric_fields_with_defaults.items():
+            value = record.get(field)
+            # pd.isna() 可以同时检查 None 和 NaN
+            if pd.isna(value):
+                record[field] = default_value
+            else:
+                # 确保类型正确
+                if default_value is None:
+                    record[field] = float(value) if value is not None else None
+                elif isinstance(default_value, float):
+                    record[field] = float(value)
+                elif isinstance(default_value, int):
+                    record[field] = int(value)
 
         return record
 
