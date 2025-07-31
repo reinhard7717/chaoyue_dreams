@@ -105,7 +105,7 @@ class CacheManager:
                  new_url = location
             pool_kwargs = options.get('CONNECTION_POOL_KWARGS', {})
             max_conns = pool_kwargs.get('max_connections', options.get('MAX_CONNECTIONS', 100))
-            print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}")
+            # print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}")
 
             redis_client = await Redis.from_url(
                 new_url,
@@ -848,12 +848,12 @@ class CacheManager:
         【新增】(异步) 优雅地关闭所有已创建的 Redis 客户端连接。
         这是一个重要的清理方法，应在应用或一个完整任务周期结束时调用。
         """
-        print("DEBUG: CacheManager 正在关闭所有 Redis 连接...")
+        # print("DEBUG: CacheManager 正在关闭所有 Redis 连接...")
         
         # 使用同步锁来安全地访问和修改 _contexts 字典
         with self._context_lock:
             if not self._contexts:
-                print("DEBUG: 没有活动的 Redis 连接需要关闭。")
+                # print("DEBUG: 没有活动的 Redis 连接需要关闭。")
                 return
 
             # 收集所有需要关闭的客户端的 close() 协程
@@ -861,7 +861,7 @@ class CacheManager:
             for loop_id, context in self._contexts.items():
                 client = context.get('client')
                 if client:
-                    print(f"  -> 正在安排关闭 Event Loop {loop_id} 的连接。")
+                    # print(f"  -> 正在安排关闭 Event Loop {loop_id} 的连接。")
                     close_tasks.append(client.close())
             
             # 在持有锁的期间，立即清空上下文，防止新的请求进来
@@ -872,7 +872,7 @@ class CacheManager:
             try:
                 # 使用 asyncio.gather 并发关闭所有连接，提高效率
                 await asyncio.gather(*close_tasks, return_exceptions=True)
-                print(f"DEBUG: CacheManager 已成功关闭 {len(close_tasks)} 个 Redis 连接。")
+                # print(f"DEBUG: CacheManager 已成功关闭 {len(close_tasks)} 个 Redis 连接。")
             except Exception as e:
                 logger.error(f"关闭 Redis 连接过程中发生意外错误: {e}", exc_info=True)
         else:

@@ -25,7 +25,7 @@ def with_cache_manager(task_function):
         cache_manager_instance = None
         try:
             # 1. 创建 CacheManager 实例
-            print(f"任务 {task_id}: [装饰器] 正在创建 CacheManager...")
+            # print(f"任务 {task_id}: [装饰器] 正在创建 CacheManager...")
             cache_manager_instance = CacheManager()
             
             # 2. 将实例注入到任务函数的关键字参数中
@@ -41,13 +41,13 @@ def with_cache_manager(task_function):
         finally:
             # 4. 在任务结束时，无论如何都关闭连接
             if cache_manager_instance:
-                print(f"任务 {task_id}: [装饰器] 任务完成，正在关闭Redis连接...")
+                # print(f"任务 {task_id}: [装饰器] 任务完成，正在关闭Redis连接...")
                 try:
                     # 因为 close 是异步方法，需要使用 async_to_sync
                     async def close_main():
                         await cache_manager_instance.close()
                     async_to_sync(close_main)()
-                    print(f"任务 {task_id}: [装饰器] Redis连接已成功关闭。")
+                    # print(f"任务 {task_id}: [装饰器] Redis连接已成功关闭。")
                 except Exception as e:
                     logger.error(f"任务 {task_id}: [装饰器] 在关闭Redis连接时发生错误: {e}", exc_info=True)
 
@@ -69,7 +69,7 @@ def with_cache_manager_for_views(view_func):
         cache_manager_instance = None
         try:
             # 1. 创建 CacheManager 实例
-            print(f"视图 {view_name}: [装饰器] 正在创建 CacheManager...")
+            # print(f"视图 {view_name}: [装饰器] 正在创建 CacheManager...")
             cache_manager_instance = CacheManager()
             
             # 2. 将实例注入到视图函数的关键字参数中
@@ -86,13 +86,13 @@ def with_cache_manager_for_views(view_func):
         finally:
             # 4. 在任务结束时，无论如何都关闭连接
             if cache_manager_instance:
-                print(f"视图 {view_name}: [装饰器] 视图处理完成，正在关闭Redis连接...")
+                # print(f"视图 {view_name}: [装饰器] 视图处理完成，正在关闭Redis连接...")
                 try:
                     # 因为 close 是异步方法，需要使用 async_to_sync
                     async def close_main():
                         await cache_manager_instance.close()
                     async_to_sync(close_main)()
-                    print(f"视图 {view_name}: [装饰器] Redis连接已成功关闭。")
+                    # print(f"视图 {view_name}: [装饰器] Redis连接已成功关闭。")
                 except Exception as e:
                     logger.error(f"视图 {view_name}: [装饰器] 关闭Redis连接时发生错误: {e}", exc_info=True)
 
