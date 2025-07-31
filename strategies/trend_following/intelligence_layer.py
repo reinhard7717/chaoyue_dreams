@@ -700,7 +700,6 @@ class IntelligenceLayer:
         )
 
         # --- 5. 【新增】计算动态均线粘合压缩状态 ---
-        # 这个逻辑最好放在这里，因为它依赖于均线数据，并且是一个基础的MA状态
         p_conv = get_params_block(self.strategy, 'post_accumulation_params').get('convergence_params', {})
         if get_param_value(p_conv.get('use_dynamic_threshold'), False):
             window = get_param_value(p_conv.get('window'), 120)

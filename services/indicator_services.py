@@ -1239,8 +1239,7 @@ class IndicatorService:
 
     async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【新增】计算均线粘合度 (MA Convergence)。
-        使用变异系数 (CV) 来量化多条均线之间的离散程度。
+        【V2.0 列名净化版】计算均线粘合度 (MA Convergence)。
         """
         results_df = pd.DataFrame(index=df.index)
         
@@ -1249,22 +1248,18 @@ class IndicatorService:
                 periods = config.get('periods', [])
                 output_col = config.get('output_column_name')
                 
-                if not periods or not output_col:
-                    continue
+                if not periods or not output_col: continue
 
-                # 动态构建需要参与计算的均线列名
-                # 注意：这里假设指标计算在添加后缀之前运行，所以列名不带后缀
                 ma_cols = [f"EMA_{p}" for p in periods]
                 
                 if all(col in df.columns for col in ma_cols):
                     ma_df = df[ma_cols]
                     ma_std = ma_df.std(axis=1)
                     ma_mean = ma_df.mean(axis=1)
-                    
                     convergence_cv = ma_std / (ma_mean + 1e-9)
                     
-                    # 移除可能存在的后缀，因为后缀会在最后统一添加
-                    output_col_clean = output_col.split('_')[0] if '_' in output_col else output_col
+                    # ▼▼▼【核心修复】移除输出列名中可能存在的后缀 ▼▼▼
+                    output_col_clean = output_col.replace('_D', '').replace('_W', '').replace('_M', '')
                     results_df[output_col_clean] = convergence_cv
                 else:
                     missing = [col for col in ma_cols if col not in df.columns]
@@ -2312,87 +2307,88 @@ class IndicatorService:
             print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
             return None
 
-    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, **kwargs) -> Optional[pd.DataFrame]:
+    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【新增】计算斐波那契回撤和扩展水平。
-        通过识别重要的波段高点和低点，动态计算出潜在的支撑和阻力位。
+        【V2.0 兼容改造版】计算斐波那契回撤水平。
+        - 核心修复: 修正了参数路径、依赖库导入和输出列名，使其与策略框架完全兼容。
+        - 思想保留: 依然使用动态寻找波段高低点的方法来计算。
         """
-        fib_params = params.get('fibonacci_analysis_params', {})
-        if not fib_params.get('enabled', False):
+        # ▼▼▼【核心修复 1】修正参数路径 ▼▼▼
+        # 直接使用传入的 params，不再寻找下一级的 'fibonacci_analysis_params'
+        fib_params = params.get('params', {})
+        if not params.get('enabled', False):
             return None
 
-        print("    - [斐波那契分析] 开始计算斐波那契水平...")
+        print("    - [斐波那契分析 V2.0] 开始计算动态斐波那契水平...")
         
-        # 使用scipy.signal.find_peaks识别波段高低点
+        # ▼▼▼【核心修复 2】将导入语句移至方法内部，并增加try-except保护 ▼▼▼
+        try:
+            from scipy.signal import find_peaks, peak_prominences
+        except ImportError:
+            logger.error("缺少 'scipy' 库，无法计算动态斐波那契水平。请运行 'pip install scipy'。")
+            return None
+
+        # 从配置中获取参数
         distance = fib_params.get('peak_distance', 13)
-        prominence = fib_params.get('peak_prominence', 0.05)
+        prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05) # 使用新名字以示区分
         
-        # 为了能传入 prominence 序列，我们需要在线程中执行
+        # 确保 'close' 列存在
+        if 'close' not in df.columns:
+            logger.error("斐波那契计算失败：DataFrame中缺少 'close' 列。")
+            return None
+
+        # 在线程中执行计算密集型任务
         def _find_peaks_sync(data, prominence_series):
-            # 找出所有候选波峰/波谷
             candidate_indices, _ = find_peaks(data, distance=distance)
-            if len(candidate_indices) == 0:
-                return []
-            # 计算实际突起并与动态阈值比较
+            if len(candidate_indices) == 0: return []
+            
             actual_prominences, _, _ = peak_prominences(data, candidate_indices)
             custom_thresholds = prominence_series.iloc[candidate_indices]
             valid_mask = actual_prominences >= custom_thresholds.values
             return candidate_indices[valid_mask]
 
-        # 准备动态prominence阈值
-        peak_prominence_series = df['close'] * prominence
-        trough_prominence_series = df['close'] * prominence
+        peak_prominence_series = df['close'] * prominence_ratio
+        trough_prominence_series = df['close'] * prominence_ratio
 
-        # 在线程中异步执行
-        peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'], peak_prominence_series)
-        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'], trough_prominence_series)
+        peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'].values, peak_prominence_series)
+        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, trough_prominence_series)
 
-        # 创建记录最新高低点的列
-        df['swing_high_price'] = np.nan
-        df.iloc[peak_indices, df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
-        df['swing_high_price'].ffill(inplace=True)
+        # 创建临时列用于计算
+        temp_df = pd.DataFrame(index=df.index)
+        temp_df['swing_high_price'] = np.nan
+        if len(peak_indices) > 0:
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
+        temp_df['swing_high_price'].ffill(inplace=True)
 
-        df['swing_low_price'] = np.nan
-        df.iloc[trough_indices, df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
-        df['swing_low_price'].ffill(inplace=True)
+        temp_df['swing_low_price'] = np.nan
+        if len(trough_indices) > 0:
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
+        temp_df['swing_low_price'].ffill(inplace=True)
         
-        # 确定当前波段是上升还是下降
-        df['swing_high_date'] = pd.NaT
-        df.iloc[peak_indices, df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
-        df['swing_high_date'].ffill(inplace=True)
+        temp_df['swing_high_date'] = pd.NaT
+        if len(peak_indices) > 0:
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
+        temp_df['swing_high_date'].ffill(inplace=True)
         
-        df['swing_low_date'] = pd.NaT
-        df.iloc[trough_indices, df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
-        df['swing_low_date'].ffill(inplace=True)
+        temp_df['swing_low_date'] = pd.NaT
+        if len(trough_indices) > 0:
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
+        temp_df['swing_low_date'].ffill(inplace=True)
 
-        # 如果高点比低点新，则当前处于上升波段后的回撤阶段
-        is_uptrend_pullback = df['swing_high_date'] > df['swing_low_date']
-        
-        # 计算波段范围
-        swing_range = abs(df['swing_high_price'] - df['swing_low_price'])
+        is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
+        swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
 
         result_df = pd.DataFrame(index=df.index)
         
-        # 计算回撤位
-        retr_levels = fib_params.get('retracement_levels', [])
+        retr_levels = fib_params.get('levels', [0.382, 0.5, 0.618])
         for level in retr_levels:
-            col_name = f'fib_retr_{str(level).replace(".", "")}'
-            # 上升波段的回撤位 = 高点 - 范围 * 百分比
-            retr_price = df['swing_high_price'] - swing_range * level
+            # ▼▼▼【核心修复 3】生成与情报层匹配的列名 ▼▼▼
+            col_name = f'FIB_{level:.3f}'.replace('0.', '0_') # e.g., FIB_0_618
+            
+            retr_price = temp_df['swing_high_price'] - swing_range * level
             result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
 
-        # 计算扩展位
-        ext_levels = fib_params.get('extension_levels', [])
-        for level in ext_levels:
-            col_name = f'fib_ext_{str(level).replace(".", "")}'
-            # 上升波段的扩展位 = 高点 + 范围 * (扩展百分比 - 1)
-            ext_price = df['swing_high_price'] + swing_range * (level - 1.0)
-            result_df[col_name] = np.where(is_uptrend_pullback, ext_price, np.nan)
-            
-        print("    - [斐波那契分析] 计算完成。")
-        # 清理临时列
-        df.drop(columns=['swing_high_price', 'swing_low_price', 'swing_high_date', 'swing_low_date'], inplace=True)
-        
+        print("    - [斐波那契分析 V2.0] 计算完成。")
         return result_df
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
