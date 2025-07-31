@@ -697,6 +697,25 @@ class IntelligenceLayer:
             break_condition_series=break_condition,
             state_name='MA_STATE_BOTTOM_PASSIVATION'
         )
+
+        # --- 5. 【新增】计算动态均线粘合压缩状态 ---
+        # 这个逻辑最好放在这里，因为它依赖于均线数据，并且是一个基础的MA状态
+        p_conv = get_params_block(self.strategy, 'post_accumulation_params').get('convergence_params', {})
+        if get_param_value(p_conv.get('use_dynamic_threshold'), False):
+            window = get_param_value(p_conv.get('window'), 120)
+            quantile = get_param_value(p_conv.get('quantile'), 0.1)
+            
+            short_cv_col = 'MA_CONV_CV_SHORT_D'
+            long_cv_col = 'MA_CONV_CV_LONG_D'
+            
+            if short_cv_col in df.columns:
+                dynamic_threshold_short = df[short_cv_col].rolling(window=window).quantile(quantile)
+                states['MA_STATE_SHORT_CONVERGENCE_SQUEEZE'] = df[short_cv_col] < dynamic_threshold_short
+            
+            if long_cv_col in df.columns:
+                dynamic_threshold_long = df[long_cv_col].rolling(window=window).quantile(quantile)
+                states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
+
         return states
 
     def _diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1375,11 +1394,11 @@ class IntelligenceLayer:
 
     def _diagnose_post_accumulation_phase(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V312.0 均线粘合增强版】初升浪诊断模块
-        - 核心升级: 引入“均线高度粘合”作为盘整/筑底阶段的核心识别条件，
-                    极大地提高了对高质量启动点的识别精度。
+        【V313.0 动态粘合版】初升浪诊断模块
+        - 核心升级: 使用动态的、基于滚动分位数的“均线粘合压缩”状态，
+                    替代了过于严苛的绝对阈值，极大提升了策略的适应性。
         """
-        print("        -> [初升浪诊断模块 V312.0 均线粘合增强版] 启动...")
+        print("        -> [初升浪诊断模块 V313.0 动态粘合版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1391,32 +1410,28 @@ class IntelligenceLayer:
         break_ma_period = get_param_value(p.get('break_ma_period'), 21)
         break_ma_col = f'EMA_{break_ma_period}_D'
         
-        # 从配置中读取粘合度阈值
-        convergence_threshold = get_param_value(p.get('convergence_threshold'), 0.01)
-
         # --- 1. 检查所需情报 ---
-        required_cols = [
-            'MA_CONV_CV_SHORT_D', 'MA_CONV_CV_LONG_D', # 新的粘合度指标
-            'pct_change_D', 'volume_D', 'VOL_MA_21_D', break_ma_col
+        required_states = [
+            'MA_STATE_SHORT_CONVERGENCE_SQUEEZE', # 新的动态粘合状态
+            'MA_STATE_LONG_CONVERGENCE_SQUEEZE'
         ]
-        if any(col not in df.columns for col in required_cols):
-            print("          -> [警告] 缺少诊断“初升浪”所需的核心情报(均线粘合度/成交量数据)，模块跳过。")
+        if any(state not in self.strategy.atomic_states for state in required_states):
+            print("          -> [警告] 缺少诊断“初升浪”所需的“动态均线粘合”情报，模块跳过。")
             return {}
 
         # --- 2. 定义“盘整/筑底”的准备阶段 (Setup Phase) ---
-        # 条件A: 短期或长期均线必须高度粘合 (CV值小于阈值)
+        # 条件A: 短期或长期均线必须处于“粘合压缩”状态
         is_highly_converged = (
-            (df['MA_CONV_CV_SHORT_D'] < convergence_threshold) |
-            (df['MA_CONV_CV_LONG_D'] < convergence_threshold)
+            self.strategy.atomic_states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', default_series) |
+            self.strategy.atomic_states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', default_series)
         )
         
-        # 条件B: （可选）可以结合之前的“健康吸筹箱体”或“极致压缩”状态，作为补充
+        # 条件B: 结合其他盘整信号，增加确定性
         is_other_setup = (
             self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series) |
             self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         )
         
-        # 最终的准备阶段：必须满足均线粘合，最好还有其他盘整信号
         is_setup_phase = is_highly_converged & is_other_setup
         
         # --- 3. 定义“启动事件” (Ignition Event) ---

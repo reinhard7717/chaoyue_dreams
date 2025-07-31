@@ -634,10 +634,13 @@
       },
       "post_accumulation_params": {
         "enabled": true,
-        "description": "【V312.0 均线粘合增强版】初升浪诊断模块参数",
-        "convergence_threshold": {
-          "value": 0.01,
-          "description": "均线粘合度的CV值阈值。低于此值视为高度粘合。0.01代表均线的标准差仅为均值的1%。"
+        "description": "【V313.0 动态粘合版】初升浪诊断模块参数",
+        "convergence_params": {
+          "description": "【新增】均线动态粘合阈值参数",
+          "use_dynamic_threshold": true,
+          "window": 120,
+          "quantile": 0.1,
+          "description_detail": "当天的均线粘合度(CV)需要小于其过去120天中的最低10%水平，才被视为'高度粘合'。"
         },
         "persistence_days": {
           "value": 15,
