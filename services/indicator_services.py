@@ -477,9 +477,11 @@ class IndicatorService:
             return (tf_to_fetch, df)
 
         for tf in base_tfs_to_fetch:
-            bars_to_fetch = base_needed_bars
-            if 'D' in base_tfs_to_fetch and resample_map:
-                bars_to_fetch = max(bars_to_fetch, 1200) # 约5年数据，确保周线/月线指标计算准确
+            bars_to_fetch = base_needed_bars 
+            if tf == 'D' and resample_map:
+                # 如果需要重采样，确保日线数据量足够，但仍要尊重闪电模式
+                bars_to_fetch = max(bars_to_fetch, 1200) if not latest_only else base_needed_bars
+            
             tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
             # print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
 

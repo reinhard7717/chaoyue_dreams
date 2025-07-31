@@ -584,20 +584,25 @@ class StrategiesDAO(BaseDAO):
                 qs = qs.filter(trade_time__lte=trade_time.date())
             
             qs = qs.order_by('-trade_time')[:limit]
-            
-            # .values() 性能更高，直接返回字典列表
-            data = list(qs.values())
-            
+
+            fields_to_get = [
+                'trade_time',
+                'turnover_rate',
+                'turnover_rate_f',
+                'volume_ratio',
+                'pe_ttm',
+                'pb',
+                'total_mv',
+                'circ_mv'
+            ]
+            data = list(qs.values(*fields_to_get))
             if not data:
                 return None
-            
             df = pd.DataFrame.from_records(data)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
-            
             # 删除不需要的列，只保留核心数据
             df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
-            
             return df
         except Exception as e:
             logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
