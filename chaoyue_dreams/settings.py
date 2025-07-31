@@ -441,7 +441,7 @@ task_store_errors_even_if_ignored = True
 
 # 定义队列
 CELERY_TASK_QUEUES = (
-    Queue('celery', routing_key='celery.#'),          # 默认队列 (假设你的默认队列是 'celery')
+    Queue('celery', routing_key='celery.#'), # 默认队列 (假设你的默认队列是 'celery')
     Queue('SaveData_RealTime', routing_key='save_api_data_RealTime.#'), # 保存API数据队列
     Queue('SaveData_TimeTrade', routing_key='save_api_data_TimeTrade.#'), # 保存API数据队列
     Queue('favorite_SaveData_RealTime', routing_key='favorite_save_api_data_RealTime.#'), # 保存API数据队列
@@ -451,8 +451,8 @@ CELERY_TASK_QUEUES = (
     Queue('calculate_strategy', routing_key='calculate_strategy.#'), # 计算股票指标队列
     Queue('favorite_calculate_strategy', routing_key='favorite_calculate_strategy.#'), # 计算股票指标队列
     Queue('dashboard', routing_key='dashboard.#'), # DRF专用队列
-    # 如果你的默认队列有其他名字，比如 'default_tasks'，就这样定义:
-    # Queue('default_tasks', routing_key='default.#'),
+    Queue('intraday_queue', routing_key='intraday_queue.#'), # 盘中引擎队列
+    Queue('cpu_intensive_queue', routing_key='cpu_intensive_queue.#'), # 盘中引擎计算股票指标队列
 )
 
 # Celery Beat配置
