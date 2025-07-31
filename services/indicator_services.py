@@ -780,7 +780,8 @@ class IndicatorService:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
             # 复合指标在下一阶段处理
-            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']: continue
+            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels', 'ma_convergence']:
+                continue
 
             # 遍历该指标的所有配置项（例如，RSI可以有多个不同周期的配置）
             configs_to_process = params.get('configs', [params])
@@ -832,7 +833,7 @@ class IndicatorService:
         # --- 阶段二: 复合指标计算循环 ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
-            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels'] and params.get('enabled', False):
+            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels', 'ma_convergence'] and params.get('enabled', False):
                 if timeframe_key in params.get("apply_on", []):
                     try:
                         method_to_call = indicator_method_map[indicator_name]
