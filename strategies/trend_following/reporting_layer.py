@@ -58,8 +58,8 @@ class ReportingLayer:
 
     def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
         """
-        【V314.1 健壮净化版】
-        创建一个基础记录字典，并对所有数值字段进行严格的NaN净化。
+        【V314.2 终极净化版】
+        创建一个基础记录字典，并对所有数值和布尔字段进行严格的NaN净化。
         """
         trade_time_input = kwargs.get('trade_time')
         if trade_time_input is None: raise ValueError("创建信号记录时必须提供 'trade_time'")
@@ -76,7 +76,6 @@ class ReportingLayer:
             "is_pullback_setup": False, "exit_severity_level": 0, "exit_signal_reason": "",
             "stable_platform_price": None, "is_risk_warning": False, "risk_score": 0.0,
             "signal_type": "中性",
-            # ▼▼▼ 确保所有 judgment_layer 中可能产生的列都在模板里 ▼▼▼
             "holding_health_score": 0.0,
             "veto_votes": 0
         }
@@ -86,33 +85,32 @@ class ReportingLayer:
 
         record = {key: final_record.get(key) for key in db_template}
 
+        # --- 数值字段净化 ---
         numeric_fields_with_defaults = {
-            'close_price': None,
-            'pullback_target_price': None,
-            'stable_platform_price': None,
-            'entry_score': 0.0,
-            'risk_score': 0.0,
-            'holding_health_score': 0.0,
-            'washout_score': 0,
-            'exit_signal_code': 0,
-            'exit_severity_level': 0,
-            'rejection_code': 0,
-            'veto_votes': 0
+            'close_price': None, 'pullback_target_price': None, 'stable_platform_price': None,
+            'entry_score': 0.0, 'risk_score': 0.0, 'holding_health_score': 0.0,
+            'washout_score': 0, 'exit_signal_code': 0, 'exit_severity_level': 0,
+            'rejection_code': 0, 'veto_votes': 0
         }
-
         for field, default_value in numeric_fields_with_defaults.items():
             value = record.get(field)
-            # pd.isna() 可以同时检查 None 和 NaN
             if pd.isna(value):
                 record[field] = default_value
             else:
-                # 确保类型正确
-                if default_value is None:
-                    record[field] = float(value) if value is not None else None
-                elif isinstance(default_value, float):
-                    record[field] = float(value)
-                elif isinstance(default_value, int):
-                    record[field] = int(value)
+                if default_value is None: record[field] = float(value) if value is not None else None
+                elif isinstance(default_value, float): record[field] = float(value)
+                elif isinstance(default_value, int): record[field] = int(value)
+
+        boolean_fields = [
+            'entry_signal', 'is_breakout_trigger', 'is_continuation_entry',
+            'is_pullback_entry', 'is_long_term_bullish', 'is_mid_term_bullish',
+            'is_pullback_setup', 'is_risk_warning'
+        ]
+        for field in boolean_fields:
+            value = record.get(field)
+            # 如果值是 NaN, None, 或者其他非布尔值，都将其安全地转换为 False
+            if pd.isna(value) or not isinstance(value, bool):
+                record[field] = False
 
         return record
 
