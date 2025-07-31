@@ -1335,7 +1335,7 @@ class IntelligenceLayer:
         # --- 3. 定义“健康回踩”的核心条件 ---
         
         # 条件A: 必须处于“S级主升浪”结构中 (背景)
-        is_in_strong_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        is_in_strong_uptrend = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
         
         # 条件B: 当日股价温和下跌 (价格行为)
         is_moderate_pullback = (df['pct_change_D'] < max_pct_change) & (df['pct_change_D'] > min_pct_change)

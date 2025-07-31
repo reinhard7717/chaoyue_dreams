@@ -472,17 +472,13 @@ class IndicatorService:
         print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
 
         # 4. 准备所有“基础”OHLCV数据获取任务
-        async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
-            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, bars_to_fetch, trade_time_str)
+        async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
+            # 不再传递 bars_to_fetch，直接使用外部作用域的 base_needed_bars
+            df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
 
         for tf in base_tfs_to_fetch:
-            bars_to_fetch = base_needed_bars 
-            if tf == 'D' and resample_map:
-                # 如果需要重采样，确保日线数据量足够，但仍要尊重闪电模式
-                bars_to_fetch = max(bars_to_fetch, 1200) if not latest_only else base_needed_bars
-            
-            tasks.append(_fetch_and_tag_data(tf, bars_to_fetch, trade_time))
+            tasks.append(_fetch_and_tag_data(tf, trade_time))
             # print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
 
         # 5. 并发执行所有数据获取任务
