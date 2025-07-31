@@ -386,28 +386,22 @@ def run_cycle():
     - 从Redis加载由prepare_pools任务生成的监控池，只处理池内股票。
     """
     print("【V3.3】开始执行核心盘中批量循环任务...")
-    
     async def main():
         cache_manager = CacheManager()
         realtime_services = RealtimeServices(cache_manager)
-
         # 1. 从Redis加载当天要监控的股票池
         stock_codes_to_monitor = await realtime_services.get_monitoring_pool_from_cache()
-
         if not stock_codes_to_monitor:
             logger.error("监控股票池为空！盘前任务(prepare_pools)可能未成功执行。本次盘中循环任务终止。")
             await cache_manager.close()
             return
-
         # 2. 只对监控池中的股票进行处理
         await realtime_services.process_all_stocks_intraday_data(
             stock_codes=stock_codes_to_monitor,
             time_level='1T',
             trade_date=datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d')
         )
-        
         await cache_manager.close()
-
     try:
         async_to_sync(main)()
         print(f"【V3.3】核心盘中批量循环任务成功完成。")
@@ -425,19 +419,14 @@ def aggregate_intraday_results(results: list):
     """
     print("\n" + "="*30)
     print("【回调任务】所有并行计算已完成，开始存储完整计算结果...")
-    
     valid_results = [res for res in results if res and isinstance(res, list)]
-    
     if not valid_results:
         print("【回调任务】没有任何有效的计算结果，任务结束。")
         print("="*30 + "\n")
         return "Aggregation complete: No valid results."
-
     redis_keys_for_signals = asyncio.run(save_full_data_to_redis(valid_results))
-    
     total_stocks = len(valid_results)
     print(f"【回调任务】存储完成。成功处理了 {total_stocks} 支股票的完整数据。")
-    
     if redis_keys_for_signals:
         print(f"【回调任务】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
         signal_generation_workflow = group(
@@ -445,7 +434,6 @@ def aggregate_intraday_results(results: list):
         )
         signal_generation_workflow.apply_async()
         print("【回调任务】信号生成任务已全部派发。")
-
     print("="*30 + "\n")
     return f"Aggregation and dispatch complete: {total_stocks} stocks processed."
 

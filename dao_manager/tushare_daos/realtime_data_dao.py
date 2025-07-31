@@ -85,29 +85,21 @@ class StockRealtimeDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-        
         try:
             # 1. 数据采集
             stock_codes_str = ','.join(stock_codes)
             df = self.ts.realtime_quote(ts_code=stock_codes_str)
-            
-            # MODIFIED: 添加调试打印，显示从Tushare获取的原始DataFrame
-            # print(f"DEBUG: Tushare realtime_quote DF for codes '{stock_codes_str[:100]}...':\n{df.head().to_string()}")
-
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情数据。")
                 return []
-
             # 2. 数据预处理与载荷准备
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
-            
             db_realtime_list = []
             db_level5_list = []
             cache_latest_realtime = {}
             cache_latest_level5 = {}
             cache_append_realtime = {}
             cache_append_level5 = {}
-
             for row in df.itertuples():
                 stock = stocks_dict.get(row.TS_CODE)
                 if stock:
@@ -115,23 +107,14 @@ class StockRealtimeDAO(BaseDAO):
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
                     db_realtime_list.append(real_dict_db)
                     db_level5_list.append(level5_dict_db)
-                    
                     real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
                     level5_dict_cache = self.data_format_process.set_level5_data(None, row)
-                    
                     cache_latest_realtime[row.TS_CODE] = real_dict_cache
                     cache_latest_level5[row.TS_CODE] = level5_dict_cache
-                    
                     cache_append_realtime[row.TS_CODE] = real_dict_cache
                     cache_append_level5[row.TS_CODE] = level5_dict_cache
-
             if not db_realtime_list:
                 return []
-
-            # MODIFIED: 添加调试打印，显示准备写入Redis ZSET的载荷内容
-            # print(f"DEBUG: Prepared realtime ZSET payload (first 2 items): {dict(list(cache_append_realtime.items())[:2])}")
-            # print(f"DEBUG: Prepared level5 ZSET payload (first 2 items): {dict(list(cache_append_level5.items())[:2])}")
-
             # 3. 并发执行所有持久化任务
             tasks = [
                 self._save_all_to_db_native_upsert(StockRealtimeData, db_realtime_list, ['stock', 'trade_time']),
@@ -140,15 +123,11 @@ class StockRealtimeDAO(BaseDAO):
                 self.cache_set.batch_set_latest_level5_data(cache_latest_level5),
                 self.cache_set.batch_append_intraday_ticks(cache_append_realtime, cache_append_level5)
             ]
-            
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"并发持久化任务 {i} 执行失败: {result}", exc_info=result)
-
             return results[0] if not isinstance(results[0], Exception) else []
-
         except Exception as e:
             logger.error(f"save_tick_data_by_stock_codes 发生严重异常: {e}", exc_info=True)
             return []
