@@ -749,6 +749,55 @@ class StockRealtimeCacheSet(CacheSet):
             logger.error(f"批量追加盘中Ticks缓存时发生异常: {e}", exc_info=True)
             return False
 
+    async def batch_append_real_ticks(self, tick_data_map: Dict[str, pd.DataFrame]) -> bool:
+        """
+        【新增】使用 Pipeline 批量将真实的逐笔成交数据 (realtime_tick) 追加到当日的 Redis ZSET 中。
+        
+        Args:
+            tick_data_map (Dict[str, pd.DataFrame]): 字典，键为股票代码，值为包含逐笔数据的DataFrame。
+                                                     DataFrame的索引必须是 trade_time (DatetimeIndex)。
+        """
+        if not tick_data_map:
+            return True
+
+        try:
+            redis_client = await self.cache_manager._ensure_client()
+            async with redis_client.pipeline() as pipe:
+                today_str_no_hyphen = datetime.now().strftime('%Y%m%d')
+                timeout = self.cache_manager.get_timeout('rt') # 实时数据缓存1天
+
+                for stock_code, df_ticks in tick_data_map.items():
+                    if df_ticks is None or df_ticks.empty:
+                        continue
+                    
+                    # 准备要写入ZSET的 mapping {member: score}
+                    mapping_to_add = {}
+                    # DataFrame的索引是 trade_time
+                    for trade_time, row in df_ticks.iterrows():
+                        # 将每行数据转为字典
+                        member_data = row.to_dict()
+                        # 分数是时间的Unix时间戳
+                        score = trade_time.timestamp()
+                        # 序列化成员
+                        serialized_member = self.cache_manager._serialize(member_data)
+                        mapping_to_add[serialized_member] = score
+                    
+                    if mapping_to_add:
+                        # 获取新的缓存键
+                        cache_key = self.cache_key_stock.intraday_real_ticks(stock_code, today_str_no_hyphen)
+                        # 添加到pipeline
+                        pipe.zadd(cache_key, mapping_to_add)
+                        pipe.expire(cache_key, timeout)
+
+                # 一次性执行所有命令
+                await pipe.execute()
+            
+            logger.debug(f"成功批量追加 {len(tick_data_map)} 支股票的真实逐笔数据到Redis ZSET。")
+            return True
+        except Exception as e:
+            logger.error(f"批量追加真实逐笔数据到缓存时发生异常: {e}", exc_info=True)
+            return False
+
 class StrategyCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
         # 【核心修改】调用父类并传递实例

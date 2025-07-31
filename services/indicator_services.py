@@ -460,6 +460,16 @@ class IndicatorService:
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
             # print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
+        
+        # ▼▼▼【核心新增】任务准备: 每日基本面数据 (换手率等) ▼▼▼
+        async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
+            trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
+            # 假设 strategies_dao 中有一个方法可以获取这些数据
+            # 如果没有，我们需要在 DAO 层添加它
+            df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
+            return ('daily_basic', df)
+        tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
+        print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
 
         # 4. 准备所有“基础”OHLCV数据获取任务
         async def _fetch_and_tag_data(tf_to_fetch, bars_to_fetch, trade_time_str):
@@ -494,6 +504,8 @@ class IndicatorService:
                 if isinstance(data, pd.DataFrame): df_legacy_supplemental = data
             elif tag == 'advanced_chips':
                 if isinstance(data, pd.DataFrame): df_advanced_chips = data
+            elif tag == 'daily_basic':
+                if isinstance(data, pd.DataFrame): df_daily_basic = data
             else: # 处理 OHLCV 数据
                 if isinstance(data, pd.DataFrame) and not data.empty:
                     raw_dfs[tag] = data
@@ -543,6 +555,12 @@ class IndicatorService:
                     df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
                     df = pd.merge(df, df_advanced_chips_std, left_index=True, right_index=True, how='left')
                     df[list(df_advanced_chips_std.columns)] = df[list(df_advanced_chips_std.columns)].ffill()
+
+                if df_daily_basic is not None and not df_daily_basic.empty:
+                    df_daily_basic_std = self._standardize_df_index_to_utc(df_daily_basic)
+                    df = pd.merge(df, df_daily_basic_std, left_index=True, right_index=True, how='left')
+                    # 使用 ffill 填充周末或节假日可能产生的缺失值
+                    df[list(df_daily_basic_std.columns)] = df[list(df_daily_basic_std.columns)].ffill()
             
             # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)

@@ -23,180 +23,141 @@ logger = logging.getLogger("services")
 # ▼▼▼ 新增：特征工程引擎类 ▼▼▼
 class IntradayFeatureEngine:
     """
-    一个专门用于计算盘中分钟级别数据特征的引擎。
-    将所有复杂的计算逻辑从Celery任务中剥离，使其更清晰、可测试。
+    【V11.0 - 真实逐笔驱动版】
+    - 基于真实的逐笔成交数据 (realtime_tick) 进行特征计算。
+    - 核心逻辑:
+      1. 对逐笔数据进行主动性判断。
+      2. 将逐笔数据聚合到分钟级别，计算出真正的“主动买卖量”。
+      3. 将主动性指标与分钟K线数据融合。
+      4. 计算基于净主动成交量的高级衍生指标 (Z-Score, Slope, Correlation)。
     """
-    def __init__(self, slope_window: int, stats_window: int):
+    def __init__(self, slope_window: int = 5, stats_window: int = 20, corr_window: int = 10):
+        """
+        初始化特征引擎。
+        
+        Args:
+            slope_window (int): 计算斜率的窗口期。
+            stats_window (int): 计算统计指标 (如Z-Score, CV) 的窗口期。
+            corr_window (int): 计算相关性的窗口期。
+        """
         self.slope_window = slope_window
         self.stats_window = stats_window
+        self.corr_window = corr_window
 
-    def generate_features(self, stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]], time_level: str) -> Optional[pd.DataFrame]:
+    def generate_features(self, stock_code: str, df_quotes: pd.DataFrame, df_real_ticks: Optional[pd.DataFrame], time_level: str) -> Optional[pd.DataFrame]:
         """
-        执行完整的特征计算流水线。
+        执行完整的、基于真实逐笔数据的特征计算流水线。
+
+        Args:
+            stock_code (str): 股票代码。
+            df_quotes (pd.DataFrame): 分钟级别的行情快照数据 (含OHLCV, VWAP等)。
+            df_real_ticks (Optional[pd.DataFrame]): 当日开盘至今的全部真实逐笔数据。
+            time_level (str): K线的时间级别，如 '1min'。
+
+        Returns:
+            Optional[pd.DataFrame]: 包含了所有计算特征的分钟级别DataFrame。
         """
-        # 1. 从序列化数据中重建DataFrame
-        df_minute, df_ticks = self._reconstruct_dataframes(stock_data_package)
-        if df_minute is None or df_minute.empty:
+        if df_quotes is None or df_quotes.empty:
+            logger.warning(f"[{stock_code}] 输入的行情快照数据为空，特征计算终止。")
             return None
 
-        # 2. 聚合Tick数据到分钟级别
-        if df_ticks is not None and not df_ticks.empty:
-            df_minute = self._aggregate_tick_data(df_minute, df_ticks, time_level)
+        # 1. 计算基础特征 (基于行情快照)
+        df_minute = self._calculate_primary_features(df_quotes)
 
-        # 3. 计算基础特征 (VWAP, 净主动成交量等)
-        df_minute = self._calculate_primary_features(df_minute)
-        if df_minute.empty:
-            return None
-
-        # 4. 应用 pandas-ta 策略计算一系列技术指标
+        # 2. 如果有真实逐笔数据，则计算主动性特征并融合
+        if df_real_ticks is not None and not df_real_ticks.empty:
+            df_agg_features = self._aggregate_tick_data(df_real_ticks, time_level)
+            if df_agg_features is not None:
+                # 使用 left join，以分钟K线为主体，合并主动性指标
+                df_minute = df_minute.join(df_agg_features, how='left')
+        
+        # 3. 使用 pandas-ta 计算衍生技术指标
         df_minute = self._apply_pandas_ta_strategy(df_minute)
 
-        # 5. 计算衍生特征 (加速度, 布林带, 相关性等)
-        df_minute = self._calculate_secondary_features(df_minute)
-
-        # 6. 最终处理并返回
-        stock_code = stock_data_package[0]
+        # 4. 最终处理
+        df_minute['stock_code'] = stock_code
         df_minute.reset_index(inplace=True)
         df_minute.rename(columns={'index': 'trade_time'}, inplace=True)
-        df_minute['stock_code'] = stock_code
+        
+        # 填充由滚动窗口计算产生的初始NaN值
+        df_minute.fillna(0, inplace=True)
+
         return df_minute
 
-    def _reconstruct_dataframes(self, stock_data_package) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-        """从序列化数据包中重建DataFrames。"""
-        _, serialized_minute, serialized_ticks, _ = stock_data_package
+    def _calculate_primary_features(self, df_quotes: pd.DataFrame) -> pd.DataFrame:
+        """计算基于分钟K线的基础特征，如VWAP。"""
+        # 确保列是数值类型
+        df_quotes['turnover_value'] = pd.to_numeric(df_quotes['turnover_value'], errors='coerce')
+        df_quotes['volume'] = pd.to_numeric(df_quotes['volume'], errors='coerce')
         
-        def _reconstruct(data: Optional[dict]) -> Optional[pd.DataFrame]:
-            if data is None: return None
-            df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
-            df.index = pd.to_datetime(df.index)
-            return df
-            
-        df_minute = _reconstruct(serialized_minute)
-        df_ticks = _reconstruct(serialized_ticks)
-        return df_minute, df_ticks
+        # 计算当日累计VWAP (Volume Weighted Average Price)
+        df_quotes['vwap'] = df_quotes['turnover_value'].cumsum() / (df_quotes['volume'].cumsum() + 1e-9)
+        return df_quotes
 
-    def _aggregate_tick_data(self, df_minute: pd.DataFrame, df_ticks: pd.DataFrame, time_level: str) -> pd.DataFrame:
-        """聚合Tick数据并合并到分钟DataFrame。"""
-        if 'buy_volume1' not in df_ticks.columns:
-            return df_minute
-            
-        df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
-        df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
-        df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
-        df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
-        df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
-        
-        aggregation_rules = {
-            'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
-            'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
-            'volume': ['sum', 'count']
-        }
-        df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
-        df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
-        df_aggregated.rename(columns={
-            'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
-            'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
-            'energy_ratio_min': 'energy_ratio_min', 'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
-            'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
-            'volume_count': 'tick_count',
-        }, inplace=True)
-        
-        return df_minute.join(df_aggregated, how='left')
+    def _aggregate_tick_data(self, df_ticks: pd.DataFrame, time_level: str) -> Optional[pd.DataFrame]:
+        """
+        对真实逐笔数据进行处理和分钟级聚合，计算主动性指标。
+        """
+        try:
+            # 1. 判断主动性
+            # '买盘' 表示主动买入，'卖盘' 表示主动卖出
+            df_ticks['aggressive_buy_volume'] = np.where(df_ticks['type'] == '买盘', df_ticks['volume'], 0)
+            df_ticks['aggressive_sell_volume'] = np.where(df_ticks['type'] == '卖盘', df_ticks['volume'], 0)
 
-    def _calculate_primary_features(self, df_minute: pd.DataFrame) -> pd.DataFrame:
-        """计算VWAP和净主动成交量等基础特征。"""
-        if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
-            df_minute['turnover_value'] = pd.to_numeric(df_minute['turnover_value'], errors='coerce')
-            df_minute['volume'] = pd.to_numeric(df_minute['volume'], errors='coerce')
-            df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
-        
-        if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
-            df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
+            # 2. 定义聚合规则
+            aggregation_rules = {
+                'aggressive_buy_volume': 'sum',
+                'aggressive_sell_volume': 'sum',
+            }
+
+            # 3. 按分钟级别重新采样和聚合
+            df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
             
-        df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
-        return df_minute
+            # 4. 重命名列，使其更清晰
+            df_aggregated.rename(columns={
+                'aggressive_buy_volume': 'agg_buy_vol_sum',
+                'aggressive_sell_volume': 'agg_sell_vol_sum'
+            }, inplace=True)
+
+            return df_aggregated
+        except Exception as e:
+            logger.error(f"聚合真实逐笔数据时发生异常: {e}", exc_info=True)
+            return None
 
     def _apply_pandas_ta_strategy(self, df_minute: pd.DataFrame) -> pd.DataFrame:
         """
-        【V9.1 - 修复版】构建并应用pandas-ta策略。
-        - 核心修复: 放弃使用 df.ta.strategy() 方法，因为它可能在Celery的守护进程中
-                    非法地尝试创建子进程。改为手动遍历策略列表并逐一调用指标函数，
-                    从而完全绕过多进程封装。
+        使用 pandas-ta 库计算各种衍生技术指标。
         """
-        strategy_ta_list = []
-        # 构建策略列表的逻辑保持不变
-        if 'net_aggressive_volume' in df_minute.columns:
-            strategy_ta_list.extend([
-                {"kind": "slope", "close": "net_aggressive_volume", "length": self.slope_window, "col_names": "net_agg_vol_slope"},
-                {"kind": "zscore", "close": "net_aggressive_volume", "length": self.stats_window, "col_names": "net_agg_vol_zscore"},
-                {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
-            ])
-        if 'buy_com_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": self.slope_window, "col_names": "buy_com_slope"})
-        if 'energy_ratio_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": self.slope_window, "col_names": "energy_ratio_slope"})
+        # --- 基础量价指标 ---
+        # 价格波动率 (Coefficient of Variation)
+        stdev = df_minute['close'].rolling(window=self.stats_window, min_periods=1).std()
+        sma = df_minute['close'].rolling(window=self.stats_window, min_periods=1).mean()
+        df_minute['price_cv'] = stdev / (sma + 1e-9)
+        
+        # 成交量Z-Score
         if 'volume' in df_minute.columns:
-            strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": self.stats_window, "col_names": "volume_zscore"})
-        
-        if not strategy_ta_list:
-            return df_minute
+            df_minute.ta.zscore(close=df_minute['volume'], length=self.stats_window, append=True, col_names="volume_zscore")
 
-        # 手动遍历并应用每个指标
-        for item in strategy_ta_list:
-            # 获取指标名称，例如 'slope', 'zscore'
-            indicator_name = item.get("kind")
-            if not indicator_name:
-                continue
+        # --- 主动性衍生指标 (如果存在) ---
+        if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
+            # 填充可能因join产生的NaN
+            df_minute['agg_buy_vol_sum'].fillna(0, inplace=True)
+            df_minute['agg_sell_vol_sum'].fillna(0, inplace=True)
             
-            # 获取指标函数，例如 df.ta.slope, df.ta.zscore
-            indicator_func = getattr(df_minute.ta, indicator_name, None)
-            if not callable(indicator_func):
-                continue
-
-            # 准备参数，从字典中移除 'kind' 和 'col_names'
-            params = item.copy()
-            params.pop("kind")
-            col_names = params.pop("col_names", None)
+            # 1. 净主动成交量
+            df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
             
-            # 调用指标函数
-            # 确保 append=True，这样结果会直接附加到 df_minute
-            # 确保 cores=0，虽然在这里可能不是必须的，但保持一致性
-            indicator_func(**params, append=True, cores=0)
+            # 2. 净主动成交量Z-Score
+            df_minute.ta.zscore(close=df_minute['net_aggressive_volume'], length=self.stats_window, append=True, col_names="net_agg_vol_zscore")
             
-            # 重命名列
-            if col_names:
-                # pandas-ta 默认生成的列名通常是基于参数的，我们需要找到它并重命名
-                # 例如，slope(close='net_aggressive_volume', length=5) -> 'SLOPE_5'
-                # 这是一个简化的重命名逻辑，可能需要根据实际情况调整
-                # 幸运的是，pandas-ta的 append=True 模式下，新列通常是最后一列
-                default_col_name = df_minute.columns[-1]
-                df_minute.rename(columns={default_col_name: col_names}, inplace=True)
+            # 3. 净主动成交量斜率
+            df_minute.ta.slope(close=df_minute['net_aggressive_volume'], length=self.slope_window, append=True, col_names="net_agg_vol_slope")
+            
+            # 4. 价格与净主动成交量的滚动相关性
+            corr = df_minute['close'].rolling(window=self.corr_window).corr(df_minute['net_aggressive_volume'])
+            df_minute['corr_price_net_agg_vol'] = corr
 
         return df_minute
-
-    def _calculate_secondary_features(self, df_minute: pd.DataFrame) -> pd.DataFrame:
-        """计算依赖于TA指标的衍生特征。"""
-        if 'net_agg_vol_slope' in df_minute.columns:
-            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=self.slope_window, cores=0)
-        
-        if 'net_aggressive_volume' in df_minute.columns:
-            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
-            df_minute = df_minute.join(bbands_df)
-            df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(self.stats_window).corr(df_minute['net_aggressive_volume'])
-        
-        if 'close' in df_minute.columns:
-            stdev = df_minute.ta.stdev(length=self.stats_window, cores=0)
-            sma = df_minute.ta.sma(length=self.stats_window, cores=0)
-            df_minute['price_cv'] = stdev / (sma + 1e-6)
-            try:
-                df_minute.ta.fractal(append=True, cores=0)
-                rename_map = {'FRACTAL_low_2': 'fractal_low', 'FRACTAL_high_2': 'fractal_high'}
-                df_minute.rename(columns=rename_map, inplace=True)
-            except Exception:
-                pass
-        return df_minute
-# ▲▲▲ 新增结束 ▲▲▲
-
 
 # ▼▼▼ 修改后：重构为服务编排器 ▼▼▼
 @celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')

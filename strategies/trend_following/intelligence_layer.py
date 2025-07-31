@@ -46,7 +46,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
-        
+        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
         trigger_events = self._define_trigger_events(df)
@@ -1302,6 +1302,75 @@ class IntelligenceLayer:
                 
         print("        -> [触发事件中心 V234.0] 所有触发事件定义完成。")
         return triggers
+
+    def _diagnose_healthy_pullback(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V323.1 A股强化版】健康回踩机会诊断模块
+        - 核心升级: 引入资金流容忍度、缩量和低换手率验证，以更精确地识别A股市场中
+                    主力利用下跌进行的“洗盘”或“压盘吸筹”行为。
+        """
+        print("        -> [健康回踩诊断模块 V323.1 A股强化版] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 从配置文件加载参数 ---
+        p = get_params_block(self.strategy, 'healthy_pullback_params')
+        if not get_param_value(p.get('enabled'), False):
+            return {}
+
+        min_pct_change = get_param_value(p.get('min_pct_change'), -0.05)
+        max_pct_change = get_param_value(p.get('max_pct_change'), -0.005)
+        tolerable_outflow = get_param_value(p.get('tolerable_outflow_M'), -10) * 1_000_000
+        require_shrinking_volume = get_param_value(p.get('require_shrinking_volume'), True)
+        max_turnover_rate = get_param_value(p.get('max_turnover_rate'), 5.0)
+        
+        # --- 2. 检查所需情报 ---
+        required_states = ['STRUCTURE_MAIN_UPTREND_WAVE_S', 'RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 'VOL_STATE_SHRINKING']
+        required_cols = ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']
+        
+        if any(state not in self.strategy.atomic_states for state in required_states) or any(col not in df.columns for col in required_cols):
+            print("          -> [警告] 缺少诊断“健康回踩”所需的核心情报或数据列，模块跳过。")
+            return {}
+
+        # --- 3. 定义“健康回踩”的核心条件 ---
+        
+        # 条件A: 必须处于“S级主升浪”结构中 (背景)
+        is_in_strong_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        
+        # 条件B: 当日股价温和下跌 (价格行为)
+        is_moderate_pullback = (df['pct_change_D'] < max_pct_change) & (df['pct_change_D'] > min_pct_change)
+        
+        # 条件C: 筹码结构必须保持稳定 (核心基石)
+        is_chip_structure_stable = ~self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
+        
+        # 条件D: 主力资金流出在可容忍范围内 (资金流验证)
+        is_main_force_outflow_tolerable = df['main_force_net_inflow_amount_D'] >= tolerable_outflow
+        
+        # 条件E: 成交量必须是萎缩的 (量价验证)
+        is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
+        
+        # 条件F: 换手率必须处于低位 (筹码锁定验证)
+        is_low_turnover = df['turnover_rate_f_D'] < max_turnover_rate
+
+        # --- 4. 组合所有条件 ---
+        # 基础条件是必须的
+        base_conditions = is_in_strong_uptrend & is_moderate_pullback & is_chip_structure_stable & is_main_force_outflow_tolerable
+        
+        # 如果配置要求缩量，则必须满足缩量条件
+        if require_shrinking_volume:
+            final_conditions = base_conditions & is_shrinking_volume & is_low_turnover
+        else:
+            final_conditions = base_conditions
+
+        states['OPP_PULLBACK_WITH_CHIP_STABILITY_S'] = final_conditions
+        
+        # --- 5. 增加详细的诊断日志 ---
+        if final_conditions.any():
+            print(f"          -> [情报] 侦测到 {final_conditions.sum()} 次 S级“健康回踩”机会。")
+            # 可以在这里添加更详细的单日日志，用于调试
+            # print(df.loc[final_conditions, ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']])
+            
+        return states
 
     def _diagnose_post_accumulation_phase(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

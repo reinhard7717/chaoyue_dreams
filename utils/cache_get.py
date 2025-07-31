@@ -416,7 +416,7 @@ class StockRealtimeCacheGet(CacheGet):
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
 
-async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
+    async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
         【V1.0 - 新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
         这是从 DAO 层重构过来的标准缓存获取方法。
@@ -473,6 +473,49 @@ async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional
 
         except Exception as e:
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
+            return None
+
+    # ▼▼▼ 新增方法: 从缓存读取真实的逐笔成交数据 ▼▼▼
+    async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
+        """
+        【新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部真实逐笔成交数据】。
+        """
+        try:
+            # 1. 统一日期格式
+            date_obj = pd.to_datetime(trade_date)
+            date_str_yyyymmdd = date_obj.strftime('%Y%m%d')
+
+            # 2. 获取新的缓存键
+            cache_key = self.cache_key_stock.intraday_real_ticks(stock_code, date_str_yyyymmdd)
+            
+            # 3. 从Redis获取数据
+            # 使用 zrangebyscore 获取指定分数（时间戳）范围内的所有成员
+            # '-inf', '+inf' 表示获取该键下的所有成员
+            ticks_with_scores = await self.cache_manager.zrangebyscore(cache_key, '-inf', '+inf', withscores=True)
+
+            if not ticks_with_scores:
+                logger.info(f"缓存未命中或为空: 未找到 {stock_code} on {date_str_yyyymmdd} 的真实逐笔数据。Key: '{cache_key}'")
+                return None
+
+            # 4. 将原始数据转换为DataFrame
+            deserialized_data = [self.cache_manager._deserialize(data) for data, score in ticks_with_scores]
+            
+            df_ticks = pd.DataFrame(deserialized_data)
+            if df_ticks.empty:
+                return None
+
+            # 使用分数（时间戳）创建索引，这比依赖数据内部的时间字段更可靠
+            df_ticks.index = pd.to_datetime([score for data, score in ticks_with_scores], unit='s')
+            df_ticks.index.name = 'trade_time'
+            
+            # 确保时区正确
+            if df_ticks.index.tz is None:
+                df_ticks.index = df_ticks.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+
+            logger.debug(f"缓存命中: 成功从Redis获取了 {len(df_ticks)} 条真实逐笔数据 for {stock_code}")
+            return df_ticks
+        except Exception as e:
+            logger.error(f"在 get_daily_real_ticks (cache) 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
 
 class StockIndicatorsCacheGet(CacheGet):

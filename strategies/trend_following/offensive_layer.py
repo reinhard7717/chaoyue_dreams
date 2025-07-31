@@ -172,6 +172,15 @@ class OffensiveLayer:
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
+                'name': 'HEALTHY_PULLBACK_S', 
+                'cn_name': '【S级】健康回踩吸筹', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'setup', 
+                'score': 450, # 给予一个非常高的分数
+                'side': 'right', 
+                'comment': 'S级: 在主升浪中，股价回踩但筹码结构稳固，是极佳的加仓或建仓机会。'
+            },
+            {
                 'name': 'CHIP_PLATFORM_PULLBACK', 'cn_name': '【S-级】筹码平台回踩', 'family': 'TREND_MOMENTUM',
                 'type': 'setup', 'score': 330, 'side': 'right', 
                 'comment': 'S-级: 股价回踩由筹码峰形成的、位于趋势线上方的稳固平台，并获得支撑。这是极高质量的“空中加油”信号。'

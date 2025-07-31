@@ -72,47 +72,52 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     # 返回排序后的列表，保证每次结果一致
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
-#  ================ 实时(Tick)数据任务 ================
-# --- 新的批量处理工作任务 ---
+# =================================================================
+# =================== 1. 行情快照 (Quote) 数据任务 ==================
+# =================================================================
+
 @celery_app.task(queue="SaveData_RealTime")
 @with_cache_manager
-def save_tick_data_batch(stock_codes: List[str], cache_manager=None):
+def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
     """
-    【V2.0 - 异步修复版】
-    从Tushare批量获取实时Tick交易数据并保存，然后异步地推送给相关用户。
+    【V3.0 - 职责明确版】
+    获取并保存行情快照(realtime_quote)，并负责后续的用户推送。
+    此任务处理的是可以批量获取的数据。
     """
     if not stock_codes:
-        logger.info("收到空的股票代码列表，任务结束")
-        return {"processed": 0, "success": 0, "errors": 0}
-    logger.info(f"开始处理包含 {len(stock_codes)} 个股票的 实时(Tick)数据任务...")
+        logger.info("行情快照任务收到空列表，任务结束。")
+        return
+    logger.info(f"开始处理 {len(stock_codes)} 个股票的行情快照(Quote)数据任务...")
+    
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     strategy_dao = StrategiesDAO(cache_manager)
+
     async def main():
-        # 1. 先批量保存所有tick数据
-        await stock_realtime_dao.save_tick_data_by_stock_codes(stock_codes)
-        # 2. 【核心修复】将同步的数据库查询移出异步循环
+        # 1. 批量保存行情快照数据
+        await stock_realtime_dao.save_quote_data_by_stock_codes(stock_codes)
+        
+        # 2. 执行用户推送逻辑 (这部分逻辑保持不变)
         @sync_to_async(thread_sensitive=True)
         def get_user_ids_for_codes(codes: List[str]) -> Dict[str, List[int]]:
-            # 一次性查询所有相关股票的用户，避免N+1查询
             favorites = FavoriteStock.objects.filter(stock__stock_code__in=codes).values('stock__stock_code', 'user_id')
             user_map = defaultdict(list)
             for fav in favorites:
                 user_map[fav['stock__stock_code']].append(fav['user_id'])
             return user_map
+        
         user_ids_map = await get_user_ids_for_codes(stock_codes)
-        # 3. 准备并并发执行所有推送任务
         push_tasks = []
         for code in stock_codes:
             user_ids = user_ids_map.get(code)
-            if not user_ids:
-                continue
-            # 并发获取tick和策略结果
-            tick_task = stock_realtime_dao.get_latest_tick_data(code)
-            strategy_task = strategy_dao.get_latest_strategy_result(code)
-            latest_tick, latest_strategy_result = await asyncio.gather(tick_task, strategy_task)
-            if not latest_tick:
-                logger.warning(f"未获取到股票{code}的最新tick数据，跳过推送")
-                continue
+            if not user_ids: continue
+            
+            latest_tick, latest_strategy_result = await asyncio.gather(
+                stock_realtime_dao.get_latest_tick_data(code),
+                strategy_dao.get_latest_strategy_result(code)
+            )
+            
+            if not latest_tick: continue
+            
             signal_score = getattr(latest_strategy_result, 'score', None)
             signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
             payload = {
@@ -129,58 +134,93 @@ def save_tick_data_batch(stock_codes: List[str], cache_manager=None):
                 'signal': signal,
             }
             for uid in user_ids:
-                # 注意：apply_async是同步的，但在async函数中调用通常没问题，因为它只是发送消息
                 send_update_to_user_task_celery.apply_async(
                     args=[uid, 'realtime_tick_update', payload],
                     queue='dashboard'
                 )
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# =================================================================
+# =================== 2. 真实逐笔 (Tick) 数据任务 ===================
+# =================================================================
+
+# ▼▼▼ 新增: 处理单只股票真实逐笔数据的工作任务 ▼▼▼
+@celery_app.task(queue="SaveData_RealTime")
+@with_cache_manager
+def save_real_tick_data_single(stock_code: str, cache_manager=None):
+    """
+    【新增】获取并保存单只股票的当日全部真实逐笔数据 (realtime_tick)。
+    这是一个高频、IO密集型任务。
+    """
+    if not stock_code:
+        return
+    
+    logger.info(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
+    stock_realtime_dao = StockRealtimeDAO(cache_manager)
+    trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    
+    async def main():
+        # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
+        await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
+        
+    async_to_sync(main)()
+# ▲▲▲ 新增结束 ▲▲▲
+
+# =================================================================
+# =================== 3. 统一调度器任务 ============================
+# =================================================================
+
 @celery_app.task(name='tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task', queue='celery')
 @with_cache_manager
-def save_stocks_tick_data_task(batch_size: int = 50, cache_manager=None): # sina数据最多每次50个
+def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     """
-    【无绑定版】
-    调度器任务：
-    1. 获取自选股和非自选股代码。
-    2. 将代码分成批次。
-    3. 为每个批次分派 save_tick_data_batch 任务到指定队列。
-    这个任务由 Celery Beat 调度。
+    【V3.0 - 统一调度版】
+    此任务由 Celery Beat 调度，统一分发“行情快照”和“真实逐笔”两种数据获取任务。
     """
     if not is_trading_time():
         return
-    logger.info(f"任务启动: save_stocks_tick_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
-    favorite_codes = []
-    non_favorite_codes = []
+    
+    logger.info(f"任务启动: 统一调度器 save_stocks_tick_data_task 启动...")
+    
+    # 1. 获取需要处理的股票列表
     stock_basic_dao = StockBasicInfoDao(cache_manager)
-    async def main():
-        nonlocal favorite_codes, non_favorite_codes
-        fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-        favorite_codes.extend(fav_codes)
-        non_favorite_codes.extend(non_fav_codes)
-    async_to_sync(main)()
+    favorite_codes, non_favorite_codes = async_to_sync(
+        _get_all_relevant_stock_codes_for_processing
+    )(stock_basic_dao)
+    
     if not favorite_codes and not non_favorite_codes:
-        logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
-        return {"status": "warning", "message": "未获取到股票代码", "dispatched_batches": 0}
-    total_dispatched_batches = 0
-    total_favorite_stocks = len(favorite_codes)
-    total_non_favorite_stocks = len(non_favorite_codes)
-    # 1. 分派自选股批量任务
-    for i in range(0, total_favorite_stocks, batch_size):
-        batch = favorite_codes[i:i + batch_size]
+        logger.warning("未能获取到股票列表，统一调度任务结束。")
+        return
+        
+    # 2. 分派“行情快照(Quote)”批量任务 (逻辑不变)
+    logger.info("--- 开始分派行情快照(Quote)任务 ---")
+    total_quote_batches = 0
+    for i in range(0, len(favorite_codes), quote_batch_size):
+        batch = favorite_codes[i:i + quote_batch_size]
         if batch:
-            save_tick_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
-            total_dispatched_batches += 1
-    # 2. 分派非自选股批量任务
-    for i in range(0, total_non_favorite_stocks, batch_size):
-        batch = non_favorite_codes[i:i + batch_size]
+            save_quote_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+            total_quote_batches += 1
+            
+    for i in range(0, len(non_favorite_codes), quote_batch_size):
+        batch = non_favorite_codes[i:i + quote_batch_size]
         if batch:
-            save_tick_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-            total_dispatched_batches += 1
-            logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
-    logger.info(f"任务结束: save_stocks_tick_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-    return {"status": "success", "dispatched_batches": total_dispatched_batches}
+            save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            total_quote_batches += 1
+    logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
+
+    # 3. 分派“真实逐笔(Tick)”单票任务
+    logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
+    all_codes = favorite_codes + non_favorite_codes
+    for stock_code in all_codes:
+        # 为每一只股票分派一个独立的任务
+        save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
+    logger.info(f"--- 真实逐笔任务分派完成，共 {len(all_codes)} 个任务。 ---")
+
+    return {
+        "status": "success",
+        "dispatched_quote_batches": total_quote_batches,
+        "dispatched_real_tick_tasks": len(all_codes)
+    }
 
 #  ================ 实时(分钟)数据任务 ================
 @celery_app.task(queue='SaveData_TimeTrade', rate_limit='180/m')

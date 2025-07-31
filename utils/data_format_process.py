@@ -1,7 +1,7 @@
 import datetime
 import decimal
 from django.utils import timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import logging
 import numpy as np
 import math
@@ -373,97 +373,70 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
     # ================ 数据格式 ================
-    def set_realtime_tick_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        # 兼容不同字段名
+    def set_realtime_tick_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
+        """
+        【V2.0 - 重构版】
+        - 统一处理来自Tushare的实时行情快照数据。
+        - 字段名直接对应Tushare返回的列名（大写）。
+        """
         date = getattr(df_data, "DATE", None)
         time = getattr(df_data, "TIME", None)
-        trade_time = None
-        if date and time:
-            trade_time = self._parse_datetime(str(date) + str(time))
-        else:
-            trade_time = getattr(df_data, "trade_time", None)
-        # print(f"DATE: {date}, TIME:{time}, trade_time: {trade_time}")
-        data_dict = {
-            "stock": stock,
-            "trade_time": trade_time,
-            "open_price": getattr(df_data, "OPEN", getattr(df_data, "open_price", None)),
-            "prev_close_price": getattr(df_data, "PRE_CLOSE", getattr(df_data, "prev_close_price", None)),
-            "current_price": getattr(df_data, "PRICE", getattr(df_data, "current_price", None)),
-            "high_price": getattr(df_data, "HIGH", getattr(df_data, "high_price", None)),
-            "low_price": getattr(df_data, "LOW", getattr(df_data, "low_price", None)),
-            "volume": getattr(df_data, "VOLUME", None),
-            "turnover_value": getattr(df_data, "AMOUNT", getattr(df_data, "turnover_value", None)),
-        }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    def set_level5_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        # 兼容不同字段名
-        date = getattr(df_data, "DATE", None)
-        time = getattr(df_data, "TIME", None)
-        trade_time = None
-        if date and time:
-            trade_time = self._parse_datetime(str(date) + str(time))
-        else:
-            trade_time = getattr(df_data, "trade_time", None)
-
-        # 买卖盘数据兼容
-        b1_v = getattr(df_data, "B1_V", getattr(df_data, "buy_volume1", 0))
-        b2_v = getattr(df_data, "B2_V", getattr(df_data, "buy_volume2", 0))
-        b3_v = getattr(df_data, "B3_V", getattr(df_data, "buy_volume3", 0))
-        b4_v = getattr(df_data, "B4_V", getattr(df_data, "buy_volume4", 0))
-        b5_v = getattr(df_data, "B5_V", getattr(df_data, "buy_volume5", 0))
-        s1_v = getattr(df_data, "S1_V", getattr(df_data, "sell_volume1", 0))
-        s2_v = getattr(df_data, "S2_V", getattr(df_data, "sell_volume2", 0))
-        s3_v = getattr(df_data, "S3_V", getattr(df_data, "sell_volume3", 0))
-        s4_v = getattr(df_data, "S4_V", getattr(df_data, "sell_volume4", 0))
-        s5_v = getattr(df_data, "S5_V", getattr(df_data, "sell_volume5", 0))
-
-        b1_p = getattr(df_data, "B1_P", getattr(df_data, "buy_price1", 0))
-        b2_p = getattr(df_data, "B2_P", getattr(df_data, "buy_price2", 0))
-        b3_p = getattr(df_data, "B3_P", getattr(df_data, "buy_price3", 0))
-        b4_p = getattr(df_data, "B4_P", getattr(df_data, "buy_price4", 0))
-        b5_p = getattr(df_data, "B5_P", getattr(df_data, "buy_price5", 0))
-        s1_p = getattr(df_data, "S1_P", getattr(df_data, "sell_price1", 0))
-        s2_p = getattr(df_data, "S2_P", getattr(df_data, "sell_price2", 0))
-        s3_p = getattr(df_data, "S3_P", getattr(df_data, "sell_price3", 0))
-        s4_p = getattr(df_data, "S4_P", getattr(df_data, "sell_price4", 0))
-        s5_p = getattr(df_data, "S5_P", getattr(df_data, "sell_price5", 0))
-
-        # 盘口差和比率
-        try:
-            order_diff = b1_v - s1_v
-            order_ratio = (b1_v + b2_v + b3_v + b4_v + b5_v) / (s1_v + s2_v + s3_v + s4_v + s5_v) if (s1_v + s2_v + s3_v + s4_v + s5_v) != 0 else 0
-        except Exception:
-            order_diff = 0
-            order_ratio = 0
+        trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
 
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
-            "buy_volume1": self._parse_number(b1_v),
-            "buy_price1": self._parse_number(b1_p),
-            "buy_volume2": self._parse_number(b2_v),
-            "buy_price2": self._parse_number(b2_p),
-            "buy_volume3": self._parse_number(b3_v),
-            "buy_price3": self._parse_number(b3_p),
-            "buy_volume4": self._parse_number(b4_v),
-            "buy_price4": self._parse_number(b4_p),
-            "buy_volume5": self._parse_number(b5_v),
-            "buy_price5": self._parse_number(b5_p),
-            "sell_volume1": self._parse_number(s1_v),
-            "sell_price1": self._parse_number(s1_p),
-            "sell_volume2": self._parse_number(s2_v),
-            "sell_price2": self._parse_number(s2_p),
-            "sell_volume3": self._parse_number(s3_v),
-            "sell_price3": self._parse_number(s3_p),
-            "sell_volume4": self._parse_number(s4_v),
-            "sell_price4": self._parse_number(s4_p),
-            "sell_volume5": self._parse_number(s5_v),
-            "sell_price5": self._parse_number(s5_p),
-            "order_diff": order_diff,
-            "order_ratio": order_ratio,
+            "open_price": self._parse_number(getattr(df_data, "OPEN", None)),
+            "prev_close_price": self._parse_number(getattr(df_data, "PRE_CLOSE", None)),
+            "current_price": self._parse_number(getattr(df_data, "PRICE", None)),
+            "high_price": self._parse_number(getattr(df_data, "HIGH", None)),
+            "low_price": self._parse_number(getattr(df_data, "LOW", None)),
+            # Tushare的VOLUME单位是“手”，数据库需要存“股”，所以乘以100
+            "volume": self._parse_number(getattr(df_data, "VOLUME", None), to_type=int) * 100 if getattr(df_data, "VOLUME", None) is not None else None,
+            "turnover_value": self._parse_number(getattr(df_data, "AMOUNT", None)),
         }
-        return {k: safe_value(v) for k, v in data_dict.items()}
+        # 移除值为None的键，以便于数据库操作和缓存
+        return {k: v for k, v in data_dict.items() if v is not None}
+
+    def set_level5_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
+        """
+        【V2.0 - 重构版】
+        - 统一处理来自Tushare的五档盘口快照数据。
+        - 字段名直接对应Tushare返回的列名（大写）。
+        - 不再计算衍生指标，只做数据格式化。
+        """
+        date = getattr(df_data, "DATE", None)
+        time = getattr(df_data, "TIME", None)
+        trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
+
+        data_dict = {
+            "stock": stock,
+            "trade_time": trade_time,
+            # Tushare的买卖盘量单位是“手”，数据库需要存“股”，所以乘以100
+            "buy_volume1": self._parse_number(getattr(df_data, "B1_V", None), to_type=int) * 100 if getattr(df_data, "B1_V", None) is not None else None,
+            "buy_price1": self._parse_number(getattr(df_data, "B1_P", None)),
+            "buy_volume2": self._parse_number(getattr(df_data, "B2_V", None), to_type=int) * 100 if getattr(df_data, "B2_V", None) is not None else None,
+            "buy_price2": self._parse_number(getattr(df_data, "B2_P", None)),
+            "buy_volume3": self._parse_number(getattr(df_data, "B3_V", None), to_type=int) * 100 if getattr(df_data, "B3_V", None) is not None else None,
+            "buy_price3": self._parse_number(getattr(df_data, "B3_P", None)),
+            "buy_volume4": self._parse_number(getattr(df_data, "B4_V", None), to_type=int) * 100 if getattr(df_data, "B4_V", None) is not None else None,
+            "buy_price4": self._parse_number(getattr(df_data, "B4_P", None)),
+            "buy_volume5": self._parse_number(getattr(df_data, "B5_V", None), to_type=int) * 100 if getattr(df_data, "B5_V", None) is not None else None,
+            "buy_price5": self._parse_number(getattr(df_data, "B5_P", None)),
+            # Tushare的卖盘列名是 A1_V, A1_P ...
+            "sell_volume1": self._parse_number(getattr(df_data, "A1_V", None), to_type=int) * 100 if getattr(df_data, "A1_V", None) is not None else None,
+            "sell_price1": self._parse_number(getattr(df_data, "A1_P", None)),
+            "sell_volume2": self._parse_number(getattr(df_data, "A2_V", None), to_type=int) * 100 if getattr(df_data, "A2_V", None) is not None else None,
+            "sell_price2": self._parse_number(getattr(df_data, "A2_P", None)),
+            "sell_volume3": self._parse_number(getattr(df_data, "A3_V", None), to_type=int) * 100 if getattr(df_data, "A3_V", None) is not None else None,
+            "sell_price3": self._parse_number(getattr(df_data, "A3_P", None)),
+            "sell_volume4": self._parse_number(getattr(df_data, "A4_V", None), to_type=int) * 100 if getattr(df_data, "A4_V", None) is not None else None,
+            "sell_price4": self._parse_number(getattr(df_data, "A4_P", None)),
+            "sell_volume5": self._parse_number(getattr(df_data, "A5_V", None), to_type=int) * 100 if getattr(df_data, "A5_V", None) is not None else None,
+            "sell_price5": self._parse_number(getattr(df_data, "A5_P", None)),
+        }
+        # 移除值为None的键
+        return {k: v for k, v in data_dict.items() if v is not None}
 
 class StrategiesDataFormatProcess(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):

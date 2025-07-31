@@ -14,7 +14,7 @@ from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from stock_models.fund_flow import FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS
 from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollowStrategyReport, StockAnalysisResultTrendFollowing, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf
+from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StrategyCacheSet
@@ -571,6 +571,37 @@ class StrategiesDAO(BaseDAO):
         
         # print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
         return df_merged
+
+    @sync_to_async(thread_sensitive=True)
+    def get_daily_basic_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: int = 1200) -> Optional[pd.DataFrame]:
+        """
+        【新增】获取指定股票的历史每日基本面数据 (StockDailyBasic)。
+        """
+        try:
+            qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code)
+            
+            if trade_time:
+                qs = qs.filter(trade_time__lte=trade_time.date())
+            
+            qs = qs.order_by('-trade_time')[:limit]
+            
+            # .values() 性能更高，直接返回字典列表
+            data = list(qs.values())
+            
+            if not data:
+                return None
+            
+            df = pd.DataFrame.from_records(data)
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            
+            # 删除不需要的列，只保留核心数据
+            df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
+            
+            return df
+        except Exception as e:
+            logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
+            return None
 
     async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
         """
