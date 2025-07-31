@@ -137,34 +137,28 @@ def save_tick_data_batch(stock_codes: List[str], cache_manager=None):
     async_to_sync(main)()
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task', queue='celery')
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.save_stocks_tick_data_task', queue='celery')
 @with_cache_manager
-def save_stocks_tick_data_task(self, batch_size: int = 50, cache_manager=None): # sina数据最多每次50个
+def save_stocks_tick_data_task(batch_size: int = 50, cache_manager=None): # sina数据最多每次50个
     """
+    【无绑定版】
     调度器任务：
     1. 获取自选股和非自选股代码。
     2. 将代码分成批次。
-    3. 为每个批次分派 save_realtime_data_batch 任务到指定队列。
+    3. 为每个批次分派 save_tick_data_batch 任务到指定队列。
     这个任务由 Celery Beat 调度。
     """
     if not is_trading_time():
         return
     logger.info(f"任务启动: save_stocks_tick_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size})")
-    # 在同步任务中运行异步代码获取列表
-    # 初始化用于接收结果的列表
     favorite_codes = []
     non_favorite_codes = []
     stock_basic_dao = StockBasicInfoDao(cache_manager)
-    # 1. 定义一个异步 main 函数，用于安全地执行所有需要异步环境的操作
     async def main():
-        # nonlocal 关键字允许内部函数修改外部函数的变量
         nonlocal favorite_codes, non_favorite_codes
-        # 调用改造后的辅助函数，并将DAO实例作为参数传递进去
         fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-        # 将获取到的结果赋值给外部变量
         favorite_codes.extend(fav_codes)
         non_favorite_codes.extend(non_fav_codes)
-    # 2. 在同步代码中，安全地执行异步的 main 函数来准备数据
     async_to_sync(main)()
     if not favorite_codes and not non_favorite_codes:
         logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
@@ -173,26 +167,17 @@ def save_stocks_tick_data_task(self, batch_size: int = 50, cache_manager=None): 
     total_favorite_stocks = len(favorite_codes)
     total_non_favorite_stocks = len(non_favorite_codes)
     # 1. 分派自选股批量任务
-    # logger.info(f"准备为 {total_favorite_stocks} 个自选股分派批量任务...")
     for i in range(0, total_favorite_stocks, batch_size):
         batch = favorite_codes[i:i + batch_size]
         if batch:
-            # 使用新的批量任务，并指定队列
             save_tick_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
             total_dispatched_batches += 1
-    # logger.info(f"已为 {total_favorite_stocks} 个自选股分派了 {total_dispatched_batches} 个批次任务。")
-    favorite_batches_dispatched = total_dispatched_batches
     # 2. 分派非自选股批量任务
-    # logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
-    non_favorite_batches_dispatched = 0
     for i in range(0, total_non_favorite_stocks, batch_size):
         batch = non_favorite_codes[i:i + batch_size]
         if batch:
-            # logger.info(f"创建非自选股批次任务 (大小: {len(batch)})...")
-            # 使用新的批量任务，并指定队列
             save_tick_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
             total_dispatched_batches += 1
-            non_favorite_batches_dispatched += 1
             logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
     logger.info(f"任务结束: save_stocks_tick_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
     return {"status": "success", "dispatched_batches": total_dispatched_batches}
@@ -217,25 +202,22 @@ def save_minute_data_realtime_batch(stock_codes: List[str], time_level: str, cac
     async_to_sync(main)()
 
 # --- 修改后的调度器任务 ---
-@celery_app.task(bind=True, name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', queue='celery')
 @with_cache_manager
-def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_level: str = '5', cache_manager=None):
+def save_stocks_minute_data_realtime_task(batch_size: int = 300, time_level: str = '5', cache_manager=None):
     """
+    【无绑定版】
     调度器任务：保存分钟数据后自动分析
     """
     logger.info(f"任务启动: save_stocks_realtime_min_data_task (调度器模式) - 获取股票列表并分派批量任务 (批次大小: {batch_size}, 时间级别: {time_level})")
     stock_basic_dao = StockBasicInfoDao(cache_manager)
-    # 初始化用于接收结果的列表
     favorite_codes = []
     non_favorite_codes = []
-    # 1. 定义一个异步 main 函数，用于安全地执行所有需要异步环境的操作
     async def main():
-        # 调用改造后的辅助函数，并将DAO实例作为参数传递进去
+        nonlocal favorite_codes, non_favorite_codes
         fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-        # 将获取到的结果赋值给外部变量
         favorite_codes.extend(fav_codes)
         non_favorite_codes.extend(non_fav_codes)
-    # 2. 在同步代码中，安全地执行异步的 main 函数来准备数据
     async_to_sync(main)()
     if not favorite_codes and not non_favorite_codes:
         logger.warning("未能获取到需要处理的股票代码列表，调度任务结束")
@@ -250,18 +232,14 @@ def save_stocks_minute_data_realtime_task(self, batch_size: int = 300, time_leve
         if batch:
             save_minute_data_realtime_batch.s(batch, time_level).apply_async()
             total_dispatched_batches += 1
-    favorite_batches_dispatched = total_dispatched_batches
     # 2. 分派非自选股批量任务
     logger.info(f"准备为 {total_non_favorite_stocks} 个非自选股分派批量任务...")
-    non_favorite_batches_dispatched = 0
     for i in range(0, total_non_favorite_stocks, batch_size):
         batch = non_favorite_codes[i:i + batch_size]
         if batch:
             save_minute_data_realtime_batch.s(batch, time_level).apply_async()
             total_dispatched_batches += 1
-            non_favorite_batches_dispatched += 1
             logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
     logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
     return {"status": "success", "dispatched_batches": total_dispatched_batches}
-
 
