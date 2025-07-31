@@ -755,6 +755,7 @@ class IndicatorService:
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
             'fibonacci_levels': self.calculate_fibonacci_levels,
+            'ma_convergence': self.calculate_ma_convergence
         }
         
         def merge_results(result_data, target_df):
@@ -1234,6 +1235,44 @@ class IndicatorService:
         # print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
         
         return score
+
+    async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+        """
+        【新增】计算均线粘合度 (MA Convergence)。
+        使用变异系数 (CV) 来量化多条均线之间的离散程度。
+        """
+        results_df = pd.DataFrame(index=df.index)
+        
+        for config in params.get('configs', []):
+            try:
+                periods = config.get('periods', [])
+                output_col = config.get('output_column_name')
+                
+                if not periods or not output_col:
+                    continue
+
+                # 动态构建需要参与计算的均线列名
+                # 注意：这里假设指标计算在添加后缀之前运行，所以列名不带后缀
+                ma_cols = [f"EMA_{p}" for p in periods]
+                
+                if all(col in df.columns for col in ma_cols):
+                    ma_df = df[ma_cols]
+                    ma_std = ma_df.std(axis=1)
+                    ma_mean = ma_df.mean(axis=1)
+                    
+                    convergence_cv = ma_std / (ma_mean + 1e-9)
+                    
+                    # 移除可能存在的后缀，因为后缀会在最后统一添加
+                    output_col_clean = output_col.split('_')[0] if '_' in output_col else output_col
+                    results_df[output_col_clean] = convergence_cv
+                else:
+                    missing = [col for col in ma_cols if col not in df.columns]
+                    logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
+
+            except Exception as e:
+                logger.error(f"在 calculate_ma_convergence 中处理配置 {config} 时出错: {e}", exc_info=True)
+                
+        return results_df
 
     # --- 所有指标计算函数 async def calculate_* ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:

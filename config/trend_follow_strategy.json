@@ -89,6 +89,14 @@
         "params": { "ma_periods": [3, 5, 10] }
       },
       "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] },
+      "fibonacci_levels": {
+        "enabled": true,
+        "apply_on": ["D"],
+        "params": {
+          "lookback_period": 120,
+          "levels": [0.382, 0.5, 0.618, 0.786]
+        }
+      },
       "ma_convergence": {
         "enabled": true,
         "description": "【新增】均线粘合度指标。使用变异系数(CV)来量化，值越小代表粘合度越高。",
@@ -240,6 +248,14 @@
       "strategy_info": {
         "name": { "value": "CHIPCON核心_V238", "说明": "策略唯一标识名称" }
       },
+      "fibonacci_support_params": {
+        "enabled": true,
+        "description": "【新增】斐波那契支撑诊断模块参数",
+        "proximity_ratio": {
+          "value": 0.01,
+          "description": "价格触及斐波那契水平时允许的误差范围。例如0.01代表上下1%。"
+        }
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V247.0 战略定力版】计分体系。核心改革：大幅降低瞬时触发分的权重，提升阵地分和核心风险的权重，引入持仓逻辑。",
@@ -248,6 +264,8 @@
           "positive_signals": {
             "OPP_PULLBACK_WITH_CHIP_STABILITY_S": 600,
             "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 500,
+            "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
+            "OPP_FIB_SUPPORT_STANDARD_A": 200,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 150,
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
@@ -316,6 +334,8 @@
         },
         "metadata": {
           "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
+          "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】斐波那契黄金口袋支撑",
+          "OPP_FIB_SUPPORT_STANDARD_A": "【机会】斐波那契标准支撑",
           "OPP_PULLBACK_WITH_CHIP_STABILITY_S": "【机会】S级健康回踩",
           "POST_ACCUMULATION_ASCENT_C": "【剧本】初升浪启动",
           "STRUCTURE_POST_ACCUMULATION_ASCENT_C": "【结构】初升浪期间",

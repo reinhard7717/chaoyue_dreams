@@ -48,6 +48,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
         self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
+        self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
         trigger_events = self._define_trigger_events(df)
@@ -1535,6 +1536,60 @@ class IntelligenceLayer:
             'trigger': trigger_reversal
         }
         return {} # 这个函数直接修改 playbook_states，不返回新的原子状态
+
+    def _diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增】斐波那契支撑诊断模块
+        - 核心职责: 识别价格在关键斐波那契回撤位获得支撑的行为。
+        - 产出:
+            - OPP_FIB_SUPPORT_GOLDEN_POCKET_S: 在0.618黄金分割位获得支撑的S级信号。
+            - OPP_FIB_SUPPORT_STANDARD_A: 在0.382或0.5标准分割位获得支撑的A级信号。
+        """
+        print("        -> [斐波那契支撑诊断模块] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        p = get_params_block(self.strategy, 'fibonacci_support_params')
+        if not get_param_value(p.get('enabled'), False):
+            return {}
+
+        proximity_ratio = get_param_value(p.get('proximity_ratio'), 0.01)
+        
+        # 定义关键的斐波那契水平列名
+        fib_levels = {
+            '0.618': 'FIB_0.618_D',
+            '0.500': 'FIB_0.5_D',
+            '0.382': 'FIB_0.382_D'
+        }
+
+        # 检查所需列是否存在
+        if any(col not in df.columns for col in fib_levels.values()):
+            print("          -> [警告] 缺少斐波那契水平数据列，模块跳过。")
+            return {}
+
+        # 核心逻辑：识别“下探回升”于斐波那契位的行为
+        # 即：当日最低价 <= 斐波那契位，但收盘价 > 斐波那契位
+        def check_support(fib_level_col):
+            fib_level = df[fib_level_col]
+            # 允许一定的误差
+            is_pierced = df['low_D'] <= fib_level * (1 + proximity_ratio)
+            is_reclaimed = df['close_D'] > fib_level * (1 - proximity_ratio)
+            return is_pierced & is_reclaimed
+
+        # 分别为不同级别的支撑生成信号
+        support_618 = check_support(fib_levels['0.618'])
+        support_500 = check_support(fib_levels['0.500'])
+        support_382 = check_support(fib_levels['0.382'])
+
+        states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'] = support_618
+        states['OPP_FIB_SUPPORT_STANDARD_A'] = support_500 | support_382
+        
+        if states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].any():
+            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].sum()} 次 S级“黄金口袋”支撑。")
+        if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
+            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”支撑。")
+            
+        return states
 
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
