@@ -410,23 +410,32 @@ def run_cycle():
         raise
 
 @celery_app.task(name='tasks.aggregate_intraday_results', queue='intraday_queue')
-def aggregate_intraday_results(results: list):
+def aggregate_intraday_results(results, *args, **kwargs):
     """
-    【V3.1 - 真实Key版】
-    1. 接收所有计算结果。
-    2. 使用 IntradayEngineCashKey 将完整数据存入Redis。
-    3. 触发下一步的信号生成任务。
+    【V3.3 - Chord回调修复版】
+    - 核心修复: 修改函数签名，使用 `results, *args, **kwargs` 来健壮地接收
+                来自Celery Chord的结果，该结果总是一个元组。
     """
     print("\n" + "="*30)
     print("【回调任务】所有并行计算已完成，开始存储完整计算结果...")
-    valid_results = [res for res in results if res and isinstance(res, list)]
+    actual_results = []
+    if isinstance(results, (list, tuple)) and results:
+        actual_results = results[0] if isinstance(results[0], list) else results
+    
+    # 使用 actual_results 进行后续操作
+    valid_results = [res for res in actual_results if res and isinstance(res, list)]
+    
     if not valid_results:
         print("【回调任务】没有任何有效的计算结果，任务结束。")
         print("="*30 + "\n")
         return "Aggregation complete: No valid results."
+
+    # 恢复使用 asyncio.run，因为它本身是正确的，之前的问题在于调用失败
     redis_keys_for_signals = asyncio.run(save_full_data_to_redis(valid_results))
+    
     total_stocks = len(valid_results)
     print(f"【回调任务】存储完成。成功处理了 {total_stocks} 支股票的完整数据。")
+    
     if redis_keys_for_signals:
         print(f"【回调任务】正在为 {len(redis_keys_for_signals)} 个数据键触发信号生成任务...")
         signal_generation_workflow = group(
@@ -434,6 +443,7 @@ def aggregate_intraday_results(results: list):
         )
         signal_generation_workflow.apply_async()
         print("【回调任务】信号生成任务已全部派发。")
+
     print("="*30 + "\n")
     return f"Aggregation and dispatch complete: {total_stocks} stocks processed."
 
