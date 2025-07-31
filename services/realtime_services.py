@@ -36,15 +36,12 @@ def cpu_bound_calculation_task(
     """
     stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
     
-    # ▼▼▼ 调试：定义临时文件路径 ▼▼▼
     # 您可以根据需要修改这个路径，确保Celery worker有权限写入
     temp_debug_dir = '/tmp/celery_debug' 
     os.makedirs(temp_debug_dir, exist_ok=True)
     debug_file_path = os.path.join(temp_debug_dir, f"{stock_code}.json")
-    # ▲▲▲ 调试路径定义结束 ▲▲▲
 
     try:
-        # ... (所有的数据重建和计算逻辑保持完全不变) ...
         def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
             if data is None: return None
             df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
@@ -318,13 +315,11 @@ class RealtimeServices:
                 time_level=time_level,
                 slope_window=self.slope_window,
                 stats_window=self.stats_window
-            ).set(queue='cpu_intensive_queue')  # <--- 强制路由到此队列
+            ).set(queue='cpu_intensive_queue', routing_key='cpu_intensive_queue') 
             for pkg in job_packages
         )
 
-        # 2.2 创建回调任务签名 (Body)
-        # .s() 创建一个不带参数的签名，它将自动接收 group 的结果
-        callback_task = aggregate_intraday_results.s().set(queue='cpu_intensive_queue')
+        callback_task = aggregate_intraday_results.s().set(queue='cpu_intensive_queue', routing_key='cpu_intensive_queue')
 
         # 2.3 构建 Chord 并异步执行
         # chord(header, body)
