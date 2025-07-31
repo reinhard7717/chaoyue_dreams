@@ -3,6 +3,7 @@
 
 import asyncio
 from datetime import datetime, timedelta
+import json
 import logging
 import pytz
 from asgiref.sync import sync_to_async
@@ -18,6 +19,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
+from strategies.realtime_strategy import RealtimeStrategy
 from utils.cash_key import IntradayEngineCashKey
 
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
@@ -418,7 +420,7 @@ def run_realtime_strategy_for_stock(calculated_data: list):
     """
     if not calculated_data or not isinstance(calculated_data, list):
         # 如果上游任务失败或数据为空，直接退出
-        print("上游任务失败或数据为空，直接退出")
+        print("{stock_code} 上游任务失败或数据为空，直接退出")
         return
 
     stock_code = calculated_data[0].get('stock_code', 'Unknown')
