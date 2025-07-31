@@ -172,6 +172,15 @@ class OffensiveLayer:
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
+                'name': 'PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS', 
+                'cn_name': '【S+级】突破-回踩接力', 
+                'family': 'TREND_MOMENTUM',
+                'type': 'setup', 
+                'score': 800, # 给予一个压倒性的高分
+                'side': 'right', 
+                'comment': 'S+级: 初升浪启动后，首次出现健康的、由筹码支撑的回踩。这是最高置信度的趋势确认和介入信号。'
+            },
+            {
                 'name': 'HEALTHY_PULLBACK_S', 
                 'cn_name': '【S级】健康回踩吸筹', 
                 'family': 'TREND_MOMENTUM',

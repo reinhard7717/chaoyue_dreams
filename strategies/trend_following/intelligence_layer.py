@@ -47,6 +47,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
+        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
         trigger_events = self._define_trigger_events(df)
@@ -1374,9 +1375,11 @@ class IntelligenceLayer:
 
     def _diagnose_post_accumulation_phase(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V310.1 深度诊断版】初升浪诊断模块
+        【V312.0 均线粘合增强版】初升浪诊断模块
+        - 核心升级: 引入“均线高度粘合”作为盘整/筑底阶段的核心识别条件，
+                    极大地提高了对高质量启动点的识别精度。
         """
-        print("        -> [初升浪诊断模块 V310.1] 启动，正在扫描吸筹后突破信号...")
+        print("        -> [初升浪诊断模块 V312.0 均线粘合增强版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1384,37 +1387,51 @@ class IntelligenceLayer:
         if not get_param_value(p.get('enabled'), False):
             return {}
 
-        lookback_days = get_param_value(p.get('lookback_days'), 15)
-        min_accumulation_days = get_param_value(p.get('min_accumulation_days'), 3)
         persistence_days = get_param_value(p.get('persistence_days'), 15)
         break_ma_period = get_param_value(p.get('break_ma_period'), 21)
         break_ma_col = f'EMA_{break_ma_period}_D'
+        
+        # 从配置中读取粘合度阈值
+        convergence_threshold = get_param_value(p.get('convergence_threshold'), 0.01)
 
-        required_states = ['CPA_FALL_WITH_MAIN_FORCE_ABSORBING']
-        if any(state not in self.strategy.atomic_states for state in required_states) or break_ma_col not in df.columns:
-            print("          -> [警告] 缺少诊断“初升浪”所需的核心情报(主力下跌吸筹信号或关键均线)，模块跳过。")
+        # --- 1. 检查所需情报 ---
+        required_cols = [
+            'MA_CONV_CV_SHORT_D', 'MA_CONV_CV_LONG_D', # 新的粘合度指标
+            'pct_change_D', 'volume_D', 'VOL_MA_21_D', break_ma_col
+        ]
+        if any(col not in df.columns for col in required_cols):
+            print("          -> [警告] 缺少诊断“初升浪”所需的核心情报(均线粘合度/成交量数据)，模块跳过。")
             return {}
 
-        # --- 诊断步骤 1: 识别“吸筹日” ---
-        is_accumulation_day = self.strategy.atomic_states.get('CPA_FALL_WITH_MAIN_FORCE_ABSORBING', default_series)
-        print(f"          -> [诊断1] 识别到 {is_accumulation_day.sum()} 天为“主力下跌吸筹日”。")
-
-        # --- 诊断步骤 2: 判断是否存在“有效吸筹区” ---
-        accumulation_day_count = is_accumulation_day.rolling(window=lookback_days, min_periods=1).sum()
-        is_valid_accumulation_zone = (accumulation_day_count >= min_accumulation_days)
-        print(f"          -> [诊断2] 识别到 {is_valid_accumulation_zone.sum()} 天处于“有效吸筹区”内 (过去{lookback_days}天内至少有{min_accumulation_days}天吸筹)。")
-
-        # --- 诊断步骤 3: 定义“突破事件” ---
-        accumulation_zone_high = df['high_D'].rolling(window=lookback_days).max()
-        is_breakout_day = (df['close_D'] > accumulation_zone_high.shift(1)) & is_valid_accumulation_zone
-        print(f"          -> [诊断3] 识别到 {is_breakout_day.sum()} 天满足“突破吸筹区高点”的条件。")
-
-        was_not_breakout = ~is_breakout_day.shift(1).fillna(False)
-        first_breakout_event = is_breakout_day & was_not_breakout
+        # --- 2. 定义“盘整/筑底”的准备阶段 (Setup Phase) ---
+        # 条件A: 短期或长期均线必须高度粘合 (CV值小于阈值)
+        is_highly_converged = (
+            (df['MA_CONV_CV_SHORT_D'] < convergence_threshold) |
+            (df['MA_CONV_CV_LONG_D'] < convergence_threshold)
+        )
+        
+        # 条件B: （可选）可以结合之前的“健康吸筹箱体”或“极致压缩”状态，作为补充
+        is_other_setup = (
+            self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series) |
+            self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        )
+        
+        # 最终的准备阶段：必须满足均线粘合，最好还有其他盘整信号
+        is_setup_phase = is_highly_converged & is_other_setup
+        
+        # --- 3. 定义“启动事件” (Ignition Event) ---
+        is_positive_candle = df['pct_change_D'] > 0
+        is_volume_spike = df['volume_D'] > (df['VOL_MA_21_D'] * 1.5)
+        is_ignition_day = is_positive_candle & is_volume_spike
+        
+        # --- 4. 定义最终的“初升浪启动事件” ---
+        was_in_setup_phase = is_setup_phase.shift(1).fillna(False)
+        first_breakout_event = was_in_setup_phase & is_ignition_day
+        
         states['POST_ACCUMULATION_ASCENT_C'] = first_breakout_event
-        print(f"          -> [最终事件] 识别到 {first_breakout_event.sum()} 天为“首次突破事件” (POST_ACCUMULATION_ASCENT_C)。")
+        print(f"          -> [最终事件] 识别到 {first_breakout_event.sum()} 天为“初升浪启动事件” (POST_ACCUMULATION_ASCENT_C)。")
 
-        # --- 诊断步骤 4: 生成“持续性状态” ---
+        # --- 5. 生成“持续性状态” (逻辑不变) ---
         break_condition = df['close_D'] < df[break_ma_col]
         ascent_state = create_persistent_state(
             df=df,
@@ -1425,6 +1442,55 @@ class IntelligenceLayer:
         )
         states['STRUCTURE_POST_ACCUMULATION_ASCENT_C'] = ascent_state
         print(f"          -> [最终状态] “初升浪”结构状态共持续 {ascent_state.sum()} 天 (STRUCTURE_POST_ACCUMULATION_ASCENT_C)。")
+            
+        return states
+
+    def _diagnose_breakout_pullback_relay(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V324.0 新增】突破-回踩接力联动诊断模块
+        - 核心职责: 识别在“初升浪”启动后的一个窗口期内，是否出现了“健康回踩”信号。
+                    这是对趋势有效性的强力确认，是极高质量的二次介入点。
+        - 产出:
+            - PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS: S+级剧本信号，仅在回踩当天触发。
+        """
+        print("        -> [突破-回踩接力诊断模块 V324.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 从配置文件加载参数 ---
+        # 我们可以在 post_accumulation_params 中增加一个子配置
+        p_relay = get_params_block(self.strategy, 'post_accumulation_params').get('relay_params', {})
+        if not get_param_value(p_relay.get('enabled'), False):
+            return {}
+        
+        lookback_window = get_param_value(p_relay.get('lookback_window'), 10)
+
+        # --- 2. 检查所需情报是否到位 ---
+        required_states = [
+            'POST_ACCUMULATION_ASCENT_C',       # 初升浪启动事件
+            'OPP_PULLBACK_WITH_CHIP_STABILITY_S' # 健康回踩机会
+        ]
+        if any(state not in self.strategy.atomic_states for state in required_states):
+            print("          -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
+            return {}
+
+        # --- 3. 识别联动逻辑 ---
+        
+        # 条件A: 当天必须是一个“健康回踩”日
+        is_healthy_pullback_day = self.strategy.atomic_states.get('OPP_PULLBACK_WITH_CHIP_STABILITY_S', default_series)
+        
+        # 条件B: 在过去N天（包括今天）内，必须发生过一次“初升浪启动”事件
+        had_recent_breakout = self.strategy.atomic_states.get('POST_ACCUMULATION_ASCENT_C', default_series)\
+                                  .rolling(window=lookback_window, min_periods=1)\
+                                  .apply(np.any, raw=True).fillna(0).astype(bool)
+
+        # --- 4. 组合条件，生成最终的S+级剧本信号 ---
+        relay_signal = is_healthy_pullback_day & had_recent_breakout
+        
+        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_signal
+        
+        if relay_signal.any():
+            print(f"          -> [情报] 侦测到 {relay_signal.sum()} 次 S+级“突破-回踩接力”机会！")
             
         return states
 

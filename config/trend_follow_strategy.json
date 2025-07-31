@@ -88,7 +88,23 @@
         "apply_on": ["D"],
         "params": { "ma_periods": [3, 5, 10] }
       },
-      "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] }
+      "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] },
+      "ma_convergence": {
+        "enabled": true,
+        "description": "【新增】均线粘合度指标。使用变异系数(CV)来量化，值越小代表粘合度越高。",
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [5, 13, 21],
+            "output_column_name": "MA_CONV_CV_SHORT_D"
+          },
+          {
+            "apply_on": ["D"],
+            "periods": [21, 55, 89],
+            "output_column_name": "MA_CONV_CV_LONG_D"
+          }
+        ]
+      }
     },
     "slope_params": {
       "enabled": true,
@@ -618,14 +634,10 @@
       },
       "post_accumulation_params": {
         "enabled": true,
-        "description": "【V310.0 新增】初升浪诊断模块参数 (A股特化)",
-        "lookback_days": {
-          "value": 15,
-          "description": "定义“吸筹区”的回看窗口期（天）。"
-        },
-        "min_accumulation_days": {
-          "value": 3,
-          "description": "在回看窗口期内，至少需要多少天存在吸筹迹象才算作“吸筹区”。"
+        "description": "【V312.0 均线粘合增强版】初升浪诊断模块参数",
+        "convergence_threshold": {
+          "value": 0.01,
+          "description": "均线粘合度的CV值阈值。低于此值视为高度粘合。0.01代表均线的标准差仅为均值的1%。"
         },
         "persistence_days": {
           "value": 15,
@@ -634,6 +646,14 @@
         "break_ma_period": {
           "value": 21,
           "description": "定义破坏“初升浪”状态的关键均线周期，跌破此均线则状态提前结束。"
+        },
+        "relay_params": {
+          "enabled": true,
+          "description": "【V324.0 新增】突破-回踩接力联动参数",
+          "lookback_window": {
+            "value": 10,
+            "description": "在回踩日，向前回溯多少天寻找“初升浪启动”事件。"
+          }
         }
       },
       "healthy_pullback_params": {

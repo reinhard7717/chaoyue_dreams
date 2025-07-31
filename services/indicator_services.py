@@ -875,6 +875,40 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"计算Z-score时出错: {e}", exc_info=True)
 
+        # ▼▼▼ 阶段三点五: 计算均线粘合度指标 ▼▼▼
+        ma_convergence_params = config.get('ma_convergence')
+        if ma_convergence_params and ma_convergence_params.get('enabled', False):
+            for conv_config in ma_convergence_params.get('configs', []):
+                if timeframe_key in conv_config.get("apply_on", []):
+                    try:
+                        periods = conv_config.get('periods', [])
+                        output_col = conv_config.get('output_column_name')
+                        
+                        # 动态构建需要参与计算的均线列名（不带后缀）
+                        ma_cols = [f"EMA_{p}" for p in periods]
+                        
+                        # 检查所有需要的均线列是否都已存在
+                        if all(col in df_for_calc.columns for col in ma_cols):
+                            # 提取这些均线列的数据
+                            ma_df = df_for_calc[ma_cols]
+                            
+                            # 计算变异系数 (CV = 标准差 / 均值)，CV是无量纲的，更适合跨股票比较
+                            ma_std = ma_df.std(axis=1)
+                            ma_mean = ma_df.mean(axis=1)
+                            
+                            # 防止除以零
+                            convergence_cv = ma_std / (ma_mean + 1e-9)
+                            
+                            # 将计算结果存入DataFrame
+                            df_for_calc[output_col] = convergence_cv
+                            print(f"      -> 均线粘合度指标 '{output_col}' 计算完成。")
+                        else:
+                            missing = [col for col in ma_cols if col not in df_for_calc.columns]
+                            logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
+
+                    except Exception as e:
+                        logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
+
         # --- 阶段四: 统一添加后缀并返回 ---
         # ▼▼▼【代码修改 V110】: 统一为所有列添加后缀的核心逻辑 ▼▼▼
         # 1. 定义后缀
