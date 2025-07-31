@@ -8,9 +8,9 @@ import pandas_ta as ta
 from asgiref.sync import sync_to_async
 from celery import group
 from chaoyue_dreams.celery import app as celery_app
-import pytz # <--- 1. 导入 pytz
+import pytz
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, time, date # <--- 2. 导入 time
+from datetime import datetime, time, date
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
@@ -18,93 +18,137 @@ from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrate
 from stock_models.index import TradeCalendar
 from utils.cash_key import StockCashKey
 
-from celery import group, chord # 确保 group 和 chord 都已导入
-
 logger = logging.getLogger("services")
 
-
-@celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')
-def cpu_bound_calculation_task(
-    stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]],
-    time_level: str,
-    slope_window: int,
-    stats_window: int
-) -> None: # 这个任务不返回任何东西
+# ▼▼▼ 新增：特征工程引擎类 ▼▼▼
+class IntradayFeatureEngine:
     """
-    【V8.0 - 流式处理版】
-    - 计算完成后，不再更新计数器，而是直接为当前股票触发策略分析任务。
+    一个专门用于计算盘中分钟级别数据特征的引擎。
+    将所有复杂的计算逻辑从Celery任务中剥离，使其更清晰、可测试。
     """
-    stock_code, serialized_minute, serialized_ticks, serialized_level5 = stock_data_package
-    print(f"    -> [WORKER V8.0] 开始计算 {stock_code} 的指标...")
+    def __init__(self, slope_window: int, stats_window: int):
+        self.slope_window = slope_window
+        self.stats_window = stats_window
 
-    try:
-        # --- 核心计算逻辑 (保持不变) ---
-        def _reconstruct_df_from_dict(data: Optional[dict]) -> Optional[pd.DataFrame]:
+    def generate_features(self, stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]], time_level: str) -> Optional[pd.DataFrame]:
+        """
+        执行完整的特征计算流水线。
+        """
+        # 1. 从序列化数据中重建DataFrame
+        df_minute, df_ticks = self._reconstruct_dataframes(stock_data_package)
+        if df_minute is None or df_minute.empty:
+            return None
+
+        # 2. 聚合Tick数据到分钟级别
+        if df_ticks is not None and not df_ticks.empty:
+            df_minute = self._aggregate_tick_data(df_minute, df_ticks, time_level)
+
+        # 3. 计算基础特征 (VWAP, 净主动成交量等)
+        df_minute = self._calculate_primary_features(df_minute)
+        if df_minute.empty:
+            return None
+
+        # 4. 应用 pandas-ta 策略计算一系列技术指标
+        df_minute = self._apply_pandas_ta_strategy(df_minute)
+
+        # 5. 计算衍生特征 (加速度, 布林带, 相关性等)
+        df_minute = self._calculate_secondary_features(df_minute)
+
+        # 6. 最终处理并返回
+        stock_code = stock_data_package[0]
+        df_minute.reset_index(inplace=True)
+        df_minute['stock_code'] = stock_code
+        return df_minute
+
+    def _reconstruct_dataframes(self, stock_data_package) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        """从序列化数据包中重建DataFrames。"""
+        _, serialized_minute, serialized_ticks, _ = stock_data_package
+        
+        def _reconstruct(data: Optional[dict]) -> Optional[pd.DataFrame]:
             if data is None: return None
             df = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
             df.index = pd.to_datetime(df.index)
             return df
-        df_minute = _reconstruct_df_from_dict(serialized_minute)
-        df_ticks = _reconstruct_df_from_dict(serialized_ticks)
-        df_level5 = _reconstruct_df_from_dict(serialized_level5)
-        
-        if df_minute is None or df_minute.empty:
-            print(f"    -> [WORKER V8.0] {stock_code} 数据为空，任务结束。")
-            return
+            
+        df_minute = _reconstruct(serialized_minute)
+        df_ticks = _reconstruct(serialized_ticks)
+        return df_minute, df_ticks
 
-        # ... (这里是您所有的pandas_ta计算逻辑，完全不变) ...
-        df_minute.ta.cores = 0
-        if df_ticks is not None and not df_ticks.empty and 'buy_volume1' in df_ticks.columns:
-            df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
-            df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
-            df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
-            df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
-            df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
-            aggregation_rules = {
-                'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
-                'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
-                'volume': ['sum', 'count']
-            }
-            df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
-            df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
-            df_aggregated.rename(columns={
-                'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
-                'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
-                'energy_ratio_min': 'energy_ratio_min', 'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
-                'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
-                'volume_count': 'tick_count',
-            }, inplace=True)
-            df_minute = df_minute.join(df_aggregated, how='left')
+    def _aggregate_tick_data(self, df_minute: pd.DataFrame, df_ticks: pd.DataFrame, time_level: str) -> pd.DataFrame:
+        """聚合Tick数据并合并到分钟DataFrame。"""
+        if 'buy_volume1' not in df_ticks.columns:
+            return df_minute
+            
+        df_ticks['buy_com'] = df_ticks[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
+        df_ticks['sell_com'] = df_ticks[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
+        df_ticks['energy_ratio'] = (df_ticks['buy_com'] / (df_ticks['sell_com'] + 1e-6)).clip(0, 100)
+        df_ticks['aggressive_buy_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] >= row['sell_price1'] else 0, axis=1)
+        df_ticks['aggressive_sell_volume'] = df_ticks.apply(lambda row: row['volume'] if row['current_price'] <= row['buy_price1'] else 0, axis=1)
+        
+        aggregation_rules = {
+            'buy_com': ['mean'], 'sell_com': ['mean'], 'energy_ratio': ['mean', 'max', 'min'],
+            'aggressive_buy_volume': ['sum'], 'aggressive_sell_volume': ['sum'],
+            'volume': ['sum', 'count']
+        }
+        df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
+        df_aggregated.columns = ['_'.join(col).strip() for col in df_aggregated.columns.values]
+        df_aggregated.rename(columns={
+            'buy_com_mean': 'buy_com_mean', 'sell_com_mean': 'sell_com_mean',
+            'energy_ratio_mean': 'energy_ratio_mean', 'energy_ratio_max': 'energy_ratio_max',
+            'energy_ratio_min': 'energy_ratio_min', 'aggressive_buy_volume_sum': 'agg_buy_vol_sum',
+            'aggressive_sell_volume_sum': 'agg_sell_vol_sum', 'volume_sum': 'agg_volume',
+            'volume_count': 'tick_count',
+        }, inplace=True)
+        
+        return df_minute.join(df_aggregated, how='left')
+
+    def _calculate_primary_features(self, df_minute: pd.DataFrame) -> pd.DataFrame:
+        """计算VWAP和净主动成交量等基础特征。"""
         if 'turnover_value' in df_minute.columns and 'volume' in df_minute.columns:
+            df_minute['turnover_value'] = pd.to_numeric(df_minute['turnover_value'], errors='coerce')
+            df_minute['volume'] = pd.to_numeric(df_minute['volume'], errors='coerce')
             df_minute['vwap'] = df_minute['turnover_value'].cumsum() / (df_minute['volume'].cumsum() + 1e-6)
+        
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
+            
         df_minute['price_pct_change'] = df_minute.ta.percent_return(length=1, cores=0)
+        return df_minute
+
+    def _apply_pandas_ta_strategy(self, df_minute: pd.DataFrame) -> pd.DataFrame:
+        """构建并应用pandas-ta策略。"""
         strategy_ta_list = []
         if 'net_aggressive_volume' in df_minute.columns:
             strategy_ta_list.extend([
-                {"kind": "slope", "close": "net_aggressive_volume", "length": slope_window, "col_names": "net_agg_vol_slope"},
-                {"kind": "zscore", "close": "net_aggressive_volume", "length": stats_window, "col_names": "net_agg_vol_zscore"},
+                {"kind": "slope", "close": "net_aggressive_volume", "length": self.slope_window, "col_names": "net_agg_vol_slope"},
+                {"kind": "zscore", "close": "net_aggressive_volume", "length": self.stats_window, "col_names": "net_agg_vol_zscore"},
                 {"kind": "ema", "close": "net_aggressive_volume", "length": 10, "col_names": "net_agg_vol_ema10"},
             ])
         if 'buy_com_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": slope_window, "col_names": "buy_com_slope"})
+            strategy_ta_list.append({"kind": "slope", "close": "buy_com_mean", "length": self.slope_window, "col_names": "buy_com_slope"})
         if 'energy_ratio_mean' in df_minute.columns:
-            strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": slope_window, "col_names": "energy_ratio_slope"})
+            strategy_ta_list.append({"kind": "slope", "close": "energy_ratio_mean", "length": self.slope_window, "col_names": "energy_ratio_slope"})
         if 'volume' in df_minute.columns:
-            strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": stats_window, "col_names": "volume_zscore"})
+            strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": self.stats_window, "col_names": "volume_zscore"})
+        
         if strategy_ta_list:
             custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
             df_minute.ta.strategy(custom_strategy, cores=0)
+        return df_minute
+
+    def _calculate_secondary_features(self, df_minute: pd.DataFrame) -> pd.DataFrame:
+        """计算依赖于TA指标的衍生特征。"""
         if 'net_agg_vol_slope' in df_minute.columns:
-            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=slope_window, cores=0)
+            df_minute['net_agg_vol_accel'] = df_minute.ta.slope(close=df_minute['net_agg_vol_slope'], length=self.slope_window, cores=0)
+        
         if 'net_aggressive_volume' in df_minute.columns:
-            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
+            bbands_df = df_minute.ta.bbands(close=df_minute['net_aggressive_volume'], length=self.stats_window, col_names=('BBL', 'BBM', 'BBU', 'BBB', 'BBP'), cores=0)
             df_minute = df_minute.join(bbands_df)
-            df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(stats_window).corr(df_minute['net_aggressive_volume'])
+            df_minute['corr_price_net_agg_vol'] = df_minute['price_pct_change'].rolling(self.stats_window).corr(df_minute['net_aggressive_volume'])
+        
         if 'close' in df_minute.columns:
-            stdev = df_minute.ta.stdev(length=stats_window, cores=0)
-            sma = df_minute.ta.sma(length=stats_window, cores=0)
+            stdev = df_minute.ta.stdev(length=self.stats_window, cores=0)
+            sma = df_minute.ta.sma(length=self.stats_window, cores=0)
             df_minute['price_cv'] = stdev / (sma + 1e-6)
             try:
                 df_minute.ta.fractal(append=True, cores=0)
@@ -112,25 +156,53 @@ def cpu_bound_calculation_task(
                 df_minute.rename(columns=rename_map, inplace=True)
             except Exception:
                 pass
-        df_minute.reset_index(inplace=True)
-        df_minute['stock_code'] = stock_code
+        return df_minute
+# ▲▲▲ 新增结束 ▲▲▲
+
+
+# ▼▼▼ 修改后：重构为服务编排器 ▼▼▼
+@celery_app.task(name='services.realtime_services.cpu_bound_calculation_task', queue='cpu_intensive_queue')
+def cpu_bound_calculation_task(
+    stock_data_package: Tuple[str, Optional[dict], Optional[dict], Optional[dict]],
+    time_level: str,
+    slope_window: int,
+    stats_window: int
+) -> None:
+    """
+    【V9.0 - 重构版】
+    - 职责: 作为一个轻量级的服务编排器。
+    - 行为: 1. 调用IntradayFeatureEngine执行计算。
+             2. 将计算结果分派给下一个策略分析任务。
+    """
+    stock_code = stock_data_package[0]
+    print(f"    -> [WORKER V9.0] 开始处理 {stock_code}...")
+
+    try:
+        # 1. 初始化特征引擎
+        feature_engine = IntradayFeatureEngine(slope_window, stats_window)
         
-        # --- 触发策略分析任务 ---
-        print(f"    -> [WORKER V8.0] {stock_code} 指标计算完成，正在触发策略分析任务...")
+        # 2. 调用引擎生成所有特征
+        df_features = feature_engine.generate_features(stock_data_package, time_level)
+
+        # 3. 检查结果并触发下游任务
+        if df_features is None or df_features.empty:
+            print(f"    -> [WORKER V9.0] {stock_code} 未生成有效特征数据，任务结束。")
+            return
+
+        print(f"    -> [WORKER V9.0] {stock_code} 特征计算完成，正在触发策略分析任务...")
         from tasks.stock_analysis_tasks import run_realtime_strategy_for_stock
         
-        # 将计算结果直接传递给下一个任务
-        # 使用 to_dict('records') 序列化，因为下一个任务需要的是 list of dicts
-        calculated_data = df_minute.to_dict('records')
+        calculated_data = df_features.to_dict('records')
         
         run_realtime_strategy_for_stock.apply_async(
-            args=[calculated_data], # 直接传递数据
+            args=[calculated_data],
             queue='cpu_intensive_queue',
             routing_key='cpu_intensive_queue'
         )
 
     except Exception as e:
-        logger.error(f"    -> [WORKER V8.0] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
+        logger.error(f"    -> [WORKER V9.0] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
+
 
 class RealtimeServices:
     """
@@ -142,16 +214,17 @@ class RealtimeServices:
         self.realtime_dao = StockRealtimeDAO(cache_manager_instance)
         self.timetrade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.cache_key = StockCashKey()
+        # 将窗口参数定义在服务实例中
         self.slope_window = 5
         self.stats_window = 20
 
+    # ... _get_monitoring_pool_from_sources 和 update_and_cache_monitoring_pool 方法保持不变 ...
     @sync_to_async
     def _get_monitoring_pool_from_sources(self, trade_date: date) -> tuple[list[str], list[str]]:
         """
         【内部方法】从数据库并发获取策略Top100股和所有自选股。
         (此方法保持不变)
         """
-        # ... 此方法内部代码完全不变 ...
         try:
             top_stocks_qs = TrendFollowStrategySignalLog.objects.filter(
                 trade_time__date=trade_date,
@@ -172,83 +245,55 @@ class RealtimeServices:
             watchlist_stocks = []
         return strategy_stocks, watchlist_stocks
 
-    # [修改后方法]
     async def update_and_cache_monitoring_pool(self):
         """
         【盘前任务入口 - V2.0】使用数据库中的TradeCalendar模型更新监控池。
         """
         print("开始更新盘中监控股票池...")
-        
-        # ▼▼▼ 核心修改 ▼▼▼
-        # 1. 将同步的类方法包装成异步函数
         get_prev_date_async = sync_to_async(TradeCalendar.get_latest_trade_date, thread_sensitive=True)
-        
-        # 2. 异步调用，获取前一个交易日
         previous_trade_date = await get_prev_date_async(reference_date=date.today())
-        
-        # 3. 关键的健壮性检查
         if not previous_trade_date:
             logger.error("无法从数据库TradeCalendar中获取到前一个交易日，盘前准备任务终止！")
             return
-        # ▲▲▲ 核心修改结束 ▲▲▲
-
         print(f"  -> 目标策略日期 (前一交易日): {previous_trade_date}")
-
         strategy_stocks, watchlist_stocks = await self._get_monitoring_pool_from_sources(previous_trade_date)
-        
         print(f"  -> 获取到自选股: {len(watchlist_stocks)} 支")
         print(f"  -> 获取到策略Top100股: {len(strategy_stocks)} 支")
-
         final_pool_set = set(watchlist_stocks) | set(strategy_stocks)
         final_pool_list = list(final_pool_set)
-        
         print(f"  -> 合并去重后，最终监控池大小为: {len(final_pool_list)} 支")
-
         if not final_pool_list:
             logger.warning("生成的最终监控股票池为空，不进行缓存操作。")
             return
-
         redis_key = self.cache_key.intraday_monitoring_pool()
         await self.cache_manager.delete(redis_key)
         await self.cache_manager.sadd(redis_key, *final_pool_list)
         await self.cache_manager.expire(redis_key, 86400)
-        
         print(f"  -> 成功将 {len(final_pool_list)} 支股票存入Redis缓存键: {redis_key}")
 
-    # [以下方法保持不变]
     async def get_monitoring_pool_from_cache(self) -> List[str]:
         """
         【盘中任务入口 - V2.1 修正版】从Redis中获取盘中监控的股票池。
         - 修正: 移除了对已反序列化字符串的多余 .decode() 操作。
         """
         redis_key = self.cache_key.intraday_monitoring_pool()
-        
-        # 1. 调用 self.cache_manager.smembers，它已经返回了反序列化后的字符串列表
         stock_codes_from_cache = await self.cache_manager.smembers(redis_key)
-        
-        # 2. 检查返回结果
         if stock_codes_from_cache is None:
-            # smembers 在连接失败时可能返回 None
             logger.error(f"从Redis缓存键 {redis_key} 获取股票池失败（连接错误？）。")
             return []
-        
         if not stock_codes_from_cache:
             logger.warning(f"无法从Redis缓存键 {redis_key} 中获取到任何股票，监控池为空！")
             return []
-            
-        # 3. 直接使用结果，不再需要解码
-        stock_codes = stock_codes_from_cache # 直接赋值即可
-        
+        stock_codes = stock_codes_from_cache
         print(f"成功从Redis加载监控池，共 {len(stock_codes)} 支股票。")
         return stock_codes
 
     async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
         """
-        【V8.0 - 流式处理版】
+        【V9.0 - 重构版】
         - 职责简化: 只负责获取原始数据，并为每个股票分派一个计算任务。
-        - 彻底解耦: 不再关心聚合，不再使用Chord或计数器。
         """
-        print(f"【V8.0】开始为 {len(stock_codes)} 支股票分派流式处理任务...")
+        print(f"【V9.0】开始为 {len(stock_codes)} 支股票分派流式处理任务...")
         
         # --- 数据准备阶段 (逻辑不变) ---
         print("  -> 正在集中获取所有股票的原始数据...")
@@ -293,9 +338,6 @@ class RealtimeServices:
             )
         
         print(f"  -> 所有 {total_tasks} 个计算任务已分派。主任务退出，后续流程将由worker自动触发。")
-
-
-
 
 
 
