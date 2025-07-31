@@ -57,6 +57,7 @@ class IntradayFeatureEngine:
         # 6. 最终处理并返回
         stock_code = stock_data_package[0]
         df_minute.reset_index(inplace=True)
+        df_minute.rename(columns={'index': 'trade_time'}, inplace=True)
         df_minute['stock_code'] = stock_code
         return df_minute
 
