@@ -23,6 +23,7 @@ from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
 from itertools import chain
+from utils.task_helpers import with_cache_manager_for_views
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
@@ -30,8 +31,13 @@ target_queue = 'dashboard'
 
 # --- 页面视图 ---
 @login_required
-def dashboard_view(request):
-    cache_manager = CacheManager()
+@with_cache_manager_for_views
+def dashboard_view(request, cache_manager=None):
+    """
+    【已重构】渲染主控台页面。
+    使用 @with_cache_manager_for_views 装饰器自动管理Redis连接。
+    """
+    # 【代码修改】直接使用由装饰器注入的 cache_manager 实例
     user_dao = UserDAO(cache_manager_instance=cache_manager)
     """渲染主控台页面"""
     get_favorites_async = user_dao.get_user_favorites
@@ -267,14 +273,15 @@ def fav_trend_following_list(request):
     return render(request, 'dashboard/fav_trend_following_list.html', context)
 
 @login_required
-def realtime_engine_view(request):
+@with_cache_manager_for_views
+def realtime_engine_view(request, cache_manager=None):
     """
-    【V2.1 - 真实Key版】
-    - 使用 IntradayEngineCashKey 从Redis拉取最终信号。
+    【已重构】渲染盘中引擎实时监控页面。
+    使用 @with_cache_manager_for_views 装饰器自动管理Redis连接。
     """
     user = request.user
     today_str = date.today().strftime('%Y-%m-%d')
-    cache_manager = CacheManager()
+    # 【代码修改】直接使用由装饰器注入的 cache_manager 实例
     cache_key_builder = IntradayEngineCashKey()
     user_dao = UserDAO(cache_manager_instance=cache_manager)
     async def get_initial_signals_for_favorites():
