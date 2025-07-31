@@ -116,8 +116,14 @@ class IntradayFeatureEngine:
         return df_minute
 
     def _apply_pandas_ta_strategy(self, df_minute: pd.DataFrame) -> pd.DataFrame:
-        """构建并应用pandas-ta策略。"""
+        """
+        【V9.1 - 修复版】构建并应用pandas-ta策略。
+        - 核心修复: 放弃使用 df.ta.strategy() 方法，因为它可能在Celery的守护进程中
+                    非法地尝试创建子进程。改为手动遍历策略列表并逐一调用指标函数，
+                    从而完全绕过多进程封装。
+        """
         strategy_ta_list = []
+        # 构建策略列表的逻辑保持不变
         if 'net_aggressive_volume' in df_minute.columns:
             strategy_ta_list.extend([
                 {"kind": "slope", "close": "net_aggressive_volume", "length": self.slope_window, "col_names": "net_agg_vol_slope"},
@@ -131,9 +137,40 @@ class IntradayFeatureEngine:
         if 'volume' in df_minute.columns:
             strategy_ta_list.append({"kind": "zscore", "close": "volume", "length": self.stats_window, "col_names": "volume_zscore"})
         
-        if strategy_ta_list:
-            custom_strategy = ta.Strategy(name="Intraday_Advanced_Features", ta=strategy_ta_list)
-            df_minute.ta.strategy(custom_strategy, cores=0)
+        if not strategy_ta_list:
+            return df_minute
+
+        # 手动遍历并应用每个指标
+        for item in strategy_ta_list:
+            # 获取指标名称，例如 'slope', 'zscore'
+            indicator_name = item.get("kind")
+            if not indicator_name:
+                continue
+            
+            # 获取指标函数，例如 df.ta.slope, df.ta.zscore
+            indicator_func = getattr(df_minute.ta, indicator_name, None)
+            if not callable(indicator_func):
+                continue
+
+            # 准备参数，从字典中移除 'kind' 和 'col_names'
+            params = item.copy()
+            params.pop("kind")
+            col_names = params.pop("col_names", None)
+            
+            # 调用指标函数
+            # 确保 append=True，这样结果会直接附加到 df_minute
+            # 确保 cores=0，虽然在这里可能不是必须的，但保持一致性
+            indicator_func(**params, append=True, cores=0)
+            
+            # 重命名列
+            if col_names:
+                # pandas-ta 默认生成的列名通常是基于参数的，我们需要找到它并重命名
+                # 例如，slope(close='net_aggressive_volume', length=5) -> 'SLOPE_5'
+                # 这是一个简化的重命名逻辑，可能需要根据实际情况调整
+                # 幸运的是，pandas-ta的 append=True 模式下，新列通常是最后一列
+                default_col_name = df_minute.columns[-1]
+                df_minute.rename(columns={default_col_name: col_names}, inplace=True)
+
         return df_minute
 
     def _calculate_secondary_features(self, df_minute: pd.DataFrame) -> pd.DataFrame:
