@@ -212,7 +212,7 @@ def cpu_bound_calculation_task(
              2. 将计算结果分派给下一个策略分析任务。
     """
     stock_code = stock_data_package[0]
-    print(f"    -> [WORKER V9.0] 开始处理 {stock_code}...")
+    # print(f"    -> [WORKER V9.0] 开始处理 {stock_code}...")
 
     try:
         # 1. 初始化特征引擎
@@ -226,7 +226,7 @@ def cpu_bound_calculation_task(
             print(f"    -> [WORKER V9.0] {stock_code} 未生成有效特征数据，任务结束。")
             return
 
-        print(f"    -> [WORKER V9.0] {stock_code} 特征计算完成，正在触发策略分析任务...")
+        # print(f"    -> [WORKER V9.0] {stock_code} 特征计算完成，正在触发策略分析任务...")
         from tasks.stock_analysis_tasks import run_realtime_strategy_for_stock
         
         calculated_data = df_features.to_dict('records')
