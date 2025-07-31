@@ -4,6 +4,7 @@ from asgiref.sync import async_to_sync
 import logging
 import datetime
 from django.utils import timezone
+from utils.task_helpers import with_cache_manager
 from celery import group
 from django.db.models import Q
 from typing import List, Dict, Any # 引入 List, Dict, Any
@@ -52,28 +53,22 @@ def get_last_monday_and_friday():
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
 # [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
 @celery_app.task(queue='SaveHistoryData_TimeTrade', acks_late=True)
-def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.date):
+@with_cache_manager
+def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.date, cache_manager=None):
     """
     通用子任务：执行FundFlowDao中的指定异步方法来保存当日数据。
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"子任务启动: {method_name}")
     print(f"调试信息：子任务 {self.request.id} 启动，执行异步方法: {method_name}")
 
     async def main():
-        cache_manager_instance = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(fund_flow_dao, method_name)
         return await save_method(trade_date)
-
-    try:
-        async_to_sync(main)()
-        logger.info(f"子任务成功: {method_name}")
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
-        return {"status": "success", "method": method_name}
-    except Exception as e:
-        logger.error(f"执行子任务 {method_name} 时出错: {e}", exc_info=True)
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
-        raise self.retry(exc=e, countdown=60, max_retries=3)
+    async_to_sync(main)()
+    logger.info(f"子任务成功: {method_name}")
+    print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+    return {"status": "success", "method": method_name}
 
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue='SaveHistoryData_TimeTrade')
@@ -109,50 +104,36 @@ def save_fund_flow_daily_data_today(self):
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_hm_detail_data_today', queue='SaveHistoryData_TimeTrade')
-def save_hm_detail_data_today(self):
+@with_cache_manager
+def save_hm_detail_data_today(self, cache_manager=None):
     """
     Celery任务：获取并保存【当天】的游资每日明细数据。
     """
+    dao = FundFlowDao(cache_manager)
     print(f"开始执行Celery任务: 保存【当天】的游资每日明细数据。 save_hm_detail_data_today, Task ID: {self.request.id}")
-
-    async def main():
-        cache_manager_instance = CacheManager()
-        dao = FundFlowDao(cache_manager_instance)
+    async def main():        
         return await dao.save_hm_detail_data()
-
-    try:
-        async_to_sync(main)()
-        print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行成功。")
-        return f"成功获取并保存了当天的游资明细数据。"
-    except Exception as e:
-        logger.error(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行失败: {e}", exc_info=True)
-        print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行失败: {e}")
-        raise
+    async_to_sync(main)()
+    print(f"Celery任务: save_hm_detail_data_today, Task ID: {self.request.id} 执行成功。")
+    return f"成功获取并保存了当天的游资明细数据。"
 
 #  ================ （昨日）个股日级资金流向数据 （三种渠道） ================
 @celery_app.task(queue='SaveHistoryData_TimeTrade', acks_late=True)
-def execute_fund_flow_dao_method(method_name: str, trade_date: str):
+@with_cache_manager
+def execute_fund_flow_dao_method(method_name: str, trade_date: str, cache_manager=None):
     """
     通用执行者子任务：执行FundFlowDao中的指定异步方法。
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"通用子任务启动: {method_name}")
     print(f"调试信息：子任务 {self.request.id} 启动，执行异步方法: {method_name}")
-
     async def main():
-        cache_manager_instance = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(fund_flow_dao, method_name)
         return await save_method(trade_date)
-
-    try:
-        async_to_sync(main)()
-        logger.info(f"通用子任务成功: {method_name}")
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
-        return {"status": "success", "method": method_name}
-    except Exception as e:
-        logger.error(f"执行通用子任务 {method_name} 时出错: {e}", exc_info=True)
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
-        raise self.retry(exc=e, countdown=60, max_retries=3)
+    async_to_sync(main)()
+    logger.info(f"通用子任务成功: {method_name}")
+    print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+    return {"status": "success", "method": method_name}
     
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue='SaveHistoryData_TimeTrade')
@@ -191,28 +172,22 @@ def save_fund_flow_daily_data_yesterday(self):
 #  ================ （本周）日级资金流向数据（三种渠道） ================
 # [新增] 创建一个通用的、原子化的子任务，用于执行具体的数据保存操作
 @celery_app.task(queue='SaveData_TimeTrade', acks_late=True)
-def execute_save_fund_flow_method(method_name: str, start_date: str, end_date: str):
+@with_cache_manager
+def execute_save_fund_flow_method(method_name: str, start_date: str, end_date: str, cache_manager=None):
     """
     通用子任务：执行FundFlowDao中的指定方法来保存数据。
     """
+    ff_dao = FundFlowDao(cache_manager)
     logger.info(f"子任务启动: {method_name}, 日期范围: {start_date} 到 {end_date}")
     print(f"调试信息：子任务 {self.request.id} 启动，执行方法: {method_name}")
 
     async def main():
-        cache_manager_instance = CacheManager()
-        ff_dao = FundFlowDao(cache_manager_instance)
         save_method = getattr(ff_dao, method_name)
         return await save_method(start_date=start_date, end_date=end_date)
-
-    try:
-        async_to_sync(main)()
-        logger.info(f"子任务成功: {method_name}")
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
-        return {"status": "success", "method": method_name}
-    except Exception as e:
-        logger.error(f"执行子任务 {method_name} 时出错: {e}", exc_info=True)
-        print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行失败: {e}")
-        raise self.retry(exc=e, countdown=60, max_retries=3)
+    async_to_sync(main)()
+    logger.info(f"子任务成功: {method_name}")
+    print(f"调试信息：子任务 {self.request.id} ({method_name}) 执行成功。")
+    return {"status": "success", "method": method_name}
 
 # [修改] 原任务被重构为编排和分派任务
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_data_this_week_task', queue='celery')
@@ -255,7 +230,8 @@ def save_fund_flow_data_this_week_task(self):
 
 #  ================ （历史）日级资金流向数据（三种渠道） ================
 @celery_app.task(queue="SaveHistoryData_TimeTrade")
-def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date: datetime.date):
+@with_cache_manager
+def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date: datetime.date, cache_manager=None):
     """
     【优化版 V2】从Tushare批量获取指定日期范围内的历史日级资金流向数据并保存。
     - 此任务被设计为处理一个明确的、不宜过大的日期范围。
@@ -264,9 +240,7 @@ def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date:
     """
     log_msg = f"开始并发处理 {start_date} 到 {end_date} 的历史日级资金流向数据..."
     logger.info(log_msg)
-    cache_manager = CacheManager()
     fund_flow_dao = FundFlowDao(cache_manager)
-
     # [优化] 定义一个异步主函数来使用asyncio.gather并发执行所有数据获取任务
     async def main():
         # [修改] 将三个独立的异步任务放入一个列表中
@@ -275,10 +249,8 @@ def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date:
             fund_flow_dao.save_history_fund_flow_daily_ths_data(start_date=start_date, end_date=end_date),
             fund_flow_dao.save_history_fund_flow_daily_dc_data(start_date=start_date, end_date=end_date)
         ]
-        
         # [修改] 使用 asyncio.gather 并发运行所有任务，并设置 return_exceptions=True 以便捕获所有异常而不是中途停止
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
         # [修改] 检查每个任务的结果，进行精细化的日志记录
         source_names = ["Tushare", "同花顺", "东方财富"]
         has_error = False
@@ -288,26 +260,16 @@ def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date:
                 has_error = True
             else:
                 logger.info(f"数据源 [{name}] 在处理日期范围 {start_date}-{end_date} 时成功。")
-        
         return not has_error # 如果没有错误，返回True
-
-    try:
-        # [修改] 只需调用一次 async_to_sync() 来执行异步主函数
-        success = async_to_sync(main)()
-        
-        if success:
-            logger.info(f"成功完成日期范围 {start_date}-{end_date} 的所有资金流数据保存任务。")
-            return {"status": "success"}
-        else:
-            logger.warning(f"日期范围 {start_date}-{end_date} 的资金流数据保存任务部分失败。")
-            # [修改] 即使部分失败，也认为是可接受的完成，以便Celery不重试。错误已记录。
-            return {"status": "partial_success"}
-
-    except Exception as e:
-        # 这个异常捕获主要用于处理async_to_sync本身或之前同步代码的错误
-        logger.error(f"执行批量保存任务({start_date} to {end_date})时发生意外错误: {e}", exc_info=True)
-        # [修改] 明确返回错误状态
-        raise self.retry(exc=e, countdown=60) # 发生未知严重错误时，可以考虑重试
+    # [修改] 只需调用一次 async_to_sync() 来执行异步主函数
+    success = async_to_sync(main)()
+    if success:
+        logger.info(f"成功完成日期范围 {start_date}-{end_date} 的所有资金流数据保存任务。")
+        return {"status": "success"}
+    else:
+        logger.warning(f"日期范围 {start_date}-{end_date} 的资金流数据保存任务部分失败。")
+        # [修改] 即使部分失败，也认为是可接受的完成，以便Celery不重试。错误已记录。
+        return {"status": "partial_success"}
 
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task', queue='celery')
 def save_fund_flow_daily_data_history_task(self): 
@@ -364,66 +326,49 @@ def save_fund_flow_daily_data_history_task(self):
 
 # ================ （当日）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today', queue='SaveHistoryData_TimeTrade')
-def save_fund_flow_daily_data_ths_today(self):
+@with_cache_manager
+def save_fund_flow_daily_data_ths_today(self, cache_manager: CacheManager):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"开始处理（当日）板块、行业资金流向数据 - 同花顺...")
 
     # --- 新结构：main异步函数 ---
     async def main():
-        # 1. 创建CacheManager实例
-        cache_manager_instance = CacheManager()
-        # 2. 创建DAO实例并注入cache_manager
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
-        # 3. 执行业务逻辑
         today_date = timezone.now().date()
         return await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=today_date)
-
-    try:
-        async_to_sync(main)()  # 用async_to_sync运行main
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    async_to_sync(main)()
 
 # ================ （昨日）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_yesterday', queue='SaveHistoryData_TimeTrade')
-def save_fund_flow_daily_data_ths_yesterday(self):
+@with_cache_manager
+def save_fund_flow_daily_data_ths_yesterday(self, cache_manager: CacheManager):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"开始处理（昨日）板块、行业资金流向数据 - 同花顺...")
-
     async def main():
-        cache_manager_instance = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
         today_date = timezone.now().date()
         yesterday = today_date - datetime.timedelta(days=1)
         return await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday)
-
-    try:
-        async_to_sync(main)()
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    async_to_sync(main)()
 
 
 # ================ （本周）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(queue='SaveHistoryData_TimeTrade')
-def save_fund_flow_daily_data_ths_this_week_batch(this_monday: datetime.date, this_friday: datetime.date):
+@with_cache_manager
+def save_fund_flow_daily_data_ths_this_week_batch(this_monday: datetime.date, this_friday: datetime.date, cache_manager: CacheManager):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"开始处理 {this_monday} - {this_friday} 的 （历史）板块资金流向数据 - 同花顺...")
-
     async def main():
-        cache_manager_instance = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
         await fund_flow_dao.save_history_fund_flow_cnt_ths_data(start_date=this_monday, end_date=this_friday)
         await fund_flow_dao.save_history_fund_flow_industry_ths_data(start_date=this_monday, end_date=this_friday)
-
-    try:
-        async_to_sync(main)()
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    async_to_sync(main)()
 
 
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_this_week_task')
@@ -445,22 +390,17 @@ def save_fund_flow_daily_data_ths_this_week_task(self):
 
 # ================ （历史）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(queue='SaveHistoryData_TimeTrade')
-def save_fund_flow_daily_data_ths_history_batch(trade_date: datetime.date):
+@with_cache_manager
+def save_fund_flow_daily_data_ths_history_batch(trade_date: datetime.date, cache_manager: CacheManager):
     """
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
+    fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"开始处理 {trade_date} 的 （历史）板块资金流向数据 - 同花顺...")
-
     async def main():
-        cache_manager_instance = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager_instance)
         await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date)
         await fund_flow_dao.save_history_fund_flow_industry_ths_data(trade_date)
-
-    try:
-        async_to_sync(main)()
-    except Exception as e:
-        logger.error(f"执行批量保存任务时发生意外错误: {e}", exc_info=True)
+    async_to_sync(main)()
 
 
 @celery_app.task(bind=True, name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_history_task', queue='celery')

@@ -1,6 +1,7 @@
 # stock_data_app/tasks.py
 import asyncio
 from asgiref.sync import async_to_sync
+from utils.task_helpers import with_cache_manager
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
@@ -15,15 +16,13 @@ STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_TimeTrade'
 logger = logging.getLogger('tasks')
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.save_stock_list_data')
-def save_stock_list_data(self):
+@with_cache_manager
+def save_stock_list_data(self, cache_manager: CacheManager):
     """
     保存股票列表数据
     """
+    stock_basic_dao = StockBasicInfoDao(cache_manager)
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        stock_basic_dao = StockBasicInfoDao(cache_manager)
         print("开始保存股票列表数据...")
         result = await stock_basic_dao.save_stocks()
         print(f"保存股票列表数据成功: {result}")
@@ -31,22 +30,19 @@ def save_stock_list_data(self):
         print(f"保存公司信息数据成功: {result}")
         result = await stock_basic_dao.save_hs_const()
         print(f"保存沪深港通数据成功: {result}")
-
     async_to_sync(main)()
 
 
 @celery_app.task(bind=True, name='tasks.tushare.stock_tasks.fetch_data_for_new_favorite')
-def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int):
+@with_cache_manager
+def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id: int, cache_manager: CacheManager):
     """
     为新添加的自选股获取实时数据和信号，并推送给用户。
     """
+    stock_basic_dao = StockBasicInfoDao(cache_manager)
     logger.info(f"开始为用户 {user_id} 的新自选股 {stock_code} (Favorite ID: {favorite_id}) 获取数据...")
 
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        stock_basic_dao = StockBasicInfoDao(cache_manager)
         realtime_dao = StockRealtimeDAO(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
         # 1. 获取股票基本信息 (code, name)
@@ -108,7 +104,4 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
         )
         logger.info(f"成功推送新自选股 {stock_info.stock_code} 数据给用户 {user_id}")
 
-    try:
-        async_to_sync(main)()
-    except Exception as e:
-        logger.error(f"为新自选股 {stock_code} 获取数据并推送时出错: {e}", exc_info=True)
+    async_to_sync(main)()

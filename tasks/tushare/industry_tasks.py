@@ -4,6 +4,7 @@ import datetime
 import logging
 import asyncio
 from asgiref.sync import async_to_sync
+from utils.task_helpers import with_cache_manager
 # 假设 StockBasicInfoDao 存在且可用
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
@@ -32,36 +33,29 @@ def get_last_monday_and_friday():
     return last_monday, last_friday
 
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_member_task', queue='SaveData_TimeTrade', rate_limit='180/m')
-def save_ths_index_member_task(self):
+@with_cache_manager
+def save_ths_index_member_task(self, cache_manager=None):
     """
     保存同花顺概念板块成分
     """
+    industry_dao = IndustryDao(cache_manager)
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        industry_dao = IndustryDao(cache_manager)
-        # 执行业务逻辑
         logger.info(f"开始获取同花顺概念板块成分...")
         result_member = await industry_dao.save_ths_index_member()
         logger.info(f"保存同花顺概念板块成分， 结果：{result_member}")
-
     async_to_sync(main)()
 
 # 每日任务：同花顺板块 & 指数行情
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_today_task', queue='SaveData_TimeTrade')
-def save_ths_index_today_task(self):
+@with_cache_manager
+def save_ths_index_today_task(self, cache_manager=None):
     """
     Celery调度器任务：保存同花顺板块相关数据（指数列表、成分、当日行情）。
     """
     print(f"开始执行Celery任务: save_ths_index_today_task, Task ID: {self.request.id}")
+    industry_dao = IndustryDao(cache_manager)
     today = datetime.date.today()
-
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        industry_dao = IndustryDao(cache_manager)
         # 步骤1：保存同花顺板块指数列表
         print("任务步骤1: 开始获取同花顺板块指数...")
         logger.info("任务步骤1: 开始获取同花顺板块指数...")
@@ -80,31 +74,22 @@ def save_ths_index_today_task(self):
         result_daily = await industry_dao.save_ths_index_daily_by_trade_date(trade_date=today)
         print(f"任务步骤3: 保存 {today} 同花顺板块指数行情完成，结果：{result_daily}")
         logger.info(f"任务步骤3: 保存 {today} 同花顺板块指数行情完成，结果：{result_daily}")
-
-    try:
-        async_to_sync(main)()
-        print(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 全部步骤执行成功。")
-        logger.info(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 全部步骤执行成功。")
-        return "所有同花顺板块相关数据保存成功。"
-    except Exception as e:
-        print(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 执行失败: {e}")
-        logger.error(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 执行失败: {e}", exc_info=True)
-        raise
+    async_to_sync(main)()
+    print(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 全部步骤执行成功。")
+    logger.info(f"Celery任务: save_ths_index_today_task, Task ID: {self.request.id} 全部步骤执行成功。")
+    return "所有同花顺板块相关数据保存成功。"
 
 
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_yesterday_task', queue='SaveData_TimeTrade')
-def save_ths_index_yesterday_task(self):
+@with_cache_manager
+def save_ths_index_yesterday_task(self, cache_manager=None):
     """
     保存昨日同花顺板块相关数据（指数列表、成分、昨日行情）
     """
+    industry_dao = IndustryDao(cache_manager)
     today = datetime.date.today()
     yesterday = today - datetime.timedelta(days=1)
-
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        industry_dao = IndustryDao(cache_manager)
         # 步骤1：保存同花顺板块指数列表
         logger.info(f"开始获取同花顺板块指数...")
         result_list = await industry_dao.save_ths_index_list()
@@ -117,21 +102,18 @@ def save_ths_index_yesterday_task(self):
         logger.info(f"开始获取同花顺板块指数行情...")
         result_daily = await industry_dao.save_ths_index_daily_by_trade_date(trade_date=yesterday)
         logger.info(f"保存 {today} 同花顺板块指数行情， 结果：{result_daily}")
-
     async_to_sync(main)()
 
 
 # 任务：同花顺板块 & 指数行情
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_history_task', queue='SaveData_TimeTrade')
-def save_ths_index_history_task(self):
+@with_cache_manager
+def save_ths_index_history_task(self, cache_manager=None):
     """
     保存历史同花顺板块相关数据（指数列表、成分、历史行情）
     """
+    industry_dao = IndustryDao(cache_manager)
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        industry_dao = IndustryDao(cache_manager)
         # 步骤1：保存同花顺板块指数列表
         logger.info(f"开始获取同花顺板块指数...")
         result_list = await industry_dao.save_ths_index_list()
@@ -146,22 +128,19 @@ def save_ths_index_history_task(self):
         for day in trade_days:
             result_daily = await industry_dao.save_ths_index_daily_by_trade_date(trade_date=day)
             logger.info(f"保存 {day} 同花顺板块指数行情， 结果：{result_daily}")
-
     async_to_sync(main)()
 
 
 @celery_app.task(bind=True, name='tasks.tushare.industry_tasks.save_ths_index_this_week_task', queue='SaveData_TimeTrade')
-def save_ths_index_this_week_task(self):
+@with_cache_manager
+def save_ths_index_this_week_task(self, cache_manager=None):
     """
     保存本周同花顺板块相关数据（指数列表、成分、本周行情）
     """
+    industry_dao = IndustryDao(cache_manager)
     this_monday, this_friday = get_this_monday_and_friday()
 
     async def main():
-        # 创建CacheManager实例
-        cache_manager = CacheManager()
-        # 创建DAO实例并注入cache_manager
-        industry_dao = IndustryDao(cache_manager)
         # 步骤1：保存同花顺板块指数列表
         logger.info(f"开始获取同花顺板块指数...")
         result_list = await industry_dao.save_ths_index_list()
@@ -174,7 +153,6 @@ def save_ths_index_this_week_task(self):
         logger.info(f"开始获取同花顺板块指数行情...")
         result_daily = await industry_dao.save_ths_index_daily_history(start_date=this_monday, end_date=this_friday)
         logger.info(f"保存 {this_monday} - {this_friday} 同花顺板块指数行情， 结果：{result_daily}")
-
     async_to_sync(main)()
 
 
