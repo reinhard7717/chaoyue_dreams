@@ -213,11 +213,11 @@ class RealtimeServices:
         self.realtime_dao = StockRealtimeDAO(cache_manager_instance)
         self.timetrade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.cache_key = StockCashKey()
+        self.feature_engine = IntradayFeatureEngine(slope_window=5, stats_window=20, corr_window=10)
         # 将窗口参数定义在服务实例中
         self.slope_window = 5
         self.stats_window = 20
 
-    # ... _get_monitoring_pool_from_sources 和 update_and_cache_monitoring_pool 方法保持不变 ...
     @sync_to_async
     def _get_monitoring_pool_from_sources(self, trade_date: date) -> tuple[list[str], list[str]]:
         """
