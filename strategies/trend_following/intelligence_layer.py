@@ -24,102 +24,71 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V325.0 终极顺序修复版】
-        - 核心重构: 严格按照“基础状态 -> 复合状态”的顺序执行所有诊断模块，
-                    并确保所有模块都使用未经修改的原始df，彻底解决情报依赖问题。
+        【V326.0 终极数据流修复版】
+        - 核心修复: 1. 严格按照依赖顺序执行。
+                    2. 确保所有模块都使用最新的df对象。
+                    3. 每次诊断后立即更新全局atomic_states，确保情报实时可用。
         """
-        print("--- [情报层 V325.0] 步骤1: 运行所有诊断模块... ---")
+        print("--- [情报层 V326.0] 步骤1: 运行所有诊断模块... ---")
         df = self.strategy.df_indicators
-        self.strategy.atomic_states = {} # 重置原子状态池
+        self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础原子状态诊断 (无内部依赖) ---
-        # 这些模块只依赖于df中的原始数据和指标
         print("    -> [情报层] 阶段1: 正在生成基础原子状态...")
         
-        # 1.1 均线状态 (包含动态粘合度)
-        ma_states = self._diagnose_ma_states(df)
-        self.strategy.atomic_states.update(ma_states)
+        # 1.1 K线形态识别 (它会修改df，必须最先执行)
+        df = self.pattern_recognizer.identify_all(df)
+        self.strategy.atomic_states.update(self._diagnose_kline_patterns(df))
         
-        # 1.2 筹码动态状态
-        chip_dynamic_states = self._diagnose_dynamic_chip_states(df)
-        self.strategy.atomic_states.update(chip_dynamic_states)
-        
-        # 1.3 波动率状态
-        volatility_states = self._diagnose_volatility_states(df)
-        self.strategy.atomic_states.update(volatility_states)
-        
-        # 1.4 趋势动态 (斜率/加速度)
-        trend_dynamics_states = self._diagnose_trend_dynamics(df)
-        self.strategy.atomic_states.update(trend_dynamics_states)
-        
-        # 1.5 震荡指标状态
-        oscillator_states = self._diagnose_oscillator_states(df)
-        self.strategy.atomic_states.update(oscillator_states)
-        
-        # 1.6 K线形态
-        df = self.pattern_recognizer.identify_all(df) # K线识别会修改df
-        kline_pattern_states = self._diagnose_kline_patterns(df)
-        self.strategy.atomic_states.update(kline_pattern_states)
-        
-        # 1.7 斐波那契支撑
-        fib_support_states = self._diagnose_fibonacci_support(df)
-        self.strategy.atomic_states.update(fib_support_states)
+        # 1.2 基础指标衍生状态
+        self.strategy.atomic_states.update(self._diagnose_ma_states(df))
+        self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
+        self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
+        self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df))
+        self.strategy.atomic_states.update(self._diagnose_oscillator_states(df))
+        self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
+        self.strategy.atomic_states.update(self._diagnose_capital_states(df))
 
         # --- 阶段二: 复合原子状态诊断 (依赖于阶段一的状态) ---
         print("    -> [情报层] 阶段2: 正在生成复合原子状态...")
         
-        # 2.1 资本结构 (依赖主力资金流)
-        capital_states = self._diagnose_capital_states(df)
-        self.strategy.atomic_states.update(capital_states)
+        # 2.1 筹码-价格行为 (依赖资本状态)
+        self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
         
-        # 2.2 筹码-价格行为 (依赖资本结构状态)
-        cpa_states = self._diagnose_chip_price_action(df)
-        self.strategy.atomic_states.update(cpa_states)
-        
-        # 2.3 市场结构 (依赖MA状态、箱体、平台等)
+        # 2.2 市场结构 (依赖MA状态等，它也会修改df)
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
         
-        # 2.4 筹码情报司令部 (依赖筹码动态)
+        # 2.3 筹码情报司令部 (依赖筹码动态)
         chip_states, chip_triggers = self._run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         
+        # 2.4 健康回踩 (依赖MA状态、筹码风险等)
+        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
+        
         # 2.5 初升浪 (依赖动态均线粘合、箱体等状态)
-        post_accumulation_states = self._diagnose_post_accumulation_phase(df)
-        self.strategy.atomic_states.update(post_accumulation_states)
+        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         
-        # 2.6 健康回踩 (依赖主升浪、筹码风险等状态)
-        healthy_pullback_states = self._diagnose_healthy_pullback(df)
-        self.strategy.atomic_states.update(healthy_pullback_states)
-        
-        # 2.7 突破-回踩接力 (依赖初升浪和健康回踩)
-        relay_states = self._diagnose_breakout_pullback_relay(df)
-        self.strategy.atomic_states.update(relay_states)
+        # 2.6 突破-回踩接力 (依赖初升浪和健康回踩)
+        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
 
         # --- 阶段三: 顶层认知与行为序列合成 ---
         print("    -> [情报层] 阶段3: 正在进行顶层认知合成...")
-        
-        # 3.1 认知引擎
-        cognitive_states = self._run_cognitive_synthesis_engine(df)
-        self.strategy.atomic_states.update(cognitive_states)
-        
-        # 3.2 主力行为序列
+        self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
         # --- 阶段四: 生成触发器和剧本 ---
         print("    -> [情报层] 阶段4: 正在生成最终触发器与剧本...")
         trigger_events = self._define_trigger_events(df)
         trigger_events.update(chip_triggers)
-        
         self.strategy.setup_scores, self.strategy.playbook_states = self._generate_playbook_states(trigger_events)
         
-        # (这个逻辑可以保留在最后)
         is_in_squeeze_window = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
         return trigger_events
-    
+
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V316.0 筹码加权版】筹码情报最高司令部
