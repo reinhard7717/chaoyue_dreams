@@ -265,6 +265,9 @@
           "positive_signals": {
             "OPP_PULLBACK_WITH_CHIP_STABILITY_S": 600,
             "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 500,
+            "COGNITIVE_OPP_GOLDEN_PIT_S": 500,
+            "COGNITIVE_OPP_STEALTH_ABSORPTION_A": 350,
+            "COGNITIVE_PATTERN_WASH_AND_HARVEST_S": 450,
             "CHIP_DYN_COST_ACCELERATING": 400,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_CHIP_SETUP_S": 300,
@@ -303,6 +306,10 @@
           "mitigated_veto_score": 300,
           "signals": {
             "说明_CRITICAL": "--- 临界风险 (一票否决级) ---",
+            "COGNITIVE_RISK_DECEPTIVE_RALLY_DISTRIBUTION_S": 1500,
+            "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1500,
+            "COGNITIVE_RISK_DECEPTIVE_RALLY_S": 1500,
+            "COGNITIVE_RISK_DECEPTIVE_RALLY_A": 1200,
             "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
             "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN": 1000,
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
@@ -346,7 +353,6 @@
           "CHIP_RAPID_CONCENTRATION": "【筹码】快速集中",
           "CHIP_HEALTH_EXCELLENT": "【筹码】健康度优秀",
           "CHIPCON_4_READINESS": "【筹码戒备】4级-整备待命",
-          "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": "【资本】主力支撑上涨",
           "CPA_FALL_WITH_MAIN_FORCE_ABSORBING": "【资本】主力下跌吸筹 (黄金坑)",
           "DYN_TREND_HEALTHY_ACCELERATING": "【动能】趋势健康加速",
           "DYN_TREND_MATURE_STABLE": "【动能】趋势成熟稳定",
@@ -362,6 +368,8 @@
           "trg_TRIGGER_BREAKOUT_CANDLE": "【触发】突破确认阳线",
           "trg_VOL_BREAKOUT_FROM_SQUEEZE": "【触发】波动压缩后突破",
           "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": "【认知】锁筹拉升模式",
+          "COGNITIVE_OPP_GOLDEN_PIT_S": "【机会】S级黄金坑",
+          "COGNITIVE_OPP_STEALTH_ABSORPTION_A": "【机会】A级隐密吸收",
           "STRUCTURE_MAIN_UPTREND_WAVE_S": "【结构】S级主升浪",
           "BOX_STATE_HEALTHY_ACCUMULATION": "【形态】健康吸筹箱体",
           "MA_STATE_AGGRESSIVE_BULLISH": "【均线】攻击性多头排列",
@@ -376,7 +384,6 @@
           "RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING": "【风险】获利盘加速崩盘",
           "RISK_DYN_DIVERGING": "【风险】动态发散",
           "RISK_DYN_WINNER_RATE_COLLAPSING": "【风险】获利盘崩盘",
-          "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": "【风险】主力派发",
           "STRUCTURE_TOPPING_DANGER_S": "【结构】S级顶部危险",
           "RISK_DYN_COST_FALLING": "【风险】成本松动",
           "RISK_DYN_HEALTH_DETERIORATING": "【风险】健康度恶化",
@@ -384,6 +391,8 @@
           "DYN_TREND_WEAKENING_DECELERATING": "【动能】趋势减弱",
           "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": "【认知】近期派发压力",
           "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN": "【认知】动态欺骗性换手",
+          "COGNITIVE_RISK_DECEPTIVE_RALLY_S": "【认知】公然出货",
+          "COGNITIVE_RISK_DECEPTIVE_RALLY_A": "【认知】隐蔽派发",
           "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": "【认知】突破派发",
           "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": "【风险】长期派发",
           "MECHANICS_ENERGY_ADVANTAGE": "【力学】势能优势",
@@ -477,7 +486,7 @@
       },
       "chip_feature_params": {
         "enabled": true,
-        "说明": "【V234.0 最终净化版】筹码诊断引擎参数。",
+        "说明": "【V234.2 动态阈值版】筹码诊断引擎参数。",
         "accel_concentration_threshold": {
           "value": -0.001,
           "description": "【新增】定义“显著加速集中”所需的最小加速度。用于过滤噪音，提纯信号。"
@@ -502,13 +511,6 @@
           "threshold": {
             "value": 30.0,
             "说明": "90%成本集中度高于此值(%)，视为筹码极度发散。"
-          }
-        },
-        "ignition_params": {
-          "enabled": true,
-          "accel_threshold": {
-            "value": 0.01,
-            "说明": "定义“点火”事件所需的最小成本峰加速度。"
           }
         }
       },
@@ -634,14 +636,14 @@
       },
       "distribution_context_params": {
         "enabled": true,
-        "description": "【新增】危险战区感知模块参数，用于识别近期是否发生过主力大规模派发。",
+        "description": "【V1.2 动态阈值版】危险战区感知模块参数",
         "lookback_days": {
           "value": 10,
-          "description": "记忆回溯期（天）。检查过去10天内有无派发行为。"
+          "description": "记忆回溯期（天）。"
         },
-        "outflow_threshold_M": {
-          "value": -20,
-          "description": "单日派发阈值（百万元）。主力单日净流出超过2000万，即视为一次“派发事件”。"
+        "risk_multiplier": {
+          "value": 1.5,
+          "description": "当处于“近期派发压力”下时，为总风险分应用的惩罚系数。"
         }
       },
       "washout_suspicion_params": {
@@ -783,7 +785,6 @@
     "enabled": true,
     "说明": "【V314.0 弹性否决版】绝对否决权。引入'缓解规则'，允许在特定条件下对冲部分否决信号，增加策略弹性。",
     "veto_signals": [
-      "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING",
       "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
       "FRACTAL_RISK_TOP_DIVERGENCE",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",

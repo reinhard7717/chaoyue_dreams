@@ -39,6 +39,7 @@ class IntelligenceLayer:
 
         # --- 阶段二: 基础原子状态诊断 ---
         print("    -> [情报层] 阶段2: 基础原子状态诊断...")
+        self.dynamic_thresholds = self._get_dynamic_thresholds(df)
         self.strategy.atomic_states.update(self._diagnose_ma_states(df))
         self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df))
@@ -69,6 +70,7 @@ class IntelligenceLayer:
 
         # --- 阶段四: 顶层认知与行为序列合成 ---
         print("    -> [情报层] 阶段4: 顶层认知合成...")
+        self.strategy.atomic_states.update(self._diagnose_manipulative_tactics(df))
         self.strategy.atomic_states.update(self._diagnose_trend_stage_context(df))
         self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
@@ -93,7 +95,7 @@ class IntelligenceLayer:
                     “严重筹码结构风险”信号: `RISK_CHIP_STRUCTURE_CRITICAL_FAILURE`。
                     这为决策层提供了更具权重的、可量化的地基风险评估依据。
         """
-        print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 启动...")
+        # print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
@@ -121,7 +123,7 @@ class IntelligenceLayer:
 
         states['CHIP_HEALTH_EXCELLENT'] = df.get('chip_health_score_D', 0) > 85
         
-        print("          -> [情报提纯] 正在对“高度集中”状态进行机会提纯...")
+        # print("          -> [情报提纯] 正在对“高度集中”状态进行机会提纯...")
         # 1. 基础条件：筹码必须已经高度集中 (静态)
         is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
         states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_highly_concentrated_static # 保留原始的基础状态信号，供其他模块使用
@@ -446,7 +448,8 @@ class IntelligenceLayer:
 
         # --- 3. 对“筹码成本”进行动态分析 (机遇/风险) ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0 # 主力猛攻信号
+        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
+        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
         states['RISK_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
 
         # --- 4. 对“总获利盘”进行动态分析 (机遇/风险) ---
@@ -469,7 +472,7 @@ class IntelligenceLayer:
                     将单纯的价格行为，升维为包含“主力意图”的复合情报。
         - 作战原则: “无筹码，不决策”。
         """
-        print("        -> [联合分析部 V228.0] 启动，正在对价格行为进行筹码深度解析...")
+        # print("        -> [联合分析部 V228.0] 启动，正在对价格行为进行筹码深度解析...")
         cpa_states = {} # Chip-Price Action States
         default_series = pd.Series(False, index=df.index)
 
@@ -576,7 +579,7 @@ class IntelligenceLayer:
         - 核心职责: 综合多种情报，对当前趋势所处的“阶段”（初期/末期）
                     进行高维度的综合诊断。
         """
-        print("        -> [趋势阶段诊断模块 V332.0] 启动...")
+        # print("        -> [趋势阶段诊断模块 V332.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -630,6 +633,7 @@ class IntelligenceLayer:
         dist_context_params = get_params_block(self.strategy, 'distribution_context_params', {})
         outflow_threshold = get_param_value(dist_context_params.get('outflow_threshold_M'), -20) * 1_000_000
         
+        outflow_threshold = self.dynamic_thresholds.get('main_force_significant_outflow', -20_000_000)
         is_distribution_day = df.get('main_force_net_inflow_amount_D', default_series) < outflow_threshold
 
         # 2. 建立“战场记忆”：使用滚动窗口检查近期是否发生过派发
@@ -640,7 +644,7 @@ class IntelligenceLayer:
             window=lookback_window, min_periods=1
         ).apply(np.any, raw=True).fillna(0).astype(bool)
         
-        print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{format_debug_dates(self.strategy.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
+        # print(f"        -> [资本动向总参谋部] “危险战区”感知模块已启动。{format_debug_dates(self.strategy.atomic_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'])}")
         
         # --- 作战单元1: 经典资本状态诊断 (基于CMF) ---
         capital_params = get_params_block(self.strategy, 'capital_state_params')
@@ -661,17 +665,15 @@ class IntelligenceLayer:
         # --- 作战单元2: 【王牌】新型资本结构诊断 (基于主力/散户资金) ---
         main_force_col = 'main_force_net_inflow_amount_D'
         retail_col = 'retail_net_inflow_volume_D'
-        print(f"          -> [情报检查] 正在检查资金流数据... 主力资金列 '{main_force_col}' 是否存在: {main_force_col in df.columns}")
-        # 检查情报是否送达
+        
         if all(c in df.columns for c in [main_force_col, retail_col]):
-            print("          -> [情报确认] 主力/散户资金数据已接收，开始结构分析...")
             # 1. 定义“主力正在吸筹”状态
             states['CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING'] = df[main_force_col] > 0
             # 2. 定义“主力正在派发”风险状态
             states['RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'] = df[main_force_col] < 0
-            # 3. 定义“黄金坑”：主力吸筹 & 散户割肉
+            # 3. 定义“多头背离”：主力吸筹 & 散户割肉
             states['CAPITAL_STRUCT_BULLISH_DIVERGENCE'] = (df[main_force_col] > 0) & (df[retail_col] < 0)
-            # 4. 定义“死亡顶”：主力派发 & 散户接盘
+            # 4. 定义“空头背离”：主力派发 & 散户接盘
             states['RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE'] = (df[main_force_col] < 0) & (df[retail_col] > 0)
         else:
             print(f"          -> [情报警告] 缺少高精度资金结构数据，跳过结构分析。")
@@ -688,10 +690,10 @@ class IntelligenceLayer:
           3. 然后，它进行情报融合，生成更高维度的、包含协同作战思想的“复合结构情报”。
         - 收益: 极大地提升了代码的组织性和可读性，并能产出远比单个模块更有价值的协同信号。
         """
-        print("        -> [市场结构战区司令部 V272.0] 启动，正在整合全战场结构情报...")
+        # print("        -> [市场结构战区司令部 V272.0] 启动，正在整合全战场结构情报...")
         
         # --- 1. 依次调动下属的专业化兵种，收集原子情报 ---
-        print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
+        # print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
         ma_states = self._diagnose_ma_states(df)
         box_states = self._diagnose_box_states(df)
         df, platform_states = self._diagnose_platform_states(df) # 平台诊断会修改df，需要接收
@@ -700,7 +702,7 @@ class IntelligenceLayer:
         atomic_structure_states = {**ma_states, **box_states, **platform_states}
         
         # --- 2. 进行情报融合与战术研判，生成复合情报 ---
-        print("          -> 正在进行情报融合，生成高维度复合情报...")
+        # print("          -> 正在进行情报融合，生成高维度复合情报...")
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -733,7 +735,7 @@ class IntelligenceLayer:
           - MA_STATE_STABLE_BULLISH: 基础的多头排列状态 (静态位置)。
           - MA_STATE_AGGRESSIVE_BULLISH: 在多头排列基础上，要求短期均线斜率陡峭 (动态趋势)，是更高质量的信号。
         """
-        print("          -> [均线野战部队 V283.0] 启动，正在执行融合分析...")
+        # print("          -> [均线野战部队 V283.0] 启动，正在执行融合分析...")
         states = {}
         p = get_params_block(self.strategy, 'ma_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -886,7 +888,7 @@ class IntelligenceLayer:
         - 功能增强: 增加了更详细的日志输出和更强的防御性编程，确保在缺少数据时
                     能够优雅地处理并返回标准化的空结果，防止下游模块出错。
         """
-        print("        -> [诊断模块 V129.2] 正在执行筹码平台状态诊断...")
+        # print("        -> [诊断模块 V129.2] 正在执行筹码平台状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -945,7 +947,7 @@ class IntelligenceLayer:
         - 核心升级: 深度集成赫斯特指数，从中提炼出多种关于市场宏观阶段、
                     趋势可持续性与衰竭的原子状态。
         """
-        print("        -> [结构力学诊断模块 V2.0] 启动，正在进行物理建模与分形分析...")
+        # print("        -> [结构力学诊断模块 V2.0] 启动，正在进行物理建模与分形分析...")
         from utils.math_tools import hurst_exponent
         states = {}
         
@@ -1127,7 +1129,7 @@ class IntelligenceLayer:
         - 新定义: S级主升浪现在是“结构+动能+筹码+资金+位置”的五重共振，是理论上最强的做多信号。
         - 收益: S级信号的含金量达到顶峰，误报率被进一步压缩，代码逻辑更加严谨。
         """
-        print("        -> [联合作战司令部 V277.0 五重共振版] 启动，正在打造终极S级战局信号...")
+        # print("        -> [联合作战司令部 V277.0 五重共振版] 启动，正在打造终极S级战局信号...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1428,7 +1430,7 @@ class IntelligenceLayer:
         【V323.3 变量名修复版】健康回踩机会诊断模块
         - 核心修复: 修正了因重构导致的变量名不匹配问题。
         """
-        print("        -> [健康回踩诊断模块 V323.3] 启动...")
+        # print("        -> [健康回踩诊断模块 V323.3] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1479,7 +1481,7 @@ class IntelligenceLayer:
         - 核心升级: 使用动态的、基于滚动分位数的“均线粘合压缩”状态，
                     替代了过于严苛的绝对阈值，极大提升了策略的适应性。
         """
-        print("        -> [初升浪诊断模块 V313.0 动态粘合版] 启动...")
+        # print("        -> [初升浪诊断模块 V313.0 动态粘合版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1549,7 +1551,7 @@ class IntelligenceLayer:
         - 产出:
             - PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS: S+级剧本信号，仅在回踩当天触发。
         """
-        print("        -> [突破-回踩接力诊断模块 V324.0] 启动...")
+        # print("        -> [突破-回踩接力诊断模块 V324.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1671,6 +1673,78 @@ class IntelligenceLayer:
             
         return states
 
+    def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
+        """
+        【V335.2 核心指标版】动态阈值校准中心
+        - 核心净化: 彻底移除了对“主力资金流”这一不可靠数据的动态阈值计算。
+                    本模块现在只为最核心、最难被操纵的筹码结构指标提供校准。
+        - 作战原则: 我们的核心标尺，必须建立在最坚实的岩石之上。
+        """
+        print("        -> [动态阈值校准中心 V335.2 核心指标版] 启动...")
+        thresholds = {}
+        window = 250 # 使用过去一年的数据作为基准
+
+        # 1. 成本加速度阈值：只相信最顶尖5%的进攻意图
+        cost_accel_col = 'ACCEL_5_peak_cost_D'
+        if cost_accel_col in df.columns:
+            thresholds['cost_accel_significant'] = df[cost_accel_col].rolling(window).quantile(0.95)
+
+        # 2. 筹码集中度加速度阈值：只相信最顶尖5%的吸筹决心
+        conc_accel_col = 'ACCEL_5_concentration_90pct_D'
+        if conc_accel_col in df.columns:
+            thresholds['conc_accel_significant'] = df[conc_accel_col].rolling(window).quantile(0.05)
+            
+        # 【净化完成】资金流数据因其不可靠性，不应在此进行核心校准。
+
+        print("        -> [动态阈值校准中心 V335.2] 校准完成。")
+        return thresholds
+
+    def _diagnose_manipulative_tactics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V336.1 证据分层版】主力操纵战术“反侦察”模块
+        - 核心升级: 放弃对“资金流”数据的盲目信任，建立基于“筹码结构”为核心的
+                    分层证据体系，以应对主力的“反侦察”战术。
+        """
+        print("        -> [反侦察模块 V336.1] 启动，正在进行证据分层分析...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 基础行为定义 ---
+        is_sharp_drop = df['pct_change_D'] < -0.04
+        is_strong_rally = df['pct_change_D'] > 0.03
+        is_high_volume = df['volume_D'] > df['VOL_MA_21_D'] * 1.5
+        
+        # --- 2. 证据链定义 ---
+        # 证据A: 资金流 (不可靠，作为次要证据)
+        evidence_capital_inflow = self.strategy.atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
+        evidence_capital_outflow = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        
+        # 证据B: 筹码结构 (核心证据)
+        evidence_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        evidence_chip_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+
+        # --- 3. “打压收割”机会分层诊断 ---
+        # 核心矛盾：价格暴跌 VS 筹码集中
+        is_core_absorption_conflict = is_sharp_drop & is_high_volume & evidence_chip_concentrating
+        
+        # A级机会 (隐蔽吸筹): 核心矛盾成立。这是主力最狡猾、最常见的吸筹方式。
+        states['COGNITIVE_OPP_STEALTH_ABSORPTION_A'] = is_core_absorption_conflict
+        
+        # S级机会 (黄金坑): 核心矛盾成立，且资金流出现罕见的同步流入。这是主力图穷匕见、毫不掩饰的贪婪。
+        states['COGNITIVE_OPP_GOLDEN_PIT_S'] = is_core_absorption_conflict & evidence_capital_inflow
+
+        # --- 4. “诱多派发”风险分层诊断 ---
+        # 核心矛盾：价格拉升 VS 筹码发散
+        is_core_distribution_conflict = is_strong_rally & evidence_chip_diverging
+        
+        # A级风险 (隐蔽派发): 核心矛盾成立。这是最危险的陷阱。
+        states['COGNITIVE_RISK_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
+        
+        # S级风险 (公然出货): 核心矛盾成立，且资金流同步流出。这是主力肆无忌惮的派发。
+        states['COGNITIVE_RISK_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict & evidence_capital_outflow
+
+        return states
+
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V284.0 认知升级版】
@@ -1679,7 +1753,7 @@ class IntelligenceLayer:
         - 作战原则: 不再满足于“主力资金大幅进出”的表象，而是通过分析“资金攻击效率”
                     及其动态趋势，直击“天量对倒”的本质——投入的弹药是否换来了战果。
         """
-        print("        -> [认知综合引擎 V284.0] 启动，正在进行高维认知合成...")
+        # print("        -> [认知综合引擎 V284.0] 启动，正在进行高维认知合成...")
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
 
