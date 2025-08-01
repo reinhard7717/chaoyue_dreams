@@ -2315,87 +2315,100 @@ class IndicatorService:
 
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V2.0 兼容改造版】计算斐波那契回撤水平。
-        - 核心修复: 修正了参数路径、依赖库导入和输出列名，使其与策略框架完全兼容。
-        - 思想保留: 依然使用动态寻找波段高低点的方法来计算。
+        【V3.0 双引擎健壮版】计算斐波那契回撤水平。
+        - 核心升级: 引入“优雅降级”机制。优先使用精密的find_peaks动态引擎，
+                    如果动态引擎无法找到有效波段，则自动切换到基于滚动窗口的
+                    备用引擎，确保永远能产出有效的斐波那契水平。
         """
-        # ▼▼▼【核心修复 1】修正参数路径 ▼▼▼
-        # 直接使用传入的 params，不再寻找下一级的 'fibonacci_analysis_params'
         fib_params = params.get('params', {})
         if not params.get('enabled', False):
             return None
 
-        print("    - [斐波那契分析 V2.0] 开始计算动态斐波那契水平...")
+        print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
         
-        # ▼▼▼【核心修复 2】将导入语句移至方法内部，并增加try-except保护 ▼▼▼
         try:
             from scipy.signal import find_peaks, peak_prominences
         except ImportError:
             logger.error("缺少 'scipy' 库，无法计算动态斐波那契水平。请运行 'pip install scipy'。")
             return None
 
-        # 从配置中获取参数
+        # --- 主引擎：动态波段识别 ---
         distance = fib_params.get('peak_distance', 13)
-        prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05) # 使用新名字以示区分
+        prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05)
         
-        # 确保 'close' 列存在
         if 'close' not in df.columns:
             logger.error("斐波那契计算失败：DataFrame中缺少 'close' 列。")
             return None
 
-        # 在线程中执行计算密集型任务
         def _find_peaks_sync(data, prominence_series):
             candidate_indices, _ = find_peaks(data, distance=distance)
-            if len(candidate_indices) == 0: return []
-            
+            if len(candidate_indices) == 0:
+                return []
             actual_prominences, _, _ = peak_prominences(data, candidate_indices)
             custom_thresholds = prominence_series.iloc[candidate_indices]
             valid_mask = actual_prominences >= custom_thresholds.values
             return candidate_indices[valid_mask]
 
         peak_prominence_series = df['close'] * prominence_ratio
-        trough_prominence_series = df['close'] * prominence_ratio
-
         peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'].values, peak_prominence_series)
-        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, trough_prominence_series)
+        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, peak_prominence_series)
 
-        # 创建临时列用于计算
-        temp_df = pd.DataFrame(index=df.index)
-        temp_df['swing_high_price'] = np.nan
-        if len(peak_indices) > 0:
-            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
-        temp_df['swing_high_price'].ffill(inplace=True)
-
-        temp_df['swing_low_price'] = np.nan
-        if len(trough_indices) > 0:
-            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
-        temp_df['swing_low_price'].ffill(inplace=True)
-        
-        temp_df['swing_high_date'] = pd.NaT
-        if len(peak_indices) > 0:
-            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
-        temp_df['swing_high_date'].ffill(inplace=True)
-        
-        temp_df['swing_low_date'] = pd.NaT
-        if len(trough_indices) > 0:
-            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
-        temp_df['swing_low_date'].ffill(inplace=True)
-
-        is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
-        swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
-
-        result_df = pd.DataFrame(index=df.index)
-        
-        retr_levels = fib_params.get('levels', [0.382, 0.5, 0.618])
-        for level in retr_levels:
-            # ▼▼▼【核心修复 3】生成与情报层匹配的列名 ▼▼▼
-            col_name = f'FIB_{level:.3f}'.replace('0.', '0_') # e.g., FIB_0_618
+        # --- 检查主引擎是否成功 ---
+        if len(peak_indices) > 0 and len(trough_indices) > 0:
+            print("      -> [主引擎] 动态波段识别成功，正在计算...")
             
-            retr_price = temp_df['swing_high_price'] - swing_range * level
-            result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
+            temp_df = pd.DataFrame(index=df.index)
+            temp_df['swing_high_price'] = np.nan
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
+            temp_df['swing_high_price'].ffill(inplace=True)
 
-        print("    - [斐波那契分析 V2.0] 计算完成。")
-        return result_df
+            temp_df['swing_low_price'] = np.nan
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
+            temp_df['swing_low_price'].ffill(inplace=True)
+            
+            temp_df['swing_high_date'] = pd.NaT
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
+            temp_df['swing_high_date'].ffill(inplace=True)
+            
+            temp_df['swing_low_date'] = pd.NaT
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
+            temp_df['swing_low_date'].ffill(inplace=True)
+
+            is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
+            swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
+
+            result_df = pd.DataFrame(index=df.index)
+            
+            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
+            for level in levels:
+                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
+                retr_price = temp_df['swing_high_price'] - swing_range * level
+                result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
+
+            print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
+            return result_df
+        
+        # --- 如果主引擎失败，则启动备用引擎 ---
+        else:
+            print("      -> [备用引擎] 动态波段识别失败，切换至滚动窗口模式。")
+            result_df = pd.DataFrame(index=df.index)
+            lookback = fib_params.get('lookback_period', 120)
+            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
+
+            if not all(c in df.columns for c in ['high', 'low']):
+                logger.error("斐波那契备用引擎计算失败：DataFrame中缺少 'high' 或 'low' 列。")
+                return None
+
+            rolling_high = df['high'].rolling(window=lookback).max()
+            rolling_low = df['low'].rolling(window=lookback).min()
+            price_range = rolling_high - rolling_low
+
+            for level in levels:
+                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
+                result_df[col_name] = rolling_high - (price_range * level)
+            
+            print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
+            return result_df
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
         """计算动量分"""
