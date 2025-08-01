@@ -112,7 +112,7 @@ class StockRealtimeDAO(BaseDAO):
         async def fetch_one_stock(code: str):
             try:
                 # 使用 sync_to_async 包装同步的 tushare pro 调用
-                df = await sync_to_async(self.pro.tick)(ts_code=code, trade_date=trade_date_nodash)
+                df = await sync_to_async(self.ts_pro.tick)(ts_code=code, trade_date=trade_date_nodash)
                 
                 if df is None or df.empty:
                     print(f"    -> [Pro接口] Tushare Pro API 为 {code} on {trade_date} 返回了空数据。")
