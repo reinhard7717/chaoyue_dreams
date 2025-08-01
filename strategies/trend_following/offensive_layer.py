@@ -21,7 +21,7 @@ class OffensiveLayer:
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         default_series = pd.Series(False, index=df.index)
 
-        print("          -> 正在评估“剧本火力”...")
+        # print("          -> 正在评估“剧本火力”...")
         for blueprint in self.playbook_blueprints:
             playbook_name = blueprint['name']
             setup_series = playbook_states.get(playbook_name, {}).get('setup', default_series)
@@ -40,7 +40,7 @@ class OffensiveLayer:
                 entry_score.loc[is_playbook_activated] += score
                 score_details_df[playbook_name] = is_playbook_activated * score
 
-        print("          -> 正在评估“阵地火力”...")
+        # print("          -> 正在评估“阵地火力”...")
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -48,7 +48,7 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        print("          -> 正在评估“动能火力”...")
+        # print("          -> 正在评估“动能火力”...")
         dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
         for signal_name, score in dynamic_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -56,7 +56,7 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        print("          -> 正在评估“触发器火力”...")
+        # print("          -> 正在评估“触发器火力”...")
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         for signal_name, score in trigger_rules.items():
             signal_series = trigger_events.get(signal_name, default_series)
