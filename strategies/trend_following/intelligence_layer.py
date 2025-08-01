@@ -1342,18 +1342,15 @@ class IntelligenceLayer:
 
     def _diagnose_healthy_pullback(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V323.1 A股强化版】健康回踩机会诊断模块
-        - 核心升级: 引入资金流容忍度、缩量和低换手率验证，以更精确地识别A股市场中
-                    主力利用下跌进行的“洗盘”或“压盘吸筹”行为。
+        【V323.3 变量名修复版】健康回踩机会诊断模块
+        - 核心修复: 修正了因重构导致的变量名不匹配问题。
         """
-        print("        -> [健康回踩诊断模块 V323.1 A股强化版] 启动...")
+        print("        -> [健康回踩诊断模块 V323.3] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 从配置文件加载参数 ---
         p = get_params_block(self.strategy, 'healthy_pullback_params')
-        if not get_param_value(p.get('enabled'), False):
-            return {}
+        if not get_param_value(p.get('enabled'), False): return {}
 
         min_pct_change = get_param_value(p.get('min_pct_change'), -0.05)
         max_pct_change = get_param_value(p.get('max_pct_change'), -0.005)
@@ -1361,7 +1358,6 @@ class IntelligenceLayer:
         require_shrinking_volume = get_param_value(p.get('require_shrinking_volume'), True)
         max_turnover_rate = get_param_value(p.get('max_turnover_rate'), 5.0)
         
-        # --- 2. 检查所需情报 ---
         required_states = ['MA_STATE_STABLE_BULLISH', 'RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 'VOL_STATE_SHRINKING']
         required_cols = ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']
         
@@ -1369,29 +1365,19 @@ class IntelligenceLayer:
             print("          -> [警告] 缺少诊断“健康回踩”所需的核心情报或数据列，模块跳过。")
             return {}
 
-        # 条件A: 必须处于“稳定多头排列”结构中 (基础且可靠)
+        # 条件A: 必须处于“稳定多头排列”结构中
         is_in_uptrend = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
         
-        # 条件B: 当日股价温和下跌 (价格行为)
+        # 条件B ~ F
         is_moderate_pullback = (df['pct_change_D'] < max_pct_change) & (df['pct_change_D'] > min_pct_change)
-        
-        # 条件C: 筹码结构必须保持稳定 (核心基石)
         is_chip_structure_stable = ~self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
-        
-        # 条件D: 主力资金流出在可容忍范围内 (资金流验证)
         is_main_force_outflow_tolerable = df['main_force_net_inflow_amount_D'] >= tolerable_outflow
-        
-        # 条件E: 成交量必须是萎缩的 (量价验证)
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
-        
-        # 条件F: 换手率必须处于低位 (筹码锁定验证)
         is_low_turnover = df['turnover_rate_f_D'] < max_turnover_rate
 
-        # --- 4. 组合所有条件 ---
-        # 基础条件是必须的
-        base_conditions = is_in_strong_uptrend & is_moderate_pullback & is_chip_structure_stable & is_main_force_outflow_tolerable
+        # ▼▼▼【核心修复】使用正确的变量名 is_in_uptrend ▼▼▼
+        base_conditions = is_in_uptrend & is_moderate_pullback & is_chip_structure_stable & is_main_force_outflow_tolerable
         
-        # 如果配置要求缩量，则必须满足缩量条件
         if require_shrinking_volume:
             final_conditions = base_conditions & is_shrinking_volume & is_low_turnover
         else:
@@ -1399,11 +1385,8 @@ class IntelligenceLayer:
 
         states['OPP_PULLBACK_WITH_CHIP_STABILITY_S'] = final_conditions
         
-        # --- 5. 增加详细的诊断日志 ---
         if final_conditions.any():
             print(f"          -> [情报] 侦测到 {final_conditions.sum()} 次 S级“健康回踩”机会。")
-            # 可以在这里添加更详细的单日日志，用于调试
-            # print(df.loc[final_conditions, ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']])
             
         return states
 
