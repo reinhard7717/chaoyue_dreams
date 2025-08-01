@@ -287,57 +287,95 @@ class RealtimeServices:
         print(f"成功从Redis加载监控池，共 {len(stock_codes)} 支股票。")
         return stock_codes
 
-    async def process_all_stocks_intraday_data(self, stock_codes: list, time_level: str, trade_date: str):
+    async def process_all_stocks_intraday_data(self, stock_codes: List[str], time_level: str, trade_date: str):
         """
-        【V9.0 - 重构版】
-        - 职责简化: 只负责获取原始数据，并为每个股票分派一个计算任务。
+        【V4.0 - 重构版】
+        对给定的股票列表，执行完整的数据获取、特征计算和策略分析流程。
         """
-        print(f"【V9.0】开始为 {len(stock_codes)} 支股票分派流式处理任务...")
+        print(f"-> [服务层 V4.0] 开始处理 {len(stock_codes)} 支股票的盘中数据...")
         
-        # --- 数据准备阶段 (逻辑不变) ---
-        print("  -> 正在集中获取所有股票的原始数据...")
-        all_bulk_data = await self.realtime_dao.get_daily_ticks_and_level5_in_bulk(stock_codes, trade_date)
-        if not all_bulk_data:
-            logger.warning(f"未能从缓存中批量获取到任何股票的 Ticks/Level5 数据，日期: {trade_date}。任务终止。")
-            return
-        shanghai_tz = pytz.timezone('Asia/Shanghai')
-        target_date_obj = datetime.strptime(trade_date, '%Y-%m-%d').date()
-        start_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(9, 25, 0)))
-        end_dt_aware = shanghai_tz.localize(datetime.combine(target_date_obj, time(15, 5, 0)))
-        kline_tasks = [
-            self.timetrade_dao.get_minute_kline_by_daterange(code, time_level, start_dt_aware, end_dt_aware)
-            for code in stock_codes
-        ]
-        all_minute_klines_results = await asyncio.gather(*kline_tasks, return_exceptions=True)
-        job_packages = []
-        for i, code in enumerate(stock_codes):
-            df_minute = all_minute_klines_results[i]
-            if isinstance(df_minute, Exception) or df_minute is None or df_minute.empty:
+        # 1. 并发获取所有需要的基础数据
+        #    - 行情快照 (用于生成分钟K线)
+        #    - 真实逐笔 (用于计算主动性指标)
+        quotes_map, real_ticks_map = await self._get_all_base_data(stock_codes, trade_date)
+        
+        # 2. 准备Celery任务组
+        calculation_tasks = []
+        for stock_code in stock_codes:
+            df_quotes = quotes_map.get(stock_code)
+            df_real_ticks = real_ticks_map.get(stock_code)
+
+            if df_quotes is None or df_quotes.empty:
+                print(f"  - 警告: {stock_code} 缺少行情快照数据，无法进行分析，已跳过。")
                 continue
-            bulk_data = all_bulk_data.get(code)
-            df_ticks, df_level5 = (bulk_data[0], bulk_data[1]) if bulk_data else (None, None)
-            serialized_minute = df_minute.to_dict('split') if df_minute is not None else None
-            serialized_ticks = df_ticks.to_dict('split') if df_ticks is not None else None
-            serialized_level5 = df_level5.to_dict('split') if df_level5 is not None else None
-            job_packages.append((code, serialized_minute, serialized_ticks, serialized_level5))
-        
-        total_tasks = len(job_packages)
-        print(f"  -> 数据获取完成，准备将 {total_tasks} 个有效计算任务分派出去。")
 
-        if not job_packages:
-            print("没有可执行的计算任务，流程结束。")
-            return
-
-        # --- 分派所有独立的计算任务 ---
-        for pkg in job_packages:
-            cpu_bound_calculation_task.apply_async(
-                args=[pkg, time_level, self.slope_window, self.stats_window],
-                queue='cpu_intensive_queue',
-                routing_key='cpu_intensive_queue'
+            # 3. 调用特征引擎计算特征
+            #    现在传递了所有必需的参数
+            df_features = self.feature_engine.generate_features(
+                stock_code=stock_code,
+                df_quotes=df_quotes,
+                df_real_ticks=df_real_ticks,
+                time_level=time_level
             )
-        
-        print(f"  -> 所有 {total_tasks} 个计算任务已分派。主任务退出，后续流程将由worker自动触发。")
 
+            if df_features is None or df_features.empty:
+                print(f"  - 警告: {stock_code} 特征计算失败或结果为空，已跳过。")
+                continue
+            
+            # 4. 将计算结果打包，准备发送给策略分析任务
+            #    将DataFrame转换为list of dicts以便Celery传输
+            calculated_data_list = df_features.to_dict('records')
+            
+            # 创建Celery任务签名
+            task_signature = run_realtime_strategy_for_stock.s(calculated_data_list)
+            calculation_tasks.append(task_signature)
+
+        # 5. 并行执行所有策略分析任务
+        if calculation_tasks:
+            print(f"-> [服务层 V4.0] 准备将 {len(calculation_tasks)} 个分析任务分派到 'cpu_intensive_queue' 队列...")
+            workflow = group(calculation_tasks)
+            workflow.apply_async()
+            print("-> [服务层 V4.0] 所有分析任务已成功分派。")
+        else:
+            print("-> [服务层 V4.0] 没有需要分析的任务。")
+
+    async def _get_all_base_data(self, stock_codes: List[str], trade_date: str) -> tuple[dict, dict]:
+        """
+        【新增】并发获取所有股票的行情快照和真实逐笔数据。
+        """
+        print(f"  -> [数据获取] 开始为 {len(stock_codes)} 支股票并发获取基础数据...")
+        
+        # 使用 asyncio.gather 并发执行两个批量获取任务
+        tasks = [
+            self.realtime_dao.get_daily_quotes_and_level5_in_bulk(stock_codes, trade_date),
+            self._get_all_real_ticks_in_bulk(stock_codes, trade_date)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 处理行情快照和Level5数据
+        quotes_level5_map = results[0] if not isinstance(results[0], Exception) else {}
+        quotes_map = {}
+        if quotes_level5_map:
+            for code, (df_quotes, df_level5) in quotes_level5_map.items():
+                if df_quotes is not None and df_level5 is not None:
+                    # 合并数据
+                    quotes_map[code] = pd.merge_asof(df_quotes.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
+                elif df_quotes is not None:
+                    quotes_map[code] = df_quotes
+        
+        # 处理真实逐笔数据
+        real_ticks_map = results[1] if not isinstance(results[1], Exception) else {}
+        
+        print(f"  -> [数据获取] 完成。获取到 {len(quotes_map)} 支股票的快照数据和 {len(real_ticks_map)} 支股票的逐笔数据。")
+        return quotes_map, real_ticks_map
+
+    async def _get_all_real_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
+        """
+        【新增】并发获取多只股票的真实逐笔数据。
+        """
+        tasks = [self.realtime_dao.get_daily_real_ticks(code, trade_date) for code in stock_codes]
+        results = await asyncio.gather(*tasks)
+        return {code: df for code, df in zip(stock_codes, results) if df is not None and not df.empty}
 
 
 

@@ -79,75 +79,81 @@ class RealtimeStrategy:
 
     def _check_momentum_breakout(self, kline: pd.Series, prev_kline: pd.Series, columns: List[str]) -> Optional[Dict]:
         """
-        剧本1: 动能引爆点突破。
-        寻找价格在成交量配合下，突破关键压力位（VWAP），且上方抛压减弱的信号。
+        剧本1: 动能引爆点突破 (基于真实主动买盘)。
+        寻找价格在“异常”主动买盘的推动下，突破关键压力位（VWAP）的信号。
         """
-        # 定义此剧本必需的列
-        required_cols = ['vwap', 'volume_zscore', 'price_cv', 'sell_pressure_slope']
+        required_cols = ['vwap', 'price_cv', 'net_agg_vol_zscore', 'corr_price_net_agg_vol']
         if not all(col in columns for col in required_cols):
-            return None # 如果缺少任何一列，则不执行此剧本
+            return None
 
         try:
             # 条件1: 价格形态 - 刚刚从下向上突破VWAP
             cond_price = kline['close'] > kline['vwap'] and prev_kline['close'] <= prev_kline['vwap']
             
-            # 条件2: 成交量 - 必须是异常放量
-            cond_volume = kline['volume_zscore'] > self.params.get('breakout_vol_zscore', 2.5)
+            # 条件2: 主动力量 - 必须是异常的净主动买盘推动 (Z-Score > 阈值)
+            cond_aggression = kline['net_agg_vol_zscore'] > self.params.get('breakout_agg_zscore', 2.0)
             
             # 条件3: 市场状态 - 必须是从盘整/压缩状态中突破
             cond_state = prev_kline['price_cv'] < self.params.get('max_price_cv', 0.005)
             
-            # 条件4: 盘口压力 - 突破时上方抛压正在减弱（委卖总量斜率为负）
-            cond_pressure = kline['sell_pressure_slope'] < 0
+            # 条件4: 量价关系 - 价格与净主动买盘必须高度正相关
+            cond_correlation = kline['corr_price_net_agg_vol'] > self.params.get('min_correlation', 0.6)
 
-            # --- 共振检查 ---
-            if all([cond_price, cond_volume, cond_state, cond_pressure]):
+            if all([cond_price, cond_aggression, cond_state, cond_correlation]):
                 return {
                     "stock_code": kline.get('stock_code'),
                     "entry_time": kline.name,
                     "entry_price": kline['close'],
                     "signal_type": "BUY",
-                    "playbook": "Momentum Breakout",
-                    "reason": f"动能突破 @ {kline.name.time()}"
+                    "playbook": "Aggressive Breakout",
+                    "reason": f"主动买盘突破 @ {kline.name.time()}"
                 }
             return None
         except KeyError as ke:
-            # 这个异常理论上不应再发生，因为有前置检查，但保留以增加健壮性
             print(f"      - 错误 (动能突破): 检查条件时缺少键: {ke}")
             return None
 
     def _check_reversal(self, kline: pd.Series, prev_kline: pd.Series, columns: List[str]) -> Optional[Dict]:
         """
-        剧本2: 底部企稳反转。
-        寻找价格在VWAP下方缩量企稳，且下方承接意愿（委买盘）开始增强的信号。
+        剧本2: 底部企稳反转 (基于真实主动卖盘衰竭)。
+        寻找价格在VWAP下方，主动卖盘力量衰竭，多头开始试探性接盘的信号。
         """
-        # 定义此剧本必需的列
-        required_cols = ['vwap', 'volume_zscore', 'buy_pressure_slope']
+        required_cols = ['vwap', 'net_aggressive_volume', 'net_agg_vol_slope']
         if not all(col in columns for col in required_cols):
-            return None # 如果缺少任何一列，则不执行此剧本
+            return None
 
         try:
-            # 条件1: 市场位置 - 价格必须处于VWAP下方，寻找的是底部反转
+            # 条件1: 市场位置 - 价格处于VWAP下方
             cond_price = kline['close'] < kline['vwap']
             
-            # 条件2: 趋势衰竭 - 下跌过程成交量萎缩，表明抛售动能减弱
-            cond_exhaustion = kline['volume_zscore'] < self.params.get('reversal_vol_zscore', -0.5)
+            # 条件2: 力量反转 - 净主动成交量刚刚由负转正，表明多头开始占据优势
+            cond_force = kline['net_aggressive_volume'] > 0 and prev_kline['net_aggressive_volume'] <= 0
                       
-            # 条件3: 盘口支撑 - 下方承接盘（委买总量）趋势刚刚由降转升
-            cond_support = kline['buy_pressure_slope'] > 0 and prev_kline['buy_pressure_slope'] <= 0
+            # 条件3: 趋势确认 - 净主动成交量的趋势（斜率）正在向上
+            cond_trend = kline['net_agg_vol_slope'] > 0
 
-            # --- 共振检查 ---
-            if all([cond_price, cond_exhaustion, cond_support]):
+            if all([cond_price, cond_force, cond_trend]):
                 return {
                     "stock_code": kline.get('stock_code'),
                     "entry_time": kline.name,
                     "entry_price": kline['close'],
                     "signal_type": "BUY",
-                    "playbook": "Potential Reversal",
-                    "reason": f"势能反转 @ {kline.name.time()}"
+                    "playbook": "Exhaustion Reversal",
+                    "reason": f"卖盘衰竭反转 @ {kline.name.time()}"
                 }
             return None
         except KeyError as ke:
-            # 这个异常理论上不应再发生，但保留以增加健壮性
             print(f"      - 错误 (势能反转): 检查条件时缺少键: {ke}")
             return None
+
+
+
+
+
+
+
+
+
+
+
+
