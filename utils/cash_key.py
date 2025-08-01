@@ -548,6 +548,18 @@ class StockCashKey(CashKey):
         )
         return cache_key
 
+    def intraday_real_ticks(self, stock_code: str, date_str: str) -> str:
+        """
+        【新增】为真实的、带有买卖盘属性的逐笔成交数据 (realtime_tick) 生成ZSET缓存键。
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_TIMESERIES,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype='real_ticks', # 使用 'real_ticks' 以区别于之前的快照 'ticks_realtime'
+            date=date_str
+        )
+
 class StrategyCashKey(CashKey):
     def __init__(self):
         self.cache_manager = None  # 修改: 改为 None，等待异步初始化
