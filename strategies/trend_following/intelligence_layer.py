@@ -56,7 +56,7 @@ class IntelligenceLayer:
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
-        self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
+        # self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
         
@@ -399,117 +399,6 @@ class IntelligenceLayer:
         
         # print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
         return signal
-
-    def _diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V283.0 新增】全指标动态分析中心
-        - 核心职责: 集中处理所有关键筹码指标的斜率与加速度，系统性地生成
-                    高维度的动态机遇与风险信号。这是对动态分析能力的终极整合。
-        """
-        # print("          -> [动态分析中心 V283.0] 已部署，正在对全筹码指标进行动态扫描...")
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
-            'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
-            'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
-            return states
-        
-        # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
-        # 注意：这要求 _diagnose_topping_risks_command 必须在此模块之前运行
-        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-
-       # --- 2. 对“筹码集中度”进行动态分析 (机遇/风险) ---
-        # 2.1 基础的“集中趋势”信号 (斜率)
-        is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
-        states['CHIP_DYN_CONCENTRATING'] = is_concentrating_trend
-        # ▼▼▼ “加速集中”信号 ▼▼▼
-        # 从配置中读取“显著加速”的阈值
-        p_chip = get_params_block(self.strategy, 'chip_feature_params')
-        accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
-        # 行为：加速度必须超过阈值，过滤噪音
-        is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
-        # 共振：最强的信号是“趋势”与“行为”的共振
-        # 即：在集中的趋势中，出现了显著的加速行为
-        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
-        # 【核心升级】只有在高位区的筹码发散，才是真正的风险
-        is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['RISK_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
-        is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
-        states['RISK_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
-
-        # --- 3. 对“筹码成本”进行动态分析 (机遇/风险) ---
-        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
-        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
-        states['RISK_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
-
-        # --- 4. 对“总获利盘”进行动态分析 (机遇/风险) ---
-        winner_rate_collapse_threshold = -1.0 # 斜率小于-1才算崩盘
-        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
-        states['RISK_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
-        states['RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0 # 获利盘加速崩盘
-
-        # --- 5. 对“筹码健康分”进行动态分析 (机遇/风险) ---
-        states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
-        states['RISK_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
-        
-        # print("          -> [动态分析中心 V283.0] 动态扫描完成。")
-        return states
-
-    def _diagnose_chip_price_action(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V228.0 新增】筹码-价格行为联合分析部
-        - 核心职责: 将价格的涨跌行为与筹码（尤其是主力资金）的流动进行交叉验证，
-                    将单纯的价格行为，升维为包含“主力意图”的复合情报。
-        - 作战原则: “无筹码，不决策”。
-        """
-        # print("        -> [联合分析部 V228.0] 启动，正在对价格行为进行筹码深度解析...")
-        cpa_states = {} # Chip-Price Action States
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 提取基础情报 ---
-        # 价格行为情报
-        is_price_rising = df.get('pct_change_D', default_series) > 0
-        is_price_falling = df.get('pct_change_D', default_series) < 0
-
-        # 主力资金动向情报 (来自筹码总参谋部)
-        is_main_force_buying = self.strategy.atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
-        is_main_force_selling = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        
-        # 散户资金动向情报
-        # 假设散户与主力行为相反，或者直接使用散户数据（如果未来有）
-        # 这里我们用主力行为的反面来代表散户的主要动向，简化模型
-        is_retail_likely_buying = is_main_force_selling
-        is_retail_likely_selling = is_main_force_buying
-
-        # --- 2. 进行联合分析，生成高维复合情报 ---
-        
-        # 【A级进攻信号】上涨的“质”：主力支撑的上涨
-        # 定义：价格上涨，同时主力资金在净流入。这是最健康的上涨模式。
-        cpa_states['CPA_RISE_WITH_MAIN_FORCE_SUPPORT'] = is_price_rising & is_main_force_buying
-        
-        # 【C级风险信号】上涨的“危”：散户追高的上涨
-        # 定义：价格上涨，但主力资金在净流出。这可能是拉高出货的危险信号。
-        cpa_states['CPA_RISE_WITH_RETAIL_FOMO'] = is_price_rising & is_main_force_selling
-
-        # 【S级风险信号】下跌的“质”：主力出逃的下跌
-        # 定义：价格下跌，同时主力资金在净流出。这是最危险的下跌，趋势可能反转。
-        cpa_states['CPA_FALL_WITH_MAIN_FORCE_FLEEING'] = is_price_falling & is_main_force_selling
-
-        # 【S级机会信号】下跌的“机”：主力吸筹的下跌
-        # 定义：价格下跌，但主力资金在净流入。这是经典的“黄金坑”或“洗盘吸筹”信号。
-        cpa_states['CPA_FALL_WITH_MAIN_FORCE_ABSORBING'] = is_price_falling & is_main_force_buying
-
-        print("        -> [联合分析部 V228.0] 深度解析完成。")
-        return cpa_states
 
     def _diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
