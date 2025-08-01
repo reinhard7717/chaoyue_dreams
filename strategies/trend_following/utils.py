@@ -54,7 +54,7 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
     entry_indices = df.index[entry_event_series]
     if entry_indices.empty:
         return persistent_series
-    print(f"          -> [状态机引擎] 正在为 '{state_name}' 创建持续状态窗口 (共 {len(entry_indices)} 个进入点)...")
+    # print(f"          -> [状态机引擎] 正在为 '{state_name}' 创建持续状态窗口 (共 {len(entry_indices)} 个进入点)...")
     for entry_idx in entry_indices:
         window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
         actual_window_mask = (df.index >= entry_idx) & (df.index <= window_end_date)

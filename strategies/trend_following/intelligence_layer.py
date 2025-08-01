@@ -185,7 +185,7 @@ class IntelligenceLayer:
           - VOL_STATE_SQUEEZE_WINDOW: 基础的波动率压缩窗口 (静态)。
           - VOL_STATE_EXTREME_SQUEEZE: 在压缩窗口内，要求波动率带宽仍在收缩 (动态)，是更高质量的突破前兆。
         """
-        print("        -> [能量与波动侦察部 V283.0] 启动，正在执行融合分析...")
+        # print("        -> [能量与波动侦察部 V283.0] 启动，正在执行融合分析...")
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -382,7 +382,7 @@ class IntelligenceLayer:
         - 核心职责: 集中处理所有关键筹码指标的斜率与加速度，系统性地生成
                     高维度的动态机遇与风险信号。这是对动态分析能力的终极整合。
         """
-        print("          -> [动态分析中心 V283.0] 已部署，正在对全筹码指标进行动态扫描...")
+        # print("          -> [动态分析中心 V283.0] 已部署，正在对全筹码指标进行动态扫描...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -419,7 +419,7 @@ class IntelligenceLayer:
         states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
         states['RISK_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
         
-        print("          -> [动态分析中心 V283.0] 动态扫描完成。")
+        # print("          -> [动态分析中心 V283.0] 动态扫描完成。")
         return states
 
     def _diagnose_chip_price_action(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -475,7 +475,7 @@ class IntelligenceLayer:
         - 核心职责: 基于趋势的“斜率”和“加速度”，生成高维度的动态原子状态。
         - 产出: 返回一个包含 DYN_... 信号的字典，供评分引擎使用。
         """
-        print("        -> [诊断模块 V174.0] 正在执行动态惯性诊断...")
+        # print("        -> [诊断模块 V174.0] 正在执行动态惯性诊断...")
         dynamics_states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1112,7 +1112,7 @@ class IntelligenceLayer:
         - 核心职责: 对“成交量”和“资金攻击效率”进行全面的斜率与加速度分析，
                     将“天量对倒”这个模糊概念，升级为可量化、可跟踪的动态风险信号。
         """
-        print("          -> [量价动态分析中心 V284.0] 启动，正在对“天量对倒”进行CT扫描...")
+        # print("          -> [量价动态分析中心 V284.0] 启动，正在对“天量对倒”进行CT扫描...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1154,11 +1154,11 @@ class IntelligenceLayer:
         # 我们将这个融合后的S级风险，命名为“动态对倒风险”
         states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_high_risk | is_critical_risk
         
-        print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
+        # print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
         return states
    
     def _determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
-        print("    --- [战略推演单元 V304.0] 启动，正在生成主力行为序列... ---")
+        # print("    --- [战略推演单元 V304.0] 启动，正在生成主力行为序列... ---")
         df['main_force_state'] = MainForceState.IDLE.value
         for i in range(1, len(df)):
             prev_state_val = df.at[df.index[i-1], 'main_force_state']
@@ -1195,7 +1195,7 @@ class IntelligenceLayer:
             elif prev_state == MainForceState.COLLAPSE:
                 if s['is_sideways'] and not s['is_below_long_ma']: current_state = MainForceState.IDLE
             df.at[df.index[i], 'main_force_state'] = current_state.value
-        print("    --- [战略推演单元 V304.0] 主力行为序列已生成。 ---")
+        # print("    --- [战略推演单元 V304.0] 主力行为序列已生成。 ---")
         return df
 
     def _define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1205,7 +1205,7 @@ class IntelligenceLayer:
                     确保了配置的单一来源原则，使整个触发体系清晰、健壮、易于维护。
         - 职责: 识别所有可以作为“开火信号”的瞬时战术事件(Trigger)。
         """
-        print("        -> [触发事件中心 V234.0] 启动，正在定义所有原子化触发事件...")
+        # print("        -> [触发事件中心 V234.0] 启动，正在定义所有原子化触发事件...")
         triggers = {}
         default_series = pd.Series(False, index=df.index)
         
@@ -1337,7 +1337,7 @@ class IntelligenceLayer:
             else:
                 triggers[key] = triggers[key].fillna(False)
                 
-        print("        -> [触发事件中心 V234.0] 所有触发事件定义完成。")
+        # print("        -> [触发事件中心 V234.0] 所有触发事件定义完成。")
         return triggers
 
     def _diagnose_healthy_pullback(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1601,7 +1601,7 @@ class IntelligenceLayer:
         default_series = pd.Series(False, index=df.index)
 
         # --- 认知链 1/4: 价格行为上下文 (Price Action Context) ---
-        print("          -> [认知链 1/4] 正在分析价格行为上下文...")
+        # print("          -> [认知链 1/4] 正在分析价格行为上下文...")
         # 强力突破阳线
         is_strong_body = (df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan) > 0.6
         is_breaking_recent_high = df['close_D'] > df['high_D'].shift(1).rolling(20).max()
@@ -1613,14 +1613,14 @@ class IntelligenceLayer:
         cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) & is_explosive_change
 
         # --- 认知链 2/4: 战场核心稳定性 (Core Stability Assessment) ---
-        print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
+        # print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
         is_chip_stable = self.strategy.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
         is_trend_stable = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
         is_platform_stable = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         cognitive_states['COGNITIVE_STATE_CORE_STABILITY'] = is_chip_stable & is_trend_stable & is_platform_stable
 
         # --- 认知链 3/4: 【升级】高价值/高风险战略布局识别 ---
-        print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
+        # print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
         # 从总配置中获取传递给VPA模块的参数
         vpa_params = get_params_block(self.strategy, 'strategy_params').get('trend_follow', {})
         # 调用新模块，获取动态量价分析结果
@@ -1634,7 +1634,7 @@ class IntelligenceLayer:
         cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_concentrating & is_cost_rising & is_price_rallying
 
         # --- 认知链 4/4: 形成最终顶层认知模式 ---
-        print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
+        # print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
         # 识别“突破派发”风险 (高风险模式)
         is_breakout_day = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series)
         is_main_force_selling = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
@@ -1900,7 +1900,7 @@ class IntelligenceLayer:
         - 核心职责: 基于原子状态和触发事件，识别并生成所有预定义的“剧本”状态。
         - 剧本: 一个剧本是多个原子状态和触发事件的特定组合，代表一个高胜率的交易设置。
         """
-        print("        -> [剧本状态生成引擎 V285.0] 启动，正在识别所有交易剧本...")
+        # print("        -> [剧本状态生成引擎 V285.0] 启动，正在识别所有交易剧本...")
         playbook_states = {}
         setup_scores = {}
         df = self.strategy.df_indicators

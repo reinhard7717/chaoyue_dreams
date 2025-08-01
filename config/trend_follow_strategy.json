@@ -318,8 +318,10 @@
             "RISK_DYN_HEALTH_DETERIORATING": 150,
             "PLATFORM_FAILURE": 150,
             "DYN_TREND_WEAKENING_DECELERATING": 100,
-            "FRACTAL_RISK_TOP_DIVERGENCE": 800, "说明_FRACTAL_RISK_TOP_DIVERGENCE": "分形顶背离，给予极高风险分",
-            "FRACTAL_EVENT_TREND_EXHAUSTION": 500, "说明_FRACTAL_EVENT_TREND_EXHAUSTION": "趋势衰竭，给予高风险分"
+            "FRACTAL_RISK_TOP_DIVERGENCE": 800,
+            "说明_FRACTAL_RISK_TOP_DIVERGENCE": "分形顶背离，给予极高风险分",
+            "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
+            "说明_FRACTAL_EVENT_TREND_EXHAUSTION": "趋势衰竭，给予高风险分"
           }
         },
         "trigger_events": {
@@ -675,7 +677,7 @@
           "enabled": true,
           "description": "【V324.0 新增】突破-回踩接力联动参数",
           "lookback_window": {
-            "value": 10,
+            "value": 15,
             "description": "在回踩日，向前回溯多少天寻找“初升浪启动”事件。"
           }
         }
