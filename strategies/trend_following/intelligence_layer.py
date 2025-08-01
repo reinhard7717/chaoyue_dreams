@@ -24,11 +24,10 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V327.1 依赖修正版】
-        - 核心修复: 删除了重复的 _run_chip_intelligence_command 调用，
-                    并严格修正了所有模块的执行顺序，确保依赖关系正确。
+        【V327.2 终极顺序版】
+        - 核心修复: 再次修正模块执行顺序，确保所有依赖关系100%正确。
         """
-        print("--- [情报层 V327.1] 步骤1: 运行所有诊断模块... ---")
+        print("--- [情报层 V327.2] 步骤1: 运行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
@@ -47,10 +46,12 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
         
-        # 2.1 先运行“顶部风险司令部”，生成高位区上下文
-        self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
-        # 2.2 再运行“动态筹码分析”，它会使用上面生成的位置情报
+        # ▼▼▼【核心修复】严格按照依赖顺序执行 ▼▼▼
+        # 2.1 先运行“动态筹码分析”，生成 RISK_DYN_... 等基础信号
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
+        # 2.2 再运行“顶部风险司令部”，它会使用上面生成的位置情报
+        self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
+        # ▲▲▲【核心修复】▲▲▲
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
@@ -58,11 +59,8 @@ class IntelligenceLayer:
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
         
-        # ▼▼▼【核心修复】删除重复调用，保留唯一正确的调用位置 ▼▼▼
-        # 此刻，它所依赖的 _diagnose_dynamic_chip_states 和 _diagnose_topping_risks_command 都已执行完毕
         chip_states, chip_triggers = self._run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
-        # ▲▲▲【核心修复】▲▲▲
         
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
@@ -87,6 +85,7 @@ class IntelligenceLayer:
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
         return trigger_events
+
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V316.0 筹码加权版】筹码情报最高司令部
@@ -1730,31 +1729,34 @@ class IntelligenceLayer:
         if lock_chip_rally_signal.any():
             print(f"            -> [情报] 侦测到 {lock_chip_rally_signal.sum()} 次“二级火箭”式锁筹拉升！")
 
-        # 识别“突破派发”风险 (高风险模式)
-        is_breakout_day = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series)
-        is_main_force_selling = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_breakout_day & is_main_force_selling
-
-        # ▼▼▼ 打造终极“派发事件”定义 ▼▼▼
-        print("          -> [认知链 4/4a] 正在对“派发事件”进行三维度终极融合...")
-        # 维度1: 资金流证据 (主力资金在净流出)
+        # print("          -> [认知链 4/4a] 正在对“派发事件”进行提纯...")
+        # 核心证据 (满足任一即可认定为派发)
+        evidence_core_distribution = (
+            self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series) | # S+级确认派发
+            self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series) | # 拉升出货
+            self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)     # 获利盘雪崩
+        )
+        
+        # 次要证据 (需要多个共振才能认定为派发)
         evidence_capital_outflow = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        # 维度2: 量价行为证据 (天量滞涨等对倒嫌疑)
         evidence_vpa_churn = cognitive_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
-        # 维度3: 筹码结构证据 (内部结构正在瓦解)
         evidence_chip_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
-        evidence_chip_cost_falling = self.strategy.atomic_states.get('RISK_DYN_COST_FALLING', default_series)
-        evidence_chip_winner_rate_collapsing = self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
-        # 将所有筹码结构证据融合为一个信号
-        evidence_chip_structure_collapse = evidence_chip_diverging | evidence_chip_cost_falling | evidence_chip_winner_rate_collapsing
-        # 终极裁定：满足任一维度的证据，都视为一次“派发事件”
-        distribution_event = evidence_capital_outflow | evidence_vpa_churn | evidence_chip_structure_collapse
-        # 使用这个更全面的“派发事件”来构建“近期派发压力”上下文
+        
+        # 次要证据共振：至少满足两个次要证据
+        evidence_secondary_resonance = (evidence_capital_outflow.astype(int) + 
+                                        evidence_vpa_churn.astype(int) + 
+                                        evidence_chip_diverging.astype(int)) >= 2
+        
+        # 终极裁定：满足核心证据，或者满足次要证据共振
+        distribution_event = evidence_core_distribution | evidence_secondary_resonance
+        
+        # 使用这个更纯净的“派发事件”来构建“近期派发压力”上下文
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
+        
         if cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].any():
-            print(f"            -> [情报] 已根据终极定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
+            print(f"            -> [情报] 已根据提纯定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
 
         print("        -> [认知综合引擎 V284.0] 认知合成完毕。")
         return cognitive_states
