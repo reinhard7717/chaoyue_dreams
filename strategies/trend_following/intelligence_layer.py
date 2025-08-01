@@ -1729,34 +1729,21 @@ class IntelligenceLayer:
         if lock_chip_rally_signal.any():
             print(f"            -> [情报] 侦测到 {lock_chip_rally_signal.sum()} 次“二级火箭”式锁筹拉升！")
 
-        # print("          -> [认知链 4/4a] 正在对“派发事件”进行提纯...")
-        # 核心证据 (满足任一即可认定为派发)
-        evidence_core_distribution = (
+        # print("          -> [认知链 4/4a] 正在对“派发事件”进行终极提纯...")
+        # 终极裁定：一个“派发事件”，必须是满足以下核心证据之一的、高确定性的事件。
+        # 我们不再考虑次要证据的共振，以避免信号泛滥。
+        distribution_event = (
             self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series) | # S+级确认派发
             self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series) | # 拉升出货
             self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)     # 获利盘雪崩
         )
-        
-        # 次要证据 (需要多个共振才能认定为派发)
-        evidence_capital_outflow = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        evidence_vpa_churn = cognitive_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
-        evidence_chip_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
-        
-        # 次要证据共振：至少满足两个次要证据
-        evidence_secondary_resonance = (evidence_capital_outflow.astype(int) + 
-                                        evidence_vpa_churn.astype(int) + 
-                                        evidence_chip_diverging.astype(int)) >= 2
-        
-        # 终极裁定：满足核心证据，或者满足次要证据共振
-        distribution_event = evidence_core_distribution | evidence_secondary_resonance
-        
-        # 使用这个更纯净的“派发事件”来构建“近期派发压力”上下文
+        # 使用这个最纯净的“派发事件”来构建“近期派发压力”上下文
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
         
         if cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].any():
-            print(f"            -> [情报] 已根据提纯定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
+            print(f"            -> [情报] 已根据终极提纯定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
 
         print("        -> [认知综合引擎 V284.0] 认知合成完毕。")
         return cognitive_states
