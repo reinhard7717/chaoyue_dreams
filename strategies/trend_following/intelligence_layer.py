@@ -1430,7 +1430,7 @@ class IntelligenceLayer:
             self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         )
         
-        is_setup_phase = is_highly_converged & is_other_setup
+        is_setup_phase = is_highly_converged | is_other_setup
         
         # --- 3. 定义“启动事件” (Ignition Event) ---
         is_positive_candle = df['pct_change_D'] > 0
