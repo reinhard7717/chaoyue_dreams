@@ -24,23 +24,22 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V326.0 终极数据流修复版】
-        - 核心修复: 1. 严格按照依赖顺序执行。
-                    2. 确保所有模块都使用最新的df对象。
-                    3. 每次诊断后立即更新全局atomic_states，确保情报实时可用。
+        【V327.0 终极依赖修复版】
+        - 核心修复: 重新编排了所有诊断模块的执行顺序，严格遵循依赖关系，
+                    确保所有情报在被使用前都已生成。
         """
-        print("--- [情报层 V326.0] 步骤1: 运行所有诊断模块... ---")
+        print("--- [情报层 V327.0] 步骤1: 运行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
-        # --- 阶段一: 基础原子状态诊断 (无内部依赖) ---
-        print("    -> [情报层] 阶段1: 正在生成基础原子状态...")
-        
-        # 1.1 K线形态识别 (它会修改df，必须最先执行)
+        # --- 阶段一: 基础数据衍生与K线形态 ---
+        print("    -> [情报层] 阶段1: 基础数据衍生...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self._diagnose_kline_patterns(df))
-        
-        # 1.2 基础指标衍生状态
+        self.strategy.atomic_states.update(self._diagnose_board_patterns(df))
+
+        # --- 阶段二: 基础原子状态诊断 (无内部依赖) ---
+        print("    -> [情报层] 阶段2: 基础原子状态诊断...")
         self.strategy.atomic_states.update(self._diagnose_ma_states(df))
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
         self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
@@ -49,36 +48,26 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
 
-        # --- 阶段二: 复合原子状态诊断 (依赖于阶段一的状态) ---
-        print("    -> [情报层] 阶段2: 正在生成复合原子状态...")
-        
-        # 2.1 筹码-价格行为 (依赖资本状态)
+        # --- 阶段三: 复合原子状态诊断 (依赖于阶段二的状态) ---
+        print("    -> [情报层] 阶段3: 复合原子状态诊断...")
         self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
-        
-        # 2.2 市场结构 (依赖MA状态等，它也会修改df)
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
-        
-        # 2.3 筹码情报司令部 (依赖筹码动态)
         chip_states, chip_triggers = self._run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
-        
-        # 2.4 健康回踩 (依赖MA状态、筹码风险等)
-        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
-        
-        # 2.5 初升浪 (依赖动态均线粘合、箱体等状态)
-        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
-        
-        # 2.6 突破-回踩接力 (依赖初升浪和健康回踩)
-        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
+        self.strategy.atomic_states.update(self._diagnose_market_structure_states(df)) # 依赖 market_structure_command
+        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df)) # 依赖 MA_STATE_STABLE_BULLISH
+        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df)) # 依赖 MA_STATE...SQUEEZE
+        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df)) # 依赖 healthy_pullback 和 post_accumulation
 
-        # --- 阶段三: 顶层认知与行为序列合成 ---
-        print("    -> [情报层] 阶段3: 正在进行顶层认知合成...")
+        # --- 阶段四: 顶层认知与行为序列合成 ---
+        print("    -> [情报层] 阶段4: 顶层认知合成...")
+        self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
-        # --- 阶段四: 生成触发器和剧本 ---
-        print("    -> [情报层] 阶段4: 正在生成最终触发器与剧本...")
+        # --- 阶段五: 生成触发器和剧本 ---
+        print("    -> [情报层] 阶段5: 生成最终触发器与剧本...")
         trigger_events = self._define_trigger_events(df)
         trigger_events.update(chip_triggers)
         self.strategy.setup_scores, self.strategy.playbook_states = self._generate_playbook_states(trigger_events)
@@ -732,14 +721,15 @@ class IntelligenceLayer:
             window = get_param_value(p_conv.get('window'), 120)
             quantile = get_param_value(p_conv.get('quantile'), 0.1)
             
-            short_cv_col = 'MA_CONV_CV_SHORT_D'
-            long_cv_col = 'MA_CONV_CV_LONG_D'
+            # ▼▼▼【核心修复】使用更健壮的方式寻找列名 ▼▼▼
+            short_cv_col = next((col for col in df.columns if 'MA_CONV_CV_SHORT' in col), None)
+            long_cv_col = next((col for col in df.columns if 'MA_CONV_CV_LONG' in col), None)
             
-            if short_cv_col in df.columns:
+            if short_cv_col:
                 dynamic_threshold_short = df[short_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_SHORT_CONVERGENCE_SQUEEZE'] = df[short_cv_col] < dynamic_threshold_short
             
-            if long_cv_col in df.columns:
+            if long_cv_col:
                 dynamic_threshold_long = df[long_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
 
@@ -1372,17 +1362,15 @@ class IntelligenceLayer:
         max_turnover_rate = get_param_value(p.get('max_turnover_rate'), 5.0)
         
         # --- 2. 检查所需情报 ---
-        required_states = ['STRUCTURE_MAIN_UPTREND_WAVE_S', 'RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 'VOL_STATE_SHRINKING']
+        required_states = ['MA_STATE_STABLE_BULLISH', 'RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 'VOL_STATE_SHRINKING']
         required_cols = ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']
         
         if any(state not in self.strategy.atomic_states for state in required_states) or any(col not in df.columns for col in required_cols):
             print("          -> [警告] 缺少诊断“健康回踩”所需的核心情报或数据列，模块跳过。")
             return {}
 
-        # --- 3. 定义“健康回踩”的核心条件 ---
-        
-        # 条件A: 必须处于“S级主升浪”结构中 (背景)
-        is_in_strong_uptrend = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        # 条件A: 必须处于“稳定多头排列”结构中 (基础且可靠)
+        is_in_uptrend = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
         
         # 条件B: 当日股价温和下跌 (价格行为)
         is_moderate_pullback = (df['pct_change_D'] < max_pct_change) & (df['pct_change_D'] > min_pct_change)
