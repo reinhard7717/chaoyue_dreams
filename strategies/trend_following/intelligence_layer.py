@@ -24,11 +24,11 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V327.0 终极依赖修复版】
-        - 核心修复: 重新编排了所有诊断模块的执行顺序，严格遵循依赖关系，
-                    确保所有情报在被使用前都已生成。
+        【V327.1 依赖修正版】
+        - 核心修复: 删除了重复的 _run_chip_intelligence_command 调用，
+                    并严格修正了所有模块的执行顺序，确保依赖关系正确。
         """
-        print("--- [情报层 V327.0] 步骤1: 运行所有诊断模块... ---")
+        print("--- [情报层 V327.1] 步骤1: 运行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
@@ -38,30 +38,40 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self._diagnose_board_patterns(df))
 
-        # --- 阶段二: 基础原子状态诊断 (无内部依赖) ---
+        # --- 阶段二: 基础原子状态诊断 ---
         print("    -> [情报层] 阶段2: 基础原子状态诊断...")
         self.strategy.atomic_states.update(self._diagnose_ma_states(df))
-        self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
         self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self._diagnose_trend_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_oscillator_states(df))
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
+        
+        # 2.1 先运行“顶部风险司令部”，生成高位区上下文
+        self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
+        # 2.2 再运行“动态筹码分析”，它会使用上面生成的位置情报
+        self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
 
-        # --- 阶段三: 复合原子状态诊断 (依赖于阶段二的状态) ---
+        # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
         self.strategy.atomic_states.update(self._diagnose_chip_price_action(df))
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
+        
+        # ▼▼▼【核心修复】删除重复调用，保留唯一正确的调用位置 ▼▼▼
+        # 此刻，它所依赖的 _diagnose_dynamic_chip_states 和 _diagnose_topping_risks_command 都已执行完毕
         chip_states, chip_triggers = self._run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
-        self.strategy.atomic_states.update(self._diagnose_market_structure_states(df)) # 依赖 market_structure_command
-        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df)) # 依赖 MA_STATE_STABLE_BULLISH
-        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df)) # 依赖 MA_STATE...SQUEEZE
-        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df)) # 依赖 healthy_pullback 和 post_accumulation
+        # ▲▲▲【核心修复】▲▲▲
+        
+        self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
+        self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
+        self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
+        self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
 
         # --- 阶段四: 顶层认知与行为序列合成 ---
         print("    -> [情报层] 阶段4: 顶层认知合成...")
+        self.strategy.atomic_states.update(self._diagnose_trend_stage_context(df))
         self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
@@ -77,7 +87,6 @@ class IntelligenceLayer:
         trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
         return trigger_events
-
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V316.0 筹码加权版】筹码情报最高司令部
@@ -112,8 +121,23 @@ class IntelligenceLayer:
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
 
         states['CHIP_HEALTH_EXCELLENT'] = df.get('chip_health_score_D', 0) > 85
+        
+        print("          -> [情报提纯] 正在对“高度集中”状态进行机会提纯...")
+        # 1. 基础条件：筹码必须已经高度集中 (静态)
+        is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_highly_concentrated_static # 保留原始的基础状态信号，供其他模块使用
+        # 2. 动态条件：筹码必须仍在持续集中 (动态)
+        is_still_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        # 3. 稳定条件：成本峰必须稳定，表明吸筹/洗盘阶段完成 (稳定)
+        cost_slope_col = 'SLOPE_5_peak_cost_D'
+        cost_stability_threshold = get_param_value(p_struct.get('cost_stability_threshold'), 0.005)
+        is_cost_peak_stable = df[cost_slope_col].abs() < cost_stability_threshold
+        # 最终裁定：S级机会是“静态+动态+稳定”的三重共振
+        states['OPP_CHIP_SETUP_S'] = is_highly_concentrated_static & is_still_concentrating & is_cost_peak_stable
+        if states['OPP_CHIP_SETUP_S'].any():
+            print(f"            -> [情报] 侦测到 {states['OPP_CHIP_SETUP_S'].sum()} 次S级“筹码高度控盘”机会！")
 
-        is_in_high_level_zone = self._define_high_level_distribution_zone(df)
+        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
@@ -397,12 +421,29 @@ class IntelligenceLayer:
         if missing_cols:
             print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
             return states
+        
+        # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
+        # 注意：这要求 _diagnose_topping_risks_command 必须在此模块之前运行
+        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
 
-        # --- 2. 对“筹码集中度”进行动态分析 (机遇/风险) ---
-        states['CHIP_DYN_CONCENTRATING'] = df['SLOPE_5_concentration_90pct_D'] < 0
-        states['CHIP_DYN_ACCEL_CONCENTRATING'] = df['ACCEL_5_concentration_90pct_D'] < 0
-        states['RISK_DYN_DIVERGING'] = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['RISK_DYN_ACCEL_DIVERGING'] = df['ACCEL_5_concentration_90pct_D'] > 0
+       # --- 2. 对“筹码集中度”进行动态分析 (机遇/风险) ---
+        # 2.1 基础的“集中趋势”信号 (斜率)
+        is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
+        states['CHIP_DYN_CONCENTRATING'] = is_concentrating_trend
+        # ▼▼▼ “加速集中”信号 ▼▼▼
+        # 从配置中读取“显著加速”的阈值
+        p_chip = get_params_block(self.strategy, 'chip_feature_params')
+        accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
+        # 行为：加速度必须超过阈值，过滤噪音
+        is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
+        # 共振：最强的信号是“趋势”与“行为”的共振
+        # 即：在集中的趋势中，出现了显著的加速行为
+        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
+        # 【核心升级】只有在高位区的筹码发散，才是真正的风险
+        is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
+        states['RISK_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
+        is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
+        states['RISK_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
 
         # --- 3. 对“筹码成本”进行动态分析 (机遇/风险) ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
@@ -529,6 +570,49 @@ class IntelligenceLayer:
         #     print(f"          -> “{name}” 已定义，激活 {series.sum()} 天。")
             
         return dynamics_states
+
+    def _diagnose_trend_stage_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V332.0 新增】趋势阶段上下文诊断模块
+        - 核心职责: 综合多种情报，对当前趋势所处的“阶段”（初期/末期）
+                    进行高维度的综合诊断。
+        """
+        print("        -> [趋势阶段诊断模块 V332.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 定义“上涨初期” (Early Stage) ---
+        # 条件A: 处于“初升浪”的持续状态中
+        is_in_ascent_structure = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
+        
+        # 条件B: 价格处于年内较低位置 (位置信号)
+        yearly_high = df['high_D'].rolling(250).max()
+        yearly_low = df['low_D'].rolling(250).min()
+        price_range = yearly_high - yearly_low
+        # 定义：当前价格低于年内高点和低点的中点
+        is_in_lower_half_range = df['close_D'] < (yearly_low + price_range * 0.5)
+        
+        # 最终裁定：满足任一条件，都可认为是广义的“初期”
+        states['CONTEXT_TREND_STAGE_EARLY'] = is_in_ascent_structure | is_in_lower_half_range
+
+        # --- 2. 定义“上涨末期” (Late Stage) ---
+        
+        # 2.1 获取位置情报 (Context)
+        is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        
+        # 2.2 获取并提炼行为情报 (Action)
+        # 行为1: 主力有派发嫌疑
+        is_distributing_action = self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
+        # 行为2: 趋势引擎正在熄火
+        is_trend_engine_stalling = self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
+        
+        # ▼▼▼ 将多个行为信号提炼为一个“趋势恶化”的综合行为信号 ▼▼▼
+        has_trend_worsening_action = is_distributing_action | is_trend_engine_stalling
+        
+        # 最终裁定：必须是“位置”和“恶化行为”的共振
+        states['CONTEXT_TREND_STAGE_LATE'] = is_in_danger_zone & has_trend_worsening_action
+        
+        return states
 
     def _diagnose_capital_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -1627,33 +1711,50 @@ class IntelligenceLayer:
         vpa_states = self._diagnose_volume_price_dynamics(df, vpa_params)
         cognitive_states.update(vpa_states)
 
-        # 识别“锁筹拉升”模式 (高价值布局)
-        is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
-        is_cost_rising = self.strategy.atomic_states.get('CHIP_DYN_COST_RISING', default_series)
-        is_price_rallying = df['pct_change_D'] > 0.03
-        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = is_concentrating & is_cost_rising & is_price_rallying
+        # ▼▼▼【核心升级 V334.0】引入“二级火箭”模型重写“锁筹拉升” ▼▼▼
+        # print("          -> [认知链 3/4a] 正在对“锁筹拉升”模式进行二级火箭验证...")
+        # 验证1：地基 (Foundation) - 筹码是否已高度集中？
+        is_foundation_solid = self.strategy.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
+        # 验证2：行为 (Action) - 是否为“二级火箭”点火模式？
+        # 行为2.1 (一级助推器): 成本必须已经处于上升趋势中 (斜率为正)
+        is_cost_trend_upward = self.strategy.atomic_states.get('CHIP_DYN_COST_RISING', default_series)
+        # 行为2.2 (二级主引擎): 成本必须正在加速抬高 (加速度为正)
+        is_cost_accelerating = self.strategy.atomic_states.get('CHIP_DYN_COST_ACCELERATING', default_series)
+        # 最终行为裁定：必须同时满足一级和二级引擎都在工作
+        is_action_aggressive = is_cost_trend_upward & is_cost_accelerating
+        # 验证3：环境 (Environment) - 是否处于多头趋势？
+        is_env_bullish = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
+        # 最终裁定：必须同时满足三个维度的验证
+        lock_chip_rally_signal = is_foundation_solid & is_action_aggressive & is_env_bullish
+        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = lock_chip_rally_signal
+        if lock_chip_rally_signal.any():
+            print(f"            -> [情报] 侦测到 {lock_chip_rally_signal.sum()} 次“二级火箭”式锁筹拉升！")
 
-        # --- 认知链 4/4: 形成最终顶层认知模式 ---
-        # print("          -> [认知链 4/4] 正在形成最终顶层认知模式...")
         # 识别“突破派发”风险 (高风险模式)
         is_breakout_day = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series)
         is_main_force_selling = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
         cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_breakout_day & is_main_force_selling
 
-        # 识别“高位横盘，主力对倒”风险 (高风险模式)
-        # 旧的、模糊的“对倒”概念，现在被新的、精确的“动态量价对倒”风险所取代
-        if 'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN' in cognitive_states:
-            churn_risk_days = cognitive_states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()
-            if churn_risk_days > 0:
-                print(f"          -> [认知确认] 检测到 {churn_risk_days} 天存在“动态量价对倒”的重大风险！")
-        
-        # 汇总近期派发压力
-        p_dist = get_params_block(self.strategy, 'distribution_context_params', {}) # 修改
-        lookback = get_param_value(p_dist.get('lookback_days'), 10) # 修改
-        # 使用新的动态对倒风险作为派发事件的来源之一
-        distribution_event = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series) | \
-                             cognitive_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
-        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback).sum() > 0
+        # ▼▼▼ 打造终极“派发事件”定义 ▼▼▼
+        print("          -> [认知链 4/4a] 正在对“派发事件”进行三维度终极融合...")
+        # 维度1: 资金流证据 (主力资金在净流出)
+        evidence_capital_outflow = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        # 维度2: 量价行为证据 (天量滞涨等对倒嫌疑)
+        evidence_vpa_churn = cognitive_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
+        # 维度3: 筹码结构证据 (内部结构正在瓦解)
+        evidence_chip_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+        evidence_chip_cost_falling = self.strategy.atomic_states.get('RISK_DYN_COST_FALLING', default_series)
+        evidence_chip_winner_rate_collapsing = self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
+        # 将所有筹码结构证据融合为一个信号
+        evidence_chip_structure_collapse = evidence_chip_diverging | evidence_chip_cost_falling | evidence_chip_winner_rate_collapsing
+        # 终极裁定：满足任一维度的证据，都视为一次“派发事件”
+        distribution_event = evidence_capital_outflow | evidence_vpa_churn | evidence_chip_structure_collapse
+        # 使用这个更全面的“派发事件”来构建“近期派发压力”上下文
+        p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
+        lookback = get_param_value(p_dist.get('lookback_days'), 10)
+        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
+        if cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].any():
+            print(f"            -> [情报] 已根据终极定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
 
         print("        -> [认知综合引擎 V284.0] 认知合成完毕。")
         return cognitive_states
@@ -1847,52 +1948,63 @@ class IntelligenceLayer:
         print("    - [剧本情报中心 V264.0] 动态情报生成完毕。")
         return setup_scores, playbook_states
 
-    def _define_high_level_distribution_zone(self, df: pd.DataFrame) -> pd.Series:
+    def _diagnose_topping_risks_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V280.0 三维扫描模块】
-        - 核心升级: 彻底抛弃了旧的、基于静态高点的“一维标尺”定义。
-        - 新定义: 从三个维度，综合判断是否进入了真正的“高风险派发区”。
-          1. 【乖离维度】: 价格是否相对其攻击均线(如EMA21)出现了极端“超买”？
-          2. 【波动维度】: 价格是否已经超越了其自身波动率(ATR)定义的“异常拉升”范围？
-          3. 【动能维度】: 在价格高位，短期均线的攻击动能是否已经开始衰竭或转向？
-        - 收益: 这是一个自适应的、多维度的风险识别系统，能更精准地捕捉到派发的真实前兆。
+        【V331.0 联合作战司令部】顶部风险诊断模块
+        - 核心重构: 融合了原“高位派发区”和“拉升健康度”两大模块，形成统一的、
+                    从“静态位置”到“动态行为”的顶层风险分析中心。
+        - 作战流程:
+          1. 评估“地利”：识别市场是否处于乖离、超买的“危险战区”(Context)。
+          2. 评估“天时”：识别当天是否正在发生“拉升出货”的危险行为(Action)。
+          3. 情报融合：将“地利”与“天时”结合，生成S+级的“确认派发”风险信号。
         """
-        # 扫描仪1: 【乖离维度】 - BIAS指标
-        # 当BIAS21(21日乖离率)超过一个动态阈值(如过去120日的95%分位数)时，视为极端超买
-        bias_col = 'BIAS_21_D'
-        if bias_col not in df.columns:
-            is_overextended_bias = pd.Series(False, index=df.index)
-        else:
-            dynamic_overbought_threshold = df[bias_col].rolling(120).quantile(0.95)
-            is_overextended_bias = df[bias_col] > dynamic_overbought_threshold
-            print(f"          -> [三维扫描-乖离] BIAS超买信号已生成。")
+        print("        -> [顶部风险联合作战司令部 V331.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
 
-        # 扫描仪2: 【波动维度】 - ATR通道
-        # 当价格超过“EMA21 + 2.5倍ATR14”时，视为波动率异常拉升
-        atr_col = 'ATRr_14_D'
-        ma_col = 'EMA_21_D'
-        if atr_col not in df.columns or ma_col not in df.columns:
-            is_overextended_atr = pd.Series(False, index=df.index)
-        else:
-            atr_channel_upper = df[ma_col] + (df[atr_col] * 2.5)
-            is_overextended_atr = df['close_D'] > atr_channel_upper
-            print(f"          -> [三维扫描-波动] ATR通道突破信号已生成。")
+        # --- 1. 军备检查 ---
+        required_states = ['RISK_DYN_DIVERGING', 'CHIP_DYN_CONCENTRATING']
+        required_cols = ['BIAS_21_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'SLOPE_5_EMA_13_D']
+        if any(s not in self.strategy.atomic_states for s in required_states) or any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少诊断“顶部风险”所需情报，模块跳过。")
+            return {}
 
-        # 扫描仪3: 【动能维度】 - 短期均线斜率
-        # 在价格处于60日高位区域时，如果短期攻击均线(EMA13)的斜率开始走平或转负，视为动能衰竭
-        short_ma_slope_col = 'SLOPE_5_EMA_13_D'
-        if short_ma_slope_col not in df.columns:
-            is_momentum_exhausted = pd.Series(False, index=df.index)
-        else:
-            is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85 # 这里仍可保留一个宽松的位置判断
-            is_slope_weakening = df[short_ma_slope_col] < 0.001 # 斜率趋于0或为负
-            is_momentum_exhausted = is_at_high_price & is_slope_weakening
-            print(f"          -> [三维扫描-动能] 高位动能衰竭信号已生成。")
+        # --- 2. 评估“地利”：定义静态的“危险战区”上下文 ---
+        # 2.1 乖离维度
+        bias_overbought_threshold = df['BIAS_21_D'].rolling(120).quantile(0.95)
+        states['CONTEXT_RISK_OVEREXTENDED_BIAS'] = df['BIAS_21_D'] > bias_overbought_threshold
+        
+        # 2.2 动能维度
+        is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85
+        is_slope_weakening = df['SLOPE_5_EMA_13_D'] < 0.001
+        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & is_slope_weakening
+        
+        # 2.3 融合生成“危险战区”状态
+        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | states['CONTEXT_RISK_MOMENTUM_EXHAUSTION']
 
-        # 最终裁定：只要满足上述任一条件，就认为进入了高风险派发区
-        final_high_zone_signal = is_overextended_bias | is_overextended_atr | is_momentum_exhausted
-        print(f"          -> [三维扫描] 综合高风险区信号已生成，共激活 {final_high_zone_signal.sum()} 天。")
-        return final_high_zone_signal
+        # --- 3. 评估“天时”：识别当天的危险拉升行为 ---
+        is_rallying = df['pct_change_D'] > 0.02
+        
+        # 3.1 拉升出货 (核心风险行为)
+        is_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+        states['ACTION_RISK_RALLY_WITH_DIVERGENCE'] = is_rallying & is_diverging
+        
+        # 3.2 天量滞涨
+        is_huge_volume = df['volume_D'] > df['VOL_MA_21_D'] * 2.5
+        is_stagnant = df['pct_change_D'] < 0.01
+        states['ACTION_RISK_RALLY_STAGNATION'] = is_huge_volume & is_stagnant
+
+        # --- 4. 【S+级情报融合】：在危险战区确认派发行为 ---
+        is_in_danger_zone = states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        is_distributing_action = states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
+        states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = is_in_danger_zone & is_distributing_action
+        
+        # --- 5. 重新定义“健康锁筹拉升” (增加保险丝) ---
+        is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        # 一个健康的拉升，不仅要筹码集中，还必须不能发生在危险战区
+        states['RALLY_STATE_HEALTHY_LOCKED'] = is_rallying & is_concentrating & ~is_in_danger_zone
+        
+        return states
 
     def _generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """

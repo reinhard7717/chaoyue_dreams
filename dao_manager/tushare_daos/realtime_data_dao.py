@@ -102,52 +102,53 @@ class StockRealtimeDAO(BaseDAO):
 
     async def _fetch_raw_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
-        【V3.0 - query调用版】使用 pro.query('tick', ...) 接口并发获取原始逐笔数据。
-        这是最稳定和官方推荐的调用方式。
+        【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
         """
-        print(f"  -> [Pro接口-query] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...")
-
-        trade_date_nodash = trade_date.replace('-', '')
+        print(f"  -> [探针] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...") # 探针 1
 
         async def fetch_one_stock(code: str):
             try:
-                # 使用 pro.query() 方法，明确指定接口名称为 'tick'
-                df = await sync_to_async(self.ts_pro.query)(
-                    'tick',  # 明确指定接口名
-                    ts_code=code,
-                    trade_date=trade_date_nodash
-                )
+                # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
+                df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='sina')
                 
+                # 探针 2: 检查 Tushare 原始返回
                 if df is None or df.empty:
-                    print(f"    -> [Pro接口-query] Tushare Pro API 为 {code} on {trade_date} 返回了空数据。")
+                    print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
                     return code, None
                 
-                print(f"    -> [Pro接口-query] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
+                print(f"    -> [探针] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
                 
-                # 数据清洗与格式化 (逻辑保持不变)
-                df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['time'], errors='coerce')
-                df.dropna(subset=['trade_time', 'price', 'vol', 'amount'], inplace=True)
+                # 数据清洗与格式化
+                df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
+                df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
+                df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
+                df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
+                
+                # 探针 3: 检查关键列是否存在NaN，并删除
+                initial_rows = len(df)
+                df.dropna(subset=['trade_time', 'PRICE', 'VOLUME', 'AMOUNT'], inplace=True)
+                if len(df) < initial_rows:
+                    print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
 
                 if df.empty:
-                    print(f"      -> [Pro接口-query] {code}: 清理NaN后数据为空。")
+                    print(f"      -> [探针] {code}: 清理NaN后数据为空。")
                     return code, None
 
-                df['vol'] = (df['vol'] * 100).astype(int)
-                df.rename(columns={'vol': 'volume', 'type': 'type'}, inplace=True)
+                # 单位转换：手 -> 股
+                df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
+                
+                # 重命名并设置索引
+                df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                 df.set_index('trade_time', inplace=True)
                 
-                print(f"      -> [Pro接口-query] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
+                # 探针 4: 确认最终处理完成
+                print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
                 
                 return code, df[['price', 'volume', 'amount', 'type']]
             except Exception as e:
-                # 增加对特定错误信息的捕获和解释
-                error_msg = str(e)
-                if "您没有访问该接口的权限" in error_msg:
-                    print(f"    -> [Pro接口-query-权限错误] 账户积分不足，无法访问 'tick' 接口 for {code}。")
-                else:
-                    print(f"    -> [Pro接口-query-错误] 获取 {code} 的 pro.query('tick') 数据时发生异常: {error_msg}")
-                
-                logger.warning(f"获取 {code} 的 pro.query('tick') 数据失败: {e}")
+                # 探针 5: 捕获单次请求的异常
+                print(f"    -> [探针-错误] 获取 {code} 的realtime_tick数据时发生异常: {e}")
+                logger.warning(f"获取 {code} 的realtime_tick数据失败: {e}")
                 return code, None
 
         tasks = [fetch_one_stock(code) for code in stock_codes]
@@ -155,9 +156,11 @@ class StockRealtimeDAO(BaseDAO):
         
         final_map = {code: df for code, df in results if df is not None and not df.empty}
         
-        print(f"  -> [Pro接口-query] _fetch_raw_ticks_in_bulk 完成。成功获取了 {len(final_map)}/{len(stock_codes)} 支股票的有效逐笔数据。")
+        # 探针 6: 打印最终结果
+        print(f"  -> [探针] _fetch_raw_ticks_in_bulk 完成。成功获取了 {len(final_map)}/{len(stock_codes)} 支股票的有效逐笔数据。")
         
         return final_map
+
     # --- 读操作 (Read Operation) ---
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """

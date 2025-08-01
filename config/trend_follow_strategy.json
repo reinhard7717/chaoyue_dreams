@@ -265,21 +265,21 @@
           "positive_signals": {
             "OPP_PULLBACK_WITH_CHIP_STABILITY_S": 600,
             "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 500,
+            "CHIP_DYN_COST_ACCELERATING": 400,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
+            "OPP_CHIP_SETUP_S": 300,
             "OPP_FIB_SUPPORT_STANDARD_A": 200,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 150,
+            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150,
+            "FRACTAL_STATE_STRONG_TREND": 150,
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "PLATFORM_STATE_STABLE_FORMED": 120,
-            "CHIP_DYN_COST_ACCELERATING": 400,
-            "CHIP_STATE_HIGHLY_CONCENTRATED": 200,
+            "MECHANICS_ENERGY_ADVANTAGE": 100,
             "CHIP_DYN_COST_RISING": 80,
             "CHIP_DYN_CONCENTRATING": 80,
             "MA_STATE_STABLE_BULLISH": 70,
-            "CHIP_DYN_WINNER_RATE_RISING": 60,
-            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150,
-            "MECHANICS_ENERGY_ADVANTAGE": 100,
-            "FRACTAL_STATE_STRONG_TREND": 150
+            "CHIP_DYN_WINNER_RATE_RISING": 60
           }
         },
         "dynamic_scoring": {
@@ -287,7 +287,7 @@
           "positive_signals": {
             "CHIP_DYN_COST_ACCELERATING": 250,
             "CONTEXT_EXPLOSIVE_RALLY": 250,
-            "CHIP_DYN_ACCEL_CONCENTRATING": 200,
+            "CHIP_DYN_S_ACCEL_CONCENTRATING": 200,
             "DYN_TREND_HEALTHY_ACCELERATING": 180,
             "CONTEXT_STRONG_BREAKOUT_RALLY": 160,
             "VOL_STATE_EXTREME_SQUEEZE": 130,
@@ -337,12 +337,12 @@
         },
         "metadata": {
           "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
-          "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】斐波那契黄金口袋支撑",
+          "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】S级斐波那契黄金口袋支撑",
           "OPP_FIB_SUPPORT_STANDARD_A": "【机会】斐波那契标准支撑",
           "OPP_PULLBACK_WITH_CHIP_STABILITY_S": "【机会】S级健康回踩",
           "POST_ACCUMULATION_ASCENT_C": "【剧本】初升浪启动",
           "STRUCTURE_POST_ACCUMULATION_ASCENT_C": "【结构】初升浪期间",
-          "CHIP_STATE_HIGHLY_CONCENTRATED": "【筹码】高度集中",
+          "OPP_CHIP_SETUP_S": "【筹码】高度集中",
           "CHIP_RAPID_CONCENTRATION": "【筹码】快速集中",
           "CHIP_HEALTH_EXCELLENT": "【筹码】健康度优秀",
           "CHIPCON_4_READINESS": "【筹码戒备】4级-整备待命",
@@ -369,7 +369,7 @@
           "CHIP_DYN_CONCENTRATING": "【筹码】动态集中",
           "CHIP_DYN_WINNER_RATE_RISING": "【筹码】获利盘持续上升",
           "CHIP_DYN_COST_ACCELERATING": "【筹码】成本加速抬高",
-          "CHIP_DYN_ACCEL_CONCENTRATING": "【筹码】加速集中",
+          "CHIP_DYN_S_ACCEL_CONCENTRATING": "【筹码】加速集中",
           "VOL_STATE_EXTREME_SQUEEZE": "【波动】极致压缩",
           "CHIP_DYN_HEALTH_IMPROVING": "【筹码】健康度改善",
           "RISK_DYN_ACCEL_DIVERGING": "【风险】动态加速发散",
@@ -478,9 +478,17 @@
       "chip_feature_params": {
         "enabled": true,
         "说明": "【V234.0 最终净化版】筹码诊断引擎参数。",
+        "accel_concentration_threshold": {
+          "value": -0.001,
+          "description": "【新增】定义“显著加速集中”所需的最小加速度。用于过滤噪音，提纯信号。"
+        },
         "structure_params": {
           "enabled": true,
           "high_concentration_threshold": 0.15,
+          "cost_stability_threshold": {
+            "value": 0.005,
+            "description": "【新增】定义“成本峰稳定”的斜率绝对值上限。用于提纯“筹码高度控盘”机会。"
+          },
           "slope_tolerance_healthy": 0.001,
           "rapid_concentration_threshold": -0.005,
           "cost_collapse_threshold": -0.01,
