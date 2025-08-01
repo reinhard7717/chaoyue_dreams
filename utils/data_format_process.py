@@ -375,13 +375,16 @@ class StockRealtimeDataFormatProcess(BaseDAO):
     # ================ 数据格式 ================
     def set_realtime_tick_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
         """
-        【V2.0 - 重构版】
-        - 统一处理来自Tushare的实时行情快照数据。
-        - 字段名直接对应Tushare返回的列名（大写）。
+        【V3.0 - 单位修正版】
+        - 修正了对 _parse_number 的调用，移除了非法的 to_type 参数。
+        - 修正了 volume 的单位处理逻辑，根据 sina 接口规范，volume 单位是“股”，不再乘以100。
         """
         date = getattr(df_data, "DATE", None)
         time = getattr(df_data, "TIME", None)
         trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
+
+        # 先用 _parse_number 获取 Decimal 类型的值
+        volume_decimal = self._parse_number(getattr(df_data, "VOLUME", None))
 
         data_dict = {
             "stock": stock,
@@ -391,51 +394,56 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             "current_price": self._parse_number(getattr(df_data, "PRICE", None)),
             "high_price": self._parse_number(getattr(df_data, "HIGH", None)),
             "low_price": self._parse_number(getattr(df_data, "LOW", None)),
-            # Tushare的VOLUME单位是“手”，数据库需要存“股”，所以乘以100
-            "volume": self._parse_number(getattr(df_data, "VOLUME", None), to_type=int) * 100 if getattr(df_data, "VOLUME", None) is not None else None,
+            # sina接口的VOLUME单位是“股”，直接转换为int即可
+            "volume": int(volume_decimal) if volume_decimal is not None else None,
+            # sina接口的AMOUNT单位是“元”
             "turnover_value": self._parse_number(getattr(df_data, "AMOUNT", None)),
         }
-        # 移除值为None的键，以便于数据库操作和缓存
         return {k: v for k, v in data_dict.items() if v is not None}
 
     def set_level5_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
         """
-        【V2.0 - 重构版】
-        - 统一处理来自Tushare的五档盘口快照数据。
-        - 字段名直接对应Tushare返回的列名（大写）。
-        - 不再计算衍生指标，只做数据格式化。
+        【V3.0 - 单位修正版】
+        - 修正了对 _parse_number 的调用，移除了非法的 to_type 参数。
+        - 在 _parse_number 之后进行类型转换和单位乘法。
         """
         date = getattr(df_data, "DATE", None)
         time = getattr(df_data, "TIME", None)
         trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
 
+        def _process_volume(value: Any) -> Optional[int]:
+            """辅助函数，用于处理盘口量：解析 -> 乘100 -> 转int"""
+            parsed_val = self._parse_number(value)
+            if parsed_val is not None:
+                return int(parsed_val * 100)
+            return None
+
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
-            # Tushare的买卖盘量单位是“手”，数据库需要存“股”，所以乘以100
-            "buy_volume1": self._parse_number(getattr(df_data, "B1_V", None), to_type=int) * 100 if getattr(df_data, "B1_V", None) is not None else None,
+            # sina接口的买卖盘量单位是“手”，数据库需要存“股”，所以乘以100
+            "buy_volume1": _process_volume(getattr(df_data, "B1_V", None)),
             "buy_price1": self._parse_number(getattr(df_data, "B1_P", None)),
-            "buy_volume2": self._parse_number(getattr(df_data, "B2_V", None), to_type=int) * 100 if getattr(df_data, "B2_V", None) is not None else None,
+            "buy_volume2": _process_volume(getattr(df_data, "B2_V", None)),
             "buy_price2": self._parse_number(getattr(df_data, "B2_P", None)),
-            "buy_volume3": self._parse_number(getattr(df_data, "B3_V", None), to_type=int) * 100 if getattr(df_data, "B3_V", None) is not None else None,
+            "buy_volume3": _process_volume(getattr(df_data, "B3_V", None)),
             "buy_price3": self._parse_number(getattr(df_data, "B3_P", None)),
-            "buy_volume4": self._parse_number(getattr(df_data, "B4_V", None), to_type=int) * 100 if getattr(df_data, "B4_V", None) is not None else None,
+            "buy_volume4": _process_volume(getattr(df_data, "B4_V", None)),
             "buy_price4": self._parse_number(getattr(df_data, "B4_P", None)),
-            "buy_volume5": self._parse_number(getattr(df_data, "B5_V", None), to_type=int) * 100 if getattr(df_data, "B5_V", None) is not None else None,
+            "buy_volume5": _process_volume(getattr(df_data, "B5_V", None)),
             "buy_price5": self._parse_number(getattr(df_data, "B5_P", None)),
-            # Tushare的卖盘列名是 A1_V, A1_P ...
-            "sell_volume1": self._parse_number(getattr(df_data, "A1_V", None), to_type=int) * 100 if getattr(df_data, "A1_V", None) is not None else None,
+            
+            "sell_volume1": _process_volume(getattr(df_data, "A1_V", None)),
             "sell_price1": self._parse_number(getattr(df_data, "A1_P", None)),
-            "sell_volume2": self._parse_number(getattr(df_data, "A2_V", None), to_type=int) * 100 if getattr(df_data, "A2_V", None) is not None else None,
+            "sell_volume2": _process_volume(getattr(df_data, "A2_V", None)),
             "sell_price2": self._parse_number(getattr(df_data, "A2_P", None)),
-            "sell_volume3": self._parse_number(getattr(df_data, "A3_V", None), to_type=int) * 100 if getattr(df_data, "A3_V", None) is not None else None,
+            "sell_volume3": _process_volume(getattr(df_data, "A3_V", None)),
             "sell_price3": self._parse_number(getattr(df_data, "A3_P", None)),
-            "sell_volume4": self._parse_number(getattr(df_data, "A4_V", None), to_type=int) * 100 if getattr(df_data, "A4_V", None) is not None else None,
+            "sell_volume4": _process_volume(getattr(df_data, "A4_V", None)),
             "sell_price4": self._parse_number(getattr(df_data, "A4_P", None)),
-            "sell_volume5": self._parse_number(getattr(df_data, "A5_V", None), to_type=int) * 100 if getattr(df_data, "A5_V", None) is not None else None,
+            "sell_volume5": _process_volume(getattr(df_data, "A5_V", None)),
             "sell_price5": self._parse_number(getattr(df_data, "A5_P", None)),
         }
-        # 移除值为None的键
         return {k: v for k, v in data_dict.items() if v is not None}
 
 class StrategiesDataFormatProcess(BaseDAO):
