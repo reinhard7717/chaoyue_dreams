@@ -11,36 +11,49 @@ class OffensiveLayer:
         self.playbook_blueprints = self._get_playbook_blueprints()
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
-        print("        -> [进攻方案评估中心 V287.0] 已接收档案包，正在启动四层火力评估...")
+        """
+        【V337.0 智能指挥部版】
+        - 核心重构: 本模块不再是简单的加分器，而是真正的“进攻指挥部”。
+                    它直接消费底层的“原子状态”，并在内部根据配置文件中的
+                    “战法”来组合、交叉验证，并计算最终分数。
+        """
+        print("        -> [进攻方案评估中心 V337.0] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
-        playbook_states = self.strategy.playbook_states
         
         entry_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         default_series = pd.Series(False, index=df.index)
 
-        # print("          -> 正在评估“剧本火力”...")
-        for blueprint in self.playbook_blueprints:
-            playbook_name = blueprint['name']
-            setup_series = playbook_states.get(playbook_name, {}).get('setup', default_series)
-            trigger_series = playbook_states.get(playbook_name, {}).get('trigger', default_series)
-            confirmation_series = pd.Series(True, index=df.index) # 默认所有都满足确认条件
-            confirmation_states = blueprint.get('confirmation_states', [])
-            if confirmation_states:
-                for state_name in confirmation_states:
-                    # 将多个确认条件用“与”逻辑连接起来
-                    confirmation_series &= atomic_states.get(state_name, default_series)
-            
-            # 最终的剧本激活信号，必须同时满足 setup, trigger 和 confirmation
-            is_playbook_activated = setup_series & trigger_series & confirmation_series
-            if is_playbook_activated.any():
-                score = get_param_value(blueprint.get('score'), 0)
-                entry_score.loc[is_playbook_activated] += score
-                score_details_df[playbook_name] = is_playbook_activated * score
+        # --- 1. 评估“战法火力” (Composite Scoring) ---
+        composite_rules = scoring_params.get('composite_scoring', {}).get('rules', [])
+        for rule in composite_rules:
+            rule_name = rule.get('name')
+            score = rule.get('score', 0)
+            required_states = rule.get('all_of', []) # "与"逻辑
+            any_of_states = rule.get('any_of', [])   # "或"逻辑
 
-        # print("          -> 正在评估“阵地火力”...")
+            final_condition = pd.Series(True, index=df.index)
+            
+            # 处理 "与" 逻辑
+            if required_states:
+                for state in required_states:
+                    final_condition &= atomic_states.get(state, default_series)
+            
+            # 处理 "或" 逻辑
+            if any_of_states:
+                any_condition = pd.Series(False, index=df.index)
+                for state in any_of_states:
+                    any_condition |= atomic_states.get(state, default_series)
+                final_condition &= any_condition
+
+            if final_condition.any():
+                entry_score.loc[final_condition] += score
+                score_details_df[rule_name] = final_condition * score
+
+        # --- 2. 评估“阵地/动能火力” (Atomic Scoring) ---
+        # (这部分逻辑与之前类似，但现在只处理最基础的原子信号)
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -48,7 +61,6 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        # print("          -> 正在评估“动能火力”...")
         dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
         for signal_name, score in dynamic_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -56,7 +68,8 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        # print("          -> 正在评估“触发器火力”...")
+        # --- 3. 评估“触发器火力” (Trigger Scoring) ---
+        # (这部分逻辑不变)
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         for signal_name, score in trigger_rules.items():
             signal_series = trigger_events.get(signal_name, default_series)
@@ -64,11 +77,9 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[f'trg_{signal_name}'] = signal_series * score
         
-        print("        -> [进攻方案评估中心 V287.0] 四层火力评估完成。")
+        print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
         
-        # 应用指挥棒模型
         entry_score = self._apply_final_score_adjustments(entry_score)
-        
         return entry_score, score_details_df
 
     def _apply_final_score_adjustments(self, entry_score: pd.Series) -> pd.Series:

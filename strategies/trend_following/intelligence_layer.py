@@ -70,7 +70,6 @@ class IntelligenceLayer:
 
         # --- 阶段四: 顶层认知与行为序列合成 ---
         print("    -> [情报层] 阶段4: 顶层认知合成...")
-        self.strategy.atomic_states.update(self._diagnose_manipulative_tactics(df))
         self.strategy.atomic_states.update(self._diagnose_trend_stage_context(df))
         self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
@@ -1085,6 +1084,19 @@ class IntelligenceLayer:
             is_not_rally_today = df['pct_change_D'] < rally_threshold
             states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = consolidation_window & is_not_rally_today
 
+        p_atomic = p.get('atomic_behavior_params', {})
+        if get_param_value(p_atomic.get('enabled'), True):
+            vol_ma_col = 'VOL_MA_21_D'
+            if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
+                
+                # 定义“恐慌性大跌”
+                sharp_drop_threshold = get_param_value(p_atomic.get('sharp_drop_threshold'), -0.04)
+                states['KLINE_SHARP_DROP'] = df['pct_change_D'] < sharp_drop_threshold
+                
+                # 定义“显著放量”
+                high_volume_ratio = get_param_value(p_atomic.get('high_volume_ratio'), 1.5)
+                states['KLINE_HIGH_VOLUME'] = df['volume_D'] > df[vol_ma_col] * high_volume_ratio
+
         return states
 
     def _diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1747,81 +1759,34 @@ class IntelligenceLayer:
 
     def _run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.0 认知升级版】
-        - 核心升级: 引入新建的 `_diagnose_volume_price_dynamics` 模块，
-                    用精确定量的“动态对倒风险”分析，取代旧的、模糊的“对倒”概念。
-        - 作战原则: 不再满足于“主力资金大幅进出”的表象，而是通过分析“资金攻击效率”
-                    及其动态趋势，直击“天量对倒”的本质——投入的弹药是否换来了战果。
+        【V337.0 职责净化版】认知综合引擎
+        - 核心重构: 剥离所有进攻性战术的定义，将其移至OffensiveLayer。
+                    本模块现在只负责生成顶层的、中性的风险上下文信号。
         """
-        # print("        -> [认知综合引擎 V284.0] 启动，正在进行高维认知合成...")
+        # print("        -> [认知综合引擎 V337.0] 启动，正在合成顶层风险上下文...")
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 认知链 1/4: 价格行为上下文 (Price Action Context) ---
-        # print("          -> [认知链 1/4] 正在分析价格行为上下文...")
-        # 强力突破阳线
-        is_strong_body = (df['close_D'] - df['open_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan) > 0.6
-        is_breaking_recent_high = df['close_D'] > df['high_D'].shift(1).rolling(20).max()
-        is_high_volume = df['volume_D'] > df.get('VOL_MA_21_D', 0) * 1.5
-        cognitive_states['CONTEXT_STRONG_BREAKOUT_RALLY'] = is_strong_body & is_breaking_recent_high & is_high_volume
+        # --- 认知链 1/2: 识别“突破派发”风险 ---
+        # 这个风险的定义依赖于K线形态，保留在此处是合理的
+        is_strong_rally = df['pct_change_D'] > 0.03
+        is_main_force_selling = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
+        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_main_force_selling
 
-        # 爆炸性拉升阳线 (在强力突破基础上，要求涨幅巨大)
-        is_explosive_change = df['pct_change_D'] > 0.07
-        cognitive_states['CONTEXT_EXPLOSIVE_RALLY'] = cognitive_states.get('CONTEXT_STRONG_BREAKOUT_RALLY', default_series) & is_explosive_change
-
-        # --- 认知链 2/4: 战场核心稳定性 (Core Stability Assessment) ---
-        # print("          -> [认知链 2/4] 正在评估战场核心稳定性...")
-        is_chip_stable = self.strategy.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        is_trend_stable = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        is_platform_stable = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-        cognitive_states['COGNITIVE_STATE_CORE_STABILITY'] = is_chip_stable & is_trend_stable & is_platform_stable
-
-        # --- 认知链 3/4: 【升级】高价值/高风险战略布局识别 ---
-        # print("          -> [认知链 3/4] 正在识别高价值/高风险战略布局...")
-        # 从总配置中获取传递给VPA模块的参数
-        vpa_params = get_params_block(self.strategy, 'strategy_params').get('trend_follow', {})
-        # 调用新模块，获取动态量价分析结果
-        vpa_states = self._diagnose_volume_price_dynamics(df, vpa_params)
-        cognitive_states.update(vpa_states)
-
-        # ▼▼▼【核心升级 V334.0】引入“二级火箭”模型重写“锁筹拉升” ▼▼▼
-        # print("          -> [认知链 3/4a] 正在对“锁筹拉升”模式进行二级火箭验证...")
-        # 验证1：地基 (Foundation) - 筹码是否已高度集中？
-        is_foundation_solid = self.strategy.atomic_states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        # 验证2：行为 (Action) - 是否为“二级火箭”点火模式？
-        # 行为2.1 (一级助推器): 成本必须已经处于上升趋势中 (斜率为正)
-        is_cost_trend_upward = self.strategy.atomic_states.get('CHIP_DYN_COST_RISING', default_series)
-        # 行为2.2 (二级主引擎): 成本必须正在加速抬高 (加速度为正)
-        is_cost_accelerating = self.strategy.atomic_states.get('CHIP_DYN_COST_ACCELERATING', default_series)
-        # 最终行为裁定：必须同时满足一级和二级引擎都在工作
-        is_action_aggressive = is_cost_trend_upward & is_cost_accelerating
-        # 验证3：环境 (Environment) - 是否处于多头趋势？
-        is_env_bullish = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        # 最终裁定：必须同时满足三个维度的验证
-        lock_chip_rally_signal = is_foundation_solid & is_action_aggressive & is_env_bullish
-        cognitive_states['COGNITIVE_PATTERN_LOCK_CHIP_RALLY'] = lock_chip_rally_signal
-        if lock_chip_rally_signal.any():
-            print(f"            -> [情报] 侦测到 {lock_chip_rally_signal.sum()} 次“二级火箭”式锁筹拉升！")
-
-        # print("          -> [认知链 4/4a] 正在对“派发事件”进行终极提纯...")
-        # 终极裁定：一个“派发事件”，必须是满足以下核心证据之一的、高确定性的事件。
-        # 我们不再考虑次要证据的共振，以避免信号泛滥。
+        # --- 认知链 2/2: 汇总“近期派发压力”上下文 ---
+        # 这个信号是顶层风险上下文，也应保留
         distribution_event = (
-            self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series) | # S+级确认派发
-            self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series) | # 拉升出货
-            self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)     # 获利盘雪崩
+            self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series) |
+            self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series) |
+            self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
         )
-        # 使用这个最纯净的“派发事件”来构建“近期派发压力”上下文
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
-        
-        if cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].any():
-            print(f"            -> [情报] 已根据终极提纯定义，识别到 {cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'].sum()} 天处于“近期派发压力”之下。")
 
-        print("        -> [认知综合引擎 V284.0] 认知合成完毕。")
+        print("        -> [认知综合引擎 V337.0] 顶层风险上下文合成完毕。")
         return cognitive_states
-
+    
     def _generate_playbook_states(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, Dict[str, pd.Series]]]:
         """
         【V264.0 内存优化版】剧本情报生成中心

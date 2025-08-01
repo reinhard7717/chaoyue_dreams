@@ -259,88 +259,111 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V247.0 战略定力版】计分体系。核心改革：大幅降低瞬时触发分的权重，提升阵地分和核心风险的权重，引入持仓逻辑。",
+        "说明": "【V337.0 战法手册版】计分体系。进攻逻辑已全部移至此处。",
+
+        "composite_scoring": {
+          "说明": "【战法分】定义所有高阶的、由多个原子状态组合而成的进攻战术。",
+          "rules": [
+            {
+              "name": "TACTIC_LOCK_CHIP_RALLY_S",
+              "score": 500,
+              "all_of": [
+                "CHIP_STATE_HIGHLY_CONCENTRATED",
+                "CHIP_DYN_COST_RISING",
+                "CHIP_DYN_COST_ACCELERATING",
+                "MA_STATE_STABLE_BULLISH"
+              ]
+            },
+            {
+              "name": "TACTIC_GOLDEN_PIT_S",
+              "score": 500,
+              "all_of": [
+                "KLINE_SHARP_DROP",
+                "KLINE_HIGH_VOLUME",
+                "CHIP_DYN_CONCENTRATING",
+                "CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING"
+              ]
+            },
+            {
+              "name": "TACTIC_STEALTH_ABSORPTION_A",
+              "score": 350,
+              "all_of": [
+                "KLINE_SHARP_DROP",
+                "KLINE_HIGH_VOLUME",
+                "CHIP_DYN_CONCENTRATING"
+              ]
+            },
+            {
+              "name": "TACTIC_HEALTHY_PULLBACK_S",
+              "score": 600,
+              "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"]
+            }
+          ]
+        },
+
         "positional_scoring": {
-          "说明": "【阵地分】评估静态位置和健康趋势。",
+          "说明": "【阵地分】评估基础的、独立的静态位置和结构优势。",
           "positive_signals": {
-            "OPP_PULLBACK_WITH_CHIP_STABILITY_S": 600,
-            "COGNITIVE_PATTERN_LOCK_CHIP_RALLY": 500,
-            "COGNITIVE_OPP_GOLDEN_PIT_S": 500,
-            "COGNITIVE_OPP_STEALTH_ABSORPTION_A": 350,
-            "COGNITIVE_PATTERN_WASH_AND_HARVEST_S": 450,
-            "CHIP_DYN_COST_ACCELERATING": 400,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_CHIP_SETUP_S": 300,
             "OPP_FIB_SUPPORT_STANDARD_A": 200,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 150,
-            "CPA_RISE_WITH_MAIN_FORCE_SUPPORT": 150,
             "FRACTAL_STATE_STRONG_TREND": 150,
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "PLATFORM_STATE_STABLE_FORMED": 120,
             "MECHANICS_ENERGY_ADVANTAGE": 100,
-            "CHIP_DYN_COST_RISING": 80,
-            "CHIP_DYN_CONCENTRATING": 80,
-            "MA_STATE_STABLE_BULLISH": 70,
-            "CHIP_DYN_WINNER_RATE_RISING": 60
+            "MA_STATE_STABLE_BULLISH": 70
           }
         },
         "dynamic_scoring": {
-          "说明": "【动能分】评估加速行为和爆发潜力。",
+          "说明": "【动能分】评估基础的、独立的动态和加速行为。",
           "positive_signals": {
             "CHIP_DYN_COST_ACCELERATING": 250,
-            "CONTEXT_EXPLOSIVE_RALLY": 250,
             "CHIP_DYN_S_ACCEL_CONCENTRATING": 200,
             "DYN_TREND_HEALTHY_ACCELERATING": 180,
-            "CONTEXT_STRONG_BREAKOUT_RALLY": 160,
             "VOL_STATE_EXTREME_SQUEEZE": 130,
-            "CHIP_DYN_HEALTH_IMPROVING": 60,
             "MECHANICS_COST_ACCELERATING": 200,
             "MECHANICS_INERTIA_DECREASING": 180,
             "FRACTAL_DYN_TREND_ACCELERATING": 220
           }
         },
         "risk_scoring": {
-          "说明": "【最高风险裁决所】提升核心风险的否决权重。",
+          "说明": "风险计分部分保持不变，因为它处理的是防御逻辑。",
           "strategic_coverage_factor": 0.3,
-          "mitigated_veto_score": 300,
           "signals": {
             "说明_CRITICAL": "--- 临界风险 (一票否决级) ---",
-            "COGNITIVE_RISK_DECEPTIVE_RALLY_DISTRIBUTION_S": 1500,
-            "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1500,
             "COGNITIVE_RISK_DECEPTIVE_RALLY_S": 1500,
+            "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1500,
             "COGNITIVE_RISK_DECEPTIVE_RALLY_A": 1200,
-            "CONTEXT_RECENT_DISTRIBUTION_PRESSURE": 1000,
-            "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN": 1000,
             "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": 1000,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
             "说明_HIGH": "--- 高度风险 ---",
+            "FRACTAL_RISK_TOP_DIVERGENCE": 800,
+            "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
             "RISK_DYN_ACCEL_DIVERGING": 400,
             "RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING": 350,
             "RISK_DYN_DIVERGING": 300,
             "RISK_DYN_WINNER_RATE_COLLAPSING": 250,
-            "RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING": 250,
             "STRUCTURE_TOPPING_DANGER_S": 200,
             "RISK_DYN_COST_FALLING": 200,
             "RISK_DYN_HEALTH_DETERIORATING": 150,
             "PLATFORM_FAILURE": 150,
-            "DYN_TREND_WEAKENING_DECELERATING": 100,
-            "FRACTAL_RISK_TOP_DIVERGENCE": 800,
-            "说明_FRACTAL_RISK_TOP_DIVERGENCE": "分形顶背离，给予极高风险分",
-            "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
-            "说明_FRACTAL_EVENT_TREND_EXHAUSTION": "趋势衰竭，给予高风险分"
+            "DYN_TREND_WEAKENING_DECELERATING": 100
           }
         },
         "trigger_events": {
-          "说明": "【触发分 - 权重降低】大幅降低K线等瞬时信号的权重，减少追高冲动。",
-          "TRIGGER_CHIP_IGNITION": 150,
-          "VOL_BREAKOUT_FROM_SQUEEZE": 70,
-          "TRIGGER_DOMINANT_REVERSAL": 50,
-          "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
-          "TRIGGER_BREAKOUT_CANDLE": 40,
-          "TRIGGER_ENERGY_RELEASE": 50,
-          "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
-          "FRACTAL_EVENT_TREND_FORMING": 100
+          "说明": "触发器计分部分保持不变。",
+          "scoring": {
+            "TRIGGER_CHIP_IGNITION": 150,
+            "VOL_BREAKOUT_FROM_SQUEEZE": 70,
+            "TRIGGER_DOMINANT_REVERSAL": 50,
+            "TRIGGER_PLATFORM_PULLBACK_REBOUND": 60,
+            "TRIGGER_BREAKOUT_CANDLE": 40,
+            "TRIGGER_ENERGY_RELEASE": 50,
+            "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
+            "FRACTAL_EVENT_TREND_FORMING": 100
+          }
         },
         "metadata": {
           "description": "所有评分规则的中文名称元数据，用于战报和调试输出。",
@@ -560,6 +583,18 @@
           "enabled": true,
           "rally_threshold": 0.097,
           "consolidation_days_max": 3
+        },
+        "atomic_behavior_params": {
+          "enabled": true,
+          "description": "【新增】基础K线行为的定义参数，供战法层调用。",
+          "sharp_drop_threshold": {
+            "value": -0.04,
+            "description": "定义“恐慌性大跌”所需的最小日跌幅。"
+          },
+          "high_volume_ratio": {
+            "value": 1.5,
+            "description": "定义“显著放量”所需的最小成交量放大倍数（相对于21日均量）。"
+          }
         }
       },
       "dynamic_box_params": {
