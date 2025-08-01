@@ -104,30 +104,62 @@ class StockRealtimeDAO(BaseDAO):
         """
         【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
         """
+        print(f"  -> [探针] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...") # 探针 1
+
         async def fetch_one_stock(code: str):
             try:
-                df = self.ts.realtime_tick(ts_code=code, src='sina')
-                if df is None or df.empty: return code, None
+                # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
+                df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='sina')
                 
+                # 探针 2: 检查 Tushare 原始返回
+                if df is None or df.empty:
+                    print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
+                    return code, None
+                
+                print(f"    -> [探针] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
+                
+                # 数据清洗与格式化
                 df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
                 df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
                 df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
                 df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
+                
+                # 探针 3: 检查关键列是否存在NaN，并删除
+                initial_rows = len(df)
                 df.dropna(subset=['trade_time', 'PRICE', 'VOLUME', 'AMOUNT'], inplace=True)
+                if len(df) < initial_rows:
+                    print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
 
+                if df.empty:
+                    print(f"      -> [探针] {code}: 清理NaN后数据为空。")
+                    return code, None
+
+                # 单位转换：手 -> 股
                 df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
                 
+                # 重命名并设置索引
                 df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                 df.set_index('trade_time', inplace=True)
                 
+                # 探针 4: 确认最终处理完成
+                print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
+                
                 return code, df[['price', 'volume', 'amount', 'type']]
             except Exception as e:
+                # 探针 5: 捕获单次请求的异常
+                print(f"    -> [探针-错误] 获取 {code} 的realtime_tick数据时发生异常: {e}")
                 logger.warning(f"获取 {code} 的realtime_tick数据失败: {e}")
                 return code, None
 
         tasks = [fetch_one_stock(code) for code in stock_codes]
         results = await asyncio.gather(*tasks)
-        return {code: df for code, df in results if df is not None and not df.empty}
+        
+        final_map = {code: df for code, df in results if df is not None and not df.empty}
+        
+        # 探针 6: 打印最终结果
+        print(f"  -> [探针] _fetch_raw_ticks_in_bulk 完成。成功获取了 {len(final_map)}/{len(stock_codes)} 支股票的有效逐笔数据。")
+        
+        return final_map
 
     # --- 读操作 (Read Operation) ---
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
