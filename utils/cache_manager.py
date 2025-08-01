@@ -42,6 +42,33 @@ def custom_encode_default(obj):
     raise TypeError(f"对象类型 {type(obj)} 不支持 MessagePack 序列化")
 # --- 结束：自定义编码函数 ---
 
+# --- 递归数据清洗函数 ---
+def _clean_data_for_serialization(data: Any) -> Any:
+    """
+    递归地遍历数据结构，将不支持 umsgpack 的类型转换为支持的类型。
+    - Decimal -> str
+    - datetime -> str (ISO format)
+    - date -> str (ISO format)
+    """
+    if isinstance(data, dict):
+        # 如果是字典，递归处理它的每一个值
+        return {k: _clean_data_for_serialization(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        # 如果是列表，递归处理它的每一个元素
+        return [_clean_data_for_serialization(i) for i in data]
+    elif isinstance(data, Decimal):
+        # 将 Decimal 转换为字符串
+        return str(data)
+    elif isinstance(data, datetime):
+        # 将 datetime 转换为 ISO 格式字符串
+        return data.isoformat()
+    elif isinstance(data, date):
+        # 将 date 转换为 ISO 格式字符串
+        return data.isoformat()
+    else:
+        # 对于其他类型，保持原样
+        return data
+
 class CacheManager:
     """
     【V3.3 - 工业级并发安全单例】
@@ -196,18 +223,17 @@ class CacheManager:
     def _serialize(self, data: Any) -> bytes:
         """
         (内部方法) 使用 umsgpack 将 Python 对象序列化为字节。
-        通过 default 回调处理 Decimal, datetime, date 等特殊类型。
+        - 核心修改: 先调用 _clean_data_for_serialization 清洗数据，再进行打包。
         """
         try:
-            # 使用 default 参数传入自定义编码函数
-            return umsgpack.packb(data, default=custom_encode_default, use_bin_type=True)
+            # 1. 在序列化之前，主动清洗数据
+            cleaned_data = _clean_data_for_serialization(data)
+            # 2. 对清洗后的数据进行打包，不再需要 default 回调
+            return umsgpack.packb(cleaned_data, use_bin_type=True)
         except (umsgpack.UnsupportedTypeException, TypeError) as e:
-            # 捕获序列化过程中无法处理的类型错误
-            logger.error(f"序列化失败: 不支持的类型或自定义编码器未处理 - {e}", exc_info=True)
-            # 抛出 ValueError，让调用者知道序列化失败
+            logger.error(f"序列化失败: 存在未处理的不支持类型 - {e}", exc_info=True)
             raise ValueError(f"Serialization failed due to unsupported type: {e}") from e
         except Exception as e:
-            # 捕获其他 umsgpack 可能的错误
             logger.error(f"序列化时发生意外错误: {e}", exc_info=True)
             raise ValueError(f"Unexpected serialization error: {e}") from e
 
