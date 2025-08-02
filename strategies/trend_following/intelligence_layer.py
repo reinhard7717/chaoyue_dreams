@@ -47,10 +47,10 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
         
-        # 2.1 先运行“动态筹码分析”，生成 RISK_DYN_... 等基础信号
-        self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
-        # 2.2 再运行“顶部风险司令部”，它会使用上面生成的位置情报
+        # 2.1 首先，运行“顶部风险司令部”，生成“危险战区”等战场上下文情报。
         self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
+        # 2.2 然后，运行“动态筹码分析”，它会使用上一步生成的上下文情报来做出更精确的判断。
+        self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
