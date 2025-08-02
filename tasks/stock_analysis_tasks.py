@@ -896,7 +896,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                                    f"缺失日期示例: {missing_in_source[:5]}...")
                     audit_warnings.append(warning_msg)
 
-            # 3. 生成最终审计报告并执行熔断
+            # 3. 【新增】二级法务审计：检查核心字段的值有效性
+            logger.info(f"[{stock_code}] 正在执行二级法务审计 (值有效性检查)...")
+            
+            daily_data_df = other_essential_dfs['daily_data']
+            required_cols_in_daily = ['close_qfq', 'vol', 'high_qfq', 'low_qfq']
+            
+            # 检查 daily_data 中是否存在任何 NULL 值
+            if daily_data_df[required_cols_in_daily].isnull().values.any():
+                is_data_healthy = False
+                # 定位并报告有问题的行
+                problematic_rows = daily_data_df[daily_data_df[required_cols_in_daily].isnull().any(axis=1)]
+                for trade_date, row in problematic_rows.iterrows():
+                    missing_fields = [col for col in required_cols_in_daily if pd.isna(row[col])]
+                    warning_msg = (f"[{stock_code}] [审计警告] 在日期 {row['trade_time'].date()} 的行情数据中，"
+                                   f"发现 NULL 值。缺失字段: {missing_fields}")
+                    audit_warnings.append(warning_msg)
+
+            # 4. 生成最终审计报告并执行熔断
             if not is_data_healthy:
                 logger.error(f"[{stock_code}] [审计失败] 数据一致性检查未通过，任务已熔断。详情如下：")
                 for warning in audit_warnings:
