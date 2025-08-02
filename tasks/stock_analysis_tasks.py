@@ -853,19 +853,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             # --- 并发获取所有数据源 ---
             chip_model = time_dao.get_cyq_chips_model_by_code(stock_code)
             daily_data_model = time_dao.get_daily_data_model_by_code(stock_code)
-            # fund_flow_cy_model = fund_dao.get_fund_flow_model_by_code(stock_code)
-            # fund_flow_ths_model = fund_dao.get_fund_flow_ths_model_by_code(stock_code)
-            # fund_flow_dc_model = fund_dao.get_fund_flow_dc_model_by_code(stock_code)
-            # cy_fields = ('trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount', 'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount', 'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount', 'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount')
-            
             data_tasks = {
                 "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
                 "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
                 "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
-                # "perf_data": get_data_async(StockCyqPerf, stock_info, fields=('trade_time', 'weight_avg'), start_date=fetch_start_date),
-                # "fund_flow_cy": get_data_async(fund_flow_cy_model, stock_info, fields=cy_fields, start_date=fetch_start_date),
-                # "fund_flow_ths": get_data_async(fund_flow_ths_model, stock_info, fields=('trade_time', 'buy_lg_amount'), start_date=fetch_start_date),
-                # "fund_flow_dc": get_data_async(fund_flow_dc_model, stock_info, fields=('trade_time', 'net_amount'), start_date=fetch_start_date),
             }
             
             results = await asyncio.gather(*data_tasks.values())
@@ -888,46 +879,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             
             daily_basic_data = data_dfs['daily_basic']
             daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
-            
-            # perf_data = data_dfs['perf_data']
-            # perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
-            
-            # fund_flow_cy_data = data_dfs['fund_flow_cy']
-            # if not fund_flow_cy_data.empty:
-            #     fund_flow_cy_data['trade_time'] = pd.to_datetime(fund_flow_cy_data['trade_time']).dt.date
-            
-            # fund_flow_ths_data = data_dfs['fund_flow_ths']
-            # if not fund_flow_ths_data.empty:
-            #     fund_flow_ths_data['trade_time'] = pd.to_datetime(fund_flow_ths_data['trade_time']).dt.date
-            #     fund_flow_ths_data = fund_flow_ths_data.rename(columns={'buy_lg_amount': 'ths_buy_lg_amount'})
-            
-            # fund_flow_dc_data = data_dfs['fund_flow_dc']
-            # if not fund_flow_dc_data.empty:
-            #     fund_flow_dc_data['trade_time'] = pd.to_datetime(fund_flow_dc_data['trade_time']).dt.date
-            #     fund_flow_dc_data = fund_flow_dc_data.rename(columns={'net_amount': 'dc_net_amount'})
-            
-            # cyq_days = cyq_chips_data['trade_time'].nunique()
-            # daily_days = len(daily_data)
-            # fund_cy_days = len(fund_flow_cy_data) if not fund_flow_cy_data.empty else 0
-            # fund_ths_days = len(fund_flow_ths_data) if not fund_flow_ths_data.empty else 0
-            # fund_dc_days = len(fund_flow_dc_data) if not fund_flow_dc_data.empty else 0
-            # logger.info(f"[{stock_code}] 数据源诊断: 筹码({cyq_days}天), 行情({daily_days}天), 资金流[CY]({fund_cy_days}天), [THS]({fund_ths_days}天), [DC]({fund_dc_days}天)")
-            
+
             daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
             daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
             daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
             daily_basic_data = daily_basic_data.drop(columns=['float_share'])
-            # perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
             
             merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
             merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
-            # merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
-            # if not fund_flow_cy_data.empty:
-            #     merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
-            # if not fund_flow_ths_data.empty:
-            #     merged_df = pd.merge(merged_df, fund_flow_ths_data, on='trade_time', how='left')
-            # if not fund_flow_dc_data.empty:
-            #     merged_df = pd.merge(merged_df, fund_flow_dc_data, on='trade_time', how='left')
             
             if merged_df.empty:
                 logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
@@ -945,6 +904,21 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     continue
                 context_data = daily_full_df.iloc[0].to_dict()
                 chip_data_for_calc = daily_full_df[['price', 'percent']]
+                if not chip_data_for_calc.empty:
+                    # 确保百分比总和为100
+                    percent_sum = chip_data_for_calc['percent'].sum()
+                    if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
+                        normalized_percent = chip_data_for_calc['percent'] / percent_sum
+                    else:
+                        normalized_percent = chip_data_for_calc['percent'] / 100.0
+                    
+                    # 计算加权平均成本
+                    weight_avg_cost = np.average(chip_data_for_calc['price'], weights=normalized_percent)
+                    # 将计算结果注入到上下文中
+                    context_data['weight_avg_cost'] = weight_avg_cost
+                else:
+                    # 如果当天没有筹码数据，跳过
+                    continue
                 calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
                 daily_metrics = calculator.calculate_all_metrics()
                 if daily_metrics:
