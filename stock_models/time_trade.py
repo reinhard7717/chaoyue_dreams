@@ -1252,7 +1252,7 @@ class AdvancedChipMetrics(models.Model):
 
     # --- 1. 核心关联键 ---
     stock = models.ForeignKey(
-        StockInfo,
+        'StockInfo',
         on_delete=models.CASCADE,
         related_name='advanced_chip_metrics',
         verbose_name='股票',
