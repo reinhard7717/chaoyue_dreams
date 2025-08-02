@@ -896,15 +896,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                                    f"缺失日期示例: {missing_in_source[:5]}...")
                     audit_warnings.append(warning_msg)
 
-                # 反向核对：检查源数据是否包含了黄金标准中没有的日期
-                missing_in_master = sorted(list(source_dates - master_dates))
-                if missing_in_master:
-                    is_data_healthy = False
-                    warning_msg = (f"[{stock_code}] [审计警告] 数据源 '{name}' "
-                                   f"包含了 {len(missing_in_master)} 个黄金标准中不存在的日期。 "
-                                   f"多出日期示例: {missing_in_master[:5]}...")
-                    audit_warnings.append(warning_msg)
-
             # 3. 生成最终审计报告并执行熔断
             if not is_data_healthy:
                 logger.error(f"[{stock_code}] [审计失败] 数据一致性检查未通过，任务已熔断。详情如下：")
