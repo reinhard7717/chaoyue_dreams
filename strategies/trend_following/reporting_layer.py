@@ -46,7 +46,6 @@ class ReportingLayer:
                 'risk_score': row.get('risk_score', 0.0),
                 'risk_change_summary': row.get('risk_change_summary', {}),
                 'health_change_summary': row.get('health_change_summary', {}),
-                'holding_health_score': row.get('holding_health_score', 0.0),
                 'is_risk_warning': (row['signal_type'] != '买入信号') and (row['signal_type'] != '卖出信号') and (row.get('alert_level', 0) > 0)
             })
 
