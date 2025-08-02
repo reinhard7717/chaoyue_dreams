@@ -117,7 +117,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V237.0 + 分形动态版】...",
+      "说明": "【V238.1 筹码升维版】已全面整合 AdvancedChipMetrics 的核心指标，用于计算其动态斜率，从而洞察筹码结构的演化趋势。",
       "series_to_slope": {
         "close_D": [5],
         "EMA_13_D": [5, 13],
@@ -127,7 +127,7 @@
         "EMA_21_W": [5, 13],
         "BBW_21_2.0_D": [5],
 
-        "说明_CHIP": "--- 以下为筹码相关指标 ---",
+        "说明_CHIP": "--- 高级筹码指标动态分析 ---",
         "peak_cost_D": [5, 8, 21, 55],
         "concentration_90pct_D": [5, 21],
         "total_winner_rate_D": [5, 21],
@@ -135,12 +135,19 @@
         "peak_percent_D": [5],
         "pressure_above_D": [5],
         "chip_health_score_D": [5],
+        "winner_profit_margin_D": [5],
+        "price_to_peak_ratio_D": [5],
 
-        "说明_VPA": "量价动态分析所需指标",
+        "说明_TURNOVER": "--- 成交量微观结构动态分析 ---",
+        "turnover_at_peak_ratio_D": [5],
+        "turnover_from_winners_ratio_D": [5],
+        "turnover_from_losers_ratio_D": [5],
+
+        "说明_VPA": "--- 量价动态分析所需指标 ---",
         "volume_D": [5],
         "VPA_EFFICIENCY_D": [5],
 
-        "说明_FRACTAL": "--- 【新增】分形与力学指标 ---",
+        "说明_FRACTAL": "--- 分形与力学指标 ---",
         "hurst_120d_D": [5],
         "price_cv_60d_D": [5],
         "energy_ratio_D": [5]
