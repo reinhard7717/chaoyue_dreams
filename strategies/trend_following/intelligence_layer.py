@@ -54,6 +54,7 @@ class IntelligenceLayer:
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
+        self.strategy.atomic_states.update(self._diagnose_peak_formation_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_behavioral_patterns(df))
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
@@ -1724,7 +1725,6 @@ class IntelligenceLayer:
         states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend
 
         return states
-
 
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """

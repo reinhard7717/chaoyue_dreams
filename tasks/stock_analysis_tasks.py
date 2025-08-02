@@ -795,7 +795,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         return {"status": "failed", "reason": "DAO initialization failed"}
 
     # 2. 定义异步 main 函数，它现在只接收依赖，不创建依赖
-    async def main(fund_dao, time_dao, incremental_flag: bool):
+    async def main(time_dao, incremental_flag: bool):
         
         # 【核心修改 2】使用传入的参数 incremental_flag
         mode = "增量更新" if incremental_flag else "全量刷新"
@@ -853,10 +853,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             # --- 并发获取所有数据源 ---
             chip_model = time_dao.get_cyq_chips_model_by_code(stock_code)
             daily_data_model = time_dao.get_daily_data_model_by_code(stock_code)
-            fund_flow_cy_model = fund_dao.get_fund_flow_model_by_code(stock_code)
-            fund_flow_ths_model = fund_dao.get_fund_flow_ths_model_by_code(stock_code)
-            fund_flow_dc_model = fund_dao.get_fund_flow_dc_model_by_code(stock_code)
-            cy_fields = ('trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount', 'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount', 'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount', 'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount')
+            # fund_flow_cy_model = fund_dao.get_fund_flow_model_by_code(stock_code)
+            # fund_flow_ths_model = fund_dao.get_fund_flow_ths_model_by_code(stock_code)
+            # fund_flow_dc_model = fund_dao.get_fund_flow_dc_model_by_code(stock_code)
+            # cy_fields = ('trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount', 'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount', 'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount', 'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount')
             
             data_tasks = {
                 "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
