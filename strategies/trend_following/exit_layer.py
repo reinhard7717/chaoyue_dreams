@@ -21,13 +21,14 @@ class ExitLayer:
         df['exit_signal_code'] = 0
         df['alert_level'] = 0
         df['alert_reason'] = '' # 使用空字符串作为默认值
-
-        exit_params = get_params_block(self.strategy, 'exit_strategy_params')
+        
+        exit_params = self.strategy.unified_config.get('exit_strategy_params', {})
         if not get_param_value(exit_params.get('enabled'), True):
             return
 
         # 1. 读取专属的“致命离场”配置
-        critical_params = get_params_block(self.strategy, 'critical_exit_params')
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        critical_params = scoring_params.get('critical_exit_params', {})
         critical_rules = critical_params.get('signals', {})
         
         # 2. 计算“致命风险分”

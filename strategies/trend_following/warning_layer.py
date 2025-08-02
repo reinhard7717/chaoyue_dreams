@@ -52,7 +52,8 @@ class WarningLayer:
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
-        risk_params = get_params_block(self.strategy, 'holding_warning_params')
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        risk_params = scoring_params.get('holding_warning_params', {})
         risk_rules = risk_params.get('signals', {})
         
         # --- 步骤 1: 基础风险分计算 (逻辑不变) ---
