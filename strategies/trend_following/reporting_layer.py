@@ -28,7 +28,7 @@ class ReportingLayer:
         """
         print(f"      -> [战报司令部 V314.1 risk_score 修正版] 启动，正在执行归档...")
         db_records = []
-        signal_days_df = result_df[result_df['signal_type'] != '中性'].copy()
+        signal_days_df = result_df[result_df['signal_type'] != '无信号'].copy()
 
         for trade_time, row in signal_days_df.iterrows():
             record_data = row.to_dict()
@@ -76,7 +76,7 @@ class ReportingLayer:
             "pullback_target_price": None, "is_long_term_bullish": False, "is_mid_term_bullish": False,
             "is_pullback_setup": False, "exit_severity_level": 0, "exit_signal_reason": "",
             "stable_platform_price": None, "is_risk_warning": False, "risk_score": 0.0,
-            "signal_type": "中性",
+            "signal_type": "无信号",
             "holding_health_score": 0.0,
             "veto_votes": 0
         }
