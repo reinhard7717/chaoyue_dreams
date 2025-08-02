@@ -490,6 +490,7 @@ class IndicatorService:
         raw_dfs: Dict[str, pd.DataFrame] = {}
         df_legacy_supplemental: Optional[pd.DataFrame] = None
         df_advanced_chips: Optional[pd.DataFrame] = None
+        df_daily_basic: Optional[pd.DataFrame] = None
         
         for result in all_data_results:
             if isinstance(result, Exception):
@@ -501,7 +502,14 @@ class IndicatorService:
             if tag == 'legacy_supplemental':
                 if isinstance(data, pd.DataFrame): df_legacy_supplemental = data
             elif tag == 'advanced_chips':
-                if isinstance(data, pd.DataFrame): df_advanced_chips = data
+                if isinstance(data, pd.DataFrame): 
+                    df_advanced_chips = data
+                    # 1. 找出所有 Decimal 类型的列
+                    decimal_cols = df_advanced_chips.select_dtypes(include=['object']).columns
+                    for col in decimal_cols:
+                        # 尝试将 Decimal 列转换为 float64，无法转换的错误值设为 NaN
+                        df_advanced_chips[col] = pd.to_numeric(df_advanced_chips[col], errors='coerce')
+                    print(f"    - [数据类型标准化] 已将 {len(decimal_cols)} 个高级筹码指标列的类型从 Decimal 转换为 float。")
             elif tag == 'daily_basic':
                 if isinstance(data, pd.DataFrame): df_daily_basic = data
             else: # 处理 OHLCV 数据
