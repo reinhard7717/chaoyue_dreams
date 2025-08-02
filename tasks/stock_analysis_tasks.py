@@ -151,13 +151,6 @@ def _execute_strategy_logic(stock_code: str, trade_date: str, latest_only: bool 
                 timeframe = record.get('timeframe')
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
-            
-            for strategy_name, timeframe in unique_signal_types:
-                async_to_sync(strategies_dao.update_strategy_state)(
-                    stock_code=stock_code,
-                    strategy_name=strategy_name,
-                    timeframe=timeframe
-                )
 
         return {"status": "success", "saved_count": save_count}
 
@@ -203,12 +196,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
                 timeframe = record.get('timeframe')
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
-            for strategy_name, timeframe in unique_signal_types:
-                await strategies_dao.update_strategy_state(
-                    stock_code=stock_code,
-                    strategy_name=strategy_name,
-                    timeframe=timeframe
-                )
         return {"status": "success", "saved_count": save_count}
     try:
         return async_to_sync(main)()
