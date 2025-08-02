@@ -58,7 +58,7 @@ class JudgmentLayer:
                 # 使用 .at 来精确赋值
                 df.at[idx, 'health_change_summary'] = summary
 
-    def make_final_decisions(self):
+    def make_final_decisions(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
         """
         【V319.0 终极决策修复版】
         - 核心修复: 实现了严格的、多层次的风险否决逻辑，确保高风险或
