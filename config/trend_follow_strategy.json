@@ -296,6 +296,25 @@
               "name": "TACTIC_HEALTHY_PULLBACK_S",
               "score": 600,
               "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"]
+            },
+            {
+              "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS",
+              "score": 800,
+              "all_of": [
+                "OPP_CHIP_FAULT_REBIRTH_S",
+                "CHIP_STATE_HIGH_PROFIT_CUSHION",
+                "MA_STATE_AGGRESSIVE_BULLISH"
+              ],
+              "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"]
+            },
+            {
+              "name": "TACTIC_PANIC_PIT_REVERSAL_S_PLUS",
+              "score": 750,
+              "all_of": [
+                "RISK_BEHAVIOR_PANIC_SELLING",
+                "TRIGGER_DOMINANT_REVERSAL"
+              ],
+              "none_of": ["STRUCTURE_BEARISH_CHANNEL_F"]
             }
           ]
         },
@@ -334,6 +353,7 @@
           "strategic_coverage_factor": 0.3,
           "signals": {
             "说明_S_PLUS": "--- S+级风险 (操纵与背叛) ---",
+            "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": 1500,
             "BEHAVIOR_DECEPTIVE_RALLY_S": 1500,
             "BEHAVIOR_DECEPTIVE_RALLY_A": 1200,
 
@@ -348,6 +368,7 @@
             "说明_A": "--- A级风险 (动态加速恶化) ---",
             "CHIP_DYN_ACCEL_DIVERGING": 400,
             "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
+            "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 400,
 
             "说明_B": "--- B级风险 (趋势明确走弱) ---",
             "CHIP_DYN_DIVERGING": 300,
@@ -355,6 +376,7 @@
             "STRUCTURE_TOPPING_DANGER_S": 250,
             "CHIP_DYN_COST_FALLING": 200,
             "STRUCTURE_PLATFORM_BROKEN": 200,
+            "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 200,
 
             "说明_C": "--- C级风险 (健康度早期预警) ---",
             "CHIP_DYN_HEALTH_DETERIORATING": 150,
@@ -384,6 +406,8 @@
           "TACTIC_GOLDEN_PIT_S": "【战法】S级黄金坑",
           "TACTIC_STEALTH_ABSORPTION_A": "【战法】A级隐蔽吸筹",
           "TACTIC_HEALTHY_PULLBACK_S": "【战法】S级健康回踩",
+          "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": "【S+级战法】断层新生·主升浪",
+          "TACTIC_PANIC_PIT_REVERSAL_S_PLUS": "【S+级战法】恐慌深坑·强逆转",
 
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】S级斐波那契黄金口袋支撑",
@@ -409,6 +433,9 @@
           "FRACTAL_DYN_TREND_ACCELERATING": "【分形】趋势加速形成",
 
           "说明_RISK": "--- 风险分 (Risk) ---",
+          "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": "【S+级风险】获利盘出逃",
+          "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": "【A级风险】利润安全垫收缩",
+          "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": "【B级风险】主峰阵地交战",
           "COGNITIVE_RISK_DECEPTIVE_RALLY_S": "【风险】S级诱多派发(公然出货)",
           "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": "【风险】S+级确认派发",
           "COGNITIVE_RISK_DECEPTIVE_RALLY_A": "【风险】A级诱多派发(隐蔽派发)",

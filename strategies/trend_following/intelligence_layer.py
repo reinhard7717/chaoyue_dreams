@@ -51,6 +51,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_contextual_zones(df))
         # 2.2 然后，运行“动态筹码分析”，它现在可以安全地使用上一步的“战场”情报。
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
+        self.strategy.atomic_states.update(self._diagnose_chip_opportunities(df))
+        self.strategy.atomic_states.update(self._diagnose_chip_risks_and_behaviors(df))
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
@@ -459,6 +461,61 @@ class IntelligenceLayer:
         states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
         states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
         
+        return states
+
+    def _diagnose_chip_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V341.0 新增】高级筹码“机会”情报诊断模块
+        - 核心职责: 识别由高级筹码指标揭示的、结构性的看涨机会。
+        """
+        print("        -> [高级筹码机会诊断模块 V341.0] 启动...")
+        states = {}
+        
+        # --- 机会1: S级 - 筹码断层新生 (结构性重置) ---
+        fault_formed_col = 'is_chip_fault_formed_D'
+        if fault_formed_col in df.columns:
+            states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col]
+            if df[fault_formed_col].any():
+                print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
+
+        # --- 机会2: A级 - 高利润安全垫 (持股心态稳定) ---
+        profit_margin_col = 'winner_profit_margin_D'
+        if profit_margin_col in df.columns:
+            # 定义：获利盘的平均利润超过20%，代表持股心态极其稳定
+            states['CHIP_STATE_HIGH_PROFIT_CUSHION'] = df[profit_margin_col] > 20.0
+        
+        return states
+
+    def _diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V341.0 新增】高级筹码“风险与行为”情报诊断模块
+        - 核心职责: 基于成交量微观结构，识别主力的真实意图（派发/恐慌）。
+        """
+        print("        -> [高级筹码风险与行为诊断模块 V341.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_cols = ['turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D']
+        if any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少成交量微观结构数据，模块跳过。")
+            return {}
+            
+        is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+
+        # --- 风险行为1: 获利盘出逃 (诱多派发) ---
+        is_fleeing = df['turnover_from_winners_ratio_D'] > 60.0
+        states['RISK_BEHAVIOR_WINNERS_FLEEING'] = is_in_high_zone & is_fleeing
+        if states['RISK_BEHAVIOR_WINNERS_FLEEING'].any():
+            print(f"          -> [风险情报] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING'].sum()} 次“获利盘出逃”行为！")
+
+        # --- 风险行为2: 恐慌盘割肉 (加速赶底) ---
+        is_sharp_drop = df['pct_change_D'] < -0.05
+        is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
+        states['RISK_BEHAVIOR_PANIC_SELLING'] = is_sharp_drop & is_panic_selling
+        if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
+            print(f"          -> [风险情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为！")
+            
         return states
 
     def _diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
