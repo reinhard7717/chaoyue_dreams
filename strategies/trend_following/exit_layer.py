@@ -48,7 +48,7 @@ class ExitLayer:
             code = level_info['code']
             cn_name = level_info['cn_name']
 
-            condition = (critical_risk_score >= threshold) & (~is_potential_buy_day)
+            condition = (critical_risk_score >= threshold) # & (~is_potential_buy_day)
             df.loc[condition, 'exit_signal_code'] = code
             df.loc[condition, 'alert_level'] = level_info.get('level', 0) 
             df.loc[condition, 'alert_reason'] = cn_name
@@ -61,7 +61,7 @@ class ExitLayer:
             threshold = level_info['level']
             cn_name = level_info['cn_name']
 
-            condition = (risk_score_from_warning_layer >= threshold) & (~is_potential_buy_day)
+            condition = (risk_score_from_warning_layer >= threshold) # & (~is_potential_buy_day)
             # 只更新那些还没有被更高等级的“离场信号”覆盖的记录
             df.loc[condition & (df['exit_signal_code'] == 0), 'alert_level'] = level_info.get('level', 0)
             df.loc[condition & (df['exit_signal_code'] == 0), 'alert_reason'] = cn_name
