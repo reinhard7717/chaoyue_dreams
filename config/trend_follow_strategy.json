@@ -348,9 +348,31 @@
             "FRACTAL_DYN_TREND_ACCELERATING": 220
           }
         },
-        "risk_scoring": {
-          "说明": "【V338.0 风险参谋部版】风险评估的唯一权威。本模块读取情报层提供的客观原子状态，并首次在此处定义“什么是风险”以及“风险的严重程度”。",
-          "strategic_coverage_factor": 0.3,
+        "holding_warning_params": {
+          "enabled": true,
+          "description": "【新增】持仓预警模块 (WarningLayer)。负责广谱扫描，计算综合的“持仓健康风险分”。",
+          "signals": {
+            "说明_A": "--- A级风险 (动态加速恶化) ---",
+            "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 400,
+            "CHIP_DYN_ACCEL_DIVERGING": 400,
+            "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
+
+            "说明_B": "--- B级风险 (趋势明确走弱) ---",
+            "CHIP_DYN_DIVERGING": 300,
+            "CHIP_DYN_WINNER_RATE_COLLAPSING": 300,
+            "CHIP_DYN_COST_FALLING": 200,
+            "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 200,
+
+            "说明_C": "--- C级风险 (健康度早期预警) ---",
+            "CHIP_DYN_HEALTH_DETERIORATING": 150,
+            "HOLD_RISK_HEALTH_STALLING": 120,
+            "DYN_TREND_WEAKENING_DECELERATING": 100
+          }
+        },
+
+        "critical_exit_params": {
+          "enabled": true,
+          "description": "【新增】致命离场模块 (ExitLayer)。只关注最高级别的、需要立即行动的风险信号。",
           "signals": {
             "说明_S_PLUS": "--- S+级风险 (操纵与背叛) ---",
             "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": 1500,
@@ -360,28 +382,12 @@
             "说明_S": "--- S级风险 (结构性崩塌) ---",
             "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1200,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
+            "STRUCTURE_TOPPING_DANGER_S": 250,
+            "STRUCTURE_PLATFORM_BROKEN": 200,
 
             "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
             "FRACTAL_RISK_TOP_DIVERGENCE": 800,
-            "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
-
-            "说明_A": "--- A级风险 (动态加速恶化) ---",
-            "CHIP_DYN_ACCEL_DIVERGING": 400,
-            "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
-            "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 400,
-
-            "说明_B": "--- B级风险 (趋势明确走弱) ---",
-            "CHIP_DYN_DIVERGING": 300,
-            "CHIP_DYN_WINNER_RATE_COLLAPSING": 300,
-            "STRUCTURE_TOPPING_DANGER_S": 250,
-            "CHIP_DYN_COST_FALLING": 200,
-            "STRUCTURE_PLATFORM_BROKEN": 200,
-            "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 200,
-
-            "说明_C": "--- C级风险 (健康度早期预警) ---",
-            "CHIP_DYN_HEALTH_DETERIORATING": 150,
-            "HOLD_RISK_HEALTH_STALLING": 120,
-            "DYN_TREND_WEAKENING_DECELERATING": 100
+            "FRACTAL_EVENT_TREND_EXHAUSTION": 500
           }
         },
 
