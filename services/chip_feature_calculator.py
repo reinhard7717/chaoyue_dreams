@@ -501,7 +501,13 @@ class ChipFeatureCalculator:
         # 3. 最终断层信号 (Fault Signal)
         # 定义：断层强度足够大（如脱离成本区20%以上），且真空区足够“空”（如筹码占比低于5%）
         is_strong_fault = fault_strength > 0.20
-        is_vacuum_clear = results.get('chip_fault_vacuum_percent', 100) < 5.0
+        vacuum_percent = results.get('chip_fault_vacuum_percent') # 直接获取值，可能是 None
+        # 只有在真空度被成功计算出来（不是None）的情况下，才进行比较
+        if vacuum_percent is not None:
+            is_vacuum_clear = vacuum_percent < 5.0
+        else:
+            # 如果真空度无法计算，则默认真空区不满足“清澈”的条件
+            is_vacuum_clear = False
         results['is_chip_fault_formed'] = is_strong_fault and is_vacuum_clear
 
         return results
