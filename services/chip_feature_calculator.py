@@ -62,7 +62,6 @@ class ChipFeatureCalculator:
 
         # --- 4. 合并所有结果并返回 ---
         all_metrics = {
-            **summary_info, # <--- 将自主计算的摘要指标加入最终结果
             **peaks_info,
             **concentration_info,
             **winner_structure_info,
@@ -71,6 +70,8 @@ class ChipFeatureCalculator:
             **advanced_structure_info,
             **fault_info
         }
+        if 'total_winner_rate' in summary_info:
+            all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
 
         # 这两个值是计算 peak_absorption_intensity 的中间产物，不需要存入数据库
         all_metrics.pop('peak_range_low', None)
