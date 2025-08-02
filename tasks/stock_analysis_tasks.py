@@ -858,6 +858,59 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             
             results = await asyncio.gather(*data_tasks.values())
             data_dfs = dict(zip(data_tasks.keys(), results))
+            
+            # ▼▼▼【核心升级】法务级数据审计模块 ▼▼▼
+            logger.info(f"[{stock_code}] 正在执行法务级数据审计...")
+            
+            # 1. 确立“黄金标准”
+            cyq_chips_df = data_dfs.get("cyq_chips")
+            if cyq_chips_df is None or cyq_chips_df.empty:
+                logger.error(f"[{stock_code}] [审计失败] 黄金标准数据源 'cyq_chips' 为空！任务终止。")
+                return {"status": "failed", "reason": "Master data source 'cyq_chips' is empty"}
+            
+            cyq_chips_df['trade_time'] = pd.to_datetime(cyq_chips_df['trade_time'])
+            master_dates = set(cyq_chips_df['trade_time'].dt.date.unique())
+
+            # 2. 逐一核对其他核心数据源
+            is_data_healthy = True
+            audit_warnings = []
+            other_essential_dfs = {
+                "daily_data": data_dfs.get("daily_data"),
+                "daily_basic": data_dfs.get("daily_basic")
+            }
+
+            for name, df in other_essential_dfs.items():
+                if df is None or df.empty:
+                    logger.error(f"[{stock_code}] [审计失败] 关键数据源 '{name}' 为空！任务终止。")
+                    return {"status": "failed", "reason": f"Essential data source '{name}' is empty"}
+                
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                source_dates = set(df['trade_time'].dt.date.unique())
+                
+                # 正向核对：检查源数据是否缺失了黄金标准中的日期
+                missing_in_source = sorted(list(master_dates - source_dates))
+                if missing_in_source:
+                    is_data_healthy = False
+                    warning_msg = (f"[{stock_code}] [审计警告] 数据源 '{name}' "
+                                   f"缺失了 {len(missing_in_source)} 个交易日的数据。 "
+                                   f"缺失日期示例: {missing_in_source[:5]}...")
+                    audit_warnings.append(warning_msg)
+
+                # 反向核对：检查源数据是否包含了黄金标准中没有的日期
+                missing_in_master = sorted(list(source_dates - master_dates))
+                if missing_in_master:
+                    is_data_healthy = False
+                    warning_msg = (f"[{stock_code}] [审计警告] 数据源 '{name}' "
+                                   f"包含了 {len(missing_in_master)} 个黄金标准中不存在的日期。 "
+                                   f"多出日期示例: {missing_in_master[:5]}...")
+                    audit_warnings.append(warning_msg)
+
+            # 3. 生成最终审计报告并执行熔断
+            if not is_data_healthy:
+                logger.error(f"[{stock_code}] [审计失败] 数据一致性检查未通过，任务已熔断。详情如下：")
+                for warning in audit_warnings:
+                    logger.error(warning)
+                return {"status": "failed", "reason": "Data consistency audit failed."}
 
             # --- 从这里开始，是您的原始Pandas数据处理逻辑 ---
             cyq_chips_data = data_dfs['cyq_chips']
