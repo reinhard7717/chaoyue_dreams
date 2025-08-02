@@ -405,6 +405,9 @@ class IntelligenceLayer:
         【V283.6 最终客观版】
         - 核心净化: 移除所有RISK_前缀，本模块只报告客观的动态事实。
         """
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        
         # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
