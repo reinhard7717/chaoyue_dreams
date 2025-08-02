@@ -105,6 +105,11 @@ class JudgmentLayer:
         is_exit_signal = (df.get('exit_signal_code', 0) > 0)
         # 卖出信号的优先级高于“无信号”
         df.loc[is_exit_signal, 'signal_type'] = '卖出信号'
+        
+        # 标记“风险预警”信号
+        is_warning_signal = (df.get('alert_level', 0) > 0)
+        # 关键条件: 只在当前信号类型仍为“无信号”时，才将其标记为“风险预警”，以避免覆盖掉更高级别的“买入”或“卖出”信号。
+        df.loc[is_warning_signal & (df['signal_type'] == '无信号'), 'signal_type'] = '风险预警'
 
         # --- 步骤 8: 最终净化与分数赋值 ---
         self._finalize_signals()
