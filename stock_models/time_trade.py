@@ -1242,15 +1242,17 @@ class StockCyqPerf(models.Model):
 # 高级筹码指标模型
 class AdvancedChipMetrics(models.Model):
     """
-    【V5.3 升维净化版 - 高级筹码指标模型】
-    - 核心净化: 彻底移除了所有基于“大单净额”的、带有主观判断的衍生资金流指标。
-                本模型现在100%聚焦于最难被操纵的、基于筹码分布的客观事实。
+    【V5.4 精度与纯粹最终版 - 高级筹码指标模型】
+    - 核心净化: 彻底移除了所有基于“大单净额”的、带有主观判断的衍生资金流指标，
+                100%聚焦于最难被操纵的、基于筹码分布的客观事实。
     - 核心升维: 新增了基于“成交量微观结构”的指标，用于洞察成交量背后的多空力量对比。
+    - 核心精度: 将所有 FloatField 升级为 DecimalField，确保金融数据和衍生指标的
+                存储精度，从根本上杜绝浮点数误差和“数字尘埃”。
     """
 
     # --- 1. 核心关联键 ---
     stock = models.ForeignKey(
-        'StockInfo',
+        StockInfo,
         on_delete=models.CASCADE,
         related_name='advanced_chip_metrics',
         verbose_name='股票',
@@ -1262,80 +1264,71 @@ class AdvancedChipMetrics(models.Model):
     )
 
     # --- 2. 核心筹码峰基础指标 ---
-    peak_cost = models.FloatField(verbose_name='主筹码峰成本', null=True, blank=True, help_text="当天筹码分布最密集的价格，是市场持仓的核心成本区。")
-    peak_percent = models.FloatField(verbose_name='主筹码峰占比(%)', null=True, blank=True, help_text="主筹码峰位置的筹码占总筹码的比例，反映了筹码的集中程度。")
+    peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='主筹码峰成本', null=True, blank=True, help_text="当天筹码分布最密集的价格，是市场持仓的核心成本区。")
+    peak_percent = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='主筹码峰占比(%)', null=True, blank=True, help_text="主筹码峰位置的筹码占总筹码的比例。")
     peak_volume = models.BigIntegerField(verbose_name='主筹码峰成交量(股)', null=True, blank=True, help_text="主筹码峰位置的绝对成交股数。")
 
-    # --- 3. 筹码峰动态指标 (基于斐波那契周期) ---
-    peak_cost_slope_5d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本5日斜率', help_text="正值表示主力成本在快速抬高。")
-    peak_cost_slope_8d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本8日斜率')
-    peak_cost_slope_13d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本13日斜率')
-    peak_cost_slope_21d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本21日斜率', help_text="中期趋势的核心观察指标。")
-    peak_cost_slope_34d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本34日斜率')
-    peak_cost_slope_55d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本55日斜率', help_text="长期趋势的核心观察指标。")
-    peak_cost_slope_89d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本89日斜率')
-    peak_cost_slope_144d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本144日斜率')
-    peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="短期趋势的动量变化，正值表示成本抬升在加速。")
-    peak_cost_accel_21d = models.FloatField(verbose_name='筹码峰成本21日加速度', null=True, blank=True, help_text="中期趋势的健康度变化，正值表示趋势在加速。")
+    # --- 3. 筹码峰动态指标 ---
+    peak_cost_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本5日斜率')
+    peak_cost_slope_8d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本8日斜率')
+    peak_cost_slope_13d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本13日斜率')
+    peak_cost_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本21日斜率')
+    peak_cost_slope_34d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本34日斜率')
+    peak_cost_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本55日斜率')
+    peak_cost_slope_89d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本89日斜率')
+    peak_cost_slope_144d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本144日斜率')
+    peak_cost_accel_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本5日加速度', null=True, blank=True)
+    peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
-    concentration_90pct = models.FloatField(verbose_name='90%筹码集中度', null=True, blank=True, help_text="包含90%筹码的最小价格区间宽度 / 平均成本。值越小越集中。")
-    concentration_90pct_slope_5d = models.FloatField(verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中，是积极信号；正值表示发散。")
-    peak_stability = models.FloatField(verbose_name='筹码峰稳定性', null=True, blank=True, help_text="主筹码峰的突出程度(prominence) / 平均占比。值越大越稳定，代表主力控盘能力强。")
-    is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="当天是否存在多个显著的筹码峰，多峰形态通常意味着持仓成本分散。")
-    secondary_peak_cost = models.FloatField(verbose_name='次筹码峰成本', null=True, blank=True, help_text="如果存在，第二大筹码峰的成本价，可能是潜在的压力或支撑位。")
-    peak_distance_ratio = models.FloatField(verbose_name='主次峰距离比', null=True, blank=True, help_text="主次峰成本价的距离 / 主峰成本价。距离越远，结构越不稳定。")
-    peak_strength_ratio = models.FloatField(verbose_name='主次峰强度比', null=True, blank=True, help_text="次峰突出度 / 主峰突出度。比率越小，主峰的统治力越强。")
-    pressure_above = models.FloatField(verbose_name='上方2%套牢盘(%)', null=True, blank=True, help_text="收盘价上方2%价格区间内的筹码占比，代表直接的短期抛压。")
-    support_below = models.FloatField(verbose_name='下方2%支撑盘(%)', null=True, blank=True, help_text="收盘价下方2%价格区间内的筹码占比，代表直接的短期支撑。")
+    concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
+    is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
+    secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")
+    peak_distance_ratio = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='主次峰距离比', null=True, blank=True, help_text="距离越远，结构越不稳定。")
+    peak_strength_ratio = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='主次峰强度比', null=True, blank=True, help_text="比率越小，主峰的统治力越强。")
+    pressure_above = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='上方2%套牢盘(%)', null=True, blank=True, help_text="代表直接的短期抛压。")
+    support_below = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='下方2%支撑盘(%)', null=True, blank=True, help_text="代表直接的短期支撑。")
 
     # --- 5. 获利盘结构指标 ---
-    total_winner_rate = models.FloatField(verbose_name='总获利盘(%)', null=True, blank=True, help_text="持仓成本低于当天收盘价的筹码总比例，反映市场整体情绪。")
-    winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例，代表近期追涨资金的浮盈情况。")
-    winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例，代表坚定持有的资金。")
+    total_winner_rate = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='总获利盘(%)', null=True, blank=True, help_text="反映市场整体情绪。")
+    winner_rate_short_term = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='短期获利盘(%)', null=True, blank=True, help_text="代表近期追涨资金的浮盈情况。")
+    winner_rate_long_term = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="代表坚定持有的资金。")
 
     # --- 6. 辅助与过程指标 ---
-    pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True, help_text="收盘价上方2%价格区间内的绝对筹码股数。")
-    support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数。")
-    turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数，反映核心区换手意愿。")
-    prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价', help_text="用于计算短期获利盘的基准价格。")
+    pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True)
+    support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True)
+    turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True)
+    prev_20d_close = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='20日前收盘价')
     
-    # --- 7. 【升维】控盘度指标 (Control Metrics) ---
-    peak_control_ratio = models.FloatField(verbose_name='筹码峰控盘比(%)', null=True, blank=True, help_text="主筹码峰的绝对股数 / 流通股本。衡量主力对核心阵地的绝对控制力。")
-    peak_absorption_intensity = models.FloatField(verbose_name='筹码峰吸筹强度', null=True, blank=True, help_text="在主筹码峰价格区间内的换手量 / 当日总换手量。值越高，代表主力在核心区吸筹/换手越坚决。")
+    # --- 7. 【升维】控盘度指标 ---
+    peak_control_ratio = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰控盘比(%)', null=True, blank=True, help_text="主筹码峰股数 / 流通股本。")
+    peak_absorption_intensity = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰吸筹强度', null=True, blank=True, help_text="主峰区间换手量 / 总换手量。")
 
-    # --- 8. 【升维】利润质量指标 (Profit Quality Metrics) ---
-    winner_avg_cost = models.FloatField(verbose_name='获利盘平均成本', null=True, blank=True, help_text="所有获利筹码的加权平均成本价。")
-    winner_profit_margin = models.FloatField(verbose_name='获利盘安全垫(%)', null=True, blank=True, help_text="(收盘价 - 获利盘均价) / 获利盘均价。衡量获利盘的平均利润厚度，值越高，持股心态越稳。")
+    # --- 8. 【升维】利润质量指标 ---
+    winner_avg_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='获利盘平均成本', null=True, blank=True)
+    winner_profit_margin = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='获利盘安全垫(%)', null=True, blank=True, help_text="衡量获利盘的平均利润厚度。")
 
-    # --- 9. 【升维】价码关系指标 (Price-Chip Relation Metrics) ---
-    price_to_peak_ratio = models.FloatField(verbose_name='股价/筹码峰成本比', null=True, blank=True, help_text="收盘价 / 主筹码峰成本。 >1 表示股价脱离成本区，<1 表示被压制。")
-    chip_zscore = models.FloatField(verbose_name='筹码Z-Score', null=True, blank=True, help_text="收盘价在整个筹码分布中的标准分位置。衡量股价相对于整体持仓成本的偏离度。绝对值越大，偏离越远。")
+    # --- 9. 【升维】价码关系指标 ---
+    price_to_peak_ratio = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='股价/筹码峰成本比', null=True, blank=True)
+    chip_zscore = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码Z-Score', null=True, blank=True, help_text="股价在筹码分布中的标准分位置。")
 
-    # --- 10. 【升维】筹码断层指标 (Chip Fault Metrics) ---
-    chip_fault_strength = models.FloatField(verbose_name='筹码断层强度', null=True, blank=True, help_text="收盘价脱离主筹码峰的相对距离((收盘价-峰成本)/峰成本)，值越大，脱离越远。")
-    chip_fault_vacuum_percent = models.FloatField(verbose_name='断层真空区筹码占比(%)', null=True, blank=True, help_text="主筹码峰与收盘价之间的筹码占比，值越小，代表上涨过程越轻松，抛压越小。")
-    is_chip_fault_formed = models.BooleanField(verbose_name='是否形成筹码断层', default=False, help_text="综合断层强度和真空度判断是否形成有效的筹码断层结构，是极强的看涨信号。")
+    # --- 10. 【升维】筹码断层指标 ---
+    chip_fault_strength = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码断层强度', null=True, blank=True)
+    chip_fault_vacuum_percent = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='断层真空区筹码占比(%)', null=True, blank=True)
+    is_chip_fault_formed = models.BooleanField(verbose_name='是否形成筹码断层', default=False, help_text="极强的看涨信号。")
 
     # --- 11. 【超级指标】最终裁决 ---
-    chip_health_score = models.FloatField(verbose_name='筹码健康分(0-100)', null=True, blank=True, help_text="综合控盘度、利润质量、集中度等多个维度得出的最终评分，全面评估当前筹码结构的健康状况。")
+    chip_health_score = models.DecimalField(max_digits=8, decimal_places=2, verbose_name='筹码健康分(0-100)', null=True, blank=True)
 
-    # --- 12. 【升维】成交量微观结构指标 (Turnover Microstructure) ---
-    turnover_at_peak_ratio = models.FloatField(
-        verbose_name='主峰成交占比(%)', null=True, blank=True,
-        help_text="当日成交量中，发生在主筹码峰价格区间的成交量占比。值越高，代表主力在核心阵地的交战/换手越激烈。"
-    )
-    turnover_from_winners_ratio = models.FloatField(
-        verbose_name='获利盘抛压占比(%)', null=True, blank=True,
-        help_text="当日成交量中，由获利盘(成本低于收盘价)卖出所贡献的占比。值越高，代表短期抛售压力越大。"
-    )
-    turnover_from_losers_ratio = models.FloatField(
-        verbose_name='套牢盘割肉占比(%)', null=True, blank=True,
-        help_text="当日成交量中，由套牢盘(成本高于收盘价)卖出所贡献的占比。值越高，代表恐慌/割肉盘越重。"
-    )
+    # --- 12. 【升维】成交量微观结构指标 ---
+    turnover_at_peak_ratio = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='主峰成交占比(%)', null=True, blank=True, help_text="主峰区间的交战激烈程度。")
+    turnover_from_winners_ratio = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='获利盘抛压占比(%)', null=True, blank=True, help_text="短期抛售压力大小。")
+    turnover_from_losers_ratio = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='套牢盘割肉占比(%)', null=True, blank=True, help_text="恐慌/割肉盘轻重。")
 
     class Meta:
-        verbose_name = '高级筹码指标(升维净化版)'
+        verbose_name = '高级筹码指标(精度升级版)'
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics'
         unique_together = ('stock', 'trade_time')

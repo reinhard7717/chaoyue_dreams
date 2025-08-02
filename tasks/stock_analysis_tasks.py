@@ -963,6 +963,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 record_data = row.dropna().to_dict()
                 if 'id' in record_data: del record_data['id']
                 if 'stock_id' in record_data: del record_data['stock_id']
+                for key, value in record_data.items():
+                    if isinstance(value, float):
+                        try:
+                            # 保留8位小数，足以满足绝大部分指标的精度需求
+                            record_data[key] = Decimal(str(round(value, 8)))
+                        except InvalidOperation:
+                            # 如果转换失败（例如遇到 inf, nan），则设为 None
+                            record_data[key] = None
                 records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
             
             # --- 异步保存到数据库 ---
