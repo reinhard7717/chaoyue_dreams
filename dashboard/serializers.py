@@ -221,13 +221,6 @@ class HmDetailSerializer(serializers.ModelSerializer):
         model = HmDetail
         fields = '__all__'
 
-# stock_models\stock_analytics.py
-class StockScoreAnalysisSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_analytics import StockScoreAnalysis
-        model = StockScoreAnalysis
-        fields = '__all__'
-
 # stock_models\stock_basic.py
 class StockInfoSerializer(serializers.ModelSerializer):
     class Meta:

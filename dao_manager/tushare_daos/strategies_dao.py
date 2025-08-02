@@ -12,7 +12,7 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from stock_models.fund_flow import FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS
-from stock_models.stock_analytics import MonthlyTrendStrategyReport, TrendFollowStrategyReport, StockAnalysisResultTrendFollowing, TrendFollowStrategySignalLog, TrendFollowStrategyState
+from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
@@ -715,46 +715,6 @@ class StrategiesDAO(BaseDAO):
 
         # print(f"调试信息: [DAO-SignalLog V120.9] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
         return saved_count
-
-    async def update_strategy_state(self, stock_code: str, strategy_name: str, timeframe: str):
-        """
-        【V1.1】在信号生成后，更新策略状态摘要表 (支持多时间框架)。
-        """
-        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-        # print(f"    [状态摘要] 正在为 {stock.stock_code} ({timeframe}周期) 更新策略状态...")
-        try:
-            latest_signal = await TrendFollowStrategySignalLog.objects.filter(
-                stock=stock, strategy_name=strategy_name, timeframe=timeframe
-            ).alatest('trade_time')
-
-            last_buy_signal = await TrendFollowStrategySignalLog.objects.filter(
-                stock=stock, strategy_name=strategy_name, timeframe=timeframe, entry_signal=True
-            ).order_by('-trade_time').afirst()
-
-            last_sell_signal = await TrendFollowStrategySignalLog.objects.filter(
-                stock=stock, strategy_name=strategy_name, timeframe=timeframe, exit_signal_code__gt=0
-            ).order_by('-trade_time').afirst()
-
-            state_data = {
-                'latest_score': latest_signal.entry_score,
-                'latest_trade_time': latest_signal.trade_time,
-                'active_playbooks': latest_signal.triggered_playbooks,
-                'last_buy_time': last_buy_signal.trade_time if last_buy_signal else None,
-                'last_sell_time': last_sell_signal.trade_time if last_sell_signal else None,
-            }
-
-            obj, created = await TrendFollowStrategyState.objects.aupdate_or_create(
-                stock=stock, strategy_name=strategy_name, time_level=timeframe,
-                defaults=state_data
-            )
-            
-            action = "创建" if created else "更新"
-            # print(f"    [状态摘要] 成功 {action} {stock.stock_code} ({timeframe}周期) 的策略状态。")
-
-        except TrendFollowStrategySignalLog.DoesNotExist:
-            print(f"    [状态摘要] 警告: 未找到 {stock.stock_code} ({timeframe}周期) 的信号日志，跳过更新。")
-        except Exception as e:
-            print(f"    [状态摘要] 错误: 更新 {stock.stock_code} ({timeframe}周期) 状态时发生异常: {e}")
 
     # 筹码高级信息AdvancedChipMetrics
     async def get_advanced_chip_metrics_data(
