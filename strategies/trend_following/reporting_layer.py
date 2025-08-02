@@ -117,29 +117,49 @@ class ReportingLayer:
 
     def _fill_signal_details(self, record: Dict, signal_row: pd.Series, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> Dict:
         """
-        填充 triggered_playbooks 字段，描述信号的构成原因。
+        【V339.2 风险叙事增强版】
+        - 核心升级: 为“风险预警”信号增加了详细的风险构成叙述，
+                    使其与“卖出信号”的报告精度保持一致。
         """
         trade_time = signal_row.name 
         details_list = []
 
+        # 步骤1: 优先获取由ExitLayer提供的、最直接的原因
         exit_reason = record.get('exit_signal_reason') or signal_row.get('alert_reason')
-        if exit_reason and not pd.isna(exit_reason):
+        if exit_reason and not pd.isna(exit_reason) and exit_reason:
             details_list.append(str(exit_reason))
 
         signal_type = record.get('signal_type')
+        is_risk_warning = record.get('is_risk_warning', False)
 
+        # 步骤2: 根据信号类型，填充详细的构成
         if signal_type == '买入信号':
             if not score_details_df.empty and trade_time in score_details_df.index:
                 score_details_today = score_details_df.loc[trade_time]
                 activated_rules_en = score_details_today[score_details_today > 0].index.tolist()
                 details_list.extend([self.signal_metadata.get(rule, rule) for rule in activated_rules_en])
-        elif signal_type == '卖出信号':
+        elif signal_type == '卖出信号' or is_risk_warning:
             if not risk_details_df.empty and trade_time in risk_details_df.index:
                 risk_details_today = risk_details_df.loc[trade_time]
                 activated_risks_en = risk_details_today[risk_details_today > 0].index.tolist()
                 risk_details_cn = [self.signal_metadata.get(risk, risk) for risk in activated_risks_en]
+                
                 if risk_details_cn:
-                    details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
-
+                    # 如果已经有了一个笼统的原因，则将详细构成作为补充
+                    if details_list:
+                        details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
+                    # 如果没有笼统的原因，则直接显示详细构成
+                    else:
+                        details_list.extend(risk_details_cn)
+        # 步骤3: 拼接最终的描述字符串
         record['triggered_playbooks'] = ", ".join(filter(None, details_list))
         return record
+
+
+
+
+
+
+
+
+
