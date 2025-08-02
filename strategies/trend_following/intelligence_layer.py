@@ -47,9 +47,9 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
         
-        # 2.1 首先，运行“顶部风险司令部”，生成“危险战区”等战场上下文情报。
-        self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
-        # 2.2 然后，运行“动态筹码分析”，它会使用上一步生成的上下文情报来做出更精确的判断。
+        # 2.1 首先，运行“战场上下文”模块，定义“在哪里”。
+        self.strategy.atomic_states.update(self._diagnose_contextual_zones(df))
+        # 2.2 然后，运行“动态筹码分析”，它现在可以安全地使用上一步的“战场”情报。
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
 
         # --- 阶段三: 复合原子状态诊断 ---
@@ -1944,25 +1944,20 @@ class IntelligenceLayer:
         print("    - [剧本情报中心 V264.0] 动态情报生成完毕。")
         return setup_scores, playbook_states
 
-    def _diagnose_topping_risks_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_contextual_zones(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V331.0 联合作战司令部】顶部风险诊断模块
-        - 核心重构: 融合了原“高位派发区”和“拉升健康度”两大模块，形成统一的、
-                    从“静态位置”到“动态行为”的顶层风险分析中心。
-        - 作战流程:
-          1. 评估“地利”：识别市场是否处于乖离、超买的“危险战区”(Context)。
-          2. 评估“天时”：识别当天是否正在发生“拉升出货”的危险行为(Action)。
-          3. 情报融合：将“地利”与“天时”结合，生成S+级的“确认派发”风险信号。
+        【V339.0 新增】战场上下文诊断模块
+        - 核心职责: 独立地、优先地定义“战场”状态，如高位危险区。
+                    这是所有后续战术判断的基础。
         """
-        print("        -> [顶部风险联合作战司令部 V331.0] 启动...")
+        print("        -> [战场上下文诊断模块 V339.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
-        required_states = ['RISK_DYN_DIVERGING', 'CHIP_DYN_CONCENTRATING']
-        required_cols = ['BIAS_21_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'SLOPE_5_EMA_13_D']
-        if any(s not in self.strategy.atomic_states for s in required_states) or any(c not in df.columns for c in required_cols):
-            print("          -> [警告] 缺少诊断“顶部风险”所需情报，模块跳过。")
+        required_cols = ['BIAS_21_D', 'close_D', 'high_D', 'SLOPE_5_EMA_13_D']
+        if any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少诊断“战场上下文”所需数据，模块跳过。")
             return {}
 
         # --- 2. 评估“地利”：定义静态的“危险战区”上下文 ---
@@ -1977,27 +1972,44 @@ class IntelligenceLayer:
         
         # 2.3 融合生成“危险战区”状态
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | states['CONTEXT_RISK_MOMENTUM_EXHAUSTION']
+        
+        return states
 
-        # --- 3. 评估“天时”：识别当天的危险拉升行为 ---
+    def _synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V331.1 职责分离版】顶部行为合成模块
+        - 核心重构: 职责被简化为“行为合成”。它消费已有的“战场上下文”和
+                    “筹码动态”情报，将其融合成顶层的战术信号。
+        """
+        print("        -> [顶部行为合成模块 V331.1] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_states = ['CHIP_DYN_DIVERGING', 'CHIP_DYN_CONCENTRATING', 'CONTEXT_RISK_HIGH_LEVEL_ZONE']
+        if any(s not in self.strategy.atomic_states for s in required_states):
+            print("          -> [警告] 缺少合成“顶部行为”所需情报，模块跳过。")
+            return {}
+
+        # --- 2. 评估“天时”：识别当天的危险拉升行为 ---
         is_rallying = df['pct_change_D'] > 0.02
         
-        # 3.1 拉升出货 (核心风险行为)
-        is_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+        # 2.1 拉升出货 (核心风险行为)
+        is_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
         states['ACTION_RISK_RALLY_WITH_DIVERGENCE'] = is_rallying & is_diverging
         
-        # 3.2 天量滞涨
+        # 2.2 天量滞涨
         is_huge_volume = df['volume_D'] > df['VOL_MA_21_D'] * 2.5
         is_stagnant = df['pct_change_D'] < 0.01
         states['ACTION_RISK_RALLY_STAGNATION'] = is_huge_volume & is_stagnant
 
-        # --- 4. 【S+级情报融合】：在危险战区确认派发行为 ---
-        is_in_danger_zone = states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        # --- 3. 【S+级情报融合】：在危险战区确认派发行为 ---
+        is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         is_distributing_action = states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
         states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = is_in_danger_zone & is_distributing_action
         
-        # --- 5. 重新定义“健康锁筹拉升” (增加保险丝) ---
+        # --- 4. 重新定义“健康锁筹拉升” (增加保险丝) ---
         is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
-        # 一个健康的拉升，不仅要筹码集中，还必须不能发生在危险战区
         states['RALLY_STATE_HEALTHY_LOCKED'] = is_rallying & is_concentrating & ~is_in_danger_zone
         
         return states
