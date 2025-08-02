@@ -13,7 +13,7 @@ class ExitLayer:
         - 核心修复: 在计算前，主动将 exit/alert 相关列重置为默认值，
                     彻底杜绝因 pandas 填充机制导致的历史信号污染问题。
         """
-        print("      -> [离场指令部 V293.0 主动净化版] 启动...")
+        # print("      -> [离场指令部 V293.0 主动净化版] 启动...")
         df = self.strategy.df_indicators
         
         # --- 【核心修复】主动净化 ---
@@ -34,7 +34,7 @@ class ExitLayer:
         critical_risk_score = pd.Series(0.0, index=df.index)
         default_series = pd.Series(False, index=df.index)
         for rule_name, score in critical_rules.items():
-            signal_series = atomic_states.get(rule_name, default_series)
+            signal_series = self.strategy.atomic_states.get(rule_name, default_series)
             if signal_series.any():
                 critical_risk_score.loc[signal_series] += score
 
@@ -66,4 +66,4 @@ class ExitLayer:
             df.loc[condition & (df['exit_signal_code'] == 0), 'alert_level'] = level_info.get('level', 0)
             df.loc[condition & (df['exit_signal_code'] == 0), 'alert_reason'] = cn_name
 
-        print(f"        -> 风险与离场信号计算完成。")
+        # print(f"        -> 风险与离场信号计算完成。")

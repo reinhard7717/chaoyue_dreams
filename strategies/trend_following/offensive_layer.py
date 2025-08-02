@@ -17,7 +17,7 @@ class OffensiveLayer:
                     它直接消费底层的“原子状态”，并在内部根据配置文件中的
                     “战法”来组合、交叉验证，并计算最终分数。
         """
-        print("        -> [进攻方案评估中心 V337.0] 启动...")
+        # print("        -> [进攻方案评估中心 V337.0] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
@@ -82,7 +82,7 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[f'trg_{signal_name}'] = signal_series * score
         
-        print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
+        # print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
         
         entry_score = self._apply_final_score_adjustments(entry_score)
         return entry_score, score_details_df

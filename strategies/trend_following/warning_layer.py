@@ -14,7 +14,7 @@ class WarningLayer:
         【V339.0 新增】持仓健康诊断大脑 (Holding Brain)
         - 核心职责: 对比当日与前一日的风险构成，生成结构化的“风险变化摘要”。
         """
-        print("          -> [持仓大脑 V339.0] 启动，正在进行风险变化分析...")
+        # print("          -> [持仓大脑 V339.0] 启动，正在进行风险变化分析...")
         
         # 获取昨日的风险构成
         risk_score_df_yesterday = risk_score_df.shift(1).fillna(0)
@@ -48,7 +48,7 @@ class WarningLayer:
           1. 将分形风险直接纳入计分。
           2. 根据市场宏观状态（趋势/震荡）动态放大或缩小风险权重。
         """
-        print("        -> [最高风险裁决所 V292.0 赫斯特指数增强版] 启动...")
+        # print("        -> [最高风险裁决所 V292.0 赫斯特指数增强版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         

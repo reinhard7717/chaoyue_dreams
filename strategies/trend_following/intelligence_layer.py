@@ -32,13 +32,13 @@ class IntelligenceLayer:
         self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础数据衍生与K线形态 ---
-        print("    -> [情报层] 阶段1: 基础数据衍生...")
+        # print("    -> [情报层] 阶段1: 基础数据衍生...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self._diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self._diagnose_board_patterns(df))
 
         # --- 阶段二: 基础原子状态诊断 ---
-        print("    -> [情报层] 阶段2: 基础原子状态诊断...")
+        # print("    -> [情报层] 阶段2: 基础原子状态诊断...")
         self.dynamic_thresholds = self._get_dynamic_thresholds(df)
         self.strategy.atomic_states.update(self._diagnose_ma_states(df))
         self.strategy.atomic_states.update(self._diagnose_volatility_states(df))
@@ -55,7 +55,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_chip_risks_and_behaviors(df))
 
         # --- 阶段三: 复合原子状态诊断 ---
-        print("    -> [情报层] 阶段3: 复合原子状态诊断...")
+        # print("    -> [情报层] 阶段3: 复合原子状态诊断...")
         self.strategy.atomic_states.update(self._diagnose_peak_formation_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_behavioral_patterns(df))
         df, structure_states = self._diagnose_market_structure_command(df)
@@ -72,14 +72,14 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
 
         # --- 阶段四: 顶层认知与行为序列合成 ---
-        print("    -> [情报层] 阶段4: 顶层认知合成...")
+        # print("    -> [情报层] 阶段4: 顶层认知合成...")
         self.strategy.atomic_states.update(self._diagnose_trend_stage_context(df))
         self.strategy.atomic_states.update(self._diagnose_structural_mechanics(df))
         self.strategy.atomic_states.update(self._run_cognitive_synthesis_engine(df))
         self.strategy.df_indicators = self._determine_main_force_behavior_sequence(df)
         
         # --- 阶段五: 生成触发器和剧本 ---
-        print("    -> [情报层] 阶段5: 生成最终触发器与剧本...")
+        # print("    -> [情报层] 阶段5: 生成最终触发器与剧本...")
         trigger_events = self._define_trigger_events(df)
         trigger_events.update(chip_triggers)
         self.strategy.setup_scores, self.strategy.playbook_states = self._generate_playbook_states(trigger_events)
@@ -166,7 +166,7 @@ class IntelligenceLayer:
         states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
         states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
         
-        print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 分析完毕。")
+        # print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 分析完毕。")
         return states, triggers
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -255,7 +255,7 @@ class IntelligenceLayer:
         - 核心职责: 计算进攻分和风险分的“加速度”，捕捉双向动能的剧烈变化。
                     这是判断趋势强化或转折的关键“势能”情报。
         """
-        print("        -> [动态力学分析引擎 V317.0] 启动，正在计算势能加速度...")
+        # print("        -> [动态力学分析引擎 V317.0] 启动，正在计算势能加速度...")
         states = {}
         df = self.strategy.df_indicators
         
@@ -468,7 +468,7 @@ class IntelligenceLayer:
         【V341.0 新增】高级筹码“机会”情报诊断模块
         - 核心职责: 识别由高级筹码指标揭示的、结构性的看涨机会。
         """
-        print("        -> [高级筹码机会诊断模块 V341.0] 启动...")
+        # print("        -> [高级筹码机会诊断模块 V341.0] 启动...")
         states = {}
         
         # --- 机会1: S级 - 筹码断层新生 (结构性重置) ---
@@ -491,7 +491,7 @@ class IntelligenceLayer:
         【V341.0 新增】高级筹码“风险与行为”情报诊断模块
         - 核心职责: 基于成交量微观结构，识别主力的真实意图（派发/恐慌）。
         """
-        print("        -> [高级筹码风险与行为诊断模块 V341.0] 启动...")
+        # print("        -> [高级筹码风险与行为诊断模块 V341.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -630,7 +630,7 @@ class IntelligenceLayer:
         - 作战单元1 (宏观气象站): 保留基于CMF的经典资本状态诊断。
         - 作战单元2 (精锐侦察连): 新增基于主力/散户净流入的、高精度的资本结构诊断。
         """
-        print("        -> [诊断模块 V219.0 情报一体化版] 正在执行统一资本诊断...")
+        # print("        -> [诊断模块 V219.0 情报一体化版] 正在执行统一资本诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         
@@ -713,7 +713,7 @@ class IntelligenceLayer:
         is_on_stable_platform = atomic_structure_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_box & is_on_stable_platform
 
-        print("        -> [市场结构战区司令部 V272.0] 情报整合完毕。")
+        # print("        -> [市场结构战区司令部 V272.0] 情报整合完毕。")
         
         # 返回所有原子情报和复合情报的集合，以及可能被修改的df
         return df, {**atomic_structure_states, **composite_states}
@@ -817,7 +817,7 @@ class IntelligenceLayer:
           - BOX_STATE_HEALTHY_CONSOLIDATION: 基础的、位于趋势线上方的箱体 (静态)。
           - BOX_STATE_HEALTHY_ACCUMULATION: 在健康箱体内，要求同时满足“缩量”和“筹码集中” (动态)，是更高质量的突破前兆。
         """
-        print("        -> [工兵部队 V283.0] 启动，正在执行融合分析...")
+        # print("        -> [工兵部队 V283.0] 启动，正在执行融合分析...")
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -1191,7 +1191,7 @@ class IntelligenceLayer:
             is_fund_flow_consensus_outflow
         )
 
-        print("        -> [联合作战司令部 V277.0] 核心战局定义升级完成。")
+        # print("        -> [联合作战司令部 V277.0] 核心战局定义升级完成。")
         return structure_states
 
     def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -1681,7 +1681,7 @@ class IntelligenceLayer:
         【V338.0 新增】持仓风险诊断模块
         - 核心职责: 诊断那些与持仓健康度相关的、更精细的早期预警信号。
         """
-        print("        -> [持仓风险诊断模块 V338.0] 启动...")
+        # print("        -> [持仓风险诊断模块 V338.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1701,7 +1701,7 @@ class IntelligenceLayer:
         - 核心职责: 追踪主筹码峰的“政权更迭”，并为其关联上“出生证明”
                     (确立之日的成交量特征)，从而解读其战略意义。
         """
-        print("        -> [筹码峰“创世纪”模块 V340.0] 启动...")
+        # print("        -> [筹码峰“创世纪”模块 V340.0] 启动...")
         states = {}
         
         # --- 1. 检查所需数据 ---
@@ -1774,7 +1774,7 @@ class IntelligenceLayer:
                     本模块现在只为最核心、最难被操纵的筹码结构指标提供校准。
         - 作战原则: 我们的核心标尺，必须建立在最坚实的岩石之上。
         """
-        print("        -> [动态阈值校准中心 V335.2 核心指标版] 启动...")
+        # print("        -> [动态阈值校准中心 V335.2 核心指标版] 启动...")
         thresholds = {}
         window = 250 # 使用过去一年的数据作为基准
 
@@ -1790,7 +1790,7 @@ class IntelligenceLayer:
             
         # 【净化完成】资金流数据因其不可靠性，不应在此进行核心校准。
 
-        print("        -> [动态阈值校准中心 V335.2] 校准完成。")
+        # print("        -> [动态阈值校准中心 V335.2] 校准完成。")
         return thresholds
 
     def _diagnose_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1799,7 +1799,7 @@ class IntelligenceLayer:
         - 核心升级: 放弃对“资金流”数据的盲目信任，建立基于“筹码结构”为核心的
                     分层证据体系，以应对主力的“反侦察”战术。
         """
-        print("        -> [反侦察模块 V336.1] 启动，正在进行证据分层分析...")
+        # print("        -> [反侦察模块 V336.1] 启动，正在进行证据分层分析...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1866,7 +1866,7 @@ class IntelligenceLayer:
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
 
-        print("        -> [认知综合引擎 V337.0] 顶层风险上下文合成完毕。")
+        # print("        -> [认知综合引擎 V337.0] 顶层风险上下文合成完毕。")
         return cognitive_states
     
     def _generate_playbook_states(self, df: pd.DataFrame, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, Dict[str, pd.Series]]]:
@@ -2064,7 +2064,7 @@ class IntelligenceLayer:
         - 核心职责: 独立地、优先地定义“战场”状态，如高位危险区。
                     这是所有后续战术判断的基础。
         """
-        print("        -> [战场上下文诊断模块 V339.0] 启动...")
+        # print("        -> [战场上下文诊断模块 V339.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 

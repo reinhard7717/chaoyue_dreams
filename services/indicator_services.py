@@ -469,7 +469,7 @@ class IndicatorService:
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
-        print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
+        # print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
 
         # 4. 准备所有“基础”OHLCV数据获取任务
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
@@ -509,7 +509,7 @@ class IndicatorService:
                     for col in decimal_cols:
                         # 尝试将 Decimal 列转换为 float64，无法转换的错误值设为 NaN
                         df_advanced_chips[col] = pd.to_numeric(df_advanced_chips[col], errors='coerce')
-                    print(f"    - [数据类型标准化] 已将 {len(decimal_cols)} 个高级筹码指标列的类型从 Decimal 转换为 float。")
+                    # print(f"    - [数据类型标准化] 已将 {len(decimal_cols)} 个高级筹码指标列的类型从 Decimal 转换为 float。")
             elif tag == 'daily_basic':
                 if isinstance(data, pd.DataFrame): df_daily_basic = data
             else: # 处理 OHLCV 数据
@@ -626,7 +626,7 @@ class IndicatorService:
         Returns:
             pd.DataFrame: 一个包含新合成的周线指标列的DataFrame，其索引与df_weekly对齐。
         """
-        print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
+        # print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
         synthetic_indicators = pd.DataFrame(index=df_weekly.index)
 
         # --- 1. 合成周线CMF (Chaikin Money Flow) ---
@@ -650,7 +650,7 @@ class IndicatorService:
         # --- 2. 未来可在此处添加更多复杂周线指标的合成逻辑 (如KDJ, RSI等) ---
         # 例如，合成周线RSI也应先计算每日的涨跌额，再按周聚合，最后计算RSI，以获得更平滑的结果。
         
-        print("      -> [高级指标合成室] 合成完成。")
+        # print("      -> [高级指标合成室] 合成完成。")
         return synthetic_indicators
 
     # ▼▼▼ 新增一个专门生成游资信号的函数 ▼▼▼
@@ -951,7 +951,7 @@ class IndicatorService:
         - 意义: 衡量每一单位的相对成交量，能换来多大的价格涨幅。
                  数值极低时，是典型的“天量滞涨”危险信号。
         """
-        print("    - [VPA效率生产线 V1.0 @ IndicatorService] 启动...")
+        # print("    - [VPA效率生产线 V1.0 @ IndicatorService] 启动...")
         timeframe = 'D' # VPA效率是一个日线级别的概念
         if timeframe not in all_dfs:
             return all_dfs
@@ -977,7 +977,7 @@ class IndicatorService:
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
         
         all_dfs[timeframe] = df
-        print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
+        # print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
         return all_dfs
 
     async def _calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
@@ -987,7 +987,7 @@ class IndicatorService:
                     滚窗计算的“元指标”，如赫斯特指数、变异系数等。
         - 执行时机: 在基础指标计算之后，在斜率计算之前。
         """
-        print("    - [元特征车间] 启动，正在计算赫斯特指数、CV等复杂特征...")
+        # print("    - [元特征车间] 启动，正在计算赫斯特指数、CV等复杂特征...")
         
         # 我们主要关心日线数据
         timeframe = 'D'
@@ -1045,7 +1045,7 @@ class IndicatorService:
         【V2.0 跨周期生产线版】
         - 职责: 作为数据工程的一部分，为所有指定的时间周期计算斜率和加速度。
         """
-        print("    - [斜率中心 V2.0 跨周期生产线版 @ IndicatorService] 启动...")
+        # print("    - [斜率中心 V2.0 跨周期生产线版 @ IndicatorService] 启动...")
         # 注意：这里的参数路径可能需要根据IndicatorService的上下文调整
         # 假设config就是完整的策略配置
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
@@ -2332,7 +2332,7 @@ class IndicatorService:
         if not params.get('enabled', False):
             return None
 
-        print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
+        # print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
         
         try:
             from scipy.signal import find_peaks, peak_prominences
@@ -2393,7 +2393,7 @@ class IndicatorService:
                 retr_price = temp_df['swing_high_price'] - swing_range * level
                 result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
 
-            print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
+            # print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
             return result_df
         
         # --- 如果主引擎失败，则启动备用引擎 ---

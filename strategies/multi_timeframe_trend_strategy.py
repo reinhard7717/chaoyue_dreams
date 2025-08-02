@@ -364,7 +364,7 @@ class MultiTimeframeTrendStrategy:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
             
-            print("    -> [报告净化单元] 已对买入信号日的风险标签执行最终净化。")
+            # print("    -> [报告净化单元] 已对买入信号日的风险标签执行最终净化。")
             
             # 3. 调用报告层生成数据库记录 (现在使用净化后的DataFrame)
             db_records = self.tactical_engine.prepare_db_records(
@@ -381,12 +381,12 @@ class MultiTimeframeTrendStrategy:
 
         finally:
             # 注意：这里的清理逻辑保持不变，因为调试模式可能需要这些临时数据
-            print("    -> [总司令部] 正在执行“阅后即焚”条令...")
+            # print("    -> [总司令部] 正在执行“阅后即焚”条令...")
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df
             if hasattr(self.tactical_engine, '_last_risk_details_df'):
                 del self.tactical_engine._last_risk_details_df
-            print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
+            # print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """

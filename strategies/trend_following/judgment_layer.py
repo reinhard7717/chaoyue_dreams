@@ -16,7 +16,7 @@ class JudgmentLayer:
                     “进攻分数构成”和“风险分数构成”，捕捉“买入逻辑”的
                     衰减和“风险”的出现，生成结构化的攻防变化摘要。
         """
-        print("        -> [持仓大脑 V339.1] 启动，正在进行攻防动态对比分析...")
+        # print("        -> [持仓大脑 V339.1] 启动，正在进行攻防动态对比分析...")
         df = self.strategy.df_indicators
         
         # --- 1. 获取昨日的攻防态势 ---
@@ -65,7 +65,7 @@ class JudgmentLayer:
                     存在否决票的买入信号被正确地过滤掉。
         - 流程简化: 简化了信号生成逻辑，使其更清晰、更健壮。
         """
-        print("    --- [最高作战指挥部 V319.0 终极决策修复版] 启动... ---")
+        # print("    --- [最高作战指挥部 V319.0 终极决策修复版] 启动... ---")
         df = self.strategy.df_indicators
         
         # --- 步骤 1: 初始化所有决策相关列 ---
@@ -153,7 +153,7 @@ class JudgmentLayer:
         - 核心修复: 将 `risk_score > entry_score` 这个基础风控重新纳入否决票体系。
                     它现在作为常规风险，与其他风险因素一起参与投票。
         """
-        print("        -> [联席会议] 正在进行静态否决票评估...")
+        # print("        -> [联席会议] 正在进行静态否决票评估...")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

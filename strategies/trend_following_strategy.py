@@ -58,18 +58,18 @@ class TrendFollowStrategy:
 
         # --- 指挥链 1/8: 基础情报层 ---
         # 收集所有不依赖于分数的战场情报
-        print("    --- [指挥链 1/8] 基础情报层: 正在收集战场静态情报... ---")
+        # print("    --- [指挥链 1/8] 基础情报层: 正在收集战场静态情报... ---")
         trigger_events = self.intelligence_layer.run_all_diagnostics()
 
         # --- 指挥链 2/8: 进攻层 ---
         # 评估所有进攻机会，计算 entry_score
-        print("    --- [指挥链 2/8] 进攻层: 正在评估所有进攻方案... ---")
+        # print("    --- [指挥链 2/8] 进攻层: 正在评估所有进攻方案... ---")
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(trigger_events)
         self.df_indicators['entry_score'] = entry_score
 
         # --- 指挥链 3/8: 预警层 ---
         # 评估所有风险信号，计算 risk_score
-        print("    --- [指挥链 3/8] 预警层: 正在评估所有战场风险... ---")
+        # print("    --- [指挥链 3/8] 预警层: 正在评估所有战场风险... ---")
         risk_score, risk_details_df, risk_change_summary = self.warning_layer.calculate_risk_score()
         self.df_indicators['risk_score'] = risk_score
         # 将风险变化摘要存入主DataFrame，供后续使用
@@ -78,21 +78,21 @@ class TrendFollowStrategy:
         # ▼▼▼【V317.0 核心调整】新增指挥环节 ▼▼▼
         # --- 指挥链 4/8: 力学分析层 ---
         # 在获得攻防分数后，计算双向加速度，生成“势能”情报
-        print("    --- [指挥链 4/8] 力学分析层: 正在分析攻防“势能”... ---")
+        # print("    --- [指挥链 4/8] 力学分析层: 正在分析攻防“势能”... ---")
         self.intelligence_layer.run_force_vector_analysis()
         # ▲▲▲【V317.0 核心调整】结束 ▲▲▲
 
         # --- 指挥链 5/8: 统合判断层 ---
         # 综合静态分数和动态力学指令，做出最终决策
-        print("    --- [指挥链 5/8] 统合判断层: 正在进行最终决策... ---")
+        # print("    --- [指挥链 5/8] 统合判断层: 正在进行最终决策... ---")
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
 
         # --- 指挥链 6/8: 离场层 (由判断层内部调用) ---
-        print("    --- [指挥链 6/8] 离场层: 已在判断层内部完成计算... ---")
+        # print("    --- [指挥链 6/8] 离场层: 已在判断层内部完成计算... ---")
         
         # --- 指挥链 7/8: 模拟层 ---
         # 根据最终决策，进行沙盘推演
-        print("    --- [指挥链 7/8] 模拟层: 正在进行全程战术推演... ---")
+        # print("    --- [指挥链 7/8] 模拟层: 正在进行全程战术推演... ---")
         self.simulation_layer.run_position_management_simulation()
 
         print(f"    ====== 【动态力学引擎 V317.0】执行完毕 ======")

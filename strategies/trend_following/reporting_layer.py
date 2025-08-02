@@ -26,7 +26,7 @@ class ReportingLayer:
         - 核心修复: 在构建 record_data 时，明确地从 row 中提取 risk_score，
                     确保其能被正确传递给 _create_signal_record 并存入数据库。
         """
-        print(f"      -> [战报司令部 V314.1 risk_score 修正版] 启动，正在执行归档...")
+        # print(f"      -> [战报司令部 V314.1 risk_score 修正版] 启动，正在执行归档...")
         db_records = []
         signal_days_df = result_df[result_df['signal_type'] != '无信号'].copy()
 
