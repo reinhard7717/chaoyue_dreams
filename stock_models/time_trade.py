@@ -1242,10 +1242,10 @@ class StockCyqPerf(models.Model):
 # 高级筹码指标模型
 class AdvancedChipMetrics(models.Model):
     """
-    【V5.1 终极注释与索引版 - 高级筹码指标模型】
-    - 核心升级: 融合了交易所、同花顺、东方财富三大资金流数据源，并增加了“共识”与“分歧”信号。
-    - 注释增强: 为所有字段提供了详尽的中文注释和业务说明。
-    - 索引优化: 为核心查询字段和新的融合信号字段建立了数据库索引，提升查询性能。
+    【V5.3 升维净化版 - 高级筹码指标模型】
+    - 核心净化: 彻底移除了所有基于“大单净额”的、带有主观判断的衍生资金流指标。
+                本模型现在100%聚焦于最难被操纵的、基于筹码分布的客观事实。
+    - 核心升维: 新增了基于“成交量微观结构”的指标，用于洞察成交量背后的多空力量对比。
     """
 
     # --- 1. 核心关联键 ---
@@ -1254,11 +1254,11 @@ class AdvancedChipMetrics(models.Model):
         on_delete=models.CASCADE,
         related_name='advanced_chip_metrics',
         verbose_name='股票',
-        db_index=True  # 核心外键，必须建立索引
+        db_index=True
     )
     trade_time = models.DateField(
         verbose_name='交易日期',
-        db_index=True  # 核心时间戳，必须建立索引
+        db_index=True
     )
 
     # --- 2. 核心筹码峰基础指标 ---
@@ -1275,7 +1275,6 @@ class AdvancedChipMetrics(models.Model):
     peak_cost_slope_55d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本55日斜率', help_text="长期趋势的核心观察指标。")
     peak_cost_slope_89d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本89日斜率')
     peak_cost_slope_144d = models.FloatField(null=True, blank=True, verbose_name='筹码峰成本144日斜率')
-
     peak_cost_accel_5d = models.FloatField(verbose_name='筹码峰成本5日加速度', null=True, blank=True, help_text="短期趋势的动量变化，正值表示成本抬升在加速。")
     peak_cost_accel_21d = models.FloatField(verbose_name='筹码峰成本21日加速度', null=True, blank=True, help_text="中期趋势的健康度变化，正值表示趋势在加速。")
 
@@ -1295,70 +1294,60 @@ class AdvancedChipMetrics(models.Model):
     winner_rate_short_term = models.FloatField(verbose_name='短期获利盘(%)', null=True, blank=True, help_text="持仓成本低于收盘价，但高于20日前收盘价的筹码比例，代表近期追涨资金的浮盈情况。")
     winner_rate_long_term = models.FloatField(verbose_name='长期锁定盘(%)', null=True, blank=True, help_text="持仓成本低于20日前收盘价的筹码比例，代表坚定持有的资金。")
 
-    # --- 6. 【三源合一】资金流向指标 ---
-    # 6.1 内部评估 (基于交易所原始数据)
-    main_force_net_inflow_amount = models.FloatField(verbose_name='主力净流入额(元, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(大单+特大单)。")
-    retail_net_inflow_volume = models.BigIntegerField(verbose_name='散户净流入量(股, 内部)', null=True, blank=True, help_text="[内部评估] 基于交易所原始数据计算(小单+中单)。")
-    # 6.2 外部参照 (用于交叉验证的公开数据)
-    ths_main_force_net_amount = models.FloatField(verbose_name='同花顺主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自同花顺的公开数据，反映市场共识。")
-    dc_main_force_net_amount = models.FloatField(verbose_name='东方财富主力净流入额(万元)', null=True, blank=True, help_text="[外部参照] 来自东方财富的公开数据，反映市场共识。")
-    # 6.3 融合裁决 (最终高置信度信号)
-    fund_flow_data_source_count = models.IntegerField(verbose_name='资金流有效源数量', null=True, blank=True, help_text="当天可用的资金流数据源总数(1-3)。")
-    consensus_main_force_inflow = models.BooleanField(verbose_name='共识性主力流入', default=False, help_text="三大数据源(内部,同花顺,东财)是否均显示主力资金净流入。")
-    consensus_main_force_outflow = models.BooleanField(verbose_name='共识性主力流出', default=False, help_text="三大数据源是否均显示主力资金净流出。")
-    fund_flow_divergence = models.BooleanField(verbose_name='资金流向分歧', default=False, help_text="三大数据源对主力资金流向的判断是否不一致，可能暗示主力在进行欺骗性操作。")
-
-    # --- 7. 辅助与过程指标 ---
+    # --- 6. 辅助与过程指标 ---
     pressure_above_volume = models.BigIntegerField(verbose_name='上方套牢盘绝对量(股)', null=True, blank=True, help_text="收盘价上方2%价格区间内的绝对筹码股数。")
     support_below_volume = models.BigIntegerField(verbose_name='下方支撑盘绝对量(股)', null=True, blank=True, help_text="收盘价下方2%价格区间内的绝对筹码股数。")
     turnover_volume_in_cost_range_70pct = models.BigIntegerField(verbose_name='70%成本区换手量(股)', null=True, blank=True, help_text="当天成交量中，在70%核心成本区内完成的绝对股数，反映核心区换手意愿。")
     prev_20d_close = models.FloatField(null=True, blank=True, verbose_name='20日前收盘价', help_text="用于计算短期获利盘的基准价格。")
     
-    # --- 8. 【升维】控盘度指标 (Control Metrics) ---
+    # --- 7. 【升维】控盘度指标 (Control Metrics) ---
     peak_control_ratio = models.FloatField(verbose_name='筹码峰控盘比(%)', null=True, blank=True, help_text="主筹码峰的绝对股数 / 流通股本。衡量主力对核心阵地的绝对控制力。")
     peak_absorption_intensity = models.FloatField(verbose_name='筹码峰吸筹强度', null=True, blank=True, help_text="在主筹码峰价格区间内的换手量 / 当日总换手量。值越高，代表主力在核心区吸筹/换手越坚决。")
 
-    # --- 9. 【升维】利润质量指标 (Profit Quality Metrics) ---
+    # --- 8. 【升维】利润质量指标 (Profit Quality Metrics) ---
     winner_avg_cost = models.FloatField(verbose_name='获利盘平均成本', null=True, blank=True, help_text="所有获利筹码的加权平均成本价。")
     winner_profit_margin = models.FloatField(verbose_name='获利盘安全垫(%)', null=True, blank=True, help_text="(收盘价 - 获利盘均价) / 获利盘均价。衡量获利盘的平均利润厚度，值越高，持股心态越稳。")
 
-    # --- 10. 【升维】价码关系指标 (Price-Chip Relation Metrics) ---
+    # --- 9. 【升维】价码关系指标 (Price-Chip Relation Metrics) ---
     price_to_peak_ratio = models.FloatField(verbose_name='股价/筹码峰成本比', null=True, blank=True, help_text="收盘价 / 主筹码峰成本。 >1 表示股价脱离成本区，<1 表示被压制。")
     chip_zscore = models.FloatField(verbose_name='筹码Z-Score', null=True, blank=True, help_text="收盘价在整个筹码分布中的标准分位置。衡量股价相对于整体持仓成本的偏离度。绝对值越大，偏离越远。")
 
-    # --- 11. 【升维】筹码断层指标 (Chip Fault Metrics) ---
+    # --- 10. 【升维】筹码断层指标 (Chip Fault Metrics) ---
     chip_fault_strength = models.FloatField(verbose_name='筹码断层强度', null=True, blank=True, help_text="收盘价脱离主筹码峰的相对距离((收盘价-峰成本)/峰成本)，值越大，脱离越远。")
     chip_fault_vacuum_percent = models.FloatField(verbose_name='断层真空区筹码占比(%)', null=True, blank=True, help_text="主筹码峰与收盘价之间的筹码占比，值越小，代表上涨过程越轻松，抛压越小。")
     is_chip_fault_formed = models.BooleanField(verbose_name='是否形成筹码断层', default=False, help_text="综合断层强度和真空度判断是否形成有效的筹码断层结构，是极强的看涨信号。")
 
-    # --- 12. 【超级指标】最终裁决 ---
+    # --- 11. 【超级指标】最终裁决 ---
     chip_health_score = models.FloatField(verbose_name='筹码健康分(0-100)', null=True, blank=True, help_text="综合控盘度、利润质量、集中度等多个维度得出的最终评分，全面评估当前筹码结构的健康状况。")
 
+    # --- 12. 【升维】成交量微观结构指标 (Turnover Microstructure) ---
+    turnover_at_peak_ratio = models.FloatField(
+        verbose_name='主峰成交占比(%)', null=True, blank=True,
+        help_text="当日成交量中，发生在主筹码峰价格区间的成交量占比。值越高，代表主力在核心阵地的交战/换手越激烈。"
+    )
+    turnover_from_winners_ratio = models.FloatField(
+        verbose_name='获利盘抛压占比(%)', null=True, blank=True,
+        help_text="当日成交量中，由获利盘(成本低于收盘价)卖出所贡献的占比。值越高，代表短期抛售压力越大。"
+    )
+    turnover_from_losers_ratio = models.FloatField(
+        verbose_name='套牢盘割肉占比(%)', null=True, blank=True,
+        help_text="当日成交量中，由套牢盘(成本高于收盘价)卖出所贡献的占比。值越高，代表恐慌/割肉盘越重。"
+    )
 
     class Meta:
-        verbose_name = '高级筹码指标(三源合一版)'
+        verbose_name = '高级筹码指标(升维净化版)'
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics'
-        # 核心约束：同一股票在同一天只能有一条记录
         unique_together = ('stock', 'trade_time')
-        # 默认排序：按时间倒序，方便获取最新数据
         ordering = ['-trade_time']
-        # 索引优化：为高频查询字段建立索引
         indexes = [
-            # unique_together 已经隐式创建了 (stock, trade_time) 的联合索引，
-            # 但为单字段查询优化，可以单独建立索引。
             models.Index(fields=['stock']),
             models.Index(fields=['trade_time']),
-            # 为策略筛选高频使用的布尔信号字段建立索引
-            models.Index(fields=['consensus_main_force_inflow']),
-            models.Index(fields=['consensus_main_force_outflow']),
-            models.Index(fields=['fund_flow_divergence']),
-            models.Index(fields=['chip_health_score']), # 为超级指标建立索引
-            models.Index(fields=['is_chip_fault_formed']), # 【新增】为筹码断层信号建立索引
+            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['is_chip_fault_formed']),
         ]
 
     def __str__(self):
-        # 定义对象在后台或命令行中的可读性表示
         return f"{self.stock.stock_code} - {self.trade_time}"
 
 # 指数日线行情(IndexDaily)

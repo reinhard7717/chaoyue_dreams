@@ -1653,6 +1653,79 @@ class IntelligenceLayer:
 
         return states
 
+    def _diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V340.0 新增】筹码峰“创世纪”模块
+        - 核心职责: 追踪主筹码峰的“政权更迭”，并为其关联上“出生证明”
+                    (确立之日的成交量特征)，从而解读其战略意义。
+        """
+        print("        -> [筹码峰“创世纪”模块 V340.0] 启动...")
+        states = {}
+        
+        # --- 1. 检查所需数据 ---
+        required_cols = ['peak_cost_D', 'volume_D', 'VOL_MA_21_D']
+        if any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少诊断筹码峰起源所需数据，模块跳过。")
+            return {}
+
+        # --- 2. 识别“政权更迭”事件 ---
+        # 定义：主峰成本与昨日相比，变化超过1.5%
+        is_peak_changed = (df['peak_cost_D'].pct_change().abs() > 0.015)
+        
+        # --- 3. 状态机：追踪并确认新的主峰 ---
+        df['formation_date'] = np.nan
+        df['formation_volume_ratio'] = np.nan
+        
+        in_observation = False
+        observation_start_idx = -1
+        stability_period = 3 # 需要稳定3天
+
+        for i in range(1, len(df)):
+            if is_peak_changed.iloc[i] and not in_observation:
+                # 发现潜在的更迭事件，开始观察
+                in_observation = True
+                observation_start_idx = i
+            
+            if in_observation:
+                # 检查自观察开始以来，主峰是否保持稳定
+                observation_window = df['peak_cost_D'].iloc[observation_start_idx : i+1]
+                is_stable = (observation_window.std() / observation_window.mean()) < 0.01
+                
+                if not is_stable:
+                    # 如果不稳定，重置观察
+                    in_observation = False
+                elif (i - observation_start_idx + 1) >= stability_period:
+                    # 如果已稳定达到N天，则确认“政权”
+                    formation_date = df.index[observation_start_idx]
+                    formation_volume_ratio = df.at[formation_date, 'volume_D'] / df.at[formation_date, 'VOL_MA_21_D']
+                    
+                    # 将“出生证明”赋予从确立日到今天的所有记录
+                    for j in range(observation_start_idx, i + 1):
+                        df.at[df.index[j], 'formation_date'] = formation_date
+                        df.at[df.index[j], 'formation_volume_ratio'] = formation_volume_ratio
+                    
+                    # 结束本次观察
+                    in_observation = False
+
+        # --- 4. 解读“出生证明”，生成战略信号 ---
+        # 条件A: 高量形成 (成交量是均量的2倍以上)
+        is_high_volume_formation = df['formation_volume_ratio'] > 2.0
+        # 条件B: 缩量形成 (成交量低于均量的70%)
+        is_low_volume_formation = df['formation_volume_ratio'] < 0.7
+        
+        # 条件C: 形成于下跌/盘整后 (用长期均线斜率判断)
+        is_after_downtrend = df['SLOPE_55_EMA_55_D'].shift(1) <= 0
+        # 条件D: 形成于上涨后
+        is_after_uptrend = df['SLOPE_55_EMA_55_D'].shift(1) > 0
+
+        # 组合生成最终的原子状态
+        states['PEAK_DYN_FORTRESS_SUPPORT'] = is_high_volume_formation & is_after_downtrend
+        states['PEAK_DYN_EXHAUSTION_TOP'] = is_high_volume_formation & is_after_uptrend
+        states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend
+
+        return states
+
+
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """
         【V335.2 核心指标版】动态阈值校准中心

@@ -19,7 +19,7 @@ class ChipFeatureCalculator:
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
         
-        for key in ['total_chip_volume', 'daily_turnover_volume', 'weight_avg_cost', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
+        for key in ['total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
 
@@ -36,6 +36,10 @@ class ChipFeatureCalculator:
 
         # --- 1. 基础指标计算 ---
         # 这一步计算所有不相互依赖的基础模块
+        # ▼▼▼【核心升级】首先进行自主的摘要计算 ▼▼▼
+        summary_info = self._calculate_summary_metrics()
+        # 将自主计算的结果，立即注入到上下文中
+        self.ctx.update(summary_info)
         peaks_info = self._calculate_peaks()
         concentration_info = self._calculate_concentration()
         winner_structure_info = self._calculate_winner_structure()
@@ -50,22 +54,20 @@ class ChipFeatureCalculator:
             **peaks_info, 
             **concentration_info, 
             **winner_structure_info,
-            **fund_flow_info # 将资金流信息也加入，供未来更复杂的指标使用
         }
 
-        # --- 3. 升维指标计算 (所有这些模块都使用同一个增强上下文) ---
-        # 现在，所有高级计算都从同一个、确定的上下文中取数，不会再出现 UnboundLocalError
+        # --- 3. 升维指标计算 ---
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
-        fault_info = self._calculate_chip_fault(context_for_derived_metrics) # 使用重构后的上下文
+        fault_info = self._calculate_chip_fault(context_for_derived_metrics)
 
         # --- 4. 合并所有结果并返回 ---
         all_metrics = {
+            **summary_info, # <--- 将自主计算的摘要指标加入最终结果
             **peaks_info,
             **concentration_info,
             **winner_structure_info,
             **pressure_support_info,
             **turnover_info,
-            **fund_flow_info,
             **advanced_structure_info,
             **fault_info
         }
@@ -76,6 +78,33 @@ class ChipFeatureCalculator:
 
         # --- 5. 返回清理后的最终结果 ---
         return all_metrics
+
+    def _calculate_summary_metrics(self) -> dict:
+        """
+        【V12.0 新增】摘要指标自主计算模块
+        基于原始筹码分布，计算加权平均成本和总获利盘。
+        """
+        # 确保筹码百分比总和为100，便于加权计算
+        if not np.isclose(self.df['percent'].sum(), 100.0):
+            normalized_percent = self.df['percent'] / self.df['percent'].sum()
+        else:
+            normalized_percent = self.df['percent'] / 100.0
+        
+        # 1. 计算加权平均成本 (weight_avg_cost)
+        weight_avg_cost = np.average(self.df['price'], weights=normalized_percent)
+
+        # 2. 计算总获利盘 (total_winner_rate)
+        close_price = self.ctx.get('close_price')
+        if close_price:
+            winners_df = self.df[self.df['price'] < close_price]
+            total_winner_rate = winners_df['percent'].sum()
+        else:
+            total_winner_rate = 0.0
+
+        return {
+            'weight_avg_cost': weight_avg_cost,
+            'total_winner_rate': total_winner_rate,
+        }
 
     def _calculate_peaks(self) -> dict:
         # 【代码修改】: 增加 width 参数，让 find_peaks 计算山峰宽度
@@ -184,37 +213,27 @@ class ChipFeatureCalculator:
             'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
         }
 
-    # ▼▼▼【代码修改 V10.0】: 修正获利盘计算逻辑 ▼▼▼
     def _calculate_winner_structure(self) -> dict:
         """
-        【V10.0 最终修正】
-        严格按照模型字段的业务定义进行计算，并增加总获利盘指标。
+        【V12.0 简化版】
+        - 核心简化: 不再计算 total_winner_rate，因为它已在 _calculate_summary_metrics 中计算。
         """
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
 
-        # 如果缺少关键价格数据，则无法计算
         if not close_price or pd.isna(prev_20d_close):
-            return {'winner_rate_short_term': None, 'winner_rate_long_term': None, 'total_winner_rate': None}
+            return {'winner_rate_short_term': None, 'winner_rate_long_term': None}
 
-        # 定义1: 总获利盘 = 持仓成本 < 当天收盘价
-        total_winners_df = self.df[self.df['price'] < close_price]
-        total_winner_rate = total_winners_df['percent'].sum()
-
-        # 定义2: 长期锁定盘 = 持仓成本 < 20日前收盘价
         long_term_winners_df = self.df[self.df['price'] < prev_20d_close]
         long_term_winner_rate = long_term_winners_df['percent'].sum()
 
-        # 定义3: 短期获利盘 = 成本低于收盘价，但高于20日前收盘价
         short_term_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= prev_20d_close)]
         short_term_winner_rate = short_term_winners_df['percent'].sum()
         
         return {
             'winner_rate_short_term': short_term_winner_rate,
             'winner_rate_long_term': long_term_winner_rate,
-            'total_winner_rate': total_winner_rate,
         }
-    # ▲▲▲【代码修改 V10.0】▲▲▲
 
     def _calculate_pressure_support(self) -> dict:
         # 上方压力与下方支撑计算：此部分逻辑一直正确，无需修改

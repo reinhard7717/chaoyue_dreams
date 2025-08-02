@@ -788,7 +788,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     # 1. 【核心修改】在同步上下文中创建所有依赖对象
     try:
         cache_manager = CacheManager()
-        fund_flow_dao = FundFlowDao(cache_manager)
+        # fund_flow_dao = FundFlowDao(cache_manager)
         time_trade_dao = StockTimeTradeDAO(cache_manager)
     except Exception as e:
         logger.error(f"[{stock_code}] 在创建DAO实例时失败，任务终止: {e}", exc_info=True)
@@ -862,10 +862,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
                 "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
                 "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
-                "perf_data": get_data_async(StockCyqPerf, stock_info, fields=('trade_time', 'weight_avg'), start_date=fetch_start_date),
-                "fund_flow_cy": get_data_async(fund_flow_cy_model, stock_info, fields=cy_fields, start_date=fetch_start_date),
-                "fund_flow_ths": get_data_async(fund_flow_ths_model, stock_info, fields=('trade_time', 'buy_lg_amount'), start_date=fetch_start_date),
-                "fund_flow_dc": get_data_async(fund_flow_dc_model, stock_info, fields=('trade_time', 'net_amount'), start_date=fetch_start_date),
+                # "perf_data": get_data_async(StockCyqPerf, stock_info, fields=('trade_time', 'weight_avg'), start_date=fetch_start_date),
+                # "fund_flow_cy": get_data_async(fund_flow_cy_model, stock_info, fields=cy_fields, start_date=fetch_start_date),
+                # "fund_flow_ths": get_data_async(fund_flow_ths_model, stock_info, fields=('trade_time', 'buy_lg_amount'), start_date=fetch_start_date),
+                # "fund_flow_dc": get_data_async(fund_flow_dc_model, stock_info, fields=('trade_time', 'net_amount'), start_date=fetch_start_date),
             }
             
             results = await asyncio.gather(*data_tasks.values())
@@ -889,8 +889,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_basic_data = data_dfs['daily_basic']
             daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
             
-            perf_data = data_dfs['perf_data']
-            perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
+            # perf_data = data_dfs['perf_data']
+            # perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
             
             fund_flow_cy_data = data_dfs['fund_flow_cy']
             if not fund_flow_cy_data.empty:
@@ -917,11 +917,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
             daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
             daily_basic_data = daily_basic_data.drop(columns=['float_share'])
-            perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
+            # perf_data = perf_data.rename(columns={'weight_avg': 'weight_avg_cost'})
             
             merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
             merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
-            merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
+            # merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
             if not fund_flow_cy_data.empty:
                 merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
             if not fund_flow_ths_data.empty:
@@ -1007,7 +1007,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     # 3. 调用 async_to_sync，并将依赖作为参数传入
     try:
         # 将创建好的DAO实例作为参数传递给main函数
-        result = async_to_sync(main)(fund_flow_dao, time_trade_dao, is_incremental)
+        # result = async_to_sync(main)(fund_flow_dao, time_trade_dao, is_incremental)
+        result = async_to_sync(main)(time_trade_dao, is_incremental)
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
