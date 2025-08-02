@@ -1407,8 +1407,7 @@ class IntelligenceLayer:
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
         is_low_turnover = df['turnover_rate_f_D'] < max_turnover_rate
 
-        # ▼▼▼【核心修复】使用正确的变量名 is_in_uptrend ▼▼▼
-        base_conditions = is_in_uptrend & is_moderate_pullback & is_chip_structure_stable & is_main_force_outflow_tolerable
+        base_conditions = is_in_uptrend & is_moderate_pullback & is_chip_structure_stable & is_main_force_locked
         
         if require_shrinking_volume:
             final_conditions = base_conditions & is_shrinking_volume & is_low_turnover
