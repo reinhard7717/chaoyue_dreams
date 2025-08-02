@@ -133,7 +133,24 @@ def subtract(value, arg):
         print(f"DEBUG: subtract filter error - value: {value}, arg: {arg}") # 调试信息
         return 0.0 # 发生错误时返回0.0，或根据业务需求处理
 
+@register.filter(name='get_cn_name')
+def get_cn_name(signal_key, metadata_dict):
+    """
+    一个安全的字典查找过滤器。
+    从 metadata_dict 中获取 signal_key 对应的中文名，如果找不到，则返回原始的 key。
+    """
+    if not isinstance(metadata_dict, dict):
+        return signal_key
+    return metadata_dict.get(signal_key, signal_key)
 
-
+@register.filter(name='get_signal_status')
+def get_signal_status(signal_key, metadata_dict):
+    """
+    一个安全的字典查找过滤器。
+    从 metadata_dict 中获取 signal_key 对应的状态，如果找不到，则返回原始的 key。
+    """
+    if not isinstance(metadata_dict, dict):
+        return signal_key
+    return metadata_dict.get(signal_key, signal_key)
 
 

@@ -18,6 +18,18 @@
     .score-neutral { color: #9e9e9e; }
     .score-delta { font-size: 0.8em; font-weight: normal; margin-left: 5px; }
     .risk-score-display { color: #ff9800; font-weight: bold; }
+        .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.85em;
+        margin: 2px;
+        color: #fff;
+        background-color: #9e9e9e;
+    }
+    .tag-warning { background-color: #ff9800; } /* 橙色: 优势衰减 */
+    .tag-danger { background-color: #f44336; }  /* 红色: 新增风险 */
+    .tag-secondary { background-color: #757575; } /* 灰色: 持续风险 */
 </style>
 {% endblock %}
 
@@ -70,31 +82,69 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if tracker.status == 'HOLDING' and tracker.latest_log and tracker.entry_log %}
-                                {% with buy_score=tracker.entry_score|default:0 latest_score=tracker.latest_log.entry_score|default:0 %}
-                                    {% with score_diff=latest_score|add:buy_score|multiply:-1 %}
-                                        <div class="score-tracker">
-                                            <span class="{% if score_diff > 0 %}score-up{% elif score_diff < 0 %}score-down{% else %}score-neutral{% endif %}">
-                                                📈 {{ latest_score|floatformat:0 }}
-                                                <span class="score-delta">
-                                                    ({% if score_diff > 0 %}+{% endif %}{{ score_diff|floatformat:0 }})
-                                                </span>
-                                            </span>
-                                            {% if tracker.latest_log.risk_score > 0 %}
-                                                <span class="risk-score-display" title="当前风险分">
-                                                    &nbsp; | &nbsp;风险分 ⚠️ {{ tracker.latest_log.risk_score|floatformat:0 }}
-                                                </span>
+                            {% if tracker.status == 'HOLDING' and tracker.latest_log %}
+                                {# --- Part 1: 核心分数追踪 (保持不变) --- #}
+                                <div class="score-tracker">
+                                    <span class="{% if tracker.score_change_vs_entry > 0 %}score-up{% elif tracker.score_change_vs_entry < 0 %}score-down{% else %}score-neutral{% endif %}">
+                                        📈 {{ tracker.latest_log.entry_score|floatformat:0 }}
+                                        <span class="score-delta">
+                                            ({% if tracker.score_change_vs_entry > 0 %}+{% endif %}{{ tracker.score_change_vs_entry|floatformat:0 }})
+                                        </span>
+                                    </span>
+                                    {% if tracker.latest_log.risk_score > 0 %}
+                                        <span class="risk-score-display" title="当前风险分">
+                                            &nbsp; | &nbsp;风险分 ⚠️ {{ tracker.latest_log.risk_score|floatformat:0 }}
+                                        </span>
+                                    {% endif %}
+                                </div>
+
+                                {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #}
+                                {% with summary=tracker.health_change_summary %}
+                                    {% if summary and (summary.offense_change.fading or summary.risk_change.new or summary.risk_change.persistent) %}
+                                        <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em;">
+                                            
+                                            {# 2.1 进攻优势变化 #}
+                                            {% if summary.offense_change.fading %}
+                                                <div class="change-section">
+                                                    <strong style="color: #ff9800;">优势衰减:</strong>
+                                                    {% for signal in summary.offense_change.fading %}
+                                                        <span class="tag tag-warning">{{ signal|get_cn_name:signal_metadata }}</span>
+                                                    {% endfor %}
+                                                </div>
+                                            {% endif %}
+
+                                            {# 2.2 风险因素变化 #}
+                                            {% if summary.risk_change.new %}
+                                                <div class="change-section" style="margin-top: 4px;">
+                                                    <strong style="color: #f44336;">新增风险:</strong>
+                                                    {% for signal in summary.risk_change.new %}
+                                                        <span class="tag tag-danger">{{ signal|get_cn_name:signal_metadata }}</span>
+                                                    {% endfor %}
+                                                </div>
+                                            {% endif %}
+                                            
+                                            {# 2.3 持续存在的风险 #}
+                                            {% if summary.risk_change.persistent %}
+                                                <div class="change-section" style="margin-top: 4px;">
+                                                    <strong style="color: #757575;">持续风险:</strong>
+                                                    {% for signal in summary.risk_change.persistent %}
+                                                        <span class="tag tag-secondary">{{ signal|get_cn_name:signal_metadata }}</span>
+                                                    {% endfor %}
+                                                </div>
                                             {% endif %}
                                         </div>
-                                    {% endwith %}
+                                    {% endif %}
                                 {% endwith %}
+
                                 <div class="signal-details" style="margin-top: 5px;">
                                     <span class="time-info">
                                         更新于: {{ tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
                                     </span>
                                 </div>
                             {% elif tracker.status == 'SOLD' and tracker.exit_log %}
-                                {# ... (平仓信息的显示逻辑) ... #}
+                                <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
+                                <br>
+                                <small>平仓原因: {{ tracker.exit_log.triggered_playbooks|default:"-" }}</small>
                             {% else %}
                                 -
                             {% endif %}

@@ -47,15 +47,14 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
         
-        # ▼▼▼【核心修复】严格按照依赖顺序执行 ▼▼▼
         # 2.1 先运行“动态筹码分析”，生成 RISK_DYN_... 等基础信号
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
         # 2.2 再运行“顶部风险司令部”，它会使用上面生成的位置情报
         self.strategy.atomic_states.update(self._diagnose_topping_risks_command(df))
-        # ▲▲▲【核心修复】▲▲▲
 
         # --- 阶段三: 复合原子状态诊断 ---
         print("    -> [情报层] 阶段3: 复合原子状态诊断...")
+        self.strategy.atomic_states.update(self._diagnose_behavioral_patterns(df))
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
         
@@ -64,6 +63,8 @@ class IntelligenceLayer:
         
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
+        # “持仓风险”诊断模块
+        self.strategy.atomic_states.update(self._diagnose_holding_risks(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self._diagnose_breakout_pullback_relay(df))
 
@@ -401,66 +402,31 @@ class IntelligenceLayer:
 
     def _diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.0 新增】全指标动态分析中心
-        - 核心职责: 集中处理所有关键筹码指标的斜率与加速度，系统性地生成
-                    高维度的动态机遇与风险信号。这是对动态分析能力的终极整合。
+        【V283.6 最终客观版】
+        - 核心净化: 移除所有RISK_前缀，本模块只报告客观的动态事实。
         """
-        # print("          -> [动态分析中心 V283.0] 已部署，正在对全筹码指标进行动态扫描...")
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
-            'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
-            'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
-            return states
-        
-        # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
-        # 注意：这要求 _diagnose_topping_risks_command 必须在此模块之前运行
-        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-
-       # --- 2. 对“筹码集中度”进行动态分析 (机遇/风险) ---
-        # 2.1 基础的“集中趋势”信号 (斜率)
-        is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
-        states['CHIP_DYN_CONCENTRATING'] = is_concentrating_trend
-        # ▼▼▼ “加速集中”信号 ▼▼▼
-        # 从配置中读取“显著加速”的阈值
-        p_chip = get_params_block(self.strategy, 'chip_feature_params')
-        accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
-        # 行为：加速度必须超过阈值，过滤噪音
-        is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
-        # 共振：最强的信号是“趋势”与“行为”的共振
-        # 即：在集中的趋势中，出现了显著的加速行为
-        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
-        # 【核心升级】只有在高位区的筹码发散，才是真正的风险
+        # ...
+        # 【净化】RISK_DYN_DIVERGING -> CHIP_DYN_DIVERGING
         is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['RISK_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
-        is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
-        states['RISK_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
-
-        # --- 3. 对“筹码成本”进行动态分析 (机遇/风险) ---
-        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
-        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
-        states['RISK_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
-
-        # --- 4. 对“总获利盘”进行动态分析 (机遇/风险) ---
-        winner_rate_collapse_threshold = -1.0 # 斜率小于-1才算崩盘
-        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
-        states['RISK_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
-        states['RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0 # 获利盘加速崩盘
-
-        # --- 5. 对“筹码健康分”进行动态分析 (机遇/风险) ---
-        states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
-        states['RISK_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
+        states['CHIP_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
         
-        # print("          -> [动态分析中心 V283.0] 动态扫描完成。")
+        # 【净化】RISK_DYN_ACCEL_DIVERGING -> CHIP_DYN_ACCEL_DIVERGING
+        is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
+        states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
+
+        # 【净化】RISK_DYN_COST_FALLING -> CHIP_DYN_COST_FALLING
+        states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
+
+        # 【净化】RISK_DYN_WINNER_RATE_COLLAPSING -> CHIP_DYN_WINNER_RATE_COLLAPSING
+        winner_rate_collapse_threshold = -1.0
+        states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
+        
+        # 【净化】RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING -> CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING
+        states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
+
+        # 【净化】RISK_DYN_HEALTH_DETERIORATING -> CHIP_DYN_HEALTH_DETERIORATING
+        states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
+        
         return states
 
     def _diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -884,7 +850,7 @@ class IntelligenceLayer:
         
         # 组合成最终的“平台破位”风险信号
         platform_failure_series = was_on_platform & is_breaking_down
-        states['PLATFORM_FAILURE'] = platform_failure_series
+        states['STRUCTURE_PLATFORM_BROKEN'] = platform_failure_series
 
         # --- 步骤5: 打印诊断日志 ---
         # print(f"          -> '稳固平台形成' 状态诊断完成，共激活 {stable_formed_series.sum()} 天。")
@@ -1637,6 +1603,25 @@ class IntelligenceLayer:
             
         return states
 
+    def _diagnose_holding_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V338.0 新增】持仓风险诊断模块
+        - 核心职责: 诊断那些与持仓健康度相关的、更精细的早期预警信号。
+        """
+        print("        -> [持仓风险诊断模块 V338.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 诊断“健康度失速”风险 ---
+        is_improving = self.strategy.atomic_states.get('CHIP_DYN_HEALTH_IMPROVING', default_series)
+        
+        was_improving = is_improving.shift(1).fillna(False)
+        is_not_improving_now = ~is_improving
+        
+        states['HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now
+
+        return states
+
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """
         【V335.2 核心指标版】动态阈值校准中心
@@ -1663,7 +1648,7 @@ class IntelligenceLayer:
         print("        -> [动态阈值校准中心 V335.2] 校准完成。")
         return thresholds
 
-    def _diagnose_manipulative_tactics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V336.1 证据分层版】主力操纵战术“反侦察”模块
         - 核心升级: 放弃对“资金流”数据的盲目信任，建立基于“筹码结构”为核心的
@@ -1692,20 +1677,20 @@ class IntelligenceLayer:
         is_core_absorption_conflict = is_sharp_drop & is_high_volume & evidence_chip_concentrating
         
         # A级机会 (隐蔽吸筹): 核心矛盾成立。这是主力最狡猾、最常见的吸筹方式。
-        states['COGNITIVE_OPP_STEALTH_ABSORPTION_A'] = is_core_absorption_conflict
+        states['BEHAVIOR_STEALTH_ABSORPTION_A'] = is_core_absorption_conflict
         
         # S级机会 (黄金坑): 核心矛盾成立，且资金流出现罕见的同步流入。这是主力图穷匕见、毫不掩饰的贪婪。
-        states['COGNITIVE_OPP_GOLDEN_PIT_S'] = is_core_absorption_conflict & evidence_capital_inflow
+        states['BEHAVIOR_GOLDEN_PIT_S'] = is_core_absorption_conflict & evidence_capital_inflow
 
         # --- 4. “诱多派发”风险分层诊断 ---
         # 核心矛盾：价格拉升 VS 筹码发散
         is_core_distribution_conflict = is_strong_rally & evidence_chip_diverging
         
         # A级风险 (隐蔽派发): 核心矛盾成立。这是最危险的陷阱。
-        states['COGNITIVE_RISK_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
+        states['BEHAVIOR_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
         
         # S级风险 (公然出货): 核心矛盾成立，且资金流同步流出。这是主力肆无忌惮的派发。
-        states['COGNITIVE_RISK_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict & evidence_capital_outflow
+        states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict & evidence_capital_outflow
 
         return states
 

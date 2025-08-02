@@ -70,8 +70,10 @@ class TrendFollowStrategy:
         # --- 指挥链 3/8: 预警层 ---
         # 评估所有风险信号，计算 risk_score
         print("    --- [指挥链 3/8] 预警层: 正在评估所有战场风险... ---")
-        risk_score, risk_details_df = self.warning_layer.calculate_risk_score()
+        risk_score, risk_details_df, risk_change_summary = self.warning_layer.calculate_risk_score()
         self.df_indicators['risk_score'] = risk_score
+        # 将风险变化摘要存入主DataFrame，供后续使用
+        self.df_indicators['risk_change_summary'] = risk_change_summary
 
         # ▼▼▼【V317.0 核心调整】新增指挥环节 ▼▼▼
         # --- 指挥链 4/8: 力学分析层 ---
@@ -83,7 +85,7 @@ class TrendFollowStrategy:
         # --- 指挥链 5/8: 统合判断层 ---
         # 综合静态分数和动态力学指令，做出最终决策
         print("    --- [指挥链 5/8] 统合判断层: 正在进行最终决策... ---")
-        self.judgment_layer.make_final_decisions()
+        self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
 
         # --- 指挥链 6/8: 离场层 (由判断层内部调用) ---
         print("    --- [指挥链 6/8] 离场层: 已在判断层内部完成计算... ---")

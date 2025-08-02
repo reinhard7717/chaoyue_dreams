@@ -662,7 +662,15 @@ class TrendFollowStrategySignalLog(models.Model):
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
     entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
     risk_score = models.FloatField(default=0.0, help_text="风险信号的综合得分")
-    holding_health_score = models.FloatField(default=0.0, null=True, blank=True, help_text="持仓健康分 (每日计算)")
+    risk_change_summary = models.JSONField(
+        default=dict, 
+        null=True, blank=True, 
+        help_text="当日的风险变化摘要"
+    )
+    health_change_summary = models.JSONField(
+        default=dict, null=True, blank=True, help_text="当日的攻防健康度变化摘要"
+    )
+    holding_health_score = models.FloatField(default=0.0, null=True, blank=True, help_text="【已废弃】持仓健康分 (每日计算)")
     stable_platform_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="[趋势策略]识别出的稳固筹码平台价格")
     
     # --- 信号类型 (细分) ---
@@ -756,6 +764,11 @@ class FavoriteStockTracker(models.Model):
     
     # --- 预计算的追踪指标 ---
     holding_health_score = models.FloatField(default=0.0, help_text="最新的持仓健康分")
+    health_change_summary = models.JSONField(
+        default=dict, 
+        null=True, blank=True, 
+        help_text="结构化的攻防健康度变化摘要"
+    )
     score_change_vs_entry = models.FloatField(default=0.0, help_text="最新分数相比建仓时的变化量")
     profit_loss_pct = models.FloatField(default=0.0, help_text="当前持仓的浮动盈亏百分比")
 
@@ -793,7 +806,7 @@ class FavoriteStockTracker(models.Model):
         self.latest_date = latest_log_instance.trade_time
         
         # 更新预计算指标
-        self.holding_health_score = latest_log_instance.holding_health_score or 0.0
+        self.health_change_summary = latest_log_instance.health_change_summary or {}
         self.score_change_vs_entry = (latest_log_instance.entry_score or 0.0) - self.entry_score
         if self.entry_price and self.entry_price > 0:
             self.profit_loss_pct = ((self.latest_price / self.entry_price) - 1) * 100

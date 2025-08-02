@@ -33,6 +33,7 @@ class OffensiveLayer:
             score = rule.get('score', 0)
             required_states = rule.get('all_of', []) # "与"逻辑
             any_of_states = rule.get('any_of', [])   # "或"逻辑
+            forbidden_states = rule.get('none_of', [])
 
             final_condition = pd.Series(True, index=df.index)
             
@@ -47,6 +48,10 @@ class OffensiveLayer:
                 for state in any_of_states:
                     any_condition |= atomic_states.get(state, default_series)
                 final_condition &= any_condition
+
+            if forbidden_states:
+                for state in forbidden_states:
+                    final_condition &= ~atomic_states.get(state, default_series)
 
             if final_condition.any():
                 entry_score.loc[final_condition] += score

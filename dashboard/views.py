@@ -15,6 +15,8 @@ from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
+from strategies.trend_following_strategy import TrendFollowStrategy
+from utils.config_loader import load_strategy_config
 from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog, TrendFollowStrategyState
 from stock_models.stock_basic import StockInfo
 from utils.cache_manager import CacheManager
@@ -236,6 +238,10 @@ def fav_trend_following_list(request):
     ).annotate(
         favorite_id=favorite_stock_id_subquery # 新增代码行：将 FavoriteStock ID 注释到 tracker 对象上
     )
+    
+    unified_config = load_strategy_config('config/trend_follow_strategy.json')
+    tactical_engine = TrendFollowStrategy(config=unified_config)
+    signal_metadata = tactical_engine.reporting_layer.signal_metadata
 
     # --- 步骤2: 根据前端请求进行状态筛选 ---
     status_filter = request.GET.get('status', 'holding')
@@ -262,13 +268,12 @@ def fav_trend_following_list(request):
     page_obj = paginator.get_page(page_number)
 
     # --- 步骤5: 准备最终上下文并渲染 ---
-    # 【核心修改】我们不再需要构建 items_for_display 列表了！
-    # 直接将 page_obj 传递给模板，模板中可以直接遍历它。
     context = {
         'page_title': page_title,
-        'page_obj': page_obj, # 直接传递分页对象
+        'page_obj': page_obj,
         'total_count': paginator.count,
         'status_filter': status_filter,
+        'signal_metadata': signal_metadata, # <--- 将元数据字典传递给模板
     }
     return render(request, 'dashboard/fav_trend_following_list.html', context)
 

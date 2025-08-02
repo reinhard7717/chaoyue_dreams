@@ -9,67 +9,54 @@ class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
-    def _evaluate_holding_health(self):
+    def _evaluate_holding_health(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
         """
-        【新增】持仓大脑 - 评估持仓健康度 (HHS)
-        - 核心职责: 在持仓期间，每日计算一个“持仓健康分”，
-                    并根据分数变化定义不同的持仓状态。
+        【V339.1 攻防动态版】持仓大脑 - 评估持仓健康度
+        - 核心重构: 不再计算静态的健康分，而是动态对比当日与前一日的
+                    “进攻分数构成”和“风险分数构成”，捕捉“买入逻辑”的
+                    衰减和“风险”的出现，生成结构化的攻防变化摘要。
         """
-        print("        -> [持仓大脑] 正在评估所有活跃持仓的健康状况...")
+        print("        -> [持仓大脑 V339.1] 启动，正在进行攻防动态对比分析...")
         df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 定义健康评分的构成项 (正向/负向) ---
-        health_factors = {
-            # 趋势强度 (最高权重)
-            'FRACTAL_STATE_STRONG_TREND': 30,
-            'DYN_TREND_HEALTHY_ACCELERATING': 25,
-            'STRUCTURE_MAIN_UPTREND_WAVE_S': 20,
-            # 主力行为
-            'COGNITIVE_PATTERN_LOCK_CHIP_RALLY': 30,
-            'MECHANICS_COST_ACCELERATING': 20,
-            'CPA_RISE_WITH_MAIN_FORCE_SUPPORT': 15,
-            'MECHANICS_INERTIA_DECREASING': 15,
-        }
         
-        worsening_factors = {
-            # 结构性风险 (最高权重)
-            'FRACTAL_RISK_TOP_DIVERGENCE': -50,
-            'FRACTAL_EVENT_TREND_EXHAUSTION': -40,
-            'STRUCTURE_TOPPING_DANGER_S': -40,
-            # 主力派发
-            'RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING': -30,
-            'CONTEXT_RECENT_DISTRIBUTION_PRESSURE': -20,
-            # 趋势减弱
-            'DYN_TREND_WEAKENING_DECELERATING': -20,
-            'RISK_DYN_DIVERGING': -15,
-        }
-
-        # --- 2. 计算每日的健康分 ---
-        hhs = pd.Series(0.0, index=df.index)
-        for factor, score in health_factors.items():
-            hhs += atomic.get(factor, default_series) * score
+        # --- 1. 获取昨日的攻防态势 ---
+        score_details_df_yesterday = score_details_df.shift(1).fillna(0)
+        risk_score_df_yesterday = risk_score_df.shift(1).fillna(0)
         
-        for factor, score in worsening_factors.items():
-            hhs += atomic.get(factor, default_series) * score
+        # --- 2. 初始化诊断摘要存储列 ---
+        # 我们将把这个丰富的诊断结果，直接存储在df中，供后续模块使用
+        df['health_change_summary'] = [{} for _ in range(len(df))]
+
+        # --- 3. 逐日进行对比分析 ---
+        for idx in df.index:
+            # 进攻端分析
+            today_offense = set(score_details_df.columns[score_details_df.loc[idx] > 0])
+            yesterday_offense = set(score_details_df_yesterday.columns[score_details_df_yesterday.loc[idx] > 0])
             
-        df['holding_health_score'] = hhs
+            new_strengths = list(today_offense - yesterday_offense)
+            fading_strengths = list(yesterday_offense - today_offense)
 
-        # --- 3. 定义持仓状态 (状态机) ---
-        # 状态1: 强力持仓 (可以考虑加仓)
-        df['HOLDING_STATE_STRONG'] = (hhs >= 50) & (df['risk_score'] < 300)
-        
-        # 状态2: 正常持仓 (继续持有)
-        df['HOLDING_STATE_NORMAL'] = (hhs.between(20, 49)) & (df['risk_score'] < 500)
-        
-        # 状态3: 警告状态 (应上移止损，准备减仓)
-        df['HOLDING_STATE_WARNING'] = (hhs < 20) | (df['risk_score'] >= 500)
-        
-        # 状态4: 风险恶化 (应主动减仓)
-        # 例如：健康分连续3天下降，且今日为负
-        is_hhs_declining_3d = (hhs < hhs.shift(1)) & (hhs.shift(1) < hhs.shift(2))
-        df['HOLDING_STATE_DETERIORATING'] = is_hhs_declining_3d & (hhs < 0)
+            # 风险端分析
+            today_risks = set(risk_score_df.columns[risk_score_df.loc[idx] > 0])
+            yesterday_risks = set(risk_score_df_yesterday.columns[risk_score_df_yesterday.loc[idx] > 0])
+            
+            new_risks = list(today_risks - yesterday_risks)
+            resolved_risks = list(yesterday_risks - today_risks)
+            
+            # 只有在攻防态势发生变化时才记录
+            if new_strengths or fading_strengths or new_risks or resolved_risks:
+                summary = {
+                    'offense_change': {
+                        'new': new_strengths,
+                        'fading': fading_strengths
+                    },
+                    'risk_change': {
+                        'new': new_risks,
+                        'resolved': resolved_risks
+                    }
+                }
+                # 使用 .at 来精确赋值
+                df.at[idx, 'health_change_summary'] = summary
 
     def make_final_decisions(self):
         """
@@ -88,7 +75,7 @@ class JudgmentLayer:
         df['dynamic_action'] = 'HOLD'
 
         # --- 步骤 2: 评估持仓健康度 (独立模块) ---
-        self._evaluate_holding_health()
+        self._evaluate_holding_health(score_details_df, risk_score_df)
         
         # --- 步骤 3: 静态否决票评估 ---
         self._calculate_static_veto_votes()

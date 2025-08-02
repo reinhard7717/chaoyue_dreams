@@ -9,6 +9,38 @@ class WarningLayer:
         self.strategy = strategy_instance
         self.risk_playbook_blueprints = self._get_risk_playbook_blueprints()
 
+    def _diagnose_holding_health(self, risk_score_df: pd.DataFrame) -> pd.Series:
+        """
+        【V339.0 新增】持仓健康诊断大脑 (Holding Brain)
+        - 核心职责: 对比当日与前一日的风险构成，生成结构化的“风险变化摘要”。
+        """
+        print("          -> [持仓大脑 V339.0] 启动，正在进行风险变化分析...")
+        
+        # 获取昨日的风险构成
+        risk_score_df_yesterday = risk_score_df.shift(1).fillna(0)
+        
+        # 初始化一个空的Series，用于存放诊断摘要
+        health_diagnostics = pd.Series([{} for _ in range(len(risk_score_df))], index=risk_score_df.index)
+
+        # 逐日进行对比分析
+        for idx in risk_score_df.index:
+            today_risks = set(risk_score_df.columns[risk_score_df.loc[idx] > 0])
+            yesterday_risks = set(risk_score_df_yesterday.columns[risk_score_df_yesterday.loc[idx] > 0])
+            
+            new_risks = list(today_risks - yesterday_risks)
+            persistent_risks = list(today_risks.intersection(yesterday_risks))
+            resolved_risks = list(yesterday_risks - today_risks)
+            
+            # 只在有风险或风险变化时才记录
+            if new_risks or persistent_risks or resolved_risks:
+                health_diagnostics.at[idx] = {
+                    'new': new_risks,
+                    'persistent': persistent_risks,
+                    'resolved': resolved_risks
+                }
+
+        return health_diagnostics
+
     def calculate_risk_score(self) -> Tuple[pd.Series, pd.DataFrame]:
         """
         【V292.0 赫斯特指数增强版】
@@ -75,6 +107,8 @@ class WarningLayer:
         
         # 将“风险放大器”的全局乘数应用到总分上
         total_risk_score *= risk_multiplier
+        
+        holding_health_diagnostics = self._diagnose_holding_health(risk_score_df)
 
         # --- 步骤 3: 战略机会覆盖 (逻辑微调) ---
         # 这里的逻辑可以保持，但现在它是在经过环境调节后的风险分基础上进行覆盖
@@ -85,7 +119,7 @@ class WarningLayer:
             print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
         
         print("        -> [最高风险裁决所 V292.0] 风险评估完成。")
-        return total_risk_score, risk_score_df
+        return total_risk_score, risk_score_df, holding_health_diagnostics
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """
