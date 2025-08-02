@@ -892,26 +892,26 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             # perf_data = data_dfs['perf_data']
             # perf_data['trade_time'] = pd.to_datetime(perf_data['trade_time']).dt.date
             
-            fund_flow_cy_data = data_dfs['fund_flow_cy']
-            if not fund_flow_cy_data.empty:
-                fund_flow_cy_data['trade_time'] = pd.to_datetime(fund_flow_cy_data['trade_time']).dt.date
+            # fund_flow_cy_data = data_dfs['fund_flow_cy']
+            # if not fund_flow_cy_data.empty:
+            #     fund_flow_cy_data['trade_time'] = pd.to_datetime(fund_flow_cy_data['trade_time']).dt.date
             
-            fund_flow_ths_data = data_dfs['fund_flow_ths']
-            if not fund_flow_ths_data.empty:
-                fund_flow_ths_data['trade_time'] = pd.to_datetime(fund_flow_ths_data['trade_time']).dt.date
-                fund_flow_ths_data = fund_flow_ths_data.rename(columns={'buy_lg_amount': 'ths_buy_lg_amount'})
+            # fund_flow_ths_data = data_dfs['fund_flow_ths']
+            # if not fund_flow_ths_data.empty:
+            #     fund_flow_ths_data['trade_time'] = pd.to_datetime(fund_flow_ths_data['trade_time']).dt.date
+            #     fund_flow_ths_data = fund_flow_ths_data.rename(columns={'buy_lg_amount': 'ths_buy_lg_amount'})
             
-            fund_flow_dc_data = data_dfs['fund_flow_dc']
-            if not fund_flow_dc_data.empty:
-                fund_flow_dc_data['trade_time'] = pd.to_datetime(fund_flow_dc_data['trade_time']).dt.date
-                fund_flow_dc_data = fund_flow_dc_data.rename(columns={'net_amount': 'dc_net_amount'})
+            # fund_flow_dc_data = data_dfs['fund_flow_dc']
+            # if not fund_flow_dc_data.empty:
+            #     fund_flow_dc_data['trade_time'] = pd.to_datetime(fund_flow_dc_data['trade_time']).dt.date
+            #     fund_flow_dc_data = fund_flow_dc_data.rename(columns={'net_amount': 'dc_net_amount'})
             
-            cyq_days = cyq_chips_data['trade_time'].nunique()
-            daily_days = len(daily_data)
-            fund_cy_days = len(fund_flow_cy_data) if not fund_flow_cy_data.empty else 0
-            fund_ths_days = len(fund_flow_ths_data) if not fund_flow_ths_data.empty else 0
-            fund_dc_days = len(fund_flow_dc_data) if not fund_flow_dc_data.empty else 0
-            logger.info(f"[{stock_code}] 数据源诊断: 筹码({cyq_days}天), 行情({daily_days}天), 资金流[CY]({fund_cy_days}天), [THS]({fund_ths_days}天), [DC]({fund_dc_days}天)")
+            # cyq_days = cyq_chips_data['trade_time'].nunique()
+            # daily_days = len(daily_data)
+            # fund_cy_days = len(fund_flow_cy_data) if not fund_flow_cy_data.empty else 0
+            # fund_ths_days = len(fund_flow_ths_data) if not fund_flow_ths_data.empty else 0
+            # fund_dc_days = len(fund_flow_dc_data) if not fund_flow_dc_data.empty else 0
+            # logger.info(f"[{stock_code}] 数据源诊断: 筹码({cyq_days}天), 行情({daily_days}天), 资金流[CY]({fund_cy_days}天), [THS]({fund_ths_days}天), [DC]({fund_dc_days}天)")
             
             daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
             daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
@@ -922,12 +922,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
             merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
             # merged_df = pd.merge(merged_df, perf_data, on='trade_time', how='inner')
-            if not fund_flow_cy_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
-            if not fund_flow_ths_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_ths_data, on='trade_time', how='left')
-            if not fund_flow_dc_data.empty:
-                merged_df = pd.merge(merged_df, fund_flow_dc_data, on='trade_time', how='left')
+            # if not fund_flow_cy_data.empty:
+            #     merged_df = pd.merge(merged_df, fund_flow_cy_data, on='trade_time', how='left')
+            # if not fund_flow_ths_data.empty:
+            #     merged_df = pd.merge(merged_df, fund_flow_ths_data, on='trade_time', how='left')
+            # if not fund_flow_dc_data.empty:
+            #     merged_df = pd.merge(merged_df, fund_flow_dc_data, on='trade_time', how='left')
             
             if merged_df.empty:
                 logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
