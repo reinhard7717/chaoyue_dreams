@@ -405,26 +405,54 @@ class IntelligenceLayer:
         【V283.6 最终客观版】
         - 核心净化: 移除所有RISK_前缀，本模块只报告客观的动态事实。
         """
-        # ...
-        # 【净化】RISK_DYN_DIVERGING -> CHIP_DYN_DIVERGING
+        # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
+        required_cols = [
+            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
+            'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
+            'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+        
+        # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
+        # 注意：这要求 _diagnose_topping_risks_command 必须在此模块之前运行
+        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+
+        # --- 步骤2: 对“筹码集中度”进行动态分析 ---
+        # 2.1 基础动态
+        is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
+        states['CHIP_DYN_CONCENTRATING'] = is_concentrating_trend
+        
+        # 2.2 加速动态
+        p_chip = get_params_block(self.strategy, 'chip_feature_params')
+        accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
+        is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
+        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
+        
+        # 2.3 发散动态 (结合了战场上下文)
         is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
         
-        # 【净化】RISK_DYN_ACCEL_DIVERGING -> CHIP_DYN_ACCEL_DIVERGING
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
 
-        # 【净化】RISK_DYN_COST_FALLING -> CHIP_DYN_COST_FALLING
+        # --- 步骤3: 对“筹码成本”进行动态分析 ---
+        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
+        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
+        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
         states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
 
-        # 【净化】RISK_DYN_WINNER_RATE_COLLAPSING -> CHIP_DYN_WINNER_RATE_COLLAPSING
+        # --- 步骤4: 对“总获利盘”进行动态分析 ---
+        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
         winner_rate_collapse_threshold = -1.0
         states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
-        
-        # 【净化】RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING -> CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING
         states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
 
-        # 【净化】RISK_DYN_HEALTH_DETERIORATING -> CHIP_DYN_HEALTH_DETERIORATING
+        # --- 步骤5: 对“筹码健康分”进行动态分析 ---
+        states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
         states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
         
         return states
