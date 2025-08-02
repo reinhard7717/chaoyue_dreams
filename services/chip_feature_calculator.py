@@ -392,7 +392,7 @@ class ChipFeatureCalculator:
             turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
             results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover
         else:
-            results['peak_absorption_intensity'] = 0
+            results['peak_absorption_intensity'] = None
 
         # --- 2. 利润质量指标 (Profit Quality Metrics) ---
         close_price = self.ctx.get('close_price')
@@ -496,7 +496,7 @@ class ChipFeatureCalculator:
             vacuum_chip_percent = fault_zone_df['percent'].sum()
             results['chip_fault_vacuum_percent'] = vacuum_chip_percent
         else:
-            results['chip_fault_vacuum_percent'] = 0 # 如果没有空间，则真空度为0
+            results['chip_fault_vacuum_percent'] = None
 
         # 3. 最终断层信号 (Fault Signal)
         # 定义：断层强度足够大（如脱离成本区20%以上），且真空区足够“空”（如筹码占比低于5%）

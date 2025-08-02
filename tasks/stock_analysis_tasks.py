@@ -956,19 +956,38 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
+            model_fields = {f.name for f in AdvancedChipMetrics._meta.get_fields()}
+
             for trade_date, row in records_to_save_df.iterrows():
-                record_data = row.dropna().to_dict()
-                if 'id' in record_data: del record_data['id']
-                if 'stock_id' in record_data: del record_data['stock_id']
-                for key, value in record_data.items():
-                    if isinstance(value, float):
-                        try:
-                            # 保留8位小数，足以满足绝大部分指标的精度需求
-                            record_data[key] = Decimal(str(round(value, 8)))
-                        except InvalidOperation:
-                            # 如果转换失败（例如遇到 inf, nan），则设为 None
-                            record_data[key] = None
-                records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
+                record_data = {}
+                # 遍历模型的所有字段，而不是依赖 .to_dict()
+                for field_name in model_fields:
+                    if field_name in row.index:
+                        value = row[field_name]
+                        
+                        # 检查值是否是无效的浮点数 (NaN, inf, -inf)
+                        if isinstance(value, float) and not np.isfinite(value):
+                            record_data[field_name] = None
+                        # 如果值是 None，则直接使用 None
+                        elif pd.isna(value):
+                            record_data[field_name] = None
+                        # 如果是有效的浮点数，则进行处理
+                        elif isinstance(value, float):
+                            if abs(value) < 1e-10:
+                                record_data[field_name] = Decimal('0.0')
+                            else:
+                                # 保留8位小数
+                                record_data[field_name] = Decimal(str(round(value, 8)))
+                        # 其他类型的值（如 int, bool, str）直接使用
+                        else:
+                            record_data[field_name] = value
+                
+                # 移除Django自动管理的字段
+                record_data.pop('id', None)
+                record_data.pop('stock', None) # stock 对象将单独传入
+                
+                if record_data: # 确保有数据可存
+                    records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
             
             # --- 异步保存到数据库 ---
             await save_metrics_async(stock_info, records_to_create, not incremental_flag)
