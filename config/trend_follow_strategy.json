@@ -747,9 +747,9 @@
           "value": -0.005,
           "description": "视为回踩的最大日跌幅（例如-0.5%），避免将十字星等误判为回踩。"
         },
-        "tolerable_outflow_M": {
-          "value": -10,
-          "description": "可容忍的主力单日最大净流出（百万元）。例如-10代表允许最多流出1000万。"
+        "tolerable_winner_outflow_ratio": {
+          "value": 30.0,
+          "description": "【新增】可容忍的获利盘抛压占比(%)。低于此值，视为获利盘惜售，主力锁定良好。"
         },
         "require_shrinking_volume": {
           "value": true,

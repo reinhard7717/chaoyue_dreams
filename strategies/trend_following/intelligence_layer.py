@@ -600,32 +600,16 @@ class IntelligenceLayer:
         if get_param_value(capital_params.get('enabled'), True):
             cmf_bullish_threshold = get_param_value(capital_params.get('cmf_bullish_threshold'), 0.05)
             states['CAPITAL_STATE_INFLOW_CONFIRMED'] = df.get('CMF_21_D', 0) > cmf_bullish_threshold
-            
+
             divergence_context = capital_params.get('divergence_context', {})
             persistence_days = get_param_value(divergence_context.get('persistence_days'), 15)
             trend_ma_period = get_param_value(divergence_context.get('trend_ma_period'), 55)
-            
+
             price_new_high = df['close_D'] > df['close_D'].shift(1).rolling(window=persistence_days).max()
             cmf_not_new_high = df['CMF_21_D'] < df['CMF_21_D'].shift(1).rolling(window=persistence_days).max()
             is_uptrend = df['close_D'] > df.get(f'EMA_{trend_ma_period}_D', 0)
-            
-            states['CAPITAL_STATE_DIVERGENCE_WINDOW'] = price_new_high & cmf_not_new_high & is_uptrend
 
-        # --- 作战单元2: 【王牌】新型资本结构诊断 (基于主力/散户资金) ---
-        main_force_col = 'main_force_net_inflow_amount_D'
-        retail_col = 'retail_net_inflow_volume_D'
-        
-        if all(c in df.columns for c in [main_force_col, retail_col]):
-            # 1. 定义“主力正在吸筹”状态
-            states['CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING'] = df[main_force_col] > 0
-            # 2. 定义“主力正在派发”风险状态
-            states['RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING'] = df[main_force_col] < 0
-            # 3. 定义“多头背离”：主力吸筹 & 散户割肉
-            states['CAPITAL_STRUCT_BULLISH_DIVERGENCE'] = (df[main_force_col] > 0) & (df[retail_col] < 0)
-            # 4. 定义“空头背离”：主力派发 & 散户接盘
-            states['RISK_CAPITAL_STRUCT_BEARISH_DIVERGENCE'] = (df[main_force_col] < 0) & (df[retail_col] > 0)
-        else:
-            print(f"          -> [情报警告] 缺少高精度资金结构数据，跳过结构分析。")
+            states['CAPITAL_STATE_DIVERGENCE_WINDOW'] = price_new_high & cmf_not_new_high & is_uptrend
 
         return states
 
@@ -1401,12 +1385,12 @@ class IntelligenceLayer:
 
         min_pct_change = get_param_value(p.get('min_pct_change'), -0.05)
         max_pct_change = get_param_value(p.get('max_pct_change'), -0.005)
-        tolerable_outflow = get_param_value(p.get('tolerable_outflow_M'), -10) * 1_000_000
+        tolerable_winner_outflow_ratio = get_param_value(p.get('tolerable_winner_outflow_ratio'), 30.0)
         require_shrinking_volume = get_param_value(p.get('require_shrinking_volume'), True)
         max_turnover_rate = get_param_value(p.get('max_turnover_rate'), 5.0)
         
         required_states = ['MA_STATE_STABLE_BULLISH', 'RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 'VOL_STATE_SHRINKING']
-        required_cols = ['pct_change_D', 'main_force_net_inflow_amount_D', 'turnover_rate_f_D']
+        required_cols = ['pct_change_D', 'turnover_from_winners_ratio_D', 'turnover_rate_f_D']
         
         if any(state not in self.strategy.atomic_states for state in required_states) or any(col not in df.columns for col in required_cols):
             print("          -> [警告] 缺少诊断“健康回踩”所需的核心情报或数据列，模块跳过。")
@@ -1418,7 +1402,8 @@ class IntelligenceLayer:
         # 条件B ~ F
         is_moderate_pullback = (df['pct_change_D'] < max_pct_change) & (df['pct_change_D'] > min_pct_change)
         is_chip_structure_stable = ~self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
-        is_main_force_outflow_tolerable = df['main_force_net_inflow_amount_D'] >= tolerable_outflow
+        # 新定义：主力资金锁定良好 = 当日成交量中，由获利盘贡献的抛压占比，低于一个可容忍的阈值（例如30%）
+        is_main_force_locked = df['turnover_from_winners_ratio_D'] < tolerable_winner_outflow_ratio
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
         is_low_turnover = df['turnover_rate_f_D'] < max_turnover_rate
 
