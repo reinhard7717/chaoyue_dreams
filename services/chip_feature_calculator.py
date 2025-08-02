@@ -36,7 +36,7 @@ class ChipFeatureCalculator:
 
         # --- 1. 基础指标计算 ---
         # 这一步计算所有不相互依赖的基础模块
-        # ▼▼▼【核心升级】首先进行自主的摘要计算 ▼▼▼
+        # ▼▼▼ 首先进行自主的摘要计算 ▼▼▼
         summary_info = self._calculate_summary_metrics()
         # 将自主计算的结果，立即注入到上下文中
         self.ctx.update(summary_info)
@@ -45,7 +45,7 @@ class ChipFeatureCalculator:
         winner_structure_info = self._calculate_winner_structure()
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
-        fund_flow_info = self._calculate_fund_flow_metrics()
+        # fund_flow_info = self._calculate_fund_flow_metrics()
         
         # --- 2. 构建升维计算所需的“增强上下文” ---
         # 将所有基础计算结果合并到上下文中，供后续所有升维计算模块使用
