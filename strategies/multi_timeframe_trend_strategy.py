@@ -327,7 +327,7 @@ class MultiTimeframeTrendStrategy:
         print(f"    {verdict}")
         print("=" * 95)
 
-    def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
         【V322.0 终极架构重构版】
         - 核心重构: 总指挥层不再执行任何情报分析。它的唯一职责是将带有周线战略背景的
