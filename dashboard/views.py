@@ -156,17 +156,30 @@ def trend_following_list(request):
                 Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
             ).order_by('-trade_time', '-entry_score')
 
-    # 后续的数据处理逻辑保持不变
+    print("\n--- [View-Debug] 开始逐条检查信号记录和其关联的剧本详情 ---")
     final_logs = []
     all_playbook_objects = set()
 
-    for signal in latest_buy_signals:
+    # 限制只检查前10条，避免日志过多
+    for signal in list(latest_buy_signals[:10]):
+        print(f"  [Debug] 正在处理信号 ID: {signal.id} (股票: {signal.stock.stock_code})")
         active_playbooks = []
-        if hasattr(signal, 'playbook_details'):
-            for detail in signal.playbook_details.all():
+        
+        # 使用 prefetch 缓存的结果，这里不会产生新的数据库查询
+        related_details = signal.signalplaybookdetail_set.all()
+        details_count = len(related_details)
+        
+        print(f"    [Debug] 此信号关联的 'SignalPlaybookDetail' 记录数量: {details_count}")
+
+        if details_count > 0:
+            for detail in related_details:
+                # 检查每个 detail 是否成功关联到了 playbook 对象
                 if detail.playbook:
+                    print(f"      [Debug] -> 成功提取剧本: {detail.playbook.cn_name or detail.playbook.name}")
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
+                else:
+                    print(f"      [Debug] -> 警告: 找到一条详情记录(ID: {detail.id})，但其 'playbook' 字段为空！")
         
         active_playbooks.sort(key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
@@ -178,6 +191,25 @@ def trend_following_list(request):
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
         })
+    
+    # 将剩余的记录也加入 final_logs (不带打印)
+    for signal in latest_buy_signals[10:]:
+        active_playbooks = []
+        if hasattr(signal, 'signalplaybookdetail_set'):
+            for detail in signal.signalplaybookdetail_set.all():
+                if detail.playbook:
+                    active_playbooks.append(detail.playbook)
+                    all_playbook_objects.add(detail.playbook)
+        active_playbooks.sort(key=lambda p: get_playbook_priority(p.cn_name or p.name))
+        final_logs.append({
+            'log_id': signal.id,
+            'stock': signal.stock,
+            'latest_trade_time': signal.trade_time,
+            'latest_score': signal.entry_score,
+            'active_playbooks': active_playbooks,
+            'strategy_name': signal.strategy_name,
+        })
+    print("--- [View-Debug] 信号记录检查完毕 ---\n")
 
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
