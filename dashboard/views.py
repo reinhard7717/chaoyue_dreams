@@ -4,7 +4,7 @@ import json
 from django.utils import timezone
 from datetime import timedelta
 from asgiref.sync import async_to_sync
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.core.paginator import Paginator
