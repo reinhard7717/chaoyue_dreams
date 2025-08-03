@@ -102,12 +102,9 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.8 生产最终版】
-    - 核心修复: 修正了筛选逻辑，确保其在分页前正确应用。
-    - 清理: 移除了所有调试打印信息。
+    【V405.11 字段强制加载最终版】
+    - 核心修复: 在 Prefetch 查询中，使用 .only('id', 'name', 'cn_name') 强制 Django ORM 加载 Playbook 的主键ID和名称字段，解决 playbook.id 为空的问题。
     """
-
-    # 步骤1: 获取最近3个交易日
     latest_trade_day_obj = TradeCalendar.objects.filter(
         is_open=True,
         cal_date__lte=timezone.now().date()
@@ -122,7 +119,6 @@ def trend_following_list(request):
         if not latest_3_trade_dates:
             latest_buy_signals = TradingSignal.objects.none()
         else:
-            # 构建时区感知的查询范围
             query_conditions = []
             tz = timezone.get_current_timezone()
             for trade_date in latest_3_trade_dates:
@@ -131,23 +127,34 @@ def trend_following_list(request):
                 query_conditions.append(Q(trade_time__gte=start_of_day, trade_time__lt=end_of_day))
             combined_query = functools.reduce(operator.or_, query_conditions)
 
-            # 步骤2: 从数据库获取所有符合日期条件的信号
+            # --- 代码修改开始 ---
+            # [修改原因] 解决 playbook.id 为空的问题，强制加载所需字段。
+            playbook_queryset = SignalPlaybookDetail.objects.select_related('playbook').only(
+                # SignalPlaybookDetail 需要的字段 (外键 signal_id 会自动加载)
+                'id', 
+                'playbook_id',
+                # 强制加载关联的 playbook 的这几个关键字段
+                'playbook__id', 
+                'playbook__name', 
+                'playbook__cn_name'
+            )
+
             latest_buy_signals = TradingSignal.objects.filter(
                 combined_query,
                 signal_type='BUY',
                 timeframe='D'
             ).select_related('stock').prefetch_related(
-                Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
+                Prefetch('signalplaybookdetail_set', queryset=playbook_queryset)
             ).order_by('-trade_time', '-entry_score')
+            # --- 代码修改结束 ---
 
-    # 步骤3: 在内存中处理数据，并聚合剧本信息
     all_logs_in_memory = []
     all_playbook_objects = set()
     for signal in latest_buy_signals:
         active_playbooks = []
         if hasattr(signal, 'signalplaybookdetail_set'):
             for detail in signal.signalplaybookdetail_set.all():
-                if detail.playbook:
+                if detail.playbook and detail.playbook.id is not None:
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
@@ -161,41 +168,29 @@ def trend_following_list(request):
             'strategy_name': signal.strategy_name,
         })
 
-    # 步骤4: 从内存数据中提取唯一剧本，用于筛选器
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
-    # --- 代码修改开始 ---
-    # [修改原因] 修复筛选逻辑
-    # 步骤5: 在内存中根据请求参数进行剧本筛选
     selected_playbook_ids_str = request.GET.getlist('playbooks')
-    final_filtered_logs = all_logs_in_memory # 默认是全部记录
+    final_filtered_logs = all_logs_in_memory
 
     if selected_playbook_ids_str:
-        # 将URL参数中的字符串ID转换为整数集合，用于高效查找
-        selected_ids_int = {int(pid) for pid in selected_playbook_ids_str}
-        
-        # 应用筛选逻辑
+        selected_ids_int = {int(pid) for pid in selected_playbook_ids_str if pid} # 增加 if pid 防止空字符串
         final_filtered_logs = [
             log for log in all_logs_in_memory
-            # 检查当前日志的剧本ID集合是否是所选ID集合的超集
             if selected_ids_int.issubset({p.id for p in log['active_playbooks']})
         ]
-    # --- 代码修改结束 ---
 
-    # 步骤6: 对筛选后的结果进行分页
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤7: 准备上下文
     context = {
         'page_title': '策略状态监控中心 (近3个交易日买入)',
-        'items_for_display': page_obj.object_list, # 传递分页后的列表
+        'items_for_display': page_obj.object_list,
         'page_obj': page_obj,
         'total_count': paginator.count,
         'all_playbooks': unique_playbooks,
-        # 将选中的ID（整数形式）传回模板，用于高亮显示
-        'selected_playbooks': [int(pid) for pid in selected_playbook_ids_str],
+        'selected_playbooks': [int(pid) for pid in selected_playbook_ids_str if pid], # 增加 if pid 防止空字符串
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
