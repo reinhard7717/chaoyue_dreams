@@ -95,16 +95,16 @@ class MultiTimeframeTrendStrategy:
             df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
         all_dfs['D_CONTEXT'] = df_daily_with_context
 
-        # 4. 战术引擎：基于日线+战略上下文，生成日线级别的交易信号
+        # 4. 战术引擎：这是一个同步函数 (def)，直接调用，不能用 await。
         tactical_signals, tactical_details = self._run_tactical_engine(stock_code, all_dfs)
         print(f"  - [战术引擎] 生成 {len(tactical_signals)} 条日线级信号。")
 
-        # 5. 盘中入场引擎：对日线信号进行盘中确认
+        # 5. 盘中入场引擎：这是一个异步函数 (async def)，必须用 await 调用。
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
         print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_signals)} 条盘中确认信号。")
 
-        # 6. 盘中风险预警引擎：监控潜在的盘中风险
-        risk_alert_signals, risk_alert_details = await self._run_intraday_alert_engine(stock_code, all_dfs)
+        # 6. 盘中风险预警引擎：这是一个同步函数 (def)，直接调用，不能用 await。
+        risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
         print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_signals)} 条风险预警信号。")
 
         # 7. 信号汇总
