@@ -610,62 +610,77 @@ class StrategiesDAO(BaseDAO):
 
     async def save_strategy_signals(self, signals_tuple: Tuple[List[TradingSignal], List[SignalPlaybookDetail]]) -> int:
         """
-        【V401.0 异步事务修复版】
-        - 核心修复: 解决了 'Atomic' object does not support the asynchronous context manager protocol 的错误。
-        - 新工作流程:
-          1. 在主异步函数中准备好所有数据。
-          2. 定义一个内部的、完全同步的函数 `_save_all_sync`，其中包含 `with transaction.atomic()` 块。
-          3. 在这个同步函数内部，使用所有操作的同步版本（如 .delete(), .bulk_create()）。
-          4. 使用 `sync_to_async` 来异步地、安全地执行整个同步事务块。
+        【V402.0 兼容性修复版】
+        - 核心修复: 解决了因数据库后端不支持高级 UPSERT 导致的 NotSupportedError。
+        - 新工作流程 (手动UPSERT):
+          1. 在事务中，先查询出所有已存在的信号。
+          2. 将待处理信号分为“待更新”和“待创建”两个列表。
+          3. 使用 `bulk_update` 批量更新已存在的记录。
+          4. 使用 `bulk_create` 批量创建新记录。
         - 收益:
-          - **事务正确性**: 保证了所有数据库操作在异步环境中依然享有事务的原子性。
-          - **代码清晰**: 将同步的事务逻辑与异步的流程控制清晰地分离开。
+          - **广泛兼容性**: 此方法不依赖数据库特定的高级功能，可在所有Django支持的后端上运行。
+          - **事务正确性**: 整个过程依然在事务中，保证数据一致性。
         """
         if not signals_tuple or not signals_tuple[0]:
-            print("调试信息: [DAO-SignalLog V401.0] 传入的信号元组为空，不执行任何操作。")
+            print("调试信息: [DAO-SignalLog V402.0] 传入的信号元组为空，不执行任何操作。")
             return 0
-
         signals_to_process, details_to_create = signals_tuple
-        
         def _save_all_sync():
             """这个函数是完全同步的，它将在一个单独的线程中被异步执行。"""
             try:
                 with transaction.atomic():
-                    # --- 步骤1: 批量删除旧详情 (使用同步方法) ---
+                    # --- 步骤1: 批量删除旧详情 (逻辑不变) ---
                     signal_lookup_keys = [
                         Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
                         for s in signals_to_process
                     ]
-                    
                     if not signal_lookup_keys:
                         return 0
-
                     existing_signals_pks = list(
                         TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
                     )
-                    
                     if existing_signals_pks:
                         SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
-
-                    # --- 步骤2: 批量更新/创建主信号 (使用同步方法) ---
-                    conflict_target = ['stock_id', 'trade_time', 'timeframe', 'strategy_name']
+                    # --- 步骤2: 手动实现 UPSERT ---
+                    # 2.1 查询所有可能已存在的信号，并建立一个基于唯一键的映射
+                    existing_signals_map = {
+                        (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s
+                        for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
+                    }
+                    signals_to_update = []
+                    signals_to_create = []
                     update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
-                    
-                    TradingSignal.objects.bulk_create(
-                        signals_to_process,
-                        update_conflicts=True,
-                        unique_fields=conflict_target,
-                        update_fields=update_fields
-                    )
-
-                    # --- 步骤3: 批量创建新详情 (使用同步方法) ---
+                    # 2.2 将待处理信号分为“更新”和“创建”两组
+                    for signal_obj in signals_to_process:
+                        key = (signal_obj.stock_id, signal_obj.trade_time, signal_obj.timeframe, signal_obj.strategy_name)
+                        existing_signal = existing_signals_map.get(key)
+                        if existing_signal:
+                            # 如果信号已存在，准备更新
+                            existing_signal.signal_type = signal_obj.signal_type
+                            existing_signal.entry_score = signal_obj.entry_score
+                            existing_signal.risk_score = signal_obj.risk_score
+                            existing_signal.veto_votes = signal_obj.veto_votes
+                            existing_signal.close_price = signal_obj.close_price
+                            existing_signal.health_change_summary = signal_obj.health_change_summary
+                            signals_to_update.append(existing_signal)
+                        else:
+                            # 如果信号不存在，准备创建
+                            signals_to_create.append(signal_obj)
+                    # 2.3 批量执行更新
+                    if signals_to_update:
+                        TradingSignal.objects.bulk_update(signals_to_update, update_fields)
+                        print(f"调试信息: [DAO-SignalLog] 成功批量更新 {len(signals_to_update)} 条主信号。")
+                    # 2.4 批量执行创建
+                    if signals_to_create:
+                        TradingSignal.objects.bulk_create(signals_to_create)
+                        print(f"调试信息: [DAO-SignalLog] 成功批量创建 {len(signals_to_create)} 条主信号。")
+                    # --- 步骤3: 批量创建新详情 (逻辑不变) ---
                     if details_to_create:
-                        # 重新查询以获取主键
+                        # 重新查询以获取所有相关信号的主键（包括刚创建和已更新的）
                         refreshed_signals_map = {
                             (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
                             for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).only('pk', 'stock_id', 'trade_time', 'timeframe', 'strategy_name')
                         }
-
                         valid_details = []
                         for detail in details_to_create:
                             key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
@@ -673,29 +688,21 @@ class StrategiesDAO(BaseDAO):
                             if signal_pk:
                                 detail.signal_id = signal_pk
                                 valid_details.append(detail)
-                        
                         if valid_details:
                             SignalPlaybookDetail.objects.bulk_create(valid_details, ignore_conflicts=True)
-                
+                            print(f"调试信息: [DAO-SignalLog] 成功创建了 {len(valid_details)} 条新的信号详情。")
                 return len(signals_to_process)
-
             except Exception as e:
-                # 打印异常，但让上层处理返回
-                print(f"错误: [DAO-SignalLog V401.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
+                print(f"错误: [DAO-SignalLog V402.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
                 import traceback
                 traceback.print_exc()
-                # 抛出异常，以便上层可以捕获它
                 raise
-
         try:
-            # 使用 sync_to_async 异步执行整个同步事务块
-            # thread_sensitive=True 对于数据库操作至关重要
             saved_count = await sync_to_async(_save_all_sync, thread_sensitive=True)()
-            # print(f"调试信息: [DAO-SignalLog V401.0] 流程完成。成功处理 {saved_count} 条主信号。")
+            # print(f"调试信息: [DAO-SignalLog V402.0] 流程完成。成功处理 {saved_count} 条主信号。")
             return saved_count
         except Exception as e:
-            # 捕获从同步块中抛出的异常
-            print(f"错误: [DAO-SignalLog V401.0] 异步执行事务时捕获到异常: {e}")
+            print(f"错误: [DAO-SignalLog V402.0] 异步执行事务时捕获到异常: {e}")
             return 0
 
     # 筹码高级信息AdvancedChipMetrics
