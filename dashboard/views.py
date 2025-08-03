@@ -183,29 +183,29 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V405.1 状态修复版】
-    - 核心修复: 修正了对 FavoriteStockTracker status 字段的过滤方式，从错误的枚举调用改为正确的字符串比较。
+    【V405.2 字段名修复版】
+    - 核心修复: 修正了 select_related 和模板中引用的字段名，使其与 FavoriteStockTracker 模型的实际定义 (entry_log, latest_log, exit_log) 完全匹配。
     """
     # --- 代码修改开始 ---
-    # [修改原因] 修复 AttributeError，直接使用字符串进行状态过滤
+    # [修改原因] 修复 FieldError，使用正确的模型字段名
     
-    # 步骤1: 获取用户的所有追踪器，预加载新的关联模型
+    # 步骤1: 获取用户的所有追踪器，使用正确的字段名进行预加载
     base_queryset = FavoriteStockTracker.objects.filter(
         user=request.user
     ).select_related(
         'stock', 
-        'entry_signal',
-        'latest_signal',
-        'exit_signal'
+        'entry_log',    # 使用正确的字段名 entry_log
+        'latest_log',   # 使用正确的字段名 latest_log
+        'exit_log'      # 使用正确的字段名 exit_log
     ).prefetch_related(
+        # 预加载最新信号的剧本详情
         Prefetch(
-            'latest_signal__playbook_details',
+            'latest_log__playbook_details', # 从 latest_log 关联
             queryset=SignalPlaybookDetail.objects.select_related('playbook'),
             to_attr='prefetched_playbook_details'
         )
     )
     
-    unified_config = load_strategy_config('config/trend_follow_strategy.json')
     # 假设 Playbook 模型在 stock_models.stock_analytics 中
     from stock_models.stock_analytics import Playbook
     playbook_metadata = {p.name: p.cn_name for p in Playbook.objects.all()}
@@ -213,11 +213,9 @@ def fav_trend_following_list(request):
     # 步骤2: 状态筛选
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
-        # 使用字符串 'HOLDING' 进行过滤
         queryset = base_queryset.filter(status='HOLDING')
         page_title = '自选股持仓监控'
     elif status_filter == 'sold':
-        # 使用字符串 'SOLD' 进行过滤
         queryset = base_queryset.filter(status='SOLD')
         page_title = '自选股历史平仓'
     else:
@@ -334,8 +332,8 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V405.1 状态修复版】
-        - 核心修复: 修正了创建 FavoriteStockTracker 时 status 字段的赋值方式。
+        【V405.2 字段名修复版】
+        - 核心修复: 修正了创建 FavoriteStockTracker 时 defaults 字典中的字段名。
         """
         user = request.user
         
@@ -361,19 +359,20 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             favorite = FavoriteStock.objects.create(user=user, stock=stock)
 
         # --- 代码修改开始 ---
-        # [修改原因] 修复 AttributeError，直接使用字符串 'HOLDING' 为 status 字段赋值
+        # [修改原因] 修复 FieldError，使用正确的模型字段名
         tracker, _ = FavoriteStockTracker.objects.update_or_create(
             user=user, stock=stock,
             defaults={
-                'status': 'HOLDING', # 直接使用字符串
-                'entry_signal': entry_signal,
+                'status': 'HOLDING',
+                'entry_log': entry_signal, # 使用正确的字段名 entry_log
                 'entry_price': entry_signal.close_price,
                 'entry_date': entry_signal.trade_time,
-                'latest_signal': entry_signal,
+                'entry_score': entry_signal.entry_score, # 新增 entry_score
+                'latest_log': entry_signal, # 使用正确的字段名 latest_log
                 'latest_price': entry_signal.close_price,
                 'latest_date': entry_signal.trade_time,
                 'health_change_summary': entry_signal.health_change_summary or {},
-                'exit_signal': None,
+                'exit_log': None, # 使用正确的字段名 exit_log
                 'exit_price': None,
                 'exit_date': None,
             }
