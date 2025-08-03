@@ -610,87 +610,95 @@ class StrategiesDAO(BaseDAO):
 
     async def save_strategy_signals(self, signals_tuple: Tuple[List[TradingSignal], List[SignalPlaybookDetail]]) -> int:
         """
-        【V400.0 ORM重构版】
-        - 核心重构: 此方法现在接收一个包含两类ORM对象的元组，并执行高效的批量写入。
+        【V401.0 异步事务修复版】
+        - 核心修复: 解决了 'Atomic' object does not support the asynchronous context manager protocol 的错误。
         - 新工作流程:
-          1. **删除旧详情**: 根据传入的主信号，先删除所有可能存在的旧的 SignalPlaybookDetail 记录，确保数据的一致性。
-          2. **批量更新/创建主信号**: 使用 `abulk_create` 并设置 `update_conflicts=True` (需要PostgreSQL或新版MySQL/SQLite)，
-             以一条命令实现“存在则更新，不存在则创建”(UPSERT)的原子操作。
-          3. **批量创建新详情**: 在主信号写入成功后，批量创建新的 SignalPlaybookDetail 记录。
+          1. 在主异步函数中准备好所有数据。
+          2. 定义一个内部的、完全同步的函数 `_save_all_sync`，其中包含 `with transaction.atomic()` 块。
+          3. 在这个同步函数内部，使用所有操作的同步版本（如 .delete(), .bulk_create()）。
+          4. 使用 `sync_to_async` 来异步地、安全地执行整个同步事务块。
         - 收益:
-          - **原子性与一致性**: 事务保证了操作的完整性，先删后增确保了信号详情不会重复或过时。
-          - **极致性能**: 使用 `UPSERT` 和 `bulk_create`，将数据库交互降到最低。
+          - **事务正确性**: 保证了所有数据库操作在异步环境中依然享有事务的原子性。
+          - **代码清晰**: 将同步的事务逻辑与异步的流程控制清晰地分离开。
         """
         if not signals_tuple or not signals_tuple[0]:
-            print("调试信息: [DAO-SignalLog V400.0] 传入的信号元组为空，不执行任何操作。")
+            print("调试信息: [DAO-SignalLog V401.0] 传入的信号元组为空，不执行任何操作。")
             return 0
 
         signals_to_process, details_to_create = signals_tuple
-        # print(f"调试信息: [DAO-SignalLog V400.0] 收到 {len(signals_to_process)} 条主信号和 {len(details_to_create)} 条详情，开始执行ORM批量写入流程。")
+        
+        # --- 代码修改开始 ---
+        # [修改原因] 将所有数据库操作封装到一个同步函数中，以正确使用 transaction.atomic
+        
+        def _save_all_sync():
+            """这个函数是完全同步的，它将在一个单独的线程中被异步执行。"""
+            try:
+                with transaction.atomic():
+                    # --- 步骤1: 批量删除旧详情 (使用同步方法) ---
+                    signal_lookup_keys = [
+                        Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
+                        for s in signals_to_process
+                    ]
+                    
+                    if not signal_lookup_keys:
+                        return 0
+
+                    existing_signals_pks = list(
+                        TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
+                    )
+                    
+                    if existing_signals_pks:
+                        SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
+
+                    # --- 步骤2: 批量更新/创建主信号 (使用同步方法) ---
+                    conflict_target = ['stock_id', 'trade_time', 'timeframe', 'strategy_name']
+                    update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
+                    
+                    TradingSignal.objects.bulk_create(
+                        signals_to_process,
+                        update_conflicts=True,
+                        unique_fields=conflict_target,
+                        update_fields=update_fields
+                    )
+
+                    # --- 步骤3: 批量创建新详情 (使用同步方法) ---
+                    if details_to_create:
+                        # 重新查询以获取主键
+                        refreshed_signals_map = {
+                            (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
+                            for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).only('pk', 'stock_id', 'trade_time', 'timeframe', 'strategy_name')
+                        }
+
+                        valid_details = []
+                        for detail in details_to_create:
+                            key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
+                            signal_pk = refreshed_signals_map.get(key)
+                            if signal_pk:
+                                detail.signal_id = signal_pk
+                                valid_details.append(detail)
+                        
+                        if valid_details:
+                            SignalPlaybookDetail.objects.bulk_create(valid_details, ignore_conflicts=True)
+                
+                return len(signals_to_process)
+
+            except Exception as e:
+                # 打印异常，但让上层处理返回
+                print(f"错误: [DAO-SignalLog V401.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
+                import traceback
+                traceback.print_exc()
+                # 抛出异常，以便上层可以捕获它
+                raise
 
         try:
-            # 使用异步事务确保操作的原子性
-            async with transaction.atomic():
-                # --- 步骤1: 批量删除与待处理信号相关的旧详情记录 ---
-                # 构建一个查询，找到所有待处理信号的主键
-                signal_lookup_keys = [
-                    Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
-                    for s in signals_to_process
-                ]
-                # 找到这些主信号已经存在于数据库中的版本
-                existing_signals_pks = await sync_to_async(list)(
-                    TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
-                )
-                
-                if existing_signals_pks:
-                    # 一次性删除所有这些信号关联的旧详情
-                    deleted_count, _ = await SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).adelete()
-                    # print(f"调试信息: [DAO-SignalLog] 清理阶段：删除了 {deleted_count} 条过时的信号详情。")
-
-                # --- 步骤2: 批量更新或创建主信号 (UPSERT) ---
-                # 定义冲突目标和需要更新的字段
-                conflict_target = ['stock_id', 'trade_time', 'timeframe', 'strategy_name']
-                update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
-                
-                # 使用 abulk_create 实现高效的 UPSERT
-                created_signals = await TradingSignal.objects.abulk_create(
-                    signals_to_process,
-                    update_conflicts=True,
-                    unique_fields=conflict_target,
-                    update_fields=update_fields
-                )
-                # print(f"调试信息: [DAO-SignalLog] 成功写入/更新了 {len(created_signals)} 条主信号记录。")
-
-                # --- 步骤3: 批量创建新的信号详情 ---
-                if details_to_create:
-                    # 重新查询刚创建/更新的信号，以获取它们确定的主键(pk)
-                    # 这一步是必需的，因为 details_to_create 中的 signal 对象还没有 pk
-                    refreshed_signals_map = {
-                        (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
-                        async for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).only('pk', 'stock_id', 'trade_time', 'timeframe', 'strategy_name')
-                    }
-
-                    valid_details = []
-                    for detail in details_to_create:
-                        key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
-                        signal_pk = refreshed_signals_map.get(key)
-                        if signal_pk:
-                            # 将详情对象中的外键设置为刚获取到的主键ID
-                            detail.signal_id = signal_pk
-                            valid_details.append(detail)
-                    
-                    if valid_details:
-                        await SignalPlaybookDetail.objects.abulk_create(valid_details, ignore_conflicts=True)
-                        # print(f"调试信息: [DAO-SignalLog] 成功创建了 {len(valid_details)} 条新的信号详情。")
-
-            saved_count = len(signals_to_process)
-            # print(f"调试信息: [DAO-SignalLog V400.0] 流程完成。成功处理 {saved_count} 条主信号。")
+            # 使用 sync_to_async 异步执行整个同步事务块
+            # thread_sensitive=True 对于数据库操作至关重要
+            saved_count = await sync_to_async(_save_all_sync, thread_sensitive=True)()
+            # print(f"调试信息: [DAO-SignalLog V401.0] 流程完成。成功处理 {saved_count} 条主信号。")
             return saved_count
-
         except Exception as e:
-            print(f"错误: [DAO-SignalLog V400.0] 在批量保存ORM信号时发生异常: {e}")
-            import traceback
-            traceback.print_exc()
+            # 捕获从同步块中抛出的异常
+            print(f"错误: [DAO-SignalLog V401.0] 异步执行事务时捕获到异常: {e}")
             return 0
 
     # 筹码高级信息AdvancedChipMetrics
