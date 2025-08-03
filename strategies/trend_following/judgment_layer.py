@@ -181,6 +181,9 @@ class JudgmentLayer:
         # [修改原因] 修复 AttributeError。确保 signal_entry 列总是存在，即使没有任何买入或卖出信号。
         # 在进行任何条件赋值之前，先用默认值 False 初始化该列。
         df['signal_entry'] = False
+        df['exit_signal_code'] = 0
+        df['exit_severity_level'] = 0
+        df['alert_reason'] = ''
         # --- 代码修改结束 ---
         
         final_buy_condition = df['signal_type'] == '买入信号'
