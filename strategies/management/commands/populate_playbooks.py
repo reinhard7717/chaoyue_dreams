@@ -5,7 +5,7 @@ from django.db import transaction
 from strategies.trend_following.offensive_layer import OffensiveLayer
 from strategies.trend_following.warning_layer import WarningLayer
 from strategies.trend_following.exit_layer import ExitLayer
-from signals.models import Playbook # 假设您的新模型在 signals app 中
+from stock_models.stock_analytics import Playbook # 假设您的新模型在 signals app 中
 from utils.config_loader import load_strategy_config
 
 class Command(BaseCommand):
