@@ -102,9 +102,8 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.12 主键修复最终版】
-    - 核心修复: 移除导致错误的 .only() 子句。修正筛选逻辑，使其能处理字符串类型的主键。
-    - 根本原因: Playbook 模型使用自定义字段（如 'name'）作为主键，而非默认的 'id'。
+    【V405.13 筛选逻辑最终版】
+    - 核心修复: 恢复并确认了正确的筛选逻辑 `selected_pks_set.issubset(...)`，并确保比较时双方都使用字符串类型的主键。
     """
 
     latest_trade_day_obj = TradeCalendar.objects.filter(
@@ -159,17 +158,23 @@ def trend_following_list(request):
 
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
+    # --- 代码修改开始 ---
+    # [修改原因] 恢复并确认正确的筛选逻辑，并确保类型一致。
     selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
 
     if selected_playbooks_pks:
-        # 主键现在是字符串，直接使用集合进行比较
+        # 1. 将URL传入的筛选条件（字符串列表）转换为集合，用于高效查找
         selected_pks_set = set(selected_playbooks_pks)
+        
+        # 2. 应用筛选
         final_filtered_logs = [
             log for log in all_logs_in_memory
-            # 使用 .pk 获取真实主键，并转换为字符串进行比较
+            # 3. 对每条记录，获取其激活剧本的主键集合（确保转换为字符串）
+            # 4. 判断筛选条件集合是否是当前记录剧本集合的“子集”
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
+    # --- 代码修改结束 ---
 
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
@@ -181,10 +186,7 @@ def trend_following_list(request):
         'page_obj': page_obj,
         'total_count': paginator.count,
         'all_playbooks': unique_playbooks,
-        # --- 代码修改开始 ---
-        # [修改原因] 将字符串主键列表传回模板
         'selected_playbooks': selected_playbooks_pks,
-        # --- 代码修改结束 ---
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
