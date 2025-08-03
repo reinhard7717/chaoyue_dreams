@@ -148,20 +148,13 @@ def trend_following_list(request):
 
             # 步骤3: 执行最终查询
             latest_buy_signals = TradingSignal.objects.filter(
-                combined_query, # 应用合并后的日期范围条件
+                combined_query,
                 signal_type='BUY',
                 timeframe='D'
             ).select_related('stock').prefetch_related(
-                Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-            )
-            
-            # --- 终极诊断打印 ---
-            # 打印 Django ORM 生成的最终 SQL 语句
-            print("--- [View-Debug] 最终生成的 SQL 查询语句:")
-            print(str(latest_buy_signals.query))
-            print(f"--- [View-Debug] 使用时区感知范围查询，从数据库查询到的信号数量: {latest_buy_signals.count()}")
-            
-            latest_buy_signals = latest_buy_signals.order_by('-trade_time', '-entry_score')
+                # 使用正确的反向关联名称
+                Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
+            ).order_by('-trade_time', '-entry_score')
 
     # 后续的数据处理逻辑保持不变
     final_logs = []
