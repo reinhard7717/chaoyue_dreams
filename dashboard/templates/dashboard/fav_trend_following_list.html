@@ -124,10 +124,13 @@ extra_head %}
                 {% endif %}
               </div>
 
-              {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #} {% with
+              {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #} {#
+              【代码修改】使用 with 标签预计算复杂的布尔条件，避免模板解析器在
+              if 标签中遇到括号导致的问题 #} {% with
               has_health_changes=summary.offense_change.fading or
               summary.risk_change.new or summary.risk_change.persistent %} {% if
-              summary and has_health_changes %}
+              summary and has_health_changes %} {# 修改行：使用预计算的
+              has_health_changes 变量 #}
               <div
                 class="health-dashboard"
                 style="margin-top: 8px; font-size: 0.9em"
@@ -163,7 +166,8 @@ extra_head %}
                 </div>
                 {% endif %}
               </div>
-              {% endif %} {% endwith %}
+              {% endif %} {# 修改行：结束 if 标签 #} {% endwith %} {#
+              修改行：结束 with 标签 #}
 
               <div class="signal-details" style="margin-top: 5px">
                 <span class="time-info">
@@ -207,7 +211,23 @@ extra_head %}
         </tbody>
       </table>
     </div>
-    {# ... (保留分页逻辑) ... #}
+    <div class="pagination">
+      {% if page_obj.has_other_pages %} {% if page_obj.has_previous %}
+      <a href="{% query_builder page=1 %}">&laquo; 首页</a>
+      <a href="{% query_builder page=page_obj.previous_page_number %}"
+        >上一页</a
+      >
+      {% endif %}
+      <span
+        >第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span
+      >
+      {% if page_obj.has_next %}
+      <a href="{% query_builder page=page_obj.next_page_number %}">下一页</a>
+      <a href="{% query_builder page=page_obj.paginator.num_pages %}"
+        >末页 &raquo;</a
+      >
+      {% endif %} {% endif %}
+    </div>
   </section>
 </div>
 {% endblock %}
