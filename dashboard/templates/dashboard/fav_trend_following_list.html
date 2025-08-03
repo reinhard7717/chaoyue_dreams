@@ -108,8 +108,7 @@
               {% else %} - {% endif %}
             </td>
             <td>
-              {% if tracker.status == 'HOLDING' and tracker.latest_log %} {# ---
-              Part 1: 核心分数追踪 (保持不变) --- #}
+              {% if tracker.status == 'HOLDING' and tracker.latest_log %}
               <div class="score-tracker">
                 <span class="{% if tracker.score_change_vs_entry > 0 %}score-up{% elif tracker.score_change_vs_entry < 0 %}score-down{% else %}score-neutral{% endif %}">
                   📈 {{ tracker.latest_log.entry_score|floatformat:0 }}
@@ -124,11 +123,10 @@
                 {% endif %}
               </div>
 
-              {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #}
-              {# 【代码修改】使用嵌套的 if 语句来处理 summary 对象的存在性检查和内部逻辑判断 #}
-              {% with summary=tracker.health_change_summary %} {# 新增代码行：将 health_change_summary 赋值给 summary #}
-                {% if summary %} {# 新增代码行：检查 summary 对象是否存在 #}
-                  {% if summary.offense_change.fading or summary.risk_change.new or summary.risk_change.persistent %} {# 修改行：直接在此处进行 OR 逻辑判断 #}
+              {# --- Part 2: 健康度变化仪表盘 --- #}
+              {% with summary=tracker.health_change_summary %}
+                {% if summary %}
+                  {% if summary.offense_change.fading or summary.risk_change.new or summary.risk_change.persistent %}
                     <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em;" >
                       {# 2.1 进攻优势变化 #} {% if summary.offense_change.fading %}
                       <div class="change-section">
@@ -157,14 +155,13 @@
                       </div>
                       {% endif %}
                     </div>
-                  {% endif %} {# 修改行：结束 if summary.offense_change.fading or ... #}
-                {% endif %} {# 新增代码行：结束 if summary #}
-              {% endwith %} {# 新增代码行：结束 with summary #}
+                  {% endif %}
+                {% endif %}
+              {% endwith %}
 
               <div class="signal-details" style="margin-top: 5px">
                 <span class="time-info">
-                  更新于: {{
-                  tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
+                  更新于: {{ tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
                 </span>
               </div>
               {% elif tracker.status == 'SOLD' and tracker.exit_log %}
