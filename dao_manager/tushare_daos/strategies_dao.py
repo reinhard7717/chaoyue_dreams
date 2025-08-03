@@ -627,9 +627,6 @@ class StrategiesDAO(BaseDAO):
 
         signals_to_process, details_to_create = signals_tuple
         
-        # --- 代码修改开始 ---
-        # [修改原因] 将所有数据库操作封装到一个同步函数中，以正确使用 transaction.atomic
-        
         def _save_all_sync():
             """这个函数是完全同步的，它将在一个单独的线程中被异步执行。"""
             try:

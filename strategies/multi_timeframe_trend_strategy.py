@@ -96,7 +96,7 @@ class MultiTimeframeTrendStrategy:
         all_dfs['D_CONTEXT'] = df_daily_with_context
 
         # 4. 战术引擎：这是一个同步函数 (def)，直接调用，不能用 await。
-        tactical_signals, tactical_details = self._run_tactical_engine(stock_code, all_dfs)
+        tactical_signals, tactical_details = await self._run_tactical_engine(stock_code, all_dfs)
         print(f"  - [战术引擎] 生成 {len(tactical_signals)} 条日线级信号。")
 
         # 5. 盘中入场引擎：这是一个异步函数 (async def)，必须用 await 调用。
@@ -327,7 +327,7 @@ class MultiTimeframeTrendStrategy:
         print(f"    {verdict}")
         print("=" * 95)
 
-    def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
         【V322.0 终极架构重构版】
         - 核心重构: 总指挥层不再执行任何情报分析。它的唯一职责是将带有周线战略背景的
@@ -356,7 +356,7 @@ class MultiTimeframeTrendStrategy:
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
             
-            # --- 【核心修复】主动净化报告数据源 ---
+            # --- 主动净化报告数据源 ---
             # 在将数据送去生成报告前，进行最后一次清洗，确保逻辑的最终正确性。
             is_buy_signal_day = daily_analysis_df['signal_type'] == '买入信号'
             
@@ -371,9 +371,9 @@ class MultiTimeframeTrendStrategy:
             # print("    -> [报告净化单元] 已对买入信号日的风险标签执行最终净化。")
             
             # 3. 调用报告层生成数据库记录 (现在使用净化后的DataFrame)
-            db_records = self.tactical_engine.prepare_db_records(
+            records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=daily_analysis_df, # <--- 传递净化后的版本
+                result_df=daily_analysis_df,
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
@@ -381,7 +381,7 @@ class MultiTimeframeTrendStrategy:
             )
             print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
             
-            return db_records
+            return records_tuple
 
         finally:
             # 注意：这里的清理逻辑保持不变，因为调试模式可能需要这些临时数据
