@@ -13,10 +13,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterUniqueTogether(
-            name='favoritestocktracker',
-            unique_together={('user', 'stock', 'entry_signal')},
-        ),
+        # --- 代码修改开始 ---
+        # [修改原因] 修复 FieldDoesNotExist 错误，调整迁移操作的执行顺序。
+        
+        # 步骤1: 先添加所有新字段
         migrations.AddField(
             model_name='favoritestocktracker',
             name='entry_signal',
@@ -32,6 +32,14 @@ class Migration(migrations.Migration):
             name='latest_signal',
             field=models.ForeignKey(blank=True, help_text='关联的最新信号日志 (每日更新)', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='latest_tracker', to='stock_models.tradingsignal'),
         ),
+
+        # 步骤2: 在新字段添加后，再修改唯一约束
+        migrations.AlterUniqueTogether(
+            name='favoritestocktracker',
+            unique_together={('user', 'stock', 'entry_signal')},
+        ),
+        
+        # 步骤3: 修改其他字段
         migrations.AlterField(
             model_name='favoritestocktracker',
             name='entry_date',
@@ -42,6 +50,8 @@ class Migration(migrations.Migration):
             name='entry_price',
             field=models.DecimalField(blank=True, decimal_places=3, help_text='建仓价格', max_digits=10, null=True),
         ),
+
+        # 步骤4: 最后移除所有旧字段
         migrations.RemoveField(
             model_name='favoritestocktracker',
             name='entry_log',
@@ -70,4 +80,5 @@ class Migration(migrations.Migration):
             model_name='favoritestocktracker',
             name='score_change_vs_entry',
         ),
+        # --- 代码修改结束 ---
     ]
