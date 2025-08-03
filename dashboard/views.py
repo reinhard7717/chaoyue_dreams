@@ -17,7 +17,7 @@ from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
 from strategies.trend_following_strategy import TrendFollowStrategy
 from utils.config_loader import load_strategy_config
-from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, FavoriteStockTracker
+from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, FavoriteStockTracker, Playbook
 from stock_models.stock_basic import StockInfo
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
