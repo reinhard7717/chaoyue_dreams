@@ -1,16 +1,61 @@
-{# 文件: templates/dashboard/fav_trend_following_list.html #}
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
 {% load dashboard_extras %}
 
 {% block title %}
-  {{ page_title }} - {{ block.super }}
+  {{ page_title|default:"自选股持仓监控" }} - {{ block.super }}
 {% endblock %}
 
 {% block extra_head %}
     <style>
-      /* ... (保留所有样式) ... */
+      .score-tracker {
+        font-size: 1.1em;
+        font-weight: bold;
+      }
+      .score-up {
+        color: #4caf50; /* 绿色 */
+      }
+      .score-down {
+        color: #f44336; /* 红色 */
+      }
+      .score-neutral {
+        color: #9e9e9e; /* 灰色 */
+      }
+      .score-delta {
+        font-size: 0.8em;
+        font-weight: normal;
+        margin-left: 5px;
+      }
+      .risk-score-display {
+        color: #ff9800; /* 橙色 */
+        font-weight: bold;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.85em;
+        margin: 2px;
+        color: #fff;
+        background-color: #9e9e9e;
+      }
+      .tag-warning {
+        background-color: #ff9800; /* 橙色: 优势衰减 */
+      }
+      .tag-danger {
+        background-color: #f44336; /* 红色: 新增风险 */
+      }
+      .tag-secondary {
+        background-color: #757575; /* 灰色: 持续风险 */
+      }
+      .health-dashboard {
+        margin-top: 8px;
+        font-size: 0.9em;
+      }
+      .change-section {
+        margin-top: 4px;
+      }
     </style>
 {% endblock %}
 
@@ -50,8 +95,6 @@
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
-          {# --- 代码修改开始 --- #}
-          {# [修改原因] 适配正确的模型字段名 (entry_log, latest_log, exit_log) #}
           {% for tracker in page_obj %}
           <tr data-id="{{ tracker.id }}">
             <td>
@@ -62,46 +105,47 @@
               <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
             </td>
             <td>
-              {% if tracker.entry_log %}
+              {% if tracker.entry_signal %}
               <strong>
                 买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
               </strong>
               <br />
-              <small>建仓分数: {{ tracker.entry_score|floatformat:0 }}</small>
+              <small>建仓分数: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
             </td>
             <td>
-              {% if tracker.status == 'HOLDING' and tracker.latest_log %}
-              {% with latest_log=tracker.latest_log %}
+              {% if tracker.status == 'HOLDING' and tracker.latest_signal %}
+              {% with latest_signal=tracker.latest_signal %}
               <div class="score-tracker">
-                {% with score_change=tracker.score_change_vs_entry %}
+                {% with score_change=latest_signal.entry_score|subtract:tracker.entry_signal.entry_score %}
                 <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}">
-                  📈 {{ latest_log.entry_score|floatformat:0 }}
+                  📈 {{ latest_signal.entry_score|floatformat:0 }}
                   <span class="score-delta">
                     ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
                   </span>
                 </span>
                 {% endwith %}
-                {% if latest_log.risk_score > 0 %}
+                {% if latest_signal.risk_score > 0 %}
                 <span class="risk-score-display" title="当前风险分">
-                  &nbsp; | &nbsp;风险分 ⚠️ {{ latest_log.risk_score|floatformat:0 }}
+                  &nbsp; | &nbsp;风险分 ⚠️ {{ latest_signal.risk_score|floatformat:0 }}
                 </span>
                 {% endif %}
               </div>
 
+              {# --- 健康度变化仪表盘 --- #}
               {% with summary=tracker.health_change_summary %}
                 {% if summary and summary.offense_momentum or summary.risk_change %}
-                  <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em;" >
+                  <div class="health-dashboard">
                     {% if summary.offense_momentum.deceleration or summary.offense_momentum.stall %}
                     <div class="change-section">
-                      <strong style="color: #ff9800">优势衰减:</strong>
+                      <strong style="color: #ff9800;">优势衰减:</strong>
                       {% if summary.offense_momentum.deceleration %}<span class="tag tag-warning">进攻减速</span>{% endif %}
                       {% if summary.offense_momentum.stall %}<span class="tag tag-warning">进攻停滞</span>{% endif %}
                     </div>
                     {% endif %}
                     {% if summary.risk_change %}
-                    <div class="change-section" style="margin-top: 4px">
-                      <strong style="color: #f44336">风险变化:</strong>
+                    <div class="change-section">
+                      <strong style="color: #f44336;">风险变化:</strong>
                       {% for key, value in summary.risk_change.items %}
                         <span class="tag tag-danger">{{ key }}</span>
                       {% endfor %}
@@ -117,25 +161,24 @@
                 </span>
               </div>
               {% endwith %}
-              {% elif tracker.status == 'SOLD' and tracker.exit_log %}
+              {% elif tracker.status == 'SOLD' and tracker.exit_signal %}
               <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
               <br />
-              <small>风险分: {{ tracker.exit_log.risk_score|floatformat:0 }}</small>
+              <small>风险分: {{ tracker.exit_signal.risk_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
             </td>
             <td class="actions">
-              {# 删除按钮现在需要从 tracker.favorite_stock 获取ID #}
-              {% if tracker.favorite_stock %}
+              {# 注意: 此处删除按钮的 data-id 需要在 FavoriteStockTracker 和 FavoriteStock 之间建立关联才能获取 #}
+              {# 这是一个待办事项，当前按钮可能无法正常工作 #}
               <button
                 class="btn btn-sm btn-danger remove-favorite-btn"
                 data-action="remove"
-                data-id="{{ tracker.favorite_stock.id }}"
+                data-id="{{ tracker.id }}" {# 临时使用 tracker.id，JS端需要适配 #}
                 data-stock-code="{{ tracker.stock.stock_code }}"
                 data-stock-name="{{ tracker.stock.stock_name }}"
               >
                 &times;
               </button>
-              {% endif %}
             </td>
           </tr>
           {% empty %}
@@ -145,20 +188,23 @@
             </td>
           </tr>
           {% endfor %}
-          {# --- 代码修改结束 --- #}
         </tbody>
       </table>
     </div>
     <div class="pagination">
-      {% if page_obj.has_other_pages %} {% if page_obj.has_previous %}
-      <a href="{% query_builder page=1 status=status_filter %}">&laquo; 首页</a>
-      <a href="{% query_builder page=page_obj.previous_page_number status=status_filter %}" >上一页</a>
+      {% if page_obj.has_other_pages %}
+        {% if page_obj.has_previous %}
+          <a href="{% query_builder page=1 status=status_filter %}">&laquo; 首页</a>
+          <a href="{% query_builder page=page_obj.previous_page_number status=status_filter %}" >上一页</a>
+        {% endif %}
+        
+        <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+        
+        {% if page_obj.has_next %}
+          <a href="{% query_builder page=page_obj.next_page_number status=status_filter %}">下一页</a>
+          <a href="{% query_builder page=page_obj.paginator.num_pages status=status_filter %}">末页 &raquo;</a>
+        {% endif %}
       {% endif %}
-      <span >第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
-      {% if page_obj.has_next %}
-      <a href="{% query_builder page=page_obj.next_page_number status=status_filter %}">下一页</a>
-      <a href="{% query_builder page=page_obj.paginator.num_pages status=status_filter %}">末页 &raquo;</a>
-      {% endif %} {% endif %}
     </div>
   </section>
 </div>
