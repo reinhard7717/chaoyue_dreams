@@ -708,6 +708,14 @@ class MultiTimeframeTrendStrategy:
             if not all_signals:
                 print("[信息] 核心策略未生成任何信号记录。")
                 return
+            # 步骤 1.1: 在内存中构建信号到详情的映射
+            signal_to_details_map = {}
+            for detail in all_details:
+                # 使用 signal 对象的内存地址作为 key
+                signal_key = id(detail.signal)
+                if signal_key not in signal_to_details_map:
+                    signal_to_details_map[signal_key] = []
+                signal_to_details_map[signal_key].append(detail)
 
             # 步骤 2: 检查是否需要部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
@@ -756,9 +764,12 @@ class MultiTimeframeTrendStrategy:
                 tf = signal_obj.timeframe
                 
                 # 获取与当前信号关联的详情
-                related_details = [d for d in all_details if d.signal == signal_obj]
+                signal_key = id(signal_obj)
+                related_details = signal_to_details_map.get(signal_key, [])
+                
                 playbooks_str = ", ".join(
-                    [d.playbook.cn_name for d in related_details if d.playbook]
+                    # 增加一个检查，确保 playbook 对象存在且有 cn_name
+                    [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
                 ) if related_details else "无剧本信息"
 
                 signal_type_display = signal_obj.get_signal_type_display()
