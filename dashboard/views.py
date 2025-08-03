@@ -1,13 +1,12 @@
 # dashboard/views.py
 import asyncio
 import json
-from amqp import NotFound
+from django.utils import timezone
 from asgiref.sync import async_to_sync
-from django.db.models import Max, F, Q, OuterRef, Subquery
-from datetime import date, datetime
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.core.paginator import Paginator
 from dao_manager.tushare_daos.user_dao import UserDAO
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
@@ -24,7 +23,6 @@ from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
-from itertools import chain
 from utils.task_helpers import with_cache_manager_for_views
 import logging # 导入 logging
 
