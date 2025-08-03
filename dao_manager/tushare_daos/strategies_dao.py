@@ -11,7 +11,7 @@ import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
-from stock_models.stock_analytics import TradingSignal
+from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail
 from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
