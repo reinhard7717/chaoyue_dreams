@@ -34,8 +34,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         await self.accept()
         print(f"WebSocket connected for user {self.user.username}")
 
-        # 连接成功后，推送所有自选股的最新行情
-        await self.send_initial_favorites_with_realtime()
 
     async def disconnect(self, close_code):
         if hasattr(self, 'user_group_name'):
@@ -49,69 +47,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                 self.channel_name
             )
         print(f"WebSocket disconnected for user {self.user.username}")
-
-    async def send_initial_favorites_with_realtime(self):
-        # 获取自选股列表
-        # 用 sync_to_async 包装同步函数，返回自选股和股票信息的字典列表
-        @sync_to_async
-        def get_favorites_data(user):
-            favorites = FavoriteStock.objects.filter(user=user).select_related('stock')
-            data = []
-            for fav in favorites:
-                if fav.stock:  # 防止 stock 为空
-                    data.append({
-                        'id': fav.id,
-                        'code': fav.stock.stock_code,
-                        'name': fav.stock.stock_name,
-                    })
-            return data
-        favorites_data = await get_favorites_data(self.user)
-        # 获取行情
-        cache_manager = CacheManager()
-        realtime_dao = StockRealtimeDAO(cache_manager_instance=cache_manager)
-        strategy_dao = StrategiesDAO(cache_manager_instance=cache_manager)
-        data = []
-        for fav in favorites_data:
-            stock_code = fav['code']
-            # 用 async_to_sync 包装 DAO 的 async 方法
-            latest_data = await realtime_dao.get_latest_tick_data(stock_code)
-            latest_strategy_result = await strategy_dao.get_latest_strategy_result(stock_code)
-            score = getattr(latest_strategy_result, 'score', None)
-            if score is None:
-                signal_type = 'hold'
-                signal_text = 'N/A'
-            else:
-                # 你可以自定义分数区间
-                if score >= 75:
-                    signal_type = 'buy'
-                elif score <= 25:
-                    signal_type = 'sell'
-                else:
-                    signal_type = 'hold'
-                signal_text = str(score)
-
-            data.append({
-                'id': fav['id'],
-                'code': stock_code,
-                'name': fav['name'],
-                'current_price': latest_data.get('current_price') if latest_data else None,
-                'high_price': latest_data.get('high_price') if latest_data else None,
-                'low_price': latest_data.get('low_price') if latest_data else None,
-                'open_price': latest_data.get('open_price') if latest_data else None,
-                'prev_close_price': latest_data.get('prev_close_price') if latest_data else None,
-                'trade_time': latest_data.get('trade_time') if latest_data else None,
-                'turnover_value': latest_data.get('turnover_value') if latest_data else None,
-                'change_percent': latest_data.get('change_percent') if latest_data else None,
-                'volume': latest_data.get('volume') if latest_data else None,
-                'signal': {
-                    'type': signal_type,
-                    'text': signal_text
-                },
-            })
-        await self.send(text_data=json.dumps({
-            'type': 'favorites_update',
-            'payload': data
-        }))
 
     # 从 WebSocket 接收消息 (前端发送过来的，这个场景可能用得少)
     async def receive(self, text_data):
