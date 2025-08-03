@@ -41,11 +41,14 @@
             <div class="filter-tags-container">
                 {% for playbook in all_playbooks %}
                     {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
-                        {% if playbook.id in selected_playbooks %}
-                            <a href="{% query_builder remove_playbook=playbook.id %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                        {# --- 代码修改开始 --- #}
+                        {# [修改原因] 使用 .pk 获取真实主键进行比较和URL构建 #}
+                        {% if playbook.pk|stringformat:"s" in selected_playbooks %}
+                            <a href="{% query_builder remove_playbook=playbook.pk %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
-                            <a href="{% query_builder add_playbook=playbook.id %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            <a href="{% query_builder add_playbook=playbook.pk %}" class="filter-tag">{{ playbook_display_name }}</a>
                         {% endif %}
+                        {# --- 代码修改结束 --- #}
                     {% endwith %}
                 {% empty %}
                     <span class="no-filters">暂无可用的筛选标签</span>

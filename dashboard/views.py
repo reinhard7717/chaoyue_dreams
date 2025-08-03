@@ -102,9 +102,11 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.11 字段强制加载最终版】
-    - 核心修复: 在 Prefetch 查询中，使用 .only('id', 'name', 'cn_name') 强制 Django ORM 加载 Playbook 的主键ID和名称字段，解决 playbook.id 为空的问题。
+    【V405.12 主键修复最终版】
+    - 核心修复: 移除导致错误的 .only() 子句。修正筛选逻辑，使其能处理字符串类型的主键。
+    - 根本原因: Playbook 模型使用自定义字段（如 'name'）作为主键，而非默认的 'id'。
     """
+
     latest_trade_day_obj = TradeCalendar.objects.filter(
         is_open=True,
         cal_date__lte=timezone.now().date()
@@ -127,26 +129,13 @@ def trend_following_list(request):
                 query_conditions.append(Q(trade_time__gte=start_of_day, trade_time__lt=end_of_day))
             combined_query = functools.reduce(operator.or_, query_conditions)
 
-            # --- 代码修改开始 ---
-            # [修改原因] 解决 playbook.id 为空的问题，强制加载所需字段。
-            playbook_queryset = SignalPlaybookDetail.objects.select_related('playbook').only(
-                # SignalPlaybookDetail 需要的字段 (外键 signal_id 会自动加载)
-                'id', 
-                'playbook_id',
-                # 强制加载关联的 playbook 的这几个关键字段
-                'playbook__id', 
-                'playbook__name', 
-                'playbook__cn_name'
-            )
-
             latest_buy_signals = TradingSignal.objects.filter(
                 combined_query,
                 signal_type='BUY',
                 timeframe='D'
             ).select_related('stock').prefetch_related(
-                Prefetch('signalplaybookdetail_set', queryset=playbook_queryset)
+                Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
             ).order_by('-trade_time', '-entry_score')
-            # --- 代码修改结束 ---
 
     all_logs_in_memory = []
     all_playbook_objects = set()
@@ -154,7 +143,7 @@ def trend_following_list(request):
         active_playbooks = []
         if hasattr(signal, 'signalplaybookdetail_set'):
             for detail in signal.signalplaybookdetail_set.all():
-                if detail.playbook and detail.playbook.id is not None:
+                if detail.playbook and detail.playbook.pk is not None:
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
@@ -170,14 +159,16 @@ def trend_following_list(request):
 
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
-    selected_playbook_ids_str = request.GET.getlist('playbooks')
+    selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
 
-    if selected_playbook_ids_str:
-        selected_ids_int = {int(pid) for pid in selected_playbook_ids_str if pid} # 增加 if pid 防止空字符串
+    if selected_playbooks_pks:
+        # 主键现在是字符串，直接使用集合进行比较
+        selected_pks_set = set(selected_playbooks_pks)
         final_filtered_logs = [
             log for log in all_logs_in_memory
-            if selected_ids_int.issubset({p.id for p in log['active_playbooks']})
+            # 使用 .pk 获取真实主键，并转换为字符串进行比较
+            if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
 
     paginator = Paginator(final_filtered_logs, 25)
@@ -190,7 +181,10 @@ def trend_following_list(request):
         'page_obj': page_obj,
         'total_count': paginator.count,
         'all_playbooks': unique_playbooks,
-        'selected_playbooks': [int(pid) for pid in selected_playbook_ids_str if pid], # 增加 if pid 防止空字符串
+        # --- 代码修改开始 ---
+        # [修改原因] 将字符串主键列表传回模板
+        'selected_playbooks': selected_playbooks_pks,
+        # --- 代码修改结束 ---
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
