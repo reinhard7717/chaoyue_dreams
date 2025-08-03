@@ -214,6 +214,7 @@ class JudgmentLayer:
         # 1. 识别最终的信号类型
         final_buy_condition = df['signal_type'] == '买入信号'
         final_sell_condition = df['signal_type'] == '卖出信号'
+        final_warning_condition = df['signal_type'] == '风险预警'
 
         # 2. 为买入信号赋值并净化
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
@@ -221,16 +222,20 @@ class JudgmentLayer:
         # 确保买入信号日不携带任何卖出或预警信息
         df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
 
-        # 3. 为卖出信号赋值
-        df.loc[final_sell_condition, 'final_score'] = df.loc[final_sell_condition, 'risk_score'] # 卖出信号的最终分是风险分
+        # 3. 为卖出及预警信号赋值
+        df.loc[final_sell_condition | final_warning_condition, 'final_score'] = df.loc[final_sell_condition | final_warning_condition, 'risk_score']
         df.loc[final_sell_condition, 'signal_entry'] = False
         
         # 4. 打印最终审查报告
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
+        # 增加 'max_allowed_votes' 列到调试输出，方便检查否决票逻辑
+        debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'max_allowed_votes', 'final_score', 'signal_type', 'main_force_state']
         final_check_df = df[(df['signal_type'] != '无信号') & (df['signal_type'] != '中性')].tail(10)
         if not final_check_df.empty:
+            # 确保所有调试列都存在
+            cols_to_show = [col for col in debug_cols if col in final_check_df.columns]
             print("          -> [最终分数审查报告]:")
-            print(final_check_df[['entry_score', 'risk_score', 'veto_votes', 'final_score', 'signal_type', 'main_force_state']])
+            print(final_check_df[cols_to_show])
         else:
             print("          -> [最终分数审查报告]: 在最近的记录中未发现任何有效信号。")
 

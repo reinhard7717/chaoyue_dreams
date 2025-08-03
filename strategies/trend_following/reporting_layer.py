@@ -42,11 +42,11 @@ class ReportingLayer:
                 'trade_time': trade_time,
                 'timeframe': result_timeframe,
                 'strategy_name': get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
-                'entry_score': row.get('final_score', 0.0),
-                'risk_score': row.get('risk_score', 0.0),
+                'entry_score': row.get('entry_score', 0.0), # 直接从原始 entry_score 列获取
+                'risk_score': row.get('risk_score', 0.0),   # 直接从原始 risk_score 列获取
                 'risk_change_summary': row.get('risk_change_summary', {}),
                 'health_change_summary': row.get('health_change_summary', {}),
-                'is_risk_warning': (row['signal_type'] != '买入信号') and (row['signal_type'] != '卖出信号') and (row.get('alert_level', 0) > 0)
+                'is_risk_warning': row['signal_type'] == '风险预警' # 简化判断逻辑
             })
 
             record = self._create_signal_record(**record_data)
@@ -78,7 +78,9 @@ class ReportingLayer:
             "stable_platform_price": None, "is_risk_warning": False, "risk_score": 0.0,
             "signal_type": "无信号",
             "holding_health_score": 0.0,
-            "veto_votes": 0
+            "veto_votes": 0,
+            "risk_change_summary": {},
+            "health_change_summary": {}
         }
         
         final_record = db_template.copy()

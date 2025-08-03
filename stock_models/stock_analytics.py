@@ -9,6 +9,7 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, Decimal):
             return float(o)
         return super().default(o)
+
 class TrendFollowStrategySignalLog(models.Model):
     """
     【V3.2 优化版】策略信号日志模型。
