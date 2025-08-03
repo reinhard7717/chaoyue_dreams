@@ -1,8 +1,16 @@
-{# 文件: templates/dashboard/trend_following_list.html #} {% extends 'base.html'
-%} {% load static %} {% load tz %} {% load dashboard_extras %} {% block title
-%}多时间框架策略评分 - {{ block.super }}{% endblock %} {% block extra_head %} {#
-这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #} {%
-endblock %}
+{# 文件: templates/dashboard/trend_following_list.html #}
+{% extends 'base.html' %}
+{% load static %}
+{% load tz %}
+{% load dashboard_extras %}
+
+{% block title %}
+  自选股持仓监控 - {{ block.super }}
+{% endblock %}
+
+{% block extra_head %}
+    {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
+{% endblock %}
 <style>
   /* ... (保留原有的 status-tag, signal-details 样式) ... */
   .score-tracker {
