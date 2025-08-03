@@ -82,41 +82,41 @@ class MultiTimeframeTrendStrategy:
         )
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
-            return []
+            return ([], [])
 
         # 2. 战略引擎：计算长期趋势和上下文
-        df_weekly_context = self.strategic_engine.generate_context(all_dfs['W'])
-        if df_weekly_context.empty:
-            print(f"  - [战略引擎] 未能生成战略上下文，跳过后续处理。")
-            return []
-
-        # 3. 情报融合：将战略上下文合并到日线数据
-        df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
-        all_dfs['D_CONTEXT'] = df_daily_with_context # 更新 all_dfs，供下游引擎使用
+        df_weekly_context = self.strategic_engine.generate_context(all_dfs.get('W')) # 使用 .get 增加健壮性
+        if df_weekly_context is None or df_weekly_context.empty:
+            print(f"  - [战略引擎] 未能生成战略上下文，将仅使用日线数据进行分析。")
+            # 不再直接返回，而是允许流程继续，仅使用日线数据
+            df_daily_with_context = all_dfs['D']
+        else:
+            # 3. 情报融合
+            df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
+        all_dfs['D_CONTEXT'] = df_daily_with_context
 
         # 4. 战术引擎：基于日线+战略上下文，生成日线级别的交易信号
-        tactical_records = self._run_tactical_engine(stock_code, all_dfs)
-        print(f"  - [战术引擎] 生成 {len(tactical_records)} 条日线级信号。")
+        tactical_signals, tactical_details = self._run_tactical_engine(stock_code, all_dfs)
+        print(f"  - [战术引擎] 生成 {len(tactical_signals)} 条日线级信号。")
 
         # 5. 盘中入场引擎：对日线信号进行盘中确认
-        intraday_entry_records = await self._run_intraday_entry_engine(stock_code, all_dfs)
-        print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_records)} 条盘中确认信号。")
+        intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
+        print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_signals)} 条盘中确认信号。")
 
         # 6. 盘中风险预警引擎：监控潜在的盘中风险
-        risk_alert_records = self._run_intraday_alert_engine(stock_code, all_dfs)
-        print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_records)} 条风险预警信号。")
+        risk_alert_signals, risk_alert_details = await self._run_intraday_alert_engine(stock_code, all_dfs)
+        print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_signals)} 条风险预警信号。")
 
         # 7. 信号汇总
         all_signals = tactical_signals + intraday_entry_signals + risk_alert_signals
         all_details = tactical_details + intraday_entry_details + risk_alert_details
         
-        # 8. 结果排序（可选，但推荐）
+        # 8. 结果排序
         if all_signals:
             all_signals.sort(key=lambda x: x.trade_time)
         
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
         
-        # 返回合并后的元组
         return (all_signals, all_details)
 
     async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List]:
