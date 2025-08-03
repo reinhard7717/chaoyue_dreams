@@ -10,51 +10,53 @@
 
 {% block extra_head %}
     {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
-{% endblock %}
-<style>
-  /* ... (保留原有的 status-tag, signal-details 样式) ... */
-  .score-tracker {
-    font-size: 1.1em;
-    font-weight: bold;
-  }
-  .score-up {
-    color: #4caf50;
-  }
-  .score-down {
-    color: #f44336;
-  }
-  .score-neutral {
-    color: #9e9e9e;
-  }
-  .score-delta {
-    font-size: 0.8em;
-    font-weight: normal;
-    margin-left: 5px;
-  }
-  .risk-score-display {
-    color: #ff9800;
-    font-weight: bold;
-  }
-  .tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 0.85em;
-    margin: 2px;
-    color: #fff;
-    background-color: #9e9e9e;
-  }
-  .tag-warning {
-    background-color: #ff9800;
-  } /* 橙色: 优势衰减 */
-  .tag-danger {
-    background-color: #f44336;
-  } /* 红色: 新增风险 */
-  .tag-secondary {
-    background-color: #757575;
-  } /* 灰色: 持续风险 */
-</style>
-{% endblock %} {% block sidebar %}
+    <style>
+      /* ... (保留原有的 status-tag, signal-details 样式) ... */
+      .score-tracker {
+        font-size: 1.1em;
+        font-weight: bold;
+      }
+      .score-up {
+        color: #4caf50;
+      }
+      .score-down {
+        color: #f44336;
+      }
+      .score-neutral {
+        color: #9e9e9e;
+      }
+      .score-delta {
+        font-size: 0.8em;
+        font-weight: normal;
+        margin-left: 5px;
+      }
+      .risk-score-display {
+        color: #ff9800;
+        font-weight: bold;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.85em;
+        margin: 2px;
+        color: #fff;
+        background-color: #9e9e9e;
+      }
+      .tag-warning {
+        background-color: #ff9800;
+      } /* 橙色: 优势衰减 */
+      .tag-danger {
+        background-color: #f44336;
+      } /* 红色: 新增风险 */
+      .tag-secondary {
+        background-color: #757575;
+      } /* 灰色: 持续风险 */
+    </style>
+    {# 修改结束 #}
+{% endblock %} {# 此处的 endblock 是 extra_head 的正确闭合标签 #}
+
+{% block sidebar %}
 <aside class="site-sidebar">
   <nav class="sidebar-nav">
     <h3>导航菜单</h3>
@@ -136,6 +138,7 @@
               {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #} {#
               【代码修改】使用 with 标签预计算复杂的布尔条件，避免模板解析器在
               if 标签中遇到括号导致的问题 #} {% with
+              summary=tracker.health_change_summary %} {% with
               has_health_changes=summary.offense_change.fading or
               summary.risk_change.new or summary.risk_change.persistent %} {% if
               summary and has_health_changes %} {# 修改行：使用预计算的
@@ -175,8 +178,8 @@
                 </div>
                 {% endif %}
               </div>
-              {% endif %} {# 修改行：结束 if 标签 #} {% endwith %} {#
-              修改行：结束 with 标签 #}
+              {% endif %} {# 修改行：结束 if 标签 #} {% endwith %} {% endwith %}
+              {# 修改行：结束 with 标签 #}
 
               <div class="signal-details" style="margin-top: 5px">
                 <span class="time-info">
