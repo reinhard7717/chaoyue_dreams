@@ -2,7 +2,9 @@
 import asyncio
 import json
 from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, time, timedelta
+import functools
+import operator
 from asgiref.sync import async_to_sync
 from django.db.models import Q, Prefetch
 from rest_framework import viewsets, status
@@ -106,44 +108,60 @@ def trend_following_list(request):
     """
     print("\n--- [View] 开始渲染策略状态监控中心 (trend_following_list) V405.3 诊断修复版 ---")
     
-    # --- 代码修改开始 ---
-    # [修改原因] 增加诊断信息并强化日期获取逻辑，解决查不到数据的问题。
-    
-    # 步骤1.1 (逻辑强化): 先找到最新的一个实际交易日作为参考点
     latest_trade_day_obj = TradeCalendar.objects.filter(
         is_open=True,
         cal_date__lte=timezone.now().date()
     ).order_by('-cal_date').first()
 
     if not latest_trade_day_obj:
-        print("--- [View-Debug] 错误: 交易日历中没有任何历史交易日记录，无法继续。")
+        print("--- [View-Debug] 错误: 交易日历中没有任何历史交易日记录。")
         latest_buy_signals = TradingSignal.objects.none()
-        latest_3_trade_dates = []
     else:
-        # 使用找到的最新交易日作为参考，获取最近3个交易日
         reference_date = latest_trade_day_obj.cal_date
         latest_3_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=3, reference_date=reference_date)
         
-        # --- 关键诊断打印 1 ---
-        # 检查我们获取到的日期列表是否正确
-        print(f"--- [View-Debug] 查询的参考日期是: {reference_date}")
         print(f"--- [View-Debug] 获取到的最近3个交易日列表: {latest_3_trade_dates}")
 
-        # 步骤2: 使用获取到的交易日列表来过滤信号
-        latest_buy_signals = TradingSignal.objects.filter(
-            signal_type="BUY",
-            timeframe='D',
-            trade_time__date__in=latest_3_trade_dates
-        ).select_related('stock').prefetch_related(
-            Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        )
-        
-        # --- 关键诊断打印 2 ---
-        # 检查数据库根据这个日期列表实际返回了多少条记录
-        print(f"--- [View-Debug] 使用上述日期列表，从数据库查询到的 BUY 信号数量: {latest_buy_signals.count()}")
-        
-        # 在执行完 count() 后，再应用排序，避免不必要的额外查询
-        latest_buy_signals = latest_buy_signals.order_by('-trade_time', '-entry_score')
+        if not latest_3_trade_dates:
+            print("--- [View-Debug] 交易日列表为空，不执行查询。")
+            latest_buy_signals = TradingSignal.objects.none()
+        else:
+            # 步骤1: 构建一个 Q 对象的列表，每个对象代表一天的查询范围
+            query_conditions = []
+            # 获取当前 Django 项目的有效时区
+            tz = timezone.get_current_timezone()
+            
+            for trade_date in latest_3_trade_dates:
+                # 创建一个时区感知的“开始时间”，例如：2025-08-01 00:00:00+08:00
+                start_of_day = timezone.make_aware(datetime.combine(trade_date, time.min), tz)
+                # 创建一个时区感知的“结束时间”，即第二天的开始
+                end_of_day = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), tz)
+                
+                # 构建范围查询条件
+                query_conditions.append(
+                    Q(trade_time__gte=start_of_day, trade_time__lt=end_of_day)
+                )
+
+            # 步骤2: 使用 OR 操作符合并所有 Q 对象
+            # 例如: (Q(day1_range) | Q(day2_range) | Q(day3_range))
+            combined_query = functools.reduce(operator.or_, query_conditions)
+
+            # 步骤3: 执行最终查询
+            latest_buy_signals = TradingSignal.objects.filter(
+                combined_query, # 应用合并后的日期范围条件
+                signal_type='BUY',
+                timeframe='D'
+            ).select_related('stock').prefetch_related(
+                Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
+            )
+            
+            # --- 终极诊断打印 ---
+            # 打印 Django ORM 生成的最终 SQL 语句
+            print("--- [View-Debug] 最终生成的 SQL 查询语句:")
+            print(str(latest_buy_signals.query))
+            print(f"--- [View-Debug] 使用时区感知范围查询，从数据库查询到的信号数量: {latest_buy_signals.count()}")
+            
+            latest_buy_signals = latest_buy_signals.order_by('-trade_time', '-entry_score')
 
     # 后续的数据处理逻辑保持不变
     final_logs = []
@@ -191,9 +209,7 @@ def trend_following_list(request):
         'all_playbooks': unique_playbooks,
         'selected_playbooks': [int(pid) for pid in selected_playbook_ids],
     }
-    # --- 代码修改结束 ---
     return render(request, 'dashboard/trend_following_list.html', context)
-
 
 @login_required
 def fav_trend_following_list(request):
