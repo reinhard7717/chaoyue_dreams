@@ -4,12 +4,11 @@
 {% load tz %}
 {% load dashboard_extras %}
 
-{% block title %}多时间框架策略评分 - {{ block.super }}{% endblock %}
+{% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
     {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
 {% endblock %}
-
 
 {% block sidebar %}
     <aside class="site-sidebar">
@@ -28,7 +27,10 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 只)</h2>
+        <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 条记录)</h2>
+        
+        {# --- 代码修改开始 --- #}
+        {# [修改原因] 适配新的筛选逻辑，现在基于Playbook的ID进行筛选 #}
         <div class="filter-section">
             <div class="filter-header">
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
@@ -38,27 +40,11 @@
             </div>
             <div class="filter-tags-container">
                 {% for playbook in all_playbooks %}
-                    {% with playbook_display_name=playbook|playbook_display %}
-                        {% if playbook in selected_playbooks %}
-                            {% if 'ROCKET' in playbook %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active rocket-signal">🚀 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% elif 'S' in playbook_display_name %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active king-signal">👑 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% elif 'A+' in playbook_display_name %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active expert-signal">🎓 {{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% else %}
-                                <a href="{% query_builder remove_playbook=playbook %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
-                            {% endif %}
+                    {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
+                        {% if playbook.id in selected_playbooks %}
+                            <a href="{% query_builder remove_playbook=playbook.id %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
-                            {% if 'ROCKET' in playbook %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag rocket-signal">🚀 {{ playbook_display_name }}</a>
-                            {% elif 'S' in playbook_display_name %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag king-signal">👑 {{ playbook_display_name }}</a>
-                            {% elif 'A+' in playbook_display_name %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag expert-signal">🎓 {{ playbook_display_name }}</a>
-                            {% else %}
-                                <a href="{% query_builder add_playbook=playbook %}" class="filter-tag">{{ playbook_display_name }}</a>
-                            {% endif %}
+                            <a href="{% query_builder add_playbook=playbook.id %}" class="filter-tag">{{ playbook_display_name }}</a>
                         {% endif %}
                     {% endwith %}
                 {% empty %}
@@ -66,21 +52,23 @@
                 {% endfor %}
             </div>
         </div>
+        {# --- 代码修改结束 --- #}
+
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
                 <thead>
                     <tr>
-                        <th>股票</th>
-                        <th>激活策略</th>
-                        <th>最高分数</th>
-                        <th>激活剧本</th>
-                        <th>最新信号时间</th>
-                        <th>最新买入</th>
-                        <th>最新卖出</th>
-                        <th class="actions">操作</th>
+                        <th style="width: 15%;">股票</th>
+                        <th style="width: 15%;">策略名称</th>
+                        <th style="width: 10%;">买入分数</th>
+                        <th style="width: 40%;">激活剧本</th>
+                        <th style="width: 15%;">信号时间</th>
+                        <th style="width: 5%;" class="actions">操作</th>
                     </tr>
                 </thead>
                 <tbody id="trend-table-body">
+                    {# --- 代码修改开始 --- #}
+                    {# [修改原因] 适配新的 item 数据结构 #}
                     {% for item in items_for_display %}
                     <tr>
                         <td>
@@ -89,17 +77,7 @@
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
                         <td>
-                            <ul class="strategy-list">
-                            {% for name in item.strategy_names %}
-                                <li class="strategy-tag">{{ name|playbook_display }}</li>
-                            {% endfor %}
-                            {% if item.stable_platform_price %}
-                            <div class="platform-price-info">
-                                <span class="icon" title="以此价格为关键支撑/压力">🛡️</span>
-                                平台支撑: {{ item.stable_platform_price|floatformat:2 }}
-                            </div>
-                            {% endif %}
-                            </ul>
+                            <span class="strategy-tag">{{ item.strategy_name|default:"N/A" }}</span>
                         </td>
                         <td>
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
@@ -107,54 +85,30 @@
                         <td>
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
-                                    <ul class="playbook-list {% if item.active_playbooks|length > 3 %}collapsible{% endif %}">
+                                    <ul class="playbook-list">
                                     {% for playbook in item.active_playbooks %}
-                                        {% with playbook_display_name=playbook|playbook_display %}
-                                            {% if 'ROCKET' in playbook %}
-                                                <li class="playbook-tag rocket-signal" title="{{ playbook }}">🚀 {{ playbook_display_name }}</li>
-                                            {% elif '王牌' in playbook_display_name %}
-                                                <li class="playbook-tag king-signal" title="{{ playbook }}">👑 {{ playbook_display_name }}</li>
-                                            {% elif '专家' in playbook_display_name %}
-                                                <li class="playbook-tag expert-signal" title="{{ playbook }}">🎓 {{ playbook_display_name }}</li>
-                                            {% else %}
-                                                <li class="playbook-tag" title="{{ playbook }}">{{ playbook_display_name }}</li>
-                                            {% endif %}
-                                        {% endwith %}
+                                        <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
                                     {% endfor %}
                                     </ul>
-                                    {% if item.active_playbooks|length > 4 %}
-                                        <a href="#" class="toggle-playbooks" 
-                                           data-text-expand="显示更多 (共 {{ item.active_playbooks|length }} 条)" 
-                                           data-text-collapse="收起">
-                                            显示更多 (共 {{ item.active_playbooks|length }} 条)
-                                        </a>
-                                    {% endif %}
                                 </div>
                             {% else %}
                                 -
                             {% endif %}
                         </td>
-                        <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>{{ item.last_buy_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i"|default:"-" }}</td>
-                        <td>
-                            {% if item.last_sell_time and item.last_buy_time and item.last_sell_time > item.last_buy_time %}
-                                {{ item.last_sell_time|timezone:"Asia/Shanghai"|date:"Y-m-d H:i" }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
+                        <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
                         <td class="actions">
                             <button class="btn btn-sm btn-outline add-to-favorites-btn" 
                                     data-stock-code="{{ item.stock.stock_code }}"
-                                    data-log-id="{{ item.log_id }}"> {# <--- 在这里也加上 #}
+                                    data-signal-id="{{ item.log_id }}"> {# 传递 signal_id #}
                                 <span class="btn-icon">+</span>
                                 <span class="btn-text">添加自选</span>
                             </button>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="8" style="text-align: center; padding: 20px;">暂无策略状态数据，请先运行Celery任务生成。</td></tr>
+                    <tr><td colspan="6" style="text-align: center; padding: 20px;">最近3天内没有发现符合条件的买入信号。</td></tr>
                     {% endfor %}
+                    {# --- 代码修改结束 --- #}
                 </tbody>
             </table>
         </div>
@@ -173,6 +127,5 @@
         </div>
     </section>
 </div>
-{# 增加一个用于显示通知的区域 #}
 <div id="notification-area"></div>
 {% endblock %}
