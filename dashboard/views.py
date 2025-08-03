@@ -183,70 +183,69 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V405.0 新模型适配版】
-    - 核心修改: 适配 FavoriteStockTracker 中关联的新 TradingSignal 模型。
-    - 模板适配: 调整传递给模板的数据，以匹配新模型的字段。
+    【V405.1 状态修复版】
+    - 核心修复: 修正了对 FavoriteStockTracker status 字段的过滤方式，从错误的枚举调用改为正确的字符串比较。
     """
     # --- 代码修改开始 ---
-    # [修改原因] 适配 FavoriteStockTracker 的外键变更
+    # [修改原因] 修复 AttributeError，直接使用字符串进行状态过滤
     
     # 步骤1: 获取用户的所有追踪器，预加载新的关联模型
     base_queryset = FavoriteStockTracker.objects.filter(
         user=request.user
     ).select_related(
         'stock', 
-        'entry_signal', # 旧的 entry_log -> 新的 entry_signal
-        'latest_signal',# 旧的 latest_log -> 新的 latest_signal
-        'exit_signal'  # 旧的 exit_log -> 新的 exit_signal
+        'entry_signal',
+        'latest_signal',
+        'exit_signal'
     ).prefetch_related(
-        # 预加载最新信号的剧本详情，以在模板中显示
         Prefetch(
             'latest_signal__playbook_details',
             queryset=SignalPlaybookDetail.objects.select_related('playbook'),
-            to_attr='prefetched_playbook_details' # 将结果存入一个新属性
+            to_attr='prefetched_playbook_details'
         )
     )
     
-    # 获取元数据的方式不变
     unified_config = load_strategy_config('config/trend_follow_strategy.json')
-    tactical_engine = TrendFollowStrategy(config=unified_config)
-    # 注意：reporting_layer 不再有 signal_metadata，元数据现在直接在 playbook 对象上
-    # 我们需要从数据库加载所有 playbook 以构建一个元数据映射
+    # 假设 Playbook 模型在 stock_models.stock_analytics 中
+    from stock_models.stock_analytics import Playbook
     playbook_metadata = {p.name: p.cn_name for p in Playbook.objects.all()}
 
-    # --- 步骤2: 状态筛选 (逻辑不变) ---
+    # 步骤2: 状态筛选
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
-        queryset = base_queryset.filter(status=FavoriteStockTracker.Status.HOLDING)
+        # 使用字符串 'HOLDING' 进行过滤
+        queryset = base_queryset.filter(status='HOLDING')
         page_title = '自选股持仓监控'
     elif status_filter == 'sold':
-        queryset = base_queryset.filter(status=FavoriteStockTracker.Status.SOLD)
+        # 使用字符串 'SOLD' 进行过滤
+        queryset = base_queryset.filter(status='SOLD')
         page_title = '自选股历史平仓'
     else:
         page_title = '全部自选追踪' 
         queryset = base_queryset
 
-    # --- 步骤3: 排序 (逻辑不变) ---
+    # 步骤3: 排序
     if status_filter == 'sold':
         ordered_queryset = queryset.order_by('-exit_date')
     else:
         ordered_queryset = queryset.order_by('-latest_date')
 
-    # --- 步骤4: 分页 (逻辑不变) ---
+    # 步骤4: 分页
     paginator = Paginator(ordered_queryset, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # --- 步骤5: 准备最终上下文并渲染 ---
+    # 步骤5: 准备最终上下文并渲染
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
         'total_count': paginator.count,
         'status_filter': status_filter,
-        'playbook_metadata': playbook_metadata, # 传递新的元数据字典
+        'playbook_metadata': playbook_metadata,
     }
     # --- 代码修改结束 ---
     return render(request, 'dashboard/fav_trend_following_list.html', context)
+
 
 @login_required
 @with_cache_manager_for_views
@@ -335,18 +334,16 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V405.0 新模型适配版】
+        【V405.1 状态修复版】
+        - 核心修复: 修正了创建 FavoriteStockTracker 时 status 字段的赋值方式。
         """
         user = request.user
         
-        # --- 代码修改开始 ---
-        # [修改原因] 适配新的 TradingSignal 模型
-        signal_id = request.data.get('signal_id') # 前端应传递 signal_id
+        signal_id = request.data.get('signal_id')
         if not signal_id:
             return Response({'detail': '必须提供一个有效的建仓信号ID。'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 从 TradingSignal 查询
             entry_signal = TradingSignal.objects.select_related('stock').get(
                 id=signal_id, 
                 signal_type=TradingSignal.SignalType.BUY
@@ -355,7 +352,6 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
 
         stock = entry_signal.stock
-        # --- 代码修改结束 ---
 
         if FavoriteStock.objects.filter(user=user, stock=stock).exists():
             favorite = FavoriteStock.objects.get(user=user, stock=stock)
@@ -365,11 +361,11 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             favorite = FavoriteStock.objects.create(user=user, stock=stock)
 
         # --- 代码修改开始 ---
-        # [修改原因] 适配 FavoriteStockTracker 的新字段
+        # [修改原因] 修复 AttributeError，直接使用字符串 'HOLDING' 为 status 字段赋值
         tracker, _ = FavoriteStockTracker.objects.update_or_create(
             user=user, stock=stock,
             defaults={
-                'status': FavoriteStockTracker.Status.HOLDING,
+                'status': 'HOLDING', # 直接使用字符串
                 'entry_signal': entry_signal,
                 'entry_price': entry_signal.close_price,
                 'entry_date': entry_signal.trade_time,
