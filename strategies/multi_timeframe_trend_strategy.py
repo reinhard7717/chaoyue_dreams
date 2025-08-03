@@ -67,7 +67,7 @@ class MultiTimeframeTrendStrategy:
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
         print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False) -> List[Dict[str, Any]]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False) -> Tuple[List, List]:
         """
         【总指挥层核心 - V205.0 战略重构版】
         - 核心升级: 新增 latest_only 参数。当为 True 时，将指令传递给数据服务，
@@ -107,39 +107,43 @@ class MultiTimeframeTrendStrategy:
         print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_records)} 条风险预警信号。")
 
         # 7. 信号汇总
-        all_records = tactical_records + intraday_entry_records + risk_alert_records
+        all_signals = tactical_signals + intraday_entry_signals + risk_alert_signals
+        all_details = tactical_details + intraday_entry_details + risk_alert_details
         
         # 8. 结果排序（可选，但推荐）
-        if all_records:
-            all_records.sort(key=lambda x: x['trade_time'])
+        if all_signals:
+            all_signals.sort(key=lambda x: x.trade_time)
+        
+        print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
+        
+        # 返回合并后的元组
+        return (all_signals, all_details)
 
-        print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_records)} 条记录。")
-        return all_records
-
-    async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List]:
         """
-        【V204.0 闪电突袭模式】
-        为日常任务设计的轻量化、高性能分析模式。
-        - 作战流程:
-          1. 依然调用“全面战役”模式，获取所有历史信号。
-          2. 【核心优化】在获取所有信号后，只筛选出【最后一个交易日】的信号返回。
-        - 收益: 极大减少了下游（数据库、状态更新）的处理负担，显著提升了日常任务的执行效率。
+        【V400.0 ORM适配版 - 闪电突袭模式】
         """
         print(f"\n⚡️ [总指挥层] 接到“闪电突袭”指令，正在以高效模式处理: {stock_code}")
         
-        # 直接调用“全面战役”引擎，但命令它以“闪电模式”运行！
-        all_records = await self.run_for_stock(stock_code, trade_time, latest_only=True)
+        # run_for_stock 现在返回一个元组
+        all_signals, all_details = await self.run_for_stock(stock_code, trade_time, latest_only=True)
         
-        if not all_records:
+        if not all_signals:
             print(f"  - [闪电突袭] 未发现任何信号，任务完成。")
-            return []
+            return ([], [])
             
-        # 由于数据层已经做了优化，这里理论上只会返回近期的少量信号，但为保险起见，仍然执行筛选
-        latest_date = max(rec['trade_time'].date() for rec in all_records)
-        latest_records = [rec for rec in all_records if rec['trade_time'].date() == latest_date]
+        # 筛选逻辑保持不变，但作用于主信号列表
+        latest_date = max(rec.trade_time.date() for rec in all_signals)
+        latest_signals = [rec for rec in all_signals if rec.trade_time.date() == latest_date]
         
-        print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_records)} 条最新信号。")
-        return latest_records
+        # 【重要】同时筛选出与最新信号相关的详情记录
+        latest_signal_ids = {s.id for s in latest_signals if s.id is not None} # 假设信号已保存并有ID
+        # 如果信号尚未保存，需要更复杂的逻辑，但通常在这一步之前已经保存了
+        # 为简单起见，我们假设可以基于 signal 对象本身来过滤
+        latest_details = [d for d in all_details if d.signal in latest_signals]
+
+        print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_signals)} 条最新信号。")
+        return (latest_signals, latest_details)
 
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
         """
@@ -388,24 +392,24 @@ class MultiTimeframeTrendStrategy:
                 del self.tactical_engine._last_risk_details_df
             # print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
 
-    async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
         【V203.6 修正版】盘中入场确认引擎
         - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式。
         """
-        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
+        # 导入新模型
+        from stock_models.stock_analytics import TradingSignal
+
         entry_params = get_params_block(self.tactical_engine, 'intraday_entry_params')
         get_val = get_param_value
-        # ▲▲▲【代码修改】▲▲▲
         
-        if not get_val(entry_params.get('enabled'), False): return []
-        if self.daily_analysis_df is None or self.daily_analysis_df.empty: return []
+        if not get_val(entry_params.get('enabled'), False): return ([], [])
+        if self.daily_analysis_df is None or self.daily_analysis_df.empty: return ([], [])
 
         minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
-        if minute_df is None or minute_df.empty: return []
+        if minute_df is None or minute_df.empty: return ([], [])
 
-        # ... (方法内后续代码保持不变) ...
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold].copy()
         if setup_days_df.empty: return []
@@ -466,64 +470,59 @@ class MultiTimeframeTrendStrategy:
         playbook_blueprints = self.tactical_engine.playbook_blueprints
         playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
         
+        final_entry_signals = []
         for timestamp, row in first_confirmations_df.iterrows():
             daily_score = row.get('entry_score', 0)
             bonus_score = get_val(entry_params.get('bonus_score'), 50)
             final_score = daily_score + bonus_score
             
-            playbook_name = get_val(entry_params.get('playbook_name'), 'ENTRY_INTRADAY_CONFIRMATION')
-            playbook_cn_name = self.tactical_engine.scoring_params.get('metadata', {}).get(playbook_name, playbook_name)
-            playbook_details = f"盘中确认: {playbook_cn_name}"
-
-            record = self.tactical_engine._create_signal_record(
-                stock_code=stock_code, 
-                trade_time=timestamp, 
+            # 创建 TradingSignal 对象
+            signal_obj = TradingSignal(
+                stock_id=stock_code,
+                trade_time=timestamp,
                 timeframe=minute_tf,
                 strategy_name=get_val(entry_params.get('strategy_name'), 'INTRADAY_ENTRY_CONFIRMATION'),
-                signal_type='买入信号',
+                signal_type=TradingSignal.SignalType.BUY,
                 entry_score=final_score,
-                risk_score=0.0,
-                triggered_playbooks=playbook_details,
+                risk_score=0.0, # 盘中确认信号，风险分为0
                 close_price=row.get(f'close_{minute_tf}'),
-                entry_signal=True,
-                is_risk_warning=False
             )
-            final_entry_records.append(record)
+            final_entry_signals.append(signal_obj)
             
-        return final_entry_records
+        # 返回一个元组，主信号列表在前，空的详情列表在后
+        return (final_entry_signals, [])
 
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """
         【V203.6 修正版】盘中风险预警引擎
         - 核心修正: 修正了对 get_params_block 和 get_param_value 的调用方式。
         """
-        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
+        # 导入新模型
+        from stock_models.stock_analytics import TradingSignal
+
         exec_params = get_params_block(self.tactical_engine, 'intraday_execution_params')
         get_val = get_param_value
-        # ▲▲▲【代码修改】▲▲▲
-        if not get_val(exec_params.get('enabled'), False): return []
+
+        if not get_val(exec_params.get('enabled'), False): return ([], [])
         
         df_daily = all_dfs.get('D')
-        if df_daily is None or df_daily.empty: return []
+        if df_daily is None or df_daily.empty: return ([], [])
 
         minute_tf = str(get_val(exec_params.get('timeframe'), '30'))
         minute_df = all_dfs.get(minute_tf)
-        if minute_df is None or minute_df.empty: return []
+        if minute_df is None or minute_df.empty: return ([], [])
 
         rules_container = exec_params.get('rules', {})
         upthrust_params = rules_container.get('upthrust_rejection', {})
         if not get_val(upthrust_params.get('enabled'), False): return []
         
-        # ▼▼▼【代码修改】: 使用导入的工具函数 ▼▼▼
         upthrust_calc_params = get_params_block(self.tactical_engine, 'exit_strategy_params').get('upthrust_distribution_params', {})
-        # ▲▲▲【代码修改】▲▲▲
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
         
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
         setup_days_df = df_daily[is_upthrust_day].copy()
         if setup_days_df.empty: return []
 
-        # ... (方法内后续代码保持不变) ...
         setup_days_df['monitoring_date'] = (setup_days_df.index + pd.Timedelta(days=1)).date
         
         minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
@@ -555,34 +554,32 @@ class MultiTimeframeTrendStrategy:
             
             signal_type = '风险预警'
             if is_reclaimed:
-                reclaim_time = df_after_alert[df_after_alert[close_col] > df_after_alert[vwap_col]].index[0]
-                final_reason = f"[威胁解除] 曾于{first_break_timestamp.strftime('%H:%M')}跌破VWAP, 但已于{reclaim_time.strftime('%H:%M')}收复"
-                final_code, final_severity = 0, 0
+                # 威胁解除，不生成信号
+                return None
             else:
                 final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
-                final_severity = get_val(upthrust_params.get('severity_level'), 3)
-
-            return self.tactical_engine._create_signal_record(
-                stock_code=stock_code, 
-                trade_time=first_break_timestamp, 
-                timeframe=minute_tf,
-                strategy_name="INTRADAY_RISK_ALERT", 
-                signal_type=signal_type,
-                entry_score=float(final_code),
-                risk_score=float(final_code),
-                triggered_playbooks=final_reason,
-                close_price=first_alert_row[close_col],
-                entry_signal=False,
-                is_risk_warning=True
-            )
+                
+                # 创建 TradingSignal 对象
+                return TradingSignal(
+                    stock_id=stock_code,
+                    trade_time=first_break_timestamp,
+                    timeframe=minute_tf,
+                    strategy_name="INTRADAY_RISK_ALERT",
+                    signal_type=TradingSignal.SignalType.WARN, # 信号类型为预警
+                    entry_score=0.0,
+                    risk_score=float(final_code), # 风险分记录警报代码
+                    close_price=first_alert_row[close_col],
+                    # 可以考虑将 final_reason 存入某个JSON字段，如果模型支持的话
+                )
 
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
             .groupby('monitoring_date', group_keys=False)\
             .apply(process_alert_day)\
             .dropna().tolist()
             
-        return final_alerts
+        # 返回元组
+        return (final_alerts, [])
 
     def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
         """
