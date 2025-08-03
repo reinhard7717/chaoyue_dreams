@@ -49,68 +49,91 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V400.0 ORM适配版】
-        - 核心重构: 决策逻辑现在完全基于由 WarningLayer 提供的、已合并了所有
-                    致命风险和常规风险的最终 risk_score。
-        - 流程简化: 不再需要单独调用 ExitLayer。而是直接使用配置文件中的
-                    exit_threshold_params 和 warning_threshold_params 来对
-                    最终的 risk_score 进行分级，从而决定信号是“卖出”还是“预警”。
+        【V404.0 A股实战版】
+        - 核心思想: 地基优先，底线思维。买入必须基于稳固的筹码和结构基础。
+        - 新流程:
+          1. 优先标记所有“卖出”和“预警”信号，确保风险优先。
+          2. 计算“阵地分”，这是买入资格的“准入门槛”。
+          3. 引入“硬性否决”机制，对S级风险零容忍。
+          4. 在满足“地基稳固”和“无硬性否决”的前提下，再综合评估总分和弹性否决票。
         """
-        # print("    --- [最高作战指挥部 V400.0 ORM适配版] 启动... ---")
+        print("    --- [最高作战指挥部 V404.0 A股实战版] 启动... ---")
         df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
         
-        # --- 步骤 1: 初始化所有决策相关列 ---
+        # --- 步骤 1: 初始化 ---
         df['final_score'] = 0.0
         df['signal_type'] = '无信号'
         df['veto_votes'] = 0
         df['dynamic_action'] = 'HOLD'
+        df['max_allowed_votes'] = 0
 
-        # --- 步骤 2: 评估持仓健康度 (现在由 WarningLayer 内部完成) ---
+        # --- 步骤 2: 评估健康度与计算否决票 (逻辑不变) ---
         self._evaluate_holding_health(score_details_df, risk_details_df)
-
-        # --- 步骤 3 & 4: 否决票与动态力学 (逻辑不变) ---
         self._calculate_static_veto_votes()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # --- 步骤 5: 【核心决策逻辑】形成最终买入条件 (逻辑不变) ---
-        is_score_positive = df['entry_score'] > df['risk_score']
-        # 此处可以加入您之前实现的弹性否决票逻辑
-        no_veto_votes = df['veto_votes'] == 0 # 简化示例，可替换
-        not_avoid = df['dynamic_action'] != 'AVOID'
-        final_buy_condition = is_score_positive & no_veto_votes & not_avoid
-
-        # --- 步骤 6: 标记初步信号类型 ---
-        df.loc[final_buy_condition, 'signal_type'] = '买入信号'
-        
-        # --- 步骤 7: 【核心改造】基于总风险分，统一进行卖出和预警判断 ---
-        # 不再调用 self.strategy.exit_layer.calculate_exit_signals()
-        
-        # 从配置加载卖出和预警的阈值
+        # --- 步骤 3: 【风险优先】标记卖出和预警信号 (逻辑不变) ---
         exit_params = self.strategy.unified_config.get('exit_strategy_params', {})
         exit_thresholds = exit_params.get('exit_threshold_params', {})
         warning_thresholds = exit_params.get('warning_threshold_params', {})
-        
-        # 按阈值从高到低排序，确保优先判断卖出信号
         all_thresholds = []
-        for level_info in exit_thresholds.values():
-            all_thresholds.append({'level': level_info['level'], 'type': '卖出信号'})
-        for level_info in warning_thresholds.values():
-            all_thresholds.append({'level': level_info['level'], 'type': '风险预警'})
-        
+        if exit_thresholds:
+            for level_info in exit_thresholds.values():
+                all_thresholds.append({'level': level_info['level'], 'type': '卖出信号'})
+        if warning_thresholds:
+            for level_info in warning_thresholds.values():
+                all_thresholds.append({'level': level_info['level'], 'type': '风险预警'})
         sorted_thresholds = sorted(all_thresholds, key=lambda x: x['level'], reverse=True)
-
-        # 遍历阈值，对 risk_score 进行分级
         for rule in sorted_thresholds:
             threshold = rule['level']
             signal_type = rule['type']
-            
-            # 条件：风险分达到阈值，且当前没有被更高优先级的信号标记
-            # （买入信号优先级最高，在循环外已标记）
             condition = (df['risk_score'] >= threshold) & (df['signal_type'] == '无信号')
             df.loc[condition, 'signal_type'] = signal_type
 
-        # --- 步骤 8: 最终净化与分数赋值 (逻辑不变) ---
-        self._finalize_signals()
+        # --- 步骤 4: 【地基审查】计算“阵地分”并设定准入门槛 ---
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
+        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
+        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
+
+        buy_params = get_params_block(self.strategy, 'dynamic_mechanics_params').get('tactical_matrix_rules', {})
+        min_positional_score = get_param_value(buy_params.get('min_positional_score'), 200) # 地基分门槛
+        is_foundation_solid = positional_score >= min_positional_score
+
+        # --- 步骤 5: 【硬性否决】识别不可容忍的S级风险 ---
+        hard_veto_signals = get_param_value(buy_params.get('hard_veto_signals'), [])
+        has_hard_veto = pd.Series(False, index=df.index)
+        for signal in hard_veto_signals:
+            has_hard_veto |= atomic.get(signal, default_series)
+
+        # --- 步骤 6: 【弹性否决】应用基于总分的弹性否决票规则 (逻辑不变) ---
+        tolerance_tiers = get_param_value(buy_params.get('tolerance_tiers'), [])
+        for tier in sorted(tolerance_tiers, key=lambda x: x.get('score_min', 0)):
+            score_min = tier.get('score_min', 0)
+            score_max = tier.get('score_max', float('inf'))
+            max_votes = tier.get('max_veto_votes', 0)
+            condition = (df['entry_score'] >= score_min) & (df['entry_score'] <= score_max)
+            df.loc[condition, 'max_allowed_votes'] = max_votes
+        is_veto_tolerated = df['veto_votes'] <= df['max_allowed_votes']
+
+        # --- 步骤 7: 【最终决策】整合所有条件形成最终买入信号 ---
+        is_score_positive = df['entry_score'] > df['risk_score']
+        not_avoid = df['dynamic_action'] != 'AVOID'
+        is_not_risk_day = df['signal_type'] == '无信号'
+
+        final_buy_condition = (
+            is_foundation_solid &      # 1. 地基必须稳固 (硬性要求)
+            ~has_hard_veto &           # 2. 没有S级硬性否决风险 (硬性要求)
+            is_score_positive &        # 3. 进攻分 > 风险分
+            is_veto_tolerated &        # 4. 常规否决票在容忍范围内
+            not_avoid &                # 5. 动态力学非“规避”
+            is_not_risk_day            # 6. 当天未被标记为卖出/预警
+        )
+
+        # --- 步骤 8: 标记买入信号 ---
+        df.loc[final_buy_condition, 'signal_type'] = '买入信号'
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """

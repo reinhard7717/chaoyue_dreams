@@ -267,30 +267,43 @@
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V337.0 战法手册版】计分体系。进攻逻辑已全部移至此处。",
-
+        "positional_scoring": {
+          "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
+          "positive_signals": {
+            "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
+            "OPP_CHIP_SETUP_S": 300,
+            "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
+            "OPP_FIB_SUPPORT_STANDARD_A": 200,
+            "BOX_STATE_HEALTHY_ACCUMULATION": 180,
+            "PLATFORM_STATE_STABLE_FORMED": 150,
+            "MA_STATE_AGGRESSIVE_BULLISH": 120,
+            "FRACTAL_STATE_STRONG_TREND": 100,
+            "MECHANICS_ENERGY_ADVANTAGE": 80,
+            "CHIP_DYN_CONCENTRATING": 80,
+            "CHIP_DYN_WINNER_RATE_RISING": 60,
+            "MA_STATE_STABLE_BULLISH": 70
+          }
+        },
+        "dynamic_scoring": {
+          "说明": "【动能分】作为催化剂和加分项，分数权重次之。",
+          "positive_signals": {
+            "CHIP_DYN_COST_ACCELERATING": 200,
+            "MECHANICS_COST_ACCELERATING": 180,
+            "FRACTAL_DYN_TREND_ACCELERATING": 180,
+            "CHIP_DYN_S_ACCEL_CONCENTRATING": 150,
+            "DYN_TREND_HEALTHY_ACCELERATING": 150,
+            "MECHANICS_INERTIA_DECREASING": 120,
+            "VOL_STATE_EXTREME_SQUEEZE": 100
+          }
+        },
         "composite_scoring": {
-          "说明": "【战法分】定义所有高阶的、由多个原子状态组合而成的进攻战术。",
+          "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
             {
-              "name": "TACTIC_LOCK_CHIP_RALLY_S",
-              "score": 500,
-              "all_of": [
-                "CHIP_STATE_HIGHLY_CONCENTRATED",
-                "CHIP_DYN_COST_RISING",
-                "CHIP_DYN_COST_ACCELERATING",
-                "MA_STATE_STABLE_BULLISH"
-              ],
-              "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"]
-            },
-            {
-              "name": "TACTIC_GOLDEN_PIT_S",
-              "score": 500,
-              "all_of": ["BEHAVIOR_GOLDEN_PIT_S"]
-            },
-            {
-              "name": "TACTIC_STEALTH_ABSORPTION_A",
-              "score": 350,
-              "all_of": ["BEHAVIOR_STEALTH_ABSORPTION_A"]
+              "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS",
+              "score": 800,
+              "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"],
+              "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"]
             },
             {
               "name": "TACTIC_HEALTHY_PULLBACK_S",
@@ -298,55 +311,12 @@
               "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"]
             },
             {
-              "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS",
-              "score": 800,
-              "all_of": [
-                "OPP_CHIP_FAULT_REBIRTH_S",
-                "CHIP_STATE_HIGH_PROFIT_CUSHION",
-                "MA_STATE_AGGRESSIVE_BULLISH"
-              ],
-              "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"]
-            },
-            {
-              "name": "TACTIC_PANIC_PIT_REVERSAL_S_PLUS",
-              "score": 750,
-              "all_of": [
-                "RISK_BEHAVIOR_PANIC_SELLING",
-                "TRIGGER_DOMINANT_REVERSAL"
-              ],
-              "none_of": ["STRUCTURE_BEARISH_CHANNEL_F"]
+              "name": "TACTIC_LOCK_CHIP_RALLY_S",
+              "score": 500,
+              "all_of": ["CHIP_STATE_HIGHLY_CONCENTRATED", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"],
+              "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"]
             }
           ]
-        },
-
-        "positional_scoring": {
-          "说明": "【阵地分】评估基础的、独立的静态位置和结构优势。",
-          "positive_signals": {
-            "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
-            "OPP_CHIP_SETUP_S": 300,
-            "OPP_FIB_SUPPORT_STANDARD_A": 200,
-            "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
-            "BOX_STATE_HEALTHY_ACCUMULATION": 150,
-            "FRACTAL_STATE_STRONG_TREND": 150,
-            "MA_STATE_AGGRESSIVE_BULLISH": 120,
-            "PLATFORM_STATE_STABLE_FORMED": 120,
-            "MECHANICS_ENERGY_ADVANTAGE": 100,
-            "CHIP_DYN_CONCENTRATING": 80,
-            "CHIP_DYN_WINNER_RATE_RISING": 60,
-            "MA_STATE_STABLE_BULLISH": 70
-          }
-        },
-        "dynamic_scoring": {
-          "说明": "【动能分】评估基础的、独立的动态和加速行为。",
-          "positive_signals": {
-            "CHIP_DYN_COST_ACCELERATING": 250,
-            "CHIP_DYN_S_ACCEL_CONCENTRATING": 200,
-            "DYN_TREND_HEALTHY_ACCELERATING": 180,
-            "VOL_STATE_EXTREME_SQUEEZE": 130,
-            "MECHANICS_COST_ACCELERATING": 200,
-            "MECHANICS_INERTIA_DECREASING": 180,
-            "FRACTAL_DYN_TREND_ACCELERATING": 220
-          }
         },
         "holding_warning_params": {
           "enabled": true,
@@ -654,45 +624,32 @@
         "multipliers": []
       },
       "dynamic_mechanics_params": {
-        "enabled": true,
-        "说明": "【V317.0 新增】动态力学引擎专属配置区，用于控制趋势和加速度的分析与决策。",
-        "force_vector_analysis": {
-          "enabled": true,
-          "说明": "进攻/风险“力矢量”分析参数。",
-          "window": {
-            "value": 5,
-            "说明": "计算斜率和加速度的滚动窗口期（天）。"
-          },
-          "accel_threshold": {
-            "value": 1.0,
-            "说明": "判定“显著加速”所需的最小加速度变化量。"
-          }
-        },
-        "trend_adjustment": {
-          "enabled": true,
-          "说明": "基于宏观趋势对攻防分数进行调整的参数。",
-          "healthy_trend_multiplier": {
-            "value": 1.1,
-            "说明": "当处于'S级主升浪'时，为进攻分提供的全局加成系数。"
-          },
-          "trend_reduction_factor": {
-            "value": 0.7,
-            "说明": "当处于'S级主升浪'时，为非临界风险分提供的全局折减系数。"
-          }
-        },
         "tactical_matrix_rules": {
           "enabled": true,
-          "说明": "最终决策矩阵中，关于“否决票”的容忍度规则。",
+          "说明": "【A股实战版】决策矩阵。引入地基分门槛和硬性否决规则。",
+          "min_positional_score": {
+            "value": 250,
+            "description": "【地基门槛】买入信号所需的最低“阵地分”，这是开仓的硬性资格要求。"
+          },
+          "hard_veto_signals": {
+            "value": [
+              "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
+              "RISK_BEHAVIOR_WINNERS_FLEEING",
+              "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
+              "STRUCTURE_TOPPING_DANGER_S"
+            ],
+            "description": "【硬性否决】S级红线风险列表。只要触发其中任何一个，无论分数多高，都禁止开仓。"
+          },
           "tolerance_tiers": [
             {
               "score_max": 799,
-              "max_veto_votes": 1,
-              "description": "常规信号（分数低于800），容忍度较低，最多允许1张否决票。"
+              "max_veto_votes": 0,
+              "description": "常规信号（总分低于800），不允许任何常规否决票。"
             },
             {
               "score_min": 800,
-              "max_veto_votes": 3,
-              "description": "强信号（分数高于800），容忍度较高，最多允许3张否-决票。"
+              "max_veto_votes": 1,
+              "description": "强信号（总分高于800），可容忍1张常规否决票（例如'风险分>进攻分'）。"
             }
           ]
         }
