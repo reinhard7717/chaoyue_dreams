@@ -131,7 +131,7 @@ def trend_following_list(request):
 
         # 步骤2: 使用获取到的交易日列表来过滤信号
         latest_buy_signals = TradingSignal.objects.filter(
-            signal_type=TradingSignal.SignalType.BUY,
+            signal_type="BUY",
             timeframe='D',
             trade_time__date__in=latest_3_trade_dates
         ).select_related('stock').prefetch_related(
