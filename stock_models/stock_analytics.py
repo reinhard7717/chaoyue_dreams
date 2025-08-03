@@ -291,7 +291,40 @@ class PositionTracker(models.Model):
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='position_trackers')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.HOLDING, db_index=True)
 
+    # --- 建仓信息 (Entry Info) ---
+    entry_signal = models.ForeignKey(
+        'TradingSignal', 
+        on_delete=models.PROTECT, # 保护建仓信号，不允许轻易删除
+        related_name='entry_positions',
+        help_text="关联的建仓交易信号"
+    )
+    entry_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="建仓价格")
+    entry_date = models.DateTimeField(help_text="建仓日期")
+
+    # --- 平仓信息 (Exit Info) ---
+    exit_signal = models.ForeignKey(
+        'TradingSignal', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='exit_positions',
+        help_text="关联的平仓交易信号"
+    )
+    exit_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="平仓价格")
+    exit_date = models.DateTimeField(null=True, blank=True, help_text="平仓日期")
     
+    # --- 时间戳 ---
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "strategy_position_tracker"
+        unique_together = ('user', 'stock', 'entry_signal')
+        ordering = ['-entry_date']
+        verbose_name = "策略持仓追踪器"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return f"{self.user.username} - {self.stock.stock_code} ({self.get_status_display()})"
 
 class DailyPositionSnapshot(models.Model):
     """

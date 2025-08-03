@@ -95,6 +95,7 @@
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
+          {# --- 代码修改开始 --- #}
           {% for tracker in page_obj %}
           <tr data-id="{{ tracker.id }}">
             <td>
@@ -114,68 +115,49 @@
               {% else %} - {% endif %}
             </td>
             <td>
-              {% if tracker.status == 'HOLDING' and tracker.latest_signal %}
-              {% with latest_signal=tracker.latest_signal %}
-              <div class="score-tracker">
-                {% with score_change=latest_signal.entry_score|subtract:tracker.entry_signal.entry_score %}
-                <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}">
-                  📈 {{ latest_signal.entry_score|floatformat:0 }}
-                  <span class="score-delta">
-                    ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
-                  </span>
-                </span>
+              {% if tracker.status == 'HOLDING' %}
+                {# 从预加载的列表中获取最新的快照 #}
+                {% with latest_snapshot=tracker.latest_snapshot_list.0 %}
+                  {% if latest_snapshot %}
+                    {% with latest_signal=latest_snapshot.signal %}
+                      <div class="score-tracker">
+                        {% with score_change=latest_signal.entry_score|subtract:tracker.entry_signal.entry_score %}
+                        <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}">
+                          📈 {{ latest_signal.entry_score|floatformat:0 }}
+                          <span class="score-delta">
+                            ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
+                          </span>
+                        </span>
+                        {% endwith %}
+                        {% if latest_signal.risk_score > 0 %}
+                        <span class="risk-score-display" title="当前风险分">
+                          &nbsp; | &nbsp;风险分 ⚠️ {{ latest_signal.risk_score|floatformat:0 }}
+                        </span>
+                        {% endif %}
+                      </div>
+                      <div class="signal-details" style="margin-top: 5px">
+                        <span class="time-info">
+                          更新于: {{ latest_snapshot.snapshot_date|date:"Y-m-d" }}
+                        </span>
+                      </div>
+                    {% endwith %}
+                  {% else %}
+                    <span class="text-muted">暂无每日追踪快照</span>
+                  {% endif %}
                 {% endwith %}
-                {% if latest_signal.risk_score > 0 %}
-                <span class="risk-score-display" title="当前风险分">
-                  &nbsp; | &nbsp;风险分 ⚠️ {{ latest_signal.risk_score|floatformat:0 }}
-                </span>
-                {% endif %}
-              </div>
-
-              {# --- 健康度变化仪表盘 --- #}
-              {% with summary=tracker.health_change_summary %}
-                {% if summary and summary.offense_momentum or summary.risk_change %}
-                  <div class="health-dashboard">
-                    {% if summary.offense_momentum.deceleration or summary.offense_momentum.stall %}
-                    <div class="change-section">
-                      <strong style="color: #ff9800;">优势衰减:</strong>
-                      {% if summary.offense_momentum.deceleration %}<span class="tag tag-warning">进攻减速</span>{% endif %}
-                      {% if summary.offense_momentum.stall %}<span class="tag tag-warning">进攻停滞</span>{% endif %}
-                    </div>
-                    {% endif %}
-                    {% if summary.risk_change %}
-                    <div class="change-section">
-                      <strong style="color: #f44336;">风险变化:</strong>
-                      {% for key, value in summary.risk_change.items %}
-                        <span class="tag tag-danger">{{ key }}</span>
-                      {% endfor %}
-                    </div>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              {% endwith %}
-
-              <div class="signal-details" style="margin-top: 5px">
-                <span class="time-info">
-                  更新于: {{ tracker.latest_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
-                </span>
-              </div>
-              {% endwith %}
               {% elif tracker.status == 'SOLD' and tracker.exit_signal %}
-              <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
-              <br />
-              <small>风险分: {{ tracker.exit_signal.risk_score|floatformat:0 }}</small>
+                <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
+                <br />
+                <small>风险分: {{ tracker.exit_signal.risk_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
             </td>
             <td class="actions">
-              {# 注意: 此处删除按钮的 data-id 需要在 FavoriteStockTracker 和 FavoriteStock 之间建立关联才能获取 #}
-              {# 这是一个待办事项，当前按钮可能无法正常工作 #}
+              {# 删除按钮现在直接使用 tracker.id 来删除 PositionTracker #}
               <button
-                class="btn btn-sm btn-danger remove-favorite-btn"
+                class="btn btn-sm btn-danger remove-position-btn" {# 建议修改类名以反映新功能 #}
                 data-action="remove"
-                data-id="{{ tracker.id }}" {# 临时使用 tracker.id，JS端需要适配 #}
+                data-id="{{ tracker.id }}"
                 data-stock-code="{{ tracker.stock.stock_code }}"
-                data-stock-name="{{ tracker.stock.stock_name }}"
               >
                 &times;
               </button>
@@ -184,10 +166,11 @@
           {% empty %}
           <tr>
             <td colspan="5" style="text-align: center; padding: 20px">
-              暂无追踪记录。
+              暂无持仓记录。
             </td>
           </tr>
           {% endfor %}
+          {# --- 代码修改结束 --- #}
         </tbody>
       </table>
     </div>
