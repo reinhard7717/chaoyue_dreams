@@ -704,8 +704,10 @@ class MultiTimeframeTrendStrategy:
 
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            all_records = await self.run_for_stock(stock_code, trade_time=end_date)
-            if all_records is None: return
+            all_signals, all_details = await self.run_for_stock(stock_code, trade_time=end_date)
+            if not all_signals:
+                print("[信息] 核心策略未生成任何信号记录。")
+                return
 
             # 步骤 2: 检查是否需要部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
@@ -730,65 +732,44 @@ class MultiTimeframeTrendStrategy:
 
             # 步骤 3: 展示全流程信号透视报告
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
-            start_dt = pd.to_datetime(start_date, utc=True)
-            end_dt = pd.to_datetime(end_date, utc=True).replace(hour=23, minute=59, second=59)
+            start_dt = pd.to_datetime(start_date).tz_localize('UTC')
+            end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
             
-            debug_period_records = []
-            for rec in all_records:
-                rec_time = pd.to_datetime(rec['trade_time'])
-                if rec_time.tzinfo is None: rec_time = rec_time.tz_localize('UTC')
-                else: rec_time = rec_time.tz_convert('UTC')
-                if start_dt <= rec_time <= end_dt:
-                    debug_period_records.append(rec)
+            # 筛选出在指定时间段内的主信号
+            debug_period_signals = [
+                s for s in all_signals 
+                if start_dt <= s.trade_time.replace(tzinfo=start_dt.tzinfo) <= end_dt
+            ]
 
-            if not debug_period_records:
+            if not debug_period_signals:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
 
-            debug_period_records.sort(key=lambda x: pd.to_datetime(x['trade_time'], utc=True))
+            debug_period_signals.sort(key=lambda x: x.trade_time)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            for record in debug_period_records:
-                # ... (此处的日志打印逻辑保持不变) ...
-                time_obj = pd.to_datetime(record['trade_time'])
+            # 遍历信号对象，而不是字典
+            for signal_obj in debug_period_signals:
+                # 使用对象属性访问，而不是字典键
+                time_obj = signal_obj.trade_time
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
-                tf = record.get('timeframe', 'N/A')
-                signal_type = "未知信号"
-                details = "无详细信息"
+                tf = signal_obj.timeframe
                 
-                reason = record.get('exit_signal_reason') or record.get('triggered_playbooks') or "原因未知"
+                # 获取与当前信号关联的详情
+                related_details = [d for d in all_details if d.signal == signal_obj]
+                playbooks_str = ", ".join(
+                    [d.playbook.cn_name for d in related_details if d.playbook]
+                ) if related_details else "无剧本信息"
 
-                if record.get('exit_signal_code', 0) > 0:
-                    severity = record.get('exit_severity_level', 0)
-                    signal_type = f"卖出警报(L{severity})"
-                    details = f"风险分: {record.get('risk_score', 0):<3.0f} | 原因: {reason}"
-                
-                elif record.get('signal_type') == '卖出信号':
-                    risk_score = record.get('risk_score', 0.0)
-                    playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
-                    playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
-                    details = f"风险分: {risk_score:<7.2f} | 剧本: {playbooks_str}"
-                    signal_type = "综合卖出"
+                signal_type_display = signal_obj.get_signal_type_display()
+                details = ""
 
-                elif record.get('entry_signal'):
-                    score = record.get('entry_score', 0.0)
-                    playbooks_raw = record.get('triggered_playbooks', '无剧本信息')
-                    playbooks_str = re.sub(r'\s+', ' ', playbooks_raw).strip()
-                    details = f"得分: {score:<7.2f} | 剧本: {playbooks_str}"
-                    signal_type = "综合买入"
+                if signal_obj.signal_type == 'BUY':
+                    details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
+                elif signal_obj.signal_type in ['SELL', 'WARN']:
+                    details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
                 
-                elif record.get('is_risk_warning'):
-                    signal_type = "风险预警"
-                    details = f"风险分: {record.get('risk_score', 0):<3.0f} | 原因: {reason}"
-                
-                elif record.get('strategy_name') == 'INTRADAY_RISK_ALERT':
-                    signal_type = f"盘中异动"
-                    details = f"原因: {reason}"
-
-                if signal_type != "未知信号":
-                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | {details}")
-                else:
-                    print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type:<12s}] | 原始记录: {record}")
+                print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type_display:<6s}] | {details}")
 
             print(f"--- [历史回溯调试完成] ---")
         except Exception as e:
