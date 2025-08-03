@@ -15,7 +15,7 @@ from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
-from strategies.trend_following_strategy import TrendFollowStrategy
+from stock_models.index import TradeCalendar # 导入模型
 from utils.config_loader import load_strategy_config
 from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail
 from stock_models.stock_basic import StockInfo
@@ -100,44 +100,45 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.0 新模型适配版】
-    - 核心重构: 完全适配 TradingSignal 和 SignalPlaybookDetail 新模型。
-    - 业务逻辑简化: 只查询并显示最近3个交易日内有“买入”信号的股票记录。
+    【V405.2 交易日修复版】
+    - 核心修复: 使用 TradeCalendar 模型获取最近3个“交易日”，替代了不准确的“自然日”计算，确保能稳定查到数据。
     - 性能优化: 使用 prefetch_related 高效获取关联的剧本详情。
     - 数据结构调整: 适配新模型，从 SignalPlaybookDetail 获取剧本和分数。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V405.0 新模型版 ---")
-    
-    # --- 代码修改开始 ---
-    # [修改原因] 适配新模型和新业务需求
+    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V405.2 交易日修复版 ---")
 
-    # 步骤1: 计算最近3天的起始日期
-    three_days_ago = timezone.now().date() - timedelta(days=3)
+    # 调用类方法获取最近3个交易日的日期列表
+    # get_latest_n_trade_dates 返回的是一个 [date, date, date] 格式的列表
+    latest_3_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=3)
     
-    # 步骤2: 查询最近3天内所有日线级别的“买入”信号
-    # 使用 prefetch_related 一次性加载所有相关的剧本详情，避免N+1查询
-    latest_buy_signals = TradingSignal.objects.filter(
-        signal_type=TradingSignal.SignalType.BUY,
-        timeframe='D',
-        trade_time__date__gte=three_days_ago
-    ).select_related('stock').prefetch_related(
-        Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-    ).order_by('-trade_time', '-entry_score')
+    if not latest_3_trade_dates:
+        # 如果交易日历为空，则直接返回空结果，避免后续查询出错
+        print("--- [View] 警告: 未能从交易日历获取最近的交易日，无法查询信号。")
+        latest_buy_signals = TradingSignal.objects.none()
+    else:
+        print(f"--- [View] 已获取最近3个交易日: {latest_3_trade_dates}")
+        # 步骤2: 使用获取到的交易日列表来过滤信号
+        # 使用 __in 查询操作符，匹配 trade_time 的日期部分是否在这几个交易日内
+        latest_buy_signals = TradingSignal.objects.filter(
+            signal_type=TradingSignal.SignalType.BUY,
+            timeframe='D',
+            trade_time__date__in=latest_3_trade_dates
+        ).select_related('stock').prefetch_related(
+            Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
+        ).order_by('-trade_time', '-entry_score')
 
-    # 步骤3: 在内存中处理数据，并聚合剧本信息
+    # 步骤3: 在内存中处理数据，并聚合剧本信息 (此部分逻辑不变)
     final_logs = []
-    all_playbook_objects = set() # 用于收集所有出现过的Playbook对象
+    all_playbook_objects = set()
 
     for signal in latest_buy_signals:
         active_playbooks = []
         if hasattr(signal, 'playbook_details'):
             for detail in signal.playbook_details.all():
                 if detail.playbook:
-                    # 将Playbook对象本身加入列表，方便后续使用
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
-        # 按优先级排序剧本
         active_playbooks.sort(key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
         final_logs.append({
@@ -145,15 +146,15 @@ def trend_following_list(request):
             'stock': signal.stock,
             'latest_trade_time': signal.trade_time,
             'latest_score': signal.entry_score,
-            'active_playbooks': active_playbooks, # 现在是Playbook对象列表
+            'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
         })
 
-    # 步骤4: 从收集到的Playbook对象中提取唯一剧本用于筛选器
+    # 步骤4: 从收集到的Playbook对象中提取唯一剧本用于筛选器 (逻辑不变)
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
-    # 步骤5: 根据请求参数进行剧本筛选
-    selected_playbook_ids = request.GET.getlist('playbooks') # 前端现在传递playbook的ID
+    # 步骤5: 根据请求参数进行剧本筛选 (逻辑不变)
+    selected_playbook_ids = request.GET.getlist('playbooks')
     filtered_logs = final_logs
     if selected_playbook_ids:
         selected_ids_int = {int(pid) for pid in selected_playbook_ids}
@@ -162,19 +163,19 @@ def trend_following_list(request):
             if selected_ids_int.issubset({p.id for p in log['active_playbooks']})
         ]
 
-    # 步骤6: 分页
+    # 步骤6: 分页 (逻辑不变)
     paginator = Paginator(filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     # 步骤7: 准备上下文
     context = {
-        'page_title': '策略状态监控中心 (近3日买入)',
-        'items_for_display': page_obj.object_list, # 直接使用分页后的列表
+        'page_title': '策略状态监控中心 (近3个交易日买入)', # 更新标题
+        'items_for_display': page_obj.object_list,
         'page_obj': page_obj,
         'total_count': paginator.count,
-        'all_playbooks': unique_playbooks, # Playbook对象列表
-        'selected_playbooks': [int(pid) for pid in selected_playbook_ids], # 传递ID列表
+        'all_playbooks': unique_playbooks,
+        'selected_playbooks': [int(pid) for pid in selected_playbook_ids],
     }
     # --- 代码修改结束 ---
     return render(request, 'dashboard/trend_following_list.html', context)
