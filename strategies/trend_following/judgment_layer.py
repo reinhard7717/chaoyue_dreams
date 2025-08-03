@@ -231,6 +231,7 @@ class JudgmentLayer:
         - 职责: 在最终决策完成后，为信号赋予最终分数并进行净化。
         """
         df = self.strategy.df_indicators
+        df['signal_entry'] = False
         
         # 1. 识别最终的信号类型
         final_buy_condition = df['signal_type'] == '买入信号'
@@ -241,11 +242,11 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
         # 确保买入信号日不携带任何卖出或预警信息
-        df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
+        if 'exit_signal_code' in df.columns:
+            df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
 
         # 3. 为卖出及预警信号赋值
         df.loc[final_sell_condition | final_warning_condition, 'final_score'] = df.loc[final_sell_condition | final_warning_condition, 'risk_score']
-        df.loc[final_sell_condition, 'signal_entry'] = False
         
         # 4. 打印最终审查报告
         print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
