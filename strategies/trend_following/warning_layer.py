@@ -41,14 +41,15 @@ class WarningLayer:
 
         return health_diagnostics
 
-    def calculate_risk_score(self) -> Tuple[pd.Series, pd.DataFrame]:
+    def calculate_risk_score(self, critical_risk_details: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
         """
-        【V292.0 赫斯特指数增强版】
-        - 核心升级: 深度集成赫斯特指数，实现风险的“环境自适应”调节。
-          1. 将分形风险直接纳入计分。
-          2. 根据市场宏观状态（趋势/震荡）动态放大或缩小风险权重。
+        【V400.0 ORM适配版】
+        - 核心升级: 接收由 ExitLayer 计算的“致命风险”详情DataFrame，并将其与自身的
+                    “常规风险”合并，形成一个统一的、完整的风险构成详情DataFrame，
+                    供新的报告层使用。
+        - 参数变更: 新增 critical_risk_details: pd.DataFrame 参数。
         """
-        # print("        -> [最高风险裁决所 V292.0 赫斯特指数增强版] 启动...")
+        # print("        -> [最高风险裁决所 V400.0 ORM适配版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
@@ -56,71 +57,71 @@ class WarningLayer:
         risk_params = scoring_params.get('holding_warning_params', {})
         risk_rules = risk_params.get('signals', {})
         
-        # --- 步骤 1: 基础风险分计算 (逻辑不变) ---
-        # 直接从配置文件中读取所有风险规则并计算基础分
-        total_risk_score = pd.Series(0.0, index=df.index)
-        risk_score_df = pd.DataFrame(index=df.index)
+        # --- 步骤 1: 计算“常规风险” (逻辑不变) ---
+        regular_risk_score = pd.Series(0.0, index=df.index)
+        risk_details_df = pd.DataFrame(index=df.index) # 这个DataFrame现在只包含常规风险
         default_series = pd.Series(False, index=df.index)
 
         for rule_name, score in risk_rules.items():
             signal_series = atomic_states.get(rule_name, default_series)
             if signal_series.any():
-                total_risk_score.loc[signal_series] += score
-                risk_score_df[rule_name] = signal_series * score
+                regular_risk_score.loc[signal_series] += score
+                risk_details_df[rule_name] = signal_series * score
         
-        # --- 步骤 2: 【核心改造】应用“战场环境”调节器 ---
-        # 我们将创建一个全局的风险乘数，根据赫斯特指数的状态进行调整
+        # --- 步骤 2: 【核心改造】合并致命风险与常规风险 ---
+        # 将传入的致命风险分，加到常规风险分上，得到未调整前的总风险分
+        # critical_risk_details.sum(axis=1) 是致命风险的总分
+        base_total_risk_score = regular_risk_score + critical_risk_details.sum(axis=1)
+        
+        # 将两个详情DataFrame合并，形成完整的风险构成
+        # 使用 .add() 并设置 fill_value=0 可以安全地合并，即使有重叠列或缺失值
+        combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
+        
+        # --- 步骤 3: 应用“战场环境”调节器 (逻辑不变，但作用于合并后的数据) ---
         risk_multiplier = pd.Series(1.0, index=df.index)
-
-        # 2.1 风险放大器: 在震荡或随机市场中，放大风险
         is_mean_reversion = atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', default_series)
         is_random_walk = atomic_states.get('FRACTAL_STATE_RANDOM_WALK', default_series)
         is_unstable_market = is_mean_reversion | is_random_walk
         
         if is_unstable_market.any():
-            instability_multiplier = 1.3 # 风险权重提升30%
+            instability_multiplier = 1.3
             risk_multiplier.loc[is_unstable_market] *= instability_multiplier
-            print(f"          -> [风险放大器] 已为 {is_unstable_market.sum()} 天的“不稳定市场”应用 {instability_multiplier}x 风险乘数。")
+            # print(f"          -> [风险放大器] 已为 {is_unstable_market.sum()} 天的“不稳定市场”应用 {instability_multiplier}x 风险乘数。")
 
-        # 2.2 风险对冲器: 在强趋势市场中，折减非核心风险
         is_strong_trend = atomic_states.get('FRACTAL_STATE_STRONG_TREND', default_series)
         if is_strong_trend.any():
-            # 定义哪些风险是“核心/结构性”风险，它们不应被折减
             core_risks = {
-                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
-                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
-                "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
-                "FRACTAL_RISK_TOP_DIVERGENCE", # 新增的分形风险也是核心风险
+                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE", "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
+                "RISK_CONTEXT_LONG_TERM_DISTRIBUTION", "FRACTAL_RISK_TOP_DIVERGENCE",
                 "STRUCTURE_TOPPING_DANGER_S"
             }
-            
-            # 对非核心风险应用折减系数
-            trend_reduction_factor = 0.7 # 非核心风险重要性降低30%
-            for col in risk_score_df.columns:
+            trend_reduction_factor = 0.7
+            # 注意：现在是对合并后的详情DataFrame进行操作
+            for col in combined_risk_details_df.columns:
                 if col not in core_risks:
-                    # 使用 .loc 对特定条件下的列进行乘法操作
-                    risk_score_df.loc[is_strong_trend, col] *= trend_reduction_factor
-            
-            print(f"          -> [风险对冲器] 已为 {is_strong_trend.sum()} 天的“强趋势市场”期间，对非核心风险应用了 {trend_reduction_factor}x 折减系数。")
+                    combined_risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
+            # print(f"          -> [风险对冲器] 已为 {is_strong_trend.sum()} 天的“强趋势市场”期间，对非核心风险应用了 {trend_reduction_factor}x 折减系数。")
 
         # 重新计算应用了“风险对冲器”后的总分
-        total_risk_score = risk_score_df.sum(axis=1)
+        adjusted_total_risk_score = combined_risk_details_df.sum(axis=1)
         
         # 将“风险放大器”的全局乘数应用到总分上
-        total_risk_score *= risk_multiplier
+        adjusted_total_risk_score *= risk_multiplier
         
-        holding_health_diagnostics = self._diagnose_holding_health(risk_score_df)
-
-        # --- 步骤 3: 战略机会覆盖 (逻辑微调) ---
-        # 这里的逻辑可以保持，但现在它是在经过环境调节后的风险分基础上进行覆盖
-        has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series) # 简化为最强的机会信号
+        # --- 步骤 4: 战略机会覆盖 (逻辑不变) ---
+        has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
         if has_strategic_opportunity.any():
             strategic_coverage_factor = get_param_value(risk_params.get('strategic_coverage_factor'), 0.3)
-            total_risk_score = total_risk_score.where(~has_strategic_opportunity, total_risk_score * strategic_coverage_factor)
-            print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
+            adjusted_total_risk_score = adjusted_total_risk_score.where(~has_strategic_opportunity, adjusted_total_risk_score * strategic_coverage_factor)
+            # print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
         
-        print("        -> [最高风险裁决所 V292.0] 风险评估完成。")
-        return total_risk_score, risk_score_df, holding_health_diagnostics
+        # --- 步骤 5: 生成风险变化摘要 ---
+        # 使用合并后的完整风险详情来生成摘要
+        risk_change_summary = self._diagnose_holding_health(combined_risk_details_df)
+
+        # print("        -> [最高风险裁决所 V400.0] 风险评估完成。")
+        # 返回最终调整后的总风险分，和合并后的完整风险详情
+        return adjusted_total_risk_score, combined_risk_details_df, risk_change_summary
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """

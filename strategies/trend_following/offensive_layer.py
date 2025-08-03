@@ -307,6 +307,64 @@ class OffensiveLayer:
                 'comment': 'A级: 在统计学超卖、卖盘衰竭和多头反击的共振点入场。'
             },
         ]
-    
+
+    def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
+        """
+        【V400.0 新增】进攻动能诊断大脑 (Offensive Momentum Brain)
+        - 核心职责: 监控进攻分的变化率和加速度，捕捉进攻动能的早期衰减信号。
+        - 定位: 战场的“心电图”，在风险信号出现前发出预警。
+        """
+        # print("          -> [进攻动能诊断大脑] 启动，正在分析进攻分数动态...")
+        
+        # --- 1. 计算分数的一阶和二阶导数 ---
+        score_change = entry_score.diff(1).fillna(0)
+        score_accel = score_change.diff(1).fillna(0)
+
+        # --- 2. 分离“阵地分”和“动能分” ---
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
+        dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {}).keys()
+        
+        # 确保列存在
+        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
+        valid_dyn_cols = [col for col in dynamic_rules if col in score_details_df.columns]
+
+        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=score_details_df.index)
+        dynamic_score = score_details_df[valid_dyn_cols].sum(axis=1) if valid_dyn_cols else pd.Series(0.0, index=score_details_df.index)
+        
+        positional_change = positional_score.diff(1).fillna(0)
+        dynamic_change = dynamic_score.diff(1).fillna(0)
+
+        # --- 3. 定义并识别亚健康状态 ---
+        diagnostics = pd.Series([{} for _ in range(len(entry_score))], index=entry_score.index)
+
+        # 条件1: 进攻停滞 (总分不再增长)
+        stall_condition = (score_change <= 0) & (entry_score.shift(1) > 0)
+        
+        # 条件2: 进攻减速 (仍在增长，但增速放缓)
+        decel_condition = (score_change > 0) & (score_accel < 0)
+        
+        # 条件3: 阵地侵蚀 (核心阵地分下降)
+        base_erosion_condition = (positional_change < 0)
+        
+        # 条件4: 结构性背离 (阵地分停滞，但动能分在增长)
+        divergence_condition = (positional_change <= 0) & (dynamic_change > 0) & (entry_score > 0)
+
+        # --- 4. 生成诊断报告 ---
+        for idx in entry_score.index:
+            report = {}
+            if stall_condition.at[idx]:
+                report['stall'] = f"进攻停滞(总分变化: {score_change.at[idx]:.0f})"
+            if decel_condition.at[idx]:
+                report['deceleration'] = f"进攻减速(加速度: {score_accel.at[idx]:.0f})"
+            if base_erosion_condition.at[idx]:
+                report['base_erosion'] = f"阵地侵蚀(阵地分变化: {positional_change.at[idx]:.0f})"
+            if divergence_condition.at[idx]:
+                report['divergence'] = "结构性背离(动能分虚高)"
+            
+            if report:
+                diagnostics.at[idx] = report
+                
+        return diagnostics
     
     

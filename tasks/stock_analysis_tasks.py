@@ -162,40 +162,53 @@ def _execute_strategy_logic(stock_code: str, trade_date: str, latest_only: bool 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
 def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_only: bool = False):
     """
-    【V3.0 - 双模式引擎版】
-    - 核心升级: 增加 `latest_only` 参数，并将它传递给核心逻辑函数。
+    【V4.0 - ORM适配版】
+    - 核心修改: 适配了 strategy_orchestrator 返回的ORM对象元组，并将其直接传递给
+                重构后的 strategies_dao.save_strategy_signals 方法。
     """
     async def main():
         # 创建CacheManager实例
         cache_manager = CacheManager()
         # 创建策略和DAO实例并注入cache_manager
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
-        strategies_dao = StrategiesDAO(cache_manager)
+        strategies_dao = StrategiesDAO() # DAO不再需要cache_manager
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
         logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
         analysis_end_time = f"{trade_date} 16:00:00"
+        
+        # --- 代码修改开始 ---
+        # [修改原因] run_for_stock 和 run_for_latest_signal 现在返回一个包含ORM对象的元组，
+        #           而不是一个字典列表。变量名修改为 records_tuple 以反映这一点。
         if latest_only:
-            db_records = await strategy_orchestrator.run_for_latest_signal(
+            records_tuple = await strategy_orchestrator.run_for_latest_signal(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
         else:
-            db_records = await strategy_orchestrator.run_for_stock(
+            records_tuple = await strategy_orchestrator.run_for_stock(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
-        if not db_records:
+        
+        # 判断元组或其第一个元素（主信号列表）是否为空
+        if not records_tuple or not records_tuple[0]:
             logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号。")
             return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
-        save_count = await strategies_dao.save_strategy_signals(db_records)
-        logger.info(f"[{stock_code}] 成功保存 {save_count} 条 'multi_timeframe_trend_strategy' 信号。")
+        
+        # 直接将ORM元组传递给重构后的DAO方法
+        save_count = await strategies_dao.save_strategy_signals(records_tuple)
+        logger.info(f"[{stock_code}] 成功保存 {save_count} 条主信号及其详情。")
+        
+        # 这部分逻辑可以保持不变，但现在它只用于日志记录，不再有实际作用
         if save_count > 0:
             unique_signal_types = set()
-            for record in db_records:
-                strategy_name = record.get('strategy_name')
-                timeframe = record.get('timeframe')
+            # 从ORM对象中获取信息
+            for signal_obj in records_tuple[0]:
+                strategy_name = signal_obj.strategy_name
+                timeframe = signal_obj.timeframe
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
+        # --- 代码修改结束 ---
         return {"status": "success", "saved_count": save_count}
     try:
         return async_to_sync(main)()

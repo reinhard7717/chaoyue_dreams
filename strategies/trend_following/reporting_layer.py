@@ -1,161 +1,121 @@
 # 文件: strategies/trend_following/reporting_layer.py
-# 报告层 (V314.0 - 健壮合并版)
+# 报告层 (V400.0 - ORM重构版)
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Any
-from utils.data_sanitizer import sanitize_for_json
+from typing import Dict, List, Any, Tuple
+
+# --- 代码修改开始 ---
+# [修改原因] 导入全新的、结构化的数据库模型，替换掉旧的扁平化数据结构。
+from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail
+# --- 代码修改结束 ---
+
 from .utils import get_params_block, get_param_value
 
 class ReportingLayer:
     def __init__(self, strategy_instance):
+        """
+        【V400.0 ORM重构版】
+        - 核心重构: 初始化时，不再处理复杂的 metadata 映射，而是直接从数据库
+                    预加载所有已定义的 Playbook，并缓存起来，以极高的性能支持后续操作。
+        """
         self.strategy = strategy_instance
-        self.scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        self.signal_metadata = self.scoring_params.get('metadata', {})
-        playbook_blueprints = self.strategy.offensive_layer.playbook_blueprints
-        playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
-        self.signal_metadata.update(playbook_cn_map)
+        # --- 代码修改开始 ---
+        # [修改原因] 预加载所有 playbook 定义到内存缓存中，避免在循环中查询数据库，性能极高。
+        try:
+            self.playbooks_cache = {p.name: p for p in Playbook.objects.all()}
+            print(f"    -> [报告层] 初始化完成，已成功缓存 {len(self.playbooks_cache)} 个战法定义。")
+        except Exception as e:
+            # 在数据库尚未迁移或 Playbook 表为空时提供健壮性
+            self.playbooks_cache = {}
+            print(f"    -> [报告层] 警告：初始化时未能加载战法定义缓存，可能是数据库未迁移或为空。错误: {e}")
+        # --- 代码修改结束 ---
 
+        # 保留旧的 COLUMN_MAP，以备其他地方可能使用，但核心逻辑不再依赖它
         self.COLUMN_MAP = {
             'close_D': 'close_price',
             'signal_entry': 'entry_signal',
         }
 
-    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> List[Dict[str, Any]]:
+    def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List]:
         """
-        【V314.1 risk_score 修正版】
-        - 核心修复: 在构建 record_data 时，明确地从 row 中提取 risk_score，
-                    确保其能被正确传递给 _create_signal_record 并存入数据库。
+        【V400.0 ORM重构版】
+        - 核心重构: 此方法是适配新模型的关键。它不再返回一个扁平化的字典列表，
+                    而是返回一个包含两类ORM对象的元组:
+                    1. TradingSignal 对象列表 (主信号)
+                    2. SignalPlaybookDetail 对象列表 (信号构成详情)
+        - 收益: 彻底分离了数据结构和内容，为上层任务提供了清晰、可直接写入数据库的对象。
         """
-        # print(f"      -> [战报司令部 V314.1 risk_score 修正版] 启动，正在执行归档...")
-        db_records = []
+        # print(f"      -> [战报司令部 V400.0 ORM版] 启动，正在构建信号对象...")
+        
+        signals_to_create = []
+        details_to_create = []
+
+        # 1. 筛选出需要记录的信号日 (所有产生有效信号的日子)
         signal_days_df = result_df[result_df['signal_type'] != '无信号'].copy()
 
         for trade_time, row in signal_days_df.iterrows():
-            record_data = row.to_dict()
-
-            for df_col, db_col in self.COLUMN_MAP.items():
-                if df_col in record_data:
-                    record_data[db_col] = record_data.pop(df_col)
-
-            record_data.update({
-                'stock_code': stock_code,
-                'trade_time': trade_time,
-                'timeframe': result_timeframe,
-                'strategy_name': get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
-                'entry_score': row.get('entry_score', 0.0), # 直接从原始 entry_score 列获取
-                'risk_score': row.get('risk_score', 0.0),   # 直接从原始 risk_score 列获取
-                'risk_change_summary': row.get('risk_change_summary', {}),
-                'health_change_summary': row.get('health_change_summary', {}),
-                'is_risk_warning': row['signal_type'] == '风险预警' # 简化判断逻辑
-            })
-
-            record = self._create_signal_record(**record_data)
-            record = self._fill_signal_details(record, row, score_details_df, risk_details_df)
+            # 2. 创建主信号对象 (TradingSignal)
+            signal_type_map = {
+                '买入信号': TradingSignal.SignalType.BUY,
+                '卖出信号': TradingSignal.SignalType.SELL,
+                '风险预警': TradingSignal.SignalType.WARN,
+            }
             
-            db_records.append(record)
-            
-        print(f"      -> [战报司令部 V314.1] 归档完成，共生成 {len(db_records)} 条全息记录。")
-        return db_records
+            # --- 代码修改开始 ---
+            # [修改原因] 构建全新的 TradingSignal ORM 对象，字段与新模型完全对应。
+            signal_obj = TradingSignal(
+                stock_id=stock_code,
+                trade_time=trade_time,
+                timeframe=result_timeframe,
+                strategy_name=get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
+                signal_type=signal_type_map.get(row['signal_type'], TradingSignal.SignalType.HOLD),
+                entry_score=row.get('entry_score', 0.0),
+                risk_score=row.get('risk_score', 0.0),
+                veto_votes=int(row.get('veto_votes', 0)), # 确保为整数
+                close_price=row.get('close_D', 0.0),
+                health_change_summary=row.get('health_change_summary', {})
+            )
+            signals_to_create.append(signal_obj)
+            # --- 代码修改结束 ---
 
-    def _create_signal_record(self, **kwargs) -> Dict[str, Any]:
-        """
-        【V314.2 终极净化版】
-        创建一个基础记录字典，并对所有数值和布尔字段进行严格的NaN净化。
-        """
-        trade_time_input = kwargs.get('trade_time')
-        if trade_time_input is None: raise ValueError("创建信号记录时必须提供 'trade_time'")
-        ts = pd.to_datetime(trade_time_input)
-        standard_trade_time = ts.tz_localize('Asia/Shanghai').tz_convert('UTC').to_pydatetime() if ts.tzinfo is None else ts.tz_convert('UTC').to_pydatetime()
-        
-        db_template = {
-            "stock_code": None, "trade_time": standard_trade_time, "timeframe": "N/A",
-            "strategy_name": "UNKNOWN", "close_price": None, "entry_signal": False,
-            "exit_signal_code": 0, "entry_score": 0.0, "triggered_playbooks": "",
-            "context_snapshot": {}, "is_breakout_trigger": False, "is_continuation_entry": False,
-            "is_pullback_entry": False, "rejection_code": 0, "washout_score": 0,
-            "pullback_target_price": None, "is_long_term_bullish": False, "is_mid_term_bullish": False,
-            "is_pullback_setup": False, "exit_severity_level": 0, "exit_signal_reason": "",
-            "stable_platform_price": None, "is_risk_warning": False, "risk_score": 0.0,
-            "signal_type": "无信号",
-            "holding_health_score": 0.0,
-            "veto_votes": 0,
-            "risk_change_summary": {},
-            "health_change_summary": {}
-        }
-        
-        final_record = db_template.copy()
-        final_record.update(kwargs)
-
-        record = {key: final_record.get(key) for key in db_template}
-
-        # --- 数值字段净化 ---
-        numeric_fields_with_defaults = {
-            'close_price': None, 'pullback_target_price': None, 'stable_platform_price': None,
-            'entry_score': 0.0, 'risk_score': 0.0, 'holding_health_score': 0.0,
-            'washout_score': 0, 'exit_signal_code': 0, 'exit_severity_level': 0,
-            'rejection_code': 0, 'veto_votes': 0
-        }
-        for field, default_value in numeric_fields_with_defaults.items():
-            value = record.get(field)
-            if pd.isna(value):
-                record[field] = default_value
-            else:
-                if default_value is None: record[field] = float(value) if value is not None else None
-                elif isinstance(default_value, float): record[field] = float(value)
-                elif isinstance(default_value, int): record[field] = int(value)
-
-        boolean_fields = [
-            'entry_signal', 'is_breakout_trigger', 'is_continuation_entry',
-            'is_pullback_entry', 'is_long_term_bullish', 'is_mid_term_bullish',
-            'is_pullback_setup', 'is_risk_warning'
-        ]
-        for field in boolean_fields:
-            value = record.get(field)
-            # 如果值是 NaN, None, 或者其他非布尔值，都将其安全地转换为 False
-            if pd.isna(value) or not isinstance(value, bool):
-                record[field] = False
-
-        return record
-
-    def _fill_signal_details(self, record: Dict, signal_row: pd.Series, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> Dict:
-        """
-        【V339.2 风险叙事增强版】
-        - 核心升级: 为“风险预警”信号增加了详细的风险构成叙述，
-                    使其与“卖出信号”的报告精度保持一致。
-        """
-        trade_time = signal_row.name 
-        details_list = []
-
-        # 步骤1: 优先获取由ExitLayer提供的、最直接的原因
-        exit_reason = record.get('exit_signal_reason') or signal_row.get('alert_reason')
-        if exit_reason and not pd.isna(exit_reason) and exit_reason:
-            details_list.append(str(exit_reason))
-
-        signal_type = record.get('signal_type')
-        is_risk_warning = record.get('is_risk_warning', False)
-
-        # 步骤2: 根据信号类型，填充详细的构成
-        if signal_type == '买入信号':
+            # 3. 创建信号构成详情对象 (SignalPlaybookDetail)
+            # 3.1 处理进攻战法
             if not score_details_df.empty and trade_time in score_details_df.index:
-                score_details_today = score_details_df.loc[trade_time]
-                activated_rules_en = score_details_today[score_details_today > 0].index.tolist()
-                details_list.extend([self.signal_metadata.get(rule, rule) for rule in activated_rules_en])
-        elif signal_type == '卖出信号' or is_risk_warning:
+                activated_offense = score_details_df.loc[trade_time]
+                for name, score in activated_offense[activated_offense > 0].items():
+                    # 从缓存中查找对应的 Playbook 对象
+                    playbook_obj = self.playbooks_cache.get(name)
+                    if playbook_obj:
+                        details_to_create.append(SignalPlaybookDetail(
+                            signal=signal_obj, # 关联到刚创建的主信号对象
+                            playbook=playbook_obj,
+                            contributed_score=score
+                        ))
+            
+            # 3.2 处理风险/离场剧本
+            # 将 risk_details_df 和 critical_exit_details_df (如果存在) 合并处理
+            all_risk_details = pd.Series(dtype=float)
             if not risk_details_df.empty and trade_time in risk_details_df.index:
-                risk_details_today = risk_details_df.loc[trade_time]
-                activated_risks_en = risk_details_today[risk_details_today > 0].index.tolist()
-                risk_details_cn = [self.signal_metadata.get(risk, risk) for risk in activated_risks_en]
-                
-                if risk_details_cn:
-                    # 如果已经有了一个笼统的原因，则将详细构成作为补充
-                    if details_list:
-                        details_list.append(f"风险构成: {', '.join(risk_details_cn)}")
-                    # 如果没有笼统的原因，则直接显示详细构成
-                    else:
-                        details_list.extend(risk_details_cn)
-        # 步骤3: 拼接最终的描述字符串
-        record['triggered_playbooks'] = ", ".join(filter(None, details_list))
-        return record
+                all_risk_details = all_risk_details.add(risk_details_df.loc[trade_time], fill_value=0)
+            
+            # 假设 critical_exit_details_df 也是一个类似的 DataFrame
+            # critical_exit_df = ... (从上层获取)
+            # if not critical_exit_df.empty and trade_time in critical_exit_df.index:
+            #     all_risk_details = all_risk_details.add(critical_exit_df.loc[trade_time], fill_value=0)
+
+            for name, score in all_risk_details[all_risk_details > 0].items():
+                playbook_obj = self.playbooks_cache.get(name)
+                if playbook_obj:
+                     details_to_create.append(SignalPlaybookDetail(
+                        signal=signal_obj,
+                        playbook=playbook_obj,
+                        contributed_score=score
+                    ))
+
+        # print(f"      -> [战报司令部 V400.0] 构建完成，共生成 {len(signals_to_create)} 条主信号和 {len(details_to_create)} 条详情记录。")
+        
+        # 返回一个元组，包含待创建的对象列表
+        return (signals_to_create, details_to_create)
+
 
 
 

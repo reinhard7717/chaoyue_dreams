@@ -11,61 +11,52 @@ class JudgmentLayer:
 
     def _evaluate_holding_health(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
         """
-        【V339.1 攻防动态版】持仓大脑 - 评估持仓健康度
-        - 核心重构: 不再计算静态的健康分，而是动态对比当日与前一日的
-                    “进攻分数构成”和“风险分数构成”，捕捉“买入逻辑”的
-                    衰减和“风险”的出现，生成结构化的攻防变化摘要。
+        【V400.0 健康报告总汇版】
+        - 核心重构: 此方法不再独立计算，而是成为一个“报告总汇”。
+                    它从主DataFrame中读取由进攻层和预警层预先计算好的
+                    “进攻动能摘要”和“风险变化摘要”，并将它们合并成一个
+                    结构清晰的、最终的 health_change_summary。
         """
-        # print("        -> [持仓大脑 V339.1] 启动，正在进行攻防动态对比分析...")
+        # print("        -> [健康报告总汇 V400.0] 启动，正在整合攻防报告...")
         df = self.strategy.df_indicators
         
-        # --- 1. 获取昨日的攻防态势 ---
-        score_details_df_yesterday = score_details_df.shift(1).fillna(0)
-        risk_score_df_yesterday = risk_score_df.shift(1).fillna(0)
-        
-        # --- 2. 初始化诊断摘要存储列 ---
-        # 我们将把这个丰富的诊断结果，直接存储在df中，供后续模块使用
+        # --- 1. 初始化最终的健康报告列 ---
         df['health_change_summary'] = [{} for _ in range(len(df))]
 
-        # --- 3. 逐日进行对比分析 ---
+        # --- 2. 读取预计算好的摘要 ---
+        # offensive_momentum_summary 由 OffensiveLayer 计算
+        offensive_summary = df.get('offensive_momentum_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
+        # risk_change_summary 由 WarningLayer 计算
+        risk_summary = df.get('risk_change_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
+
+        # --- 3. 逐日合并成最终报告 ---
         for idx in df.index:
-            # 进攻端分析
-            today_offense = set(score_details_df.columns[score_details_df.loc[idx] > 0])
-            yesterday_offense = set(score_details_df_yesterday.columns[score_details_df_yesterday.loc[idx] > 0])
+            final_summary = {}
             
-            new_strengths = list(today_offense - yesterday_offense)
-            fading_strengths = list(yesterday_offense - today_offense)
+            # 获取当天的进攻动能报告
+            offense_report = offensive_summary.at[idx]
+            if offense_report and isinstance(offense_report, dict) and any(offense_report.values()):
+                final_summary['offense_momentum'] = offense_report
+            
+            # 获取当天的风险变化报告
+            risk_report = risk_summary.at[idx]
+            if risk_report and isinstance(risk_report, dict) and any(v for v in risk_report.values() if v):
+                final_summary['risk_change'] = risk_report
 
-            # 风险端分析
-            today_risks = set(risk_score_df.columns[risk_score_df.loc[idx] > 0])
-            yesterday_risks = set(risk_score_df_yesterday.columns[risk_score_df_yesterday.loc[idx] > 0])
-            
-            new_risks = list(today_risks - yesterday_risks)
-            resolved_risks = list(yesterday_risks - today_risks)
-            
-            # 只有在攻防态势发生变化时才记录
-            if new_strengths or fading_strengths or new_risks or resolved_risks:
-                summary = {
-                    'offense_change': {
-                        'new': new_strengths,
-                        'fading': fading_strengths
-                    },
-                    'risk_change': {
-                        'new': new_risks,
-                        'resolved': resolved_risks
-                    }
-                }
-                # 使用 .at 来精确赋值
-                df.at[idx, 'health_change_summary'] = summary
+            # 只有在有内容时才赋值
+            if final_summary:
+                df.at[idx, 'health_change_summary'] = final_summary
 
-    def make_final_decisions(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
+    def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V319.0 终极决策修复版】
-        - 核心修复: 实现了严格的、多层次的风险否决逻辑，确保高风险或
-                    存在否决票的买入信号被正确地过滤掉。
-        - 流程简化: 简化了信号生成逻辑，使其更清晰、更健壮。
+        【V400.0 ORM适配版】
+        - 核心重构: 决策逻辑现在完全基于由 WarningLayer 提供的、已合并了所有
+                    致命风险和常规风险的最终 risk_score。
+        - 流程简化: 不再需要单独调用 ExitLayer。而是直接使用配置文件中的
+                    exit_threshold_params 和 warning_threshold_params 来对
+                    最终的 risk_score 进行分级，从而决定信号是“卖出”还是“预警”。
         """
-        # print("    --- [最高作战指挥部 V319.0 终极决策修复版] 启动... ---")
+        # print("    --- [最高作战指挥部 V400.0 ORM适配版] 启动... ---")
         df = self.strategy.df_indicators
         
         # --- 步骤 1: 初始化所有决策相关列 ---
@@ -74,44 +65,51 @@ class JudgmentLayer:
         df['veto_votes'] = 0
         df['dynamic_action'] = 'HOLD'
 
-        # --- 步骤 2: 评估持仓健康度 (独立模块) ---
-        self._evaluate_holding_health(score_details_df, risk_score_df)
-        
-        # --- 步骤 3: 静态否决票评估 ---
-        self._calculate_static_veto_votes()
+        # --- 步骤 2: 评估持仓健康度 (现在由 WarningLayer 内部完成) ---
+        self._evaluate_holding_health(score_details_df, risk_details_df)
 
-        # --- 步骤 4: 动态力学矩阵裁决 ---
+        # --- 步骤 3 & 4: 否决票与动态力学 (逻辑不变) ---
+        self._calculate_static_veto_votes()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # --- 步骤 5: 【核心决策逻辑】形成最终买入条件 ---
-        # 条件A: 基础风控，进攻分必须大于风险分
+        # --- 步骤 5: 【核心决策逻辑】形成最终买入条件 (逻辑不变) ---
         is_score_positive = df['entry_score'] > df['risk_score']
-        
-        # 条件B: 否决票必须为0
-        no_veto_votes = df['veto_votes'] == 0
-        
-        # 条件C: 动态力学指令不能是“规避”
+        # 此处可以加入您之前实现的弹性否决票逻辑
+        no_veto_votes = df['veto_votes'] == 0 # 简化示例，可替换
         not_avoid = df['dynamic_action'] != 'AVOID'
-        
-        # 最终买入条件：必须同时满足以上所有条件
         final_buy_condition = is_score_positive & no_veto_votes & not_avoid
 
-        # --- 步骤 6: 标记最终信号类型 ---
+        # --- 步骤 6: 标记初步信号类型 ---
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        # --- 步骤 7: 调用离场层，计算并标记卖出信号 ---
-        # 这会填充 df['exit_signal_code'] 等列
-        self.strategy.exit_layer.calculate_exit_signals()
-        is_exit_signal = (df.get('exit_signal_code', 0) > 0)
-        # 卖出信号的优先级高于“无信号”
-        df.loc[is_exit_signal, 'signal_type'] = '卖出信号'
+        # --- 步骤 7: 【核心改造】基于总风险分，统一进行卖出和预警判断 ---
+        # 不再调用 self.strategy.exit_layer.calculate_exit_signals()
         
-        # 标记“风险预警”信号
-        is_warning_signal = (df.get('alert_level', 0) > 0)
-        # 关键条件: 只在当前信号类型仍为“无信号”时，才将其标记为“风险预警”，以避免覆盖掉更高级别的“买入”或“卖出”信号。
-        df.loc[is_warning_signal & (df['signal_type'] == '无信号'), 'signal_type'] = '风险预警'
+        # 从配置加载卖出和预警的阈值
+        exit_params = self.strategy.unified_config.get('exit_strategy_params', {})
+        exit_thresholds = exit_params.get('exit_threshold_params', {})
+        warning_thresholds = exit_params.get('warning_threshold_params', {})
+        
+        # 按阈值从高到低排序，确保优先判断卖出信号
+        all_thresholds = []
+        for level_info in exit_thresholds.values():
+            all_thresholds.append({'level': level_info['level'], 'type': '卖出信号'})
+        for level_info in warning_thresholds.values():
+            all_thresholds.append({'level': level_info['level'], 'type': '风险预警'})
+        
+        sorted_thresholds = sorted(all_thresholds, key=lambda x: x['level'], reverse=True)
 
-        # --- 步骤 8: 最终净化与分数赋值 ---
+        # 遍历阈值，对 risk_score 进行分级
+        for rule in sorted_thresholds:
+            threshold = rule['level']
+            signal_type = rule['type']
+            
+            # 条件：风险分达到阈值，且当前没有被更高优先级的信号标记
+            # （买入信号优先级最高，在循环外已标记）
+            condition = (df['risk_score'] >= threshold) & (df['signal_type'] == '无信号')
+            df.loc[condition, 'signal_type'] = signal_type
+
+        # --- 步骤 8: 最终净化与分数赋值 (逻辑不变) ---
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:

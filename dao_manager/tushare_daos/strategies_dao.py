@@ -608,113 +608,90 @@ class StrategiesDAO(BaseDAO):
             logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
             return None
 
-    async def save_strategy_signals(self, signals_data: List[Dict[str, Any]]) -> int:
+    async def save_strategy_signals(self, signals_tuple: Tuple[List[TradingSignal], List[SignalPlaybookDetail]]) -> int:
         """
-        【V120.9 死锁规避与批量优化版】
-        - 核心重构: 彻底废弃了在循环中逐条调用 aupdate_or_create 的模式，以从根源上解决高并发下的数据库死锁问题。
+        【V400.0 ORM重构版】
+        - 核心重构: 此方法现在接收一个包含两类ORM对象的元组，并执行高效的批量写入。
         - 新工作流程:
-          1. **批量识别**: 首先，根据传入信号的唯一键 (stock_id, trade_time, strategy_name, timeframe)
-                         构建一个查找字典。然后，一次性查询数据库，找出所有已存在的记录。
-          2. **分类处理**: 将传入的信号分为两组：“待更新”和“待创建”。
-          3. **批量更新**: 对“待更新”组，使用 Django ORM 的 `bulk_update` 方法，在一次数据库交互中完成所有更新。
-          4. **批量创建**: 对“待创建”组，使用 `bulk_create` 方法，在一次数据库交互中完成所有创建。
+          1. **删除旧详情**: 根据传入的主信号，先删除所有可能存在的旧的 SignalPlaybookDetail 记录，确保数据的一致性。
+          2. **批量更新/创建主信号**: 使用 `abulk_create` 并设置 `update_conflicts=True` (需要PostgreSQL或新版MySQL/SQLite)，
+             以一条命令实现“存在则更新，不存在则创建”(UPSERT)的原子操作。
+          3. **批量创建新详情**: 在主信号写入成功后，批量创建新的 SignalPlaybookDetail 记录。
         - 收益:
-          - **解决死锁**: 将大量短事务合并为少数几次批量操作，极大降低了锁竞争和死锁概率。
-          - **性能提升**: 显著减少了数据库的往返次数，大幅提升了数据保存的整体效率。
+          - **原子性与一致性**: 事务保证了操作的完整性，先删后增确保了信号详情不会重复或过时。
+          - **极致性能**: 使用 `UPSERT` 和 `bulk_create`，将数据库交互降到最低。
         """
-        if not signals_data:
-            print("调试信息: [DAO-SignalLog] 传入的信号数据列表为空，不执行任何操作。")
+        if not signals_tuple or not signals_tuple[0]:
+            print("调试信息: [DAO-SignalLog V400.0] 传入的信号元组为空，不执行任何操作。")
             return 0
 
-        # print(f"调试信息: [DAO-SignalLog V120.9] 收到 {len(signals_data)} 条信号，开始执行“批量识别-分类处理”流程。")
+        signals_to_process, details_to_create = signals_tuple
+        # print(f"调试信息: [DAO-SignalLog V400.0] 收到 {len(signals_to_process)} 条主信号和 {len(details_to_create)} 条详情，开始执行ORM批量写入流程。")
 
-        stock_codes = {item['stock_code'] for item in signals_data if 'stock_code' in item}
-        if not stock_codes:
-            print("错误: [DAO-SignalLog] 信号数据中缺少 'stock_code' 字段，无法保存。")
-            return 0
-        
-        # 异步获取所有相关的 StockInfo 实例
-        stocks_map = {s.stock_code: s for s in await sync_to_async(list)(StockInfo.objects.filter(stock_code__in=stock_codes))}
-
-        # --- 步骤1: 批量识别 ---
-        # 构建唯一键查找条件
-        lookup_keys = []
-        # 使用元组作为字典的键，(stock_id, trade_time, strategy_name, timeframe) -> item
-        signals_map = {} 
-        for item in signals_data:
-            stock_instance = stocks_map.get(item.get('stock_code'))
-            if not stock_instance:
-                print(f"警告: [DAO-SignalLog] 股票代码 {item.get('stock_code')} 无效，该条信号将被跳过。")
-                continue
-            
-            key_tuple = (
-                stock_instance.stock_code,
-                item.get('trade_time'),
-                item.get('strategy_name'),
-                item.get('timeframe')
-            )
-            # 将原始数据项存入map，以便后续查找
-            signals_map[key_tuple] = item
-            lookup_keys.append(Q(
-                stock_id=key_tuple[0],
-                trade_time=key_tuple[1],
-                strategy_name=key_tuple[2],
-                timeframe=key_tuple[3]
-            ))
-
-        # 一次性查询所有已存在的记录
-        existing_records_qs = TrendFollowStrategySignalLog.objects.filter(reduce(operator.or_, lookup_keys))
-        existing_records_map = {
-            (r.stock_id, r.trade_time, r.strategy_name, r.timeframe): r
-            async for r in existing_records_qs
-        }
-        # print(f"调试信息: [DAO-SignalLog] 批量识别完成，发现 {len(existing_records_map)} 条记录已存在于数据库。")
-
-        # --- 步骤2: 分类处理 ---
-        records_to_update = []
-        records_to_create = []
-        model_fields = {f.name for f in TrendFollowStrategySignalLog._meta.get_fields() if not f.is_relation}
-        
-        for key_tuple, item in signals_map.items():
-            stock_instance = stocks_map.get(item.get('stock_code'))
-            if key_tuple in existing_records_map:
-                # 准备更新
-                record_instance = existing_records_map[key_tuple]
-                # 使用新数据更新实例的字段
-                for field in model_fields:
-                    if field in item:
-                        setattr(record_instance, field, item[field])
-                records_to_update.append(record_instance)
-            else:
-                # 准备创建
-                # 从 item 中提取所有模型中存在的字段
-                create_data = {k: v for k, v in item.items() if k in model_fields}
-                create_data['stock'] = stock_instance # 关联外键
-                records_to_create.append(TrendFollowStrategySignalLog(**create_data))
-
-        saved_count = 0
         try:
-            # --- 步骤3: 批量更新 ---
-            if records_to_update:
-                # 定义需要更新的字段列表
-                update_fields = list(model_fields - {'id', 'stock_id', 'trade_time', 'strategy_name', 'timeframe', 'created_at'})
-                updated_count = await TrendFollowStrategySignalLog.objects.abulk_update(records_to_update, update_fields)
-                saved_count += len(records_to_update) # bulk_update 在 Django 4.1+ 返回更新的行数，但这里我们计为处理的条数
-                # print(f"调试信息: [DAO-SignalLog] 批量更新了 {len(records_to_update)} 条记录。")
+            # 使用异步事务确保操作的原子性
+            async with transaction.atomic():
+                # --- 步骤1: 批量删除与待处理信号相关的旧详情记录 ---
+                # 构建一个查询，找到所有待处理信号的主键
+                signal_lookup_keys = [
+                    Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
+                    for s in signals_to_process
+                ]
+                # 找到这些主信号已经存在于数据库中的版本
+                existing_signals_pks = await sync_to_async(list)(
+                    TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
+                )
+                
+                if existing_signals_pks:
+                    # 一次性删除所有这些信号关联的旧详情
+                    deleted_count, _ = await SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).adelete()
+                    # print(f"调试信息: [DAO-SignalLog] 清理阶段：删除了 {deleted_count} 条过时的信号详情。")
 
-            # --- 步骤4: 批量创建 ---
-            if records_to_create:
-                created_objects = await TrendFollowStrategySignalLog.objects.abulk_create(records_to_create)
-                saved_count += len(created_objects)
-                # print(f"调试信息: [DAO-SignalLog] 批量创建了 {len(created_objects)} 条新记录。")
+                # --- 步骤2: 批量更新或创建主信号 (UPSERT) ---
+                # 定义冲突目标和需要更新的字段
+                conflict_target = ['stock_id', 'trade_time', 'timeframe', 'strategy_name']
+                update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
+                
+                # 使用 abulk_create 实现高效的 UPSERT
+                created_signals = await TradingSignal.objects.abulk_create(
+                    signals_to_process,
+                    update_conflicts=True,
+                    unique_fields=conflict_target,
+                    update_fields=update_fields
+                )
+                # print(f"调试信息: [DAO-SignalLog] 成功写入/更新了 {len(created_signals)} 条主信号记录。")
+
+                # --- 步骤3: 批量创建新的信号详情 ---
+                if details_to_create:
+                    # 重新查询刚创建/更新的信号，以获取它们确定的主键(pk)
+                    # 这一步是必需的，因为 details_to_create 中的 signal 对象还没有 pk
+                    refreshed_signals_map = {
+                        (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
+                        async for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).only('pk', 'stock_id', 'trade_time', 'timeframe', 'strategy_name')
+                    }
+
+                    valid_details = []
+                    for detail in details_to_create:
+                        key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
+                        signal_pk = refreshed_signals_map.get(key)
+                        if signal_pk:
+                            # 将详情对象中的外键设置为刚获取到的主键ID
+                            detail.signal_id = signal_pk
+                            valid_details.append(detail)
+                    
+                    if valid_details:
+                        await SignalPlaybookDetail.objects.abulk_create(valid_details, ignore_conflicts=True)
+                        # print(f"调试信息: [DAO-SignalLog] 成功创建了 {len(valid_details)} 条新的信号详情。")
+
+            saved_count = len(signals_to_process)
+            # print(f"调试信息: [DAO-SignalLog V400.0] 流程完成。成功处理 {saved_count} 条主信号。")
+            return saved_count
 
         except Exception as e:
-            print(f"错误: [DAO-SignalLog] 在批量保存信号时发生异常: {e}")
+            print(f"错误: [DAO-SignalLog V400.0] 在批量保存ORM信号时发生异常: {e}")
             import traceback
             traceback.print_exc()
-
-        # print(f"调试信息: [DAO-SignalLog V120.9] 流程完成。成功处理 {saved_count} / {len(signals_data)} 条信号。")
-        return saved_count
+            return 0
 
     # 筹码高级信息AdvancedChipMetrics
     async def get_advanced_chip_metrics_data(
