@@ -51,7 +51,7 @@
         </thead>
         <tbody id="fav-trend-table-body">
           {# --- 代码修改开始 --- #}
-          {# [修改原因] 适配新的 tracker 对象和关联模型字段 #}
+          {# [修改原因] 适配正确的模型字段名 (entry_log, latest_log, exit_log) #}
           {% for tracker in page_obj %}
           <tr data-id="{{ tracker.id }}">
             <td>
@@ -62,34 +62,33 @@
               <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
             </td>
             <td>
-              {% if tracker.entry_signal %}
+              {% if tracker.entry_log %}
               <strong>
                 买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
               </strong>
               <br />
-              <small>建仓分数: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
+              <small>建仓分数: {{ tracker.entry_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
             </td>
             <td>
-              {% if tracker.status == 'HOLDING' and tracker.latest_signal %}
-              {% with latest_signal=tracker.latest_signal %}
+              {% if tracker.status == 'HOLDING' and tracker.latest_log %}
+              {% with latest_log=tracker.latest_log %}
               <div class="score-tracker">
-                {% with score_change=latest_signal.entry_score|subtract:tracker.entry_signal.entry_score %}
+                {% with score_change=tracker.score_change_vs_entry %}
                 <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}">
-                  📈 {{ latest_signal.entry_score|floatformat:0 }}
+                  📈 {{ latest_log.entry_score|floatformat:0 }}
                   <span class="score-delta">
                     ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
                   </span>
                 </span>
                 {% endwith %}
-                {% if latest_signal.risk_score > 0 %}
+                {% if latest_log.risk_score > 0 %}
                 <span class="risk-score-display" title="当前风险分">
-                  &nbsp; | &nbsp;风险分 ⚠️ {{ latest_signal.risk_score|floatformat:0 }}
+                  &nbsp; | &nbsp;风险分 ⚠️ {{ latest_log.risk_score|floatformat:0 }}
                 </span>
                 {% endif %}
               </div>
 
-              {# 健康度仪表盘现在直接从 tracker.health_change_summary 获取 #}
               {% with summary=tracker.health_change_summary %}
                 {% if summary and summary.offense_momentum or summary.risk_change %}
                   <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em;" >
@@ -118,10 +117,10 @@
                 </span>
               </div>
               {% endwith %}
-              {% elif tracker.status == 'SOLD' and tracker.exit_signal %}
+              {% elif tracker.status == 'SOLD' and tracker.exit_log %}
               <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
               <br />
-              <small>风险分: {{ tracker.exit_signal.risk_score|floatformat:0 }}</small>
+              <small>风险分: {{ tracker.exit_log.risk_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
             </td>
             <td class="actions">
