@@ -1,12 +1,10 @@
 # 文件: strategies/trend_following/reporting_layer.py
 # 报告层 (V400.0 - ORM重构版)
 import pandas as pd
+from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
-
-# --- 代码修改开始 ---
-# [修改原因] 导入全新的、结构化的数据库模型，替换掉旧的扁平化数据结构。
 from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail
-# --- 代码修改结束 ---
+
 
 from .utils import get_params_block, get_param_value
 
