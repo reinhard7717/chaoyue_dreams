@@ -66,9 +66,7 @@
         <a href="{% url 'dashboard:trend_following_list' %}">策略监控中心</a>
       </li>
       <li>
-        <a href="{% url 'dashboard:fav_trend_following_list' %}" class="active"
-          >自选股监控</a
-        >
+        <a href="{% url 'dashboard:fav_trend_following_list' %}" class="active">自选股监控</a>
       </li>
       <li><a href="{% url 'dashboard:realtime_engine' %}">盘中引擎</a></li>
     </ul>
@@ -99,17 +97,13 @@
               <small>{{ tracker.stock.stock_name|default:"-" }}</small>
             </td>
             <td>
-              <span class="status-tag status-{{ tracker.status|lower }}"
-                >{{ tracker.get_status_display }}</span
-              >
+              <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
             </td>
             <td>
               {% if tracker.entry_log %}
-              <strong
-                >买入于: {{
-                tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d"
-                }}</strong
-              >
+              <strong>
+                买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
+              </strong>
               <br />
               <small>建仓分数: {{ tracker.entry_score|floatformat:0 }}</small>
               {% else %} - {% endif %}
@@ -118,42 +112,26 @@
               {% if tracker.status == 'HOLDING' and tracker.latest_log %} {# ---
               Part 1: 核心分数追踪 (保持不变) --- #}
               <div class="score-tracker">
-                <span
-                  class="{% if tracker.score_change_vs_entry > 0 %}score-up{% elif tracker.score_change_vs_entry < 0 %}score-down{% else %}score-neutral{% endif %}"
-                >
+                <span class="{% if tracker.score_change_vs_entry > 0 %}score-up{% elif tracker.score_change_vs_entry < 0 %}score-down{% else %}score-neutral{% endif %}">
                   📈 {{ tracker.latest_log.entry_score|floatformat:0 }}
                   <span class="score-delta">
-                    ({% if tracker.score_change_vs_entry > 0 %}+{% endif %}{{
-                    tracker.score_change_vs_entry|floatformat:0 }})
+                    ({% if tracker.score_change_vs_entry > 0 %}+{% endif %}{{ tracker.score_change_vs_entry|floatformat:0 }})
                   </span>
                 </span>
                 {% if tracker.latest_log.risk_score > 0 %}
                 <span class="risk-score-display" title="当前风险分">
-                  &nbsp; | &nbsp;风险分 ⚠️ {{
-                  tracker.latest_log.risk_score|floatformat:0 }}
+                  &nbsp; | &nbsp;风险分 ⚠️ {{ tracker.latest_log.risk_score|floatformat:0 }}
                 </span>
                 {% endif %}
               </div>
 
-              {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #} {#
-              【代码修改】使用 with 标签预计算复杂的布尔条件，避免模板解析器在
-              if 标签中遇到括号导致的问题 #} {% with
-              summary=tracker.health_change_summary %} {% with
-              has_health_changes=summary.offense_change.fading or
-              summary.risk_change.new or summary.risk_change.persistent %} {% if
-              summary and has_health_changes %} {# 修改行：使用预计算的
-              has_health_changes 变量 #}
-              <div
-                class="health-dashboard"
-                style="margin-top: 8px; font-size: 0.9em"
-              >
+              {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #}
+              <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em" >
                 {# 2.1 进攻优势变化 #} {% if summary.offense_change.fading %}
                 <div class="change-section">
                   <strong style="color: #ff9800">优势衰减:</strong>
                   {% for signal in summary.offense_change.fading %}
-                  <span class="tag tag-warning"
-                    >{{ signal|get_cn_name:signal_metadata }}</span
-                  >
+                  <span class="tag tag-warning" >{{ signal|get_cn_name:signal_metadata }}</span >
                   {% endfor %}
                 </div>
                 {% endif %} {# 2.2 风险因素变化 #} {% if summary.risk_change.new
@@ -161,9 +139,7 @@
                 <div class="change-section" style="margin-top: 4px">
                   <strong style="color: #f44336">新增风险:</strong>
                   {% for signal in summary.risk_change.new %}
-                  <span class="tag tag-danger"
-                    >{{ signal|get_cn_name:signal_metadata }}</span
-                  >
+                  <span class="tag tag-danger" >{{ signal|get_cn_name:signal_metadata }}</span >
                   {% endfor %}
                 </div>
                 {% endif %} {# 2.3 持续存在的风险 #} {% if
@@ -171,9 +147,7 @@
                 <div class="change-section" style="margin-top: 4px">
                   <strong style="color: #757575">持续风险:</strong>
                   {% for signal in summary.risk_change.persistent %}
-                  <span class="tag tag-secondary"
-                    >{{ signal|get_cn_name:signal_metadata }}</span
-                  >
+                  <span class="tag tag-secondary" >{{ signal|get_cn_name:signal_metadata }}</span >
                   {% endfor %}
                 </div>
                 {% endif %}
@@ -188,16 +162,9 @@
                 </span>
               </div>
               {% elif tracker.status == 'SOLD' and tracker.exit_log %}
-              <strong
-                >平仓于: {{
-                tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d"
-                }}</strong
-              >
+              <strong >平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong >
               <br />
-              <small
-                >平仓原因: {{ tracker.exit_log.triggered_playbooks|default:"-"
-                }}</small
-              >
+              <small >平仓原因: {{ tracker.exit_log.triggered_playbooks|default:"-" }}</small >
               {% else %} - {% endif %}
             </td>
             <td class="actions">
@@ -226,18 +193,12 @@
     <div class="pagination">
       {% if page_obj.has_other_pages %} {% if page_obj.has_previous %}
       <a href="{% query_builder page=1 %}">&laquo; 首页</a>
-      <a href="{% query_builder page=page_obj.previous_page_number %}"
-        >上一页</a
-      >
+      <a href="{% query_builder page=page_obj.previous_page_number %}" >上一页</a>
       {% endif %}
-      <span
-        >第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span
-      >
+      <span >第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
       {% if page_obj.has_next %}
       <a href="{% query_builder page=page_obj.next_page_number %}">下一页</a>
-      <a href="{% query_builder page=page_obj.paginator.num_pages %}"
-        >末页 &raquo;</a
-      >
+      <a href="{% query_builder page=page_obj.paginator.num_pages %}">末页 &raquo;</a>
       {% endif %} {% endif %}
     </div>
   </section>
