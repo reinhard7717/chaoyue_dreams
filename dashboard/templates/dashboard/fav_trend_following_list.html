@@ -53,7 +53,6 @@
         background-color: #757575;
       } /* 灰色: 持续风险 */
     </style>
-    {# 修改结束 #}
 {% endblock %} {# 此处的 endblock 是 extra_head 的正确闭合标签 #}
 
 {% block sidebar %}
@@ -126,39 +125,41 @@
               </div>
 
               {# --- Part 2: 【核心升级】健康度变化仪表盘 --- #}
-              {# 【代码修改】添加 with 标签的开始部分，并确保它们正确包裹相关内容 #}
-              {% with summary=tracker.health_change_summary %} {# 新增代码行 #}
-                {% with has_health_changes=summary.offense_change.fading or summary.risk_change.new or summary.risk_change.persistent %} {# 新增代码行 #}
-                  {% if summary and has_health_changes %}
-                  <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em" >
-                    {# 2.1 进攻优势变化 #} {% if summary.offense_change.fading %}
-                    <div class="change-section">
-                      <strong style="color: #ff9800">优势衰减:</strong>
-                      {% for signal in summary.offense_change.fading %}
-                      <span class="tag tag-warning" >{{ signal|get_cn_name:signal_metadata }}</span >
-                      {% endfor %}
+              {# 【代码修改】使用嵌套的 if 语句来处理 summary 对象的存在性检查和内部逻辑判断 #}
+              {% with summary=tracker.health_change_summary %} {# 新增代码行：将 health_change_summary 赋值给 summary #}
+                {% if summary %} {# 新增代码行：检查 summary 对象是否存在 #}
+                  {% if summary.offense_change.fading or summary.risk_change.new or summary.risk_change.persistent %} {# 修改行：直接在此处进行 OR 逻辑判断 #}
+                    <div class="health-dashboard" style="margin-top: 8px; font-size: 0.9em;" >
+                      {# 2.1 进攻优势变化 #} {% if summary.offense_change.fading %}
+                      <div class="change-section">
+                        <strong style="color: #ff9800">优势衰减:</strong>
+                        {% for signal in summary.offense_change.fading %}
+                        <span class="tag tag-warning" >{{ signal|get_cn_name:signal_metadata }}</span >
+                        {% endfor %}
+                      </div>
+                      {% endif %}
+
+                      {# 2.2 风险因素变化 #} {% if summary.risk_change.new %}
+                      <div class="change-section" style="margin-top: 4px">
+                        <strong style="color: #f44336">新增风险:</strong>
+                        {% for signal in summary.risk_change.new %}
+                        <span class="tag tag-danger" >{{ signal|get_cn_name:signal_metadata }}</span >
+                        {% endfor %}
+                      </div>
+                      {% endif %}
+                      
+                      {# 2.3 持续存在的风险 #} {% if summary.risk_change.persistent %}
+                      <div class="change-section" style="margin-top: 4px">
+                        <strong style="color: #757575">持续风险:</strong>
+                        {% for signal in summary.risk_change.persistent %}
+                        <span class="tag tag-secondary" >{{ signal|get_cn_name:signal_metadata }}</span >
+                        {% endfor %}
+                      </div>
+                      {% endif %}
                     </div>
-                    {% endif %} {# 2.2 风险因素变化 #} {% if summary.risk_change.new
-                    %}
-                    <div class="change-section" style="margin-top: 4px">
-                      <strong style="color: #f44336">新增风险:</strong>
-                      {% for signal in summary.risk_change.new %}
-                      <span class="tag tag-danger" >{{ signal|get_cn_name:signal_metadata }}</span >
-                      {% endfor %}
-                    </div>
-                    {% endif %} {# 2.3 持续存在的风险 #} {% if
-                    summary.risk_change.persistent %}
-                    <div class="change-section" style="margin-top: 4px">
-                      <strong style="color: #757575">持续风险:</strong>
-                      {% for signal in summary.risk_change.persistent %}
-                      <span class="tag tag-secondary" >{{ signal|get_cn_name:signal_metadata }}</span >
-                      {% endfor %}
-                    </div>
-                    {% endif %}
-                  </div>
-                  {% endif %} {# 结束 if summary and has_health_changes #}
-                {% endwith %} {# 结束 with has_health_changes #}
-              {% endwith %} {# 结束 with summary #}
+                  {% endif %} {# 修改行：结束 if summary.offense_change.fading or ... #}
+                {% endif %} {# 新增代码行：结束 if summary #}
+              {% endwith %} {# 新增代码行：结束 with summary #}
 
               <div class="signal-details" style="margin-top: 5px">
                 <span class="time-info">
