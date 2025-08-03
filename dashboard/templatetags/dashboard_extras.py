@@ -64,48 +64,74 @@ def replace(value, args):
 @register.simple_tag(takes_context=True)
 def query_builder(context, **kwargs):
     """
-    【V2.1 类型修复版】
-    一个强大的URL查询参数构造器。
-    - 核心修复: 统一将所有 playbook ID 转换为字符串进行比较和操作，解决因类型不匹配导致的筛选链接生成失败问题。
+    【V2.2 终极诊断版】
+    - 核心诊断: 加入大量打印语句，跟踪从模板接收到的上下文、参数以及每一步处理后的字典状态。
     """
-    query_dict = context['request'].GET.copy()
+    print("\n--- [Template Tag Debug] 'query_builder' 被调用 ---")
+    
+    # 诊断1: 检查上下文和请求对象是否存在
+    request = context.get('request')
+    if not request:
+        print("  [Debug-ERROR] 上下文中没有找到 'request' 对象！标签无法工作。")
+        return "?"
+    
+    print(f"  [Debug] 原始请求GET参数: {request.GET}")
+    print(f"  [Debug] 从模板接收到的kwargs: {kwargs}")
 
-    if kwargs.get('clear_all'):
-        return '?' # 清空时返回带问号的空URL
+    # 复制当前请求的GET参数字典
+    query_dict = request.GET.copy()
 
-    # 步骤1: 将所有传入的 playbook ID 统一转换为字符串
-    add_playbook_str = str(kwargs.pop('add_playbook', '')) if 'add_playbook' in kwargs else None
-    remove_playbook_str = str(kwargs.pop('remove_playbook', '')) if 'remove_playbook' in kwargs else None
+    # 诊断2: 检查传入的 playbook ID
+    add_playbook_val = kwargs.get('add_playbook')
+    remove_playbook_val = kwargs.get('remove_playbook')
+    print(f"  [Debug] 解析到 add_playbook: {add_playbook_val} (类型: {type(add_playbook_val)})")
+    print(f"  [Debug] 解析到 remove_playbook: {remove_playbook_val} (类型: {type(remove_playbook_val)})")
 
-    # 步骤2: 从 GET 参数获取已有的 playbooks 列表 (它们已经是字符串)
+    # --- 核心逻辑，统一为字符串处理 ---
     playbooks_list = query_dict.getlist('playbooks', [])
+    print(f"  [Debug] 当前URL中的playbooks列表 (字符串): {playbooks_list}")
 
-    # 步骤3: 使用字符串进行添加和移除操作
-    if add_playbook_str and add_playbook_str not in playbooks_list:
-        playbooks_list.append(add_playbook_str)
+    if add_playbook_val is not None:
+        add_playbook_str = str(add_playbook_val)
+        if add_playbook_str not in playbooks_list:
+            playbooks_list.append(add_playbook_str)
+            print(f"  [Debug] 添加后，playbooks列表变为: {playbooks_list}")
 
-    if remove_playbook_str and remove_playbook_str in playbooks_list:
-        playbooks_list.remove(remove_playbook_str)
+    if remove_playbook_val is not None:
+        remove_playbook_str = str(remove_playbook_val)
+        if remove_playbook_str in playbooks_list:
+            playbooks_list.remove(remove_playbook_str)
+            print(f"  [Debug] 移除后，playbooks列表变为: {playbooks_list}")
 
-    # 步骤4: 更新字典中的 'playbooks' 列表
+    # 更新或清理字典中的 'playbooks'
     if playbooks_list:
         query_dict.setlist('playbooks', playbooks_list)
     else:
-        # 如果列表为空，则从字典中移除该键，保持URL整洁
         query_dict.pop('playbooks', None)
+    
+    print(f"  [Debug] 处理完playbooks后，query_dict: {query_dict}")
 
-    # 步骤5: 处理其他普通的键值对参数 (例如 'page')
+    # 处理其他参数，如 'page'
+    # 我们从 kwargs 中移除已经处理过的 playbook 参数
+    kwargs.pop('add_playbook', None)
+    kwargs.pop('remove_playbook', None)
     for key, value in kwargs.items():
-        # 确保所有值都是字符串
         query_dict[key] = str(value)
+    
+    print(f"  [Debug] 处理完所有参数后，最终的query_dict: {query_dict}")
 
-    # 步骤6: 生成最终的URL查询字符串
+    # 生成最终URL
     if query_dict:
-        # doseq=True 确保列表被正确编码为 a=1&a=2
-        return f"?{urlencode(query_dict, doseq=True)}"
+        final_url = f"?{urlencode(query_dict, doseq=True)}"
     else:
-        # 如果最终字典为空，返回一个干净的问号
-        return '?'
+        # 如果字典为空，返回一个干净的URL（指向当前路径，无参数）
+        # 在模板中，这通常意味着清除所有筛选
+        final_url = "?" 
+    
+    print(f"  [Debug] 最终生成的URL后缀: {final_url}")
+    print("--- [Template Tag Debug] 'query_builder' 调用结束 ---\n")
+    
+    return final_url
 
 @register.filter
 def multiply(value, arg):
