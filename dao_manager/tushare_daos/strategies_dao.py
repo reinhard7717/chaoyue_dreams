@@ -7,6 +7,7 @@ from django.db.models import Max, Q, F, Case, When, Value, BooleanField, Window,
 from django.db.models.functions import Concat
 from django.db.models.functions import RowNumber
 import numpy as np
+from django.db import transaction
 import pandas as pd
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
