@@ -108,9 +108,6 @@ def trend_following_list(request):
     
     # --- 代码修改开始 ---
     # [修改原因] 增加诊断信息并强化日期获取逻辑，解决查不到数据的问题。
-
-    # 步骤1: 导入 TradeCalendar 模型
-    from stock_models.trade_calendar import TradeCalendar
     
     # 步骤1.1 (逻辑强化): 先找到最新的一个实际交易日作为参考点
     latest_trade_day_obj = TradeCalendar.objects.filter(
