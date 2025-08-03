@@ -100,34 +100,55 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.2 交易日修复版】
-    - 核心修复: 使用 TradeCalendar 模型获取最近3个“交易日”，替代了不准确的“自然日”计算，确保能稳定查到数据。
-    - 性能优化: 使用 prefetch_related 高效获取关联的剧本详情。
-    - 数据结构调整: 适配新模型，从 SignalPlaybookDetail 获取剧本和分数。
+    【V405.3 诊断修复版】
+    - 核心修复: 增加关键的调试打印，以暴露日期计算和数据库查询的中间结果。
+    - 逻辑强化: 确保总是从最新的一个实际交易日开始，向前回溯计算日期范围，增加逻辑的健壮性。
     """
-    print("--- [View] 开始渲染策略状态监控中心 (trend_following_list) V405.2 交易日修复版 ---")
-
-    # 调用类方法获取最近3个交易日的日期列表
-    # get_latest_n_trade_dates 返回的是一个 [date, date, date] 格式的列表
-    latest_3_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=3)
+    print("\n--- [View] 开始渲染策略状态监控中心 (trend_following_list) V405.3 诊断修复版 ---")
     
-    if not latest_3_trade_dates:
-        # 如果交易日历为空，则直接返回空结果，避免后续查询出错
-        print("--- [View] 警告: 未能从交易日历获取最近的交易日，无法查询信号。")
+    # --- 代码修改开始 ---
+    # [修改原因] 增加诊断信息并强化日期获取逻辑，解决查不到数据的问题。
+
+    # 步骤1: 导入 TradeCalendar 模型
+    from stock_models.trade_calendar import TradeCalendar
+    
+    # 步骤1.1 (逻辑强化): 先找到最新的一个实际交易日作为参考点
+    latest_trade_day_obj = TradeCalendar.objects.filter(
+        is_open=True,
+        cal_date__lte=timezone.now().date()
+    ).order_by('-cal_date').first()
+
+    if not latest_trade_day_obj:
+        print("--- [View-Debug] 错误: 交易日历中没有任何历史交易日记录，无法继续。")
         latest_buy_signals = TradingSignal.objects.none()
+        latest_3_trade_dates = []
     else:
-        print(f"--- [View] 已获取最近3个交易日: {latest_3_trade_dates}")
+        # 使用找到的最新交易日作为参考，获取最近3个交易日
+        reference_date = latest_trade_day_obj.cal_date
+        latest_3_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=3, reference_date=reference_date)
+        
+        # --- 关键诊断打印 1 ---
+        # 检查我们获取到的日期列表是否正确
+        print(f"--- [View-Debug] 查询的参考日期是: {reference_date}")
+        print(f"--- [View-Debug] 获取到的最近3个交易日列表: {latest_3_trade_dates}")
+
         # 步骤2: 使用获取到的交易日列表来过滤信号
-        # 使用 __in 查询操作符，匹配 trade_time 的日期部分是否在这几个交易日内
         latest_buy_signals = TradingSignal.objects.filter(
             signal_type=TradingSignal.SignalType.BUY,
             timeframe='D',
             trade_time__date__in=latest_3_trade_dates
         ).select_related('stock').prefetch_related(
             Prefetch('playbook_details', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        ).order_by('-trade_time', '-entry_score')
+        )
+        
+        # --- 关键诊断打印 2 ---
+        # 检查数据库根据这个日期列表实际返回了多少条记录
+        print(f"--- [View-Debug] 使用上述日期列表，从数据库查询到的 BUY 信号数量: {latest_buy_signals.count()}")
+        
+        # 在执行完 count() 后，再应用排序，避免不必要的额外查询
+        latest_buy_signals = latest_buy_signals.order_by('-trade_time', '-entry_score')
 
-    # 步骤3: 在内存中处理数据，并聚合剧本信息 (此部分逻辑不变)
+    # 后续的数据处理逻辑保持不变
     final_logs = []
     all_playbook_objects = set()
 
@@ -150,10 +171,8 @@ def trend_following_list(request):
             'strategy_name': signal.strategy_name,
         })
 
-    # 步骤4: 从收集到的Playbook对象中提取唯一剧本用于筛选器 (逻辑不变)
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
-    # 步骤5: 根据请求参数进行剧本筛选 (逻辑不变)
     selected_playbook_ids = request.GET.getlist('playbooks')
     filtered_logs = final_logs
     if selected_playbook_ids:
@@ -163,14 +182,12 @@ def trend_following_list(request):
             if selected_ids_int.issubset({p.id for p in log['active_playbooks']})
         ]
 
-    # 步骤6: 分页 (逻辑不变)
     paginator = Paginator(filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤7: 准备上下文
     context = {
-        'page_title': '策略状态监控中心 (近3个交易日买入)', # 更新标题
+        'page_title': '策略状态监控中心 (近3个交易日买入)',
         'items_for_display': page_obj.object_list,
         'page_obj': page_obj,
         'total_count': paginator.count,
