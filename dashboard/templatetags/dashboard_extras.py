@@ -64,49 +64,48 @@ def replace(value, args):
 @register.simple_tag(takes_context=True)
 def query_builder(context, **kwargs):
     """
+    【V2.1 类型修复版】
     一个强大的URL查询参数构造器。
-    它能根据当前请求的GET参数，智能地添加、修改或删除指定的参数。
-    特别为多值参数（如 'playbooks'）做了优化。
-
-    用法:
-    - 添加/修改单个值: {% query_builder key1='value1' key2='value2' %}
-    - 清空所有参数: {% query_builder clear_all=True %}
-    - 添加一个多值参数: {% query_builder add_playbook='some_playbook' %}
-    - 移除一个多值参数: {% query_builder remove_playbook='some_playbook' %}
+    - 核心修复: 统一将所有 playbook ID 转换为字符串进行比较和操作，解决因类型不匹配导致的筛选链接生成失败问题。
     """
-    # 复制当前请求的GET参数字典，以便修改
     query_dict = context['request'].GET.copy()
 
-    # 处理特殊指令
     if kwargs.get('clear_all'):
-        return '' # 返回空字符串，即清空所有查询参数
+        return '?' # 清空时返回带问号的空URL
 
-    add_playbook = kwargs.pop('add_playbook', None)
-    remove_playbook = kwargs.pop('remove_playbook', None)
+    # 步骤1: 将所有传入的 playbook ID 统一转换为字符串
+    add_playbook_str = str(kwargs.pop('add_playbook', '')) if 'add_playbook' in kwargs else None
+    remove_playbook_str = str(kwargs.pop('remove_playbook', '')) if 'remove_playbook' in kwargs else None
 
-    # 处理 'playbooks' 多值参数
-    playbooks = query_dict.getlist('playbooks', [])
-    if add_playbook and add_playbook not in playbooks:
-        playbooks.append(add_playbook)
-    if remove_playbook and remove_playbook in playbooks:
-        playbooks.remove(remove_playbook)
-    
-    # 更新字典中的 'playbooks' 列表
-    query_dict.setlist('playbooks', playbooks)
-    # 如果列表为空，则从字典中移除该键，保持URL整洁
-    if not query_dict.getlist('playbooks'):
+    # 步骤2: 从 GET 参数获取已有的 playbooks 列表 (它们已经是字符串)
+    playbooks_list = query_dict.getlist('playbooks', [])
+
+    # 步骤3: 使用字符串进行添加和移除操作
+    if add_playbook_str and add_playbook_str not in playbooks_list:
+        playbooks_list.append(add_playbook_str)
+
+    if remove_playbook_str and remove_playbook_str in playbooks_list:
+        playbooks_list.remove(remove_playbook_str)
+
+    # 步骤4: 更新字典中的 'playbooks' 列表
+    if playbooks_list:
+        query_dict.setlist('playbooks', playbooks_list)
+    else:
+        # 如果列表为空，则从字典中移除该键，保持URL整洁
         query_dict.pop('playbooks', None)
 
-    # 处理其他普通的键值对参数
+    # 步骤5: 处理其他普通的键值对参数 (例如 'page')
     for key, value in kwargs.items():
-        query_dict[key] = value
+        # 确保所有值都是字符串
+        query_dict[key] = str(value)
 
-    # ▼▼▼【代码修改】: 修正URL编码逻辑 ▼▼▼
-    # 将最终的字典编码为URL查询字符串
-    # 关键修正：添加 doseq=True 参数！
-    # 这会确保列表值被正确编码为多个同名参数 (e.g., key=value1&key=value2)
-    # 而不是编码成一个字符串 (e.g., key=%5B%27value1%27%2C+%27value2%27%5D)
-    return f"?{urlencode(query_dict, doseq=True)}" if query_dict else '?'
+    # 步骤6: 生成最终的URL查询字符串
+    if query_dict:
+        # doseq=True 确保列表被正确编码为 a=1&a=2
+        return f"?{urlencode(query_dict, doseq=True)}"
+    else:
+        # 如果最终字典为空，返回一个干净的问号
+        return '?'
 
 @register.filter
 def multiply(value, arg):
