@@ -379,7 +379,7 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            print(f"    -> [战术引擎] 已通过统一接口生成 {len(db_records)} 条日线信号(买入/卖出/预警)。")
+            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple)} 条日线信号(买入/卖出/预警)。")
             
             return records_tuple
 
