@@ -3,7 +3,7 @@
 import re
 from datetime import datetime, time
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 import numpy as np
