@@ -1,6 +1,6 @@
 // dashboard.js
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
 
     // =========================================================================
     // === 辅助函数 (全局可复用) ==============================================
@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (value === null || value === undefined || isNaN(value)) return '--';
         return Number(value).toLocaleString();
     }
-    
+
     // 给表格行添加闪烁效果
     function flashRow(rowElement, type = 'update') {
         const animationClass = type === 'add' ? 'flash-add' : 'flash-update';
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('正在初始化【主控台】页面功能...');
 
         const favoritesEmpty = document.getElementById('favorites-empty');
-        
+
         // 检查自选股列表是否为空
         if (favoritesEmpty) {
             favoritesEmpty.style.display = favoritesTbody.children.length === 0 ? 'block' : 'none';
@@ -95,11 +95,11 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('正在尝试连接 WebSocket...');
             socket = new WebSocket(wsPath);
 
-            socket.onopen = function(e) {
+            socket.onopen = function (e) {
                 console.log('WebSocket 连接已建立');
             };
 
-            socket.onmessage = function(e) {
+            socket.onmessage = function (e) {
                 const data = JSON.parse(e.data);
                 console.log('接收到WebSocket数据:', data);
 
@@ -121,12 +121,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             };
 
-            socket.onclose = function(e) {
+            socket.onclose = function (e) {
                 console.error('WebSocket 连接意外关闭。正在尝试重新连接...', e.reason);
                 setTimeout(connectWebSocket, 5000);
             };
 
-            socket.onerror = function(err) {
+            socket.onerror = function (err) {
                 console.error('WebSocket 错误:', err);
             };
         }
@@ -137,13 +137,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateStockRow(favData);
                 return;
             }
-            if(favoritesEmpty) favoritesEmpty.style.display = 'none';
-        
+            if (favoritesEmpty) favoritesEmpty.style.display = 'none';
+
             const row = document.createElement('tr');
             row.dataset.stockCode = favData.code;
             row.dataset.id = favData.id;
             row.dataset.stockName = favData.name;
-        
+
             row.innerHTML = `
                 <td class="stock-code">${favData.code || 'N/A'}</td>
                 <td class="stock-name">${favData.name || 'N/A'}</td>
@@ -176,15 +176,15 @@ document.addEventListener('DOMContentLoaded', function() {
         function renderFavoritesTable(favoritesData) {
             favoritesTbody.innerHTML = '';
             if (!favoritesData || favoritesData.length === 0) {
-                if(favoritesEmpty) favoritesEmpty.style.display = 'block';
+                if (favoritesEmpty) favoritesEmpty.style.display = 'block';
                 return;
             }
-            if(favoritesEmpty) favoritesEmpty.style.display = 'none';
+            if (favoritesEmpty) favoritesEmpty.style.display = 'none';
             favoritesData.forEach(fav => addStockRow(fav));
         }
 
         function updateStockRow(updateData) {
-            const row = updateData.id 
+            const row = updateData.id
                 ? favoritesTbody.querySelector(`tr[data-id="${updateData.id}"]`)
                 : favoritesTbody.querySelector(`tr[data-stock-code="${updateData.code}"]`);
             if (!row) return;
@@ -192,7 +192,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const priceCell = row.querySelector('[data-field="current_price"]');
             const percentCell = row.querySelector('[data-field="change_percent"]');
             const volumeCell = row.querySelector('[data-field="volume"]');
-            
+
             if (priceCell && updateData.current_price !== undefined) priceCell.textContent = formatNumber(updateData.current_price, 2);
             if (volumeCell && updateData.volume !== undefined) volumeCell.textContent = formatVolume(updateData.volume);
 
@@ -206,7 +206,7 @@ document.addEventListener('DOMContentLoaded', function() {
             flashRow(row, 'update');
         }
 
-        favoritesTbody.addEventListener('click', async function(event) {
+        favoritesTbody.addEventListener('click', async function (event) {
             const removeButton = event.target.closest('button[data-action="remove"]');
             if (!removeButton) return;
 
@@ -237,7 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
-        
+
         // ▼▼▼【代码修改】: 增加保护性检查，确保只在搜索框存在时才执行相关逻辑 ▼▼▼
         const searchInput = document.getElementById('stock-search-input');
         // 只有当 searchInput 元素存在时，才初始化所有搜索和添加相关的逻辑
@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (addFavoriteForm) {
                 addFavoriteForm.addEventListener('submit', async (event) => {
                     event.preventDefault();
-                    
+
                     if (!selectedStockCode) {
                         showNotification('请先从搜索结果中选择一只股票', 'warning');
                         return;
@@ -374,10 +374,10 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('正在初始化【策略监控中心】页面功能...');
 
         // --- 折叠功能 ---
-        tableBody.addEventListener('click', function(event) {
+        tableBody.addEventListener('click', function (event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (!toggleBtn) return;
-            event.preventDefault(); 
+            event.preventDefault();
             const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
             if (!list) return;
             list.classList.toggle('expanded');
@@ -416,10 +416,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
                 });
                 if (!response.ok) throw new Error('获取自选股列表失败');
-                
+
                 const favorites = await response.json();
                 favorites.forEach(fav => favoriteStockCodes.add(fav.stock.stock_code));
-                
+
                 const allButtons = tableBody.querySelectorAll('.add-to-favorites-btn');
                 allButtons.forEach(button => {
                     const stockCode = button.dataset.stockCode;
@@ -439,13 +439,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!button || button.disabled) return;
 
             const stockCode = button.dataset.stockCode;
-            const signalLogId = button.dataset.logId;
-            // 【防御性检查】如果因为某些原因没获取到ID，则阻止操作并提示
-            if (!signalLogId) {
+            // --- 代码修改开始 ---
+            // [修改原因] 模板中传递的是 data-signal-id，JS中应对应读取
+            const signalId = button.dataset.signalId;
+            // 防御性检查
+            if (!signalId) {
                 showNotification('无法获取信号ID，操作已取消', 'error');
-                console.error('错误：点击了添加自选按钮，但未能从 data-log-id 属性中获取到值。');
+                console.error('错误：点击了添加自选按钮，但未能从 data-signal-id 属性中获取到值。');
                 return;
             }
+            // --- 代码修改结束 ---
             updateButtonState(button, false, true); // 设置为加载中状态
 
             try {
@@ -457,10 +460,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRFToken': csrfToken
                     },
-                    body: JSON.stringify({ 
+                    // --- 代码修改开始 ---
+                    // [修改原因] API需要的是 signal_id
+                    body: JSON.stringify({
                         stock_code: stockCode,
-                        signal_log_id: signalLogId 
+                        signal_id: signalId
                     })
+                    // --- 代码修改结束 ---
                 });
 
                 if (response.ok) {
@@ -481,7 +487,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 使用事件委托来处理所有按钮的点击事件
         tableBody.addEventListener('click', handleAddFavorite);
-        
+
         // 初始化
         initializeFavoriteButtons();
     }
@@ -497,14 +503,14 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('正在初始化【自选股监控】页面功能...');
 
         // --- 整合原有的折叠功能 和 新增移除自选股功能 ---
-        tableBody.addEventListener('click', async function(event) {
+        tableBody.addEventListener('click', async function (event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             const removeButton = event.target.closest('button[data-action="remove"]');
 
             // 处理折叠按钮
             if (toggleBtn) {
                 console.log('[JS] 折叠/展开按钮被点击。');
-                event.preventDefault(); 
+                event.preventDefault();
                 const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
                 if (!list) return;
                 list.classList.toggle('expanded');
@@ -526,7 +532,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     try {
                         const csrfToken = getCookie('csrftoken');
                         if (!csrfToken) throw new Error('无法获取CSRF令牌');
-                        
+
                         console.log(`[JS] 正在发送 DELETE 请求到 /dashboard/api/favorites/${favoriteId}/`);
                         const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
                             method: 'DELETE',
@@ -576,7 +582,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!signalStream) {
             return;
         }
-        
+
         console.log('正在初始化【盘中引擎实时监控】页面功能...');
 
         const signalCountSpan = document.getElementById('signal-count');
@@ -591,13 +597,13 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('正在尝试连接 WebSocket 以接收盘中引擎信号...');
             socket = new WebSocket(wsPath);
 
-            socket.onopen = function(e) {
+            socket.onopen = function (e) {
                 console.log('WebSocket 连接已建立');
             };
 
-            socket.onmessage = function(e) {
+            socket.onmessage = function (e) {
                 const data = JSON.parse(e.data);
-                
+
                 // 我们只关心盘中引擎的信号更新
                 if (data.type === 'intraday_signal_update') {
                     console.log('接收到盘中引擎信号:', data.payload);
@@ -605,7 +611,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             };
 
-            socket.onclose = function(e) {
+            socket.onclose = function (e) {
                 console.error('WebSocket 连接意外关闭。5秒后尝试重新连接...', e.reason);
                 setTimeout(connectWebSocket, 5000);
             };
