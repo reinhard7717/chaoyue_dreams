@@ -270,6 +270,7 @@
         "positional_scoring": {
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
+            "BEHAVIOR_SUPPRESSION_PULLBACK": 400,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_CHIP_SETUP_S": 300,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
@@ -299,6 +300,15 @@
         "composite_scoring": {
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
+            {
+              "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS",
+              "score": 700,
+              "all_of": [
+                "BEHAVIOR_SUPPRESSION_PULLBACK",
+                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S"
+              ],
+              "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"]
+            },
             {
               "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS",
               "score": 800,
@@ -378,6 +388,7 @@
           "description": "【V337.0 最终净化版】所有评分规则的中文名称元数据，用于战报和调试输出。",
 
           "说明_COMPOSITE": "--- 战法分 (Tactic) ---",
+          "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": "【战法】S+级精准制导回踩",
           "TACTIC_LOCK_CHIP_RALLY_S": "【战法】S级锁筹拉升",
           "TACTIC_GOLDEN_PIT_S": "【战法】S级黄金坑",
           "TACTIC_STEALTH_ABSORPTION_A": "【战法】A级隐蔽吸筹",
@@ -386,6 +397,7 @@
           "TACTIC_PANIC_PIT_REVERSAL_S_PLUS": "【S+级战法】恐慌深坑·强逆转",
 
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
+          "BEHAVIOR_SUPPRESSION_PULLBACK": "【机会】S级打压回踩(黄金坑)",
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】S级斐波那契黄金口袋支撑",
           "OPP_CHIP_SETUP_S": "【机会】S级筹码高度控盘",
           "OPP_FIB_SUPPORT_STANDARD_A": "【机会】A级斐波那契标准支撑",

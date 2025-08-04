@@ -66,6 +66,9 @@ class IntelligenceLayer:
         
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self._diagnose_healthy_pullback(df))
+        # “打压回踩”诊断模块
+        self.strategy.atomic_states.update(self._diagnose_suppression_pullback(df))
+        
         # “持仓风险”诊断模块
         self.strategy.atomic_states.update(self._diagnose_holding_risks(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
@@ -2087,6 +2090,68 @@ class IntelligenceLayer:
         # 2.3 融合生成“危险战区”状态
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | states['CONTEXT_RISK_MOMENTUM_EXHAUSTION']
         
+        return states
+
+    def _diagnose_suppression_pullback(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V405.1 架构纯洁版】打压回踩行为诊断模块
+        - 核心升级 (场景拓宽): 不再局限于主升浪，允许在“波动压缩”或“健康箱体”等建设性阶段触发，捕捉更早期的信号。
+        - 核心升级 (架构纯洁): 信号重命名为 BEHAVIOR_SUPPRESSION_PULLBACK，移除主观的“机会”判断，保持情报层中立。
+        """
+        print("        -> [打压回踩诊断模块 V405.1] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        p = get_params_block(self.strategy, 'suppression_pullback_params')
+        if not get_param_value(p.get('enabled'), False):
+            return states
+
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'pct_change_D', 'turnover_from_losers_ratio_D', 'turnover_from_winners_ratio_D',
+            'concentration_90pct_D', 'SLOPE_5_concentration_90pct_D', 'close_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少诊断“打压回踩”所需列，模块跳过。")
+            return states
+
+        # --- 2. 定义“打压”阶段的核心条件 (逻辑不变) ---
+        min_drop_pct = get_param_value(p.get('min_drop_pct'), -0.03)
+        is_significant_drop = df['pct_change_D'] < min_drop_pct
+        min_loser_turnover = get_param_value(p.get('min_loser_turnover_ratio'), 40.0)
+        is_panic_selling = df['turnover_from_losers_ratio_D'] > min_loser_turnover
+        max_winner_turnover = get_param_value(p.get('max_winner_turnover_ratio'), 30.0)
+        is_winner_holding = df['turnover_from_winners_ratio_D'] < max_winner_turnover
+        is_suppression_day = is_significant_drop & is_panic_selling & is_winner_holding
+
+        # --- 3. 定义“回踩企稳”阶段的核心条件 ---
+        # [修改原因] 拓宽战场环境，不再局限于主升浪
+        # 条件D: 必须发生在“建设性”的背景下
+        is_in_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        is_in_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
+        is_constructive_context = is_in_uptrend | is_in_squeeze | is_in_box
+
+        # 条件E: 筹码在打压后并未发散，甚至在集中（地基稳固）
+        is_chip_stable_or_concentrating = df['SLOPE_5_concentration_90pct_D'] <= 0
+
+        # 条件F: 股价快速收复失地（V型反转确认）
+        min_rebound_days = get_param_value(p.get('min_rebound_days'), 1)
+        max_rebound_days = get_param_value(p.get('max_rebound_days'), 3)
+        is_rebound_confirmed = pd.Series(False, index=df.index)
+        for i in range(min_rebound_days, max_rebound_days + 1):
+            is_prev_suppression = is_suppression_day.shift(i).fillna(False)
+            is_price_recovered = df['close_D'] > df['close_D'].shift(i)
+            is_rebound_confirmed |= (is_prev_suppression & is_price_recovered)
+
+        # --- 4. 最终裁定：生成中立的行为状态信号 ---
+        # [修改原因] 信号重命名，保持情报层中立性
+        final_condition = is_constructive_context & is_chip_stable_or_concentrating & is_rebound_confirmed
+        states['BEHAVIOR_SUPPRESSION_PULLBACK'] = final_condition
+
+        if final_condition.any():
+            # [修改原因] 更新日志信息，保持中立
+            print(f"          -> [情报] 侦测到 {final_condition.sum()} 次“打压回踩”行为。")
+
         return states
 
     def _synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
