@@ -1584,6 +1584,7 @@ class IntelligenceLayer:
             return {}
         winner_inactive_threshold = get_param_value(p_squeeze.get('winner_inactive_threshold'), 60.0)
         is_winner_inactive = df[winner_turnover_col] < winner_inactive_threshold
+        shakeout_action = is_sharp_drop & is_winner_inactive
         
         print(f"             - (探针-明细) 在{is_sharp_drop.sum()}次下跌中, 获利盘成交占比的分布:\n{df.loc[is_sharp_drop, winner_turnover_col].describe()}")
 

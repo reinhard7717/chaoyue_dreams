@@ -45,7 +45,7 @@ class ChipFeatureCalculator:
         winner_structure_info = self._calculate_winner_structure()
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
-        # fund_flow_info = self._calculate_fund_flow_metrics()
+        turnover_structure_info = self._calculate_turnover_structure()
         
         # --- 2. 构建升维计算所需的“增强上下文” ---
         # 将所有基础计算结果合并到上下文中，供后续所有升维计算模块使用
@@ -67,6 +67,7 @@ class ChipFeatureCalculator:
             **winner_structure_info,
             **pressure_support_info,
             **turnover_info,
+            **turnover_structure_info,
             **advanced_structure_info,
             **fault_info
         }
@@ -446,6 +447,57 @@ class ChipFeatureCalculator:
         results['chip_health_score'] = max(0, min(100, round(score, 2))) # 确保分数在0-100之间
 
         return results
+
+    def _calculate_turnover_structure(self) -> dict:
+        """
+        【V1.0 新增】计算成交量微观结构。
+        估算当日成交量中，由获利盘、套牢盘贡献的比例。
+        这是一个估算模型，基于“成交发生在当日价格区间内”的假设。
+        """
+        close_price = self.ctx.get('close_price')
+        low_price = self.ctx.get('low_price')
+        high_price = self.ctx.get('high_price')
+        daily_turnover_vol = self.ctx.get('daily_turnover_volume')
+
+        if not all([close_price, low_price, high_price, daily_turnover_vol]) or daily_turnover_vol == 0:
+            return {}
+
+        # 1. 识别哪些筹码是“获利盘”，哪些是“套牢盘”
+        winners_df = self.df[self.df['price'] < close_price]
+        losers_df = self.df[self.df['price'] > close_price]
+
+        # 2. 估算当日成交量中，有多少是由获利盘卖出的
+        # 假设：只有在当日价格区间内（low-high）的获利盘才可能参与交易
+        tradable_winners_df = winners_df[(winners_df['price'] >= low_price) & (winners_df['price'] <= high_price)]
+        # 假设：这些可交易的获利盘，其换手意愿与大盘平均换手率一致
+        # 这部分逻辑可以简化，直接估算当日成交量中，获利盘和套牢盘的贡献
+        
+        # 简化估算模型：假设当日的成交，是按价格在筹码分布上均匀“刮”掉一层
+        # 找到当日成交价格区间内的所有筹码
+        trading_range_chips_df = self.df[(self.df['price'] >= low_price) & (self.df['price'] <= high_price)]
+        if trading_range_chips_df.empty:
+            return {}
+
+        # 在这个成交区间内，哪些是获利盘，哪些是套牢盘
+        chips_from_winners = trading_range_chips_df[trading_range_chips_df['price'] < close_price]
+        chips_from_losers = trading_range_chips_df[trading_range_chips_df['price'] > close_price]
+
+        total_chips_in_range = trading_range_chips_df['percent'].sum()
+        if total_chips_in_range == 0:
+            return {}
+
+        # 计算比例
+        winner_contribution_ratio = chips_from_winners['percent'].sum() / total_chips_in_range
+        loser_contribution_ratio = chips_from_losers['percent'].sum() / total_chips_in_range
+        
+        # 最终指标是百分比形式
+        turnover_from_winners_ratio = winner_contribution_ratio * 100
+        turnover_from_losers_ratio = loser_contribution_ratio * 100
+
+        return {
+            'turnover_from_winners_ratio': turnover_from_winners_ratio,
+            'turnover_from_losers_ratio': turnover_from_losers_ratio,
+        }
 
     def _get_turnover_in_range(self, low_bound, high_bound) -> float:
         """辅助函数：估算在某个价格区间的换手量"""
