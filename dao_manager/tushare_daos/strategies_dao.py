@@ -2,6 +2,7 @@
 import logging
 from asgiref.sync import sync_to_async
 from typing import Any, Dict, List, Optional, Tuple
+from decimal import Decimal
 from datetime import date, datetime, timedelta
 from django.db.models import Max, Q, F, Case, When, Value, BooleanField, Window, CharField
 from django.db.models.functions import Concat
