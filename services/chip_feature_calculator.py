@@ -46,6 +46,7 @@ class ChipFeatureCalculator:
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
         turnover_structure_info = self._calculate_turnover_structure()
+        turnover_at_peak_info = self._calculate_turnover_at_peak(peaks_info)
         
         # --- 2. 构建升维计算所需的“增强上下文” ---
         # 将所有基础计算结果合并到上下文中，供后续所有升维计算模块使用
@@ -68,6 +69,7 @@ class ChipFeatureCalculator:
             **pressure_support_info,
             **turnover_info,
             **turnover_structure_info,
+            **turnover_at_peak_info,
             **advanced_structure_info,
             **fault_info
         }
@@ -489,6 +491,30 @@ class ChipFeatureCalculator:
         return {
             'turnover_from_winners_ratio': turnover_from_winners_ratio,
             'turnover_from_losers_ratio': turnover_from_losers_ratio,
+        }
+
+    def _calculate_turnover_at_peak(self, peaks_info: dict) -> dict:
+        """
+        【V1.0 新增】计算主峰成交占比。
+        估算当日总成交量中，发生在主筹码峰价格区间的比例。
+        """
+        daily_turnover_vol = self.ctx.get('daily_turnover_volume')
+        peak_range_low = peaks_info.get('peak_range_low')
+        peak_range_high = peaks_info.get('peak_range_high')
+
+        # 检查所有必要数据是否存在且有效
+        if not all([daily_turnover_vol, peak_range_low, peak_range_high]) or daily_turnover_vol == 0:
+            return {'turnover_at_peak_ratio': None}
+
+        # 调用复用性极高的 _get_turnover_in_range 辅助函数来估算成交量
+        turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
+        
+        # 计算比例并转换为百分比
+        ratio = turnover_in_peak_range / daily_turnover_vol
+        turnover_at_peak_ratio = ratio * 100
+
+        return {
+            'turnover_at_peak_ratio': turnover_at_peak_ratio
         }
 
     def _get_turnover_in_range(self, low_bound, high_bound) -> float:
