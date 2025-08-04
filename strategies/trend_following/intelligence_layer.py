@@ -1500,13 +1500,9 @@ class IntelligenceLayer:
 
     def _diagnose_breakout_pullback_relay(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V324.0 新增】突破-回踩接力联动诊断模块
-        - 核心职责: 识别在“初升浪”启动后的一个窗口期内，是否出现了“健康回踩”信号。
-                    这是对趋势有效性的强力确认，是极高质量的二次介入点。
-        - 产出:
-            - PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS: S+级剧本信号，仅在回踩当天触发。
+        【V505.6 探针植入版】
+        - 核心升级: 植入“情报探针”，在模块执行前检查所有依赖项。
         """
-        # print("        -> [突破-回踩接力诊断模块 V324.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         
@@ -1526,45 +1522,37 @@ class IntelligenceLayer:
         
         # 3. 如果有情报缺失，则发出详细警报并安全退出
         if missing_intelligence:
-            print(f"    -> [探针警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
+            print(f"    -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
             print(f"       -> [探针报告] 缺失的情报清单: {missing_intelligence}")
             return {}
+        # --- 探针部署结束 ---
 
-        # --- 1. 从配置文件加载参数 ---
-        # 我们可以在 post_accumulation_params 中增加一个子配置
-        p_relay = get_params_block(self.strategy, 'post_accumulation_params').get('relay_params', {})
-        if not get_param_value(p_relay.get('enabled'), False):
-            return {}
-        
-        lookback_window = get_param_value(p_relay.get('lookback_window'), 10)
-
-        # --- 2. 检查所需情报是否到位 ---
-        required_states = [
-            'POST_ACCUMULATION_ASCENT_C',       # 初升浪启动事件
-            'OPP_PULLBACK_WITH_CHIP_STABILITY_S' # 健康回踩机会
-        ]
-        if any(state not in self.strategy.atomic_states for state in required_states):
-            print("          -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
+        # 如果所有情报都到位，则继续执行原始逻辑
+        p = get_params_block(self.strategy, 'post_accumulation_params').get('relay_params', {})
+        if not get_param_value(p.get('enabled'), True):
             return {}
 
-        # --- 3. 识别联动逻辑 ---
-        
-        # 条件A: 当天必须是一个“健康回踩”日
-        is_healthy_pullback_day = self.strategy.atomic_states.get('OPP_PULLBACK_WITH_CHIP_STABILITY_S', default_series)
-        
-        # 条件B: 在过去N天（包括今天）内，必须发生过一次“初升浪启动”事件
-        had_recent_breakout = self.strategy.atomic_states.get('POST_ACCUMULATION_ASCENT_C', default_series)\
-                                  .rolling(window=lookback_window, min_periods=1)\
-                                  .apply(np.any, raw=True).fillna(0).astype(bool)
+        lookback_window = get_param_value(p.get('lookback_window'), 15)
 
-        # --- 4. 组合条件，生成最终的S+级剧本信号 ---
-        relay_signal = is_healthy_pullback_day & had_recent_breakout
+        # 1. 获取上游情报
+        is_ascent_start = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
+        is_healthy_pullback = self.strategy.atomic_states.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        is_chip_setup = self.strategy.atomic_states.get('OPP_CHIP_SETUP_S', default_series)
+
+        # 2. 定义“接力”逻辑
+        # 条件A: 今天是一个“健康回踩”日，并且筹码高度控盘
+        is_pullback_opportunity = is_healthy_pullback & is_chip_setup
         
-        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_signal
+        # 条件B: 在回踩日之前的N天内，必须发生过“初升浪启动”事件
+        had_recent_ascent_start = is_ascent_start.rolling(window=lookback_window, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
         
-        if relay_signal.any():
-            print(f"          -> [情报] 侦测到 {relay_signal.sum()} 次 S+级“突破-回踩接力”机会！")
-            
+        # 最终裁定：S+级的接力机会
+        relay_opportunity = is_pullback_opportunity & had_recent_ascent_start
+        
+        if relay_opportunity.any():
+            print(f"          -> [情报] 侦测到 {relay_opportunity.sum()} 次 S+级“突破-回踩接力”机会！")
+        
+        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_opportunity
         return states
 
     def _diagnose_mean_reversion_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
