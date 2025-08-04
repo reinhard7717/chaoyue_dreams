@@ -51,6 +51,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_contextual_zones(df))
         # 2.2 然后，运行“动态筹码分析”，它现在可以安全地使用上一步的“战场”情报。
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
+        #“主峰攻防战”诊断模块
+        self.strategy.atomic_states.update(self._diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_chip_opportunities(df))
         self.strategy.atomic_states.update(self._diagnose_chip_risks_and_behaviors(df))
 
@@ -537,6 +539,13 @@ class IntelligenceLayer:
         
         # A级机会 - 卖盘衰竭: 获利盘虽然还在卖(短期斜率>0)，但卖出力度已在减弱(加速度<0)。
         states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating
+        
+        # --- 机会行为2: 恐慌盘割肉 (底部反向指标) ---
+        # 定义：股价当日大跌（例如超过5%），且成交量主要由套牢盘贡献（例如占比超过50%）
+        is_sharp_drop = df['pct_change_D'] < -0.05
+        is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
+        
+        states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = is_sharp_drop & is_panic_selling
 
         # 打印情报
         if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
@@ -2193,8 +2202,12 @@ class IntelligenceLayer:
         p_healthy = p.get('healthy_pullback_rules', {})
         is_gentle_drop = df['pct_change_D'] > get_param_value(p_healthy.get('min_pct_change'), -0.05)
         is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
-        is_low_turnover = df['turnover_rate_D'] < get_param_value(p_healthy.get('max_turnover_rate'), 5.0)
-        is_healthy_character = is_gentle_drop & is_shrinking_volume & is_low_turnover
+        # [修改原因] V508.0 新增：要求健康回踩时，获利盘必须是惜售的（锁仓）。
+        # 这是判断“真洗盘”和“真出货”的核心区别。
+        winner_turnover_low_threshold = get_param_value(p_healthy.get('max_winner_turnover_ratio'), 30.0)
+        is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < winner_turnover_low_threshold
+
+        is_healthy_character = is_gentle_drop & is_shrinking_volume & is_winner_holding_tight
 
         # 3.2 定性“打压回踩”的特征
         p_suppression = p.get('suppression_pullback_rules', {})
@@ -2227,6 +2240,53 @@ class IntelligenceLayer:
         states['PULLBACK_STATE_SUPPRESSIVE_S'] = is_rebound_confirmed
         if states['PULLBACK_STATE_SUPPRESSIVE_S'].any():
             print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_SUPPRESSIVE_S'].sum()} 次“S级打压回踩被确认”状态。")
+
+        return states
+
+    def _diagnose_peak_battle_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V508.0 新增】主峰攻防战诊断模块
+        - 核心职责: 利用“主峰成交占比”，识别在核心成本区发生的“换手上涨”和“高位派发”。
+        """
+        print("        -> [主峰攻防战诊断模块 V508.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_cols = ['turnover_at_peak_ratio_D', 'price_to_peak_ratio_D', 'pct_change_D']
+        if any(c not in df.columns for c in required_cols):
+            print("          -> [警告] 缺少诊断“主峰攻防战”所需列，模块跳过。")
+            return {}
+        
+        # --- 2. 定义参数 ---
+        # 主峰区交战激烈的阈值，例如超过30%的成交量发生在主峰附近
+        high_battle_threshold = 30.0 
+        # 价格贴近主峰的容忍度，例如股价在主峰成本的上下5%以内
+        proximity_threshold = 0.05 
+
+        # --- 3. 定义核心条件 ---
+        # 条件A: 主峰区交战激烈
+        is_battle_intense = df['turnover_at_peak_ratio_D'] > high_battle_threshold
+        # 条件B: 价格贴近主峰
+        is_price_at_peak = df['price_to_peak_ratio_D'].between(1 - proximity_threshold, 1 + proximity_threshold)
+        # 条件C: 股价在上涨
+        is_price_rising = df['pct_change_D'] > 0
+        # 条件D: 股价滞涨或下跌
+        is_price_stagnant_or_falling = df['pct_change_D'] < 0.01 # 允许微涨
+        # 条件E: 处于高位危险区 (外部情报)
+        is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+
+        # --- 4. 组合生成最终信号 ---
+        # 机会信号: 换手上涨 (A级) - 在主峰附近放量上涨，是突破或上涨中继的强烈信号
+        states['OPP_PEAK_BATTLE_BREAKOUT_A'] = is_battle_intense & is_price_at_peak & is_price_rising
+        
+        # 风险信号: 高位派发嫌疑 (A级) - 在高位区域的主峰附近放量但滞涨，极有可能是主力出货
+        states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = is_battle_intense & is_price_at_peak & is_price_stagnant_or_falling & is_in_high_zone
+
+        if states['OPP_PEAK_BATTLE_BREAKOUT_A'].any():
+            print(f"          -> [A级机会情报] 侦测到 {states['OPP_PEAK_BATTLE_BREAKOUT_A'].sum()} 次“主峰换手上涨”！")
+        if states['RISK_PEAK_BATTLE_DISTRIBUTION_A'].any():
+            print(f"          -> [A级风险情报] 侦测到 {states['RISK_PEAK_BATTLE_DISTRIBUTION_A'].sum()} 次“主峰高位派发嫌疑”！")
 
         return states
 

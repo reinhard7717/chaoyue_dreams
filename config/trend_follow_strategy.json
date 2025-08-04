@@ -276,6 +276,7 @@
           "positive_signals": {
             "PULLBACK_STATE_SUPPRESSIVE_S": 450,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_S": 420,
+            "OPP_PEAK_BATTLE_BREAKOUT_A": 380,
             "PULLBACK_STATE_HEALTHY_S": 350,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
@@ -420,6 +421,7 @@
             "RISK_BEHAVIOR_PANIC_FLEEING_S": 1800,
             "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": 1500,
             "BEHAVIOR_DECEPTIVE_RALLY_S": 1500,
+            "RISK_PEAK_BATTLE_DISTRIBUTION_A": 1300,
             "BEHAVIOR_DECEPTIVE_RALLY_A": 1200,
 
             "说明_S": "--- S级风险 (结构性崩塌) ---",
@@ -464,6 +466,7 @@
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
           "OPP_SQUEEZE_ZONE_SHAKEOUT_S": "【S级机会】压缩区完美洗盘(长下影)",
           "OPP_SQUEEZE_ZONE_SHAKEOUT_A": "【A级机会】压缩区实战洗盘(筹码验证)",
+          "OPP_PEAK_BATTLE_BREAKOUT_A": "【A+级机会】主峰换手上涨",
           "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": "【A级机会】卖盘衰竭(左侧)",
           "BEHAVIOR_SUPPRESSION_PULLBACK": "【S级机会】打压回踩(黄金坑)",
           "PULLBACK_STATE_HEALTHY_S": "【S级机会】健康回踩",
@@ -491,6 +494,7 @@
 
           "说明_RISK": "--- 风险分 (Risk) ---",
           "RISK_BEHAVIOR_PANIC_FLEEING_S": "【S+级风险】抛压失控(加速出逃)",
+          "RISK_PEAK_BATTLE_DISTRIBUTION_A": "【S级风险】主峰高位派发嫌疑",
           "RISK_BEHAVIOR_WINNERS_FLEEING_A": "【A级风险】趋势性派发(战略)",
           "RISK_BEHAVIOR_WINNERS_FLEEING_B": "【B级风险】中期派发(战役)",
           "RISK_BEHAVIOR_WINNERS_FLEEING_C": "【C级风险】短期抛压增加(战术)",
@@ -898,6 +902,7 @@
     "enabled": true,
     "说明": "【V314.0 弹性否决版】绝对否决权。引入'缓解规则'，允许在特定条件下对冲部分否决信号，增加策略弹性。",
     "veto_signals": [
+      "RISK_PEAK_BATTLE_DISTRIBUTION_A",
       "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
       "FRACTAL_RISK_TOP_DIVERGENCE",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
