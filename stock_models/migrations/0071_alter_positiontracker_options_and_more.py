@@ -74,8 +74,4 @@ class Migration(migrations.Migration):
             name='user',
             field=models.ForeignKey(help_text='关联的用户', on_delete=django.db.models.deletion.CASCADE, related_name='position_trackers', to=settings.AUTH_USER_MODEL),
         ),
-        migrations.AlterModelTable(
-            name='positiontracker',
-            table='strategy_position_tracker',
-        ),
     ]
