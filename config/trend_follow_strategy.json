@@ -292,6 +292,11 @@
             "MA_STATE_STABLE_BULLISH": 70
           }
         },
+        "squeeze_shakeout_params": {
+          "说明": "【V506.4 新增】压缩区洗盘机会诊断参数",
+          "drop_threshold": -0.03,
+          "winner_inactive_threshold": 60.0
+        },
         "dynamic_scoring": {
           "说明": "【动能分】作为催化剂和加分项，分数权重次之。",
           "positive_signals": {

@@ -1566,6 +1566,7 @@ class IntelligenceLayer:
         print("        -> [压缩区机会诊断模块 V506.3 诊断探针版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
+        p_squeeze = get_params_block(self.strategy, 'squeeze_shakeout_params')
 
         # --- 1. 定义并获取上游情报 ---
         is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
@@ -1574,13 +1575,17 @@ class IntelligenceLayer:
         is_good_structure = is_in_healthy_box | is_on_stable_platform
 
         # --- 2. 定义“暴力打压”行为 ---
-        is_sharp_drop = df['pct_change_D'] < -0.03
+        drop_threshold = get_param_value(p_squeeze.get('drop_threshold'), -0.03)
+        is_sharp_drop = df['pct_change_D'] < drop_threshold
+
         winner_turnover_col = 'turnover_from_winners_ratio_D'
         if winner_turnover_col not in df.columns:
             print("          -> [警告] 缺少'获利盘成交占比'数据，压缩区洗盘诊断跳过。")
             return {}
-        is_winner_inactive = df[winner_turnover_col] < 30.0
-        shakeout_action = is_sharp_drop & is_winner_inactive
+        winner_inactive_threshold = get_param_value(p_squeeze.get('winner_inactive_threshold'), 60.0)
+        is_winner_inactive = df[winner_turnover_col] < winner_inactive_threshold
+        
+        print(f"             - (探针-明细) 在{is_sharp_drop.sum()}次下跌中, 获利盘成交占比的分布:\n{df.loc[is_sharp_drop, winner_turnover_col].describe()}")
 
         # --- 3. 定义“快速企稳”结果 ---
         low_price_today = df['low_D']
