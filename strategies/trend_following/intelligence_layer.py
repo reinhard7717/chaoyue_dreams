@@ -492,33 +492,67 @@ class IntelligenceLayer:
 
     def _diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V341.0 新增】高级筹码“风险与行为”情报诊断模块
-        - 核心职责: 基于成交量微观结构，识别主力的真实意图（派发/恐慌）。
+        【V341.2 加速度增强版】高级筹码“风险与行为”情报诊断模块
+        - 核心升级: 引入 turnover_from_winners_ratio_D 的加速度判断，
+                    新增 S级“恐慌加速”风险 和 A级“卖盘衰竭”机会，
+                    使风险评估体系具备了预测趋势拐点的能力。
         """
-        # print("        -> [高级筹码风险与行为诊断模块 V341.0] 启动...")
+        print("        -> [高级筹码风险与行为诊断模块 V341.2 加速度增强版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
-        required_cols = ['turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D']
+        # 检查基础指标、斜率和加速度指标
+        required_cols = [
+            'turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D',
+            'SLOPE_5_turnover_from_winners_ratio_D', 'ACCEL_5_turnover_from_winners_ratio_D',
+            'SLOPE_21_turnover_from_winners_ratio_D', 'ACCEL_21_turnover_from_winners_ratio_D',
+            'SLOPE_55_turnover_from_winners_ratio_D', 'ACCEL_55_turnover_from_winners_ratio_D'
+        ]
         if any(c not in df.columns for c in required_cols):
-            print("          -> [警告] 缺少成交量微观结构数据，模块跳过。")
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            print(f"          -> [警告] 缺少成交量微观结构或其斜率/加速度数据，模块跳过。缺失: {missing_cols}")
             return {}
             
         is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
 
-        # --- 风险行为1: 获利盘出逃 (诱多派发) ---
-        is_fleeing = df['turnover_from_winners_ratio_D'] > 60.0
-        states['RISK_BEHAVIOR_WINNERS_FLEEING'] = is_in_high_zone & is_fleeing
-        if states['RISK_BEHAVIOR_WINNERS_FLEEING'].any():
-            print(f"          -> [风险情报] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING'].sum()} 次“获利盘出逃”行为！")
+        # --- 风险行为1: 获利盘出逃 (分层动态评估) ---
+        # 1.1 获取各周期的抛压趋势 (速度)
+        is_fleeing_short_term = df['SLOPE_5_turnover_from_winners_ratio_D'] > 0
+        is_fleeing_mid_term = df['SLOPE_21_turnover_from_winners_ratio_D'] > 0
+        is_fleeing_long_term = df['SLOPE_55_turnover_from_winners_ratio_D'] > 0
+
+        # 1.2 获取抛压趋势的变化 (加速度) - 我们最关心短期的变化
+        is_fleeing_accelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0
+        is_fleeing_decelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] < 0
+
+        # 1.3 定义风险等级 (基于速度)
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_C'] = is_in_high_zone & is_fleeing_short_term
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term & is_fleeing_long_term
+
+        # 1.4 【新增】定义S级风险和A级机会 (基于加速度)
+        # S级风险 - 恐慌加速: 中期趋势已在出逃，且短期出逃正在加速，这是最危险的信号。
+        states['RISK_BEHAVIOR_PANIC_FLEEING_S'] = states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] & is_fleeing_accelerating
+        
+        # A级机会 - 卖盘衰竭: 获利盘虽然还在卖(短期斜率>0)，但卖出力度已在减弱(加速度<0)。
+        states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating
+
+        # 打印情报
+        if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
+            print(f"          -> [S级战略风险] 侦测到 {states['RISK_BEHAVIOR_PANIC_FLEEING_S'].sum()} 次“获利盘恐慌加速出逃”！")
+        elif states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].any():
+            print(f"          -> [A级战略风险] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].sum()} 次“长期派发”共振！")
+        
+        if states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].any():
+            print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
 
         # --- 风险行为2: 恐慌盘割肉 (加速赶底) ---
         is_sharp_drop = df['pct_change_D'] < -0.05
         is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
         states['RISK_BEHAVIOR_PANIC_SELLING'] = is_sharp_drop & is_panic_selling
         if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
-            print(f"          -> [风险情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为！")
+            print(f"          -> [机会情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为(可能见底)！")
             
         return states
 

@@ -280,6 +280,7 @@
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
             "OPP_CHIP_SETUP_S": 300,
+            "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": 280,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
             "OPP_FIB_SUPPORT_STANDARD_A": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 180,
@@ -312,6 +313,15 @@
         "composite_scoring": {
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
+            {
+              "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS",
+              "score": 750,
+              "all_of": [
+                "OPP_BEHAVIOR_SELLING_EXHAUSTION_A",
+                "TRIGGER_DOMINANT_REVERSAL"
+              ],
+              "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"]
+            },
             {
               "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS",
               "score": 700,
@@ -386,6 +396,7 @@
             "CHIP_DYN_ACCEL_DIVERGING": 400,
             "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
             "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 350,
+            "RISK_BEHAVIOR_WINNERS_FLEEING_B": 350,
 
             "说明_B": "--- B级风险 (趋势明确走弱) ---",
             "CHIP_DYN_DIVERGING": 300,
@@ -395,6 +406,7 @@
 
             "说明_C": "--- C级风险 (健康度早期预警) ---",
             "CHIP_DYN_HEALTH_DETERIORATING": 150,
+            "RISK_BEHAVIOR_WINNERS_FLEEING_C": 150,
             "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 120,
             "HOLD_RISK_HEALTH_STALLING": 100
           }
@@ -405,11 +417,13 @@
           "description": "【新增】致命离场模块 (ExitLayer)。只关注最高级别的、需要立即行动的风险信号。",
           "signals": {
             "说明_S_PLUS": "--- S+级风险 (操纵与背叛) ---",
+            "RISK_BEHAVIOR_PANIC_FLEEING_S": 1800,
             "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": 1500,
             "BEHAVIOR_DECEPTIVE_RALLY_S": 1500,
             "BEHAVIOR_DECEPTIVE_RALLY_A": 1200,
 
             "说明_S": "--- S级风险 (结构性崩塌) ---",
+            "RISK_BEHAVIOR_WINNERS_FLEEING_A": 1200,
             "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1200,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
             "STRUCTURE_TOPPING_DANGER_S": 250,
@@ -438,6 +452,7 @@
           "description": "【V337.0 最终净化版】所有评分规则的中文名称元数据，用于战报和调试输出。",
 
           "说明_COMPOSITE": "--- 战法分 (Tactic) ---",
+          "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": "【S+级战法】衰竭反转",
           "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": "【战法】S+级精准制导回踩",
           "TACTIC_LOCK_CHIP_RALLY_S": "【战法】S级锁筹拉升",
           "TACTIC_GOLDEN_PIT_S": "【战法】S级黄金坑",
@@ -449,6 +464,7 @@
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
           "OPP_SQUEEZE_ZONE_SHAKEOUT_S": "【S级机会】压缩区完美洗盘(长下影)",
           "OPP_SQUEEZE_ZONE_SHAKEOUT_A": "【A级机会】压缩区实战洗盘(筹码验证)",
+          "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": "【A级机会】卖盘衰竭(左侧)",
           "BEHAVIOR_SUPPRESSION_PULLBACK": "【S级机会】打压回踩(黄金坑)",
           "PULLBACK_STATE_HEALTHY_S": "【S级机会】健康回踩",
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【S级机会】斐波那契黄金口袋支撑",
@@ -474,10 +490,14 @@
           "FRACTAL_DYN_TREND_ACCELERATING": "【分形】趋势加速形成",
 
           "说明_RISK": "--- 风险分 (Risk) ---",
+          "RISK_BEHAVIOR_PANIC_FLEEING_S": "【S+级风险】抛压失控(加速出逃)",
+          "RISK_BEHAVIOR_WINNERS_FLEEING_A": "【A级风险】趋势性派发(战略)",
+          "RISK_BEHAVIOR_WINNERS_FLEEING_B": "【B级风险】中期派发(战役)",
+          "RISK_BEHAVIOR_WINNERS_FLEEING_C": "【C级风险】短期抛压增加(战术)",
           "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": "【S+级风险】获利盘出逃",
           "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": "【A级风险】利润安全垫收缩",
           "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": "【B级风险】主峰阵地交战",
-          "COGNITIVE_RISK_DECEPTIVE_RALLY_S": "【风险】S级诱多派发(公然出货)",
+          "COGNITIVE_RISK_DECEPTIVE_RALLY_S": "【S级风险】诱多派发(公然出货)",
           "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": "【S+级风险】确认派发",
           "COGNITIVE_RISK_DECEPTIVE_RALLY_A": "【A级风险】诱多派发(隐蔽派发)",
           "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": "【风险】突破派发",
