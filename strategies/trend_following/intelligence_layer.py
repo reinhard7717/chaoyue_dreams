@@ -1593,22 +1593,21 @@ class IntelligenceLayer:
 
     def _diagnose_squeeze_zone_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V506.3 诊断探针版】压缩区机会诊断模块
-        - 核心升级: 植入“诊断探针”，打印出所有子条件的触发次数，
-                    以便快速定位信号未触发的原因。
+        【V506.5 组合探针版】压缩区机会诊断模块
+        - 核心升级: 引入“组合探针”，分步检查逻辑链条，定位组合失败的环节。
         """
-        print("        -> [压缩区机会诊断模块 V506.3 诊断探针版] 启动...")
+        print("        -> [压缩区机会诊断模块 V506.5 组合探针版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p_squeeze = get_params_block(self.strategy, 'squeeze_shakeout_params')
 
-        # --- 1. 定义并获取上游情报 ---
+        # --- 1. 定义并获取上游情报 (环境) ---
         is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         is_in_healthy_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
         is_on_stable_platform = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_good_structure = is_in_healthy_box | is_on_stable_platform
 
-        # --- 2. 定义“暴力打压”行为 ---
+        # --- 2. 定义“洗盘”行为 ---
         drop_threshold = get_param_value(p_squeeze.get('drop_threshold'), -0.03)
         is_sharp_drop = df['pct_change_D'] < drop_threshold
 
@@ -1620,10 +1619,10 @@ class IntelligenceLayer:
         is_winner_inactive = df[winner_turnover_col] < winner_inactive_threshold
         shakeout_action = is_sharp_drop & is_winner_inactive
         
-        print(f"             - (探针-明细) 在{is_sharp_drop.sum()}次下跌中, 获利盘成交占比的分布:\n{df.loc[is_sharp_drop, winner_turnover_col].describe()}")
-
-        # --- 3. 定义“快速企稳”结果 ---
+        # --- 3. 定义“企稳”结果 ---
         low_price_today = df['low_D']
+        # .shift(-2) 是看未来，所以要用 transform 来避免数据前瞻问题，或者在回测框架外保证数据完整性
+        # 这里假设在回测结束时有足够的数据，或者接受最后几天可能不准
         low_price_in_next_2_days = df['low_D'].shift(-2).rolling(2).min()
         is_stabilized_later = (low_price_in_next_2_days > low_price_today).shift(2).fillna(False)
 
@@ -1631,20 +1630,26 @@ class IntelligenceLayer:
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         is_long_lower_shadow = df['close_D'] > (df['low_D'] + total_range * 0.6)
 
-        # --- 探针诊断区 ---
-        print("          -> [探针报告] 正在检查各子条件触发次数...")
-        print(f"             - (环境) 能量压缩区 (is_in_squeeze): {is_in_squeeze.sum()} 次")
-        print(f"             - (环境) 健康结构 (is_good_structure): {is_good_structure.sum()} 次")
-        print(f"             - (行为) 暴力下跌 >3% (is_sharp_drop): {is_sharp_drop.sum()} 次")
-        print(f"             - (行为) 获利盘未出逃 (is_winner_inactive): {is_winner_inactive.sum()} 次")
-        print(f"             - (行为) 洗盘式打压 (shakeout_action): {shakeout_action.sum()} 次")
-        print(f"             - (结果) 后续2日企稳 (is_stabilized_later): {is_stabilized_later.sum()} 次")
-        print(f"             - (奖励) 长下影线形态 (is_long_lower_shadow): {is_long_lower_shadow.sum()} 次")
-
-        # 组合所有基础条件
-        base_condition_A = is_in_squeeze & is_good_structure & shakeout_action & is_stabilized_later
-        print(f"             - (组合) A级基础条件满足次数: {base_condition_A.sum()} 次")
-        # --- 探针结束 ---
+        # --- 探针诊断区 (V506.5 升级版) ---
+        print("          -> [探针报告] 正在检查各子条件及组合链条触发次数...")
+        print(f"             - (单点) 能量压缩区 (is_in_squeeze): {is_in_squeeze.sum()} 次")
+        print(f"             - (单点) 健康结构 (is_good_structure): {is_good_structure.sum()} 次")
+        print(f"             - (单点) 洗盘式打压 (shakeout_action): {shakeout_action.sum()} 次")
+        print(f"             - (单点) 后续2日企稳 (is_stabilized_later): {is_stabilized_later.sum()} 次")
+        
+        # --- 探针升级：分步检查组合链条 ---
+        # 组合步骤1: 满足环境要求
+        env_condition = is_in_squeeze & is_good_structure
+        print(f"             - (组合1) 环境正确 (压缩+健康结构): {env_condition.sum()} 次")
+        
+        # 组合步骤2: 在正确的环境中，发生了正确的行为
+        action_in_env = env_condition & shakeout_action
+        print(f"             - (组合2) 环境正确 + 行为正确 (洗盘): {action_in_env.sum()} 次")
+        
+        # 组合步骤3: 在正确的环境和行为后，得到了正确的结果
+        base_condition_A = action_in_env & is_stabilized_later
+        print(f"             - (组合3) 环境+行为+结果正确 (最终A级条件): {base_condition_A.sum()} 次")
+        # --- 探针升级结束 ---
 
         # --- 5. 最终裁定与分级 ---
         final_condition_S = base_condition_A & is_long_lower_shadow
@@ -1653,14 +1658,11 @@ class IntelligenceLayer:
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_A'] = final_condition_A
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_S'] = final_condition_S
 
-        if final_condition_A.any():
+        if final_condition_A.any() or final_condition_S.any():
             print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
-        if final_condition_S.any():
             print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
-
-        # 如果最终还是0次，打印一条总结性信息
-        if not final_condition_A.any() and not final_condition_S.any():
-            print("          -> [诊断结论] “压缩区洗盘”信号最终触发0次。请检查上方探针报告，定位触发次数过少的环节。")
+        else:
+            print("          -> [诊断结论] “压缩区洗盘”信号最终触发0次。请检查上方组合链条，定位是哪一步组合后数量骤降为0。")
 
         return states
 
