@@ -67,7 +67,7 @@ class TrendFollowStrategy:
         offensive_momentum_summary = self.offensive_layer._diagnose_offensive_momentum(entry_score, score_details_df)
         self.df_indicators['offensive_momentum_summary'] = offensive_momentum_summary
 
-        # --- 指挥链 3/8: 【新】离场层 (仅计算致命风险) ---
+        # --- 指挥链 3/8: 离场层 (仅计算致命风险) ---
         # ExitLayer 现在只返回一个包含致命风险详情的DataFrame
         critical_risk_details_df = self.exit_layer.calculate_critical_risks()
         self.critical_risk_details = critical_risk_details_df
@@ -79,6 +79,7 @@ class TrendFollowStrategy:
         )
         self.df_indicators['risk_score'] = risk_score
         self.df_indicators['risk_change_summary'] = risk_change_summary
+        self.risk_score = risk_score
 
         # --- 指挥链 5/8: 力学分析层 ---
         self.intelligence_layer.run_force_vector_analysis()
