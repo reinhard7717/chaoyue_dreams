@@ -766,7 +766,7 @@ class StrategiesDAO(BaseDAO):
 
         return df
 
-    async def get_daily_buy_signals(self, trade_date: date) -> List[TrendFollowStrategySignalLog]:
+    async def get_daily_buy_signals(self, trade_date: date) -> List['TrendFollowStrategySignalLog']:
         """
         【V1.0 - 盘中引擎专用】
         获取指定交易日的所有日线级别最终买入信号。
