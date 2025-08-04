@@ -70,8 +70,6 @@
                     </tr>
                 </thead>
                 <tbody id="trend-table-body">
-                    {# --- 代码修改开始 --- #}
-                    {# [修改原因] 适配新的 item 数据结构 #}
                     {% for item in items_for_display %}
                     <tr>
                         <td>
@@ -86,6 +84,8 @@
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
                         <td>
+                            {# --- 代码修改开始 --- #}
+                            {# [修改原因] 增加激活剧本的展开/隐藏功能 #}
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list">
@@ -93,16 +93,19 @@
                                         <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
                                     {% endfor %}
                                     </ul>
+                                    {# 只有当剧本数量超过一定阈值时才显示展开按钮，这里简单处理为只要有就显示 #}
+                                    <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
                                 </div>
                             {% else %}
                                 -
                             {% endif %}
+                            {# --- 代码修改结束 --- #}
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
                         <td class="actions">
                             <button class="btn btn-sm btn-outline add-to-favorites-btn" 
                                     data-stock-code="{{ item.stock.stock_code }}"
-                                    data-signal-id="{{ item.log_id }}"> {# 传递 signal_id #}
+                                    data-signal-id="{{ item.log_id }}">
                                 <span class="btn-icon">+</span>
                                 <span class="btn-text">添加自选</span>
                             </button>
@@ -111,7 +114,6 @@
                     {% empty %}
                     <tr><td colspan="6" style="text-align: center; padding: 20px;">最近3天内没有发现符合条件的买入信号。</td></tr>
                     {% endfor %}
-                    {# --- 代码修改结束 --- #}
                 </tbody>
             </table>
         </div>

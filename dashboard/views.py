@@ -193,35 +193,39 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V406.0 终极模型重构版】
+    【V406.1 剧本展开功能恢复版】
     - 核心重构: 彻底废弃 FavoriteStockTracker，完全基于 PositionTracker 和 DailyPositionSnapshot 新模型。
     - 性能优化: 使用 Prefetch 高效获取每个持仓的最新快照。
-    - 逻辑适配: 视图和模板的数据流与新模型完全对齐。
+    - 功能恢复: 在预加载 entry_signal 时，进一步预加载其关联的 playbooks，以支持前端的展开/隐藏功能。
     """
-    print("--- [View] 开始渲染自选股监控 (fav_trend_following_list) V406.0 终极模型版 ---")
-    
     # --- 代码修改开始 ---
-    # [修改原因] 彻底切换到 PositionTracker 新模型
-
+    # [修改原因] 恢复激活剧本的展开/隐藏功能
+    
     # 步骤1: 准备一个 Prefetch 对象，用于高效获取每个持仓的“最新”快照
-    # 我们只取每个 position 的 snapshots 关系中，按日期倒序的第一个
     prefetch_latest_snapshot = Prefetch(
         'snapshots',
         queryset=DailyPositionSnapshot.objects.order_by('-snapshot_date'),
-        to_attr='latest_snapshot_list' # 将结果存入一个自定义属性
+        to_attr='latest_snapshot_list'
     )
 
-    # 步骤2: 查询用户的所有持仓 PositionTracker
+    # 步骤2: 准备一个 Prefetch 对象，用于高效获取建仓信号及其关联的剧本
+    # 这是恢复展开功能的关键
+    prefetch_entry_signal_with_playbooks = Prefetch(
+        'entry_signal',
+        queryset=TradingSignal.objects.prefetch_related('playbooks').all()
+    )
+
+    # 步骤3: 查询用户的所有持仓 PositionTracker
     base_queryset = PositionTracker.objects.filter(
         user=request.user
     ).select_related(
-        'stock', 
-        'entry_signal' # 预加载建仓信号
+        'stock' # 预加载股票基本信息
     ).prefetch_related(
-        prefetch_latest_snapshot # 应用上面定义的 prefetch
+        prefetch_latest_snapshot, # 应用快照预加载
+        prefetch_entry_signal_with_playbooks # 应用带剧本的建仓信号预加载
     )
 
-    # 步骤3: 状态筛选 (现在使用 PositionTracker.Status 枚举)
+    # 步骤4: 状态筛选
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
@@ -233,22 +237,21 @@ def fav_trend_following_list(request):
         page_title = '全部自选追踪' 
         queryset = base_queryset
 
-    # 步骤4: 排序
+    # 步骤5: 排序
     if status_filter == 'sold':
         ordered_queryset = queryset.order_by('-exit_date')
     else:
-        # 对于持仓股，可以按建仓日期排序
         ordered_queryset = queryset.order_by('-entry_date')
 
-    # 步骤5: 分页
+    # 步骤6: 分页
     paginator = Paginator(ordered_queryset, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤6: 准备最终上下文并渲染
+    # 步骤7: 准备最终上下文并渲染
     context = {
         'page_title': page_title,
-        'page_obj': page_obj, # 直接传递分页后的 PositionTracker 对象列表
+        'page_obj': page_obj,
         'total_count': paginator.count,
         'status_filter': status_filter,
     }

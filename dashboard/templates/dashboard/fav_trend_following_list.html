@@ -95,7 +95,6 @@
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
-          {# --- 代码修改开始 --- #}
           {% for tracker in page_obj %}
           <tr data-id="{{ tracker.id }}">
             <td>
@@ -112,11 +111,28 @@
               </strong>
               <br />
               <small>建仓分数: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
+              
+              {# --- 代码修改开始 --- #}
+              {# [修改原因] 恢复激活剧本的展开/隐藏功能 #}
+              {% with playbooks=tracker.entry_signal.playbooks.all %}
+                {% if playbooks %}
+                  <div class="playbook-container" style="margin-top: 5px;">
+                    <ul class="playbook-list">
+                      {% for playbook in playbooks %}
+                        <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
+                      {% endfor %}
+                    </ul>
+                    {# 只有当剧本数量超过一定值时才显示展开按钮，这里简单处理为只要有就显示 #}
+                    <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
+                  </div>
+                {% endif %}
+              {% endwith %}
+              {# --- 代码修改结束 --- #}
+
               {% else %} - {% endif %}
             </td>
             <td>
               {% if tracker.status == 'HOLDING' %}
-                {# 从预加载的列表中获取最新的快照 #}
                 {% with latest_snapshot=tracker.latest_snapshot_list.0 %}
                   {% if latest_snapshot %}
                     {% with latest_signal=latest_snapshot.signal %}
@@ -152,12 +168,12 @@
               {% else %} - {% endif %}
             </td>
             <td class="actions">
-              {# 删除按钮现在直接使用 tracker.id 来删除 PositionTracker #}
               <button
-                class="btn btn-sm btn-danger remove-position-btn" {# 建议修改类名以反映新功能 #}
+                class="btn btn-sm btn-danger remove-position-btn"
                 data-action="remove"
                 data-id="{{ tracker.id }}"
                 data-stock-code="{{ tracker.stock.stock_code }}"
+                data-stock-name="{{ tracker.stock.stock_name }}" {# 增加 stock-name 用于确认提示 #}
               >
                 &times;
               </button>
@@ -170,7 +186,6 @@
             </td>
           </tr>
           {% endfor %}
-          {# --- 代码修改结束 --- #}
         </tbody>
       </table>
     </div>

@@ -376,19 +376,19 @@ document.addEventListener('DOMContentLoaded', function () {
         // --- 折叠功能 ---
         tableBody.addEventListener('click', function (event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
-            if (!toggleBtn) return;
-            event.preventDefault();
-            const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
-            if (!list) return;
-            list.classList.toggle('expanded');
-            const isExpanded = list.classList.contains('expanded');
-            toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
+            if (toggleBtn) {
+                event.preventDefault();
+                const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
+                if (!list) return;
+                list.classList.toggle('expanded');
+                const isExpanded = list.classList.contains('expanded');
+                toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
+            }
         });
 
         // --- 添加自选功能 ---
         const favoriteStockCodes = new Set();
 
-        // 更新按钮状态的辅助函数
         function updateButtonState(button, isFavorite, isLoading = false) {
             const icon = button.querySelector('.btn-icon');
             const text = button.querySelector('.btn-text');
@@ -409,7 +409,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // 页面加载时，获取自选股列表并初始化按钮状态
         async function initializeFavoriteButtons() {
             try {
                 const response = await fetch('/dashboard/api/favorites/', {
@@ -433,23 +432,26 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // 处理点击“添加自选”按钮的事件
         async function handleAddFavorite(event) {
             const button = event.target.closest('.add-to-favorites-btn');
             if (!button || button.disabled) return;
 
             const stockCode = button.dataset.stockCode;
+
             // --- 代码修改开始 ---
-            // [修改原因] 模板中传递的是 data-signal-id，JS中应对应读取
-            const signalId = button.dataset.signalId;
+            // [修改原因] 修复报错，确保JS读取的属性名 data-signal-id 与HTML中定义的一致
+            const signalId = button.dataset.signalId; // 从 logId 改为 signalId
+
             // 防御性检查
             if (!signalId) {
+                // 这里的报错信息也同步更新
                 showNotification('无法获取信号ID，操作已取消', 'error');
                 console.error('错误：点击了添加自选按钮，但未能从 data-signal-id 属性中获取到值。');
                 return;
             }
             // --- 代码修改结束 ---
-            updateButtonState(button, false, true); // 设置为加载中状态
+
+            updateButtonState(button, false, true);
 
             try {
                 const csrfToken = getCookie('csrftoken');
@@ -460,37 +462,35 @@ document.addEventListener('DOMContentLoaded', function () {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRFToken': csrfToken
                     },
-                    // --- 代码修改开始 ---
-                    // [修改原因] API需要的是 signal_id
                     body: JSON.stringify({
                         stock_code: stockCode,
-                        signal_id: signalId
+                        signal_id: signalId // API需要的是 signal_id
                     })
-                    // --- 代码修改结束 ---
                 });
 
                 if (response.ok) {
                     showNotification(`股票 ${stockCode} 添加成功！`, 'success');
                     favoriteStockCodes.add(stockCode);
-                    updateButtonState(button, true); // 设置为已添加状态
+                    updateButtonState(button, true);
                 } else {
                     const errorData = await response.json();
                     const errorMsg = errorData.detail || Object.values(errorData).flat().join(' ') || `添加 ${stockCode} 失败`;
                     showNotification(errorMsg, 'error');
-                    updateButtonState(button, false); // 恢复为初始状态
+                    updateButtonState(button, false);
                 }
             } catch (error) {
                 showNotification('网络错误，请稍后重试', 'error');
-                updateButtonState(button, false); // 恢复为初始状态
+                updateButtonState(button, false);
             }
         }
 
-        // 使用事件委托来处理所有按钮的点击事件
+        // 使用事件委托来处理所有“添加自选”按钮的点击事件
         tableBody.addEventListener('click', handleAddFavorite);
 
         // 初始化
         initializeFavoriteButtons();
     }
+
 
     // =========================================================================
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
