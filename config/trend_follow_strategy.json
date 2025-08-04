@@ -270,7 +270,8 @@
         "positional_scoring": {
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
-            "BEHAVIOR_SUPPRESSION_PULLBACK": 400,
+            "PULLBACK_STATE_SUPPRESSIVE_S": 450,
+            "PULLBACK_STATE_HEALTHY_S": 350,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_CHIP_SETUP_S": 300,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
@@ -303,8 +304,11 @@
             {
               "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS",
               "score": 700,
+              "any_of": [
+                "PULLBACK_STATE_HEALTHY_S",
+                "PULLBACK_STATE_SUPPRESSIVE_S"
+              ],
               "all_of": [
-                "BEHAVIOR_SUPPRESSION_PULLBACK",
                 "OPP_FIB_SUPPORT_GOLDEN_POCKET_S"
               ],
               "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"]
@@ -398,6 +402,7 @@
 
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
           "BEHAVIOR_SUPPRESSION_PULLBACK": "【机会】S级打压回踩(黄金坑)",
+          "PULLBACK_STATE_HEALTHY_S": "【S级机会】健康回踩",
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【机会】S级斐波那契黄金口袋支撑",
           "OPP_CHIP_SETUP_S": "【机会】S级筹码高度控盘",
           "OPP_FIB_SUPPORT_STANDARD_A": "【机会】A级斐波那契标准支撑",
@@ -738,28 +743,22 @@
           }
         }
       },
-      "healthy_pullback_params": {
+      "pullback_analysis_params": {
         "enabled": true,
-        "description": "【V323.1 A股强化版】健康回踩诊断模块参数",
-        "min_pct_change": {
-          "value": -0.05,
-          "description": "视为回踩的最小日跌幅（例如-5%）。"
+        "description": "【V500.0 统一回踩诊断中心】参数",
+        "healthy_pullback_rules": {
+          "description": "定义“健康回踩”的规则",
+          "min_pct_change": -0.05,
+          "max_turnover_rate": 5.0
         },
-        "max_pct_change": {
-          "value": -0.005,
-          "description": "视为回踩的最大日跌幅（例如-0.5%），避免将十字星等误判为回踩。"
-        },
-        "tolerable_winner_outflow_ratio": {
-          "value": 30.0,
-          "description": "【新增】可容忍的获利盘抛压占比(%)。低于此值，视为获利盘惜售，主力锁定良好。"
-        },
-        "require_shrinking_volume": {
-          "value": true,
-          "description": "是否要求回踩必须是缩量的。"
-        },
-        "max_turnover_rate": {
-          "value": 5.0,
-          "description": "回踩日允许的最大换手率(%)。低于此值表明筹码锁定良好。"
+        "suppression_pullback_rules": {
+          "description": "定义“打压回踩”的规则",
+          "min_drop_pct": -0.03,
+          "min_loser_turnover_ratio": 40.0,
+          "max_winner_turnover_ratio": 30.0,
+          "divergence_tolerance": 0.0005,
+          "min_rebound_days": 1,
+          "max_rebound_days": 3
         }
       }
     }
