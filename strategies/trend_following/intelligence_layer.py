@@ -1559,24 +1559,21 @@ class IntelligenceLayer:
 
     def _diagnose_squeeze_zone_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V506.2 A股分级评分版】压缩区机会诊断模块
-        - 核心升级: 引入“基础分+奖励分”机制，对机会进行分级。
-        - 新逻辑:
-          1. **基础信号 (A级)**: 基于筹码结构和滞后企稳的“实战版洗盘”，定义为 A 级机会。
-          2. **奖励条件**: 定义独立的“长下影线”等完美K线形态作为奖励条件。
-          3. **终极信号 (S级)**: 如果 A 级机会同时满足奖励条件，则升级为 S 级机会。
+        【V506.3 诊断探针版】压缩区机会诊断模块
+        - 核心升级: 植入“诊断探针”，打印出所有子条件的触发次数，
+                    以便快速定位信号未触发的原因。
         """
-        print("        -> [压缩区机会诊断模块 V506.2 A股分级版] 启动...")
+        print("        -> [压缩区机会诊断模块 V506.3 诊断探针版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 定义并获取上游情报 (不变) ---
+        # --- 1. 定义并获取上游情报 ---
         is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         is_in_healthy_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
         is_on_stable_platform = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_good_structure = is_in_healthy_box | is_on_stable_platform
 
-        # --- 2. 定义“暴力打压”行为 (不变) ---
+        # --- 2. 定义“暴力打压”行为 ---
         is_sharp_drop = df['pct_change_D'] < -0.03
         winner_turnover_col = 'turnover_from_winners_ratio_D'
         if winner_turnover_col not in df.columns:
@@ -1585,28 +1582,34 @@ class IntelligenceLayer:
         is_winner_inactive = df[winner_turnover_col] < 30.0
         shakeout_action = is_sharp_drop & is_winner_inactive
 
-        # --- 3. 定义“快速企稳”结果 (不变) ---
+        # --- 3. 定义“快速企稳”结果 ---
         low_price_today = df['low_D']
         low_price_in_next_2_days = df['low_D'].shift(-2).rolling(2).min()
-        is_stabilized_later = low_price_in_next_2_days > low_price_today
-        
-        # --- 4. 【核心修改】计算基础的 A 级机会 ---
-        base_condition_A = is_in_squeeze & is_good_structure & shakeout_action & is_stabilized_later.shift(2)
-        base_condition_A = base_condition_A.fillna(False)
+        is_stabilized_later = (low_price_in_next_2_days > low_price_today).shift(2).fillna(False)
 
-        # --- 5. 【新增】定义“完美形态”奖励条件 ---
-        # 条件：当天收盘价必须收复了当天大部分跌幅，留下长下影线
+        # --- 4. 定义“完美形态”奖励条件 ---
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         is_long_lower_shadow = df['close_D'] > (df['low_D'] + total_range * 0.6)
-        
-        # --- 6. 【新增】最终裁定与分级 ---
-        # S级机会 = A级机会 + 完美形态奖励
+
+        # --- 探针诊断区 ---
+        print("          -> [探针报告] 正在检查各子条件触发次数...")
+        print(f"             - (环境) 能量压缩区 (is_in_squeeze): {is_in_squeeze.sum()} 次")
+        print(f"             - (环境) 健康结构 (is_good_structure): {is_good_structure.sum()} 次")
+        print(f"             - (行为) 暴力下跌 >3% (is_sharp_drop): {is_sharp_drop.sum()} 次")
+        print(f"             - (行为) 获利盘未出逃 (is_winner_inactive): {is_winner_inactive.sum()} 次")
+        print(f"             - (行为) 洗盘式打压 (shakeout_action): {shakeout_action.sum()} 次")
+        print(f"             - (结果) 后续2日企稳 (is_stabilized_later): {is_stabilized_later.sum()} 次")
+        print(f"             - (奖励) 长下影线形态 (is_long_lower_shadow): {is_long_lower_shadow.sum()} 次")
+
+        # 组合所有基础条件
+        base_condition_A = is_in_squeeze & is_good_structure & shakeout_action & is_stabilized_later
+        print(f"             - (组合) A级基础条件满足次数: {base_condition_A.sum()} 次")
+        # --- 探针结束 ---
+
+        # --- 5. 最终裁定与分级 ---
         final_condition_S = base_condition_A & is_long_lower_shadow
-        
-        # A级机会 = 基础机会中，排除了那些已经升级为S级的机会
         final_condition_A = base_condition_A & ~final_condition_S
 
-        # --- 7. 更新状态字典 ---
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_A'] = final_condition_A
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_S'] = final_condition_S
 
@@ -1614,7 +1617,11 @@ class IntelligenceLayer:
             print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
         if final_condition_S.any():
             print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
-            
+
+        # 如果最终还是0次，打印一条总结性信息
+        if not final_condition_A.any() and not final_condition_S.any():
+            print("          -> [诊断结论] “压缩区洗盘”信号最终触发0次。请检查上方探针报告，定位触发次数过少的环节。")
+
         return states
 
     def _diagnose_mean_reversion_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
