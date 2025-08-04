@@ -2245,21 +2245,20 @@ class IntelligenceLayer:
 
     def _diagnose_peak_battle_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V508.6 自力更生版】主峰攻防战诊断模块
-        - 核心修复: 采用更稳健的“价格高于EMA55”作为“建设性背景”的判断依据，
-                    解除对上游高级状态的硬依赖，确保模块的独立作战能力。
+        【V509.0 生产就绪版】主峰攻防战诊断模块
+        - 核心逻辑: 采用“准备日+确认日”的两步时序逻辑，识别在主峰激烈换手后得到确认的突破机会。
+                    同时，识别在高位区域发生的、有派发嫌疑的放量滞涨风险。
+        - 状态: 已移除所有调试探针，代码已净化。
         """
-        print("        -> [主峰攻防战诊断模块 V508.6 自力更生版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
         required_cols = [
             'turnover_at_peak_ratio_D', 'price_to_peak_ratio_D', 'pct_change_D',
-            'volume_D', 'VOL_MA_21_D', 'close_D', 'EMA_55_D' # 确保EMA55已计算
+            'volume_D', 'VOL_MA_21_D', 'close_D', 'EMA_55_D'
         ]
         if any(c not in df.columns for c in required_cols):
-            print("          -> [警告] 缺少诊断“主峰攻防战”所需列，模块跳过。")
             return {}
         
         # --- 2. 定义参数 ---
@@ -2273,19 +2272,13 @@ class IntelligenceLayer:
         is_battle_intense = df['turnover_at_peak_ratio_D'] > high_battle_threshold
         is_price_at_peak = df['price_to_peak_ratio_D'].between(1 - proximity_threshold, 1 + proximity_threshold)
         is_high_volume = df['volume_D'] > (df['VOL_MA_21_D'] * volume_multiplier)
-        
-        # [核心修复] 使用更稳健的均线来定义“建设性背景”
-        # is_in_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
-        # is_in_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
-        # is_constructive_context = is_in_uptrend | is_in_box # <-- 旧的、依赖性强的定义
-        is_constructive_context = df['close_D'] > df['EMA_55_D'] # <-- 新的、自力更生的定义
-
+        is_constructive_context = df['close_D'] > df['EMA_55_D']
         is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         is_price_rising_meaningfully = df['pct_change_D'] > meaningful_rise_pct
         is_price_stagnant_or_falling = df['pct_change_D'] < 0.01
         did_not_collapse = df['pct_change_D'] > -0.03
 
-        # --- 4. 机会信号的两步确认 (逻辑不变) ---
+        # --- 4. 机会信号的两步确认 ---
         peak_battle_setup = (
             is_constructive_context &
             is_price_at_peak &
@@ -2300,7 +2293,7 @@ class IntelligenceLayer:
         
         states['OPP_PEAK_BATTLE_BREAKOUT_A'] = final_opportunity_signal
 
-        # --- 5. 风险信号的定义 (逻辑不变) ---
+        # --- 5. 风险信号的定义 ---
         risk_signal = (
             is_in_high_zone &
             is_price_at_peak &
@@ -2310,25 +2303,7 @@ class IntelligenceLayer:
         )
         states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = risk_signal
 
-        # --- 【超精细化探针报告 V508.6】 ---
-        print("          -> [超精细化探针报告] 正在解剖信号生成逻辑链...")
-        
-        print("             --- 机会信号: 主峰换手突破 (两步确认法) ---")
-        print("                [第1步: 诊断“准备日(Setup)”的构成]")
-        print(f"                   - (单点) 建设性背景 (is_constructive_context): {is_constructive_context.sum()} 次  <-- 已修复")
-        print(f"                   - (单点) 价格贴近主峰 (is_price_at_peak): {is_price_at_peak.sum()} 次")
-        print(f"                   - (单点) 主峰交战激烈 (is_battle_intense): {is_battle_intense.sum()} 次")
-        print(f"                   - (单点) 当天显著放量 (is_high_volume): {is_high_volume.sum()} 次")
-        print(f"                   - (单点) 当天没有崩盘 (did_not_collapse): {did_not_collapse.sum()} 次")
-        print(f"                   -> (组合) 最终“准备日”信号 (peak_battle_setup): {peak_battle_setup.sum()} 次")
-        
-        print("                [第2步: 诊断“确认日(Confirmation)”的触发]")
-        print(f"                   - (单点) 有意义的上涨 (is_price_rising_meaningfully): {is_price_rising_meaningfully.sum()} 次")
-        print(f"                   -> (时序组合) 在准备日后出现上涨 (最终机会信号): {final_opportunity_signal.sum()} 次")
-
-        print("             --- 风险信号: 高位派发嫌疑 (单日模型) ---")
-        print(f"                   -> (组合) 最终“风险”信号 (risk_signal): {risk_signal.sum()} 次")
-
+        # (可选) 保留最终的情报报告，作为策略的正常日志输出
         if final_opportunity_signal.any():
             print(f"          -> [A+级机会情报] 侦测到 {final_opportunity_signal.sum()} 次“主峰换手突破(确认后)”！")
         if risk_signal.any():
