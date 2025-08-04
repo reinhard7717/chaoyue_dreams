@@ -2245,46 +2245,78 @@ class IntelligenceLayer:
 
     def _diagnose_peak_battle_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V508.0 新增】主峰攻防战诊断模块
-        - 核心职责: 利用“主峰成交占比”，识别在核心成本区发生的“换手上涨”和“高位派发”。
+        【V508.3 严格约束版】主峰攻防战诊断模块
+        - 核心修复: 为信号定义增加了成交量、上涨/下跌力度、趋势背景等多重严格约束，
+                    以解决信号触发频率过高的问题，大幅提升信号质量。
         """
-        print("        -> [主峰攻防战诊断模块 V508.0] 启动...")
+        print("        -> [主峰攻防战诊断模块 V508.3 严格约束版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
-        required_cols = ['turnover_at_peak_ratio_D', 'price_to_peak_ratio_D', 'pct_change_D']
+        required_cols = [
+            'turnover_at_peak_ratio_D', 'price_to_peak_ratio_D', 'pct_change_D',
+            'volume_D', 'VOL_MA_21_D'
+        ]
         if any(c not in df.columns for c in required_cols):
             print("          -> [警告] 缺少诊断“主峰攻防战”所需列，模块跳过。")
             return {}
         
-        # --- 2. 定义参数 ---
-        # 主峰区交战激烈的阈值，例如超过30%的成交量发生在主峰附近
-        high_battle_threshold = 30.0 
-        # 价格贴近主峰的容忍度，例如股价在主峰成本的上下5%以内
-        proximity_threshold = 0.05 
+        # --- 2. 定义参数 (收紧阈值) ---
+        # 主峰区交战激烈的阈值，从30%提高到40%
+        high_battle_threshold = 40.0 
+        # 价格贴近主峰的容忍度，从5%收紧到3%
+        proximity_threshold = 0.03
+        # 定义“显著放量”的倍数，例如1.5倍于21日均量
+        volume_multiplier = 1.5
+        # 定义“有意义的上涨”的最小涨幅
+        meaningful_rise_pct = 0.02
 
-        # --- 3. 定义核心条件 ---
-        # 条件A: 主峰区交战激烈
+        # --- 3. 定义核心条件 (增加约束) ---
+        # 条件A: 主峰区交战激烈 (更严格)
         is_battle_intense = df['turnover_at_peak_ratio_D'] > high_battle_threshold
-        # 条件B: 价格贴近主峰
+        # 条件B: 价格贴近主峰 (更严格)
         is_price_at_peak = df['price_to_peak_ratio_D'].between(1 - proximity_threshold, 1 + proximity_threshold)
-        # 条件C: 股价在上涨
-        is_price_rising = df['pct_change_D'] > 0
+        # 条件C: 股价有意义地上涨
+        is_price_rising_meaningfully = df['pct_change_D'] > meaningful_rise_pct
         # 条件D: 股价滞涨或下跌
-        is_price_stagnant_or_falling = df['pct_change_D'] < 0.01 # 允许微涨
-        # 条件E: 处于高位危险区 (外部情报)
+        is_price_stagnant_or_falling = df['pct_change_D'] < 0.01
+        # [新增约束] 条件E: 当天必须显著放量
+        is_high_volume = df['volume_D'] > (df['VOL_MA_21_D'] * volume_multiplier)
+        # [新增约束] 条件F: 必须处于一个建设性的趋势背景中 (上升趋势或盘整)
+        is_in_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        is_in_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
+        is_constructive_context = is_in_uptrend | is_in_box
+        # [外部情报] 条件G: 处于高位危险区
         is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
 
-        # --- 4. 组合生成最终信号 ---
-        # 机会信号: 换手上涨 (A级) - 在主峰附近放量上涨，是突破或上涨中继的强烈信号
-        states['OPP_PEAK_BATTLE_BREAKOUT_A'] = is_battle_intense & is_price_at_peak & is_price_rising
+        # --- 4. 组合生成最终信号 (应用新约束) ---
+        # 机会信号: 主峰换手上涨 (A+级)
+        # 新定义: 在建设性趋势中 + 价格贴近主峰 + 主峰交战激烈 + 显著放量 + 有意义的上涨
+        states['OPP_PEAK_BATTLE_BREAKOUT_A'] = (
+            is_constructive_context & 
+            is_price_at_peak & 
+            is_battle_intense & 
+            is_high_volume & 
+            is_price_rising_meaningfully
+        )
         
-        # 风险信号: 高位派发嫌疑 (A级) - 在高位区域的主峰附近放量但滞涨，极有可能是主力出货
-        states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = is_battle_intense & is_price_at_peak & is_price_stagnant_or_falling & is_in_high_zone
+        # 风险信号: 高位派发嫌疑 (A级)
+        # 新定义: 在高位区域 + 价格贴近主峰 + 主峰交战激烈 + 显著放量 + 但股价滞涨
+        states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = (
+            is_in_high_zone &
+            is_price_at_peak &
+            is_battle_intense &
+            is_high_volume &
+            is_price_stagnant_or_falling
+        )
+
+        # --- 探针区 ---
+        print(f"          -> [探针] 满足“主峰换手上涨”条件的次数: {states['OPP_PEAK_BATTLE_BREAKOUT_A'].sum()} 次")
+        print(f"          -> [探针] 满足“高位派发嫌疑”条件的次数: {states['RISK_PEAK_BATTLE_DISTRIBUTION_A'].sum()} 次")
 
         if states['OPP_PEAK_BATTLE_BREAKOUT_A'].any():
-            print(f"          -> [A级机会情报] 侦测到 {states['OPP_PEAK_BATTLE_BREAKOUT_A'].sum()} 次“主峰换手上涨”！")
+            print(f"          -> [A+级机会情报] 侦测到 {states['OPP_PEAK_BATTLE_BREAKOUT_A'].sum()} 次“主峰换手上涨”！")
         if states['RISK_PEAK_BATTLE_DISTRIBUTION_A'].any():
             print(f"          -> [A级风险情报] 侦测到 {states['RISK_PEAK_BATTLE_DISTRIBUTION_A'].sum()} 次“主峰高位派发嫌疑”！")
 
