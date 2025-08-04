@@ -1593,10 +1593,11 @@ class IntelligenceLayer:
 
     def _diagnose_squeeze_zone_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V506.5 组合探针版】压缩区机会诊断模块
-        - 核心升级: 引入“组合探针”，分步检查逻辑链条，定位组合失败的环节。
+        【V506.6 时序逻辑修复版】压缩区机会诊断模块
+        - 核心修复: 修复了“环境”和“行为”必须在同一天发生的严苛逻辑。
+                    现在允许“行为”发生在“环境”形成后的一个短窗口期内。
         """
-        print("        -> [压缩区机会诊断模块 V506.5 组合探针版] 启动...")
+        print("        -> [压缩区机会诊断模块 V506.6 时序逻辑修复版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p_squeeze = get_params_block(self.strategy, 'squeeze_shakeout_params')
@@ -1621,8 +1622,6 @@ class IntelligenceLayer:
         
         # --- 3. 定义“企稳”结果 ---
         low_price_today = df['low_D']
-        # .shift(-2) 是看未来，所以要用 transform 来避免数据前瞻问题，或者在回测框架外保证数据完整性
-        # 这里假设在回测结束时有足够的数据，或者接受最后几天可能不准
         low_price_in_next_2_days = df['low_D'].shift(-2).rolling(2).min()
         is_stabilized_later = (low_price_in_next_2_days > low_price_today).shift(2).fillna(False)
 
@@ -1630,26 +1629,30 @@ class IntelligenceLayer:
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         is_long_lower_shadow = df['close_D'] > (df['low_D'] + total_range * 0.6)
 
-        # --- 探针诊断区 (V506.5 升级版) ---
+        # --- 核心逻辑修复：引入时序窗口 ---
+        # 步骤A: 定义“正确环境”的发生日
+        env_condition_event = is_in_squeeze & is_good_structure
+        
+        # 步骤B: 创建一个“环境窗口期”。如果某天是“正确环境日”，那么它之后的3天内都属于“环境窗口期”。
+        env_window_days = get_param_value(p_squeeze.get('env_window_days'), 3)
+        is_in_env_window = env_condition_event.rolling(window=env_window_days, min_periods=1).max().astype(bool)
+
+        # 步骤C: 重新定义组合逻辑。要求“洗盘行为”发生在“环境窗口期”内。
+        action_in_env_window = is_in_env_window & shakeout_action
+        
+        # 步骤D: 最终的A级条件
+        base_condition_A = action_in_env_window & is_stabilized_later
+
+        # --- 探针诊断区 (V506.6 升级版) ---
         print("          -> [探针报告] 正在检查各子条件及组合链条触发次数...")
         print(f"             - (单点) 能量压缩区 (is_in_squeeze): {is_in_squeeze.sum()} 次")
         print(f"             - (单点) 健康结构 (is_good_structure): {is_good_structure.sum()} 次")
         print(f"             - (单点) 洗盘式打压 (shakeout_action): {shakeout_action.sum()} 次")
         print(f"             - (单点) 后续2日企稳 (is_stabilized_later): {is_stabilized_later.sum()} 次")
         
-        # --- 探针升级：分步检查组合链条 ---
-        # 组合步骤1: 满足环境要求
-        env_condition = is_in_squeeze & is_good_structure
-        print(f"             - (组合1) 环境正确 (压缩+健康结构): {env_condition.sum()} 次")
-        
-        # 组合步骤2: 在正确的环境中，发生了正确的行为
-        action_in_env = env_condition & shakeout_action
-        print(f"             - (组合2) 环境正确 + 行为正确 (洗盘): {action_in_env.sum()} 次")
-        
-        # 组合步骤3: 在正确的环境和行为后，得到了正确的结果
-        base_condition_A = action_in_env & is_stabilized_later
+        print(f"             - (组合1) 环境正确事件 (env_condition_event): {env_condition_event.sum()} 次")
+        print(f"             - (组合2) 在环境窗口期内发生洗盘 (action_in_env_window): {action_in_env_window.sum()} 次")
         print(f"             - (组合3) 环境+行为+结果正确 (最终A级条件): {base_condition_A.sum()} 次")
-        # --- 探针升级结束 ---
 
         # --- 5. 最终裁定与分级 ---
         final_condition_S = base_condition_A & is_long_lower_shadow
