@@ -1593,94 +1593,72 @@ class IntelligenceLayer:
 
     def _diagnose_squeeze_zone_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V506.7 智能结果验证版】压缩区机会诊断模块
-        - 核心修复: 引入更智能、更有弹性的“企稳”验证逻辑，
-                    不再仅仅依赖“最低价不被跌破”的死板规则。
+        【V506.8 逻辑分层版】压缩区机会诊断模块
+        - 核心修复: 将“能量压缩”从A级机会的必要条件，降级为S级机会的奖励条件，
+                    以解决信号触发次数过少的问题，使其更具实战价值。
         """
-        print("        -> [压缩区机会诊断模块 V506.7 智能结果验证版] 启动...")
+        print("        -> [压缩区机会诊断模块 V506.8 逻辑分层版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p_squeeze = get_params_block(self.strategy, 'squeeze_shakeout_params')
 
-        # --- 1. 定义并获取上游情报 (环境) ---
-        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        # --- 1. 定义环境、行为、结果 ---
+        # 环境1 (核心): 健康结构
         is_in_healthy_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
         is_on_stable_platform = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_good_structure = is_in_healthy_box | is_on_stable_platform
 
-        # --- 2. 定义“洗盘”行为 ---
+        # 环境2 (奖励): 能量压缩
+        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        
+        # 行为: 洗盘
         drop_threshold = get_param_value(p_squeeze.get('drop_threshold'), -0.03)
         is_sharp_drop = df['pct_change_D'] < drop_threshold
-
         winner_turnover_col = 'turnover_from_winners_ratio_D'
-        if winner_turnover_col not in df.columns:
-            print("          -> [警告] 缺少'获利盘成交占比'数据，压缩区洗盘诊断跳过。")
-            return {}
+        if winner_turnover_col not in df.columns: return {}
         winner_inactive_threshold = get_param_value(p_squeeze.get('winner_inactive_threshold'), 60.0)
         is_winner_inactive = df[winner_turnover_col] < winner_inactive_threshold
         shakeout_action = is_sharp_drop & is_winner_inactive
         
-        # --- 3. 【核心重构】定义智能的“企稳”结果验证 ---
-        # 我们寻找在洗盘日(shakeout_action)之后，N天内出现的企稳信号
+        # 结果: 智能企稳 (逻辑不变)
         stabilization_window = get_param_value(p_squeeze.get('stabilization_window'), 3)
         is_stabilized_later = pd.Series(False, index=df.index)
-        
-        # 获取洗盘日的索引
         shakeout_indices = df.index[shakeout_action]
-
         for idx in shakeout_indices:
-            # 定义观察窗口的起止位置
             start_pos = df.index.get_loc(idx) + 1
             end_pos = start_pos + stabilization_window
-            
-            # 确保观察窗口不越界
-            if end_pos > len(df.index):
-                continue
-            
-            # 获取观察窗口内的数据
+            if end_pos > len(df.index): continue
             window_df = df.iloc[start_pos:end_pos]
-            
-            # 获取洗盘日当天的收盘价，用于比较
             shakeout_day_close = df.at[idx, 'close_D']
-
-            # --- 验证条件 ---
-            # 条件1: 价格快速收复 (强势企稳)
             is_price_reclaimed = (window_df['close_D'] > shakeout_day_close).any()
-            
-            # 条件2: 成交量持续萎缩 (恐慌盘耗尽)
             is_volume_shrinking = (window_df['volume_D'] < df.at[idx, 'volume_D']).all()
-            
-            # 如果满足任一企稳条件，则认为在洗盘日(idx)之后，企稳成功
             if is_price_reclaimed or is_volume_shrinking:
                 is_stabilized_later.at[idx] = True
 
-        # --- 4. 定义“完美形态”奖励条件 ---
-        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        is_long_lower_shadow = df['close_D'] > (df['low_D'] + total_range * 0.6)
-
-        # --- 核心逻辑修复：引入时序窗口 ---
-        env_condition_event = is_in_squeeze & is_good_structure
-        env_window_days = get_param_value(p_squeeze.get('env_window_days'), 3)
-        is_in_env_window = env_condition_event.rolling(window=env_window_days, min_periods=1).max().astype(bool)
-        action_in_env_window = is_in_env_window & shakeout_action
+        # --- 2. 【核心逻辑重构】分层定义机会 ---
         
-        # 最终的A级条件：注意，这里的 is_stabilized_later 已经与 action_in_env_window 对齐了
-        base_condition_A = action_in_env_window & is_stabilized_later
+        # A级机会 (基础版): 健康结构 + 洗盘行为 + 智能企稳
+        # 注意：这里不再要求能量压缩！
+        base_condition_A = is_good_structure & shakeout_action & is_stabilized_later
+        
+        # S级机会 (加强版): A级机会 + 能量压缩背景
+        # 创建一个能量压缩的窗口期，增加捕捉概率
+        squeeze_window_days = get_param_value(p_squeeze.get('squeeze_window_days'), 3)
+        is_in_squeeze_window = is_in_squeeze.rolling(window=squeeze_window_days, min_periods=1).max().astype(bool)
+        
+        # 最终裁定
+        final_condition_S = base_condition_A & is_in_squeeze_window
+        final_condition_A = base_condition_A & ~final_condition_S
 
-        # --- 探针诊断区 (V506.7 升级版) ---
+        # --- 探针诊断区 (V506.8 升级版) ---
         print("          -> [探针报告] 正在检查各子条件及组合链条触发次数...")
-        print(f"             - (单点) 能量压缩区 (is_in_squeeze): {is_in_squeeze.sum()} 次")
         print(f"             - (单点) 健康结构 (is_good_structure): {is_good_structure.sum()} 次")
         print(f"             - (单点) 洗盘式打压 (shakeout_action): {shakeout_action.sum()} 次")
         print(f"             - (单点) 后续智能企稳 (is_stabilized_later): {is_stabilized_later.sum()} 次")
+        print(f"             - (单点) 能量压缩窗口 (is_in_squeeze_window): {is_in_squeeze_window.sum()} 次")
         
-        print(f"             - (组合1) 环境正确事件 (env_condition_event): {env_condition_event.sum()} 次")
-        print(f"             - (组合2) 在环境窗口期内发生洗盘 (action_in_env_window): {action_in_env_window.sum()} 次")
-        print(f"             - (组合3) 环境+行为+结果正确 (最终A级条件): {base_condition_A.sum()} 次")
-
-        # --- 5. 最终裁定与分级 ---
-        final_condition_S = base_condition_A & is_long_lower_shadow
-        final_condition_A = base_condition_A & ~final_condition_S
+        print(f"             - (组合1) A级基础条件 (结构+行为+结果): {base_condition_A.sum()} 次")
+        print(f"             - (组合2) S级加强条件 (A级条件+压缩环境): {final_condition_S.sum()} 次")
 
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_A'] = final_condition_A
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_S'] = final_condition_S
@@ -1689,7 +1667,7 @@ class IntelligenceLayer:
             print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
             print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
         else:
-            print("          -> [诊断结论] “压缩区洗盘”信号最终触发0次。请检查上方组合链条，定位是哪一步组合后数量骤降为0。")
+            print("          -> [诊断结论] “压缩区洗盘”信号最终触发0次。请检查上方组合链条。")
 
         return states
 
