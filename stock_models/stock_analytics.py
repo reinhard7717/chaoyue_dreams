@@ -11,184 +11,6 @@ class DecimalEncoder(json.JSONEncoder):
             return float(o)
         return super().default(o)
 
-# 已作废
-class TrendFollowStrategySignalLog(models.Model):
-    """
-    【V3.2 优化版】策略信号日志模型。
-    
-    - (优化) 使用 DecimalField 替代 FloatField 存储价格，保证金融数据精度。
-    - (优化) 使用 UniqueConstraint 替代旧的 unique_together，符合现代Django规范。
-    - (优化) 移除了冗余的数据库索引，提升写入性能。
-    - 整合了所有策略 (`monthly_trend_follow`, `trend_following`) 
-      产生的所有可查询字段，形成统一的数据存储标准。
-    """
-    id = models.BigAutoField(primary_key=True, help_text="信号ID")
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='trend_follow_strategy_signal_log', help_text="关联的股票")
-    
-    # --- 核心信号与上下文信息 ---
-    trade_time = models.DateTimeField(db_index=True, help_text="信号生成时的精确时间戳 (K线收盘时间)")
-    timeframe = models.CharField(max_length=10, db_index=True, help_text="信号所在的时间周期 (例如 'D', '60', '30')")
-    strategy_name = models.CharField(max_length=100, db_index=True, help_text="产生信号的策略名称")
-    
-    # --- 信号详情 (通用) ---
-    # 解释: 使用DecimalField替代FloatField以保证金融数据计算的精确性。
-    close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号生成时K线的收盘价")
-    entry_score = models.FloatField(default=0.0, help_text="买入信号的综合得分")
-    risk_score = models.FloatField(default=0.0, help_text="风险信号的综合得分")
-    risk_change_summary = models.JSONField(
-        default=dict, 
-        null=True, blank=True, 
-        help_text="当日的风险变化摘要"
-    )
-    health_change_summary = models.JSONField(
-        default=dict, null=True, blank=True, help_text="当日的攻防健康度变化摘要"
-    )
-    holding_health_score = models.FloatField(default=0.0, null=True, blank=True, help_text="【已废弃】持仓健康分 (每日计算)")
-    stable_platform_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="[趋势策略]识别出的稳固筹码平台价格")
-    
-    # --- 信号类型 (细分) ---
-    entry_signal = models.BooleanField(default=False, help_text="是否为最终的买入信号 (得分超过阈值)")
-    is_risk_warning = models.BooleanField(default=False, help_text="是否为风险预警信号 (风险分>0但未触发卖出)")
-    exit_signal_code = models.IntegerField(default=0, help_text="卖出信号代码 (0:无, 1:压力位, 2:移动止盈, 3:指标)")
-    exit_severity_level = models.IntegerField(default=0, help_text="止盈信号的严重性等级 (0:无, 1:预警, 2:标准, 3:紧急)")
-    exit_signal_reason = models.CharField(max_length=255, blank=True, null=True, help_text="止盈信号的具体原因描述")
-    
-    # --- 【月线策略】核心买入剧本 ---
-    is_pullback_entry = models.BooleanField(default=False, help_text="[月线策略]是否为回踩买入信号")
-    is_continuation_entry = models.BooleanField(default=False, help_text="[月线策略]是否为追击买入信号")
-    is_breakout_trigger = models.BooleanField(default=False, help_text="[月线策略]是否为突破观察信号")
-
-    # --- 【月线策略】核心风险与状态信号 ---
-    rejection_code = models.IntegerField(default=0, help_text="[月线策略]压力位拒绝代码 (0:无, 1:MA, 2:箱体, 3:两者)")
-    washout_score = models.IntegerField(default=0, help_text="[月线策略]洗盘强度得分")
-
-    # --- 【趋势策略】核心状态信号 ---
-    is_long_term_bullish = models.BooleanField(default=False, help_text="[趋势策略]是否处于长期牛市背景")
-    is_mid_term_bullish = models.BooleanField(default=False, help_text="[趋势策略]是否处于中期上升趋势")
-
-    # --- 【趋势策略】核心买入剧本 ---
-    is_pullback_setup = models.BooleanField(default=False, help_text="[趋势策略]是否为回撤预备信号")
-    # 解释: 同样使用DecimalField替代FloatField。
-    pullback_target_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, default=None, help_text="[趋势/月线]回踩买入剧本的目标价格")
-
-    # --- 信号追溯与元数据 ---
-    triggered_playbooks = models.JSONField(default=list, help_text="触发信号的所有原子规则列表 (用于详细分析)", encoder=DecimalEncoder)
-    context_snapshot = models.JSONField(default=dict, help_text="信号生成时的关键指标快照 (用于调试)", encoder=DecimalEncoder)
-    created_at = models.DateTimeField(auto_now_add=True, help_text="记录创建时间")
-
-    class Meta:
-        db_table = "trend_follow_strategy_signal_log"
-        ordering = ['-trade_time', 'stock']
-        
-        indexes = [
-            # 索引1: 为“最新卖出时间”子查询提供超高速支持 (绝对核心，必须保留)。
-            models.Index(fields=['stock', 'timeframe', 'exit_signal_code', 'trade_time'], name='idx_stock_tf_sell_time'),
-            # 索引2: 优化“最新买入信号”的初始查找和分组 (绝对核心，必须保留)。
-            models.Index(fields=['entry_signal', 'timeframe', 'stock'], name='idx_entry_tf_stock'),
-            # 索引3: 加速最终结果的排序 (核心优化，建议保留)。
-            models.Index(fields=['trade_time', 'entry_score'], name='idx_trade_time_score'),
-        ]
-        
-        verbose_name = "策略信号日志"
-        verbose_name_plural = verbose_name
-
-    def __str__(self):
-        signal_type = "买入" if self.entry_signal else f"卖出({self.exit_signal_code})" if self.exit_signal_code > 0 else "观察"
-        return (f"[{self.strategy_name}/{self.timeframe}] {self.stock.stock_code} @ "
-                f"{self.trade_time.strftime('%Y-%m-%d %H:%M')} - {signal_type}")
-
-# 已作废
-class FavoriteStockTracker(models.Model):
-    """
-    【V3.1 迁移兼容版】
-    - 核心定位: 作为用户自选股的“持仓卡片”，记录从建仓到平仓的全过程。
-    - 核心修改: 所有外键已正确指向新的 TradingSignal 模型，并增加了 null=True 以兼容数据库迁移。
-    """
-    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='favorite_trackers')
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='favorite_trackers')
-    
-    STATUS_CHOICES = [
-        ('HOLDING', '持仓中'),
-        ('SOLD', '已平仓'),
-    ]
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='HOLDING', db_index=True)
-
-    # --- 代码修改开始 ---
-    # [修改原因] 修复 makemigrations 报错。通过添加 null=True, blank=True 允许字段在迁移过程中临时为空。
-    # --- 建仓信息 (Entry Info) ---
-    entry_signal = models.ForeignKey(
-        'TradingSignal',
-        on_delete=models.PROTECT,
-        related_name='entry_tracker',
-        help_text="关联的建仓交易信号",
-        null=True, blank=True # 允许为空以进行迁移
-    )
-    entry_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="建仓价格", null=True, blank=True)
-    entry_date = models.DateTimeField(help_text="建仓日期", null=True, blank=True)
-    
-    # --- 最新追踪信息 (Latest Tracking Info) ---
-    latest_signal = models.ForeignKey(
-        'TradingSignal',
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='latest_tracker',
-        help_text="关联的最新信号日志 (每日更新)"
-    )
-    latest_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="最新收盘价")
-    latest_date = models.DateTimeField(null=True, blank=True, help_text="最新信号日期")
-    
-    # --- 预计算的追踪指标 ---
-    health_change_summary = models.JSONField(
-        default=dict, 
-        null=True, blank=True, 
-        help_text="结构化的攻防健康度变化摘要"
-    )
-    
-    # --- 平仓信息 (Exit Info) ---
-    exit_signal = models.ForeignKey(
-        'TradingSignal',
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='exit_tracker',
-        help_text="关联的平仓交易信号"
-    )
-    exit_price = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text="平仓价格")
-    exit_date = models.DateTimeField(null=True, blank=True, help_text="平仓日期")
-    # --- 代码修改结束 ---
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "favorite_stock_tracker"
-        unique_together = ('user', 'stock', 'entry_signal')
-        ordering = ['-entry_date']
-        verbose_name = "自选股持仓追踪器"
-        verbose_name_plural = verbose_name
-
-    def __str__(self):
-        if self.entry_date:
-            return f"{self.user.username} - {self.stock} (建仓于: {self.entry_date.strftime('%Y-%m-%d')})"
-        return f"{self.user.username} - {self.stock} (无建仓日期)"
-
-    def update_latest_status(self, latest_signal_instance: 'TradingSignal'):
-        """
-        一个实例方法，用于根据最新的信号日志更新自身状态。
-        """
-        self.latest_signal = latest_signal_instance
-        self.latest_price = latest_signal_instance.close_price
-        self.latest_date = latest_signal_instance.trade_time
-        
-        self.health_change_summary = latest_signal_instance.health_change_summary or {}
-
-        if latest_signal_instance.signal_type == TradingSignal.SignalType.SELL:
-            self.status = 'SOLD'
-            self.exit_signal = latest_signal_instance
-            self.exit_price = latest_signal_instance.close_price
-            self.exit_date = latest_signal_instance.trade_time
-        
-        self.save()
-
 class Playbook(models.Model):
     """
     【战法库】模型 (静态字典表)
@@ -279,7 +101,92 @@ class SignalPlaybookDetail(models.Model):
         verbose_name_plural = verbose_name
 
 class PositionTracker(models.Model):
-    pass
+    """
+    【V3.2 智能观察哨版】
+    - 核心定位: 作为用户自选股的“持仓/观察卡片”，记录从关注、建仓到平仓的全过程。
+    - 核心修改: 增加 WATCHING 状态，并调整字段以支持对所有自选股的追踪，无论其是否有买入信号。
+    """
+    
+    # 状态枚举，增加了“观察中”状态
+    class Status(models.TextChoices):
+        WATCHING = 'WATCHING', '观察中'
+        HOLDING = 'HOLDING', '持仓中'
+        SOLD = 'SOLD', '已平仓'
+
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='position_trackers',
+        help_text="关联的用户"
+    )
+    stock = models.ForeignKey(
+        StockInfo, 
+        on_delete=models.CASCADE, 
+        related_name='position_trackers',
+        help_text="关联的股票"
+    )
+    status = models.CharField(
+        max_length=10, 
+        choices=Status.choices, 
+        default=Status.WATCHING, 
+        db_index=True,
+        help_text="当前追踪状态"
+    )
+
+    # --- 建仓/观察信息 (Entry Info) ---
+    entry_signal = models.ForeignKey(
+        'TradingSignal', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='entry_positions',
+        help_text="关联的建仓交易信号 (对于'观察中'状态可为空)"
+    )
+    entry_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=3, 
+        null=True, blank=True, 
+        help_text="建仓或初次观察时的价格"
+    )
+    entry_date = models.DateTimeField(
+        null=True, blank=True, 
+        help_text="建仓或初次观察时的日期"
+    )
+
+    # --- 平仓信息 (Exit Info) ---
+    exit_signal = models.ForeignKey(
+        'TradingSignal', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='exit_positions',
+        help_text="关联的平仓交易信号"
+    )
+    exit_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=3, 
+        null=True, blank=True, 
+        help_text="平仓价格"
+    )
+    exit_date = models.DateTimeField(
+        null=True, blank=True, 
+        help_text="平仓日期"
+    )
+    
+    # --- 时间戳 ---
+    created_at = models.DateTimeField(auto_now_add=True, help_text="记录创建时间")
+    updated_at = models.DateTimeField(auto_now=True, help_text="记录最后更新时间")
+
+    class Meta:
+        db_table = "strategy_position_tracker"
+        # unique_together 已移除，以避免 entry_signal 为 NULL 时可能引发的数据库唯一性约束问题。
+        # 应用层逻辑（如迁移脚本和API）将负责确保 user 和 stock 的组合是唯一的。
+        ordering = ['-updated_at']
+        verbose_name = "策略持仓追踪器"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        # 提供一个清晰的字符串表示，方便在Django Admin中查看
+        return f"{self.user.username} - {self.stock.stock_code} ({self.get_status_display()})"
 
 class DailyPositionSnapshot(models.Model):
     """

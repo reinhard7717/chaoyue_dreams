@@ -14,7 +14,6 @@ from datetime import datetime, time, date
 from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
-from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog
 from stock_models.index import TradeCalendar
 from utils.cash_key import StockCashKey
 

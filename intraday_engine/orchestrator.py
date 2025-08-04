@@ -11,7 +11,6 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.index import TradeCalendar
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from services.realtime_services import RealtimeServices
-from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from strategies.realtime_strategy import RealtimeStrategy
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey

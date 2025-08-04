@@ -2,7 +2,7 @@
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from users.models import FavoriteStock
-from stock_models.stock_analytics import FavoriteStockTracker
+# from stock_models.stock_analytics import FavoriteStockTracker
 import logging
 
 logger = logging.getLogger(__name__)

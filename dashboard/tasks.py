@@ -5,7 +5,6 @@ import logging
 from django.contrib.auth import get_user_model
 from channels.layers import get_channel_layer
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from stock_models.stock_analytics import FavoriteStockTracker, TrendFollowStrategySignalLog
 from utils.cache_manager import CacheManager
 from utils.websockets import send_update_to_user_sync, broadcast_public_message_sync # 导入同步发送函数
 from chaoyue_dreams.celery import app as celery_app
@@ -120,34 +119,79 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
             
 
 @celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
-def update_favorite_stock_trackers():
+def update_favorite_stock_trackers(self):
     """
-    【V2.0 交易持仓版】
-    每日运行，只更新状态为“持仓中”的追踪器。
+    【V3.0 快照生成版】
+    每日运行，为所有活跃的 PositionTracker (状态为'持仓中'或'观察中') 创建当日的状态快照。
+    这个任务的核心职责是从“更新”转变为“创建历史记录”。
     """
-    # 只选择需要更新的追踪器
-    trackers_to_update = FavoriteStockTracker.objects.filter(status='HOLDING')
-    stock_ids = list(trackers_to_update.values_list('stock_id', flat=True))
-    if not stock_ids:
-        return "没有需要更新的持仓追踪器。"
+    try:
+        # 步骤 1: 确定需要生成快照的日期（最新的一个交易日）
+        latest_trade_day = TradeCalendar.get_latest_trade_date()
+        if not latest_trade_day:
+            logger.warning("无法获取最新的交易日，任务终止。")
+            return "无法获取最新的交易日，任务终止。"
+        
+        logger.info(f"开始为 {latest_trade_day} 生成每日持仓快照...")
 
-    # 1. 一次性获取所有相关股票的最新信号
-    latest_log_subquery = TrendFollowStrategySignalLog.objects.filter(
-        stock_id=OuterRef('stock_id')
-    ).order_by('-trade_time').values('id')[:1]
-    latest_logs = TrendFollowStrategySignalLog.objects.filter(id__in=Subquery(latest_log_subquery)).filter(stock_id__in=stock_ids)
-    latest_logs_map = {log.stock_id: log for log in latest_logs}
+        # 步骤 2: 筛选出所有需要创建快照的活跃追踪器
+        trackers_to_snapshot = list(PositionTracker.objects.filter(
+            Q(status=PositionTracker.Status.HOLDING) | Q(status=PositionTracker.Status.WATCHING)
+        ).select_related('stock'))
 
-    # 2. 遍历并更新每个追踪器
-    updated_count = 0
-    for tracker in trackers_to_update:
-        latest_log = latest_logs_map.get(tracker.stock_id)
-        # 确保最新的信号晚于或等于当前追踪器的最新信号
-        if latest_log and (tracker.latest_date is None or latest_log.trade_time > tracker.latest_date):
-            tracker.update_latest_status(latest_log)
-            updated_count += 1
+        if not trackers_to_snapshot:
+            logger.info("没有找到需要创建快照的活跃追踪器。")
+            return "没有需要更新的活跃追踪器。"
 
-    return f"成功更新 {updated_count} / {len(trackers_to_update)} 个持仓追踪器。"
+        stock_ids = [tracker.stock_id for tracker in trackers_to_snapshot]
+        
+        # 步骤 3: 一次性获取所有相关股票在快照日期的最新信号
+        # 注意：这里我们假设每个股票在每个交易日最多只有一个主策略信号
+        latest_signals = TradingSignal.objects.filter(
+            stock_id__in=stock_ids,
+            trade_time__date=latest_trade_day
+        )
+        
+        # 将信号放入字典中，以便快速查找
+        latest_signals_map = {signal.stock_id: signal for signal in latest_signals}
+        logger.info(f"为 {len(stock_ids)} 个追踪器获取了 {len(latest_signals_map)} 条对应的当日信号。")
+
+        # 步骤 4: 准备批量创建 DailyPositionSnapshot
+        snapshots_to_create = []
+        for tracker in trackers_to_snapshot:
+            latest_signal_for_stock = latest_signals_map.get(tracker.stock_id)
+
+            if latest_signal_for_stock:
+                # 如果找到了当天的信号，就创建一个快照实例
+                snapshots_to_create.append(
+                    DailyPositionSnapshot(
+                        position=tracker,
+                        signal=latest_signal_for_stock,
+                        snapshot_date=latest_trade_day,
+                        close_price=latest_signal_for_stock.close_price,
+                        # 其他快照字段可以根据需要从 signal 中获取
+                    )
+                )
+            else:
+                logger.warning(f"股票 {tracker.stock.stock_code} ({tracker.stock_id}) 在 {latest_trade_day} 没有找到对应的交易信号，无法创建快照。")
+
+        # 步骤 5: 批量执行创建操作
+        if snapshots_to_create:
+            created_snapshots = DailyPositionSnapshot.objects.bulk_create(
+                snapshots_to_create, 
+                ignore_conflicts=True # 如果任务意外重跑，忽略已存在的记录，避免报错
+            )
+            logger.info(f"成功为 {len(created_snapshots)} / {len(trackers_to_snapshot)} 个活跃追踪器创建了每日快照。")
+            return f"成功创建 {len(created_snapshots)} 条每日持仓快照。"
+        else:
+            logger.warning("没有可供创建的快照数据。")
+            return "没有可供创建的快照数据。"
+            
+    except Exception as e:
+        logger.error(f"更新持仓追踪器（创建快照）时发生严重错误: {e}", exc_info=True)
+        # 如果任务失败，可以发起重试
+        self.retry(exc=e, countdown=60)
+        return f"任务失败: {e}"
 
 # 你还需要配置 Celery Beat 来定时运行这些任务
 # 例如，在 settings.py 中配置:

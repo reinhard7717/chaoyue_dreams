@@ -13,7 +13,6 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail
-from stock_models.stock_analytics import TrendFollowStrategySignalLog
 from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
 from utils.cache_manager import CacheManager
@@ -625,6 +624,29 @@ class StrategiesDAO(BaseDAO):
             print("调试信息: [DAO-SignalLog V402.0] 传入的信号元组为空，不执行任何操作。")
             return 0
         signals_to_process, details_to_create = signals_tuple
+        
+        cleaned_signals = []
+        numeric_fields = ['entry_score', 'risk_score', 'close_price'] # 定义需要检查的数值字段
+
+        for signal_obj in signals_to_process:
+            for field_name in numeric_fields:
+                value = getattr(signal_obj, field_name)
+                # 检查值是否为 NaN (适用于 float 和 Decimal)
+                # np.isnan() 对 Decimal 类型会报错，所以要先判断类型
+                is_nan = False
+                if isinstance(value, float) and np.isnan(value):
+                    is_nan = True
+                elif isinstance(value, Decimal) and value.is_nan():
+                    is_nan = True
+                
+                if is_nan:
+                    print(f"调试信息: [DAO-SignalLog V402.1] 在信号 {signal_obj.stock_id} ({signal_obj.trade_time}) 的字段 '{field_name}' 中发现 NaN，已替换为 None。")
+                    setattr(signal_obj, field_name, None) # 将 NaN 替换为 None
+            cleaned_signals.append(signal_obj)
+        
+        # 使用清洗后的信号列表进行后续操作
+        signals_to_process = cleaned_signals
+
         def _save_all_sync():
             """这个函数是完全同步的，它将在一个单独的线程中被异步执行。"""
             try:
