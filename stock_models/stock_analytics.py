@@ -268,8 +268,8 @@ class SignalPlaybookDetail(models.Model):
     - 职责: 精确记录每个信号由哪些战法构成，以及每个战法当时的贡献分数。
     """
     id = models.BigAutoField(primary_key=True)
-    signal = models.ForeignKey(TradingSignal, on_delete=models.CASCADE)
-    playbook = models.ForeignKey(Playbook, on_delete=models.CASCADE)
+    signal = models.ForeignKey(TradingSignal, on_delete=models.CASCADE, null=True, blank=True)
+    playbook = models.ForeignKey(Playbook, on_delete=models.CASCADE, null=True, blank=True)
     contributed_score = models.FloatField(help_text="此战法在当天实际贡献的分数")
 
     class Meta:
