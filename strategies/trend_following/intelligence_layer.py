@@ -1509,6 +1509,26 @@ class IntelligenceLayer:
         # print("        -> [突破-回踩接力诊断模块 V324.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
+        
+        # --- 探针部署区 ---
+        # 1. 定义本模块需要的所有上游情报（原子状态）
+        required_intelligence = [
+            'STRUCTURE_POST_ACCUMULATION_ASCENT_C', # “初升浪启动”情报
+            'PULLBACK_STATE_HEALTHY_S',             # “健康回踩”情报
+            'OPP_CHIP_SETUP_S'                      # “筹码高度控盘”情报
+        ]
+        
+        # 2. 检查情报清单
+        missing_intelligence = [
+            intel for intel in required_intelligence 
+            if intel not in self.strategy.atomic_states
+        ]
+        
+        # 3. 如果有情报缺失，则发出详细警报并安全退出
+        if missing_intelligence:
+            print(f"    -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
+            print(f"       -> [探针报告] 缺失的情报清单: {missing_intelligence}")
+            return {}
 
         # --- 1. 从配置文件加载参数 ---
         # 我们可以在 post_accumulation_params 中增加一个子配置
