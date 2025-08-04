@@ -28,11 +28,49 @@ class JudgmentLayer:
             if final_summary:
                 df.at[idx, 'health_change_summary'] = final_summary
 
+    def _generate_exit_triggers(self) -> pd.DataFrame:
+        """
+        【V504.0 新增】离场触发器生成器
+        - 核心职责: 根据“三道防线”原则，生成一个包含所有离场原因的布尔型DataFrame。
+        """
+        print("        -> [离场触发器 V504.0] 启动，正在检查三道防线...")
+        df = self.strategy.df_indicators
+        triggers_df = pd.DataFrame(index=df.index)
+        
+        # --- 防线一: 致命一击 (Critical Hit) ---
+        # 检查是否存在任何一个致命风险信号。critical_risk_details 是由 WarningLayer 计算并传入的。
+        critical_risk_details = self.strategy.critical_risk_details
+        triggers_df['EXIT_CRITICAL_HIT'] = critical_risk_details.sum(axis=1) > 0
+        if triggers_df['EXIT_CRITICAL_HIT'].any():
+            print(f"          -> [防线一] 侦测到 {triggers_df['EXIT_CRITICAL_HIT'].sum()} 天存在“致命一击”风险。")
+
+        # --- 防线二: 风险溢出 (Risk Overflow) ---
+        # 从新的 judgment_params 读取配置
+        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        overflow_threshold = get_param_value(p_judge.get('risk_overflow_threshold'), 1000)
+        triggers_df['EXIT_RISK_OVERFLOW'] = self.strategy.risk_score > overflow_threshold
+        if triggers_df['EXIT_RISK_OVERFLOW'].any():
+            print(f"          -> [防线二] 侦测到 {triggers_df['EXIT_RISK_OVERFLOW'].sum()} 天总风险分超过阈值 {overflow_threshold}。")
+
+        # --- 防线三: 利润保护 (Profit Protector) ---
+        p_protector = p_judge.get('profit_protector', {})
+        if get_param_value(p_protector.get('enabled'), False):
+            max_drawdown_pct = get_param_value(p_protector.get('max_drawdown_pct'), 0.15)
+            # 注意：此处的实现是简化的，完整的利润保护需要与持仓跟踪模块联动。
+            # 在当前的回测框架下，我们暂时将其设置为False，但保留了逻辑框架。
+            triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
+            print(f"          -> [防线三] 利润保护器已启用 (最大回撤 {max_drawdown_pct*100}%)。注意：完整功能需与持仓状态联动。")
+        else:
+            triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
+
+        return triggers_df
+
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V404.0 A股实战版】
+        【V504.0 三道防线集成版】
+        - 核心修改: 集成了新的“三道防线”离场逻辑，并确保其与现有买入逻辑正确衔接。
         """
-        print("    --- [最高作战指挥部 V404.0 A股实战版] 启动... ---")
+        print("    --- [最高作战指挥部 V504.0 三道防线集成版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -47,23 +85,22 @@ class JudgmentLayer:
         self._calculate_static_veto_votes()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        exit_params = self.strategy.unified_config.get('exit_strategy_params', {})
-        exit_thresholds = exit_params.get('exit_threshold_params', {})
-        warning_thresholds = exit_params.get('warning_threshold_params', {})
-        all_thresholds = []
-        if exit_thresholds:
-            for level_info in exit_thresholds.values():
-                all_thresholds.append({'level': level_info['level'], 'type': '卖出信号'})
-        if warning_thresholds:
-            for level_info in warning_thresholds.values():
-                all_thresholds.append({'level': level_info['level'], 'type': '风险预警'})
-        sorted_thresholds = sorted(all_thresholds, key=lambda x: x['level'], reverse=True)
-        for rule in sorted_thresholds:
-            threshold = rule['level']
-            signal_type = rule['type']
-            condition = (df['risk_score'] >= threshold) & (df['signal_type'] == '无信号')
-            df.loc[condition, 'signal_type'] = signal_type
+        # --- 代码修改开始 ---
+        # [修改原因] V504.0 架构升级：用新的“三道防线”逻辑替换旧的离场阈值逻辑。
+        # 1. 调用新的离场触发器生成器
+        exit_triggers = self._generate_exit_triggers()
+        is_sell_signal = exit_triggers.any(axis=1)
+        
+        # 2. 将触发卖出的具体原因保存到 strategy 对象中，用于后续分析
+        self.strategy.exit_triggers = exit_triggers[is_sell_signal]
+        
+        # 3. 根据触发结果设置信号类型
+        df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
+        # --- 代码修改结束 ---
 
+        # (旧的 exit_threshold_params 和 warning_threshold_params 逻辑已被上面的新逻辑取代)
+
+        # --- 买入逻辑 (基本保持不变，但增加了卖出信号的否决) ---
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
         valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
@@ -89,7 +126,11 @@ class JudgmentLayer:
 
         is_score_positive = df['entry_score'] > df['risk_score']
         not_avoid = df['dynamic_action'] != 'AVOID'
-        is_not_risk_day = df['signal_type'] == '无信号'
+        
+        # --- 代码修改开始 ---
+        # [修改原因] V504.0 架构升级：确保卖出信号优先，当天有卖出信号则不能买入。
+        is_not_sell_day = ~is_sell_signal
+        # --- 代码修改结束 ---
 
         final_buy_condition = (
             is_foundation_solid &
@@ -97,7 +138,7 @@ class JudgmentLayer:
             is_score_positive &
             is_veto_tolerated &
             not_avoid &
-            is_not_risk_day
+            is_not_sell_day # [修改] 使用新的条件替换旧的 is_not_risk_day
         )
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         

@@ -254,7 +254,11 @@
         "probe_date": "2025-07-28"
       },
       "strategy_info": {
-        "name": { "value": "CHIPCON核心_V238", "说明": "策略唯一标识名称" }
+        "name": { "value": "救援飞哥版_V238", "说明": "策略唯一标识名称" },
+        "save_all_days": {
+          "value": false,
+          "description": "是否保存所有日期的分析记录。true: 保存所有天；false: 只保存在有信号(买/卖/预警)的日子。"
+        }
       },
       "fibonacci_support_params": {
         "enabled": true,
@@ -332,25 +336,60 @@
             }
           ]
         },
+        "judgment_params": {
+          "enabled": true,
+          "description": "【决策层 V504.0】离场决策的三道防线参数",
+          "risk_overflow_threshold": {
+            "value": 1000,
+            "description": "【第二道防线】风险溢出阈值。当总风险分超过此值时，触发离场。"
+          },
+          "profit_protector": {
+            "enabled": true,
+            "description": "【第三道防线】利润保护器（最大回撤止盈）",
+            "max_drawdown_pct": {
+              "value": 0.15,
+              "description": "从持仓期间的最高价算起，允许的最大回撤比例。超过则触发离场。"
+            }
+          }
+        },
         "holding_warning_params": {
           "enabled": true,
-          "description": "【新增】持仓预警模块 (WarningLayer)。负责广谱扫描，计算综合的“持仓健康风险分”。",
+          "description": "【常规风险-预警层 V503.0】负责扫描常规的、需要警惕的风险信号，并驱动风险动量引擎。分数相对温和。",
+          
+          "risk_momentum_params": {
+            "enabled": true,
+            "description": "【风险动量引擎】的参数",
+            "slope_window": {
+              "value": 3,
+              "description": "计算总风险分斜率的滚动窗口期（天）。越小反应越快，但可能噪音越多。"
+            },
+            "accel_threshold": {
+              "value": 20.0,
+              "description": "定义“风险加速恶化”的加速度阈值。当风险分的加速度超过此值时，触发'ESCALATING'状态。"
+            }
+          },
+
+          "strategic_coverage_factor": {
+              "value": 0.3,
+              "description": "当出现'锁筹拉升'等S+级战略机会时，对总风险分的覆盖(折减)系数。"
+          },
+
           "signals": {
             "说明_A": "--- A级风险 (动态加速恶化) ---",
-            "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 400,
             "CHIP_DYN_ACCEL_DIVERGING": 400,
             "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
+            "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 350,
 
             "说明_B": "--- B级风险 (趋势明确走弱) ---",
             "CHIP_DYN_DIVERGING": 300,
             "CHIP_DYN_WINNER_RATE_COLLAPSING": 300,
             "CHIP_DYN_COST_FALLING": 200,
-            "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 200,
+            "DYN_TREND_WEAKENING_DECELERATING": 150,
 
             "说明_C": "--- C级风险 (健康度早期预警) ---",
             "CHIP_DYN_HEALTH_DETERIORATING": 150,
-            "HOLD_RISK_HEALTH_STALLING": 120,
-            "DYN_TREND_WEAKENING_DECELERATING": 100
+            "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 120,
+            "HOLD_RISK_HEALTH_STALLING": 100
           }
         },
 

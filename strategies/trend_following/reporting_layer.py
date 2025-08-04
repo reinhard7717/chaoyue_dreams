@@ -40,71 +40,76 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List]:
         """
-        【V400.0 ORM重构版】
-        - 核心重构: 此方法是适配新模型的关键。它不再返回一个扁平化的字典列表，
-                    而是返回一个包含两类ORM对象的元组:
-                    1. TradingSignal 对象列表 (主信号)
-                    2. SignalPlaybookDetail 对象列表 (信号构成详情)
-        - 收益: 彻底分离了数据结构和内容，为上层任务提供了清晰、可直接写入数据库的对象。
+        【V505.1 适配修复版】
+        - 核心修复: 修正了配置读取路径，从正确的 `strategy_params.trend_follow.strategy_info` 读取配置。
+        - 核心升级: 根据配置文件的 "save_all_days" 开关，决定是只保存信号日，还是保存所有日期的记录。
         """
-        # print(f"      -> [战报司令部 V400.0 ORM版] 启动，正在构建信号对象...")
+        print(f"      -> [战报司令部 V505.1] 启动，正在构建信号对象...")
         await self._ensure_playbooks_cached()
         signals_to_create = []
         details_to_create = []
 
-        # 1. 筛选出需要记录的信号日 (所有产生有效信号的日子)
-        signal_days_df = result_df[result_df['signal_type'] != '无信号'].copy()
+        # 1. 从正确的路径读取配置
+        # 首先获取 trend_follow 整个大块
+        tf_params = get_params_block(self.strategy, 'trend_follow')
+        # 然后从这个大块里获取 strategy_info
+        strategy_info = tf_params.get('strategy_info', {})
+        
+        save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
+        strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
 
-        for trade_time, row in signal_days_df.iterrows():
-            # 2. 创建主信号对象 (TradingSignal)
+        # 2. 根据配置决定是否筛选数据
+        if save_all_days:
+            days_to_process_df = result_df.copy()
+            print("        -> [模式] 已启用“每日记录”模式，将保存所有日期的分析结果。")
+        else:
+            days_to_process_df = result_df[result_df['signal_type'] != '无信号'].copy()
+            print("        -> [模式] 已启用“事件驱动”模式，将只保存在有信号的日子。")
+
+        if days_to_process_df.empty:
+            print("        -> [信息] 没有需要记录的日期，任务完成。")
+            return ([], [])
+
+        for trade_time, row in days_to_process_df.iterrows():
+            # 3. 创建主信号对象 (TradingSignal)
             signal_type_map = {
                 '买入信号': TradingSignal.SignalType.BUY,
                 '卖出信号': TradingSignal.SignalType.SELL,
                 '风险预警': TradingSignal.SignalType.WARN,
+                '无信号': TradingSignal.SignalType.HOLD,
             }
             
-            # --- 代码修改开始 ---
-            # [修改原因] 构建全新的 TradingSignal ORM 对象，字段与新模型完全对应。
             signal_obj = TradingSignal(
                 stock_id=stock_code,
                 trade_time=trade_time,
                 timeframe=result_timeframe,
-                strategy_name=get_param_value(self.strategy.strategy_info.get('name'), 'TrendFollow'),
+                strategy_name=strategy_name, # 使用从配置中读取的名称
                 signal_type=signal_type_map.get(row['signal_type'], TradingSignal.SignalType.HOLD),
                 entry_score=row.get('entry_score', 0.0),
                 risk_score=row.get('risk_score', 0.0),
-                veto_votes=int(row.get('veto_votes', 0)), # 确保为整数
+                veto_votes=int(row.get('veto_votes', 0)),
                 close_price=row.get('close_D', 0.0),
                 health_change_summary=row.get('health_change_summary', {})
             )
             signals_to_create.append(signal_obj)
-            # --- 代码修改结束 ---
 
-            # 3. 创建信号构成详情对象 (SignalPlaybookDetail)
-            # 3.1 处理进攻战法
+            # 4. 创建信号构成详情对象 (SignalPlaybookDetail)
+            # (这部分逻辑保持不变)
             if not score_details_df.empty and trade_time in score_details_df.index:
                 activated_offense = score_details_df.loc[trade_time]
                 for name, score in activated_offense[activated_offense > 0].items():
-                    # 从缓存中查找对应的 Playbook 对象
                     playbook_obj = self.playbooks_cache.get(name)
                     if playbook_obj:
                         details_to_create.append(SignalPlaybookDetail(
-                            signal=signal_obj, # 关联到刚创建的主信号对象
+                            signal=signal_obj,
                             playbook=playbook_obj,
                             contributed_score=score
                         ))
             
-            # 3.2 处理风险/离场剧本
-            # 将 risk_details_df 和 critical_exit_details_df (如果存在) 合并处理
             all_risk_details = pd.Series(dtype=float)
             if not risk_details_df.empty and trade_time in risk_details_df.index:
-                all_risk_details = all_risk_details.add(risk_details_df.loc[trade_time], fill_value=0)
+                all_risk_details = all_risk_details.add(risk_details_df.get(trade_time, pd.Series(dtype=float)), fill_value=0)
             
-            # 假设 critical_exit_details_df 也是一个类似的 DataFrame
-            # critical_exit_df = ... (从上层获取)
-            # if not critical_exit_df.empty and trade_time in critical_exit_df.index:
-            #     all_risk_details = all_risk_details.add(critical_exit_df.loc[trade_time], fill_value=0)
-
             for name, score in all_risk_details[all_risk_details > 0].items():
                 playbook_obj = self.playbooks_cache.get(name)
                 if playbook_obj:
@@ -114,12 +119,9 @@ class ReportingLayer:
                         contributed_score=score
                     ))
 
-        # print(f"      -> [战报司令部 V400.0] 构建完成，共生成 {len(signals_to_create)} 条主信号和 {len(details_to_create)} 条详情记录。")
+        print(f"      -> [战报司令部 V505.1] 构建完成，共生成 {len(signals_to_create)} 条主信号和 {len(details_to_create)} 条详情记录。")
         
-        # 返回一个元组，包含待创建的对象列表
         return (signals_to_create, details_to_create)
-
-
 
 
 
