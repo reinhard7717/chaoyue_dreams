@@ -450,47 +450,39 @@ class ChipFeatureCalculator:
 
     def _calculate_turnover_structure(self) -> dict:
         """
-        【V1.0 新增】计算成交量微观结构。
-        估算当日成交量中，由获利盘、套牢盘贡献的比例。
-        这是一个估算模型，基于“成交发生在当日价格区间内”的假设。
+        【V2.0 宏观统计版】计算成交量微观结构。
+        - 核心算法: 基于一个更稳健的宏观假设——当日成交量的构成，
+                    由全市场获利盘和套牢盘的存量比例决定。
+        - 公式: 获利盘成交占比 ≈ 总获利盘比例 / (总获利盘比例 + 总套牢盘比例)
         """
         close_price = self.ctx.get('close_price')
-        low_price = self.ctx.get('low_price')
-        high_price = self.ctx.get('high_price')
-        daily_turnover_vol = self.ctx.get('daily_turnover_volume')
-
-        if not all([close_price, low_price, high_price, daily_turnover_vol]) or daily_turnover_vol == 0:
+        if not close_price:
             return {}
 
-        # 1. 识别哪些筹码是“获利盘”，哪些是“套牢盘”
+        # 1. 严格按照收盘价，划分全市场的获利盘和套牢盘
+        #    这里不考虑当日价格波动，只看收盘后的最终状态。
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
 
-        # 2. 估算当日成交量中，有多少是由获利盘卖出的
-        # 假设：只有在当日价格区间内（low-high）的获利盘才可能参与交易
-        tradable_winners_df = winners_df[(winners_df['price'] >= low_price) & (winners_df['price'] <= high_price)]
-        # 假设：这些可交易的获利盘，其换手意愿与大盘平均换手率一致
-        # 这部分逻辑可以简化，直接估算当日成交量中，获利盘和套牢盘的贡献
+        # 2. 计算各自的总量（百分比）
+        total_winner_percent = winners_df['percent'].sum()
+        total_loser_percent = losers_df['percent'].sum()
         
-        # 简化估算模型：假设当日的成交，是按价格在筹码分布上均匀“刮”掉一层
-        # 找到当日成交价格区间内的所有筹码
-        trading_range_chips_df = self.df[(self.df['price'] >= low_price) & (self.df['price'] <= high_price)]
-        if trading_range_chips_df.empty:
-            return {}
+        # 3. 计算总的“已表态”筹码（排除掉那些成本价和收盘价完全一样的）
+        total_active_percent = total_winner_percent + total_loser_percent
 
-        # 在这个成交区间内，哪些是获利盘，哪些是套牢盘
-        chips_from_winners = trading_range_chips_df[trading_range_chips_df['price'] < close_price]
-        chips_from_losers = trading_range_chips_df[trading_range_chips_df['price'] > close_price]
+        # 4. 如果市场所有筹码成本都一样（total_active_percent为0），则无法计算，返回空
+        if total_active_percent == 0:
+            return {
+                'turnover_from_winners_ratio': None,
+                'turnover_from_losers_ratio': None,
+            }
 
-        total_chips_in_range = trading_range_chips_df['percent'].sum()
-        if total_chips_in_range == 0:
-            return {}
+        # 5. 计算各自在“已表态”筹码中的占比，这个比例就代表了它们贡献成交量的能力
+        winner_contribution_ratio = total_winner_percent / total_active_percent
+        loser_contribution_ratio = total_loser_percent / total_active_percent
 
-        # 计算比例
-        winner_contribution_ratio = chips_from_winners['percent'].sum() / total_chips_in_range
-        loser_contribution_ratio = chips_from_losers['percent'].sum() / total_chips_in_range
-        
-        # 最终指标是百分比形式
+        # 6. 转换为最终的百分比指标
         turnover_from_winners_ratio = winner_contribution_ratio * 100
         turnover_from_losers_ratio = loser_contribution_ratio * 100
 
