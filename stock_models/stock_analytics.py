@@ -11,6 +11,7 @@ class DecimalEncoder(json.JSONEncoder):
             return float(o)
         return super().default(o)
 
+# 已作废
 class TrendFollowStrategySignalLog(models.Model):
     """
     【V3.2 优化版】策略信号日志模型。
@@ -96,6 +97,7 @@ class TrendFollowStrategySignalLog(models.Model):
         return (f"[{self.strategy_name}/{self.timeframe}] {self.stock.stock_code} @ "
                 f"{self.trade_time.strftime('%Y-%m-%d %H:%M')} - {signal_type}")
 
+# 已作废
 class FavoriteStockTracker(models.Model):
     """
     【V3.1 迁移兼容版】
