@@ -387,11 +387,6 @@ class Migration(migrations.Migration):
                 'ordering': ['-trade_time', 'stock'],
             },
         ),
-        migrations.AddField(
-            model_name='signalplaybookdetail',
-            name='signal',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='stock_models.tradingsignal'),
-        ),
         migrations.CreateModel(
             name='PositionTracker',
             fields=[
@@ -2810,45 +2805,5 @@ class Migration(migrations.Migration):
                 'ordering': ['-trade_time'],
                 'unique_together': {('ths_index', 'trade_time')},
             },
-        ),
-        migrations.AddConstraint(
-            model_name='thsindexmember',
-            constraint=models.UniqueConstraint(fields=('ths_index', 'stock'), name='unique_index_stock'),
-        ),
-        migrations.AlterUniqueTogether(
-            name='topinst',
-            unique_together={('trade_date', 'stock', 'exalter', 'side', 'reason')},
-        ),
-        migrations.AlterUniqueTogether(
-            name='toplist',
-            unique_together={('trade_date', 'stock', 'reason')},
-        ),
-        migrations.AlterUniqueTogether(
-            name='tradingsignal',
-            unique_together={('stock', 'trade_time', 'timeframe', 'strategy_name')},
-        ),
-        migrations.AlterUniqueTogether(
-            name='signalplaybookdetail',
-            unique_together={('signal', 'playbook')},
-        ),
-        migrations.AlterUniqueTogether(
-            name='favoritestocktracker',
-            unique_together={('user', 'stock', 'entry_signal')},
-        ),
-        migrations.AlterUniqueTogether(
-            name='dailypositionsnapshot',
-            unique_together={('position', 'snapshot_date')},
-        ),
-        migrations.AddIndex(
-            model_name='trendfollowstrategysignallog',
-            index=models.Index(fields=['stock', 'timeframe', 'exit_signal_code', 'trade_time'], name='idx_stock_tf_sell_time'),
-        ),
-        migrations.AddIndex(
-            model_name='trendfollowstrategysignallog',
-            index=models.Index(fields=['entry_signal', 'timeframe', 'stock'], name='idx_entry_tf_stock'),
-        ),
-        migrations.AddIndex(
-            model_name='trendfollowstrategysignallog',
-            index=models.Index(fields=['trade_time', 'entry_score'], name='idx_trade_time_score'),
         ),
     ]
