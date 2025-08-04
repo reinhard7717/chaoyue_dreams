@@ -1526,7 +1526,7 @@ class IntelligenceLayer:
         
         # 3. 如果有情报缺失，则发出详细警报并安全退出
         if missing_intelligence:
-            print(f"    -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
+            print(f"    -> [探针警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
             print(f"       -> [探针报告] 缺失的情报清单: {missing_intelligence}")
             return {}
 
