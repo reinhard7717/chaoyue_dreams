@@ -369,16 +369,21 @@ def save_month_data_yesterday_task(cache_manager=None):
 @with_cache_manager
 def save_cyq_chips_today_batch(cache_manager=None):
     """
-    从Tushare批量获取实时分钟级交易数据并保存到数据库（异步并发处理）
-    Args:
-        stock_codes: 股票代码列表
+    [修改] 从Tushare批量获取【当天】的筹码分布数据并保存（异步并发处理）
     """
+    # DAO的初始化保持不变，它已经包含了 limiter
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     today_date = timezone.now().date()
+
     async def main():
-        return await stock_time_trade_dao.save_all_cyq_chips_history(trade_date=today_date)
+        # [修改] 调用新的并发方法
+        # 为了获取当天数据，我们将 trade_date 参数传入
+        print(f"开始执行并发任务，获取 {today_date} 的筹码分布数据...")
+        return await stock_time_trade_dao.save_all_cyq_chips_history_concurrent(trade_date=today_date)
+
+    # 使用 async_to_sync 运行异步主函数
     result = async_to_sync(main)()
-    print(f"保存 每日筹码分布 数据完成。 result: {result} ")
+    print(f"保存 {today_date} 每日筹码分布数据任务完成。 result: {result} ")
 
 @celery_app.task(queue='SaveHistoryData_TimeTrade', rate_limit='180/m')
 @with_cache_manager

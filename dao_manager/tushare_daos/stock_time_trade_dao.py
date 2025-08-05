@@ -3,6 +3,7 @@ import asyncio
 from decimal import Decimal
 import logging
 import time
+from aiolimiter import AsyncLimiter
 from django.db.models import QuerySet
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Optional
@@ -36,7 +37,7 @@ class StockTimeTradeDAO(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
+        self.limiter = AsyncLimiter(195, 60)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.cache_limit = 500 # 定义缓存数量上限
 
@@ -1555,7 +1556,6 @@ class StockTimeTradeDAO(BaseDAO):
         # [修改] 第一步：根据股票代码动态获取对应的分表Model
         target_model = self.get_cyq_chips_model_by_code(stock_code)
         print(f"DAO: 正在为股票 {stock_code} 从数据表 {target_model.__name__} 查询筹码分布历史。")
-        
         # [修改] 第二步：直接使用动态获取的Model进行数据库查询
         # 注意：
         # 1. 使用 target_model.objects 进行查询。
@@ -1564,8 +1564,6 @@ class StockTimeTradeDAO(BaseDAO):
         stock_cyq_chips_queryset = target_model.objects.filter(
             stock__stock_code=stock_code
         ).order_by('-trade_time')[:self.cache_limit] # 保留了原有的查询数量限制
-        
-        # [修改] 直接返回从数据库中获取的Django QuerySet对象
         return stock_cyq_chips_queryset
 
     # 每日筹码分布
@@ -1576,12 +1574,12 @@ class StockTimeTradeDAO(BaseDAO):
         2. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
         3. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep，防止阻塞事件循环。
         4. [重构] 重构批处理机制，以适应分表场景。
+        5. [修改] 引入 aiolimiter 进行专业、高效的API限流，替换固定的 asyncio.sleep。
         """
         # --- 日期字符串格式化 (无变化) ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         initial_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         all_stocks = await self.stock_basic_dao.get_stock_list()
         if not all_stocks:
             logger.warning("股票基础信息列表为空，任务终止。")
@@ -1607,13 +1605,17 @@ class StockTimeTradeDAO(BaseDAO):
                         limit_hit = True
                         break
                     try:
-                        df = self.ts_pro.cyq_chips(**{
-                            "ts_code": stock.stock_code, "trade_date": trade_date_str, 
-                            "start_date": start_date_str, "end_date": current_end_date_str, 
-                            "limit": limit, "offset": offset
-                        }, fields=["ts_code", "trade_date", "price", "percent"])
-                        # [修改] 使用异步sleep，并调整为标准限速值
-                        await asyncio.sleep(0.6)
+                        # [修改] 使用 aiolimiter 作为异步上下文管理器来包裹API调用
+                        # 这是更专业、高效和健壮的限流方式
+                        async with self.limiter:
+                            print(f"正在请求 {stock.stock_code} 的数据, offset={offset}...") # 调试信息
+                            df = self.ts_pro.cyq_chips(**{
+                                "ts_code": stock.stock_code, "trade_date": trade_date_str,
+                                "start_date": start_date_str, "end_date": current_end_date_str,
+                                "limit": limit, "offset": offset
+                            }, fields=["ts_code", "trade_date", "price", "percent"])
+                        # [删除] 不再需要手动的、不精确的 sleep
+                        # await asyncio.sleep(0.4)
                     except Exception as e:
                         logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
                         await asyncio.sleep(5) # 异常时等待更久
@@ -1681,11 +1683,61 @@ class StockTimeTradeDAO(BaseDAO):
         # 因为存在多次保存，返回单一结果已无意义，故返回None
         return None
 
+    async def save_all_cyq_chips_history_concurrent(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
+        """
+        [新增] 并发保存全市场股票的每日筹码分布数据。
+        该方法获取所有股票列表，为每只股票创建一个 `save_cyq_chips_for_stock` 协程任务，
+        并使用 asyncio.gather 并发执行它们。共享的 self.limiter 会确保所有并发任务
+        的API总请求数不会超过限制。
+        """
+        # 1. 获取所有股票列表 (假设 self.stock_basic_dao.get_stock_list 是一个异步方法)
+        all_stocks = await self.stock_basic_dao.get_stock_list()
+        if not all_stocks:
+            logger.warning("股票基础信息列表为空，任务终止。")
+            return
+
+        # 2. 为每只股票创建一个协程任务
+        tasks = []
+        for stock in all_stocks:
+            # 注意：这里我们只创建协程对象，并不立即执行它
+            # trade_date 在 cyq_chips 接口中没有直接作用，主要是通过 start_date 和 end_date 控制范围
+            # 如果只想获取某一天，可以将 start_date 和 end_date 设置为同一天
+            effective_start_date = trade_date if trade_date else start_date
+            effective_end_date = trade_date if trade_date else end_date
+            
+            task = self.save_cyq_chips_for_stock(
+                stock=stock,
+                start_date=effective_start_date,
+                end_date=effective_end_date
+            )
+            tasks.append(task)
+
+        print(f"准备并发处理 {len(tasks)} 只股票的筹码分布数据...")
+
+        # 3. 使用 asyncio.gather 并发执行所有任务
+        # return_exceptions=True 是一个非常重要的参数，它能防止一个任务的失败导致所有任务被取消。
+        # 它会将成功的结果和失败的异常都收集到返回的列表中。
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 4. (可选但推荐) 处理执行结果，检查是否有异常发生
+        success_count = 0
+        error_count = 0
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                error_count += 1
+                # 获取对应失败任务的股票代码用于日志记录
+                failed_stock_code = all_stocks[i].stock_code
+                logger.error(f"处理股票 {failed_stock_code} 时发生错误: {result}")
+            else:
+                success_count += 1
+        
+        print(f"所有股票筹码分布数据并发处理完成。成功: {success_count}，失败: {error_count}。")
+
     async def save_cyq_chips_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
         """
         保存单只股票的每日筹码分布数据（已支持分表和10万行追溯）。
+        [修改] 使用 aiolimiter 进行API限流，以支持安全的并发执行。
         """
-        # ... 数据获取部分无变化，为简洁省略 ...
         print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
@@ -1701,13 +1753,18 @@ class StockTimeTradeDAO(BaseDAO):
                     limit_hit = True
                     break
                 try:
-                    df = self.ts_pro.cyq_chips(**{
-                        "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": current_end_date_str, "limit": limit, "offset": offset
-                    }, fields=["ts_code", "trade_date", "price", "percent"])
-                    await asyncio.sleep(0.7)
+                    # [修改] 使用在 __init__ 中定义的 self.limiter 来包裹API调用
+                    # 这样所有并发的 save_cyq_chips_for_stock 任务将共享同一个速率限制器
+                    async with self.limiter:
+                        print(f"正在请求 {stock.stock_code} 的数据, offset={offset}...") # 调试信息
+                        df = self.ts_pro.cyq_chips(**{
+                            "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": current_end_date_str, "limit": limit, "offset": offset
+                        }, fields=["ts_code", "trade_date", "price", "percent"])
+                    # [删除] 不再需要固定的 sleep
+                    # await asyncio.sleep(0.7)
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}")
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(5) # 异常时仍然等待
                     df = pd.DataFrame()
                 if df.empty:
                     break
@@ -1729,6 +1786,8 @@ class StockTimeTradeDAO(BaseDAO):
         if not all_dfs_for_stock:
             print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
             return
+
+        # --- 数据处理和保存部分无变化 ---
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
@@ -1739,15 +1798,15 @@ class StockTimeTradeDAO(BaseDAO):
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
-        # [修改] 在保存前，根据股票代码动态选择目标数据表Model
         target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
         print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
-        return await self._save_all_to_db_native_upsert(
-            model_class=target_model, # [修改] 使用动态选择的Model
+        # 注意：这里的保存操作也应该是异步的，以避免阻塞事件循环
+        await self._save_all_to_db_native_upsert(
+            model_class=target_model,
             data_list=data_list,
             unique_fields=['stock', 'trade_time', 'price']
         )
-
+        print(f"DAO: {stock.stock_code} 数据保存成功。")
 
 
 

@@ -474,9 +474,18 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(seconds=15),
         'options': {'queue': 'intraday_queue'},
     },
+    '每天运行一次保存股票列表数据任务': {
+        'task': 'tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task',
+        'schedule': crontab(minute=21, hour=18, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'celery'}, # 指定队列为 celery
+    },
+    '每天运行一次筹码高级指标任务': {
+        'task': 'tasks.tushare.stock_analysis_tasks.schedule_precompute_advanced_chips',
+        'schedule': crontab(minute=41, hour=19, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'celery'}, # 指定队列为 celery
+    },
     'run-strategy': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
-        # 每天9:30-21:30，每5分钟执行一次
         'schedule': crontab(hour=19, minute=51, day_of_week='1-5'),
     },
     'save_stocks_minute_data_realtime_task_1min': {
@@ -1061,12 +1070,6 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(hour=15, minute=1, day_of_week='1-5'),
         'kwargs': {'time_level': '60'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
-    },
-
-    '每天运行一次保存股票列表数据任务': {
-        'task': 'tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task',
-        'schedule': crontab(minute=1, hour=19, day_of_week='mon,tue,wed,thu,fri'),  # 每天凌晨1点执行
-        'options': {'queue': 'celery'}, # 指定队列为 celery
     },
 }
 
