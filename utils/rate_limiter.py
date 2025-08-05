@@ -6,7 +6,7 @@ import uuid
 import threading # MODIFIED: 导入threading
 from redis.asyncio.client import Pipeline
 from django.conf import settings
-from apps.common.cache.cache_manager import CacheManager
+from utils.cache_manager import CacheManager
 import logging
 
 logger = logging.getLogger(__name__)
