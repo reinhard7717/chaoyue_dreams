@@ -238,6 +238,30 @@ INDICATOR_PARAMETERS_CONFIG_PATH = str(BASE_DIR / 'config' / 'indicator_paramete
 # 默认主键字段类型
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+API_RATE_LIMITS = {
+    # 为未明确配置的API提供一个安全的默认值
+    'DEFAULT': {
+        'MAX_CALLS': 100,  # 默认每分钟100次
+        'PERIOD': 60,
+    },
+    # 为CYQ筹码接口定义专门的速率
+    'api_cyq_chips': {
+        'MAX_CALLS': 200,
+        'PERIOD': 60,
+    },
+    # 示例：为另一个财务数据接口定义不同的速率
+    'api_financial_data': {
+        'MAX_CALLS': 50,   # 假设这个接口更严格，每分钟50次
+        'PERIOD': 60,
+    },
+    # 你可以在这里添加任意多的API接口速率配置
+    'api_realtime_quote': {
+        'MAX_CALLS': 500,  # 假设这个接口限制更高
+        'PERIOD': 60,
+    },
+}
+
+
 # 日志配置
 LOGGING = {
     'version': 1,
