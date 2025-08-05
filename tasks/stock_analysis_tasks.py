@@ -156,7 +156,7 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
         logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='celery')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='calculate_strategy')
 @with_cache_manager
 def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
     """

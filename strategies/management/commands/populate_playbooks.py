@@ -54,13 +54,14 @@ class Command(BaseCommand):
         """
         self.stdout.write(self.style.SUCCESS('🚀 Starting Playbook population process (V2.1 Signal Dictionary Adapter)...'))
 
-        config = load_strategy_config('trend_follow_strategy')
+        try:
+            config = load_strategy_config('config/trend_follow_strategy.json')
+        except FileNotFoundError:
+            self.stderr.write(self.style.ERROR("错误: 无法在 'config/trend_follow_strategy.json' 找到配置文件。请确认文件是否存在。"))
+            return
         scoring_params = config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
-        
-        # --- 代码修改开始 ---
-        # [修改原因] V2.1 适配：直接加载 score_type_map
+
         score_type_map = scoring_params.get('score_type_map', {})
-        # --- 代码修改结束 ---
 
         self.stdout.write('  -> Fetching existing playbooks from database...')
         existing_playbooks_map = {p.name: p for p in Playbook.objects.all()}
