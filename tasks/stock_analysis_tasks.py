@@ -78,7 +78,6 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
     logger.info("="*80)
 
     async def main():
-        print(f"DEBUG: [{stock_code}] debug_stock_over_period 正在使用由装饰器注入的 CacheManager。")
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         # 执行业务逻辑
         await strategy_orchestrator.debug_run_for_period(
@@ -112,7 +111,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
     """
     async def main():
         # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
-        print(f"DEBUG: [{stock_code}] run_multi_timeframe_strategy 正在使用由装饰器注入的 CacheManager。")
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
@@ -267,8 +265,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         non_favorite_codes = []
         async def main():
             nonlocal favorite_codes, non_favorite_codes
-            # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
-            print("DEBUG: analyze_all_stocks 正在使用由装饰器注入的 CacheManager。")
             stock_basic_dao = StockBasicInfoDao(cache_manager)
             fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             favorite_codes.extend(fav_codes)
@@ -317,8 +313,6 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 
         async def main():
             nonlocal favorite_codes, non_favorite_codes
-            # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
-            print("DEBUG: analyze_all_stocks_full_history 正在使用由装饰器注入的 CacheManager。")
             stock_basic_dao = StockBasicInfoDao(cache_manager)
             fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             favorite_codes.extend(fav_codes)
@@ -364,8 +358,6 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
         all_codes = []
         async def main():
             nonlocal all_codes
-            # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
-            print("DEBUG: schedule_precompute_advanced_chips 正在使用由装饰器注入的 CacheManager。")
             stock_basic_dao = StockBasicInfoDao(cache_manager)
             favorite_codes, non_favorite_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             all_codes.extend(favorite_codes)
@@ -391,8 +383,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     【执行器 V10.4 - 装饰器重构版】
     - 核心修改: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
     """
-    # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例创建DAO
-    print(f"DEBUG: [{stock_code}] precompute_advanced_chips_for_stock 正在使用由装饰器注入的 CacheManager。")
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main(time_dao, incremental_flag: bool):
         mode = "增量更新" if incremental_flag else "全量刷新"
@@ -444,7 +434,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             }
             results = await asyncio.gather(*data_tasks.values())
             data_dfs = dict(zip(data_tasks.keys(), results))
-            logger.info(f"[{stock_code}] 正在执行法务级数据审计...")
+            # logger.info(f"[{stock_code}] 正在执行法务级数据审计...")
             cyq_chips_df = data_dfs.get("cyq_chips")
             if cyq_chips_df is None or cyq_chips_df.empty:
                 logger.error(f"[{stock_code}] [审计失败] 黄金标准数据源 'cyq_chips' 为空！任务终止。")
@@ -470,7 +460,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                                    f"缺失了 {len(missing_in_source)} 个交易日的数据。 "
                                    f"缺失日期示例: {missing_in_source[:5]}...")
                     audit_warnings.append(warning_msg)
-            logger.info(f"[{stock_code}] 正在执行二级法务审计 (值有效性检查)...")
+            # logger.info(f"[{stock_code}] 正在执行二级法务审计 (值有效性检查)...")
             daily_data_df = other_essential_dfs['daily_data']
             required_cols_in_daily = ['close_qfq', 'vol', 'high_qfq', 'low_qfq']
             if daily_data_df[required_cols_in_daily].isnull().values.any():
