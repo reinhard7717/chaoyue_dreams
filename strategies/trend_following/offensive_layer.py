@@ -80,7 +80,7 @@ class OffensiveLayer:
             signal_series = trigger_events.get(signal_name, default_series)
             if signal_series.any():
                 entry_score.loc[signal_series] += score
-                score_details_df[f'trg_{signal_name}'] = signal_series * score
+                score_details_df[signal_name] = signal_series * score
         
         # print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
         
