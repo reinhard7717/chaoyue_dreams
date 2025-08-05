@@ -107,6 +107,18 @@ def trend_following_list(request):
     - 核心修复: 恢复并确认了正确的筛选逻辑 `selected_pks_set.issubset(...)`，并确保比较时双方都使用字符串类型的主键。
     """
 
+    # 1. 动态加载配置文件并获取主策略名称
+    try:
+        unified_config = load_strategy_config('config/trend_follow_strategy.json')
+        strategy_info = unified_config.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
+        main_strategy_name = strategy_info.get('name', {}).get('value')
+        if not main_strategy_name:
+            logger.warning("未能从配置文件中找到主策略名称，可能导致信号列表不准确。")
+    except Exception as e:
+        main_strategy_name = None
+        logger.error(f"加载策略配置失败: {e}", exc_info=True)
+
+    # 2. 获取最新的交易日期范围 (逻辑不变)
     latest_trade_day_obj = TradeCalendar.objects.filter(
         is_open=True,
         cal_date__lte=timezone.now().date()
@@ -129,11 +141,18 @@ def trend_following_list(request):
                 query_conditions.append(Q(trade_time__gte=start_of_day, trade_time__lt=end_of_day))
             combined_query = functools.reduce(operator.or_, query_conditions)
 
-            latest_buy_signals = TradingSignal.objects.filter(
+            # 3. 构建基础查询，并应用主策略名称过滤器
+            base_query = TradingSignal.objects.filter(
                 combined_query,
                 signal_type='BUY',
                 timeframe='D'
-            ).select_related('stock').prefetch_related(
+            )
+            
+            # 【核心修复】只查询主策略的信号
+            if main_strategy_name:
+                base_query = base_query.filter(strategy_name=main_strategy_name)
+            
+            latest_buy_signals = base_query.select_related('stock').prefetch_related(
                 Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
             ).order_by('-trade_time', '-entry_score')
 
