@@ -371,41 +371,56 @@ def save_month_data_yesterday_task(cache_manager=None):
 # --- 1. 执行器任务 (Executor Task) ---
 # 这个任务是真正干活的，只处理单个股票
 @celery_app.task(
-    name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_chips', # 新增任务名
-    queue="SaveHistoryData_TimeTrade", # 使用你的数据队列
-    autoretry_for=(Exception,),      # 开启自动重试
-    retry_kwargs={'max_retries': 3}, # 最多重试3次
-    retry_backoff=True,              # 重试时增加等待时间
-    retry_backoff_max=300            # 最长等待300秒
+    name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_chips',
+    queue="SaveHistoryData_TimeTrade",
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3},
+    retry_backoff=True,
+    retry_backoff_max=300
 )
 @with_cache_manager
 def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_manager=None):
     """
     【执行器】获取并保存【单个】股票在【指定日期】的CYQ筹码分布数据。
-    速率限制逻辑已封装在DAO层。
+    [修改] 适配新的DAO方法，先获取StockInfo对象再调用。
     """
-    try:
+    print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, date={trade_date_str}")
+
+    async def _async_task():
+        """将所有异步逻辑封装在一个协程中"""
+        # MODIFIED: 实例化两个DAO
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+        
+        # MODIFIED: 1. 将 stock_code 转换为 StockInfo 对象
+        # DAO需要StockInfo对象，而不是stock_code字符串
+        stock_obj = await stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock_obj:
+            logger.warning(f"执行器[CYQ Chips]: 未找到股票 {stock_code} 的信息，任务终止。")
+            return
+
+        # MODIFIED: 2. 解析日期字符串
         trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        
-        # 打印调试信息，方便追踪
-        print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, date={trade_date}")
-        
-        # 使用 async_to_sync 调用异步的DAO方法
-        # 注意：这里假设你的DAO中有一个 save_cyq_chips_for_stock 方法
-        # 它接收 stock_code 和 trade_date
-        async_to_sync(stock_time_trade_dao.save_cyq_chips_for_stock)(
-            stock_code=stock_code, 
-            trade_date=trade_date
+
+        # MODIFIED: 3. 调用新的DAO方法
+        # - 传入 stock=stock_obj 对象
+        # - 将单个日期同时用于 start_date 和 end_date
+        # - @with_rate_limit 装饰器会自动处理 limiter 参数，此处无需传递
+        await stock_time_trade_dao.save_cyq_chips_for_stock(
+            stock=stock_obj, 
+            start_date=trade_date
         )
-        print(f"执行器任务[CYQ Chips]完成: stock={stock_code}, date={trade_date}")
+
+    try:
+        # MODIFIED: 使用 asyncio.run() 来执行异步逻辑
+        asyncio.run(_async_task())
+        print(f"执行器任务[CYQ Chips]完成: stock={stock_code}, date={trade_date_str}")
     except Exception as e:
         logger.error(f"执行器任务[CYQ Chips]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
-        # 异常会被Celery的autoretry捕获并处理
-        raise
+        raise # 重新抛出异常，以便Celery的autoretry机制接管
 
 @celery_app.task(
-    name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_perf', # 新增任务名
+    name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_perf',
     queue="SaveHistoryData_TimeTrade",
     autoretry_for=(Exception,),
     retry_kwargs={'max_retries': 3},
@@ -416,54 +431,60 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_mana
 def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manager=None):
     """
     【执行器】获取并保存【单个】股票在【指定日期】的CYQ筹码及胜率数据。
+    [修改] 适配新的DAO方法，先获取StockInfo对象再调用。
     """
-    try:
+    print(f"执行器任务[CYQ Perf]启动: stock={stock_code}, date={trade_date_str}")
+
+    async def _async_task():
+        """将所有异步逻辑封装在一个协程中"""
+        # MODIFIED: 实例化两个DAO
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+
+        # MODIFIED: 1. 将 stock_code 转换为 StockInfo 对象
+        stock_obj = await stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock_obj:
+            logger.warning(f"执行器[CYQ Perf]: 未找到股票 {stock_code} 的信息，任务终止。")
+            return
+
+        # MODIFIED: 2. 解析日期字符串
         trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        
-        print(f"执行器任务[CYQ Perf]启动: stock={stock_code}, date={trade_date}")
-        
-        # 假设DAO中有 save_cyq_perf_for_stock 方法
-        async_to_sync(stock_time_trade_dao.save_cyq_perf_for_stock)(
-            stock_code=stock_code, 
-            trade_date=trade_date
+
+        # MODIFIED: 3. 调用新的DAO方法
+        await stock_time_trade_dao.save_cyq_perf_for_stock(
+            stock=stock_obj, 
+            start_date=trade_date
         )
-        print(f"执行器任务[CYQ Perf]完成: stock={stock_code}, date={trade_date}")
+
+    try:
+        # MODIFIED: 使用 asyncio.run() 来执行异步逻辑
+        asyncio.run(_async_task())
+        print(f"执行器任务[CYQ Perf]完成: stock={stock_code}, date={trade_date_str}")
     except Exception as e:
         logger.error(f"执行器任务[CYQ Perf]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
-        raise
+        raise # 重新抛出异常，以便Celery的autoretry机制接管
+
 
 # --- 2. 分发器任务 (Dispatcher Task) ---
-# 这个任务获取股票列表，并为每只股票创建上面的执行器任务
+# 此任务无需修改，其逻辑仍然正确
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery')
 def dispatch_cyq_tasks_for_date(trade_date_str: str):
     """
     【分发器】获取所有股票代码，并为指定日期分发CYQ筹码和胜率的执行器任务。
-    [修改] 使用 StockBasicInfoDao.get_stock_list 方法获取股票列表，以利用缓存。
+    [无需修改] 使用 StockBasicInfoDao.get_stock_list 方法获取股票列表，以利用缓存。
     """
     print(f"分发器任务启动，准备为日期 {trade_date_str} 分发CYQ任务...")
     
     try:
-        # MODIFIED: 使用 asyncio.run() 来调用异步的 DAO 方法
         def _get_stocks_from_dao():
-            """定义一个内部函数来执行异步操作，使其更清晰"""
             async def _async_get():
-                # 1. 实例化 CacheManager 和 DAO
                 cache_manager = CacheManager()
                 stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
-                
                 print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
-                # 2. 调用异步的 DAO 方法
-                stock_list = await stock_dao.get_stock_list() # 返回的是 StockInfo 对象列表
-                
-                # 3. 从对象列表中提取股票代码
-                #    get_stock_list 内部已经过滤了非上市股票 ('L')
+                stock_list = await stock_dao.get_stock_list()
                 return [stock.stock_code for stock in stock_list]
-
-            # 4. 使用 asyncio.run() 在同步的 Celery 任务中执行异步代码
             return asyncio.run(_async_get())
 
-        # 执行上述定义的函数来获取股票代码列表
         all_stock_codes = _get_stocks_from_dao()
         
         if not all_stock_codes:
@@ -473,8 +494,8 @@ def dispatch_cyq_tasks_for_date(trade_date_str: str):
         count = len(all_stock_codes)
         print(f"分发器：通过DAO获取到 {count} 只股票，开始为每只股票分发两个CYQ执行器任务...")
         
-        # 任务分发逻辑保持不变
         for stock_code in all_stock_codes:
+            # 调用上面修改后的执行器任务
             save_single_stock_cyq_chips.delay(stock_code=stock_code, trade_date_str=trade_date_str)
             save_single_stock_cyq_perf.delay(stock_code=stock_code, trade_date_str=trade_date_str)
             
@@ -485,10 +506,7 @@ def dispatch_cyq_tasks_for_date(trade_date_str: str):
         
     except Exception as e:
         logger.error(f"分发器任务失败，日期: {trade_date_str}, error: {e}", exc_info=True)
-        # 可以在这里增加重试逻辑，如果需要的话
-        # raise self.retry(exc=e, countdown=60)
         return {"status": "error", "message": str(e)}
-
 # --- 3. 调度器任务 (Scheduler Task) ---
 # 这个任务由Celery Beat调用，它只负责调用分发器
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_today_task', queue='celery')
