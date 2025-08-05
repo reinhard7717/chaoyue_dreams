@@ -499,7 +499,7 @@ class IntelligenceLayer:
                     新增 S级“恐慌加速”风险 和 A级“卖盘衰竭”机会，
                     使风险评估体系具备了预测趋势拐点的能力。
         """
-        print("        -> [高级筹码风险与行为诊断模块 V341.2 加速度增强版] 启动...")
+        # print("        -> [高级筹码风险与行为诊断模块 V341.2 加速度增强版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -1704,7 +1704,7 @@ class IntelligenceLayer:
             - OPP_FIB_SUPPORT_GOLDEN_POCKET_S: 在0.618黄金分割位获得支撑的S级信号。
             - OPP_FIB_SUPPORT_STANDARD_A: 在0.382或0.5标准分割位获得支撑的A级信号。
         """
-        print("        -> [斐波那契支撑诊断模块] 启动...")
+        # print("        -> [斐波那契支撑诊断模块] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -2171,7 +2171,7 @@ class IntelligenceLayer:
                     2. 对回踩的“性质”进行分类（健康的、打压式的等）。
                     3. 输出不同性质的、中立的原子状态，供下游决策。
         """
-        print("        -> [统一回踩诊断中心 V500.0] 启动...")
+        # print("        -> [统一回踩诊断中心 V500.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         # 使用统一的参数块
@@ -2317,7 +2317,7 @@ class IntelligenceLayer:
         - 核心重构: 职责被简化为“行为合成”。它消费已有的“战场上下文”和
                     “筹码动态”情报，将其融合成顶层的战术信号。
         """
-        print("        -> [顶部行为合成模块 V331.1] 启动...")
+        # print("        -> [顶部行为合成模块 V331.1] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 

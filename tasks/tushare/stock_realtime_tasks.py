@@ -179,9 +179,6 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     """
     if not is_trading_time():
         return
-    
-    logger.info(f"任务启动: 统一调度器 save_stocks_tick_data_task 启动...")
-    
     # 1. 获取需要处理的股票列表
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_codes, non_favorite_codes = async_to_sync(

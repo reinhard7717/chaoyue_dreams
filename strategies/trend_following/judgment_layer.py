@@ -70,7 +70,7 @@ class JudgmentLayer:
         【V504.0 三道防线集成版】
         - 核心修改: 集成了新的“三道防线”离场逻辑，并确保其与现有买入逻辑正确衔接。
         """
-        print("    --- [最高作战指挥部 V504.0 三道防线集成版] 启动... ---")
+        # print("    --- [最高作战指挥部 V504.0 三道防线集成版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

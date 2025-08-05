@@ -146,7 +146,7 @@ class WarningLayer:
                     2. 调用“成分诊断大脑”进行结构分析。
                     3. 将两大引擎的分析结果合并，生成一份包含“成分+动量”的终极健康报告。
         """
-        print("        -> [风险指挥官 V503.0] 启动...")
+        # print("        -> [风险指挥官 V503.0] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         

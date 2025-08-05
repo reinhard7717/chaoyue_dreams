@@ -43,7 +43,7 @@ class ReportingLayer:
         【V506.2 配置探针版】
         - 核心升级: 增加了“配置探针”，用于在运行时打印出 `save_all_days` 开关的实际读取情况。
         """
-        print(f"      -> [战报司令部 V506.2 - 配置探针模式] 启动...")
+        # print(f"      -> [战报司令部 V506.2 - 配置探针模式] 启动...")
         await self._ensure_playbooks_cached()
         
         # 初始化四种返回列表
