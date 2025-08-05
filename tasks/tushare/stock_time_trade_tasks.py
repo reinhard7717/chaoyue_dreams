@@ -372,7 +372,7 @@ def save_month_data_yesterday_task(cache_manager=None):
 # 这个任务是真正干活的，只处理单个股票
 @celery_app.task(
     name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_chips', # 新增任务名
-    queue=STOCKS_SAVE_API_DATA_QUEUE, # 使用你的数据队列
+    queue="SaveHistoryData_TimeTrade", # 使用你的数据队列
     autoretry_for=(Exception,),      # 开启自动重试
     retry_kwargs={'max_retries': 3}, # 最多重试3次
     retry_backoff=True,              # 重试时增加等待时间
@@ -406,7 +406,7 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_mana
 
 @celery_app.task(
     name='tasks.tushare.stock_time_trade_tasks.save_single_stock_cyq_perf', # 新增任务名
-    queue=STOCKS_SAVE_API_DATA_QUEUE,
+    queue="SaveHistoryData_TimeTrade",
     autoretry_for=(Exception,),
     retry_kwargs={'max_retries': 3},
     retry_backoff=True,
