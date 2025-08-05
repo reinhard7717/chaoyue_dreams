@@ -51,10 +51,6 @@ class ReportingLayer:
         signal_details_to_create = []
         daily_scores_to_create = []
         score_components_to_create = []
-
-        # --- 配置探针 Section 1: 读取配置 ---
-        # 注意：这里的 params 是从 _run_tactical_engine 传入的 self.tactical_engine.unified_config
-        # 我们直接从顶层 params 开始查找
         strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
         save_all_days_config_block = strategy_info.get('save_all_days')
         save_all_days = get_param_value(save_all_days_config_block, False) # 使用工具函数解析
@@ -63,11 +59,6 @@ class ReportingLayer:
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
 
-        # --- 配置探针 Section 2: 打印诊断信息 ---
-        print(f"        -> [配置探针] 正在检查 'save_all_days' 开关...")
-        print(f"        [探针]   - 'strategy_info' 配置块内容: {strategy_info}")
-        print(f"        [探针]   - 'save_all_days' 配置块内容: {save_all_days_config_block}")
-        print(f"        [探针]   - 最终解析出的 'save_all_days' 值: {save_all_days} (类型: {type(save_all_days)})")
 
         # --- Part 1: 生成 TradingSignal (事件驱动信号) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
@@ -108,7 +99,6 @@ class ReportingLayer:
 
         # --- Part 2: 生成 StrategyDailyScore (全量每日分数) ---
         if save_all_days:
-            print(f"        -> [全量预计算] 开关为True，已进入每日分数生成流程。将为 {len(result_df)} 天生成记录。")
             for trade_time, row in result_df.iterrows():
                 daily_score_obj = StrategyDailyScore(
                     stock_id=stock_code,
@@ -152,10 +142,6 @@ class ReportingLayer:
         else:
             print(f"        -> [全量预计算] 开关为False，已跳过每日分数生成流程。")
 
-        print(f"      -> [战报司令部 V506.2] 构建完成。")
-        print(f"         - 交易信号: {len(signals_to_create)} 条, 信号详情: {len(signal_details_to_create)} 条")
-        print(f"         - 每日分数: {len(daily_scores_to_create)} 条, 分数成分: {len(score_components_to_create)} 条")
-        
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create)
 
 
