@@ -1,8 +1,10 @@
 # apps/utils/rate_limiter.py
 
+import os
 import time
 import asyncio
 import uuid
+import functools
 import threading # MODIFIED: 导入threading
 from redis.asyncio.client import Pipeline
 from django.conf import settings
