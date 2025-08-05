@@ -51,72 +51,54 @@ def replace(value, args):
 @register.simple_tag(takes_context=True)
 def query_builder(context, **kwargs):
     """
-    【V2.2 终极诊断版】
-    - 核心诊断: 加入大量打印语句，跟踪从模板接收到的上下文、参数以及每一步处理后的字典状态。
+    【V2.3 列表参数修复版】
+    - 核心修复: 修正了处理传入的列表类型参数（如 playbooks）的逻辑。
+                现在可以正确地将模板中传递的 playbooks=selected_playbooks
+                设置到 query_dict 中，确保分页和筛选可以同时工作。
     """
-    print("\n--- [Template Tag Debug] 'query_builder' 被调用 ---")
-    
-    # 诊断1: 检查上下文和请求对象是否存在
     request = context.get('request')
     if not request:
-        print("  [Debug-ERROR] 上下文中没有找到 'request' 对象！标签无法工作。")
         return "?"
     
-    print(f"  [Debug] 原始请求GET参数: {request.GET}")
-    print(f"  [Debug] 从模板接收到的kwargs: {kwargs}")
-
     # 复制当前请求的GET参数字典
     query_dict = request.GET.copy()
+    
+    # 优先处理 kwargs 中明确传入的参数，这会覆盖掉 request.GET 中的同名参数
+    for key, value in kwargs.items():
+        # 如果值是一个列表（比如 selected_playbooks），使用 setlist
+        if isinstance(value, list):
+            query_dict.setlist(key, value)
+        # 否则，直接设置
+        else:
+            query_dict[key] = str(value)
 
-    # 诊断2: 检查传入的 playbook ID
+    # 特殊处理 playbook 的添加/移除逻辑 (如果需要的话)
     add_playbook_val = kwargs.get('add_playbook')
     remove_playbook_val = kwargs.get('remove_playbook')
-    print(f"  [Debug] 解析到 add_playbook: {add_playbook_val} (类型: {type(add_playbook_val)})")
-    print(f"  [Debug] 解析到 remove_playbook: {remove_playbook_val} (类型: {type(remove_playbook_val)})")
-
-    # --- 核心逻辑，统一为字符串处理 ---
-    playbooks_list = query_dict.getlist('playbooks', [])
-    print(f"  [Debug] 当前URL中的playbooks列表 (字符串): {playbooks_list}")
-
-    if add_playbook_val is not None:
-        add_playbook_str = str(add_playbook_val)
-        if add_playbook_str not in playbooks_list:
-            playbooks_list.append(add_playbook_str)
-            print(f"  [Debug] 添加后，playbooks列表变为: {playbooks_list}")
-
-    if remove_playbook_val is not None:
-        remove_playbook_str = str(remove_playbook_val)
-        if remove_playbook_str in playbooks_list:
-            playbooks_list.remove(remove_playbook_str)
-            print(f"  [Debug] 移除后，playbooks列表变为: {playbooks_list}")
-
-    # 更新或清理字典中的 'playbooks'
-    if playbooks_list:
-        query_dict.setlist('playbooks', playbooks_list)
-    else:
-        query_dict.pop('playbooks', None)
     
-    print(f"  [Debug] 处理完playbooks后，query_dict: {query_dict}")
+    if add_playbook_val is not None or remove_playbook_val is not None:
+        playbooks_list = query_dict.getlist('playbooks', [])
+        if add_playbook_val is not None:
+            add_playbook_str = str(add_playbook_val)
+            if add_playbook_str not in playbooks_list:
+                playbooks_list.append(add_playbook_str)
 
-    # 处理其他参数，如 'page'
-    # 我们从 kwargs 中移除已经处理过的 playbook 参数
-    kwargs.pop('add_playbook', None)
-    kwargs.pop('remove_playbook', None)
-    for key, value in kwargs.items():
-        query_dict[key] = str(value)
-    
-    print(f"  [Debug] 处理完所有参数后，最终的query_dict: {query_dict}")
+        if remove_playbook_val is not None:
+            remove_playbook_str = str(remove_playbook_val)
+            if remove_playbook_str in playbooks_list:
+                playbooks_list.remove(remove_playbook_str)
+        
+        if playbooks_list:
+            query_dict.setlist('playbooks', playbooks_list)
+        else:
+            query_dict.pop('playbooks', None)
 
     # 生成最终URL
     if query_dict:
+        # doseq=True 确保列表参数被正确编码为 a=1&a=2 的形式
         final_url = f"?{urlencode(query_dict, doseq=True)}"
     else:
-        # 如果字典为空，返回一个干净的URL（指向当前路径，无参数）
-        # 在模板中，这通常意味着清除所有筛选
         final_url = "?" 
-    
-    print(f"  [Debug] 最终生成的URL后缀: {final_url}")
-    print("--- [Template Tag Debug] 'query_builder' 调用结束 ---\n")
     
     return final_url
 
