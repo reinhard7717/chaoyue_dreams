@@ -193,39 +193,43 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V406.1 剧本展开功能恢复版】
-    - 核心重构: 彻底废弃 FavoriteStockTracker，完全基于 PositionTracker 和 DailyPositionSnapshot 新模型。
-    - 性能优化: 使用 Prefetch 高效获取每个持仓的最新快照。
-    - 功能恢复: 在预加载 entry_signal 时，进一步预加载其关联的 playbooks，以支持前端的展开/隐藏功能。
+    【V407.0 驾驶舱重构版】
+    - 核心重构: 视图层负责所有的数据准备和计算，为模板提供可以直接渲染的、丰富的数据结构。
+    - 数据流:
+        1. 使用 Subquery 高效获取每个 PositionTracker 最新的 DailyPositionSnapshot。
+        2. 查询 PositionTracker，并预加载所有关联数据 (stock, entry_signal, playbooks, latest_snapshot, daily_score)。
+        3. 在 Python 中遍历查询结果，为每个 tracker 计算盈亏、分数变化等核心指标。
+        4. 将处理好的、包含所有展示信息的列表传递给模板。
+    - 新增功能: 实现了完整的盈亏计算和展示。
     """
-    # --- 代码修改开始 ---
-    # [修改原因] 恢复激活剧本的展开/隐藏功能
-    
-    # 步骤1: 准备一个 Prefetch 对象，用于高效获取每个持仓的“最新”快照
-    prefetch_latest_snapshot = Prefetch(
-        'snapshots',
-        queryset=DailyPositionSnapshot.objects.order_by('-snapshot_date'),
-        to_attr='latest_snapshot_list'
-    )
+    # 步骤 1: 创建一个子查询，用于获取每个追踪器最新的快照ID
+    # 这是Django ORM中进行此类查询的最高效方式
+    latest_snapshot_subquery = DailyPositionSnapshot.objects.filter(
+        tracker=OuterRef('pk')
+    ).order_by('-snapshot_date').values('pk')[:1]
 
-    # 步骤2: 准备一个 Prefetch 对象，用于高效获取建仓信号及其关联的剧本
-    # 这是恢复展开功能的关键
-    prefetch_entry_signal_with_playbooks = Prefetch(
-        'entry_signal',
-        queryset=TradingSignal.objects.prefetch_related('playbooks').all()
-    )
-
-    # 步骤3: 查询用户的所有持仓 PositionTracker
+    # 步骤 2: 主查询，使用 prefetch_related 和 select_related 优化数据库访问
     base_queryset = PositionTracker.objects.filter(
         user=request.user
+    ).annotate(
+        # 将最新的快照ID作为一个字段附加到每个Tracker上
+        latest_snapshot_id=Subquery(latest_snapshot_subquery)
     ).select_related(
-        'stock' # 预加载股票基本信息
+        'stock', 
+        'entry_signal', 
+        'exit_signal'
     ).prefetch_related(
-        prefetch_latest_snapshot, # 应用快照预加载
-        prefetch_entry_signal_with_playbooks # 应用带剧本的建仓信号预加载
+        # 预加载建仓信号的战法
+        Prefetch('entry_signal__playbooks', queryset=Playbook.objects.all()),
+        # 预加载最新快照及其关联的每日分数
+        Prefetch(
+            'snapshots',
+            queryset=DailyPositionSnapshot.objects.select_related('daily_score').filter(pk__in=Subquery(latest_snapshot_subquery)),
+            to_attr='latest_snapshot_list' # 将结果存入一个自定义属性
+        )
     )
 
-    # 步骤4: 状态筛选
+    # 步骤 3: 状态筛选 (逻辑不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
@@ -237,25 +241,52 @@ def fav_trend_following_list(request):
         page_title = '全部自选追踪' 
         queryset = base_queryset
 
-    # 步骤5: 排序
+    # 步骤 4: 排序 (逻辑不变)
     if status_filter == 'sold':
         ordered_queryset = queryset.order_by('-exit_date')
     else:
         ordered_queryset = queryset.order_by('-entry_date')
 
-    # 步骤6: 分页
-    paginator = Paginator(ordered_queryset, 25)
+    # 步骤 5: 【核心】在Python中处理数据，为模板准备一切
+    trackers_for_display = []
+    for tracker in ordered_queryset:
+        # 从预加载的结果中安全地获取最新快照
+        latest_snapshot = tracker.latest_snapshot_list[0] if tracker.latest_snapshot_list else None
+        
+        # 计算盈亏 (P/L)
+        if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
+            profit_loss = latest_snapshot.profit_loss
+            profit_loss_pct = latest_snapshot.profit_loss_pct
+        elif tracker.status == PositionTracker.Status.SOLD and tracker.exit_price is not None and tracker.entry_price is not None:
+            profit_loss = (tracker.exit_price - tracker.entry_price)
+            profit_loss_pct = ((tracker.exit_price / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0
+        else:
+            profit_loss = None
+            profit_loss_pct = None
+        
+        # 准备一个字典，包含所有模板需要的数据
+        tracker_data = {
+            'tracker': tracker,
+            'profit_loss': profit_loss,
+            'profit_loss_pct': profit_loss_pct,
+            'latest_snapshot': latest_snapshot,
+            # 直接从快照关联的每日分数中获取最新分数
+            'latest_daily_score': latest_snapshot.daily_score if latest_snapshot else None
+        }
+        trackers_for_display.append(tracker_data)
+
+    # 步骤 6: 分页
+    paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤7: 准备最终上下文并渲染
+    # 步骤 7: 准备最终上下文并渲染
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
         'total_count': paginator.count,
         'status_filter': status_filter,
     }
-    # --- 代码修改结束 ---
     return render(request, 'dashboard/fav_trend_following_list.html', context)
 
 @login_required

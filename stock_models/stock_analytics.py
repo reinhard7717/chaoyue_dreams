@@ -242,6 +242,9 @@ class StrategyDailyScore(models.Model):
     offensive_score = models.IntegerField(default=0, verbose_name='总进攻分')
     risk_score = models.IntegerField(default=0, verbose_name='总风险分')
     final_score = models.FloatField(default=0.0, verbose_name='最终得分')
+    positional_score = models.IntegerField(default=0, verbose_name='阵地分')
+    dynamic_score = models.IntegerField(default=0, verbose_name='动能分')
+    composite_score = models.IntegerField(default=0, verbose_name='战法分')
     signal_type = models.CharField(max_length=20, verbose_name='信号类型')
     score_details_json = models.JSONField(default=dict, verbose_name='分数构成详情(JSON)')
 

@@ -112,6 +112,9 @@ class ReportingLayer:
                 )
                 
                 all_details_for_json = {}
+                positional_total = 0
+                dynamic_total = 0
+                composite_total = 0
                 
                 if trade_time in score_details_df.index and trade_time in risk_details_df.index:
                     combined_details = pd.concat([
@@ -133,10 +136,20 @@ class ReportingLayer:
                             score_value=int(score_value)
                         ))
                         
+                        if score_type == 'positional':
+                            positional_total += int(score_value)
+                        elif score_type == 'dynamic':
+                            dynamic_total += int(score_value)
+                        elif score_type == 'composite':
+                            composite_total += int(score_value)
+                        
                         if score_type not in all_details_for_json:
                             all_details_for_json[score_type] = []
                         all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
-                
+
+                daily_score_obj.positional_score = positional_total
+                daily_score_obj.dynamic_score = dynamic_total
+                daily_score_obj.composite_score = composite_total
                 daily_score_obj.score_details_json = all_details_for_json
                 daily_scores_to_create.append(daily_score_obj)
         else:

@@ -83,19 +83,25 @@
     <h2>
       <span class="icon">🎯</span> {{ page_title }} (共 {{ total_count }} 条)
     </h2>
+    <div class="filters" style="margin-bottom: 15px;">
+      <a href="?status=holding" class="btn {% if status_filter == 'holding' %}btn-primary{% else %}btn-secondary{% endif %}">持仓中</a>
+      <a href="?status=sold" class="btn {% if status_filter == 'sold' %}btn-primary{% else %}btn-secondary{% endif %}">已平仓</a>
+      <a href="?status=all" class="btn {% if status_filter == 'all' %}btn-primary{% else %}btn-secondary{% endif %}">全部</a>
+    </div>
     <div class="table-wrapper">
       <table class="data-table" id="fav-trend-table">
         <thead>
           <tr>
-            <th style="width: 15%">股票</th>
-            <th style="width: 15%">持仓状态</th>
-            <th style="width: 30%">建仓信息</th>
-            <th style="width: 35%">【持仓追踪】最新动态</th>
-            <th style="width: 5%">操作</th>
+            <th style="width: 12%;">股票</th>
+            <th style="width: 18%;">持仓状态与盈亏</th>
+            <th style="width: 30%;">建仓信息</th>
+            <th style="width: 35%;">最新动态追踪</th>
+            <th style="width: 5%;">操作</th>
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
-          {% for tracker in page_obj %}
+          {% for item in page_obj %}
+          {% with tracker=item.tracker latest_snapshot=item.latest_snapshot latest_daily_score=item.latest_daily_score %}
           <tr data-id="{{ tracker.id }}">
             <td>
               <strong>{{ tracker.stock.stock_code }}</strong><br />
@@ -103,86 +109,97 @@
             </td>
             <td>
               <span class="status-tag status-{{ tracker.status|lower }}">{{ tracker.get_status_display }}</span>
+              {% if item.profit_loss is not None %}
+                <div class="pl-tracker" style="margin-top: 5px;">
+                  <strong class="{% if item.profit_loss > 0 %}pl-positive{% elif item.profit_loss < 0 %}pl-negative{% endif %}">
+                    {{ item.profit_loss_pct|floatformat:2 }}%
+                  </strong>
+                  <br>
+                  <small>({{ item.profit_loss|floatformat:2 }})</small>
+                </div>
+              {% endif %}
             </td>
             <td>
               {% if tracker.entry_signal %}
-              <strong>
-                买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}
-              </strong>
-              <br />
-              <small>建仓分数: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
-              
-              {# --- 代码修改开始 --- #}
-              {# [修改原因] 恢复激活剧本的展开/隐藏功能 #}
-              {% with playbooks=tracker.entry_signal.playbooks.all %}
-                {% if playbooks %}
-                  <div class="playbook-container" style="margin-top: 5px;">
-                    <ul class="playbook-list">
-                      {% for playbook in playbooks %}
-                        <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
-                      {% endfor %}
-                    </ul>
-                    {# 只有当剧本数量超过一定值时才显示展开按钮，这里简单处理为只要有就显示 #}
-                    <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
-                  </div>
-                {% endif %}
-              {% endwith %}
-              {# --- 代码修改结束 --- #}
-
-              {% else %} - {% endif %}
+                <strong>买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
+                <br />
+                <small>建仓价: {{ tracker.entry_price|floatformat:2 }} | 建仓分: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
+                
+                {% with playbooks=tracker.entry_signal.playbooks.all %}
+                  {% if playbooks %}
+                    <div class="playbook-container" style="margin-top: 5px;">
+                      <ul class="playbook-list">
+                        {% for playbook in playbooks %}
+                          <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
+                        {% endfor %}
+                      </ul>
+                      {% if playbooks|length > 2 %}
+                        <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                {% endwith %}
+              {% else %}
+                <small>观察于: {{ tracker.created_at|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</small>
+              {% endif %}
             </td>
             <td>
               {% if tracker.status == 'HOLDING' %}
-                {% with latest_snapshot=tracker.latest_snapshot_list.0 %}
-                  {% if latest_snapshot %}
-                    {% with latest_signal=latest_snapshot.signal %}
-                      <div class="score-tracker">
-                        {% with score_change=latest_signal.entry_score|subtract:tracker.entry_signal.entry_score %}
-                        <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}">
-                          📈 {{ latest_signal.entry_score|floatformat:0 }}
-                          <span class="score-delta">
-                            ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
-                          </span>
-                        </span>
-                        {% endwith %}
-                        {% if latest_signal.risk_score > 0 %}
-                        <span class="risk-score-display" title="当前风险分">
-                          &nbsp; | &nbsp;风险分 ⚠️ {{ latest_signal.risk_score|floatformat:0 }}
-                        </span>
-                        {% endif %}
-                      </div>
-                      <div class="signal-details" style="margin-top: 5px">
-                        <span class="time-info">
-                          更新于: {{ latest_snapshot.snapshot_date|date:"Y-m-d" }}
-                        </span>
-                      </div>
+                {% if latest_daily_score %}
+                  <div class="score-tracker">
+                    {% with score_change=latest_daily_score.offensive_score|subtract:tracker.entry_signal.entry_score %}
+                    <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}" title="最新总进攻分 vs 建仓总进攻分">
+                      📈 {{ latest_daily_score.offensive_score|floatformat:0 }}
+                      <span class="score-delta">
+                        ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
+                      </span>
+                    </span>
                     {% endwith %}
-                  {% else %}
-                    <span class="text-muted">暂无每日追踪快照</span>
-                  {% endif %}
-                {% endwith %}
-              {% elif tracker.status == 'SOLD' and tracker.exit_signal %}
-                <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
-                <br />
-                <small>风险分: {{ tracker.exit_signal.risk_score|floatformat:0 }}</small>
-              {% else %} - {% endif %}
+                    {% if latest_daily_score.risk_score > 0 %}
+                    <span class="risk-score-display" title="当前风险分">
+                      &nbsp; | &nbsp;⚠️ {{ latest_daily_score.risk_score|floatformat:0 }}
+                    </span>
+                    {% endif %}
+                  </div>
+                  
+                  {# --- 代码修改开始：分数结构化展示 --- #}
+                  <div class="score-breakdown">
+                    <div class="score-breakdown-item" title="阵地分：策略的基础和地基，代表结构性机会。">
+                      <strong>{{ latest_daily_score.positional_score|default:0 }}</strong>
+                      <span>阵地分</span>
+                    </div>
+                    <div class="score-breakdown-item" title="动能分：趋势的催化剂，代表短期爆发力。">
+                      <strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong>
+                      <span>动能分</span>
+                    </div>
+                    <div class="score-breakdown-item" title="战法分：高置信度的共振信号，锦上添花。">
+                      <strong>{{ latest_daily_score.composite_score|default:0 }}</strong>
+                      <span>战法分</span>
+                    </div>
+                  </div>
+                  {# --- 代码修改结束 --- #}
+
+                {% else %}
+                  <span class="text-muted">暂无每日追踪快照</span>
+                {% endif %}
+              {% elif tracker.status == 'SOLD' %}
+                <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong><br>
+                <small>平仓价: {{ tracker.exit_price|floatformat:2 }} | 风险分: {{ tracker.exit_signal.risk_score|default:0|floatformat:0 }}</small>
+              {% else %}
+                -
+              {% endif %}
             </td>
             <td class="actions">
-              <button
-                class="btn btn-sm btn-danger remove-position-btn"
-                data-action="remove"
-                data-id="{{ tracker.id }}"
-                data-stock-code="{{ tracker.stock.stock_code }}"
-                data-stock-name="{{ tracker.stock.stock_name }}" {# 增加 stock-name 用于确认提示 #}
-              >
+              <button class="btn btn-sm btn-danger remove-position-btn" data-id="{{ tracker.id }}">
                 &times;
               </button>
             </td>
           </tr>
+          {% endwith %}
           {% empty %}
           <tr>
-            <td colspan="5" style="text-align: center; padding: 20px">
-              暂无持仓记录。
+            <td colspan="5" style="text-align: center; padding: 20px;">
+              暂无记录。请先在策略监控中心添加自选股。
             </td>
           </tr>
           {% endfor %}
