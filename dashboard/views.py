@@ -28,6 +28,7 @@ from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
 from utils.task_helpers import with_cache_manager_for_views
 from django.db.models import OuterRef, Subquery
+from django.db.models import Prefetch
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
@@ -213,43 +214,38 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V407.0 驾驶舱重构版】
-    - 核心重构: 视图层负责所有的数据准备和计算，为模板提供可以直接渲染的、丰富的数据结构。
-    - 数据流:
-        1. 使用 Subquery 高效获取每个 PositionTracker 最新的 DailyPositionSnapshot。
-        2. 查询 PositionTracker，并预加载所有关联数据 (stock, entry_signal, playbooks, latest_snapshot, daily_score)。
-        3. 在 Python 中遍历查询结果，为每个 tracker 计算盈亏、分数变化等核心指标。
-        4. 将处理好的、包含所有展示信息的列表传递给模板。
-    - 新增功能: 实现了完整的盈亏计算和展示。
+    【V407.2 MySQL兼容性修复版】
+    - 核心修复: 解决了因 MySQL 版本不支持 "LIMIT & IN subquery" 导致的 NotSupportedError。
+    - 策略变更:
+        1. 移除了在 Prefetch 中使用 Subquery 的复杂查询。
+        2. 改为预加载每个 Tracker 的 *所有* 快照 (按日期降序排列)。
+        3. 在 Python 循环中，通过获取列表的第一个元素 (`.latest_snapshot_list[0]`) 来安全地找到最新快照。
+        4. 这种方法兼容性更强，虽然可能多获取少量数据，但对于持仓管理页面完全可以接受。
     """
-    # 步骤 1: 创建一个子查询，用于获取每个追踪器最新的快照ID
-    # 这是Django ORM中进行此类查询的最高效方式
-    latest_snapshot_subquery = DailyPositionSnapshot.objects.filter(
-        tracker=OuterRef('pk')
-    ).order_by('-snapshot_date').values('pk')[:1]
+    # --- 代码修改开始 ---
+    # [修改原因] 绕过 MySQL 的 "LIMIT & IN" 子查询限制
 
-    # 步骤 2: 主查询，使用 prefetch_related 和 select_related 优化数据库访问
+    # 步骤 1: 主查询，使用更简单的 Prefetch
     base_queryset = PositionTracker.objects.filter(
         user=request.user
-    ).annotate(
-        # 将最新的快照ID作为一个字段附加到每个Tracker上
-        latest_snapshot_id=Subquery(latest_snapshot_subquery)
     ).select_related(
         'stock', 
         'entry_signal', 
         'exit_signal'
     ).prefetch_related(
-        # 预加载建仓信号的战法
+        # 预加载建仓信号的战法 (逻辑不变)
         Prefetch('entry_signal__playbooks', queryset=Playbook.objects.all()),
-        # 预加载最新快照及其关联的每日分数
+        # 【核心修改】预加载 *所有* 快照，并按日期降序排列
+        # 这样，最新的快照将永远是列表的第一个元素
         Prefetch(
             'snapshots',
-            queryset=DailyPositionSnapshot.objects.select_related('daily_score').filter(pk__in=Subquery(latest_snapshot_subquery)),
-            to_attr='latest_snapshot_list' # 将结果存入一个自定义属性
+            queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'),
+            to_attr='latest_snapshot_list' # 将结果存入自定义属性
         )
     )
+    # --- 代码修改结束 ---
 
-    # 步骤 3: 状态筛选 (逻辑不变)
+    # 步骤 2: 状态筛选 (逻辑不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
@@ -261,17 +257,20 @@ def fav_trend_following_list(request):
         page_title = '全部自选追踪' 
         queryset = base_queryset
 
-    # 步骤 4: 排序 (逻辑不变)
+    # 步骤 3: 排序 (逻辑不变)
     if status_filter == 'sold':
         ordered_queryset = queryset.order_by('-exit_date')
     else:
         ordered_queryset = queryset.order_by('-entry_date')
 
-    # 步骤 5: 【核心】在Python中处理数据，为模板准备一切
+    # 步骤 4: 在Python中处理数据
     trackers_for_display = []
     for tracker in ordered_queryset:
-        # 从预加载的结果中安全地获取最新快照
-        latest_snapshot = tracker.latest_snapshot_list[0] if tracker.latest_snapshot_list else None
+        # --- 代码修改开始 ---
+        # [修改原因] 从预加载的列表中安全地获取最新快照
+        # 由于我们在 Prefetch 中已经按日期降序排列，第一个元素就是最新的
+        latest_snapshot = tracker.latest_snapshot_list[0] if hasattr(tracker, 'latest_snapshot_list') and tracker.latest_snapshot_list else None
+        # --- 代码修改结束 ---
         
         # 计算盈亏 (P/L)
         if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
@@ -290,17 +289,16 @@ def fav_trend_following_list(request):
             'profit_loss': profit_loss,
             'profit_loss_pct': profit_loss_pct,
             'latest_snapshot': latest_snapshot,
-            # 直接从快照关联的每日分数中获取最新分数
             'latest_daily_score': latest_snapshot.daily_score if latest_snapshot else None
         }
         trackers_for_display.append(tracker_data)
 
-    # 步骤 6: 分页
+    # 步骤 5: 分页 (逻辑不变)
     paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤 7: 准备最终上下文并渲染
+    # 步骤 6: 准备最终上下文并渲染 (逻辑不变)
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
