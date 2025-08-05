@@ -40,25 +40,24 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List]:
         """
-        【V506.2 配置探针版】
-        - 核心升级: 增加了“配置探针”，用于在运行时打印出 `save_all_days` 开关的实际读取情况。
+        【V506.3 逻辑分离版】
+        - 核心修复: 解决了风险信号被错误地关联到 TradingSignal 的问题。
+        - 策略变更: 在创建 SignalPlaybookDetail 关联时，不再合并进攻和风险分数。
+                    现在只遍历 offensive_score_details (即 score_details_df)，
+                    确保一个买入信号只由进攻性战法构成，从根本上保证了数据模型的语义正确性。
         """
-        # print(f"      -> [战报司令部 V506.2 - 配置探针模式] 启动...")
         await self._ensure_playbooks_cached()
         
-        # 初始化四种返回列表
         signals_to_create = []
         signal_details_to_create = []
         daily_scores_to_create = []
         score_components_to_create = []
-        strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
-        save_all_days_config_block = strategy_info.get('save_all_days')
-        save_all_days = get_param_value(save_all_days_config_block, False) # 使用工具函数解析
-        strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         
+        strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
+        save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
+        strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
-
 
         # --- Part 1: 生成 TradingSignal (事件驱动信号) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
@@ -83,12 +82,13 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
 
-            if trade_time in score_details_df.index and trade_time in risk_details_df.index:
-                combined_details = pd.concat([
-                    score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
-                    risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
-                ])
-                for name, score in combined_details.items():
+            # --- 代码修改开始 ---
+            # [修改原因] 严格分离进攻和风险逻辑，只为进攻信号创建战法关联
+            # 只遍历进攻分数详情 (score_details_df)，不再合并风险分数
+            if trade_time in score_details_df.index:
+                offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
+                for name, score in offensive_details.items():
+                    # 这里的 name 已经是干净的，没有 trg_ 前缀
                     playbook_obj = self.playbooks_cache.get(name)
                     if playbook_obj:
                         signal_details_to_create.append(SignalPlaybookDetail(
@@ -96,6 +96,7 @@ class ReportingLayer:
                             playbook=playbook_obj,
                             contributed_score=score
                         ))
+            # --- 代码修改结束 ---
 
         # --- Part 2: 生成 StrategyDailyScore (全量每日分数) ---
         if save_all_days:
@@ -107,6 +108,9 @@ class ReportingLayer:
                     offensive_score=int(row.get('entry_score', 0)),
                     risk_score=int(row.get('risk_score', 0)),
                     final_score=row.get('final_score', 0.0),
+                    positional_score=0, # 初始化
+                    dynamic_score=0,    # 初始化
+                    composite_score=0,  # 初始化
                     signal_type=row.get('signal_type', '无信号'),
                     score_details_json={}
                 )
@@ -116,6 +120,7 @@ class ReportingLayer:
                 dynamic_total = 0
                 composite_total = 0
                 
+                # 在这里，合并是正确的，因为我们需要为每日分数记录所有的成分
                 if trade_time in score_details_df.index and trade_time in risk_details_df.index:
                     combined_details = pd.concat([
                         score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
@@ -123,14 +128,13 @@ class ReportingLayer:
                     ])
 
                     for signal_name, score_value in combined_details.items():
-                        clean_signal_name = signal_name.replace('trg_', '')
-                        signal_meta = score_type_map.get(clean_signal_name, {})
-                        cn_name = signal_meta.get('cn_name', clean_signal_name)
+                        signal_meta = score_type_map.get(signal_name, {})
+                        cn_name = signal_meta.get('cn_name', signal_name)
                         score_type = signal_meta.get('type', 'unknown')
 
                         score_components_to_create.append(StrategyScoreComponent(
                             daily_score=daily_score_obj,
-                            signal_name=clean_signal_name,
+                            signal_name=signal_name,
                             signal_cn_name=cn_name,
                             score_type=score_type,
                             score_value=int(score_value)
@@ -152,11 +156,8 @@ class ReportingLayer:
                 daily_score_obj.composite_score = composite_total
                 daily_score_obj.score_details_json = all_details_for_json
                 daily_scores_to_create.append(daily_score_obj)
-        else:
-            print(f"        -> [全量预计算] 开关为False，已跳过每日分数生成流程。")
-
+        
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create)
-
 
 
 
