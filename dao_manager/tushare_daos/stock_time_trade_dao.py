@@ -1511,8 +1511,8 @@ class StockTimeTradeDAO(BaseDAO):
             try:
                 # 新增: 在调用API前获取速率许可
                 while not await limiter.acquire():
-                    print(f"PID[{os.getpid()}] API[api_cyq_perf] 速率超限，等待5秒后重试... (股票: {stock.stock_code})")
-                    await asyncio.sleep(5)
+                    print(f"PID[{os.getpid()}] API[api_cyq_perf] 速率超限，等待10秒后重试... (股票: {stock.stock_code})")
+                    await asyncio.sleep(10)
                 
                 # print(f"PID[{os.getpid()}] API[api_cyq_perf] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
                 df = self.ts_pro.cyq_perf(**{
@@ -1722,8 +1722,8 @@ class StockTimeTradeDAO(BaseDAO):
                 try:
                     while not await limiter.acquire():
                         # 如果获取许可失败，说明速率已达上限，异步等待后重试
-                        print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待5秒后重试... (股票: {stock.stock_code})")
-                        await asyncio.sleep(5)
+                        print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待10秒后重试... (股票: {stock.stock_code})")
+                        await asyncio.sleep(10)
                     # 成功获取许可后，执行API调用
                     # print(f"PID[{os.getpid()}] API[api_cyq_chips] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
                     # 这里的 self.ts_pro 是你封装的Tushare客户端实例
