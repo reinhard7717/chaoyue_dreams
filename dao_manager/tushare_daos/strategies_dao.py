@@ -608,124 +608,167 @@ class StrategiesDAO(BaseDAO):
             logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
             return None
 
-    async def save_strategy_signals(self, signals_tuple: Tuple[List[TradingSignal], List[SignalPlaybookDetail]]) -> int:
+    async def save_strategy_signals(self, records_tuple: Tuple[List, List, List, List]) -> int:
         """
-        【V402.0 兼容性修复版】
-        - 核心修复: 解决了因数据库后端不支持高级 UPSERT 导致的 NotSupportedError。
-        - 新工作流程 (手动UPSERT):
-          1. 在事务中，先查询出所有已存在的信号。
-          2. 将待处理信号分为“待更新”和“待创建”两个列表。
-          3. 使用 `bulk_update` 批量更新已存在的记录。
-          4. 使用 `bulk_create` 批量创建新记录。
-        - 收益:
-          - **广泛兼容性**: 此方法不依赖数据库特定的高级功能，可在所有Django支持的后端上运行。
-          - **事务正确性**: 整个过程依然在事务中，保证数据一致性。
+        【V506.0 全量预计算适配版】
+        - 核心升级: 接收并处理一个包含四类对象的元组，增加了对 StrategyDailyScore 和 
+                    StrategyScoreComponent 的保存逻辑。
+        - 逻辑继承: 完全保留了原有的、针对 TradingSignal 的手动 UPSERT 和 NaN 清洗逻辑，
+                    并将该健壮模式应用于 StrategyDailyScore 的保存。
         """
-        if not signals_tuple or not signals_tuple[0]:
-            print("调试信息: [DAO-SignalLog V402.0] 传入的信号元组为空，不执行任何操作。")
+        if not records_tuple:
             return 0
-        signals_to_process, details_to_create = signals_tuple
         
-        cleaned_signals = []
-        numeric_fields = ['entry_score', 'risk_score', 'close_price'] # 定义需要检查的数值字段
+        # 1. 解包四元组
+        signals, signal_details, daily_scores, score_components = records_tuple
 
-        for signal_obj in signals_to_process:
-            for field_name in numeric_fields:
-                value = getattr(signal_obj, field_name)
-                # 检查值是否为 NaN (适用于 float 和 Decimal)
-                # np.isnan() 对 Decimal 类型会报错，所以要先判断类型
-                is_nan = False
-                if isinstance(value, float) and np.isnan(value):
-                    is_nan = True
-                elif isinstance(value, Decimal) and value.is_nan():
-                    is_nan = True
-                
-                if is_nan:
-                    print(f"调试信息: [DAO-SignalLog V402.1] 在信号 {signal_obj.stock_id} ({signal_obj.trade_time}) 的字段 '{field_name}' 中发现 NaN，已替换为 None。")
-                    setattr(signal_obj, field_name, None) # 将 NaN 替换为 None
-            cleaned_signals.append(signal_obj)
+        if not signals and not daily_scores:
+            print("调试信息: [DAO-V506.0] 传入的信号和每日分数均为空，不执行任何操作。")
+            return 0
+
+        # --- Part A: 清洗 TradingSignal 数据 (逻辑完全保留) ---
+        cleaned_signals = []
+        if signals:
+            numeric_fields = ['entry_score', 'risk_score', 'close_price']
+            for signal_obj in signals:
+                for field_name in numeric_fields:
+                    value = getattr(signal_obj, field_name)
+                    is_nan = (isinstance(value, float) and np.isnan(value)) or \
+                             (isinstance(value, Decimal) and value.is_nan())
+                    if is_nan:
+                        setattr(signal_obj, field_name, None)
+                cleaned_signals.append(signal_obj)
         
-        # 使用清洗后的信号列表进行后续操作
-        signals_to_process = cleaned_signals
+        # --- Part B: 清洗 StrategyDailyScore 数据 (应用相同逻辑) ---
+        cleaned_daily_scores = []
+        if daily_scores:
+            numeric_fields = ['offensive_score', 'risk_score', 'final_score']
+            for score_obj in daily_scores:
+                for field_name in numeric_fields:
+                    value = getattr(score_obj, field_name)
+                    is_nan = (isinstance(value, float) and np.isnan(value)) or \
+                             (isinstance(value, Decimal) and value.is_nan())
+                    if is_nan:
+                        setattr(score_obj, field_name, None)
+                cleaned_daily_scores.append(score_obj)
 
         def _save_all_sync():
-            """这个函数是完全同步的，它将在一个单独的线程中被异步执行。"""
+            """这个同步函数将所有数据库操作包裹在一个事务中。"""
             try:
                 with transaction.atomic():
-                    # --- 步骤1: 批量删除旧详情 (逻辑不变) ---
-                    signal_lookup_keys = [
-                        Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
-                        for s in signals_to_process
-                    ]
-                    if not signal_lookup_keys:
-                        return 0
-                    existing_signals_pks = list(
-                        TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
-                    )
-                    if existing_signals_pks:
-                        SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
-                    # --- 步骤2: 手动实现 UPSERT ---
-                    # 2.1 查询所有可能已存在的信号，并建立一个基于唯一键的映射
-                    existing_signals_map = {
-                        (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s
-                        for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
-                    }
-                    signals_to_update = []
-                    signals_to_create = []
-                    update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
-                    # 2.2 将待处理信号分为“更新”和“创建”两组
-                    for signal_obj in signals_to_process:
-                        key = (signal_obj.stock_id, signal_obj.trade_time, signal_obj.timeframe, signal_obj.strategy_name)
-                        existing_signal = existing_signals_map.get(key)
-                        if existing_signal:
-                            # 如果信号已存在，准备更新
-                            existing_signal.signal_type = signal_obj.signal_type
-                            existing_signal.entry_score = signal_obj.entry_score
-                            existing_signal.risk_score = signal_obj.risk_score
-                            existing_signal.veto_votes = signal_obj.veto_votes
-                            existing_signal.close_price = signal_obj.close_price
-                            existing_signal.health_change_summary = signal_obj.health_change_summary
-                            signals_to_update.append(existing_signal)
-                        else:
-                            # 如果信号不存在，准备创建
-                            signals_to_create.append(signal_obj)
-                    # 2.3 批量执行更新
-                    if signals_to_update:
-                        TradingSignal.objects.bulk_update(signals_to_update, update_fields)
-                        print(f"调试信息: [DAO-SignalLog] 成功批量更新 {len(signals_to_update)} 条主信号。")
-                    # 2.4 批量执行创建
-                    if signals_to_create:
-                        TradingSignal.objects.bulk_create(signals_to_create)
-                        print(f"调试信息: [DAO-SignalLog] 成功批量创建 {len(signals_to_create)} 条主信号。")
-                    # --- 步骤3: 批量创建新详情 (逻辑不变) ---
-                    if details_to_create:
-                        # 重新查询以获取所有相关信号的主键（包括刚创建和已更新的）
-                        refreshed_signals_map = {
-                            (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
-                            for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).only('pk', 'stock_id', 'trade_time', 'timeframe', 'strategy_name')
+                    # --- Section 1: 处理 TradingSignal 和 SignalPlaybookDetail (逻辑保留) ---
+                    if cleaned_signals:
+                        # 1.1 删除旧详情
+                        signal_lookup_keys = [
+                            Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
+                            for s in cleaned_signals
+                        ]
+                        existing_signals_pks = list(
+                            TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
+                        )
+                        if existing_signals_pks:
+                            SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
+                        
+                        # 1.2 手动 UPSERT 主信号
+                        existing_signals_map = {
+                            (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s
+                            for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
                         }
-                        valid_details = []
-                        for detail in details_to_create:
-                            key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
-                            signal_pk = refreshed_signals_map.get(key)
-                            if signal_pk:
-                                detail.signal_id = signal_pk
-                                valid_details.append(detail)
-                        if valid_details:
-                            SignalPlaybookDetail.objects.bulk_create(valid_details, ignore_conflicts=True)
-                            print(f"调试信息: [DAO-SignalLog] 成功创建了 {len(valid_details)} 条新的信号详情。")
-                return len(signals_to_process)
+                        signals_to_update, signals_to_create = [], []
+                        update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
+                        for signal_obj in cleaned_signals:
+                            key = (signal_obj.stock_id, signal_obj.trade_time, signal_obj.timeframe, signal_obj.strategy_name)
+                            if key in existing_signals_map:
+                                existing_signal = existing_signals_map[key]
+                                for field in update_fields:
+                                    setattr(existing_signal, field, getattr(signal_obj, field))
+                                signals_to_update.append(existing_signal)
+                            else:
+                                signals_to_create.append(signal_obj)
+                        
+                        if signals_to_update:
+                            TradingSignal.objects.bulk_update(signals_to_update, update_fields)
+                        if signals_to_create:
+                            TradingSignal.objects.bulk_create(signals_to_create)
+
+                        # 1.3 创建新详情
+                        if signal_details:
+                            refreshed_signals_map = {
+                                (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
+                                for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
+                            }
+                            valid_details = []
+                            for detail in signal_details:
+                                key = (detail.signal.stock_id, detail.signal.trade_time, detail.signal.timeframe, detail.signal.strategy_name)
+                                if key in refreshed_signals_map:
+                                    detail.signal_id = refreshed_signals_map[key]
+                                    valid_details.append(detail)
+                            if valid_details:
+                                SignalPlaybookDetail.objects.bulk_create(valid_details, ignore_conflicts=True)
+
+                    # --- Section 2: 处理 StrategyDailyScore 和 StrategyScoreComponent (新增逻辑) ---
+                    if cleaned_daily_scores:
+                        # 2.1 删除旧成分
+                        score_lookup_keys = [
+                            Q(stock_id=s.stock_id, trade_date=s.trade_date, strategy_name=s.strategy_name)
+                            for s in cleaned_daily_scores
+                        ]
+                        existing_scores_pks = list(
+                            StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys)).values_list('pk', flat=True)
+                        )
+                        if existing_scores_pks:
+                            StrategyScoreComponent.objects.filter(daily_score_id__in=existing_scores_pks).delete()
+
+                        # 2.2 手动 UPSERT 每日分数
+                        existing_scores_map = {
+                            (s.stock_id, s.trade_date, s.strategy_name): s
+                            for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
+                        }
+                        scores_to_update, scores_to_create = [], []
+                        update_fields = ['offensive_score', 'risk_score', 'final_score', 'signal_type', 'score_details_json']
+                        for score_obj in cleaned_daily_scores:
+                            key = (score_obj.stock_id, score_obj.trade_date, score_obj.strategy_name)
+                            if key in existing_scores_map:
+                                existing_score = existing_scores_map[key]
+                                for field in update_fields:
+                                    setattr(existing_score, field, getattr(score_obj, field))
+                                scores_to_update.append(existing_score)
+                            else:
+                                scores_to_create.append(score_obj)
+
+                        if scores_to_update:
+                            StrategyDailyScore.objects.bulk_update(scores_to_update, update_fields)
+                        if scores_to_create:
+                            StrategyDailyScore.objects.bulk_create(scores_to_create)
+
+                        # 2.3 创建新成分
+                        if score_components:
+                            refreshed_scores_map = {
+                                (s.stock_id, s.trade_date, s.strategy_name): s.pk
+                                for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
+                            }
+                            valid_components = []
+                            for comp in score_components:
+                                key = (comp.daily_score.stock_id, comp.daily_score.trade_date, comp.daily_score.strategy_name)
+                                if key in refreshed_scores_map:
+                                    comp.daily_score_id = refreshed_scores_map[key]
+                                    valid_components.append(comp)
+                            if valid_components:
+                                StrategyScoreComponent.objects.bulk_create(valid_components, ignore_conflicts=True)
+
+                # 返回总共处理的主对象数量
+                return len(cleaned_signals) + len(cleaned_daily_scores)
             except Exception as e:
-                print(f"错误: [DAO-SignalLog V402.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
+                print(f"错误: [DAO-V506.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
                 import traceback
                 traceback.print_exc()
                 raise
+
         try:
             saved_count = await sync_to_async(_save_all_sync, thread_sensitive=True)()
-            # print(f"调试信息: [DAO-SignalLog V402.0] 流程完成。成功处理 {saved_count} 条主信号。")
             return saved_count
         except Exception as e:
-            print(f"错误: [DAO-SignalLog V402.0] 异步执行事务时捕获到异常: {e}")
+            print(f"错误: [DAO-V506.0] 异步执行事务时捕获到异常: {e}")
             return 0
 
     # 筹码高级信息AdvancedChipMetrics

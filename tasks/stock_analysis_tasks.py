@@ -118,24 +118,29 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
         analysis_end_time = f"{trade_date} 16:00:00"
         
         if latest_only:
+            # run_for_latest_signal 现在返回四元组
             records_tuple = await strategy_orchestrator.run_for_latest_signal(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
         else:
+            # run_for_stock 现在返回四元组
             records_tuple = await strategy_orchestrator.run_for_stock(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
         
-        if not records_tuple or not records_tuple[0]:
-            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号。")
+        # 检查是否有任何需要保存的记录 (检查第一个和第三个列表)
+        if not records_tuple or (not records_tuple[0] and not records_tuple[2]):
+            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号或分数。")
             return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
         
+        # 将完整的四元组传递给 DAO
         save_count = await strategies_dao.save_strategy_signals(records_tuple)
-        logger.info(f"[{stock_code}] 成功保存 {save_count} 条主信号及其详情。")
+        logger.info(f"[{stock_code}] 成功保存 {save_count} 条记录 (包括信号和每日分数)。")
         
-        if save_count > 0:
+        # 这部分逻辑可以保持，因为它只关心 TradingSignal
+        if save_count > 0 and records_tuple[0]:
             unique_signal_types = set()
             for signal_obj in records_tuple[0]:
                 strategy_name = signal_obj.strategy_name
