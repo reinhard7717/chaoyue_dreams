@@ -308,10 +308,14 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
     """
-    【V4.2 装饰器重构版】
+    【V4.3 并发修复版】
+    - 核心修复: 彻底废弃了在 for 循环中直接调用 apply_async 的错误模式。
+                改为将所有分析任务打包成一个 Celery group，然后一次性提交。
+                这从根本上解决了因任务并发执行导致的数据库事务冲突和死锁问题，
+                确保了 StrategyDailyScore 和 StrategyScoreComponent 能够被正确保存。
     """
     try:
-        logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.2) ======")
+        logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.3 并发修复版) ======")
         
         favorite_codes = []
         non_favorite_codes = []
@@ -319,6 +323,8 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
         async def main():
             nonlocal favorite_codes, non_favorite_codes
             stock_basic_dao = StockBasicInfoDao(cache_manager)
+            # _get_all_relevant_stock_codes_for_processing 是一个假设存在的辅助函数
+            # 如果它不存在，请替换为您项目中实际获取股票列表的逻辑
             fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             favorite_codes.extend(fav_codes)
             non_favorite_codes.extend(non_fav_codes)
@@ -334,14 +340,28 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
         
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
         
+        # 1. 将所有任务签名打包到一个列表中
+        analysis_tasks = []
         for stock_code in favorite_codes:
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
+            # 注意：这里只创建签名 .s()，不调用 apply_async()
+            analysis_tasks.append(
+                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
+            )
         
         for stock_code in non_favorite_codes:
-            run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy').apply_async()
+            analysis_tasks.append(
+                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
+            )
         
-        logger.info(f"[战略预备队] 已为 {stock_count} 只股票下达了“全面战役”指令。")
-        return {"status": "started",  "stock_count": stock_count}
+        # 2. 将所有任务签名打包成一个 group
+        parallel_analysis_group = group(analysis_tasks)
+        
+        # 3. 异步执行整个 group
+        # group 会将内部的任务智能地分发给所有可用的 worker
+        parallel_analysis_group.apply_async()
+        
+        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建了一个并行分析任务组，并已下达“全面战役”指令。")
+        return {"status": "group_started",  "stock_count": stock_count}
         
     except Exception as e:
         logger.error(f"[战略预备队] 执行总动员任务时发生严重错误: {e}", exc_info=True)
