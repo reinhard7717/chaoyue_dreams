@@ -295,7 +295,7 @@ class IntelligenceLayer:
         
         self.strategy.atomic_states.update(states)
         
-        print("          -> [力学分析引擎] 进攻/风险的加速度情报已生成。")
+        # print("          -> [力学分析引擎] 进攻/风险的加速度情报已生成。")
         return states
 
     # 风险情报总局 (Risk Intelligence Bureau)

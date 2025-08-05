@@ -222,7 +222,7 @@ class WarningLayer:
             
             final_health_summary.at[idx] = final_report
 
-        print("        -> [风险指挥官 V503.0] 风险评估完成。")
+        # print("        -> [风险指挥官 V503.0] 风险评估完成。")
         # 返回最终调整后的总风险分，合并后的完整风险详情，以及包含“成分+动量”的终极健康报告
         return adjusted_total_risk_score, combined_risk_details_df, final_health_summary
 
