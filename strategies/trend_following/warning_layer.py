@@ -19,7 +19,7 @@ class WarningLayer:
         - 核心职责: 计算总风险分的“斜率”(变化速度)和“加速度”(速度的变化)，
                     以实现对风险趋势的预测性分析。
         """
-        print("          -> [风险动量引擎 V503.0] 启动，正在计算风险势能...")
+        # print("          -> [风险动量引擎 V503.0] 启动，正在计算风险势能...")
         p = get_params_block(self.strategy, 'four_layer_scoring_params')
         momentum_params = p.get('holding_warning_params', {}).get('risk_momentum_params', {})
         
@@ -72,7 +72,7 @@ class WarningLayer:
                     而是包含 name, cn_name, score, prev_score, change, change_pct
                     等丰富量化信息的对象列表。
         """
-        print("          -> [定量诊断大脑 V502.0] 启动，正在进行风险量化分析...")
+        # print("          -> [定量诊断大脑 V502.0] 启动，正在进行风险量化分析...")
         
         risk_df_yesterday = combined_risk_details_df.shift(1).fillna(0)
         risk_change_summary = pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)

@@ -33,7 +33,7 @@ class JudgmentLayer:
         【V504.0 新增】离场触发器生成器
         - 核心职责: 根据“三道防线”原则，生成一个包含所有离场原因的布尔型DataFrame。
         """
-        print("        -> [离场触发器 V504.0] 启动，正在检查三道防线...")
+        # print("        -> [离场触发器 V504.0] 启动，正在检查三道防线...")
         df = self.strategy.df_indicators
         triggers_df = pd.DataFrame(index=df.index)
         
@@ -244,7 +244,7 @@ class JudgmentLayer:
 
         df.loc[final_sell_condition | final_warning_condition, 'final_score'] = df.loc[final_sell_condition | final_warning_condition, 'risk_score']
         
-        print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
+        # print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
         debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'max_allowed_votes', 'final_score', 'signal_type', 'main_force_state']
         final_check_df = df[(df['signal_type'] != '无信号') & (df['signal_type'] != '中性')].tail(10)
         if not final_check_df.empty:
