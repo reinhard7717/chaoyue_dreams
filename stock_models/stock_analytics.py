@@ -192,50 +192,71 @@ class PositionTracker(models.Model):
 
 class DailyPositionSnapshot(models.Model):
     """
-    【V1.0 每日快照版】
-    - 核心定位: 作为 PositionTracker 的“每日追踪日志”，记录持仓每日的关键变化。
-    - 职责: 为风险监控、卖出提醒和策略回溯提供完整的数据轨迹。
+    【V4.0 最终解耦版】每日持仓快照
+    - 核心重构: 不再存储任何分数信息，只通过外键关联到 StrategyDailyScore。
     """
-    id = models.BigAutoField(primary_key=True)
-    position = models.ForeignKey(
-        PositionTracker, 
-        on_delete=models.CASCADE, # 持仓卡片删除后，其历史快照也应删除
+    tracker = models.ForeignKey(
+        PositionTracker,
+        on_delete=models.CASCADE,
         related_name='snapshots',
-        help_text="关联的持仓卡片"
+        verbose_name='持仓追踪器',
+        null=True
     )
-    signal = models.OneToOneField(
-        'TradingSignal',
-        on_delete=models.CASCADE, # 当日的信号是快照的核心，同生共死
-        related_name='snapshot',
-        help_text="关联的当日交易信号"
+    snapshot_date = models.DateField(verbose_name='快照日期', db_index=True)
+    close_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='当日收盘价')
+    profit_loss = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='持仓盈亏', default=0)
+    profit_loss_pct = models.DecimalField(max_digits=8, decimal_places=4, verbose_name='持仓盈亏率(%)', default=0)
+    
+    # 这就是您提到的“关联表”的核心！一个指向公共知识库的外键。
+    daily_score = models.ForeignKey(
+        'StrategyDailyScore',
+        on_delete=models.SET_NULL, # 如果策略分析结果被删除，快照本身不删除，只是关联丢失
+        related_name='position_snapshots',
+        verbose_name='关联的每日分数',
+        null=True,
+        blank=True
     )
-    snapshot_date = models.DateField(db_index=True, help_text="快照日期")
 
-    # --- 当日关键指标 ---
-    close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="当日收盘价")
-    profit_loss_pct = models.FloatField(default=0.0, help_text="截至当日的浮动盈亏百分比")
-    days_in_trade = models.IntegerField(help_text="截至当日的持仓天数")
+    class Meta:
+        verbose_name = '每日持仓快照'
+        verbose_name_plural = verbose_name
+        unique_together = ('tracker', 'snapshot_date')
+        ordering = ['-snapshot_date']
 
-    # --- 当日策略分数 (冗余存储，用于快速查询和监控) ---
+    def __str__(self):
+        return f"{self.tracker.stock.stock_code} @ {self.snapshot_date} - P/L: {self.profit_loss_pct}%"
+
+class StrategyDailyScore(models.Model):
+    """
+    【V1.0】策略每日分数 (公共知识库)
+    """
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='strategy_daily_scores',
+        verbose_name='股票'
+    )
+    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    strategy_name = models.CharField(max_length=100, verbose_name='策略名称', db_index=True)
     offensive_score = models.IntegerField(default=0, verbose_name='总进攻分')
     risk_score = models.IntegerField(default=0, verbose_name='总风险分')
-    # 存储当日所有分数构成的JSON，用于前端快速渲染详细信息
+    final_score = models.FloatField(default=0.0, verbose_name='最终得分')
+    signal_type = models.CharField(max_length=20, verbose_name='信号类型')
     score_details_json = models.JSONField(default=dict, verbose_name='分数构成详情(JSON)')
 
     class Meta:
-        db_table = "strategy_daily_position_snapshot"
-        unique_together = ('position', 'snapshot_date') # 每个持仓每天只能有一个快照
-        ordering = ['-snapshot_date']
-        verbose_name = "每日持仓快照"
+        db_table = 'strategy_daily_score'
+        verbose_name = '策略每日分数'
         verbose_name_plural = verbose_name
+        unique_together = ('stock', 'trade_date', 'strategy_name')
+        ordering = ['-trade_date']
 
     def __str__(self):
-        return f"快照: {self.position.stock.stock_code} @ {self.snapshot_date}"
+        return f"{self.stock.stock_code} @ {self.trade_date} [{self.strategy_name}]"
 
-class PositionScoreDetail(models.Model):
+class StrategyScoreComponent(models.Model):
     """
-    【V1.0 新增】持仓分数详情
-    - 核心职责: 结构化存储每日快照中，每一个进攻或风险信号项的具体得分。
+    【V1.0】策略分数构成 (公共知识库)
     """
     class ScoreType(models.TextChoices):
         POSITIONAL = 'positional', _('阵地分')
@@ -243,30 +264,29 @@ class PositionScoreDetail(models.Model):
         COMPOSITE = 'composite', _('战法分')
         TRIGGER = 'trigger', _('触发器分')
         RISK = 'risk', _('风险分')
+        UNKNOWN = 'unknown', _('未知')
 
-    snapshot = models.ForeignKey(
-        DailyPositionSnapshot,
+    daily_score = models.ForeignKey(
+        StrategyDailyScore,
         on_delete=models.CASCADE,
-        related_name='score_details',
-        verbose_name='所属快照'
+        related_name='components',
+        verbose_name='所属每日分数'
     )
     signal_name = models.CharField(max_length=255, verbose_name='信号名称(代码)', db_index=True)
     signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
-    score_type = models.CharField(max_length=20, choices=ScoreType.choices, verbose_name='分数类型')
+    score_type = models.CharField(max_length=20, choices=ScoreType.choices, default=ScoreType.UNKNOWN, verbose_name='分数类型')
     score_value = models.IntegerField(verbose_name='贡献分数')
 
     class Meta:
-        db_table = 'strategy_position_score_detail'
-        verbose_name = '持仓分数详情'
+        db_table = 'strategy_score_component'
+        verbose_name = '策略分数构成'
         verbose_name_plural = verbose_name
-        # 为常用查询添加联合索引
         indexes = [
-            models.Index(fields=['snapshot', 'score_type']),
+            models.Index(fields=['daily_score', 'score_type']),
         ]
 
     def __str__(self):
-        return f"{self.snapshot} - {self.signal_name}: {self.score_value}"
-
+        return f"{self.daily_score} - {self.signal_name}: {self.score_value}"
 
 
 

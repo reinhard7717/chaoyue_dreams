@@ -3,7 +3,7 @@
 import pandas as pd
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
-from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail
+from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent
 
 
 from .utils import get_params_block, get_param_value
@@ -38,53 +38,47 @@ class ReportingLayer:
             self.playbooks_cache = {}
             print(f"    -> [报告层] 警告：异步加载战法定义缓存失败。错误: {e}")
 
-    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List]:
+    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List]:
         """
-        【V505.1 适配修复版】
-        - 核心修复: 修正了配置读取路径，从正确的 `strategy_params.trend_follow.strategy_info` 读取配置。
-        - 核心升级: 根据配置文件的 "save_all_days" 开关，决定是只保存信号日，还是保存所有日期的记录。
+        【V506.0 全量预计算版】
+        - 核心升级: 在生成交易信号的同时，为“每日记录”模式生成独立的、全量的策略分数记录。
+        - 返回值变更: 返回一个包含四类对象的元组 (signals, signal_details, daily_scores, score_components)。
         """
-        print(f"      -> [战报司令部 V505.1] 启动，正在构建信号对象...")
+        print(f"      -> [战报司令部 V506.0] 启动，正在构建信号与全量分数对象...")
         await self._ensure_playbooks_cached()
-        signals_to_create = []
-        details_to_create = []
-
-        # 1. 从正确的路径读取配置
-        # 首先获取 trend_follow 整个大块
-        tf_params = get_params_block(self.strategy, 'trend_follow')
-        # 然后从这个大块里获取 strategy_info
-        strategy_info = tf_params.get('strategy_info', {})
         
+        # 初始化四种返回列表
+        signals_to_create = []
+        signal_details_to_create = []
+        daily_scores_to_create = []
+        score_components_to_create = []
+
+        # 1. 读取配置
+        tf_params = get_params_block(self.strategy, 'trend_follow')
+        strategy_info = tf_params.get('strategy_info', {})
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
+        
+        # 加载信号字典，用于填充中文名和类型
+        scoring_params = tf_params.get('four_layer_scoring_params', {})
+        score_type_map = scoring_params.get('score_type_map', {})
 
-        # 2. 根据配置决定是否筛选数据
-        if save_all_days:
-            days_to_process_df = result_df.copy()
-            print("        -> [模式] 已启用“每日记录”模式，将保存所有日期的分析结果。")
-        else:
-            days_to_process_df = result_df[result_df['signal_type'] != '无信号'].copy()
-            print("        -> [模式] 已启用“事件驱动”模式，将只保存在有信号的日子。")
-
-        if days_to_process_df.empty:
-            print("        -> [信息] 没有需要记录的日期，任务完成。")
-            return ([], [])
-
-        for trade_time, row in days_to_process_df.iterrows():
-            # 3. 创建主信号对象 (TradingSignal)
-            signal_type_map = {
+        # --- Part 1: 生成 TradingSignal (事件驱动信号，逻辑基本不变) ---
+        signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
+        print(f"        -> [事件驱动] 发现 {len(signal_days_df)} 个交易信号日。")
+        
+        for trade_time, row in signal_days_df.iterrows():
+            signal_type_map_enum = {
                 '买入信号': TradingSignal.SignalType.BUY,
                 '卖出信号': TradingSignal.SignalType.SELL,
                 '风险预警': TradingSignal.SignalType.WARN,
-                '无信号': TradingSignal.SignalType.HOLD,
             }
-            
             signal_obj = TradingSignal(
                 stock_id=stock_code,
                 trade_time=trade_time,
                 timeframe=result_timeframe,
-                strategy_name=strategy_name, # 使用从配置中读取的名称
-                signal_type=signal_type_map.get(row['signal_type'], TradingSignal.SignalType.HOLD),
+                strategy_name=strategy_name,
+                signal_type=signal_type_map_enum.get(row['signal_type']),
                 entry_score=row.get('entry_score', 0.0),
                 risk_score=row.get('risk_score', 0.0),
                 veto_votes=int(row.get('veto_votes', 0)),
@@ -93,36 +87,69 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
 
-            # 4. 创建信号构成详情对象 (SignalPlaybookDetail)
-            # (这部分逻辑保持不变)
-            if not score_details_df.empty and trade_time in score_details_df.index:
-                activated_offense = score_details_df.loc[trade_time]
-                for name, score in activated_offense[activated_offense > 0].items():
-                    playbook_obj = self.playbooks_cache.get(name)
-                    if playbook_obj:
-                        details_to_create.append(SignalPlaybookDetail(
-                            signal=signal_obj,
-                            playbook=playbook_obj,
-                            contributed_score=score
-                        ))
-            
-            all_risk_details = pd.Series(dtype=float)
-            if not risk_details_df.empty and trade_time in risk_details_df.index:
-                all_risk_details = all_risk_details.add(risk_details_df.get(trade_time, pd.Series(dtype=float)), fill_value=0)
-            
-            for name, score in all_risk_details[all_risk_details > 0].items():
+            # 合并进攻分和风险分详情
+            combined_details = pd.concat([
+                score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
+                risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
+            ])
+            for name, score in combined_details.items():
                 playbook_obj = self.playbooks_cache.get(name)
                 if playbook_obj:
-                     details_to_create.append(SignalPlaybookDetail(
+                    signal_details_to_create.append(SignalPlaybookDetail(
                         signal=signal_obj,
                         playbook=playbook_obj,
                         contributed_score=score
                     ))
 
-        print(f"      -> [战报司令部 V505.1] 构建完成，共生成 {len(signals_to_create)} 条主信号和 {len(details_to_create)} 条详情记录。")
-        
-        return (signals_to_create, details_to_create)
+        # --- Part 2: 生成 StrategyDailyScore (全量每日分数，如果开关打开) ---
+        if save_all_days:
+            print(f"        -> [全量预计算] 已启用，将为 {len(result_df)} 天生成每日分数记录。")
+            for trade_time, row in result_df.iterrows():
+                # 1. 创建主分数对象 (StrategyDailyScore)
+                daily_score_obj = StrategyDailyScore(
+                    stock_id=stock_code,
+                    trade_date=trade_time.date(),
+                    strategy_name=strategy_name,
+                    offensive_score=int(row.get('entry_score', 0)),
+                    risk_score=int(row.get('risk_score', 0)),
+                    final_score=row.get('final_score', 0.0),
+                    signal_type=row.get('signal_type', '无信号'),
+                    score_details_json={} # 先初始化，后面填充
+                )
+                
+                # 2. 创建分数构成对象 (StrategyScoreComponent)
+                all_details_for_json = {}
+                combined_details = pd.concat([
+                    score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
+                    risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
+                ])
 
+                for signal_name, score_value in combined_details.items():
+                    clean_signal_name = signal_name.replace('trg_', '')
+                    signal_meta = score_type_map.get(clean_signal_name, {})
+                    cn_name = signal_meta.get('cn_name', clean_signal_name)
+                    score_type = signal_meta.get('type', 'unknown')
+
+                    score_components_to_create.append(StrategyScoreComponent(
+                        daily_score=daily_score_obj, # 直接关联内存中的对象
+                        signal_name=clean_signal_name,
+                        signal_cn_name=cn_name,
+                        score_type=score_type,
+                        score_value=int(score_value)
+                    ))
+                    
+                    if score_type not in all_details_for_json:
+                        all_details_for_json[score_type] = []
+                    all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+                
+                daily_score_obj.score_details_json = all_details_for_json
+                daily_scores_to_create.append(daily_score_obj)
+
+        print(f"      -> [战报司令部 V506.0] 构建完成。")
+        print(f"         - 交易信号: {len(signals_to_create)} 条, 信号详情: {len(signal_details_to_create)} 条")
+        print(f"         - 每日分数: {len(daily_scores_to_create)} 条, 分数成分: {len(score_components_to_create)} 条")
+        
+        return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create)
 
 
 

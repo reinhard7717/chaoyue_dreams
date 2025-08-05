@@ -504,7 +504,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次保存股票列表数据任务': {
         'task': 'tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task',
-        'schedule': crontab(minute=21, hour=18, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=41, hour=18, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'celery'}, # 指定队列为 celery
     },
     '每天运行一次筹码高级指标任务': {

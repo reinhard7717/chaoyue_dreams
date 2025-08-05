@@ -807,6 +807,65 @@ class StrategiesDAO(BaseDAO):
             # 在生产环境中，发生错误时返回空列表是安全的做法
             return []
 
+    async def get_latest_daily_data_for_stocks(self, stock_codes: List[str], end_date: str) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】使用窗口函数高效获取一批股票在指定日期或之前的最新日线行情数据。
 
+        这是解决“获取每个分组最新N条记录”问题的最佳实践，性能极高。
+
+        Args:
+            stock_codes (List[str]): 股票代码列表。
+            end_date (str): 截止日期，格式为 'YYYYMMDD' 或 'YYYY-MM-DD'。
+
+        Returns:
+            Dict[str, pd.DataFrame]: 一个字典，键是股票代码，值是包含该股票最新一条
+                                     日线数据的DataFrame。如果某股票无数据，则字典中
+                                     不会包含该股票的键。
+        """
+        print(f"DEBUG: [DAO] 正在为 {len(stock_codes)} 只股票获取截至 {end_date} 的最新日线数据...")
+        if not stock_codes:
+            return {}
+
+        # 1. 定义窗口函数
+        #    - PARTITION BY stock_id: 按股票ID分组
+        #    - ORDER BY trade_time DESC: 在每个组内按交易日倒序排列
+        window = Window(
+            expression=RowNumber(),
+            partition_by=[F('stock_id')],
+            order_by=F('trade_time').desc()
+        )
+
+        # 2. 构建查询
+        #    - 首先过滤出所有相关股票在截止日期之前的所有数据
+        #    - 然后使用窗口函数为每个组内的记录进行排名
+        ranked_data_qs = StockDailyBasic.objects.filter(
+            stock__stock_code__in=stock_codes,
+            trade_time__lte=end_date
+        ).annotate(row_number=window)
+
+        # 3. 从排名后的结果中只筛选出最新的记录 (row_number=1)
+        #    使用 .values() 获取所需字段，这比获取完整的模型实例更高效
+        latest_data_values = await sync_to_async(list)(
+            ranked_data_qs.filter(row_number=1).values(
+                'stock__stock_code', 'trade_time', 'close', 'open', 'high', 'low', 'vol'
+            )
+        )
+
+        if not latest_data_values:
+            logger.warning(f"未能为股票列表在 {end_date} 或之前找到任何日线数据。")
+            return {}
+
+        # 4. 将查询结果组织成目标格式：{stock_code: DataFrame}
+        results_map = {}
+        for item in latest_data_values:
+            stock_code = item.pop('stock__stock_code') # 弹出stock_code作为键
+            # 将单个记录的字典转换为DataFrame
+            df = pd.DataFrame([item])
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df.set_index('trade_time', inplace=True)
+            results_map[stock_code] = df
+        
+        print(f"DEBUG: [DAO] 成功获取了 {len(results_map)} 只股票的最新日线数据。")
+        return results_map
 
 

@@ -19,10 +19,7 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from services.realtime_services import RealtimeServices
-from strategies.realtime_strategy import RealtimeStrategy
-from utils.cash_key import IntradayEngineCashKey
-from decimal import Decimal, InvalidOperation
+from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore
 
 
 # ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
@@ -156,121 +153,107 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
         logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='calculate_strategy')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='celery')
 @with_cache_manager
 def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
     """
-    【V2.1 信号字典版】
-    - 核心升级: 直接从配置的 score_type_map 读取信号元数据，代码更简洁、健壮。
+    【V4.0 关联引擎版】
+    - 核心职责: 为所有“持仓中”的自选股，创建或更新当天的快照，并将其关联到
+                已由 `run_multi_timeframe_strategy` 预计算好的 `StrategyDailyScore` 记录。
+    - 运行逻辑:
+        1. 获取所有状态为 HOLDING 的 PositionTracker。
+        2. 批量获取这些股票当日的最新行情数据。
+        3. 批量获取这些股票当日已预计算好的 StrategyDailyScore。
+        4. 遍历每个持仓，使用最新行情计算盈亏，并关联当日的策略分数。
+        5. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot。
     """
-    logger.info("====== [持仓分析引擎 V2.1] 启动，开始分析所有持仓中标的... ======")
+    logger.info("====== [持仓关联引擎 V4.0] 启动，开始更新所有持仓快照... ======")
     
     async def main():
-        # 1. 加载策略配置和“信号字典”
-        strategy_config = load_strategy_config('trend_follow_strategy')
-        scoring_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
-        score_type_map = scoring_params.get('score_type_map', {})
-        
-        # 2. 获取所有正在持仓的 PositionTracker
+        # 1. 获取所有正在持仓的 PositionTracker
         active_trackers = list(PositionTracker.objects.filter(
             status=PositionTracker.Status.HOLDING
-        ).select_related('stock', 'user'))
+        ).select_related('stock'))
 
         if not active_trackers:
-            logger.info("[持仓分析引擎] 没有发现任何持仓中的标的，任务结束。")
+            logger.info("[持仓关联引擎] 没有发现任何持仓中的标的，任务结束。")
             return 0
 
-        logger.info(f"[持仓分析引擎] 发现 {len(active_trackers)} 个持仓中的标的，开始逐一分析...")
+        today = date.today()
+        stock_codes = [t.stock.stock_code for t in active_trackers]
+        logger.info(f"[持仓关联引擎] 发现 {len(active_trackers)} 个持仓中的标的，开始处理日期: {today}...")
+        print(f"DEBUG: 持仓中的股票代码: {stock_codes}")
+
+        # 2. 批量获取所有持仓股今天的价格信息
+        strategies_dao = StrategiesDAO(cache_manager)
+        # get_latest_daily_data_for_stocks 会返回一个字典 {stock_code: daily_data_df}
+        latest_daily_data_map = await strategies_dao.get_latest_daily_data_for_stocks(
+            stock_codes, 
+            end_date=today.strftime('%Y-%m-%d')
+        )
         
-        strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        analysis_end_time = f"{today_str} 16:00:00"
-        
-        snapshots_to_create = []
-        score_details_to_create = []
+        # 3. 批量获取所有持仓股今天的策略分析结果
+        daily_scores_qs = StrategyDailyScore.objects.filter(
+            stock_id__in=stock_codes,
+            trade_date=today
+        )
+        # 将查询结果转为字典，方便快速查找 {stock_code: StrategyDailyScore_instance}
+        daily_scores_map = {score.stock_id: score for score in daily_scores_qs}
+        print(f"DEBUG: 找到 {len(daily_scores_map)} 条今日的预计算分数记录。")
+
+        snapshots_to_process = []
 
         for tracker in active_trackers:
             stock_code = tracker.stock.stock_code
-            logger.info(f"  -> 正在分析持仓: {stock_code} (Tracker ID: {tracker.id})")
             
-            try:
-                await strategy_orchestrator.run_for_latest_signal(
-                    stock_code=stock_code,
-                    trade_time=analysis_end_time
-                )
-                
-                result_df = strategy_orchestrator.strategy.df_indicators
-                score_details_df = strategy_orchestrator.strategy.score_details
-                risk_details_df = strategy_orchestrator.strategy.risk_details
-                
-                latest_data = result_df.iloc[-1]
-                latest_score_details = score_details_df.iloc[-1]
-                latest_risk_details = risk_details_df.iloc[-1]
-                
-                snapshot = DailyPositionSnapshot(
-                    tracker=tracker,
-                    snapshot_date=latest_data.name.date(),
-                    close_price=latest_data['close_D'],
-                    profit_loss=(latest_data['close_D'] - tracker.entry_price) * tracker.quantity,
-                    profit_loss_pct=((latest_data['close_D'] / tracker.entry_price) - 1) * 100,
-                    offensive_score=int(latest_data.get('entry_score', 0)),
-                    risk_score=int(latest_data.get('risk_score', 0)),
-                    score_details_json={}
-                )
-                snapshots_to_create.append(snapshot)
-                
-                all_details_for_json = {}
-                combined_details = pd.concat([
-                    latest_score_details[latest_score_details > 0],
-                    latest_risk_details[latest_risk_details > 0]
-                ])
-
-                for signal_name, score_value in combined_details.items():
-                    clean_signal_name = signal_name.replace('trg_', '')
-                    
-                    # 直接从“信号字典”中查找元数据
-                    signal_meta = score_type_map.get(clean_signal_name)
-                    
-                    if signal_meta:
-                        cn_name = signal_meta.get('cn_name', clean_signal_name)
-                        score_type = signal_meta.get('type', 'unknown')
-                    else:
-                        # 如果字典里找不到，提供一个回退方案
-                        cn_name = clean_signal_name
-                        score_type = 'trigger' if 'trg_' in signal_name else 'unknown'
-
-                    score_details_to_create.append(PositionScoreDetail(
-                        snapshot=snapshot,
-                        signal_name=clean_signal_name,
-                        signal_cn_name=cn_name,
-                        score_type=score_type,
-                        score_value=int(score_value)
-                    ))
-                    
-                    if score_type not in all_details_for_json:
-                        all_details_for_json[score_type] = []
-                    all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
-                
-                snapshot.score_details_json = all_details_for_json
-
-            except Exception as e:
-                logger.error(f"[持仓分析引擎] 分析 {stock_code} 时发生错误: {e}", exc_info=True)
+            # 从批量获取的数据中查找当前股票的最新行情
+            latest_data = latest_daily_data_map.get(stock_code)
+            if latest_data is None or latest_data.empty:
+                logger.warning(f"无法获取 {stock_code} 在 {today} 的最新价格，跳过快照更新。")
                 continue
-
-        if snapshots_to_create:
-            created_snapshots = DailyPositionSnapshot.objects.bulk_create(snapshots_to_create, ignore_conflicts=True)
-            logger.info(f"[持仓分析引擎] 成功创建或更新 {len(created_snapshots)} 条每日持仓快照。")
             
-            if score_details_to_create:
-                PositionScoreDetail.objects.bulk_create(score_details_to_create, ignore_conflicts=True)
-                logger.info(f"[持仓分析引擎] 成功创建 {len(score_details_to_create)} 条分数详情记录。")
-        
-        return len(snapshots_to_create)
+            # 获取当天的收盘价
+            latest_price = latest_data.iloc[-1]['close']
+
+            # 4. 查找对应的每日分数记录
+            daily_score_obj = daily_scores_map.get(stock_code)
+            if not daily_score_obj:
+                print(f"DEBUG: 股票 {stock_code} 在 {today} 没有找到预计算的分数记录。")
+
+            # 5. 准备快照对象的数据字典，用于 update_or_create
+            snapshot_defaults = {
+                'close_price': latest_price,
+                'profit_loss': (latest_price - tracker.entry_price) * tracker.quantity,
+                'profit_loss_pct': ((latest_price / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
+                'daily_score': daily_score_obj # 直接关联！如果没找到就是 None
+            }
+            
+            # 将要处理的快照信息加入列表
+            snapshots_to_process.append({
+                'lookup': {'tracker': tracker, 'snapshot_date': today},
+                'defaults': snapshot_defaults
+            })
+
+        # 6. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot
+        created_count = 0
+        updated_count = 0
+        for item in snapshots_to_process:
+            obj, created = await sync_to_async(DailyPositionSnapshot.objects.update_or_create, thread_sensitive=True)(
+                **item['lookup'],
+                defaults=item['defaults']
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        logger.info(f"[持仓关联引擎] 快照更新完成。新建: {created_count} 条, 更新: {updated_count} 条。")
+        return created_count + updated_count
 
     try:
         return async_to_sync(main)()
     except Exception as e:
-        logger.error(f"[持仓分析引擎] 任务执行失败: {e}", exc_info=True)
+        logger.error(f"[持仓关联引擎] 任务执行失败: {e}", exc_info=True)
         return 0
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
