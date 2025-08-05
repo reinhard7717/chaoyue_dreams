@@ -2,8 +2,6 @@
 import asyncio
 import logging
 import datetime
-from redis.asyncio import Redis as AIORedis
-from pyrate_limiter import Duration, Rate, Limiter, AsyncRedisBucket
 from asgiref.sync import async_to_sync
 from celery import chord, group
 from django.db import models
