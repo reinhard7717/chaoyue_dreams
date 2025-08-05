@@ -17,7 +17,7 @@ class ReportingLayer:
         """
         self.strategy = strategy_instance
         self.playbooks_cache = None
-        print(f"    -> [报告层] 初始化完成 (V401.0 异步安全版)，战法定义将延迟加载。")
+        # print(f"    -> [报告层] 初始化完成 (V401.0 异步安全版)，战法定义将延迟加载。")
 
     async def _ensure_playbooks_cached(self):
         """

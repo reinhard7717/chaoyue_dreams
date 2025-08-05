@@ -45,7 +45,7 @@ class MultiTimeframeTrendStrategy:
         【V203.2 依赖注入版】初始化总指挥部。
         - 核心修改: 接收 CacheManager 实例，并将其注入所有下属服务和引擎。
         """
-        print("--- [总指挥部] 正在初始化 (V203.2)... ---")
+        # print("--- [总指挥部] 正在初始化 (V203.2)... ---")
         
         unified_config_path = 'config/trend_follow_strategy.json'
         self.unified_config = load_strategy_config(unified_config_path)
@@ -54,18 +54,18 @@ class MultiTimeframeTrendStrategy:
         
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。")
+        # print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。")
         
         # 2. 初始化一线作战部队 (日线战术引擎)
         self.tactical_engine = TrendFollowStrategy(config=self.unified_config)
-        print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。")
+        # print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。")
         
         # 内部状态变量
         self.daily_analysis_df = None # 存储日线战术引擎的详细分析结果
         
         # 从统一配置中自动发现所有需要的K线数据周期
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-        print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
+        # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False) -> Tuple[List, List, List, List]:
         """

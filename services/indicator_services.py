@@ -527,7 +527,7 @@ class IndicatorService:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    print(f"    - [数据锻造] 开始从日线数据合成 '{target_tf}' 周期数据...")
+                    # print(f"    - [数据锻造] 开始从日线数据合成 '{target_tf}' 周期数据...")
                     ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME' # 'ME' for MonthEnd
                     df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
@@ -591,7 +591,7 @@ class IndicatorService:
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
 
-        print(f"--- [数据准备V8.1] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
+        # print(f"--- [数据准备V8.1] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
@@ -2313,7 +2313,7 @@ class IndicatorService:
             cost_basis = df['weight_avg'].replace(0, np.nan)
             derived_features['chip_cost_deviation'] = df['close'] / cost_basis - 1
             
-            print("    - [信息] 已成功计算资金流和筹码衍生特征。")
+            # print("    - [信息] 已成功计算资金流和筹码衍生特征。")
             return derived_features
 
         except Exception as e:
