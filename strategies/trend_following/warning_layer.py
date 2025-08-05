@@ -10,7 +10,7 @@ class WarningLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        self.risk_metadata = scoring_params.get('metadata', {})
+        self.risk_metadata = scoring_params.get('score_type_map', {})
 
     # 持仓健康诊断大脑
     def _diagnose_risk_momentum(self, total_risk_score_series: pd.Series) -> pd.Series:
@@ -108,7 +108,7 @@ class WarningLayer:
                 # 准备风险详情对象
                 risk_detail_obj = {
                     'name': risk_name,
-                    'cn_name': self.risk_metadata.get(risk_name, risk_name), # 从缓存的元数据获取中文名
+                    'cn_name': self.risk_metadata.get('cn_name', risk_name), # 从缓存的元数据获取中文名
                     'score': round(today_score, 2),
                     'prev_score': round(prev_score, 2),
                     'change': round(change, 2),

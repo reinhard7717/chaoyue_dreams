@@ -314,105 +314,31 @@
         "composite_scoring": {
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
-            {
-              "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS",
-              "score": 750,
-              "all_of": [
-                "OPP_BEHAVIOR_SELLING_EXHAUSTION_A",
-                "TRIGGER_DOMINANT_REVERSAL"
-              ],
-              "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"]
-            },
-            {
-              "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS",
-              "score": 700,
-              "any_of": [
-                "PULLBACK_STATE_HEALTHY_S",
-                "PULLBACK_STATE_SUPPRESSIVE_S"
-              ],
-              "all_of": [
-                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S"
-              ],
-              "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"]
-            },
-            {
-              "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS",
-              "score": 800,
-              "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"],
-              "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"]
-            },
-            {
-              "name": "TACTIC_HEALTHY_PULLBACK_S",
-              "score": 600,
-              "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"]
-            },
-            {
-              "name": "TACTIC_LOCK_CHIP_RALLY_S",
-              "score": 500,
-              "all_of": ["CHIP_STATE_HIGHLY_CONCENTRATED", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"],
-              "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"]
-            }
+            { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 750, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
+            { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
+            { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 800, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
+            { "name": "TACTIC_HEALTHY_PULLBACK_S", "score": 600, "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"] },
+            { "name": "TACTIC_LOCK_CHIP_RALLY_S", "score": 500, "all_of": ["CHIP_STATE_HIGHLY_CONCENTRATED", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"], "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"] }
           ]
-        },
-        "judgment_params": {
-          "enabled": true,
-          "description": "【决策层 V504.0】离场决策的三道防线参数",
-          "risk_overflow_threshold": {
-            "value": 1000,
-            "description": "【第二道防线】风险溢出阈值。当总风险分超过此值时，触发离场。"
-          },
-          "profit_protector": {
-            "enabled": true,
-            "description": "【第三道防线】利润保护器（最大回撤止盈）",
-            "max_drawdown_pct": {
-              "value": 0.15,
-              "description": "从持仓期间的最高价算起，允许的最大回撤比例。超过则触发离场。"
-            }
-          }
         },
         "holding_warning_params": {
           "enabled": true,
-          "description": "【常规风险-预警层 V503.0】负责扫描常规的、需要警惕的风险信号，并驱动风险动量引擎。分数相对温和。",
-          
-          "risk_momentum_params": {
-            "enabled": true,
-            "description": "【风险动量引擎】的参数",
-            "slope_window": {
-              "value": 3,
-              "description": "计算总风险分斜率的滚动窗口期（天）。越小反应越快，但可能噪音越多。"
-            },
-            "accel_threshold": {
-              "value": 20.0,
-              "description": "定义“风险加速恶化”的加速度阈值。当风险分的加速度超过此值时，触发'ESCALATING'状态。"
-            }
-          },
-
-          "strategic_coverage_factor": {
-              "value": 0.3,
-              "description": "当出现'锁筹拉升'等S+级战略机会时，对总风险分的覆盖(折减)系数。"
-          },
-
+          "description": "【常规风险-预警层】",
           "signals": {
-            "说明_A": "--- A级风险 (动态加速恶化) ---",
             "CHIP_DYN_ACCEL_DIVERGING": 400,
             "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
             "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 350,
             "RISK_BEHAVIOR_WINNERS_FLEEING_B": 350,
-
-            "说明_B": "--- B级风险 (趋势明确走弱) ---",
             "CHIP_DYN_DIVERGING": 300,
             "CHIP_DYN_WINNER_RATE_COLLAPSING": 300,
             "CHIP_DYN_COST_FALLING": 200,
             "DYN_TREND_WEAKENING_DECELERATING": 150,
-
-            "说明_C": "--- C级风险 (健康度早期预警) ---",
             "CHIP_DYN_HEALTH_DETERIORATING": 150,
             "RISK_BEHAVIOR_WINNERS_FLEEING_C": 150,
             "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 120,
             "HOLD_RISK_HEALTH_STALLING": 100
           }
         },
-
         "critical_exit_params": {
           "enabled": true,
           "description": "【新增】致命离场模块 (ExitLayer)。只关注最高级别的、需要立即行动的风险信号。",
@@ -438,7 +364,7 @@
         },
 
         "trigger_events": {
-          "说明": "触发器计分部分保持不变。",
+          "说明": "触发器计分部分。",
           "scoring": {
             "TRIGGER_CHIP_IGNITION": 150,
             "VOL_BREAKOUT_FROM_SQUEEZE": 70,
@@ -450,84 +376,80 @@
             "FRACTAL_EVENT_TREND_FORMING": 100
           }
         },
-        "metadata": {
-          "description": "【V337.0 最终净化版】所有评分规则的中文名称元数据，用于战报和调试输出。",
-
-          "说明_COMPOSITE": "--- 战法分 (Tactic) ---",
-          "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": "【S+级战法】衰竭反转",
-          "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": "【战法】S+级精准制导回踩",
-          "TACTIC_LOCK_CHIP_RALLY_S": "【战法】S级锁筹拉升",
-          "TACTIC_GOLDEN_PIT_S": "【战法】S级黄金坑",
-          "TACTIC_STEALTH_ABSORPTION_A": "【战法】A级隐蔽吸筹",
-          "TACTIC_HEALTHY_PULLBACK_S": "【战法】S级健康回踩",
-          "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": "【S+级战法】断层新生·主升浪",
-          "TACTIC_PANIC_PIT_REVERSAL_S_PLUS": "【S+级战法】恐慌深坑·强逆转",
+        "score_type_map": {
+          "说明": "【信号字典】定义所有信号的中文名和类型，是系统内唯一的元数据来源。",
+          
+          "说明_COMPOSITE": "--- 战法分 (Composite) ---",
+          "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": { "cn_name": "【S+级战法】衰竭反转", "type": "composite" },
+          "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": { "cn_name": "【S+级战法】精准制导回踩", "type": "composite" },
+          "TACTIC_LOCK_CHIP_RALLY_S": { "cn_name": "【S级战法】锁筹拉升", "type": "composite" },
+          "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": { "cn_name": "【S+级战法】断层新生·主升浪", "type": "composite" },
+          "TACTIC_HEALTHY_PULLBACK_S": { "cn_name": "【S级战法】健康回踩", "type": "composite" },
 
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
-          "OPP_SQUEEZE_ZONE_SHAKEOUT_S": "【S级机会】压缩区完美洗盘(长下影)",
-          "OPP_SQUEEZE_ZONE_SHAKEOUT_A": "【A级机会】压缩区实战洗盘(筹码验证)",
-          "OPP_PEAK_BATTLE_BREAKOUT_A": "【A+级机会】主峰换手上涨",
-          "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": "【A级机会】卖盘衰竭(左侧)",
-          "BEHAVIOR_SUPPRESSION_PULLBACK": "【S级机会】打压回踩(黄金坑)",
-          "PULLBACK_STATE_HEALTHY_S": "【S级机会】健康回踩",
-          "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": "【S级机会】斐波那契黄金口袋支撑",
-          "OPP_CHIP_SETUP_S": "【S级机会】筹码高度控盘",
-          "OPP_FIB_SUPPORT_STANDARD_A": "【机会】A级斐波那契标准支撑",
-          "STRUCTURE_MAIN_UPTREND_WAVE_S": "【S级结构】主升浪",
-          "BOX_STATE_HEALTHY_ACCUMULATION": "【形态】健康吸筹箱体",
-          "FRACTAL_STATE_STRONG_TREND": "【分形】强趋势状态",
-          "MA_STATE_AGGRESSIVE_BULLISH": "【均线】攻击性多头排列",
-          "PLATFORM_STATE_STABLE_FORMED": "【形态】稳固平台形成",
-          "MECHANICS_ENERGY_ADVANTAGE": "【力学】势能优势",
-          "CHIP_DYN_CONCENTRATING": "【筹码】动态集中",
-          "CHIP_DYN_WINNER_RATE_RISING": "【筹码】获利盘上升",
-          "MA_STATE_STABLE_BULLISH": "【均线】稳定多头排列",
+          "PULLBACK_STATE_SUPPRESSIVE_S": { "cn_name": "【S级机会】打压回踩(黄金坑)", "type": "positional" },
+          "OPP_SQUEEZE_ZONE_SHAKEOUT_S": { "cn_name": "【S级机会】压缩区完美洗盘", "type": "positional" },
+          "OPP_PEAK_BATTLE_BREAKOUT_A": { "cn_name": "【A+级机会】主峰换手突破", "type": "positional" },
+          "PULLBACK_STATE_HEALTHY_S": { "cn_name": "【S级机会】健康回踩", "type": "positional" },
+          "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": { "cn_name": "【S级机会】斐波那契黄金口袋支撑", "type": "positional" },
+          "OPP_SQUEEZE_ZONE_SHAKEOUT_A": { "cn_name": "【A级机会】压缩区实战洗盘", "type": "positional" },
+          "OPP_CHIP_SETUP_S": { "cn_name": "【S级机会】筹码高度控盘", "type": "positional" },
+          "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": { "cn_name": "【A级机会】卖盘衰竭(左侧)", "type": "positional" },
+          "STRUCTURE_MAIN_UPTREND_WAVE_S": { "cn_name": "【S级结构】主升浪", "type": "positional" },
+          "OPP_FIB_SUPPORT_STANDARD_A": { "cn_name": "【A级机会】斐波那契标准支撑", "type": "positional" },
+          "BOX_STATE_HEALTHY_ACCUMULATION": { "cn_name": "【形态】健康吸筹箱体", "type": "positional" },
+          "PLATFORM_STATE_STABLE_FORMED": { "cn_name": "【形态】稳固平台形成", "type": "positional" },
+          "MA_STATE_AGGRESSIVE_BULLISH": { "cn_name": "【均线】攻击性多头排列", "type": "positional" },
+          "FRACTAL_STATE_STRONG_TREND": { "cn_name": "【分形】强趋势状态", "type": "positional" },
+          "MECHANICS_ENERGY_ADVANTAGE": { "cn_name": "【力学】势能优势", "type": "positional" },
+          "CHIP_DYN_CONCENTRATING": { "cn_name": "【筹码】动态集中", "type": "positional" },
+          "CHIP_DYN_WINNER_RATE_RISING": { "cn_name": "【筹码】获利盘上升", "type": "positional" },
+          "MA_STATE_STABLE_BULLISH": { "cn_name": "【均线】稳定多头排列", "type": "positional" },
 
           "说明_DYNAMIC": "--- 动能分 (Dynamic) ---",
-          "CHIP_DYN_COST_ACCELERATING": "【筹码】成本加速抬高",
-          "CHIP_DYN_S_ACCEL_CONCENTRATING": "【S级筹码】加速集中",
-          "DYN_TREND_HEALTHY_ACCELERATING": "【动能】趋势健康加速",
-          "VOL_STATE_EXTREME_SQUEEZE": "【波动】极致压缩",
-          "MECHANICS_COST_ACCELERATING": "【力学】成本加速",
-          "MECHANICS_INERTIA_DECREASING": "【力学】惯量减小(锁定)",
-          "FRACTAL_DYN_TREND_ACCELERATING": "【分形】趋势加速形成",
+          "CHIP_DYN_COST_ACCELERATING": { "cn_name": "【动能】成本加速抬高", "type": "dynamic" },
+          "MECHANICS_COST_ACCELERATING": { "cn_name": "【动能】力学成本加速", "type": "dynamic" },
+          "FRACTAL_DYN_TREND_ACCELERATING": { "cn_name": "【动能】分形趋势加速", "type": "dynamic" },
+          "CHIP_DYN_S_ACCEL_CONCENTRATING": { "cn_name": "【动能】筹码加速集中", "type": "dynamic" },
+          "DYN_TREND_HEALTHY_ACCELERATING": { "cn_name": "【动能】趋势健康加速", "type": "dynamic" },
+          "MECHANICS_INERTIA_DECREASING": { "cn_name": "【动能】惯量减小(锁定)", "type": "dynamic" },
+          "VOL_STATE_EXTREME_SQUEEZE": { "cn_name": "【动能】波动极致压缩", "type": "dynamic" },
 
           "说明_RISK": "--- 风险分 (Risk) ---",
-          "RISK_BEHAVIOR_PANIC_FLEEING_S": "【S+级风险】抛压失控(加速出逃)",
-          "RISK_PEAK_BATTLE_DISTRIBUTION_A": "【S级风险】主峰高位派发嫌疑",
-          "RISK_BEHAVIOR_WINNERS_FLEEING_A": "【A级风险】趋势性派发(战略)",
-          "RISK_BEHAVIOR_WINNERS_FLEEING_B": "【B级风险】中期派发(战役)",
-          "RISK_BEHAVIOR_WINNERS_FLEEING_C": "【C级风险】短期抛压增加(战术)",
-          "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": "【S+级风险】获利盘出逃",
-          "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": "【A级风险】利润安全垫收缩",
-          "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": "【B级风险】主峰阵地交战",
-          "COGNITIVE_RISK_DECEPTIVE_RALLY_S": "【S级风险】诱多派发(公然出货)",
-          "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": "【S+级风险】确认派发",
-          "COGNITIVE_RISK_DECEPTIVE_RALLY_A": "【A级风险】诱多派发(隐蔽派发)",
-          "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION": "【风险】突破派发",
-          "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": "【风险】长期派发",
-          "FRACTAL_RISK_TOP_DIVERGENCE": "【风险】分形顶背离",
-          "FRACTAL_EVENT_TREND_EXHAUSTION": "【风险】趋势结构衰竭",
-          "RISK_DYN_ACCEL_DIVERGING": "【风险】筹码加速发散",
-          "RISK_DYN_WINNER_RATE_ACCEL_COLLAPSING": "【风险】获利盘加速崩盘",
-          "RISK_DYN_DIVERGING": "【风险】筹码动态发散",
-          "RISK_DYN_WINNER_RATE_COLLAPSING": "【风险】获利盘崩盘",
-          "STRUCTURE_TOPPING_DANGER_S": "【S级结构】顶部危险",
-          "RISK_DYN_COST_FALLING": "【风险】成本松动",
-          "RISK_DYN_HEALTH_DETERIORATING": "【风险】健康度恶化",
-          "PLATFORM_FAILURE": "【风险】平台破位",
-          "HOLD_RISK_HEALTH_STALLING": "【风险】持仓健康度失速",
-          "DYN_TREND_WEAKENING_DECELERATING": "【动能】趋势减弱",
+          "RISK_BEHAVIOR_PANIC_FLEEING_S": { "cn_name": "【S+级风险】抛压失控", "type": "risk" },
+          "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": { "cn_name": "【S+级风险】获利盘出逃", "type": "risk" },
+          "BEHAVIOR_DECEPTIVE_RALLY_S": { "cn_name": "【S级风险】诱多派发(公然)", "type": "risk" },
+          "RISK_PEAK_BATTLE_DISTRIBUTION_A": { "cn_name": "【S级风险】主峰高位派发", "type": "risk" },
+          "BEHAVIOR_DECEPTIVE_RALLY_A": { "cn_name": "【A级风险】诱多派发(隐蔽)", "type": "risk" },
+          "RISK_BEHAVIOR_WINNERS_FLEEING_A": { "cn_name": "【A级风险】趋势性派发", "type": "risk" },
+          "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": { "cn_name": "【S+级风险】确认派发", "type": "risk" },
+          "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": { "cn_name": "【风险】长期派发", "type": "risk" },
+          "STRUCTURE_TOPPING_DANGER_S": { "cn_name": "【S级结构】顶部危险", "type": "risk" },
+          "STRUCTURE_PLATFORM_BROKEN": { "cn_name": "【风险】平台破位", "type": "risk" },
+          "FRACTAL_RISK_TOP_DIVERGENCE": { "cn_name": "【风险】分形顶背离", "type": "risk" },
+          "FRACTAL_EVENT_TREND_EXHAUSTION": { "cn_name": "【风险】趋势结构衰竭", "type": "risk" },
+          "CHIP_DYN_ACCEL_DIVERGING": { "cn_name": "【风险】筹码加速发散", "type": "risk" },
+          "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": { "cn_name": "【风险】获利盘加速崩盘", "type": "risk" },
+          "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": { "cn_name": "【A级风险】利润垫收缩", "type": "risk" },
+          "RISK_BEHAVIOR_WINNERS_FLEEING_B": { "cn_name": "【B级风险】中期派发", "type": "risk" },
+          "CHIP_DYN_DIVERGING": { "cn_name": "【风险】筹码动态发散", "type": "risk" },
+          "CHIP_DYN_WINNER_RATE_COLLAPSING": { "cn_name": "【风险】获利盘崩盘", "type": "risk" },
+          "CHIP_DYN_COST_FALLING": { "cn_name": "【风险】成本松动", "type": "risk" },
+          "DYN_TREND_WEAKENING_DECELERATING": { "cn_name": "【动能】趋势减弱", "type": "risk" },
+          "CHIP_DYN_HEALTH_DETERIORATING": { "cn_name": "【风险】健康度恶化", "type": "risk" },
+          "RISK_BEHAVIOR_WINNERS_FLEEING_C": { "cn_name": "【C级风险】短期抛压增加", "type": "risk" },
+          "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": { "cn_name": "【B级风险】主峰阵地交战", "type": "risk" },
+          "HOLD_RISK_HEALTH_STALLING": { "cn_name": "【风险】持仓健康度失速", "type": "risk" },
 
           "说明_TRIGGER": "--- 触发器 (Trigger) ---",
-          "trg_TRIGGER_CHIP_IGNITION": "【触发】筹码点火",
-          "trg_VOL_BREAKOUT_FROM_SQUEEZE": "【触发】波动压缩后突破",
-          "trg_TRIGGER_DOMINANT_REVERSAL": "【触发】显性反转阳线",
-          "trg_TRIGGER_PLATFORM_PULLBACK_REBOUND": "【触发】平台回踩反弹",
-          "trg_TRIGGER_BREAKOUT_CANDLE": "【触发】突破确认阳线",
-          "trg_TRIGGER_ENERGY_RELEASE": "【触发】能量释放阳线",
-          "trg_FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": "【触发】分形压缩突破确认",
-          "trg_FRACTAL_EVENT_TREND_FORMING": "【触发】分形趋势形成"
+          "TRIGGER_CHIP_IGNITION": { "cn_name": "【触发】筹码点火", "type": "trigger" },
+          "VOL_BREAKOUT_FROM_SQUEEZE": { "cn_name": "【触发】波动压缩后突破", "type": "trigger" },
+          "TRIGGER_DOMINANT_REVERSAL": { "cn_name": "【触发】显性反转阳线", "type": "trigger" },
+          "TRIGGER_PLATFORM_PULLBACK_REBOUND": { "cn_name": "【触发】平台回踩反弹", "type": "trigger" },
+          "TRIGGER_BREAKOUT_CANDLE": { "cn_name": "【触发】突破确认阳线", "type": "trigger" },
+          "TRIGGER_ENERGY_RELEASE": { "cn_name": "【触发】能量释放阳线", "type": "trigger" },
+          "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": { "cn_name": "【触发】分形压缩突破确认", "type": "trigger" },
+          "FRACTAL_EVENT_TREND_FORMING": { "cn_name": "【触发】分形趋势形成", "type": "trigger" }
         }
       },
       "trigger_event_params": {

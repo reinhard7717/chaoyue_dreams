@@ -4,6 +4,8 @@ from decimal import Decimal
 from django.db import models
 from .stock_basic import StockInfo
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.utils.translation import gettext_lazy as _
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, o):
@@ -215,8 +217,10 @@ class DailyPositionSnapshot(models.Model):
     days_in_trade = models.IntegerField(help_text="截至当日的持仓天数")
 
     # --- 当日策略分数 (冗余存储，用于快速查询和监控) ---
-    entry_score = models.FloatField(default=0.0, help_text="当日的进攻分数")
-    risk_score = models.FloatField(default=0.0, help_text="当日的风险分数")
+    offensive_score = models.IntegerField(default=0, verbose_name='总进攻分')
+    risk_score = models.IntegerField(default=0, verbose_name='总风险分')
+    # 存储当日所有分数构成的JSON，用于前端快速渲染详细信息
+    score_details_json = models.JSONField(default=dict, verbose_name='分数构成详情(JSON)')
 
     class Meta:
         db_table = "strategy_daily_position_snapshot"
@@ -227,3 +231,55 @@ class DailyPositionSnapshot(models.Model):
 
     def __str__(self):
         return f"快照: {self.position.stock.stock_code} @ {self.snapshot_date}"
+
+class PositionScoreDetail(models.Model):
+    """
+    【V1.0 新增】持仓分数详情
+    - 核心职责: 结构化存储每日快照中，每一个进攻或风险信号项的具体得分。
+    """
+    class ScoreType(models.TextChoices):
+        POSITIONAL = 'positional', _('阵地分')
+        DYNAMIC = 'dynamic', _('动能分')
+        COMPOSITE = 'composite', _('战法分')
+        TRIGGER = 'trigger', _('触发器分')
+        RISK = 'risk', _('风险分')
+
+    snapshot = models.ForeignKey(
+        DailyPositionSnapshot,
+        on_delete=models.CASCADE,
+        related_name='score_details',
+        verbose_name='所属快照'
+    )
+    signal_name = models.CharField(max_length=255, verbose_name='信号名称(代码)', db_index=True)
+    signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
+    score_type = models.CharField(max_length=20, choices=ScoreType.choices, verbose_name='分数类型')
+    score_value = models.IntegerField(verbose_name='贡献分数')
+
+    class Meta:
+        db_table = 'strategy_position_score_detail'
+        verbose_name = '持仓分数详情'
+        verbose_name_plural = verbose_name
+        # 为常用查询添加联合索引
+        indexes = [
+            models.Index(fields=['snapshot', 'score_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.snapshot} - {self.signal_name}: {self.score_value}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -108,7 +108,6 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
 # =================== 1. 策略任务 ==================
 # =================================================================
 
-# ▼▼▼ 创建一个全新的、调用多时间框架策略的Celery任务 ▼▼▼
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
 @with_cache_manager
 def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_only: bool = False, *, cache_manager: CacheManager):
@@ -157,6 +156,122 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
         logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='celery')
+@with_cache_manager
+def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
+    """
+    【V2.1 信号字典版】
+    - 核心升级: 直接从配置的 score_type_map 读取信号元数据，代码更简洁、健壮。
+    """
+    logger.info("====== [持仓分析引擎 V2.1] 启动，开始分析所有持仓中标的... ======")
+    
+    async def main():
+        # 1. 加载策略配置和“信号字典”
+        strategy_config = load_strategy_config('trend_follow_strategy')
+        scoring_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
+        score_type_map = scoring_params.get('score_type_map', {})
+        
+        # 2. 获取所有正在持仓的 PositionTracker
+        active_trackers = list(PositionTracker.objects.filter(
+            status=PositionTracker.Status.HOLDING
+        ).select_related('stock', 'user'))
+
+        if not active_trackers:
+            logger.info("[持仓分析引擎] 没有发现任何持仓中的标的，任务结束。")
+            return 0
+
+        logger.info(f"[持仓分析引擎] 发现 {len(active_trackers)} 个持仓中的标的，开始逐一分析...")
+        
+        strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        analysis_end_time = f"{today_str} 16:00:00"
+        
+        snapshots_to_create = []
+        score_details_to_create = []
+
+        for tracker in active_trackers:
+            stock_code = tracker.stock.stock_code
+            logger.info(f"  -> 正在分析持仓: {stock_code} (Tracker ID: {tracker.id})")
+            
+            try:
+                await strategy_orchestrator.run_for_latest_signal(
+                    stock_code=stock_code,
+                    trade_time=analysis_end_time
+                )
+                
+                result_df = strategy_orchestrator.strategy.df_indicators
+                score_details_df = strategy_orchestrator.strategy.score_details
+                risk_details_df = strategy_orchestrator.strategy.risk_details
+                
+                latest_data = result_df.iloc[-1]
+                latest_score_details = score_details_df.iloc[-1]
+                latest_risk_details = risk_details_df.iloc[-1]
+                
+                snapshot = DailyPositionSnapshot(
+                    tracker=tracker,
+                    snapshot_date=latest_data.name.date(),
+                    close_price=latest_data['close_D'],
+                    profit_loss=(latest_data['close_D'] - tracker.entry_price) * tracker.quantity,
+                    profit_loss_pct=((latest_data['close_D'] / tracker.entry_price) - 1) * 100,
+                    offensive_score=int(latest_data.get('entry_score', 0)),
+                    risk_score=int(latest_data.get('risk_score', 0)),
+                    score_details_json={}
+                )
+                snapshots_to_create.append(snapshot)
+                
+                all_details_for_json = {}
+                combined_details = pd.concat([
+                    latest_score_details[latest_score_details > 0],
+                    latest_risk_details[latest_risk_details > 0]
+                ])
+
+                for signal_name, score_value in combined_details.items():
+                    clean_signal_name = signal_name.replace('trg_', '')
+                    
+                    # 直接从“信号字典”中查找元数据
+                    signal_meta = score_type_map.get(clean_signal_name)
+                    
+                    if signal_meta:
+                        cn_name = signal_meta.get('cn_name', clean_signal_name)
+                        score_type = signal_meta.get('type', 'unknown')
+                    else:
+                        # 如果字典里找不到，提供一个回退方案
+                        cn_name = clean_signal_name
+                        score_type = 'trigger' if 'trg_' in signal_name else 'unknown'
+
+                    score_details_to_create.append(PositionScoreDetail(
+                        snapshot=snapshot,
+                        signal_name=clean_signal_name,
+                        signal_cn_name=cn_name,
+                        score_type=score_type,
+                        score_value=int(score_value)
+                    ))
+                    
+                    if score_type not in all_details_for_json:
+                        all_details_for_json[score_type] = []
+                    all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+                
+                snapshot.score_details_json = all_details_for_json
+
+            except Exception as e:
+                logger.error(f"[持仓分析引擎] 分析 {stock_code} 时发生错误: {e}", exc_info=True)
+                continue
+
+        if snapshots_to_create:
+            created_snapshots = DailyPositionSnapshot.objects.bulk_create(snapshots_to_create, ignore_conflicts=True)
+            logger.info(f"[持仓分析引擎] 成功创建或更新 {len(created_snapshots)} 条每日持仓快照。")
+            
+            if score_details_to_create:
+                PositionScoreDetail.objects.bulk_create(score_details_to_create, ignore_conflicts=True)
+                logger.info(f"[持仓分析引擎] 成功创建 {len(score_details_to_create)} 条分数详情记录。")
+        
+        return len(snapshots_to_create)
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"[持仓分析引擎] 任务执行失败: {e}", exc_info=True)
+        return 0
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 @with_cache_manager
@@ -167,59 +282,40 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
     try:
         logger.info("开始调度所有股票的分析任务 (V4.3 装饰器重构版)")
-        
-        from dashboard.tasks import update_favorite_stock_trackers
-        
         favorite_codes = []
         non_favorite_codes = []
-
         async def main():
             nonlocal favorite_codes, non_favorite_codes
             # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
             print("DEBUG: analyze_all_stocks 正在使用由装饰器注入的 CacheManager。")
             stock_basic_dao = StockBasicInfoDao(cache_manager)
-            
             fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-            
             favorite_codes.extend(fav_codes)
             non_favorite_codes.extend(non_fav_codes)
-
         async_to_sync(main)()
-        
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
-            
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"找到 {stock_count} 只股票待分析.")
-        
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
         logger.info(f"所有任务将使用统一的分析截止日期: {trade_time_str}")
-        
         analysis_tasks = []
-        
         for stock_code in favorite_codes:
             analysis_tasks.append(
                 run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='favorite_calculate_strategy')
             )
-        
         for stock_code in non_favorite_codes:
             analysis_tasks.append(
                 run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=True).set(queue='calculate_strategy')
             )
-            
         parallel_analysis_group = group(analysis_tasks)
-        
         update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery')
-
         workflow = chain(parallel_analysis_group, update_tracker_task)
-        
         workflow.apply_async()
-        
         logger.info(f"已成功创建并启动工作流：")
         logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票 (自选: {len(favorite_codes)}, 其他: {len(non_favorite_codes)})")
         logger.info(f"  - 步骤2: 更新所有自选股持仓追踪器")
-        
         return {"status": "workflow_started", "stock_count": stock_count}
         
     except Exception as e:
