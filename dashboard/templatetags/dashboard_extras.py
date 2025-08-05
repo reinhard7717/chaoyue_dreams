@@ -7,21 +7,8 @@ from django import template
 from django.utils import timezone
 from django.template.defaultfilters import stringfilter
 from django.utils.http import urlencode
-from utils.display_maps import DISPLAY_MAP
 
 register = template.Library()
-
-@register.filter(name='playbook_display')
-def playbook_display(value):
-    """
-    一个统一的翻译过滤器。
-    接收一个英文ID (可能是策略名或剧本名)，
-    在DISPLAY_MAP中查找对应的中文名。
-    如果找不到，则返回原始值，以确保显示不会中断。
-    """
-    # 解释: 使用.get(key, default)方法可以安全地获取值。
-    # 如果value在字典中不存在，它会返回默认值，这里我们让默认值就是value本身。
-    return DISPLAY_MAP.get(value, value)
 
 @register.filter(name='make_utc_aware')
 def make_utc_aware(value):
