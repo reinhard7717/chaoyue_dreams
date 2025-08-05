@@ -436,7 +436,7 @@ def save_cyq_chips_yesterday_batch(cache_manager=None):
     today_date = timezone.now().date()
     yesterday = today_date - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
     async def main():
-        return await stock_time_trade_dao.save_all_cyq_chips_history(trade_date=yesterday)
+        return await stock_time_trade_dao.save_all_cyq_chips_history_concurrent(trade_date=yesterday)
     result = async_to_sync(main)()
     print(f"保存 每日筹码分布 数据完成。 result: {result} ")
 
