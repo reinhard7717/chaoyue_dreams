@@ -1511,10 +1511,10 @@ class StockTimeTradeDAO(BaseDAO):
             try:
                 # 新增: 在调用API前获取速率许可
                 while not await limiter.acquire():
-                    print(f"PID[{os.getpid()}] API[api_cyq_perf] 速率超限，等待1秒后重试... (股票: {stock.stock_code})")
-                    await asyncio.sleep(1)
+                    print(f"PID[{os.getpid()}] API[api_cyq_perf] 速率超限，等待5秒后重试... (股票: {stock.stock_code})")
+                    await asyncio.sleep(5)
                 
-                print(f"PID[{os.getpid()}] API[api_cyq_perf] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
+                # print(f"PID[{os.getpid()}] API[api_cyq_perf] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
                 df = self.ts_pro.cyq_perf(**{
                     "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
@@ -1546,7 +1546,7 @@ class StockTimeTradeDAO(BaseDAO):
             "cost_50pct", "cost_85pct", "cost_95pct", "weight_avg", "winner_rate"
         ]]
         data_list = final_df.to_dict('records')
-        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码及胜率数据...")
+        # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码及胜率数据...")
         return await self._save_all_to_db_native_upsert(
             model_class=StockCyqPerf,
             data_list=data_list,
@@ -1701,7 +1701,7 @@ class StockTimeTradeDAO(BaseDAO):
         :param end_date: 结束日期，默认为 None (到最新)。
         :param limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
         """
-        print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
+        # print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
         # 核心的追溯抓取逻辑保持不变
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
@@ -1722,10 +1722,10 @@ class StockTimeTradeDAO(BaseDAO):
                 try:
                     while not await limiter.acquire():
                         # 如果获取许可失败，说明速率已达上限，异步等待后重试
-                        print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待1秒后重试... (股票: {stock.stock_code})")
-                        await asyncio.sleep(1)
+                        print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待5秒后重试... (股票: {stock.stock_code})")
+                        await asyncio.sleep(5)
                     # 成功获取许可后，执行API调用
-                    print(f"PID[{os.getpid()}] API[api_cyq_chips] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
+                    # print(f"PID[{os.getpid()}] API[api_cyq_chips] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
                     # 这里的 self.ts_pro 是你封装的Tushare客户端实例
                     df = self.ts_pro.cyq_chips(**{
                         "ts_code": stock.stock_code, 
@@ -1773,7 +1773,7 @@ class StockTimeTradeDAO(BaseDAO):
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
         target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
-        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
+        # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         # 假设你有一个异步的批量更新或插入方法
         await self._save_all_to_db_native_upsert(
             model_class=target_model,
