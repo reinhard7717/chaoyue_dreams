@@ -917,7 +917,7 @@ class IndicatorService:
                             
                             # 将计算结果存入DataFrame
                             df_for_calc[output_col] = convergence_cv
-                            print(f"      -> 均线粘合度指标 '{output_col}' 计算完成。")
+                            # print(f"      -> 均线粘合度指标 '{output_col}' 计算完成。")
                         else:
                             missing = [col for col in ma_cols if col not in df_for_calc.columns]
                             logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
@@ -1015,7 +1015,7 @@ class IndicatorService:
                     
                     # 4. 将计算结果对齐回原始的DataFrame索引
                     df[hurst_col] = hurst_values.reindex(df.index)
-                    print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
+                    # print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
 
             except Exception as e:
                 print(f"      -> [警告] 赫斯特指数计算失败: {e}")
@@ -1028,14 +1028,14 @@ class IndicatorService:
             price_mean = df['close_D'].rolling(cv_window).mean()
             price_std = df['close_D'].rolling(cv_window).std()
             df[cv_col] = price_std / (price_mean + 1e-6)
-            print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
+            # print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
 
         # --- 3. 计算日线结构势能 (Energy Ratio) ---
         # 注意：这需要筹码数据已经合并到df中
         energy_col = 'energy_ratio_D'
         if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns and energy_col not in df.columns:
             df[energy_col] = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
-            print(f"      -> 结构势能 ({energy_col}) 计算完成。")
+            # print(f"      -> 结构势能 ({energy_col}) 计算完成。")
 
         all_dfs[timeframe] = df
         return all_dfs
@@ -1102,7 +1102,7 @@ class IndicatorService:
             
             all_dfs[timeframe] = df
 
-        print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
+        # print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
         return all_dfs
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
@@ -1139,7 +1139,7 @@ class IndicatorService:
         # strength_score 已经是0-100分，可以直接用。rank(pct=True)是相对排名。
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True) 
         
-        print(f"--- [IndustryService V2.0] {trade_date} 的行业结构化强度计算完成。 ---")
+        # print(f"--- [IndustryService V2.0] {trade_date} 的行业结构化强度计算完成。 ---")
         return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
 
     async def _process_single_industry_strength(self, industry, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
@@ -2363,7 +2363,7 @@ class IndicatorService:
 
         # --- 检查主引擎是否成功 ---
         if len(peak_indices) > 0 and len(trough_indices) > 0:
-            print("      -> [主引擎] 动态波段识别成功，正在计算...")
+            # print("      -> [主引擎] 动态波段识别成功，正在计算...")
             
             temp_df = pd.DataFrame(index=df.index)
             temp_df['swing_high_price'] = np.nan
@@ -2415,7 +2415,7 @@ class IndicatorService:
                 col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
                 result_df[col_name] = rolling_high - (price_range * level)
             
-            print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
+            # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
             return result_df
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
