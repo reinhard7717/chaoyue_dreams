@@ -71,7 +71,7 @@ class RateLimiterFactory:
                     cls._instance = super().__new__(cls)
                     cls._instance._limiters = {} # 缓存已创建的限流器实例
                     cls._instance._cache_manager = CacheManager() # 持有CacheManager单例
-                    print("DEBUG: RateLimiterFactory 单例已初始化。")
+                    # print("DEBUG: RateLimiterFactory 单例已初始化。")
         return cls._instance
 
     def get_limiter(self, name: str) -> DistributedRateLimiter:
@@ -83,7 +83,7 @@ class RateLimiterFactory:
         """
         with self._lock:
             if name not in self._limiters:
-                print(f"DEBUG: 工厂正在为 '{name}' 查找配置并创建新的限流器实例...")
+                # print(f"DEBUG: 工厂正在为 '{name}' 查找配置并创建新的限流器实例...")
                 
                 # 从 settings.py 获取所有速率限制配置
                 all_configs = settings.API_RATE_LIMITS

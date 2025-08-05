@@ -384,7 +384,7 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_mana
     【执行器】获取并保存【单个】股票在【指定日期】的CYQ筹码分布数据。
     [修改] 适配新的DAO方法，先获取StockInfo对象再调用。
     """
-    print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, date={trade_date_str}")
+    # print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, date={trade_date_str}")
 
     async def _async_task():
         """将所有异步逻辑封装在一个协程中"""
@@ -414,7 +414,7 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_mana
     try:
         # MODIFIED: 使用 asyncio.run() 来执行异步逻辑
         asyncio.run(_async_task())
-        print(f"执行器任务[CYQ Chips]完成: stock={stock_code}, date={trade_date_str}")
+        # print(f"执行器任务[CYQ Chips]完成: stock={stock_code}, date={trade_date_str}")
     except Exception as e:
         logger.error(f"执行器任务[CYQ Chips]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
         raise # 重新抛出异常，以便Celery的autoretry机制接管
@@ -433,7 +433,7 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manag
     【执行器】获取并保存【单个】股票在【指定日期】的CYQ筹码及胜率数据。
     [修改] 适配新的DAO方法，先获取StockInfo对象再调用。
     """
-    print(f"执行器任务[CYQ Perf]启动: stock={stock_code}, date={trade_date_str}")
+    # print(f"执行器任务[CYQ Perf]启动: stock={stock_code}, date={trade_date_str}")
 
     async def _async_task():
         """将所有异步逻辑封装在一个协程中"""
@@ -459,7 +459,7 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manag
     try:
         # MODIFIED: 使用 asyncio.run() 来执行异步逻辑
         asyncio.run(_async_task())
-        print(f"执行器任务[CYQ Perf]完成: stock={stock_code}, date={trade_date_str}")
+        # print(f"执行器任务[CYQ Perf]完成: stock={stock_code}, date={trade_date_str}")
     except Exception as e:
         logger.error(f"执行器任务[CYQ Perf]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
         raise # 重新抛出异常，以便Celery的autoretry机制接管
