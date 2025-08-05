@@ -1494,10 +1494,12 @@ class StockTimeTradeDAO(BaseDAO):
         logger.info(f"所有股票的每日筹码及胜率数据处理完成。")
         return result
 
-    async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None) -> None:
+    @with_rate_limit(api_name='api_cyq_perf') # 新增: 添加速率限制装饰器
+    async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None, *, limiter) -> None: # MODIFIED: 修改方法签名，接收limiter
         """
         获取并保存单个股票的历史筹码及胜率数据。
         此方法被并行的Celery任务调用。
+        [修改] 已适配分布式速率限制。
         """
         print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
@@ -1506,8 +1508,13 @@ class StockTimeTradeDAO(BaseDAO):
         limit = 5000 # 对于单个股票，可以设置一个较大的limit
         all_data_for_stock = []
         while True:
-            # 对Tushare Pro的调用需要try-except以增加健壮性
             try:
+                # 新增: 在调用API前获取速率许可
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_cyq_perf] 速率超限，等待1秒后重试... (股票: {stock.stock_code})")
+                    await asyncio.sleep(1)
+                
+                print(f"PID[{os.getpid()}] API[api_cyq_perf] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
                 df = self.ts_pro.cyq_perf(**{
                     "ts_code": stock.stock_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
                 }, fields=[
@@ -1516,7 +1523,7 @@ class StockTimeTradeDAO(BaseDAO):
                 ])
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (cyq_perf, ts_code={stock.stock_code}): {e}")
-                break # API调用失败，中断当前股票的处理
+                break
             if df.empty:
                 break
             all_data_for_stock.append(df)
@@ -1526,7 +1533,7 @@ class StockTimeTradeDAO(BaseDAO):
         if not all_data_for_stock:
             print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码及胜率数据。")
             return
-        # --- 对该股票的所有数据进行统一的向量化处理 ---
+        # --- 数据处理和保存逻辑保持不变 ---
         combined_df = pd.concat(all_data_for_stock, ignore_index=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['trade_date'], inplace=True)
@@ -1540,7 +1547,6 @@ class StockTimeTradeDAO(BaseDAO):
         ]]
         data_list = final_df.to_dict('records')
         print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码及胜率数据...")
-        # 一次性保存该股票的所有历史数据
         return await self._save_all_to_db_native_upsert(
             model_class=StockCyqPerf,
             data_list=data_list,

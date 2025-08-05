@@ -249,6 +249,10 @@ API_RATE_LIMITS = {
         'MAX_CALLS': 200,
         'PERIOD': 60,
     },
+    'api_cyq_perf': {
+        'MAX_CALLS': 200,
+        'PERIOD': 60,
+    },
     # 示例：为另一个财务数据接口定义不同的速率
     'api_financial_data': {
         'MAX_CALLS': 50,   # 假设这个接口更严格，每分钟50次
