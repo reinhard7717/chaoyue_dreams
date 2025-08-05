@@ -466,62 +466,45 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manag
 
 
 # --- 2. 分发器任务 (Dispatcher Task) ---
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery')
-def dispatch_cyq_tasks_for_date(trade_date_str: str):
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery', bind=True)
+@with_cache_manager
+def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: CacheManager):
     """
-    【分发器 V2.0 - 平滑分发版】
-    - 核心升级: 使用 group 和 chunks 将大量任务分块，并利用 chain 和 countdown 实现分批延迟执行，
-                从源头控制流量，避免瞬间压垮API速率限制。
+    【分发器 V2.1 - 修复版】
+    - 核心修复: 删除了内部的 _get_stocks_from_dao 辅助函数，直接使用由 @with_cache_manager
+                装饰器注入的 cache_manager 实例，解决了异步上下文协议错误。
     """
-    print(f"分发器任务[V2.0 平滑版]启动，准备为日期 {trade_date_str} 分发CYQ任务...")
+    print(f"分发器任务[V2.1 修复版]启动，准备为日期 {trade_date_str} 分发CYQ任务...")
     
-    try:
-        def _get_stocks_from_dao():
-            async def _async_get():
-                # 使用 with 语句确保 CacheManager 被正确关闭
-                async with CacheManager() as cache_manager:
-                    stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
-                    print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
-                    stock_list = await stock_dao.get_stock_list()
-                    return [stock.stock_code for stock in stock_list]
-            return asyncio.run(_async_get())
+    async def main():
+        # 1. 使用注入的 cache_manager 获取股票列表
+        stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
+        print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
+        stock_list = await stock_dao.get_stock_list()
+        all_stock_codes = [stock.stock_code for stock in stock_list]
 
-        all_stock_codes = _get_stocks_from_dao()
-        
         if not all_stock_codes:
             logger.warning(f"分发器：未能通过DAO获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
             return {"status": "skipped", "message": "no stocks found via DAO"}
             
         stock_count = len(all_stock_codes)
         
-        # 1. 定义分块参数
-        # 每批处理的股票数量。这个值可以根据API的实际限制调整。
-        # 假设API每分钟限制100次，我们每10秒处理10只股票(20个任务)，则每分钟处理60只(120个任务)，比较安全。
+        # 2. 定义分块参数
         chunk_size = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 10) 
-        # 每批任务之间的延迟时间（秒）
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 10)
 
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
 
-        # 2. 将所有任务签名准备好
+        # 3. 准备并分发任务
         all_tasks = []
         for stock_code in all_stock_codes:
-            # 为每只股票创建两个任务签名
             all_tasks.append(save_single_stock_cyq_chips.s(stock_code=stock_code, trade_date_str=trade_date_str))
             all_tasks.append(save_single_stock_cyq_perf.s(stock_code=stock_code, trade_date_str=trade_date_str))
         
-        # 3. 使用 group 和 chunks 将任务分块
-        # group(*all_tasks) 创建一个包含所有任务的大组
-        # .chunks(chunk_size * 2) 将大组切分成小块，每块包含 chunk_size*2 个任务
         task_chunks = group(*all_tasks).chunks(chunk_size * 2)
 
-        # 4. 使用 chain 和 countdown 将分块的任务串联起来，并加入延迟
-        # 例如: (chunk1 | chord_unlock | chunk2 | chord_unlock | ...)
-        # 我们这里简化，直接用 chain 和 apply_async 的 countdown
-        workflow_chain = []
+        i = 0 # 初始化计数器
         for i, chunk in enumerate(task_chunks):
-            # 对每个块（group），我们设置一个延迟执行
-            # 第一个块立即执行，后续的块依次延迟
             countdown = i * delay_between_chunks
             chunk.apply_async(countdown=countdown)
             print(f"  -> 第 {i+1} 批任务已调度，将在 {countdown} 秒后执行。")
@@ -530,7 +513,10 @@ def dispatch_cyq_tasks_for_date(trade_date_str: str):
         print(message)
         logger.info(message)
         return {"status": "dispatched_smoothly", "stock_count": stock_count, "chunk_count": i + 1}
-        
+
+    try:
+        # 使用 async_to_sync 来运行整个异步主逻辑
+        return async_to_sync(main)()
     except Exception as e:
         logger.error(f"分发器任务失败，日期: {trade_date_str}, error: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
