@@ -439,22 +439,42 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manag
 def dispatch_cyq_tasks_for_date(trade_date_str: str):
     """
     【分发器】获取所有股票代码，并为指定日期分发CYQ筹码和胜率的执行器任务。
+    [修改] 使用 StockBasicInfoDao.get_stock_list 方法获取股票列表，以利用缓存。
     """
     print(f"分发器任务启动，准备为日期 {trade_date_str} 分发CYQ任务...")
+    
     try:
-        # 直接从数据库获取所有活跃的股票代码
-        # 这是一个同步操作，可以在Celery任务中直接执行
-        all_stock_codes = list(StockInfo.objects.filter(status='L').values_list('stock_code', flat=True))
+        # MODIFIED: 使用 asyncio.run() 来调用异步的 DAO 方法
+        def _get_stocks_from_dao():
+            """定义一个内部函数来执行异步操作，使其更清晰"""
+            async def _async_get():
+                # 1. 实例化 CacheManager 和 DAO
+                cache_manager = CacheManager()
+                stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
+                
+                print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
+                # 2. 调用异步的 DAO 方法
+                stock_list = await stock_dao.get_stock_list() # 返回的是 StockInfo 对象列表
+                
+                # 3. 从对象列表中提取股票代码
+                #    get_stock_list 内部已经过滤了非上市股票 ('L')
+                return [stock.stock_code for stock in stock_list]
+
+            # 4. 使用 asyncio.run() 在同步的 Celery 任务中执行异步代码
+            return asyncio.run(_async_get())
+
+        # 执行上述定义的函数来获取股票代码列表
+        all_stock_codes = _get_stocks_from_dao()
         
         if not all_stock_codes:
-            logger.warning(f"分发器：未能获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
-            return {"status": "skipped", "message": "no stocks found"}
+            logger.warning(f"分发器：未能通过DAO获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
+            return {"status": "skipped", "message": "no stocks found via DAO"}
             
         count = len(all_stock_codes)
-        print(f"分发器：获取到 {count} 只股票，开始为每只股票分发两个CYQ执行器任务...")
+        print(f"分发器：通过DAO获取到 {count} 只股票，开始为每只股票分发两个CYQ执行器任务...")
         
+        # 任务分发逻辑保持不变
         for stock_code in all_stock_codes:
-            # 为每只股票分发两个任务：一个获取chips，一个获取perf
             save_single_stock_cyq_chips.delay(stock_code=stock_code, trade_date_str=trade_date_str)
             save_single_stock_cyq_perf.delay(stock_code=stock_code, trade_date_str=trade_date_str)
             
@@ -465,6 +485,8 @@ def dispatch_cyq_tasks_for_date(trade_date_str: str):
         
     except Exception as e:
         logger.error(f"分发器任务失败，日期: {trade_date_str}, error: {e}", exc_info=True)
+        # 可以在这里增加重试逻辑，如果需要的话
+        # raise self.retry(exc=e, countdown=60)
         return {"status": "error", "message": str(e)}
 
 # --- 3. 调度器任务 (Scheduler Task) ---
