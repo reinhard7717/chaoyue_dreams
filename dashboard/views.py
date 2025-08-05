@@ -336,64 +336,79 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V406.0 终极模型重构版】
-        - 核心重构: 创建自选时，不再创建 FavoriteStockTracker，而是创建 PositionTracker。
+        【V406.1 兼容版】
+        - 核心修复: 兼容两种添加自选的场景，修复主页添加自选功能。
         """
         user = request.user
-        
-        # --- 代码修改开始 ---
-        # [修改原因] 适配新的 TradingSignal 和 PositionTracker 模型
         signal_id = request.data.get('signal_id')
-        if not signal_id:
-            return Response({'detail': '必须提供一个有效的建仓信号ID。'}, status=status.HTTP_400_BAD_REQUEST)
+        stock_code = request.data.get('stock_code')
 
-        try:
-            entry_signal = TradingSignal.objects.select_related('stock').get(
-                id=signal_id, 
-                signal_type=TradingSignal.SignalType.BUY
+        # 场景1: 从策略信号列表添加 (需要 signal_id)
+        if signal_id:
+            try:
+                entry_signal = TradingSignal.objects.select_related('stock').get(
+                    id=signal_id, 
+                    signal_type=TradingSignal.SignalType.BUY
+                )
+            except TradingSignal.DoesNotExist:
+                return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
+
+            stock = entry_signal.stock
+            # 创建或获取 FavoriteStock
+            favorite, _ = FavoriteStock.objects.get_or_create(user=user, stock=stock)
+            # 创建核心的 PositionTracker 记录
+            tracker, created = PositionTracker.objects.get_or_create(
+                user=user, stock=stock, entry_signal=entry_signal,
+                defaults={
+                    'status': PositionTracker.Status.HOLDING,
+                    'entry_price': entry_signal.close_price,
+                    'entry_date': entry_signal.trade_time,
+                }
             )
-        except TradingSignal.DoesNotExist:
-            return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
-
-        stock = entry_signal.stock
-
-        # 步骤1: 创建或获取 FavoriteStock (这个模型仍然用于简单的收藏夹列表)
-        favorite, _ = FavoriteStock.objects.get_or_create(user=user, stock=stock)
-
-        # 步骤2: 创建核心的 PositionTracker 记录
-        # 使用 get_or_create 避免重复创建
-        tracker, created = PositionTracker.objects.get_or_create(
-            user=user, stock=stock, entry_signal=entry_signal,
-            defaults={
-                'status': PositionTracker.Status.HOLDING, # 使用正确的枚举
-                'entry_price': entry_signal.close_price,
-                'entry_date': entry_signal.trade_time,
-            }
-        )
+            if not created:
+                tracker.status = PositionTracker.Status.HOLDING
+                tracker.exit_signal = None
+                tracker.exit_date = None
+                tracker.exit_price = None
+                tracker.save()
         
-        if not created:
-            # 如果已存在，可以考虑更新其状态为 HOLDING (如果之前是 SOLD)
-            tracker.status = PositionTracker.Status.HOLDING
-            tracker.exit_signal = None
-            tracker.exit_date = None
-            tracker.exit_price = None
-            tracker.save()
+        # 场景2: 从主页搜索添加 (只需要 stock_code)
+        elif stock_code:
+            try:
+                stock = StockInfo.objects.get(stock_code=stock_code)
+            except StockInfo.DoesNotExist:
+                return Response({'detail': f'股票代码 {stock_code} 不存在。'}, status=status.HTTP_404_NOT_FOUND)
+            
+            # 只创建或获取 FavoriteStock，不创建 PositionTracker
+            favorite, created = FavoriteStock.objects.get_or_create(user=user, stock=stock)
+            if not created:
+                return Response({'detail': '该股票已在您的自选列表中。'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 场景3: 无效请求
+        else:
+            return Response({'detail': '必须提供 signal_id 或 stock_code。'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --- 代码修改结束 ---
-
-        # WebSocket 和 Celery 任务逻辑保持不变
+        # --- 通用的成功后操作 ---
+        # WebSocket 推送
         websocket_payload = {
             'id': favorite.id,
             'code': stock.stock_code,
             'name': stock.stock_name,
-            # ... (其他字段) ...
+            # 为了与JS addStockRow 函数兼容，提供基础字段
+            "current_price": None,
+            "change_percent": None,
+            "volume": None,
+            "signal": None,
         }
         send_update_to_user_sync(
             user_id=user.id,
             sub_type='favorite_added_with_data',
             payload=websocket_payload
         )
-        # ... (Celery 任务触发逻辑) ...
+        
+        # (可选) 触发Celery任务，例如立即获取一次行情
+        # from your_tasks import fetch_realtime_quote_task
+        # fetch_realtime_quote_task.delay(stock.stock_code)
 
         response_data = FavoriteStockSerializer(instance=favorite).data
         return Response(response_data, status=status.HTTP_201_CREATED)
