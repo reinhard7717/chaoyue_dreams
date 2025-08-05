@@ -11,10 +11,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterUniqueTogether(
-            name='dailypositionsnapshot',
-            unique_together={('tracker', 'snapshot_date')},
-        ),
         migrations.AddField(
             model_name='dailypositionsnapshot',
             name='profit_loss',
@@ -48,6 +44,10 @@ class Migration(migrations.Migration):
         migrations.AlterModelTable(
             name='dailypositionsnapshot',
             table=None,
+        ),
+        migrations.AlterUniqueTogether(
+            name='dailypositionsnapshot',
+            unique_together={('tracker', 'snapshot_date')},
         ),
         migrations.CreateModel(
             name='StrategyDailyScore',
