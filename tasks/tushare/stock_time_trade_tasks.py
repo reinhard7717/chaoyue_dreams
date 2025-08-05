@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import datetime
+from django.conf import settings
 from asgiref.sync import async_to_sync
 from celery import chord, group, chain
 from django.db import models
