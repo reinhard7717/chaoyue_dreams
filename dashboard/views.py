@@ -27,6 +27,7 @@ from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
 from .serializers import StockInfoSerializer, FavoriteStockSerializer
 from utils.task_helpers import with_cache_manager_for_views
+from django.db.models import OuterRef, Subquery
 import logging # 导入 logging
 
 logger = logging.getLogger('dashboard') # 获取 logger 实例
