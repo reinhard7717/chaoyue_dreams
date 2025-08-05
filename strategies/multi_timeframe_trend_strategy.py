@@ -338,12 +338,10 @@ class MultiTimeframeTrendStrategy:
         print(f"    {verdict}")
         print("=" * 95)
 
-    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
+    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List, List, List]:
         """
-        【V322.0 终极架构重构版】
-        - 核心重构: 总指挥层不再执行任何情报分析。它的唯一职责是将带有周线战略背景的
-                    日线数据，完整地移交给日线战术引擎，由其独立完成所有后续分析。
-                    这彻底解决了情报收集的重复和逻辑混乱问题。
+        【V506.1 日志修复版】
+        - 核心修改: 修正了返回值的类型提示，并修复了误导性的日志打印。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
@@ -351,7 +349,6 @@ class MultiTimeframeTrendStrategy:
             return ([], [], [], [])
 
         try:
-            # --- 【核心修改】直接调用战术引擎，不再进行任何预处理 ---
             # TrendFollowStrategy 将独立负责运行其内部的情报层和所有分析
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config
@@ -362,26 +359,20 @@ class MultiTimeframeTrendStrategy:
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return ([], [], [], [])
 
-            # 2. 【重要】保存分析结果 (逻辑不变)
+            # 保存分析结果
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
             
-            # --- 主动净化报告数据源 ---
-            # 在将数据送去生成报告前，进行最后一次清洗，确保逻辑的最终正确性。
+            # 主动净化报告数据源
             is_buy_signal_day = daily_analysis_df['signal_type'] == '买入信号'
-            
-            # 在所有识别为“买入信号”的日子里，强制将所有与卖出/风险相关的字段重置为默认值
             columns_to_clean = ['exit_signal_code', 'alert_level', 'alert_reason', 'exit_severity_level', 'exit_signal_reason']
             for col in columns_to_clean:
                 if col in daily_analysis_df.columns:
-                    # 根据列的数据类型设置合适的默认值
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
             
-            # print("    -> [报告净化单元] 已对买入信号日的风险标签执行最终净化。")
-            
-            # 3. 调用报告层生成数据库记录 (现在使用净化后的DataFrame)
+            # 调用报告层生成数据库记录
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,
@@ -390,18 +381,18 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple)} 条日线信号(买入/卖出/预警)。")
+            
+            # 修复误导性日志，使其打印真正有用的信息
+            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号和 {len(records_tuple[2])} 条每日分数。")
             
             return records_tuple
 
         finally:
-            # 注意：这里的清理逻辑保持不变，因为调试模式可能需要这些临时数据
-            # print("    -> [总司令部] 正在执行“阅后即焚”条令...")
+            # 清理临时数据
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df
             if hasattr(self.tactical_engine, '_last_risk_details_df'):
                 del self.tactical_engine._last_risk_details_df
-            # print("        -> [焚毁完成] 临时档案已销毁，内存安全。")
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
