@@ -486,54 +486,36 @@ def generate_snapshots_for_stock_tracker(self, stock_code: str, *, cache_manager
 @with_cache_manager
 def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
     """
-    【V6.0 流式处理架构】
-    - 核心架构: 采用【并行的任务链】模式 (Group of Chains)。
-    - 工作流: 对每一只股票，创建一个独立的任务链:
-                [计算公共分数] -> [生成个性化快照]
-              然后将所有股票的任务链打包成一个 group 并行执行。
-    - 优势: 任何一只股票的基础分计算完成后，会立即触发其个性化快照的生成，
-            实现了数据的即时反馈，不再需要等待所有股票都计算完毕。
+    【V7.0 终极解耦版】
+    - 核心架构: 回归本源，此任务的【唯一职责】是建设和更新 StrategyDailyScore 公共数据库。
+    - 工作流: 彻底移除所有下游任务链，只对所有股票并行执行 run_multi_timeframe_strategy。
     """
     try:
-        logger.info("====== [全历史流式工作流 V6.0] 启动 ======")
+        logger.info("====== [公共数据库建设-全历史 V7.0] 启动 ======")
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes = favorite_codes + non_favorite_codes
         
         if not all_codes:
-            logger.warning("[流式工作流] 未找到任何股票数据，任务终止")
+            logger.warning("[公共数据库] 未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
             
         stock_count = len(all_codes)
-        logger.info(f"[流式工作流] 准备为 {stock_count} 只股票创建独立的【分析->快照】任务链。")
+        logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
         
-        # --- 代码修改开始：构建并行的任务链 ---
-        # [修改原因] 实现“计算完一只，立刻处理一只”的流式架构。
+        # --- 代码修改开始：回归最简单的并行任务组 ---
+        # [修改原因] 彻底解耦，此任务只负责计算公共分数，不关心任何个性化数据。
+        analysis_tasks = [
+            run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy') for code in all_codes
+        ]
         
-        # 1. 为每一只股票创建一个独立的任务链 (chain)
-        per_stock_workflows = []
-        for code in all_codes:
-            # 任务链第一步: 计算该股票的全历史公共分数
-            analysis_task = run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy')
-            
-            # 任务链第二步: 为该股票生成个性化快照
-            snapshot_task = generate_snapshots_for_stock_tracker.s(code).set(queue='celery')
-            
-            # 将两步串联起来
-            stock_chain = chain(analysis_task, snapshot_task)
-            per_stock_workflows.append(stock_chain)
-
-        # 2. 将所有独立的任务链打包成一个组 (group)，让它们并行执行
-        if per_stock_workflows:
-            workflow_group = group(per_stock_workflows)
-            workflow_group.apply_async()
+        workflow = group(analysis_tasks)
+        workflow.apply_async()
         # --- 代码修改结束 ---
         
-        logger.info(f"[流式工作流] 已成功启动 {stock_count} 个并行的任务链。")
-        logger.info(f"  - 每个任务链包含: 1.全历史分析 -> 2.个性化快照生成")
-        
+        logger.info(f"[公共数据库] 已成功为 {stock_count} 只股票启动【全历史】分数计算任务。")
         return {"status": "workflow_started", "stock_count": stock_count}
     except Exception as e:
-        logger.error(f"[全历史流式工作流] 任务启动时发生严重错误: {e}", exc_info=True)
+        logger.error(f"[公共数据库-全历史] 任务启动时发生严重错误: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
 
@@ -541,13 +523,11 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V6.0 流式处理架构】
-    - 核心架构: 与全历史任务保持完全一致，采用【并行的任务链】模式。
-    - 工作流: 对每一只股票，创建独立的任务链:
-                [计算当日公共分数] -> [生成/更新个性化快照]
+    【V7.0 终极解耦版】
+    - 核心架构: 与全历史任务完全一致，此任务的【唯一职责】是更新当日的 StrategyDailyScore。
     """
     try:
-        logger.info("====== [每日增量流式工作流 V6.0] 启动 ======")
+        logger.info("====== [公共数据库建设-每日增量 V7.0] 启动 ======")
 
         # 1. 获取权威交易日 (逻辑不变)
         reference_date = timezone.now().date()
@@ -560,42 +540,33 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
         
+        all_codes = []
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
-        all_codes = favorite_codes + non_favorite_codes
+        all_codes.extend(favorite_codes)
+        all_codes.extend(non_favorite_codes)
         
         if not all_codes:
             logger.warning("[每日增量] 未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
             
         stock_count = len(all_codes)
-        logger.info(f"[每日增量] 准备为 {stock_count} 只股票创建独立的【分析->快照】任务链。")
+        logger.info(f"[每日增量] 准备为 {stock_count} 只股票更新当日策略分数。")
         
-        # --- 代码修改开始：构建并行的任务链 ---
-        per_stock_workflows = []
-        for code in all_codes:
-            # 任务链第一步: 计算该股票的当日公共分数
-            analysis_task = run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy')
-            
-            # 任务链第二步: 为该股票生成/更新个性化快照
-            snapshot_task = generate_snapshots_for_stock_tracker.s(code).set(queue='celery')
-            
-            # 将两步串联起来
-            stock_chain = chain(analysis_task, snapshot_task)
-            per_stock_workflows.append(stock_chain)
-
-        if per_stock_workflows:
-            workflow_group = group(per_stock_workflows)
-            workflow_group.apply_async()
+        # --- 代码修改开始：回归最简单的并行任务组 ---
+        analysis_tasks = [
+            run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in all_codes
+        ]
+        
+        workflow = group(analysis_tasks)
+        workflow.apply_async()
         # --- 代码修改结束 ---
         
-        logger.info(f"[每日增量] 已成功启动 {stock_count} 个并行的任务链。")
-        
+        logger.info(f"[每日增量] 已成功为 {stock_count} 只股票启动【当日】分数计算任务。")
         return {"status": "workflow_started", "stock_count": stock_count}
         
     except Exception as e:
         logger.error(f"[每日增量] 任务调度时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
 # 辅助函数 _chunker 保持不变
 def _chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
