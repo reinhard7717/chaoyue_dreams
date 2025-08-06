@@ -169,7 +169,6 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
         5. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot。
     """
     logger.info("====== [持仓关联引擎 V4.0] 启动，开始更新所有持仓快照... ======")
-    
     async def main():
         # 1. 获取所有正在持仓的 PositionTracker
         active_trackers = list(PositionTracker.objects.filter(
@@ -179,12 +178,10 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
         if not active_trackers:
             logger.info("[持仓关联引擎] 没有发现任何持仓中的标的，任务结束。")
             return 0
-
         today = date.today()
         stock_codes = [t.stock.stock_code for t in active_trackers]
         logger.info(f"[持仓关联引擎] 发现 {len(active_trackers)} 个持仓中的标的，开始处理日期: {today}...")
         print(f"DEBUG: 持仓中的股票代码: {stock_codes}")
-
         # 2. 批量获取所有持仓股今天的价格信息
         strategies_dao = StrategiesDAO(cache_manager)
         # get_latest_daily_data_for_stocks 会返回一个字典 {stock_code: daily_data_df}
@@ -192,7 +189,6 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
             stock_codes, 
             end_date=today.strftime('%Y-%m-%d')
         )
-        
         # 3. 批量获取所有持仓股今天的策略分析结果
         daily_scores_qs = StrategyDailyScore.objects.filter(
             stock_id__in=stock_codes,
@@ -201,26 +197,20 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
         # 将查询结果转为字典，方便快速查找 {stock_code: StrategyDailyScore_instance}
         daily_scores_map = {score.stock_id: score for score in daily_scores_qs}
         print(f"DEBUG: 找到 {len(daily_scores_map)} 条今日的预计算分数记录。")
-
         snapshots_to_process = []
-
         for tracker in active_trackers:
             stock_code = tracker.stock.stock_code
-            
             # 从批量获取的数据中查找当前股票的最新行情
             latest_data = latest_daily_data_map.get(stock_code)
             if latest_data is None or latest_data.empty:
                 logger.warning(f"无法获取 {stock_code} 在 {today} 的最新价格，跳过快照更新。")
                 continue
-            
             # 获取当天的收盘价
             latest_price = latest_data.iloc[-1]['close']
-
             # 4. 查找对应的每日分数记录
             daily_score_obj = daily_scores_map.get(stock_code)
             if not daily_score_obj:
                 print(f"DEBUG: 股票 {stock_code} 在 {today} 没有找到预计算的分数记录。")
-
             # 5. 准备快照对象的数据字典，用于 update_or_create
             snapshot_defaults = {
                 'close_price': latest_price,
@@ -228,13 +218,11 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
                 'profit_loss_pct': ((latest_price / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
                 'daily_score': daily_score_obj # 直接关联！如果没找到就是 None
             }
-            
             # 将要处理的快照信息加入列表
             snapshots_to_process.append({
                 'lookup': {'tracker': tracker, 'snapshot_date': today},
                 'defaults': snapshot_defaults
             })
-
         # 6. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot
         created_count = 0
         updated_count = 0
@@ -247,10 +235,8 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
                 created_count += 1
             else:
                 updated_count += 1
-
         logger.info(f"[持仓关联引擎] 快照更新完成。新建: {created_count} 条, 更新: {updated_count} 条。")
         return created_count + updated_count
-
     try:
         return async_to_sync(main)()
     except Exception as e:
@@ -299,7 +285,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票 (自选: {len(favorite_codes)}, 其他: {len(non_favorite_codes)})")
         logger.info(f"  - 步骤2: 更新所有自选股持仓追踪器")
         return {"status": "workflow_started", "stock_count": stock_count}
-        
     except Exception as e:
         logger.error(f"调度所有股票分析任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
@@ -316,10 +301,8 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
     """
     try:
         logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.3 并发修复版) ======")
-        
         favorite_codes = []
         non_favorite_codes = []
-
         async def main():
             nonlocal favorite_codes, non_favorite_codes
             stock_basic_dao = StockBasicInfoDao(cache_manager)
@@ -328,18 +311,13 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
             fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
             favorite_codes.extend(fav_codes)
             non_favorite_codes.extend(non_fav_codes)
-
         async_to_sync(main)()
-
         if not non_favorite_codes and not favorite_codes:
             logger.warning("[战略预备队] 未找到任何股票数据，总动员任务终止")
             return {"status": "failed", "reason": "no stocks found"}
-            
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"[战略预备队] 发现 {stock_count} 只股票需要进行全面历史分析。")
-        
         trade_time_str = datetime.now().strftime('%Y-%m-%d')
-        
         # 1. 将所有任务签名打包到一个列表中
         analysis_tasks = []
         for stock_code in favorite_codes:
@@ -347,22 +325,21 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
             analysis_tasks.append(
                 run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
             )
-        
         for stock_code in non_favorite_codes:
             analysis_tasks.append(
                 run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
             )
-        
-        # 2. 将所有任务签名打包成一个 group
         parallel_analysis_group = group(analysis_tasks)
-        
-        # 3. 异步执行整个 group
-        # group 会将内部的任务智能地分发给所有可用的 worker
-        parallel_analysis_group.apply_async()
-        
-        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建了一个并行分析任务组，并已下达“全面战役”指令。")
-        return {"status": "group_started",  "stock_count": stock_count}
-        
+         # 2. 创建持仓快照更新任务的签名
+        update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery')
+        # 3. 将分析任务组和快照更新任务串联成一个工作流
+        workflow = chain(parallel_analysis_group, update_tracker_task)
+        # 4. 异步执行整个工作流
+        workflow.apply_async()
+        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建并启动了链式工作流：")
+        logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票的全部历史数据。")
+        logger.info(f"  - 步骤2: 更新所有自选股的持仓追踪器。")
+        return {"status": "workflow_started", "stock_count": stock_count}
     except Exception as e:
         logger.error(f"[战略预备队] 执行总动员任务时发生严重错误: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
