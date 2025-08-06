@@ -1,11 +1,9 @@
 // dashboard.js
 
 document.addEventListener('DOMContentLoaded', function () {
-
     // =========================================================================
     // === 辅助函数 (全局可复用) ==============================================
     // =========================================================================
-
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -491,7 +489,6 @@ document.addEventListener('DOMContentLoaded', function () {
         initializeFavoriteButtons();
     }
 
-
     // =========================================================================
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
     // =========================================================================
@@ -516,192 +513,231 @@ document.addEventListener('DOMContentLoaded', function () {
         // ===================================================================
         // === 主事件委托：一个监听器处理所有按钮点击 ========================
         // ===================================================================
-        tableBody.addEventListener('click', async function (event) {
-            const manageButton = event.target.closest('.manage-transactions-btn');
-            const removeButton = event.target.closest('.remove-position-btn');
 
-            // --- 逻辑分支 1: 点击了“管理”按钮 ---
-            if (manageButton) {
-                event.preventDefault();
-                const trackerId = manageButton.dataset.trackerId;
-                const stockName = manageButton.dataset.stockName;
-                openTransactionModal(trackerId, stockName);
-                return; // 处理完毕，退出
+        function initializeFavTrendListPage() {
+            // 调试点 1: 确认函数是否被调用
+            console.log('[调试点 1] initializeFavTrendListPage 函数已开始执行。');
+
+            const tableBody = document.getElementById('fav-trend-table-body');
+            if (!tableBody) {
+                console.error('[错误] 页面中未找到 ID 为 "fav-trend-table-body" 的元素，初始化失败！');
+                return; // 卫兵子句
             }
+            console.log('[调试点 2] 已成功获取到 tableBody 元素:', tableBody);
 
-            // --- 逻辑分支 2: 点击了“删除自选”按钮 ---
-            if (removeButton) {
-                event.preventDefault();
-                // 【修复】确保从正确的 data-* 属性获取ID
-                const favoriteId = removeButton.dataset.favId;
-                const stockCode = removeButton.dataset.stockCode;
+            // --- 获取模态框相关元素 (保持不变) ---
+            const modalOverlay = document.getElementById('transaction-modal-overlay');
+            const modalTitle = document.getElementById('transaction-modal-title');
+            const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
+            const transactionListTbody = document.getElementById('transaction-list-tbody');
+            const transactionListLoading = document.getElementById('transaction-list-loading');
+            const addTransactionForm = document.getElementById('add-transaction-form');
+            const formTrackerIdInput = document.getElementById('form-tracker-id');
 
-                if (!favoriteId) {
-                    showNotification('无法获取自选ID (fav-id)，操作失败', 'error');
+            // ===================================================================
+            // === 主事件委托：一个监听器处理所有按钮点击 ========================
+            // ===================================================================
+            tableBody.addEventListener('click', async function (event) {
+                // 调试点 3: 确认点击事件是否被监听到
+                console.log('[调试点 3] tableBody 内发生点击事件。被点击的原始元素是:', event.target);
+
+                const manageButton = event.target.closest('.manage-transactions-btn');
+                const removeButton = event.target.closest('.remove-position-btn');
+
+                // 调试点 4: 检查 closest() 选择器的结果
+                console.log('[调试点 4] closest() 查找结果:', { manageButton, removeButton });
+
+                // --- 逻辑分支 1: 点击了“管理”按钮 ---
+                if (manageButton) {
+                    console.log('[分支 1] 检测到“管理”按钮被点击。');
+                    event.preventDefault();
+                    const trackerId = manageButton.dataset.trackerId;
+                    const stockName = manageButton.dataset.stockName;
+
+                    // 调试点 5: 检查从“管理”按钮获取的数据
+                    console.log('[调试点 5] 从“管理”按钮获取的数据:', { trackerId, stockName });
+
+                    if (!trackerId) {
+                        console.error('[错误] “管理”按钮上缺少 data-tracker-id 属性！');
+                        showNotification('操作失败：缺少 tracker ID。', 'error');
+                        return;
+                    }
+                    openTransactionModal(trackerId, stockName);
                     return;
                 }
 
-                if (confirm(`确定要从自选列表中移除 ${stockCode} 吗？\n注意：这只会移除自选星标，不会删除您的交易记录。`)) {
-                    removeButton.disabled = true;
-                    removeButton.textContent = '...';
+                // --- 逻辑分支 2: 点击了“删除自选”按钮 ---
+                if (removeButton) {
+                    console.log('[分支 2] 检测到“删除”按钮被点击。');
+                    event.preventDefault();
+                    const favoriteId = removeButton.dataset.favId;
+                    const stockCode = removeButton.dataset.stockCode;
 
-                    try {
-                        const csrfToken = getCookie('csrftoken');
-                        // 【修复】确保调用正确的API端点来删除 FavoriteStock
-                        const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
-                            method: 'DELETE',
-                            headers: {
-                                'X-Requested-With': 'XMLHttpRequest',
-                                'X-CSRFToken': csrfToken
-                            }
-                        });
+                    // 调试点 6: 检查从“删除”按钮获取的数据
+                    console.log('[调试点 6] 从“删除”按钮获取的数据:', { favoriteId, stockCode });
 
-                        if (response.ok || response.status === 204) {
-                            showNotification(`股票 ${stockCode} 已成功从自选中移除`, 'success');
-                            const rowToRemove = removeButton.closest('tr');
-                            if (rowToRemove) {
-                                rowToRemove.classList.add('flash-remove');
-                                // 仅隐藏或标记，而不是完全移除，因为页面是基于PositionTracker渲染的
-                                // 一个更好的体验是直接让该行消失
-                                setTimeout(() => rowToRemove.remove(), 300);
-                            }
-                        } else {
-                            throw new Error('删除失败，请刷新后重试');
-                        }
-                    } catch (error) {
-                        showNotification(error.message, 'error');
-                        removeButton.disabled = false;
-                        removeButton.textContent = '×'; // 恢复按钮
+                    if (!favoriteId) {
+                        console.error('[错误] “删除”按钮上缺少 data-fav-id 属性！');
+                        showNotification('操作失败：缺少 favorite ID。', 'error');
+                        return;
                     }
+
+                    if (confirm(`确定要从自选列表中移除 ${stockCode} 吗？\n注意：这只会移除自选星标，不会删除您的交易记录。`)) {
+                        removeButton.disabled = true;
+                        removeButton.textContent = '...';
+                        try {
+                            const csrfToken = getCookie('csrftoken');
+                            const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
+                                method: 'DELETE',
+                                headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken }
+                            });
+                            if (response.ok || response.status === 204) {
+                                showNotification(`股票 ${stockCode} 已成功从自选中移除`, 'success');
+                                const rowToRemove = removeButton.closest('tr');
+                                if (rowToRemove) {
+                                    rowToRemove.classList.add('flash-remove');
+                                    setTimeout(() => rowToRemove.remove(), 300);
+                                }
+                            } else {
+                                throw new Error('删除失败，请刷新后重试');
+                            }
+                        } catch (error) {
+                            showNotification(error.message, 'error');
+                            removeButton.disabled = false;
+                            removeButton.textContent = '×';
+                        }
+                    }
+                    return;
                 }
-                return; // 处理完毕，退出
+
+                // 如果代码执行到这里，说明点击了表格但没有点中任何一个我们关心的按钮
+                console.log('[调试信息] 点击未命中任何目标按钮。');
+            });
+
+            // ===================================================================
+            // === “管理交易”模态框相关功能 (保持不变) ==========================
+            // ===================================================================
+
+            // --- 打开模态框并加载数据 ---
+            async function openTransactionModal(trackerId, stockName) {
+                modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
+                formTrackerIdInput.value = trackerId;
+                modalOverlay.style.display = 'flex';
+                transactionListLoading.style.display = 'block';
+                transactionListTbody.innerHTML = '';
+
+                try {
+                    const response = await fetch(`/dashboard/api/transactions/?tracker_id=${trackerId}`);
+                    if (!response.ok) throw new Error('获取交易流水失败');
+                    const transactions = await response.json();
+                    renderTransactionList(transactions);
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                    transactionListTbody.innerHTML = `<tr><td colspan="5">加载失败</td></tr>`;
+                } finally {
+                    transactionListLoading.style.display = 'none';
+                }
             }
-        });
 
-        // ===================================================================
-        // === “管理交易”模态框相关功能 (保持不变) ==========================
-        // ===================================================================
-
-        // --- 打开模态框并加载数据 ---
-        async function openTransactionModal(trackerId, stockName) {
-            modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
-            formTrackerIdInput.value = trackerId;
-            modalOverlay.style.display = 'flex';
-            transactionListLoading.style.display = 'block';
-            transactionListTbody.innerHTML = '';
-
-            try {
-                const response = await fetch(`/dashboard/api/transactions/?tracker_id=${trackerId}`);
-                if (!response.ok) throw new Error('获取交易流水失败');
-                const transactions = await response.json();
-                renderTransactionList(transactions);
-            } catch (error) {
-                showNotification(error.message, 'error');
-                transactionListTbody.innerHTML = `<tr><td colspan="5">加载失败</td></tr>`;
-            } finally {
-                transactionListLoading.style.display = 'none';
+            // --- 渲染交易列表 ---
+            function renderTransactionList(transactions) {
+                transactionListTbody.innerHTML = '';
+                if (transactions.length === 0) {
+                    transactionListTbody.innerHTML = `<tr><td colspan="5">暂无交易记录</td></tr>`;
+                    return;
+                }
+                transactions.forEach(tx => {
+                    const row = document.createElement('tr');
+                    const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
+                    row.innerHTML = `
+                        <td>${tx.transaction_type === 'BUY' ? '买入' : '卖出'}</td>
+                        <td>${txDate}</td>
+                        <td>${formatNumber(tx.price, 2)}</td>
+                        <td>${formatVolume(tx.quantity)}</td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-danger delete-transaction-btn" data-tx-id="${tx.id}">删除</button>
+                        </td>
+                    `;
+                    transactionListTbody.appendChild(row);
+                });
             }
-        }
 
-        // --- 渲染交易列表 ---
-        function renderTransactionList(transactions) {
-            transactionListTbody.innerHTML = '';
-            if (transactions.length === 0) {
-                transactionListTbody.innerHTML = `<tr><td colspan="5">暂无交易记录</td></tr>`;
-                return;
+            // --- 关闭模态框 ---
+            function closeTransactionModal() {
+                modalOverlay.style.display = 'none';
             }
-            transactions.forEach(tx => {
-                const row = document.createElement('tr');
-                const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
-                row.innerHTML = `
-                    <td>${tx.transaction_type === 'BUY' ? '买入' : '卖出'}</td>
-                    <td>${txDate}</td>
-                    <td>${formatNumber(tx.price, 2)}</td>
-                    <td>${formatVolume(tx.quantity)}</td>
-                    <td class="actions">
-                        <button class="btn btn-sm btn-danger delete-transaction-btn" data-tx-id="${tx.id}">删除</button>
-                    </td>
-                `;
-                transactionListTbody.appendChild(row);
+            modalCloseBtn.addEventListener('click', closeTransactionModal);
+            modalOverlay.addEventListener('click', (event) => {
+                if (event.target === modalOverlay) {
+                    closeTransactionModal();
+                }
+            });
+
+            // --- 处理新增交易表单提交 ---
+            addTransactionForm.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                const submitBtn = document.getElementById('add-transaction-submit-btn');
+                submitBtn.disabled = true;
+                submitBtn.textContent = '处理中...';
+
+                const formData = new FormData(addTransactionForm);
+                const data = Object.fromEntries(formData.entries());
+                data.transaction_date = new Date(data.transaction_date).toISOString();
+
+                try {
+                    const csrfToken = getCookie('csrftoken');
+                    const response = await fetch('/dashboard/api/transactions/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify(data),
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || '添加失败');
+                    }
+                    showNotification('交易添加成功！快照正在后台更新...', 'success');
+                    addTransactionForm.reset();
+                    // 重新加载列表以显示新交易
+                    openTransactionModal(data.tracker, modalTitle.textContent.split('[')[1].split(']')[0]);
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '确认添加';
+                }
+            });
+
+            // --- 处理删除交易 ---
+            transactionListTbody.addEventListener('click', async function (event) {
+                const deleteBtn = event.target.closest('.delete-transaction-btn');
+                if (!deleteBtn) return;
+
+                const txId = deleteBtn.dataset.txId;
+                if (!confirm('确定要删除这条交易记录吗？此操作会重新计算持仓成本和历史快照。')) return;
+
+                deleteBtn.disabled = true;
+                deleteBtn.textContent = '...';
+
+                try {
+                    const csrfToken = getCookie('csrftoken');
+                    const response = await fetch(`/dashboard/api/transactions/${txId}/`, {
+                        method: 'DELETE',
+                        headers: { 'X-CSRFToken': csrfToken },
+                    });
+                    if (!response.ok && response.status !== 204) {
+                        throw new Error('删除失败');
+                    }
+                    showNotification('交易删除成功！快照正在后台更新...', 'success');
+                    // 重新加载列表
+                    openTransactionModal(formTrackerIdInput.value, modalTitle.textContent.split('[')[1].split(']')[0]);
+                } catch (error) {
+                    showNotification(error.message, 'error');
+                    deleteBtn.disabled = false;
+                    deleteBtn.textContent = '删除';
+                }
             });
         }
-
-        // --- 关闭模态框 ---
-        function closeTransactionModal() {
-            modalOverlay.style.display = 'none';
-        }
-        modalCloseBtn.addEventListener('click', closeTransactionModal);
-        modalOverlay.addEventListener('click', (event) => {
-            if (event.target === modalOverlay) {
-                closeTransactionModal();
-            }
-        });
-
-        // --- 处理新增交易表单提交 ---
-        addTransactionForm.addEventListener('submit', async function (event) {
-            event.preventDefault();
-            const submitBtn = document.getElementById('add-transaction-submit-btn');
-            submitBtn.disabled = true;
-            submitBtn.textContent = '处理中...';
-
-            const formData = new FormData(addTransactionForm);
-            const data = Object.fromEntries(formData.entries());
-            data.transaction_date = new Date(data.transaction_date).toISOString();
-
-            try {
-                const csrfToken = getCookie('csrftoken');
-                const response = await fetch('/dashboard/api/transactions/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify(data),
-                });
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || '添加失败');
-                }
-                showNotification('交易添加成功！快照正在后台更新...', 'success');
-                addTransactionForm.reset();
-                // 重新加载列表以显示新交易
-                openTransactionModal(data.tracker, modalTitle.textContent.split('[')[1].split(']')[0]);
-            } catch (error) {
-                showNotification(error.message, 'error');
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = '确认添加';
-            }
-        });
-
-        // --- 处理删除交易 ---
-        transactionListTbody.addEventListener('click', async function (event) {
-            const deleteBtn = event.target.closest('.delete-transaction-btn');
-            if (!deleteBtn) return;
-
-            const txId = deleteBtn.dataset.txId;
-            if (!confirm('确定要删除这条交易记录吗？此操作会重新计算持仓成本和历史快照。')) return;
-
-            deleteBtn.disabled = true;
-            deleteBtn.textContent = '...';
-
-            try {
-                const csrfToken = getCookie('csrftoken');
-                const response = await fetch(`/dashboard/api/transactions/${txId}/`, {
-                    method: 'DELETE',
-                    headers: { 'X-CSRFToken': csrfToken },
-                });
-                if (!response.ok && response.status !== 204) {
-                    throw new Error('删除失败');
-                }
-                showNotification('交易删除成功！快照正在后台更新...', 'success');
-                // 重新加载列表
-                openTransactionModal(formTrackerIdInput.value, modalTitle.textContent.split('[')[1].split(']')[0]);
-            } catch (error) {
-                showNotification(error.message, 'error');
-                deleteBtn.disabled = false;
-                deleteBtn.textContent = '删除';
-            }
-        });
     }
-
 
     // =========================================================================
     // === 盘中引擎 (realtime_engine.html) 功能 ==============================
@@ -767,20 +803,20 @@ document.addEventListener('DOMContentLoaded', function () {
             const signalTime = new Date(signal.entry_time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
             card.innerHTML = `
-                <div class="signal-icon">${icon}</div>
-                <div class="signal-content">
-                    <div class="signal-header">
-                        <span class="signal-stock">${signal.stock_code}</span>
-                        <span class="signal-time">${signalTime}</span>
-                    </div>
-                    <div class="signal-reason">
-                        ${signal.reason} @ ${parseFloat(signal.entry_price).toFixed(2)}
-                    </div>
-                    <div class="signal-playbook">
-                        剧本: ${signal.playbook}
-                    </div>
+            <div class="signal-icon">${icon}</div>
+            <div class="signal-content">
+                <div class="signal-header">
+                    <span class="signal-stock">${signal.stock_code}</span>
+                    <span class="signal-time">${signalTime}</span>
                 </div>
-            `;
+                <div class="signal-reason">
+                    ${signal.reason} @ ${parseFloat(signal.entry_price).toFixed(2)}
+                </div>
+                <div class="signal-playbook">
+                    剧本: ${signal.playbook}
+                </div>
+            </div>
+        `;
 
             // 将新卡片插入到最顶部
             signalStream.prepend(card);
