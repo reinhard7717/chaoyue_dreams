@@ -405,6 +405,15 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             stock = entry_signal.stock
             # 创建或获取 FavoriteStock
             favorite, _ = FavoriteStock.objects.get_or_create(user=user, stock=stock)
+            tracker, created = PositionTracker.objects.get_or_create(
+                user=user, stock=stock, entry_signal=entry_signal,
+                defaults={
+                    'status': PositionTracker.Status.HOLDING,
+                    'entry_price': entry_signal.close_price,
+                    'entry_date': entry_signal.trade_time,
+                    'quantity': 100,  # 设置一个默认的持仓数量，例如100股
+                }
+            )
             # 创建核心的 PositionTracker 记录
             tracker, created = PositionTracker.objects.get_or_create(
                 user=user, stock=stock, entry_signal=entry_signal,

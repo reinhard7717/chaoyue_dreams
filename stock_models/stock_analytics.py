@@ -135,6 +135,11 @@ class PositionTracker(models.Model):
         db_index=True,
         help_text="当前追踪状态"
     )
+    
+    quantity = models.PositiveIntegerField(
+        default=100, # 默认100股（1手），可以根据需要调整
+        help_text="持仓数量 (股)"
+    )
 
     # --- 建仓/观察信息 (Entry Info) ---
     entry_signal = models.ForeignKey(
