@@ -11,7 +11,7 @@ from .trend_following.exit_layer import ExitLayer
 from .trend_following.judgment_layer import JudgmentLayer
 from .trend_following.simulation_layer import SimulationLayer
 from .trend_following.reporting_layer import ReportingLayer
-from .trend_following.utils import ensure_numeric_types, format_debug_dates, get_param_value, get_params_block
+from .trend_following.utils import ensure_numeric_types, optimize_df_memory, get_param_value, get_params_block
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,19 @@ class TrendFollowStrategy:
         # --- 指挥链 7/8 & 8/8: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
         # print(f"    ====== 【ORM适配引擎 V400.0】执行完毕 ======")
+        
+        # --- 代码修改开始：应用内存优化 ---
+        # [修改原因] 在所有计算完成后，对主DataFrame进行内存压缩，能极大减少内存占用。
+        self.df_indicators = optimize_df_memory(self.df_indicators)
+        
+        # [修改原因] 显式删除大型中间DataFrame，并提示Python进行垃圾回收。
+        try:
+            del trigger_events, entry_score, score_details_df, offensive_momentum_summary
+            del critical_risk_details_df, risk_score, combined_risk_details_df, risk_change_summary
+            gc.collect()
+            print("    -> [内存优化] 已清理大型中间变量并触发垃圾回收。")
+        except NameError:
+            pass # 忽略可能已删除的变量
 
         # 返回进攻详情和合并后的完整风险详情
         return self.df_indicators, score_details_df, combined_risk_details_df

@@ -19,7 +19,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore
-
+from stock_models.index import TradeCalendar
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic
@@ -357,15 +357,21 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
     try:
         logger.info("开始调度所有股票的分析任务 (V4.3 装饰器重构版)")
-        favorite_codes = []
-        non_favorite_codes = []
-        async def main():
-            nonlocal favorite_codes, non_favorite_codes
-            stock_basic_dao = StockBasicInfoDao(cache_manager)
-            fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-            favorite_codes.extend(fav_codes)
-            non_favorite_codes.extend(non_fav_codes)
-        async_to_sync(main)()
+        logger.info("开始调度所有股票的分析任务 (V4.4 健壮日期版)")
+
+        # 1. 从交易日历获取最新的交易日
+        # 使用 timezone.now().date() 作为参考，保证时区正确性
+        reference_date = timezone.now().date()
+        latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
+        # 2. 健壮性检查
+        if not latest_trade_dates:
+            logger.error("【严重错误】无法从交易日历中获取最新的交易日，任务终止！请检查交易日历数据。")
+            return {"status": "failed", "reason": "Cannot get latest trade date from calendar."}
+        # 3. 使用获取到的权威日期
+        latest_trade_date = latest_trade_dates[0]
+        trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
+        logger.info(f"任务将使用权威的最新交易日进行分析: {trade_time_str}")
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         if not non_favorite_codes and not favorite_codes:
             logger.warning("未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}

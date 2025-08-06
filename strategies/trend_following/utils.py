@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from decimal import Decimal
 from typing import Any
+import gc
 
 # 这个文件包含所有层级都可能用到的通用辅助函数
 
@@ -65,3 +66,43 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
             end_date = df.index[actual_window_mask][-1] if actual_window_mask.any() else entry_idx
         persistent_series.loc[entry_idx:end_date] = True
     return persistent_series
+
+def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    """
+    【内存优化工具】
+    遍历DataFrame的所有列，并尽可能地将其数据类型转换为占用内存更小的类型。
+    """
+    start_mem = df.memory_usage().sum() / 1024**2
+    for col in df.columns:
+        col_type = df[col].dtype
+        if col_type != object and col_type.name != 'category' and 'datetime' not in col_type.name:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)
+            else:
+                # 对于浮点数，优先使用float32，精度足够且内存减半
+                if c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+    end_mem = df.memory_usage().sum() / 1024**2
+    if verbose:
+        print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
+    return df
+
+
+
+
+
+
+
+
+
