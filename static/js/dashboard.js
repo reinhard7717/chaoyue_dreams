@@ -502,10 +502,27 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         console.log('正在初始化【自选股监控】页面功能...');
 
+        // --- 新增：获取模态框相关元素 ---
+        const modalOverlay = document.getElementById('transaction-modal-overlay');
+        const modalTitle = document.getElementById('transaction-modal-title');
+        const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
+        const transactionListTbody = document.getElementById('transaction-list-tbody');
+        const transactionListLoading = document.getElementById('transaction-list-loading');
+        const addTransactionForm = document.getElementById('add-transaction-form');
+        const formTrackerIdInput = document.getElementById('form-tracker-id');
+
         // --- 整合原有的折叠功能 和 新增移除自选股功能 ---
         tableBody.addEventListener('click', async function (event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             const removeButton = event.target.closest('button[data-action="remove"]');
+            const manageButton = event.target.closest('.manage-transactions-btn');
+
+            if (manageButton) {
+                event.preventDefault();
+                const trackerId = manageButton.dataset.trackerId;
+                const stockName = manageButton.dataset.stockName;
+                openTransactionModal(trackerId, stockName);
+            }
 
             // 处理折叠按钮
             if (toggleBtn) {
@@ -569,6 +586,129 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 }
                 return; // 处理完移除后，不再继续执行
+            }
+        });
+
+        // --- 打开模态框并加载数据 ---
+        async function openTransactionModal(trackerId, stockName) {
+            modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
+            formTrackerIdInput.value = trackerId;
+            modalOverlay.style.display = 'flex';
+            transactionListLoading.style.display = 'block';
+            transactionListTbody.innerHTML = '';
+
+            try {
+                const response = await fetch(`/dashboard/api/transactions/?tracker_id=${trackerId}`);
+                if (!response.ok) throw new Error('获取交易流水失败');
+                const transactions = await response.json();
+                renderTransactionList(transactions);
+            } catch (error) {
+                showNotification(error.message, 'error');
+                transactionListTbody.innerHTML = `<tr><td colspan="5">加载失败</td></tr>`;
+            } finally {
+                transactionListLoading.style.display = 'none';
+            }
+        }
+
+        // --- 渲染交易列表 ---
+        function renderTransactionList(transactions) {
+            transactionListTbody.innerHTML = '';
+            if (transactions.length === 0) {
+                transactionListTbody.innerHTML = `<tr><td colspan="5">暂无交易记录</td></tr>`;
+                return;
+            }
+            transactions.forEach(tx => {
+                const row = document.createElement('tr');
+                const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
+                row.innerHTML = `
+                    <td>${tx.transaction_type === 'BUY' ? '买入' : '卖出'}</td>
+                    <td>${txDate}</td>
+                    <td>${formatNumber(tx.price, 2)}</td>
+                    <td>${formatVolume(tx.quantity)}</td>
+                    <td class="actions">
+                        <button class="btn btn-sm btn-danger delete-transaction-btn" data-tx-id="${tx.id}">删除</button>
+                    </td>
+                `;
+                transactionListTbody.appendChild(row);
+            });
+        }
+
+        // --- 关闭模态框 ---
+        function closeTransactionModal() {
+            modalOverlay.style.display = 'none';
+        }
+        modalCloseBtn.addEventListener('click', closeTransactionModal);
+        modalOverlay.addEventListener('click', (event) => {
+            if (event.target === modalOverlay) {
+                closeTransactionModal();
+            }
+        });
+
+        // --- 处理新增交易表单提交 ---
+        addTransactionForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const submitBtn = document.getElementById('add-transaction-submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '处理中...';
+
+            const formData = new FormData(addTransactionForm);
+            const data = Object.fromEntries(formData.entries());
+            // 后端需要的是带时区的完整时间字符串
+            data.transaction_date = new Date(data.transaction_date).toISOString();
+
+            try {
+                const csrfToken = getCookie('csrftoken');
+                const response = await fetch('/dashboard/api/transactions/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify(data),
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '添加失败');
+                }
+                showNotification('交易添加成功！快照正在后台更新...', 'success');
+                addTransactionForm.reset();
+                // 重新加载列表
+                openTransactionModal(data.tracker, modalTitle.textContent.split('[')[1].split(']')[0]);
+            } catch (error) {
+                showNotification(error.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '确认添加';
+            }
+        });
+
+        // --- 处理删除交易 ---
+        transactionListTbody.addEventListener('click', async function (event) {
+            const deleteBtn = event.target.closest('.delete-transaction-btn');
+            if (!deleteBtn) return;
+
+            const txId = deleteBtn.dataset.txId;
+            if (!confirm('确定要删除这条交易记录吗？此操作会重新计算持仓成本和历史快照。')) return;
+
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = '...';
+
+            try {
+                const csrfToken = getCookie('csrftoken');
+                const response = await fetch(`/dashboard/api/transactions/${txId}/`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken },
+                });
+                if (!response.ok && response.status !== 204) {
+                    throw new Error('删除失败');
+                }
+                showNotification('交易删除成功！快照正在后台更新...', 'success');
+                // 重新加载列表
+                openTransactionModal(formTrackerIdInput.value, modalTitle.textContent.split('[')[1].split(']')[0]);
+            } catch (error) {
+                showNotification(error.message, 'error');
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = '删除';
             }
         });
     }

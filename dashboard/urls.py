@@ -1,14 +1,15 @@
 # dashboard/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from .views import FavoriteStockViewSet, TransactionViewSet
 from . import views
 
 app_name = 'dashboard'
 
 # DRF Router 用于 ViewSet
 router = DefaultRouter()
-router.register(r'favorites', views.FavoriteStockViewSet, basename='favorite')
-
+router.register(r'favorites', FavoriteStockViewSet, basename='favorite')
+router.register(r'transactions', TransactionViewSet, basename='transaction')
 urlpatterns = [
     # 页面 URL
     path('', views.dashboard_view, name='home'), # 主控台页面

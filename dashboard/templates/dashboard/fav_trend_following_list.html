@@ -96,7 +96,7 @@
             <th style="width: 18%;">持仓状态与盈亏</th>
             <th style="width: 30%;">建仓信息</th>
             <th style="width: 35%;">最新动态追踪</th>
-            <th style="width: 5%;">操作</th>
+            <th style="width: 5%;">管理</th>
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
@@ -190,6 +190,9 @@
               {% endif %}
             </td>
             <td class="actions">
+              <button class="btn btn-sm btn-primary manage-transactions-btn" data-tracker-id="{{ tracker.id }}" data-stock-name="{{ tracker.stock.stock_name }}">
+                管理
+              </button>
               <button class="btn btn-sm btn-danger remove-position-btn" data-id="{{ tracker.id }}">
                 &times;
               </button>
@@ -219,6 +222,73 @@
         {% endif %}
       {% endif %}
     </div>
+
+    <!-- ================================================== -->
+<!-- =========== 交易管理模态框 (Modal) ============ -->
+<!-- ================================================== -->
+<div class="modal-overlay" id="transaction-modal-overlay" style="display: none;">
+  <div class="modal-container" id="transaction-modal-container">
+    <div class="modal-header">
+      <h3 id="transaction-modal-title">管理交易流水</h3>
+      <button class="modal-close-btn" id="transaction-modal-close-btn">&times;</button>
+    </div>
+    <div class="modal-body">
+      
+      <!-- 交易列表 -->
+      <div class="transaction-list-wrapper">
+        <h4>现有交易记录</h4>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>日期</th>
+              <th>价格</th>
+              <th>数量</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="transaction-list-tbody">
+            <!-- JS将在此处动态填充内容 -->
+          </tbody>
+        </table>
+        <div id="transaction-list-loading" style="display: none; text-align: center; padding: 20px;">加载中...</div>
+      </div>
+
+      <hr>
+
+      <!-- 新增交易表单 -->
+      <div class="add-transaction-wrapper">
+        <h4>新增交易 (加仓/减仓)</h4>
+        <form id="add-transaction-form">
+          <input type="hidden" id="form-tracker-id" name="tracker">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="form-transaction-type">类型</label>
+              <select id="form-transaction-type" name="transaction_type" required>
+                <option value="BUY">买入 (加仓)</option>
+                <option value="SELL">卖出 (减仓)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="form-transaction-date">日期</label>
+              <input type="date" id="form-transaction-date" name="transaction_date" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="form-price">价格</label>
+              <input type="number" id="form-price" name="price" step="0.01" required>
+            </div>
+            <div class="form-group">
+              <label for="form-quantity">数量</label>
+              <input type="number" id="form-quantity" name="quantity" step="100" required>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="add-transaction-submit-btn">确认添加</button>
+          </div>
+        </form>
+      </div>
 
   </section>
 </div>

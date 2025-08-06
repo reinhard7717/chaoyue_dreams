@@ -19,15 +19,16 @@ from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.index import TradeCalendar # 导入模型
 from utils.config_loader import load_strategy_config
-from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail
+from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction
 from stock_models.stock_basic import StockInfo
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
-from .serializers import StockInfoSerializer, FavoriteStockSerializer
+from .serializers import StockInfoSerializer, FavoriteStockSerializer, TransactionSerializer
+from services.transaction_service import TransactionService
 from utils.task_helpers import with_cache_manager_for_views
-from django.db.models import OuterRef, Subquery
+from django.db import transaction as db_transaction
 from django.db.models import Prefetch
 import logging # 导入 logging
 
@@ -385,91 +386,64 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V406.1 兼容版】
-        - 核心修复: 兼容两种添加自选的场景，修复主页添加自选功能。
+        【V5.0 交易流水版】
+        - 核心修改: 创建 PositionTracker 和第一笔 Transaction，然后异步触发快照重建任务。
         """
         user = request.user
-        signal_id = request.data.get('signal_id')
         stock_code = request.data.get('stock_code')
+        entry_price_str = request.data.get('entry_price')
+        entry_date_str = request.data.get('entry_date')
+        quantity_str = request.data.get('quantity')
 
-        # 场景1: 从策略信号列表添加 (需要 signal_id)
-        if signal_id:
-            try:
-                entry_signal = TradingSignal.objects.select_related('stock').get(
-                    id=signal_id, 
-                    signal_type=TradingSignal.SignalType.BUY
+        # 参数校验
+        if not all([stock_code, entry_price_str, entry_date_str, quantity_str]):
+            return Response({'detail': '必须提供 stock_code, entry_price, entry_date 和 quantity。'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            stock = StockInfo.objects.get(stock_code=stock_code)
+            entry_price = Decimal(entry_price_str)
+            # 注意：前端传来的可能是 'YYYY-MM-DD'，需要转为带时区的datetime
+            entry_date = timezone.make_aware(datetime.strptime(entry_date_str, '%Y-%m-%d'))
+            quantity = int(quantity_str)
+            if quantity <= 0:
+                raise ValueError("数量必须为正数")
+        except (StockInfo.DoesNotExist, ValueError, TypeError) as e:
+            return Response({'detail': f'参数无效: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 使用数据库事务确保数据一致性
+            with db_transaction.atomic():
+                # 1. 创建或获取持仓追踪器 (现在是每个用户/股票唯一的)
+                tracker, _ = PositionTracker.objects.update_or_create(
+                    user=user, stock=stock,
+                    defaults={'status': PositionTracker.Status.HOLDING}
                 )
-            except TradingSignal.DoesNotExist:
-                return Response({'detail': '指定的建仓信号不存在或无效。'}, status=status.HTTP_404_NOT_FOUND)
 
-            stock = entry_signal.stock
-            # 创建或获取 FavoriteStock
-            favorite, _ = FavoriteStock.objects.get_or_create(user=user, stock=stock)
-            tracker, created = PositionTracker.objects.get_or_create(
-                user=user, stock=stock, entry_signal=entry_signal,
-                defaults={
-                    'status': PositionTracker.Status.HOLDING,
-                    'entry_price': entry_signal.close_price,
-                    'entry_date': entry_signal.trade_time,
-                    'quantity': 100,  # 设置一个默认的持仓数量，例如100股
-                }
-            )
-            # 创建核心的 PositionTracker 记录
-            tracker, created = PositionTracker.objects.get_or_create(
-                user=user, stock=stock, entry_signal=entry_signal,
-                defaults={
-                    'status': PositionTracker.Status.HOLDING,
-                    'entry_price': entry_signal.close_price,
-                    'entry_date': entry_signal.trade_time,
-                }
-            )
-            if not created:
-                tracker.status = PositionTracker.Status.HOLDING
-                tracker.exit_signal = None
-                tracker.exit_date = None
-                tracker.exit_price = None
+                # 2. 创建第一笔买入交易流水
+                Transaction.objects.create(
+                    tracker=tracker,
+                    transaction_type=Transaction.TransactionType.BUY,
+                    quantity=quantity,
+                    price=entry_price,
+                    transaction_date=entry_date
+                )
+
+                # 3. 更新 Tracker 的平均成本和数量 (对于第一笔交易很简单)
+                tracker.average_cost = entry_price
+                tracker.current_quantity = quantity
                 tracker.save()
-        
-        # 场景2: 从主页搜索添加 (只需要 stock_code)
-        elif stock_code:
-            try:
-                stock = StockInfo.objects.get(stock_code=stock_code)
-            except StockInfo.DoesNotExist:
-                return Response({'detail': f'股票代码 {stock_code} 不存在。'}, status=status.HTTP_404_NOT_FOUND)
-            
-            # 只创建或获取 FavoriteStock，不创建 PositionTracker
-            favorite, created = FavoriteStock.objects.get_or_create(user=user, stock=stock)
-            if not created:
-                return Response({'detail': '该股票已在您的自选列表中。'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # 场景3: 无效请求
-        else:
-            return Response({'detail': '必须提供 signal_id 或 stock_code。'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --- 通用的成功后操作 ---
-        # WebSocket 推送
-        websocket_payload = {
-            'id': favorite.id,
-            'code': stock.stock_code,
-            'name': stock.stock_name,
-            # 为了与JS addStockRow 函数兼容，提供基础字段
-            "current_price": None,
-            "change_percent": None,
-            "volume": None,
-            "signal": None,
-        }
-        send_update_to_user_sync(
-            user_id=user.id,
-            sub_type='favorite_added_with_data',
-            payload=websocket_payload
-        )
-        
-        # (可选) 触发Celery任务，例如立即获取一次行情
-        # from your_tasks import fetch_realtime_quote_task
-        # fetch_realtime_quote_task.delay(stock.stock_code)
+            # 4. 【核心】异步触发快照重建任务
+            rebuild_snapshots_for_tracker_task.delay(tracker.id)
 
-        response_data = FavoriteStockSerializer(instance=favorite).data
-        return Response(response_data, status=status.HTTP_201_CREATED)
+            # (可选) 也可以在这里创建 FavoriteStock 记录
+            FavoriteStock.objects.get_or_create(user=user, stock=stock)
+
+            return Response({'detail': '持仓已创建，历史快照正在后台生成中...'}, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.error(f"创建持仓时发生错误: {e}", exc_info=True)
+            return Response({'detail': '创建持仓时发生内部错误。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_destroy(self, instance):
         user_id = instance.user.id
@@ -503,3 +477,59 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
             } 
             for fav in favorites
         ]
+
+class TransactionViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing Transactions.
+    """
+    queryset = Transaction.objects.all()
+    serializer_class = TransactionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        过滤，确保用户只能看到自己的交易流水，并支持按tracker_id查询。
+        """
+        queryset = Transaction.objects.filter(tracker__user=self.request.user)
+        tracker_id = self.request.query_params.get('tracker_id')
+        if tracker_id:
+            queryset = queryset.filter(tracker_id=tracker_id)
+        return queryset.order_by('transaction_date')
+
+    def perform_create(self, serializer):
+        """
+        创建交易后，调用服务更新持仓状态并重建快照。
+        """
+        transaction = serializer.save()
+        # 调用核心服务
+        TransactionService.recalculate_tracker_state_and_rebuild_snapshots(transaction.tracker.id)
+
+    def perform_update(self, serializer):
+        """
+        更新交易后，调用服务更新持仓状态并重建快照。
+        """
+        transaction = serializer.save()
+        # 调用核心服务
+        TransactionService.recalculate_tracker_state_and_rebuild_snapshots(transaction.tracker.id)
+
+    def perform_destroy(self, instance):
+        """
+        删除交易后，调用服务更新持仓状态并重建快照。
+        """
+        tracker_id = instance.tracker.id
+        instance.delete()
+        # 调用核心服务
+        TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker_id)
+
+
+
+
+
+
+
+
+
+
+
+
+

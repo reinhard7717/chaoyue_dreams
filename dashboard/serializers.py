@@ -4,6 +4,8 @@ import umsgpack
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils import cache_constants as cc
+from stock_models.stock_analytics import Transaction
+from stock_models.stock_analytics import PositionTracker
 
 
 # stock_models\financial.py
@@ -331,6 +333,35 @@ class FavoriteStockSerializer(serializers.ModelSerializer):
         favorite = FavoriteStock.objects.create(stock=stock_instance, **validated_data)
         return favorite
 
-        
+class TransactionSerializer(serializers.ModelSerializer):
+    """
+    交易流水序列化器
+    """
+    # 让 tracker 字段在创建时只接受主键ID，在响应时显示详细信息
+    tracker = serializers.PrimaryKeyRelatedField(queryset=PositionTracker.objects.all())
+
+    class Meta:
+        model = Transaction
+        fields = [
+            'id',
+            'tracker',
+            'transaction_type',
+            'quantity',
+            'price',
+            'transaction_date',
+            'created_at'
+        ]
+        read_only_fields = ('created_at',)
+
+    def validate_transaction_date(self, value):
+        # 确保交易日期不能在未来
+        if value > timezone.now():
+            raise serializers.ValidationError("交易日期不能在未来。")
+        return value
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("交易数量必须是正数。")
+        return value
         
         

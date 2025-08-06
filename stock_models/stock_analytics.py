@@ -104,128 +104,93 @@ class SignalPlaybookDetail(models.Model):
 
 class PositionTracker(models.Model):
     """
-    【V3.2 智能观察哨版】
-    - 核心定位: 作为用户自选股的“持仓/观察卡片”，记录从关注、建仓到平仓的全过程。
-    - 核心修改: 增加 WATCHING 状态，并调整字段以支持对所有自选股的追踪，无论其是否有买入信号。
+    【V4.0 交易账户版】
+    - 核心定位: 代表用户对某只股票的一个【持仓账户】，而不是一次性的买卖。
+    - 核心修改:
+        - 移除了 entry/exit 相关的所有字段。
+        - 增加了 current_quantity 和 average_cost 字段，用于实时反映持仓状态。
+        - 状态简化为 WATCHING (观察) 和 HOLDING (持仓)。平仓通过 quantity 变为 0 来体现。
     """
-    
-    # 状态枚举，增加了“观察中”状态
     class Status(models.TextChoices):
         WATCHING = 'WATCHING', '观察中'
         HOLDING = 'HOLDING', '持仓中'
-        SOLD = 'SOLD', '已平仓'
-
+        # SOLD 状态被移除，因为持仓状态由 quantity 决定
+    
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE, 
-        related_name='position_trackers',
-        help_text="关联的用户"
-    )
-    stock = models.ForeignKey(
-        StockInfo, 
-        on_delete=models.CASCADE, 
-        related_name='position_trackers',
-        help_text="关联的股票"
-    )
-    status = models.CharField(
-        max_length=10, 
-        choices=Status.choices, 
-        default=Status.WATCHING, 
-        db_index=True,
-        help_text="当前追踪状态"
-    )
-    
-    quantity = models.PositiveIntegerField(
-        default=100, # 默认100股（1手），可以根据需要调整
-        help_text="持仓数量 (股)"
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='position_trackers')
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='position_trackers')
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.WATCHING, db_index=True)
+    current_quantity = models.PositiveIntegerField(default=0, help_text="当前持仓数量 (股)")
+    average_cost = models.DecimalField(max_digits=10, decimal_places=3, default=0, help_text="持仓平均成本")
 
-    # --- 建仓/观察信息 (Entry Info) ---
-    entry_signal = models.ForeignKey(
-        'TradingSignal', 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='entry_positions',
-        help_text="关联的建仓交易信号 (对于'观察中'状态可为空)"
-    )
-    entry_price = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        null=True, blank=True, 
-        help_text="建仓或初次观察时的价格"
-    )
-    entry_date = models.DateTimeField(
-        null=True, blank=True, 
-        help_text="建仓或初次观察时的日期"
-    )
-
-    # --- 平仓信息 (Exit Info) ---
-    exit_signal = models.ForeignKey(
-        'TradingSignal', 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        related_name='exit_positions',
-        help_text="关联的平仓交易信号"
-    )
-    exit_price = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        null=True, blank=True, 
-        help_text="平仓价格"
-    )
-    exit_date = models.DateTimeField(
-        null=True, blank=True, 
-        help_text="平仓日期"
-    )
-    
-    # --- 时间戳 ---
-    created_at = models.DateTimeField(auto_now_add=True, help_text="记录创建时间")
-    updated_at = models.DateTimeField(auto_now=True, help_text="记录最后更新时间")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "strategy_position_tracker"
-        # unique_together 已移除，以避免 entry_signal 为 NULL 时可能引发的数据库唯一性约束问题。
-        # 应用层逻辑（如迁移脚本和API）将负责确保 user 和 stock 的组合是唯一的。
+        # 确保每个用户对一个股票只有一个持仓账户
+        unique_together = ('user', 'stock')
         ordering = ['-updated_at']
         verbose_name = "策略持仓追踪器"
         verbose_name_plural = verbose_name
 
     def __str__(self):
-        # 提供一个清晰的字符串表示，方便在Django Admin中查看
         return f"{self.user.username} - {self.stock.stock_code} ({self.get_status_display()})"
 
-class DailyPositionSnapshot(models.Model):
+class Transaction(models.Model):
     """
-    【V4.0 最终解耦版】每日持仓快照
-    - 核心重构: 不再存储任何分数信息，只通过外键关联到 StrategyDailyScore。
+    【V1.0】交易流水模型
+    - 核心定位: 记录每一次具体的买入或卖出操作。
     """
+    class TransactionType(models.TextChoices):
+        BUY = 'BUY', '买入'
+        SELL = 'SELL', '卖出'
+    id = models.BigAutoField(primary_key=True)
     tracker = models.ForeignKey(
         PositionTracker,
         on_delete=models.CASCADE,
-        related_name='snapshots',
-        verbose_name='持仓追踪器',
-        null=True
+        related_name='transactions',
+        help_text="关联的持仓追踪器"
     )
-    snapshot_date = models.DateField(verbose_name='快照日期', db_index=True)
-    close_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='当日收盘价')
-    profit_loss = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='持仓盈亏', default=0)
-    profit_loss_pct = models.DecimalField(max_digits=8, decimal_places=4, verbose_name='持仓盈亏率(%)', default=0)
+    transaction_type = models.CharField(max_length=4, choices=TransactionType.choices, db_index=True)
+    quantity = models.PositiveIntegerField(help_text="本次交易数量 (股)")
+    price = models.DecimalField(max_digits=10, decimal_places=3, help_text="本次交易价格")
+    transaction_date = models.DateTimeField(help_text="交易日期和时间")
+    commission = models.DecimalField(max_digits=10, decimal_places=3, default=0, help_text="手续费")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "strategy_transaction"
+        ordering = ['-transaction_date']
+        verbose_name = "交易流水"
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return f"[{self.tracker.stock.stock_code}] {self.get_transaction_type_display()} {self.quantity}股 @ {self.price}"
+
+class DailyPositionSnapshot(models.Model):
+    """
+    【V5.0 交易账户版】
+    - 核心修改: profit_loss 和 profit_loss_pct 的计算基准变为 PositionTracker 的 average_cost。
+    """
+    tracker = models.ForeignKey(PositionTracker, on_delete=models.CASCADE, related_name='snapshots', null=True, blank=True)
+    snapshot_date = models.DateField(db_index=True)
+    close_price = models.DecimalField(max_digits=10, decimal_places=2)
+    quantity_at_snapshot = models.PositiveIntegerField(help_text="快照当日的持仓数量", default=0)
+
+    profit_loss = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    profit_loss_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     
-    # 这就是您提到的“关联表”的核心！一个指向公共知识库的外键。
     daily_score = models.ForeignKey(
         'StrategyDailyScore',
-        on_delete=models.SET_NULL, # 如果策略分析结果被删除，快照本身不删除，只是关联丢失
+        on_delete=models.SET_NULL,
         related_name='position_snapshots',
-        verbose_name='关联的每日分数',
         null=True,
         blank=True
     )
 
     class Meta:
         db_table = 'strategy_daily_position_snapshot'
-        verbose_name = '每日持仓快照'
-        verbose_name_plural = verbose_name
         unique_together = ('tracker', 'snapshot_date')
         ordering = ['-snapshot_date']
 
