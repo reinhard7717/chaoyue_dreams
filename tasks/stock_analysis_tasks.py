@@ -113,8 +113,12 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
-        logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
-        analysis_end_time = f"{trade_date} 16:00:00"
+        if trade_date:
+            analysis_end_time = f"{trade_date} 16:00:00"
+            logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
+        else:
+            analysis_end_time = None
+            logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全历史数据]")
         
         if latest_only:
             # run_for_latest_signal 现在返回四元组
