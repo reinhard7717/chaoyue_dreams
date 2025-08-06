@@ -247,7 +247,7 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
         logger.error(f"[持仓关联引擎] 任务执行失败: {e}", exc_info=True)
         return 0
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.generate_snapshots_for_existing_trackers', queue='celery')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.generate_snapshots_for_existing_trackers', queue='calculate_strategy')
 @with_cache_manager
 def generate_snapshots_for_existing_trackers(self, *args, cache_manager: CacheManager, **kwargs):
     """
@@ -384,94 +384,216 @@ def generate_snapshots_for_existing_trackers(self, *args, cache_manager: CacheMa
         print(f"异常追踪: {traceback.format_exc()}")
         print("="*70 + "\n")
         return 0
-    
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.generate_snapshots_for_stock_tracker', queue='calculate_strategy')
 @with_cache_manager
-def analyze_all_stocks(self, *, cache_manager: CacheManager):
+def generate_snapshots_for_stock_tracker(self, stock_code: str, *, cache_manager: CacheManager):
     """
-    【V5.0 架构重构版】
-    - 核心修改: 废弃了旧的、功能单一的 update_favorite_stock_trackers 任务。
-                工作流的第二步，改为调用全新的、功能强大的 
-                generate_snapshots_for_existing_trackers 任务。
-                这确保了每日增量任务与全历史任务的架构完全统一。
+    【V1.0 原子执行器】
+    - 核心职责: 为【单个指定股票】，查找其所有 'HOLDING' 状态的 PositionTracker，
+                并为它们生成或刷新从建仓日到今天的完整历史快照。
+    - 这是新架构下的核心【执行单元】。
     """
+    print(f"\n--- [原子快照生成器] 启动 for stock: {stock_code} ---")
+    
+    async def main(code: str, cache_manager_instance: CacheManager):
+        # 1. 【异步安全】查找此股票所有正在持仓的 Tracker
+        @sync_to_async(thread_sensitive=True)
+        def get_trackers_for_stock(stock_code_to_find: str):
+            return list(PositionTracker.objects.filter(
+                stock__stock_code=stock_code_to_find,
+                status=PositionTracker.Status.HOLDING
+            ).select_related('stock'))
+        
+        active_trackers = await get_trackers_for_stock(code)
+
+        if not active_trackers:
+            logger.info(f"[{code}] 没有发现任何持仓中的Tracker，快照生成任务跳过。")
+            print(f"--- [原子快照生成器] 完成 for stock: {code} (无事发生) ---\n")
+            return 0
+
+        print(f"[{code}] 发现 {len(active_trackers)} 个持仓Tracker，开始生成快照...")
+        strategies_dao = StrategiesDAO(cache_manager_instance)
+        total_snapshots_processed = 0
+
+        # 对该股票的每一个持仓记录进行处理
+        for tracker in active_trackers:
+            entry_date = tracker.entry_date.date() if tracker.entry_date else None
+            if not entry_date:
+                continue
+
+            end_date = date.today()
+            
+            # 批量获取公共分数和行情数据 (逻辑与之前类似，但范围更小)
+            @sync_to_async(thread_sensitive=True)
+            def get_scores_map(stock_code_to_find, start, end):
+                scores_qs = StrategyDailyScore.objects.filter(
+                    stock__stock_code=stock_code_to_find,
+                    trade_date__gte=start,
+                    trade_date__lte=end
+                )
+                return {s.trade_date: s for s in scores_qs}
+
+            scores_map = await get_scores_map(code, entry_date, end_date)
+            
+            daily_data_df = await strategies_dao.get_daily_data(
+                code, 
+                start_date=entry_date.strftime('%Y%m%d'), 
+                end_date=end_date.strftime('%Y%m%d')
+            )
+            if daily_data_df.empty:
+                continue
+            
+            price_map = {row.name.date(): row['close'] for _, row in daily_data_df.iterrows()}
+
+            # 准备并批量写入快照
+            snapshots_to_process = []
+            current_date = entry_date
+            while current_date <= end_date:
+                if current_date in price_map:
+                    current_price = price_map.get(current_date)
+                    daily_score_obj = scores_map.get(current_date)
+                    snapshot_defaults = {
+                        'close_price': Decimal(str(current_price)),
+                        'profit_loss': (Decimal(str(current_price)) - tracker.entry_price) * tracker.quantity,
+                        'profit_loss_pct': ((Decimal(str(current_price)) / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
+                        'daily_score': daily_score_obj
+                    }
+                    snapshots_to_process.append({
+                        'lookup': {'tracker': tracker, 'snapshot_date': current_date},
+                        'defaults': snapshot_defaults
+                    })
+                current_date += timedelta(days=1)
+
+            if snapshots_to_process:
+                for item in snapshots_to_process:
+                    await sync_to_async(DailyPositionSnapshot.objects.update_or_create, thread_sensitive=True)(
+                        **item['lookup'], defaults=item['defaults']
+                    )
+                total_snapshots_processed += len(snapshots_to_process)
+        
+        logger.info(f"[{code}] 快照生成完成！共处理了 {total_snapshots_processed} 条记录。")
+        print(f"--- [原子快照生成器] 完成 for stock: {code} --- \n")
+        return total_snapshots_processed
+
     try:
-        logger.info("====== [每日增量工作流 V5.0] 启动 ======")
-        # 1. 从交易日历获取最新的交易日
-        reference_date = timezone.now().date()
-        latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
-        if not latest_trade_dates:
-            logger.error("【严重错误】无法从交易日历中获取最新的交易日，任务终止！")
-            return {"status": "failed", "reason": "Cannot get latest trade date from calendar."}
-        latest_trade_date = latest_trade_dates[0]
-        trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
-        logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
-        if not non_favorite_codes and not favorite_codes:
-            logger.warning("[每日增量] 未找到任何股票数据，任务终止")
-            return {"status": "failed", "reason": "no stocks found"}
-        stock_count = len(favorite_codes) + len(non_favorite_codes)
-        logger.info(f"[每日增量] 找到 {stock_count} 只股票待分析。")
-        # 步骤1: 并行分析所有股票【当天】的数据，建设【公共数据层】
-        analysis_tasks = [
-            run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='favorite_calculate_strategy') for code in favorite_codes
-        ] + [
-            run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in non_favorite_codes
-        ]
-        parallel_analysis_group = group(analysis_tasks)
-        # 步骤2: 为所有现有持仓，生成或更新【个性化展现层】的完整历史快照
-        generate_snapshots_task = generate_snapshots_for_existing_trackers.s().set(queue='celery')
-        # 将分析任务组和快照生成任务串联成一个工作流
-        workflow = chain(parallel_analysis_group, generate_snapshots_task)
-        workflow.apply_async()
-        logger.info(f"[架构重构] 已启动【每日增量 V5.0】链式工作流：")
-        logger.info(f"  - 步骤1: (公共数据层) 并行分析 {stock_count} 只股票的【最新】数据。")
-        logger.info(f"  - 步骤2: (个性化展现层) 为【所有现有持仓】生成/更新完整的历史档案。")
-        return {"status": "workflow_started", "stock_count": stock_count}
+        return async_to_sync(main)(stock_code, cache_manager)
     except Exception as e:
-        logger.error(f"[每日增量] 任务调度时出错: {e}", exc_info=True)
-        return {"status": "failed", "reason": str(e)}
+        logger.error(f"[{stock_code}] 原子快照生成失败: {e}", exc_info=True)
+        return 0
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 @with_cache_manager
 def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
     """
-    【V5.0 架构重构版】
-    - 核心修改: 工作流的最后一步，改为调用全新的、职责单一的 
-                `generate_snapshots_for_existing_trackers` 任务。
+    【V6.0 流式处理架构】
+    - 核心架构: 采用【并行的任务链】模式 (Group of Chains)。
+    - 工作流: 对每一只股票，创建一个独立的任务链:
+                [计算公共分数] -> [生成个性化快照]
+              然后将所有股票的任务链打包成一个 group 并行执行。
+    - 优势: 任何一只股票的基础分计算完成后，会立即触发其个性化快照的生成，
+            实现了数据的即时反馈，不再需要等待所有股票都计算完毕。
     """
     try:
-        logger.info("====== [公共数据层建设任务 V5.0] 启动 ======")
+        logger.info("====== [全历史流式工作流 V6.0] 启动 ======")
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes = favorite_codes + non_favorite_codes
-        if not all_codes:
-            logger.warning("[公共数据层] 未找到任何股票数据，任务终止")
-            return {"status": "failed", "reason": "no stocks found"}
-        stock_count = len(all_codes)
-        logger.info(f"[公共数据层] 准备为 {stock_count} 只股票建设全历史策略分数数据库。")
-        chunk_size = 100 
-        task_chunks = []
-        for code_chunk in _chunker(all_codes, chunk_size):
-            task_chunks.append(group(
-                run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy')
-                for code in code_chunk
-            ))
-        # 2. 创建个性化持仓档案生成任务的签名
-        generate_snapshots_task = generate_snapshots_for_existing_trackers.s().set(queue='celery')
-        if not task_chunks:
-            workflow = generate_snapshots_task
-        else:
-            # 3. 将所有批次和最终任务串联起来
-            workflow = chain(*task_chunks, generate_snapshots_task)
-        # --- 代码修改结束 ---
-        workflow.apply_async()
-        logger.info(f"[架构重构] 已启动【V5.0】链式工作流:")
-        logger.info(f"  - 步骤1...N: (公共数据层) 逐批并行分析 {stock_count} 只股票的全部历史数据。")
-        logger.info(f"  - 最终步骤: (个性化展现层) 为【现有持仓】生成完整的历史档案。")
         
-        return {"status": "workflow_started", "stock_count": stock_count, "chunks": len(task_chunks)}
+        if not all_codes:
+            logger.warning("[流式工作流] 未找到任何股票数据，任务终止")
+            return {"status": "failed", "reason": "no stocks found"}
+            
+        stock_count = len(all_codes)
+        logger.info(f"[流式工作流] 准备为 {stock_count} 只股票创建独立的【分析->快照】任务链。")
+        
+        # --- 代码修改开始：构建并行的任务链 ---
+        # [修改原因] 实现“计算完一只，立刻处理一只”的流式架构。
+        
+        # 1. 为每一只股票创建一个独立的任务链 (chain)
+        per_stock_workflows = []
+        for code in all_codes:
+            # 任务链第一步: 计算该股票的全历史公共分数
+            analysis_task = run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy')
+            
+            # 任务链第二步: 为该股票生成个性化快照
+            snapshot_task = generate_snapshots_for_stock_tracker.s(code).set(queue='celery')
+            
+            # 将两步串联起来
+            stock_chain = chain(analysis_task, snapshot_task)
+            per_stock_workflows.append(stock_chain)
+
+        # 2. 将所有独立的任务链打包成一个组 (group)，让它们并行执行
+        if per_stock_workflows:
+            workflow_group = group(per_stock_workflows)
+            workflow_group.apply_async()
+        # --- 代码修改结束 ---
+        
+        logger.info(f"[流式工作流] 已成功启动 {stock_count} 个并行的任务链。")
+        logger.info(f"  - 每个任务链包含: 1.全历史分析 -> 2.个性化快照生成")
+        
+        return {"status": "workflow_started", "stock_count": stock_count}
     except Exception as e:
-        logger.error(f"[公共数据层] 任务启动时发生严重错误: {e}", exc_info=True)
+        logger.error(f"[全历史流式工作流] 任务启动时发生严重错误: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
+@with_cache_manager
+def analyze_all_stocks(self, *, cache_manager: CacheManager):
+    """
+    【V6.0 流式处理架构】
+    - 核心架构: 与全历史任务保持完全一致，采用【并行的任务链】模式。
+    - 工作流: 对每一只股票，创建独立的任务链:
+                [计算当日公共分数] -> [生成/更新个性化快照]
+    """
+    try:
+        logger.info("====== [每日增量流式工作流 V6.0] 启动 ======")
+
+        # 1. 获取权威交易日 (逻辑不变)
+        reference_date = timezone.now().date()
+        latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
+        if not latest_trade_dates:
+            logger.error("【严重错误】无法从交易日历中获取最新的交易日，任务终止！")
+            return {"status": "failed", "reason": "Cannot get latest trade date from calendar."}
+        
+        latest_trade_date = latest_trade_dates[0]
+        trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
+        logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
+        
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
+        all_codes = favorite_codes + non_favorite_codes
+        
+        if not all_codes:
+            logger.warning("[每日增量] 未找到任何股票数据，任务终止")
+            return {"status": "failed", "reason": "no stocks found"}
+            
+        stock_count = len(all_codes)
+        logger.info(f"[每日增量] 准备为 {stock_count} 只股票创建独立的【分析->快照】任务链。")
+        
+        # --- 代码修改开始：构建并行的任务链 ---
+        per_stock_workflows = []
+        for code in all_codes:
+            # 任务链第一步: 计算该股票的当日公共分数
+            analysis_task = run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy')
+            
+            # 任务链第二步: 为该股票生成/更新个性化快照
+            snapshot_task = generate_snapshots_for_stock_tracker.s(code).set(queue='celery')
+            
+            # 将两步串联起来
+            stock_chain = chain(analysis_task, snapshot_task)
+            per_stock_workflows.append(stock_chain)
+
+        if per_stock_workflows:
+            workflow_group = group(per_stock_workflows)
+            workflow_group.apply_async()
+        # --- 代码修改结束 ---
+        
+        logger.info(f"[每日增量] 已成功启动 {stock_count} 个并行的任务链。")
+        
+        return {"status": "workflow_started", "stock_count": stock_count}
+        
+    except Exception as e:
+        logger.error(f"[每日增量] 任务调度时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
 # 辅助函数 _chunker 保持不变
