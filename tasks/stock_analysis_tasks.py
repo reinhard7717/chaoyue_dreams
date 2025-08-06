@@ -257,10 +257,14 @@ def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
     print("\n" + "="*20 + " [探针-历史重建引擎 V1.1] 任务已启动 " + "="*20)
     
     async def main():
-        # 1. 获取所有正在持仓的 PositionTracker
-        active_trackers = list(PositionTracker.objects.filter(
-            status=PositionTracker.Status.HOLDING
-        ).select_related('stock'))
+        # 1. 【异步安全】获取所有正在持仓的 PositionTracker
+        @sync_to_async(thread_sensitive=True)
+        def get_active_trackers():
+            return list(PositionTracker.objects.filter(
+                status=PositionTracker.Status.HOLDING
+            ).select_related('stock'))
+        
+        active_trackers = await get_active_trackers()
 
         print(f"[探针] 步骤1: 发现 {len(active_trackers)} 个状态为 'HOLDING' 的Tracker。")
         if not active_trackers:
