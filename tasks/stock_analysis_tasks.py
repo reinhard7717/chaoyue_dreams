@@ -243,6 +243,108 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
         logger.error(f"[持仓关联引擎] 任务执行失败: {e}", exc_info=True)
         return 0
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_all_snapshots_for_holding_trackers', queue='celery')
+@with_cache_manager
+def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
+    """
+    【V1.0 历史档案整理员】
+    - 核心职责: (专用于历史回溯后) 为所有“持仓中”的股票，重建其【完整的历史】持仓快照链。
+    - 运行逻辑:
+        1. 获取所有持仓中的 PositionTracker。
+        2. 对每一个 Tracker，确定其持仓周期 (从建仓日到今天)。
+        3. 在该周期内，批量获取所有相关的 StrategyDailyScore 和日线行情。
+        4. 逐日遍历持仓周期，创建或更新每一天的 DailyPositionSnapshot。
+    """
+    logger.info("====== [历史快照重建引擎 V1.0] 启动，开始整理历史档案... ======")
+    
+    async def main():
+        # 1. 获取所有正在持仓的 PositionTracker
+        active_trackers = list(PositionTracker.objects.filter(
+            status=PositionTracker.Status.HOLDING
+        ).select_related('stock'))
+
+        if not active_trackers:
+            logger.info("[历史重建] 没有发现任何持仓中的标的，任务结束。")
+            return 0
+
+        logger.info(f"[历史重建] 发现 {len(active_trackers)} 个持仓中的标的，将为它们重建完整的历史快照。")
+        
+        strategies_dao = StrategiesDAO(cache_manager)
+        total_snapshots_processed = 0
+
+        for tracker in active_trackers:
+            stock_code = tracker.stock.stock_code
+            entry_date = tracker.entry_date.date() if tracker.entry_date else None
+            
+            if not entry_date:
+                logger.warning(f"Tracker ID {tracker.id} ({stock_code}) 缺少建仓日期，无法重建历史，跳过。")
+                continue
+
+            end_date = date.today()
+            logger.info(f"  -> 正在处理 {stock_code} (Tracker ID: {tracker.id}), 持仓周期: {entry_date} to {end_date}")
+
+            # 2. 批量获取该持仓周期内的所有【历史分数】和【历史行情】
+            # 获取历史分数
+            scores_qs = StrategyDailyScore.objects.filter(
+                stock_id=stock_code,
+                trade_date__gte=entry_date,
+                trade_date__lte=end_date
+            ).order_by('trade_date')
+            scores_map = {s.trade_date: s for s in await sync_to_async(list)(scores_qs)}
+
+            # 获取历史行情
+            daily_data_df = await strategies_dao.get_daily_data(
+                stock_code, 
+                start_date=entry_date.strftime('%Y%m%d'), 
+                end_date=end_date.strftime('%Y%m%d')
+            )
+            if daily_data_df.empty:
+                logger.warning(f"    - 无法获取 {stock_code} 在 {entry_date} to {end_date} 的历史行情，跳过。")
+                continue
+            
+            # 将行情数据转为字典以便快速查找
+            price_map = {row.name.date(): row['close'] for _, row in daily_data_df.iterrows()}
+
+            # 3. 逐日遍历，创建或更新快照
+            snapshots_to_process = []
+            current_date = entry_date
+            while current_date <= end_date:
+                # 从批量获取的数据中查找当天的价格和分数
+                current_price = price_map.get(current_date)
+                daily_score_obj = scores_map.get(current_date)
+
+                # 只有当天的价格存在时，才能计算盈亏并创建快照
+                if current_price is not None:
+                    snapshot_defaults = {
+                        'close_price': Decimal(str(current_price)),
+                        'profit_loss': (Decimal(str(current_price)) - tracker.entry_price) * tracker.quantity,
+                        'profit_loss_pct': ((Decimal(str(current_price)) / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
+                        'daily_score': daily_score_obj # 即使当天没分数，也要记录价格快照
+                    }
+                    snapshots_to_process.append({
+                        'lookup': {'tracker': tracker, 'snapshot_date': current_date},
+                        'defaults': snapshot_defaults
+                    })
+                current_date += timedelta(days=1)
+
+            # 4. 批量写入数据库
+            if snapshots_to_process:
+                logger.info(f"    - 准备为 {stock_code} 创建/更新 {len(snapshots_to_process)} 条历史快照...")
+                for item in snapshots_to_process:
+                    await sync_to_async(DailyPositionSnapshot.objects.update_or_create, thread_sensitive=True)(
+                        **item['lookup'], defaults=item['defaults']
+                    )
+                total_snapshots_processed += len(snapshots_to_process)
+        
+        logger.info(f"[历史重建] 任务完成！共处理了 {total_snapshots_processed} 条历史快照记录。")
+        return total_snapshots_processed
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"[历史重建] 任务执行失败: {e}", exc_info=True)
+        return 0
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
@@ -330,15 +432,15 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
                 run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
             )
         parallel_analysis_group = group(analysis_tasks)
-         # 2. 创建持仓快照更新任务的签名
-        update_tracker_task = update_favorite_stock_trackers.s().set(queue='celery')
-        # 3. 将分析任务组和快照更新任务串联成一个工作流
-        workflow = chain(parallel_analysis_group, update_tracker_task)
+         # 2. 创建【历史快照重建任务】的签名
+        rebuild_snapshots_task = rebuild_all_snapshots_for_holding_trackers.s().set(queue='celery')
+        # 3. 将分析任务组和【历史快照重建任务】串联成一个工作流
+        workflow = chain(parallel_analysis_group, rebuild_snapshots_task)
         # 4. 异步执行整个工作流
         workflow.apply_async()
-        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建并启动了链式工作流：")
+        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建并启动了【终极修复版】链式工作流：")
         logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票的全部历史数据。")
-        logger.info(f"  - 步骤2: 更新所有自选股的持仓追踪器。")
+        logger.info(f"  - 步骤2: 【重建】所有自选股的【完整历史】持仓快照。")
         return {"status": "workflow_started", "stock_count": stock_count}
     except Exception as e:
         logger.error(f"[战略预备队] 执行总动员任务时发生严重错误: {e}", exc_info=True)
