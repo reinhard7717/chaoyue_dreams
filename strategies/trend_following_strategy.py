@@ -92,16 +92,17 @@ class TrendFollowStrategy:
         self.simulation_layer.run_position_management_simulation()
         # print(f"    ====== 【ORM适配引擎 V400.0】执行完毕 ======")
         
-        # --- 代码修改开始：应用内存优化 ---
-        # [修改原因] 在所有计算完成后，对主DataFrame进行内存压缩，能极大减少内存占用。
-        self.df_indicators = optimize_df_memory(self.df_indicators)
+        # 1. 对主DataFrame进行内存压缩
+        self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False) # 在批量任务中关闭详细打印
         
-        # [修改原因] 显式删除大型中间DataFrame，并提示Python进行垃圾回收。
+        # 2. 只删除那些确定不再需要的、过程中的大型变量
         try:
-            del trigger_events, entry_score, score_details_df, offensive_momentum_summary
-            del critical_risk_details_df, risk_score, combined_risk_details_df, risk_change_summary
+            # 保留: score_details_df, combined_risk_details_df (因为它们需要被返回)
+            # 删除: 其他所有大型中间变量
+            del trigger_events, entry_score, offensive_momentum_summary
+            del critical_risk_details_df, risk_score, risk_change_summary
             gc.collect()
-            print("    -> [内存优化] 已清理大型中间变量并触发垃圾回收。")
+            # print("    -> [内存优化] 已清理大型中间变量并触发垃圾回收。") # 在批量任务中可以注释掉此行以减少日志噪音
         except NameError:
             pass # 忽略可能已删除的变量
 
