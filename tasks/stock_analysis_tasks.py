@@ -402,44 +402,37 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
     """
     try:
         logger.info("====== [战略预备队] 接到总动员令！开始执行全面历史回溯任务 (V4.3 并发修复版) ======")
-        favorite_codes = []
-        non_favorite_codes = []
-        async def main():
-            nonlocal favorite_codes, non_favorite_codes
-            stock_basic_dao = StockBasicInfoDao(cache_manager)
-            # _get_all_relevant_stock_codes_for_processing 是一个假设存在的辅助函数
-            # 如果它不存在，请替换为您项目中实际获取股票列表的逻辑
-            fav_codes, non_fav_codes = await _get_all_relevant_stock_codes_for_processing(stock_basic_dao)
-            favorite_codes.extend(fav_codes)
-            non_favorite_codes.extend(non_fav_codes)
-        async_to_sync(main)()
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
+        
         if not non_favorite_codes and not favorite_codes:
             logger.warning("[战略预备队] 未找到任何股票数据，总动员任务终止")
             return {"status": "failed", "reason": "no stocks found"}
+            
         stock_count = len(favorite_codes) + len(non_favorite_codes)
         logger.info(f"[战略预备队] 发现 {stock_count} 只股票需要进行全面历史分析。")
-        trade_time_str = datetime.now().strftime('%Y-%m-%d')
-        # 1. 将所有任务签名打包到一个列表中
-        analysis_tasks = []
-        for stock_code in favorite_codes:
-            # 注意：这里只创建签名 .s()，不调用 apply_async()
-            analysis_tasks.append(
-                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
-            )
-        for stock_code in non_favorite_codes:
-            analysis_tasks.append(
-                run_multi_timeframe_strategy.s(stock_code, trade_time_str, latest_only=False).set(queue='calculate_strategy')
-            )
+        
+        # 1. 创建并行分析任务组
+        # 注意：第二个参数 trade_date 必须为 None，才能触发真正的全历史分析！
+        analysis_tasks = [
+            run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy') for code in favorite_codes
+        ] + [
+            run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy') for code in non_favorite_codes
+        ]
         parallel_analysis_group = group(analysis_tasks)
-         # 2. 创建【历史快照重建任务】的签名
+        
+        # 2. 创建历史快照重建任务的签名
         rebuild_snapshots_task = rebuild_all_snapshots_for_holding_trackers.s().set(queue='celery')
-        # 3. 将分析任务组和【历史快照重建任务】串联成一个工作流
+        
+        # 3. 将分析任务组和历史快照重建任务串联成一个工作流
         workflow = chain(parallel_analysis_group, rebuild_snapshots_task)
+        
         # 4. 异步执行整个工作流
         workflow.apply_async()
-        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建并启动了【终极修复版】链式工作流：")
-        logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票的全部历史数据。")
+        
+        logger.info(f"[战略预备队] 已为 {stock_count} 只股票创建并启动了【V4.6 终极修正版】链式工作流：")
+        logger.info(f"  - 步骤1: 并行分析 {stock_count} 只股票的【全部历史数据】。")
         logger.info(f"  - 步骤2: 【重建】所有自选股的【完整历史】持仓快照。")
+        
         return {"status": "workflow_started", "stock_count": stock_count}
     except Exception as e:
         logger.error(f"[战略预备队] 执行总动员任务时发生严重错误: {e}", exc_info=True)
