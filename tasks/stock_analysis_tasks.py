@@ -246,15 +246,11 @@ def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
     """
-    【V1.0 历史档案整理员】
-    - 核心职责: (专用于历史回溯后) 为所有“持仓中”的股票，重建其【完整的历史】持仓快照链。
-    - 运行逻辑:
-        1. 获取所有持仓中的 PositionTracker。
-        2. 对每一个 Tracker，确定其持仓周期 (从建仓日到今天)。
-        3. 在该周期内，批量获取所有相关的 StrategyDailyScore 和日线行情。
-        4. 逐日遍历持仓周期，创建或更新每一天的 DailyPositionSnapshot。
+    【V1.1 探针诊断版】
+    - 新增: 在任务的关键步骤加入了大量的诊断探针，用于追踪执行流程和数据状态。
     """
-    logger.info("====== [历史快照重建引擎 V1.0] 启动，开始整理历史档案... ======")
+    # --- 代码修改开始：增加诊断探针 ---
+    print("\n" + "="*20 + " [探针-历史重建引擎 V1.1] 任务已启动 " + "="*20)
     
     async def main():
         # 1. 获取所有正在持仓的 PositionTracker
@@ -262,12 +258,12 @@ def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
             status=PositionTracker.Status.HOLDING
         ).select_related('stock'))
 
+        print(f"[探针] 步骤1: 发现 {len(active_trackers)} 个状态为 'HOLDING' 的Tracker。")
         if not active_trackers:
-            logger.info("[历史重建] 没有发现任何持仓中的标的，任务结束。")
+            logger.info("[历史重建] 没有发现任何持仓中的标的，任务正常结束。")
+            print("="*65 + "\n")
             return 0
 
-        logger.info(f"[历史重建] 发现 {len(active_trackers)} 个持仓中的标的，将为它们重建完整的历史快照。")
-        
         strategies_dao = StrategiesDAO(cache_manager)
         total_snapshots_processed = 0
 
@@ -276,49 +272,50 @@ def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
             entry_date = tracker.entry_date.date() if tracker.entry_date else None
             
             if not entry_date:
-                logger.warning(f"Tracker ID {tracker.id} ({stock_code}) 缺少建仓日期，无法重建历史，跳过。")
+                print(f"[探针] 警告: Tracker ID {tracker.id} ({stock_code}) 缺少建仓日期，跳过。")
                 continue
 
             end_date = date.today()
-            logger.info(f"  -> 正在处理 {stock_code} (Tracker ID: {tracker.id}), 持仓周期: {entry_date} to {end_date}")
+            print(f"\n[探针] 步骤2: 开始处理 Tracker ID: {tracker.id} | 股票: {stock_code} | 持仓周期: {entry_date} -> {end_date}")
 
-            # 2. 批量获取该持仓周期内的所有【历史分数】和【历史行情】
-            # 获取历史分数
+            # 2. 批量获取该持仓周期内的所有【历史分数】
             scores_qs = StrategyDailyScore.objects.filter(
                 stock_id=stock_code,
                 trade_date__gte=entry_date,
                 trade_date__lte=end_date
             ).order_by('trade_date')
             scores_map = {s.trade_date: s for s in await sync_to_async(list)(scores_qs)}
+            print(f"[探针] 步骤3: 为 {stock_code} 查询到 {len(scores_map)} 条与持仓周期匹配的 StrategyDailyScore 记录。")
 
-            # 获取历史行情
+            # 如果没有查到任何分数记录，这可能是问题的关键
+            if not scores_map:
+                print(f"[探针] 警告: 未能为 {stock_code} 在其持仓周期内找到任何历史分数。将只基于行情数据创建快照。")
+
+            # 3. 批量获取该持仓周期内的所有【历史行情】
             daily_data_df = await strategies_dao.get_daily_data(
                 stock_code, 
                 start_date=entry_date.strftime('%Y%m%d'), 
                 end_date=end_date.strftime('%Y%m%d')
             )
+            print(f"[探针] 步骤4: 查询历史行情数据... {'成功获取' if not daily_data_df.empty else '失败或为空'}")
             if daily_data_df.empty:
-                logger.warning(f"    - 无法获取 {stock_code} 在 {entry_date} to {end_date} 的历史行情，跳过。")
+                print(f"[探针] 错误: 无法获取 {stock_code} 的历史行情，无法继续处理此Tracker。")
                 continue
             
-            # 将行情数据转为字典以便快速查找
             price_map = {row.name.date(): row['close'] for _, row in daily_data_df.iterrows()}
 
-            # 3. 逐日遍历，创建或更新快照
+            # 4. 逐日遍历，准备快照数据
             snapshots_to_process = []
             current_date = entry_date
             while current_date <= end_date:
-                # 从批量获取的数据中查找当天的价格和分数
-                current_price = price_map.get(current_date)
-                daily_score_obj = scores_map.get(current_date)
-
-                # 只有当天的价格存在时，才能计算盈亏并创建快照
-                if current_price is not None:
+                if current_date in price_map:
+                    current_price = price_map.get(current_date)
+                    daily_score_obj = scores_map.get(current_date)
                     snapshot_defaults = {
                         'close_price': Decimal(str(current_price)),
                         'profit_loss': (Decimal(str(current_price)) - tracker.entry_price) * tracker.quantity,
                         'profit_loss_pct': ((Decimal(str(current_price)) / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
-                        'daily_score': daily_score_obj # 即使当天没分数，也要记录价格快照
+                        'daily_score': daily_score_obj
                     }
                     snapshots_to_process.append({
                         'lookup': {'tracker': tracker, 'snapshot_date': current_date},
@@ -326,9 +323,10 @@ def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
                     })
                 current_date += timedelta(days=1)
 
-            # 4. 批量写入数据库
+            print(f"[探针] 步骤5: 遍历完持仓周期，共准备了 {len(snapshots_to_process)} 条快照待写入数据库。")
+
+            # 5. 批量写入数据库
             if snapshots_to_process:
-                logger.info(f"    - 准备为 {stock_code} 创建/更新 {len(snapshots_to_process)} 条历史快照...")
                 for item in snapshots_to_process:
                     await sync_to_async(DailyPositionSnapshot.objects.update_or_create, thread_sensitive=True)(
                         **item['lookup'], defaults=item['defaults']
@@ -336,14 +334,16 @@ def rebuild_all_snapshots_for_holding_trackers(self, *args, **kwargs):
                 total_snapshots_processed += len(snapshots_to_process)
         
         logger.info(f"[历史重建] 任务完成！共处理了 {total_snapshots_processed} 条历史快照记录。")
+        print("="*65 + "\n")
         return total_snapshots_processed
 
     try:
         return async_to_sync(main)()
     except Exception as e:
         logger.error(f"[历史重建] 任务执行失败: {e}", exc_info=True)
+        print("="*65 + "\n")
         return 0
-
+    
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks', queue='celery')
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):

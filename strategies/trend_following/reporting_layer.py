@@ -82,8 +82,6 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
 
-            # --- 代码修改开始 ---
-            # [修改原因] 严格分离进攻和风险逻辑，只为进攻信号创建战法关联
             # 只遍历进攻分数详情 (score_details_df)，不再合并风险分数
             if trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
@@ -96,7 +94,6 @@ class ReportingLayer:
                             playbook=playbook_obj,
                             contributed_score=score
                         ))
-            # --- 代码修改结束 ---
 
         # --- Part 2: 生成 StrategyDailyScore (全量每日分数) ---
         if save_all_days:
@@ -156,6 +153,9 @@ class ReportingLayer:
                 daily_score_obj.composite_score = composite_total
                 daily_score_obj.score_details_json = all_details_for_json
                 daily_scores_to_create.append(daily_score_obj)
+        print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
+              f"{len(daily_scores_to_create)} 条每日分数, "
+              f"{len(score_components_to_create)} 条分数组件。")
         
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create)
 
