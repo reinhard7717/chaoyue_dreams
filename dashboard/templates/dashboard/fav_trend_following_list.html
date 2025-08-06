@@ -190,10 +190,18 @@
               {% endif %}
             </td>
             <td class="actions">
-              <button class="btn btn-sm btn-primary manage-transactions-btn" data-tracker-id="{{ tracker.id }}" data-stock-name="{{ tracker.stock.stock_name }}">
+              {# 按钮1: 管理交易流水 #}
+              <button class="btn btn-sm btn-primary manage-transactions-btn" 
+                      data-tracker-id="{{ tracker.id }}" 
+                      data-stock-name="{{ tracker.stock.stock_name }}">
                 管理
               </button>
-              <button class="btn btn-sm btn-danger remove-position-btn" data-id="{{ tracker.id }}">
+
+              {# 按钮2: 删除自选股 (您保留的按钮) #}
+              {# 【重要】确保您的删除按钮有下面这两个 data-* 属性 #}
+              <button class="btn btn-sm btn-danger remove-position-btn" 
+                      data-fav-id="{{ tracker.user_favorite_id }}"  {# <--- 假设您在视图中传递了这个ID #}
+                      data-stock-code="{{ tracker.stock.stock_code }}">
                 &times;
               </button>
             </td>

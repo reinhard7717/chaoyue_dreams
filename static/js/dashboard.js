@@ -495,14 +495,16 @@ document.addEventListener('DOMContentLoaded', function () {
     // =========================================================================
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
     // =========================================================================
+    // 文件: static/js/dashboard.js
+
     function initializeFavTrendListPage() {
         const tableBody = document.getElementById('fav-trend-table-body');
         if (!tableBody) {
-            return; // 卫兵子句
+            return; // 卫兵子句，如果不是此页面则退出
         }
-        console.log('正在初始化【自选股监控】页面功能...');
+        console.log('正在初始化【自选股监控 V2.0】页面功能...');
 
-        // --- 新增：获取模态框相关元素 ---
+        // --- 获取模态框相关元素 (管理功能所需) ---
         const modalOverlay = document.getElementById('transaction-modal-overlay');
         const modalTitle = document.getElementById('transaction-modal-title');
         const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
@@ -511,46 +513,41 @@ document.addEventListener('DOMContentLoaded', function () {
         const addTransactionForm = document.getElementById('add-transaction-form');
         const formTrackerIdInput = document.getElementById('form-tracker-id');
 
-        // --- 整合原有的折叠功能 和 新增移除自选股功能 ---
+        // ===================================================================
+        // === 主事件委托：一个监听器处理所有按钮点击 ========================
+        // ===================================================================
         tableBody.addEventListener('click', async function (event) {
-            const toggleBtn = event.target.closest('.toggle-playbooks');
-            const removeButton = event.target.closest('button[data-action="remove"]');
             const manageButton = event.target.closest('.manage-transactions-btn');
+            const removeButton = event.target.closest('.remove-position-btn');
 
+            // --- 逻辑分支 1: 点击了“管理”按钮 ---
             if (manageButton) {
                 event.preventDefault();
                 const trackerId = manageButton.dataset.trackerId;
                 const stockName = manageButton.dataset.stockName;
                 openTransactionModal(trackerId, stockName);
+                return; // 处理完毕，退出
             }
 
-            // 处理折叠按钮
-            if (toggleBtn) {
-                console.log('[JS] 折叠/展开按钮被点击。');
-                event.preventDefault();
-                const list = toggleBtn.closest('.playbook-container').querySelector('.playbook-list');
-                if (!list) return;
-                list.classList.toggle('expanded');
-                const isExpanded = list.classList.contains('expanded');
-                toggleBtn.textContent = isExpanded ? toggleBtn.dataset.textCollapse : toggleBtn.dataset.textExpand;
-                return; // 处理完折叠后，不再继续执行
-            }
-
-            // 处理移除按钮
+            // --- 逻辑分支 2: 点击了“删除自选”按钮 ---
             if (removeButton) {
-                const favoriteId = removeButton.dataset.id;
+                event.preventDefault();
+                // 【修复】确保从正确的 data-* 属性获取ID
+                const favoriteId = removeButton.dataset.favId;
                 const stockCode = removeButton.dataset.stockCode;
-                const stockName = removeButton.dataset.stockName;
 
-                if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
+                if (!favoriteId) {
+                    showNotification('无法获取自选ID (fav-id)，操作失败', 'error');
+                    return;
+                }
+
+                if (confirm(`确定要从自选列表中移除 ${stockCode} 吗？\n注意：这只会移除自选星标，不会删除您的交易记录。`)) {
                     removeButton.disabled = true;
-                    removeButton.innerHTML = '...';
+                    removeButton.textContent = '...';
 
                     try {
                         const csrfToken = getCookie('csrftoken');
-                        if (!csrfToken) throw new Error('无法获取CSRF令牌');
-
-                        console.log(`[JS] 正在发送 DELETE 请求到 /dashboard/api/favorites/${favoriteId}/`);
+                        // 【修复】确保调用正确的API端点来删除 FavoriteStock
                         const response = await fetch(`/dashboard/api/favorites/${favoriteId}/`, {
                             method: 'DELETE',
                             headers: {
@@ -560,34 +557,30 @@ document.addEventListener('DOMContentLoaded', function () {
                         });
 
                         if (response.ok || response.status === 204) {
-                            console.log('[JS] 后端成功响应，正在从界面移除该行。');
-                            showNotification(`股票 ${stockCode} 已成功移除`, 'success');
+                            showNotification(`股票 ${stockCode} 已成功从自选中移除`, 'success');
                             const rowToRemove = removeButton.closest('tr');
                             if (rowToRemove) {
                                 rowToRemove.classList.add('flash-remove');
-                                setTimeout(() => {
-                                    rowToRemove.remove();
-                                    if (tableBody.children.length === 0) {
-                                        const colspan = tableBody.previousElementSibling.rows[0].cells.length;
-                                        tableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; padding: 20px;">自选股列表已清空。</td></tr>`;
-                                    }
-                                }, 300);
+                                // 仅隐藏或标记，而不是完全移除，因为页面是基于PositionTracker渲染的
+                                // 一个更好的体验是直接让该行消失
+                                setTimeout(() => rowToRemove.remove(), 300);
                             }
                         } else {
-                            const errorData = await response.json().catch(() => ({}));
-                            const errorMsg = errorData.detail || `移除股票 ${stockCode} 失败 (状态码: ${response.status})`;
-                            throw new Error(errorMsg);
+                            throw new Error('删除失败，请刷新后重试');
                         }
                     } catch (error) {
-                        console.error('[JS] 移除自选股时发生错误:', error);
                         showNotification(error.message, 'error');
                         removeButton.disabled = false;
-                        removeButton.innerHTML = '&times;';
+                        removeButton.textContent = '×'; // 恢复按钮
                     }
                 }
-                return; // 处理完移除后，不再继续执行
+                return; // 处理完毕，退出
             }
         });
+
+        // ===================================================================
+        // === “管理交易”模态框相关功能 (保持不变) ==========================
+        // ===================================================================
 
         // --- 打开模态框并加载数据 ---
         async function openTransactionModal(trackerId, stockName) {
@@ -653,17 +646,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const formData = new FormData(addTransactionForm);
             const data = Object.fromEntries(formData.entries());
-            // 后端需要的是带时区的完整时间字符串
             data.transaction_date = new Date(data.transaction_date).toISOString();
 
             try {
                 const csrfToken = getCookie('csrftoken');
                 const response = await fetch('/dashboard/api/transactions/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken,
-                    },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                     body: JSON.stringify(data),
                 });
                 if (!response.ok) {
@@ -672,7 +661,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 showNotification('交易添加成功！快照正在后台更新...', 'success');
                 addTransactionForm.reset();
-                // 重新加载列表
+                // 重新加载列表以显示新交易
                 openTransactionModal(data.tracker, modalTitle.textContent.split('[')[1].split(']')[0]);
             } catch (error) {
                 showNotification(error.message, 'error');
@@ -712,6 +701,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
 
     // =========================================================================
     // === 盘中引擎 (realtime_engine.html) 功能 ==============================

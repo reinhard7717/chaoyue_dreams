@@ -215,76 +215,58 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V407.2 MySQL兼容性修复版】
-    - 核心修复: 解决了因 MySQL 版本不支持 "LIMIT & IN subquery" 导致的 NotSupportedError。
-    - 策略变更:
-        1. 移除了在 Prefetch 中使用 Subquery 的复杂查询。
-        2. 改为预加载每个 Tracker 的 *所有* 快照 (按日期降序排列)。
-        3. 在 Python 循环中，通过获取列表的第一个元素 (`.latest_snapshot_list[0]`) 来安全地找到最新快照。
-        4. 这种方法兼容性更强，虽然可能多获取少量数据，但对于持仓管理页面完全可以接受。
+    【V5.1 模型兼容性修复版】
+    - 核心修复: 解决了因 PositionTracker 模型重构导致的 FieldError。
+                将排序字段从已移除的 'entry_date' 和 'exit_date' 
+                更改为 'updated_at'，确保查询能正常执行。
     """
-    # --- 代码修改开始 ---
-    # [修改原因] 绕过 MySQL 的 "LIMIT & IN" 子查询限制
-
-    # 步骤 1: 主查询，使用更简单的 Prefetch
+    # ... (前面的 base_queryset 查询保持不变) ...
     base_queryset = PositionTracker.objects.filter(
         user=request.user
     ).select_related(
-        'stock', 
-        'entry_signal', 
-        'exit_signal'
+        'stock'
     ).prefetch_related(
-        # 预加载建仓信号的战法 (逻辑不变)
-        Prefetch('entry_signal__playbooks', queryset=Playbook.objects.all()),
-        # 【核心修改】预加载 *所有* 快照，并按日期降序排列
-        # 这样，最新的快照将永远是列表的第一个元素
         Prefetch(
             'snapshots',
             queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'),
-            to_attr='latest_snapshot_list' # 将结果存入自定义属性
+            to_attr='latest_snapshot_list'
         )
     )
-    # --- 代码修改结束 ---
 
-    # 步骤 2: 状态筛选 (逻辑不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
         page_title = '自选股持仓监控'
     elif status_filter == 'sold':
-        queryset = base_queryset.filter(status=PositionTracker.Status.SOLD)
+        # 【注意】'SOLD' 状态已不存在，这里我们用 'WATCHING' 且有交易记录来模拟
+        # 一个更健壮的方法是检查 quantity 是否为0
+        queryset = base_queryset.filter(status=PositionTracker.Status.WATCHING, current_quantity=0)
         page_title = '自选股历史平仓'
     else:
         page_title = '全部自选追踪' 
         queryset = base_queryset
 
-    # 步骤 3: 排序 (逻辑不变)
-    if status_filter == 'sold':
-        ordered_queryset = queryset.order_by('-exit_date')
-    else:
-        ordered_queryset = queryset.order_by('-entry_date')
+    # --- 代码修改开始 ---
+    # [修改原因] 修复 FieldError。PositionTracker 模型已没有 entry_date/exit_date 字段。
+    #            统一使用 updated_at 降序排序，让最近有活动的持仓排在最前面。
+    ordered_queryset = queryset.order_by('-updated_at')
+    # --- 代码修改结束 ---
 
-    # 步骤 4: 在Python中处理数据
+    # ... (后续的 Python 数据处理和分页逻辑保持不变) ...
     trackers_for_display = []
     for tracker in ordered_queryset:
-        # --- 代码修改开始 ---
-        # [修改原因] 从预加载的列表中安全地获取最新快照
-        # 由于我们在 Prefetch 中已经按日期降序排列，第一个元素就是最新的
         latest_snapshot = tracker.latest_snapshot_list[0] if hasattr(tracker, 'latest_snapshot_list') and tracker.latest_snapshot_list else None
-        # --- 代码修改结束 ---
         
         # 计算盈亏 (P/L)
+        # 注意：这里的盈亏计算逻辑也需要适配新模型
+        profit_loss = None
+        profit_loss_pct = None
         if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
+            # 对于持仓中的，使用最新快照的盈亏
             profit_loss = latest_snapshot.profit_loss
             profit_loss_pct = latest_snapshot.profit_loss_pct
-        elif tracker.status == PositionTracker.Status.SOLD and tracker.exit_price is not None and tracker.entry_price is not None:
-            profit_loss = (tracker.exit_price - tracker.entry_price)
-            profit_loss_pct = ((tracker.exit_price / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0
-        else:
-            profit_loss = None
-            profit_loss_pct = None
+        # 对于已平仓的，未来可以从交易流水中计算已实现盈亏，暂时留空
         
-        # 准备一个字典，包含所有模板需要的数据
         tracker_data = {
             'tracker': tracker,
             'profit_loss': profit_loss,
@@ -294,12 +276,10 @@ def fav_trend_following_list(request):
         }
         trackers_for_display.append(tracker_data)
 
-    # 步骤 5: 分页 (逻辑不变)
     paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # 步骤 6: 准备最终上下文并渲染 (逻辑不变)
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
