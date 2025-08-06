@@ -2,7 +2,8 @@
 # 版本: V2.1 - 装饰器重构版
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from django.utils import timezone
 import logging
 from decimal import Decimal
 from asgiref.sync import sync_to_async
@@ -19,13 +20,11 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore
 
-
-# ▼▼▼ 导入新的总指挥策略，并移除旧的策略导入 ▼▼▼
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
-from utils.cache_manager import CacheManager # MODIFIED: 导入 CacheManager 用于类型提示
+from utils.cache_manager import CacheManager
 
 logger = logging.getLogger('tasks')
 
