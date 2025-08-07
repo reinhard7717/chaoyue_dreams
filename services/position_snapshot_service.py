@@ -32,7 +32,7 @@ class PositionSnapshotService:
                 await self._delete_existing_snapshots(tracker)
                 logger.info(f"Tracker ID {tracker_id} ({tracker.stock.stock_code}) 没有任何交易流水，已清理旧快照。")
                 return 0
-            start_date = transactions[-1].transaction_date.date()
+            start_date = transactions[0].transaction_date.date()
             latest_trade_date = await sync_to_async(TradeCalendar.get_latest_trade_date)()
             end_date = latest_trade_date if latest_trade_date else date.today()
             logger.info(f"Tracker {tracker_id}: 准备重建快照，日期范围 {start_date} 到 {end_date}")
@@ -112,7 +112,7 @@ class PositionSnapshotService:
 
     @sync_to_async(thread_sensitive=True)
     def _get_transactions(self, tracker_id):
-        # 按日期升序排列，方便从头开始计算
+        # 按日期升序排列，这是正确的
         return list(Transaction.objects.filter(tracker_id=tracker_id).order_by('transaction_date'))
 
     async def _get_price_map(self, stock_code, start_date, end_date):
@@ -125,7 +125,7 @@ class PositionSnapshotService:
             stock__stock_code=stock_code,
             trade_date__gte=start_date,
             trade_date__lte=end_date
-        )
+        ).select_related('stock') # 优化
         return {s.trade_date: s for s in scores}
 
     @sync_to_async(thread_sensitive=True)
