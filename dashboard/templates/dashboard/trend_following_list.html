@@ -93,11 +93,7 @@
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
                         <button class="btn btn-sm btn-outline add-to-favorites-btn" 
-                                data-stock-code="{{ item.stock.stock_code }}"
-                                data-entry-price="{{ item.close_price }}"
-                                data-entry-date="{{ entry_date }}"
-                                data-quantity="100"
-                                title="以 {{ entry_date }} 收盘价 {{ item.close_price }} 虚拟建仓100股">
+                                data-stock-code="{{ item.stock.stock_code }}">
                             <span class="btn-icon">+</span>
                             <span class="btn-text">添加自选</span>
                         </button>

@@ -430,64 +430,44 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        【V5.0 交易流水版】
-        - 核心修改: 创建 PositionTracker 和第一笔 Transaction，然后异步触发快照重建任务。
+        【V6.0 - 简化版】
+        - 核心修改: 移除所有关于价格、日期、数量的参数依赖和交易创建逻辑。
+        - 核心职责: 只负责创建 FavoriteStock 和一个初始状态的 PositionTracker。
+                     真正的交易录入完全交由用户在前端完成。
         """
         user = request.user
         stock_code = request.data.get('stock_code')
-        entry_price_str = request.data.get('entry_price')
-        entry_date_str = request.data.get('entry_date')
-        quantity_str = request.data.get('quantity')
 
-        # 参数校验
-        if not all([stock_code, entry_price_str, entry_date_str, quantity_str]):
-            return Response({'detail': '必须提供 stock_code, entry_price, entry_date 和 quantity。'}, status=status.HTTP_400_BAD_REQUEST)
+        # 1. 参数校验：现在只需要 stock_code
+        if not stock_code:
+            return Response({'detail': '必须提供 stock_code。'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             stock = StockInfo.objects.get(stock_code=stock_code)
-            entry_price = Decimal(entry_price_str)
-            # 注意：前端传来的可能是 'YYYY-MM-DD'，需要转为带时区的datetime
-            entry_date = timezone.make_aware(datetime.strptime(entry_date_str, '%Y-%m-%d'))
-            quantity = int(quantity_str)
-            if quantity <= 0:
-                raise ValueError("数量必须为正数")
-        except (StockInfo.DoesNotExist, ValueError, TypeError) as e:
-            return Response({'detail': f'参数无效: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+        except StockInfo.DoesNotExist:
+            return Response({'detail': f'股票代码 {stock_code} 不存在。'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            # 使用数据库事务确保数据一致性
+            # 2. 使用数据库事务确保原子性
             with db_transaction.atomic():
-                # 1. 创建或获取持仓追踪器 (现在是每个用户/股票唯一的)
-                tracker, _ = PositionTracker.objects.update_or_create(
-                    user=user, stock=stock,
-                    defaults={'status': PositionTracker.Status.HOLDING}
-                )
+                # 2.1 创建或获取自选股记录 (幂等操作)
+                favorite, fav_created = FavoriteStock.objects.get_or_create(user=user, stock=stock)
 
-                # 2. 创建第一笔买入交易流水
-                Transaction.objects.create(
-                    tracker=tracker,
-                    transaction_type=Transaction.TransactionType.BUY,
-                    quantity=quantity,
-                    price=entry_price,
-                    transaction_date=entry_date
-                )
+                # 2.2 创建或获取持仓追踪器 (幂等操作)
+                # 这将创建一个 status='WATCHING', quantity=0, average_cost=0 的空追踪器
+                tracker, tracker_created = PositionTracker.objects.get_or_create(user=user, stock=stock)
 
-                # 3. 更新 Tracker 的平均成本和数量 (对于第一笔交易很简单)
-                tracker.average_cost = entry_price
-                tracker.current_quantity = quantity
-                tracker.save()
-
-            # 4. 【核心】异步触发快照重建任务
-            rebuild_snapshots_for_tracker_task.delay(tracker.id)
-
-            # (可选) 也可以在这里创建 FavoriteStock 记录
-            FavoriteStock.objects.get_or_create(user=user, stock=stock)
-
-            return Response({'detail': '持仓已创建，历史快照正在后台生成中...'}, status=status.HTTP_201_CREATED)
+            # 3. 根据操作结果返回友好的提示信息
+            if fav_created or tracker_created:
+                message = f"股票 {stock.stock_code} 已成功添加至自选，请在“自选股监控”页面管理您的持仓。"
+                return Response({'detail': message}, status=status.HTTP_201_CREATED)
+            else:
+                message = f"股票 {stock.stock_code} 已在您的自选中。"
+                return Response({'detail': message}, status=status.HTTP_200_OK)
 
         except Exception as e:
-            logger.error(f"创建持仓时发生错误: {e}", exc_info=True)
-            return Response({'detail': '创建持仓时发生内部错误。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"添加自选股 {stock_code} 时发生错误: {e}", exc_info=True)
+            return Response({'detail': '添加自选时发生内部错误。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_destroy(self, instance):
         user_id = instance.user.id
