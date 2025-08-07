@@ -160,6 +160,70 @@ def show_sign(value):
     except (ValueError, TypeError, AttributeError):
         return "" # 如果值无效，返回空字符串
 
+@register.filter
+def subtract(value, arg):
+    """模板中的减法过滤器"""
+    try:
+        return Decimal(str(value)) - Decimal(str(arg))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def multiply(value, arg):
+    """模板中的乘法过滤器"""
+    try:
+        return Decimal(str(value)) * Decimal(str(arg))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def divide(value, arg):
+    """模板中的除法过滤器"""
+    try:
+        return Decimal(str(value)) / Decimal(str(arg))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def power(value, arg):
+    """模板中的指数过滤器"""
+    try:
+        return Decimal(str(value)) ** Decimal(str(arg))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def round(value, arg):
+    """模板中的四舍五入过滤器"""
+    try:
+        return Decimal(str(value)).quantize(Decimal(str(arg)), rounding=ROUND_HALF_UP)
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def abs(value):
+    """模板中的绝对值过滤器"""
+    try:
+        return abs(Decimal(str(value)))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def floor(value):
+    """模板中的向下取整过滤器"""
+    try:
+        return math.floor(Decimal(str(value)))
+    except (ValueError, TypeError):
+        return ''
+
+@register.filter
+def ceil(value):
+    """模板中的向上取整过滤器"""
+    try:
+        return math.ceil(Decimal(str(value)))
+    except (ValueError, TypeError):
+        return ''
+
 
 
 

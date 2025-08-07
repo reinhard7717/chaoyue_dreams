@@ -229,6 +229,61 @@
                     </div>
                     {% endif %}
                   </div>
+                  {% with latest_cm=item.latest_chip_metrics initial_cm=item.initial_chip_metrics last_buy_cm=item.last_buy_chip_metrics %}
+                  {% if latest_cm %}
+                    <hr style="margin: 8px 0; border-color: #eee;">
+                    <div class="score-matrix"> <!-- 复用 score-matrix 样式 -->
+                      <!-- 筹码成本行 -->
+                      <div class="matrix-row">
+                        <div class="matrix-label">筹码成本:</div>
+                        <div class="matrix-current-score">{{ latest_cm.peak_cost|floatformat:2 }}</div>
+                        <div class="matrix-delta-group">
+                          {% if initial_cm and initial_cm.peak_cost %}
+                          <div class="matrix-delta-item">
+                            vs建仓: 
+                            <span class="score-delta {% if latest_cm.peak_cost > initial_cm.peak_cost %}score-up{% elif latest_cm.peak_cost < initial_cm.peak_cost %}score-down{% endif %}">
+                              {{ latest_cm.peak_cost|subtract:initial_cm.peak_cost|floatformat:2 }}
+                            </span>
+                          </div>
+                          {% endif %}
+                          {% if last_buy_cm and last_buy_cm.peak_cost and last_buy_cm.id != initial_cm.id %}
+                          <div class="matrix-delta-item">
+                            vs末次加仓: 
+                            <span class="score-delta {% if latest_cm.peak_cost > last_buy_cm.peak_cost %}score-up{% elif latest_cm.peak_cost < last_buy_cm.peak_cost %}score-down{% endif %}">
+                              {{ latest_cm.peak_cost|subtract:last_buy_cm.peak_cost|floatformat:2 }}
+                            </span>
+                          </div>
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <!-- 筹码集中度行 -->
+                      <div class="matrix-row">
+                        <div class="matrix-label">90%集中度:</div>
+                        <div class="matrix-current-score">{{ latest_cm.concentration_90pct|multiply:100|floatformat:2 }}%</div>
+                        <div class="matrix-delta-group">
+                          {% if initial_cm and initial_cm.concentration_90pct %}
+                          <div class="matrix-delta-item">
+                            vs建仓: 
+                            <!-- 注意：集中度是下降为优，所以颜色逻辑相反 -->
+                            <span class="score-delta {% if latest_cm.concentration_90pct < initial_cm.concentration_90pct %}score-up{% elif latest_cm.concentration_90pct > initial_cm.concentration_90pct %}score-down{% endif %}">
+                              {{ latest_cm.concentration_90pct|subtract:initial_cm.concentration_90pct|multiply:100|floatformat:2 }}%
+                            </span>
+                          </div>
+                          {% endif %}
+                          {% if last_buy_cm and last_buy_cm.concentration_90pct and last_buy_cm.id != initial_cm.id %}
+                          <div class="matrix-delta-item">
+                            vs末次加仓: 
+                            <span class="score-delta {% if latest_cm.concentration_90pct < last_buy_cm.concentration_90pct %}score-up{% elif latest_cm.concentration_90pct > last_buy_cm.concentration_90pct %}score-down{% endif %}">
+                              {{ latest_cm.concentration_90pct|subtract:last_buy_cm.concentration_90pct|multiply:100|floatformat:2 }}%
+                            </span>
+                          </div>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  {% endif %}
+                  {% endwith %}
                 {% else %}
                   <span class="text-muted">快照数据生成中</span>
                 {% endif %}

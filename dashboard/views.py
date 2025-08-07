@@ -21,7 +21,7 @@ from stock_models.index import TradeCalendar # 导入模型
 from utils.config_loader import load_strategy_config
 from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction, StrategyDailyScore
 from stock_models.stock_basic import StockInfo
-from utils.cache_manager import CacheManager
+from stock_models.time_trade import AdvancedChipMetrics
 from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
@@ -215,16 +215,14 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V6.2 - 精细化洞察版】
-    - 核心修改: 将分数变化计算扩展到所有分项（阵地、动能、战法），提供结构性变化洞察。
-    - 代码优化: 使用内部辅助函数 _calculate_score_deltas 提高代码清晰度。
+    【V7.0 - 筹码洞察终极版】
+    - 核心升级: 集成高级筹码指标(AdvancedChipMetrics)，追踪持仓期间的关键筹码变化。
+    - 数据整合: 将策略分数和筹码指标在一次请求中高效获取并传递给前端。
     """
 
-    # --- 内部辅助函数，用于计算分数结构变化 ---
+    # (内部辅助函数不变)
     def _calculate_score_deltas(current_score, baseline_score):
-        if not current_score or not baseline_score:
-            return None
-        
+        if not current_score or not baseline_score: return None
         return {
             'offensive': current_score.offensive_score - baseline_score.offensive_score,
             'positional': current_score.positional_score - baseline_score.positional_score,
@@ -233,23 +231,10 @@ def fav_trend_following_list(request):
         }
 
     # --- 步骤1: 预抓取所有需要的数据 (逻辑不变) ---
-    base_queryset = PositionTracker.objects.filter(
-        user=request.user
-    ).select_related(
-        'stock'
-    ).prefetch_related(
-        Prefetch(
-            'snapshots',
-            queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'),
-            to_attr='latest_snapshot_list'
-        ),
-        Prefetch(
-            'transactions',
-            queryset=Transaction.objects.order_by('transaction_date'),
-            to_attr='sorted_transactions'
-        )
+    base_queryset = PositionTracker.objects.filter(user=request.user).select_related('stock').prefetch_related(
+        Prefetch('snapshots', queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'), to_attr='latest_snapshot_list'),
+        Prefetch('transactions', queryset=Transaction.objects.order_by('transaction_date'), to_attr='sorted_transactions')
     )
-
     # (筛选逻辑不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
@@ -263,27 +248,48 @@ def fav_trend_following_list(request):
         queryset = base_queryset
     ordered_queryset = queryset.order_by('-updated_at')
 
-    # --- 步骤2 & 3: 收集关键日期并一次性查询分数 (逻辑不变) ---
+    # --- 步骤2: 收集所有需要查询的“关键日期” (扩展到筹码指标) ---
     score_lookups = set()
+    chip_metrics_lookups = set() # 新增！用于收集筹码指标的查询需求
     trackers_with_key_dates = []
+
     for tracker in ordered_queryset:
         transactions = getattr(tracker, 'sorted_transactions', [])
-        key_dates = {'initial': None, 'last_buy': None}
+        snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
+        key_dates = {'initial': None, 'last_buy': None, 'latest': None}
+        
+        if snapshot_list:
+            key_dates['latest'] = snapshot_list[0].snapshot_date
+            score_lookups.add((tracker.stock_id, key_dates['latest']))
+            chip_metrics_lookups.add((tracker.stock_id, key_dates['latest']))
+
         if transactions:
             key_dates['initial'] = transactions[0].transaction_date.date()
             score_lookups.add((tracker.stock_id, key_dates['initial']))
+            chip_metrics_lookups.add((tracker.stock_id, key_dates['initial']))
+            
             last_buy_tx = next((tx for tx in reversed(transactions) if tx.transaction_type == Transaction.TransactionType.BUY), None)
             if last_buy_tx:
                 key_dates['last_buy'] = last_buy_tx.transaction_date.date()
                 score_lookups.add((tracker.stock_id, key_dates['last_buy']))
+                chip_metrics_lookups.add((tracker.stock_id, key_dates['last_buy']))
+        
         trackers_with_key_dates.append({'tracker': tracker, 'key_dates': key_dates})
 
+    # --- 步骤3: 一次性查询所有关键数据 (分数 + 筹码) ---
     score_map = {}
     if score_lookups:
-        queries = [Q(stock_id=stock_id, trade_date=trade_date) for stock_id, trade_date in score_lookups]
+        queries = [Q(stock_id=sid, trade_date=td) for sid, td in score_lookups if td]
         if queries:
             all_key_scores = StrategyDailyScore.objects.filter(functools.reduce(operator.or_, queries))
-            score_map = {(score.stock_id, score.trade_date): score for score in all_key_scores}
+            score_map = {(s.stock_id, s.trade_date): s for s in all_key_scores}
+
+    chip_metrics_map = {} # 新增！用于存储筹码指标的Map
+    if chip_metrics_lookups:
+        queries = [Q(stock_id=sid, trade_time=td) for sid, td in chip_metrics_lookups if td]
+        if queries:
+            all_key_chip_metrics = AdvancedChipMetrics.objects.filter(functools.reduce(operator.or_, queries))
+            chip_metrics_map = {(cm.stock_id, cm.trade_time): cm for cm in all_key_chip_metrics}
 
     # --- 步骤4: 组装最终数据，进行精细化计算 ---
     trackers_for_display = []
@@ -291,32 +297,37 @@ def fav_trend_following_list(request):
         tracker = item['tracker']
         key_dates = item['key_dates']
         
-        snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
-        latest_snapshot = snapshot_list[0] if snapshot_list else None
-        latest_daily_score = latest_snapshot.daily_score if latest_snapshot else None
-
+        # 获取分数
+        latest_daily_score = score_map.get((tracker.stock_id, key_dates['latest']))
         initial_score = score_map.get((tracker.stock_id, key_dates['initial']))
         last_buy_score = score_map.get((tracker.stock_id, key_dates['last_buy']))
+        
+        # 获取筹码指标
+        latest_chip_metrics = chip_metrics_map.get((tracker.stock_id, key_dates['latest']))
+        initial_chip_metrics = chip_metrics_map.get((tracker.stock_id, key_dates['initial']))
+        last_buy_chip_metrics = chip_metrics_map.get((tracker.stock_id, key_dates['last_buy']))
 
         delta_from_initial = _calculate_score_deltas(latest_daily_score, initial_score)
         delta_from_last_buy = _calculate_score_deltas(latest_daily_score, last_buy_score)
 
-
         profit_loss, profit_loss_pct = None, None
-        if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
-            profit_loss = latest_snapshot.profit_loss
-            profit_loss_pct = latest_snapshot.profit_loss_pct
+        if tracker.status == PositionTracker.Status.HOLDING and getattr(tracker, 'latest_snapshot_list', []):
+            profit_loss = tracker.latest_snapshot_list[0].profit_loss
+            profit_loss_pct = tracker.latest_snapshot_list[0].profit_loss_pct
         
         trackers_for_display.append({
             'tracker': tracker,
             'profit_loss': profit_loss,
             'profit_loss_pct': profit_loss_pct,
-            'latest_snapshot': latest_snapshot,
             'latest_daily_score': latest_daily_score,
-            'initial_score': initial_score,
-            'last_buy_score': last_buy_score,
-            'delta_from_initial': delta_from_initial, # 现在这是一个字典或None
-            'delta_from_last_buy': delta_from_last_buy, # 现在这也是一个字典或None
+            'delta_from_initial': delta_from_initial,
+            'delta_from_last_buy': delta_from_last_buy,
+            'initial_score': initial_score, # 传递用于模板显示
+            'last_buy_score': last_buy_score, # 传递用于模板显示
+            # 新增！传递筹码数据到模板
+            'latest_chip_metrics': latest_chip_metrics,
+            'initial_chip_metrics': initial_chip_metrics,
+            'last_buy_chip_metrics': last_buy_chip_metrics,
         })
 
     # (后续的分页和上下文组装逻辑不变)
