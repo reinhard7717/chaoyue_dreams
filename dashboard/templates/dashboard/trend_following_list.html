@@ -28,9 +28,6 @@
 <div class="dashboard-container">
     <section class="trend-list-section">
         <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 条记录)</h2>
-        
-        {# --- 代码修改开始 --- #}
-        {# [修改原因] 适配新的筛选逻辑，现在基于Playbook的ID进行筛选 #}
         <div class="filter-section">
             <div class="filter-header">
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
@@ -41,21 +38,17 @@
             <div class="filter-tags-container">
                 {% for playbook in all_playbooks %}
                     {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
-                        {# --- 代码修改开始 --- #}
-                        {# [修改原因] 使用 .pk 获取真实主键进行比较和URL构建 #}
                         {% if playbook.pk|stringformat:"s" in selected_playbooks %}
                             <a href="{% query_builder remove_playbook=playbook.pk %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
                             <a href="{% query_builder add_playbook=playbook.pk %}" class="filter-tag">{{ playbook_display_name }}</a>
                         {% endif %}
-                        {# --- 代码修改结束 --- #}
                     {% endwith %}
                 {% empty %}
                     <span class="no-filters">暂无可用的筛选标签</span>
                 {% endfor %}
             </div>
         </div>
-        {# --- 代码修改结束 --- #}
 
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
@@ -84,8 +77,6 @@
                             <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
                         </td>
                         <td>
-                            {# --- 代码修改开始 --- #}
-                            {# [修改原因] 增加激活剧本的展开/隐藏功能 #}
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
                                     <ul class="playbook-list">
@@ -99,7 +90,6 @@
                             {% else %}
                                 -
                             {% endif %}
-                            {# --- 代码修改结束 --- #}
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
                         <td class="actions">

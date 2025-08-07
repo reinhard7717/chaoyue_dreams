@@ -120,99 +120,59 @@
               {% endif %}
             </td>
             <td>
-              {% if tracker.entry_signal %}
-                <strong>买入于: {{ tracker.entry_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong>
-                <br />
-                <small>建仓价: {{ tracker.entry_price|floatformat:2 }} | 建仓分: {{ tracker.entry_signal.entry_score|floatformat:0 }}</small>
-                
-                {% with playbooks=tracker.entry_signal.playbooks.all %}
-                  {% if playbooks %}
-                    <div class="playbook-container" style="margin-top: 5px;">
-                      <ul class="playbook-list">
-                        {% for playbook in playbooks %}
-                          <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
-                        {% endfor %}
-                      </ul>
-                      {% if playbooks|length > 2 %}
-                        <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
-                      {% endif %}
-                    </div>
-                  {% endif %}
-                {% endwith %}
-              {% else %}
-                <small>观察于: {{ tracker.created_at|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</small>
-              {% endif %}
+              <strong>持仓成本: {{ tracker.average_cost|floatformat:2 }}</strong><br>
+              <small>当前数量: {{ tracker.current_quantity|floatformat:0 }} 股</small><br>
+              <small>首次关注: {{ tracker.created_at|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</small>
             </td>
             <td>
               {% if tracker.status == 'HOLDING' %}
                 {% if latest_daily_score %}
                   <div class="score-tracker">
-                    {% with score_change=latest_daily_score.offensive_score|subtract:tracker.entry_signal.entry_score %}
-                    <span class="{% if score_change > 0 %}score-up{% elif score_change < 0 %}score-down{% else %}score-neutral{% endif %}" title="最新总进攻分 vs 建仓总进攻分">
+                    <span class="score-neutral" title="最新总进攻分">
                       📈 {{ latest_daily_score.offensive_score|floatformat:0 }}
-                      <span class="score-delta">
-                        ({% if score_change > 0 %}+{% endif %}{{ score_change|floatformat:0 }})
-                      </span>
                     </span>
-                    {% endwith %}
                     {% if latest_daily_score.risk_score > 0 %}
                     <span class="risk-score-display" title="当前风险分">
                       &nbsp; | &nbsp;⚠️ {{ latest_daily_score.risk_score|floatformat:0 }}
                     </span>
                     {% endif %}
                   </div>
-                  
-                  {# --- 代码修改开始：分数结构化展示 --- #}
                   <div class="score-breakdown">
-                    <div class="score-breakdown-item" title="阵地分：策略的基础和地基，代表结构性机会。">
-                      <strong>{{ latest_daily_score.positional_score|default:0 }}</strong>
-                      <span>阵地分</span>
-                    </div>
-                    <div class="score-breakdown-item" title="动能分：趋势的催化剂，代表短期爆发力。">
-                      <strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong>
-                      <span>动能分</span>
-                    </div>
-                    <div class="score-breakdown-item" title="战法分：高置信度的共振信号，锦上添花。">
-                      <strong>{{ latest_daily_score.composite_score|default:0 }}</strong>
-                      <span>战法分</span>
-                    </div>
+                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.positional_score|default:0 }}</strong><span>阵地分</span></div>
+                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong><span>动能分</span></div>
+                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.composite_score|default:0 }}</strong><span>战法分</span></div>
                   </div>
-                  {# --- 代码修改结束 --- #}
-
                 {% else %}
-                  <span class="text-muted">暂无每日追踪快照</span>
+                  {# 如果没有快照，给出更明确的提示 #}
+                  <span class="text-muted">快照数据生成中</span>
                 {% endif %}
-              {% elif tracker.status == 'SOLD' %}
-                <strong>平仓于: {{ tracker.exit_date|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</strong><br>
-                <small>平仓价: {{ tracker.exit_price|floatformat:2 }} | 风险分: {{ tracker.exit_signal.risk_score|default:0|floatformat:0 }}</small>
+              {% elif tracker.status == 'WATCHING' and tracker.current_quantity == 0 %}
+                {# 对于已平仓的，可以显示最后更新时间 #}
+                <strong>已平仓</strong><br>
+                <small>最后更新: {{ tracker.updated_at|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</small>
               {% else %}
                 -
               {% endif %}
             </td>
             <td class="actions">
-              {# 按钮1: 管理交易流水 #}
               <button class="btn btn-sm btn-primary manage-transactions-btn" 
                       data-tracker-id="{{ tracker.id }}" 
                       data-stock-name="{{ tracker.stock.stock_name }}">
                 管理
               </button>
-
-              {# 按钮2: 删除自选股 (您保留的按钮) #}
-              {# 【重要】确保您的删除按钮有下面这两个 data-* 属性 #}
+              {# 【重要】确保 data-fav-id 有值 #}
+              {% if item.fav_id %}
               <button class="btn btn-sm btn-danger remove-position-btn" 
-                      data-fav-id="{{ tracker.user_favorite_id }}"  {# <--- 假设您在视图中传递了这个ID #}
+                      data-fav-id="{{ item.fav_id }}"
                       data-stock-code="{{ tracker.stock.stock_code }}">
                 &times;
               </button>
+              {% endif %}
             </td>
           </tr>
           {% endwith %}
           {% empty %}
-          <tr>
-            <td colspan="5" style="text-align: center; padding: 20px;">
-              暂无记录。请先在策略监控中心添加自选股。
-            </td>
-          </tr>
+          <tr><td colspan="5" style="text-align: center; padding: 20px;">暂无记录。</td></tr>
           {% endfor %}
         </tbody>
       </table>

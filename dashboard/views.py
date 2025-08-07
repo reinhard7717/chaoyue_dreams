@@ -215,12 +215,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V5.1 模型兼容性修复版】
-    - 核心修复: 解决了因 PositionTracker 模型重构导致的 FieldError。
-                将排序字段从已移除的 'entry_date' 和 'exit_date' 
-                更改为 'updated_at'，确保查询能正常执行。
+    【V5.2 数据库终极兼容版】
+    - 核心修复: 移除了对数据库版本敏感的 Subquery 和 annotate。
+    - 采用“两步查询法”为前端注入 fav_id，确保在所有数据库版本上都能稳定运行。
     """
-    # ... (前面的 base_queryset 查询保持不变) ...
+    # 步骤 1: 主查询，获取 PositionTracker 对象
     base_queryset = PositionTracker.objects.filter(
         user=request.user
     ).select_related(
@@ -232,50 +231,58 @@ def fav_trend_following_list(request):
             to_attr='latest_snapshot_list'
         )
     )
-
+    # 状态筛选逻辑 (不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
         page_title = '自选股持仓监控'
     elif status_filter == 'sold':
-        # 【注意】'SOLD' 状态已不存在，这里我们用 'WATCHING' 且有交易记录来模拟
-        # 一个更健壮的方法是检查 quantity 是否为0
         queryset = base_queryset.filter(status=PositionTracker.Status.WATCHING, current_quantity=0)
         page_title = '自选股历史平仓'
     else:
-        page_title = '全部自选追踪' 
+        page_title = '全部自选追踪'
         queryset = base_queryset
-
-    # --- 代码修改开始 ---
-    # [修改原因] 修复 FieldError。PositionTracker 模型已没有 entry_date/exit_date 字段。
-    #            统一使用 updated_at 降序排序，让最近有活动的持仓排在最前面。
+    # 排序逻辑 (不变)
     ordered_queryset = queryset.order_by('-updated_at')
-    # --- 代码修改结束 ---
 
-    # ... (后续的 Python 数据处理和分页逻辑保持不变) ...
+    # 步骤 2: 从已查询出的结果中，提取所有 stock_id
+    # 注意：这里我们操作的是已经执行过查询的列表，不会引发额外查询
+    stock_ids = [tracker.stock_id for tracker in ordered_queryset]
+
+    fav_id_map = {}
+    if stock_ids:
+        # 步骤 3: 一次性查询出所有相关的 FavoriteStock 记录
+        favorite_stocks = FavoriteStock.objects.filter(
+            user=request.user,
+            stock_id__in=stock_ids
+        ).values('stock_id', 'id') # 只获取需要的字段，更高效
+
+        # 步骤 4: 创建一个从 stock_id 到 fav_id 的高效映射字典
+        fav_id_map = {item['stock_id']: item['id'] for item in favorite_stocks}
+
+    # 步骤 5: 准备最终传递给模板的数据，并在循环中注入 fav_id
     trackers_for_display = []
     for tracker in ordered_queryset:
         latest_snapshot = tracker.latest_snapshot_list[0] if hasattr(tracker, 'latest_snapshot_list') and tracker.latest_snapshot_list else None
         
-        # 计算盈亏 (P/L)
-        # 注意：这里的盈亏计算逻辑也需要适配新模型
         profit_loss = None
         profit_loss_pct = None
         if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
-            # 对于持仓中的，使用最新快照的盈亏
             profit_loss = latest_snapshot.profit_loss
             profit_loss_pct = latest_snapshot.profit_loss_pct
-        # 对于已平仓的，未来可以从交易流水中计算已实现盈亏，暂时留空
         
         tracker_data = {
             'tracker': tracker,
             'profit_loss': profit_loss,
             'profit_loss_pct': profit_loss_pct,
             'latest_snapshot': latest_snapshot,
-            'latest_daily_score': latest_snapshot.daily_score if latest_snapshot else None
+            'latest_daily_score': latest_snapshot.daily_score if latest_snapshot else None,
+            # 从映射字典中安全地获取 fav_id，如果不存在则为 None
+            'fav_id': fav_id_map.get(tracker.stock_id)
         }
         trackers_for_display.append(tracker_data)
 
+    # 分页和渲染逻辑 (不变)
     paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
