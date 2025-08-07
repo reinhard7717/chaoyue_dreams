@@ -31,40 +31,35 @@
         color: #ff9800; /* 橙色 */
         font-weight: bold;
       }
-      .tag {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.85em;
-        margin: 2px;
-        color: #fff;
-        background-color: #9e9e9e;
-      }
-      .tag-warning {
-        background-color: #ff9800; /* 橙色: 优势衰减 */
-      }
-      .tag-danger {
-        background-color: #f44336; /* 红色: 新增风险 */
-      }
-      .tag-secondary {
-        background-color: #757575; /* 灰色: 持续风险 */
-      }
-      .health-dashboard {
+      .score-matrix {
         margin-top: 8px;
         font-size: 0.9em;
-      }
-      .change-section {
-        margin-top: 4px;
-      }
-      .delta-breakdown {
         display: flex;
-        flex-wrap: wrap;
-        gap: 0 12px; /* 列间距 */
-        margin-left: 10px;
-        font-size: 0.95em;
+        flex-direction: column;
+        gap: 4px; /* 行间距 */
       }
-      .delta-item {
-        white-space: nowrap; /* 防止换行 */
+      .matrix-row {
+        display: flex;
+        align-items: baseline; /* 基线对齐，让文字好看 */
+        gap: 10px; /* 列间距 */
+      }
+      .matrix-label {
+        flex: 0 0 60px; /* 固定标签宽度，冒号对齐 */
+        font-weight: bold;
+        text-align: right;
+      }
+      .matrix-current-score {
+        flex: 0 0 40px; /* 固定当前分宽度 */
+        font-weight: bold;
+        font-size: 1.1em;
+      }
+      .matrix-delta-group {
+        display: flex;
+        gap: 10px;
+        color: #666; /* 变化部分的默认颜色 */
+      }
+      .matrix-delta-item {
+        white-space: nowrap; /* 防止 "vs 建仓" 换行 */
       }
     </style>
 {% endblock %}
@@ -137,60 +132,102 @@
             <td>
               {% if tracker.status == 'HOLDING' %}
                 {% if latest_daily_score %}
-                  <!-- 最新分数 (保持不变) -->
-                  <div class="score-tracker">
-                    <span class="score-neutral" title="最新总进攻分">
-                      📈 {{ latest_daily_score.offensive_score|floatformat:0 }}
-                    </span>
+                  <div class="score-matrix">
+                    <!-- 总分行 -->
+                    <div class="matrix-row">
+                      <div class="matrix-label">总进攻分:</div>
+                      <div class="matrix-current-score score-neutral">{{ latest_daily_score.offensive_score|floatformat:0 }}</div>
+                      <div class="matrix-delta-group">
+                        {% with delta=item.delta_from_initial %}
+                        {% if delta %}
+                        <div class="matrix-delta-item">
+                          vs建仓: <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">{{ delta.offensive|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                        {% with delta=item.delta_from_last_buy %}
+                        {% if delta and item.last_buy_score.id != item.initial_score.id %}
+                        <div class="matrix-delta-item">
+                          vs末次加仓: <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">{{ delta.offensive|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                      </div>
+                    </div>
+
+                    <!-- 阵地分行 -->
+                    <div class="matrix-row">
+                      <div class="matrix-label">阵地分:</div>
+                      <div class="matrix-current-score">{{ latest_daily_score.positional_score|floatformat:0 }}</div>
+                      <div class="matrix-delta-group">
+                        {% with delta=item.delta_from_initial %}
+                        {% if delta %}
+                        <div class="matrix-delta-item">
+                          vs建仓: <span class="score-delta {% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                        {% with delta=item.delta_from_last_buy %}
+                        {% if delta and item.last_buy_score.id != item.initial_score.id %}
+                        <div class="matrix-delta-item">
+                          vs末次加仓: <span class="score-delta {% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                      </div>
+                    </div>
+
+                    <!-- 动能分行 -->
+                    <div class="matrix-row">
+                      <div class="matrix-label">动能分:</div>
+                      <div class="matrix-current-score">{{ latest_daily_score.dynamic_score|floatformat:0 }}</div>
+                      <div class="matrix-delta-group">
+                        {% with delta=item.delta_from_initial %}
+                        {% if delta %}
+                        <div class="matrix-delta-item">
+                          vs建仓: <span class="score-delta {% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                        {% with delta=item.delta_from_last_buy %}
+                        {% if delta and item.last_buy_score.id != item.initial_score.id %}
+                        <div class="matrix-delta-item">
+                          vs末次加仓: <span class="score-delta {% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                      </div>
+                    </div>
+
+                    <!-- 战法分行 -->
+                    <div class="matrix-row">
+                      <div class="matrix-label">战法分:</div>
+                      <div class="matrix-current-score">{{ latest_daily_score.composite_score|floatformat:0 }}</div>
+                      <div class="matrix-delta-group">
+                        {% with delta=item.delta_from_initial %}
+                        {% if delta %}
+                        <div class="matrix-delta-item">
+                          vs建仓: <span class="score-delta {% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                        {% with delta=item.delta_from_last_buy %}
+                        {% if delta and item.last_buy_score.id != item.initial_score.id %}
+                        <div class="matrix-delta-item">
+                          vs末次加仓: <span class="score-delta {% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span>
+                        </div>
+                        {% endif %}
+                        {% endwith %}
+                      </div>
+                    </div>
+
+                    <!-- 风险分行 (可选) -->
                     {% if latest_daily_score.risk_score > 0 %}
-                    <span class="risk-score-display" title="当前风险分">
-                      &nbsp; | &nbsp;⚠️ {{ latest_daily_score.risk_score|floatformat:0 }}
-                    </span>
-                    {% endif %}
-                  </div>
-                  <div class="score-breakdown">
-                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.positional_score|default:0 }}</strong><span>阵地分</span></div>
-                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong><span>动能分</span></div>
-                    <div class="score-breakdown-item"><strong>{{ latest_daily_score.composite_score|default:0 }}</strong><span>战法分</span></div>
-                  </div>
-                  <div class="health-dashboard">
-                    
-                    <!-- --- 代码修改开始：升级“vs 建仓”部分 --- -->
-                    {% with delta=item.delta_from_initial %}
-                    {% if delta %}
-                    <div class="change-section">
-                      <small>vs 建仓 (总分 {{ item.initial_score.offensive_score|floatformat:0 }})</small>:
-                      <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">
-                        <strong>{{ delta.offensive|show_sign }}</strong>
-                      </span>
-                      <div class="delta-breakdown">
-                        <div class="delta-item">阵: <span class="{% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span></div>
-                        <div class="delta-item">动: <span class="{% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span></div>
-                        <div class="delta-item">战: <span class="{% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span></div>
-                      </div>
+                    <div class="matrix-row">
+                      <div class="matrix-label">风险分:</div>
+                      <div class="matrix-current-score risk-score-display">{{ latest_daily_score.risk_score|floatformat:0 }}</div>
                     </div>
                     {% endif %}
-                    {% endwith %}
-                    <!-- --- 代码修改结束 --- -->
-
-                    <!-- --- 代码修改开始：升级“vs 末次加仓”部分 --- -->
-                    {% with delta=item.delta_from_last_buy %}
-                    {% if delta and item.last_buy_score.id != item.initial_score.id %}
-                    <div class="change-section">
-                      <small>vs 末次加仓 (总分 {{ item.last_buy_score.offensive_score|floatformat:0 }})</small>:
-                      <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">
-                        <strong>{{ delta.offensive|show_sign }}</strong>
-                      </span>
-                      <div class="delta-breakdown">
-                        <div class="delta-item">阵: <span class="{% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span></div>
-                        <div class="delta-item">动: <span class="{% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span></div>
-                        <div class="delta-item">战: <span class="{% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span></div>
-                      </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-                    <!-- --- 代码修改结束 --- -->
-
                   </div>
                 {% else %}
                   <span class="text-muted">快照数据生成中</span>
