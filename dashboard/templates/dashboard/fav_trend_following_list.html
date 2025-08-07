@@ -156,7 +156,6 @@
                         {% endwith %}
                       </div>
                     </div>
-
                     <!-- 阵地分行 -->
                     <div class="matrix-row">
                       <div class="matrix-label">阵地分:</div>
@@ -178,7 +177,6 @@
                         {% endwith %}
                       </div>
                     </div>
-
                     <!-- 动能分行 -->
                     <div class="matrix-row">
                       <div class="matrix-label">动能分:</div>
@@ -200,7 +198,6 @@
                         {% endwith %}
                       </div>
                     </div>
-
                     <!-- 战法分行 -->
                     <div class="matrix-row">
                       <div class="matrix-label">战法分:</div>
@@ -222,7 +219,6 @@
                         {% endwith %}
                       </div>
                     </div>
-
                     <!-- 风险分行 (可选) -->
                     {% if latest_daily_score.risk_score > 0 %}
                     <div class="matrix-row">
@@ -232,9 +228,6 @@
                     {% endif %}
                   </div>
                   {% with latest_cm=item.latest_chip_metrics initial_cm=item.initial_chip_metrics last_buy_cm=item.last_buy_chip_metrics %}
-                  {% if latest_cm %}
-                    <hr style="margin: 8px 0; border-color: #eee;">
-                    {% with latest_cm=item.latest_chip_metrics initial_cm=item.initial_chip_metrics last_buy_cm=item.last_buy_chip_metrics %}
                     {% if latest_cm %}
                       <hr style="margin: 8px 0; border-color: #eee;">
                       <div class="score-matrix"> <!-- 复用 score-matrix 样式 -->
@@ -300,8 +293,6 @@
                         </div>
                       </div>
                     {% endif %}
-                    {% endwith %}
-                  {% endif %}
                   {% endwith %}
                 {% else %}
                   <span class="text-muted">快照数据生成中</span>
