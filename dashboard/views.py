@@ -215,11 +215,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V5.2 数据库终极兼容版】
-    - 核心修复: 移除了对数据库版本敏感的 Subquery 和 annotate。
-    - 采用“两步查询法”为前端注入 fav_id，确保在所有数据库版本上都能稳定运行。
+    【V5.3 - 深度探针调试版】
+    - 核心修改: 在数据处理循环中加入了详细的 print() 探针，
+                以诊断“最新动态追踪”无数据的问题。
     """
-    # 步骤 1: 主查询，获取 PositionTracker 对象
+    # “两步查询法”获取 fav_id (不变)
     base_queryset = PositionTracker.objects.filter(
         user=request.user
     ).select_related(
@@ -231,7 +231,6 @@ def fav_trend_following_list(request):
             to_attr='latest_snapshot_list'
         )
     )
-    # 状态筛选逻辑 (不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
@@ -242,47 +241,57 @@ def fav_trend_following_list(request):
     else:
         page_title = '全部自选追踪'
         queryset = base_queryset
-    # 排序逻辑 (不变)
     ordered_queryset = queryset.order_by('-updated_at')
-
-    # 步骤 2: 从已查询出的结果中，提取所有 stock_id
-    # 注意：这里我们操作的是已经执行过查询的列表，不会引发额外查询
     stock_ids = [tracker.stock_id for tracker in ordered_queryset]
-
     fav_id_map = {}
     if stock_ids:
-        # 步骤 3: 一次性查询出所有相关的 FavoriteStock 记录
-        favorite_stocks = FavoriteStock.objects.filter(
-            user=request.user,
-            stock_id__in=stock_ids
-        ).values('stock_id', 'id') # 只获取需要的字段，更高效
-
-        # 步骤 4: 创建一个从 stock_id 到 fav_id 的高效映射字典
+        favorite_stocks = FavoriteStock.objects.filter(user=request.user, stock_id__in=stock_ids).values('stock_id', 'id')
         fav_id_map = {item['stock_id']: item['id'] for item in favorite_stocks}
 
-    # 步骤 5: 准备最终传递给模板的数据，并在循环中注入 fav_id
+    # --- 核心探针区域 ---
+    print("\n" + "="*30 + " 开始处理视图数据 " + "="*30)
     trackers_for_display = []
     for tracker in ordered_queryset:
-        latest_snapshot = tracker.latest_snapshot_list[0] if hasattr(tracker, 'latest_snapshot_list') and tracker.latest_snapshot_list else None
-        
-        profit_loss = None
-        profit_loss_pct = None
+        print(f"\n--- [视图探针] 正在处理 Tracker ID: {tracker.id} ({tracker.stock.stock_code}) ---")
+
+        # 探针 1: 检查 prefetch 的原始结果
+        snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
+        print(f"[视图探针 1] Prefetch 到的快照列表 (latest_snapshot_list) 包含 {len(snapshot_list)} 条记录。")
+        if snapshot_list:
+            # 只打印最新的几条，防止刷屏
+            for i, snap in enumerate(snapshot_list[:3]):
+                print(f"  - 快照 {i+1}: 日期={snap.snapshot_date}, 收盘价={snap.close_price}, 关联分数ID={getattr(snap.daily_score, 'id', '无')}")
+
+        # 探针 2: 检查我们提取最新快照的逻辑
+        latest_snapshot = snapshot_list[0] if snapshot_list else None
+        print(f"[视图探针 2] 提取出的 'latest_snapshot' 是否存在: {'是' if latest_snapshot else '否'}")
+
+        # 探针 3: 检查从最新快照中提取每日分数的逻辑
+        latest_daily_score = latest_snapshot.daily_score if latest_snapshot else None
+        print(f"[视图探针 3] 提取出的 'latest_daily_score' 是否存在: {'是' if latest_daily_score else '否'}")
+        if latest_daily_score:
+            print(f"  - 分数详情: 进攻分={latest_daily_score.offensive_score}, 风险分={latest_daily_score.risk_score}")
+
+        profit_loss, profit_loss_pct = None, None
         if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
             profit_loss = latest_snapshot.profit_loss
             profit_loss_pct = latest_snapshot.profit_loss_pct
         
+        # 探针 4: 检查最终准备发送到模板的数据包
         tracker_data = {
             'tracker': tracker,
             'profit_loss': profit_loss,
             'profit_loss_pct': profit_loss_pct,
             'latest_snapshot': latest_snapshot,
-            'latest_daily_score': latest_snapshot.daily_score if latest_snapshot else None,
-            # 从映射字典中安全地获取 fav_id，如果不存在则为 None
+            'latest_daily_score': latest_daily_score,
             'fav_id': fav_id_map.get(tracker.stock_id)
         }
+        print(f"[视图探针 4] 最终为模板准备的数据包中, 'latest_daily_score' 是否有值: {'是' if tracker_data['latest_daily_score'] else '否'}")
         trackers_for_display.append(tracker_data)
+    
+    print("\n" + "="*30 + " 视图数据处理完毕 " + "="*30 + "\n")
+    # --- 探针区域结束 ---
 
-    # 分页和渲染逻辑 (不变)
     paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
