@@ -7,6 +7,7 @@ import logging
 from asgiref.sync import sync_to_async
 from stock_models.index import TradeCalendar
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.stock_analytics import PositionTracker, Transaction, DailyPositionSnapshot, StrategyDailyScore
 from utils.cache_manager import CacheManager
 
@@ -19,6 +20,7 @@ class PositionSnapshotService:
     """
     def __init__(self, cache_manager: CacheManager):
         self.strategies_dao = StrategiesDAO(cache_manager)
+        self.stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
 
     async def rebuild_snapshots_for_tracker(self, tracker_id: int):
         try:
@@ -116,7 +118,7 @@ class PositionSnapshotService:
         return list(Transaction.objects.filter(tracker_id=tracker_id).order_by('transaction_date'))
 
     async def _get_price_map(self, stock_code, start_date, end_date):
-        df = await self.strategies_dao.get_daily_data(stock_code, start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d'))
+        df = await self.stock_time_trade_dao.get_daily_data(stock_code, start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d'))
         return {row.name.date(): row['close'] for _, row in df.iterrows()} if not df.empty else {}
 
     @sync_to_async(thread_sensitive=True)
