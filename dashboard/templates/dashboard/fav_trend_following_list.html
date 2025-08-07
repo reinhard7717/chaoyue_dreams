@@ -56,6 +56,16 @@
       .change-section {
         margin-top: 4px;
       }
+      .delta-breakdown {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0 12px; /* 列间距 */
+        margin-left: 10px;
+        font-size: 0.95em;
+      }
+      .delta-item {
+        white-space: nowrap; /* 防止换行 */
+      }
     </style>
 {% endblock %}
 
@@ -143,27 +153,45 @@
                     <div class="score-breakdown-item"><strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong><span>动能分</span></div>
                     <div class="score-breakdown-item"><strong>{{ latest_daily_score.composite_score|default:0 }}</strong><span>战法分</span></div>
                   </div>
-
-                  <!-- [新增] 分数变化洞察仪表盘 -->
                   <div class="health-dashboard">
-                    {% if item.delta_from_initial is not None %}
+                    
+                    <!-- --- 代码修改开始：升级“vs 建仓”部分 --- -->
+                    {% with delta=item.delta_from_initial %}
+                    {% if delta %}
                     <div class="change-section">
-                      <small>vs 建仓 ({{ item.initial_score.offensive_score|floatformat:0 }})</small>:
-                      <span class="score-delta {% if item.delta_from_initial > 0 %}score-up{% elif item.delta_from_initial < 0 %}score-down{% endif %}">
-                        {{ item.delta_from_initial|show_sign }}
+                      <small>vs 建仓 (总分 {{ item.initial_score.offensive_score|floatformat:0 }})</small>:
+                      <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">
+                        <strong>{{ delta.offensive|show_sign }}</strong>
                       </span>
+                      <div class="delta-breakdown">
+                        <div class="delta-item">阵: <span class="{% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span></div>
+                        <div class="delta-item">动: <span class="{% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span></div>
+                        <div class="delta-item">战: <span class="{% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span></div>
+                      </div>
                     </div>
                     {% endif %}
-                    {% if item.delta_from_last_buy is not None and item.last_buy_score.id != item.initial_score.id %}
-                    <div class="change-section">
-                      <small>vs 末次加仓 ({{ item.last_buy_score.offensive_score|floatformat:0 }})</small>:
-                      <span class="score-delta {% if item.delta_from_last_buy > 0 %}score-up{% elif item.delta_from_last_buy < 0 %}score-down{% endif %}">
-                        {{ item.delta_from_last_buy|show_sign }}
-                      </span>
-                    </div>
-                    {% endif %}
-                  </div>
+                    {% endwith %}
+                    <!-- --- 代码修改结束 --- -->
 
+                    <!-- --- 代码修改开始：升级“vs 末次加仓”部分 --- -->
+                    {% with delta=item.delta_from_last_buy %}
+                    {% if delta and item.last_buy_score.id != item.initial_score.id %}
+                    <div class="change-section">
+                      <small>vs 末次加仓 (总分 {{ item.last_buy_score.offensive_score|floatformat:0 }})</small>:
+                      <span class="score-delta {% if delta.offensive > 0 %}score-up{% elif delta.offensive < 0 %}score-down{% endif %}">
+                        <strong>{{ delta.offensive|show_sign }}</strong>
+                      </span>
+                      <div class="delta-breakdown">
+                        <div class="delta-item">阵: <span class="{% if delta.positional > 0 %}score-up{% elif delta.positional < 0 %}score-down{% endif %}">{{ delta.positional|show_sign }}</span></div>
+                        <div class="delta-item">动: <span class="{% if delta.dynamic > 0 %}score-up{% elif delta.dynamic < 0 %}score-down{% endif %}">{{ delta.dynamic|show_sign }}</span></div>
+                        <div class="delta-item">战: <span class="{% if delta.composite > 0 %}score-up{% elif delta.composite < 0 %}score-down{% endif %}">{{ delta.composite|show_sign }}</span></div>
+                      </div>
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+                    <!-- --- 代码修改结束 --- -->
+
+                  </div>
                 {% else %}
                   <span class="text-muted">快照数据生成中</span>
                 {% endif %}

@@ -215,12 +215,24 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V6.0 - 分数变化洞察版】
-    - 核心修改: 计算并展示相较于“建仓日”和“末次加仓日”的分数变化，提供决策洞察。
-    - 性能优化: 采用高效的 prefetch 和“两遍循环+Map”策略，避免 N+1 查询。
+    【V6.2 - 精细化洞察版】
+    - 核心修改: 将分数变化计算扩展到所有分项（阵地、动能、战法），提供结构性变化洞察。
+    - 代码优化: 使用内部辅助函数 _calculate_score_deltas 提高代码清晰度。
     """
-    # --- 步骤1: 预抓取所有需要的数据 ---
-    # 我们现在不仅要快照，还要交易流水来确定关键日期
+
+    # --- 内部辅助函数，用于计算分数结构变化 ---
+    def _calculate_score_deltas(current_score, baseline_score):
+        if not current_score or not baseline_score:
+            return None
+        
+        return {
+            'offensive': current_score.offensive_score - baseline_score.offensive_score,
+            'positional': current_score.positional_score - baseline_score.positional_score,
+            'dynamic': current_score.dynamic_score - baseline_score.dynamic_score,
+            'composite': current_score.composite_score - baseline_score.composite_score,
+        }
+
+    # --- 步骤1: 预抓取所有需要的数据 (逻辑不变) ---
     base_queryset = PositionTracker.objects.filter(
         user=request.user
     ).select_related(
@@ -231,7 +243,6 @@ def fav_trend_following_list(request):
             queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'),
             to_attr='latest_snapshot_list'
         ),
-        # 新增！预抓取所有交易流水，并按日期排序
         Prefetch(
             'transactions',
             queryset=Transaction.objects.order_by('transaction_date'),
@@ -252,66 +263,50 @@ def fav_trend_following_list(request):
         queryset = base_queryset
     ordered_queryset = queryset.order_by('-updated_at')
 
-    # --- 步骤2: 收集所有需要查询分数的“关键日期” ---
-    # 这是避免 N+1 查询的关键
-    score_lookups = set() # 存储 (stock_id, date) 元组
+    # --- 步骤2 & 3: 收集关键日期并一次性查询分数 (逻辑不变) ---
+    score_lookups = set()
     trackers_with_key_dates = []
-
     for tracker in ordered_queryset:
         transactions = getattr(tracker, 'sorted_transactions', [])
         key_dates = {'initial': None, 'last_buy': None}
         if transactions:
-            # 建仓日 = 第一笔交易的日期
             key_dates['initial'] = transactions[0].transaction_date.date()
             score_lookups.add((tracker.stock_id, key_dates['initial']))
-            
-            # 末次加仓日 = 最后一笔 BUY 交易的日期
             last_buy_tx = next((tx for tx in reversed(transactions) if tx.transaction_type == Transaction.TransactionType.BUY), None)
             if last_buy_tx:
                 key_dates['last_buy'] = last_buy_tx.transaction_date.date()
                 score_lookups.add((tracker.stock_id, key_dates['last_buy']))
-        
         trackers_with_key_dates.append({'tracker': tracker, 'key_dates': key_dates})
 
-    # --- 步骤3: 一次性查询所有关键分数 ---
     score_map = {}
     if score_lookups:
-        # 构建一个复杂的 Q 对象，一次性查询所有需要的分数
         queries = [Q(stock_id=stock_id, trade_date=trade_date) for stock_id, trade_date in score_lookups]
         if queries:
             all_key_scores = StrategyDailyScore.objects.filter(functools.reduce(operator.or_, queries))
-            # 将结果存入一个字典（Map）中，方便快速查找
             score_map = {(score.stock_id, score.trade_date): score for score in all_key_scores}
 
-    # --- 步骤4: 组装最终数据，进行计算 ---
+    # --- 步骤4: 组装最终数据，进行精细化计算 ---
     trackers_for_display = []
     for item in trackers_with_key_dates:
         tracker = item['tracker']
         key_dates = item['key_dates']
         
-        # (获取最新快照和分数的逻辑不变)
         snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
         latest_snapshot = snapshot_list[0] if snapshot_list else None
         latest_daily_score = latest_snapshot.daily_score if latest_snapshot else None
 
-        # 从 score_map 中获取关键日期的分数
         initial_score = score_map.get((tracker.stock_id, key_dates['initial']))
         last_buy_score = score_map.get((tracker.stock_id, key_dates['last_buy']))
 
-        # 计算分数变化
-        delta_from_initial, delta_from_last_buy = None, None
-        if latest_daily_score and initial_score:
-            delta_from_initial = latest_daily_score.offensive_score - initial_score.offensive_score
-        if latest_daily_score and last_buy_score:
-            delta_from_last_buy = latest_daily_score.offensive_score - last_buy_score.offensive_score
+        delta_from_initial = _calculate_score_deltas(latest_daily_score, initial_score)
+        delta_from_last_buy = _calculate_score_deltas(latest_daily_score, last_buy_score)
 
-        # (计算盈亏的逻辑不变)
+
         profit_loss, profit_loss_pct = None, None
         if tracker.status == PositionTracker.Status.HOLDING and latest_snapshot:
             profit_loss = latest_snapshot.profit_loss
             profit_loss_pct = latest_snapshot.profit_loss_pct
         
-        # 打包所有数据到最终的字典中
         trackers_for_display.append({
             'tracker': tracker,
             'profit_loss': profit_loss,
@@ -320,20 +315,17 @@ def fav_trend_following_list(request):
             'latest_daily_score': latest_daily_score,
             'initial_score': initial_score,
             'last_buy_score': last_buy_score,
-            'delta_from_initial': delta_from_initial,
-            'delta_from_last_buy': delta_from_last_buy,
-            # fav_id 的获取逻辑需要调整，因为我们改变了循环主体
-            # (我们可以在循环外先构建好 fav_id_map)
+            'delta_from_initial': delta_from_initial, # 现在这是一个字典或None
+            'delta_from_last_buy': delta_from_last_buy, # 现在这也是一个字典或None
         })
 
-    # (fav_id_map 和分页逻辑需要适应新的 trackers_for_display 结构)
+    # (后续的分页和上下文组装逻辑不变)
     stock_ids = [d['tracker'].stock_id for d in trackers_for_display]
     fav_id_map = {}
     if stock_ids:
         favorite_stocks = FavoriteStock.objects.filter(user=request.user, stock_id__in=stock_ids).values('stock_id', 'id')
         fav_id_map = {item['stock_id']: item['id'] for item in favorite_stocks}
     
-    # 将 fav_id 注入回最终数据
     for item in trackers_for_display:
         item['fav_id'] = fav_id_map.get(item['tracker'].stock_id)
 
