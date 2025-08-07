@@ -1780,7 +1780,6 @@ class StockTimeTradeDAO(BaseDAO):
             data_list=data_list,
             unique_fields=['stock', 'trade_time', 'price']
         )
-        print(f"DAO: {stock.stock_code} 数据保存成功。")
 
 
 

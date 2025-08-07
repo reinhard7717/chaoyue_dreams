@@ -672,7 +672,7 @@ def save_cyq_chips_this_week_batch(ts_code: str, start_date: datetime.date, end_
             logger.warning(f"在数据库中未找到代码为 {ts_code} 的股票，跳过此任务。")
             return
         result = await stock_time_trade_dao.save_cyq_chips_for_stock(stock=stock, start_date=start_date, end_date=end_date)
-        print(f"保存 {ts_code} （本周）每日筹码分布 数据完成。 result: {result} ")
+        # print(f"保存 {ts_code} （本周）每日筹码分布 数据完成。 result: {result} ")
     async_to_sync(main)()
 
 @celery_app.task(queue='SaveHistoryData_TimeTrade', rate_limit='180/m')

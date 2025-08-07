@@ -572,21 +572,43 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         async function openTransactionModal(trackerId, stockName) {
+            console.log(`[Modal调试 1] 进入 openTransactionModal 函数。接收到 trackerId: ${trackerId}, stockName: ${stockName}`);
+
+            // 检查关键的 modalOverlay 元素是否存在
+            if (!modalOverlay) {
+                console.error('[Modal错误] 无法找到 modalOverlay 元素 (ID: transaction-modal-overlay)！模态框无法显示。');
+                showNotification('页面结构错误，无法打开管理窗口。', 'error');
+                return;
+            }
+
             modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
             formTrackerIdInput.value = trackerId;
+
+            console.log('[Modal调试 2] 准备显示模态框，设置 style.display = "flex"');
             modalOverlay.style.display = 'flex';
+            console.log('[Modal调试 3] 已设置 style.display。当前 modalOverlay 的 display 状态是:', window.getComputedStyle(modalOverlay).display);
+
             transactionListLoading.style.display = 'block';
             transactionListTbody.innerHTML = '';
+
             try {
+                console.log(`[Modal调试 4] 准备发起 fetch 请求获取交易流水: /dashboard/api/transactions/?tracker_id=${trackerId}`);
                 const response = await fetch(`/dashboard/api/transactions/?tracker_id=${trackerId}`);
-                if (!response.ok) throw new Error('获取交易流水失败');
+                console.log('[Modal调试 5] fetch 请求已收到响应:', response);
+
+                if (!response.ok) {
+                    throw new Error(`获取交易流水失败 (状态: ${response.status})`);
+                }
                 const transactions = await response.json();
+                console.log('[Modal调试 6] 成功解析交易数据:', transactions);
                 renderTransactionList(transactions);
             } catch (error) {
+                console.error('[Modal错误] 加载交易流水时出错:', error);
                 showNotification(error.message, 'error');
-                transactionListTbody.innerHTML = `<tr><td colspan="5">加载失败</td></tr>`;
+                transactionListTbody.innerHTML = `<tr><td colspan="5">加载失败: ${error.message}</td></tr>`;
             } finally {
                 transactionListLoading.style.display = 'none';
+                console.log('[Modal调试 7] 函数执行完毕。');
             }
         }
 
