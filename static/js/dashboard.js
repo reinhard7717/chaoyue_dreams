@@ -571,6 +571,14 @@ document.addEventListener('DOMContentLoaded', function () {
             console.log('[调试信息] 点击未命中任何目标按钮。');
         });
 
+        function flashElement(element) {
+            if (!element) return;
+            element.classList.add('flash-attention');
+            setTimeout(() => {
+                element.classList.remove('flash-attention');
+            }, 700); // 动画持续时间
+        }
+
         async function openTransactionModal(trackerId, stockName) {
             console.log(`[Modal调试 1] 进入 openTransactionModal 函数。接收到 trackerId: ${trackerId}, stockName: ${stockName}`);
 
@@ -613,23 +621,40 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function renderTransactionList(transactions) {
-            transactionListTbody.innerHTML = '';
+            transactionListTbody.innerHTML = ''; // 清空旧内容
+
             if (transactions.length === 0) {
-                transactionListTbody.innerHTML = `<tr><td colspan="5">暂无交易记录</td></tr>`;
-                return;
+                // [核心修改] 当没有交易记录时，显示引导性提示，并高亮下方的表单
+                const emptyRow = document.createElement('tr');
+                const emptyCell = document.createElement('td');
+                emptyCell.colSpan = 5;
+                emptyCell.style.textAlign = 'center';
+                emptyCell.style.padding = '20px';
+                emptyCell.innerHTML = '暂无交易记录，请在下方表单中添加您的第一笔买入交易。';
+                emptyRow.appendChild(emptyCell);
+                transactionListTbody.appendChild(emptyRow);
+
+                // 视觉引导：让“新增交易”区域闪烁一下
+                const addTransactionWrapper = document.querySelector('.add-transaction-wrapper');
+                flashElement(addTransactionWrapper);
+
+            } else {
+                // 当有交易记录时，正常渲染列表
+                transactions.forEach(tx => {
+                    const row = document.createElement('tr');
+                    const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
+                    row.innerHTML = `
+                        <td>${tx.transaction_type === 'BUY' ? '买入' : '卖出'}</td>
+                        <td>${txDate}</td>
+                        <td>${formatNumber(tx.price, 2)}</td>
+                        <td>${formatVolume(tx.quantity)}</td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-danger delete-transaction-btn" data-tx-id="${tx.id}">删除</button>
+                        </td>
+                    `;
+                    transactionListTbody.appendChild(row);
+                });
             }
-            transactions.forEach(tx => {
-                const row = document.createElement('tr');
-                const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
-                row.innerHTML = `
-                    <td>${tx.transaction_type === 'BUY' ? '买入' : '卖出'}</td>
-                    <td>${txDate}</td>
-                    <td>${formatNumber(tx.price, 2)}</td>
-                    <td>${formatVolume(tx.quantity)}</td>
-                    <td class="actions"><button class="btn btn-sm btn-danger delete-transaction-btn" data-tx-id="${tx.id}">删除</button></td>
-                `;
-                transactionListTbody.appendChild(row);
-            });
         }
 
         function closeTransactionModal() { modalOverlay.style.display = 'none'; }
