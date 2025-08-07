@@ -303,7 +303,7 @@ def fav_trend_following_list(request):
         if latest_daily_score and initial_score:
             delta_from_initial = latest_daily_score.offensive_score - initial_score.offensive_score
         if latest_daily_score and last_buy_score:
-            delta_from_last_buy = latest_daily_score.offensive_score - last_buy_score
+            delta_from_last_buy = latest_daily_score.offensive_score - last_buy_score.offensive_score
 
         # (计算盈亏的逻辑不变)
         profit_loss, profit_loss_pct = None, None
