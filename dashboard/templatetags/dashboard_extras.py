@@ -147,4 +147,28 @@ def get_signal_status(signal_key, metadata_dict):
         return signal_key
     return metadata_dict.get(signal_key, signal_key)
 
+@register.filter(name='show_sign')
+def show_sign(value):
+    """
+    为一个数字添加正负号，并格式化为整数。
+    例如: 25 -> '+25', -10 -> '-10'
+    """
+    try:
+        value = float(value)
+        # 使用 f-string 格式化，自动处理负号
+        return f"{value:+.0f}"
+    except (ValueError, TypeError, AttributeError):
+        return "" # 如果值无效，返回空字符串
+
+
+
+
+
+
+
+
+
+
+
+
 

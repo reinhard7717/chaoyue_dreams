@@ -127,6 +127,7 @@
             <td>
               {% if tracker.status == 'HOLDING' %}
                 {% if latest_daily_score %}
+                  <!-- 最新分数 (保持不变) -->
                   <div class="score-tracker">
                     <span class="score-neutral" title="最新总进攻分">
                       📈 {{ latest_daily_score.offensive_score|floatformat:0 }}
@@ -142,12 +143,31 @@
                     <div class="score-breakdown-item"><strong>{{ latest_daily_score.dynamic_score|default:0 }}</strong><span>动能分</span></div>
                     <div class="score-breakdown-item"><strong>{{ latest_daily_score.composite_score|default:0 }}</strong><span>战法分</span></div>
                   </div>
+
+                  <!-- [新增] 分数变化洞察仪表盘 -->
+                  <div class="health-dashboard">
+                    {% if item.delta_from_initial is not None %}
+                    <div class="change-section">
+                      <small>vs 建仓 ({{ item.initial_score.offensive_score|floatformat:0 }})</small>:
+                      <span class="score-delta {% if item.delta_from_initial > 0 %}score-up{% elif item.delta_from_initial < 0 %}score-down{% endif %}">
+                        {{ item.delta_from_initial|show_sign }}
+                      </span>
+                    </div>
+                    {% endif %}
+                    {% if item.delta_from_last_buy is not None and item.last_buy_score.id != item.initial_score.id %}
+                    <div class="change-section">
+                      <small>vs 末次加仓 ({{ item.last_buy_score.offensive_score|floatformat:0 }})</small>:
+                      <span class="score-delta {% if item.delta_from_last_buy > 0 %}score-up{% elif item.delta_from_last_buy < 0 %}score-down{% endif %}">
+                        {{ item.delta_from_last_buy|show_sign }}
+                      </span>
+                    </div>
+                    {% endif %}
+                  </div>
+
                 {% else %}
-                  {# 如果没有快照，给出更明确的提示 #}
                   <span class="text-muted">快照数据生成中</span>
                 {% endif %}
               {% elif tracker.status == 'WATCHING' and tracker.current_quantity == 0 %}
-                {# 对于已平仓的，可以显示最后更新时间 #}
                 <strong>已平仓</strong><br>
                 <small>最后更新: {{ tracker.updated_at|timezone:"Asia/Shanghai"|date:"Y-m-d" }}</small>
               {% else %}
