@@ -504,11 +504,11 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
         'options': {'queue': 'intraday_queue'},
     },
-    'run_realtime_engine_task': {
-        'task': 'tasks.stock_analysis_tasks.run_cycle', # 任务函数名
-        'schedule': timedelta(seconds=15),
-        'options': {'queue': 'intraday_queue'},
-    },
+    # 'run_realtime_engine_task': {
+    #     'task': 'tasks.stock_analysis_tasks.run_cycle', # 任务函数名
+    #     'schedule': timedelta(seconds=15),
+    #     'options': {'queue': 'intraday_queue'},
+    # },
     '每天运行一次保存股票列表数据任务': {
         'task': 'tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task',
         'schedule': crontab(minute=41, hour=18, day_of_week='mon,tue,wed,thu,fri'),
@@ -516,12 +516,12 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次筹码高级指标任务': {
         'task': 'tasks.tushare.stock_analysis_tasks.schedule_precompute_advanced_chips',
-        'schedule': crontab(minute=41, hour=19, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=51, hour=19, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'celery'}, # 指定队列为 celery
     },
     'run-strategy': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
-        'schedule': crontab(hour=19, minute=51, day_of_week='1-5'),
+        'schedule': crontab(hour=20, minute=11, day_of_week='1-5'),
     },
     'save_stocks_minute_data_realtime_task_1min': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤

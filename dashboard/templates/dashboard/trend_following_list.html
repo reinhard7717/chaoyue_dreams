@@ -92,14 +92,15 @@
                             {% endif %}
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
-                        <td class="actions">
-                            <button class="btn btn-sm btn-outline add-to-favorites-btn" 
-                                    data-stock-code="{{ item.stock.stock_code }}"
-                                    data-signal-id="{{ item.log_id }}">
-                                <span class="btn-icon">+</span>
-                                <span class="btn-text">添加自选</span>
-                            </button>
-                        </td>
+                        <button class="btn btn-sm btn-outline add-to-favorites-btn" 
+                                data-stock-code="{{ item.stock.stock_code }}"
+                                data-entry-price="{{ item.close_price }}"
+                                data-entry-date="{{ entry_date }}"
+                                data-quantity="100"
+                                title="以 {{ entry_date }} 收盘价 {{ item.close_price }} 虚拟建仓100股">
+                            <span class="btn-icon">+</span>
+                            <span class="btn-text">添加自选</span>
+                        </button>
                     </tr>
                     {% empty %}
                     <tr><td colspan="6" style="text-align: center; padding: 20px;">最近3天内没有发现符合条件的买入信号。</td></tr>
