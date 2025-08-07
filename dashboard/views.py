@@ -19,7 +19,7 @@ from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.index import TradeCalendar # 导入模型
 from utils.config_loader import load_strategy_config
-from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction
+from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction, StrategyDailyScore
 from stock_models.stock_basic import StockInfo
 from utils.cache_manager import CacheManager
 from utils.cash_key import IntradayEngineCashKey
