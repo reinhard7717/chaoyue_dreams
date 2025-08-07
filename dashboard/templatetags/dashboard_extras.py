@@ -3,6 +3,7 @@
 # 描述: 提供一个统一的模板过滤器，用于将所有内部英文ID转换为中文显示名称。
 
 import datetime
+from decimal import Decimal
 from django import template
 from django.utils import timezone
 from django.template.defaultfilters import stringfilter
