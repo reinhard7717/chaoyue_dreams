@@ -100,100 +100,144 @@ class IntelligenceLayer:
 
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V318.0 加速度融合版】筹码情报最高司令部
-        - 核心升级: 在V317.0的分级体系基础上，引入“斜率的加速度”分析。
-                    新增“B+级 - 筹码聚集强化”信号，用于捕捉主力吸筹意图最强烈的时刻，
-                    使筹码分析具备了更高的预测性和敏感性。
+        【V320.0 最终数据驱动版】筹码情报最高司令部
+
+        功能:
+        对筹码相关的各项原始及衍生指标进行综合研判，生成一套分级的、具有明确战术意义的
+        状态信号和风险信号。该版本为最终优化版，完全依赖数据层预计算的特征，实现了
+        高性能和高可读性的统一。
+
+        核心逻辑:
+        1.  **数据驱动**: 直接使用数据层提供的 `SLOPE_*` 和 `ACCEL_*` 列，避免在策略层进行耗时计算。
+        2.  **分级诊断 (C/B/B+/A/S)**:
+            - C级 (稳步聚集): 筹码集中度斜率处于动态阈值的“温和区”。
+            - B级 (加速聚集): 筹码集中度斜率突破动态阈值的“加速区”。
+            - B+级 (聚集强化): 在B级基础上，筹码集中度的“加速度”为负，表明聚集势头在增强。
+            - A级 (锁定稳定): 筹码已高度集中（静态结果），且成本峰稳定。
+            - S级 (锁仓突破): 在A级状态下，出现关键的突破K线信号。
+        3.  **风险预警**:
+            - 综合多个原子风险信号，形成总体的“筹码结构严重失效”风险。
+            - 新增利用21日筹码集中度加速度，捕捉集中趋势由好转坏的“拐点”风险。
         """
-        print("        -> [筹码情报最高司令部 V318.0 加速度融合版] 启动...")
+        # --- 1. 初始化与参数加载 ---
+        print("        -> [筹码情报最高司令部 V320.0 最终数据驱动版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
 
+        # 从配置文件加载筹码特征相关的参数
         p = get_params_block(self.strategy, 'chip_feature_params')
-        if not get_param_value(p.get('enabled'), False): return states, triggers
-
-        # --- 基础数据准备 ---
-        required_cols = ['concentration_90pct_D', 'SLOPE_5_concentration_90pct_D', 'peak_cost_D', 'SLOPE_5_peak_cost_D']
-        if any(col not in df.columns for col in required_cols): 
-            print("          -> [警告] 缺少筹码分级诊断所需列，跳过。")
+        # 如果总开关关闭，则直接返回，不执行后续逻辑
+        if not get_param_value(p.get('enabled'), False):
             return states, triggers
 
+        # --- 2. 数据准备与校验 ---
+        # 定义本方法需要的所有预计算列名
+        required_cols = [
+            'concentration_90pct_D',             # 90%筹码集中度 (静态值)
+            'SLOPE_5_concentration_90pct_D',     # 5日筹码集中度斜率 (速度)
+            'ACCEL_5_concentration_90pct_D',     # 5日筹码集中度加速度
+            'ACCEL_21_concentration_90pct_D',    # 21日筹码集中度加速度 (用于风险预警)
+            'peak_cost_D',                       # 成本峰价格
+            'SLOPE_5_peak_cost_D',               # 5日成本峰斜率
+            'peak_cost_accel_5d_D'               # 5日成本峰加速度 (用于点火信号)
+        ]
+        # 校验所需列是否存在，如果任一列缺失，则打印警告并退出，保证策略健壮性
+        if any(col not in df.columns for col in required_cols):
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            print(f"          -> [警告] 缺少筹码分级诊断所需列，跳过。缺失: {missing_cols}")
+            return states, triggers
+
+        # 为常用列创建更简洁的变量名，提高代码可读性
         conc_col = 'concentration_90pct_D'
         conc_slope_col = 'SLOPE_5_concentration_90pct_D'
+        conc_accel_col = 'ACCEL_5_concentration_90pct_D'
+        conc_accel_21d_col = 'ACCEL_21_concentration_90pct_D'
         cost_slope_col = 'SLOPE_5_peak_cost_D'
-        
-        # --- 动态阈值定义 ---
+
+        # --- 3. 动态阈值计算 ---
+        # 加载用于定义“稳步”和“加速”的动态分位数阈值
         p_struct = p.get('structure_params', {})
         steady_gathering_quantile = get_param_value(p_struct.get('steady_gathering_quantile'), 0.40)
         accel_gathering_quantile = get_param_value(p_struct.get('accel_gathering_quantile'), 0.15)
-        
-        steady_threshold = df[conc_slope_col].rolling(window=120).quantile(steady_gathering_quantile)
-        accel_threshold = df[conc_slope_col].rolling(window=120).quantile(accel_gathering_quantile)
 
-        # --- [新逻辑] C/B/A/S 四级筹码状态诊断 ---
-        
-        # 1. 诊断动态过程 (C级 和 B级)
-        is_gathering = df[conc_slope_col] < 0
+        # 计算过去120天的滚动分位数，作为动态阈值，以适应不同市况和个股波动性
+        # 稳步聚集阈值：斜率小于此值，代表比过去120天中60%的时间段聚集得更快
+        steady_threshold = df[conc_slope_col].rolling(window=120, min_periods=20).quantile(steady_gathering_quantile)
+        # 加速聚集阈值：斜率小于此值，代表比过去120天中85%的时间段聚集得更快
+        accel_threshold = df[conc_slope_col].rolling(window=120, min_periods=20).quantile(accel_gathering_quantile)
+
+        # --- 4. C/B/B+ 级动态过程诊断 ---
+        # C级: 筹码稳步聚集。斜率介于稳步和加速阈值之间。
         is_steady_gathering = (df[conc_slope_col] < steady_threshold) & (df[conc_slope_col] >= accel_threshold)
-        is_accelerated_gathering = df[conc_slope_col] < accel_threshold
-        
         states['CHIP_CONC_STEADY_GATHERING_C'] = is_steady_gathering
-        states['CHIP_CONC_ACCELERATED_GATHERING_B'] = is_accelerated_gathering
-        
-        # 2. 计算加速度 (斜率的斜率)
-        # 我们计算筹码集中度斜率的5日斜率，作为其“加速度”的代理指标。
-        # 注意：由于集中度下降是好事，其斜率为负。因此，加速集中意味着斜率变得“更负”，所以加速度也为负。
-        window = 5
-        conc_accel = df[conc_slope_col].rolling(window).apply(
-            lambda y: linregress(np.arange(window), y).slope if len(y.dropna()) == window else np.nan, raw=False
-        ).fillna(0)
-        
-        is_intensifying = conc_accel < 0 # 加速度为负，代表集中趋势在强化
 
-        # 3. 诊断战术加强信号 (B+级)
-        # B+级: 不仅在加速聚集，而且聚集的势头还在增强。
+        # B级: 筹码加速聚集。斜率突破了加速阈值。
+        is_accelerated_gathering = df[conc_slope_col] < accel_threshold
+        states['CHIP_CONC_ACCELERATED_GATHERING_B'] = is_accelerated_gathering
+
+        # B+级: 筹码聚集强化。不仅在加速聚集，且聚集的势头仍在增强。
+        # 直接使用数据层提供的5日加速度列
+        conc_accel = df[conc_accel_col]
+        # 加速度为负，代表集中趋势在强化 (因为斜率本身是负的，变得更负，所以其导数/加速度也为负)
+        is_intensifying = conc_accel < 0
+        # B+级信号是“加速聚集”和“势头增强”的交集，是极强的看涨信号
         states['CHIP_CONC_INTENSIFYING_B_PLUS'] = is_accelerated_gathering & is_intensifying
         if states['CHIP_CONC_INTENSIFYING_B_PLUS'].any():
             print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
 
-        # 4. 诊断静态结果 (A级)
+        # --- 5. A/S 级静态结果与复合机会诊断 ---
+        # A级: 筹码锁定稳定。这是一个“结果”状态，表明主力已完成建仓，处于待机状态。
+        # 条件1: 筹码已高度集中 (静态值低于设定的阈值)
         is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
+        # 条件2: 成本峰稳定 (成本峰的5日斜率绝对值很小，表明价格中枢稳定)
         cost_stability_threshold = get_param_value(p_struct.get('cost_stability_threshold'), 0.005)
         is_cost_peak_stable = df[cost_slope_col].abs() < cost_stability_threshold
-        
         states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_static & is_cost_peak_stable
         if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
             print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
 
-        # 5. 诊断复合机会 (S级)
+        # S级: 筹码锁仓突破。这是最高级别的机会信号。
+        # 在A级“锁定稳定”的基础上，叠加了原子层的“突破K线”触发器。
         is_breakout_candle = self.strategy.atomic_states.get('TRIGGER_BREAKOUT_CANDLE', default_series)
         states['OPP_CHIP_LOCKED_BREAKOUT_S'] = states['CHIP_CONC_LOCKED_AND_STABLE_A'] & is_breakout_candle
         if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
             print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
 
-        # --- 触发器与原有风险逻辑 (保持兼容) ---
+        # --- 6. 独立触发器与风险诊断 ---
+        # 点火触发器: 成本峰加速上涨，可能预示着即将脱离成本区。
         p_ignition = p.get('ignition_params', {})
         if get_param_value(p_ignition.get('enabled'), True):
             accel_threshold_ignition = get_param_value(p_ignition.get('accel_threshold'), 0.01)
+            # 直接使用数据层提供的 'peak_cost_accel_5d_D'
             triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold_ignition
 
-        # 风险诊断部分保持不变
+        # 风险诊断1: 长期派发风险
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
 
+        # 风险诊断2 (新增): 筹码集中趋势恶化拐点
+        # 当21日周期的集中度加速度由负转正时，表明一个中长期的集中趋势可能正在结束。
+        is_worsening_turn = (df[conc_accel_21d_col] > 0) & (df[conc_accel_21d_col].shift(1) <= 0)
+        states['RISK_CHIP_CONC_ACCEL_WORSENING'] = is_worsening_turn
+        if is_worsening_turn.any():
+            print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
+
+        # 汇总所有筹码相关的风险信号
         chip_risk_1 = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
         chip_risk_2 = self.strategy.atomic_states.get('RISK_DYN_COST_FALLING', default_series)
         chip_risk_3 = self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
         chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+        chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series) # 包含新增的风险项
         
-        is_chip_structure_unhealthy = chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4
+        # 只要任何一个筹码风险信号被触发，就认为整体筹码结构存在严重问题
+        is_chip_structure_unhealthy = chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
         
-        print("        -> [筹码情报最高司令部 V318.0 加速度融合版] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V320.0 最终数据驱动版] 分析完毕。")
         return states, triggers
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -274,6 +274,13 @@
         "positional_scoring": {
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
+            "说明_新筹码体系": "--- 分级筹码信号 (含加速度) ---",
+            "OPP_CHIP_LOCKED_BREAKOUT_S": 550,
+            "CHIP_CONC_LOCKED_AND_STABLE_A": 350,
+            "CHIP_CONC_INTENSIFYING_B_PLUS": 250,
+            "CHIP_CONC_ACCELERATED_GATHERING_B": 150,
+            "CHIP_CONC_STEADY_GATHERING_C": 50,
+            "说明_原有信号": "--- 原有阵地信号 ---",
             "PULLBACK_STATE_SUPPRESSIVE_S": 450,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_S": 420,
             "OPP_CHIP_PULLBACK_HAMMER_A": 400,
@@ -388,6 +395,12 @@
           "TACTIC_HEALTHY_PULLBACK_S": { "cn_name": "【S级战法】健康回踩", "type": "composite" },
 
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
+          "OPP_CHIP_LOCKED_BREAKOUT_S": { "cn_name": "【S级机会】筹码锁仓突破", "type": "positional" },
+          "CHIP_CONC_LOCKED_AND_STABLE_A": { "cn_name": "【A级机会】筹码锁定稳定", "type": "positional" },
+          "CHIP_CONC_INTENSIFYING_B_PLUS": { "cn_name": "【B+级机会】筹码聚集强化", "type": "positional" },
+          "CHIP_CONC_ACCELERATED_GATHERING_B": { "cn_name": "【B级机会】筹码加速聚集", "type": "positional" },
+          "CHIP_CONC_STEADY_GATHERING_C": { "cn_name": "【C级机会】筹码稳步聚集", "type": "positional" },
+
           "PULLBACK_STATE_SUPPRESSIVE_S": { "cn_name": "【S级机会】打压回踩(黄金坑)", "type": "positional" },
           "OPP_SQUEEZE_ZONE_SHAKEOUT_S": { "cn_name": "【S级机会】压缩区完美洗盘", "type": "positional" },
           "OPP_PEAK_BATTLE_BREAKOUT_A": { "cn_name": "【A+级机会】主峰换手突破", "type": "positional" },
@@ -418,6 +431,8 @@
           "VOL_STATE_EXTREME_SQUEEZE": { "cn_name": "【动能】波动极致压缩", "type": "dynamic" },
 
           "说明_RISK": "--- 风险分 (Risk) ---",
+          "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE": { "cn_name": "【系统风险】筹码结构严重失效", "type": "risk" },
+          "RISK_CHIP_CONC_ACCEL_WORSENING": { "cn_name": "【风险】筹码集中趋势恶化", "type": "risk" },
           "RISK_BEHAVIOR_PANIC_FLEEING_S": { "cn_name": "【S+级风险】抛压失控", "type": "risk" },
           "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": { "cn_name": "【S+级风险】获利盘出逃", "type": "risk" },
           "BEHAVIOR_DECEPTIVE_RALLY_S": { "cn_name": "【S级风险】诱多派发(公然)", "type": "risk" },
@@ -453,6 +468,7 @@
           "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": { "cn_name": "【触发】分形压缩突破确认", "type": "trigger" },
           "FRACTAL_EVENT_TREND_FORMING": { "cn_name": "【触发】分形趋势形成", "type": "trigger" }
         }
+
       },
       "trigger_event_params": {
         "enabled": true,
@@ -541,11 +557,10 @@
         },
         "structure_params": {
           "enabled": true,
+          "steady_gathering_quantile": 0.40,
+          "accel_gathering_quantile": 0.15,
           "high_concentration_threshold": 0.15,
-          "cost_stability_threshold": {
-            "value": 0.005,
-            "description": "【新增】定义“成本峰稳定”的斜率绝对值上限。用于提纯“筹码高度控盘”机会。"
-          },
+          "cost_stability_threshold": 0.005,
           "slope_tolerance_healthy": 0.001,
           "rapid_concentration_threshold": -0.005,
           "cost_collapse_threshold": -0.01,
@@ -553,6 +568,10 @@
           "enable_relative_squeeze": true,
           "squeeze_window": 120,
           "squeeze_percentile": 0.2
+        },
+        "ignition_params": {
+          "enabled": true,
+          "accel_threshold": 0.01
         },
         "scattered_params": {
           "enabled": true,
