@@ -27,21 +27,36 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 条记录)</h2>
+        
+        <!-- --- 代码修改开始：将标题和日期选择器放在一行 --- -->
+        <div class="section-header-with-controls">
+            <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 条记录)</h2>
+            <form method="get" class="date-selector-form">
+                <label for="date-selector">选择日期:</label>
+                <input type="date" id="date-selector" name="date" value="{{ selected_date }}">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+            </form>
+        </div>
+        <!-- --- 代码修改结束 --- -->
+
         <div class="filter-section">
             <div class="filter-header">
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
                 {% if selected_playbooks %}
-                    <a href="{% url 'dashboard:trend_following_list' %}" class="clear-filters-btn">清除全部</a>
+                    <!-- --- 代码修改开始：确保清除筛选时保留日期参数 --- -->
+                    <a href="{% url 'dashboard:trend_following_list' %}?date={{ selected_date }}" class="clear-filters-btn">清除筛选</a>
+                    <!-- --- 代码修改结束 --- -->
                 {% endif %}
             </div>
             <div class="filter-tags-container">
                 {% for playbook in all_playbooks %}
                     {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
                         {% if playbook.pk|stringformat:"s" in selected_playbooks %}
-                            <a href="{% query_builder remove_playbook=playbook.pk %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            <!-- --- 代码修改开始：确保移除标签时保留日期和其他筛选参数 --- -->
+                            <a href="{% query_builder remove_playbook=playbook.pk date=selected_date %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
-                            <a href="{% query_builder add_playbook=playbook.pk %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            <a href="{% query_builder add_playbook=playbook.pk date=selected_date %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            <!-- --- 代码修改结束 --- -->
                         {% endif %}
                     {% endwith %}
                 {% empty %}
@@ -84,7 +99,6 @@
                                         <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
                                     {% endfor %}
                                     </ul>
-                                    {# 只有当剧本数量超过一定阈值时才显示展开按钮，这里简单处理为只要有就显示 #}
                                     <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
                                 </div>
                             {% else %}
@@ -92,14 +106,24 @@
                             {% endif %}
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
-                        <button class="btn btn-sm btn-outline add-to-favorites-btn" 
+                        <td>
+                            <button class="btn btn-sm btn-outline add-to-favorites-btn" 
                                 data-stock-code="{{ item.stock.stock_code }}">
-                            <span class="btn-icon">+</span>
-                            <span class="btn-text">添加自选</span>
-                        </button>
+                                <span class="btn-icon">+</span>
+                                <span class="btn-text">添加自选</span>
+                            </button>
+                        </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" style="text-align: center; padding: 20px;">最近3天内没有发现符合条件的买入信号。</td></tr>
+                    <!-- --- 代码修改开始：根据是否有选择日期，显示不同的提示信息 --- -->
+                    <tr><td colspan="6" style="text-align: center; padding: 20px;">
+                        {% if selected_date %}
+                            在 {{ selected_date }} 没有发现符合条件的买入信号。
+                        {% else %}
+                            无法确定最新交易日，或无任何买入信号。
+                        {% endif %}
+                    </td></tr>
+                    <!-- --- 代码修改结束 --- -->
                     {% endfor %}
                 </tbody>
             </table>
@@ -107,13 +131,15 @@
         <div class="pagination">
         {% if page_obj.has_other_pages %}
             {% if page_obj.has_previous %}
-            <a href="{% query_builder page=1 playbooks=selected_playbooks %}">&laquo; 首页</a>
-            <a href="{% query_builder page=page_obj.previous_page_number playbooks=selected_playbooks %}" >上一页</a>
+            <!-- --- 代码修改开始：确保分页链接保留所有筛选参数 --- -->
+            <a href="{% query_builder page=1 playbooks=selected_playbooks date=selected_date %}">&laquo; 首页</a>
+            <a href="{% query_builder page=page_obj.previous_page_number playbooks=selected_playbooks date=selected_date %}" >上一页</a>
             {% endif %}
             <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
             {% if page_obj.has_next %}
-            <a href="{% query_builder page=page_obj.next_page_number playbooks=selected_playbooks %}">下一页</a>
-            <a href="{% query_builder page=page_obj.paginator.num_pages playbooks=selected_playbooks %}">末页 &raquo;</a>
+            <a href="{% query_builder page=page_obj.next_page_number playbooks=selected_playbooks date=selected_date %}">下一页</a>
+            <a href="{% query_builder page=page_obj.paginator.num_pages playbooks=selected_playbooks date=selected_date %}">末页 &raquo;</a>
+            <!-- --- 代码修改结束 --- -->
             {% endif %}
         {% endif %}
         </div>

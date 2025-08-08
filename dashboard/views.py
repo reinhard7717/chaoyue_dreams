@@ -105,59 +105,68 @@ def get_playbook_priority(playbook_name):
 @login_required
 def trend_following_list(request):
     """
-    【V405.13 筛选逻辑最终版】
-    - 核心修复: 恢复并确认了正确的筛选逻辑 `selected_pks_set.issubset(...)`，并确保比较时双方都使用字符串类型的主键。
+    【V5.0 - 日期选择版】
+    - 核心修改: 废除“近3天”的固定逻辑，改为默认显示最新交易日的数据。
+    - 功能增强: 增加日期选择功能，允许用户查询任意历史交易日的买入信号。
     """
+    # 1. 确定要查询的目标日期
+    selected_date_str = request.GET.get('date')
+    target_date = None
 
-    # 1. 动态加载配置文件并获取主策略名称
-    try:
-        unified_config = load_strategy_config('config/trend_follow_strategy.json')
-        strategy_info = unified_config.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
-        main_strategy_name = strategy_info.get('name', {}).get('value')
-        if not main_strategy_name:
-            logger.warning("未能从配置文件中找到主策略名称，可能导致信号列表不准确。")
-    except Exception as e:
-        main_strategy_name = None
-        logger.error(f"加载策略配置失败: {e}", exc_info=True)
+    if selected_date_str:
+        try:
+            # 尝试从用户输入解析日期
+            target_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            # 如果格式错误，则忽略，后续会使用最新交易日
+            target_date = None
+    
+    # 如果没有有效的日期输入，则自动获取最新交易日
+    if not target_date:
+        latest_trade_day_obj = TradeCalendar.objects.filter(
+            is_open=True,
+            cal_date__lte=timezone.now().date()
+        ).order_by('-cal_date').first()
+        if latest_trade_day_obj:
+            target_date = latest_trade_day_obj.cal_date
 
-    # 2. 获取最新的交易日期范围 (逻辑不变)
-    latest_trade_day_obj = TradeCalendar.objects.filter(
-        is_open=True,
-        cal_date__lte=timezone.now().date()
-    ).order_by('-cal_date').first()
-
-    if not latest_trade_day_obj:
+    # 2. 如果无法确定目标日期，则不进行查询
+    if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
+        page_title = '策略状态监控中心 (无可用数据)'
     else:
-        reference_date = latest_trade_day_obj.cal_date
-        latest_3_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=3, reference_date=reference_date)
+        # 动态生成页面标题
+        page_title = f'策略状态监控中心 ({target_date.strftime("%Y-%m-%d")} 买入信号)'
         
-        if not latest_3_trade_dates:
-            latest_buy_signals = TradingSignal.objects.none()
-        else:
-            query_conditions = []
-            tz = timezone.get_current_timezone()
-            for trade_date in latest_3_trade_dates:
-                start_of_day = timezone.make_aware(datetime.combine(trade_date, time.min), tz)
-                end_of_day = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), tz)
-                query_conditions.append(Q(trade_time__gte=start_of_day, trade_time__lt=end_of_day))
-            combined_query = functools.reduce(operator.or_, query_conditions)
+        # 3. 动态加载配置文件并获取主策略名称 (逻辑不变)
+        try:
+            unified_config = load_strategy_config('config/trend_follow_strategy.json')
+            strategy_info = unified_config.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
+            main_strategy_name = strategy_info.get('name', {}).get('value')
+        except Exception as e:
+            main_strategy_name = None
+            logger.error(f"加载策略配置失败: {e}", exc_info=True)
 
-            # 3. 构建基础查询，并应用主策略名称过滤器
-            base_query = TradingSignal.objects.filter(
-                combined_query,
-                signal_type='BUY',
-                timeframe='D'
-            )
-            
-            # 【核心修复】只查询主策略的信号
-            if main_strategy_name:
-                base_query = base_query.filter(strategy_name=main_strategy_name)
-            
-            latest_buy_signals = base_query.select_related('stock').prefetch_related(
-                Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-            ).order_by('-trade_time', '-entry_score')
+        # 4. 根据目标日期构建查询
+        tz = timezone.get_current_timezone()
+        start_of_day = timezone.make_aware(datetime.combine(target_date, time.min), tz)
+        end_of_day = timezone.make_aware(datetime.combine(target_date, time.max), tz)
 
+        base_query = TradingSignal.objects.filter(
+            trade_time__range=(start_of_day, end_of_day),
+            signal_type='BUY',
+            timeframe='D'
+        )
+        
+        # 如果找到主策略名称，则应用过滤
+        if main_strategy_name:
+            base_query = base_query.filter(strategy_name=main_strategy_name)
+        
+        latest_buy_signals = base_query.select_related('stock').prefetch_related(
+            Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
+        ).order_by('-entry_score') # 按分数倒序排列
+
+    # 5. 数据处理与筛选 (逻辑与之前类似，但数据源已变为单日)
     all_logs_in_memory = []
     all_playbook_objects = set()
     for signal in latest_buy_signals:
@@ -169,6 +178,8 @@ def trend_following_list(request):
                     all_playbook_objects.add(detail.playbook)
         
         active_playbooks.sort(key=lambda p: get_playbook_priority(p.cn_name or p.name))
+        
+        # 【重要】从信号对象中直接获取收盘价
         all_logs_in_memory.append({
             'log_id': signal.id,
             'stock': signal.stock,
@@ -176,39 +187,34 @@ def trend_following_list(request):
             'latest_score': signal.entry_score,
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
+            'close_price': signal.close_price, # 确保传递收盘价
         })
 
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
 
-    # --- 代码修改开始 ---
-    # [修改原因] 恢复并确认正确的筛选逻辑，并确保类型一致。
     selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
 
     if selected_playbooks_pks:
-        # 1. 将URL传入的筛选条件（字符串列表）转换为集合，用于高效查找
         selected_pks_set = set(selected_playbooks_pks)
-        
-        # 2. 应用筛选
         final_filtered_logs = [
             log for log in all_logs_in_memory
-            # 3. 对每条记录，获取其激活剧本的主键集合（确保转换为字符串）
-            # 4. 判断筛选条件集合是否是当前记录剧本集合的“子集”
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
-    # --- 代码修改结束 ---
 
+    # 6. 分页与上下文准备
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
     context = {
-        'page_title': '策略状态监控中心 (近3个交易日买入)',
+        'page_title': page_title,
         'items_for_display': page_obj.object_list,
         'page_obj': page_obj,
         'total_count': paginator.count,
         'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks_pks,
+        'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '', # 传递当前选择的日期
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 

@@ -436,19 +436,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const stockCode = button.dataset.stockCode;
 
-            // --- 代码修改开始 ---
-            // [修改原因] 修复报错，确保JS读取的属性名 data-signal-id 与HTML中定义的一致
-            const signalId = button.dataset.signalId; // 从 logId 改为 signalId
-
-            // 防御性检查
-            if (!signalId) {
-                // 这里的报错信息也同步更新
-                showNotification('无法获取信号ID，操作已取消', 'error');
-                console.error('错误：点击了添加自选按钮，但未能从 data-signal-id 属性中获取到值。');
+            // 1. 防御性检查：现在只检查 stockCode
+            if (!stockCode) {
+                showNotification('无法获取股票代码，操作已取消', 'error');
+                console.error('错误：点击了添加自选按钮，但未能从 data-stock-code 属性中获取到值。');
                 return;
             }
-            // --- 代码修改结束 ---
 
+            // 2. 更新按钮为加载状态 (逻辑不变)
             updateButtonState(button, false, true);
 
             try {
@@ -460,21 +455,29 @@ document.addEventListener('DOMContentLoaded', function () {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRFToken': csrfToken
                     },
+                    // 3. 【核心修改】请求体中只包含 stock_code
                     body: JSON.stringify({
                         stock_code: stockCode,
-                        signal_id: signalId // API需要的是 signal_id
                     })
                 });
 
+                const responseData = await response.json(); // 无论成功失败，都先解析响应体
+
                 if (response.ok) {
-                    showNotification(`股票 ${stockCode} 添加成功！`, 'success');
+                    // 4. 使用后端返回的友好提示信息
+                    showNotification(responseData.detail || `股票 ${stockCode} 操作成功！`, 'success');
                     favoriteStockCodes.add(stockCode);
                     updateButtonState(button, true);
                 } else {
-                    const errorData = await response.json();
-                    const errorMsg = errorData.detail || Object.values(errorData).flat().join(' ') || `添加 ${stockCode} 失败`;
+                    // 5. 同样使用后端返回的错误信息
+                    const errorMsg = responseData.detail || `添加 ${stockCode} 失败`;
                     showNotification(errorMsg, 'error');
-                    updateButtonState(button, false);
+                    // 如果错误是因为已存在，也应该将按钮更新为“已添加”状态
+                    if (response.status === 400 && errorMsg.includes('已存在')) {
+                        updateButtonState(button, true);
+                    } else {
+                        updateButtonState(button, false);
+                    }
                 }
             } catch (error) {
                 showNotification('网络错误，请稍后重试', 'error');
