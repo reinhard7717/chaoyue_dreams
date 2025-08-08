@@ -8,62 +8,7 @@
 {% endblock %}
 
 {% block extra_head %}
-    <style>
-      .score-tracker {
-        font-size: 1.1em;
-        font-weight: bold;
-      }
-      .score-up {
-        color: #4caf50; /* 绿色 */
-      }
-      .score-down {
-        color: #f44336; /* 红色 */
-      }
-      .score-neutral {
-        color: #9e9e9e; /* 灰色 */
-      }
-      .score-delta {
-        font-size: 0.8em;
-        font-weight: normal;
-        margin-left: 5px;
-      }
-      .risk-score-display {
-        color: #ff9800; /* 橙色 */
-        font-weight: bold;
-      }
-      .score-matrix {
-        margin-top: 8px;
-        font-size: 0.9em;
-        display: flex;
-        flex-direction: column;
-        gap: 4px; /* 行间距 */
-      }
-      .matrix-row {
-        display: flex;
-        align-items: baseline; /* 基线对齐，让文字好看 */
-        gap: 10px; /* 列间距 */
-      }
-      .matrix-label {
-        /* [修改原因] 增加标签宽度以容纳'90%集中度:'，确保冒号对齐 */
-        flex: 0 0 80px; 
-        font-weight: bold;
-        text-align: right;
-      }
-      .matrix-current-score {
-        /* [修改原因] 增加当前分宽度以容纳'xx.xx%'这样的百分比值 */
-        flex: 0 0 70px; 
-        font-weight: bold;
-        font-size: 1.1em;
-      }
-      .matrix-delta-group {
-        display: flex;
-        gap: 10px;
-        color: #666; /* 变化部分的默认颜色 */
-      }
-      .matrix-delta-item {
-        white-space: nowrap; /* 防止 "vs 建仓" 换行 */
-      }
-    </style>
+    <link rel="stylesheet" href="{% static 'css/fav_list.css' %}">
 {% endblock %}
 
 {% block sidebar %}
@@ -99,11 +44,11 @@
       <table class="data-table" id="fav-trend-table">
         <thead>
           <tr>
-            <th style="width: 12%;">股票</th>
-            <th style="width: 18%;">持仓状态与盈亏</th>
-            <th style="width: 30%;">建仓信息</th>
-            <th style="width: 35%;">最新动态追踪</th>
-            <th style="width: 5%;">管理</th>
+            <th class="col-stock">股票</th>
+            <th class="col-status">持仓状态与盈亏</th>
+            <th class="col-setup">建仓信息</th>
+            <th class="col-tracking">最新动态追踪</th>
+            <th class="col-actions">管理</th>
           </tr>
         </thead>
         <tbody id="fav-trend-table-body">
