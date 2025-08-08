@@ -221,12 +221,11 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V7.0 - 筹码洞察终极版】
+    【V7.1 - 风险剧本透视版】
     - 核心升级: 集成高级筹码指标(AdvancedChipMetrics)，追踪持仓期间的关键筹码变化。
-    - 数据整合: 将策略分数和筹码指标在一次请求中高效获取并传递给前端。
+    - 功能增强: 查询并展示每日分数中的具体风险/离场剧本，为用户提供明确的风险预警。
     """
 
-    # (内部辅助函数不变)
     def _calculate_score_deltas(current_score, baseline_score):
         if not current_score or not baseline_score: return None
         return {
@@ -236,12 +235,11 @@ def fav_trend_following_list(request):
             'composite': current_score.composite_score - baseline_score.composite_score,
         }
 
-    # --- 步骤1: 预抓取所有需要的数据 (逻辑不变) ---
+    # --- 步骤1: 预抓取所有需要的数据 ---
     base_queryset = PositionTracker.objects.filter(user=request.user).select_related('stock').prefetch_related(
         Prefetch('snapshots', queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'), to_attr='latest_snapshot_list'),
         Prefetch('transactions', queryset=Transaction.objects.order_by('transaction_date'), to_attr='sorted_transactions')
     )
-    # (筛选逻辑不变)
     status_filter = request.GET.get('status', 'holding')
     if status_filter == 'holding':
         queryset = base_queryset.filter(status=PositionTracker.Status.HOLDING)
@@ -287,7 +285,9 @@ def fav_trend_following_list(request):
     if score_lookups:
         queries = [Q(stock_id=sid, trade_date=td) for sid, td in score_lookups if td]
         if queries:
-            all_key_scores = StrategyDailyScore.objects.filter(functools.reduce(operator.or_, queries))
+            all_key_scores = StrategyDailyScore.objects.filter(
+                functools.reduce(operator.or_, queries)
+            ).prefetch_related('components')
             score_map = {(s.stock_id, s.trade_date): s for s in all_key_scores}
 
     chip_metrics_map = {} # 新增！用于存储筹码指标的Map
@@ -320,7 +320,19 @@ def fav_trend_following_list(request):
         if tracker.status == PositionTracker.Status.HOLDING and getattr(tracker, 'latest_snapshot_list', []):
             profit_loss = tracker.latest_snapshot_list[0].profit_loss
             profit_loss_pct = tracker.latest_snapshot_list[0].profit_loss_pct
-        
+
+        risk_playbooks = []
+        if latest_daily_score and hasattr(latest_daily_score, 'components'):
+            # components 已经被 prefetch，所以这里不会产生新的数据库查询
+            all_components = latest_daily_score.components.all()
+            risk_playbooks = sorted(
+                [comp for comp in all_components if comp.score_type == 'risk'],
+                key=lambda c: c.score_value,
+                reverse=True
+            )
+            if risk_playbooks:
+                print(f"调试信息: 股票 {tracker.stock.stock_code} 在 {key_dates['latest']} 发现 {len(risk_playbooks)} 个风险剧本。")
+
         trackers_for_display.append({
             'tracker': tracker,
             'profit_loss': profit_loss,
@@ -330,13 +342,12 @@ def fav_trend_following_list(request):
             'delta_from_last_buy': delta_from_last_buy,
             'initial_score': initial_score, # 传递用于模板显示
             'last_buy_score': last_buy_score, # 传递用于模板显示
-            # 新增！传递筹码数据到模板
             'latest_chip_metrics': latest_chip_metrics,
             'initial_chip_metrics': initial_chip_metrics,
             'last_buy_chip_metrics': last_buy_chip_metrics,
+            'risk_playbooks': risk_playbooks,
         })
 
-    # (后续的分页和上下文组装逻辑不变)
     stock_ids = [d['tracker'].stock_id for d in trackers_for_display]
     fav_id_map = {}
     if stock_ids:

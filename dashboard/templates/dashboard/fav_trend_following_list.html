@@ -294,6 +294,21 @@
                       </div>
                     {% endif %}
                   {% endwith %}
+                  {% if item.risk_playbooks %}
+                    <hr style="margin: 8px 0; border-color: #ffc107;">
+                    <div class="risk-playbook-list" style="font-size: 0.9em;">
+                      <strong style="color: #c9302c;">风险/离场剧本:</strong>
+                      <ul style="list-style-type: none; padding-left: 10px; margin-top: 4px; margin-bottom: 0;">
+                        {% for playbook in item.risk_playbooks %}
+                          <li style="color: #c9302c; margin-bottom: 2px;">
+                            <span class="icon" style="font-size: 1.1em; vertical-align: middle;">⚠️</span>
+                            {{ playbook.signal_cn_name }}
+                            <span style="font-weight: bold;">(分: {{ playbook.score_value }})</span>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
                 {% else %}
                   <span class="text-muted">快照数据生成中</span>
                 {% endif %}
