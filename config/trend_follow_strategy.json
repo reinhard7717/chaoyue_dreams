@@ -276,6 +276,7 @@
           "positive_signals": {
             "PULLBACK_STATE_SUPPRESSIVE_S": 450,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_S": 420,
+            "OPP_CHIP_PULLBACK_HAMMER_A": 400,
             "OPP_PEAK_BATTLE_BREAKOUT_A": 380,
             "PULLBACK_STATE_HEALTHY_S": 350,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
@@ -390,6 +391,7 @@
           "PULLBACK_STATE_SUPPRESSIVE_S": { "cn_name": "【S级机会】打压回踩(黄金坑)", "type": "positional" },
           "OPP_SQUEEZE_ZONE_SHAKEOUT_S": { "cn_name": "【S级机会】压缩区完美洗盘", "type": "positional" },
           "OPP_PEAK_BATTLE_BREAKOUT_A": { "cn_name": "【A+级机会】主峰换手突破", "type": "positional" },
+          "OPP_CHIP_PULLBACK_HAMMER_A": { "cn_name": "【A+级机会】锁仓回踩探针", "type": "positional" },
           "PULLBACK_STATE_HEALTHY_S": { "cn_name": "【S级机会】健康回踩", "type": "positional" },
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": { "cn_name": "【S级机会】斐波那契黄金口袋支撑", "type": "positional" },
           "OPP_SQUEEZE_ZONE_SHAKEOUT_A": { "cn_name": "【A级机会】压缩区实战洗盘", "type": "positional" },

@@ -71,6 +71,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_pullback_character(df))
         # “压缩区洗盘”机会诊断模块。
         self.strategy.atomic_states.update(self._diagnose_squeeze_zone_opportunities(df))
+        # 这个模块专门识别“筹码集中+回踩支撑+下影线”的经典A股主力行为模式。
+        self.strategy.atomic_states.update(self._diagnose_chip_pullback_hammer_opportunity(df))
         
         # “持仓风险”诊断模块
         self.strategy.atomic_states.update(self._diagnose_holding_risks(df))
@@ -98,12 +100,12 @@ class IntelligenceLayer:
 
     def _run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V316.0 筹码加权版】筹码情报最高司令部
-        - 核心重构: 不再生成绝对的`CHIP_STRUCTURE_OK`，而是提炼一个综合性的
-                    “严重筹码结构风险”信号: `RISK_CHIP_STRUCTURE_CRITICAL_FAILURE`。
-                    这为决策层提供了更具权重的、可量化的地基风险评估依据。
+        【V318.0 加速度融合版】筹码情报最高司令部
+        - 核心升级: 在V317.0的分级体系基础上，引入“斜率的加速度”分析。
+                    新增“B+级 - 筹码聚集强化”信号，用于捕捉主力吸筹意图最强烈的时刻，
+                    使筹码分析具备了更高的预测性和敏感性。
         """
-        # print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 启动...")
+        print("        -> [筹码情报最高司令部 V318.0 加速度融合版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
@@ -111,68 +113,87 @@ class IntelligenceLayer:
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False): return states, triggers
 
-        required_cols = ['concentration_90pct_D', 'chip_health_score_D', 'peak_cost_accel_5d_D']
-        if any(col not in df.columns for col in required_cols): return states, triggers
+        # --- 基础数据准备 ---
+        required_cols = ['concentration_90pct_D', 'SLOPE_5_concentration_90pct_D', 'peak_cost_D', 'SLOPE_5_peak_cost_D']
+        if any(col not in df.columns for col in required_cols): 
+            print("          -> [警告] 缺少筹码分级诊断所需列，跳过。")
+            return states, triggers
 
-        dynamic_states = self._diagnose_dynamic_chip_states(df)
-        states.update(dynamic_states)
-
-        p_struct = p.get('structure_params', {})
         conc_col = 'concentration_90pct_D'
-        
-        is_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        is_trend_healthy = ~states.get('RISK_DYN_DIVERGING', default_series)
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_concentrated_static & is_trend_healthy
-
-        p_ignition = p.get('ignition_params', {})
-        if get_param_value(p_ignition.get('enabled'), True):
-            accel_threshold = get_param_value(p_ignition.get('accel_threshold'), 0.01)
-            triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold
-
-        states['CHIP_HEALTH_EXCELLENT'] = df.get('chip_health_score_D', 0) > 85
-        
-        # print("          -> [情报提纯] 正在对“高度集中”状态进行机会提纯...")
-        # 1. 基础条件：筹码必须已经高度集中 (静态)
-        is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        states['CHIP_STATE_HIGHLY_CONCENTRATED'] = is_highly_concentrated_static # 保留原始的基础状态信号，供其他模块使用
-        # 2. 动态条件：筹码必须仍在持续集中 (动态)
-        is_still_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
-        # 3. 稳定条件：成本峰必须稳定，表明吸筹/洗盘阶段完成 (稳定)
+        conc_slope_col = 'SLOPE_5_concentration_90pct_D'
         cost_slope_col = 'SLOPE_5_peak_cost_D'
+        
+        # --- 动态阈值定义 ---
+        p_struct = p.get('structure_params', {})
+        steady_gathering_quantile = get_param_value(p_struct.get('steady_gathering_quantile'), 0.40)
+        accel_gathering_quantile = get_param_value(p_struct.get('accel_gathering_quantile'), 0.15)
+        
+        steady_threshold = df[conc_slope_col].rolling(window=120).quantile(steady_gathering_quantile)
+        accel_threshold = df[conc_slope_col].rolling(window=120).quantile(accel_gathering_quantile)
+
+        # --- [新逻辑] C/B/A/S 四级筹码状态诊断 ---
+        
+        # 1. 诊断动态过程 (C级 和 B级)
+        is_gathering = df[conc_slope_col] < 0
+        is_steady_gathering = (df[conc_slope_col] < steady_threshold) & (df[conc_slope_col] >= accel_threshold)
+        is_accelerated_gathering = df[conc_slope_col] < accel_threshold
+        
+        states['CHIP_CONC_STEADY_GATHERING_C'] = is_steady_gathering
+        states['CHIP_CONC_ACCELERATED_GATHERING_B'] = is_accelerated_gathering
+        
+        # 2. 计算加速度 (斜率的斜率)
+        # 我们计算筹码集中度斜率的5日斜率，作为其“加速度”的代理指标。
+        # 注意：由于集中度下降是好事，其斜率为负。因此，加速集中意味着斜率变得“更负”，所以加速度也为负。
+        window = 5
+        conc_accel = df[conc_slope_col].rolling(window).apply(
+            lambda y: linregress(np.arange(window), y).slope if len(y.dropna()) == window else np.nan, raw=False
+        ).fillna(0)
+        
+        is_intensifying = conc_accel < 0 # 加速度为负，代表集中趋势在强化
+
+        # 3. 诊断战术加强信号 (B+级)
+        # B+级: 不仅在加速聚集，而且聚集的势头还在增强。
+        states['CHIP_CONC_INTENSIFYING_B_PLUS'] = is_accelerated_gathering & is_intensifying
+        if states['CHIP_CONC_INTENSIFYING_B_PLUS'].any():
+            print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
+
+        # 4. 诊断静态结果 (A级)
+        is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
         cost_stability_threshold = get_param_value(p_struct.get('cost_stability_threshold'), 0.005)
         is_cost_peak_stable = df[cost_slope_col].abs() < cost_stability_threshold
-        # 最终裁定：S级机会是“静态+动态+稳定”的三重共振
-        states['OPP_CHIP_SETUP_S'] = is_highly_concentrated_static & is_still_concentrating & is_cost_peak_stable
-        if states['OPP_CHIP_SETUP_S'].any():
-            print(f"            -> [情报] 侦测到 {states['OPP_CHIP_SETUP_S'].sum()} 次S级“筹码高度控盘”机会！")
+        
+        states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_static & is_cost_peak_stable
+        if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
+            print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
 
+        # 5. 诊断复合机会 (S级)
+        is_breakout_candle = self.strategy.atomic_states.get('TRIGGER_BREAKOUT_CANDLE', default_series)
+        states['OPP_CHIP_LOCKED_BREAKOUT_S'] = states['CHIP_CONC_LOCKED_AND_STABLE_A'] & is_breakout_candle
+        if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
+            print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
+
+        # --- 触发器与原有风险逻辑 (保持兼容) ---
+        p_ignition = p.get('ignition_params', {})
+        if get_param_value(p_ignition.get('enabled'), True):
+            accel_threshold_ignition = get_param_value(p_ignition.get('accel_threshold'), 0.01)
+            triggers['TRIGGER_CHIP_IGNITION'] = df.get('peak_cost_accel_5d_D', 0) > accel_threshold_ignition
+
+        # 风险诊断部分保持不变
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
         states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
 
-        chip_risk_1 = states.get('RISK_DYN_DIVERGING', default_series)
-        chip_risk_2 = states.get('RISK_DYN_COST_FALLING', default_series)
-        chip_risk_3 = states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
+        chip_risk_1 = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+        chip_risk_2 = self.strategy.atomic_states.get('RISK_DYN_COST_FALLING', default_series)
+        chip_risk_3 = self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
         chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
         
-        # 只要有任何一个核心筹码风险存在，就标记为严重结构性风险
         is_chip_structure_unhealthy = chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
-        # if is_chip_structure_unhealthy.any():
-            # print(f"          -> [地基风险报告] 在 {is_chip_structure_unhealthy.sum()} 天内，侦测到严重筹码结构风险。")
-
-        is_highly_concentrated = states.get('CHIP_STATE_HIGHLY_CONCENTRATED', default_series)
-        is_cost_rising = states.get('CHIP_DYN_COST_RISING', default_series)
-        is_winner_rate_rising = states.get('CHIP_DYN_WINNER_RATE_RISING', default_series)
-        is_long_term_distributing = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-        is_cost_stable = df.get('SLOPE_5_peak_cost_D', default_series).abs() < 0.01
-
-        states['CHIPCON_4_READINESS'] = is_highly_concentrated & is_cost_stable & ~is_long_term_distributing
-        states['CHIPCON_3_HIGH_ALERT'] = is_highly_concentrated & is_cost_rising & is_winner_rate_rising & ~is_long_term_distributing
         
-        # print("        -> [筹码情报最高司令部 V316.0 筹码加权版] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V318.0 加速度融合版] 分析完毕。")
         return states, triggers
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -562,6 +583,60 @@ class IntelligenceLayer:
         states['RISK_BEHAVIOR_PANIC_SELLING'] = is_sharp_drop & is_panic_selling
         if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
             print(f"          -> [机会情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为(可能见底)！")
+            
+        return states
+
+    # 诊断“锁仓回踩探针”机会。
+    def _diagnose_chip_pullback_hammer_opportunity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增战法】锁仓回踩探针机会诊断 (Chip-Locked Pullback Probe)
+        - 核心逻辑: 捕捉“筹码持续集中 + 股价回踩关键支撑 + 出现长下影线确认”的黄金坑机会。
+        - 适用场景: A股主力在拉升前的经典洗盘+试盘行为。
+        """
+        print("        -> [战法诊断] 正在扫描“锁仓回踩探针”机会...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # 1. **前提条件：趋势背景**
+        # 必须处于一个健康的上升趋势中，我们使用“稳定多头排列”作为基础。
+        is_uptrend_context = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
+
+        # 2. **核心条件1：筹码持续集中**
+        # 表明主力仍在收集筹码，控盘意图明确。
+        is_chips_concentrating = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
+
+        # 3. **核心条件2：回踩关键支撑**
+        # 这里我们定义为日内最低价曾跌破21日线，但收盘价又收回其上，是经典的支撑测试。
+        support_ma = 'EMA_21_D'
+        if support_ma not in df.columns:
+            return states
+        is_pullback_to_support = (df['low_D'] < df[support_ma]) & (df['close_D'] > df[support_ma])
+
+        # 4. **核心条件3：下影线K线确认 (探针形态)**
+        # 计算K线实体和影线长度，识别出长下影线的“锤子”或“探针”形态。
+        body = (df['close_D'] - df['open_D']).abs()
+        # 防止body为0导致除法错误
+        body = body.replace(0, 0.0001)
+        lower_shadow = df[['open_D', 'close_D']].min(axis=1) - df['low_D']
+        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
+        
+        # 定义“探针”形态：下影线长度至少是实体的2倍，且上影线很短。
+        is_probe_candle = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
+
+        # 5. **最终裁定**
+        # 组合所有条件，生成最终的机会信号。
+        final_condition = (
+            is_uptrend_context &
+            is_chips_concentrating &
+            is_pullback_to_support &
+            is_probe_candle
+        )
+        
+        states['OPP_CHIP_PULLBACK_HAMMER_A'] = final_condition
+        
+        if final_condition.any():
+            print(f"          -> [情报] 侦测到 {final_condition.sum()} 次 A级“锁仓回踩探针”机会！")
             
         return states
 
