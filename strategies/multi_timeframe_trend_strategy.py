@@ -790,29 +790,112 @@ class MultiTimeframeTrendStrategy:
             import traceback
             traceback.print_exc()
 
-    async def run_alpha_hunter(self, stock_code: str):
+    async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V8.0 统一指挥版】
-        - 适配修改: 更新调用的配置对象为 self.unified_config。
+        【V319.0 探针专属版】
+        - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
+        - 新流程:
+          1. 正常执行 `run_for_stock` 以生成所有分析结果。
+          2. 从 `tactical_engine` 中获取最后一次运行的详细分析数据。
+          3. 检查配置文件，如果设置了 `probe_date`，则启动探针进行深度解剖。
+          4. 最后，展示全流程的信号透视报告。
         """
         print("=" * 80)
-        print(f"--- [总指挥] 阿尔法猎手任务启动 for {stock_code} (V8.0 统一指挥版) ---")
-        # 1. 准备数据
-        print(f"    -> 正在为 {stock_code} 准备全量历史数据...")
-        all_dfs = await self.indicator_service.prepare_data_for_strategy(
-            stock_code=stock_code,
-            config=self.unified_config
-        )
-        if 'D' not in all_dfs or all_dfs['D'].empty:
-            print(f"    -> [错误] 无法获取 {stock_code} 的日线数据，任务终止。")
-            return
-        # 2. 调用战术引擎的阿尔法猎手方法
-        await self.tactical_engine.alpha_hunter_backtest(
-            stock_code=stock_code,
-            df_full=all_dfs['D'],
-            params=self.unified_config
-        )
-        print(f"--- [总指挥] {stock_code} 的阿尔法猎手任务执行完毕。 ---")
+        print(f"--- [历史回溯调试启动 (V319.0 探针专属版)] ---")
+        print(f"    -> 股票代码: {stock_code}")
+        print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
+
+        try:
+            # 步骤 1: 正常执行核心流程，生成所有数据
+            # --- [代码修改] ---
+            # 修改前: all_signals, all_details = await self.run_for_stock(stock_code, trade_time=end_date)
+            # 修改原因: run_for_stock 方法现在返回一个四元组，需要用四个变量来接收以避免解包错误。
+            #           对于本次调试中用不到的变量，使用下划线前缀命名。
+            all_signals, all_details, _all_daily_scores, _all_score_components = await self.run_for_stock(stock_code, trade_time=end_date)
+            # --- [代码修改结束] ---
+            
+            if not all_signals:
+                print("[信息] 核心策略未生成任何信号记录。")
+                return
+            # 步骤 1.1: 在内存中构建信号到详情的映射
+            signal_to_details_map = {}
+            for detail in all_details:
+                # 使用 signal 对象的内存地址作为 key
+                signal_key = id(detail.signal)
+                if signal_key not in signal_to_details_map:
+                    signal_to_details_map[signal_key] = []
+                signal_to_details_map[signal_key].append(detail)
+
+            # 步骤 2: 检查是否需要部署探针
+            debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            probe_date = get_param_value(debug_params.get('probe_date'))
+            
+            if probe_date:
+                print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
+                # 从战术引擎获取最后一次运行的详细结果
+                last_df = self.daily_analysis_df
+                last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
+                last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
+
+                if last_df is not None and not last_df.empty:
+                    self._deploy_field_coroner_probe(
+                        df=last_df,
+                        probe_date=probe_date,
+                        score_details=last_score_details,
+                        risk_details=last_risk_details
+                    )
+                else:
+                    print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
+
+            # 步骤 3: 展示全流程信号透视报告
+            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
+            start_dt = pd.to_datetime(start_date).tz_localize('UTC')
+            end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
+            
+            # 筛选出在指定时间段内的主信号
+            debug_period_signals = [
+                s for s in all_signals 
+                if start_dt <= s.trade_time.replace(tzinfo=start_dt.tzinfo) <= end_dt
+            ]
+
+            if not debug_period_signals:
+                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
+                return
+
+            debug_period_signals.sort(key=lambda x: x.trade_time)
+            print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
+            
+            # 遍历信号对象，而不是字典
+            for signal_obj in debug_period_signals:
+                # 使用对象属性访问，而不是字典键
+                time_obj = signal_obj.trade_time
+                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
+                tf = signal_obj.timeframe
+                
+                # 获取与当前信号关联的详情
+                signal_key = id(signal_obj)
+                related_details = signal_to_details_map.get(signal_key, [])
+                
+                playbooks_str = ", ".join(
+                    # 增加一个检查，确保 playbook 对象存在且有 cn_name
+                    [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
+                ) if related_details else "无剧本信息"
+
+                signal_type_display = signal_obj.get_signal_type_display()
+                details = ""
+
+                if signal_obj.signal_type == 'BUY':
+                    details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
+                elif signal_obj.signal_type in ['SELL', 'WARN']:
+                    details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
+                
+                print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type_display:<6s}] | {details}")
+
+            print(f"--- [历史回溯调试完成] ---")
+        except Exception as e:
+            print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
 
 
