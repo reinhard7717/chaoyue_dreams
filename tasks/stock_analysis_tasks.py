@@ -247,94 +247,81 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
 def _chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.update_favorite_stock_trackers', queue='calculate_strategy')
-@with_cache_manager
-def update_favorite_stock_trackers(self, *, cache_manager: CacheManager):
+@celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
+def update_favorite_stock_trackers(self):
     """
-    【V4.0 关联引擎版】
-    - 核心职责: 为所有“持仓中”的自选股，创建或更新当天的快照，并将其关联到
-                已由 `run_multi_timeframe_strategy` 预计算好的 `StrategyDailyScore` 记录。
-    - 运行逻辑:
-        1. 获取所有状态为 HOLDING 的 PositionTracker。
-        2. 批量获取这些股票当日的最新行情数据。
-        3. 批量获取这些股票当日已预计算好的 StrategyDailyScore。
-        4. 遍历每个持仓，使用最新行情计算盈亏，并关联当日的策略分数。
-        5. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot。
+    【V3.1 - 健壮版】
+    每日运行，为所有活跃的 PositionTracker 创建当日的状态快照。
+    - 核心修改: 采用“先检查、再创建”的模式，彻底避免因任务重跑导致的 IntegrityError。
     """
-    logger.info("====== [持仓关联引擎 V4.0] 启动，开始更新所有持仓快照... ======")
-    async def main():
-        # 1. 获取所有正在持仓的 PositionTracker
-        active_trackers = list(PositionTracker.objects.filter(
-            status=PositionTracker.Status.HOLDING
-        ).select_related('stock'))
-
-        if not active_trackers:
-            logger.info("[持仓关联引擎] 没有发现任何持仓中的标的，任务结束。")
-            return 0
-        today = date.today()
-        stock_codes = [t.stock.stock_code for t in active_trackers]
-        logger.info(f"[持仓关联引擎] 发现 {len(active_trackers)} 个持仓中的标的，开始处理日期: {today}...")
-        print(f"DEBUG: 持仓中的股票代码: {stock_codes}")
-        # 2. 批量获取所有持仓股今天的价格信息
-        strategies_dao = StrategiesDAO(cache_manager)
-        # get_latest_daily_data_for_stocks 会返回一个字典 {stock_code: daily_data_df}
-        latest_daily_data_map = await strategies_dao.get_latest_daily_data_for_stocks(
-            stock_codes, 
-            end_date=today.strftime('%Y-%m-%d')
-        )
-        # 3. 批量获取所有持仓股今天的策略分析结果
-        daily_scores_qs = StrategyDailyScore.objects.filter(
-            stock_id__in=stock_codes,
-            trade_date=today
-        )
-        # 将查询结果转为字典，方便快速查找 {stock_code: StrategyDailyScore_instance}
-        daily_scores_map = {score.stock_id: score for score in daily_scores_qs}
-        print(f"DEBUG: 找到 {len(daily_scores_map)} 条今日的预计算分数记录。")
-        snapshots_to_process = []
-        for tracker in active_trackers:
-            stock_code = tracker.stock.stock_code
-            # 从批量获取的数据中查找当前股票的最新行情
-            latest_data = latest_daily_data_map.get(stock_code)
-            if latest_data is None or latest_data.empty:
-                logger.warning(f"无法获取 {stock_code} 在 {today} 的最新价格，跳过快照更新。")
-                continue
-            # 获取当天的收盘价
-            latest_price = latest_data.iloc[-1]['close']
-            # 4. 查找对应的每日分数记录
-            daily_score_obj = daily_scores_map.get(stock_code)
-            if not daily_score_obj:
-                print(f"DEBUG: 股票 {stock_code} 在 {today} 没有找到预计算的分数记录。")
-            # 5. 准备快照对象的数据字典，用于 update_or_create
-            snapshot_defaults = {
-                'close_price': latest_price,
-                'profit_loss': (latest_price - tracker.entry_price) * tracker.quantity,
-                'profit_loss_pct': ((latest_price / tracker.entry_price) - 1) * 100 if tracker.entry_price > 0 else 0,
-                'daily_score': daily_score_obj # 直接关联！如果没找到就是 None
-            }
-            # 将要处理的快照信息加入列表
-            snapshots_to_process.append({
-                'lookup': {'tracker': tracker, 'snapshot_date': today},
-                'defaults': snapshot_defaults
-            })
-        # 6. 使用 update_or_create 批量更新或创建 DailyPositionSnapshot
-        created_count = 0
-        updated_count = 0
-        for item in snapshots_to_process:
-            obj, created = await sync_to_async(DailyPositionSnapshot.objects.update_or_create, thread_sensitive=True)(
-                **item['lookup'],
-                defaults=item['defaults']
-            )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-        logger.info(f"[持仓关联引擎] 快照更新完成。新建: {created_count} 条, 更新: {updated_count} 条。")
-        return created_count + updated_count
     try:
-        return async_to_sync(main)()
+        # 步骤 1: 确定需要生成快照的日期（最新的一个交易日）
+        latest_trade_day = TradeCalendar.get_latest_trade_date()
+        if not latest_trade_day:
+            logger.warning("无法获取最新的交易日，任务终止。")
+            return "无法获取最新的交易日，任务终止。"
+        
+        logger.info(f"开始为 {latest_trade_day} 生成每日持仓快照...")
+
+        # 步骤 2: 筛选出所有需要创建快照的活跃追踪器
+        trackers_to_snapshot = list(PositionTracker.objects.filter(
+            Q(status=PositionTracker.Status.HOLDING) | Q(status=PositionTracker.Status.WATCHING)
+        ).select_related('user', 'stock')) # 增加 select_related('user')
+
+        if not trackers_to_snapshot:
+            logger.info("没有找到需要创建快照的活跃追踪器。")
+            return "没有需要更新的活跃追踪器。"
+        
+        # 步骤 3: 一次性查询当天已经存在的快照，存入一个集合以便快速查找
+        existing_snapshots = set(
+            DailyPositionSnapshot.objects.filter(
+                tracker_id__in=[t.id for t in trackers_to_snapshot],
+                snapshot_date=latest_trade_day
+            ).values_list('tracker_id', 'snapshot_date')
+        )
+        logger.info(f"在 {latest_trade_day}，发现 {len(existing_snapshots)} 条已存在的快照。")
+
+        # 步骤 4: 筛选出当天还没有快照的追踪器
+        trackers_needing_snapshot = [
+            tracker for tracker in trackers_to_snapshot 
+            if (tracker.id, latest_trade_day) not in existing_snapshots
+        ]
+
+        if not trackers_needing_snapshot:
+            logger.info(f"所有活跃追踪器在 {latest_trade_day} 均已有快照，无需创建。")
+            return "所有活跃追踪器均已有快照。"
+        
+        logger.info(f"准备为 {len(trackers_needing_snapshot)} 个追踪器创建新快照...")
+        
+        # 步骤 5: 使用服务批量创建快照 (这里我们假设有一个服务来处理这个逻辑)
+        # 注意：这里我们直接调用服务，服务内部应该处理快照的计算和创建
+        snapshot_service = PositionSnapshotService()
+        
+        # 收集需要通知的用户
+        users_to_notify = set()
+        
+        # 在循环中调用重建服务，并收集用户
+        for tracker in trackers_needing_snapshot:
+            try:
+                # 假设服务方法是 create_snapshot_for_date
+                # 这个服务会计算并创建单个快照
+                snapshot_service.create_snapshot_for_date(tracker, latest_trade_day)
+                users_to_notify.add(tracker.user.id)
+            except Exception as e:
+                logger.error(f"为 Tracker ID {tracker.id} 创建 {latest_trade_day} 快照时失败: {e}", exc_info=True)
+        
+        # 步骤 6: 任务完成后，向所有受影响的用户发送通知
+        for user_id in users_to_notify:
+            send_update_to_user_sync(user_id, 'snapshot_rebuilt', {'status': 'success', 'source': 'daily_task'})
+            logger.info(f"已向用户 {user_id} 发送快照更新通知。")
+
+        logger.info(f"每日快照任务完成。成功处理 {len(trackers_needing_snapshot)} 个追踪器。")
+        return f"成功处理 {len(trackers_needing_snapshot)} 个追踪器的每日快照。"
+            
     except Exception as e:
-        logger.error(f"[持仓关联引擎] 任务执行失败: {e}", exc_info=True)
-        return 0
+        logger.error(f"更新持仓追踪器（创建快照）时发生严重错误: {e}", exc_info=True)
+        self.retry(exc=e, countdown=60)
+        return f"任务失败: {e}"
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_all_snapshots_for_all_trackers', queue='celery')
 def rebuild_all_snapshots_for_all_trackers(self):

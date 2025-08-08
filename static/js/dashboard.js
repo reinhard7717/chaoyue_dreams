@@ -716,6 +716,51 @@ document.addEventListener('DOMContentLoaded', function () {
                 deleteBtn.textContent = '删除';
             }
         });
+
+        // --- 代码修改开始 ---
+        // [修改原因] 为自选股监控页面添加WebSocket连接，以接收快照更新通知并自动刷新页面。
+        function connectFavListWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
+            console.log('[FavList WS] 正在尝试连接 WebSocket:', wsPath);
+            const socket = new WebSocket(wsPath);
+
+            socket.onopen = function (e) {
+                console.log('[FavList WS] WebSocket 连接成功！');
+            };
+
+            socket.onmessage = function (e) {
+                const data = JSON.parse(e.data);
+                console.log('[FavList WS] 收到WebSocket消息:', data);
+
+                // 检查消息类型是否为我们需要的“快照重建完成”信号
+                if (data.type === 'snapshot_rebuilt') {
+                    console.log('[FavList WS] 接收到快照重建完成信号，准备刷新页面...');
+
+                    // 显示一个短暂的通知，告知用户页面即将刷新
+                    showNotification('持仓数据已更新，页面即将刷新...', 'info', 1500);
+
+                    // 延迟一小段时间再刷新，确保后台数据已完全同步，并给用户一个反应时间
+                    setTimeout(function () {
+                        window.location.reload();
+                    }, 1000); // 延迟1秒
+                }
+            };
+
+            socket.onclose = function (e) {
+                console.error('[FavList WS] WebSocket 连接已关闭。代码:', e.code, '原因:', e.reason, '5秒后尝试重连...');
+                // 添加自动重连机制
+                setTimeout(connectFavListWebSocket, 5000);
+            };
+
+            socket.onerror = function (err) {
+                console.error('[FavList WS] WebSocket 发生错误:', err);
+            };
+        }
+
+        // 启动该页面的WebSocket连接
+        connectFavListWebSocket();
+        // --- 代码修改结束 ---
     }
 
 
