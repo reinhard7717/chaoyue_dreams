@@ -719,3 +719,33 @@ section h2 .icon {
     visibility: visible;
     /* 确保可见 */
 }
+
+#fav-trend-table thead th {
+    /* 为所有表头设置一个基础样式，如果需要的话 */
+    text-align: left;
+}
+
+/* 股票列 */
+#fav-trend-table th:nth-child(1) {
+    width: 12%;
+}
+
+/* 持仓状态与盈亏列 */
+#fav-trend-table th:nth-child(2) {
+    width: 15%;
+}
+
+/* 建仓信息列 (宽度从 30% 缩减到 20%) */
+#fav-trend-table th:nth-child(3) {
+    width: 18%;
+}
+
+/* 最新动态追踪列 (宽度从 35% 增加到 45%) */
+#fav-trend-table th:nth-child(4) {
+    width: 50%;
+}
+
+/* 管理列 */
+#fav-trend-table th:nth-child(5) {
+    width: 5%;
+}
