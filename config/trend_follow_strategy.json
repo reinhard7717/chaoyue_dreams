@@ -297,7 +297,6 @@
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "FRACTAL_STATE_STRONG_TREND": 100,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
-            "CHIP_DYN_CONCENTRATING": 80,
             "CHIP_DYN_WINNER_RATE_RISING": 60,
             "MA_STATE_STABLE_BULLISH": 70
           }
@@ -417,7 +416,6 @@
           "MA_STATE_AGGRESSIVE_BULLISH": { "cn_name": "【均线】攻击性多头排列", "type": "positional" },
           "FRACTAL_STATE_STRONG_TREND": { "cn_name": "【分形】强趋势状态", "type": "positional" },
           "MECHANICS_ENERGY_ADVANTAGE": { "cn_name": "【力学】势能优势", "type": "positional" },
-          "CHIP_DYN_CONCENTRATING": { "cn_name": "【筹码】动态集中", "type": "positional" },
           "CHIP_DYN_WINNER_RATE_RISING": { "cn_name": "【筹码】获利盘上升", "type": "positional" },
           "MA_STATE_STABLE_BULLISH": { "cn_name": "【均线】稳定多头排列", "type": "positional" },
 
