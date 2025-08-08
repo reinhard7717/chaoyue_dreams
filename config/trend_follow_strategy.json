@@ -288,7 +288,6 @@
             "PULLBACK_STATE_HEALTHY_S": 350,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
-            "OPP_CHIP_SETUP_S": 300,
             "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": 280,
             "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
             "OPP_FIB_SUPPORT_STANDARD_A": 200,
@@ -322,10 +321,10 @@
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
             { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 750, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
-            { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
+            { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S", "CHIP_CONC_LOCKED_AND_STABLE_A"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 800, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
-            { "name": "TACTIC_HEALTHY_PULLBACK_S", "score": 600, "all_of": ["OPP_PULLBACK_WITH_CHIP_STABILITY_S"] },
-            { "name": "TACTIC_LOCK_CHIP_RALLY_S", "score": 500, "all_of": ["CHIP_STATE_HIGHLY_CONCENTRATED", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"], "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"] }
+            { "name": "TACTIC_HEALTHY_PULLBACK_S", "score": 600, "all_of": ["PULLBACK_STATE_HEALTHY_S", "CHIP_CONC_LOCKED_AND_STABLE_A"] },
+            { "name": "TACTIC_LOCK_CHIP_RALLY_S", "score": 500, "all_of": ["CHIP_CONC_LOCKED_AND_STABLE_A", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"], "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"] }
           ]
         },
         "holding_warning_params": {
@@ -407,7 +406,6 @@
           "PULLBACK_STATE_HEALTHY_S": { "cn_name": "【S级机会】健康回踩", "type": "positional" },
           "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": { "cn_name": "【S级机会】斐波那契黄金口袋支撑", "type": "positional" },
           "OPP_SQUEEZE_ZONE_SHAKEOUT_A": { "cn_name": "【A级机会】压缩区实战洗盘", "type": "positional" },
-          "OPP_CHIP_SETUP_S": { "cn_name": "【S级机会】筹码高度控盘", "type": "positional" },
           "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": { "cn_name": "【A级机会】卖盘衰竭(左侧)", "type": "positional" },
           "STRUCTURE_MAIN_UPTREND_WAVE_S": { "cn_name": "【S级结构】主升浪", "type": "positional" },
           "OPP_FIB_SUPPORT_STANDARD_A": { "cn_name": "【A级机会】斐波那契标准支撑", "type": "positional" },

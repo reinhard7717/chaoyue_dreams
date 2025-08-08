@@ -1675,7 +1675,7 @@ class IntelligenceLayer:
         required_intelligence = [
             'STRUCTURE_POST_ACCUMULATION_ASCENT_C', # “初升浪启动”情报
             'PULLBACK_STATE_HEALTHY_S',             # “健康回踩”情报
-            'OPP_CHIP_SETUP_S'                      # “筹码高度控盘”情报
+            'CHIP_CONC_LOCKED_AND_STABLE_A'         # “筹码高度控盘”情报
         ]
         
         # 2. 检查情报清单
@@ -1701,7 +1701,7 @@ class IntelligenceLayer:
         # 1. 获取上游情报
         is_ascent_start = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         is_healthy_pullback = self.strategy.atomic_states.get('PULLBACK_STATE_HEALTHY_S', default_series)
-        is_chip_setup = self.strategy.atomic_states.get('OPP_CHIP_SETUP_S', default_series)
+        is_chip_setup = self.strategy.atomic_states.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
 
         # 2. 定义“接力”逻辑
         # 条件A: 今天是一个“健康回踩”日，并且筹码高度控盘
