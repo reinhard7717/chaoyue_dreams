@@ -9,7 +9,7 @@ from decimal import Decimal
 from asgiref.sync import sync_to_async
 from asgiref.sync import async_to_sync
 from celery import Celery
-from celery import group, chain
+from celery import group, chain, chord
 from utils.task_helpers import with_cache_manager
 from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
