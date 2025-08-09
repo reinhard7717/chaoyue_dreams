@@ -89,7 +89,7 @@ class PerformanceAnalysisService:
             fill_value=0
         )
         
-        print(f"    -> [DB Service] 数据加载与转换完成。行情: {len(df_indicators)}天, 信号详情: {len(score_details_df)}天。")
+        print(f"    -> [DB Service] 数据加载与转换完成[{stock_code}]。行情: {len(df_indicators)}天, 信号详情: {len(score_details_df)}天。")
         return df_indicators, score_details_df
 
     async def run_analysis_for_stock(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> list:

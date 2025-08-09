@@ -804,6 +804,68 @@ def run_global_performance_analysis(self, start_date: str = None, end_date: str 
         logger.error(f"执行全局性能分析任务时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis_v2_map_reduce', queue='celery')
+@with_cache_manager
+def run_global_performance_analysis_v2_map_reduce(self, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
+    """
+    【新增 V2.0 - MapReduce并行版】
+    对全市场所有股票，在指定时间段内，进行真正的并行回测分析。
+    - 工作流:
+      1. (总管任务) 获取所有股票代码。
+      2. (Map) 为每只股票派发一个独立的 `analyze_performance_from_db` 子任务到任务队列。
+      3. (Reduce) 使用 Celery Chord，在所有子任务完成后，自动调用 `aggregate_performance_results` 任务来汇总报告。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [全局信号性能扫描 V2.0 - MapReduce版 任务启动] ---")
+    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    logger.info("="*80)
+
+    try:
+        # 1. 获取全市场股票列表 (这部分仍然是异步的，但由总管任务一次性完成)
+        stock_dao = StockBasicInfoDao(cache_manager)
+        
+        # 在同步的Celery任务中调用异步DAO方法
+        all_stocks = async_to_sync(stock_dao.get_stock_list)()
+
+        if not all_stocks:
+            logger.error("无法获取股票列表，任务终止。")
+            return {"status": "error", "reason": "Failed to get stock list."}
+        
+        total_stocks = len(all_stocks)
+        logger.info(f"获取到 {total_stocks} 只股票，准备派发并行分析子任务...")
+
+        # 2. (Map) 创建所有股票的独立分析子任务签名
+        # 我们复用 `analyze_performance_from_db`，因为它已经是为单只股票设计的。
+        # 注意：这里我们只创建任务的“签名”(.s())，而不是立即执行它们。
+        map_tasks = [
+            analyze_performance_from_db.s(
+                stock_code=stock.stock_code,
+                start_date=start_date,
+                end_date=end_date
+            ).set(queue='calculate_strategy') for stock in all_stocks
+        ]
+
+        # 3. (Reduce) 创建聚合任务的签名
+        # 这个任务将在所有 map_tasks 完成后接收它们的结果列表。
+        # 【注意】这里我们复用已有的 `aggregate_performance_results` 任务
+        reduce_task = aggregate_performance_results.s().set(queue='celery')
+
+        # 4. 使用 `chord` 编排工作流
+        # chord(header, body) -> header是一组并行任务，body是它们完成后执行的回调任务
+        # 这正是我们需要的 MapReduce 模式！
+        workflow = chord(header=group(map_tasks), body=reduce_task)
+        
+        # 5. 异步执行整个工作流
+        workflow.apply_async()
+
+        logger.info(f"成功派发 {total_stocks} 个股票分析子任务。聚合报告将在所有子任务完成后自动生成。")
+        logger.info(f"--- [全局信号性能扫描 V2.0 - 任务派发完成] ---")
+        return {"status": "workflow_dispatched", "total_stocks": total_stocks}
+
+    except Exception as e:
+        logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_for_one_stock', queue='calculate_strategy', acks_late=True)
 @with_cache_manager
 def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: CacheManager):
