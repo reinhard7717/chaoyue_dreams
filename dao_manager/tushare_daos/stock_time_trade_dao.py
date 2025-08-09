@@ -123,12 +123,10 @@ class StockTimeTradeDAO(BaseDAO):
         获取单只股票在指定日期范围内的日线行情数据。
         - 自动处理分表逻辑。
         - 返回一个以日期为索引的 Pandas DataFrame。
-
         Args:
             stock_code (str): 股票代码, e.g., '300437.SZ'.
             start_date (str): 开始日期, 格式 'YYYYMMDD'.
             end_date (str): 结束日期, 格式 'YYYYMMDD'.
-
         Returns:
             pd.DataFrame: 包含日线数据的DataFrame，索引为 'trade_time'，
                           列至少包含 'close'。如果无数据则返回空的DataFrame。
@@ -138,34 +136,27 @@ class StockTimeTradeDAO(BaseDAO):
         try:
             # 1. 确定要查询的正确模型（复用现有逻辑）
             model_class = self.get_daily_data_model_by_code(stock_code)
-            
             # 2. 将字符串日期转换为 datetime.date 对象以供查询
             start_dt = datetime.strptime(start_date, '%Y%m%d').date()
             end_dt = datetime.strptime(end_date, '%Y%m%d').date()
-
             # 3. 构建异步查询
             queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_dt,
                 trade_time__lte=end_dt
             ).order_by('trade_time')
-
             # 4. 高效地将异步查询结果转换为字典列表
             #    只选择需要的字段，可以提升性能
-            data_list = [item async for item in queryset.values('trade_time', 'close')]
-
+            data_list = [item async for item in queryset.values('trade_time', 'close_qfq', 'high_qfq', 'low_qfq')]
             if not data_list:
                 logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
                 return pd.DataFrame() # 返回一个空的DataFrame
-
             # 5. 将字典列表转换为Pandas DataFrame
             df = pd.DataFrame(data_list)
-            
+            df.rename(columns={'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
             # 6. 将 trade_time 列转换为 datetime 类型并设置其为索引，以满足上游服务的需求
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)
-            
-            print(f"[DAO] 成功获取并处理了 {len(df)} 条数据。")
             return df
 
         except Exception as e:
