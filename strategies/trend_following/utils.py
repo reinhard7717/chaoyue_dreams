@@ -15,12 +15,28 @@ def get_param_value(param: Any, default: Any = None) -> Any:
     return default
 
 def get_params_block(strategy_instance, block_name: str, default_return: Any = None) -> dict:
+    """
+    【V1.1 健壮版】
+    - 核心修改: 智能判断传入的 strategy_instance 是对象还是字典，并从中安全地提取配置。
+    """
     if default_return is None:
         default_return = {}
-    trend_follow_params = strategy_instance.unified_config.get('strategy_params', {}).get('trend_follow', {})
+
+    config = {}
+    if isinstance(strategy_instance, dict):
+        # 如果传入的是字典，直接用 .get() 方法获取
+        config = strategy_instance.get('unified_config', {})
+    else:
+        # 如果传入的是对象实例，用 getattr() 安全地获取属性
+        config = getattr(strategy_instance, 'unified_config', {})
+
+    # 【代码修改】后续逻辑都基于上面提取出的 config 字典进行操作，不再依赖于 strategy_instance 的类型
+    trend_follow_params = config.get('strategy_params', {}).get('trend_follow', {})
     params = trend_follow_params.get(block_name)
     if params is None:
-        params = strategy_instance.unified_config.get(block_name)
+        # 【代码修改】如果第一层没找到，从配置的根目录再找一次
+        params = config.get(block_name)
+    
     if params is not None:
         return params
     return default_return

@@ -22,12 +22,26 @@ class PerformanceAnalysisService:
     - 优势: 速度极快，将原本数分钟的计算+分析过程缩短到秒级。
     """
     def __init__(self, cache_manager: CacheManager):
+        """
+        构造函数
+        - 职责: 初始化服务所需的所有依赖和配置。
+        """
+        # 1. 初始化用于获取行情数据的DAO，并注入缓存管理器
         self.time_trade_dao = StockTimeTradeDAO(cache_manager)
-        # 加载策略配置以获取分析参数
+        
+        # 2. 定义策略配置文件的路径
         unified_config_path = 'config/trend_follow_strategy.json'
+        
+        # 3. 使用工具函数加载完整的策略配置，并将其存储为实例属性
         self.unified_config = load_strategy_config(unified_config_path)
+        
+        # 4. 从总配置中提取出“性能分析”相关的参数块
+        #    注意：这里传递的是一个字典，以适配 get_params_block 工具函数
         self.analyzer_params = get_params_block({'unified_config': self.unified_config}, 'performance_analysis_params')
+        
+        # 5. 从总配置中提取出“四层评分模型”相关的参数块，供分析器使用
         self.scoring_params = get_params_block({'unified_config': self.unified_config}, 'four_layer_scoring_params')
+
 
     async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
