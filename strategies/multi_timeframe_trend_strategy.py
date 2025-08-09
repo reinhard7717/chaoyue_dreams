@@ -690,7 +690,8 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V319.0 探针专属版】
+        【V319.1 探针专属修复版】
+        - 核心修复: 修正了对 run_for_stock 返回的四元组的解包，确保所有返回值都被正确接收。
         - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
         - 新流程:
           1. 正常执行 `run_for_stock` 以生成所有分析结果。
@@ -699,122 +700,14 @@ class MultiTimeframeTrendStrategy:
           4. 最后，展示全流程的信号透视报告。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.0 探针专属版)] ---")
+        print(f"--- [历史回溯调试启动 (V319.1 探针专属修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
-
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            all_signals, all_details = await self.run_for_stock(stock_code, trade_time=end_date)
-            if not all_signals:
-                print("[信息] 核心策略未生成任何信号记录。")
-                return
-            # 步骤 1.1: 在内存中构建信号到详情的映射
-            signal_to_details_map = {}
-            for detail in all_details:
-                # 使用 signal 对象的内存地址作为 key
-                signal_key = id(detail.signal)
-                if signal_key not in signal_to_details_map:
-                    signal_to_details_map[signal_key] = []
-                signal_to_details_map[signal_key].append(detail)
-
-            # 步骤 2: 检查是否需要部署探针
-            debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            probe_date = get_param_value(debug_params.get('probe_date'))
-            
-            if probe_date:
-                print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-                # 从战术引擎获取最后一次运行的详细结果
-                last_df = self.daily_analysis_df
-                last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
-                last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
-
-                if last_df is not None and not last_df.empty:
-                    self._deploy_field_coroner_probe(
-                        df=last_df,
-                        probe_date=probe_date,
-                        score_details=last_score_details,
-                        risk_details=last_risk_details
-                    )
-                else:
-                    print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
-
-            # 步骤 3: 展示全流程信号透视报告
-            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
-            start_dt = pd.to_datetime(start_date).tz_localize('UTC')
-            end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
-            
-            # 筛选出在指定时间段内的主信号
-            debug_period_signals = [
-                s for s in all_signals 
-                if start_dt <= s.trade_time.replace(tzinfo=start_dt.tzinfo) <= end_dt
-            ]
-
-            if not debug_period_signals:
-                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
-                return
-
-            debug_period_signals.sort(key=lambda x: x.trade_time)
-            print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            
-            # 遍历信号对象，而不是字典
-            for signal_obj in debug_period_signals:
-                # 使用对象属性访问，而不是字典键
-                time_obj = signal_obj.trade_time
-                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
-                tf = signal_obj.timeframe
-                
-                # 获取与当前信号关联的详情
-                signal_key = id(signal_obj)
-                related_details = signal_to_details_map.get(signal_key, [])
-                
-                playbooks_str = ", ".join(
-                    # 增加一个检查，确保 playbook 对象存在且有 cn_name
-                    [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
-                ) if related_details else "无剧本信息"
-
-                signal_type_display = signal_obj.get_signal_type_display()
-                details = ""
-
-                if signal_obj.signal_type == 'BUY':
-                    details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
-                elif signal_obj.signal_type in ['SELL', 'WARN']:
-                    details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
-                
-                print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type_display:<6s}] | {details}")
-
-            print(f"--- [历史回溯调试完成] ---")
-        except Exception as e:
-            print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
-            import traceback
-            traceback.print_exc()
-
-    async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
-        """
-        【V319.0 探针专属版】
-        - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
-        - 新流程:
-          1. 正常执行 `run_for_stock` 以生成所有分析结果。
-          2. 从 `tactical_engine` 中获取最后一次运行的详细分析数据。
-          3. 检查配置文件，如果设置了 `probe_date`，则启动探针进行深度解剖。
-          4. 最后，展示全流程的信号透视报告。
-        """
-        print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.0 探针专属版)] ---")
-        print(f"    -> 股票代码: {stock_code}")
-        print(f"    -> 回测时段: {start_date} to {end_date}")
-        print("=" * 80)
-
-        try:
-            # 步骤 1: 正常执行核心流程，生成所有数据
-            # --- [代码修改] ---
-            # 修改前: all_signals, all_details = await self.run_for_stock(stock_code, trade_time=end_date)
-            # 修改原因: run_for_stock 方法现在返回一个四元组，需要用四个变量来接收以避免解包错误。
-            #           对于本次调试中用不到的变量，使用下划线前缀命名。
+            # MODIFIED: 修正了返回值解包。run_for_stock 返回四元组，需用四个变量接收。
             all_signals, all_details, _all_daily_scores, _all_score_components = await self.run_for_stock(stock_code, trade_time=end_date)
-            # --- [代码修改结束] ---
-            
             if not all_signals:
                 print("[信息] 核心策略未生成任何信号记录。")
                 return
@@ -826,18 +719,15 @@ class MultiTimeframeTrendStrategy:
                 if signal_key not in signal_to_details_map:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
-
             # 步骤 2: 检查是否需要部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
-            
             if probe_date:
                 print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
                 # 从战术引擎获取最后一次运行的详细结果
                 last_df = self.daily_analysis_df
                 last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
                 last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
-
                 if last_df is not None and not last_df.empty:
                     self._deploy_field_coroner_probe(
                         df=last_df,
@@ -847,55 +737,116 @@ class MultiTimeframeTrendStrategy:
                     )
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
-
             # 步骤 3: 展示全流程信号透视报告
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
             start_dt = pd.to_datetime(start_date).tz_localize('UTC')
             end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
-            
             # 筛选出在指定时间段内的主信号
             debug_period_signals = [
                 s for s in all_signals 
                 if start_dt <= s.trade_time.replace(tzinfo=start_dt.tzinfo) <= end_dt
             ]
-
             if not debug_period_signals:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
                 return
-
             debug_period_signals.sort(key=lambda x: x.trade_time)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            
             # 遍历信号对象，而不是字典
             for signal_obj in debug_period_signals:
                 # 使用对象属性访问，而不是字典键
                 time_obj = signal_obj.trade_time
                 time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
                 tf = signal_obj.timeframe
-                
                 # 获取与当前信号关联的详情
                 signal_key = id(signal_obj)
                 related_details = signal_to_details_map.get(signal_key, [])
-                
                 playbooks_str = ", ".join(
                     # 增加一个检查，确保 playbook 对象存在且有 cn_name
                     [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
                 ) if related_details else "无剧本信息"
-
                 signal_type_display = signal_obj.get_signal_type_display()
                 details = ""
-
                 if signal_obj.signal_type == 'BUY':
                     details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
                 elif signal_obj.signal_type in ['SELL', 'WARN']:
                     details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
-                
                 print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type_display:<6s}] | {details}")
-
             print(f"--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
             traceback.print_exc()
 
-
+    # NEW: 新增的性能分析专属方法
+    async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
+        """
+        【V1.1 返回值适配版】信号性能分析总指挥方法
+        - 核心修改: 方法现在会返回性能分析器计算出的原始结果列表，以供上层调用者（如Celery任务）进行格式化展示。
+        - 职责: 作为一个独立的、用于深度回测的入口，编排策略运行和性能分析的流程。
+        - 流程:
+          1. 运行全历史策略，生成回测区间内的所有指标和信号。
+          2. 检查性能分析模块是否在配置中启用。
+          3. 如果启用，则实例化性能分析器，并将策略运行结果注入。
+          4. 启动分析器，获取并返回分析结果。
+        """
+        print("=" * 80)
+        print(f"--- [信号性能分析任务启动 V1.1] ---")
+        print(f"    -> 股票代码: {stock_code}")
+        print(f"    -> 分析时段: {start_date} to {end_date}")
+        print("=" * 80)
+        analysis_results = [] # MODIFIED: 初始化一个变量来存储结果
+        try:
+            # 步骤 1: 运行核心策略，生成回测数据
+            print("    -> [阶段 1/3] 正在执行全历史策略计算，请稍候...")
+            # 使用四元组接收所有返回结果
+            _all_signals, _all_details, _all_daily_scores, _all_score_components = await self.run_for_stock(
+                stock_code, trade_time=end_date, latest_only=False
+            )
+            print("    -> [阶段 1/3] 策略计算完成。")
+            # 步骤 2: 检查并准备启动分析器
+            print("    -> [阶段 2/3] 正在准备启动性能分析器...")
+            analyzer_params = get_params_block(self.tactical_engine, 'performance_analysis_params')
+            if not get_param_value(analyzer_params.get('enabled'), False):
+                print("    -> [信息] 性能分析模块在配置文件中被禁用，任务终止。")
+                return [] # MODIFIED: 返回空列表
+            # 从战术引擎获取最后一次运行的详细结果
+            df_indicators = self.daily_analysis_df
+            score_details_df = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
+            if df_indicators is None or df_indicators.empty or score_details_df.empty:
+                print("    -> [错误] 策略运行后未能获取有效的分析数据，无法进行性能分析。")
+                return [] # MODIFIED: 返回空列表
+            # 步骤 3: 运行分析器
+            print("    -> [阶段 3/3] 注入数据并运行分析器...")
+            try:
+                # 动态导入，保持主模块干净
+                from .trend_following.performance_analyzer import PerformanceAnalyzer
+                scoring_params = get_params_block(self.tactical_engine, 'four_layer_scoring_params')
+                analyzer = PerformanceAnalyzer(
+                    df_indicators=df_indicators,
+                    score_details_df=score_details_df,
+                    analysis_params=analyzer_params,
+                    scoring_params=scoring_params
+                )
+                # MODIFIED: 捕获分析器返回的原始数据
+                analysis_results = analyzer.run_analysis()
+            except ImportError:
+                print("    -> [严重错误] 无法导入 PerformanceAnalyzer 模块。请确保文件存在于 'strategies/trend_following/' 目录下。")
+            except Exception as e:
+                print(f"    -> [严重错误] 性能分析器在执行过程中发生异常: {e}")
+                traceback.print_exc()
+            print(f"--- [信号性能分析任务完成] ---")
+        except Exception as e:
+            print(f"[严重错误] 在执行信号性能分析时发生顶层异常: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 手动清理大型DataFrame，释放内存
+            self.daily_analysis_df = None
+            if hasattr(self.tactical_engine, '_last_score_details_df'):
+                del self.tactical_engine._last_score_details_df
+            if hasattr(self.tactical_engine, '_last_risk_details_df'):
+                del self.tactical_engine._last_risk_details_df
+            gc.collect()
+            print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
+            # MODIFIED: 在finally块中返回结果，确保无论如何都有返回值
+            return analysis_results

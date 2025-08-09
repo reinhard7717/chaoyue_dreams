@@ -225,19 +225,31 @@ class IntelligenceLayer:
         states['RISK_CHIP_CONC_ACCEL_WORSENING'] = is_worsening_turn
         if is_worsening_turn.any():
             print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
-
-        # 汇总所有筹码相关的风险信号
-        chip_risk_1 = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
-        chip_risk_2 = self.strategy.atomic_states.get('RISK_DYN_COST_FALLING', default_series)
-        chip_risk_3 = self.strategy.atomic_states.get('RISK_DYN_WINNER_RATE_COLLAPSING', default_series)
+        
+        print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
+        # 风险源1: 筹码动态发散 (高位+斜率>0)
+        chip_risk_1 = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
+        # 风险源2: 筹码成本松动 (成本峰斜率<0)
+        chip_risk_2 = self.strategy.atomic_states.get('CHIP_DYN_COST_FALLING', default_series)
+        # 风险源3: 获利盘崩盘 (获利盘比例斜率大幅<0)
+        chip_risk_3 = self.strategy.atomic_states.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
+        # 风险源4: 长期派发 (高位+21日集中度恶化)
         chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-        chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series) # 包含新增的风险项
-        
-        # 只要任何一个筹码风险信号被触发，就认为整体筹码结构存在严重问题
-        is_chip_structure_unhealthy = chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5
+        # 风险源5: 集中趋势恶化拐点 (21日集中度加速度由负转正)
+        chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series)
+        # 风险源6: 恐慌性抛售 (来自其他模块的行为诊断)
+        chip_risk_6 = self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
+
+        # 只要任何一个核心筹码风险信号被触发，就认为整体筹码结构存在严重问题
+        is_chip_structure_unhealthy = (
+            chip_risk_1 | chip_risk_2 | chip_risk_3 | 
+            chip_risk_4 | chip_risk_5 | chip_risk_6
+        )
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
+        if is_chip_structure_unhealthy.any():
+            print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
         
-        print("        -> [筹码情报最高司令部 V320.0 最终数据驱动版] 分析完毕。")
+        print("        -> [筹码情报最高司令部 V320.1 风险整合版] 分析完毕。")
         return states, triggers
 
     def _diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

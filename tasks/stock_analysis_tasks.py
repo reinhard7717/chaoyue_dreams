@@ -614,3 +614,419 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
+
+
+
+# =================================================================
+# =================== 3. 回测任务 ==================
+# =================================================================
+
+# NEW: 新增的性能分析Celery任务
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_for_stock', queue='calculate_strategy')
+@with_cache_manager
+def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
+    """
+    【V1.1 报告生成版】
+    对单个股票在指定的历史时间段内，运行策略并对所有买入信号的后续表现进行统计分析。
+    - 核心修改: 此任务现在负责接收底层的原始分析数据，并将其格式化为一份完整的、人类可读的报告。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [单股票信号性能分析任务启动] ---")
+    logger.info(f"  - 股票代码: {stock_code}")
+    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    logger.info("="*80)
+    async def main():
+        # 1. 初始化总指挥
+        strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
+        
+        # MODIFIED: 调用新的分析方法并接收返回的原始数据
+        raw_results = await strategy_orchestrator.analyze_signal_performance_for_period(
+            stock_code=stock_code,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # NEW: 新增报告生成逻辑
+        if not raw_results:
+            logger.info(f"[{stock_code}] 未发现任何可供分析的信号数据。")
+        else:
+            # 1. 将原始数据转换为DataFrame
+            df = pd.DataFrame(raw_results)
+            
+            # 2. 计算成功率
+            df['success_rate'] = (df['successes'] / df['triggers']).where(df['triggers'] > 0, 0)
+            
+            # 3. 格式化输出列
+            df = df.rename(columns={
+                'cn_name': '信号名称',
+                'type': '类型',
+                'triggers': '触发次数',
+                'successes': '成功次数'
+            })
+            df['成功率(%)'] = df['success_rate'].apply(lambda x: f"{x:.1%}")
+            
+            # 4. 排序并选择最终展示的列
+            report_df = df.sort_values(
+                by=['类型', 'success_rate', '触发次数'], 
+                ascending=[True, False, False]
+            )[['信号名称', '类型', '触发次数', '成功次数', '成功率(%)']]
+            
+            # 5. 打印最终报告
+            print("\n\n" + "="*30 + f" [{stock_code} 信号性能分析报告] " + "="*30)
+            with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
+                print(report_df.to_string(index=False))
+            print("=" * 88 + "\n")
+
+        logger.info(f"--- [单股票信号性能分析任务完成] ---")
+        logger.info(f"股票 [{stock_code}] 的信号性能分析执行完毕。")
+        logger.info("="*80)
+        return {"status": "success", "stock_code": stock_code, "period": f"{start_date}-{end_date}"}
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"在执行信号性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        logger.info("="*80)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+
+# =================================================================
+# =================== 3. 全局性能回测任务 (新增) ==================
+# =================================================================
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
+@with_cache_manager
+def run_global_performance_analysis(self, *, cache_manager: CacheManager):
+    """
+    【总指挥任务 V1.0 - Orchestrator】
+    启动一个全局的、覆盖所有股票、所有历史数据的信号性能分析任务。
+    这是一个三级火箭式的MapReduce任务流。
+    """
+    try:
+        logger.info("====== [全局信号性能分析 V1.0] 总指挥任务启动 ======")
+        
+        # 1. 获取所有股票代码
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
+        all_codes = favorite_codes + non_favorite_codes
+        
+        if not all_codes:
+            logger.warning("[全局分析] 未找到任何股票，任务终止。")
+            return {"status": "skipped", "reason": "no stocks found"}
+        
+        stock_count = len(all_codes)
+        logger.info(f"[全局分析] 发现 {stock_count} 只股票，准备启动分布式计算...")
+
+        # 2. 创建MapReduce工作流
+        # Map阶段：为每只股票创建一个独立的分析任务
+        map_tasks = group(
+            analyze_performance_for_one_stock.s(code).set(queue='analysis_tasks') for code in all_codes
+        )
+        
+        # Reduce阶段：创建一个聚合任务，它将在所有map任务完成后执行
+        reduce_task = aggregate_performance_results.s().set(queue='celery')
+        
+        # 使用chain将Map和Reduce连接起来
+        workflow = chain(map_tasks, reduce_task)
+        
+        # 3. 启动工作流
+        workflow.apply_async()
+        
+        logger.info(f"[全局分析] 已成功为 {stock_count} 只股票启动【全局性能分析】任务流。请关注聚合任务的最终报告。")
+        return {"status": "workflow_started", "stock_count": stock_count}
+
+    except Exception as e:
+        logger.error(f"[全局分析] 总指挥任务启动失败: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_for_one_stock', queue='calculate_strategy', acks_late=True)
+@with_cache_manager
+def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: CacheManager):
+    """
+    【并行计算任务 V1.0 - Map】
+    对单只股票进行全历史回测，并返回其所有信号的触发和成功次数。
+    """
+    logger.info(f"  [Map] 开始处理: {stock_code}")
+    try:
+        # 动态导入，避免循环依赖和不必要的加载
+        from strategies.trend_following.performance_analyzer import PerformanceAnalyzer
+        from strategies.trend_following.utils import get_params_block, get_param_value
+
+        # 1. 初始化总指挥并运行策略
+        strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
+        # 使用async_to_sync在同步的Celery任务中调用异步方法
+        async_to_sync(strategy_orchestrator.run_for_stock)(stock_code, latest_only=False)
+
+        # 2. 获取策略运行结果
+        df_indicators = strategy_orchestrator.daily_analysis_df
+        score_details_df = getattr(strategy_orchestrator.tactical_engine, '_last_score_details_df', pd.DataFrame())
+        
+        if df_indicators is None or df_indicators.empty or score_details_df.empty:
+            logger.warning(f"  [Map] {stock_code} 策略运行后未生成有效数据，跳过。")
+            return []
+
+        # 3. 运行分析器并返回结果
+        analyzer_params = get_params_block(strategy_orchestrator.tactical_engine, 'performance_analysis_params')
+        scoring_params = get_params_block(strategy_orchestrator.tactical_engine, 'four_layer_scoring_params')
+        
+        analyzer = PerformanceAnalyzer(
+            df_indicators=df_indicators,
+            score_details_df=score_details_df,
+            analysis_params=analyzer_params,
+            scoring_params=scoring_params
+        )
+        # run_analysis 现在返回一个列表
+        result = analyzer.run_analysis()
+        logger.info(f"  [Map] 完成处理: {stock_code}, 发现 {len(result)} 个有效信号统计。")
+        return result
+
+    except Exception as e:
+        logger.error(f"  [Map] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
+        return [] # 返回空列表以保证整个工作流能继续进行
+
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_performance_results', queue='celery')
+def aggregate_performance_results(self, results: list):
+    """
+    【结果聚合任务 V1.0 - Reduce】
+    收集所有并行计算任务的结果，进行全局聚合，并打印最终报告。
+    """
+    logger.info("====== [全局信号性能分析 V1.0] 聚合任务启动 ======")
+    logger.info(f"已收到来自 {len(results)} 个并行任务的结果，开始聚合...")
+
+    # 1. 扁平化结果列表
+    # results 是一个列表的列表, e.g., [[...], [...], []]
+    all_stats = [item for sublist in results if sublist for item in sublist]
+
+    if not all_stats:
+        logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
+        return {"status": "finished", "reason": "no data to aggregate"}
+
+    # 2. 聚合数据
+    df = pd.DataFrame(all_stats)
+    
+    # 按信号的原始名称和类型分组，对触发和成功次数求和
+    agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
+        triggers=('triggers', 'sum'),
+        successes=('successes', 'sum')
+    ).reset_index()
+
+    # 3. 计算全局成功率
+    agg_df['success_rate'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+
+    # 4. 格式化输出
+    agg_df = agg_df.rename(columns={
+        'cn_name': '信号名称',
+        'type': '类型',
+        'triggers': '总触发',
+        'successes': '总成功',
+        'success_rate': '成功率(%)'
+    })
+    agg_df['成功率(%)'] = agg_df['成功率(%)'].apply(lambda x: f"{x:.1%}")
+    
+    # 按类型和成功率排序
+    final_report_df = agg_df.sort_values(
+        by=['类型', '成功率(%)', '总触发'], 
+        ascending=[True, False, False]
+    )[['信号名称', '类型', '总触发', '总成功', '成功率(%)']]
+
+    # 5. 打印最终报告
+    print("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
+        print(final_report_df.to_string(index=False))
+    print("=" * 95 + "\n")
+    
+    logger.info("====== [全局信号性能分析 V1.0] 聚合任务完成 ======")
+    return {"status": "success", "aggregated_signals": len(final_report_df)}
+
+
+# =================================================================
+# =================== 4. 基于DB的性能回测任务 (新增) ==================
+# =================================================================
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_from_db', queue='calculate_strategy')
+@with_cache_manager
+def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
+    """
+    【新增 V1.0 - 数据库直读版】
+    直接从数据库读取预计算的策略分数和行情数据，对单个股票进行快速性能回测分析。
+    这是一个I/O密集型任务，速度极快。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [DB直读性能分析任务启动] ---")
+    logger.info(f"  - 股票代码: {stock_code}")
+    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    logger.info("="*80)
+
+    async def main():
+        # 1. 初始化性能分析服务
+        service = PerformanceAnalysisService(cache_manager)
+        
+        # 2. 调用服务执行分析，并获取原始结果
+        raw_results = await service.run_analysis_for_stock(
+            stock_code=stock_code,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # 3. 格式化并打印报告 (与之前的任务逻辑相同)
+        if not raw_results:
+            logger.info(f"[{stock_code}] 未发现任何可供分析的信号数据。")
+        else:
+            df = pd.DataFrame(raw_results)
+            df['success_rate'] = (df['successes'] / df['triggers']).where(df['triggers'] > 0, 0)
+            df = df.rename(columns={
+                'cn_name': '信号名称', 'type': '类型',
+                'triggers': '触发次数', 'successes': '成功次数'
+            })
+            df['成功率(%)'] = df['success_rate'].apply(lambda x: f"{x:.1%}")
+            report_df = df.sort_values(
+                by=['类型', 'success_rate', '触发次数'], 
+                ascending=[True, False, False]
+            )[['信号名称', '类型', '触发次数', '成功次数', '成功率(%)']]
+            
+            print("\n\n" + "="*30 + f" [{stock_code} DB直读性能分析报告] " + "="*30)
+            with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
+                print(report_df.to_string(index=False))
+            print("=" * 90 + "\n")
+
+        logger.info(f"--- [DB直读性能分析任务完成] ---")
+        return {"status": "success", "stock_code": stock_code, "period": f"{start_date}-{end_date}"}
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+
+
+# =================================================================
+# =================== 5. 全局性能回测分析任务 (新增) ==================
+# =================================================================
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='calculate_strategy')
+@with_cache_manager
+def run_global_performance_analysis(self, start_date: str, end_date: str, *, cache_manager: CacheManager):
+    """
+    【新增 V1.0 - 全局扫描版】
+    对全市场所有股票，在指定时间段内，基于数据库的预计算结果进行并发回测分析，
+    并最终汇总生成一份全局的信号性能报告。
+    - 这是一个重量级但非常有价值的分析任务。
+    """
+    logger.info("="*80)
+    logger.info(f"--- [全局信号性能扫描任务启动] ---")
+    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    logger.info("="*80)
+
+    async def main():
+        # 1. 初始化服务和DAO
+        service = PerformanceAnalysisService(cache_manager)
+        stock_dao = StockBasicInfoDao(cache_manager)
+
+        # 2. 获取全市场股票列表
+        logger.info("正在获取全市场股票列表...")
+        all_stocks = await stock_dao.get_stock_list()
+        if not all_stocks:
+            logger.error("无法获取股票列表，任务终止。")
+            return {"status": "error", "reason": "Failed to get stock list."}
+        
+        total_stocks = len(all_stocks)
+        logger.info(f"获取到 {total_stocks} 只股票，准备开始并发分析...")
+
+        # 3. 创建所有股票的并发分析任务
+        analysis_tasks = []
+        for stock in all_stocks:
+            # 为每只股票创建一个分析协程任务
+            task = service.run_analysis_for_stock(
+                stock_code=stock.stock_code,
+                start_date=start_date,
+                end_date=end_date
+            )
+            analysis_tasks.append(task)
+        
+        # 4. 使用 asyncio.gather 并发执行所有分析任务
+        # return_exceptions=True 确保即使个别任务失败，也不会中断整个过程
+        results_from_all_stocks = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+        
+        # 5. 收集并扁平化所有结果
+        all_raw_results = []
+        processed_count = 0
+        failed_count = 0
+        for i, result in enumerate(results_from_all_stocks):
+            stock_code = all_stocks[i].stock_code
+            if isinstance(result, Exception):
+                logger.warning(f"分析股票 {stock_code} 时发生错误: {result}")
+                failed_count += 1
+            elif result: # 确保结果不为空列表
+                all_raw_results.extend(result)
+                processed_count += 1
+            else:
+                # 结果为空列表，也算处理过但无数据
+                processed_count += 1
+        
+        logger.info(f"并发分析完成。成功处理: {processed_count}只, 失败: {failed_count}只。")
+
+        if not all_raw_results:
+            logger.warning("所有股票均未产生可分析的数据，无法生成全局报告。")
+            return {"status": "success", "message": "No analyzable data found."}
+
+        # 6. 使用Pandas进行全局聚合分析
+        logger.info("正在对所有结果进行全局聚合分析...")
+        df = pd.DataFrame(all_raw_results)
+        
+        # 按信号名称、中文名和类型分组，计算总的触发和成功次数
+        aggregated_df = df.groupby(['name', 'cn_name', 'type']).agg(
+            total_triggers=('triggers', 'sum'),
+            total_successes=('successes', 'sum')
+        ).reset_index()
+
+        # 7. 计算全局成功率并格式化报告
+        aggregated_df['global_success_rate'] = (
+            aggregated_df['total_successes'] / aggregated_df['total_triggers']
+        ).where(aggregated_df['total_triggers'] > 0, 0)
+
+        aggregated_df = aggregated_df.rename(columns={
+            'cn_name': '信号名称',
+            'type': '类型',
+            'total_triggers': '总触发次数',
+            'total_successes': '总成功次数'
+        })
+        aggregated_df['全局成功率(%)'] = aggregated_df['global_success_rate'].apply(lambda x: f"{x:.1%}")
+
+        # 8. 排序并打印最终的全局报告
+        final_report_df = aggregated_df.sort_values(
+            by=['类型', 'global_success_rate', '总触发次数'],
+            ascending=[True, False, False]
+        )[['信号名称', '类型', '总触发次数', '总成功次数', '全局成功率(%)']]
+
+        print("\n\n" + "="*35 + f" [全局信号性能分析报告 ({start_date} to {end_date})] " + "="*35)
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 150):
+            print(final_report_df.to_string(index=False))
+        print("=" * 110 + "\n")
+
+        logger.info(f"--- [全局信号性能扫描任务完成] ---")
+        return {"status": "success", "total_stocks": total_stocks, "processed": processed_count, "failed": failed_count}
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"执行全局性能分析任务时发生严重错误: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
