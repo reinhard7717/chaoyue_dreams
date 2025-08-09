@@ -1,5 +1,5 @@
 # 文件: services/performance_analysis_service.py
-# 新增模块：基于数据库的性能分析服务
+# 版本: V1.2 - 智能处理开放日期边界
 import logging
 import pandas as pd
 from asgiref.sync import sync_to_async
@@ -16,42 +16,35 @@ logger = logging.getLogger(__name__)
 
 class PerformanceAnalysisService:
     """
-    【V1.0】基于数据库预计算结果的性能分析服务
+    【V1.2】基于数据库预计算结果的性能分析服务
     - 核心职责: 直接从数据库加载已有的策略分数和行情数据，
                 转换成分析器所需的格式，并执行性能回测。
     - 优势: 速度极快，将原本数分钟的计算+分析过程缩短到秒级。
     """
     def __init__(self, cache_manager: CacheManager):
-        """
-        构造函数
-        - 职责: 初始化服务所需的所有依赖和配置。
-        """
-        # 1. 初始化用于获取行情数据的DAO，并注入缓存管理器
         self.time_trade_dao = StockTimeTradeDAO(cache_manager)
-        
-        # 2. 定义策略配置文件的路径
+        # 加载策略配置以获取分析参数
         unified_config_path = 'config/trend_follow_strategy.json'
-        
-        # 3. 使用工具函数加载完整的策略配置，并将其存储为实例属性
         self.unified_config = load_strategy_config(unified_config_path)
-        
-        # 4. 从总配置中提取出“性能分析”相关的参数块
-        #    注意：这里传递的是一个字典，以适配 get_params_block 工具函数
         self.analyzer_params = get_params_block({'unified_config': self.unified_config}, 'performance_analysis_params')
-        
-        # 5. 从总配置中提取出“四层评分模型”相关的参数块，供分析器使用
         self.scoring_params = get_params_block({'unified_config': self.unified_config}, 'four_layer_scoring_params')
 
-
-    async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
+        【V1.2 修改】
         从数据库中异步获取并构建分析所需的核心DataFrame。
+        - 新增: 能够处理 start_date 或 end_date 为 None 的情况，将其解释为无边界查询。
         :return: (df_indicators, score_details_df)
         """
-        print(f"    -> [DB Service] 正在为 {stock_code} 从数据库加载 {start_date} 到 {end_date} 的数据...")
+        # 【代码修改】优化日志输出，当日期为None时提供更清晰的描述
+        print(f"    -> [DB Service] 正在为 {stock_code} 从数据库加载 {start_date or '最早'} 到 {end_date or '最晚'} 的数据...")
         
         # 1. 异步获取日线行情数据 (价格)
-        daily_price_df = await self.time_trade_dao.get_daily_data(stock_code, start_date.replace('-', ''), end_date.replace('-', ''))
+        # 【代码修改】安全地处理可能为None的日期参数，再调用replace方法
+        start_date_for_dao = start_date.replace('-', '') if start_date else None
+        end_date_for_dao = end_date.replace('-', '') if end_date else None
+        daily_price_df = await self.time_trade_dao.get_daily_data(stock_code, start_date_for_dao, end_date_for_dao)
+        
         if daily_price_df.empty:
             logger.warning(f"[{stock_code}] 在指定日期内未找到日线行情数据。")
             return None, None
@@ -60,10 +53,14 @@ class PerformanceAnalysisService:
         daily_price_df.index = daily_price_df.index.date # 将索引从datetime转换为date
 
         # 2. 异步获取策略每日分数 (信号)
-        daily_scores_qs = StrategyDailyScore.objects.filter(
-            stock__stock_code=stock_code,
-            trade_date__range=(start_date, end_date)
-        ).order_by('trade_date')
+        # 【代码修改】动态构建查询条件以支持开放日期
+        score_filters = {'stock__stock_code': stock_code}
+        if start_date:
+            score_filters['trade_date__gte'] = start_date
+        if end_date:
+            score_filters['trade_date__lte'] = end_date
+        
+        daily_scores_qs = StrategyDailyScore.objects.filter(**score_filters).order_by('trade_date')
         daily_scores_list = await sync_to_async(list)(daily_scores_qs.values('trade_date', 'signal_type'))
         if not daily_scores_list:
             logger.warning(f"[{stock_code}] 在指定日期内未找到策略分数数据。")
@@ -78,9 +75,15 @@ class PerformanceAnalysisService:
             return None, None
         
         # 4. 异步获取分数构成详情，并构建 score_details_df
+        # 【代码修改】同样为分数详情查询动态构建过滤条件
+        component_filters = {'daily_score__stock__stock_code': stock_code}
+        if start_date:
+            component_filters['daily_score__trade_date__gte'] = start_date
+        if end_date:
+            component_filters['daily_score__trade_date__lte'] = end_date
+            
         score_components_qs = StrategyScoreComponent.objects.filter(
-            daily_score__stock__stock_code=stock_code,
-            daily_score__trade_date__range=(start_date, end_date)
+            **component_filters
         ).select_related('daily_score')
         
         components_list = await sync_to_async(list)(
@@ -104,14 +107,16 @@ class PerformanceAnalysisService:
         print(f"    -> [DB Service] 数据加载与转换完成。行情: {len(df_indicators)}天, 信号详情: {len(score_details_df)}天。")
         return df_indicators, score_details_df
 
-    async def run_analysis_for_stock(self, stock_code: str, start_date: str, end_date: str) -> list:
+    async def run_analysis_for_stock(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> list:
         """
         为单个股票执行基于数据库的回测分析。
+        【V1.2 修改】移除了之前版本的日期校验，因为现在底层支持None日期。
         """
         df_indicators, score_details_df = await self._fetch_analysis_data_from_db(stock_code, start_date, end_date)
 
         if df_indicators is None or df_indicators.empty or score_details_df is None:
-            logger.error(f"[{stock_code}] 无法从数据库获取足够的数据进行分析。")
+            # 【代码修改】日志信息调整，不再暗示是数据获取问题，而是合并后无数据
+            logger.warning(f"[{stock_code}] 获取并合并数据后，无有效数据可供分析。")
             return []
 
         # 检查性能分析是否启用
@@ -132,3 +137,19 @@ class PerformanceAnalysisService:
         except Exception as e:
             logger.error(f"[{stock_code}] 性能分析器在执行过程中发生异常: {e}", exc_info=True)
             return []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
