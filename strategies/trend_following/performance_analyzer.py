@@ -77,7 +77,7 @@ class PerformanceAnalyzer:
         if not trade_outcomes:
             return []
         outcomes_df = pd.DataFrame(trade_outcomes).set_index('entry_date')
-        score_map = get_param_value(self.scoring_params, 'score_type_map', {})
+        score_map = self.scoring_params.get('score_type_map', {})
         analysis_results = []
         for signal_name in self.score_details_df.columns:
             if signal_name not in score_map:
