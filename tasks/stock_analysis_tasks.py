@@ -11,7 +11,7 @@ from asgiref.sync import async_to_sync
 from celery import Celery
 from celery import group, chain
 from utils.task_helpers import with_cache_manager
-import traceback
+from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
 import pandas as pd
 from django.db import transaction
@@ -19,7 +19,7 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore
+from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal
 from stock_models.index import TradeCalendar
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
@@ -198,54 +198,58 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V7.0 终极解耦版】
-    - 核心架构: 与全历史任务完全一致，此任务的【唯一职责】是更新当日的 StrategyDailyScore。
+    【V7.2 高性能清理版】
+    - 核心架构: 更新当日的 StrategyDailyScore。
+    - 新增: 使用高效的 ORM filter().delete() 方法清理当日旧数据，确保任务幂等性。
     """
     try:
-        logger.info("====== [公共数据库建设-每日增量 V7.0] 启动 ======")
-
-        # 1. 获取权威交易日 (逻辑不变)
+        logger.info("====== [公共数据库建设-每日增量 V7.2] 启动 ======")
+        # 步骤1: 获取权威交易日 (逻辑不变)
         reference_date = timezone.now().date()
         latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
         if not latest_trade_dates:
             logger.error("【严重错误】无法从交易日历中获取最新的交易日，任务终止！")
             return {"status": "failed", "reason": "Cannot get latest trade date from calendar."}
-        
         latest_trade_date = latest_trade_dates[0]
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
-        
+        # 步骤2: 使用高效的 filter().delete() 清理当日旧数据
+        logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
+        try:
+            # 使用事务确保所有删除操作的原子性
+            with transaction.atomic():
+                # Django ORM的 filter().delete() 会被翻译成一条高效的 SQL DELETE ... WHERE ... 语句，
+                # 它不会加载对象到内存，对于有索引的字段，此操作非常快。
+                # 删除当日的 StrategyDailyScore。由于级联删除(on_delete=CASCADE)，关联的 StrategyScoreComponent 会被自动删除。
+                deleted_scores_count, _ = StrategyDailyScore.objects.filter(trade_date=latest_trade_date).delete()
+                # 删除当日的 TradingSignal。关联的 SignalPlaybookDetail 会被自动删除。
+                # 使用 __date 从 DateTimeField 字段中匹配日期。
+                deleted_signals_count, _ = TradingSignal.objects.filter(trade_time__date=latest_trade_date).delete()
+                logger.info(f"清理完成。删除了 {deleted_scores_count} 条每日分数记录，{deleted_signals_count} 条交易信号记录 (及其关联子项)。")
+        except Exception as e:
+            logger.error(f"清理 {trade_time_str} 的旧数据时发生严重错误，任务终止: {e}", exc_info=True)
+            return {"status": "failed", "reason": "Data cleanup failed."}
+        # 步骤3: 获取股票列表 (逻辑不变)
         all_codes = []
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes.extend(favorite_codes)
         all_codes.extend(non_favorite_codes)
-        
         if not all_codes:
             logger.warning("[每日增量] 未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
-            
         stock_count = len(all_codes)
         logger.info(f"[每日增量] 准备为 {stock_count} 只股票更新当日策略分数。")
-        
-        # --- 代码修改开始：回归最简单的并行任务组 ---
+        # 步骤4: 派发并行任务 (逻辑不变)
         analysis_tasks = [
             run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in all_codes
         ]
-        
         workflow = group(analysis_tasks)
         workflow.apply_async()
-        # --- 代码修改结束 ---
-        
         logger.info(f"[每日增量] 已成功为 {stock_count} 只股票启动【当日】分数计算任务。")
         return {"status": "workflow_started", "stock_count": stock_count}
-        
     except Exception as e:
         logger.error(f"[每日增量] 任务调度时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
-
-# 辅助函数 _chunker 保持不变
-def _chunker(seq, size):
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 @celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
 def update_favorite_stock_trackers(self):
@@ -908,14 +912,25 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
 @with_cache_manager
 def run_global_performance_analysis(self, start_date: str, end_date: str, *, cache_manager: CacheManager):
     """
-    【新增 V1.0 - 全局扫描版】
+    【V1.1 - 健壮性增强版】
     对全市场所有股票，在指定时间段内，基于数据库的预计算结果进行并发回测分析，
     并最终汇总生成一份全局的信号性能报告。
-    - 这是一个重量级但非常有价值的分析任务。
+    - 新增: 自动处理 start_date 和 end_date 为空的情况。
     """
     logger.info("="*80)
     logger.info(f"--- [全局信号性能扫描任务启动] ---")
-    logger.info(f"  - 分析时段: {start_date} to {end_date}")
+    
+    # 【代码新增】开始：处理日期参数为空的情况
+    if not start_date:
+        start_date = '1990-01-01' # 设置一个非常早的默认起始日期
+        logger.info(f"  -> start_date为空，已自动设置为默认起始日期: {start_date}")
+
+    if not end_date:
+        end_date = date.today().strftime('%Y-%m-%d') # 设置默认结束日期为今天
+        logger.info(f"  -> end_date为空，已自动设置为默认结束日期: {end_date}")
+    # 【代码新增】结束
+
+    logger.info(f"  - 分析时段: {start_date} to {end_date}") # 【代码修改】将此行日志移到日期处理之后
     logger.info("="*80)
 
     async def main():
