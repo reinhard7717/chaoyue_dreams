@@ -948,11 +948,11 @@
     "enabled": true,
     "说明": "战后复盘分析模块。用于在回测结束后，统计各项得分信号的未来表现。",
     "look_forward_days": {
-      "value": 10,
+      "value": 5,
       "description": "向前看多少个交易日来判断信号的成败。"
     },
     "profit_target_pct": {
-      "value": 0.25,
+      "value": 0.15,
       "description": "盈利目标百分比。在N天内达到此涨幅，记为'成功'。例如0.15代表15%。"
     },
     "stop_loss_pct": {
