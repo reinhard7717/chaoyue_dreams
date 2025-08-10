@@ -29,7 +29,7 @@ def get_daily_data_model_by_code(stock_code: str):
     # 提供一个默认返回值，以防有未覆盖到的情况
     return StockDailyData_SZ
 
-def get_cyq_chips_model_by_code(self, stock_code: str):
+def get_cyq_chips_model_by_code(stock_code: str):
     """
     根据股票代码返回对应的筹码分布数据表Model
     """
