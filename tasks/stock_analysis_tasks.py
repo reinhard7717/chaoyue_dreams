@@ -1020,8 +1020,10 @@ def _get_daily_data_model_by_code(stock_code: str):
     # 提供一个默认返回值，以防有未覆盖到的情况
     return StockDailyData_SZ
 
-@shared_task(name="analysis.run_top_n_performance_analysis", queue='favorite_calculate_strategy')
+
+@celery_app.task(bind=True, name="analysis.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
+    self,
     top_n: int = 5,
     start_date_str: str = None,
     end_date_str: str = None,
