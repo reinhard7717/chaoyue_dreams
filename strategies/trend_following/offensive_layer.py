@@ -58,7 +58,6 @@ class OffensiveLayer:
                 score_details_df[rule_name] = final_condition * score
 
         # --- 2. 评估“阵地/动能火力” (Atomic Scoring) ---
-        # (这部分逻辑与之前类似，但现在只处理最基础的原子信号)
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -73,14 +72,33 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        # --- 3. 评估“触发器火力” (Trigger Scoring) ---
-        # (这部分逻辑不变)
+        # --- 3. 计算纯粹的“阵地分”用于前置条件检查 ---
+        valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
+        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
+
+        # --- 4. 评估“触发器火力” (Trigger Scoring) ---
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
+        enhancement_params = scoring_params.get('trigger_enhancement_params', {})
+        is_enhancement_enabled = get_param_value(enhancement_params.get('enabled'), False)
+        min_positional_score = get_param_value(enhancement_params.get('min_positional_score_for_trigger'), 350)
+
+        # 定义前置条件
+        precondition_met = pd.Series(True, index=df.index)
+        if is_enhancement_enabled:
+            precondition_met = (positional_score >= min_positional_score)
+            print(f"          -> [智能发令枪] 触发器增强已启用，要求阵地分 >= {min_positional_score}。")
+
         for signal_name, score in trigger_rules.items():
             signal_series = trigger_events.get(signal_name, default_series)
-            if signal_series.any():
-                entry_score.loc[signal_series] += score
-                score_details_df[signal_name] = signal_series * score
+            
+            # 只有在原始信号触发，并且满足前置条件（如果启用）时，才最终生效
+            final_trigger_condition = signal_series & precondition_met
+            
+            if final_trigger_condition.any():
+                entry_score.loc[final_trigger_condition] += score
+                score_details_df[signal_name] = final_trigger_condition * score
+                
+        
         
         # print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
         

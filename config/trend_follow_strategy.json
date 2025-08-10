@@ -370,6 +370,13 @@
             "FRACTAL_EVENT_TREND_EXHAUSTION": 500
           }
         },
+        "trigger_enhancement_params": {
+          "enabled": { "value": true, "description": "是否启用触发器增强逻辑的总开关。" },
+          "min_positional_score_for_trigger": {
+            "value": 350,
+            "description": "【核心参数】要求当日的'阵地分'必须达到此阈值，'触发器'分数才会被计入。这确保了触发器只在基础稳固时才起作用。"
+          }
+        },
 
         "trigger_events": {
           "说明": "触发器计分部分。",

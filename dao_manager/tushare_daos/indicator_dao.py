@@ -161,7 +161,6 @@ class IndicatorDAO(BaseDAO):
             return None
         try:
             ModelClass: Optional[Type[models.Model]] = None
-            # ... 您原有的模型选择逻辑保持不变 ...
             if time_level_str == "d":
                 if stock_code.startswith('3') and stock_code.endswith('.SZ'): ModelClass = StockDailyData_CY
                 elif stock_code.endswith('.SZ'): ModelClass = StockDailyData_SZ
@@ -192,25 +191,16 @@ class IndicatorDAO(BaseDAO):
             
             model_name = ModelClass._meta.db_table
             qs = ModelClass.objects.filter(stock=stock)
-            
-            # 【核心修正】确保时间过滤逻辑的完整性
             if trade_time: # 只有当 trade_time 真实存在时，才添加时间过滤
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
-                    # print(f"    - [DAO查询] 应用时间过滤器: trade_time <= {trade_time_dt}")
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            # else:
-                # print(f"    - [DAO查询] 未提供trade_time，将获取最新的 {limit} 条数据。")
-
-            # ... 后续的字段选择、排序、查询、转换逻辑保持不变 ...
             fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount'] if time_level_str == "d" else ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
             rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'vol': 'volume'} if time_level_str == "d" else {'vol': 'volume'}
-            
             limited_qs = qs.order_by('-trade_time')[:limit]
             
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             
-            # print(f"    - [DAO查询结果] 从表 '{model_name}' 成功查询到 {len(data_values)} 条原始记录。")
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
                 return None
