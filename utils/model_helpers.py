@@ -4,7 +4,8 @@
 # 【代码新增】将这个函数提取到这里，以供所有模块复用
 from stock_models.time_trade import (
     StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, 
-    StockDailyData_KC, StockDailyData_BJ
+    StockDailyData_KC, StockDailyData_BJ, StockCyqChipsCY,
+    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ
 )
 
 def get_daily_data_model_by_code(stock_code: str):
