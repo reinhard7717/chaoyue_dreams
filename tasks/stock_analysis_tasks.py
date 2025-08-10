@@ -969,16 +969,10 @@ def aggregate_performance_results(self, results: list):
 @with_cache_manager
 def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
     """
-    【新增 V1.0 - 数据库直读版】
-    直接从数据库读取预计算的策略分数和行情数据，对单个股票进行快速性能回测分析。
-    这是一个I/O密集型任务，速度极快。
+    【V1.2 - 安静的Map任务】
+    作为MapReduce中的Map阶段，此任务只负责计算并返回原始数据，不打印任何报告。
+    - 核心修改: 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
     """
-    logger.info("="*80)
-    logger.info(f"--- [DB直读性能分析任务启动] ---")
-    logger.info(f"  - 股票代码: {stock_code}")
-    logger.info(f"  - 分析时段: {start_date} to {end_date}")
-    logger.info("="*80)
-
     async def main():
         # 1. 初始化性能分析服务
         service = PerformanceAnalysisService(cache_manager)
@@ -990,35 +984,19 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
             end_date=end_date
         )
         
-        # 3. 格式化并打印报告 (与之前的任务逻辑相同)
-        if not raw_results:
-            logger.info(f"[{stock_code}] 未发现任何可供分析的信号数据。")
-        else:
-            df = pd.DataFrame(raw_results)
-            df['success_rate'] = (df['successes'] / df['triggers']).where(df['triggers'] > 0, 0)
-            df = df.rename(columns={
-                'cn_name': '信号名称', 'type': '类型',
-                'triggers': '触发次数', 'successes': '成功次数'
-            })
-            df['成功率(%)'] = df['success_rate'].apply(lambda x: f"{x:.1%}")
-            report_df = df.sort_values(
-                by=['类型', 'success_rate', '触发次数'], 
-                ascending=[True, False, False]
-            )[['信号名称', '类型', '触发次数', '成功次数', '成功率(%)']]
-            
-            print("\n\n" + "="*30 + f" [{stock_code} DB直读性能分析报告] " + "="*30)
-            with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
-                print(report_df.to_string(index=False))
-            print("=" * 90 + "\n")
-
-        logger.info(f"--- [DB直读性能分析任务完成] ---")
-        return {"status": "success", "stock_code": stock_code, "period": f"{start_date}-{end_date}"}
+        return raw_results
 
     try:
-        return async_to_sync(main)()
+        result = async_to_sync(main)()
+        if result:
+            logger.info(f"[Map] {stock_code} 分析完成，发现 {len(result)} 条信号统计。")
+        else:
+            logger.info(f"[Map] {stock_code} 分析完成，无有效信号。")
+        return result
     except Exception as e:
-        logger.error(f"在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
-        return {"status": "error", "stock_code": stock_code, "reason": str(e)}
+        logger.error(f"[Map] 在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
+        return []
 
 
 

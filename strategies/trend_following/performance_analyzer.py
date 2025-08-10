@@ -93,7 +93,7 @@ class PerformanceAnalyzer:
                 'signal_name': signal_name, # 使用原始名称作为key
                 'cn_name': score_map[signal_name].get('cn_name', signal_name),
                 'type': score_map[signal_name].get('type', 'unknown').capitalize(),
-                'triggers': total_triggers,
-                'successes': success_count,
+                'triggers': int(total_triggers), # 确保是标准 int
+                'successes': int(success_count), # 确保是标准 int
             })
         return analysis_results # MODIFIED: 返回原始数据列表
