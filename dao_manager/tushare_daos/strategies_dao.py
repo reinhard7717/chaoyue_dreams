@@ -31,24 +31,6 @@ class StrategiesDAO(BaseDAO):
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
         self.cache_manager = cache_manager_instance
 
-    def get_cyq_chips_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的筹码分布数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return StockCyqChipsCY
-        elif stock_code.endswith('.SZ'):
-            return StockCyqChipsSZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return StockCyqChipsKC
-        elif stock_code.endswith('.SH'):
-            return StockCyqChipsSH
-        elif stock_code.endswith('.BJ'):
-            return StockCyqChipsBJ
-        else:
-            print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
-            return StockCyqChipsSZ  # 默认返回深市主板
-
     async def get_latest_strategy_result(self, stock_code: str):
         """
         获取指定股票的最新策略信号。

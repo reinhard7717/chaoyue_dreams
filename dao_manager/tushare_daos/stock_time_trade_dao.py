@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
@@ -51,24 +52,6 @@ class StockTimeTradeDAO(BaseDAO):
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
 
     # =============== A股日线行情 ===============
-    def get_daily_data_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的日线数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return StockDailyData_CY
-        elif stock_code.endswith('.SZ'):
-            return StockDailyData_SZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return StockDailyData_KC
-        elif stock_code.endswith('.SH'):
-            return StockDailyData_SH
-        elif stock_code.endswith('.BJ'):
-            return StockDailyData_BJ
-        else:
-            print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
-            return StockDailyData_SZ  # 默认返回深市主板
-
     @sync_to_async
     def get_stocks_daily_data(self, stock_codes: List[str], trade_date: datetime.date) -> List:
         """
@@ -90,7 +73,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 使用 defaultdict 可以简化代码，无需检查key是否存在
         model_to_codes_map = defaultdict(list)
         for code in stock_codes:
-            model_class = self.get_daily_data_model_by_code(code)
+            model_class = get_daily_data_model_by_code(code)
             model_to_codes_map[model_class].append(code)
 
         all_daily_data = [] # 用于存储所有查询结果的列表
@@ -135,7 +118,7 @@ class StockTimeTradeDAO(BaseDAO):
         print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
         try:
             # 1. 确定要查询的正确模型（复用现有逻辑）
-            model_class = self.get_daily_data_model_by_code(stock_code)
+            model_class = get_daily_data_model_by_code(stock_code)
             # 2. 将字符串日期转换为 datetime.date 对象以供查询
             start_dt = datetime.strptime(start_date, '%Y%m%d').date()
             end_dt = datetime.strptime(end_date, '%Y%m%d').date()
@@ -177,7 +160,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         try:
             # 1. 使用现有逻辑确定正确的模型
-            model_class = self.get_daily_data_model_by_code(stock_code)
+            model_class = get_daily_data_model_by_code(stock_code)
             
             # 2. 异步查询该模型，按时间倒序排列并获取第一条记录
             # .afirst() 是 Django 异步ORM中最高效的获取单条记录的方式
@@ -269,7 +252,7 @@ class StockTimeTradeDAO(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
             
             # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
-            df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
+            df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
 
             # --- 页级处理，立即使用groupby对DataFrame进行高效分组并保存 ---
             for model_class, group_df in df.groupby('model_class', sort=False):
@@ -372,7 +355,7 @@ class StockTimeTradeDAO(BaseDAO):
             # 3.2 【向量化转换】批量转换日期格式
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             # 3.3 【向量化分组】根据ts_code确定分表模型，并按模型对DataFrame进行分组
-            df['model_class'] = df['ts_code'].apply(self.get_daily_data_model_by_code)
+            df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
             for model_class, group_df in df.groupby('model_class', sort=False):
                 # 3.4 【批量准备数据】选择并重命名列，然后批量转为字典
                 # 注意：这里的列名需要与你的分表模型字段完全对应
@@ -430,7 +413,7 @@ class StockTimeTradeDAO(BaseDAO):
                 if stock:
                     data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
                     data_dicts.append(data_dict)
-            model_class = self.get_daily_data_model_by_code(stock_code)
+            model_class = get_daily_data_model_by_code(stock_code)
             result = await self._save_all_to_db_native_upsert(
                 model_class=model_class,
                 data_list=data_dicts,
@@ -448,7 +431,7 @@ class StockTimeTradeDAO(BaseDAO):
         cache_key = self.cache_key.history_time_trade(stock_code, "Day")
         data_dicts = await self.cache_get.history_time_trade(cache_key)
         # 路由到正确的分表Model
-        model_class = self.get_daily_data_model_by_code(stock_code)
+        model_class = get_daily_data_model_by_code(stock_code)
         stock_daily_data_list = []
         if data_dicts:
             # 如果缓存有数据，直接反序列化为Model实例
@@ -1434,23 +1417,6 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_basic_list
         
     #  =============== A股筹码及胜率 ===============
-    def get_cyq_chips_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的筹码分布数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return StockCyqChipsCY
-        elif stock_code.endswith('.SZ'):
-            return StockCyqChipsSZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return StockCyqChipsKC
-        elif stock_code.endswith('.SH'):
-            return StockCyqChipsSH
-        elif stock_code.endswith('.BJ'):
-            return StockCyqChipsBJ
-        else:
-            print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
-            return StockCyqChipsSZ  # 默认返回深市主板
 
     # 每日筹码及胜率
     async def save_all_cyq_perf_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
@@ -1607,7 +1573,7 @@ class StockTimeTradeDAO(BaseDAO):
         3. [修正] 修正了ORM查询条件以正确通过外键关联进行过滤。
         """
         # [修改] 第一步：根据股票代码动态获取对应的分表Model
-        target_model = self.get_cyq_chips_model_by_code(stock_code)
+        target_model = get_cyq_chips_model_by_code(stock_code)
         print(f"DAO: 正在为股票 {stock_code} 从数据表 {target_model.__name__} 查询筹码分布历史。")
         # [修改] 第二步：直接使用动态获取的Model进行数据库查询
         # 注意：
@@ -1707,7 +1673,7 @@ class StockTimeTradeDAO(BaseDAO):
                     # [修改] 分表批处理核心逻辑
                     if data_dicts_for_stock:
                         # 1. 获取当前股票对应的正确Model
-                        target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
+                        target_model = get_cyq_chips_model_by_code(stock.stock_code)
                         # 2. 如果该Model是第一次出现，在字典中初始化一个空列表
                         if target_model not in batched_data_by_model:
                             batched_data_by_model[target_model] = []
@@ -1818,7 +1784,7 @@ class StockTimeTradeDAO(BaseDAO):
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
-        target_model = self.get_cyq_chips_model_by_code(stock.stock_code)
+        target_model = get_cyq_chips_model_by_code(stock.stock_code)
         # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         # 假设你有一个异步的批量更新或插入方法
         await self._save_all_to_db_native_upsert(
