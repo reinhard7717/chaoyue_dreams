@@ -377,12 +377,13 @@ class OffensiveLayer:
     # 重写此方法，引入“持续性状态”逻辑
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V500.0 阵地加速度版】进攻动能诊断大脑
+        【V500.1 修复版】进攻动能诊断大脑
+        - 核心修复: 修正了对 get_param_value 函数的错误调用，该错误导致在获取 'fading_score_threshold' 时传入了过多参数。
         - 核心升级: 不再只分析笼统的 entry_score，而是将“阵地分”独立出来，精确计算其加速度。
                     生成一个新的、威力巨大的原子状态 `POSITIONAL_ADVANTAGE_ACCELERATING`，
                     作为最高优先级的买入决策过滤器，旨在更精准地捕捉主升浪的起点。
         """
-        print("          -> [进攻动能诊断大脑 V500.0 阵地加速度版] 启动...")
+        print("          -> [进攻动能诊断大脑 V500.1 修复版] 启动...")
         
         # --- 步骤 1: 从总分详情中，精准分离出“纯粹的阵地分” ---
         # “阵地分”是策略的基石，代表了静态的结构性优势，如筹码、形态、均线排列等。
@@ -418,8 +419,19 @@ class OffensiveLayer:
         
         # 状态: 【机会衰退】(否决票来源) - 逻辑不变，但其角色已从主决策者降为风险监控者。
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
-        # 从配置文件读取分数阈值，避免硬编码
-        fading_score_threshold = get_param_value(scoring_params.get('momentum_diagnostics_params', {}), 'fading_score_threshold', 500)
+        
+        # --- 【代码修复】---
+        # [修复原因] get_param_value 函数最多接受2个参数，之前错误地传入了3个。
+        #            正确的做法是先获取参数块，再从块中获取具体值。
+        # 错误代码: fading_score_threshold = get_param_value(scoring_params.get('momentum_diagnostics_params', {}), 'fading_score_threshold', 500)
+        
+        # 正确代码:
+        # 1. 先获取 momentum_diagnostics_params 这个参数块
+        momentum_params = scoring_params.get('momentum_diagnostics_params', {})
+        # 2. 然后从这个块中获取 fading_score_threshold，并提供默认值
+        fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 500)
+        # --- 【代码修复】结束 ---
+
         self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
 
         # 状态: 【风险抬头】(否决票来源) - 逻辑不变
