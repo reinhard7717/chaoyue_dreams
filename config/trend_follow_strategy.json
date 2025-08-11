@@ -300,6 +300,14 @@
             "MA_STATE_STABLE_BULLISH": 70
           }
         },
+        "positional_momentum_params": {
+          "enabled": true,
+          "description": "【V500.0 新增】阵地优势动能诊断参数。用于识别阵地分本身的加速，是捕捉主升浪起点的核心。",
+          "min_acceleration_threshold": {
+            "value": 50,
+            "description": "阵地分的二阶导数（加速度）必须大于此值，才被认为是有效的“阵地优势加速”。单位是分数/天^2。"
+          }
+        },
         "squeeze_shakeout_params": {
           "说明": "【V506.4 新增】压缩区洗盘机会诊断参数",
           "drop_threshold": -0.03,

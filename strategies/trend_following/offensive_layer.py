@@ -326,64 +326,123 @@ class OffensiveLayer:
             },
         ]
 
+    def _create_persistent_state_from_events(self, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series) -> pd.Series:
+        """
+        【新增工具函数 V401.1】创建一个基于事件的持续性状态。
+        这是将理想化数学模型改造为实战策略的关键工具。
+        - 状态一旦由 entry_event_series 触发，将持续 persistence_days 天。
+        - 如果在持续期间 break_condition_series 为 True，则状态立即中断。
+        - 如果在状态持续期间，新的 entry_event 发生，则重置持续天数。
+        - 采用循环实现，确保逻辑清晰和准确，对于单只股票的回测性能足够。
+        
+        Args:
+            entry_event_series (pd.Series): 触发状态开始的布尔序列 (瞬时事件)。
+            persistence_days (int): 状态希望持续的天数。
+            break_condition_series (pd.Series): 立即中断状态的布尔序列。
+
+        Returns:
+            pd.Series: 代表持续状态的布尔序列。
+        """
+        in_state = False
+        days_left = 0
+        output_state = pd.Series(False, index=entry_event_series.index)
+        
+        # 为了效率，将Series转为numpy array进行迭代
+        entry_events = entry_event_series.to_numpy()
+        break_conditions = break_condition_series.to_numpy()
+        output_array = output_state.to_numpy()
+
+        for i in range(len(entry_events)):
+            # 步骤 1: 检查中断条件，如果满足，立即退出状态
+            if in_state and break_conditions[i]:
+                in_state = False
+                days_left = 0
+                
+            # 步骤 2: 检查新的入口事件，如果触发，则进入/重置状态
+            if entry_events[i]:
+                in_state = True
+                days_left = persistence_days
+                
+            # 步骤 3: 维持状态
+            if in_state and days_left > 0:
+                output_array[i] = True
+                days_left -= 1
+            else:
+                # 如果持续时间结束，也退出状态
+                in_state = False
+                
+        return pd.Series(output_array, index=entry_event_series.index)
+
+    # --- 【代码修改】---
+    # 重写此方法，引入“持续性状态”逻辑
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V401.0 决策升级版】进攻动能诊断大脑
-        - 核心升级: 不再只生成用于调试的文本报告，而是直接生成三个关键的【决策级原子状态】，
-                    供 JudgmentLayer 直接使用，实现对趋势拐点的精确捕捉。这是解决“高分陷阱”问题的核心。
-        - 输出:
-          - SCORE_DYN_OFFENSE_ACCELERATING: 进攻加速状态，买入决策的终极过滤器。
-          - SCORE_DYN_OPPORTUNITY_FADING: 机会衰退状态，否决票的重要来源。
-          - SCORE_DYN_RISK_ESCALATING: 风险抬头状态，否决票的重要来源。
+        【V500.0 阵地加速度版】进攻动能诊断大脑
+        - 核心升级: 不再只分析笼统的 entry_score，而是将“阵地分”独立出来，精确计算其加速度。
+                    生成一个新的、威力巨大的原子状态 `POSITIONAL_ADVANTAGE_ACCELERATING`，
+                    作为最高优先级的买入决策过滤器，旨在更精准地捕捉主升浪的起点。
         """
-        print("          -> [进攻动能诊断大脑 V401.0] 启动，正在生成决策级状态...")
+        print("          -> [进攻动能诊断大脑 V500.0 阵地加速度版] 启动...")
         
-        # --- 步骤 1: 计算进攻分数的一阶导数(变化量)和二阶导数(加速度) ---
+        # --- 步骤 1: 从总分详情中，精准分离出“纯粹的阵地分” ---
+        # “阵地分”是策略的基石，代表了静态的结构性优势，如筹码、形态、均线排列等。
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
+        # 确保只使用在 score_details_df 中实际存在的列，增强代码健壮性
+        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
+        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=score_details_df.index)
+
+        # --- 步骤 2: 计算“阵地分”的一阶导数(速度)和二阶导数(加速度) ---
+        # 这是本次升级的核心，我们关注的是基本盘改善的速度和加速度。
+        positional_change = positional_score.diff(1).fillna(0)
+        positional_accel = positional_change.diff(1).fillna(0)
+
+        # --- 步骤 3: 【新增核心状态】根据“阵地分加速度”生成决策级原子状态 ---
+        # 从配置文件中读取“阵地优势加速”的判断阈值，增加策略灵活性。
+        p_pos_mom = scoring_params.get('positional_momentum_params', {})
+        min_accel_threshold = get_param_value(p_pos_mom.get('min_acceleration_threshold'), 50)
+        
+        # 定义“阵地优势加速”状态：
+        # 1. 阵地分本身在增长 (positional_change > 0)
+        # 2. 阵地分的加速度超过了我们设定的最小阈值 (positional_accel > min_accel_threshold)
+        # 这个状态是最高质量的买入信号过滤器。
+        is_positional_advantage_accelerating = (positional_change > 0) & (positional_accel > min_accel_threshold)
+        self.strategy.atomic_states['POSITIONAL_ADVANTAGE_ACCELERATING'] = is_positional_advantage_accelerating
+        if is_positional_advantage_accelerating.any():
+            print(f"            -> [S级核心决策] 侦测到 {is_positional_advantage_accelerating.sum()} 次“阵地优势加速”黄金信号！")
+
+        # --- 步骤 4: 计算总分(entry_score)的动态，主要用于风险控制（机会衰退）---
+        # 总分的动态现在更多地用于判断趋势是否力竭，作为否决票的来源。
         score_change = entry_score.diff(1).fillna(0)
         score_accel = score_change.diff(1).fillna(0)
-
-        # --- 步骤 2: 定义并生成决策级的原子状态，存入策略的全局状态字典中 ---
         
-        # 状态 1: 【进攻加速】(核心买入过滤器)
-        # 定义：进攻分数在增长(score_change > 0)，且其增长的势头也在增强(score_accel > 0)。
-        # 意义：这代表了趋势的“点火”瞬间，是捕捉主升浪起点、规避末端高潮的关键信号。
-        is_offense_accelerating = (score_change > 0) & (score_accel > 0)
-        self.strategy.atomic_states['SCORE_DYN_OFFENSE_ACCELERATING'] = is_offense_accelerating
-        if is_offense_accelerating.any():
-            print(f"            -> [核心决策] 侦测到 {is_offense_accelerating.sum()} 次“进攻加速”点火信号！")
-
-        # 状态 2: 【机会衰退】(否决票来源)
-        # 定义：进攻分数仍在增长但加速度已转为负(动能减弱)，或分数本身已开始下降。
-        # 意义：这是趋势动能衰竭的早期预警信号，表明最好的进攻时机已过。
-        # 增加 entry_score.shift(1) > 500 条件，确保只在高分后的衰退才触发，避免在低分区间误判。
+        # 状态: 【机会衰退】(否决票来源) - 逻辑不变，但其角色已从主决策者降为风险监控者。
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
-        self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > 500)
+        # 从配置文件读取分数阈值，避免硬编码
+        fading_score_threshold = get_param_value(scoring_params.get('momentum_diagnostics_params', {}), 'fading_score_threshold', 500)
+        self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
 
-        # 状态 3: 【风险抬头】(否决票来源)
-        # 定义：风险分数在增加，且其增加的势头也在增强。
-        # 意义：捕捉风险的加速恶化，作为强烈的规避信号。
+        # 状态: 【风险抬头】(否决票来源) - 逻辑不变
         risk_score = self.strategy.df_indicators.get('risk_score', pd.Series(0.0, index=entry_score.index))
         risk_change = risk_score.diff(1).fillna(0)
         risk_accel = risk_change.diff(1).fillna(0)
         is_risk_escalating = (risk_change > 0) & (risk_accel > 0)
         self.strategy.atomic_states['SCORE_DYN_RISK_ESCALATING'] = is_risk_escalating
         
-        # --- 步骤 3: 生成用于调试的详细诊断报告 (此部分逻辑保留，不影响决策) ---
+        # --- 步骤 5: 生成用于调试的详细诊断报告 (此部分逻辑保留，不影响决策) ---
+        # 这份报告现在可以同时展示总分和阵地分的动态，便于深入分析。
         diagnostics = pd.Series([{} for _ in range(len(entry_score))], index=entry_score.index)
         
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
         dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {}).keys()
-        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
         valid_dyn_cols = [col for col in dynamic_rules if col in score_details_df.columns]
-        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=score_details_df.index)
         dynamic_score = score_details_df[valid_dyn_cols].sum(axis=1) if valid_dyn_cols else pd.Series(0.0, index=score_details_df.index)
-        positional_change = positional_score.diff(1).fillna(0)
         dynamic_change = dynamic_score.diff(1).fillna(0)
+        
         stall_condition = (score_change <= 0) & (entry_score.shift(1) > 0)
         decel_condition = (score_change > 0) & (score_accel < 0)
         base_erosion_condition = (positional_change < 0)
         divergence_condition = (positional_change <= 0) & (dynamic_change > 0) & (entry_score > 0)
+        
         for idx in entry_score.index:
             report = {}
             if stall_condition.at[idx]: report['stall'] = f"进攻停滞(总分变化: {score_change.at[idx]:.0f})"
@@ -391,9 +450,9 @@ class OffensiveLayer:
             if base_erosion_condition.at[idx]: report['base_erosion'] = f"阵地侵蚀(阵地分变化: {positional_change.at[idx]:.0f})"
             if divergence_condition.at[idx]: report['divergence'] = "结构性背离(动能分虚高)"
             if report: diagnostics.at[idx] = report
-
+            
         return diagnostics
-
+    
 
 
 

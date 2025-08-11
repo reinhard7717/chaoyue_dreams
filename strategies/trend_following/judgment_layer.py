@@ -112,18 +112,15 @@ class JudgmentLayer:
         not_avoid = df['dynamic_action'] != 'AVOID'
         is_not_sell_day = ~is_sell_signal
 
-        # --- 【代码修改】引入最终的“拐点”过滤器 ---
-        # 从原子状态中获取由 OffensiveLayer 计算出的“进攻加速”信号
-        is_at_inflection_point = atomic.get('SCORE_DYN_OFFENSE_ACCELERATING', default_series)
+        # 使用新的、更强大的“阵地优势加速”作为最终过滤器
+        is_positional_advantage_accelerating = atomic.get('POSITIONAL_ADVANTAGE_ACCELERATING', default_series) # 新逻辑
         
-        # 最终买入条件 = 净得分充足 & 动态力学不规避 & 当天无卖出信号 & 【处于进攻加速拐点】
         final_buy_condition = (
             is_net_score_sufficient &
             not_avoid &
             is_not_sell_day &
-            is_at_inflection_point  # <--- 这是决定性的新增条件，确保只在趋势“点火”时买入！
+            is_positional_advantage_accelerating  # <--- 使用新的、更严格、更具前瞻性的决策过滤器！
         )
-        # --- 【代码修改】结束 ---
 
         # 根据最终条件，设置信号类型
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
