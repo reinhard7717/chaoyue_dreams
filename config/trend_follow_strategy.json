@@ -275,21 +275,21 @@
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
             "说明_新筹码体系": "--- 分级筹码信号 (含加速度) ---",
-            "OPP_CHIP_LOCKED_BREAKOUT_S": 550,
-            "CHIP_CONC_LOCKED_AND_STABLE_A": 350,
-            "CHIP_CONC_INTENSIFYING_B_PLUS": 250,
+            "OPP_CHIP_LOCKED_BREAKOUT_S": 400,
+            "CHIP_CONC_LOCKED_AND_STABLE_A": 280,
+            "CHIP_CONC_INTENSIFYING_B_PLUS": 200,
             "CHIP_CONC_ACCELERATED_GATHERING_B": 150,
             "CHIP_CONC_STEADY_GATHERING_C": 50,
             "说明_原有信号": "--- 原有阵地信号 ---",
-            "PULLBACK_STATE_SUPPRESSIVE_S": 450,
-            "OPP_SQUEEZE_ZONE_SHAKEOUT_S": 420,
+            "PULLBACK_STATE_SUPPRESSIVE_S": 360,
+            "OPP_SQUEEZE_ZONE_SHAKEOUT_S": 340,
             "OPP_CHIP_PULLBACK_HAMMER_A": 400,
             "OPP_PEAK_BATTLE_BREAKOUT_A": 380,
             "PULLBACK_STATE_HEALTHY_S": 350,
             "OPP_FIB_SUPPORT_GOLDEN_POCKET_S": 350,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
             "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": 280,
-            "STRUCTURE_MAIN_UPTREND_WAVE_S": 250,
+            "STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
             "OPP_FIB_SUPPORT_STANDARD_A": 200,
             "BOX_STATE_HEALTHY_ACCUMULATION": 180,
             "PLATFORM_STATE_STABLE_FORMED": 150,
@@ -297,7 +297,7 @@
             "FRACTAL_STATE_STRONG_TREND": 100,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
             "CHIP_DYN_WINNER_RATE_RISING": 60,
-            "MA_STATE_STABLE_BULLISH": 70
+            "MA_STATE_STABLE_BULLISH": 50
           }
         },
         "positional_momentum_params": {
@@ -316,8 +316,8 @@
         "dynamic_scoring": {
           "说明": "【动能分】作为催化剂和加分项，分数权重次之。",
           "positive_signals": {
-            "CHIP_DYN_COST_ACCELERATING": 200,
-            "MECHANICS_COST_ACCELERATING": 180,
+            "CHIP_DYN_COST_ACCELERATING": 160,
+            "MECHANICS_COST_ACCELERATING": 140,
             "FRACTAL_DYN_TREND_ACCELERATING": 180,
             "CHIP_DYN_S_ACCEL_CONCENTRATING": 150,
             "DYN_TREND_HEALTHY_ACCELERATING": 150,
@@ -325,12 +325,24 @@
             "VOL_STATE_EXTREME_SQUEEZE": 100
           }
         },
+        "positional_acceleration_scoring": {
+          "enabled": true,
+          "description": "【V501.0 涡轮增压引擎】阵地优势加速度计分模块。这是策略的核心加分项，用于奖励基本盘正在加速改善的黄金机会。",
+          "score_multiplier": {
+            "value": 2.0,
+            "description": "阵地加速度的分数乘数。最终奖励分 = 阵地加速度 * 此乘数。例如，加速度为100，乘数为2.0，则奖励200分。"
+          },
+          "min_acceleration_for_bonus": {
+            "value": 50,
+            "description": "触发此项奖励所需的最小阵地加速度。用于过滤掉无意义的微小波动。"
+          }
+        },
         "composite_scoring": {
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
-            { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 750, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
+            { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S", "CHIP_CONC_LOCKED_AND_STABLE_A"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
-            { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 800, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
+            { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 700, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
             { "name": "TACTIC_HEALTHY_PULLBACK_S", "score": 600, "all_of": ["PULLBACK_STATE_HEALTHY_S", "CHIP_CONC_LOCKED_AND_STABLE_A"] },
             { "name": "TACTIC_LOCK_CHIP_RALLY_S", "score": 500, "all_of": ["CHIP_CONC_LOCKED_AND_STABLE_A", "CHIP_DYN_COST_RISING", "CHIP_DYN_COST_ACCELERATING", "MA_STATE_STABLE_BULLISH"], "none_of": ["CHIP_DYN_DIVERGING", "CONTEXT_TREND_STAGE_LATE"] }
           ]
@@ -403,11 +415,11 @@
           "enabled": true,
           "description": "【V2.0 决策层】引入净得分和风险惩罚机制，大幅提升信号质量。",
           "net_score_threshold_no_veto": {
-            "value": 500,
+            "value": 800,
             "description": "在没有任何否决票的情况下，买入信号所需的最低【净得分】(entry_score - risk_score)。"
           },
           "net_score_threshold_with_veto": {
-            "value": 800,
+            "value": 1200,
             "description": "在存在任何否决票的情况下，买入信号所需的最低【净得分】。门槛更高，用于惩罚风险。"
           },
           "risk_overflow_threshold": {
@@ -455,6 +467,7 @@
           "MA_STATE_STABLE_BULLISH": { "cn_name": "【均线】稳定多头排列", "type": "positional" },
 
           "说明_DYNAMIC": "--- 动能分 (Dynamic) ---",
+          "SCORE_POS_ACCEL_BONUS": { "cn_name": "【核心】阵地优势加速", "type": "dynamic" },
           "CHIP_DYN_COST_ACCELERATING": { "cn_name": "【动能】成本加速抬高", "type": "dynamic" },
           "MECHANICS_COST_ACCELERATING": { "cn_name": "【动能】力学成本加速", "type": "dynamic" },
           "FRACTAL_DYN_TREND_ACCELERATING": { "cn_name": "【动能】分形趋势加速", "type": "dynamic" },

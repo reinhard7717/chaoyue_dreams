@@ -67,65 +67,50 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V506.0 拐点决策版】
-        - 核心升级: 引入【进攻加速】状态 (is_at_inflection_point) 作为买入信号的最终过滤器。
-                    此举旨在精确捕捉趋势的“点火”瞬间，从根本上规避因追逐最高分而导致的“高分陷阱”，
-                    是大幅提升信号质量和最终胜率的关键一步。
+        【V501.0 纯粹决策版】
+        - 核心变化: 移除了对特定“加速状态”的硬性过滤。由于“阵地优势加速”已作为
+                    核心奖励分融入 entry_score，本层只需根据最终的净得分进行决策即可。
+                    这使得本层逻辑更纯粹，更符合其“最高指挥部”的定位。
         """
-        print("    --- [最高作战指挥部 V506.0 拐点决策版] 启动... ---")
+        print("    --- [最高作战指挥部 V501.0 纯粹决策版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
         
-        # 初始化所有决策列
+        # ... (初始化和卖出信号逻辑保持不变) ...
         df['final_score'] = 0.0
         df['signal_type'] = '无信号'
         df['veto_votes'] = 0
         df['dynamic_action'] = 'HOLD'
-        
-        # 依次调用各个决策模块
         self._evaluate_holding_health(score_details_df, risk_details_df)
-        self._calculate_static_veto_votes() # 此方法已更新，会使用新的原子状态
+        self._calculate_static_veto_votes()
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        
-        # 处理卖出信号（三道防线逻辑）
         exit_triggers = self._generate_exit_triggers()
         is_sell_signal = exit_triggers.any(axis=1)
         self.strategy.exit_triggers = exit_triggers[is_sell_signal]
         df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
 
         # --- 买入决策核心逻辑 ---
-        # 1. 加载净得分阈值
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         net_score_threshold_no_veto = get_param_value(p_judge.get('net_score_threshold_no_veto'), 500)
         net_score_threshold_with_veto = get_param_value(p_judge.get('net_score_threshold_with_veto'), 800)
-        
-        # 2. 计算净得分
         df['net_score'] = df['entry_score'] - df['risk_score']
-
-        # 3. 判断净得分是否充足（已包含风险惩罚）
         no_veto_buy_condition = (df['veto_votes'] == 0) & (df['net_score'] > net_score_threshold_no_veto)
         with_veto_buy_condition = (df['veto_votes'] > 0) & (df['net_score'] > net_score_threshold_with_veto)
         is_net_score_sufficient = no_veto_buy_condition | with_veto_buy_condition
-        
-        # 4. 组合所有前置条件
         not_avoid = df['dynamic_action'] != 'AVOID'
         is_not_sell_day = ~is_sell_signal
 
-        # 使用新的、更强大的“阵地优势加速”作为最终过滤器
-        is_positional_advantage_accelerating = atomic.get('POSITIONAL_ADVANTAGE_ACCELERATING', default_series) # 新逻辑
-        
+        # --- 【代码修改】还原为最纯粹的决策逻辑 ---
+        # 不再需要任何特定的加速状态过滤器，因为高质量信号已经通过高分体现出来。
         final_buy_condition = (
             is_net_score_sufficient &
             not_avoid &
-            is_not_sell_day &
-            is_positional_advantage_accelerating  # <--- 使用新的、更严格、更具前瞻性的决策过滤器！
+            is_not_sell_day
         )
+        # --- 【代码修改】结束 ---
 
-        # 根据最终条件，设置信号类型
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
-        
-        # 净化并最终确定分数
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:

@@ -76,31 +76,46 @@ class OffensiveLayer:
         valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
         positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 4. 评估“触发器火力” (Trigger Scoring) ---
+        # --- 步骤 5: 评估“阵地优势加速度”火力 (Positional Acceleration Scoring) ---
+        # 这是本次升级的核心，我们在这里启动“涡轮增压引擎”。
+        p_pos_accel = scoring_params.get('positional_acceleration_scoring', {})
+        if get_param_value(p_pos_accel.get('enabled'), True):
+            # 5.1 独立计算“纯粹的阵地分”及其动态
+            valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
+            positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
+            positional_change = positional_score.diff(1).fillna(0)
+            positional_accel = positional_change.diff(1).fillna(0)
+            # 5.2 加载引擎参数
+            multiplier = get_param_value(p_pos_accel.get('score_multiplier'), 2.0)
+            min_accel_for_bonus = get_param_value(p_pos_accel.get('min_acceleration_for_bonus'), 50)
+            # 5.3 定义奖励条件
+            is_accelerating = (positional_change > 0) & (positional_accel > min_accel_for_bonus)
+            if is_accelerating.any():
+                # 5.4 计算奖励分：奖励的大小与加速度成正比！
+                accel_bonus_score = positional_accel * multiplier
+                # 5.5 将奖励分施加到总分上
+                entry_score.loc[is_accelerating] += accel_bonus_score.loc[is_accelerating]
+                # 5.6 在详情中记录这项核心奖励，便于复盘
+                score_details_df['SCORE_POS_ACCEL_BONUS'] = accel_bonus_score.where(is_accelerating, 0)
+                print(f"          -> [涡轮增压] 已为 {is_accelerating.sum()} 天的“阵地优势加速”信号施加了核心奖励分！")
+        else:
+            # 如果该模块被禁用，仍然需要计算 positional_score 用于触发器逻辑
+            valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
+            positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
+
+        # --- 重新执行步骤 4: 评估“触发器火力” (Trigger Scoring) ---
+        # 现在 positional_score 已经计算完毕，可以安全执行
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         enhancement_params = scoring_params.get('trigger_enhancement_params', {})
         is_enhancement_enabled = get_param_value(enhancement_params.get('enabled'), False)
         min_positional_score = get_param_value(enhancement_params.get('min_positional_score_for_trigger'), 350)
-
-        # 定义前置条件
-        precondition_met = pd.Series(True, index=df.index)
-        if is_enhancement_enabled:
-            precondition_met = (positional_score >= min_positional_score)
-            print(f"          -> [智能发令枪] 触发器增强已启用，要求阵地分 >= {min_positional_score}。")
-
+        precondition_met = (positional_score >= min_positional_score) if is_enhancement_enabled else pd.Series(True, index=df.index)
         for signal_name, score in trigger_rules.items():
             signal_series = trigger_events.get(signal_name, default_series)
-            
-            # 只有在原始信号触发，并且满足前置条件（如果启用）时，才最终生效
             final_trigger_condition = signal_series & precondition_met
-            
             if final_trigger_condition.any():
                 entry_score.loc[final_trigger_condition] += score
                 score_details_df[signal_name] = final_trigger_condition * score
-                
-        
-        
-        # print("        -> [进攻方案评估中心 V337.0] 四层火力评估完成。")
         
         entry_score = self._apply_final_score_adjustments(entry_score)
         return entry_score, score_details_df
@@ -377,84 +392,44 @@ class OffensiveLayer:
     # 重写此方法，引入“持续性状态”逻辑
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V500.1 修复版】进攻动能诊断大脑
-        - 核心修复: 修正了对 get_param_value 函数的错误调用，该错误导致在获取 'fading_score_threshold' 时传入了过多参数。
-        - 核心升级: 不再只分析笼统的 entry_score，而是将“阵地分”独立出来，精确计算其加速度。
-                    生成一个新的、威力巨大的原子状态 `POSITIONAL_ADVANTAGE_ACCELERATING`，
-                    作为最高优先级的买入决策过滤器，旨在更精准地捕捉主升浪的起点。
+        【V501.0 回归本职版】进攻动能诊断大脑
+        - 核心变化: “阵地优势加速”的判断和计分已移至 `calculate_entry_score`。
+                    本方法回归其核心职责：诊断【总分】的动态，主要用于生成“机会衰退”等风险类信号。
         """
-        print("          -> [进攻动能诊断大脑 V500.1 修复版] 启动...")
+        print("          -> [进攻动能诊断大脑 V501.0] 启动，正在诊断总分动态...")
         
-        # --- 步骤 1: 从总分详情中，精准分离出“纯粹的阵地分” ---
-        # “阵地分”是策略的基石，代表了静态的结构性优势，如筹码、形态、均线排列等。
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
-        # 确保只使用在 score_details_df 中实际存在的列，增强代码健壮性
-        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
-        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=score_details_df.index)
-
-        # --- 步骤 2: 计算“阵地分”的一阶导数(速度)和二阶导数(加速度) ---
-        # 这是本次升级的核心，我们关注的是基本盘改善的速度和加速度。
-        positional_change = positional_score.diff(1).fillna(0)
-        positional_accel = positional_change.diff(1).fillna(0)
-
-        # --- 步骤 3: 【新增核心状态】根据“阵地分加速度”生成决策级原子状态 ---
-        # 从配置文件中读取“阵地优势加速”的判断阈值，增加策略灵活性。
-        p_pos_mom = scoring_params.get('positional_momentum_params', {})
-        min_accel_threshold = get_param_value(p_pos_mom.get('min_acceleration_threshold'), 50)
-        
-        # 定义“阵地优势加速”状态：
-        # 1. 阵地分本身在增长 (positional_change > 0)
-        # 2. 阵地分的加速度超过了我们设定的最小阈值 (positional_accel > min_accel_threshold)
-        # 这个状态是最高质量的买入信号过滤器。
-        is_positional_advantage_accelerating = (positional_change > 0) & (positional_accel > min_accel_threshold)
-        self.strategy.atomic_states['POSITIONAL_ADVANTAGE_ACCELERATING'] = is_positional_advantage_accelerating
-        if is_positional_advantage_accelerating.any():
-            print(f"            -> [S级核心决策] 侦测到 {is_positional_advantage_accelerating.sum()} 次“阵地优势加速”黄金信号！")
-
-        # --- 步骤 4: 计算总分(entry_score)的动态，主要用于风险控制（机会衰退）---
-        # 总分的动态现在更多地用于判断趋势是否力竭，作为否决票的来源。
+        # --- 步骤 1: 计算总分(entry_score)的动态，用于风险控制（机会衰退）---
         score_change = entry_score.diff(1).fillna(0)
         score_accel = score_change.diff(1).fillna(0)
         
-        # 状态: 【机会衰退】(否决票来源) - 逻辑不变，但其角色已从主决策者降为风险监控者。
+        # 状态: 【机会衰退】(否决票来源)
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
-        
-        # --- 【代码修复】---
-        # [修复原因] get_param_value 函数最多接受2个参数，之前错误地传入了3个。
-        #            正确的做法是先获取参数块，再从块中获取具体值。
-        # 错误代码: fading_score_threshold = get_param_value(scoring_params.get('momentum_diagnostics_params', {}), 'fading_score_threshold', 500)
-        
-        # 正确代码:
-        # 1. 先获取 momentum_diagnostics_params 这个参数块
-        momentum_params = scoring_params.get('momentum_diagnostics_params', {})
-        # 2. 然后从这个块中获取 fading_score_threshold，并提供默认值
-        fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 500)
-        # --- 【代码修复】结束 ---
-
+        fading_score_threshold = get_param_value(scoring_params.get('momentum_diagnostics_params', {}), 'fading_score_threshold', 500)
         self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
 
-        # 状态: 【风险抬头】(否决票来源) - 逻辑不变
+        # 状态: 【风险抬头】(否决票来源)
         risk_score = self.strategy.df_indicators.get('risk_score', pd.Series(0.0, index=entry_score.index))
         risk_change = risk_score.diff(1).fillna(0)
         risk_accel = risk_change.diff(1).fillna(0)
         is_risk_escalating = (risk_change > 0) & (risk_accel > 0)
         self.strategy.atomic_states['SCORE_DYN_RISK_ESCALATING'] = is_risk_escalating
         
-        # --- 步骤 5: 生成用于调试的详细诊断报告 (此部分逻辑保留，不影响决策) ---
-        # 这份报告现在可以同时展示总分和阵地分的动态，便于深入分析。
+        # --- 步骤 2: 生成用于调试的详细诊断报告 ---
         diagnostics = pd.Series([{} for _ in range(len(entry_score))], index=entry_score.index)
-        
+        # 重新计算阵地分及其变化，仅为生成报告
+        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
+        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
+        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=score_details_df.index)
+        positional_change = positional_score.diff(1).fillna(0)
         dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {}).keys()
         valid_dyn_cols = [col for col in dynamic_rules if col in score_details_df.columns]
         dynamic_score = score_details_df[valid_dyn_cols].sum(axis=1) if valid_dyn_cols else pd.Series(0.0, index=score_details_df.index)
         dynamic_change = dynamic_score.diff(1).fillna(0)
-        
         stall_condition = (score_change <= 0) & (entry_score.shift(1) > 0)
         decel_condition = (score_change > 0) & (score_accel < 0)
         base_erosion_condition = (positional_change < 0)
         divergence_condition = (positional_change <= 0) & (dynamic_change > 0) & (entry_score > 0)
-        
         for idx in entry_score.index:
             report = {}
             if stall_condition.at[idx]: report['stall'] = f"进攻停滞(总分变化: {score_change.at[idx]:.0f})"
@@ -462,9 +437,8 @@ class OffensiveLayer:
             if base_erosion_condition.at[idx]: report['base_erosion'] = f"阵地侵蚀(阵地分变化: {positional_change.at[idx]:.0f})"
             if divergence_condition.at[idx]: report['divergence'] = "结构性背离(动能分虚高)"
             if report: diagnostics.at[idx] = report
-            
         return diagnostics
-    
+
 
 
 
