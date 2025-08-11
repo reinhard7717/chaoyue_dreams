@@ -999,10 +999,10 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
 
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
-    top_n: int = 5,
-    start_date_str: str = None,
-    end_date_str: str = None,
-    profit_threshold: float = 5.0,
+    top_n: int = 3,
+    start_date_str: str = '2024-01-01',
+    end_date_str: str = '2025-12-31',
+    profit_threshold: float = 10.0,
     holding_days: int = 5,
     strategy_name: str = 'trend_following'
 ):
