@@ -999,26 +999,24 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
 
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
-    self,  # <--- 这是关键的修改！
+    self,
     top_n: int = 3,
     start_date_str: str = '2024-01-01',
     end_date_str: str = '2025-12-31',
     profit_threshold: float = 10.0,
-    holding_days: int = 5,
-    strategy_name: str = 'trend_following'
+    holding_days: int = 5
+    # 【代码修改】移除了 strategy_name 参数
 ):
     """
-    【Celery任务 V3.1 - 签名修正版】
-    分析每日得分最高的N个股票信号的后续表现和成功率。
-    - 修正: 增加了 self 参数，以解决 bind=True 导致的参数错位问题。
-    - 架构: 复用 utils.model_helpers 中的公共函数，避免代码重复。
-    - 入场逻辑: 以信号触发后【下一个交易日】的开盘价作为入场成本。
+    【Celery任务 V4.0 - 跨策略版】
+    分析每日【所有策略中】得分最高的N个股票信号的后续表现和成功率。
+    - 核心升级: 不再需要指定策略，自动在所有策略中进行Top-N排名。
+    - 报告升级: 最终报告会按策略分组，展示各策略的贡献和成功率。
     """
-    # --- 1. 准备阶段 (无变化) ---
+    # --- 1. 准备阶段 ---
     if end_date_str:
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     else:
-        # 注意：这里调用的是 TradeCalendar 的类方法，不需要 self
         end_date = TradeCalendar.get_latest_trade_date()
 
     if start_date_str:
@@ -1027,28 +1025,27 @@ def run_top_n_performance_analysis(
         start_date = TradeCalendar.get_trade_date_offset(end_date, -30)
 
     logger.info("\n" + "="*60)
-    logger.info(f"=======      Top-{top_n} 信号性能聚焦分析报告      =======")
+    logger.info(f"=======  跨策略 Top-{top_n} 信号性能聚焦分析报告  =======") # 【代码修改】更新报告标题
     logger.info("="*60)
-    logger.info(f" 分析策略: {strategy_name}")
+    # 【代码修改】移除了分析策略的日志
     logger.info(f" 分析周期: {start_date} 至 {end_date}")
     logger.info(f" 入场价格: 信号日【次日开盘价】")
     logger.info(f" 成功定义: 入场后 {holding_days} 个交易日内，最高价涨幅达到 {profit_threshold}%")
     logger.info("-"*60)
 
-    # --- 2. 筛选每日Top-N信号 (无变化) ---
+    # --- 2. 筛选每日Top-N信号 ---
     trade_dates = list(TradeCalendar.get_trade_dates_between(start_date, end_date))
     if not trade_dates:
         logger.warning("在指定范围内未找到任何交易日，任务终止。")
         return
 
-    logger.info("步骤1: 正在从数据库中筛选【每日】Top-N买入信号...")
+    logger.info("步骤1: 正在从数据库中筛选【每日跨策略】Top-N买入信号...")
     top_signals = []
     for trade_date in tqdm(trade_dates, desc="筛选每日信号"):
-        # 这里的 top_n 现在是正确的整数值了
+        # 【代码修改】查询时移除了 strategy_name 过滤器，实现跨策略排名
         daily_top_scores = StrategyDailyScore.objects.filter(
             trade_date=trade_date,
-            signal_type='买入信号',
-            strategy_name=strategy_name
+            signal_type=StrategyDailyScore.SignalType.BUY
         ).select_related('stock').order_by('-final_score')[:top_n]
         top_signals.extend(list(daily_top_scores))
 
@@ -1057,9 +1054,9 @@ def run_top_n_performance_analysis(
         return
         
     total_signals = len(top_signals)
-    logger.info(f"步骤1完成: 共发现 {total_signals} 个Top-{top_n}信号实例。")
+    logger.info(f"步骤1完成: 共发现 {total_signals} 个跨策略Top-{top_n}信号实例。")
 
-    # --- 3. 高效评估信号表现 (无变化) ---
+    # --- 3. 高效评估信号表现 ---
     logger.info("步骤2: 正在预加载所有相关价格数据以提升效率...")
     
     all_stock_codes = list(set(s.stock.stock_code for s in top_signals))
@@ -1086,9 +1083,10 @@ def run_top_n_performance_analysis(
     logger.info(f"价格数据预加载完成，共加载 {len(price_map)} 条价格记录。")
     logger.info("步骤3: 正在评估每个信号的后续表现...")
     
-    # --- 评估循环和报告部分 (无变化) ---
-    success_count = 0
-    evaluated_signals_count = 0
+    # --- 4. 评估循环与报告 ---
+    # 【代码新增】使用字典按策略名来分别统计
+    strategy_stats = defaultdict(lambda: {'evaluated': 0, 'success': 0})
+    
     for signal in tqdm(top_signals, desc="评估信号表现"):
         entry_date = TradeCalendar.get_trade_date_offset(signal.trade_date, 1)
         if not entry_date:
@@ -1102,7 +1100,9 @@ def run_top_n_performance_analysis(
         if not entry_price or entry_price <= 0:
             continue
         
-        evaluated_signals_count += 1
+        # 【代码修改】更新对应策略的“已评估”计数器
+        strategy_stats[signal.strategy_name]['evaluated'] += 1
+        
         target_price = entry_price * (1 + profit_threshold / 100.0)
         check_dates = TradeCalendar.get_trade_date_offset_list(entry_date, 0, holding_days)
 
@@ -1110,23 +1110,56 @@ def run_top_n_performance_analysis(
             future_price_info = price_map.get((signal.stock.stock_code, check_date))
             if future_price_info and future_price_info.get('high'):
                 if future_price_info['high'] >= target_price:
-                    success_count += 1
+                    # 【代码修改】更新对应策略的“成功”计数器
+                    strategy_stats[signal.strategy_name]['success'] += 1
                     break
 
     logger.info("步骤3完成: 所有信号评估完毕。")
     logger.info("-"*60)
 
-    success_rate = (success_count / evaluated_signals_count * 100) if evaluated_signals_count > 0 else 0
+    # 【代码新增】使用 Pandas 生成更清晰的、按策略分组的报告
+    report_data = []
+    total_evaluated = 0
+    total_success = 0
+    for name, stats in strategy_stats.items():
+        evaluated_count = stats['evaluated']
+        success_count = stats['success']
+        total_evaluated += evaluated_count
+        total_success += success_count
+        success_rate = (success_count / evaluated_count * 100) if evaluated_count > 0 else 0
+        report_data.append({
+            "策略名称": name,
+            "入选TopN次数": evaluated_count,
+            "成功次数": success_count,
+            "成功率(%)": success_rate
+        })
 
     logger.info("\n【最终分析结果】")
-    logger.info(f"  - 总信号样本数: {total_signals}")
-    logger.info(f"  - 有效评估样本数: {evaluated_signals_count}")
-    logger.info(f"  - 成功信号数:   {success_count}")
-    logger.info(f"  - 聚焦成功率:   {success_rate:.2f}% (基于有效评估样本)")
+    if not report_data:
+        logger.warning("未能评估任何信号。")
+    else:
+        # 计算总体成功率
+        overall_success_rate = (total_success / total_evaluated * 100) if total_evaluated > 0 else 0
+        
+        # 打印总体摘要
+        logger.info("--- 总体表现 ---")
+        logger.info(f"  - 总信号样本数: {total_signals}")
+        logger.info(f"  - 有效评估样本数: {total_evaluated}")
+        logger.info(f"  - 总成功信号数:   {total_success}")
+        logger.info(f"  - 综合成功率:   {overall_success_rate:.2f}%")
+        logger.info("\n--- 各策略表现明细 ---")
+        
+        # 使用Pandas打印格式化的表格
+        report_df = pd.DataFrame(report_data)
+        report_df['成功率(%)'] = report_df['成功率(%)'].map('{:.2f}%'.format)
+        report_df = report_df.sort_values(by=["成功率(%)", "入选TopN次数"], ascending=[False, False]).reset_index(drop=True)
+        
+        # 使用 print 输出，确保格式对齐
+        print(report_df.to_string())
+
     logger.info("="*60 + "\n")
 
-    return f"Top-{top_n} 信号性能聚焦分析完成。成功率: {success_rate:.2f}%"
-
+    return f"跨策略Top-{top_n}信号性能分析完成。综合成功率: {overall_success_rate:.2f}%"
 
 
 
