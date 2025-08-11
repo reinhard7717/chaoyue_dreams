@@ -693,10 +693,6 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
         logger.info("="*80)
         return {"status": "error", "stock_code": stock_code, "reason": str(e)}
 
-# =================================================================
-# =================== 3. 全局性能回测任务 (新增) ==================
-# =================================================================
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='calculate_strategy')
 @with_cache_manager
 def run_global_performance_analysis(self, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
@@ -1001,29 +997,8 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
         # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
         return []
 
-
-def _get_daily_data_model_by_code(stock_code: str):
-    """
-    内部辅助函数：根据股票代码返回对应的日线数据分表Model。
-    注意：此函数逻辑与 StockTimeTradeDAO 中的一致，在此处独立实现以减少任务依赖。
-    """
-    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-        return StockDailyData_CY
-    elif stock_code.endswith('.SZ'):
-        return StockDailyData_SZ
-    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-        return StockDailyData_KC
-    elif stock_code.endswith('.SH'):
-        return StockDailyData_SH
-    elif stock_code.endswith('.BJ'):
-        return StockDailyData_BJ
-    # 提供一个默认返回值，以防有未覆盖到的情况
-    return StockDailyData_SZ
-
-
 @celery_app.task(bind=True, name="analysis.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
-    self,
     top_n: int = 5,
     start_date_str: str = None,
     end_date_str: str = None,
@@ -1032,19 +1007,12 @@ def run_top_n_performance_analysis(
     strategy_name: str = 'trend_following'
 ):
     """
-    【Celery任务】分析每日得分最高的N个股票信号的后续表现和成功率。
-    
-    这是一个独立的、可异步调度的分析任务，结果将输出到Celery worker日志中。
-    
-    Args:
-        top_n (int): 每天选取分数最高的N个股票进行分析。
-        start_date_str (str, optional): 分析开始日期 (格式: 'YYYY-MM-DD')。默认为30个交易日前。
-        end_date_str (str, optional): 分析结束日期 (格式: 'YYYY-MM-DD')。默认为最近一个交易日。
-        profit_threshold (float): 成功盈利的百分比阈值 (例如 5.0 代表 5%)。
-        holding_days (int): 检查盈利的最大持仓天数。
-        strategy_name (str): 要分析的策略名称。
+    【Celery任务 V3 - 架构优化版】
+    分析每日得分最高的N个股票信号的后续表现和成功率。
+    - 架构: 复用 utils.model_helpers 中的公共函数，避免代码重复。
+    - 入场逻辑: 以信号触发后【下一个交易日】的开盘价作为入场成本。
     """
-    # --- 1. 准备阶段：日期处理和报告头打印 ---
+    # --- 1. 准备阶段 (无变化) ---
     if end_date_str:
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     else:
@@ -1053,27 +1021,25 @@ def run_top_n_performance_analysis(
     if start_date_str:
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
     else:
-        # 如果未提供开始日期，则默认从结束日期回溯30个交易日
         start_date = TradeCalendar.get_trade_date_offset(end_date, -30)
 
-    # 使用 logger.info 打印，这样输出会进入Celery日志
     logger.info("\n" + "="*60)
     logger.info(f"=======      Top-{top_n} 信号性能聚焦分析报告      =======")
     logger.info("="*60)
     logger.info(f" 分析策略: {strategy_name}")
     logger.info(f" 分析周期: {start_date} 至 {end_date}")
-    logger.info(f" 成功定义: 信号触发后 {holding_days} 个交易日内，最高价涨幅达到 {profit_threshold}%")
+    logger.info(f" 入场价格: 信号日【次日开盘价】")
+    logger.info(f" 成功定义: 入场后 {holding_days} 个交易日内，最高价涨幅达到 {profit_threshold}%")
     logger.info("-"*60)
 
-    # --- 2. 筛选每日Top-N信号 ---
+    # --- 2. 筛选每日Top-N信号 (无变化) ---
     trade_dates = list(TradeCalendar.get_trade_dates_between(start_date, end_date))
     if not trade_dates:
         logger.warning("在指定范围内未找到任何交易日，任务终止。")
         return
 
-    logger.info("步骤1: 正在从数据库中筛选每日Top-N买入信号...")
+    logger.info("步骤1: 正在从数据库中筛选【每日】Top-N买入信号...")
     top_signals = []
-    # 使用tqdm在日志中显示进度条
     for trade_date in tqdm(trade_dates, desc="筛选每日信号"):
         daily_top_scores = StrategyDailyScore.objects.filter(
             trade_date=trade_date,
@@ -1089,77 +1055,74 @@ def run_top_n_performance_analysis(
     total_signals = len(top_signals)
     logger.info(f"步骤1完成: 共发现 {total_signals} 个Top-{top_n}信号实例。")
 
-    # --- 3. 高效评估信号表现（核心优化：价格预加载） ---
-    logger.info("步骤2: 正在预加载所有相关价格数据以提升评估效率...")
+    # --- 3. 高效评估信号表现 (逻辑无变化，调用方式改变) ---
+    logger.info("步骤2: 正在预加载所有相关价格数据以提升效率...")
     
-    # 3.1 收集所有需要的股票代码和日期范围
     all_stock_codes = list(set(s.stock.stock_code for s in top_signals))
     min_date_needed = start_date
-    # 需要检查到最后一个信号日之后的 holding_days
-    max_date_needed = TradeCalendar.get_trade_date_offset(end_date, holding_days + 1)
+    max_date_needed = TradeCalendar.get_trade_date_offset(end_date, holding_days + 2)
     
-    # 3.2 按分表模型对股票代码进行分组
     model_to_codes_map = defaultdict(list)
     for code in all_stock_codes:
-        model_class = _get_daily_data_model_by_code(code)
+        # 【代码修改】调用公共辅助函数
+        model_class = get_daily_data_model_by_code(code)
         model_to_codes_map[model_class].append(code)
 
-    # 3.3 批量查询价格数据并存入一个高效的查找字典
     price_map = {}
     for model_class, codes in model_to_codes_map.items():
         daily_data_qs = model_class.objects.filter(
             stock__stock_code__in=codes,
             trade_time__gte=min_date_needed,
             trade_time__lte=max_date_needed
-        ).values('stock__stock_code', 'trade_time', 'high_qfq', 'close_qfq')
+        ).values('stock__stock_code', 'trade_time', 'open_qfq', 'high_qfq', 'close_qfq')
 
         for item in daily_data_qs:
             key = (item['stock__stock_code'], item['trade_time'])
-            # 存储一个包含最高价和收盘价的字典
-            price_map[key] = {'high': item['high_qfq'], 'close': item['close_qfq']}
+            price_map[key] = {'open': item['open_qfq'], 'high': item['high_qfq'], 'close': item['close_qfq']}
     
     logger.info(f"价格数据预加载完成，共加载 {len(price_map)} 条价格记录。")
     logger.info("步骤3: 正在评估每个信号的后续表现...")
     
-    # 3.4 循环评估
+    # --- 评估循环和报告部分 (无变化) ---
     success_count = 0
+    evaluated_signals_count = 0
     for signal in tqdm(top_signals, desc="评估信号表现"):
-        # 从预加载的price_map中获取信号当日的收盘价作为入场价
-        signal_day_price_info = price_map.get((signal.stock.stock_code, signal.trade_date))
-        if not signal_day_price_info or not signal_day_price_info.get('close'):
-            continue # 如果信号当天没有价格数据，则跳过
-
-        entry_price = signal_day_price_info['close']
-        if not entry_price or entry_price <= 0:
+        entry_date = TradeCalendar.get_trade_date_offset(signal.trade_date, 1)
+        if not entry_date:
             continue
 
-        target_price = entry_price * (1 + profit_threshold / 100.0)
-        
-        # 获取信号日之后N个交易日的日期列表
-        check_dates = TradeCalendar.get_trade_date_offset_list(signal.trade_date, 1, holding_days)
+        entry_day_price_info = price_map.get((signal.stock.stock_code, entry_date))
+        if not entry_day_price_info or not entry_day_price_info.get('open'):
+            continue
 
-        # 检查在这些天内，最高价是否达到目标价
+        entry_price = entry_day_price_info['open']
+        if not entry_price or entry_price <= 0:
+            continue
+        
+        evaluated_signals_count += 1
+        target_price = entry_price * (1 + profit_threshold / 100.0)
+        check_dates = TradeCalendar.get_trade_date_offset_list(entry_date, 0, holding_days - 1)
+
         for check_date in check_dates:
             future_price_info = price_map.get((signal.stock.stock_code, check_date))
             if future_price_info and future_price_info.get('high'):
                 if future_price_info['high'] >= target_price:
                     success_count += 1
-                    break # 一旦成功，就停止检查该信号的后续日期
+                    break
 
     logger.info("步骤3完成: 所有信号评估完毕。")
     logger.info("-"*60)
 
-    # --- 4. 生成并打印最终报告 ---
-    success_rate = (success_count / total_signals * 100) if total_signals > 0 else 0
+    success_rate = (success_count / evaluated_signals_count * 100) if evaluated_signals_count > 0 else 0
 
     logger.info("\n【最终分析结果】")
     logger.info(f"  - 总信号样本数: {total_signals}")
+    logger.info(f"  - 有效评估样本数: {evaluated_signals_count}")
     logger.info(f"  - 成功信号数:   {success_count}")
-    logger.info(f"  - 聚焦成功率:   {success_rate:.2f}%")
+    logger.info(f"  - 聚焦成功率:   {success_rate:.2f}% (基于有效评估样本)")
     logger.info("="*60 + "\n")
 
     return f"Top-{top_n} 信号性能聚焦分析完成。成功率: {success_rate:.2f}%"
-
 
 
 
