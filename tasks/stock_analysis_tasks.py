@@ -999,6 +999,7 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
 
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
+    self,  # <--- 这是关键的修改！
     top_n: int = 3,
     start_date_str: str = '2024-01-01',
     end_date_str: str = '2025-12-31',
@@ -1007,8 +1008,9 @@ def run_top_n_performance_analysis(
     strategy_name: str = 'trend_following'
 ):
     """
-    【Celery任务 V3 - 架构优化版】
+    【Celery任务 V3.1 - 签名修正版】
     分析每日得分最高的N个股票信号的后续表现和成功率。
+    - 修正: 增加了 self 参数，以解决 bind=True 导致的参数错位问题。
     - 架构: 复用 utils.model_helpers 中的公共函数，避免代码重复。
     - 入场逻辑: 以信号触发后【下一个交易日】的开盘价作为入场成本。
     """
@@ -1016,6 +1018,7 @@ def run_top_n_performance_analysis(
     if end_date_str:
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     else:
+        # 注意：这里调用的是 TradeCalendar 的类方法，不需要 self
         end_date = TradeCalendar.get_latest_trade_date()
 
     if start_date_str:
@@ -1041,6 +1044,7 @@ def run_top_n_performance_analysis(
     logger.info("步骤1: 正在从数据库中筛选【每日】Top-N买入信号...")
     top_signals = []
     for trade_date in tqdm(trade_dates, desc="筛选每日信号"):
+        # 这里的 top_n 现在是正确的整数值了
         daily_top_scores = StrategyDailyScore.objects.filter(
             trade_date=trade_date,
             signal_type='买入信号',
@@ -1055,7 +1059,7 @@ def run_top_n_performance_analysis(
     total_signals = len(top_signals)
     logger.info(f"步骤1完成: 共发现 {total_signals} 个Top-{top_n}信号实例。")
 
-    # --- 3. 高效评估信号表现 (逻辑无变化，调用方式改变) ---
+    # --- 3. 高效评估信号表现 (无变化) ---
     logger.info("步骤2: 正在预加载所有相关价格数据以提升效率...")
     
     all_stock_codes = list(set(s.stock.stock_code for s in top_signals))
@@ -1064,7 +1068,6 @@ def run_top_n_performance_analysis(
     
     model_to_codes_map = defaultdict(list)
     for code in all_stock_codes:
-        # 【代码修改】调用公共辅助函数
         model_class = get_daily_data_model_by_code(code)
         model_to_codes_map[model_class].append(code)
 
@@ -1123,7 +1126,6 @@ def run_top_n_performance_analysis(
     logger.info("="*60 + "\n")
 
     return f"Top-{top_n} 信号性能聚焦分析完成。成功率: {success_rate:.2f}%"
-
 
 
 
