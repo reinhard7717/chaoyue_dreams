@@ -997,7 +997,7 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
         # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
         return []
 
-@celery_app.task(bind=True, name="analysis.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
+@celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
     top_n: int = 5,
     start_date_str: str = None,
