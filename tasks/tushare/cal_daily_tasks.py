@@ -13,38 +13,71 @@ from tasks.tushare.industry_tasks import save_ths_index_today_task, save_ths_ind
 logger = logging.getLogger('tasks')
 
 #  ================ （当日）整体任务 ================
+@celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.dispatch_derived_data_tasks', queue='celery')
+def dispatch_derived_data_tasks(self, primary_results, trade_time_str=None):
+    """
+    【V2.0 新增】第二阶段任务分发器。
+    在第一阶段主要数据采集完成后被调用，负责分发那些依赖服务端后处理的、数据就绪慢的任务。
+    """
+    logger.info("第二阶段任务启动: dispatch_derived_data_tasks - 开始分发衍生数据采集任务")
+    
+    # 定义第二阶段需要执行的任务列表
+    derived_tasks = [
+        save_stocks_daily_basic_data_today_task.s(), # <-- 我们的问题任务，现在被安全地放在第二阶段
+        save_fund_flow_daily_data_today.s(),
+        save_fund_flow_daily_data_ths_today.s(),
+        save_hm_detail_data_today.s(),
+    ]
+    
+    # 再次使用 chord，确保所有衍生数据任务完成后，才执行最终的高级筹码计算
+    final_callback = schedule_precompute_advanced_chips.s()
+    logger.info("开始执行: 所有衍生数据采集任务并行调度，全部完成后执行高级筹码指标预计算。")
+    
+    # 使用 countdown 参数，给数据提供商留出充足的处理时间（例如10分钟）
+    # 这是一个非常重要的“保险丝”，确保万无一失
+    chord(derived_tasks)(final_callback).apply_async(countdown=600) # 延迟10分钟执行
+    
+    logger.info("第二阶段任务分派完毕，将在10分钟后执行。")
+    return {"status": "success", "message": "第二阶段衍生数据任务已分派"}
+
+
+#  ================ （当日）整体任务 ================
 @celery_app.task(bind=True, name='tasks.tushare.cal_daily_tasks.run_daily_data_ingestion_task', queue='celery')
 def run_daily_data_ingestion_task(self, trade_time_str=None):
-    logger.info("整体任务启动: run_daily_data_ingestion_task - 开始执行当日数据采集流程")
+    """
+    【V2.0 两阶段工作流版】
+    - 核心修改: 将任务流重构为两个阶段，彻底解决数据就绪时间的依赖问题。
+      - 阶段一: 并行执行数据就绪快的核心数据任务（分钟、日线、周线、月线、CYQ）。
+      - 阶段二: 在阶段一完成后，通过回调启动一个新的分发器，该分发器负责执行数据就绪慢的衍生数据任务（每日指标、资金流等），并增加了延迟执行的保险机制。
+    """
+    logger.info("整体任务启动: run_daily_data_ingestion_task (V2.0 两阶段工作流版)")
     try:
         logger.info("开始执行: 更新交易日历...")
         save_trade_cal.delay()
 
-        # 1. 所有调度器任务
-        main_tasks = [
-            save_stocks_minute_data_today_task.s(trade_time_str=trade_time_str),  # .s()是签名
+        # 1. 定义第一阶段任务（数据就绪快）
+        primary_tasks = [
+            save_stocks_minute_data_today_task.s(trade_time_str=trade_time_str),
             save_day_data_today_task.s(),
             save_cyq_data_today_task.s(),
-            save_stocks_daily_basic_data_today_task.s(),
             save_week_data_today_task.s(),
             save_month_data_today_task.s(),
             save_index_daily_today_task.s(),
-            save_fund_flow_daily_data_today.s(),
             save_ths_index_today_task.s(),
-            save_fund_flow_daily_data_ths_today.s(),
-            save_hm_detail_data_today.s(),
         ]
 
-        # 2. 用chord，所有main_tasks都完成后再执行schedule_precompute_advanced_chips
-        callback = schedule_precompute_advanced_chips.s()
-        logger.info("开始执行: 所有采集任务并行调度，全部完成后执行高级筹码指标预计算任务。")
-        result = chord(main_tasks)(callback)
+        # 2. 使用 chord 将第一阶段任务与第二阶段的分发器连接起来
+        # 当所有 primary_tasks 完成后，会自动调用 dispatch_derived_data_tasks
+        callback = dispatch_derived_data_tasks.s(trade_time_str=trade_time_str)
+        
+        logger.info("开始执行: 第一阶段主要数据采集任务并行调度，全部完成后将触发第二阶段任务分发器。")
+        job = chord(primary_tasks)(callback)
 
-        logger.info("整体任务结束: run_daily_data_ingestion_task - 所有当日数据采集任务已分派。")
+        logger.info("整体任务分派完成: run_daily_data_ingestion_task - 所有任务已按两阶段工作流分派。")
         return {
             "status": "success",
-            "message": "所有当日数据采集任务已分派，等待全部完成后执行高级筹码指标预计算",
-            "chord_id": result.id,
+            "message": "两阶段工作流已启动，等待第一阶段任务完成。",
+            "chord_id": job.id,
         }
     except Exception as e:
         logger.error(f"整体任务 run_daily_data_ingestion_task 执行失败: {e}", exc_info=True)

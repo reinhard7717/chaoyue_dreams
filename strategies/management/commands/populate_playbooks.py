@@ -8,8 +8,6 @@ from utils.config_loader import load_strategy_config
 class Command(BaseCommand):
     help = 'Parses the strategy config and populates/updates the Playbook model.'
 
-    # --- 代码修改开始 ---
-    # [修改原因] V2.1 适配：适配新的 score_type_map 数据结构。
     def _process_playbook(self, name, score, playbook_type, score_type_map, existing_map, to_create, to_update):
         """
         【V2.1 适配版】处理单个playbook的创建或更新逻辑。
@@ -17,9 +15,8 @@ class Command(BaseCommand):
         if not name:
             return
 
-        # 从新的信号字典中获取元数据
         signal_meta = score_type_map.get(name, {})
-        cn_name = signal_meta.get('cn_name', name) # 如果找不到，则用自身名称作为回退
+        cn_name = signal_meta.get('cn_name', name)
 
         playbook_obj = existing_map.get(name)
 
@@ -28,6 +25,7 @@ class Command(BaseCommand):
             if playbook_obj.cn_name != cn_name:
                 playbook_obj.cn_name = cn_name
                 has_changed = True
+            # 确保比较时类型一致，避免浮点数精度问题
             if float(playbook_obj.default_score) != float(score):
                 playbook_obj.default_score = score
                 has_changed = True
@@ -44,23 +42,31 @@ class Command(BaseCommand):
                 playbook_type=playbook_type,
                 default_score=score
             ))
-    # --- 代码修改结束 ---
 
-    @transaction.atomic
+    # --- 【代码修改】移除 handle 方法上的 @transaction.atomic 装饰器 ---
+    # [修改原因] 全局的 @transaction.atomic 会导致一个非常长的事务，
+    #           它在读取数据后、写入数据前会持有锁并执行大量Python逻辑，
+    #           这是导致数据库死锁 (Deadlock) 的主要原因。
+    # [修复逻辑] 我们将移除这个全局装饰器，仅在真正执行数据库写入操作
+    #           (bulk_create, bulk_update) 时，才使用 with transaction.atomic():
+    #           来包裹，确保事务尽可能短小，从而消除死锁风险。
     def handle(self, *args, **options):
         """
-        【V2.1 信号字典适配版】
-        - 核心重构: 从新的 score_type_map 读取元数据。
+        【V2.2 死锁修复版】
+        - 核心重构: 移除了全局的 @transaction.atomic 装饰器，仅在数据库写入时开启短事务，
+                    从根本上解决了数据库死锁 (Deadlock) 问题。
         """
-        self.stdout.write(self.style.SUCCESS('🚀 Starting Playbook population process (V2.1 Signal Dictionary Adapter)...'))
+        self.stdout.write(self.style.SUCCESS('🚀 Starting Playbook population process (V2.2 Deadlock Fix)...'))
 
         try:
             config = load_strategy_config('config/trend_follow_strategy.json')
         except FileNotFoundError:
             self.stderr.write(self.style.ERROR("错误: 无法在 'config/trend_follow_strategy.json' 找到配置文件。请确认文件是否存在。"))
             return
+        
+        # --- 步骤1: 读取和解析数据 (在事务之外执行) ---
+        # 这部分操作不涉及数据库写入，不需要在事务中，可以安全地在外面执行。
         scoring_params = config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
-
         score_type_map = scoring_params.get('score_type_map', {})
 
         self.stdout.write('  -> Fetching existing playbooks from database...')
@@ -85,64 +91,57 @@ class Command(BaseCommand):
                 for rule in rules:
                     name = rule.get('name')
                     score = rule.get('score', 0)
-                    # --- 代码修改开始 ---
-                    # [修改原因] V2.1 适配：传递 score_type_map
                     self._process_playbook(
                         name=name, score=score, playbook_type=Playbook.PlaybookType.OFFENSIVE,
                         score_type_map=score_type_map, existing_map=existing_playbooks_map,
                         to_create=playbooks_to_create, to_update=playbooks_to_update
                     )
-                    # --- 代码修改结束 ---
             elif isinstance(rules, dict):
                 for name, score in rules.items():
+                    # 过滤掉说明性的键
+                    if name.startswith('说明_'): continue
                     is_trigger = section_key == 'trigger_events'
                     db_name = f'trg_{name}' if is_trigger else name
                     playbook_type = Playbook.PlaybookType.TRIGGER if is_trigger else Playbook.PlaybookType.OFFENSIVE
-                    # --- 代码修改开始 ---
-                    # [修改原因] V2.1 适配：传递 score_type_map
                     self._process_playbook(
                         name=db_name, score=score, playbook_type=playbook_type,
                         score_type_map=score_type_map, existing_map=existing_playbooks_map,
                         to_create=playbooks_to_create, to_update=playbooks_to_update
                     )
-                    # --- 代码修改结束 ---
 
         self.stdout.write('  -> Parsing risk playbooks...')
         warning_rules = scoring_params.get('holding_warning_params', {}).get('signals', {})
         for name, score in warning_rules.items():
             if name and not name.startswith('说明_'):
-                # --- 代码修改开始 ---
-                # [修改原因] V2.1 适配：传递 score_type_map
                 self._process_playbook(
                     name=name, score=score, playbook_type=Playbook.PlaybookType.RISK,
                     score_type_map=score_type_map, existing_map=existing_playbooks_map,
                     to_create=playbooks_to_create, to_update=playbooks_to_update
                 )
-                # --- 代码修改结束 ---
 
         self.stdout.write('  -> Parsing exit strategies...')
         exit_rules = scoring_params.get('critical_exit_params', {}).get('signals', {})
         for name, score in exit_rules.items():
             if name and not name.startswith('说明_'):
-                # --- 代码修改开始 ---
-                # [修改原因] V2.1 适配：传递 score_type_map
                 self._process_playbook(
                     name=name, score=score, playbook_type=Playbook.PlaybookType.EXIT,
                     score_type_map=score_type_map, existing_map=existing_playbooks_map,
                     to_create=playbooks_to_create, to_update=playbooks_to_update
                 )
-                # --- 代码修改结束 ---
 
+        # --- 步骤2: 执行数据库写入 (在独立的、短小的事务中执行) ---
         if playbooks_to_create:
-            Playbook.objects.bulk_create(playbooks_to_create)
+            # 仅在创建时开启事务
+            with transaction.atomic():
+                Playbook.objects.bulk_create(playbooks_to_create)
             self.stdout.write(self.style.SUCCESS(f'✅ Successfully CREATED {len(playbooks_to_create)} new playbooks.'))
 
         if playbooks_to_update:
-            fields_to_update = ['cn_name', 'default_score', 'playbook_type']
-            Playbook.objects.bulk_update(playbooks_to_update, fields_to_update)
+            # 仅在更新时开启事务
+            with transaction.atomic():
+                fields_to_update = ['cn_name', 'default_score', 'playbook_type']
+                Playbook.objects.bulk_update(playbooks_to_update, fields_to_update)
             self.stdout.write(self.style.SUCCESS(f'✅ Successfully UPDATED {len(playbooks_to_update)} existing playbooks.'))
 
         if not playbooks_to_create and not playbooks_to_update:
             self.stdout.write(self.style.WARNING('ℹ️ No new or updated playbooks found. Database is up to date.'))
-
-

@@ -221,23 +221,40 @@ def save_stocks_minute_data_yesterday_task(batch_size: int = 310, cache_manager=
 @with_cache_manager
 def save_stocks_daily_basic_data_today_task(cache_manager=None):
     """
-    【无绑定版】
+    【V2.1 健壮性增强版】
     获取并保存今日股票重要的基本面指标，并执行行业轮动分析。
+    - 核心修复: 增加了明确的返回值和异常捕获。
+    - 核心增强: 在DAO调用后增加了对结果的检查，如果获取数据为空，会明确记录日志。
     """
-    logger.info(f"开始处理今日股票重要的基本面指标...")
-    service = IndicatorService(cache_manager)
-    stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    today_date = timezone.now().date()
-    print("开始保存 今日股票重要的基本面指标...")
-    async def main():
-        # [代码已修复] 执行业务逻辑并捕获返回值
-        result = await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date)
-        print(f"保存 今日股票重要的基本面指标 完成。result: {result}")
-        # [代码已修复] 在同一个异步函数内正确执行后续的异步分析任务
-        rotation_report = await service.analyze_industry_rotation(datetime.date.today(), lookback_days=10)
-        print("--- 行业轮动强度报告 ---")
-        print(rotation_report.head(10))
-    async_to_sync(main)()
+    task_name = 'save_stocks_daily_basic_data_today_task'
+    logger.info(f"任务启动: {task_name} - 开始处理今日股票重要的基本面指标...")
+    try:
+        service = IndicatorService(cache_manager)
+        stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        today_date = timezone.now().date()
+        print(f"[{task_name}] 开始保存 今日股票重要的基本面指标...")
+        async def main():
+            # 执行业务逻辑并捕获返回值
+            result = await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=today_date)
+            if not result or result.get("创建/更新成功", 0) == 0:
+                logger.warning(f"[{task_name}] 从Tushare获取每日指标数据为空或未保存任何数据 for {today_date}。这可能是因为数据尚未就绪。")
+            else:
+                print(f"[{task_name}] 保存 今日股票重要的基本面指标 完成。result: {result}")
+            # 无论是否获取到数据，都尝试执行行业轮动分析
+            rotation_report = await service.analyze_industry_rotation(datetime.date.today(), lookback_days=10)
+            print(f"--- [{task_name}] 行业轮动强度报告 ---")
+            print(rotation_report.head(10))
+            return {
+                "status": "success",
+                "message": f"每日基本面指标和行业轮动分析完成 for {today_date}",
+                "db_result": result
+            }
+        task_result = async_to_sync(main)()
+        logger.info(f"任务成功: {task_name} - {task_result.get('message')}")
+        return task_result
+    except Exception as e:
+        logger.error(f"任务失败: {task_name} 执行时发生严重错误: {e}", exc_info=True)
+        raise e
 
 #  ================ 昨日基本信息 数据任务 ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
