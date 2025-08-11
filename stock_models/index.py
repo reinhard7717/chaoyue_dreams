@@ -275,6 +275,94 @@ class TradeCalendar(models.Model):
         next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
         return next_date
 
+    @classmethod
+    async def get_next_trade_date_async(cls, reference_date: datetime.date = None, exchange: str = 'SSE') -> datetime.date | None:
+        """
+        【异步版】查询指定日期之后的第一个交易日。
+        """
+        get_next_date_func = sync_to_async(cls.get_next_trade_date, thread_sensitive=True)
+        next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
+        return next_date
+
+    # --- 【代码新增】从这里开始添加三个新的类方法 ---
+    @classmethod
+    def get_trade_dates_between(cls, start_date: datetime.date, end_date: datetime.date, exchange: str = 'SSE') -> list[datetime.date]:
+        """
+        获取指定日期范围内的所有交易日列表。
+        :param start_date: 开始日期
+        :param end_date: 结束日期
+        :param exchange: 交易所代码，默认为'SSE'
+        :return: 交易日日期列表 (按升序排列)
+        """
+        trade_dates_qs = cls.objects.filter(
+            exchange=exchange,
+            is_open=True,
+            cal_date__gte=start_date,
+            cal_date__lte=end_date
+        ).order_by('cal_date').values_list('cal_date', flat=True)
+        return list(trade_dates_qs)
+
+    @classmethod
+    def get_trade_date_offset(cls, reference_date: datetime.date, offset: int, exchange: str = 'SSE') -> datetime.date | None:
+        """
+        获取参考日期偏移N个交易日的日期。
+        :param reference_date: 参考日期
+        :param offset: 偏移量。正数表示向未来偏移，负数表示向过去偏移。
+        :param exchange: 交易所代码，默认为'SSE'
+        :return: 偏移后的交易日；如果找不到则返回None。
+        """
+        if offset == 0:
+            return reference_date if cls.is_trade_date(reference_date, exchange) else None
+
+        if offset > 0: # 向未来查找
+            qs = cls.objects.filter(
+                exchange=exchange,
+                is_open=True,
+                cal_date__gt=reference_date
+            ).order_by('cal_date').values_list('cal_date', flat=True)
+        else: # 向过去查找
+            qs = cls.objects.filter(
+                exchange=exchange,
+                is_open=True,
+                cal_date__lt=reference_date
+            ).order_by('-cal_date').values_list('cal_date', flat=True)
+        
+        abs_offset = abs(offset)
+        # 使用 Django 的切片来获取第 N 个元素，这在数据库层面是高效的
+        try:
+            # Python 的索引是从0开始的，所以要找第N个，索引是 N-1
+            return qs[abs_offset - 1]
+        except IndexError:
+            # 如果切片超出范围，说明没有足够的交易日
+            return None
+
+    @classmethod
+    def get_trade_date_offset_list(cls, reference_date: datetime.date, start_offset: int, num_days: int, exchange: str = 'SSE') -> list[datetime.date]:
+        """
+        获取从参考日期偏移N天开始的、连续M个交易日的列表。
+        :param reference_date: 参考日期
+        :param start_offset: 开始偏移量。0表示从参考日当天开始，1表示从下一个交易日开始。
+        :param num_days: 需要获取的交易日数量。
+        :param exchange: 交易所代码，默认为'SSE'
+        :return: 交易日日期列表
+        """
+        # 根据 start_offset 决定查询的起始点
+        if start_offset >= 0:
+            filter_kwargs = {'cal_date__gte': reference_date}
+        else:
+            # 理论上也可以支持负向偏移，但当前场景不需要，保持简单
+            return []
+
+        qs = cls.objects.filter(
+            exchange=exchange,
+            is_open=True,
+            **filter_kwargs
+        ).order_by('cal_date').values_list('cal_date', flat=True)
+
+        # 使用切片获取所需的日期列表
+        # [start_offset:start_offset + num_days]
+        return list(qs[start_offset : start_offset + num_days])
+
     class Meta:
         db_table = 'trade_calendar'
         verbose_name = '交易日历'

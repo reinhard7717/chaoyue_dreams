@@ -1101,7 +1101,7 @@ def run_top_n_performance_analysis(
         
         evaluated_signals_count += 1
         target_price = entry_price * (1 + profit_threshold / 100.0)
-        check_dates = TradeCalendar.get_trade_date_offset_list(entry_date, 0, holding_days - 1)
+        check_dates = TradeCalendar.get_trade_date_offset_list(entry_date, 0, holding_days)
 
         for check_date in check_dates:
             future_price_info = price_map.get((signal.stock.stock_code, check_date))
