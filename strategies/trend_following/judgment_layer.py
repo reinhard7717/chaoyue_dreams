@@ -67,10 +67,11 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V504.0 三道防线集成版】
-        - 核心修改: 集成了新的“三道防线”离场逻辑，并确保其与现有买入逻辑正确衔接。
+        【V505.0 净得分决策版】
+        - 核心修改: 废除简单的 entry_score > risk_score 逻辑，引入基于“净得分”和“风险惩罚”的
+                    高级决策模型，旨在从根本上提升买入信号的质量和成功率。
         """
-        # print("    --- [最高作战指挥部 V504.0 三道防线集成版] 启动... ---")
+        print("    --- [最高作战指挥部 V505.0 净得分决策版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -79,70 +80,45 @@ class JudgmentLayer:
         df['signal_type'] = '无信号'
         df['veto_votes'] = 0
         df['dynamic_action'] = 'HOLD'
-        df['max_allowed_votes'] = 0
-
+        
         self._evaluate_holding_health(score_details_df, risk_details_df)
         self._calculate_static_veto_votes()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # --- 代码修改开始 ---
-        # [修改原因] V504.0 架构升级：用新的“三道防线”逻辑替换旧的离场阈值逻辑。
-        # 1. 调用新的离场触发器生成器
         exit_triggers = self._generate_exit_triggers()
         is_sell_signal = exit_triggers.any(axis=1)
-        
-        # 2. 将触发卖出的具体原因保存到 strategy 对象中，用于后续分析
         self.strategy.exit_triggers = exit_triggers[is_sell_signal]
-        
-        # 3. 根据触发结果设置信号类型
         df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
-        # --- 代码修改结束 ---
 
-        # (旧的 exit_threshold_params 和 warning_threshold_params 逻辑已被上面的新逻辑取代)
-
-        # --- 买入逻辑 (基本保持不变，但增加了卖出信号的否决) ---
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {}).keys()
-        valid_pos_cols = [col for col in positional_rules if col in score_details_df.columns]
-        positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
-
-        buy_params = get_params_block(self.strategy, 'dynamic_mechanics_params').get('tactical_matrix_rules', {})
-        min_positional_score = get_param_value(buy_params.get('min_positional_score'), 200)
-        is_foundation_solid = positional_score >= min_positional_score
-
-        hard_veto_signals = get_param_value(buy_params.get('hard_veto_signals'), [])
-        has_hard_veto = pd.Series(False, index=df.index)
-        for signal in hard_veto_signals:
-            has_hard_veto |= atomic.get(signal, default_series)
-
-        tolerance_tiers = get_param_value(buy_params.get('tolerance_tiers'), [])
-        for tier in sorted(tolerance_tiers, key=lambda x: x.get('score_min', 0)):
-            score_min = tier.get('score_min', 0)
-            score_max = tier.get('score_max', float('inf'))
-            max_votes = tier.get('max_veto_votes', 0)
-            condition = (df['entry_score'] >= score_min) & (df['entry_score'] <= score_max)
-            df.loc[condition, 'max_allowed_votes'] = max_votes
-        is_veto_tolerated = df['veto_votes'] <= df['max_allowed_votes']
-
-        is_score_positive = df['entry_score'] > df['risk_score']
-        not_avoid = df['dynamic_action'] != 'AVOID'
+        # 1. 从配置文件加载新的决策阈值
+        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        net_score_threshold_no_veto = get_param_value(p_judge.get('net_score_threshold_no_veto'), 500)
+        net_score_threshold_with_veto = get_param_value(p_judge.get('net_score_threshold_with_veto'), 800)
         
-        # --- 代码修改开始 ---
-        # [修改原因] V504.0 架构升级：确保卖出信号优先，当天有卖出信号则不能买入。
+        # 2. 计算核心决策指标：“净得分”
+        df['net_score'] = df['entry_score'] - df['risk_score']
+
+        # 3. 根据是否存在否决票，应用不同的“净得分”门槛
+        # 3.1 无否决票时的条件：净得分必须超过基准线
+        no_veto_buy_condition = (df['veto_votes'] == 0) & (df['net_score'] > net_score_threshold_no_veto)
+        # 3.2 有否决票时的条件：净得分必须超过更高的惩罚线
+        with_veto_buy_condition = (df['veto_votes'] > 0) & (df['net_score'] > net_score_threshold_with_veto)
+        
+        # 4. 组合成最终的“净得分充足”条件
+        is_net_score_sufficient = no_veto_buy_condition | with_veto_buy_condition
+        
+        # 5. 组合所有买入的必要条件
+        not_avoid = df['dynamic_action'] != 'AVOID'
         is_not_sell_day = ~is_sell_signal
-        # --- 代码修改结束 ---
 
         final_buy_condition = (
-            is_foundation_solid &
-            ~has_hard_veto &
-            is_score_positive &
-            is_veto_tolerated &
+            is_net_score_sufficient & # 使用新的净得分条件，替换旧的 is_score_positive 和 is_veto_tolerated
             not_avoid &
-            is_not_sell_day # [修改] 使用新的条件替换旧的 is_not_risk_day
+            is_not_sell_day
         )
+
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        # 调用最终净化方法
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:

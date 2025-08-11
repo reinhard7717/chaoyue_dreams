@@ -391,6 +391,26 @@
             "FRACTAL_EVENT_TREND_FORMING": 100
           }
         },
+        "judgment_params": {
+          "enabled": true,
+          "description": "【V2.0 决策层】引入净得分和风险惩罚机制，大幅提升信号质量。",
+          "net_score_threshold_no_veto": {
+            "value": 500,
+            "description": "在没有任何否决票的情况下，买入信号所需的最低【净得分】(entry_score - risk_score)。"
+          },
+          "net_score_threshold_with_veto": {
+            "value": 800,
+            "description": "在存在任何否决票的情况下，买入信号所需的最低【净得分】。门槛更高，用于惩罚风险。"
+          },
+          "risk_overflow_threshold": {
+            "value": 1000,
+            "description": "总风险分超过此阈值，直接触发卖出信号（三道防线之二：风险溢出）。"
+          },
+          "profit_protector": {
+            "enabled": false,
+            "max_drawdown_pct": 0.15
+          }
+        },
         "score_type_map": {
           "说明": "【信号字典】定义所有信号的中文名和类型，是系统内唯一的元数据来源。",
           
