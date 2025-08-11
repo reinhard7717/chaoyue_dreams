@@ -67,58 +67,68 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V505.0 净得分决策版】
-        - 核心修改: 废除简单的 entry_score > risk_score 逻辑，引入基于“净得分”和“风险惩罚”的
-                    高级决策模型，旨在从根本上提升买入信号的质量和成功率。
+        【V506.0 拐点决策版】
+        - 核心升级: 引入【进攻加速】状态 (is_at_inflection_point) 作为买入信号的最终过滤器。
+                    此举旨在精确捕捉趋势的“点火”瞬间，从根本上规避因追逐最高分而导致的“高分陷阱”，
+                    是大幅提升信号质量和最终胜率的关键一步。
         """
-        print("    --- [最高作战指挥部 V505.0 净得分决策版] 启动... ---")
+        print("    --- [最高作战指挥部 V506.0 拐点决策版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
         
+        # 初始化所有决策列
         df['final_score'] = 0.0
         df['signal_type'] = '无信号'
         df['veto_votes'] = 0
         df['dynamic_action'] = 'HOLD'
         
+        # 依次调用各个决策模块
         self._evaluate_holding_health(score_details_df, risk_details_df)
-        self._calculate_static_veto_votes()
+        self._calculate_static_veto_votes() # 此方法已更新，会使用新的原子状态
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
+        # 处理卖出信号（三道防线逻辑）
         exit_triggers = self._generate_exit_triggers()
         is_sell_signal = exit_triggers.any(axis=1)
         self.strategy.exit_triggers = exit_triggers[is_sell_signal]
         df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
 
-        # 1. 从配置文件加载新的决策阈值
+        # --- 买入决策核心逻辑 ---
+        # 1. 加载净得分阈值
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         net_score_threshold_no_veto = get_param_value(p_judge.get('net_score_threshold_no_veto'), 500)
         net_score_threshold_with_veto = get_param_value(p_judge.get('net_score_threshold_with_veto'), 800)
         
-        # 2. 计算核心决策指标：“净得分”
+        # 2. 计算净得分
         df['net_score'] = df['entry_score'] - df['risk_score']
 
-        # 3. 根据是否存在否决票，应用不同的“净得分”门槛
-        # 3.1 无否决票时的条件：净得分必须超过基准线
+        # 3. 判断净得分是否充足（已包含风险惩罚）
         no_veto_buy_condition = (df['veto_votes'] == 0) & (df['net_score'] > net_score_threshold_no_veto)
-        # 3.2 有否决票时的条件：净得分必须超过更高的惩罚线
         with_veto_buy_condition = (df['veto_votes'] > 0) & (df['net_score'] > net_score_threshold_with_veto)
-        
-        # 4. 组合成最终的“净得分充足”条件
         is_net_score_sufficient = no_veto_buy_condition | with_veto_buy_condition
         
-        # 5. 组合所有买入的必要条件
+        # 4. 组合所有前置条件
         not_avoid = df['dynamic_action'] != 'AVOID'
         is_not_sell_day = ~is_sell_signal
 
+        # --- 【代码修改】引入最终的“拐点”过滤器 ---
+        # 从原子状态中获取由 OffensiveLayer 计算出的“进攻加速”信号
+        is_at_inflection_point = atomic.get('SCORE_DYN_OFFENSE_ACCELERATING', default_series)
+        
+        # 最终买入条件 = 净得分充足 & 动态力学不规避 & 当天无卖出信号 & 【处于进攻加速拐点】
         final_buy_condition = (
-            is_net_score_sufficient & # 使用新的净得分条件，替换旧的 is_score_positive 和 is_veto_tolerated
+            is_net_score_sufficient &
             not_avoid &
-            is_not_sell_day
+            is_not_sell_day &
+            is_at_inflection_point  # <--- 这是决定性的新增条件，确保只在趋势“点火”时买入！
         )
+        # --- 【代码修改】结束 ---
 
+        # 根据最终条件，设置信号类型
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
+        # 净化并最终确定分数
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:
@@ -147,18 +157,23 @@ class JudgmentLayer:
 
     def _calculate_static_veto_votes(self):
         """
-        【V318.1 风控回归版】
+        【V318.2 状态驱动版】
+        - 核心修改: 否决票的计算逻辑现在完全由上游生成的、更可靠的原子状态驱动，
+                    特别是“机会衰退”和“风险抬头”的判断，确保了系统内部逻辑的高度一致性。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
+        # 风险1: 筹码结构严重失效 (3票)
         has_critical_chip_risk = atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
         df.loc[has_critical_chip_risk, 'veto_votes'] += 3
 
+        # 风险2: 主力正在派发或崩盘 (1票)
         is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
         df.loc[is_in_distribution_phase, 'veto_votes'] += 1
         
+        # 风险3: 绝对否决信号 (2票)
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
         if get_param_value(veto_params.get('enabled'), True):
             mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
@@ -177,13 +192,19 @@ class JudgmentLayer:
                     final_absolute_veto |= has_risk
             df.loc[final_absolute_veto, 'veto_votes'] += 2
 
+        # 风险4: 风险分高于进攻分 (1票)
         risk_overrides_entry = df['risk_score'] > df['entry_score']
         is_in_ascent_phase = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
         
+        # --- 【代码修改】使用由 OffensiveLayer 生成的、更可靠的原子状态来计算否决票 ---
+        # 风险5: 机会正在衰退 (1票)
+        # 直接消费由 OffensiveLayer 诊断出的“机会衰退”信号
         is_opportunity_fading = atomic.get('SCORE_DYN_OPPORTUNITY_FADING', default_series)
         df.loc[is_opportunity_fading, 'veto_votes'] += 1
         
+        # 风险6: 风险正在抬头 (1票)
+        # 直接消费由 OffensiveLayer 诊断出的“风险抬头”信号
         is_risk_escalating = atomic.get('SCORE_DYN_RISK_ESCALATING', default_series)
         df.loc[is_risk_escalating, 'veto_votes'] += 1
 
