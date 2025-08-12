@@ -499,11 +499,11 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(seconds=15),  # 每5秒执行一次
         'options': {'expires': 300, 'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    'init_realtime_engine_task': {
-        'task': 'tasks.stock_analysis_tasks.prepare_pools', # 任务函数名
-        'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
-        'options': {'queue': 'intraday_queue'},
-    },
+    # 'init_realtime_engine_task': {
+    #     'task': 'tasks.stock_analysis_tasks.prepare_pools', # 任务函数名
+    #     'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
+    #     'options': {'queue': 'intraday_queue'},
+    # },
     # 'run_realtime_engine_task': {
     #     'task': 'tasks.stock_analysis_tasks.run_cycle', # 任务函数名
     #     'schedule': timedelta(seconds=15),

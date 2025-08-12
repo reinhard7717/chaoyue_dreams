@@ -297,28 +297,23 @@ class StockTimeTradeDAO(BaseDAO):
         3. 【向量化分组】使用Pandas.groupby()替代逐行判断和追加，按分表模型对数据进行分组。
         4. 【批量转换】直接在DataFrame上进行列操作和类型转换，最后用to_dict批量生成待保存数据。
         """
-
         if not stock_codes:
             logger.warning("传入的stock_codes列表为空，任务终止。")
             return {}
-
         # 1. 【核心优化】一次性获取所有相关股票信息，并创建高效查找映射
         # 注意：这里假设 get_stock_list() 效率足够高（有缓存）。
         # 如果 stock_codes 只是所有股票的一小部分，更优的做法是创建一个 get_stocks_by_codes(codes) 的方法。
         # 但根据题目要求，我们使用 get_stock_list()。
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
-
         if not stock_map:
             logger.warning(f"提供的stock_codes: {stock_codes} 在数据库中均未找到对应的StockInfo。")
             return {}
-
         # 2. 准备API请求和分页拉取
         stock_codes_str = ",".join(stock_codes)
         data_dicts_by_model = {}
         offset = 0
         limit = 6000
-
         while True:
             if offset >= 100000:
                 logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
@@ -336,9 +331,7 @@ class StockTimeTradeDAO(BaseDAO):
             )
             if df.empty:
                 break
-
             original_count = len(df)
-
             # 3. 向量化数据处理 (替代原有的 for 循环)
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
