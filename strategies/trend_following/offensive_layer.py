@@ -85,7 +85,6 @@ class OffensiveLayer:
             # 1. 定义构成“坚实阵地”的核心信号列表（这些是高分、关键的结构性信号）
             foundation_signals = [
                 "CHIP_CONC_LOCKED_AND_STABLE_A",
-                "OPP_PEAK_BATTLE_BREAKOUT_A",
                 "PULLBACK_STATE_HEALTHY_S",
                 "OPP_FIB_SUPPORT_GOLDEN_POCKET_S",
                 "STRUCTURE_MAIN_UPTREND_WAVE_S",
