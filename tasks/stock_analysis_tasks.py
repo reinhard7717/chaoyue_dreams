@@ -711,7 +711,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
-@celery_app.task(bind=True, name='tasks.migration.migrate_advanced_chip_metrics', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.migrate_advanced_chip_metrics', queue='SaveHistoryData_TimeTrade')
 def migrate_advanced_chip_metrics(self, batch_size: int = 5000, dry_run: bool = False):
     """
     【一次性数据迁移任务】
