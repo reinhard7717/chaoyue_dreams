@@ -84,11 +84,14 @@ class OffensiveLayer:
             # --- 增加“安全开关”逻辑 ---
             # 1. 定义构成“坚实阵地”的核心信号列表（这些是高分、关键的结构性信号）
             foundation_signals = [
-                "CHIP_CONC_LOCKED_AND_STABLE_A",
-                "PULLBACK_STATE_HEALTHY_S",
-                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S",
-                "STRUCTURE_MAIN_UPTREND_WAVE_S",
-                "OPP_CHIP_PULLBACK_HAMMER_A"
+                # --- 1. 结构基石 (最强信号，代表战役准备已完成) ---
+                "CHIP_CONC_LOCKED_AND_STABLE_A",      # 核心中的核心：筹码供应已锁定。
+                # --- 2. 宏观趋势 (确保我们在正确的战场) ---
+                "STRUCTURE_MAIN_UPTREND_WAVE_S",      # 确认处于主升浪结构中。
+                # --- 3. 关键转折 (代表短期不稳定的结束，重回稳定) ---
+                "PULLBACK_STATE_HEALTHY_S",           # 确认回踩是良性的。
+                "OPP_CHIP_PULLBACK_HAMMER_A",         # 确认主力在回踩中已完成试探。
+                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S",    # 确认在最重要的技术位获得了支撑。
             ]
             # 2. 检查当天是否有任何一个核心阵地信号被激活
             is_foundation_strong = pd.Series(False, index=df.index)
