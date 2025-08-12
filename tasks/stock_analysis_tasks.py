@@ -603,7 +603,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 for period in accel_periods:
                     final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
             if 'concentration_90pct' in final_metrics_df.columns:
-                final_metrics_df['concentration_90pct_slope_5d'] = final_metrics_df['concentration_90pct'].rolling(5).mean().diff()
+                # 使用与 peak_cost 斜率计算完全相同的方法
+                concentration_slope_5d = final_metrics_df['concentration_90pct'].rolling(window=5, min_periods=2).apply(
+                    lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
+                )
+                final_metrics_df['concentration_90pct_slope_5d'] = concentration_slope_5d
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
             model_fields = {f.name for f in AdvancedChipMetrics._meta.get_fields()}
