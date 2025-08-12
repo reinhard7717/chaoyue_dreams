@@ -494,53 +494,41 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
                 每个任务批次，然后为每个批次创建一个 group 并带有延迟地分发。
     """
     print(f"分发器任务[V2.2 手动分块版]启动，准备为日期 {trade_date_str} 分发CYQ任务...")
-    
     async def main():
         # 1. 获取股票列表 (逻辑不变)
         stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
         print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
         stock_list = await stock_dao.get_stock_list()
         all_stock_codes = [stock.stock_code for stock in stock_list]
-
         if not all_stock_codes:
             logger.warning(f"分发器：未能通过DAO获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
             return {"status": "skipped", "message": "no stocks found via DAO"}
-            
         stock_count = len(all_stock_codes)
-        
         # 2. 定义分块参数 (逻辑不变)
-        chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 10) 
+        chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 33) 
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 10)
-
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size_per_stock} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
-
         # 3. 准备所有任务签名 (逻辑不变)
         all_tasks = []
         for stock_code in all_stock_codes:
             all_tasks.append(save_single_stock_cyq_chips.s(stock_code=stock_code, trade_date_str=trade_date_str))
             all_tasks.append(save_single_stock_cyq_perf.s(stock_code=stock_code, trade_date_str=trade_date_str))
-        
         # 4. 【核心修正】手动分块并分发
         total_tasks = len(all_tasks)
         # 因为每只股票有2个任务，所以任务的块大小是股票块大小的2倍
         task_chunk_size = chunk_size_per_stock * 2
-        
         batch_num = 0
         # 使用 range(start, stop, step) 来遍历 all_tasks 列表
         for i in range(0, total_tasks, task_chunk_size):
             # 从 all_tasks 列表中切出当前批次的任务
             chunk_of_tasks = all_tasks[i : i + task_chunk_size]
-            
             # 为这个小批次创建一个 group
             task_group = group(chunk_of_tasks)
-            
             # 计算延迟并异步执行
             countdown = batch_num * delay_between_chunks
             task_group.apply_async(countdown=countdown)
-            
             print(f"  -> 第 {batch_num + 1} 批任务 (共 {len(chunk_of_tasks)} 个) 已调度，将在 {countdown} 秒后执行。")
             batch_num += 1
-
         message = f"分发器：成功调度了 {stock_count} 只股票的CYQ任务 (共 {total_tasks} 个)，已分 {batch_num} 批平滑处理。"
         print(message)
         logger.info(message)
