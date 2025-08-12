@@ -12,12 +12,13 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V337.0 智能指挥部版】
-        - 核心重构: 本模块不再是简单的加分器，而是真正的“进攻指挥部”。
-                    它直接消费底层的“原子状态”，并在内部根据配置文件中的
-                    “战法”来组合、交叉验证，并计算最终分数。
+        【V337.1 安全开关版】
+        - 核心修复: 为“阵地优势加速”的涡轮增压引擎增加了“安全开关”。现在，该奖励
+                    不仅要求阵地分在加速，还必须满足一个前置条件：当天必须存在至少一个
+                    “高权重核心阵地信号”。这从根本上解决了因次要信号波动而触发
+                    不合理巨额奖励的逻辑漏洞，确保了奖励只授予真正高质量的机会。
         """
-        # print("        -> [进攻方案评估中心 V337.0] 启动...")
+        # print("        -> [进攻方案评估中心 V337.1 安全开关版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
@@ -31,40 +32,33 @@ class OffensiveLayer:
         for rule in composite_rules:
             rule_name = rule.get('name')
             score = rule.get('score', 0)
-            required_states = rule.get('all_of', []) # "与"逻辑
-            any_of_states = rule.get('any_of', [])   # "或"逻辑
+            required_states = rule.get('all_of', [])
+            any_of_states = rule.get('any_of', [])
             forbidden_states = rule.get('none_of', [])
-
             final_condition = pd.Series(True, index=df.index)
-            
-            # 处理 "与" 逻辑
             if required_states:
                 for state in required_states:
                     final_condition &= atomic_states.get(state, default_series)
-            
-            # 处理 "或" 逻辑
             if any_of_states:
                 any_condition = pd.Series(False, index=df.index)
                 for state in any_of_states:
                     any_condition |= atomic_states.get(state, default_series)
                 final_condition &= any_condition
-
             if forbidden_states:
                 for state in forbidden_states:
                     final_condition &= ~atomic_states.get(state, default_series)
-
             if final_condition.any():
                 entry_score.loc[final_condition] += score
                 score_details_df[rule_name] = final_condition * score
 
         # --- 2. 评估“阵地/动能火力” (Atomic Scoring) ---
+        # ... (此部分逻辑不变) ...
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
             if signal_series.any():
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
-
         dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
         for signal_name, score in dynamic_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -72,39 +66,45 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
 
-        # --- 3. 计算纯粹的“阵地分”用于前置条件检查 ---
+        # --- 3. 计算纯粹的“阵地分”用于后续逻辑 ---
         valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
         positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 步骤 5: 评估“阵地优势加速度”火力 (Positional Acceleration Scoring) ---
-        # 这是本次升级的核心，我们在这里启动“涡轮增压引擎”。
+        # --- 步骤 5: 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
         p_pos_accel = scoring_params.get('positional_acceleration_scoring', {})
         if get_param_value(p_pos_accel.get('enabled'), True):
-            # 5.1 独立计算“纯粹的阵地分”及其动态
-            valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
-            positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
             positional_change = positional_score.diff(1).fillna(0)
             positional_accel = positional_change.diff(1).fillna(0)
-            # 5.2 加载引擎参数
+            
             multiplier = get_param_value(p_pos_accel.get('score_multiplier'), 2.0)
             min_accel_for_bonus = get_param_value(p_pos_accel.get('min_acceleration_for_bonus'), 50)
-            # 5.3 定义奖励条件
+            
             is_accelerating = (positional_change > 0) & (positional_accel > min_accel_for_bonus)
-            if is_accelerating.any():
-                # 5.4 计算奖励分：奖励的大小与加速度成正比！
-                accel_bonus_score = positional_accel * multiplier
-                # 5.5 将奖励分施加到总分上
-                entry_score.loc[is_accelerating] += accel_bonus_score.loc[is_accelerating]
-                # 5.6 在详情中记录这项核心奖励，便于复盘
-                score_details_df['SCORE_POS_ACCEL_BONUS'] = accel_bonus_score.where(is_accelerating, 0)
-                print(f"          -> [涡轮增压] 已为 {is_accelerating.sum()} 天的“阵地优势加速”信号施加了核心奖励分！")
-        else:
-            # 如果该模块被禁用，仍然需要计算 positional_score 用于触发器逻辑
-            valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
-            positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 重新执行步骤 4: 评估“触发器火力” (Trigger Scoring) ---
-        # 现在 positional_score 已经计算完毕，可以安全执行
+            # --- 增加“安全开关”逻辑 ---
+            # 1. 定义构成“坚实阵地”的核心信号列表（这些是高分、关键的结构性信号）
+            foundation_signals = [
+                "CHIP_CONC_LOCKED_AND_STABLE_A",
+                "OPP_PEAK_BATTLE_BREAKOUT_A",
+                "PULLBACK_STATE_HEALTHY_S",
+                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S",
+                "STRUCTURE_MAIN_UPTREND_WAVE_S",
+                "OPP_CHIP_PULLBACK_HAMMER_A"
+            ]
+            # 2. 检查当天是否有任何一个核心阵地信号被激活
+            is_foundation_strong = pd.Series(False, index=df.index)
+            for signal in foundation_signals:
+                is_foundation_strong |= atomic_states.get(signal, default_series)
+            # 3. 最终的奖励条件 = 正在加速 AND 基础牢固
+            final_bonus_condition = is_accelerating & is_foundation_strong
+
+            if final_bonus_condition.any():
+                accel_bonus_score = positional_accel * multiplier
+                entry_score.loc[final_bonus_condition] += accel_bonus_score.loc[final_bonus_condition]
+                score_details_df['SCORE_POS_ACCEL_BONUS'] = accel_bonus_score.where(final_bonus_condition, 0)
+                print(f"          -> [涡轮增压] 已为 {final_bonus_condition.sum()} 天满足‘安全开关’的“阵地优势加速”信号施加了核心奖励分！")
+        
+        # --- 步骤 4: 评估“触发器火力” (逻辑不变) ---
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         enhancement_params = scoring_params.get('trigger_enhancement_params', {})
         is_enhancement_enabled = get_param_value(enhancement_params.get('enabled'), False)
