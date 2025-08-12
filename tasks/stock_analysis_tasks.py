@@ -415,7 +415,9 @@ def rebuild_all_snapshots_for_all_trackers(self):
     logger.info("所有重建任务已成功派发。")
     return {"status": "dispatched", "tracker_count": len(holding_tracker_ids)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_snapshots_for_tracker_task', queue='calculate_strategy')
+
+# 单个持仓追踪器快照重建任务 (服务包装器)
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_snapshots_for_tracker_task', queue='dashboard')
 @with_cache_manager
 def rebuild_snapshots_for_tracker_task(self, tracker_id: int, *, cache_manager: CacheManager):
     """
