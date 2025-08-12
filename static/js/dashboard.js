@@ -236,15 +236,12 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
-        // ▼▼▼【代码修改】: 增加保护性检查，确保只在搜索框存在时才执行相关逻辑 ▼▼▼
         const searchInput = document.getElementById('stock-search-input');
-        // 只有当 searchInput 元素存在时，才初始化所有搜索和添加相关的逻辑
         if (searchInput) {
             const searchResultsContainer = document.getElementById('search-results');
             let debounceTimer;
             let selectedStockCode = null;
 
-            // 1. 监听搜索框的输入事件
             searchInput.addEventListener('keyup', (event) => {
                 const query = searchInput.value.trim();
                 clearTimeout(debounceTimer);
@@ -273,7 +270,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }, 300);
             });
 
-            // 2. 渲染搜索结果
             function renderSearchResults(stocks) {
                 searchResultsContainer.innerHTML = '';
                 if (stocks.length === 0) {
@@ -291,7 +287,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 searchResultsContainer.style.display = 'block';
             }
 
-            // 3. 监听搜索结果容器的点击事件（事件委托）
             searchResultsContainer.addEventListener('click', (event) => {
                 const targetItem = event.target.closest('.search-result-item');
                 if (targetItem && targetItem.dataset.stockCode) {
@@ -303,7 +298,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
 
-            // 4. 监听表单提交事件 (确保 addFavoriteForm 存在)
             if (addFavoriteForm) {
                 addFavoriteForm.addEventListener('submit', async (event) => {
                     event.preventDefault();
@@ -329,14 +323,18 @@ document.addEventListener('DOMContentLoaded', function () {
                             body: JSON.stringify({ stock_code: selectedStockCode })
                         });
 
+                        // 【代码修改】API返回的是一个包含 detail 信息的对象，而不是序列化的 Favorite 对象
+                        const responseData = await response.json();
+
                         if (response.ok) {
-                            const newFavorite = await response.json();
-                            showNotification(`股票 ${newFavorite.stock.stock_code} 添加成功！`, 'success');
+                            // 【代码修改】直接使用后端返回的友好提示信息
+                            showNotification(responseData.detail || `股票 ${selectedStockCode} 操作成功！`, 'success');
                             searchInput.value = '';
                             selectedStockCode = null;
+                            // 刷新页面以看到新添加的自选股（简单有效的方案）
+                            setTimeout(() => window.location.reload(), 1000);
                         } else {
-                            const errorData = await response.json();
-                            const errorMsg = errorData.detail || (errorData.stock_code ? `代码: ${errorData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
+                            const errorMsg = responseData.detail || (responseData.stock_code ? `代码: ${responseData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
                             showNotification(errorMsg, 'error');
                         }
                     } catch (error) {
@@ -349,16 +347,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             }
 
-            // 点击页面其他地方，隐藏搜索结果
             document.addEventListener('click', (event) => {
                 if (addFavoriteForm && !addFavoriteForm.contains(event.target)) {
                     searchResultsContainer.style.display = 'none';
                 }
             });
         }
-        // ▲▲▲【代码修改结束】▲▲▲
 
-        // 启动WebSocket
         connectWebSocket();
     }
 
@@ -506,13 +501,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         console.log('[调试点 2] 已成功获取到 tableBody 元素:', tableBody);
 
-        const modalOverlay = document.getElementById('transaction-modal-overlay');
+        const modalContainer = document.getElementById('transaction-modal-container');
         const modalTitle = document.getElementById('transaction-modal-title');
         const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
         const transactionListTbody = document.getElementById('transaction-list-tbody');
         const transactionListLoading = document.getElementById('transaction-list-loading');
         const addTransactionForm = document.getElementById('add-transaction-form');
-        const formTrackerIdInput = document.getElementById('form-tracker-id');
 
         tableBody.addEventListener('click', async function (event) {
             console.log('[调试点 3] tableBody 内发生点击事件。被点击的原始元素是:', event.target);
@@ -585,15 +579,19 @@ document.addEventListener('DOMContentLoaded', function () {
         async function openTransactionModal(trackerId, stockName) {
             console.log(`[Modal调试 1] 进入 openTransactionModal 函数。接收到 trackerId: ${trackerId}, stockName: ${stockName}`);
 
-            // 检查关键的 modalOverlay 元素是否存在
-            if (!modalOverlay) {
-                console.error('[Modal错误] 无法找到 modalOverlay 元素 (ID: transaction-modal-overlay)！模态框无法显示。');
+            if (!modalOverlay || !modalContainer) {
+                console.error('[Modal错误] 无法找到模态框核心元素！模态框无法显示。');
                 showNotification('页面结构错误，无法打开管理窗口。', 'error');
                 return;
             }
 
             modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
-            formTrackerIdInput.value = trackerId;
+            // 【代码修改】将 trackerId 和 stockName 存储在 modal 容器上，作为可靠的数据源
+            modalContainer.dataset.trackerId = trackerId;
+            modalContainer.dataset.stockName = stockName;
+            // 【代码修改】同时更新表单中的隐藏 input，确保表单提交时能获取到正确的 trackerId
+            document.getElementById('form-tracker-id').value = trackerId;
+
 
             console.log('[Modal调试 2] 准备显示模态框，设置 style.display = "flex"');
             modalOverlay.style.display = 'flex';
@@ -685,7 +683,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 showNotification('交易添加成功！快照正在后台更新...', 'success');
                 addTransactionForm.reset();
-                openTransactionModal(data.tracker, modalTitle.textContent.split('[')[1].split(']')[0]);
+                // 【代码修改】从 modalContainer 的 dataset 中获取可靠的状态来刷新模态框
+                const currentTrackerId = modalContainer.dataset.trackerId;
+                const currentStockName = modalContainer.dataset.stockName;
+                if (currentTrackerId && currentStockName) {
+                    openTransactionModal(currentTrackerId, currentStockName);
+                }
             } catch (error) {
                 showNotification(error.message, 'error');
             } finally {
@@ -709,7 +712,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 if (!response.ok && response.status !== 204) throw new Error('删除失败');
                 showNotification('交易删除成功！快照正在后台更新...', 'success');
-                openTransactionModal(formTrackerIdInput.value, modalTitle.textContent.split('[')[1].split(']')[0]);
+                // 【代码修改】从 modalContainer 的 dataset 中获取可靠的状态来刷新模态框
+                const currentTrackerId = modalContainer.dataset.trackerId;
+                const currentStockName = modalContainer.dataset.stockName;
+                if (currentTrackerId && currentStockName) {
+                    openTransactionModal(currentTrackerId, currentStockName);
+                }
             } catch (error) {
                 showNotification(error.message, 'error');
                 deleteBtn.disabled = false;
