@@ -201,65 +201,78 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V7.4 时区安全版】
-    - 核心修复: 彻底解决了因时区问题导致最新一日 TradingSignal 数据删除失败的BUG。
-                现在使用一个明确的、带时区的日期时间范围 (gte/lt) 来进行过滤和删除，
-                确保无论数据库时区如何配置，都能精确匹配并删除目标交易日的所有信号数据。
+    【V7.5 数据驱动的权威日期版】
+    - 核心重构: 彻底改变了任务的触发逻辑。不再依赖交易日历来推测最新交易日，
+                而是通过查询 AdvancedChipMetrics 表，主动发现“数据已大规模就绪”的
+                那个最新交易日，并将其作为本次分析的权威日期。
+                这从根本上解决了上游数据延迟导致下游分析失败的问题。
     """
     try:
-        logger.info("====== [公共数据库建设-每日增量 V7.4 时区安全版] 启动 ======")
-        # 步骤1: 获取权威交易日 (逻辑不变)
-        reference_date = timezone.now().date()
-        latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
-        if not latest_trade_dates:
-            logger.error("【严重错误】无法从交易日历中获取最新的交易日，任务终止！")
-            return {"status": "failed", "reason": "Cannot get latest trade date from calendar."}
-        latest_trade_date = latest_trade_dates[0]
-        trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
-        logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
+        logger.info("====== [公共数据库建设-每日增量 V7.5 数据驱动版] 启动 ======")
+        
+        # --- 步骤1: 数据驱动的权威日期发现机制 ---
+        logger.info("步骤1: 正在通过查询 AdvancedChipMetrics 确定数据已就绪的权威交易日...")
+        
+        # 1.1 获取市场上的股票总数，作为基准
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+        all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
+        total_stock_count = len(all_stocks)
+        if total_stock_count == 0:
+            logger.error("【严重错误】无法从 StockInfo 获取任何股票，任务终止！")
+            return {"status": "failed", "reason": "Could not retrieve stock list."}
 
-        # --- 使用时区安全的日期时间范围进行数据清理 ---
+        # 1.2 定义数据就绪的阈值（例如，95%的股票已完成计算）
+        readiness_threshold = int(total_stock_count * 0.95)
+        logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
+
+        # 1.3 查询哪个最新的日期满足了我们的就绪阈值
+        # 这个查询会按日期分组，统计每个日期的股票数量，过滤掉不满足阈值的，然后取最新的一个。
+        latest_ready_date_record = AdvancedChipMetrics.objects.values('trade_date') \
+            .annotate(stock_count=Count('stock_id')) \
+            .filter(stock_count__gte=readiness_threshold) \
+            .order_by('-trade_date').first()
+
+        if not latest_ready_date_record:
+            logger.warning("【任务暂停】在 AdvancedChipMetrics 中未找到任何满足大规模数据就绪条件的交易日。可能是上游筹码计算任务尚未完成。任务安全退出。")
+            return {"status": "skipped", "reason": "No trade date met the data readiness threshold."}
+
+        # 1.4 确定权威日期
+        latest_trade_date = latest_ready_date_record['trade_date']
+        trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
+        logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {latest_ready_date_record['stock_count']} 支股票筹码数据就绪。")
+
+
+        # 步骤2: 使用权威日期进行精确的数据清理
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
-            # 1. 创建一个带时区的、从当天零点开始的时间点
             start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
-            # 2. 创建一个带时区的、从下一天零点开始的时间点
             end_of_day_aware = start_of_day_aware + timedelta(days=1)
             
-            logger.info(f"将删除时间范围在 {start_of_day_aware} (inclusive) 到 {end_of_day_aware} (exclusive) 之间的信号。")
-
             with transaction.atomic():
-                # 3. 对 StrategyDailyScore 的删除保持不变，因为它使用 DateField，没有时区问题。
                 deleted_scores_count, _ = StrategyDailyScore.objects.filter(trade_date=latest_trade_date).delete()
-                
-                # 4. 对 TradingSignal 使用精确的时间范围进行删除，这是本次修复的核心。
                 deleted_signals_count, _ = TradingSignal.objects.filter(
                     trade_time__gte=start_of_day_aware,
                     trade_time__lt=end_of_day_aware
                 ).delete()
-                
-                logger.info(f"清理完成。删除了 {deleted_scores_count} 条每日分数记录，{deleted_signals_count} 条交易信号记录 (及其关联子项)。")
+                logger.info(f"清理完成。删除了 {deleted_scores_count} 条每日分数记录，{deleted_signals_count} 条交易信号记录。")
         except Exception as e:
             logger.error(f"清理 {trade_time_str} 的旧数据时发生严重错误，任务终止: {e}", exc_info=True)
             return {"status": "failed", "reason": "Data cleanup failed."}
 
-        # 步骤3 & 4: 获取股票列表并派发任务 (逻辑不变)
-        all_codes = []
-        favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
-        all_codes.extend(favorite_codes)
-        all_codes.extend(non_favorite_codes)
-        if not all_codes:
-            logger.warning("[每日增量] 未找到任何股票数据，任务终止")
-            return {"status": "failed", "reason": "no stocks found"}
+        # 步骤3: 获取股票列表 (逻辑不变, 使用之前已获取的 all_stocks)
+        all_codes = [stock.stock_code for stock in all_stocks]
         stock_count = len(all_codes)
-        logger.info(f"[每日增量] 准备为 {stock_count} 只股票更新当日策略分数。")
+        logger.info(f"[每日增量] 准备为 {stock_count} 只股票在权威日期 {trade_time_str} 上更新策略分数。")
+        
+        # 步骤4: 派发并行任务 (逻辑不变)
         analysis_tasks = [
             run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in all_codes
         ]
         workflow = group(analysis_tasks)
         workflow.apply_async()
+        
         logger.info(f"[每日增量] 已成功为 {stock_count} 只股票启动【当日】分数计算任务。")
-        return {"status": "workflow_started", "stock_count": stock_count}
+        return {"status": "workflow_started", "stock_count": stock_count, "authoritative_date": trade_time_str}
     except Exception as e:
         logger.error(f"[每日增量] 任务调度时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}

@@ -47,11 +47,18 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self._diagnose_capital_states(df))
         
-        # 2.1 首先，运行“战场上下文”模块，定义“在哪里”。
+       # 2.1 首先，运行“战场上下文”模块，定义“在哪里”。
         self.strategy.atomic_states.update(self._diagnose_contextual_zones(df))
-        # 2.2 然后，运行“动态筹码分析”，它现在可以安全地使用上一步的“战场”情报。
+        
+        # 2.2 然后，运行“筹码情报最高司令部”，生成所有基于静态事实的筹码信号 (CHIP_CONC_..., OPP_CHIP_...)
+        # 这是所有后续筹码动态分析的基础。
+        chip_states, chip_triggers = self._run_chip_intelligence_command(df)
+        self.strategy.atomic_states.update(chip_states)
+
+        # 2.3 现在，可以安全地运行“动态筹码分析”，因为它依赖于上一步生成的情报和原始数据。
         self.strategy.atomic_states.update(self._diagnose_dynamic_chip_states(df))
-        #“主峰攻防战”诊断模块
+        
+        # 2.4 运行其他并行的筹码相关诊断
         self.strategy.atomic_states.update(self._diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self._diagnose_chip_opportunities(df))
         self.strategy.atomic_states.update(self._diagnose_chip_risks_and_behaviors(df))
@@ -510,7 +517,6 @@ class IntelligenceLayer:
         states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
 
         # --- 步骤4: 对“总获利盘”进行动态分析 ---
-        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
         winner_rate_collapse_threshold = -1.0
         states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
         states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
@@ -541,6 +547,11 @@ class IntelligenceLayer:
         if profit_margin_col in df.columns:
             # 定义：获利盘的平均利润超过20%，代表持股心态极其稳定
             states['CHIP_STATE_HIGH_PROFIT_CUSHION'] = df[profit_margin_col] > 20.0
+
+        # --- 机会3: 获利盘持续上升 (市场情绪积极) ---
+        winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
+        if winner_rate_slope_col in df.columns:
+            states['CHIP_DYN_WINNER_RATE_RISING'] = df[winner_rate_slope_col] > 0
         
         return states
 
