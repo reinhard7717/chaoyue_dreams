@@ -724,12 +724,6 @@ def migrate_advanced_chip_metrics(self, batch_size: int = 5000, dry_run: bool = 
     参数:
     - batch_size (int): 每次批量处理和写入的记录数。
     - dry_run (bool): 如果为 True，则只模拟过程并打印日志，不实际写入数据库。
-
-    如何执行:
-    在 Django Shell 中:
-    >>> from celery_tasks.migration_tasks import migrate_advanced_chip_metrics
-    >>> migrate_advanced_chip_metrics.delay(batch_size=5000, dry_run=True) # 先进行一次演练
-    >>> migrate_advanced_chip_metrics.delay(batch_size=5000, dry_run=False) # 确认无误后，正式执行
     """
     start_time = time.time()
     logger.info(f"====== [数据迁移任务启动] AdvancedChipMetrics -> 分表 ======")
