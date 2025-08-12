@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from asgiref.sync import async_to_sync
 from celery import Celery
 from celery import group, chain, chord
+from django.db.models import Min, Max
 from utils.task_helpers import with_cache_manager
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code
 from tqdm import tqdm
@@ -712,107 +713,120 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.migrate_advanced_chip_metrics', queue='SaveHistoryData_TimeTrade')
-def migrate_advanced_chip_metrics(self, batch_size: int = 5000, dry_run: bool = False):
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.migrate_advanced_chip_metrics_chunk', queue='SaveHistoryData_TimeTrade')
+def migrate_advanced_chip_metrics_chunk(self, start_id: int, end_id: int, dry_run: bool = False):
     """
-    【一次性数据迁移任务】
-    将数据从旧的 stock_advanced_chip_metrics 表迁移到新的分表中。
-
-    - 使用 .iterator() 流式读取数据，避免内存爆炸。
-    - 使用 .bulk_create() 批量写入数据，提高数据库效率。
-    - 任务是幂等的，可以安全地重复执行（已存在的数据将被忽略）。
-
-    参数:
-    - batch_size (int): 每次批量处理和写入的记录数。
-    - dry_run (bool): 如果为 True，则只模拟过程并打印日志，不实际写入数据库。
+    【数据迁移执行器】
+    迁移指定ID范围 (chunk) 内的数据。此任务由调度器触发。
     """
-    start_time = time.time()
-    logger.info(f"====== [数据迁移任务启动] AdvancedChipMetrics -> 分表 ======")
-    logger.info(f"参数: batch_size={batch_size}, dry_run={dry_run}")
-
-    if dry_run:
-        logger.warning("!!! 当前为【演练模式 (dry_run=True)】，不会对数据库进行任何写入操作。!!!")
-
+    task_id_str = f"Chunk [{start_id}-{end_id-1}]"
+    logger.info(f"====== {task_id_str} 执行器任务启动 ======")
+    
     try:
-        # 检查源表是否存在数据
-        total_records_to_migrate = AdvancedChipMetrics.objects.count()
-        if total_records_to_migrate == 0:
-            logger.info("源表 stock_advanced_chip_metrics 中没有数据，任务结束。")
-            return {"status": "skipped", "reason": "Source table is empty."}
-        
-        logger.info(f"检测到源表中有 {total_records_to_migrate} 条记录需要迁移。")
+        # 1. 查询指定ID范围的数据
+        queryset = AdvancedChipMetrics.objects.filter(
+            id__gte=start_id,
+            id__lt=end_id
+        ).select_related('stock')
 
-        # 使用 select_related('stock') 避免 N+1 查询，极大提升性能
-        # 使用 iterator() 流式处理，防止内存溢出
-        source_queryset = AdvancedChipMetrics.objects.select_related('stock').iterator(chunk_size=batch_size)
+        if not queryset.exists():
+            logger.warning(f"{task_id_str} 在此ID范围内未找到数据，任务正常结束。")
+            return {"status": "skipped", "reason": "No data in ID range."}
 
-        total_processed_count = 0
-        # 使用 defaultdict 按目标模型对要创建的实例进行分组
+        # 2. 按目标模型对要创建的实例进行分组
         records_by_model = defaultdict(list)
-        
-        for record in source_queryset:
-            total_processed_count += 1
-            
-            # 1. 根据 stock_code 确定目标模型
+        for record in queryset:
             stock_code = record.stock.stock_code
             TargetModel = get_advanced_chip_metrics_model_by_code(stock_code)
-
-            # 2. 准备新模型的实例数据
-            # 复制所有字段，除了 'id' 和 'stock' (因为外键关系需要重新指定)
+            
             field_data = {
                 field.name: getattr(record, field.name)
                 for field in AdvancedChipMetrics._meta.get_fields()
                 if not field.is_relation and field.name != 'id'
             }
             
-            # 3. 创建新模型的实例（但不保存）
             new_instance = TargetModel(stock=record.stock, **field_data)
             records_by_model[TargetModel].append(new_instance)
 
-            # 4. 当累计处理的记录数达到一个批次大小时，执行批量写入
-            if total_processed_count % batch_size == 0:
-                logger.info(f"处理进度: {total_processed_count}/{total_records_to_migrate}...")
-                if not dry_run:
-                    # 对每个目标模型执行 bulk_create
-                    for model, instances in records_by_model.items():
-                        if instances:
-                            logger.info(f"  -> 正在向 {model._meta.db_table} 批量写入 {len(instances)} 条记录...")
-                            model.objects.bulk_create(instances, ignore_conflicts=True)
-                else:
-                    # 在演练模式下，只打印信息
-                    for model, instances in records_by_model.items():
-                        if instances:
-                            logger.info(f"  -> [演练] 将向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
-                
-                # 清空批次，为下一批做准备
-                records_by_model.clear()
+        # 3. 对每个目标模型执行批量写入
+        if not dry_run:
+            for model, instances in records_by_model.items():
+                if instances:
+                    model.objects.bulk_create(instances, batch_size=2000, ignore_conflicts=True)
+                    logger.info(f"{task_id_str} -> 成功向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
+        else:
+            for model, instances in records_by_model.items():
+                if instances:
+                    logger.info(f"{task_id_str} -> [演练] 将向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
 
-        # 5. 处理最后一批不足 batch_size 的记录
-        if records_by_model:
-            logger.info("正在处理最后一批记录...")
-            if not dry_run:
-                for model, instances in records_by_model.items():
-                    if instances:
-                        logger.info(f"  -> 正在向 {model._meta.db_table} 批量写入 {len(instances)} 条记录...")
-                        model.objects.bulk_create(instances, ignore_conflicts=True)
-            else:
-                for model, instances in records_by_model.items():
-                    if instances:
-                        logger.info(f"  -> [演练] 将向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
+        logger.info(f"====== {task_id_str} 执行器任务成功完成 ======")
+        return {"status": "success", "chunk": f"[{start_id}-{end_id-1}]"}
+
+    except Exception as e:
+        logger.error(f"{task_id_str} 迁移过程中发生严重错误: {e}", exc_info=True)
+        # 任务失败时重试，最多3次，每次间隔5分钟
+        raise self.retry(exc=e, countdown=300, max_retries=3)
+
+#  调度器任务 (Dispatcher Task)
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.dispatch_advanced_chip_metrics_migration', queue='celery')
+def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_run: bool = False):
+    """
+    【一次性数据迁移调度器】
+    将 stock_advanced_chip_metrics 的迁移工作分解成多个小任务并派发。
+
+    - 这是唯一需要手动调用的任务。
+    - 它会根据主键ID将源表数据切分成多个区块。
+    - 为每个区块启动一个独立的 'migrate_advanced_chip_metrics_chunk' 任务。
+
+    参数:
+    - chunk_size (int): 每个子任务处理的记录数。建议值为 5000 到 20000。
+    - dry_run (bool): 如果为 True，则只派发任务并打印日志，子任务也不会实际写入数据库。
+
+    如何执行:
+    在 Django Shell 中:
+    >>> from celery_tasks.migration_tasks import dispatch_advanced_chip_metrics_migration
+    >>> dispatch_advanced_chip_metrics_migration.delay(chunk_size=10000, dry_run=True) # 先进行一次演练
+    >>> dispatch_advanced_chip_metrics_migration.delay(chunk_size=10000, dry_run=False) # 确认无误后，正式执行
+    """
+    start_time = time.time()
+    logger.info(f"====== [数据迁移调度器启动] AdvancedChipMetrics -> 分表 ======")
+    logger.info(f"参数: chunk_size={chunk_size}, dry_run={dry_run}")
+
+    if dry_run:
+        logger.warning("!!! 当前为【演练模式 (dry_run=True)】，将不会对数据库进行任何写入操作。!!!")
+
+    try:
+        # 1. 获取源表中ID的最小和最大值，以确定工作范围
+        id_range = AdvancedChipMetrics.objects.aggregate(min_id=Min('id'), max_id=Max('id'))
+        min_id = id_range.get('min_id')
+        max_id = id_range.get('max_id')
+
+        if min_id is None or max_id is None:
+            logger.info("源表 stock_advanced_chip_metrics 中没有数据，任务结束。")
+            return {"status": "skipped", "reason": "Source table is empty."}
+
+        logger.info(f"检测到需要迁移的数据ID范围为: [{min_id} - {max_id}]。")
+        
+        # 2. 循环派发子任务
+        dispatched_jobs = 0
+        for start_id in range(min_id, max_id + 1, chunk_size):
+            end_id = start_id + chunk_size
+            # 派发执行器任务
+            migrate_advanced_chip_metrics_chunk.delay(start_id, end_id, dry_run)
+            dispatched_jobs += 1
         
         end_time = time.time()
         duration = end_time - start_time
-        logger.info("====== [数据迁移任务成功完成] ======")
-        logger.info(f"总共处理了 {total_processed_count} 条记录。")
-        logger.info(f"任务耗时: {duration:.2f} 秒。")
+        logger.info("====== [数据迁移调度器成功完成] ======")
+        logger.info(f"总共派发了 {dispatched_jobs} 个迁移子任务。")
+        logger.info(f"调度任务耗时: {duration:.2f} 秒。")
         
-        return {"status": "success", "processed_count": total_processed_count, "duration_seconds": duration}
+        return {"status": "success", "dispatched_jobs": dispatched_jobs, "duration_seconds": duration}
 
     except Exception as e:
-        logger.error(f"数据迁移过程中发生严重错误: {e}", exc_info=True)
+        logger.error(f"数据迁移调度过程中发生严重错误: {e}", exc_info=True)
         self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
         raise
-
 
 # =================================================================
 # =================== 3. 回测任务 ==================
