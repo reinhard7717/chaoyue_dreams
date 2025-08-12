@@ -201,12 +201,13 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V7.2 高性能清理版】
-    - 核心架构: 更新当日的 StrategyDailyScore。
-    - 新增: 使用高效的 ORM filter().delete() 方法清理当日旧数据，确保任务幂等性。
+    【V7.4 时区安全版】
+    - 核心修复: 彻底解决了因时区问题导致最新一日 TradingSignal 数据删除失败的BUG。
+                现在使用一个明确的、带时区的日期时间范围 (gte/lt) 来进行过滤和删除，
+                确保无论数据库时区如何配置，都能精确匹配并删除目标交易日的所有信号数据。
     """
     try:
-        logger.info("====== [公共数据库建设-每日增量 V7.2] 启动 ======")
+        logger.info("====== [公共数据库建设-每日增量 V7.4 时区安全版] 启动 ======")
         # 步骤1: 获取权威交易日 (逻辑不变)
         reference_date = timezone.now().date()
         latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=1, reference_date=reference_date)
@@ -216,23 +217,33 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         latest_trade_date = latest_trade_dates[0]
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"[每日增量] 将使用权威的最新交易日进行分析: {trade_time_str}")
-        # 步骤2: 使用高效的 filter().delete() 清理当日旧数据
+
+        # --- 使用时区安全的日期时间范围进行数据清理 ---
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
-            # 使用事务确保所有删除操作的原子性
+            # 1. 创建一个带时区的、从当天零点开始的时间点
+            start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
+            # 2. 创建一个带时区的、从下一天零点开始的时间点
+            end_of_day_aware = start_of_day_aware + timedelta(days=1)
+            
+            logger.info(f"将删除时间范围在 {start_of_day_aware} (inclusive) 到 {end_of_day_aware} (exclusive) 之间的信号。")
+
             with transaction.atomic():
-                # Django ORM的 filter().delete() 会被翻译成一条高效的 SQL DELETE ... WHERE ... 语句，
-                # 它不会加载对象到内存，对于有索引的字段，此操作非常快。
-                # 删除当日的 StrategyDailyScore。由于级联删除(on_delete=CASCADE)，关联的 StrategyScoreComponent 会被自动删除。
+                # 3. 对 StrategyDailyScore 的删除保持不变，因为它使用 DateField，没有时区问题。
                 deleted_scores_count, _ = StrategyDailyScore.objects.filter(trade_date=latest_trade_date).delete()
-                # 删除当日的 TradingSignal。关联的 SignalPlaybookDetail 会被自动删除。
-                # 使用 __date 从 DateTimeField 字段中匹配日期。
-                deleted_signals_count, _ = TradingSignal.objects.filter(trade_time__date=latest_trade_date).delete()
+                
+                # 4. 对 TradingSignal 使用精确的时间范围进行删除，这是本次修复的核心。
+                deleted_signals_count, _ = TradingSignal.objects.filter(
+                    trade_time__gte=start_of_day_aware,
+                    trade_time__lt=end_of_day_aware
+                ).delete()
+                
                 logger.info(f"清理完成。删除了 {deleted_scores_count} 条每日分数记录，{deleted_signals_count} 条交易信号记录 (及其关联子项)。")
         except Exception as e:
             logger.error(f"清理 {trade_time_str} 的旧数据时发生严重错误，任务终止: {e}", exc_info=True)
             return {"status": "failed", "reason": "Data cleanup failed."}
-        # 步骤3: 获取股票列表 (逻辑不变)
+
+        # 步骤3 & 4: 获取股票列表并派发任务 (逻辑不变)
         all_codes = []
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes.extend(favorite_codes)
@@ -242,7 +253,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             return {"status": "failed", "reason": "no stocks found"}
         stock_count = len(all_codes)
         logger.info(f"[每日增量] 准备为 {stock_count} 只股票更新当日策略分数。")
-        # 步骤4: 派发并行任务 (逻辑不变)
         analysis_tasks = [
             run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in all_codes
         ]
