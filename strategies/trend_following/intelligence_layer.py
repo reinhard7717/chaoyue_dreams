@@ -69,10 +69,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_behavioral_patterns(df))
         df, structure_states = self._diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
-        
-        chip_states, chip_triggers = self._run_chip_intelligence_command(df)
-        self.strategy.atomic_states.update(chip_states)
-        
+
         self.strategy.atomic_states.update(self._diagnose_market_structure_states(df))
         # “打压回踩”诊断模块
         self.strategy.atomic_states.update(self._diagnose_pullback_character(df))
@@ -80,7 +77,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_squeeze_zone_opportunities(df))
         # 这个模块专门识别“筹码集中+回踩支撑+下影线”的经典A股主力行为模式。
         self.strategy.atomic_states.update(self._diagnose_chip_pullback_hammer_opportunity(df))
-        
+
         # “持仓风险”诊断模块
         self.strategy.atomic_states.update(self._diagnose_holding_risks(df))
         self.strategy.atomic_states.update(self._diagnose_post_accumulation_phase(df))
