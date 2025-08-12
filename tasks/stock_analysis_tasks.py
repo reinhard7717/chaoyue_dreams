@@ -2,7 +2,7 @@
 # 版本: V2.1 - 装饰器重构版
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 from django.utils import timezone
 import logging
 from decimal import Decimal
