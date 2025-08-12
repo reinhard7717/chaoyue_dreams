@@ -82,6 +82,18 @@ class MultiTimeframeTrendStrategy:
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
             return ([], [], [], []) # 返回四个空列表
+        
+        df_daily = all_dfs['D']
+        # 检查 'concentration_90pct_D' 这个最核心的筹码指标是否存在于最新一天的数据中
+        latest_day_data = df_daily.iloc[-1]
+        required_chip_col = 'concentration_90pct_D'
+        if required_chip_col not in latest_day_data.index or pd.isna(latest_day_data[required_chip_col]):
+            latest_date_str = latest_day_data.name.strftime('%Y-%m-%d')
+            logger.warning(f"[{stock_code}] [前置检查失败] 在最新交易日 {latest_date_str} 缺少关键筹码数据 ('{required_chip_col}')。为保证信号质量，已跳过对该股票的完整策略分析。")
+            print(f"  - [前置检查] 失败！最新交易日缺少关键筹码数据，跳过 {stock_code} 的分析。")
+            return ([], [], [], []) # 返回四个空列表，安全退出
+        else:
+            print(f"  - [前置检查] 成功！关键筹码数据完整。")
 
         # 2. 战略引擎
         df_weekly_context = self.strategic_engine.generate_context(all_dfs.get('W'))

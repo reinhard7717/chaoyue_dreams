@@ -450,13 +450,26 @@ class IntelligenceLayer:
 
     def _diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.6 最终客观版】
+        【V283.7 依赖增强版】
+        - 核心修复: 增加了严格的前置依赖检查。现在，本模块必须确认最核心的基础筹码指标
+                    (如集中度、成本峰)存在，才会执行后续所有动态分析。这从根本上杜绝了
+                    在基础数据缺失的情况下，错误地激活衍生指标（如健康分改善）的逻辑漏洞。
         - 核心净化: 移除所有RISK_前缀，本模块只报告客观的动态事实。
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
         
-        # --- 1. 检查动态分析所需的所有“弹药”是否到位 ---
+        # --- 【代码修改】步骤 0: 增加严格的“基础数据”先决条件检查 ---
+        # [修改原因] 防止在基础筹码数据缺失时，错误地计算并激活衍生的动态指标（如健康分改善）。
+        # 只有当最核心的静态筹码指标存在时，讨论它们的“动态”才有意义。
+        base_required_cols = ['concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D', 'chip_health_score_D']
+        base_missing_cols = [col for col in base_required_cols if col not in df.columns]
+        if base_missing_cols:
+            print(f"            -> [严重警告] 动态筹码分析中心缺少最基础的静态筹码数据: {base_missing_cols}，模块已完全跳过！")
+            return states
+        # --- 【代码修改】结束 ---
+
+        # --- 步骤 1: 检查动态分析所需的所有“弹药”（斜率/加速度）是否到位 ---
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
             'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
@@ -465,11 +478,11 @@ class IntelligenceLayer:
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            print(f"            -> [严重警告] 动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
+            print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
         
         # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
-        # 注意：这要求 _diagnose_topping_risks_command 必须在此模块之前运行
+        # 注意：这要求 _diagnose_contextual_zones 必须在此模块之前运行
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
 
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
