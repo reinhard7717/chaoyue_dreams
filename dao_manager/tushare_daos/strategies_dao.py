@@ -14,7 +14,8 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail
-from stock_models.time_trade import AdvancedChipMetrics, StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic
+from utils.model_helpers import get_advanced_chip_metrics_model_by_code
+from stock_models.time_trade import StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
 from utils.cache_manager import CacheManager
 from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent
@@ -674,30 +675,36 @@ class StrategiesDAO(BaseDAO):
         limit: int
     ) -> pd.DataFrame:
         """
-        【V199.0 正常勤务版】
-        - 核心升级: 移除所有用于调试的“超级探针”代码，恢复到最高效、最健壮的
+        【V200.0 分表适配版】
+        - 核心升级: 适配 AdvancedChipMetrics 模型分表，通过 get_advanced_chip_metrics_model_by_code 动态选择查询的数据表。
+        - 兼容性: 保持了原有的函数签名和返回类型，对调用方透明。
+        - 健壮性: 移除了所有用于调试的“超级探针”代码，恢复到最高效、最健壮的
                     生产状态。保留了直接获取所有字段的逻辑，以确保数据链路的
                     长期稳定性和免维护性。
         """
-        # 1. 构建基础查询集
-        queryset = AdvancedChipMetrics.objects.filter(stock__stock_code=stock_code)
+        # 1. 【代码修改】根据股票代码动态获取对应的分表模型
+        MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+        print(f"调试信息: 正在为股票 {stock_code} 查询分表模型: {MetricsModel.__name__}") # 增加调试信息，清晰展示当前使用的模型
 
-        # 2. 应用日期过滤器
+        # 2. 【代码修改】使用动态获取的模型构建基础查询集，替换了原有的 AdvancedChipMetrics.objects
+        queryset = MetricsModel.objects.filter(stock__stock_code=stock_code)
+
+        # 3. 应用日期过滤器 (逻辑不变)
         if trade_time_dt and pd.notna(trade_time_dt):
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
 
-        # 3. 排序并限制数量
+        # 4. 排序并限制数量 (逻辑不变)
         queryset = queryset.order_by('-trade_time')[:limit]
         
-        # 4. 直接获取所有字段，不再使用脆弱的 field_names 列表
+        # 5. 直接获取所有字段，不再使用脆弱的 field_names 列表 (逻辑不变)
         data_records = [item async for item in queryset.values()]
 
-        # 5. 如果无数据，返回空DataFrame
+        # 6. 如果无数据，返回空DataFrame (逻辑不变)
         if not data_records:
             return pd.DataFrame()
 
-        # 6. 转换为DataFrame并进行标准化处理
+        # 7. 转换为DataFrame并进行标准化处理 (逻辑不变)
         df = pd.DataFrame.from_records(data_records)
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df = df.set_index('trade_time')

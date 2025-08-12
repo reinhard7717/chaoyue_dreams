@@ -21,7 +21,7 @@ from stock_models.index import TradeCalendar # 导入模型
 from utils.config_loader import load_strategy_config
 from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction, StrategyDailyScore
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics
+from utils.model_helpers import get_advanced_chip_metrics_model_by_code
 from utils.cash_key import IntradayEngineCashKey
 from users.models import FavoriteStock
 from utils.websockets import send_update_to_user_sync
@@ -221,9 +221,10 @@ def trend_following_list(request):
 @login_required
 def fav_trend_following_list(request):
     """
-    【V7.1 - 风险剧本透视版】
+    【V7.2 - 分表适配版】
     - 核心升级: 集成高级筹码指标(AdvancedChipMetrics)，追踪持仓期间的关键筹码变化。
     - 功能增强: 查询并展示每日分数中的具体风险/离场剧本，为用户提供明确的风险预警。
+    - 技术改造: 适配 AdvancedChipMetrics 模型分表，实现跨表动态查询。
     """
 
     def _calculate_score_deltas(current_score, baseline_score):
@@ -235,7 +236,7 @@ def fav_trend_following_list(request):
             'composite': current_score.composite_score - baseline_score.composite_score,
         }
 
-    # --- 步骤1: 预抓取所有需要的数据 ---
+    # --- 步骤1: 预抓取所有需要的数据 (逻辑不变) ---
     base_queryset = PositionTracker.objects.filter(user=request.user).select_related('stock').prefetch_related(
         Prefetch('snapshots', queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'), to_attr='latest_snapshot_list'),
         Prefetch('transactions', queryset=Transaction.objects.order_by('transaction_date'), to_attr='sorted_transactions')
@@ -252,9 +253,9 @@ def fav_trend_following_list(request):
         queryset = base_queryset
     ordered_queryset = queryset.order_by('-updated_at')
 
-    # --- 步骤2: 收集所有需要查询的“关键日期” (扩展到筹码指标) ---
+    # --- 步骤2: 收集所有需要查询的“关键日期” ---
     score_lookups = set()
-    chip_metrics_lookups = set() # 新增！用于收集筹码指标的查询需求
+    chip_metrics_lookups = set() # 用于收集筹码指标的查询需求
     trackers_with_key_dates = []
 
     for tracker in ordered_queryset:
@@ -262,21 +263,27 @@ def fav_trend_following_list(request):
         snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
         key_dates = {'initial': None, 'last_buy': None, 'latest': None}
         
+        # 【代码修改】获取股票代码，用于后续动态选择模型
+        stock_code = tracker.stock.stock_code
+
         if snapshot_list:
             key_dates['latest'] = snapshot_list[0].snapshot_date
             score_lookups.add((tracker.stock_id, key_dates['latest']))
-            chip_metrics_lookups.add((tracker.stock_id, key_dates['latest']))
+            # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+            chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['latest']))
 
         if transactions:
             key_dates['initial'] = transactions[0].transaction_date.date()
             score_lookups.add((tracker.stock_id, key_dates['initial']))
-            chip_metrics_lookups.add((tracker.stock_id, key_dates['initial']))
+            # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+            chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['initial']))
             
             last_buy_tx = next((tx for tx in reversed(transactions) if tx.transaction_type == Transaction.TransactionType.BUY), None)
             if last_buy_tx:
                 key_dates['last_buy'] = last_buy_tx.transaction_date.date()
                 score_lookups.add((tracker.stock_id, key_dates['last_buy']))
-                chip_metrics_lookups.add((tracker.stock_id, key_dates['last_buy']))
+                # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+                chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['last_buy']))
         
         trackers_with_key_dates.append({'tracker': tracker, 'key_dates': key_dates})
 
@@ -290,14 +297,33 @@ def fav_trend_following_list(request):
             ).prefetch_related('components')
             score_map = {(s.stock_id, s.trade_date): s for s in all_key_scores}
 
-    chip_metrics_map = {} # 新增！用于存储筹码指标的Map
+    # 【代码修改】适配分表，动态查询 AdvancedChipMetrics
+    chip_metrics_map = {}
     if chip_metrics_lookups:
-        queries = [Q(stock_id=sid, trade_time=td) for sid, td in chip_metrics_lookups if td]
-        if queries:
-            all_key_chip_metrics = AdvancedChipMetrics.objects.filter(functools.reduce(operator.or_, queries))
-            chip_metrics_map = {(cm.stock_id, cm.trade_time): cm for cm in all_key_chip_metrics}
+        # 3.1 按分表模型对查询条件进行分组
+        model_lookups = {}
+        for stock_id, stock_code, trade_date in chip_metrics_lookups:
+            if not trade_date:
+                continue
+            # 根据股票代码获取正确的模型类
+            MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+            if MetricsModel not in model_lookups:
+                model_lookups[MetricsModel] = []
+            # 将 Q 对象添加到对应模型的列表中
+            model_lookups[MetricsModel].append(Q(stock_id=stock_id, trade_time=trade_date))
 
-    # --- 步骤4: 组装最终数据，进行精细化计算 ---
+        # 3.2 对每个分表模型执行一次批量查询
+        all_key_chip_metrics = []
+        for model, queries in model_lookups.items():
+            if queries:
+                # 从对应的分表中查询数据
+                results = model.objects.filter(functools.reduce(operator.or_, queries))
+                all_key_chip_metrics.extend(list(results))
+
+        # 3.3 将所有查询结果合并到最终的 map 中
+        chip_metrics_map = {(cm.stock_id, cm.trade_time): cm for cm in all_key_chip_metrics}
+
+    # --- 步骤4: 组装最终数据，进行精细化计算 (逻辑不变) ---
     trackers_for_display = []
     for item in trackers_with_key_dates:
         tracker = item['tracker']
@@ -330,8 +356,7 @@ def fav_trend_following_list(request):
                 key=lambda c: c.score_value,
                 reverse=True
             )
-            if risk_playbooks:
-                print(f"调试信息: 股票 {tracker.stock.stock_code} 在 {key_dates['latest']} 发现 {len(risk_playbooks)} 个风险剧本。")
+            # 【代码修改】根据您的要求，移除了此处的 print 调试语句
 
         trackers_for_display.append({
             'tracker': tracker,
@@ -340,8 +365,8 @@ def fav_trend_following_list(request):
             'latest_daily_score': latest_daily_score,
             'delta_from_initial': delta_from_initial,
             'delta_from_last_buy': delta_from_last_buy,
-            'initial_score': initial_score, # 传递用于模板显示
-            'last_buy_score': last_buy_score, # 传递用于模板显示
+            'initial_score': initial_score,
+            'last_buy_score': last_buy_score,
             'latest_chip_metrics': latest_chip_metrics,
             'initial_chip_metrics': initial_chip_metrics,
             'last_buy_chip_metrics': last_buy_chip_metrics,

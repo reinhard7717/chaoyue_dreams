@@ -5,8 +5,11 @@
 from stock_models.time_trade import (
     StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, 
     StockDailyData_KC, StockDailyData_BJ, StockCyqChipsCY,
-    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ
+    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ,
+    AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC,
+    AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ
 )
+
 
 def get_daily_data_model_by_code(stock_code: str):
     """
@@ -47,6 +50,24 @@ def get_cyq_chips_model_by_code(stock_code: str):
     else:
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
         return StockCyqChipsSZ  # 默认返回深市主板
+
+def get_advanced_chip_metrics_model_by_code(stock_code: str):
+    """
+    根据股票代码返回对应的高级筹码指标数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return AdvancedChipMetrics_CY
+    elif stock_code.endswith('.SZ'):
+        return AdvancedChipMetrics_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return AdvancedChipMetrics_KC
+    elif stock_code.endswith('.SH'):
+        return AdvancedChipMetrics_SH
+    elif stock_code.endswith('.BJ'):
+        return AdvancedChipMetrics_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
+        return AdvancedChipMetrics_SZ  # 默认返回深市主板
 
 
 

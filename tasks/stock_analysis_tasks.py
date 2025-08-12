@@ -12,12 +12,12 @@ from asgiref.sync import async_to_sync
 from celery import Celery
 from celery import group, chain, chord
 from utils.task_helpers import with_cache_manager
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code
 from tqdm import tqdm
 from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
 import pandas as pd
-from django.db import transaction
+from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
@@ -201,19 +201,17 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V7.5 数据驱动的权威日期版】
-    - 核心重构: 彻底改变了任务的触发逻辑。不再依赖交易日历来推测最新交易日，
-                而是通过查询 AdvancedChipMetrics 表，主动发现“数据已大规模就绪”的
-                那个最新交易日，并将其作为本次分析的权威日期。
-                这从根本上解决了上游数据延迟导致下游分析失败的问题。
+    【V7.6 - 分表聚合查询版】
+    - 核心重构: 适配 AdvancedChipMetrics 分表结构，使用原生 SQL 的 UNION ALL 进行高效的跨表聚合查询，以确定权威交易日。
+    - 健壮性: 彻底解决了因模型分表导致无法确定权威日期的问题，同时保持了数据驱动的健壮性。
     """
     try:
-        logger.info("====== [公共数据库建设-每日增量 V7.5 数据驱动版] 启动 ======")
+        logger.info("====== [公共数据库建设-每日增量 V7.6 分表聚合版] 启动 ======")
         
         # --- 步骤1: 数据驱动的权威日期发现机制 ---
-        logger.info("步骤1: 正在通过查询 AdvancedChipMetrics 确定数据已就绪的权威交易日...")
+        logger.info("步骤1: 正在通过原生SQL查询所有 AdvancedChipMetrics 分表，以确定数据就绪的权威交易日...")
         
-        # 1.1 获取市场上的股票总数，作为基准
+        # 1.1 获取市场上的股票总数，作为基准 (逻辑不变)
         stock_basic_dao = StockBasicInfoDao(cache_manager)
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         total_stock_count = len(all_stocks)
@@ -221,28 +219,62 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             logger.error("【严重错误】无法从 StockInfo 获取任何股票，任务终止！")
             return {"status": "failed", "reason": "Could not retrieve stock list."}
 
-        # 1.2 定义数据就绪的阈值（例如，95%的股票已完成计算）
+        # 1.2 定义数据就绪的阈值 (逻辑不变)
         readiness_threshold = int(total_stock_count * 0.95)
         logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
 
-        # 1.3 查询哪个最新的日期满足了我们的就绪阈值
-        # 这个查询会按日期分组，统计每个日期的股票数量，过滤掉不满足阈值的，然后取最新的一个。
-        latest_ready_date_record = AdvancedChipMetrics.objects.values('trade_date') \
-            .annotate(stock_count=Count('stock_id')) \
-            .filter(stock_count__gte=readiness_threshold) \
-            .order_by('-trade_date').first()
+        # 【代码修改】使用原生SQL替换原有ORM查询，以适配分表结构
+        # 1.3.1 动态获取所有分表的表名
+        metrics_models = [
+            AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY,
+            AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
+        ]
+        table_names = [model._meta.db_table for model in metrics_models]
+        
+        # 1.3.2 构建 UNION ALL 子查询部分
+        union_all_query = " UNION ALL ".join([f"SELECT trade_time, stock_id FROM {table}" for table in table_names])
+
+        # 1.3.3 构建完整的原生SQL查询语句
+        raw_sql = f"""
+            SELECT
+                trade_time,
+                COUNT(stock_id) AS stock_count
+            FROM (
+                {union_all_query}
+            ) AS combined_metrics
+            GROUP BY
+                trade_time
+            HAVING
+                COUNT(stock_id) >= %s
+            ORDER BY
+                trade_time DESC
+            LIMIT 1
+        """
+
+        # 1.3.4 执行查询
+        with connection.cursor() as cursor:
+            cursor.execute(raw_sql, [readiness_threshold])
+            result = cursor.fetchone()
+
+        latest_ready_date_record = None
+        if result:
+            # 将元组结果转换为与旧代码兼容的字典格式
+            latest_ready_date_record = {
+                'trade_time': result[0], # 字段名在SQL中是 trade_time
+                'stock_count': result[1]
+            }
 
         if not latest_ready_date_record:
-            logger.warning("【任务暂停】在 AdvancedChipMetrics 中未找到任何满足大规模数据就绪条件的交易日。可能是上游筹码计算任务尚未完成。任务安全退出。")
+            logger.warning("【任务暂停】在 AdvancedChipMetrics 所有分表中未找到任何满足大规模数据就绪条件的交易日。可能是上游筹码计算任务尚未完成。任务安全退出。")
             return {"status": "skipped", "reason": "No trade date met the data readiness threshold."}
 
         # 1.4 确定权威日期
-        latest_trade_date = latest_ready_date_record['trade_date']
+        latest_trade_date = latest_ready_date_record['trade_time']
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {latest_ready_date_record['stock_count']} 支股票筹码数据就绪。")
 
 
-        # 步骤2: 使用权威日期进行精确的数据清理
+        # 步骤2: 使用权威日期进行精确的数据清理 (逻辑不变)
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
             start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
@@ -434,20 +466,26 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
     """
-    【执行器 V10.4 - 装饰器重构版】
-    - 核心修改: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
+    【执行器 V10.5 - 分表适配版】
+    - 核心修改: 适配 AdvancedChipMetrics 模型分表，动态读写对应的数据库表。
+    - 技术改造: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
     """
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main(time_dao, incremental_flag: bool):
         mode = "增量更新" if incremental_flag else "全量刷新"
-        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.4, 模式: {mode})...")
+        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.5, 模式: {mode})...")
         get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
+        
+        # 【代码修改】使 get_latest_metric_async 接受动态模型作为参数
         @sync_to_async(thread_sensitive=True)
-        def get_latest_metric_async(stock_info_obj):
+        def get_latest_metric_async(model, stock_info_obj):
             try:
-                return AdvancedChipMetrics.objects.filter(stock=stock_info_obj).latest('trade_time')
-            except AdvancedChipMetrics.DoesNotExist:
+                # 【代码修改】使用传入的 model 进行查询
+                return model.objects.filter(stock=stock_info_obj).latest('trade_time')
+            except model.DoesNotExist: # 【代码修改】捕获特定模型的异常
                 return None
+        
+        # get_data_async 已是通用函数，无需修改
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             qs = model.objects.filter(stock=stock_info_obj)
@@ -458,29 +496,40 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 return pd.DataFrame.from_records(qs.values(*fields))
             else:
                 return pd.DataFrame.from_records(qs.values())
+        
+        # 【代码修改】使 save_metrics_async 接受动态模型作为参数
         @sync_to_async(thread_sensitive=True)
-        def save_metrics_async(stock_info_obj, records_to_create_list, do_delete_first: bool):
+        def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
             with transaction.atomic():
                 if do_delete_first:
-                    # logger.info(f"[{stock_code}] 全量模式：删除所有旧数据...")
-                    AdvancedChipMetrics.objects.filter(stock=stock_info_obj).delete()
-                AdvancedChipMetrics.objects.bulk_create(records_to_create_list, batch_size=5000)
+                    # 【代码修改】使用传入的 model 进行删除操作
+                    model.objects.filter(stock=stock_info_obj).delete()
+                # 【代码修改】使用传入的 model 进行批量创建
+                model.objects.bulk_create(records_to_create_list, batch_size=5000)
+        
         try:
             stock_info = await get_stock_info_async(stock_code=stock_code)
+            # 【代码修改】在任务开始时，根据股票代码动态获取正确的指标模型
+            MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+            
             max_lookback_days = 160
             last_metric_date = None
             if incremental_flag:
-                last_metric = await get_latest_metric_async(stock_info)
+                # 【代码修改】调用重构后的函数，传入动态模型
+                last_metric = await get_latest_metric_async(MetricsModel, stock_info)
                 if last_metric:
                     last_metric_date = last_metric.trade_time
                 else:
                     logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                     incremental_flag = False
+            
             fetch_start_date = None
             if incremental_flag and last_metric_date:
                 fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
+            
             chip_model = get_cyq_chips_model_by_code(stock_code)
             daily_data_model = get_daily_data_model_by_code(stock_code)
+            
             data_tasks = {
                 "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
                 "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
@@ -488,7 +537,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             }
             results = await asyncio.gather(*data_tasks.values())
             data_dfs = dict(zip(data_tasks.keys(), results))
-            # logger.info(f"[{stock_code}] 正在执行法务级数据审计...")
+            
+            # --- 数据审计部分，逻辑不变 ---
             cyq_chips_df = data_dfs.get("cyq_chips")
             if cyq_chips_df is None or cyq_chips_df.empty:
                 logger.error(f"[{stock_code}] [审计失败] 黄金标准数据源 'cyq_chips' 为空！任务终止。")
@@ -514,7 +564,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                                    f"缺失了 {len(missing_in_source)} 个交易日的数据。 "
                                    f"缺失日期示例: {missing_in_source[:5]}...")
                     audit_warnings.append(warning_msg)
-            # logger.info(f"[{stock_code}] 正在执行二级法务审计 (值有效性检查)...")
             daily_data_df = other_essential_dfs['daily_data']
             required_cols_in_daily = ['close_qfq', 'vol', 'high_qfq', 'low_qfq']
             if daily_data_df[required_cols_in_daily].isnull().values.any():
@@ -530,6 +579,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 for warning in audit_warnings:
                     logger.error(warning)
                 return {"status": "failed", "reason": "Data consistency audit failed."}
+            
+            # --- 数据预处理和合并部分，逻辑不变 ---
             cyq_chips_data = data_dfs['cyq_chips']
             if cyq_chips_data.empty:
                 logger.warning(f"[{stock_code}] 在指定范围内找不到原始筹码数据，任务终止。")
@@ -556,6 +607,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
             daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
             merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
+            
+            # --- 核心计算循环，逻辑不变 ---
             grouped_data = merged_df.groupby('trade_time')
             all_metrics_list = []
             for trade_date, daily_full_df in grouped_data:
@@ -579,19 +632,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     daily_metrics['trade_time'] = trade_date
                     daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                     all_metrics_list.append(daily_metrics)
+            
             if not all_metrics_list:
                 logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
+            
             new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
             final_metrics_df = new_metrics_df
             if incremental_flag and last_metric_date:
+                # 【代码修改】使用动态模型获取历史指标数据
                 past_metrics_df = await get_data_async(
-                    AdvancedChipMetrics, stock_info, 
+                    MetricsModel, stock_info, 
                     start_date=fetch_start_date
                 )
                 if not past_metrics_df.empty:
                     past_metrics_df = past_metrics_df.set_index('trade_time')
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
+            
+            # --- 指标衍生计算，逻辑不变 ---
             slope_periods = [5, 8, 13, 21, 34, 55, 89, 144]
             accel_periods = [5, 21]
             if 'peak_cost' in final_metrics_df.columns:
@@ -603,14 +661,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 for period in accel_periods:
                     final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
             if 'concentration_90pct' in final_metrics_df.columns:
-                # 使用与 peak_cost 斜率计算完全相同的方法
                 concentration_slope_5d = final_metrics_df['concentration_90pct'].rolling(window=5, min_periods=2).apply(
                     lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
                 )
                 final_metrics_df['concentration_90pct_slope_5d'] = concentration_slope_5d
+            
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
-            model_fields = {f.name for f in AdvancedChipMetrics._meta.get_fields()}
+            # 【代码修改】从动态模型中获取字段信息
+            model_fields = {f.name for f in MetricsModel._meta.get_fields()}
             for trade_date, row in records_to_save_df.iterrows():
                 record_data = {}
                 for field_name in model_fields:
@@ -630,8 +689,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 record_data.pop('id', None)
                 record_data.pop('stock', None)
                 if record_data:
-                    records_to_create.append(AdvancedChipMetrics(stock=stock_info, trade_time=trade_date, **record_data))
-            await save_metrics_async(stock_info, records_to_create, not incremental_flag)
+                    # 【代码修改】使用动态模型创建实例
+                    records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
+            
+            # 【代码修改】调用重构后的函数，传入动态模型
+            await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": len(records_to_create)}
 
@@ -648,6 +710,114 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
+
+@celery_app.task(bind=True, name='tasks.migration.migrate_advanced_chip_metrics', queue='SaveHistoryData_TimeTrade')
+def migrate_advanced_chip_metrics(self, batch_size: int = 5000, dry_run: bool = False):
+    """
+    【一次性数据迁移任务】
+    将数据从旧的 stock_advanced_chip_metrics 表迁移到新的分表中。
+
+    - 使用 .iterator() 流式读取数据，避免内存爆炸。
+    - 使用 .bulk_create() 批量写入数据，提高数据库效率。
+    - 任务是幂等的，可以安全地重复执行（已存在的数据将被忽略）。
+
+    参数:
+    - batch_size (int): 每次批量处理和写入的记录数。
+    - dry_run (bool): 如果为 True，则只模拟过程并打印日志，不实际写入数据库。
+
+    如何执行:
+    在 Django Shell 中:
+    >>> from celery_tasks.migration_tasks import migrate_advanced_chip_metrics
+    >>> migrate_advanced_chip_metrics.delay(batch_size=5000, dry_run=True) # 先进行一次演练
+    >>> migrate_advanced_chip_metrics.delay(batch_size=5000, dry_run=False) # 确认无误后，正式执行
+    """
+    start_time = time.time()
+    logger.info(f"====== [数据迁移任务启动] AdvancedChipMetrics -> 分表 ======")
+    logger.info(f"参数: batch_size={batch_size}, dry_run={dry_run}")
+
+    if dry_run:
+        logger.warning("!!! 当前为【演练模式 (dry_run=True)】，不会对数据库进行任何写入操作。!!!")
+
+    try:
+        # 检查源表是否存在数据
+        total_records_to_migrate = AdvancedChipMetrics.objects.count()
+        if total_records_to_migrate == 0:
+            logger.info("源表 stock_advanced_chip_metrics 中没有数据，任务结束。")
+            return {"status": "skipped", "reason": "Source table is empty."}
+        
+        logger.info(f"检测到源表中有 {total_records_to_migrate} 条记录需要迁移。")
+
+        # 使用 select_related('stock') 避免 N+1 查询，极大提升性能
+        # 使用 iterator() 流式处理，防止内存溢出
+        source_queryset = AdvancedChipMetrics.objects.select_related('stock').iterator(chunk_size=batch_size)
+
+        total_processed_count = 0
+        # 使用 defaultdict 按目标模型对要创建的实例进行分组
+        records_by_model = defaultdict(list)
+        
+        for record in source_queryset:
+            total_processed_count += 1
+            
+            # 1. 根据 stock_code 确定目标模型
+            stock_code = record.stock.stock_code
+            TargetModel = get_advanced_chip_metrics_model_by_code(stock_code)
+
+            # 2. 准备新模型的实例数据
+            # 复制所有字段，除了 'id' 和 'stock' (因为外键关系需要重新指定)
+            field_data = {
+                field.name: getattr(record, field.name)
+                for field in AdvancedChipMetrics._meta.get_fields()
+                if not field.is_relation and field.name != 'id'
+            }
+            
+            # 3. 创建新模型的实例（但不保存）
+            new_instance = TargetModel(stock=record.stock, **field_data)
+            records_by_model[TargetModel].append(new_instance)
+
+            # 4. 当累计处理的记录数达到一个批次大小时，执行批量写入
+            if total_processed_count % batch_size == 0:
+                logger.info(f"处理进度: {total_processed_count}/{total_records_to_migrate}...")
+                if not dry_run:
+                    # 对每个目标模型执行 bulk_create
+                    for model, instances in records_by_model.items():
+                        if instances:
+                            logger.info(f"  -> 正在向 {model._meta.db_table} 批量写入 {len(instances)} 条记录...")
+                            model.objects.bulk_create(instances, ignore_conflicts=True)
+                else:
+                    # 在演练模式下，只打印信息
+                    for model, instances in records_by_model.items():
+                        if instances:
+                            logger.info(f"  -> [演练] 将向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
+                
+                # 清空批次，为下一批做准备
+                records_by_model.clear()
+
+        # 5. 处理最后一批不足 batch_size 的记录
+        if records_by_model:
+            logger.info("正在处理最后一批记录...")
+            if not dry_run:
+                for model, instances in records_by_model.items():
+                    if instances:
+                        logger.info(f"  -> 正在向 {model._meta.db_table} 批量写入 {len(instances)} 条记录...")
+                        model.objects.bulk_create(instances, ignore_conflicts=True)
+            else:
+                for model, instances in records_by_model.items():
+                    if instances:
+                        logger.info(f"  -> [演练] 将向 {model._meta.db_table} 写入 {len(instances)} 条记录。")
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        logger.info("====== [数据迁移任务成功完成] ======")
+        logger.info(f"总共处理了 {total_processed_count} 条记录。")
+        logger.info(f"任务耗时: {duration:.2f} 秒。")
+        
+        return {"status": "success", "processed_count": total_processed_count, "duration_seconds": duration}
+
+    except Exception as e:
+        logger.error(f"数据迁移过程中发生严重错误: {e}", exc_info=True)
+        self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        raise
+
 
 # =================================================================
 # =================== 3. 回测任务 ==================
