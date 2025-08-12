@@ -19,6 +19,13 @@ class ChipFeatureCalculator:
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
         
+        if not self.df.empty:
+            percent_sum = self.df['percent'].sum()
+            # 检查总和是否接近100，且大于0，以避免除以0的错误
+            if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
+                print(f"    -> [数据清洗] 注意：检测到筹码分布总和为 {percent_sum:.2f}，不等于100。正在执行强制归一化...")
+                self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
+        
         for key in ['total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
@@ -35,10 +42,7 @@ class ChipFeatureCalculator:
             return {}
 
         # --- 1. 基础指标计算 ---
-        # 这一步计算所有不相互依赖的基础模块
-        # ▼▼▼ 首先进行自主的摘要计算 ▼▼▼
         summary_info = self._calculate_summary_metrics()
-        # 将自主计算的结果，立即注入到上下文中
         self.ctx.update(summary_info)
         peaks_info = self._calculate_peaks()
         concentration_info = self._calculate_concentration()
@@ -88,12 +92,7 @@ class ChipFeatureCalculator:
         【V12.0 新增】摘要指标自主计算模块
         基于原始筹码分布，计算加权平均成本和总获利盘。
         """
-        # 确保筹码百分比总和为100，便于加权计算
-        if not np.isclose(self.df['percent'].sum(), 100.0):
-            normalized_percent = self.df['percent'] / self.df['percent'].sum()
-        else:
-            normalized_percent = self.df['percent'] / 100.0
-        
+        normalized_percent = self.df['percent'] / 100.0
         # 1. 计算加权平均成本 (weight_avg_cost)
         weight_avg_cost = np.average(self.df['price'], weights=normalized_percent)
 
