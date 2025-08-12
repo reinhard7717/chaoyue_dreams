@@ -563,6 +563,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return queryset.order_by('transaction_date')
 
     def perform_create(self, serializer):
+        """
+        【V1.1 修正版】创建交易后，调用服务更新持仓状态并重建快照。
+        - 修正了对 TransactionService 的调用方式，使用正确的静态方法。
+        - 简化了逻辑，将状态更新和快照重建完全委托给 TransactionService。
+        """
         tracker = serializer.validated_data['tracker']
         
         # 1. 检查权限：确保操作的 tracker 属于当前用户
@@ -571,17 +576,13 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
         # 2. 保存交易记录
         transaction = serializer.save()
+        print(f"交易记录创建成功: ID={transaction.id}, Tracker ID={tracker.id}") # 调试信息
         
-        # 3. 调用服务更新持仓成本和数量 (这部分逻辑应在TransactionService中)
-        transaction_service = TransactionService()
-        transaction_service.update_tracker_after_transaction(transaction)
+        # 3. 【代码修改】调用核心服务，一步完成持仓状态更新和快照重建触发
+        TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker.id)
+        print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
 
-        # 4. 重建该 tracker 的所有历史快照
-        snapshot_service = PositionSnapshotService()
-        async_to_sync(snapshot_service.rebuild_snapshots_for_tracker)(tracker.id)
-        logger.info(f"为 Tracker ID {tracker.id} 成功重建快照。")
-
-        # 5. 发送WebSocket通知给前端
+        # 4. 发送WebSocket通知给前端
         send_update_to_user_sync(
             self.request.user.id, 
             'snapshot_rebuilt', 
@@ -590,21 +591,27 @@ class TransactionViewSet(viewsets.ModelViewSet):
         logger.info(f"已向用户 {self.request.user.username} 发送快照重建通知。")
 
     def perform_destroy(self, instance):
+        """
+        【V1.1 修正版】删除交易后，调用服务更新持仓状态并重建快照。
+        - 修正了删除逻辑，确保先删除对象，再调用服务重新计算。
+        - 统一使用 TransactionService.recalculate_tracker_state_and_rebuild_snapshots。
+        """
         tracker = instance.tracker
         user = self.request.user
+        tx_id_for_log = instance.id # 在实例被删除前保存ID
+        print(f"准备删除交易记录: ID={tx_id_for_log}, Tracker ID={tracker.id}") # 调试信息
 
         # 1. 检查权限
         if tracker.user != user:
             raise PermissionDenied("你没有权限操作此持仓记录。")
 
-        # 2. 调用服务处理删除逻辑 (包括更新持仓状态)
-        transaction_service = TransactionService()
-        transaction_service.handle_transaction_deletion(instance)
+        # 2. 【代码修改】先执行数据库删除操作
+        instance.delete()
+        print(f"交易记录 {tx_id_for_log} 已从数据库删除。") # 调试信息
         
-        # 3. 重建快照
-        snapshot_service = PositionSnapshotService()
-        async_to_sync(snapshot_service.rebuild_snapshots_for_tracker)(tracker.id)
-        logger.info(f"因交易删除，为 Tracker ID {tracker.id} 成功重建快照。")
+        # 3. 【代码修改】调用核心服务，重新计算所有状态并触发快照重建
+        TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker.id)
+        print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
 
         # 4. 发送WebSocket通知
         send_update_to_user_sync(
@@ -612,7 +619,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
             'snapshot_rebuilt', 
             {'status': 'success', 'tracker_id': tracker.id}
         )
-        logger.info(f"已向用户 {user.username} 发送快照重建通知。")
+        logger.info(f"因交易删除，为 Tracker ID {tracker.id} 成功重建快照，并发送通知。")
 
     def perform_update(self, serializer):
         """
