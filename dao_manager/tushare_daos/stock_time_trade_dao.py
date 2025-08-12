@@ -1513,7 +1513,7 @@ class StockTimeTradeDAO(BaseDAO):
         此方法被并行的Celery任务调用。
         [修改] 已适配分布式速率限制。
         """
-        print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
+        # print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
         offset = 0

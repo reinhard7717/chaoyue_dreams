@@ -462,7 +462,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         def save_metrics_async(stock_info_obj, records_to_create_list, do_delete_first: bool):
             with transaction.atomic():
                 if do_delete_first:
-                    logger.info(f"[{stock_code}] 全量模式：删除所有旧数据...")
+                    # logger.info(f"[{stock_code}] 全量模式：删除所有旧数据...")
                     AdvancedChipMetrics.objects.filter(stock=stock_info_obj).delete()
                 AdvancedChipMetrics.objects.bulk_create(records_to_create_list, batch_size=5000)
         try:
