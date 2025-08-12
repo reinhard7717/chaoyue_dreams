@@ -27,7 +27,7 @@ class IntelligenceLayer:
         【V327.2 终极顺序版】
         - 核心修复: 再次修正模块执行顺序，确保所有依赖关系100%正确。
         """
-        print("--- [情报层 V327.2] 步骤1: 运行所有诊断模块... ---")
+        print("--- [情报层 V327.4 幽灵调用修复版] 步骤1: 运行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
