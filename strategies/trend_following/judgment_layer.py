@@ -41,16 +41,16 @@ class JudgmentLayer:
         # 检查是否存在任何一个致命风险信号。critical_risk_details 是由 WarningLayer 计算并传入的。
         critical_risk_details = self.strategy.critical_risk_details
         triggers_df['EXIT_CRITICAL_HIT'] = critical_risk_details.sum(axis=1) > 0
-        if triggers_df['EXIT_CRITICAL_HIT'].any():
-            print(f"          -> [防线一] 侦测到 {triggers_df['EXIT_CRITICAL_HIT'].sum()} 天存在“致命一击”风险。")
+        # if triggers_df['EXIT_CRITICAL_HIT'].any():
+        #     print(f"          -> [防线一] 侦测到 {triggers_df['EXIT_CRITICAL_HIT'].sum()} 天存在“致命一击”风险。")
 
         # --- 防线二: 风险溢出 (Risk Overflow) ---
         # 从新的 judgment_params 读取配置
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         overflow_threshold = get_param_value(p_judge.get('risk_overflow_threshold'), 1000)
         triggers_df['EXIT_RISK_OVERFLOW'] = self.strategy.risk_score > overflow_threshold
-        if triggers_df['EXIT_RISK_OVERFLOW'].any():
-            print(f"          -> [防线二] 侦测到 {triggers_df['EXIT_RISK_OVERFLOW'].sum()} 天总风险分超过阈值 {overflow_threshold}。")
+        # if triggers_df['EXIT_RISK_OVERFLOW'].any():
+        #     print(f"          -> [防线二] 侦测到 {triggers_df['EXIT_RISK_OVERFLOW'].sum()} 天总风险分超过阈值 {overflow_threshold}。")
 
         # --- 防线三: 利润保护 (Profit Protector) ---
         p_protector = p_judge.get('profit_protector', {})

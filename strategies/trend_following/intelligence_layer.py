@@ -161,8 +161,8 @@ class IntelligenceLayer:
         # 加速度为负，代表集中趋势在强化 (因为斜率本身是负的，变得更负，所以其导数/加速度也为负)。
         is_intensifying = df[conc_accel_col] < 0
         states['CHIP_CONC_INTENSIFYING_B_PLUS'] = is_accelerated_gathering & is_intensifying
-        if states['CHIP_CONC_INTENSIFYING_B_PLUS'].any():
-            print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
+        # if states['CHIP_CONC_INTENSIFYING_B_PLUS'].any():
+            # print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
 
         # --- 步骤 5: A/S 级静态结果与复合机会诊断 (直接使用预计算列) ---
         # A级: 筹码锁定稳定。
@@ -171,14 +171,14 @@ class IntelligenceLayer:
         # 直接使用预计算的 'SLOPE_5_peak_cost_D' 列判断成本峰是否稳定。
         is_cost_peak_stable = df[cost_slope_col].abs() < cost_stability_threshold
         states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_static & is_cost_peak_stable
-        if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
-            print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
+        # if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
+        #     print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
 
         # S级: 筹码锁仓突破。
         is_breakout_candle = self.strategy.atomic_states.get('TRIGGER_BREAKOUT_CANDLE', default_series)
         states['OPP_CHIP_LOCKED_BREAKOUT_S'] = states['CHIP_CONC_LOCKED_AND_STABLE_A'] & is_breakout_candle
-        if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
-            print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
+        # if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
+        #     print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
 
         # --- 步骤 6: 独立触发器与风险诊断 (直接使用预计算列) ---
         # 点火触发器: 直接使用预计算的 'peak_cost_accel_5d_D' 列。
@@ -197,8 +197,8 @@ class IntelligenceLayer:
         # 风险诊断2: 筹码集中趋势恶化拐点。直接使用预计算的 'ACCEL_21_concentration_90pct_D' 列。
         is_worsening_turn = (df[conc_accel_21d_col] > 0) & (df[conc_accel_21d_col].shift(1) <= 0)
         states['RISK_CHIP_CONC_ACCEL_WORSENING'] = is_worsening_turn
-        if is_worsening_turn.any():
-            print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
+        # if is_worsening_turn.any():
+        #     print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
         
         # 整合所有筹码层面的风险信号，形成最终的系统性风险判断
         print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
@@ -210,8 +210,8 @@ class IntelligenceLayer:
         chip_risk_6 = self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
         is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6)
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
-        if is_chip_structure_unhealthy.any():
-            print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
+        # if is_chip_structure_unhealthy.any():
+        #     print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
         
         print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 分析完毕。")
         return states, triggers
@@ -536,8 +536,8 @@ class IntelligenceLayer:
         fault_formed_col = 'is_chip_fault_formed_D'
         if fault_formed_col in df.columns:
             states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col]
-            if df[fault_formed_col].any():
-                print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
+            # if df[fault_formed_col].any():
+            #     print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
 
         # --- 机会2: A级 - 高利润安全垫 (持股心态稳定) ---
         profit_margin_col = 'winner_profit_margin_D'
@@ -608,20 +608,20 @@ class IntelligenceLayer:
         states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = is_sharp_drop & is_panic_selling
 
         # 打印情报
-        if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
-            print(f"          -> [S级战略风险] 侦测到 {states['RISK_BEHAVIOR_PANIC_FLEEING_S'].sum()} 次“获利盘恐慌加速出逃”！")
-        elif states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].any():
-            print(f"          -> [A级战略风险] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].sum()} 次“长期派发”共振！")
+        # if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
+        #     print(f"          -> [S级战略风险] 侦测到 {states['RISK_BEHAVIOR_PANIC_FLEEING_S'].sum()} 次“获利盘恐慌加速出逃”！")
+        # elif states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].any():
+        #     print(f"          -> [A级战略风险] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].sum()} 次“长期派发”共振！")
         
-        if states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].any():
-            print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
+        # if states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].any():
+        #     print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
 
         # --- 风险行为2: 恐慌盘割肉 (加速赶底) ---
         is_sharp_drop = df['pct_change_D'] < -0.05
         is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
         states['RISK_BEHAVIOR_PANIC_SELLING'] = is_sharp_drop & is_panic_selling
-        if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
-            print(f"          -> [机会情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为(可能见底)！")
+        # if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
+        #     print(f"          -> [机会情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为(可能见底)！")
             
         return states
 
@@ -659,10 +659,8 @@ class IntelligenceLayer:
         body = body.replace(0, 0.0001)
         lower_shadow = df[['open_D', 'close_D']].min(axis=1) - df['low_D']
         upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
-        
         # 定义“探针”形态：下影线长度至少是实体的2倍，且上影线很短。
         is_probe_candle = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
-
         # 5. **最终裁定**
         # 组合所有条件，生成最终的机会信号。
         final_condition = (
@@ -671,12 +669,10 @@ class IntelligenceLayer:
             is_pullback_to_support &
             is_probe_candle
         )
-        
         states['OPP_CHIP_PULLBACK_HAMMER_A'] = final_condition
-        
-        if final_condition.any():
-            print(f"          -> [情报] 侦测到 {final_condition.sum()} 次 A级“锁仓回踩探针”机会！")
-            
+        # if final_condition.any():
+        #     print(f"          -> [情报] 侦测到 {final_condition.sum()} 次 A级“锁仓回踩探针”机会！")
+
         return states
 
     def _diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1701,16 +1697,12 @@ class IntelligenceLayer:
         # 2. 定义“接力”逻辑
         # 条件A: 今天是一个“健康回踩”日，并且筹码高度控盘
         is_pullback_opportunity = is_healthy_pullback & is_chip_setup
-        
         # 条件B: 在回踩日之前的N天内，必须发生过“初升浪启动”事件
         had_recent_ascent_start = is_ascent_start.rolling(window=lookback_window, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
-        
         # 最终裁定：S+级的接力机会
         relay_opportunity = is_pullback_opportunity & had_recent_ascent_start
-        
-        if relay_opportunity.any():
-            print(f"          -> [情报] 侦测到 {relay_opportunity.sum()} 次 S+级“突破-回踩接力”机会！")
-        
+        # if relay_opportunity.any():
+        #     print(f"          -> [情报] 侦测到 {relay_opportunity.sum()} 次 S+级“突破-回踩接力”机会！")
         states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_opportunity
         return states
 
@@ -1776,10 +1768,10 @@ class IntelligenceLayer:
         states['OPP_SQUEEZE_ZONE_SHAKEOUT_S'] = final_condition_S
 
         # (可选) 保留最终的情报报告，这不属于调试探针，而是策略的正常日志输出
-        if final_condition_A.any():
-            print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
-        if final_condition_S.any():
-            print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
+        # if final_condition_A.any():
+        #     print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
+        # if final_condition_S.any():
+        #     print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
 
         return states
 
@@ -1848,20 +1840,16 @@ class IntelligenceLayer:
             is_pierced = df['low_D'] <= fib_level * (1 + proximity_ratio)
             is_reclaimed = df['close_D'] > fib_level * (1 - proximity_ratio)
             return is_pierced & is_reclaimed
-
         # 分别为不同级别的支撑生成信号
         support_618 = check_support(fib_levels['0.618'])
         support_500 = check_support(fib_levels['0.500'])
         support_382 = check_support(fib_levels['0.382'])
-
         states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'] = support_618
         states['OPP_FIB_SUPPORT_STANDARD_A'] = support_500 | support_382
-        
-        if states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].any():
-            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].sum()} 次 S级“黄金口袋”支撑。")
-        if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
-            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”支撑。")
-            
+        # if states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].any():
+        #     print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].sum()} 次 S级“黄金口袋”支撑。")
+        # if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
+        #     print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”支撑。")
         return states
 
     def _diagnose_holding_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -2337,8 +2325,8 @@ class IntelligenceLayer:
 
         # 最终状态1: 健康回踩
         states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context & is_chip_stable
-        if states['PULLBACK_STATE_HEALTHY_S'].any():
-            print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
+        # if states['PULLBACK_STATE_HEALTHY_S'].any():
+        #     print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
 
         # 最终状态2: 打压回踩 (需要后续V型反转确认)
         # 注意：打压回踩本身不是买点，它只是一个“事件”，真正的买点在它被确认之后
@@ -2352,8 +2340,8 @@ class IntelligenceLayer:
             is_rebound_confirmed |= (is_prev_suppression & is_price_recovered)
 
         states['PULLBACK_STATE_SUPPRESSIVE_S'] = is_rebound_confirmed
-        if states['PULLBACK_STATE_SUPPRESSIVE_S'].any():
-            print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_SUPPRESSIVE_S'].sum()} 次“S级打压回踩被确认”状态。")
+        # if states['PULLBACK_STATE_SUPPRESSIVE_S'].any():
+        #     print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_SUPPRESSIVE_S'].sum()} 次“S级打压回踩被确认”状态。")
 
         return states
 
@@ -2418,10 +2406,10 @@ class IntelligenceLayer:
         states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = risk_signal
 
         # (可选) 保留最终的情报报告，作为策略的正常日志输出
-        if final_opportunity_signal.any():
-            print(f"          -> [A+级机会情报] 侦测到 {final_opportunity_signal.sum()} 次“主峰换手突破(确认后)”！")
-        if risk_signal.any():
-            print(f"          -> [A级风险情报] 侦测到 {risk_signal.sum()} 次“主峰高位派发嫌疑”！")
+        # if final_opportunity_signal.any():
+        #     print(f"          -> [A+级机会情报] 侦测到 {final_opportunity_signal.sum()} 次“主峰换手突破(确认后)”！")
+        # if risk_signal.any():
+        #     print(f"          -> [A级风险情报] 侦测到 {risk_signal.sum()} 次“主峰高位派发嫌疑”！")
 
         return states
 
