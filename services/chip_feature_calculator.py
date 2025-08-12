@@ -541,7 +541,11 @@ class ChipFeatureCalculator:
         【V11.0 新增】计算筹码断层指标。
         识别股价脱离核心成本区后形成的“真空地带”。
         """
-        results = {}
+        results = {
+            'chip_fault_strength': None,
+            'chip_fault_vacuum_percent': None,
+            'is_chip_fault_formed': False  # 关键：布尔字段的默认值必须是 False 或 True，而不是 None
+        }
         peak_cost = context.get('peak_cost')
         close_price = self.ctx.get('close_price')
 
