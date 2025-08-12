@@ -475,7 +475,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main(time_dao, incremental_flag: bool):
         mode = "增量更新" if incremental_flag else "全量刷新"
-        logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.5, 模式: {mode})...")
+        # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.5, 模式: {mode})...")
         get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
         
         # 【代码修改】使 get_latest_metric_async 接受动态模型作为参数
@@ -636,7 +636,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     all_metrics_list.append(daily_metrics)
             
             if not all_metrics_list:
-                logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
+                # logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
             
             new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
