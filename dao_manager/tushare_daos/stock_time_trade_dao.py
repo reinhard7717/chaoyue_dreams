@@ -1305,17 +1305,15 @@ class StockTimeTradeDAO(BaseDAO):
 
         # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
         # 这里直接复用您提供的最佳实践方法 get_stocks_by_codes
-        print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
+        # print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
         if not stock_map:
             logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
             return []
-        print("股票信息预加载完成。")
-        
-
+        # print("股票信息预加载完成。")
         stock_codes_str = ",".join(stock_codes)
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
 
         # --- 初始化用于最终批量操作的容器 ---
@@ -1380,15 +1378,15 @@ class StockTimeTradeDAO(BaseDAO):
         result = []
         # --- 在所有循环结束后，执行一次性的批量缓存和批量DB写入 ---
         # 1. 批量写入缓存
-        if all_data_for_cache:
-            print(f"正在批量写入 {len(all_data_for_cache)} 条数据到缓存...")
+        # if all_data_for_cache:
+            # print(f"正在批量写入 {len(all_data_for_cache)} 条数据到缓存...")
             # 假设您有一个支持批量设置的缓存方法
             # await self.cache_set.stock_day_basic_info_batch(all_data_for_cache)
-            logger.info(f"完成 {len(all_data_for_cache)} 条日线基本信息的批量缓存。")
+            # logger.info(f"完成 {len(all_data_for_cache)} 条日线基本信息的批量缓存。")
 
         # 2. 批量写入数据库
         if all_data_dicts_for_db:
-            print(f"正在批量保存 {len(all_data_dicts_for_db)} 条数据到数据库...")
+            # print(f"正在批量保存 {len(all_data_dicts_for_db)} 条数据到数据库...")
             # 注意：unique_fields需要使用ORM模型中的字段名，这里假设是'stock'和'trade_time'
             # 如果模型中关联字段名是 stock_id，则应为 ['stock_id', 'trade_time']
             result = await self._save_all_to_db_native_upsert(
@@ -1396,9 +1394,7 @@ class StockTimeTradeDAO(BaseDAO):
                 data_list=all_data_dicts_for_db,
                 unique_fields=['stock', 'trade_time']
             )
-            logger.info(f"完成 {len(all_data_dicts_for_db)} 条日线基本信息的批量保存。")
-        
-        
+            # logger.info(f"完成 {len(all_data_dicts_for_db)} 条日线基本信息的批量保存。")
         return result
 
     async def get_stock_daily_basic(self, stock_code: str) -> None:
