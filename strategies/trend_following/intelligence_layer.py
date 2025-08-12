@@ -462,17 +462,11 @@ class IntelligenceLayer:
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
-        
-        # --- 【代码修改】步骤 0: 增加严格的“基础数据”先决条件检查 ---
-        # [修改原因] 防止在基础筹码数据缺失时，错误地计算并激活衍生的动态指标（如健康分改善）。
-        # 只有当最核心的静态筹码指标存在时，讨论它们的“动态”才有意义。
         base_required_cols = ['concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D', 'chip_health_score_D']
         base_missing_cols = [col for col in base_required_cols if col not in df.columns]
         if base_missing_cols:
             print(f"            -> [严重警告] 动态筹码分析中心缺少最基础的静态筹码数据: {base_missing_cols}，模块已完全跳过！")
             return states
-        # --- 【代码修改】结束 ---
-
         # --- 步骤 1: 检查动态分析所需的所有“弹药”（斜率/加速度）是否到位 ---
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
@@ -484,44 +478,35 @@ class IntelligenceLayer:
         if missing_cols:
             print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
-        
         # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
         # 注意：这要求 _diagnose_contextual_zones 必须在此模块之前运行
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
         # 2.1 基础动态
         is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
         states['CHIP_DYN_CONCENTRATING'] = is_concentrating_trend
-        
         # 2.2 加速动态
         p_chip = get_params_block(self.strategy, 'chip_feature_params')
         accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
         is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
         states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
-        
         # 2.3 发散动态 (结合了战场上下文)
         is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
-        
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
-
         # --- 步骤3: 对“筹码成本”进行动态分析 ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
         cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
         states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
         states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
-
         # --- 步骤4: 对“总获利盘”进行动态分析 ---
         winner_rate_collapse_threshold = -1.0
         states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
         states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
-
         # --- 步骤5: 对“筹码健康分”进行动态分析 ---
         states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
         states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
-        
         return states
 
     def _diagnose_chip_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -531,25 +516,21 @@ class IntelligenceLayer:
         """
         # print("        -> [高级筹码机会诊断模块 V341.0] 启动...")
         states = {}
-        
         # --- 机会1: S级 - 筹码断层新生 (结构性重置) ---
         fault_formed_col = 'is_chip_fault_formed_D'
         if fault_formed_col in df.columns:
             states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col]
             # if df[fault_formed_col].any():
             #     print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
-
         # --- 机会2: A级 - 高利润安全垫 (持股心态稳定) ---
         profit_margin_col = 'winner_profit_margin_D'
         if profit_margin_col in df.columns:
             # 定义：获利盘的平均利润超过20%，代表持股心态极其稳定
             states['CHIP_STATE_HIGH_PROFIT_CUSHION'] = df[profit_margin_col] > 20.0
-
         # --- 机会3: 获利盘持续上升 (市场情绪积极) ---
         winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
         if winner_rate_slope_col in df.columns:
             states['CHIP_DYN_WINNER_RATE_RISING'] = df[winner_rate_slope_col] > 0
-        
         return states
 
     def _diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1090,90 +1071,56 @@ class IntelligenceLayer:
 
     def _diagnose_structural_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 - 赫斯特指数增强版】
-        - 核心升级: 深度集成赫斯特指数，从中提炼出多种关于市场宏观阶段、
-                    趋势可持续性与衰竭的原子状态。
+        【V401.0 数据驱动重构版】结构力学诊断引擎
+        - 核心重构: 严格遵循“计算与诊断分离”原则，本模块只消费数据层预计算好的列。
+        - 核心增强: 融合波动率指标，使“惯量”诊断更精准；保留并加固了“势能”的经典定义。
+        - 核心健壮性: 在模块入口处对所有依赖的列进行统一检查，杜绝因数据缺失导致的运行时错误。
         """
-        # print("        -> [结构力学诊断模块 V2.0] 启动，正在进行物理建模与分形分析...")
-        from utils.math_tools import hurst_exponent
+        print("        -> [结构力学诊断引擎 V401.0] 启动...")
         states = {}
-        
-        # --- 1. 成本质心分析 (逻辑不变) ---
-        if 'SLOPE_5_peak_cost_D' in df.columns and 'ACCEL_5_peak_cost_D' in df.columns:
-            states['MECHANICS_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-            states['MECHANICS_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0.01
+        default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
 
-        # --- 2. 结构转动惯量分析 (逻辑不变) ---
-        if 'SLOPE_5_concentration_90pct_D' in df.columns:
-            states['MECHANICS_INERTIA_DECREASING'] = df['SLOPE_5_concentration_90pct_D'] < -0.001
-        
-        # --- 3. 结构势能分析 (逻辑不变) ---
-        if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns:
-            energy_ratio = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
-            states['MECHANICS_ENERGY_ADVANTAGE'] = energy_ratio > 1.5
+        # --- 1. 军备检查 (Prerequisite Check) ---
+        # [修改原因] 统一检查所有依赖的列，确保模块的健壮性。
+        required_cols = [
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_5_BBW_21_2.0_D', # 惯量诊断所需
+            'support_below_D', 'pressure_above_D',                   # 势能诊断所需
+            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D'             # 成本动态所需
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 结构力学引擎缺少关键数据列: {missing_cols}，模块已跳过！")
+            return states
 
-        # --- 4. 【核心改造】分形与混沌分析 ---
-        hurst_window = self.strategy.unified_config.get('hurst_window', 60) # 从配置读取窗口期
-        
-        try:
-            # 4.1 计算赫斯特指数
-            hurst_col = f'hurst_{hurst_window}d'
-            df[hurst_col] = df['close_D'].rolling(hurst_window).apply(hurst_exponent, raw=True)
-            
-            # 4.2 定义绝对状态 (Absolute State)
-            # 强趋势状态: H > 0.7，表明市场具有很强的记忆性，趋势很可能会持续
-            states['FRACTAL_STATE_STRONG_TREND'] = df[hurst_col] > 0.7
-            # 均值回归状态: H < 0.4，表明市场倾向于反向运动，是震荡市的特征
-            states['FRACTAL_STATE_MEAN_REVERSION'] = df[hurst_col] < 0.4
-            # 随机游走状态: 介于两者之间，市场方向不明
-            states['FRACTAL_STATE_RANDOM_WALK'] = (df[hurst_col] >= 0.4) & (df[hurst_col] <= 0.7)
+        # --- 2. 惯量诊断 (Inertia Diagnosis) ---
+        # [修改原因] 增强惯量定义。惯量减小 = 供应在锁定(筹码集中度斜率<0) AND 市场趋于平静(波动率斜率<0)。
+        # 这种共振是比单一条件更可靠的“山雨欲来风满楼”的信号。
+        is_supply_locking = df['SLOPE_5_concentration_90pct_D'] < 0
+        is_volatility_squeezing = df['SLOPE_5_BBW_21_2.0_D'] < 0
+        states['MECHANICS_INERTIA_DECREASING'] = is_supply_locking & is_volatility_squeezing
+        # if states['MECHANICS_INERTIA_DECREASING'].any():
+        #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_INERTIA_DECREASING'].sum()} 次“惯量减小(锁定)”信号！")
 
-            # 4.3 定义动态变化 (Dynamic Change)
-            # 趋势形成事件: H指数从“均值回归/随机”区域，向上突破了趋势阈值(0.7)
-            was_not_trending = df[hurst_col].shift(1) <= 0.7
-            is_trending = df[hurst_col] > 0.7
-            states['FRACTAL_EVENT_TREND_FORMING'] = was_not_trending & is_trending
-            
-            # 趋势衰竭事件: H指数从“强趋势”区域，向下跌破了随机游走上沿(0.7)
-            was_trending = df[hurst_col].shift(1) > 0.7
-            is_not_trending = df[hurst_col] <= 0.7
-            states['FRACTAL_EVENT_TREND_EXHAUSTION'] = was_trending & is_not_trending
+        # --- 3. 势能诊断 (Potential Energy Diagnosis) ---
+        # 势能优势 = 前线支撑力量 > 前线压力力量
+        pressure_col = df['pressure_above_D'] + 1e-6 # 加上极小值防止除以零
+        energy_ratio = df['support_below_D'] / pressure_col
+        states['MECHANICS_ENERGY_ADVANTAGE'] = energy_ratio > 1.5
+        # if states['MECHANICS_ENERGY_ADVANTAGE'].any():
+        #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_ENERGY_ADVANTAGE'].sum()} 次“势能优势”信号！")
 
-            # 基于斜率
-            hurst_slope_col = f'SLOPE_5_hurst_{hurst_window}d_D'
-            if hurst_slope_col in df.columns:
-                # 趋势加速形成: H值本身在上升，且斜率也为正
-                states['FRACTAL_DYN_TREND_ACCELERATING'] = (df[hurst_col] > df[hurst_col].shift(1)) & (df[hurst_slope_col] > 0)
-                # 趋势加速衰竭: H值本身在下降，且斜率为负
-                states['FRACTAL_DYN_TREND_DECELERATING'] = (df[hurst_col] < df[hurst_col].shift(1)) & (df[hurst_slope_col] < 0)
+        # --- 4. 成本动态诊断 (Cost Dynamics) ---
+        states['MECHANICS_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
+        # 使用动态阈值或一个合理的固定值来定义“加速”
+        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
+        states['MECHANICS_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
+        # if states['MECHANICS_COST_ACCELERATING'].any():
+        #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_COST_ACCELERATING'].sum()} 次“成本加速”信号！")
 
-            # 4.4 定义组合信号 (Combined Signal)
-            # 【S级机会】波动率压缩 + 趋势形成: 
-            # 这是最经典的“Squeeze Breakout”模式的深层确认。
-            # 能量在极度压缩后，市场结构从随机/震荡，转变为强趋势，是最高质量的突破信号。
-            is_in_squeeze = self.strategy.atomic_states.get('FRACTAL_VOLATILITY_SQUEEZE', pd.Series(False, index=df.index))
-            states['FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED'] = is_in_squeeze.shift(1) & states['FRACTAL_EVENT_TREND_FORMING']
-
-            # 【S级风险】价格新高 + 趋势衰竭 (顶背离)
-            # 价格还在创近期新高，但驱动趋势的内在结构已经瓦解，是极其危险的顶背离信号。
-            is_new_high = df['high_D'] >= df['high_D'].shift(1).rolling(window=20).max()
-            states['FRACTAL_RISK_TOP_DIVERGENCE'] = is_new_high & states['FRACTAL_EVENT_TREND_EXHAUSTION']
-
-        except Exception as e:
-            print(f"          -> [警告] 赫斯特指数计算或状态诊断失败: {e}")
-
-        # 波动率压缩 (变异系数) - 逻辑不变
-        price_mean = df['close_D'].rolling(60).mean()
-        price_std = df['close_D'].rolling(60).std()
-        price_cv = price_std / (price_mean + 1e-6) # 加上一个极小值防止除以0
-
-        # 当日波动率处于过去120天的最低10%水平
-        is_in_squeeze = price_cv < price_cv.rolling(120).quantile(0.1)
-        states['FRACTAL_VOLATILITY_SQUEEZE'] = is_in_squeeze
-
-
+        print("        -> [结构力学诊断引擎 V401.0] 分析完毕。")
         return states
-
+    
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V273.0 装备换代版】

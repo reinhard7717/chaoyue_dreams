@@ -982,12 +982,13 @@ class IndicatorService:
 
     async def _calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【新增】【第二道工序】元特征计算车间
+        【V2.0 赫斯特指数归位版】元特征计算车间
         - 核心职责: 在基础指标计算完毕后，专门计算那些依赖原始数据进行复杂
                     滚窗计算的“元指标”，如赫斯特指数、变异系数等。
         - 执行时机: 在基础指标计算之后，在斜率计算之前。
+        - 核心修正: 将赫斯特指数的计算逻辑从 IntelligenceLayer 正确迁移至此，确保“计算与诊断分离”。
         """
-        # print("    - [元特征车间] 启动，正在计算赫斯特指数、CV等复杂特征...")
+        print("    - [元特征车间 V2.0] 启动，正在计算赫斯特指数、CV等复杂特征...")
         
         # 我们主要关心日线数据
         timeframe = 'D'
@@ -996,50 +997,54 @@ class IndicatorService:
             
         df = all_dfs[timeframe]
         
-        # --- 1. 计算赫斯特指数 ---
-        hurst_window = 120
+        # --- 1. 计算赫斯特指数 (Hurst Exponent) ---
+        # [修改原因] 此处是赫斯特指数计算的正确位置，保证其在斜率计算前完成。
+        hurst_window = 120 # 暂时硬编码，未来可从配置读取
         hurst_col = f'hurst_{hurst_window}d_D'
         if 'close_D' in df.columns and hurst_col not in df.columns:
             try:
-                # 【核心防御代码】
-                # 1. 创建一个没有NaN的副本用于计算
+                # 【核心防御代码】确保计算的健壮性
+                # 1. 创建一个没有NaN的副本用于计算，防止因数据空洞导致计算失败
                 close_series_for_hurst = df['close_D'].dropna()
                 
                 # 2. 检查处理后数据是否仍然充足
                 if len(close_series_for_hurst) < hurst_window:
-                    print(f"      -> [警告] 去除NaN后，数据量不足以计算赫斯特指数，跳过。")
-                    df[hurst_col] = np.nan # 将整列设为NaN
+                    print(f"      -> [警告] 去除NaN后，数据量({len(close_series_for_hurst)})不足以计算{hurst_window}周期的赫斯特指数，跳过。")
+                    df[hurst_col] = np.nan # 将整列设为NaN，保证列存在
                 else:
-                    # 3. 在干净的数据上进行计算
+                    # 3. 在干净的数据上进行滚动计算
+                    # math_tools.py 中的 hurst_exponent 函数已经足够健壮
                     hurst_values = close_series_for_hurst.rolling(hurst_window).apply(hurst_exponent, raw=True)
                     
-                    # 4. 将计算结果对齐回原始的DataFrame索引
+                    # 4. 将计算结果对齐回原始的DataFrame索引，这是关键一步
                     df[hurst_col] = hurst_values.reindex(df.index)
                     # print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
 
             except Exception as e:
-                print(f"      -> [警告] 赫斯特指数计算失败: {e}")
-                df[hurst_col] = np.nan # 确保即使出错，列也存在
+                print(f"      -> [严重警告] 赫斯特指数计算过程中发生未知错误: {e}")
+                df[hurst_col] = np.nan # 确保即使出错，列也存在，防止下游流程报错
 
         # --- 2. 计算价格变异系数 (Price CV) ---
-        cv_window = 60 # 暂时硬编码，或从配置读取
+        cv_window = 60
         cv_col = f'price_cv_{cv_window}d_D'
         if 'close_D' in df.columns and cv_col not in df.columns:
             price_mean = df['close_D'].rolling(cv_window).mean()
             price_std = df['close_D'].rolling(cv_window).std()
+            # 加上一个极小值防止除以零
             df[cv_col] = price_std / (price_mean + 1e-6)
-            # print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
+            print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
 
         # --- 3. 计算日线结构势能 (Energy Ratio) ---
         # 注意：这需要筹码数据已经合并到df中
         energy_col = 'energy_ratio_D'
         if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns and energy_col not in df.columns:
+            # 加上一个极小值防止除以零
             df[energy_col] = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
-            # print(f"      -> 结构势能 ({energy_col}) 计算完成。")
+            print(f"      -> 结构势能 ({energy_col}) 计算完成。")
 
         all_dfs[timeframe] = df
         return all_dfs
-
+    
     async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.0 跨周期生产线版】

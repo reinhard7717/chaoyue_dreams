@@ -340,6 +340,14 @@
         "composite_scoring": {
           "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
           "rules": [
+            { 
+              "name": "TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS", 
+              "score": 750, 
+              "all_of": ["CHIP_CONC_LOCKED_AND_STABLE_A"],
+              "any_of": ["CHIP_CONC_STEADY_GATHERING_C", "CHIP_CONC_ACCELERATED_GATHERING_B", "CHIP_CONC_INTENSIFYING_B_PLUS"],
+              "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"],
+              "说明": "这种模式代表主力在已高度控盘的基础上，仍在进行最后的扫货，是极强的拉升前兆"
+            },
             { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S", "CHIP_CONC_LOCKED_AND_STABLE_A"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 700, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
@@ -435,6 +443,7 @@
           "说明": "【信号字典】定义所有信号的中文名和类型，是系统内唯一的元数据来源。",
           
           "说明_COMPOSITE": "--- 战法分 (Composite) ---",
+          "TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS": { "cn_name": "【战法S+】锁仓再集中", "type": "composite" },
           "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": { "cn_name": "【战法S+】衰竭反转", "type": "composite" },
           "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": { "cn_name": "【战法S+】精准制导回踩", "type": "composite" },
           "TACTIC_LOCK_CHIP_RALLY_S": { "cn_name": "【战法S】锁筹拉升", "type": "composite" },
