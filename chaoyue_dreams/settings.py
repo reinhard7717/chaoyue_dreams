@@ -523,6 +523,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
         'schedule': crontab(hour=20, minute=55, day_of_week='1-5'),
     },
+    'rebuild_snapshots_for_all_active_trackers_task': {
+        'task': 'tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task',
+        'schedule': crontab(hour=22, minute=15, day_of_week='1-5'),
+    },
+
     'save_stocks_minute_data_realtime_task_1min': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名

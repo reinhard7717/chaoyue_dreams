@@ -15,6 +15,7 @@ from celery import group, chain, chord
 from django.db.models import Min, Max
 from utils.task_helpers import with_cache_manager
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code
+from services.transaction_service import TransactionService
 from tqdm import tqdm
 from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
@@ -432,6 +433,49 @@ def rebuild_snapshots_for_tracker_task(self, tracker_id: int, *, cache_manager: 
     result_count = async_to_sync(service.rebuild_snapshots_for_tracker)(tracker_id)
     logger.info(f"Tracker ID {tracker_id} 的快照重建任务完成，处理了 {result_count} 条记录。")
     return {"tracker_id": tracker_id, "snapshots_processed": result_count}
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task', queue='dashboard')
+@with_cache_manager
+def rebuild_snapshots_for_all_active_trackers_task():
+    """
+    【V1.0】每晚定期的快照重建任务（兜底）。
+    - 职责: 遍历所有当前状态为 "HOLDING" 的 PositionTracker，
+            并为它们调用核心的重建服务，以确保数据最终一致性。
+            这可以修复因当天交易数据录入早于行情数据同步而导致的快照缺失问题。
+    """
+    logger.info("====== 开始执行【每晚活跃持仓快照重建】兜底任务 ======")
+    
+    # 筛选出所有当前持仓中的追踪器
+    active_trackers = PositionTracker.objects.filter(status=PositionTracker.Status.HOLDING)
+    
+    if not active_trackers.exists():
+        logger.info("没有找到任何活跃的持仓记录，任务结束。")
+        return "没有找到任何活跃的持仓记录。"
+
+    tracker_count = active_trackers.count()
+    logger.info(f"发现 {tracker_count} 个活跃的持仓记录，准备开始重建...")
+    
+    success_count = 0
+    failure_count = 0
+
+    for tracker in active_trackers:
+        try:
+            logger.info(f"  -> 正在为 Tracker ID: {tracker.id} (股票: {tracker.stock.stock_code}) 触发重建...")
+            # 调用核心服务，该服务会先重新计算持仓状态，然后触发异步的快照重建
+            # 这是最可靠的方式，能确保 average_cost 等状态也是最新的
+            result = TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker.id)
+            if result:
+                success_count += 1
+            else:
+                failure_count += 1
+                logger.warning(f"  Tracker ID: {tracker.id} 的状态更新和快照重建触发失败。")
+        except Exception as e:
+            failure_count += 1
+            logger.error(f"  处理 Tracker ID: {tracker.id} 时发生意外错误: {e}", exc_info=True)
+
+    summary = f"====== 【每晚活跃持仓快照重建】任务完成。总数: {tracker_count}, 成功: {success_count}, 失败: {failure_count} ======"
+    logger.info(summary)
+    return summary
 
 # =================================================================
 # =================== 2. 高级筹码特征任务 ==================
