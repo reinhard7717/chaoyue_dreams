@@ -23,7 +23,7 @@ class ChipFeatureCalculator:
             percent_sum = self.df['percent'].sum()
             # 检查总和是否接近100，且大于0，以避免除以0的错误
             if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
-                print(f"    -> [数据清洗] 注意：检测到筹码分布总和为 {percent_sum:.2f}，不等于100。正在执行强制归一化...")
+                # print(f"    -> [数据清洗] 注意：检测到筹码分布总和为 {percent_sum:.2f}，不等于100。正在执行强制归一化...")
                 self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
         
         for key in ['total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
