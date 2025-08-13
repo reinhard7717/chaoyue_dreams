@@ -15,7 +15,6 @@ from celery import group, chain, chord
 from django.db.models import Min, Max
 from utils.task_helpers import with_cache_manager
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code
-from services.transaction_service import TransactionService
 from tqdm import tqdm
 from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
@@ -457,7 +456,7 @@ def rebuild_snapshots_for_all_active_trackers_task():
     
     success_count = 0
     failure_count = 0
-
+    from services.transaction_service import TransactionService
     for tracker in active_trackers:
         try:
             logger.info(f"  -> 正在为 Tracker ID: {tracker.id} (股票: {tracker.stock.stock_code}) 触发重建...")
