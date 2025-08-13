@@ -8,7 +8,6 @@ from .utils import get_params_block, get_param_value
 class OffensiveLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-        self.playbook_blueprints = self._get_playbook_blueprints()
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
@@ -121,64 +120,8 @@ class OffensiveLayer:
                     entry_score.loc[playbook_series] += score
                     score_details_df[playbook_name] = playbook_series * score
         
-        entry_score = self._apply_final_score_adjustments(entry_score)
+        entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
         return entry_score, score_details_df
-
-    def _apply_final_score_adjustments(self, entry_score: pd.Series) -> pd.Series:
-        """
-        【V2.0 初升浪适配版】最终得分指挥棒模型
-        - 新增逻辑: 对处于“初升浪”期间的所有买入信号，应用全局分数乘数加成。
-        """
-        df = self.strategy.df_indicators
-        adjustment_params = get_params_block(self.strategy, 'final_score_adjustments')
-        if not get_param_value(adjustment_params.get('enabled'), False):
-            return entry_score
-        
-        final_multiplier = pd.Series(1.0, index=df.index)
-
-        # 1. 应用配置文件中定义的通用乘数
-        multipliers = adjustment_params.get('multipliers', [])
-        for rule in multipliers:
-            state_name = rule.get('if_state')
-            multiplier_value = rule.get('multiply_by')
-            if state_name and multiplier_value:
-                condition_series = self.strategy.atomic_states.get(state_name, pd.Series(False, index=df.index))
-                final_multiplier.loc[condition_series] *= multiplier_value
-        
-        # ▼▼▼【功能适配】: 为“初升浪”模式应用全局分数加成 ▼▼▼
-        ascent_state_name = 'STRUCTURE_POST_ACCUMULATION_ASCENT_C'
-        # 优先从配置读取加成系数，若无则使用默认值1.2
-        ascent_multiplier = get_param_value(adjustment_params.get('ascent_multiplier'), 1.2) 
-        
-        if ascent_state_name in self.strategy.atomic_states:
-            ascent_condition = self.strategy.atomic_states[ascent_state_name]
-            if ascent_condition.any():
-                final_multiplier.loc[ascent_condition] *= ascent_multiplier
-                print(f"          -> [指挥棒] 已为 {ascent_condition.sum()} 天的“初升浪”期间应用 {ascent_multiplier}x 分数加成。")
-        
-        healthy_trend_state = 'STRUCTURE_MAIN_UPTREND_WAVE_S'
-        healthy_trend_multiplier = 1.1 # 健康主升浪中，所有信号价值提升10%
-        
-        if healthy_trend_state in self.strategy.atomic_states:
-            trend_condition = self.strategy.atomic_states[healthy_trend_state]
-            if trend_condition.any():
-                final_multiplier.loc[trend_condition] *= healthy_trend_multiplier
-                print(f"          -> [指挥棒] 已为 {trend_condition.sum()} 天的“S级主升浪”期间应用 {healthy_trend_multiplier}x 分数加成。")
-        
-        # --- 战场环境调节器 ---
-        # 1. 在强趋势市场中，放大所有进攻信号的价值
-        is_strong_trend = self.strategy.atomic_states.get('FRACTAL_STATE_STRONG_TREND', pd.Series(False, index=df.index))
-        if is_strong_trend.any():
-            final_multiplier.loc[is_strong_trend] *= 1.2 # 强趋势下，得分提升20%
-            print(f"          -> [战场环境] 已为 {is_strong_trend.sum()} 天的“强趋势”期间应用 1.2x 分数加成。")
-
-        # 2. 在均值回归市场中，惩罚所有趋势类信号
-        is_mean_reversion = self.strategy.atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', pd.Series(False, index=df.index))
-        if is_mean_reversion.any():
-            final_multiplier.loc[is_mean_reversion] *= 0.6 # 均值回归下，得分削弱40%
-            print(f"          -> [战场环境] 已为 {is_mean_reversion.sum()} 天的“均值回归”期间应用 0.6x 分数惩罚。")
-
-        return entry_score * final_multiplier
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
@@ -213,15 +156,6 @@ class OffensiveLayer:
             {
                 'name': 'BOTTOM_STABILIZATION_B', 'cn_name': '【B级】底部企稳', 'family': 'REVERSAL_CONTRARIAN',
                 'type': 'setup', 'score': 190, 'side': 'left', 'comment': 'B级: 股价严重超卖偏离均线后，出现企稳阳线。'
-            },
-            {
-                'name': 'POST_ACCUMULATION_ASCENT_C', 
-                'cn_name': '【C+级】初升浪启动', 
-                'family': 'TREND_MOMENTUM',
-                'type': 'setup', 
-                'score': 195, 
-                'side': 'right', 
-                'comment': 'C+级: 识别完成震荡吸筹后，首次放量突破启动的信号，代表初升浪的开始。'
             },
             # --- 趋势/动能家族 (TREND_MOMENTUM) ---
             {
@@ -449,8 +383,92 @@ class OffensiveLayer:
             if report: diagnostics.at[idx] = report
         return diagnostics
 
+    def _apply_contextual_bonus_score(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V4.1 接力战法版】战术环境奖励模块
+        - 核心改造: 引入“衰减式奖励”模型，奖励在触发日达到峰值，随后线性递减。
+                    同时保留了对简单“固定加分”模型的支持，并通过'deprecated'标志位来禁用过时规则。
+        """
+        # 从配置文件获取上下文奖励的参数块
+        bonus_params = get_params_block(self.strategy, 'contextual_bonus_params')
+        # 检查该模块是否启用，若未启用则直接返回，不进行任何操作
+        if not get_param_value(bonus_params.get('enabled'), False):
+            return entry_score, score_details_df
+        
+        # 获取所有奖励规则的列表
+        bonus_rules = bonus_params.get('bonuses', [])
+        
+        # 遍历每一条奖励规则
+        for rule in bonus_rules:
+            # 从规则中获取核心参数
+            state_name = rule.get('if_state')
+            bonus_signal_name = rule.get('signal_name')
+            
+            # [新增代码] 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
+            if not (state_name and bonus_signal_name):
+                continue
 
+            # [新增代码] 检查规则是否已被标记为“已废弃”。如果是，则跳过此规则。
+            # 这使得我们可以在不删除旧配置的情况下，安全地禁用它，便于未来复查。
+            if rule.get('deprecated', False):
+                continue
 
+            # 从原子状态池中获取触发条件序列
+            condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=entry_score.index))
+            
+            # 判断此规则是“衰减模型”还是“固定加分模型”
+            if rule.get('decay_model', False):
+                # --- 衰减奖励模型逻辑 ---
+                max_bonus = rule.get('max_bonus_score', 0)
+                decay_days = rule.get('decay_days', 1)
+                
+                # 确保衰减参数有效
+                if max_bonus <= 0 or decay_days <= 0:
+                    continue
+
+                # 找到所有触发事件的索引位置，这是衰减的起点
+                trigger_indices = np.where(condition)[0]
+                
+                # 遍历每一个触发点
+                for start_idx in trigger_indices:
+                    # 计算每日的衰减量
+                    daily_decay = max_bonus / decay_days
+                    # 从触发点开始，向后应用衰减的奖励
+                    for i in range(decay_days):
+                        current_idx = start_idx + i
+                        # 防止索引越界
+                        if current_idx >= len(entry_score):
+                            break
+                        
+                        # 计算当天的奖励分数（线性衰减）
+                        current_bonus = max_bonus - (i * daily_decay)
+                        
+                        # 获取当前日期索引
+                        current_date = entry_score.index[current_idx]
+                        # 将计算出的奖励分加到总分上
+                        entry_score.at[current_date] += current_bonus
+                        
+                        # 在分数详情中记录这个加分项
+                        # 如果是第一次记录，需要先初始化该列
+                        if bonus_signal_name not in score_details_df.columns:
+                            score_details_df[bonus_signal_name] = 0.0
+                        score_details_df.at[current_date, bonus_signal_name] += current_bonus
+                
+                if len(trigger_indices) > 0:
+                    print(f"          -> [衰减奖励] 已为 {len(trigger_indices)} 次“{state_name}”事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
+
+            else:
+                # --- 固定加分模型逻辑 ---
+                bonus_value = rule.get('add_score', 0)
+                # 只有在条件触发且奖励分大于0时才执行
+                if condition.any() and bonus_value > 0:
+                    # 将固定的奖励分加到总分上
+                    entry_score.loc[condition] += bonus_value
+                    # 在详情中记录这个加分项
+                    score_details_df[bonus_signal_name] = condition * bonus_value
+                    print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
+            
+        return entry_score, score_details_df
 
 
 

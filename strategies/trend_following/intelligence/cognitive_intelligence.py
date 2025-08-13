@@ -378,7 +378,32 @@ class CognitiveIntelligence:
 
         return states
 
+    def _diagnose_breakout_pullback_relay_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】突破-回踩接力S+战法诊断模块
+        - 核心逻辑: 1. 识别处于“初升浪”观察期的股票。
+                    2. 在此期间，捕捉到的第一个“健康回踩”信号。
+                    3. 这个共振点是最高质量的趋势介入信号。
+        """
+        print("        -> [S+战法诊断] 正在扫描“突破-回踩接力”...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
 
+        # 条件A: 股票正处于“初升浪”的持续状态中
+        is_in_ascent_wave = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
+        
+        # 条件B: 当天出现了“S级健康回踩”
+        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+
+        # 最终裁定：必须是两个条件的共振
+        final_tactic_signal = is_in_ascent_wave & is_healthy_pullback
+        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = final_tactic_signal
+        
+        if final_tactic_signal.any():
+            print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“突破-回踩接力”的黄金买点！")
+
+        return states
 
 
 
