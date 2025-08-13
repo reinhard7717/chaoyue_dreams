@@ -3,8 +3,18 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.intelligence_layer import MainForceState
 from strategies.trend_following.utils import get_params_block, get_param_value
+
+class MainForceState(Enum):
+    """
+    定义主力行为序列的各个状态。
+    """
+    IDLE = 0           # 闲置/观察期
+    ACCUMULATING = 1   # 吸筹期
+    WASHING = 2        # 洗盘期
+    MARKUP = 3         # 拉升期
+    DISTRIBUTING = 4   # 派发期
+    COLLAPSE = 5       # 崩盘期
 
 class CognitiveIntelligence:
     def __init__(self, strategy_instance):
