@@ -149,7 +149,7 @@ class IntelligenceLayer:
         self.strategy.trigger_events = trigger_events # 挂载到strategy实例，供后续模块使用
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_reconcentration_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_rally_tactic(df))
-        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_breakout_pullback_relay_tactic(df))
+        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df))
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
         
         # (一些简单的、遗留的触发器逻辑可以保留在这里)

@@ -275,6 +275,13 @@
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
             "说明": "【阵地分-净化版】作为开仓地基，分数权重最高。已移除所有纯上下文/前置信号的独立计分。",
+            "说明_新回踩战法": "--- [新增] 回踩战术矩阵 (分层且互斥) ---",
+            "TACTIC_PRECISION_GUIDED_S_DOUBLE_PLUS": 1100,
+            "说明_PRECISION_GUIDED": "S++级，巡航+斐波那契黄金口袋+健康回踩，最高优先级，给予最高分。",
+            "TACTIC_CRUISE_AND_RELAY_S_PLUS": 950,
+            "说明_CRUISE_RELAY": "S+级，巡航+健康回踩，第二优先级。",
+            "TACTIC_ASCENT_AND_PULLBACK_S": 850,
+            "说明_ASCENT_PULLBACK": "S级，初升浪+健康回踩，第三优先级。",
             "说明_新筹码体系": "--- 分级筹码信号 (含加速度) ---",
             "PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS": 800,
             "TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS": 750,
@@ -342,14 +349,13 @@
           }
         },
         "composite_scoring": {
-          "说明": "【战法分】作为锦上添花的强力共振信号，分数最高，但触发条件苛刻。",
+          "说明": "【战法分】作为锦上添花的强力共振信号。已移除所有与回踩相关的、可能重叠的规则。",
           "rules": [
             { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
-            { "name": "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS", "score": 700, "any_of": ["PULLBACK_STATE_HEALTHY_S", "PULLBACK_STATE_SUPPRESSIVE_S"], "all_of": ["OPP_FIB_SUPPORT_GOLDEN_POCKET_S", "CHIP_CONC_LOCKED_AND_STABLE_A"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 700, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
             { "name": "TACTIC_HEALTHY_PULLBACK_S", "score": 600, "all_of": ["PULLBACK_STATE_HEALTHY_S", "CHIP_CONC_LOCKED_AND_STABLE_A"] },
-            { "name": "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS", "score": 800, "all_of": ["BOARD_EVENT_EARTH_HEAVEN", "CHIP_DYN_CONCENTRATING"], "none_of": [], "说明": "地天板+筹码仍在集中，是极强的反转+吸筹共振信号" },
-            { "name": "TACTIC_PANIC_PIT_ABSORPTION_A_PLUS", "score": 680, "all_of": ["OPP_BEHAVIOR_PANIC_CAPITULATION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"], "说明": "恐慌盘割肉后出现显性反转阳线，是经典的黄金坑战法" }
+            { "name": "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS", "score": 800, "all_of": ["BOARD_EVENT_EARTH_HEAVEN", "CHIP_DYN_CONCENTRATING"], "none_of": [] },
+            { "name": "TACTIC_PANIC_PIT_ABSORPTION_A_PLUS", "score": 680, "all_of": ["OPP_BEHAVIOR_PANIC_CAPITULATION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] }
           ]
         },
         "holding_warning_params": {
@@ -472,9 +478,11 @@
           "说明": "【信号字典-净化版】定义所有信号的中文名和类型。已移除被剥离分数的上下文信号。",
           "SCORE_POS_ACCEL_HYBRID_BONUS": { "cn_name": "【核心】阵地优势加速(混合奖励)", "type": "dynamic" },
           "说明_COMPOSITE": "--- 战法分 (Composite) ---",
+          "TACTIC_PRECISION_GUIDED_S_DOUBLE_PLUS": { "cn_name": "【战法S++】精准制导回踩", "type": "positional" },
+          "TACTIC_CRUISE_AND_RELAY_S_PLUS": { "cn_name": "【战法S+】巡航中继回踩", "type": "positional" },
+          "TACTIC_ASCENT_AND_PULLBACK_S": { "cn_name": "【战法S】初升浪回踩", "type": "positional" },
           "TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS": { "cn_name": "【战法S+】锁仓再集中(确认)", "type": "positional" },
           "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": { "cn_name": "【战法S+】衰竭反转", "type": "composite" },
-          "TACTIC_PRECISION_GUIDED_PULLBACK_S_PLUS": { "cn_name": "【战法S+】精准制导回踩", "type": "composite" },
           "TACTIC_LOCK_CHIP_RALLY_S": { "cn_name": "【战法S】锁筹拉升(巡航)", "type": "positional" },
           "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": { "cn_name": "【战法S+】断层新生·主升浪", "type": "composite" },
           "TACTIC_HEALTHY_PULLBACK_S": { "cn_name": "【战法S】健康回踩", "type": "composite" },

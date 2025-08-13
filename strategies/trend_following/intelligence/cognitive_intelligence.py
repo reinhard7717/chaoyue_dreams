@@ -388,30 +388,54 @@ class CognitiveIntelligence:
 
         return states
 
-    def _diagnose_breakout_pullback_relay_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】突破-回踩接力S+战法诊断模块
-        - 核心逻辑: 1. 识别处于“初升浪”观察期的股票。
-                    2. 在此期间，捕捉到的第一个“健康回踩”信号。
-                    3. 这个共振点是最高质量的趋势介入信号。
+        【V3.0 战术矩阵重构版】回踩战术诊断模块
+        - 核心重构: 将所有与“回踩”相关的S级战法整合于此，并建立严格的优先级，
+                      确保一个回踩事件只匹配一个最精准的战法，杜绝信号重叠和分数叠加。
+        - 优先级:   1. (S++) 精准制导回踩: 巡航 + 斐波那契黄金口袋
+                      2. (S+)  巡航中继回踩: 巡航 + 普通回踩
+                      3. (S)   初升浪回踩:   初升浪 + 普通回踩
         """
-        print("        -> [S+战法诊断] 正在扫描“突破-回踩接力”...")
+        print("        -> [回踩战术矩阵 V3.0] 启动，正在进行分层诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # 条件A: 股票正处于“初升浪”的持续状态中
+        # --- 1. 提取所有基础条件 ---
+        # 核心动作
+        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        
+        # 核心上下文
+        was_in_cruise_wave = atomic.get('TACTIC_LOCK_CHIP_RALLY_S', default_series).shift(1).fillna(False)
         is_in_ascent_wave = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         
-        # 条件B: 当天出现了“S级健康回踩”
-        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
-
-        # 最终裁定：必须是两个条件的共振
-        final_tactic_signal = is_in_ascent_wave & is_healthy_pullback
-        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = final_tactic_signal
+        # 精准制导的特殊条件
+        is_fib_golden_pocket_support = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
+        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
         
-        if final_tactic_signal.any():
-            print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“突破-回踩接力”的黄金买点！")
+        # --- 2. 按优先级进行互斥诊断 ---
+        
+        # 优先级1 (S++): 精准制导回踩 (巡航 + 斐波那契 + 筹码锁定)
+        # 这是最强的信号，必须同时满足所有最苛刻的条件
+        precision_guided_signal = was_in_cruise_wave & is_healthy_pullback & is_fib_golden_pocket_support & is_chip_locked
+        states['TACTIC_PRECISION_GUIDED_S_DOUBLE_PLUS'] = precision_guided_signal
+        if precision_guided_signal.any():
+            print(f"          -> [S++级战法] 侦测到 {precision_guided_signal.sum()} 次“精准制导回踩”的终极买点！")
+
+        # 优先级2 (S+): 巡航中继回踩
+        # 条件：满足巡航回踩，但【不满足】更高优先级的精准制导条件
+        cruise_relay_signal = was_in_cruise_wave & is_healthy_pullback & ~precision_guided_signal
+        states['TACTIC_CRUISE_AND_RELAY_S_PLUS'] = cruise_relay_signal
+        if cruise_relay_signal.any():
+            print(f"          -> [S+级战法] 侦测到 {cruise_relay_signal.sum()} 次“巡航中继回踩”的黄金买点！")
+
+        # 优先级3 (S): 初升浪回踩
+        # 条件：满足初升浪回踩，但【不满足】更高优先级的精准制导条件
+        ascent_pullback_signal = is_in_ascent_wave & is_healthy_pullback & ~precision_guided_signal
+        states['TACTIC_ASCENT_AND_PULLBACK_S'] = ascent_pullback_signal
+        if ascent_pullback_signal.any():
+            print(f"          -> [S级战法] 侦测到 {ascent_pullback_signal.sum()} 次“初升浪回踩”的介入机会！")
 
         return states
 
