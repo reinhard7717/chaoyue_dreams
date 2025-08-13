@@ -15,6 +15,7 @@ class PlaybookEngine:
         """
         self.strategy = strategy_instance
         self.playbook_blueprints = self._get_playbook_blueprints()
+        self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
@@ -58,16 +59,11 @@ class PlaybookEngine:
         # print("        -> [触发事件中心 V234.0] 启动，正在定义所有原子化触发事件...")
         triggers = {}
         default_series = pd.Series(False, index=df.index)
-        
-        # ▼▼▼【代码修改 V234.0】: 统一从 trigger_event_params 获取所有参数 ▼▼▼
         trigger_params = get_params_block(self.strategy, 'trigger_event_params')
         if not get_param_value(trigger_params.get('enabled'), True):
             print("          -> 触发事件引擎被禁用，跳过。")
             return triggers
-        # ▲▲▲【代码修改 V234.0】▲▲▲
-            
         vol_ma_col = 'VOL_MA_21_D'
-
         # --- 1. K线形态触发器 (Candlestick Triggers) ---
         # 1.1 【通用级】反转确认阳线
         p_reversal = trigger_params.get('reversal_confirmation_candle', {})
