@@ -416,62 +416,66 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 点火悖论修复版】回踩战术诊断模块
-        - 核心修复: 解决了“点火悖论”。为“巡航中继回踩”创建了一个专属的回踩定义，
-                      该定义在判断时，豁免了对“缩量”的苛刻要求。
-        - 新逻辑:   在剧烈的放量点火之后，我们更关注回踩时“获利盘是否惜售”，
-                      而不是成交量是否低于一个已被“污染”的均线。
-        - 收益:     解锁了最高质量的“巡航中继回踩”战法，让策略能真正捕捉到
-                      主升浪中最猛烈阶段的介入点。
+        【V5.2 日志净化版】回踩战术诊断模块
+        - 核心优化: 优化日志输出逻辑，使其更具可读性。
+        - 收益:     在功能完美的基础上，提升代码和日志的优雅度。
         """
-        print("        -> [回踩战术矩阵 V5.1] 启动，正在进行分层诊断...")
+        print("        -> [回踩战术矩阵 V5.2] 启动，正在进行分层诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
         
         lookback_window = 15
 
-        # --- 1. 提取基础条件和事件 ---
+        # --- 1. 提取基础条件和事件 (逻辑不变) ---
         is_pullback_day = df['pct_change_D'] < 0
         is_gentle_drop = df['pct_change_D'] > -0.05
         is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < 30.0
-        
-        # 通用的“健康回踩”定义 (带缩量条件)，用于初升浪
         is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
         is_healthy_pullback_standard = is_pullback_day & is_gentle_drop & is_winner_holding_tight & is_shrinking_volume
-
-        # [新逻辑] 专属的“巡航后回踩”定义 (不要求缩量，核心是获利盘锁定)
         is_healthy_pullback_for_cruise = is_pullback_day & is_gentle_drop & is_winner_holding_tight
-
         ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         
-        # --- 2. 计算衰减影响力分数 (不变) ---
+        # --- 2. 计算衰减影响力分数 (逻辑不变) ---
         ascent_influence = _create_decaying_influence_series(ascent_start_event, lookback_window)
         cruise_influence = _create_decaying_influence_series(cruise_start_event, lookback_window)
 
-        # --- 3. 按影响力分层，定义互斥的战法等级 ---
+        # --- 3. 按影响力分层，定义互斥的战法等级 (逻辑不变) ---
         high_influence_threshold = 0.7
         mid_influence_threshold = 0.3
-
-        # 初升浪回踩分层 (使用标准健康回踩定义)
         is_ascent_pullback = is_healthy_pullback_standard & (ascent_influence > 0) & (cruise_influence == 0)
         states['TACTIC_ASCENT_PULLBACK_S_PLUS'] = is_ascent_pullback & (ascent_influence > high_influence_threshold)
         states['TACTIC_ASCENT_PULLBACK_A'] = is_ascent_pullback & (ascent_influence <= high_influence_threshold) & (ascent_influence > mid_influence_threshold)
         states['TACTIC_ASCENT_PULLBACK_B'] = is_ascent_pullback & (ascent_influence <= mid_influence_threshold)
-
-        # 巡航中继回踩分层 (使用专属的、更宽松的回踩定义)
         is_cruise_pullback = is_healthy_pullback_for_cruise & (cruise_influence > 0)
         states['TACTIC_CRUISE_RELAY_S_PLUS'] = is_cruise_pullback & (cruise_influence > high_influence_threshold)
         states['TACTIC_CRUISE_RELAY_A'] = is_cruise_pullback & (cruise_influence <= high_influence_threshold) & (cruise_influence > mid_influence_threshold)
         states['TACTIC_CRUISE_RELAY_B'] = is_cruise_pullback & (cruise_influence <= mid_influence_threshold)
 
-        # 打印日志
+        # [修改原因] 优化日志输出，使其更清晰、更具可读性。
+        tactic_name_map = {
+            "ASCENT_PULLBACK": "初升浪回踩",
+            "CRUISE_RELAY": "巡航中继回踩"
+        }
+        grade_map = {
+            "S_PLUS": "S+",
+            "A": "A",
+            "B": "B"
+        }
         for name, series in states.items():
             if series.any():
-                print(f"          -> [{name.split('_')[-1]}级战法] 侦测到 {series.sum()} 次“{name}”机会！")
+                parts = name.split('_')
+                tactic_key = "_".join(parts[1:-1])
+                grade_key = parts[-1]
+                
+                cn_tactic = tactic_name_map.get(tactic_key, tactic_key)
+                cn_grade = grade_map.get(grade_key, grade_key)
+
+                print(f"          -> [{cn_grade}级战法] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
 
         return states
+
 
 
 
