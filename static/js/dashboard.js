@@ -501,6 +501,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         console.log('[调试点 2] 已成功获取到 tableBody 元素:', tableBody);
 
+        const modalOverlay = document.getElementById('transaction-modal-overlay');
         const modalContainer = document.getElementById('transaction-modal-container');
         const modalTitle = document.getElementById('transaction-modal-title');
         const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
