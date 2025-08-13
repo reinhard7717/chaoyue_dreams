@@ -77,8 +77,8 @@ class StructuralIntelligence:
             window = get_param_value(p_conv.get('window'), 120)
             quantile = get_param_value(p_conv.get('quantile'), 0.1)
 
-            short_cv_col = 'MA_CONV_CV_SHORT_D_D'
-            long_cv_col = 'MA_CONV_CV_LONG_D_D'
+            short_cv_col = 'MA_CONV_CV_SHORT_D'
+            long_cv_col = 'MA_CONV_CV_LONG_D'
             
             if short_cv_col in df.columns:
                 dynamic_threshold_short = df[short_cv_col].rolling(window=window).quantile(quantile)

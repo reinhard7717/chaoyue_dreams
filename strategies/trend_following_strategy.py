@@ -65,6 +65,7 @@ class TrendFollowStrategy:
         # --- 指挥链 3/8: 离场层 (仅计算致命风险) ---
         # ExitLayer 现在只返回一个包含致命风险详情的DataFrame
         critical_risk_details_df = self.exit_layer.calculate_critical_risks()
+        self.critical_risk_details = critical_risk_details_df
 
         # --- 指挥链 4/8: 预警层 (合并所有风险) ---
         # WarningLayer 接收致命风险详情，并与常规风险合并，计算最终的总 risk_score
