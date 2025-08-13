@@ -2,6 +2,8 @@
 # 剧本与触发器引擎
 import pandas as pd
 from typing import Dict, Tuple, List
+import numpy as np
+
 
 from strategies.trend_following.utils import get_params_block, get_param_value
 

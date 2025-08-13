@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following/intelligence/chip_intelligence.py
 # 筹码情报模块
 import pandas as pd
+import numpy as np
 from typing import Dict, Tuple
 from strategies.trend_following.utils import get_params_block, get_param_value
 

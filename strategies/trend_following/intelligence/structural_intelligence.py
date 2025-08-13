@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following/intelligence/structural_intelligence.py
 # 结构情报模块 (均线, 箱体, 平台, 趋势)
 import pandas as pd
+import numpy as np
 from typing import Dict, Tuple
 from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state
 
