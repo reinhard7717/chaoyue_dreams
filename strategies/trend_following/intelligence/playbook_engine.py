@@ -4,7 +4,6 @@ import pandas as pd
 from typing import Dict, Tuple, List
 import numpy as np
 
-
 from strategies.trend_following.utils import get_params_block, get_param_value
 
 class PlaybookEngine:
@@ -192,6 +191,10 @@ class PlaybookEngine:
         - 核心重构: 采用统一的、数据驱动的模式生成所有剧本状态。
         """
         print("        -> [剧本状态生成引擎 V2.0 大一统版] 启动...")
+        df = self.strategy.df_indicators
+        if df.empty:
+            print("          -> [警告] 主数据帧为空，无法生成剧本状态。")
+            return {}, {}
         playbook_states = {}
         atomic_states = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
