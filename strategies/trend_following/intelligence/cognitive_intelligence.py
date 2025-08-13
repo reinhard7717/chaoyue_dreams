@@ -304,35 +304,31 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】锁仓再集中S+战法诊断模块 (两步确认版)
-        - 核心逻辑: 1. 定义“准备状态”：主力已高度控盘，且仍在进行最后的扫货。
-                    2. 定义“点火事件”：主力不再掩饰，主动拉升，筹码成本加速抬高。
-                    3. 最终信号：仅在“准备状态”的次日出现“点火事件”时，才确认S+机会。
+        【V1.1 逻辑重塑版】锁仓再集中S+战法诊断模块
+        - 核心重构1: 彻底修正了“准备状态”的定义。废除了原先“稳定且聚集”的逻辑矛盾，
+                      简化并强化为“筹码已确认锁定稳定(CHIP_CONC_LOCKED_AND_STABLE_A)”，
+                      这才是真正意义上的“准备就绪”。
+        - 核心重构2: 修复了“点火事件”中对成本加速信号的错误引用，并增加了更高维度的
+                      分形突破确认信号，使点火判断更灵敏、更可靠。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(两步确认版)”...")
+        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.1 逻辑重塑版)”...")
         states = {}
         atomic = self.strategy.atomic_states
-        triggers = self.strategy.trigger_events # 假设trigger_events已在主流程中生成并挂载
+        triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 定义“准备状态” (Setup State) ---
-        # 条件A: 筹码已锁定稳定 (基础)
-        is_locked_stable = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        # 条件B: 仍在进行任何形式的聚集 (动作)
-        is_still_gathering = (
-            atomic.get('CHIP_CONC_STEADY_GATHERING_C', default_series) |
-            atomic.get('CHIP_CONC_ACCELERATED_GATHERING_B', default_series) |
-            atomic.get('CHIP_CONC_INTENSIFYING_B_PLUS', default_series)
-        )
-        # 组合成“准备就绪”的完整状态
-        setup_state = is_locked_stable & is_still_gathering
+        # [修改原因] 简化并强化“准备状态”的定义。当筹码确认“锁定且稳定”时，
+        # 本身就意味着准备工作已完成，可以随时等待点火。原逻辑过于严苛且存在矛盾。
+        setup_state = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
 
         # --- 2. 定义“点火事件” (Ignition Trigger) ---
-        # 任何一个信号出现，都视为点火
+        # [修改原因] 修复情报名称不匹配的致命错误，并增加更强的触发器。
         ignition_trigger = (
             triggers.get('TRIGGER_CHIP_IGNITION', default_series) |
             triggers.get('TRIGGER_ENERGY_RELEASE', default_series) |
-            atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
+            atomic.get('MECHANICS_COST_ACCELERATING', default_series) | # 修正了信号名称
+            triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series) # 新增分形突破确认
         )
 
         # --- 3. 最终裁定：昨日“准备就绪”，今日“点火” ---
@@ -362,15 +358,14 @@ class CognitiveIntelligence:
         # 条件A: 筹码基础依然稳固
         is_locked_stable = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
         # 条件B: 成本仍在健康抬高
-        is_cost_rising = atomic.get('CHIP_DYN_COST_RISING', default_series)
-        is_cost_accelerating = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
+        is_cost_rising = atomic.get('MECHANICS_COST_RISING', default_series)
+        is_cost_accelerating = atomic.get('MECHANICS_COST_ACCELERATING', default_series)
         # 条件C: 宏观趋势结构支持
         is_ma_bullish = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
         # 组合成“健康巡航”的基础状态
         healthy_rally_state = (
             is_locked_stable &
-            is_cost_rising &
-            is_cost_accelerating &
+            (is_cost_rising | is_cost_accelerating) & # 使用 OR 逻辑
             is_ma_bullish
         )
 
