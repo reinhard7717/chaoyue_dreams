@@ -416,14 +416,15 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 衰减影响力重构版】回踩战术诊断模块
-        - 核心重构: 引入“衰减影响力”模型，根据回踩距离启动事件的时间远近，
-                      将战法动态分级为 S+/A/B 三个层次。
-        - 新逻辑:   不再是简单的“在窗口内”，而是“在窗口的哪个位置”。
-                      回踩离启动事件越近，战法等级越高，分数也越高。
-        - 收益:     策略的智能化和精细度达到全新高度，能更好地区分机会的“含金量”。
+        【V5.1 点火悖论修复版】回踩战术诊断模块
+        - 核心修复: 解决了“点火悖论”。为“巡航中继回踩”创建了一个专属的回踩定义，
+                      该定义在判断时，豁免了对“缩量”的苛刻要求。
+        - 新逻辑:   在剧烈的放量点火之后，我们更关注回踩时“获利盘是否惜售”，
+                      而不是成交量是否低于一个已被“污染”的均线。
+        - 收益:     解锁了最高质量的“巡航中继回踩”战法，让策略能真正捕捉到
+                      主升浪中最猛烈阶段的介入点。
         """
-        print("        -> [回踩战术矩阵 V5.0] 启动，正在进行分层诊断...")
+        print("        -> [回踩战术矩阵 V5.1] 启动，正在进行分层诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -431,28 +432,36 @@ class CognitiveIntelligence:
         lookback_window = 15
 
         # --- 1. 提取基础条件和事件 ---
-        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        is_pullback_day = df['pct_change_D'] < 0
+        is_gentle_drop = df['pct_change_D'] > -0.05
+        is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < 30.0
+        
+        # 通用的“健康回踩”定义 (带缩量条件)，用于初升浪
+        is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
+        is_healthy_pullback_standard = is_pullback_day & is_gentle_drop & is_winner_holding_tight & is_shrinking_volume
+
+        # [新逻辑] 专属的“巡航后回踩”定义 (不要求缩量，核心是获利盘锁定)
+        is_healthy_pullback_for_cruise = is_pullback_day & is_gentle_drop & is_winner_holding_tight
+
         ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         
-        # --- 2. 计算衰减影响力分数 ---
-        # [新逻辑] 调用新的辅助函数，生成0-1的影响力分数序列
+        # --- 2. 计算衰减影响力分数 (不变) ---
         ascent_influence = _create_decaying_influence_series(ascent_start_event, lookback_window)
         cruise_influence = _create_decaying_influence_series(cruise_start_event, lookback_window)
 
         # --- 3. 按影响力分层，定义互斥的战法等级 ---
-        # 定义影响力阈值
         high_influence_threshold = 0.7
         mid_influence_threshold = 0.3
 
-        # 初升浪回踩分层
-        is_ascent_pullback = is_healthy_pullback & (ascent_influence > 0) & (cruise_influence == 0)
+        # 初升浪回踩分层 (使用标准健康回踩定义)
+        is_ascent_pullback = is_healthy_pullback_standard & (ascent_influence > 0) & (cruise_influence == 0)
         states['TACTIC_ASCENT_PULLBACK_S_PLUS'] = is_ascent_pullback & (ascent_influence > high_influence_threshold)
         states['TACTIC_ASCENT_PULLBACK_A'] = is_ascent_pullback & (ascent_influence <= high_influence_threshold) & (ascent_influence > mid_influence_threshold)
         states['TACTIC_ASCENT_PULLBACK_B'] = is_ascent_pullback & (ascent_influence <= mid_influence_threshold)
 
-        # 巡航中继回踩分层
-        is_cruise_pullback = is_healthy_pullback & (cruise_influence > 0)
+        # 巡航中继回踩分层 (使用专属的、更宽松的回踩定义)
+        is_cruise_pullback = is_healthy_pullback_for_cruise & (cruise_influence > 0)
         states['TACTIC_CRUISE_RELAY_S_PLUS'] = is_cruise_pullback & (cruise_influence > high_influence_threshold)
         states['TACTIC_CRUISE_RELAY_A'] = is_cruise_pullback & (cruise_influence <= high_influence_threshold) & (cruise_influence > mid_influence_threshold)
         states['TACTIC_CRUISE_RELAY_B'] = is_cruise_pullback & (cruise_influence <= mid_influence_threshold)
