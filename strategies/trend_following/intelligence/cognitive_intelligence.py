@@ -17,6 +17,32 @@ class MainForceState(Enum):
     DISTRIBUTING = 4   # 派发期
     COLLAPSE = 5       # 崩盘期
 
+def _create_decaying_influence_series(event_series: pd.Series, window_days: int) -> pd.Series:
+    """
+    【新增辅助函数】创建一个随时间线性衰减的影响力分数序列。
+    - 功能: 从一个事件(True/False)序列，生成一个0-1的浮点数序列。
+    - 逻辑: 事件发生当天影响力为1.0，随后在window_days内线性衰减至0。
+            如果窗口期内发生新事件，影响力会重置为1.0并重新开始衰减。
+    - 返回: 一个代表“影响力分数”的pandas Series。
+    """
+    influence = pd.Series(0.0, index=event_series.index)
+    event_indices = event_series[event_series].index
+    
+    for event_idx in event_indices:
+        start_pos = event_series.index.get_loc(event_idx)
+        # 确保窗口不会超出数据范围
+        end_pos = min(start_pos + window_days, len(event_series))
+        
+        for i in range(start_pos, end_pos):
+            days_passed = i - start_pos
+            decay_factor = (window_days - days_passed) / window_days
+            # 只有当新的影响力大于旧的，才更新（处理窗口重叠问题）
+            current_influence_idx = event_series.index[i]
+            if decay_factor > influence.at[current_influence_idx]:
+                influence.at[current_influence_idx] = decay_factor
+                
+    return influence
+
 class CognitiveIntelligence:
     def __init__(self, strategy_instance):
         """
@@ -390,52 +416,51 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 战术矩阵重构版】回踩战术诊断模块
-        - 核心重构: 将所有与“回踩”相关的S级战法整合于此，并建立严格的优先级，
-                      确保一个回踩事件只匹配一个最精准的战法，杜绝信号重叠和分数叠加。
-        - 优先级:   1. (S++) 精准制导回踩: 巡航 + 斐波那契黄金口袋
-                      2. (S+)  巡航中继回踩: 巡航 + 普通回踩
-                      3. (S)   初升浪回踩:   初升浪 + 普通回踩
+        【V5.0 衰减影响力重构版】回踩战术诊断模块
+        - 核心重构: 引入“衰减影响力”模型，根据回踩距离启动事件的时间远近，
+                      将战法动态分级为 S+/A/B 三个层次。
+        - 新逻辑:   不再是简单的“在窗口内”，而是“在窗口的哪个位置”。
+                      回踩离启动事件越近，战法等级越高，分数也越高。
+        - 收益:     策略的智能化和精细度达到全新高度，能更好地区分机会的“含金量”。
         """
-        print("        -> [回踩战术矩阵 V3.0] 启动，正在进行分层诊断...")
+        print("        -> [回踩战术矩阵 V5.0] 启动，正在进行分层诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
+        
+        lookback_window = 15
 
-        # --- 1. 提取所有基础条件 ---
-        # 核心动作
+        # --- 1. 提取基础条件和事件 ---
         is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
+        cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         
-        # 核心上下文
-        was_in_cruise_wave = atomic.get('TACTIC_LOCK_CHIP_RALLY_S', default_series).shift(1).fillna(False)
-        was_in_ascent_wave = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series).shift(1).fillna(False)
-        
-        # 精准制导的特殊条件
-        is_fib_golden_pocket_support = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
-        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        
-        # --- 2. 按优先级进行互斥诊断 ---
-        
-        # 优先级1 (S++): 精准制导回踩 (巡航 + 斐波那契 + 筹码锁定)
-        # 这是最强的信号，必须同时满足所有最苛刻的条件
-        precision_guided_signal = was_in_cruise_wave & is_healthy_pullback & is_fib_golden_pocket_support & is_chip_locked
-        states['TACTIC_PRECISION_GUIDED_S_DOUBLE_PLUS'] = precision_guided_signal
-        if precision_guided_signal.any():
-            print(f"          -> [S++级战法] 侦测到 {precision_guided_signal.sum()} 次“精准制导回踩”的终极买点！")
+        # --- 2. 计算衰减影响力分数 ---
+        # [新逻辑] 调用新的辅助函数，生成0-1的影响力分数序列
+        ascent_influence = _create_decaying_influence_series(ascent_start_event, lookback_window)
+        cruise_influence = _create_decaying_influence_series(cruise_start_event, lookback_window)
 
-        # 优先级2 (S+): 巡航中继回踩
-        # 条件：满足巡航回踩，但【不满足】更高优先级的精准制导条件
-        cruise_relay_signal = was_in_cruise_wave & is_healthy_pullback & ~precision_guided_signal
-        states['TACTIC_CRUISE_AND_RELAY_S_PLUS'] = cruise_relay_signal
-        if cruise_relay_signal.any():
-            print(f"          -> [S+级战法] 侦测到 {cruise_relay_signal.sum()} 次“巡航中继回踩”的黄金买点！")
+        # --- 3. 按影响力分层，定义互斥的战法等级 ---
+        # 定义影响力阈值
+        high_influence_threshold = 0.7
+        mid_influence_threshold = 0.3
 
-        # 优先级3 (S): 初升浪回踩
-        # 条件：满足初升浪回踩，但【不满足】更高优先级的精准制导条件
-        ascent_pullback_signal = was_in_ascent_wave & is_healthy_pullback & ~precision_guided_signal
-        states['TACTIC_ASCENT_AND_PULLBACK_S'] = ascent_pullback_signal
-        if ascent_pullback_signal.any():
-            print(f"          -> [S级战法] 侦测到 {ascent_pullback_signal.sum()} 次“初升浪回踩”的介入机会！")
+        # 初升浪回踩分层
+        is_ascent_pullback = is_healthy_pullback & (ascent_influence > 0) & (cruise_influence == 0)
+        states['TACTIC_ASCENT_PULLBACK_S_PLUS'] = is_ascent_pullback & (ascent_influence > high_influence_threshold)
+        states['TACTIC_ASCENT_PULLBACK_A'] = is_ascent_pullback & (ascent_influence <= high_influence_threshold) & (ascent_influence > mid_influence_threshold)
+        states['TACTIC_ASCENT_PULLBACK_B'] = is_ascent_pullback & (ascent_influence <= mid_influence_threshold)
+
+        # 巡航中继回踩分层
+        is_cruise_pullback = is_healthy_pullback & (cruise_influence > 0)
+        states['TACTIC_CRUISE_RELAY_S_PLUS'] = is_cruise_pullback & (cruise_influence > high_influence_threshold)
+        states['TACTIC_CRUISE_RELAY_A'] = is_cruise_pullback & (cruise_influence <= high_influence_threshold) & (cruise_influence > mid_influence_threshold)
+        states['TACTIC_CRUISE_RELAY_B'] = is_cruise_pullback & (cruise_influence <= mid_influence_threshold)
+
+        # 打印日志
+        for name, series in states.items():
+            if series.any():
+                print(f"          -> [{name.split('_')[-1]}级战法] 侦测到 {series.sum()} 次“{name}”机会！")
 
         return states
 
