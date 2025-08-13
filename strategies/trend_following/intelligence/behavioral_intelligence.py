@@ -182,7 +182,7 @@ class BehavioralIntelligence:
         is_chip_stable = df['SLOPE_5_concentration_90pct_D'] < divergence_tolerance
 
         # 最终状态1: 健康回踩
-        states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context & is_chip_stable
+        states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context
         # if states['PULLBACK_STATE_HEALTHY_S'].any():
         #     print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
 
