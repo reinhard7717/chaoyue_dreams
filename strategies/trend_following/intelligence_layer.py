@@ -148,6 +148,20 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_reconcentration_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_rally_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
+        # [修改原因] 新增战术决策日志探针的调用逻辑，用于深度调试。
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
+            decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
+            
+            # 筛选出有最终决策的日子
+            final_tactic_days = decision_log_df.filter(like='FINAL_').any(axis=1)
+            if final_tactic_days.any():
+                print("\n--- [回踩战术决策日志探针] ---")
+                # 为了清晰，只显示关键的决策列
+                display_cols = [col for col in decision_log_df.columns if 'POTENTIAL_' in col or 'FINAL_' in col]
+                print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
+                print(decision_log_df.loc[final_tactic_days, display_cols])
+                print("--- [探针结束] ---\n")
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
         
         

@@ -470,20 +470,95 @@ class CognitiveIntelligence:
 
         # 打印日志
         tactic_name_map = {
-            "CRUISE_PIT_HAMMER": "巡航黄金坑(锤子确认)", "CRUISE_FIB_HAMMER": "巡航斐波那契(锤子确认)",
-            "CRUISE_PULLBACK": "巡航常规回踩", "ASCENT_HAMMER": "初升浪回踩(锤子确认)",
+            "CRUISE_V_REVERSAL": "巡航V型反转(王牌)",
+            "CRUISE_PIT_HAMMER": "巡航黄金坑(锤子确认)",
+            "CRUISE_FIB_HAMMER": "巡航斐波那契(锤子确认)",
+            "CRUISE_PULLBACK": "巡航常规回踩",
+            "ASCENT_LOCKED_PULLBACK": "初升浪锁仓回踩",
+            "ASCENT_HAMMER": "初升浪回踩(锤子确认)",
             "ASCENT_PULLBACK": "初升浪常规回踩"
         }
+        grade_map = {
+            "S_TRIPLE_PLUS": "S+++", "S_PLUS_PLUS": "S++", "S_PLUS": "S+",
+            "A_PLUS": "A+", "S": "S", "A": "A", "B": "B"
+        }
+        
         for name, series in states.items():
             if series.any():
-                parts = name.split('_')
-                tactic_key = "_".join(parts[1:-2]) if "PLUS" in parts[-1] else "_".join(parts[1:-1])
-                cn_tactic = tactic_name_map.get(tactic_key, tactic_key)
-                print(f"          -> [战法确认] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
+                # 从后向前匹配最长的等级key，以处理 S_PLUS, S 等情况
+                matched_grade_key = ""
+                for grade_key in sorted(grade_map.keys(), key=len, reverse=True):
+                    if name.endswith(f"_{grade_key}"):
+                        matched_grade_key = grade_key
+                        break
+                
+                if matched_grade_key:
+                    # 提取战法key和等级
+                    tactic_key_part = name.replace("TACTIC_", "").replace(f"_{matched_grade_key}", "")
+                    cn_tactic = tactic_name_map.get(tactic_key_part, tactic_key_part)
+                    cn_grade = grade_map.get(matched_grade_key, "")
+                    print(f"          -> [{cn_grade}级战法] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
+                else:
+                    # 如果没有匹配到等级，使用旧的简单打印方式作为备用
+                    print(f"          -> [战法确认] 侦测到 {series.sum()} 次“{name}”机会！")
 
         return states
 
+    def _create_pullback_decision_log(self, df: pd.DataFrame, enhancements: Dict) -> pd.DataFrame:
+        """
+        【V1.0 新增】战术决策日志探针
+        - 核心职责: 生成一个详细的DataFrame，记录回踩战术矩阵的完整决策过程。
+                      用于100%验证逻辑的正确性，确保信号没有“异常跌落”。
+        - 输出: 一个包含所有中间判断、潜在战法和最终战法的“决策日志”DataFrame。
+        """
+        log_data = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_series = pd.Series(False, index=df.index)
 
+        # --- 1. 记录所有输入条件 ---
+        log_data['is_healthy_pullback'] = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        lookback_window = 15
+        ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
+        cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
+        log_data['is_in_ascent_window'] = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
+        log_data['is_in_cruise_window'] = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
+        log_data['is_hammer'] = enhancements.get('is_hammer_candle', default_series)
+        log_data['is_fib_gold'] = enhancements.get('is_fib_golden_support', default_series)
+        log_data['is_suppressive'] = enhancements.get('is_suppressive_pullback', default_series)
+        log_data['is_chip_locked'] = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
+        log_data['is_dominant_reversal'] = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+
+        # --- 2. 记录所有潜在战法 (不考虑互斥) ---
+        log_data['POTENTIAL_S+++'] = log_data['is_in_cruise_window'] & log_data['is_suppressive'] & log_data['is_dominant_reversal']
+        log_data['POTENTIAL_S++'] = log_data['is_in_cruise_window'] & log_data['is_suppressive'] & log_data['is_hammer']
+        log_data['POTENTIAL_S+'] = log_data['is_in_cruise_window'] & log_data['is_healthy_pullback'] & log_data['is_fib_gold'] & log_data['is_hammer']
+        log_data['POTENTIAL_S'] = log_data['is_in_cruise_window'] & log_data['is_healthy_pullback']
+        log_data['POTENTIAL_A+'] = log_data['is_in_ascent_window'] & log_data['is_healthy_pullback'] & log_data['is_chip_locked']
+        log_data['POTENTIAL_A'] = log_data['is_in_ascent_window'] & log_data['is_healthy_pullback'] & log_data['is_hammer']
+        log_data['POTENTIAL_B'] = log_data['is_in_ascent_window'] & log_data['is_healthy_pullback']
+
+        # --- 3. 记录最终的互斥决策结果 ---
+        final_s_triple_plus = log_data['POTENTIAL_S+++']
+        final_s_plus_plus = log_data['POTENTIAL_S++'] & ~final_s_triple_plus
+        final_s_plus = log_data['POTENTIAL_S+'] & ~final_s_triple_plus & ~final_s_plus_plus
+        final_s = log_data['POTENTIAL_S'] & ~final_s_triple_plus & ~final_s_plus_plus & ~final_s_plus
+        
+        is_in_cruise_decision = final_s_triple_plus | final_s_plus_plus | final_s_plus | final_s
+        
+        final_a_plus = log_data['POTENTIAL_A+'] & ~is_in_cruise_decision
+        final_a = log_data['POTENTIAL_A'] & ~log_data['is_chip_locked'] & ~is_in_cruise_decision
+        final_b = log_data['POTENTIAL_B'] & ~log_data['is_chip_locked'] & ~log_data['is_hammer'] & ~is_in_cruise_decision
+
+        log_data['FINAL_S+++'] = final_s_triple_plus
+        log_data['FINAL_S++'] = final_s_plus_plus
+        log_data['FINAL_S+'] = final_s_plus
+        log_data['FINAL_S'] = final_s
+        log_data['FINAL_A+'] = final_a_plus
+        log_data['FINAL_A'] = final_a
+        log_data['FINAL_B'] = final_b
+        
+        return pd.DataFrame(log_data)
 
 
 
