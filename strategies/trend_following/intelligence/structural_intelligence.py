@@ -90,7 +90,6 @@ class StructuralIntelligence:
 
         return states
 
-
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V283.0 融合思想版】
@@ -150,7 +149,6 @@ class StructuralIntelligence:
             else:
                 states[key] = states[key].fillna(False)
         return states
-
 
     def diagnose_platform_states(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
@@ -213,7 +211,6 @@ class StructuralIntelligence:
 
         return df, states
 
-
     def diagnose_market_structure_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V272.0 市场结构战区司令部】
@@ -228,9 +225,9 @@ class StructuralIntelligence:
         
         # --- 1. 依次调动下属的专业化兵种，收集原子情报 ---
         # print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
-        ma_states = self._diagnose_ma_states(df)
-        box_states = self._diagnose_box_states(df)
-        df, platform_states = self._diagnose_platform_states(df) # 平台诊断会修改df，需要接收
+        ma_states = self.diagnose_ma_states(df)
+        box_states = self.diagnose_box_states(df)
+        df, platform_states = self.diagnose_platform_states(df) # 平台诊断会修改df，需要接收
         
         # 将所有原子情报汇总
         atomic_structure_states = {**ma_states, **box_states, **platform_states}
