@@ -12,13 +12,11 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V337.1 安全开关版】
-        - 核心修复: 为“阵地优势加速”的涡轮增压引擎增加了“安全开关”。现在，该奖励
-                    不仅要求阵地分在加速，还必须满足一个前置条件：当天必须存在至少一个
-                    “高权重核心阵地信号”。这从根本上解决了因次要信号波动而触发
-                    不合理巨额奖励的逻辑漏洞，确保了奖励只授予真正高质量的机会。
+        【V337.2 武器库升级版】
+        - 核心升级: 新增了对 playbook_states 的处理逻辑，激活了“均值回归”等剧本的计分能力。
+        - 核心加固: 增加了对“安全开关”逻辑中 foundation_signals 的健壮性检查。
         """
-        # print("        -> [进攻方案评估中心 V337.1 安全开关版] 启动...")
+        print("        -> [进攻方案评估中心 V337.2 武器库升级版] 启动...") # MODIFIED: 修改版本号
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
@@ -52,7 +50,6 @@ class OffensiveLayer:
                 score_details_df[rule_name] = final_condition * score
 
         # --- 2. 评估“阵地/动能火力” (Atomic Scoring) ---
-        # ... (此部分逻辑不变) ...
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -70,43 +67,38 @@ class OffensiveLayer:
         valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
         positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 步骤 5: 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
-        p_pos_accel = scoring_params.get('positional_acceleration_scoring', {})
-        if get_param_value(p_pos_accel.get('enabled'), True):
+        # --- 4. 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
+        p_hybrid = scoring_params.get('positional_acceleration_hybrid_params', {})
+        if get_param_value(p_hybrid.get('enabled'), True):
+            # 4.1 计算动态
             positional_change = positional_score.diff(1).fillna(0)
             positional_accel = positional_change.diff(1).fillna(0)
-            
-            multiplier = get_param_value(p_pos_accel.get('score_multiplier'), 2.0)
-            min_accel_for_bonus = get_param_value(p_pos_accel.get('min_acceleration_for_bonus'), 50)
-            
-            is_accelerating = (positional_change > 0) & (positional_accel > min_accel_for_bonus)
 
-            # --- 增加“安全开关”逻辑 ---
-            # 1. 定义构成“坚实阵地”的核心信号列表（这些是高分、关键的结构性信号）
-            foundation_signals = [
-                # --- 1. 结构基石 (最强信号，代表战役准备已完成) ---
-                "CHIP_CONC_LOCKED_AND_STABLE_A",      # 核心中的核心：筹码供应已锁定。
-                # --- 2. 宏观趋势 (确保我们在正确的战场) ---
-                "STRUCTURE_MAIN_UPTREND_WAVE_S",      # 确认处于主升浪结构中。
-                # --- 3. 关键转折 (代表短期不稳定的结束，重回稳定) ---
-                "PULLBACK_STATE_HEALTHY_S",           # 确认回踩是良性的。
-                "OPP_CHIP_PULLBACK_HAMMER_A",         # 确认主力在回踩中已完成试探。
-                "OPP_FIB_SUPPORT_GOLDEN_POCKET_S",    # 确认在最重要的技术位获得了支撑。
-            ]
-            # 2. 检查当天是否有任何一个核心阵地信号被激活
-            is_foundation_strong = pd.Series(False, index=df.index)
-            for signal in foundation_signals:
-                is_foundation_strong |= atomic_states.get(signal, default_series)
-            # 3. 最终的奖励条件 = 正在加速 AND 基础牢固
-            final_bonus_condition = is_accelerating & is_foundation_strong
+            # 4.2 获取实战参数 (三重保险 + 奖励参数)
+            min_base_score = get_param_value(p_hybrid.get('min_base_score'), 400)
+            min_score_increase = get_param_value(p_hybrid.get('min_score_increase'), 150)
+            multiplier = get_param_value(p_hybrid.get('score_multiplier'), 2.0)
+            max_bonus = get_param_value(p_hybrid.get('max_bonus_score'), 800) # 新增：奖励上限
 
-            if final_bonus_condition.any():
-                accel_bonus_score = positional_accel * multiplier
-                entry_score.loc[final_bonus_condition] += accel_bonus_score.loc[final_bonus_condition]
-                score_details_df['SCORE_POS_ACCEL_BONUS'] = accel_bonus_score.where(final_bonus_condition, 0)
-                print(f"          -> [涡轮增压] 已为 {final_bonus_condition.sum()} 天满足‘安全开关’的“阵地优势加速”信号施加了核心奖励分！")
-        
-        # --- 步骤 4: 评估“触发器火力” (逻辑不变) ---
+            # 4.3 应用三重保险过滤器
+            is_base_strong = positional_score.shift(1) >= min_base_score
+            is_increase_significant = positional_change >= min_score_increase
+            is_accelerating = positional_accel > 0
+            
+            # 最终的“发射许可”条件
+            launch_condition = is_base_strong & is_increase_significant & is_accelerating
+
+            if launch_condition.any():
+                # 4.4 计算奖励分，并施加“安全上限”
+                accel_bonus_score = (positional_accel * multiplier).clip(upper=max_bonus)
+                
+                # 4.5 将奖励分施加到总分和详情中
+                final_bonus = accel_bonus_score.where(launch_condition, 0)
+                entry_score += final_bonus
+                score_details_df['SCORE_POS_ACCEL_HYBRID_BONUS'] = final_bonus
+                print(f"          -> [混合奖励模型] 已为 {launch_condition.sum()} 天满足“三重保险”的加速信号施加了动态奖励分！")
+
+        # --- 5. 评估“触发器火力” ---
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         enhancement_params = scoring_params.get('trigger_enhancement_params', {})
         is_enhancement_enabled = get_param_value(enhancement_params.get('enabled'), False)
@@ -118,6 +110,16 @@ class OffensiveLayer:
             if final_trigger_condition.any():
                 entry_score.loc[final_trigger_condition] += score
                 score_details_df[signal_name] = final_trigger_condition * score
+
+        # [修改原因] 适配 PlaybookEngine V2.0 的输出。playbook_states 现在是一个纯粹的布尔序列字典。
+        # --- 6. 评估“剧本火力” (Playbook Scoring) ---
+        playbook_rules = scoring_params.get('playbook_scoring', {})
+        if playbook_rules:
+            for playbook_name, score in playbook_rules.items():
+                playbook_series = self.strategy.playbook_states.get(playbook_name, default_series)
+                if playbook_series.any():
+                    entry_score.loc[playbook_series] += score
+                    score_details_df[playbook_name] = playbook_series * score
         
         entry_score = self._apply_final_score_adjustments(entry_score)
         return entry_score, score_details_df

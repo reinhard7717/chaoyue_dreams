@@ -731,11 +731,11 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110 终极规范版】根据配置为指定时间周期计算所有技术指标，并为所有列统一添加后缀。
-        - 核心升级: 为所有时间周期（包括分钟线）统一添加后缀，如 '_5', '_30', '_D'。
-        - 核心修复: 废弃了之前版本中对VWAP等指标的特殊处理，将其纳入统一的后缀添加流程，确保所有指标命名规则一致。
+        【V110.1 逻辑净化版】根据配置为指定时间周期计算所有技术指标，并为所有列统一添加后缀。
+        - 核心修正: 移除了对 ma_convergence 指标的重复计算，只保留唯一的、在方法内部的直接实现。
+        - 核心修正: 标准化了对 advanced_fund_features 的调用，移除了不必要的 suffix 参数。
         """
-        # print(f"  [指标计算V110] 开始为周期 '{timeframe_key}' 计算指标...")
+        # print(f"  [指标计算V110.1] 开始为周期 '{timeframe_key}' 计算指标...") # MODIFIED: 修改版本号
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -745,14 +745,11 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
             return df
 
-        # 创建一个副本用于计算，避免修改原始传入的DataFrame
         df_for_calc = df.copy()
 
-        # 在所有指标计算之前，先计算基础的 pct_change
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
         
-        # 定义指标计算方法的映射
         indicator_method_map = {
             'ema': self.calculate_ema, 'vol_ma': self.calculate_vol_ma, 'trix': self.calculate_trix,
             'coppock': self.calculate_coppock, 'rsi': self.calculate_rsi, 'macd': self.calculate_macd,
@@ -763,11 +760,13 @@ class IndicatorService:
             'consolidation_period': self.calculate_consolidation_period,
             'advanced_fund_features': self.calculate_advanced_fund_features,
             'fibonacci_levels': self.calculate_fibonacci_levels,
-            'ma_convergence': self.calculate_ma_convergence
+            # --- 代码删除 ---
+            # 'ma_convergence' 指标的计算已内联到此方法末尾，不再需要独立函数
+            # 'ma_convergence': self.calculate_ma_convergence 
+            # --- 代码删除结束 ---
         }
         
         def merge_results(result_data, target_df):
-            """健壮地合并指标计算结果（Series或DataFrame）到目标DataFrame。"""
             if result_data is None or result_data.empty: return
             if isinstance(result_data, pd.Series):
                 result_data = result_data.to_frame()
@@ -782,19 +781,18 @@ class IndicatorService:
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             
-            # 跳过非指标项或禁用的指标
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore'] or not params.get('enabled', False): continue
+            # --- 代码修改开始 ---
+            # 修正跳过逻辑，确保 ma_convergence 不会在此处被查找
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore', 'ma_convergence'] or not params.get('enabled', False): continue
+            # --- 代码修改结束 ---
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
-            # 复合指标在下一阶段处理
-            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels', 'ma_convergence']:
+            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']:
                 continue
 
-            # 遍历该指标的所有配置项（例如，RSI可以有多个不同周期的配置）
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
-                # 检查当前配置是否适用于正在处理的时间周期
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 
                 try:
@@ -802,11 +800,9 @@ class IndicatorService:
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
 
-                    # VWAP的特殊处理：需要传递锚点
                     if indicator_name == 'vwap':
                         anchor = 'D' if timeframe_key.isdigit() else timeframe_key
                         kwargs['anchor'] = anchor
-                        # 注意：此处不再传递suffix，因为所有后缀将在最后统一添加
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
@@ -816,7 +812,6 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                         continue
                     
-                    # 处理多参数指标（如MACD, KDJ）和多周期配置
                     is_multi_param = indicator_name in ['macd', 'trix', 'coppock', 'kdj', 'uo']
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
@@ -839,23 +834,23 @@ class IndicatorService:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
         # --- 阶段二: 复合指标计算循环 ---
-        for indicator_key, params in config.items():
+        # --- 代码修改开始 ---
+        # 修正复合指标列表，移除 ma_convergence
+        composite_indicator_keys = ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']
+        for indicator_key in composite_indicator_keys:
+            params = config.get(indicator_key)
+            if not params or not params.get('enabled', False): continue
+            
             indicator_name = indicator_key.lower()
-            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels', 'ma_convergence'] and params.get('enabled', False):
-                if timeframe_key in params.get("apply_on", []):
-                    try:
-                        method_to_call = indicator_method_map[indicator_name]
-                        # 注意：此处传递空的suffix，因为后缀将统一添加
-                        new_style_composite_indicators = ['fibonacci_levels', 'ma_convergence']
-                        if indicator_name in new_style_composite_indicators:
-                            # 对新式函数，使用不带 suffix 的调用
-                            result_df = await method_to_call(df=df_for_calc, params=params)
-                        else:
-                            # 对旧式函数，保持带 suffix 的调用
-                            result_df = await method_to_call(df=df_for_calc, params=params, suffix='')
-                        merge_results(result_df, df_for_calc)
-                    except Exception as e:
-                        logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
+            if timeframe_key in params.get("apply_on", []):
+                try:
+                    method_to_call = indicator_method_map[indicator_name]
+                    # 标准化调用方式，不再传递 suffix
+                    result_df = await method_to_call(df=df_for_calc, params=params)
+                    merge_results(result_df, df_for_calc)
+                except Exception as e:
+                    logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
+        # --- 代码修改结束 ---
 
         # --- 阶段三: 后处理指标计算（如Z-Score） ---
         zscore_params = config.get('zscore')
@@ -867,16 +862,14 @@ class IndicatorService:
                     output_col_name = z_config.get("output_column_name")
                     window = z_config.get("window", 60)
 
-                    # 动态构建源列名（不带后缀）
                     source_col_name = source_pattern
                     if "{fast}" in source_pattern:
                         macd_cfg = config.get('macd', {})
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
                         if macd_periods:
-                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2], _D=f"_{timeframe_key}") # MODIFIED: 确保后缀正确
                         else: continue
                     
-                    # 移除日线后缀以匹配df_for_calc中的列名
                     source_col_name = source_col_name.removesuffix(f"_{timeframe_key}")
                     output_col_name = output_col_name.removesuffix(f"_{timeframe_key}")
 
@@ -891,7 +884,7 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"计算Z-score时出错: {e}", exc_info=True)
 
-        # ▼▼▼ 阶段三点五: 计算均线粘合度指标 ▼▼▼
+        # --- 阶段三点五: 计算均线粘合度指标 (唯一实现) ---
         ma_convergence_params = config.get('ma_convergence')
         if ma_convergence_params and ma_convergence_params.get('enabled', False):
             for conv_config in ma_convergence_params.get('configs', []):
@@ -900,24 +893,17 @@ class IndicatorService:
                         periods = conv_config.get('periods', [])
                         output_col = conv_config.get('output_column_name')
                         
-                        # 动态构建需要参与计算的均线列名（不带后缀）
+                        # 移除可能的后缀，因为此时还没有加后缀
+                        output_col_clean = output_col.removesuffix(f"_{timeframe_key}")
+                        
                         ma_cols = [f"EMA_{p}" for p in periods]
                         
-                        # 检查所有需要的均线列是否都已存在
                         if all(col in df_for_calc.columns for col in ma_cols):
-                            # 提取这些均线列的数据
                             ma_df = df_for_calc[ma_cols]
-                            
-                            # 计算变异系数 (CV = 标准差 / 均值)，CV是无量纲的，更适合跨股票比较
                             ma_std = ma_df.std(axis=1)
                             ma_mean = ma_df.mean(axis=1)
-                            
-                            # 防止除以零
                             convergence_cv = ma_std / (ma_mean + 1e-9)
-                            
-                            # 将计算结果存入DataFrame
-                            df_for_calc[output_col] = convergence_cv
-                            # print(f"      -> 均线粘合度指标 '{output_col}' 计算完成。")
+                            df_for_calc[output_col_clean] = convergence_cv
                         else:
                             missing = [col for col in ma_cols if col not in df_for_calc.columns]
                             logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
@@ -926,20 +912,9 @@ class IndicatorService:
                         logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
 
         # --- 阶段四: 统一添加后缀并返回 ---
-        # ▼▼▼【代码修改 V110】: 统一为所有列添加后缀的核心逻辑 ▼▼▼
-        # 1. 定义后缀
         suffix = f"_{timeframe_key}"
-        
-        # 2. 为 df_for_calc 中的每一列（包括原始OHLCV和所有计算出的指标）都规划好带后缀的新名字。
         rename_map = {col: f"{col}{suffix}" for col in df_for_calc.columns}
-        
-        # 3. 应用重命名，生成最终的DataFrame
         final_df = df_for_calc.rename(columns=rename_map)
-
-        # 4. 调试打印
-        # print(f"\n--- [IndicatorService V110 调试输出] 周期 '{timeframe_key}' 最终生成列名清单 (已添加后缀) ---")
-        # print(final_df.columns.tolist())
-        # print(f"--- [IndicatorService V110 调试输出结束] ---\n")
 
         return final_df
 
@@ -1255,39 +1230,6 @@ class IndicatorService:
         # print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
         
         return score
-
-    async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
-        """
-        【V2.0 列名净化版】计算均线粘合度 (MA Convergence)。
-        """
-        results_df = pd.DataFrame(index=df.index)
-        
-        for config in params.get('configs', []):
-            try:
-                periods = config.get('periods', [])
-                output_col = config.get('output_column_name')
-                
-                if not periods or not output_col: continue
-
-                ma_cols = [f"EMA_{p}" for p in periods]
-                
-                if all(col in df.columns for col in ma_cols):
-                    ma_df = df[ma_cols]
-                    ma_std = ma_df.std(axis=1)
-                    ma_mean = ma_df.mean(axis=1)
-                    convergence_cv = ma_std / (ma_mean + 1e-9)
-                    
-                    # ▼▼▼【核心修复】移除输出列名中可能存在的后缀 ▼▼▼
-                    output_col_clean = output_col.replace('_D', '').replace('_W', '').replace('_M', '')
-                    results_df[output_col_clean] = convergence_cv
-                else:
-                    missing = [col for col in ma_cols if col not in df.columns]
-                    logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
-
-            except Exception as e:
-                logger.error(f"在 calculate_ma_convergence 中处理配置 {config} 时出错: {e}", exc_info=True)
-                
-        return results_df
 
     # --- 所有指标计算函数 async def calculate_* ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -2278,21 +2220,11 @@ class IndicatorService:
         
         return result_df
 
-    async def calculate_advanced_fund_features(self, df: pd.DataFrame, params: dict, suffix: str) -> Optional[pd.DataFrame]:
+    async def calculate_advanced_fund_features(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.0】计算基于资金流和筹码的衍生特征。
-        - 核心逻辑: 对原始资金流和筹码数据进行二次加工，生成趋势和偏离度等特征。
-        - 依赖项: 
-            - 资金流数据 (e.g., 'buy_lg_amount')
-            - 筹码数据 (e.g., 'weight_avg')
-            - 基础行情数据 ('close')
-        - 输出: 
-            - fund_buy_lg_amount_ma5: 大单净买入5日移动平均
-            - fund_buy_lg_amount_ma10: 大单净买入10日移动平均
-            - chip_cost_deviation: 收盘价相对筹码平均成本的偏离度
+        【V1.1 标准化版】计算基于资金流和筹码的衍生特征。
+        - 核心修正: 移除了不必要的 suffix 参数，以符合 V110 的统一后缀添加规范。
         """
-        # 1. 检查依赖列是否存在于传入的DataFrame中
-        #    这是关键一步，确保数据合并已在上游完成
         required_cols = ['buy_lg_amount', 'weight_avg', 'close']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
@@ -2300,29 +2232,22 @@ class IndicatorService:
             return None
 
         try:
-            # 2. 初始化一个空的DataFrame用于存放结果
             derived_features = pd.DataFrame(index=df.index)
+            
+            # --- 代码修改开始 ---
+            # 从 params['params'] 而不是 params 直接获取参数，以匹配新的调用方式
+            ma_periods = params.get('params', {}).get('ma_periods', [3, 5, 10])
+            # --- 代码修改结束 ---
 
-            # 3. 从params或默认值获取参数
-            ma_periods = params.get('ma_periods', [5, 10])
-
-            # 4. 计算资金流特征：大单净买入的移动平均
-            #    使用循环，更具扩展性
             for period in ma_periods:
-                # 注意：输出列名不带后缀，由调用者统一添加
                 derived_features[f'fund_buy_lg_amount_ma{period}'] = df['buy_lg_amount'].rolling(window=period).mean()
 
-            # 5. 计算筹码特征：收盘价与平均成本的偏离度
-            #    (收盘价 / 平均成本) - 1。 >0 代表股价在成本之上，<0 代表股价在成本之下。
-            #    使用 .replace(0, np.nan) 避免除以零的错误
             cost_basis = df['weight_avg'].replace(0, np.nan)
             derived_features['chip_cost_deviation'] = df['close'] / cost_basis - 1
             
-            # print("    - [信息] 已成功计算资金流和筹码衍生特征。")
             return derived_features
 
         except Exception as e:
-            # 使用Django的logger或您自己的日志系统
             print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
             return None
 

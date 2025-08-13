@@ -11,6 +11,7 @@ from .trend_following.exit_layer import ExitLayer
 from .trend_following.judgment_layer import JudgmentLayer
 from .trend_following.simulation_layer import SimulationLayer
 from .trend_following.reporting_layer import ReportingLayer
+from .trend_following.intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .trend_following.utils import ensure_numeric_types, optimize_df_memory, get_param_value, get_params_block
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
+        self.mechanics_engine = DynamicMechanicsEngine(self)
 
         # 共享状态初始化
         self.atomic_states = {}
@@ -82,7 +84,7 @@ class TrendFollowStrategy:
         self.risk_score = risk_score
 
         # --- 指挥链 5/8: 力学分析层 ---
-        self.intelligence_layer.run_force_vector_analysis()
+        self.mechanics_engine.run_force_vector_analysis()
 
         # --- 指挥链 6/8: 统合判断层 ---
         # JudgmentLayer 现在接收合并后的完整风险详情

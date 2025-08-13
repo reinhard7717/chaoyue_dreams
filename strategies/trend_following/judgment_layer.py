@@ -1,5 +1,5 @@
 # 文件: strategies/trend_following/judgment_layer.py
-# 统合判断层 (V404.1 - 健壮性修复版)
+# 统合判断层 (V404.2 - 逻辑净化版)
 import pandas as pd
 import numpy as np
 from .intelligence_layer import MainForceState
@@ -33,33 +33,23 @@ class JudgmentLayer:
         【V504.0 新增】离场触发器生成器
         - 核心职责: 根据“三道防线”原则，生成一个包含所有离场原因的布尔型DataFrame。
         """
-        # print("        -> [离场触发器 V504.0] 启动，正在检查三道防线...")
         df = self.strategy.df_indicators
         triggers_df = pd.DataFrame(index=df.index)
         
         # --- 防线一: 致命一击 (Critical Hit) ---
-        # 检查是否存在任何一个致命风险信号。critical_risk_details 是由 WarningLayer 计算并传入的。
         critical_risk_details = self.strategy.critical_risk_details
         triggers_df['EXIT_CRITICAL_HIT'] = critical_risk_details.sum(axis=1) > 0
-        # if triggers_df['EXIT_CRITICAL_HIT'].any():
-        #     print(f"          -> [防线一] 侦测到 {triggers_df['EXIT_CRITICAL_HIT'].sum()} 天存在“致命一击”风险。")
 
         # --- 防线二: 风险溢出 (Risk Overflow) ---
-        # 从新的 judgment_params 读取配置
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         overflow_threshold = get_param_value(p_judge.get('risk_overflow_threshold'), 1000)
         triggers_df['EXIT_RISK_OVERFLOW'] = self.strategy.risk_score > overflow_threshold
-        # if triggers_df['EXIT_RISK_OVERFLOW'].any():
-        #     print(f"          -> [防线二] 侦测到 {triggers_df['EXIT_RISK_OVERFLOW'].sum()} 天总风险分超过阈值 {overflow_threshold}。")
 
         # --- 防线三: 利润保护 (Profit Protector) ---
         p_protector = p_judge.get('profit_protector', {})
         if get_param_value(p_protector.get('enabled'), False):
             max_drawdown_pct = get_param_value(p_protector.get('max_drawdown_pct'), 0.15)
-            # 注意：此处的实现是简化的，完整的利润保护需要与持仓跟踪模块联动。
-            # 在当前的回测框架下，我们暂时将其设置为False，但保留了逻辑框架。
             triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
-            print(f"          -> [防线三] 利润保护器已启用 (最大回撤 {max_drawdown_pct*100}%)。注意：完整功能需与持仓状态联动。")
         else:
             triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
 
@@ -70,14 +60,10 @@ class JudgmentLayer:
         【V501.0 纯粹决策版】
         - 核心变化: 移除了对特定“加速状态”的硬性过滤。由于“阵地优势加速”已作为
                     核心奖励分融入 entry_score，本层只需根据最终的净得分进行决策即可。
-                    这使得本层逻辑更纯粹，更符合其“最高指挥部”的定位。
         """
         print("    --- [最高作战指挥部 V501.0 纯粹决策版] 启动... ---")
         df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
         
-        # ... (初始化和卖出信号逻辑保持不变) ...
         df['final_score'] = 0.0
         df['signal_type'] = '无信号'
         df['veto_votes'] = 0
@@ -101,14 +87,11 @@ class JudgmentLayer:
         not_avoid = df['dynamic_action'] != 'AVOID'
         is_not_sell_day = ~is_sell_signal
 
-        # --- 【代码修改】还原为最纯粹的决策逻辑 ---
-        # 不再需要任何特定的加速状态过滤器，因为高质量信号已经通过高分体现出来。
         final_buy_condition = (
             is_net_score_sufficient &
             not_avoid &
             is_not_sell_day
         )
-        # --- 【代码修改】结束 ---
 
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         self._finalize_signals()
@@ -139,9 +122,10 @@ class JudgmentLayer:
 
     def _calculate_static_veto_votes(self):
         """
-        【V318.2 状态驱动版】
-        - 核心修改: 否决票的计算逻辑现在完全由上游生成的、更可靠的原子状态驱动，
-                    特别是“机会衰退”和“风险抬头”的判断，确保了系统内部逻辑的高度一致性。
+        【V318.3 逻辑净化版】
+        - 核心修复: 彻底移除了对已废弃的资金流信号的过滤逻辑。
+                    这段代码是之前重构后遗留的“逻辑幽灵”，现在已被完全清除，
+                    使否决票的计算逻辑更纯粹、更易于维护。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -159,8 +143,12 @@ class JudgmentLayer:
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
         if get_param_value(veto_params.get('enabled'), True):
             mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
-            chip_risks_in_veto = {"RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", "CONTEXT_RECENT_DISTRIBUTION_PRESSURE"}
-            veto_signals = [s for s in get_param_value(veto_params.get('veto_signals'), []) if s not in chip_risks_in_veto]
+            
+            # --- 代码修改开始 ---
+            # [修改原因] 移除对已废弃的资金流信号的过滤逻辑，使代码更纯粹。
+            # 直接从配置文件读取所有需要否决的信号。
+            veto_signals = get_param_value(veto_params.get('veto_signals'), [])
+            # --- 代码修改结束 ---
             
             final_absolute_veto = pd.Series(False, index=df.index)
             for signal_name in veto_signals:
@@ -179,14 +167,11 @@ class JudgmentLayer:
         is_in_ascent_phase = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
         
-        # --- 【代码修改】使用由 OffensiveLayer 生成的、更可靠的原子状态来计算否决票 ---
         # 风险5: 机会正在衰退 (1票)
-        # 直接消费由 OffensiveLayer 诊断出的“机会衰退”信号
         is_opportunity_fading = atomic.get('SCORE_DYN_OPPORTUNITY_FADING', default_series)
         df.loc[is_opportunity_fading, 'veto_votes'] += 1
         
         # 风险6: 风险正在抬头 (1票)
-        # 直接消费由 OffensiveLayer 诊断出的“风险抬头”信号
         is_risk_escalating = atomic.get('SCORE_DYN_RISK_ESCALATING', default_series)
         df.loc[is_risk_escalating, 'veto_votes'] += 1
 
@@ -197,14 +182,10 @@ class JudgmentLayer:
         """
         df = self.strategy.df_indicators
         
-        # --- 代码修改开始 ---
-        # [修改原因] 修复 AttributeError。确保 signal_entry 列总是存在，即使没有任何买入或卖出信号。
-        # 在进行任何条件赋值之前，先用默认值 False 初始化该列。
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
         df['exit_severity_level'] = 0
         df['alert_reason'] = ''
-        # --- 代码修改结束 ---
         
         final_buy_condition = df['signal_type'] == '买入信号'
         final_sell_condition = df['signal_type'] == '卖出信号'
@@ -213,18 +194,14 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'final_score'] = df.loc[final_buy_condition, 'entry_score']
         df.loc[final_buy_condition, 'signal_entry'] = True
         
-        # 确保买入信号日不携带任何卖出或预警信息
-        # 增加健壮性检查，防止因列不存在而报错。
         if 'exit_signal_code' in df.columns:
-            # 确保 exit_severity_level 和 alert_reason 也存在
             if 'exit_severity_level' not in df.columns: df['exit_severity_level'] = 0
             if 'alert_reason' not in df.columns: df['alert_reason'] = ''
             df.loc[final_buy_condition, ['exit_signal_code', 'exit_severity_level', 'alert_reason']] = [0, 0, '']
 
         df.loc[final_sell_condition | final_warning_condition, 'final_score'] = df.loc[final_sell_condition | final_warning_condition, 'risk_score']
         
-        # print("        -> [决策单元] 决策完成。正在进行最终分数审查...")
-        debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'max_allowed_votes', 'final_score', 'signal_type', 'main_force_state']
+        debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'net_score', 'final_score', 'signal_type', 'main_force_state']
         final_check_df = df[(df['signal_type'] != '无信号') & (df['signal_type'] != '中性')].tail(10)
         if not final_check_df.empty:
             cols_to_show = [col for col in debug_cols if col in final_check_df.columns]

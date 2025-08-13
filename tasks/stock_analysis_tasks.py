@@ -24,11 +24,12 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal
 from stock_models.index import TradeCalendar
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic
+from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 
