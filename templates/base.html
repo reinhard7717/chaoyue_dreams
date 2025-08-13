@@ -88,10 +88,9 @@
     {# <script src="{% static 'js/main.js' %}"></script> #}
 
     {# --- 页面特定的额外 Scripts --- #}
-    {% block scripts %}
-        {# 因为所有继承此模板的页面都需要这个JS文件，这样做更健壮 #}
+    {% block extra_scripts %}
+        <!-- 这个脚本包含所有页面都可能用到的通用辅助函数 -->
         <script src="{% static 'js/dashboard.js' %}"></script>
     {% endblock %}
-
 </body>
 </html>

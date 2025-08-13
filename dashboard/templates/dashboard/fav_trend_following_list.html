@@ -372,5 +372,6 @@
 </div>
 {% endblock %}
 {% block scripts %}
-    <script src="{% static 'js/fav_trend_following_list.js' %}"></script>
+  {{ block.super }}
+  <script src="{% static 'js/fav_trend_following_list.js' %}"></script>
 {% endblock %}
