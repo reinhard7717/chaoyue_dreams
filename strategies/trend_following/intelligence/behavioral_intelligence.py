@@ -183,8 +183,8 @@ class BehavioralIntelligence:
 
         # 最终状态1: 健康回踩
         states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context
-        # if states['PULLBACK_STATE_HEALTHY_S'].any():
-        #     print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
+        if states['PULLBACK_STATE_HEALTHY_S'].any():
+            print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
 
         # 最终状态2: 打压回踩 (需要后续V型反转确认)
         # 注意：打压回踩本身不是买点，它只是一个“事件”，真正的买点在它被确认之后
@@ -198,8 +198,8 @@ class BehavioralIntelligence:
             is_rebound_confirmed |= (is_prev_suppression & is_price_recovered)
 
         states['PULLBACK_STATE_SUPPRESSIVE_S'] = is_rebound_confirmed
-        # if states['PULLBACK_STATE_SUPPRESSIVE_S'].any():
-        #     print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_SUPPRESSIVE_S'].sum()} 次“S级打压回踩被确认”状态。")
+        if states['PULLBACK_STATE_SUPPRESSIVE_S'].any():
+            print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_SUPPRESSIVE_S'].sum()} 次“S级打压回踩被确认”状态。")
 
         return states
 
