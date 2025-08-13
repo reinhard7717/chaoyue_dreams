@@ -501,8 +501,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         console.log('[调试点 2] 已成功获取到 tableBody 元素:', tableBody);
 
-        // 【代码修改】在此处定义所有模态框相关的常量，确保它们在整个函数作用域内可用
-        const modalOverlay = document.getElementById('transaction-modal-overlay');
         const modalContainer = document.getElementById('transaction-modal-container');
         const modalTitle = document.getElementById('transaction-modal-title');
         const modalCloseBtn = document.getElementById('transaction-modal-close-btn');
@@ -581,7 +579,6 @@ document.addEventListener('DOMContentLoaded', function () {
         async function openTransactionModal(trackerId, stockName) {
             console.log(`[Modal调试 1] 进入 openTransactionModal 函数。接收到 trackerId: ${trackerId}, stockName: ${stockName}`);
 
-            // 【代码修改】现在 modalOverlay 和 modalContainer 都是在外部作用域定义的，这里可以直接使用
             if (!modalOverlay || !modalContainer) {
                 console.error('[Modal错误] 无法找到模态框核心元素！模态框无法显示。');
                 showNotification('页面结构错误，无法打开管理窗口。', 'error');
@@ -589,8 +586,10 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
+            // 【代码修改】将 trackerId 和 stockName 存储在 modal 容器上，作为可靠的数据源
             modalContainer.dataset.trackerId = trackerId;
             modalContainer.dataset.stockName = stockName;
+            // 【代码修改】同时更新表单中的隐藏 input，确保表单提交时能获取到正确的 trackerId
             document.getElementById('form-tracker-id').value = trackerId;
 
 
@@ -626,6 +625,7 @@ document.addEventListener('DOMContentLoaded', function () {
             transactionListTbody.innerHTML = ''; // 清空旧内容
 
             if (transactions.length === 0) {
+                // [核心修改] 当没有交易记录时，显示引导性提示，并高亮下方的表单
                 const emptyRow = document.createElement('tr');
                 const emptyCell = document.createElement('td');
                 emptyCell.colSpan = 5;
@@ -635,10 +635,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 emptyRow.appendChild(emptyCell);
                 transactionListTbody.appendChild(emptyRow);
 
+                // 视觉引导：让“新增交易”区域闪烁一下
                 const addTransactionWrapper = document.querySelector('.add-transaction-wrapper');
                 flashElement(addTransactionWrapper);
 
             } else {
+                // 当有交易记录时，正常渲染列表
                 transactions.forEach(tx => {
                     const row = document.createElement('tr');
                     const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
@@ -656,84 +658,75 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // 【代码修改】确保 modalCloseBtn 和 modalOverlay 已经被定义
-        function closeTransactionModal() {
-            if (modalOverlay) {
-                modalOverlay.style.display = 'none';
+        function closeTransactionModal() { modalOverlay.style.display = 'none'; }
+        modalCloseBtn.addEventListener('click', closeTransactionModal);
+        modalOverlay.addEventListener('click', (event) => { if (event.target === modalOverlay) closeTransactionModal(); });
+
+        addTransactionForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const submitBtn = document.getElementById('add-transaction-submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '处理中...';
+            const formData = new FormData(addTransactionForm);
+            const data = Object.fromEntries(formData.entries());
+            data.transaction_date = new Date(data.transaction_date).toISOString();
+            try {
+                const csrfToken = getCookie('csrftoken');
+                const response = await fetch('/dashboard/api/transactions/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify(data),
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '添加失败');
+                }
+                showNotification('交易添加成功！快照正在后台更新...', 'success');
+                addTransactionForm.reset();
+                // 【代码修改】从 modalContainer 的 dataset 中获取可靠的状态来刷新模态框
+                const currentTrackerId = modalContainer.dataset.trackerId;
+                const currentStockName = modalContainer.dataset.stockName;
+                if (currentTrackerId && currentStockName) {
+                    openTransactionModal(currentTrackerId, currentStockName);
+                }
+            } catch (error) {
+                showNotification(error.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '确认添加';
             }
-        }
-        if (modalCloseBtn) {
-            modalCloseBtn.addEventListener('click', closeTransactionModal);
-        }
-        if (modalOverlay) {
-            modalOverlay.addEventListener('click', (event) => { if (event.target === modalOverlay) closeTransactionModal(); });
-        }
+        });
 
-        if (addTransactionForm) {
-            addTransactionForm.addEventListener('submit', async function (event) {
-                event.preventDefault();
-                const submitBtn = document.getElementById('add-transaction-submit-btn');
-                submitBtn.disabled = true;
-                submitBtn.textContent = '处理中...';
-                const formData = new FormData(addTransactionForm);
-                const data = Object.fromEntries(formData.entries());
-                data.transaction_date = new Date(data.transaction_date).toISOString();
-                try {
-                    const csrfToken = getCookie('csrftoken');
-                    const response = await fetch('/dashboard/api/transactions/', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                        body: JSON.stringify(data),
-                    });
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.detail || '添加失败');
-                    }
-                    showNotification('交易添加成功！快照正在后台更新...', 'success');
-                    addTransactionForm.reset();
-                    const currentTrackerId = modalContainer.dataset.trackerId;
-                    const currentStockName = modalContainer.dataset.stockName;
-                    if (currentTrackerId && currentStockName) {
-                        openTransactionModal(currentTrackerId, currentStockName);
-                    }
-                } catch (error) {
-                    showNotification(error.message, 'error');
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = '确认添加';
+        transactionListTbody.addEventListener('click', async function (event) {
+            const deleteBtn = event.target.closest('.delete-transaction-btn');
+            if (!deleteBtn) return;
+            const txId = deleteBtn.dataset.txId;
+            if (!confirm('确定要删除这条交易记录吗？此操作会重新计算持仓成本和历史快照。')) return;
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = '...';
+            try {
+                const csrfToken = getCookie('csrftoken');
+                const response = await fetch(`/dashboard/api/transactions/${txId}/`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken },
+                });
+                if (!response.ok && response.status !== 204) throw new Error('删除失败');
+                showNotification('交易删除成功！快照正在后台更新...', 'success');
+                // 【代码修改】从 modalContainer 的 dataset 中获取可靠的状态来刷新模态框
+                const currentTrackerId = modalContainer.dataset.trackerId;
+                const currentStockName = modalContainer.dataset.stockName;
+                if (currentTrackerId && currentStockName) {
+                    openTransactionModal(currentTrackerId, currentStockName);
                 }
-            });
-        }
+            } catch (error) {
+                showNotification(error.message, 'error');
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = '删除';
+            }
+        });
 
-        if (transactionListTbody) {
-            transactionListTbody.addEventListener('click', async function (event) {
-                const deleteBtn = event.target.closest('.delete-transaction-btn');
-                if (!deleteBtn) return;
-                const txId = deleteBtn.dataset.txId;
-                if (!confirm('确定要删除这条交易记录吗？此操作会重新计算持仓成本和历史快照。')) return;
-                deleteBtn.disabled = true;
-                deleteBtn.textContent = '...';
-                try {
-                    const csrfToken = getCookie('csrftoken');
-                    const response = await fetch(`/dashboard/api/transactions/${txId}/`, {
-                        method: 'DELETE',
-                        headers: { 'X-CSRFToken': csrfToken },
-                    });
-                    if (!response.ok && response.status !== 204) throw new Error('删除失败');
-                    showNotification('交易删除成功！快照正在后台更新...', 'success');
-                    const currentTrackerId = modalContainer.dataset.trackerId;
-                    const currentStockName = modalContainer.dataset.stockName;
-                    if (currentTrackerId && currentStockName) {
-                        openTransactionModal(currentTrackerId, currentStockName);
-                    }
-                } catch (error) {
-                    showNotification(error.message, 'error');
-                    deleteBtn.disabled = false;
-                    deleteBtn.textContent = '删除';
-                }
-            });
-        }
-
+        // --- 代码修改开始 ---
+        // [修改原因] 为自选股监控页面添加WebSocket连接，以接收快照更新通知并自动刷新页面。
         function connectFavListWebSocket() {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
@@ -748,17 +741,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 const data = JSON.parse(e.data);
                 console.log('[FavList WS] 收到WebSocket消息:', data);
 
+                // 检查消息类型是否为我们需要的“快照重建完成”信号
                 if (data.type === 'snapshot_rebuilt') {
                     console.log('[FavList WS] 接收到快照重建完成信号，准备刷新页面...');
+
+                    // 显示一个短暂的通知，告知用户页面即将刷新
                     showNotification('持仓数据已更新，页面即将刷新...', 'info', 1500);
+
+                    // 延迟一小段时间再刷新，确保后台数据已完全同步，并给用户一个反应时间
                     setTimeout(function () {
                         window.location.reload();
-                    }, 1000);
+                    }, 1000); // 延迟1秒
                 }
             };
 
             socket.onclose = function (e) {
                 console.error('[FavList WS] WebSocket 连接已关闭。代码:', e.code, '原因:', e.reason, '5秒后尝试重连...');
+                // 添加自动重连机制
                 setTimeout(connectFavListWebSocket, 5000);
             };
 
@@ -767,7 +766,9 @@ document.addEventListener('DOMContentLoaded', function () {
             };
         }
 
+        // 启动该页面的WebSocket连接
         connectFavListWebSocket();
+        // --- 代码修改结束 ---
     }
 
 
