@@ -345,40 +345,42 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_rally_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】锁筹拉升S级战法诊断模块 (巡航确认版)
-        - 核心逻辑: 确认在主升浪途中，拉升是健康的、可持续的。
-        - 前置条件: 必须在“点火信号”出现后，此信号才可能被激活。
+        【V2.0 状态机重构版】锁筹拉升S级战法诊断模块
+        - 核心重构: 废除每日独立判断的苛刻逻辑，采用“点火-巡航-熄火”的状态机模型。
+                    1. 点火: 由“锁仓再集中(S+)”信号触发，进入巡航状态。
+                    2. 巡航: 状态会持续，只要未出现明确的风险信号。
+                    3. 熄火: 当筹码发散或进入上涨末期时，巡航状态终止。
+        - 收益: 极大提升了对健康拉升阶段的捕捉和持续跟踪能力，更符合实战。
         """
-        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(巡航确认版)”...")
+        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.0 状态机版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 定义“巡航”的核心条件 ---
-        # 条件A: 筹码基础依然稳固
-        is_locked_stable = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        # 条件B: 成本仍在健康抬高
-        is_cost_rising = atomic.get('MECHANICS_COST_RISING', default_series)
-        is_cost_accelerating = atomic.get('MECHANICS_COST_ACCELERATING', default_series)
-        # 条件C: 宏观趋势结构支持
-        is_ma_bullish = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
-        # 组合成“健康巡航”的基础状态
-        healthy_rally_state = (
-            is_locked_stable &
-            (is_cost_rising | is_cost_accelerating) & # 使用 OR 逻辑
-            is_ma_bullish
-        )
+        # --- 1. 定义“点火”事件 ---
+        # [新逻辑] 我们使用更高维度的 S+ 战法作为拉升的起始信号。
+        ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
 
-        # --- 2. 定义“风险排除”条件 ---
-        # 排除条件A: 筹码开始发散
+        # --- 2. 定义“熄火”条件 (风险出现) ---
+        # [新逻辑] 任何一个关键风险信号的出现，都将终止巡航状态。
         is_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
-        # 排除条件B: 已进入上涨末期
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
-        
-        risk_exclusion = is_diverging | is_late_stage
+        is_ma_broken = ~atomic.get('MA_STATE_STABLE_BULLISH', default_series)
+        termination_condition = is_diverging | is_late_stage | is_ma_broken
 
-        # --- 3. 最终裁定 ---
-        final_tactic_signal = healthy_rally_state & ~risk_exclusion
+        # --- 3. 构建状态机 ---
+        # [新逻辑] 使用循环来模拟状态的持续和转变。
+        is_in_rally_state = pd.Series(False, index=df.index)
+        for i in range(1, len(df)):
+            # 如果昨天处于巡航状态，且今天没有熄火信号，则继续巡航
+            if is_in_rally_state.iloc[i-1] and not termination_condition.iloc[i]:
+                is_in_rally_state.iloc[i] = True
+            # 如果今天有点火信号，则开启巡航状态
+            elif ignition_event.iloc[i]:
+                is_in_rally_state.iloc[i] = True
+        
+        # 最终的战法信号，是处于巡航状态且当日未出现熄火信号的日子
+        final_tactic_signal = is_in_rally_state & ~termination_condition
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
         
         if final_tactic_signal.any():
