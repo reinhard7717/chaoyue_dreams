@@ -1401,7 +1401,75 @@ def run_top_n_performance_analysis(
     return f"Top-{top_n} 信号性能聚焦分析完成。成功率: {success_rate:.2f}%"
 
 
+# =================================================================
+# =================== 3. 性能复盘任务 (新增) ==================
+# =================================================================
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_performance_analysis_for_stock', queue='calculate_strategy')
+@with_cache_manager
+def run_performance_analysis_for_stock(self, stock_code: str, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
+    """
+    【V1.0 新增】为单个股票执行深度性能复盘的原子任务。
+    """
+    logger.info(f"[{stock_code}] 开始执行深度性能复盘...")
+    try:
+        # 初始化服务
+        service = PerformanceAnalysisService(cache_manager)
+        # 调用服务执行分析，该服务会处理数据获取和分析器调用
+        results = async_to_sync(service.run_analysis_for_stock)(stock_code, start_date, end_date)
+        
+        if not results:
+            logger.info(f"[{stock_code}] 性能复盘完成，但未生成任何分析结果。")
+            return {"stock_code": stock_code, "status": "success", "results_count": 0}
+            
+        # 打印结果用于调试
+        logger.info(f"--- 股票 [{stock_code}] 性能复盘报告 ---")
+        report_df = pd.DataFrame(results)
+        logger.info("\n" + report_df.to_string())
+        logger.info(f"------------------------------------")
+        
+        # 在实际应用中，这里可以将 results 保存到数据库或缓存中
+        
+        return {"stock_code": stock_code, "status": "success", "results_count": len(results)}
+    except Exception as e:
+        logger.error(f"为 {stock_code} 执行性能复盘时发生错误: {e}", exc_info=True)
+        return {"stock_code": stock_code, "status": "error", "reason": str(e)}
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
+@with_cache_manager
+def run_global_performance_analysis(self, stock_list: list = None, *, cache_manager: CacheManager):
+    """
+    【V1.0 新增】全局性能复盘总管任务。
+    - 职责: 获取股票列表，并为每只股票派发独立的深度复盘任务。
+    """
+    logger.info("====== [全局性能复盘 V1.0] 启动 ======")
+    
+    codes_to_run = stock_list
+    if not codes_to_run:
+        # 如果未提供列表，则获取所有自选股
+        logger.info("未提供股票列表，将自动获取所有自选股进行复盘...")
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+        favorite_codes, _ = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
+        codes_to_run = favorite_codes
+
+    if not codes_to_run:
+        logger.warning("[全局性能复盘] 未找到任何需要复盘的股票，任务终止。")
+        return {"status": "skipped", "reason": "no stocks to analyze"}
+    
+    stock_count = len(codes_to_run)
+    logger.info(f"[全局性能复盘] 准备为 {stock_count} 只股票启动深度复盘任务...")
+    
+    # 为每只股票派发一个独立的复盘任务
+    analysis_tasks = [
+        run_performance_analysis_for_stock.s(code).set(queue='calculate_strategy') for code in codes_to_run
+    ]
+    
+    # 使用 group 并行执行
+    workflow = group(analysis_tasks)
+    workflow.apply_async()
+    
+    logger.info(f"[全局性能复盘] 已成功为 {stock_count} 只股票派发复盘任务。")
+    return {"status": "workflow_started", "stock_count": stock_count}
 
 
 
