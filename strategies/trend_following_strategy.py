@@ -74,6 +74,7 @@ class TrendFollowStrategy:
         )
         self.df_indicators['risk_score'] = risk_score
         self.df_indicators['risk_change_summary'] = risk_change_summary
+        self.risk_score = risk_score
 
         # --- 指挥链 5/8: 力学分析层 ---
         self.mechanics_engine.run_force_vector_analysis()
