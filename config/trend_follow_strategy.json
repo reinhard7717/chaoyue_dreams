@@ -839,7 +839,7 @@
           "description": "均线动态粘合阈值参数",
           "use_dynamic_threshold": true,
           "window": 120,
-          "quantile": 0.1,
+          "quantile": 0.2,
           "description_detail": "当天的均线粘合度(CV)需要小于其过去120天中的最低10%水平，才被视为'高度粘合'。"
         },
         "persistence_days": {
@@ -865,7 +865,8 @@
         "healthy_pullback_rules": {
           "description": "定义“健康回踩”的规则",
           "min_pct_change": -0.05,
-          "max_turnover_rate": 5.0
+          "max_turnover_rate": 5.0,
+          "max_winner_turnover_ratio": 40.0, "说明": "【参数优化】新增并设定为40.0，适度放宽对获利盘锁仓的要求，这是增加健康回踩信号的核心。"
         },
         "suppression_pullback_rules": {
           "description": "定义“打压回踩”的规则",
