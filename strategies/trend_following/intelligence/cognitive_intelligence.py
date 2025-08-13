@@ -416,14 +416,14 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 联合作战版】回踩战术诊断模块
-        - 核心重构: 融合了“趋势上下文”、“回踩性质”和“形态增强”三个维度的情报，
-                      生成唯一的、互斥的、带有全部战术信息的终极信号。
-        - 新增依赖: 接收一个由行为层生成的 `enhancements` 字典。
+        【V6.2 王牌整合版】回踩战术诊断模块
+        - 核心重构: 吸收了 composite_scoring 中的 TACTIC_PANIC_PIT_ABSORPTION_A_PLUS，
+                      将其逻辑升维为战术矩阵中的最高优先级(S+++级)，实现完全的逻辑统一和净化。
         """
-        print("        -> [回踩战术矩阵 V6.0] 启动，正在进行三维联合作战诊断...")
+        print("        -> [回踩战术矩阵 V6.2] 启动，正在进行三维联合作战诊断...")
         states = {}
         atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events # 获取触发器
         default_series = pd.Series(False, index=df.index)
         
         # --- 1. 提取所有基础和增强信号 ---
@@ -438,26 +438,34 @@ class CognitiveIntelligence:
         is_hammer = enhancements.get('is_hammer_candle', default_series)
         is_fib_gold = enhancements.get('is_fib_golden_support', default_series)
         is_suppressive = enhancements.get('is_suppressive_pullback', default_series)
+        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
+        
+        # [新逻辑] 吸收“恐慌坑”战法的核心确认信号
+        is_dominant_reversal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
 
         # --- 2. 按优先级生成唯一的战术信号 ---
-        # 优先级1 (S++): 巡航期内的打压式回踩(黄金坑) + 锤子线确认 (最强反转)
-        s_plus_plus_signal = is_in_cruise_window & is_suppressive & is_hammer
+        # 优先级1 (S+++ 王牌): 巡航期 + 打压回踩 + 显性反转阳线确认 (最强V反)
+        s_triple_plus_signal = is_in_cruise_window & is_suppressive & is_dominant_reversal
+        states['TACTIC_CRUISE_V_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
+
+        # 优先级2 (S++): 巡航期 + 打压回踩 + 锤子线确认 (未满足S+++条件)
+        s_plus_plus_signal = is_in_cruise_window & is_suppressive & is_hammer & ~s_triple_plus_signal
         states['TACTIC_CRUISE_PIT_HAMMER_S_PLUS_PLUS'] = s_plus_plus_signal
 
-        # 优先级2 (S+): 巡航期内的健康回踩 + 黄金分割位支撑 + 锤子线 (三重共振)
-        s_plus_signal = is_in_cruise_window & is_healthy_pullback & is_fib_gold & is_hammer & ~s_plus_plus_signal
+        # 优先级3 (S+): 巡航期 + 健康回踩 + 黄金分割位 + 锤子线
+        s_plus_signal = is_in_cruise_window & is_healthy_pullback & is_fib_gold & is_hammer & ~s_triple_plus_signal & ~s_plus_plus_signal
         states['TACTIC_CRUISE_FIB_HAMMER_S_PLUS'] = s_plus_signal
 
-        # 优先级3 (S): 巡航期内的普通健康回踩
-        s_signal = is_in_cruise_window & is_healthy_pullback & ~s_plus_plus_signal & ~s_plus_signal
+        # 优先级4 (S): 巡航期 + 普通健康回踩
+        s_signal = is_in_cruise_window & is_healthy_pullback & ~s_triple_plus_signal & ~s_plus_plus_signal & ~s_plus_signal
         states['TACTIC_CRUISE_PULLBACK_S'] = s_signal
 
-        # 优先级4 (A): 初升浪期内的健康回踩 + 锤子线
-        a_signal = is_in_ascent_window & is_healthy_pullback & is_hammer & ~is_in_cruise_window
+        # 初升浪期战法 (三级)
+        a_plus_signal = is_in_ascent_window & is_healthy_pullback & is_chip_locked & ~is_in_cruise_window
+        states['TACTIC_ASCENT_LOCKED_PULLBACK_A_PLUS'] = a_plus_signal
+        a_signal = is_in_ascent_window & is_healthy_pullback & is_hammer & ~is_chip_locked & ~is_in_cruise_window
         states['TACTIC_ASCENT_HAMMER_A'] = a_signal
-
-        # 优先级5 (B): 初升浪期内的普通健康回踩
-        b_signal = is_in_ascent_window & is_healthy_pullback & ~is_hammer & ~is_in_cruise_window
+        b_signal = is_in_ascent_window & is_healthy_pullback & ~is_chip_locked & ~is_hammer & ~is_in_cruise_window
         states['TACTIC_ASCENT_PULLBACK_B'] = b_signal
 
         # 打印日志

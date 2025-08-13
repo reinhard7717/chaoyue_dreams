@@ -127,7 +127,6 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_behavioral_patterns(df))
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_breakout_pullback_relay(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
 
         # --- 阶段四: 顶层认知合成 ---

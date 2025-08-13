@@ -319,59 +319,6 @@ class BehavioralIntelligence:
             
         return states
 
-    def diagnose_breakout_pullback_relay(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V505.6 探针植入版】
-        - 核心升级: 植入“情报探针”，在模块执行前检查所有依赖项。
-        """
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-        
-        # --- 探针部署区 ---
-        # 1. 定义本模块需要的所有上游情报（原子状态）
-        required_intelligence = [
-            'STRUCTURE_POST_ACCUMULATION_ASCENT_C', # “初升浪启动”情报
-            'PULLBACK_STATE_HEALTHY_S',             # “健康回踩”情报
-            'CHIP_CONC_LOCKED_AND_STABLE_A'         # “筹码高度控盘”情报
-        ]
-        
-        # 2. 检查情报清单
-        missing_intelligence = [
-            intel for intel in required_intelligence 
-            if intel not in self.strategy.atomic_states
-        ]
-        
-        # 3. 如果有情报缺失，则发出详细警报并安全退出
-        if missing_intelligence:
-            print(f"    -> [警告] 缺少诊断“突破-回踩接力”所需的核心情报，模块跳过。")
-            print(f"       -> [探针报告] 缺失的情报清单: {missing_intelligence}")
-            return {}
-        # --- 探针部署结束 ---
-
-        # 如果所有情报都到位，则继续执行原始逻辑
-        p = get_params_block(self.strategy, 'post_accumulation_params').get('relay_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return {}
-
-        lookback_window = get_param_value(p.get('lookback_window'), 15)
-
-        # 1. 获取上游情报
-        is_ascent_start = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
-        is_healthy_pullback = self.strategy.atomic_states.get('PULLBACK_STATE_HEALTHY_S', default_series)
-        is_chip_setup = self.strategy.atomic_states.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-
-        # 2. 定义“接力”逻辑
-        # 条件A: 今天是一个“健康回踩”日，并且筹码高度控盘
-        is_pullback_opportunity = is_healthy_pullback & is_chip_setup
-        # 条件B: 在回踩日之前的N天内，必须发生过“初升浪启动”事件
-        had_recent_ascent_start = is_ascent_start.rolling(window=lookback_window, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
-        # 最终裁定：S+级的接力机会
-        relay_opportunity = is_pullback_opportunity & had_recent_ascent_start
-        # if relay_opportunity.any():
-        #     print(f"          -> [情报] 侦测到 {relay_opportunity.sum()} 次 S+级“突破-回踩接力”机会！")
-        states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_opportunity
-        return states
-
     def diagnose_holding_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V338.0 新增】持仓风险诊断模块
