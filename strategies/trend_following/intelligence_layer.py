@@ -125,8 +125,7 @@ class IntelligenceLayer:
         # 3.2 复合行为诊断
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_pullback_character(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_behavioral_patterns(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_chip_pullback_hammer_opportunity(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_squeeze_zone_opportunities(df))
+        pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_breakout_pullback_relay(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
@@ -149,8 +148,9 @@ class IntelligenceLayer:
         self.strategy.trigger_events = trigger_events # 挂载到strategy实例，供后续模块使用
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_reconcentration_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_rally_tactic(df))
-        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df))
+        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
+        
         
         # (一些简单的、遗留的触发器逻辑可以保留在这里)
         is_in_squeeze_window = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))

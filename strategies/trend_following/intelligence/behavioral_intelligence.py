@@ -251,127 +251,6 @@ class BehavioralIntelligence:
 
         return states
 
-
-    def diagnose_chip_pullback_hammer_opportunity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【新增战法】锁仓回踩探针机会诊断 (Chip-Locked Pullback Probe)
-        - 核心逻辑: 捕捉“筹码持续集中 + 股价回踩关键支撑 + 出现长下影线确认”的黄金坑机会。
-        - 适用场景: A股主力在拉升前的经典洗盘+试盘行为。
-        """
-        print("        -> [战法诊断] 正在扫描“锁仓回踩探针”机会...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-
-        # 1. **前提条件：趋势背景**
-        # 必须处于一个健康的上升趋势中，我们使用“稳定多头排列”作为基础。
-        is_uptrend_context = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
-
-        # 2. **核心条件1：筹码持续集中**
-        # 表明主力仍在收集筹码，控盘意图明确。
-        is_chips_concentrating = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
-
-        # 3. **核心条件2：回踩关键支撑**
-        # 这里我们定义为日内最低价曾跌破21日线，但收盘价又收回其上，是经典的支撑测试。
-        support_ma = 'EMA_21_D'
-        if support_ma not in df.columns:
-            return states
-        is_pullback_to_support = (df['low_D'] < df[support_ma]) & (df['close_D'] > df[support_ma])
-
-        # 4. **核心条件3：下影线K线确认 (探针形态)**
-        # 计算K线实体和影线长度，识别出长下影线的“锤子”或“探针”形态。
-        body = (df['close_D'] - df['open_D']).abs()
-        # 防止body为0导致除法错误
-        body = body.replace(0, 0.0001)
-        lower_shadow = df[['open_D', 'close_D']].min(axis=1) - df['low_D']
-        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
-        # 定义“探针”形态：下影线长度至少是实体的2倍，且上影线很短。
-        is_probe_candle = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
-        # 5. **最终裁定**
-        # 组合所有条件，生成最终的机会信号。
-        final_condition = (
-            is_uptrend_context &
-            is_chips_concentrating &
-            is_pullback_to_support &
-            is_probe_candle
-        )
-        states['OPP_CHIP_PULLBACK_HAMMER_A'] = final_condition
-        # if final_condition.any():
-        #     print(f"          -> [情报] 侦测到 {final_condition.sum()} 次 A级“锁仓回踩探针”机会！")
-
-        return states
-
-
-    def diagnose_squeeze_zone_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V507.0 生产就绪版】压缩区机会诊断模块
-        - 核心逻辑: 基于“逻辑分层”思想，识别在健康结构中发生的、经过验证的洗盘行为。
-                    1. A级机会: 健康结构 + 洗盘行为 + 智能企稳。
-                    2. S级机会: A级机会 + 能量压缩背景。
-        - 状态: 已移除所有调试探针，代码已净化。
-        """
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-        p_squeeze = get_params_block(self.strategy, 'squeeze_shakeout_params')
-
-        # --- 1. 定义环境、行为、结果 ---
-        # 环境1 (核心): 健康结构
-        is_in_healthy_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
-        is_on_stable_platform = self.strategy.atomic_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-        is_good_structure = is_in_healthy_box | is_on_stable_platform
-
-        # 环境2 (奖励): 能量压缩
-        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
-        
-        # 行为: 洗盘
-        drop_threshold = get_param_value(p_squeeze.get('drop_threshold'), -0.03)
-        is_sharp_drop = df['pct_change_D'] < drop_threshold
-        winner_turnover_col = 'turnover_from_winners_ratio_D'
-        if winner_turnover_col not in df.columns: return {}
-        winner_inactive_threshold = get_param_value(p_squeeze.get('winner_inactive_threshold'), 60.0)
-        is_winner_inactive = df[winner_turnover_col] < winner_inactive_threshold
-        shakeout_action = is_sharp_drop & is_winner_inactive
-        
-        # 结果: 智能企稳
-        stabilization_window = get_param_value(p_squeeze.get('stabilization_window'), 3)
-        is_stabilized_later = pd.Series(False, index=df.index)
-        shakeout_indices = df.index[shakeout_action]
-        for idx in shakeout_indices:
-            start_pos = df.index.get_loc(idx) + 1
-            end_pos = start_pos + stabilization_window
-            if end_pos > len(df.index): continue
-            window_df = df.iloc[start_pos:end_pos]
-            shakeout_day_close = df.at[idx, 'close_D']
-            is_price_reclaimed = (window_df['close_D'] > shakeout_day_close).any()
-            is_volume_shrinking = (window_df['volume_D'] < df.at[idx, 'volume_D']).all()
-            if is_price_reclaimed or is_volume_shrinking:
-                is_stabilized_later.at[idx] = True
-
-        # --- 2. 分层定义机会 ---
-        # A级机会 (基础版): 健康结构 + 洗盘行为 + 智能企稳
-        base_condition_A = is_good_structure & shakeout_action & is_stabilized_later
-        
-        # S级机会 (加强版): A级机会 + 能量压缩背景
-        squeeze_window_days = get_param_value(p_squeeze.get('squeeze_window_days'), 3)
-        is_in_squeeze_window = is_in_squeeze.rolling(window=squeeze_window_days, min_periods=1).max().astype(bool)
-        
-        # 最终裁定
-        final_condition_S = base_condition_A & is_in_squeeze_window
-        final_condition_A = base_condition_A & ~final_condition_S
-
-        # --- 3. 最终裁定与分级 ---
-        states['OPP_SQUEEZE_ZONE_SHAKEOUT_A'] = final_condition_A
-        states['OPP_SQUEEZE_ZONE_SHAKEOUT_S'] = final_condition_S
-
-        # (可选) 保留最终的情报报告，这不属于调试探针，而是策略的正常日志输出
-        # if final_condition_A.any():
-        #     print(f"          -> [A级机会情报] 侦测到 {final_condition_A.sum()} 次“压缩区实战洗盘”机会！")
-        # if final_condition_S.any():
-        #     print(f"          -> [S级机会情报] 侦测到 {final_condition_S.sum()} 次“压缩区完美洗盘”机会！")
-
-        return states
-
-
     def diagnose_post_accumulation_phase(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V313.0 动态粘合版】初升浪诊断模块
@@ -440,7 +319,6 @@ class BehavioralIntelligence:
             
         return states
 
-
     def diagnose_breakout_pullback_relay(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V505.6 探针植入版】
@@ -493,7 +371,6 @@ class BehavioralIntelligence:
         #     print(f"          -> [情报] 侦测到 {relay_opportunity.sum()} 次 S+级“突破-回踩接力”机会！")
         states['PLAYBOOK_BREAKOUT_PULLBACK_RELAY_S_PLUS'] = relay_opportunity
         return states
-
 
     def diagnose_holding_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -550,7 +427,6 @@ class BehavioralIntelligence:
         # print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
         return signal
 
-
     def diagnose_structure_breakdown(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
         """
         诊断“结构性破位”风险 (Structure Breakdown)。
@@ -588,7 +464,6 @@ class BehavioralIntelligence:
         
         # print(f"          -> '结构性破位' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
         return signal
-
 
     def diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
@@ -641,8 +516,40 @@ class BehavioralIntelligence:
         # print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
         return states
 
+    def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】回踩形态增强矩阵
+        - 核心职责: 识别回踩事件是否伴随着特殊的、能增强信号信服度的形态。
+                      这是所有回踩战法的“增强器”模块。
+        - 输出: 返回一个包含各种增强信号（如 is_hammer, is_fib_support）的字典。
+        """
+        print("        -> [回踩增强矩阵 V1.0] 启动，正在扫描特殊形态...")
+        enhancements = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
 
+        # --- 增强器1: K线形态 (锤子线/探针) ---
+        body = (df['close_D'] - df['open_D']).abs().replace(0, 0.0001)
+        lower_shadow = df[['open_D', 'close_D']].min(axis=1) - df['low_D']
+        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
+        enhancements['is_hammer_candle'] = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
 
+        # --- 增强器2: 关键支撑位 (斐波那契) ---
+        enhancements['is_fib_golden_support'] = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
+        enhancements['is_fib_standard_support'] = atomic.get('OPP_FIB_SUPPORT_STANDARD_A', default_series)
+
+        # --- 增强器3: 特殊结构 (压缩区洗盘) ---
+        # 注意：这里的逻辑是从 diagnose_squeeze_zone_opportunities 迁移并简化而来
+        is_in_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        is_sharp_drop = df['pct_change_D'] < -0.03
+        is_winner_inactive = df.get('turnover_from_winners_ratio_D', pd.Series(np.inf, index=df.index)) < 60.0
+        enhancements['is_squeeze_shakeout'] = is_in_squeeze & is_sharp_drop & is_winner_inactive
+        
+        # --- 增强器4: 打压性质 (黄金坑) ---
+        # 打压回踩本身就是一个强大的增强信号
+        enhancements['is_suppressive_pullback'] = atomic.get('PULLBACK_STATE_SUPPRESSIVE_S', default_series)
+
+        return enhancements
 
 
 

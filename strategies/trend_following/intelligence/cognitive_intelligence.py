@@ -414,65 +414,64 @@ class CognitiveIntelligence:
 
         return states
 
-    def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.2 日志净化版】回踩战术诊断模块
-        - 核心优化: 优化日志输出逻辑，使其更具可读性。
-        - 收益:     在功能完美的基础上，提升代码和日志的优雅度。
+        【V6.0 联合作战版】回踩战术诊断模块
+        - 核心重构: 融合了“趋势上下文”、“回踩性质”和“形态增强”三个维度的情报，
+                      生成唯一的、互斥的、带有全部战术信息的终极信号。
+        - 新增依赖: 接收一个由行为层生成的 `enhancements` 字典。
         """
-        print("        -> [回踩战术矩阵 V5.2] 启动，正在进行分层诊断...")
+        print("        -> [回踩战术矩阵 V6.0] 启动，正在进行三维联合作战诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
         
+        # --- 1. 提取所有基础和增强信号 ---
+        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        
         lookback_window = 15
-
-        # --- 1. 提取基础条件和事件 (逻辑不变) ---
-        is_pullback_day = df['pct_change_D'] < 0
-        is_gentle_drop = df['pct_change_D'] > -0.05
-        is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < 30.0
-        is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
-        is_healthy_pullback_standard = is_pullback_day & is_gentle_drop & is_winner_holding_tight & is_shrinking_volume
-        is_healthy_pullback_for_cruise = is_pullback_day & is_gentle_drop & is_winner_holding_tight
         ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-        
-        # --- 2. 计算衰减影响力分数 (逻辑不变) ---
-        ascent_influence = _create_decaying_influence_series(ascent_start_event, lookback_window)
-        cruise_influence = _create_decaying_influence_series(cruise_start_event, lookback_window)
+        is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
+        is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
 
-        # --- 3. 按影响力分层，定义互斥的战法等级 (逻辑不变) ---
-        high_influence_threshold = 0.7
-        mid_influence_threshold = 0.3
-        is_ascent_pullback = is_healthy_pullback_standard & (ascent_influence > 0) & (cruise_influence == 0)
-        states['TACTIC_ASCENT_PULLBACK_S_PLUS'] = is_ascent_pullback & (ascent_influence > high_influence_threshold)
-        states['TACTIC_ASCENT_PULLBACK_A'] = is_ascent_pullback & (ascent_influence <= high_influence_threshold) & (ascent_influence > mid_influence_threshold)
-        states['TACTIC_ASCENT_PULLBACK_B'] = is_ascent_pullback & (ascent_influence <= mid_influence_threshold)
-        is_cruise_pullback = is_healthy_pullback_for_cruise & (cruise_influence > 0)
-        states['TACTIC_CRUISE_RELAY_S_PLUS'] = is_cruise_pullback & (cruise_influence > high_influence_threshold)
-        states['TACTIC_CRUISE_RELAY_A'] = is_cruise_pullback & (cruise_influence <= high_influence_threshold) & (cruise_influence > mid_influence_threshold)
-        states['TACTIC_CRUISE_RELAY_B'] = is_cruise_pullback & (cruise_influence <= mid_influence_threshold)
+        is_hammer = enhancements.get('is_hammer_candle', default_series)
+        is_fib_gold = enhancements.get('is_fib_golden_support', default_series)
+        is_suppressive = enhancements.get('is_suppressive_pullback', default_series)
 
-        # [修改原因] 优化日志输出，使其更清晰、更具可读性。
+        # --- 2. 按优先级生成唯一的战术信号 ---
+        # 优先级1 (S++): 巡航期内的打压式回踩(黄金坑) + 锤子线确认 (最强反转)
+        s_plus_plus_signal = is_in_cruise_window & is_suppressive & is_hammer
+        states['TACTIC_CRUISE_PIT_HAMMER_S_PLUS_PLUS'] = s_plus_plus_signal
+
+        # 优先级2 (S+): 巡航期内的健康回踩 + 黄金分割位支撑 + 锤子线 (三重共振)
+        s_plus_signal = is_in_cruise_window & is_healthy_pullback & is_fib_gold & is_hammer & ~s_plus_plus_signal
+        states['TACTIC_CRUISE_FIB_HAMMER_S_PLUS'] = s_plus_signal
+
+        # 优先级3 (S): 巡航期内的普通健康回踩
+        s_signal = is_in_cruise_window & is_healthy_pullback & ~s_plus_plus_signal & ~s_plus_signal
+        states['TACTIC_CRUISE_PULLBACK_S'] = s_signal
+
+        # 优先级4 (A): 初升浪期内的健康回踩 + 锤子线
+        a_signal = is_in_ascent_window & is_healthy_pullback & is_hammer & ~is_in_cruise_window
+        states['TACTIC_ASCENT_HAMMER_A'] = a_signal
+
+        # 优先级5 (B): 初升浪期内的普通健康回踩
+        b_signal = is_in_ascent_window & is_healthy_pullback & ~is_hammer & ~is_in_cruise_window
+        states['TACTIC_ASCENT_PULLBACK_B'] = b_signal
+
+        # 打印日志
         tactic_name_map = {
-            "ASCENT_PULLBACK": "初升浪回踩",
-            "CRUISE_RELAY": "巡航中继回踩"
-        }
-        grade_map = {
-            "S_PLUS": "S+",
-            "A": "A",
-            "B": "B"
+            "CRUISE_PIT_HAMMER": "巡航黄金坑(锤子确认)", "CRUISE_FIB_HAMMER": "巡航斐波那契(锤子确认)",
+            "CRUISE_PULLBACK": "巡航常规回踩", "ASCENT_HAMMER": "初升浪回踩(锤子确认)",
+            "ASCENT_PULLBACK": "初升浪常规回踩"
         }
         for name, series in states.items():
             if series.any():
                 parts = name.split('_')
-                tactic_key = "_".join(parts[1:-1])
-                grade_key = parts[-1]
-                
+                tactic_key = "_".join(parts[1:-2]) if "PLUS" in parts[-1] else "_".join(parts[1:-1])
                 cn_tactic = tactic_name_map.get(tactic_key, tactic_key)
-                cn_grade = grade_map.get(grade_key, grade_key)
-
-                print(f"          -> [{cn_grade}级战法] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
+                print(f"          -> [战法确认] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
 
         return states
 
