@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
+from strategies.trend_following.intelligence_layer import MainForceState
 from strategies.trend_following.utils import get_params_block, get_param_value
 
 class CognitiveIntelligence:
