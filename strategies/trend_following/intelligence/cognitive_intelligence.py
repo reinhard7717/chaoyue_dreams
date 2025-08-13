@@ -342,8 +342,8 @@ class CognitiveIntelligence:
         final_tactic_signal = was_setup_yesterday & is_triggered_today
         states['TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS'] = final_tactic_signal
         
-        # if final_tactic_signal.any():
-        #     print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“锁仓再集中”的最终拉升信号！")
+        if final_tactic_signal.any():
+            print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“锁仓再集中”的最终拉升信号！")
 
         return states
 
@@ -386,8 +386,8 @@ class CognitiveIntelligence:
         final_tactic_signal = healthy_rally_state & ~risk_exclusion
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
         
-        # if final_tactic_signal.any():
-        #     print(f"          -> [S级持仓确认] 侦测到 {final_tactic_signal.sum()} 天处于“健康锁筹拉升”巡航状态！")
+        if final_tactic_signal.any():
+            print(f"          -> [S级持仓确认] 侦测到 {final_tactic_signal.sum()} 天处于“健康锁筹拉升”巡航状态！")
 
         return states
 
