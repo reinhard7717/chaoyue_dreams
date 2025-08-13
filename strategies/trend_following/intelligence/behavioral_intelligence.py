@@ -150,9 +150,10 @@ class BehavioralIntelligence:
 
         # --- 2. 定义通用的“建设性背景” ---
         is_in_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        is_in_ascent_wave = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
         is_in_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
-        is_constructive_context = is_in_uptrend | is_in_squeeze | is_in_box
+        is_constructive_context = is_in_uptrend | is_in_ascent_wave | is_in_squeeze | is_in_box
 
         # --- 3. 识别并定性回踩行为 ---
         # 基础条件：当天是下跌的
