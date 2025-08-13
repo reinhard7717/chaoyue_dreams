@@ -1,7 +1,8 @@
 # 文件: strategies/trend_following/intelligence/playbook_engine.py
 # 剧本与触发器引擎
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
+
 from strategies.trend_following.utils import get_params_block, get_param_value
 
 class PlaybookEngine:
