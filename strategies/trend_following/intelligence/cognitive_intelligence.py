@@ -408,7 +408,7 @@ class CognitiveIntelligence:
         
         # 核心上下文
         was_in_cruise_wave = atomic.get('TACTIC_LOCK_CHIP_RALLY_S', default_series).shift(1).fillna(False)
-        is_in_ascent_wave = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
+        was_in_ascent_wave = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series).shift(1).fillna(False)
         
         # 精准制导的特殊条件
         is_fib_golden_pocket_support = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
@@ -432,7 +432,7 @@ class CognitiveIntelligence:
 
         # 优先级3 (S): 初升浪回踩
         # 条件：满足初升浪回踩，但【不满足】更高优先级的精准制导条件
-        ascent_pullback_signal = is_in_ascent_wave & is_healthy_pullback & ~precision_guided_signal
+        ascent_pullback_signal = was_in_ascent_wave & is_healthy_pullback & ~precision_guided_signal
         states['TACTIC_ASCENT_AND_PULLBACK_S'] = ascent_pullback_signal
         if ascent_pullback_signal.any():
             print(f"          -> [S级战法] 侦测到 {ascent_pullback_signal.sum()} 次“初升浪回踩”的介入机会！")
