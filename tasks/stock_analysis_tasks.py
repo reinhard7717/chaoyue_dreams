@@ -224,7 +224,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             return {"status": "failed", "reason": "Could not retrieve stock list."}
 
         # 1.2 定义数据就绪的阈值 (逻辑不变)
-        readiness_threshold = int(total_stock_count * 0.95)
+        readiness_threshold = int(total_stock_count * 0.9)
         logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
 
         # 1.3.1 动态获取所有分表的表名 (逻辑不变)
