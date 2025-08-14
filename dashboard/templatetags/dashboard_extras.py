@@ -115,6 +115,33 @@ def multiply(value, arg):
         print(f"DEBUG: multiply filter error - value: {value}, arg: {arg}") # 调试信息
         return 0.0 # 发生错误时返回0.0，或根据业务需求处理
 
+@register.filter(name='get_playbook_style_class')
+def get_playbook_style_class(playbook):
+    """
+    根据剧本(playbook)对象的名称，返回一个用于特殊高亮的CSS类名。
+    这个逻辑与 views.py 中的 get_playbook_priority 保持一致。
+    """
+    # 安全检查，如果传入的不是一个有效的对象，则返回空字符串
+    if not hasattr(playbook, 'name') or not hasattr(playbook, 'cn_name'):
+        return ""
+
+    playbook_name = playbook.cn_name or playbook.name
+    playbook_name_upper = playbook.name.upper()
+
+    # 优先级 0: 火箭信号
+    if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
+        return "rocket-signal"
+    # 优先级 1: 王牌信号
+    if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌' in playbook_name:
+        return "king-signal"
+    # 优先级 2: 专家信号
+    if '专家' in playbook_name:
+        return "expert-signal"
+    
+    # 如果没有匹配的特殊样式，返回空字符串
+    return ""
+
+
 # 新增代码行：定义 subtract 过滤器
 @register.filter
 def subtract(value, arg):
