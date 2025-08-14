@@ -43,13 +43,6 @@ class Command(BaseCommand):
                 default_score=score
             ))
 
-    # --- 【代码修改】移除 handle 方法上的 @transaction.atomic 装饰器 ---
-    # [修改原因] 全局的 @transaction.atomic 会导致一个非常长的事务，
-    #           它在读取数据后、写入数据前会持有锁并执行大量Python逻辑，
-    #           这是导致数据库死锁 (Deadlock) 的主要原因。
-    # [修复逻辑] 我们将移除这个全局装饰器，仅在真正执行数据库写入操作
-    #           (bulk_create, bulk_update) 时，才使用 with transaction.atomic():
-    #           来包裹，确保事务尽可能短小，从而消除死锁风险。
     def handle(self, *args, **options):
         """
         【V2.2 死锁修复版】
@@ -108,7 +101,21 @@ class Command(BaseCommand):
                         score_type_map=score_type_map, existing_map=existing_playbooks_map,
                         to_create=playbooks_to_create, to_update=playbooks_to_update
                     )
-
+        # [修改原因] 新增对 'playbook_scoring' 配置块的解析，确保新剧本能被同步。
+        self.stdout.write('  -> Parsing playbook-specific scores...')
+        playbook_scores = scoring_params.get('playbook_scoring', {})
+        for name, score in playbook_scores.items():
+            if name.startswith('说明_'): continue
+            # 所有 playbook_scoring 下的信号都属于进攻战法
+            self._process_playbook(
+                name=name,
+                score=score,
+                playbook_type=Playbook.PlaybookType.OFFENSIVE,
+                score_type_map=score_type_map,
+                existing_map=existing_playbooks_map,
+                to_create=playbooks_to_create,
+                to_update=playbooks_to_update
+            )
         self.stdout.write('  -> Parsing risk playbooks...')
         warning_rules = scoring_params.get('holding_warning_params', {}).get('signals', {})
         for name, score in warning_rules.items():
