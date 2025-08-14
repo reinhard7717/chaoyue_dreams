@@ -215,7 +215,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         # --- 步骤1: 数据驱动的权威日期发现机制 ---
         logger.info("步骤1: 正在通过原生SQL查询所有 AdvancedChipMetrics 分表，以确定数据就绪的权威交易日...")
         
-        # 1.1 获取市场上的股票总数，作为基准 (逻辑不变)
+        # 1.1 获取市场上的股票总数，作为基准 
         stock_basic_dao = StockBasicInfoDao(cache_manager)
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         total_stock_count = len(all_stocks)
@@ -223,18 +223,18 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             logger.error("【严重错误】无法从 StockInfo 获取任何股票，任务终止！")
             return {"status": "failed", "reason": "Could not retrieve stock list."}
 
-        # 1.2 定义数据就绪的阈值 (逻辑不变)
+        # 1.2 定义数据就绪的阈值 
         readiness_threshold = int(total_stock_count * 0.9)
         logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
 
-        # 1.3.1 动态获取所有分表的表名 (逻辑不变)
+        # 1.3.1 动态获取所有分表的表名 
         metrics_models = [
             AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY,
             AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
         ]
         table_names = [model._meta.db_table for model in metrics_models]
         
-        # 1.3.2 构建 UNION ALL 子查询部分 (逻辑不变)
+        # 1.3.2 构建 UNION ALL 子查询部分 
         union_all_query = " UNION ALL ".join([f"SELECT trade_time, stock_id FROM {table}" for table in table_names])
 
         # 【代码修改】修改SQL查询逻辑：不再使用HAVING过滤，而是直接获取最新日期及其数据量
@@ -276,12 +276,12 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             )
             return {"status": "skipped", "reason": "No trade date met the data readiness threshold."}
 
-        # 1.4 确定权威日期 (逻辑不变)
+        # 1.4 确定权威日期 
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {actual_stock_count} 支股票筹码数据就绪。")
 
 
-        # 步骤2: 使用权威日期进行精确的数据清理 (逻辑不变)
+        # 步骤2: 使用权威日期进行精确的数据清理 
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
             # 【代码修改】这里的 latest_trade_date 已经是 date 对象，可以直接使用
@@ -304,7 +304,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         stock_count = len(all_codes)
         logger.info(f"[每日增量] 准备为 {stock_count} 只股票在权威日期 {trade_time_str} 上更新策略分数。")
         
-        # 步骤4: 派发并行任务 (逻辑不变)
+        # 步骤4: 派发并行任务 
         # 假设 run_multi_timeframe_strategy 任务已正确导入
         # from .some_other_task_file import run_multi_timeframe_strategy 
         analysis_tasks = [

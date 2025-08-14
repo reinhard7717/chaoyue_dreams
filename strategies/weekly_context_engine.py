@@ -389,11 +389,11 @@ class WeeklyContextEngine:
             print(f"    - 结论: [失败] 缺少必要列")
             return pd.Series(False, index=df.index)
         
-        # 条件1: 价格突破 (逻辑不变)
+        # 条件1: 价格突破 
         period_high = df['high_W'].shift(1).rolling(window=lookback_weeks).max()
         is_price_breakout = df['close_W'] > period_high
         
-        # 条件2: 放量突破 (逻辑不变)
+        # 条件2: 放量突破 
         avg_volume = df['volume_W'].shift(1).rolling(window=lookback_weeks).mean()
         is_volume_breakout = df['volume_W'] > (avg_volume * volume_multiplier)
         

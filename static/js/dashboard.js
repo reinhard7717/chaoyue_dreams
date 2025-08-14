@@ -438,7 +438,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // 2. 更新按钮为加载状态 (逻辑不变)
+            // 2. 更新按钮为加载状态 
             updateButtonState(button, false, true);
 
             try {

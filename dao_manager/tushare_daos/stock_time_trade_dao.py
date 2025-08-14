@@ -366,7 +366,7 @@ class StockTimeTradeDAO(BaseDAO):
                     data_dicts_by_model[model_class] = []
                 data_dicts_by_model[model_class].extend(data_to_save)
 
-            # 4. 分页逻辑 (逻辑不变)
+            # 4. 分页逻辑 
             if len(df) < limit:
                 break
             offset += limit

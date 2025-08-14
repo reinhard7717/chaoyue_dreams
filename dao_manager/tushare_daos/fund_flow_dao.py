@@ -454,7 +454,7 @@ class FundFlowDao(BaseDAO):
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
         
-        # 1. 准备API请求参数 (逻辑不变)
+        # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
@@ -533,7 +533,7 @@ class FundFlowDao(BaseDAO):
             all_data_to_save.extend(df_processed.to_dict('records'))
             print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
 
-            # 5. 分页逻辑 (逻辑不变)
+            # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
@@ -569,7 +569,7 @@ class FundFlowDao(BaseDAO):
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
 
-        # 1. 准备API请求参数 (逻辑不变)
+        # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
@@ -649,7 +649,7 @@ class FundFlowDao(BaseDAO):
             all_data_to_save.extend(df_processed.to_dict('records'))
             print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
 
-            # 5. 分页逻辑 (逻辑不变)
+            # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
@@ -685,7 +685,7 @@ class FundFlowDao(BaseDAO):
         """
         # --- 代码修改开始 ---
 
-        # 1. 准备API请求参数 (逻辑不变)
+        # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
@@ -763,7 +763,7 @@ class FundFlowDao(BaseDAO):
             all_data_to_save.extend(df_processed.to_dict('records'))
             print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
 
-            # 5. 分页逻辑 (逻辑不变)
+            # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
@@ -799,7 +799,7 @@ class FundFlowDao(BaseDAO):
         2. 【性能优化】采用向量化处理替代逐行循环，一次性完成数据清洗和类型转换。
         3. 【代码健壮性】保留分页逻辑以支持大数据量拉取，并增强日志信息。
         """
-        # 1. 准备API请求参数 (逻辑不变)
+        # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""

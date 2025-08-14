@@ -239,7 +239,7 @@ class BehavioralIntelligence:
         # [修改原因] 重命名信号，使其战术含义更清晰。
         states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = is_core_absorption_conflict
         
-        # --- 4. “诱多派发”风险诊断 (逻辑不变) ---
+        # --- 4. “诱多派发”风险诊断  ---
         is_core_distribution_conflict = is_strong_rally & is_chip_diverging
         states['BEHAVIOR_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
         states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict # 简化，不再依赖资金流

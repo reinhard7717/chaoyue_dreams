@@ -81,7 +81,7 @@ def trend_following_list(request):
     - 功能增强: 增加日期选择功能，允许用户查询任意历史交易日的买入信号。
     - 代码清理: 移除了 get_playbook_priority 相关的复杂排序逻辑。
     """
-    # 1. 确定要查询的目标日期 (逻辑不变)
+    # 1. 确定要查询的目标日期 
     selected_date_str = request.GET.get('date')
     target_date = None
 
@@ -99,7 +99,7 @@ def trend_following_list(request):
         if latest_trade_day_obj:
             target_date = latest_trade_day_obj.cal_date
 
-    # 2. 如果无法确定目标日期，则不进行查询 (逻辑不变)
+    # 2. 如果无法确定目标日期，则不进行查询 
     if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
         page_title = '策略状态监控中心 (无可用数据)'
@@ -168,7 +168,7 @@ def trend_following_list(request):
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
 
-    # 6. 分页与上下文准备 (逻辑不变)
+    # 6. 分页与上下文准备 
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -203,7 +203,7 @@ def fav_trend_following_list(request):
             'composite': current_score.composite_score - baseline_score.composite_score,
         }
 
-    # --- 步骤1: 预抓取所有需要的数据 (逻辑不变) ---
+    # --- 步骤1: 预抓取所有需要的数据  ---
     base_queryset = PositionTracker.objects.filter(user=request.user).select_related('stock').prefetch_related(
         Prefetch('snapshots', queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'), to_attr='latest_snapshot_list'),
         Prefetch('transactions', queryset=Transaction.objects.order_by('transaction_date'), to_attr='sorted_transactions')
@@ -290,7 +290,7 @@ def fav_trend_following_list(request):
         # 3.3 将所有查询结果合并到最终的 map 中
         chip_metrics_map = {(cm.stock_id, cm.trade_time): cm for cm in all_key_chip_metrics}
 
-    # --- 步骤4: 组装最终数据，进行精细化计算 (逻辑不变) ---
+    # --- 步骤4: 组装最终数据，进行精细化计算  ---
     trackers_for_display = []
     for item in trackers_with_key_dates:
         tracker = item['tracker']

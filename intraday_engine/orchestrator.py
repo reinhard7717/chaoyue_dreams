@@ -112,7 +112,7 @@ class IntradayEngineOrchestrator:
                         "cost_price": float(stock_quote.get('close', 10.0)),
                         "user_id": fav_stock_dict.get("user_id")
                     }
-        # --- 4. 将监控池写入Redis (逻辑不变) ---
+        # --- 4. 将监控池写入Redis  ---
         self.today_str = today.strftime('%Y-%m-%d')
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)

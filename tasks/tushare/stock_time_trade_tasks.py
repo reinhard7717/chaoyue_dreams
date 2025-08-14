@@ -495,7 +495,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
     """
     print(f"分发器任务[V2.2 手动分块版]启动，准备为日期 {trade_date_str} 分发CYQ任务...")
     async def main():
-        # 1. 获取股票列表 (逻辑不变)
+        # 1. 获取股票列表 
         stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
         print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
         stock_list = await stock_dao.get_stock_list()
@@ -504,11 +504,11 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
             logger.warning(f"分发器：未能通过DAO获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
             return {"status": "skipped", "message": "no stocks found via DAO"}
         stock_count = len(all_stock_codes)
-        # 2. 定义分块参数 (逻辑不变)
+        # 2. 定义分块参数 
         chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 33) 
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 10)
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size_per_stock} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
-        # 3. 准备所有任务签名 (逻辑不变)
+        # 3. 准备所有任务签名 
         all_tasks = []
         for stock_code in all_stock_codes:
             all_tasks.append(save_single_stock_cyq_chips.s(stock_code=stock_code, trade_date_str=trade_date_str))

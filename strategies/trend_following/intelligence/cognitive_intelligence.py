@@ -176,14 +176,14 @@ class CognitiveIntelligence:
             is_chip_concentrating &                  # 3. 筹码: 供应正在被锁定 (替代资金流入)
             is_price_above_long_ma                   # 4. 位置: 占据战略制高点
         )
-        # 【战局2: A级突破前夜·能量压缩】 - (逻辑不变)
+        # 【战局2: A级突破前夜·能量压缩】 - 
         structure_states['STRUCTURE_BREAKOUT_EVE_A'] = (
             is_vol_squeeze &
             is_chip_concentrating &
             is_ma_converging &
             is_price_above_long_ma
         )
-        # 【战局3: B级反转初期·黎明微光】 - (逻辑不变)
+        # 【战局3: B级反转初期·黎明微光】 - 
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = (
             is_recent_reversal &
             is_ma_short_slope_positive
@@ -381,15 +381,15 @@ class CognitiveIntelligence:
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 获取参数 (逻辑不变) ---
+        # --- 1. 获取参数  ---
         p = get_params_block(self.strategy, 'lock_chip_rally_params', {})
         require_concentration = get_param_value(p.get('require_continuous_concentration'), True)
         terminate_on_stalling = get_param_value(p.get('terminate_on_health_stalling'), True)
 
-        # --- 2. 定义“点火”事件 (逻辑不变) ---
+        # --- 2. 定义“点火”事件  ---
         ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
 
-        # --- 3. 定义“硬性熄火”条件 (逻辑不变) ---
+        # --- 3. 定义“硬性熄火”条件  ---
         is_diverging = atomic.get('CHIP_DYN_OBJECTIVE_DIVERGING', default_series) # 使用客观发散信号
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
         is_ma_broken = ~atomic.get('MA_STATE_STABLE_BULLISH', default_series)
@@ -398,7 +398,7 @@ class CognitiveIntelligence:
         if terminate_on_stalling:
             hard_termination_condition |= is_health_stalling
 
-        # --- 4. 定义“软性巡航”条件 (逻辑不变) ---
+        # --- 4. 定义“软性巡航”条件  ---
         is_cruise_condition_met = atomic.get('CHIP_DYN_CONCENTRATING', default_series) if require_concentration else pd.Series(True, index=df.index)
 
         # --- 5. 构建带“容错机制”的状态机 ---

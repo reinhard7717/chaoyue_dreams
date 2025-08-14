@@ -304,7 +304,7 @@ class IndicatorService:
         【军需官】扫描整个策略配置，找出所有指标中要求的最长回溯期。
         这是一个简化的实现，用于演示核心思想。
         """
-        print("    - [军需官] 正在扫描全军军火库，确定最大回溯需求...")
+        # print("    - [军需官] 正在扫描全军军火库，确定最大回溯需求...")
         # 简化实现：
         calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
         print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
@@ -339,7 +339,7 @@ class IndicatorService:
         # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
-        # --- 步骤 5: 【原步骤4】注入其他上下文信息 (逻辑不变) ---
+        # --- 步骤 5: 【原步骤4】注入其他上下文信息  ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         

@@ -189,7 +189,7 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
         logger.warning("未能获取到股票列表，统一调度任务结束。")
         return
         
-    # 2. 分派“行情快照(Quote)”批量任务 (逻辑不变)
+    # 2. 分派“行情快照(Quote)”批量任务 
     logger.info("--- 开始分派行情快照(Quote)任务 ---")
     total_quote_batches = 0
     for i in range(0, len(favorite_codes), quote_batch_size):

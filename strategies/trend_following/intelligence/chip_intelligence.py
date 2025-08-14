@@ -197,13 +197,13 @@ class ChipIntelligence:
         states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         
-        # --- 步骤3: 对“筹码成本”进行动态分析 (逻辑不变) ---
+        # --- 步骤3: 对“筹码成本”进行动态分析  ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
         cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
         states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
         states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
         
-        # --- 步骤4 & 5 (逻辑不变) ---
+        # --- 步骤4 & 5  ---
         winner_rate_collapse_threshold = -1.0
         states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
         states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0

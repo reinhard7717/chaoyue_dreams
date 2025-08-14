@@ -262,7 +262,7 @@ class StrategiesDAO(BaseDAO):
                 'signal_take_profit'
             )
         # --- 代码修改结束 ---
-        # 1. 定义窗口函数 (逻辑不变)
+        # 1. 定义窗口函数 
         #    - PARTITION BY stock_id: 将数据按股票ID分组
         #    - ORDER BY trade_time DESC: 在每个分组内，按交易时间倒序排列
         #    - RowNumber(): 为排序后的每一行分配一个行号（最新的为1）
@@ -281,18 +281,18 @@ class StrategiesDAO(BaseDAO):
             row_number=window
         )
         # --- 代码修改结束 ---
-        # 3. 从子查询中筛选出我们想要的行 (rn=1) (逻辑不变)
+        # 3. 从子查询中筛选出我们想要的行 (rn=1) 
         #    注意: Django ORM 要求对窗口函数的结果进行筛选时，必须通过 .filter() 作用于 annotate() 之后
         #    为了让数据库能直接处理，我们把它包装成一个子查询
         latest_ids = ranked_reports.filter(row_number=1).values('id')
-        # 4. 获取最终的完整报告对象 (逻辑不变)
+        # 4. 获取最终的完整报告对象 
         #    使用 __in 查询，这比之前的复杂 OR 条件要快得多
         latest_reports_queryset = MonthlyTrendStrategyReport.objects.filter(
             id__in=latest_ids
         ).select_related('stock').order_by('-buy_score', '-trade_time')
         # 调试信息：打印查询结果数量
         print(f"查询完成，共找到 {latest_reports_queryset.count()} 条符合条件的最新报告。")
-        # 返回 .values() 以便在视图中直接使用 (逻辑不变)
+        # 返回 .values() 以便在视图中直接使用 
         return latest_reports_queryset.values(
             'stock__stock_code',
             'stock__stock_name',
@@ -332,7 +332,7 @@ class StrategiesDAO(BaseDAO):
         filter_condition = reduce(operator.or_, q_objects)
 
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-        # 【代码修改】将所有计算字段（包括展示用的字符串）在同一个 .annotate() 中完成
+        # 将所有计算字段（包括展示用的字符串）在同一个 .annotate() 中完成
         final_queryset = TrendFollowStrategyReport.objects.filter(filter_condition).select_related('stock').annotate(
             # --- 基础字段和别名 ---
             stock_code=F('stock__stock_code'),
@@ -682,29 +682,29 @@ class StrategiesDAO(BaseDAO):
                     生产状态。保留了直接获取所有字段的逻辑，以确保数据链路的
                     长期稳定性和免维护性。
         """
-        # 1. 【代码修改】根据股票代码动态获取对应的分表模型
+        # 1. 根据股票代码动态获取对应的分表模型
         MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-        print(f"调试信息: 正在为股票 {stock_code} 查询分表模型: {MetricsModel.__name__}") # 增加调试信息，清晰展示当前使用的模型
+        # print(f"调试信息: 正在为股票 {stock_code} 查询分表模型: {MetricsModel.__name__}") # 增加调试信息，清晰展示当前使用的模型
 
-        # 2. 【代码修改】使用动态获取的模型构建基础查询集，替换了原有的 AdvancedChipMetrics.objects
+        # 2. 使用动态获取的模型构建基础查询集，替换了原有的 AdvancedChipMetrics.objects
         queryset = MetricsModel.objects.filter(stock__stock_code=stock_code)
 
-        # 3. 应用日期过滤器 (逻辑不变)
+        # 3. 应用日期过滤器 
         if trade_time_dt and pd.notna(trade_time_dt):
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
 
-        # 4. 排序并限制数量 (逻辑不变)
+        # 4. 排序并限制数量 
         queryset = queryset.order_by('-trade_time')[:limit]
         
-        # 5. 直接获取所有字段，不再使用脆弱的 field_names 列表 (逻辑不变)
+        # 5. 直接获取所有字段，不再使用脆弱的 field_names 列表 
         data_records = [item async for item in queryset.values()]
 
-        # 6. 如果无数据，返回空DataFrame (逻辑不变)
+        # 6. 如果无数据，返回空DataFrame 
         if not data_records:
             return pd.DataFrame()
 
-        # 7. 转换为DataFrame并进行标准化处理 (逻辑不变)
+        # 7. 转换为DataFrame并进行标准化处理 
         df = pd.DataFrame.from_records(data_records)
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df = df.set_index('trade_time')
