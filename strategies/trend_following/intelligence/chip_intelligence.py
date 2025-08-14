@@ -78,18 +78,26 @@ class ChipIntelligence:
             # print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
 
         # --- 步骤 5: A/S 级静态结果与复合机会诊断 (直接使用预计算列) ---
-        # A级: 筹码锁定稳定。
-        is_highly_concentrated_static = df[conc_col] < get_param_value(p_struct.get('high_concentration_threshold'), 0.15)
-        cost_stability_threshold = get_param_value(p_struct.get('cost_stability_threshold'), 0.005)
-        # 直接使用预计算的 'SLOPE_5_peak_cost_D' 列判断成本峰是否稳定。
-        is_cost_peak_stable = df[cost_slope_col].abs() < cost_stability_threshold
-        states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_static & is_cost_peak_stable
-        # if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
-        #     print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
+       # --- A级动态阈值 (新增) ---
+        locked_conc_quantile = get_param_value(p_struct.get('locked_concentration_quantile'), 0.10) # 筹码集中度必须优于过去90%的时间
+        cost_stability_quantile = get_param_value(p_struct.get('cost_stability_quantile'), 0.20) # 成本波动必须小于过去80%的时间
+        
+        # 计算动态阈值
+        locked_conc_threshold = df[conc_col].rolling(window=120, min_periods=20).quantile(locked_conc_quantile)
+        cost_stability_threshold = df[cost_slope_col].abs().rolling(window=120, min_periods=20).quantile(cost_stability_quantile)
 
-        # S级: 筹码锁仓突破。
+        # --- A/S 级静态结果与复合机会诊断 (使用新阈值) ---
+        # A级: 筹码锁定稳定。
+        is_highly_concentrated_dynamic = df[conc_col] < locked_conc_threshold
+        is_cost_peak_stable_dynamic = df[cost_slope_col].abs() < cost_stability_threshold
+        states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_dynamic & is_cost_peak_stable_dynamic
+        
+        # S级: 筹码锁仓突破 (逻辑不变，但基础更可靠)
         is_breakout_candle = self.strategy.atomic_states.get('TRIGGER_BREAKOUT_CANDLE', default_series)
         states['OPP_CHIP_LOCKED_BREAKOUT_S'] = states['CHIP_CONC_LOCKED_AND_STABLE_A'] & is_breakout_candle
+        
+        # if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
+        #     print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
         # if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
         #     print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
 
@@ -156,7 +164,7 @@ class ChipIntelligence:
         if missing_cols:
             print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
-        # --- 【核心升级】步骤1.5: 获取位置上下文情报 ---
+        # --- 步骤1.5: 获取位置上下文情报 ---
         # 注意：这要求 _diagnose_contextual_zones 必须在此模块之前运行
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
@@ -169,9 +177,15 @@ class ChipIntelligence:
         is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
         states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = is_concentrating_trend & is_accelerating_action
         # 2.3 发散动态 (结合了战场上下文)
-        is_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['CHIP_DYN_DIVERGING'] = is_diverging_action & is_in_high_level_zone
+        # [修改原因] 解耦客观事实与风险解读。
+        # 2.3.1 定义客观的发散行为 (无偏见)
+        is_objective_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
+        states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_objective_diverging_action
+        # 2.3.2 定义带有上下文的风险信号 (用于风险评分)
+        states['CHIP_DYN_DIVERGING'] = is_objective_diverging_action & is_in_high_level_zone
+        # 同样地，解耦加速度发散
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
+        states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         # --- 步骤3: 对“筹码成本”进行动态分析 ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0

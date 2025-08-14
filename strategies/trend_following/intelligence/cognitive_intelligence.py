@@ -390,7 +390,7 @@ class CognitiveIntelligence:
         ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
 
         # --- 3. 定义“硬性熄火”条件 (逻辑不变) ---
-        is_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
+        is_diverging = atomic.get('CHIP_DYN_OBJECTIVE_DIVERGING', default_series) # 使用客观发散信号
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
         is_ma_broken = ~atomic.get('MA_STATE_STABLE_BULLISH', default_series)
         is_health_stalling = atomic.get('HOLD_RISK_HEALTH_STALLING', default_series)

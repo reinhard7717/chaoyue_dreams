@@ -652,35 +652,28 @@
       },
       "chip_feature_params": {
         "enabled": true,
-        "说明": "【V234.2 动态阈值版】筹码诊断引擎参数。",
-        "accel_concentration_threshold": {
-          "value": -0.001,
-          "description": "定义“显著加速集中”所需的最小加速度。用于过滤噪音，提纯信号。"
-        },
+        "description": "【V321.0 动态自适应版】筹码特征参数。所有关于筹码结构、动态和行为的判断都基于此。",
         "structure_params": {
-          "enabled": true,
-          "steady_gathering_quantile": 0.40,
+          "description": "【V321.0 动态自适应版】定义各级筹码聚集状态的动态阈值。",
+          "steady_gathering_quantile": 0.4,
           "accel_gathering_quantile": 0.15,
-          "high_concentration_threshold": 0.15,
-          "cost_stability_threshold": 0.005,
-          "slope_tolerance_healthy": 0.001,
-          "rapid_concentration_threshold": -0.005,
-          "cost_collapse_threshold": -0.01,
-          "winner_rate_collapse_threshold": -1.0,
-          "enable_relative_squeeze": true,
-          "squeeze_window": 120,
-          "squeeze_percentile": 0.2
+          "locked_concentration_quantile": {
+            "value": 0.10,
+            "description": "[动态自适应] 定义A级“高度集中”的动态分位数。0.1代表集中度优于过去120天中90%的时间。"
+          },
+          "cost_stability_quantile": {
+            "value": 0.20,
+            "description": "[动态自适应] 定义A级“成本稳定”的动态分位数。0.2代表成本峰斜率波动小于过去120天中80%的时间。"
+          }
         },
         "ignition_params": {
           "enabled": true,
+          "description": "定义“筹码点火”触发器的参数。",
           "accel_threshold": 0.01
         },
-        "scattered_params": {
-          "enabled": true,
-          "threshold": {
-            "value": 30.0,
-            "说明": "90%成本集中度高于此值(%)，视为筹码极度发散。"
-          }
+        "accel_concentration_threshold": {
+            "value": -0.001,
+            "description": "定义“筹码加速集中”的加速度阈值。"
         }
       },
       "ma_state_params": {
