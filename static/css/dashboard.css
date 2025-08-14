@@ -548,7 +548,6 @@ section h2 .icon {
 /* --- 策略和剧本列表通用样式 --- */
 .strategy-list,
 .playbook-list {
-    /* 【代码修改】将 display:flex 和 flex-wrap:wrap 从 .strategy-list, .playbook-list 的组合选择器中移到这里，确保其始终生效 */
     list-style-type: none;
     padding: 0;
     margin: 0;
@@ -570,7 +569,6 @@ section h2 .icon {
 }
 
 /* 表格中的剧本标签 */
-/* 表格中的剧本标签 - 增加了 .data-table 前缀 */
 .playbook-tag {
     display: inline-flex;
     align-items: center;
@@ -591,14 +589,17 @@ section h2 .icon {
     position: relative;
 }
 
-.playbook-list.collapsible {
+/* 【代码修改】修改选择器，使其不再依赖HTML中的.collapsible类，而是直接作用于容器内的列表 */
+/* 默认情况下，playbook-list是折叠的 */
+.playbook-container .playbook-list {
     max-height: 58px;
     /* 默认高度，约2行 */
     overflow: hidden;
     transition: max-height 0.3s ease-in-out;
 }
 
-.playbook-list.collapsible.expanded {
+/* 【代码修改】当JS添加.expanded类时，列表展开 */
+.playbook-container .playbook-list.expanded {
     max-height: 400px;
     /* 展开后的高度 */
 }

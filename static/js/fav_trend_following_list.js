@@ -1,3 +1,5 @@
+// static\js\fav_trend_following_list.js
+
 // 【代码修改】将所有代码包裹在 DOMContentLoaded 事件监听器中
 // 这确保了在执行JS代码时，页面上的所有HTML元素（如表格、按钮）都已经加载完毕
 document.addEventListener('DOMContentLoaded', function () {
