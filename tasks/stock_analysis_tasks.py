@@ -1305,81 +1305,67 @@ def run_top_n_performance_analysis(
 @with_cache_manager
 def aggregate_performance_results(self, results: list, *, cache_manager: CacheManager):
     """
-    【V2.0 新增 - Reduce 任务】
-    收集所有并行分析任务的结果，进行全局聚合，生成终极报告，并持久化到Redis。
+    【V2.1 序列化修复版 - Reduce 任务】
+    - 核心修复: 修正了数据持久化到Redis的逻辑。不再传递预先序列化的JSON字符串，
+                而是传递原始的Python对象(List[Dict])，由CacheManager统一负责序列化。
+    - 收益: 解决了因“双重序列化”导致数据无法存入Redis的根本性问题。
     """
-    logger.info("====== [全局性能分析 V2.0 - Reduce] 聚合任务启动 ======")
+    logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务启动 ======")
+    # ... (步骤 1 到 6 的聚合与计算逻辑完全不变) ...
     logger.info(f"已收到来自 {len(results)} 个 Map 任务的结果，开始聚合...")
-
-    # 1. 扁平化处理从所有Map任务收集到的结果列表
-    # results 的结构是 [[...], [...], []]，需要展平成一个列表
     all_stats = [item for sublist in results if sublist for item in sublist]
-
     if not all_stats:
         logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
         return {"status": "finished", "reason": "no data to aggregate"}
-
-    # 2. 使用pandas进行强大的数据聚合
     df = pd.DataFrame(all_stats)
-    
-    # 3. 计算加权平均指标，这比简单平均更科学
-    # 例如：信号A触发1000次，平均收益10%；信号B触发10次，平均收益20%。
-    # 全局平均收益绝不是(10+20)/2=15%，而应该是加权平均。
     df['weighted_max_profit'] = df['avg_max_profit_pct'] * df['triggers']
     df['weighted_max_drawdown'] = df['avg_max_drawdown_pct'] * df['triggers']
     df['weighted_exit_days'] = df['avg_exit_days'] * df['triggers']
-
-    # 4. 按信号名称进行分组聚合
     agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
         triggers=('triggers', 'sum'),
         successes=('successes', 'sum'),
-        # 对加权值求和
         total_weighted_profit=('weighted_max_profit', 'sum'),
         total_weighted_drawdown=('weighted_max_drawdown', 'sum'),
         total_weighted_days=('weighted_exit_days', 'sum')
     ).reset_index()
-
-    # 5. 计算最终的全局指标
     agg_df['win_rate_pct'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
     agg_df['avg_max_profit_pct'] = (agg_df['total_weighted_profit'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
     agg_df['avg_max_drawdown_pct'] = (agg_df['total_weighted_drawdown'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
     agg_df['avg_exit_days'] = (agg_df['total_weighted_days'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
-
-    # 6. 格式化报告并排序
-    report_df = agg_df.sort_values(
+    report_df_for_log = agg_df.sort_values(
         by=['win_rate_pct', 'triggers'], 
         ascending=[False, False]
     )
-    
-    # 选择最终输出的列
     final_columns = [
         'cn_name', 'type', 'triggers', 'successes', 
         'win_rate_pct', 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days'
     ]
-    report_df = report_df[final_columns]
+    report_df_for_log = report_df_for_log[final_columns]
     
-    # 7. 打印到日志供即时查看
+    # --- 步骤 7: 打印到日志 (逻辑不变) ---
     logger.info("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
-    # 重命名列头为中文，使其更易读
-    report_df.columns = ['信号名称', '类型', '总触发', '总成功', '胜率(%)', '平均最大涨幅(%)', '平均最大回撤(%)', '平均退出天数']
-    report_df['胜率(%)'] = report_df['胜率(%)'].apply(lambda x: f"{x:.2%}")
-    report_df['平均最大涨幅(%)'] = report_df['平均最大涨幅(%)'].apply(lambda x: f"{x:.2f}")
-    report_df['平均最大回撤(%)'] = report_df['平均最大回撤(%)'].apply(lambda x: f"{x:.2f}")
-    report_df['平均退出天数'] = report_df['平均退出天数'].apply(lambda x: f"{x:.1f}")
-
+    report_df_for_print = report_df_for_log.copy()
+    report_df_for_print.columns = ['信号名称', '类型', '总触发', '总成功', '胜率(%)', '平均最大涨幅(%)', '平均最大回撤(%)', '平均退出天数']
+    report_df_for_print['胜率(%)'] = report_df_for_print['胜率(%)'].apply(lambda x: f"{x:.2%}")
+    report_df_for_print['平均最大涨幅(%)'] = report_df_for_print['平均最大涨幅(%)'].apply(lambda x: f"{x:.2f}")
+    report_df_for_print['平均最大回撤(%)'] = report_df_for_print['平均最大回撤(%)'].apply(lambda x: f"{x:.2f}")
+    report_df_for_print['平均退出天数'] = report_df_for_print['平均退出天数'].apply(lambda x: f"{x:.1f}")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 150):
-        print(report_df.to_string(index=False))
+        print(report_df_for_print.to_string(index=False))
     logger.info("=" * 95 + "\n")
 
-    # 8. 【核心】将最终报告持久化到Redis缓存
-    report_json = report_df.to_json(orient='records', force_ascii=False)
-    cache_key = "strategy:performance_report:global_v2"
-    # 在同步的Celery任务中调用异步的CacheManager方法
-    async_to_sync(cache_manager.set)(cache_key, report_json, timeout=60 * 60 * 24 * 7) # 缓存7天
-    logger.info(f"终极报告已成功持久化到Redis缓存。Key: '{cache_key}'")
+    # 8. 【核心修复】将最终报告转换为Python原生对象(List[Dict])，再进行持久化
+    #    我们使用未被格式化用于打印的 report_df_for_log，以保留原始的数值类型。
+    report_data = report_df_for_log.to_dict(orient='records')
     
-    logger.info("====== [全局性能分析 V2.0 - Reduce] 聚合任务完成 ======")
-    return {"status": "success", "aggregated_signals": len(report_df), "cache_key": cache_key}
+    cache_key = "strategy:performance_report:global_v2"
+    # 将 report_data (一个Python列表) 传递给 cache_manager，让它处理序列化
+    async_to_sync(cache_manager.set)(cache_key, report_data, timeout=60 * 60 * 24 * 7) # 缓存7天
+
+    logger.info(f"终极报告已成功持久化到Redis缓存。Key: '{cache_key}'")
+
+    logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务完成 ======")
+    return {"status": "success", "aggregated_signals": len(report_df_for_log), "cache_key": cache_key}
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
 @with_cache_manager
