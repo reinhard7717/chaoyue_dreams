@@ -107,49 +107,100 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
 # =================================================================
 # =================== 1. 策略任务 ==================
 # =================================================================
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_multi_timeframe_strategy', queue='calculate_strategy')
 @with_cache_manager
-def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_only: bool = False, *, cache_manager: CacheManager):
+def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, latest_only: bool = False, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V4.1 - 装饰器重构版】
+    【V4.2 - 支持起始日期的策略计算任务】
     - 核心修改: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
+    - 新增功能: 增加了可选参数 `start_date_str`。当 `latest_only=False` 时，
+                可以指定一个起始日期，任务将只保存该日期之后（含当天）的策略记录。
+                这保证了指标计算的准确性（使用全历史数据），同时提供了灵活的数据保存范围。
+
+    Args:
+        stock_code (str): 股票代码。
+        trade_date (str, optional): 目标交易日 'YYYY-MM-DD'，主要用于 latest_only=True 模式。
+        latest_only (bool, optional): 是否只处理最新数据。
+        start_date_str (str, optional): 起始日期 'YYYY-MM-DD'，用于全历史模式下指定保存的起点。
+        cache_manager (CacheManager): 由装饰器注入的缓存管理器实例。
     """
     async def main():
-        # MODIFIED: 不再需要手动创建 CacheManager，直接使用装饰器注入的实例
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
+        
+        # 【代码修改】增强日志，以反映新的 start_date_str 参数
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
-        if trade_date:
-            analysis_end_time = f"{trade_date} 16:00:00"
+        if latest_only:
+            analysis_end_time = f"{trade_date} 16:00:00" if trade_date else None
             logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
         else:
             analysis_end_time = None
-            logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全历史数据]")
-        
+            # 【代码修改】在全历史模式下，检查并记录 start_date_str
+            if start_date_str:
+                logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str})，将从 [{start_date_str}] 开始保存记录。")
+                print(f"调试信息 [{stock_code}]: 全历史模式，指定起始日期 {start_date_str}") # 调试输出
+            else:
+                logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全部历史数据]")
+                print(f"调试信息 [{stock_code}]: 全历史模式，处理所有数据") # 调试输出
+
+        records_tuple = None # 初始化为 None
         if latest_only:
-            # run_for_latest_signal 现在返回四元组
+            # run_for_latest_signal 返回四元组 (逻辑不变)
             records_tuple = await strategy_orchestrator.run_for_latest_signal(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
         else:
-            # run_for_stock 现在返回四元组
+            # run_for_stock 返回四元组 (逻辑不变)
             records_tuple = await strategy_orchestrator.run_for_stock(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
-        
+
+        # 【新增代码】在保存前，根据 start_date_str 过滤结果
+        # 这个逻辑块只在全历史模式下且提供了起始日期时执行
+        if not latest_only and start_date_str and records_tuple:
+            print(f"调试信息 [{stock_code}]: 准备应用日期过滤，起始日: {start_date_str}") # 调试输出
+            try:
+                # 1. 解析起始日期
+                start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+
+                # 2. 解包原始结果元组（假设为 signals, other1, scores, other2）
+                original_signals, other_list_1, original_scores, other_list_2 = records_tuple
+
+                # 3. 过滤信号列表 (TradingSignal.trade_time 是 datetime 对象)
+                filtered_signals = [
+                    signal for signal in original_signals 
+                    if signal.trade_time.date() >= start_date_obj
+                ]
+
+                # 4. 过滤分数列表 (StrategyDailyScore.trade_date 是 date 对象)
+                filtered_scores = [
+                    score for score in original_scores
+                    if score.trade_date >= start_date_obj
+                ]
+                
+                # 5. 重新组装元组
+                records_tuple = (filtered_signals, other_list_1, filtered_scores, other_list_2)
+                
+                logger.info(f"[{stock_code}] 已应用日期过滤 (>= {start_date_str})。剩余信号: {len(filtered_signals)}, 剩余分数: {len(filtered_scores)}")
+                print(f"调试信息 [{stock_code}]: 过滤后，信号数: {len(filtered_signals)}, 分数数: {len(filtered_scores)}") # 调试输出
+
+            except (ValueError, TypeError) as e:
+                logger.error(f"[{stock_code}] 无效的起始日期格式: '{start_date_str}'。错误: {e}。将忽略过滤条件，保存全部历史记录。")
+                print(f"调试信息 [{stock_code}]: 日期格式错误，不过滤，保存全部。") # 调试输出
+
         # 检查是否有任何需要保存的记录 (检查第一个和第三个列表)
+        # 此处逻辑不变，但 records_tuple 可能已经是过滤后的结果
         if not records_tuple or (not records_tuple[0] and not records_tuple[2]):
-            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号或分数。")
+            logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号或分数 (或已被日期过滤)。")
             return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
         
-        # 将完整的四元组传递给 DAO
+        # 将完整的（或过滤后的）四元组传递给 DAO
         save_count = await strategies_dao.save_strategy_signals(records_tuple)
         logger.info(f"[{stock_code}] 成功保存 {save_count} 条记录 (包括信号和每日分数)。")
         
-        # 这部分逻辑可以保持，因为它只关心 TradingSignal
+        # 这部分逻辑可以保持，因为它只关心 TradingSignal (逻辑不变)
         if save_count > 0 and records_tuple[0]:
             unique_signal_types = set()
             for signal_obj in records_tuple[0]:
@@ -158,22 +209,39 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str, latest_
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
         return {"status": "success", "saved_count": save_count}
+
     try:
         return async_to_sync(main)()
     except Exception as e:
         logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
+        # 【代码修改】在Celery任务中，最好更新任务状态以方便监控
+        self.update_state(state='FAILURE', meta={'exc': str(e)})
         return {"status": "error", "reason": str(e)}
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 @with_cache_manager
-def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
+def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_manager: CacheManager):
     """
-    【V7.0 终极解耦版】
+    【V7.1 - 支持指定起始日期的全历史回测任务】
     - 核心架构: 回归本源，此任务的【唯一职责】是建设和更新 StrategyDailyScore 公共数据库。
     - 工作流: 彻底移除所有下游任务链，只对所有股票并行执行 run_multi_timeframe_strategy。
+    - 新增功能: 支持可选的 `start_date_str` 参数，用于从指定日期开始回测，方便增量修复或分段回测。
+
+    Args:
+        start_date_str (str, optional): 起始日期字符串，格式为 'YYYY-MM-DD'。
+                                        如果为 None，则处理所有历史。Defaults to None.
+        cache_manager (CacheManager): 由装饰器注入的缓存管理器实例。
     """
     try:
-        logger.info("====== [公共数据库建设-全历史 V7.0] 启动 ======")
+        # 【代码修改】根据 start_date_str 参数更新日志
+        if start_date_str:
+            logger.info(f"====== [公共数据库建设-全历史 V7.1] 启动 (指定起始日期: {start_date_str}) ======")
+            print(f"调试信息：任务将从 {start_date_str} 开始计算和保存策略数据。") # 调试输出
+        else:
+            logger.info("====== [公共数据库建设-全历史 V7.1] 启动 (处理全部历史) ======")
+            print("调试信息：未指定起始日期，将处理全部历史数据。") # 调试输出
+
+        # 原始逻辑不变
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes = favorite_codes + non_favorite_codes
         
@@ -184,10 +252,15 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
         stock_count = len(all_codes)
         logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
         
-        # --- 代码修改开始：回归最简单的并行任务组 ---
-        # [修改原因] 彻底解耦，此任务只负责计算公共分数，不关心任何个性化数据。
+        # --- 代码修改开始：将 start_date_str 参数透传给子任务 ---
+        # [修改原因] 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
         analysis_tasks = [
-            run_multi_timeframe_strategy.s(code, None, latest_only=False).set(queue='calculate_strategy') for code in all_codes
+            run_multi_timeframe_strategy.s(
+                stock_code=code, 
+                trade_date=None, 
+                latest_only=False,
+                start_date_str=start_date_str  # 【代码修改】将参数传递给子任务
+            ).set(queue='calculate_strategy') for code in all_codes
         ]
         
         workflow = group(analysis_tasks)
@@ -195,7 +268,9 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
         # --- 代码修改结束 ---
         
         logger.info(f"[公共数据库] 已成功为 {stock_count} 只股票启动【全历史】分数计算任务。")
-        return {"status": "workflow_started", "stock_count": stock_count}
+        
+        # 【代码修改】在返回结果中也包含 start_date_str，方便追踪
+        return {"status": "workflow_started", "stock_count": stock_count, "start_date": start_date_str}
     except Exception as e:
         logger.error(f"[公共数据库-全历史] 任务启动时发生严重错误: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
