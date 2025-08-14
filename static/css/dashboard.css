@@ -548,13 +548,13 @@ section h2 .icon {
 /* --- 策略和剧本列表通用样式 --- */
 .strategy-list,
 .playbook-list {
+    /* 【代码修改】将 display:flex 和 flex-wrap:wrap 从 .strategy-list, .playbook-list 的组合选择器中移到这里，确保其始终生效 */
     list-style-type: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    /* 统一标签间距 */
 }
 
 /* 表格中的策略标签 */
@@ -586,40 +586,9 @@ section h2 .icon {
     border: 1px solid rgba(99, 164, 255, 0.2);
 }
 
-/* --- 可共享的特殊信号/标签样式 --- */
-/* 使用组合选择器，让筛选标签和剧本列表标签都能应用这些样式 */
-/* 同样为表格内的特殊标签增加 .data-table 前缀 */
-.filter-tag.rocket-signal,
-.playbook-tag.rocket-signal {
-    background-color: rgba(229, 57, 53, 0.15);
-    /* 红色系 */
-    color: #ef5350;
-    font-weight: bold;
-    border-color: rgba(229, 57, 53, 0.3);
-}
-
-.filter-tag.king-signal,
-.playbook-tag.king-signal {
-    background-color: rgba(255, 193, 7, 0.15);
-    /* 黄色/金色系 */
-    color: #ffca28;
-    font-weight: bold;
-    border-color: rgba(255, 193, 7, 0.3);
-}
-
-.filter-tag.expert-signal,
-.playbook-tag.expert-signal {
-    background-color: rgba(3, 169, 244, 0.15);
-    /* 蓝色系 */
-    color: #29b6f6;
-    font-weight: bold;
-    border-color: rgba(3, 169, 244, 0.3);
-}
-
 /* --- 剧本折叠功能样式 (唯一版本) --- */
 .playbook-container {
     position: relative;
-    max-width: 300px;
 }
 
 .playbook-list.collapsible {

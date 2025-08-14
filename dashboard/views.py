@@ -73,56 +73,24 @@ def dashboard_view(request, cache_manager=None):
     }
     return render(request, 'dashboard/home.html', context)
 
-def get_playbook_priority(playbook_name):
-    """
-    【V2.0 修正版】根据剧本名称中的关键字为其分配优先级。
-    此函数的判断逻辑现在与模板中的样式逻辑完全一致，确保排序正确。
-    返回值越小，优先级越高。
-    """
-    # 安全检查，防止 playbook_name 不是字符串类型导致错误
-    if not isinstance(playbook_name, str):
-        return 99 # 返回一个很大的值，使其排在最后
-
-    playbook_name_upper = playbook_name.upper()
-    # 优先级 0: 火箭信号 (与模板逻辑一致)
-    if 'ROCKET' in playbook_name_upper or '火箭' in playbook_name:
-        return 0
-    # 优先级 1: 王牌信号 (修正为与模板逻辑一致，检查'王牌')
-    if 'BREAKOUT_TRIGGER_SCORE' in playbook_name_upper or '王牌' in playbook_name:
-        return 1
-    # 优先级 2: 专家信号 (修正为与模板逻辑一致，检查'专家')
-    if '专家' in playbook_name:
-        return 2
-    # 优先级 4: 加分项 (逻辑保持不变)
-    if '【加分】' in playbook_name or '资金流入' in playbook_name:
-        return 4
-    # 优先级 5: 基础形态 (逻辑保持不变)
-    if 'MA20' in playbook_name_upper or '均线' in playbook_name:
-        return 5
-    # 默认优先级
-    return 3
-
-
 @login_required
 def trend_following_list(request):
     """
-    【V5.0 - 日期选择版】
+    【V5.1 - 简化版】
     - 核心修改: 废除“近3天”的固定逻辑，改为默认显示最新交易日的数据。
     - 功能增强: 增加日期选择功能，允许用户查询任意历史交易日的买入信号。
+    - 代码清理: 移除了 get_playbook_priority 相关的复杂排序逻辑。
     """
-    # 1. 确定要查询的目标日期
+    # 1. 确定要查询的目标日期 (逻辑不变)
     selected_date_str = request.GET.get('date')
     target_date = None
 
     if selected_date_str:
         try:
-            # 尝试从用户输入解析日期
             target_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
-            # 如果格式错误，则忽略，后续会使用最新交易日
             target_date = None
     
-    # 如果没有有效的日期输入，则自动获取最新交易日
     if not target_date:
         latest_trade_day_obj = TradeCalendar.objects.filter(
             is_open=True,
@@ -131,15 +99,13 @@ def trend_following_list(request):
         if latest_trade_day_obj:
             target_date = latest_trade_day_obj.cal_date
 
-    # 2. 如果无法确定目标日期，则不进行查询
+    # 2. 如果无法确定目标日期，则不进行查询 (逻辑不变)
     if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
         page_title = '策略状态监控中心 (无可用数据)'
     else:
-        # 动态生成页面标题
         page_title = f'策略状态监控中心 ({target_date.strftime("%Y-%m-%d")} 买入信号)'
         
-        # 3. 动态加载配置文件并获取主策略名称 (逻辑不变)
         try:
             unified_config = load_strategy_config('config/trend_follow_strategy.json')
             strategy_info = unified_config.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
@@ -148,7 +114,6 @@ def trend_following_list(request):
             main_strategy_name = None
             logger.error(f"加载策略配置失败: {e}", exc_info=True)
 
-        # 4. 根据目标日期构建查询
         tz = timezone.get_current_timezone()
         start_of_day = timezone.make_aware(datetime.combine(target_date, time.min), tz)
         end_of_day = timezone.make_aware(datetime.combine(target_date, time.max), tz)
@@ -159,15 +124,14 @@ def trend_following_list(request):
             timeframe='D'
         )
         
-        # 如果找到主策略名称，则应用过滤
         if main_strategy_name:
             base_query = base_query.filter(strategy_name=main_strategy_name)
         
         latest_buy_signals = base_query.select_related('stock').prefetch_related(
             Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        ).order_by('-entry_score') # 按分数倒序排列
+        ).order_by('-entry_score')
 
-    # 5. 数据处理与筛选 (逻辑与之前类似，但数据源已变为单日)
+    # 5. 数据处理与筛选
     all_logs_in_memory = []
     all_playbook_objects = set()
     for signal in latest_buy_signals:
@@ -178,9 +142,9 @@ def trend_following_list(request):
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
-        active_playbooks.sort(key=lambda p: get_playbook_priority(p.cn_name or p.name))
+        # 【代码修改】简化排序逻辑，直接按剧本的中文名或英文名排序
+        active_playbooks.sort(key=lambda p: p.cn_name or p.name)
         
-        # 【重要】从信号对象中直接获取收盘价
         all_logs_in_memory.append({
             'log_id': signal.id,
             'stock': signal.stock,
@@ -188,10 +152,11 @@ def trend_following_list(request):
             'latest_score': signal.entry_score,
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
-            'close_price': signal.close_price, # 确保传递收盘价
+            'close_price': signal.close_price,
         })
 
-    unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: get_playbook_priority(p.cn_name or p.name))
+    # 【代码修改】简化排序逻辑，直接按剧本的中文名或英文名排序
+    unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: p.cn_name or p.name)
 
     selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
@@ -203,7 +168,7 @@ def trend_following_list(request):
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
 
-    # 6. 分页与上下文准备
+    # 6. 分页与上下文准备 (逻辑不变)
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -215,9 +180,10 @@ def trend_following_list(request):
         'total_count': paginator.count,
         'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks_pks,
-        'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '', # 传递当前选择的日期
+        'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
     }
     return render(request, 'dashboard/trend_following_list.html', context)
+
 
 @login_required
 def fav_trend_following_list(request):
