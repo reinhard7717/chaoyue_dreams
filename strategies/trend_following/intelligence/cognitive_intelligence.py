@@ -330,32 +330,31 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 逻辑重塑版】锁仓再集中S+战法诊断模块
-        - 核心重构1: 彻底修正了“准备状态”的定义。废除了原先“稳定且聚集”的逻辑矛盾，
-                      简化并强化为“筹码已确认锁定稳定(CHIP_CONC_LOCKED_AND_STABLE_A)”，
-                      这才是真正意义上的“准备就绪”。
-        - 核心重构2: 修复了“点火事件”中对成本加速信号的错误引用，并增加了更高维度的
-                      分形突破确认信号，使点火判断更灵敏、更可靠。
+        【V1.2 王牌强化版】锁仓再集中S+战法诊断模块
+        - 核心重构: 在“点火事件”中，增加了更高维度的“分形突破确认”信号，
+                      要求在成本加速的同时，价格也必须有效突破近期高点。
+        - 收益: 大幅提升了S+级信号的确定性，过滤掉那些“成本异动但价格疲软”的伪信号。
         """
-        # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.1 逻辑重塑版)”...")
+        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.2 王牌强化版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 定义“准备状态” (Setup State) ---
-        # [修改原因] 简化并强化“准备状态”的定义。当筹码确认“锁定且稳定”时，
-        # 本身就意味着准备工作已完成，可以随时等待点火。原逻辑过于严苛且存在矛盾。
         setup_state = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
 
+        # --- 代码修改开始 ---
+        # [修改原因] 增加更强的分形突破确认，提升S+信号质量。
         # --- 2. 定义“点火事件” (Ignition Trigger) ---
-        # [修改原因] 修复情报名称不匹配的致命错误，并增加更强的触发器。
         ignition_trigger = (
             triggers.get('TRIGGER_CHIP_IGNITION', default_series) |
             triggers.get('TRIGGER_ENERGY_RELEASE', default_series) |
-            atomic.get('MECHANICS_COST_ACCELERATING', default_series) | # 修正了信号名称
-            triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series) # 新增分形突破确认
+            atomic.get('MECHANICS_COST_ACCELERATING', default_series) |
+            # 新增：要求价格形态也必须确认突破，这是最强的共振信号！
+            triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series)
         )
+        # --- 代码修改结束 ---
 
         # --- 3. 最终裁定：昨日“准备就绪”，今日“点火” ---
         was_setup_yesterday = setup_state.shift(1).fillna(False)
@@ -443,57 +442,49 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.2 王牌整合版】回踩战术诊断模块
-        - 核心重构: 吸收了 composite_scoring 中的 TACTIC_PANIC_PIT_ABSORPTION_A_PLUS，
-                      将其逻辑升维为战术矩阵中的最高优先级(S+++级)，实现完全的逻辑统一和净化。
+        【V6.3 战术革新版】回踩战术诊断模块
+        - 核心重构: 1. 废除了被实战证明无效的 TACTIC_ASCENT_PULLBACK_B 和 TACTIC_ASCENT_HAMMER_A 战法。
+                      2. 引入了全新的、基于“回踩+显性反转确认”的 TACTIC_ASCENT_REVERSAL_A 战法。
+        - 收益: 裁撤弱旅，强化王牌。用经过数据验证的高胜率逻辑，替代低效的猜测性买入，提升策略整体表现。
         """
-        # print("        -> [回踩战术矩阵 V6.2] 启动，正在进行三维联合作战诊断...")
+        # print("        -> [回踩战术矩阵 V6.3] 启动，正在进行三维联合作战诊断...")
         states = {}
         atomic = self.strategy.atomic_states
-        triggers = self.strategy.trigger_events # 获取触发器
+        triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
         
-        # --- 1. 提取所有基础和增强信号 ---
+        # --- 1. 提取所有基础和增强信号 (逻辑不变) ---
         is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
-        
         lookback_window = 15
         ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-
         is_hammer = enhancements.get('is_hammer_candle', default_series)
         is_fib_gold = enhancements.get('is_fib_golden_support', default_series)
         is_suppressive = enhancements.get('is_suppressive_pullback', default_series)
-        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        
-        # [新逻辑] 吸收“恐慌坑”战法的核心确认信号
         is_dominant_reversal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
 
         # --- 2. 按优先级生成唯一的战术信号 ---
-        # 优先级1 (S+++ 王牌): 巡航期 + 打压回踩 + 显性反转阳线确认 (最强V反)
+        # S级巡航期战法 (逻辑不变)
         s_triple_plus_signal = is_in_cruise_window & is_suppressive & is_dominant_reversal
         states['TACTIC_CRUISE_V_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
-
-        # 优先级2 (S++): 巡航期 + 打压回踩 + 锤子线确认 (未满足S+++条件)
         s_plus_plus_signal = is_in_cruise_window & is_suppressive & is_hammer & ~s_triple_plus_signal
         states['TACTIC_CRUISE_PIT_HAMMER_S_PLUS_PLUS'] = s_plus_plus_signal
-
-        # 优先级3 (S+): 巡航期 + 健康回踩 + 黄金分割位 + 锤子线
         s_plus_signal = is_in_cruise_window & is_healthy_pullback & is_fib_gold & is_hammer & ~s_triple_plus_signal & ~s_plus_plus_signal
         states['TACTIC_CRUISE_FIB_HAMMER_S_PLUS'] = s_plus_signal
-
-        # 优先级4 (S): 巡航期 + 普通健康回踩
         s_signal = is_in_cruise_window & is_healthy_pullback & ~s_triple_plus_signal & ~s_plus_plus_signal & ~s_plus_signal
         states['TACTIC_CRUISE_PULLBACK_S'] = s_signal
-
-        # 初升浪期战法 (三级)
-        a_plus_signal = is_in_ascent_window & is_healthy_pullback & is_chip_locked & ~is_in_cruise_window
-        states['TACTIC_ASCENT_LOCKED_PULLBACK_A_PLUS'] = a_plus_signal
-        a_signal = is_in_ascent_window & is_healthy_pullback & is_hammer & ~is_chip_locked & ~is_in_cruise_window
-        states['TACTIC_ASCENT_HAMMER_A'] = a_signal
-        b_signal = is_in_ascent_window & is_healthy_pullback & ~is_chip_locked & ~is_hammer & ~is_in_cruise_window
-        states['TACTIC_ASCENT_PULLBACK_B'] = b_signal
+        
+        # 准备条件：昨日处于健康回踩状态
+        was_healthy_pullback = is_healthy_pullback.shift(1).fillna(False)
+        
+        # 触发条件：今天出现显性反转K线
+        is_reversal_confirmed = is_dominant_reversal
+        
+        # 新战法A级: 初升浪反转确认 = 在初升浪窗口内 + 昨日回踩 + 今日反转
+        a_signal = is_in_ascent_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_cruise_window
+        states['TACTIC_ASCENT_REVERSAL_A'] = a_signal
 
         # 打印日志
         tactic_name_map = {

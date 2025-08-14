@@ -308,7 +308,6 @@
             "OPP_PEAK_BATTLE_BREAKOUT_A": 380,
             "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
             "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": 280,
-            "BOX_STATE_HEALTHY_ACCUMULATION": 180,
             "PLATFORM_STATE_STABLE_FORMED": 150,
             "MA_STATE_AGGRESSIVE_BULLISH": 120,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
@@ -435,6 +434,7 @@
         "playbook_scoring": {
             "说明": "剧本计分部分，适配 PlaybookEngine V2.0。",
             "PLAYBOOK_SQUEEZE_BREAKOUT_S": 400,
+            "PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A": 350,
             "PLAYBOOK_PULLBACK_REBOUND_A": 300,
             "PLAYBOOK_GOLDEN_PIT_B": 250,
             "PLAYBOOK_MEAN_REVERSION_A": 350
@@ -507,7 +507,6 @@
           "OPP_PEAK_BATTLE_BREAKOUT_A": { "cn_name": "【机会A+】主峰换手突破", "type": "positional" },
           "OPP_SQUEEZE_ZONE_SHAKEOUT_A": { "cn_name": "【机会A】压缩区实战洗盘", "type": "positional" },
           "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": { "cn_name": "【机会A】卖盘衰竭(左侧)", "type": "positional" },
-          "BOX_STATE_HEALTHY_ACCUMULATION": { "cn_name": "【形态】健康吸筹箱体", "type": "positional" },
           "PLATFORM_STATE_STABLE_FORMED": { "cn_name": "【形态】稳固平台形成", "type": "positional" },
           "MA_STATE_AGGRESSIVE_BULLISH": { "cn_name": "【均线】攻击性多头排列", "type": "positional" },
           "MECHANICS_ENERGY_ADVANTAGE": { "cn_name": "【力学】势能优势", "type": "positional" },
@@ -520,6 +519,7 @@
           "BONUS_CONTEXT_STRONG_TREND": { "cn_name": "【环境】强趋势加成", "type": "context" },
           "说明_PLAYBOOK": "--- 剧本分 (Playbook) ---",
           "PLAYBOOK_SQUEEZE_BREAKOUT_S": { "cn_name": "【剧本S】波动压缩突破", "type": "playbook" },
+          "PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A": { "cn_name": "【剧本A】箱体吸筹突破", "type": "playbook" },
           "PLAYBOOK_PULLBACK_REBOUND_A": { "cn_name": "【剧本A】趋势回踩反弹", "type": "playbook" },
           "PLAYBOOK_GOLDEN_PIT_B": { "cn_name": "【剧本B】黄金坑吸筹", "type": "playbook" },
           "PLAYBOOK_MEAN_REVERSION_A": { "cn_name": "【剧本A】均值回归反弹", "type": "playbook" },

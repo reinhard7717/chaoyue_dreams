@@ -29,6 +29,12 @@ class PlaybookEngine:
                 'comment': 'S级 - 波动压缩后，出现能量释放或放量突破。'
             },
             {
+                'name': 'PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A',
+                'setup': ['BOX_STATE_HEALTHY_ACCUMULATION'], # 准备条件：处于健康吸筹箱体状态
+                'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'], # 触发条件：能量释放或放量突破
+                'comment': 'A级 - 健康吸筹箱体完成后，出现放量突破。'
+            },
+            {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
                 'trigger': ['TRIGGER_PULLBACK_REBOUND', 'TRIGGER_PLATFORM_PULLBACK_REBOUND'],
