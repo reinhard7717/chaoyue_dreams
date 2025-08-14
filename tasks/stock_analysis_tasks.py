@@ -1298,75 +1298,146 @@ def run_top_n_performance_analysis(
 
 
 # =================================================================
-# =================== 3. 性能复盘任务 (新增) ==================
+# =================== 3. 性能复盘任务 (V2.0 MapReduce 架构) ==================
 # =================================================================
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_performance_analysis_for_stock', queue='calculate_strategy')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_performance_results', queue='celery')
 @with_cache_manager
-def run_performance_analysis_for_stock(self, stock_code: str, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
+def aggregate_performance_results(self, results: list, *, cache_manager: CacheManager):
     """
-    【V1.0 新增】为单个股票执行深度性能复盘的原子任务。
+    【V2.0 新增 - Reduce 任务】
+    收集所有并行分析任务的结果，进行全局聚合，生成终极报告，并持久化到Redis。
     """
-    logger.info(f"[{stock_code}] 开始执行深度性能复盘...")
-    try:
-        # 初始化服务
-        service = PerformanceAnalysisService(cache_manager)
-        # 调用服务执行分析，该服务会处理数据获取和分析器调用
-        results = async_to_sync(service.run_analysis_for_stock)(stock_code, start_date, end_date)
-        
-        if not results:
-            logger.info(f"[{stock_code}] 性能复盘完成，但未生成任何分析结果。")
-            return {"stock_code": stock_code, "status": "success", "results_count": 0}
-            
-        # 打印结果用于调试
-        logger.info(f"--- 股票 [{stock_code}] 性能复盘报告 ---")
-        report_df = pd.DataFrame(results)
-        logger.info("\n" + report_df.to_string())
-        logger.info(f"------------------------------------")
-        
-        # 在实际应用中，这里可以将 results 保存到数据库或缓存中
-        
-        return {"stock_code": stock_code, "status": "success", "results_count": len(results)}
-    except Exception as e:
-        logger.error(f"为 {stock_code} 执行性能复盘时发生错误: {e}", exc_info=True)
-        return {"stock_code": stock_code, "status": "error", "reason": str(e)}
+    logger.info("====== [全局性能分析 V2.0 - Reduce] 聚合任务启动 ======")
+    logger.info(f"已收到来自 {len(results)} 个 Map 任务的结果，开始聚合...")
+
+    # 1. 扁平化处理从所有Map任务收集到的结果列表
+    # results 的结构是 [[...], [...], []]，需要展平成一个列表
+    all_stats = [item for sublist in results if sublist for item in sublist]
+
+    if not all_stats:
+        logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
+        return {"status": "finished", "reason": "no data to aggregate"}
+
+    # 2. 使用pandas进行强大的数据聚合
+    df = pd.DataFrame(all_stats)
+    
+    # 3. 计算加权平均指标，这比简单平均更科学
+    # 例如：信号A触发1000次，平均收益10%；信号B触发10次，平均收益20%。
+    # 全局平均收益绝不是(10+20)/2=15%，而应该是加权平均。
+    df['weighted_max_profit'] = df['avg_max_profit_pct'] * df['triggers']
+    df['weighted_max_drawdown'] = df['avg_max_drawdown_pct'] * df['triggers']
+    df['weighted_exit_days'] = df['avg_exit_days'] * df['triggers']
+
+    # 4. 按信号名称进行分组聚合
+    agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
+        triggers=('triggers', 'sum'),
+        successes=('successes', 'sum'),
+        # 对加权值求和
+        total_weighted_profit=('weighted_max_profit', 'sum'),
+        total_weighted_drawdown=('weighted_max_drawdown', 'sum'),
+        total_weighted_days=('weighted_exit_days', 'sum')
+    ).reset_index()
+
+    # 5. 计算最终的全局指标
+    agg_df['win_rate_pct'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+    agg_df['avg_max_profit_pct'] = (agg_df['total_weighted_profit'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+    agg_df['avg_max_drawdown_pct'] = (agg_df['total_weighted_drawdown'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+    agg_df['avg_exit_days'] = (agg_df['total_weighted_days'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+
+    # 6. 格式化报告并排序
+    report_df = agg_df.sort_values(
+        by=['win_rate_pct', 'triggers'], 
+        ascending=[False, False]
+    )
+    
+    # 选择最终输出的列
+    final_columns = [
+        'cn_name', 'type', 'triggers', 'successes', 
+        'win_rate_pct', 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days'
+    ]
+    report_df = report_df[final_columns]
+    
+    # 7. 打印到日志供即时查看
+    logger.info("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
+    # 重命名列头为中文，使其更易读
+    report_df.columns = ['信号名称', '类型', '总触发', '总成功', '胜率(%)', '平均最大涨幅(%)', '平均最大回撤(%)', '平均退出天数']
+    report_df['胜率(%)'] = report_df['胜率(%)'].apply(lambda x: f"{x:.2%}")
+    report_df['平均最大涨幅(%)'] = report_df['平均最大涨幅(%)'].apply(lambda x: f"{x:.2f}")
+    report_df['平均最大回撤(%)'] = report_df['平均最大回撤(%)'].apply(lambda x: f"{x:.2f}")
+    report_df['平均退出天数'] = report_df['平均退出天数'].apply(lambda x: f"{x:.1f}")
+
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 150):
+        print(report_df.to_string(index=False))
+    logger.info("=" * 95 + "\n")
+
+    # 8. 【核心】将最终报告持久化到Redis缓存
+    report_json = report_df.to_json(orient='records', force_ascii=False)
+    cache_key = "strategy:performance_report:global_v2"
+    # 在同步的Celery任务中调用异步的CacheManager方法
+    async_to_sync(cache_manager.set)(cache_key, report_json, timeout=60 * 60 * 24 * 7) # 缓存7天
+    logger.info(f"终极报告已成功持久化到Redis缓存。Key: '{cache_key}'")
+    
+    logger.info("====== [全局性能分析 V2.0 - Reduce] 聚合任务完成 ======")
+    return {"status": "success", "aggregated_signals": len(report_df), "cache_key": cache_key}
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
 @with_cache_manager
-def run_global_performance_analysis(self, stock_list: list = None, *, cache_manager: CacheManager):
+def run_global_performance_analysis(self, stock_list: list = None, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
     """
-    【V1.0 新增】全局性能复盘总管任务。
-    - 职责: 获取股票列表，并为每只股票派发独立的深度复盘任务。
+    【V2.0 MapReduce 调度器】
+    对全市场（或指定列表）所有股票，在指定时间段内，进行并行回测分析。
+    - 工作流:
+      1. (调度器) 获取所有股票代码。
+      2. (Map) 为每只股票派发一个独立的 `analyze_performance_from_db` 子任务。
+      3. (Reduce) 使用 Celery Chord，在所有子任务完成后，自动调用 `aggregate_performance_results` 任务来汇总报告。
     """
-    logger.info("====== [全局性能复盘 V1.0] 启动 ======")
-    
-    codes_to_run = stock_list
-    if not codes_to_run:
-        # 如果未提供列表，则获取所有自选股
-        logger.info("未提供股票列表，将自动获取所有自选股进行复盘...")
-        stock_basic_dao = StockBasicInfoDao(cache_manager)
-        favorite_codes, _ = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
-        codes_to_run = favorite_codes
+    logger.info("="*80)
+    logger.info(f"--- [全局性能分析 V2.0 - MapReduce 调度器启动] ---")
+    logger.info(f"  - 分析时段: {start_date or '默认'} to {end_date or '默认'}")
+    logger.info("="*80)
 
-    if not codes_to_run:
-        logger.warning("[全局性能复盘] 未找到任何需要复盘的股票，任务终止。")
-        return {"status": "skipped", "reason": "no stocks to analyze"}
-    
-    stock_count = len(codes_to_run)
-    logger.info(f"[全局性能复盘] 准备为 {stock_count} 只股票启动深度复盘任务...")
-    
-    # 为每只股票派发一个独立的复盘任务
-    analysis_tasks = [
-        run_performance_analysis_for_stock.s(code).set(queue='calculate_strategy') for code in codes_to_run
-    ]
-    
-    # 使用 group 并行执行
-    workflow = group(analysis_tasks)
-    workflow.apply_async()
-    
-    logger.info(f"[全局性能复盘] 已成功为 {stock_count} 只股票派发复盘任务。")
-    return {"status": "workflow_started", "stock_count": stock_count}
+    try:
+        codes_to_run = stock_list
+        if not codes_to_run:
+            logger.info("未提供股票列表，将自动获取全市场股票进行复盘...")
+            stock_basic_dao = StockBasicInfoDao(cache_manager)
+            fav_codes, non_fav_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
+            codes_to_run = fav_codes + non_fav_codes
 
+        if not codes_to_run:
+            logger.error("无法获取股票列表，任务终止。")
+            return {"status": "error", "reason": "Failed to get stock list."}
+        
+        total_stocks = len(codes_to_run)
+        logger.info(f"获取到 {total_stocks} 只股票，准备派发并行分析子任务 (Map)...")
+
+        # 2. (Map) 创建所有股票的独立分析子任务签名
+        # 我们复用 `analyze_performance_from_db`，因为它已经是为单只股票设计的、安静的Map任务。
+        map_tasks = [
+            analyze_performance_from_db.s(
+                stock_code=code,
+                start_date=start_date,
+                end_date=end_date
+            ).set(queue='calculate_strategy') for code in codes_to_run
+        ]
+
+        # 3. (Reduce) 创建聚合任务的签名
+        reduce_task = aggregate_performance_results.s().set(queue='celery')
+
+        # 4. 使用 `chord` 编排 MapReduce 工作流
+        workflow = chord(header=group(map_tasks), body=reduce_task)
+        
+        # 5. 异步执行整个工作流
+        workflow.apply_async()
+
+        logger.info(f"成功派发 {total_stocks} 个股票分析子任务。聚合报告将在所有子任务完成后自动生成。")
+        logger.info(f"--- [全局性能分析 V2.0 - 任务派发完成] ---")
+        return {"status": "workflow_dispatched", "total_stocks": total_stocks}
+
+    except Exception as e:
+        logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
 
 
 
