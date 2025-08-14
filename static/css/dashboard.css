@@ -571,13 +571,11 @@ section h2 .icon {
 
 /* 表格中的剧本标签 */
 /* 表格中的剧本标签 - 增加了 .data-table 前缀 */
-.data-table .playbook-tag {
+.playbook-tag {
     display: inline-flex;
-    /* 新增: 使其表现为行内块级元素，让padding生效 */
     align-items: center;
-    /* 新增: 垂直居中标签内的文字和图标 */
     background-color: rgba(99, 164, 255, 0.15);
-    /* 基础剧本颜色，使用与主题一致的rgba */
+    /* 基础剧本颜色 */
     color: #81b9ff;
     /* 蓝色字体 */
     padding: 2px 8px;
@@ -591,28 +589,28 @@ section h2 .icon {
 /* --- 可共享的特殊信号/标签样式 --- */
 /* 使用组合选择器，让筛选标签和剧本列表标签都能应用这些样式 */
 /* 同样为表格内的特殊标签增加 .data-table 前缀 */
-.data-table .playbook-tag.rocket-signal,
-.filter-tag.rocket-signal {
+.filter-tag.rocket-signal,
+.playbook-tag.rocket-signal {
     background-color: rgba(229, 57, 53, 0.15);
-    /* 红色系，适配深色主题 */
+    /* 红色系 */
     color: #ef5350;
     font-weight: bold;
     border-color: rgba(229, 57, 53, 0.3);
 }
 
-.data-table .playbook-tag.king-signal,
-.filter-tag.king-signal {
+.filter-tag.king-signal,
+.playbook-tag.king-signal {
     background-color: rgba(255, 193, 7, 0.15);
-    /* 黄色/金色系，适配深色主题 */
+    /* 黄色/金色系 */
     color: #ffca28;
     font-weight: bold;
     border-color: rgba(255, 193, 7, 0.3);
 }
 
-.data-table .playbook-tag.expert-signal,
-.filter-tag.expert-signal {
+.filter-tag.expert-signal,
+.playbook-tag.expert-signal {
     background-color: rgba(3, 169, 244, 0.15);
-    /* 蓝色系，适配深色主题 */
+    /* 蓝色系 */
     color: #29b6f6;
     font-weight: bold;
     border-color: rgba(3, 169, 244, 0.3);

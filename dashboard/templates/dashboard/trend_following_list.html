@@ -53,9 +53,9 @@
                     {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
                         {% if playbook.pk|stringformat:"s" in selected_playbooks %}
                             <!-- --- 代码修改开始：确保移除标签时保留日期和其他筛选参数 --- -->
-                            <a href="{% query_builder remove_playbook=playbook.pk date=selected_date %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            <a href="{% query_builder remove_playbook=playbook.pk date=selected_date %}" class="filter-tag active {{ playbook|get_playbook_style_class }}">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
-                            <a href="{% query_builder add_playbook=playbook.pk date=selected_date %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            <a href="{% query_builder add_playbook=playbook.pk date=selected_date %}" class="filter-tag {{ playbook|get_playbook_style_class }}">{{ playbook_display_name }}</a>
                             <!-- --- 代码修改结束 --- -->
                         {% endif %}
                     {% endwith %}
