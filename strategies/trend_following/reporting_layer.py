@@ -27,7 +27,7 @@ class ReportingLayer:
         # 如果缓存已加载，则直接返回，避免重复查询
         if self.playbooks_cache is not None:
             return
-        print("    -> [报告层] 首次需要，正在异步加载战法定义缓存...")
+        # print("    -> [报告层] 首次需要，正在异步加载战法定义缓存...")
         try:
             sync_db_call = lambda: {p.name: p for p in Playbook.objects.all()}
             # 异步执行它

@@ -380,7 +380,7 @@ class StructuralIntelligence:
         - 核心增强: 融合波动率指标，使“惯量”诊断更精准；保留并加固了“势能”的经典定义。
         - 核心健壮性: 在模块入口处对所有依赖的列进行统一检查，杜绝因数据缺失导致的运行时错误。
         """
-        print("        -> [结构力学诊断引擎 V401.0] 启动...")
+        # print("        -> [结构力学诊断引擎 V401.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states

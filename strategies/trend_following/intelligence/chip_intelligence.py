@@ -21,7 +21,7 @@ class ChipIntelligence:
         - 核心重构: 根据数据层提供的预计算列清单，本方法已完全重构为直接消费这些高性能特征。
                     不再进行任何动态的斜率或加速度计算，显著提升了性能和代码的健壮性。
         """
-        print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 启动...")
+        # print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
@@ -134,7 +134,7 @@ class ChipIntelligence:
         # if is_chip_structure_unhealthy.any():
         #     print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
         
-        print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 分析完毕。")
+        # print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 分析完毕。")
         return states, triggers
 
 
