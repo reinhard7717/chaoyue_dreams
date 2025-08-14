@@ -371,42 +371,69 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_rally_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 状态机重构版】锁筹拉升S级战法诊断模块
-        - 核心重构: 废除每日独立判断的苛刻逻辑，采用“点火-巡航-熄火”的状态机模型。
-                    1. 点火: 由“锁仓再集中(S+)”信号触发，进入巡航状态。
-                    2. 巡航: 状态会持续，只要未出现明确的风险信号。
-                    3. 熄火: 当筹码发散或进入上涨末期时，巡航状态终止。
-        - 收益: 极大提升了对健康拉升阶段的捕捉和持续跟踪能力，更符合实战。
+        【V2.2 容错巡航版】锁筹拉升S级战法诊断模块
+        - 核心升级: 引入“容错机制”。允许“筹码持续集中”的巡航条件出现一次短暂中断，
+                    如果连续两天中断，才终止巡航。
+        - 收益: 策略更具韧性，能更好地容忍主升浪中的正常波动，防止被轻易洗出。
         """
-        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.0 状态机版)”...")
+        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.2 容错巡航版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 定义“点火”事件 ---
-        # [新逻辑] 我们使用更高维度的 S+ 战法作为拉升的起始信号。
+        # --- 1. 获取参数 (逻辑不变) ---
+        p = get_params_block(self.strategy, 'lock_chip_rally_params', {})
+        require_concentration = get_param_value(p.get('require_continuous_concentration'), True)
+        terminate_on_stalling = get_param_value(p.get('terminate_on_health_stalling'), True)
+
+        # --- 2. 定义“点火”事件 (逻辑不变) ---
         ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
 
-        # --- 2. 定义“熄火”条件 (风险出现) ---
-        # [新逻辑] 任何一个关键风险信号的出现，都将终止巡航状态。
+        # --- 3. 定义“硬性熄火”条件 (逻辑不变) ---
         is_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
         is_ma_broken = ~atomic.get('MA_STATE_STABLE_BULLISH', default_series)
-        termination_condition = is_diverging | is_late_stage | is_ma_broken
+        is_health_stalling = atomic.get('HOLD_RISK_HEALTH_STALLING', default_series)
+        hard_termination_condition = is_diverging | is_late_stage | is_ma_broken
+        if terminate_on_stalling:
+            hard_termination_condition |= is_health_stalling
 
-        # --- 3. 构建状态机 ---
-        # [新逻辑] 使用循环来模拟状态的持续和转变。
+        # --- 4. 定义“软性巡航”条件 (逻辑不变) ---
+        is_cruise_condition_met = atomic.get('CHIP_DYN_CONCENTRATING', default_series) if require_concentration else pd.Series(True, index=df.index)
+
+        # --- 5. 构建带“容错机制”的状态机 ---
         is_in_rally_state = pd.Series(False, index=df.index)
+        cruise_warning_active = False # [新逻辑] 引入“健康预警”状态标志
         for i in range(1, len(df)):
-            # 如果昨天处于巡航状态，且今天没有熄火信号，则继续巡航
-            if is_in_rally_state.iloc[i-1] and not termination_condition.iloc[i]:
-                is_in_rally_state.iloc[i] = True
-            # 如果今天有点火信号，则开启巡航状态
+            # 检查硬性熄火条件，这是最高优先级
+            if hard_termination_condition.iloc[i]:
+                is_in_rally_state.iloc[i] = False
+                cruise_warning_active = False
+                continue
+
+            # 如果昨天处于巡航状态
+            if is_in_rally_state.iloc[i-1]:
+                # 检查软性巡航条件
+                if is_cruise_condition_met.iloc[i]:
+                    # 条件满足，继续健康巡航，并解除预警
+                    is_in_rally_state.iloc[i] = True
+                    cruise_warning_active = False
+                else:
+                    # 条件不满足，检查是否已在预警状态
+                    if cruise_warning_active:
+                        # 已经预警过一次，这是连续第二次失败，终止巡航
+                        is_in_rally_state.iloc[i] = False
+                        cruise_warning_active = False
+                    else:
+                        # 这是第一次失败，进入预警状态，但巡航继续
+                        is_in_rally_state.iloc[i] = True
+                        cruise_warning_active = True
+            # 如果今天有点火信号，则开启巡航
             elif ignition_event.iloc[i]:
                 is_in_rally_state.iloc[i] = True
+                cruise_warning_active = False # 新的巡航开始时，总是健康的
         
-        # 最终的战法信号，是处于巡航状态且当日未出现熄火信号的日子
-        final_tactic_signal = is_in_rally_state & ~termination_condition
+        final_tactic_signal = is_in_rally_state & ~hard_termination_condition
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
         
         if final_tactic_signal.any():

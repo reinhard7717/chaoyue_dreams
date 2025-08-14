@@ -204,12 +204,13 @@ def analyze_all_stocks_full_history(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
-    【V7.6 - 分表聚合查询版】
+    【V7.7 - 健壮性与日志增强版】
     - 核心重构: 适配 AdvancedChipMetrics 分表结构，使用原生 SQL 的 UNION ALL 进行高效的跨表聚合查询，以确定权威交易日。
     - 健壮性: 彻底解决了因模型分表导致无法确定权威日期的问题，同时保持了数据驱动的健壮性。
+    - 日志增强: 当数据未就绪时，不再是简单退出，而是会明确记录当前最新日期的数据量与目标阈值的差距，极大提升了可调试性。
     """
     try:
-        logger.info("====== [公共数据库建设-每日增量 V7.6 分表聚合版] 启动 ======")
+        logger.info("====== [公共数据库建设-每日增量 V7.7 健壮性与日志增强版] 启动 ======")
         
         # --- 步骤1: 数据驱动的权威日期发现机制 ---
         logger.info("步骤1: 正在通过原生SQL查询所有 AdvancedChipMetrics 分表，以确定数据就绪的权威交易日...")
@@ -226,18 +227,18 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         readiness_threshold = int(total_stock_count * 0.95)
         logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
 
-        # 【代码修改】使用原生SQL替换原有ORM查询，以适配分表结构
-        # 1.3.1 动态获取所有分表的表名
+        # 1.3.1 动态获取所有分表的表名 (逻辑不变)
         metrics_models = [
             AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY,
             AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
         ]
         table_names = [model._meta.db_table for model in metrics_models]
         
-        # 1.3.2 构建 UNION ALL 子查询部分
+        # 1.3.2 构建 UNION ALL 子查询部分 (逻辑不变)
         union_all_query = " UNION ALL ".join([f"SELECT trade_time, stock_id FROM {table}" for table in table_names])
 
-        # 1.3.3 构建完整的原生SQL查询语句
+        # 【代码修改】修改SQL查询逻辑：不再使用HAVING过滤，而是直接获取最新日期及其数据量
+        # 这样可以获取到调试信息，即使数据未满足要求
         raw_sql = f"""
             SELECT
                 trade_time,
@@ -247,8 +248,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             ) AS combined_metrics
             GROUP BY
                 trade_time
-            HAVING
-                COUNT(stock_id) >= %s
             ORDER BY
                 trade_time DESC
             LIMIT 1
@@ -256,30 +255,36 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
 
         # 1.3.4 执行查询
         with connection.cursor() as cursor:
-            cursor.execute(raw_sql, [readiness_threshold])
+            # 【代码修改】移除了HAVING子句，因此不再需要传递参数
+            cursor.execute(raw_sql)
             result = cursor.fetchone()
 
-        latest_ready_date_record = None
-        if result:
-            # 将元组结果转换为与旧代码兼容的字典格式
-            latest_ready_date_record = {
-                'trade_time': result[0], # 字段名在SQL中是 trade_time
-                'stock_count': result[1]
-            }
+        # 【新增代码】在Python中进行数据就绪检查，并提供更详细的日志
+        if not result:
+            logger.warning("【任务暂停】AdvancedChipMetrics 所有分表中没有任何数据。请检查上游筹码计算任务是否已运行。任务安全退出。")
+            return {"status": "skipped", "reason": "AdvancedChipMetrics tables are completely empty."}
 
-        if not latest_ready_date_record:
-            logger.warning("【任务暂停】在 AdvancedChipMetrics 所有分表中未找到任何满足大规模数据就绪条件的交易日。可能是上游筹码计算任务尚未完成。任务安全退出。")
+        latest_trade_date, actual_stock_count = result[0], result[1]
+        
+        # 调试输出，无论成功与否都打印当前状态
+        print(f"调试信息：数据库中最新的交易日是 {latest_trade_date.strftime('%Y-%m-%d')}，拥有 {actual_stock_count} 条数据。")
+
+        if actual_stock_count < readiness_threshold:
+            logger.warning(
+                f"【任务暂停】数据尚未就绪。最新日期 {latest_trade_date.strftime('%Y-%m-%d')} "
+                f"仅有 {actual_stock_count} 条数据，未达到 {readiness_threshold} 的阈值。可能是上游筹码计算任务尚未完成。任务安全退出。"
+            )
             return {"status": "skipped", "reason": "No trade date met the data readiness threshold."}
 
-        # 1.4 确定权威日期
-        latest_trade_date = latest_ready_date_record['trade_time']
+        # 1.4 确定权威日期 (逻辑不变)
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
-        logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {latest_ready_date_record['stock_count']} 支股票筹码数据就绪。")
+        logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {actual_stock_count} 支股票筹码数据就绪。")
 
 
         # 步骤2: 使用权威日期进行精确的数据清理 (逻辑不变)
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
+            # 【代码修改】这里的 latest_trade_date 已经是 date 对象，可以直接使用
             start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
             end_of_day_aware = start_of_day_aware + timedelta(days=1)
             
@@ -300,6 +305,8 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         logger.info(f"[每日增量] 准备为 {stock_count} 只股票在权威日期 {trade_time_str} 上更新策略分数。")
         
         # 步骤4: 派发并行任务 (逻辑不变)
+        # 假设 run_multi_timeframe_strategy 任务已正确导入
+        # from .some_other_task_file import run_multi_timeframe_strategy 
         analysis_tasks = [
             run_multi_timeframe_strategy.s(code, trade_time_str, latest_only=True).set(queue='calculate_strategy') for code in all_codes
         ]
@@ -435,8 +442,7 @@ def rebuild_snapshots_for_tracker_task(self, tracker_id: int, *, cache_manager: 
     return {"tracker_id": tracker_id, "snapshots_processed": result_count}
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task', queue='dashboard')
-@with_cache_manager
-def rebuild_snapshots_for_all_active_trackers_task():
+def rebuild_snapshots_for_all_active_trackers_task(self):
     """
     【V1.0】每晚定期的快照重建任务（兜底）。
     - 职责: 遍历所有当前状态为 "HOLDING" 的 PositionTracker，

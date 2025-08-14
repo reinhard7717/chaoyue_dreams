@@ -269,6 +269,18 @@
           "description": "价格触及斐波那契水平时允许的误差范围。例如0.01代表上下1%。"
         }
       },
+      "lock_chip_rally_params": {
+        "enabled": true,
+        "description": "【V2.1 新增】锁筹拉升(巡航)战法的精细化控制参数。",
+        "require_continuous_concentration": {
+          "value": true,
+          "description": "[主动确认] 是否要求在巡航期间，筹码必须每日都处于“持续集中”状态。"
+        },
+        "terminate_on_health_stalling": {
+          "value": true,
+          "description": "[灵敏预警] 是否将“持仓健康度失速”作为一个更早的巡航终止信号。"
+        }
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V337.0 战法手册版】计分体系。进攻逻辑已全部移至此处。",
