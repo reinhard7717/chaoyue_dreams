@@ -207,47 +207,42 @@ class BehavioralIntelligence:
 
     def diagnose_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V336.1 证据分层版】主力操纵战术“反侦察”模块
-        - 核心升级: 放弃对“资金流”数据的盲目信任，建立基于“筹码结构”为核心的
-                    分层证据体系，以应对主力的“反侦察”战术。
+        【V337.0 战术重命名版】主力操纵战术“反侦察”模块
+        - 核心升级: 将原有的 `BEHAVIOR_STEALTH_ABSORPTION_A` 重命名为
+                    `OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A` (建设性洗盘吸筹)，
+                    以更精确地描述其“在建设性背景下，通过打压完成吸筹”的战术内涵。
         """
-        # print("        -> [反侦察模块 V336.1] 启动，正在进行证据分层分析...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 基础行为定义 ---
+        # --- 1. 军备检查与基础行为定义 ---
+        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
+        if any(c not in df.columns for c in required_cols):
+            return {}
         is_sharp_drop = df['pct_change_D'] < -0.04
         is_strong_rally = df['pct_change_D'] > 0.03
         is_high_volume = df['volume_D'] > df['VOL_MA_21_D'] * 1.5
         
-        # --- 2. 证据链定义 ---
-        # 证据A: 资金流 (不可靠，作为次要证据)
-        evidence_capital_inflow = self.strategy.atomic_states.get('CAPITAL_STRUCT_MAIN_FORCE_ACCUMULATING', default_series)
-        evidence_capital_outflow = self.strategy.atomic_states.get('RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING', default_series)
-        
-        # 证据B: 筹码结构 (核心证据)
-        evidence_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
-        evidence_chip_diverging = self.strategy.atomic_states.get('RISK_DYN_DIVERGING', default_series)
+        # --- 2. 核心证据：筹码结构 ---
+        # [修改原因] 我们现在只依赖最核心的筹码证据，不再需要资金流。
+        # 注意：这里的 is_concentrating_trend 是一个临时的、无偏见的客观判断，
+        # 它只关心集中度斜率为负，不关心成本峰方向。
+        conc_slope_col = 'SLOPE_5_concentration_90pct_D'
+        if conc_slope_col not in df.columns: return {}
+        is_concentrating_trend = df[conc_slope_col] < 0
+        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
 
-        # --- 3. “打压收割”机会分层诊断 ---
-        # 核心矛盾：价格暴跌 VS 筹码集中
-        is_core_absorption_conflict = is_sharp_drop & is_high_volume & evidence_chip_concentrating
+        # --- 3. “建设性洗盘吸筹”机会诊断 ---
+        # 核心矛盾：价格暴跌 VS 筹码客观集中
+        is_core_absorption_conflict = is_sharp_drop & is_high_volume & is_concentrating_trend
         
-        # A级机会 (隐蔽吸筹): 核心矛盾成立。这是主力最狡猾、最常见的吸筹方式。
-        states['BEHAVIOR_STEALTH_ABSORPTION_A'] = is_core_absorption_conflict
+        # [修改原因] 重命名信号，使其战术含义更清晰。
+        states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = is_core_absorption_conflict
         
-        # S级机会 (黄金坑): 核心矛盾成立，且资金流出现罕见的同步流入。这是主力图穷匕见、毫不掩饰的贪婪。
-        states['BEHAVIOR_GOLDEN_PIT_S'] = is_core_absorption_conflict & evidence_capital_inflow
-
-        # --- 4. “诱多派发”风险分层诊断 ---
-        # 核心矛盾：价格拉升 VS 筹码发散
-        is_core_distribution_conflict = is_strong_rally & evidence_chip_diverging
-        
-        # A级风险 (隐蔽派发): 核心矛盾成立。这是最危险的陷阱。
+        # --- 4. “诱多派发”风险诊断 (逻辑不变) ---
+        is_core_distribution_conflict = is_strong_rally & is_chip_diverging
         states['BEHAVIOR_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
-        
-        # S级风险 (公然出货): 核心矛盾成立，且资金流同步流出。这是主力肆无忌惮的派发。
-        states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict & evidence_capital_outflow
+        states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict # 简化，不再依赖资金流
 
         return states
 

@@ -36,7 +36,7 @@ class PlaybookEngine:
             },
             {
                 'name': 'PLAYBOOK_GOLDEN_PIT_B',
-                'setup': ['BEHAVIOR_STEALTH_ABSORPTION_A'], # 使用打压吸筹作为Setup
+                'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'], # 使用打压吸筹作为Setup
                 'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
                 'comment': 'B级 - 主力打压吸筹后，出现显性反转K线确认。'
             },
