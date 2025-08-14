@@ -465,7 +465,7 @@ class BehavioralIntelligence:
                       这是所有回踩战法的“增强器”模块。
         - 输出: 返回一个包含各种增强信号（如 is_hammer, is_fib_support）的字典。
         """
-        print("        -> [回踩增强矩阵 V1.0] 启动，正在扫描特殊形态...")
+        # print("        -> [回踩增强矩阵 V1.0] 启动，正在扫描特殊形态...")
         enhancements = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

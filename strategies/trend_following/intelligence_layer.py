@@ -62,7 +62,7 @@ class IntelligenceLayer:
         - 核心职责: 为各模块提供自适应标尺，只为最核心、最难被操纵的筹码结构指标提供校准。
         - 调用时机: 在所有模块实例化之前调用。
         """
-        print("        -> [动态阈值校准中心 V335.2] 启动...")
+        # print("        -> [动态阈值校准中心 V335.2] 启动...")
         thresholds = {}
         window = 250 # 使用过去一年的数据作为基准
 
@@ -90,14 +90,14 @@ class IntelligenceLayer:
 
         # --- 阶段一: 基础K线与板形态识别 ---
         # 此阶段为DataFrame添加基础的形态识别列，是所有后续分析的基础。
-        print("    - [阶段1/5] 正在执行基础形态识别...")
+        # print("    - [阶段1/5] 正在执行基础形态识别...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
 
         # --- 阶段二: 核心原子状态生成 ---
         # 此阶段生成所有不依赖于其他诊断模块的基础原子状态。
-        print("    - [阶段2/5] 正在生成核心原子状态...")
+        # print("    - [阶段2/5] 正在生成核心原子状态...")
         # 2.1 基础指标状态 (波动率, 震荡)
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_oscillator_states(df))
@@ -117,7 +117,7 @@ class IntelligenceLayer:
 
         # --- 阶段三: 复合状态与行为模式诊断 ---
         # 此阶段的方法依赖于阶段二生成的原子状态。
-        print("    - [阶段3/5] 正在诊断复合状态与行为模式...")
+        # print("    - [阶段3/5] 正在诊断复合状态与行为模式...")
         # 3.1 复合结构诊断
         df, structure_states = self.structural_intel.diagnose_market_structure_command(df)
         self.strategy.atomic_states.update(structure_states)
@@ -131,7 +131,7 @@ class IntelligenceLayer:
 
         # --- 阶段四: 顶层认知合成 ---
         # 此阶段是情报的最高层抽象，合成战场上下文、趋势阶段和主力行为序列。
-        print("    - [阶段4/5] 正在执行顶层认知合成...")
+        # print("    - [阶段4/5] 正在执行顶层认知合成...")
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_context(df))
@@ -141,7 +141,7 @@ class IntelligenceLayer:
 
         # --- 阶段五: 生成最终的触发器与剧本 ---
         # 这是情报层的最终产出，供下游决策层使用。
-        print("    - [阶段5/5] 正在生成触发器与交易剧本...")
+        # print("    - [阶段5/5] 正在生成触发器与交易剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         trigger_events.update(chip_triggers) # 合并筹码司令部产出的特殊触发器
         self.strategy.trigger_events = trigger_events # 挂载到strategy实例，供后续模块使用

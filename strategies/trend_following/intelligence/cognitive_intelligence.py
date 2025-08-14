@@ -239,7 +239,7 @@ class CognitiveIntelligence:
         - 核心修复: 全面修正了此状态机对上游原子信号的引用，使其与情报层实际生成的信号名完全匹配。
                     解决了因引用不存在的信号而导致整个模块失效的严重问题。
         """
-        print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---") # MODIFIED: 修改版本号
+        # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---") # MODIFIED: 修改版本号
         df['main_force_state'] = MainForceState.IDLE.value
         for i in range(1, len(df)):
             prev_state_val = df.at[df.index[i-1], 'main_force_state']
@@ -337,7 +337,7 @@ class CognitiveIntelligence:
         - 核心重构2: 修复了“点火事件”中对成本加速信号的错误引用，并增加了更高维度的
                       分形突破确认信号，使点火判断更灵敏、更可靠。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.1 逻辑重塑版)”...")
+        # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.1 逻辑重塑版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -376,7 +376,7 @@ class CognitiveIntelligence:
                     如果连续两天中断，才终止巡航。
         - 收益: 策略更具韧性，能更好地容忍主升浪中的正常波动，防止被轻易洗出。
         """
-        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.2 容错巡航版)”...")
+        # print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.2 容错巡航版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -447,7 +447,7 @@ class CognitiveIntelligence:
         - 核心重构: 吸收了 composite_scoring 中的 TACTIC_PANIC_PIT_ABSORPTION_A_PLUS，
                       将其逻辑升维为战术矩阵中的最高优先级(S+++级)，实现完全的逻辑统一和净化。
         """
-        print("        -> [回踩战术矩阵 V6.2] 启动，正在进行三维联合作战诊断...")
+        # print("        -> [回踩战术矩阵 V6.2] 启动，正在进行三维联合作战诊断...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events # 获取触发器

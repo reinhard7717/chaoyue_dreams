@@ -190,7 +190,7 @@ class PlaybookEngine:
         【V2.0 大一统重构版】剧本状态生成引擎
         - 核心重构: 采用统一的、数据驱动的模式生成所有剧本状态。
         """
-        print("        -> [剧本状态生成引擎 V2.0 大一统版] 启动...")
+        # print("        -> [剧本状态生成引擎 V2.0 大一统版] 启动...")
         df = self.strategy.df_indicators
         if df.empty:
             print("          -> [警告] 主数据帧为空，无法生成剧本状态。")
