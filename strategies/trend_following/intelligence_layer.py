@@ -135,8 +135,10 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_context(df))
+        self.strategy.atomic_states.update(self.chip_intel.synthesize_prime_chip_opportunity(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self.cognitive_intel.run_cognitive_synthesis_engine(df))
+        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
         # --- 阶段五: 生成最终的触发器与剧本 ---

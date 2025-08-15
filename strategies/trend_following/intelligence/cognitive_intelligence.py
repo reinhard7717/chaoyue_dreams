@@ -330,42 +330,32 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 王牌强化版】锁仓再集中S+战法诊断模块
-        - 核心重构: 在“点火事件”中，增加了更高维度的“分形突破确认”信号，
-                      要求在成本加速的同时，价格也必须有效突破近期高点。
-        - 收益: 大幅提升了S+级信号的确定性，过滤掉那些“成本异动但价格疲软”的伪信号。
+        【V2.0 王牌重铸版】锁仓再集中S+战法诊断模块
+        - 核心重构: 将战法的“准备状态”从有缺陷的A级信号，升级为经过战场环境过滤的
+                      S级“筹码结构黄金机会”信号。
+        - 收益: 确保S+级战法只在最安全、最有利的战局下发动，从根本上解决了其胜率低下的问题。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V1.2 王牌强化版)”...")
+        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.0 王牌重铸版)”...") # MODIFIED: 修改版本号
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
-
         # --- 1. 定义“准备状态” (Setup State) ---
-        setup_state = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-
-        # --- 代码修改开始 ---
-        # [修改原因] 增加更强的分形突破确认，提升S+信号质量。
+        setup_state = atomic.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
         # --- 2. 定义“点火事件” (Ignition Trigger) ---
         ignition_trigger = (
             triggers.get('TRIGGER_CHIP_IGNITION', default_series) |
             triggers.get('TRIGGER_ENERGY_RELEASE', default_series) |
             atomic.get('MECHANICS_COST_ACCELERATING', default_series) |
-            # 新增：要求价格形态也必须确认突破，这是最强的共振信号！
             triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series)
         )
-        # --- 代码修改结束 ---
-
         # --- 3. 最终裁定：昨日“准备就绪”，今日“点火” ---
         was_setup_yesterday = setup_state.shift(1).fillna(False)
         is_triggered_today = ignition_trigger
-        
         final_tactic_signal = was_setup_yesterday & is_triggered_today
         states['TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS'] = final_tactic_signal
-        
         if final_tactic_signal.any():
             print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“锁仓再集中”的最终拉升信号！")
-
         return states
 
     def _diagnose_lock_chip_rally_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -440,15 +430,59 @@ class CognitiveIntelligence:
 
         return states
 
+    # 将多个低效的原子动能信号，融合成一个经过战略过滤的高质量信号。
+    def synthesize_dynamic_offense_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】协同进攻动能合成模块
+        - 核心职责: 1. 将多个独立的原子动能信号融合成一个“协同进攻”信号。
+                      2. 使用“趋势阶段”上下文对该信号进行战略过滤，防止在上涨末期追高。
+        - 收益: 废除了多个胜率平平的动能信号，创造了一个更高质量、更安全的A级动能信号。
+        """
+        print("        -> [协同进攻动能合成模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # 1. 获取所有原始的原子动能信号
+        is_trend_accel = atomic.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
+        is_cost_accel_chip = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
+        is_cost_accel_mech = atomic.get('MECHANICS_COST_ACCELERATING', default_series)
+        is_conc_accel = atomic.get('CHIP_DYN_S_ACCEL_CONCENTRATING', default_series)
+        is_inertia_decreasing = atomic.get('MECHANICS_INERTIA_DECREASING', default_series)
+
+        # 2. 计算当天有多少个动能信号被触发 (协同原则)
+        # 将布尔序列转换为整数 (True=1, False=0) 并按行求和
+        num_active_signals = (
+            is_trend_accel.astype(int) +
+            is_cost_accel_chip.astype(int) +
+            is_cost_accel_mech.astype(int) +
+            is_conc_accel.astype(int) +
+            is_inertia_decreasing.astype(int)
+        )
+        
+        # 定义协同进攻的原始触发条件：至少2个动能信号同时激活
+        is_synergistic_offense = (num_active_signals >= 2)
+
+        # 3. 获取战略过滤器：是否处于上涨末期
+        is_in_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
+
+        # 4. 最终裁定：发动协同进攻，且【不】在上涨末期
+        final_signal = is_synergistic_offense & ~is_in_late_stage
+        states['DYN_AGGRESSIVE_OFFENSE_A'] = final_signal
+        
+        if final_signal.any():
+            print(f"          -> [A级动能确认] 侦测到 {final_signal.sum()} 次安全的“侵略性协同进攻”！")
+
+        return states
+
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V7.0 终极重构版】回踩战术诊断模块
-        - 核心重构: 废除所有旧的回踩战法，全面转向“战场环境 + 回踩性质 + 统一确认”的三位一体新范式。
-                      所有战法都必须由最高级别的“显性反转K线”进行右侧确认。
-        - 收益: 彻底消灭了所有低效的左侧交易和基于单一形态的猜测性信号，
-                建立了统一、健壮、高胜率的回踩战术体系。
+        【V7.1 防诱多增强版】回踩战术诊断模块
+        - 核心升级: 为 S+ 级“巡航回踩确认”战法增加了“非上涨末期”的前置条件。
+        - 收益: 解决了该战法在主升浪末期被“诱多型”反转信号欺骗的致命缺陷，
+                从根本上提升了信号的安全性。
         """
-        print("        -> [回踩战术矩阵 V7.0 终极重构版] 启动...")
+        print("        -> [回踩战术矩阵 V7.1 防诱多增强版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -469,14 +503,16 @@ class CognitiveIntelligence:
         # 统一确认信号 (今日)
         is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
 
+        # 新增：获取“上涨末期”上下文状态
+        is_in_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
         # --- 2. 【新范式】按优先级生成唯一的战术信号 ---
         
         # 优先级 1 (S+++ 王牌): 巡航期 + 打压回踩(昨日) + 显性反转(今日) -> 经典的“黄金坑”V型反转
         s_triple_plus_signal = is_in_cruise_window & was_suppressive_pullback & is_reversal_confirmed
         states['TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
 
-        # 优先级 2 (S+): 巡航期 + 健康回踩(昨日) + 显性反转(今日)
-        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & ~s_triple_plus_signal
+        # 优先级 2 (S+): 巡航期 + 健康回踩(昨日) + 显性反转(今日) + 【非上涨末期】
+        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_late_stage & ~s_triple_plus_signal
         states['TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS'] = s_plus_signal
 
         # 优先级 3 (A+): 初升浪期 + 打压回踩(昨日) + 显性反转(今日)

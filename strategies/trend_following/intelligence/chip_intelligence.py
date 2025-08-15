@@ -452,6 +452,27 @@ class ChipIntelligence:
 
         return states
 
+    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】黄金筹码机会合成模块
+        - 核心职责: 融合“筹码锁定”的微观结构与“上涨初期”的宏观战场环境，
+                      生成一个高确定性的S级机会信号。
+        - 收益: 彻底解决了原子筹码信号因缺乏上下文而产生的“崩盘式集中”误判问题。
+        """
+        print("        -> [黄金筹码机会合成模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # 1. 获取结构条件：筹码必须已经锁定且稳定
+        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
+        # 2. 获取战场条件：必须处于上涨初期
+        is_in_early_stage = atomic.get('CONTEXT_TREND_STAGE_EARLY', default_series)
+        # 3. 最终裁定：结构与战场的完美共振
+        final_signal = is_chip_locked & is_in_early_stage
+        states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = final_signal
+        if final_signal.any():
+            print(f"          -> [S级机会确认] 侦测到 {final_signal.sum()} 次“筹码结构黄金机会”！")
+        return states
 
     def diagnose_chip_price_divergence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
