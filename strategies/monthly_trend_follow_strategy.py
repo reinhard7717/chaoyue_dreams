@@ -50,7 +50,7 @@ class MonthlyTrendFollowStrategy:
                 # 筛选出索引日期大于等于起始日期的数据，并重新赋值给df
                 # 使用 .copy() 避免后续操作出现 SettingWithCopyWarning
                 df = df[df.index.date >= start_date].copy()
-                print(f"调试信息 (月线策略): 已应用起始日期 {start_date_str}。策略计算的数据从 {original_len} 行过滤至 {len(df)} 行。")
+                # print(f"调试信息 (月线策略): 已应用起始日期 {start_date_str}。策略计算的数据从 {original_len} 行过滤至 {len(df)} 行。")
             except (ValueError, TypeError) as e:
                 # 如果日期格式错误，则记录错误并继续处理全部数据
                 logger.error(f"无效的起始日期格式: '{start_date_str}'。错误: {e}。将处理全部历史记录。")
@@ -81,18 +81,18 @@ class MonthlyTrendFollowStrategy:
         has_no_rejection_yet = (rejections_in_group_so_far == 0)
         df.loc[:, 'signal_breakout_trigger'] = is_breakout_month & has_no_rejection_yet
         # --- 步骤 6: 打印调试信息 ---
-        print("\n---【策略逻辑链调试】---")
-        print(f"【步骤1】月线吸筹信号总数: {df['signal_monthly_accumulation'].sum()}")
+        # print("\n---【策略逻辑链调试】---")
+        # print(f"【步骤1】月线吸筹信号总数: {df['signal_monthly_accumulation'].sum()}")
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
         # 修改行: 更新调试信息的文本以匹配新的逻辑
-        print(f"【步骤1.5】'近期有吸筹'(was_accumulating)信号总数: {was_accumulating.sum()}")
+        # print(f"【步骤1.5】'近期有吸筹'(was_accumulating)信号总数: {was_accumulating.sum()}")
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-        print(f"【步骤2】月线突破信号总数: {df['signal_monthly_breakout'].sum()}")
-        print(f"【步骤3】最后洗盘信号总数: {df['signal_final_washout'].sum()}")
-        print(f"【步骤4】'初始突破条件'(is_breakout_month)信号总数: {is_breakout_month.sum()}")
-        print(f"【步骤4.5】'突破启动日'(signal_breakout_initiation)信号总数: {df['signal_breakout_initiation'].sum()}")
-        print(f"【步骤5】'拒绝信号日'总数: {is_rejection_day.sum()}")
-        print(f"【步骤6】最终'突破观察'(signal_breakout_trigger)信号总数: {df['signal_breakout_trigger'].sum()}")
+        # print(f"【步骤2】月线突破信号总数: {df['signal_monthly_breakout'].sum()}")
+        # print(f"【步骤3】最后洗盘信号总数: {df['signal_final_washout'].sum()}")
+        # print(f"【步骤4】'初始突破条件'(is_breakout_month)信号总数: {is_breakout_month.sum()}")
+        # print(f"【步骤4.5】'突破启动日'(signal_breakout_initiation)信号总数: {df['signal_breakout_initiation'].sum()}")
+        # print(f"【步骤5】'拒绝信号日'总数: {is_rejection_day.sum()}")
+        # print(f"【步骤6】最终'突破观察'(signal_breakout_trigger)信号总数: {df['signal_breakout_trigger'].sum()}")
 
         # --- 步骤 7: 基于干净的信号计算买入点 ---
         df.loc[:, 'signal_pullback_entry'] = self._find_pullback_entry_signal(df, self.params.get('pullback_entry_params', {}))
@@ -101,7 +101,7 @@ class MonthlyTrendFollowStrategy:
         # --- 步骤 8: 计算止盈信号 (采用新的安全模式) ---
         df.loc[:, 'take_profit_signal'] = self.apply_take_profit_rules(df, self.params.get('take_profit_params', {}))
 
-        logger.info(f"策略应用完成。")
+        # logger.info(f"策略应用完成。")
         return df
 
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str, params: dict) -> Dict:
@@ -319,10 +319,10 @@ class MonthlyTrendFollowStrategy:
             return None, None
         # 调用新的、标准化的记录准备方法
         db_records = self.prepare_db_records(stock_code, final_df, params)
-        if db_records:
-            logger.info(f"为 {stock_code} 生成了 {len(db_records)} 条标准化信号记录。")
-        else:
-            logger.info(f"为 {stock_code} 的分析完成，无任何信号需要记录。")
+        # if db_records:
+        #     logger.info(f"为 {stock_code} 生成了 {len(db_records)} 条标准化信号记录。")
+        # else:
+        #     logger.info(f"为 {stock_code} 的分析完成，无任何信号需要记录。")
         # 返回原始的DataFrame和标准化的记录列表
         return final_df, db_records
 
