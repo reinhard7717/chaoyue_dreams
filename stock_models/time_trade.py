@@ -36,6 +36,168 @@ class StockDailyBasic(models.Model):
     def __str__(self):
         return f"{self.stock.stock_code} {self.trade_time}"
 
+class StockDailyBasic_SZ(models.Model):
+    """每日重要基本面指标"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics_sz', verbose_name='股票')
+    trade_time = models.DateField(verbose_name='交易日期')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
+    turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
+    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='量比')
+    pe = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率')
+    pe_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率TTM')
+    pb = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市净率')
+    ps = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率')
+    ps_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率TTM')
+    dv_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率(%)')
+    dv_ttm = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率TTM(%)')
+    total_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总股本(万股)')
+    float_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通股本(万股)')
+    free_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='自由流通股本(万)')
+    total_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总市值(万元)')
+    circ_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通市值(万元)')
+    limit_status = models.DecimalField(max_digits=1, decimal_places=0, null=True, blank=True, verbose_name='涨跌停状态')
+
+    class Meta:
+        verbose_name = '每日基本面指标'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_day_basic_sz'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
+class StockDailyBasic_SH(models.Model):
+    """每日重要基本面指标"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics_sh', verbose_name='股票')
+    trade_time = models.DateField(verbose_name='交易日期')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
+    turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
+    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='量比')
+    pe = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率')
+    pe_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率TTM')
+    pb = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市净率')
+    ps = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率')
+    ps_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率TTM')
+    dv_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率(%)')
+    dv_ttm = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率TTM(%)')
+    total_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总股本(万股)')
+    float_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通股本(万股)')
+    free_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='自由流通股本(万)')
+    total_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总市值(万元)')
+    circ_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通市值(万元)')
+    limit_status = models.DecimalField(max_digits=1, decimal_places=0, null=True, blank=True, verbose_name='涨跌停状态')
+
+    class Meta:
+        verbose_name = '每日基本面指标'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_day_basic_sh'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
+class StockDailyBasic_CY(models.Model):
+    """每日重要基本面指标"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics_cy', verbose_name='股票')
+
+    trade_time = models.DateField(verbose_name='交易日期')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
+    turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
+    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='量比')
+    pe = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率')
+    pe_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率TTM')
+    pb = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市净率')
+    ps = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率')
+    ps_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率TTM')
+    dv_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率(%)')
+    dv_ttm = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率TTM(%)')
+    total_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总股本(万股)')
+    float_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通股本(万股)')
+    free_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='自由流通股本(万)')
+    total_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总市值(万元)')
+    circ_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通市值(万元)')
+    limit_status = models.DecimalField(max_digits=1, decimal_places=0, null=True, blank=True, verbose_name='涨跌停状态')
+
+    class Meta:
+        verbose_name = '每日基本面指标'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_day_basic_cy'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
+class StockDailyBasic_KC(models.Model):
+    """每日重要基本面指标"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics_kc', verbose_name='股票')
+    trade_time = models.DateField(verbose_name='交易日期')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
+    turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
+    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='量比')
+    pe = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率')
+    pe_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率TTM')
+    pb = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市净率')
+    ps = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率')
+    ps_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率TTM')
+    dv_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率(%)')
+    dv_ttm = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率TTM(%)')
+    total_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总股本(万股)')
+    float_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通股本(万股)')
+    free_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='自由流通股本(万)')
+    total_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总市值(万元)')
+    circ_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通市值(万元)')
+    limit_status = models.DecimalField(max_digits=1, decimal_places=0, null=True, blank=True, verbose_name='涨跌停状态')
+
+    class Meta:
+        verbose_name = '每日基本面指标'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_day_basic_kc'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
+class StockDailyBasic_BJ(models.Model):
+    """每日重要基本面指标"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='daily_basics_bj', verbose_name='股票')
+
+    trade_time = models.DateField(verbose_name='交易日期')
+    close = models.FloatField(null=True, blank=True, verbose_name='收盘价')
+    turnover_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(%)')
+    turnover_rate_f = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='换手率(自由流通股)')
+    volume_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='量比')
+    pe = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率')
+    pe_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市盈率TTM')
+    pb = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市净率')
+    ps = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率')
+    ps_ttm = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, verbose_name='市销率TTM')
+    dv_ratio = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率(%)')
+    dv_ttm = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='股息率TTM(%)')
+    total_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总股本(万股)')
+    float_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通股本(万股)')
+    free_share = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='自由流通股本(万)')
+    total_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='总市值(万元)')
+    circ_mv = models.DecimalField(null=True, blank=True, max_digits=20, decimal_places=4, verbose_name='流通市值(万元)')
+    limit_status = models.DecimalField(max_digits=1, decimal_places=0, null=True, blank=True, verbose_name='涨跌停状态')
+
+    class Meta:
+        verbose_name = '每日基本面指标'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_time_trade_day_basic_bj'
+        unique_together = ('stock', 'trade_time')
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} {self.trade_time}"
+
 # 日线行情模型（StockDailyData）
 class StockDailyData(models.Model):
     """A股日线行情（带复权）"""

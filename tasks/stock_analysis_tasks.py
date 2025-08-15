@@ -498,7 +498,6 @@ def rebuild_all_snapshots_for_all_trackers(self):
     logger.info("所有重建任务已成功派发。")
     return {"status": "dispatched", "tracker_count": len(holding_tracker_ids)}
 
-
 # 单个持仓追踪器快照重建任务 (服务包装器)
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.rebuild_snapshots_for_tracker_task', queue='dashboard')
 @with_cache_manager
@@ -625,40 +624,30 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 return pd.DataFrame.from_records(qs.values(*fields))
             else:
                 return pd.DataFrame.from_records(qs.values())
-        
-        # 【代码修改】使 save_metrics_async 接受动态模型作为参数
+
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
             with transaction.atomic():
                 if do_delete_first:
-                    # 【代码修改】使用传入的 model 进行删除操作
                     model.objects.filter(stock=stock_info_obj).delete()
-                # 【代码修改】使用传入的 model 进行批量创建
                 model.objects.bulk_create(records_to_create_list, batch_size=5000)
-        
         try:
             stock_info = await get_stock_info_async(stock_code=stock_code)
-            # 【代码修改】在任务开始时，根据股票代码动态获取正确的指标模型
             MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-            
             max_lookback_days = 160
             last_metric_date = None
             if incremental_flag:
-                # 【代码修改】调用重构后的函数，传入动态模型
                 last_metric = await get_latest_metric_async(MetricsModel, stock_info)
                 if last_metric:
                     last_metric_date = last_metric.trade_time
                 else:
                     logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                     incremental_flag = False
-            
             fetch_start_date = None
             if incremental_flag and last_metric_date:
                 fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
-            
             chip_model = get_cyq_chips_model_by_code(stock_code)
             daily_data_model = get_daily_data_model_by_code(stock_code)
-            
             data_tasks = {
                 "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
                 "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
@@ -666,7 +655,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             }
             results = await asyncio.gather(*data_tasks.values())
             data_dfs = dict(zip(data_tasks.keys(), results))
-            
             # --- 数据审计部分，逻辑不变 ---
             cyq_chips_df = data_dfs.get("cyq_chips")
             if cyq_chips_df is None or cyq_chips_df.empty:
@@ -708,7 +696,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 for warning in audit_warnings:
                     logger.error(warning)
                 return {"status": "failed", "reason": "Data consistency audit failed."}
-            
             # --- 数据预处理和合并部分，逻辑不变 ---
             cyq_chips_data = data_dfs['cyq_chips']
             if cyq_chips_data.empty:
@@ -736,7 +723,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
             daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
             merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-            
             # --- 核心计算循环，逻辑不变 ---
             grouped_data = merged_df.groupby('trade_time')
             all_metrics_list = []
