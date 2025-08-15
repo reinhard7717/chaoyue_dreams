@@ -67,15 +67,18 @@ class MultiTimeframeTrendStrategy:
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
         # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False) -> Tuple[List, List, List, List]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List]:
         """
-        【总指挥层核心 - V506.0 适配版】
+        【总指挥层核心 - V506.1 新增起始日期计算支持】
         - 返回值变更: 现在返回一个包含四类对象的元组，以支持全量预计算。
+        - 新增功能: 增加了 start_date_str 参数，用于指定策略计算的起始点。
         """
         mode_str = "闪电突袭" if latest_only else "全面战役"
-        print(f"\n🚀 [总指挥层 - {mode_str}] 开始处理股票: {stock_code}, 交易时间: {trade_time}")
+        # 【代码修改】在日志中体现 start_date_str
+        start_info = f", 计算起始于: {start_date_str}" if start_date_str and not latest_only else ""
+        print(f"\n🚀 [总指挥层 - {mode_str}] 开始处理股票: {stock_code}, 交易时间: {trade_time}{start_info}")
 
-        # 1. 数据准备
+        # 1. 数据准备 (此步骤不变，仍然加载全部历史数据以保证指标准确性)
         all_dfs = await self.indicator_service.prepare_data_for_strategy(
             stock_code, self.unified_config, trade_time, latest_only=latest_only
         )
@@ -104,8 +107,8 @@ class MultiTimeframeTrendStrategy:
         all_dfs['D_CONTEXT'] = df_daily_with_context
 
         # 4. 战术引擎：现在返回四元组
-        # tactical_signals, tactical_details, daily_scores, score_components
-        records_tuple = await self._run_tactical_engine(stock_code, all_dfs)
+        # 【代码修改】将 start_date_str 传递给战术引擎
+        records_tuple = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
         print(f"  - [战术引擎] 生成 {len(records_tuple[0])} 条日线级信号和 {len(records_tuple[2])} 条每日分数。")
 
         # 5. 盘中入场引擎 (只生成 TradingSignal，后三项为空)
@@ -350,32 +353,29 @@ class MultiTimeframeTrendStrategy:
         print(f"    {verdict}")
         print("=" * 95)
 
-    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List, List, List]:
+    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List]:
         """
-        【V506.1 日志修复版】
-        - 核心修改: 修正了返回值的类型提示，并修复了误导性的日志打印。
+        【V506.2 新增起始日期计算支持】
+        - 核心修改: 接收 start_date_str 并将其传递给底层的 apply_strategy 方法。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
             return ([], [], [], [])
-
         try:
             # TrendFollowStrategy 将独立负责运行其内部的情报层和所有分析
+            # 【代码修改】将 start_date_str 传递给 apply_strategy
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
-                df_daily_prepared, self.unified_config
+                df_daily_prepared, self.unified_config, start_date_str=start_date_str
             )
-            
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("    - [战术引擎] 引擎返回了空的分析结果。")
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
                 return ([], [], [], [])
-
             # 保存分析结果
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
-            
             # 主动净化报告数据源
             is_buy_signal_day = daily_analysis_df['signal_type'] == '买入信号'
             columns_to_clean = ['exit_signal_code', 'alert_level', 'alert_reason', 'exit_severity_level', 'exit_signal_reason']
@@ -383,7 +383,6 @@ class MultiTimeframeTrendStrategy:
                 if col in daily_analysis_df.columns:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
-            
             # 调用报告层生成数据库记录
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
@@ -393,12 +392,9 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            
             # 修复误导性日志，使其打印真正有用的信息
             print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号和 {len(records_tuple[2])} 条每日分数。")
-            
             return records_tuple
-
         finally:
             # 清理临时数据
             if hasattr(self.tactical_engine, '_last_score_details_df'):

@@ -42,9 +42,20 @@ class MonthlyTrendFollowStrategy:
         if df is None or df.empty:
             logger.warning("输入DataFrame为空，无法应用策略。")
             return pd.DataFrame()
-
+        original_len = len(df) # 记录原始数据长度用于日志
+        if start_date_str:
+            try:
+                # 将日期字符串转换为pandas可比较的日期对象
+                start_date = pd.to_datetime(start_date_str).date()
+                # 筛选出索引日期大于等于起始日期的数据，并重新赋值给df
+                # 使用 .copy() 避免后续操作出现 SettingWithCopyWarning
+                df = df[df.index.date >= start_date].copy()
+                print(f"调试信息 (月线策略): 已应用起始日期 {start_date_str}。策略计算的数据从 {original_len} 行过滤至 {len(df)} 行。")
+            except (ValueError, TypeError) as e:
+                # 如果日期格式错误，则记录错误并继续处理全部数据
+                logger.error(f"无效的起始日期格式: '{start_date_str}'。错误: {e}。将处理全部历史记录。")
+                print(f"调试信息 (月线策略): 起始日期 '{start_date_str}' 格式无效，将计算全部历史数据。")
         self.params = params
-
         # --- 步骤 1-5: 核心信号链计算 ---
         df.loc[:, 'signal_monthly_accumulation'] = self._check_monthly_accumulation(df, self.params.get('monthly_accumulation_params', {}))
         df.loc[:, 'signal_monthly_breakout'] = self._check_monthly_breakout(df, self.params.get('monthly_breakout_params', {}))
@@ -69,7 +80,6 @@ class MonthlyTrendFollowStrategy:
         rejections_in_group_so_far = is_rejection_day.groupby(breakout_event_group).cumsum()
         has_no_rejection_yet = (rejections_in_group_so_far == 0)
         df.loc[:, 'signal_breakout_trigger'] = is_breakout_month & has_no_rejection_yet
-
         # --- 步骤 6: 打印调试信息 ---
         print("\n---【策略逻辑链调试】---")
         print(f"【步骤1】月线吸筹信号总数: {df['signal_monthly_accumulation'].sum()}")
@@ -281,45 +291,38 @@ class MonthlyTrendFollowStrategy:
             
         return records
 
-    def run_analysis(self, stock_code: str, params_file: str = "config/monthly_trend_follow_strategy.json", trade_time: Optional[str] = None, data_df: Optional[pd.DataFrame] = None) -> Tuple[Optional[pd.DataFrame], Optional[List[Dict[str, Any]]]]:
+    def run_analysis(self, stock_code: str, params_file: str = "config/monthly_trend_follow_strategy.json", trade_time: Optional[str] = None, data_df: Optional[pd.DataFrame] = None, start_date_str: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[List[Dict[str, Any]]]]:
         """
-        【V7.0 重构版】运行单只股票的完整策略分析流程。
+        【V7.1 重构版 - 新增起始日期计算支持】运行单只股票的完整策略分析流程。
         - 现在返回一个符合通用信号日志模型的记录列表。
+        - 新增功能: 增加了 start_date_str 参数，用于指定策略计算的起始点。
         """
         if self.favorite_stock_set is None:
-            
             favorite_stocks = self.loop.run_until_complete(self.stock_basic_dao.get_all_favorite_stocks())
             self.favorite_stock_set = {stock.stock_id for stock in favorite_stocks}
-
         if data_df is None:
+            # 数据准备阶段不变，依然加载全历史数据以计算准确的基础指标
             df_base, _ = self.loop.run_until_complete(self.indicator_service.prepare_data_for_strategy(stock_code=stock_code, params_file=params_file, trade_time=trade_time))
         else:
             df_base = data_df.copy()
-
         if df_base is None or df_base.empty:
             logger.warning(f"为股票 {stock_code} 准备数据失败，分析终止。")
             return None, None
-        
         try:
             with open(params_file, 'r', encoding='utf-8') as f:
                 params = json.load(f)
         except Exception as e:
             logger.error(f"加载策略参数文件 '{params_file}' 失败: {e}")
             return None, None
-        
-        final_df = self.loop.run_until_complete(self.apply_strategy(df_base, params))
-        
+        final_df = self.loop.run_until_complete(self.apply_strategy(df_base, params, start_date_str=start_date_str))
         if final_df.empty:
             return None, None
-
         # 调用新的、标准化的记录准备方法
         db_records = self.prepare_db_records(stock_code, final_df, params)
-        
         if db_records:
             logger.info(f"为 {stock_code} 生成了 {len(db_records)} 条标准化信号记录。")
         else:
             logger.info(f"为 {stock_code} 的分析完成，无任何信号需要记录。")
-
         # 返回原始的DataFrame和标准化的记录列表
         return final_df, db_records
 
