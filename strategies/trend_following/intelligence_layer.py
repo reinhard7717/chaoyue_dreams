@@ -134,7 +134,7 @@ class IntelligenceLayer:
         # print("    - [阶段4/5] 正在执行顶层认知合成...")
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_context(df))
+        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
         self.strategy.atomic_states.update(self.chip_intel.synthesize_prime_chip_opportunity(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self.cognitive_intel.run_cognitive_synthesis_engine(df))

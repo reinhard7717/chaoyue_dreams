@@ -99,47 +99,47 @@ class CognitiveIntelligence:
         states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
         return states
 
-    def diagnose_trend_stage_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V332.0 新增】趋势阶段上下文诊断模块
-        - 核心职责: 综合多种情报，对当前趋势所处的“阶段”（初期/末期）
-                    进行高维度的综合诊断。
+        【V400.0 风险仪表盘版】趋势阶段评分模块
+        - 核心升级: 将“上涨末期”的判断从布尔型升级为0-100的量化分数。
+        - 评分逻辑: 构成上涨末期的四个核心风险子条件，每个贡献25分。
+        - 收益: 实现了对趋势末期风险的精细化度量，为下游战术模块提供了更灵活的决策依据。
         """
-        # print("        -> [趋势阶段诊断模块 V332.0] 启动...")
+        print("        -> [趋势阶段评分模块 V400.0 风险仪表盘版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 定义“上涨初期” (Early Stage) ---
-        # 条件A: 处于“初升浪”的持续状态中
+        # --- 1. 定义“上涨初期” (Early Stage) - 逻辑保持不变 ---
         is_in_ascent_structure = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
-        
-        # 条件B: 价格处于年内较低位置 (位置信号)
-        yearly_high = df['high_D'].rolling(250).max()
-        yearly_low = df['low_D'].rolling(250).min()
-        price_range = yearly_high - yearly_low
-        # 定义：当前价格低于年内高点和低点的中点
+        yearly_high = df['high_D'].rolling(250, min_periods=1).max()
+        yearly_low = df['low_D'].rolling(250, min_periods=1).min()
+        price_range = (yearly_high - yearly_low).replace(0, np.nan)
         is_in_lower_half_range = df['close_D'] < (yearly_low + price_range * 0.5)
-        
-        # 最终裁定：满足任一条件，都可认为是广义的“初期”
         states['CONTEXT_TREND_STAGE_EARLY'] = is_in_ascent_structure | is_in_lower_half_range
 
-        # --- 2. 定义“上涨末期” (Late Stage) ---
+        # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
+        late_stage_score = pd.Series(0, index=df.index, dtype=int)
+
+        # 2.1 获取位置情报 (Context) 的子条件
+        is_overextended_bias = self.strategy.atomic_states.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series)
+        is_momentum_exhaustion = self.strategy.atomic_states.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series)
         
-        # 2.1 获取位置情报 (Context)
-        is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-        
-        # 2.2 获取并提炼行为情报 (Action)
-        # 行为1: 主力有派发嫌疑
+        # 2.2 获取行为情报 (Action) 的子条件
         is_distributing_action = self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
-        # 行为2: 趋势引擎正在熄火
         is_trend_engine_stalling = self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
         
-        # ▼▼▼ 将多个行为信号提炼为一个“趋势恶化”的综合行为信号 ▼▼▼
-        has_trend_worsening_action = is_distributing_action | is_trend_engine_stalling
+        # 2.3 根据子条件累加分数
+        late_stage_score += is_overextended_bias.astype(int) * 25
+        late_stage_score += is_momentum_exhaustion.astype(int) * 25
+        late_stage_score += is_distributing_action.astype(int) * 25
+        late_stage_score += is_trend_engine_stalling.astype(int) * 25
         
-        # 最终裁定：必须是“位置”和“恶化行为”的共振
-        states['CONTEXT_TREND_STAGE_LATE'] = is_in_danger_zone & has_trend_worsening_action
+        states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
+        # 为了兼容旧的逻辑和方便调试，可以保留一个基于阈值的布尔型信号
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 50 # 例如，分数达到50分（满足两个条件）就认为是广义的末期
+
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -464,10 +464,13 @@ class CognitiveIntelligence:
         is_synergistic_offense = (num_active_signals >= 2)
 
         # 3. 获取战略过滤器：是否处于上涨末期
-        is_in_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
+        late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
+        p_trend_stage = get_params_block(self.strategy, 'trend_stage_params', {})
+        max_score_for_offense = get_param_value(p_trend_stage.get('dynamic_offense_max_late_stage_score'), 30)
+        is_in_safe_stage = late_stage_score < max_score_for_offense
 
-        # 4. 最终裁定：发动协同进攻，且【不】在上涨末期
-        final_signal = is_synergistic_offense & ~is_in_late_stage
+        # 4. 最终裁定：发动协同进攻，且【处于安全阶段】
+        final_signal = is_synergistic_offense & is_in_safe_stage
         states['DYN_AGGRESSIVE_OFFENSE_A'] = final_signal
         
         if final_signal.any():
@@ -495,24 +498,25 @@ class CognitiveIntelligence:
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-        
         # 回踩性质 (昨日)
         was_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series).shift(1).fillna(False)
         was_suppressive_pullback = atomic.get('PULLBACK_STATE_SUPPRESSIVE_S', default_series).shift(1).fillna(False)
-        
         # 统一确认信号 (今日)
         is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-
         # 新增：获取“上涨末期”上下文状态
-        is_in_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
+        late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
+        # 从配置中读取此战法能容忍的最高风险分数
+        p_trend_stage = get_params_block(self.strategy, 'trend_stage_params', {})
+        max_score_for_pullback = get_param_value(p_trend_stage.get('pullback_s_plus_max_late_stage_score'), 50)
+        # 定义是否处于安全区域
+        is_in_safe_stage = late_stage_score < max_score_for_pullback
         # --- 2. 【新范式】按优先级生成唯一的战术信号 ---
-        
         # 优先级 1 (S+++ 王牌): 巡航期 + 打压回踩(昨日) + 显性反转(今日) -> 经典的“黄金坑”V型反转
         s_triple_plus_signal = is_in_cruise_window & was_suppressive_pullback & is_reversal_confirmed
         states['TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
 
         # 优先级 2 (S+): 巡航期 + 健康回踩(昨日) + 显性反转(今日) + 【非上涨末期】
-        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_late_stage & ~s_triple_plus_signal
+        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & is_in_safe_stage & ~s_triple_plus_signal
         states['TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS'] = s_plus_signal
 
         # 优先级 3 (A+): 初升浪期 + 打压回踩(昨日) + 显性反转(今日)
