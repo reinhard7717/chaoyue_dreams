@@ -489,6 +489,54 @@ class CognitiveIntelligence:
 
         return states
 
+    def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 王牌突击队】终极战法合成模块
+        - 核心思想: 严格分离“阵地构筑(Setup)”与“冲锋号(Trigger)”。
+        - 流程: 1. 定义S级的“黄金阵地”状态。
+                 2. 定义S级的“突破冲锋号”事件。
+                 3. 只有当“黄金阵地”建立后，次日出现“冲锋号”，才确认为终极战法。
+        - 收益: 彻底根除基于静态“状态”的左侧交易思维，转为高确定性的右侧突破交易。
+        """
+        print("        -> [终极战法合成模块 V1.0 王牌突击队] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 定义S级“黄金阵地” (Prime Setup) ---
+        # 这是一个多维度共振的“压缩弹簧”状态
+        is_prime_chip_structure = atomic.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
+        is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        has_energy_advantage = atomic.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
+        
+        # 最终的“黄金阵地”状态：必须同时满足筹码、波动率和力学优势
+        setup_prime_structure_s = is_prime_chip_structure & is_extreme_squeeze & has_energy_advantage
+        states['SETUP_PRIME_STRUCTURE_S'] = setup_prime_structure_s
+
+        # --- 2. 定义S级“突破冲锋号” (Prime Trigger) ---
+        # 这是一个融合了多种确认方式的、高强度的突破事件
+        is_energy_release = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
+        is_volume_breakout = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
+        is_fractal_breakout = triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series)
+
+        # 最终的“冲锋号”事件：满足任一高强度突破信号即可
+        trigger_prime_breakout_s = is_energy_release | is_volume_breakout | is_fractal_breakout
+        states['TRIGGER_PRIME_BREAKOUT_S'] = trigger_prime_breakout_s
+
+        # --- 3. 【终极裁定】生成S++级王牌战法 ---
+        # 条件：昨日处于“黄金阵地”状态，今日响起了“冲锋号”
+        was_setup_yesterday = setup_prime_structure_s.shift(1).fillna(False)
+        is_triggered_today = trigger_prime_breakout_s
+        
+        final_tactic_signal = was_setup_yesterday & is_triggered_today
+        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'] = final_tactic_signal
+
+        if final_tactic_signal.any():
+            print(f"          -> [S++级王牌战法确认] 侦测到 {final_tactic_signal.sum()} 次“黄金结构突破”机会！")
+
+        return states
+
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
         【V7.1 防诱多增强版】回踩战术诊断模块

@@ -18,27 +18,27 @@ class PlaybookEngine:
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
-        【V2.0 新增】剧本蓝图知识库
-        - 核心职责: 统一定义所有剧本的静态属性（名称、准备条件、触发条件）。
+        【V2.1 双层打击版】剧本蓝图知识库
+        - 核心升级: 为突破类剧本换装全新的S级/A级双层触发器，提升战术适应性。
         """
         return [
             {
-                'name': 'PLAYBOOK_EXTREME_SQUEEZE_BREAKOUT_S_PLUS',
-                'setup': ['VOL_STATE_EXTREME_SQUEEZE'], # 使用更强的“极致压缩”作为准备条件
-                'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'],
-                'comment': 'S+级 - 波动极致压缩后，出现能量释放或放量突破。'
+                'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS', # MODIFIED: 命名优化，强调“爆炸”效应
+                'setup': ['VOL_STATE_EXTREME_SQUEEZE'],
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S'], # MODIFIED: 必须由最强的S级“攻城锤”触发
+                'comment': 'S+级 - 波动极致压缩后，出现高确定性的暴力突破。'
             },
             {
-                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_A',
+                'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A', # MODIFIED: 命名优化，明确为“常规”压缩
                 'setup': ['VOL_STATE_SQUEEZE_WINDOW'],
-                'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'],
-                'comment': 'S级 - 波动压缩后，出现能量释放或放量突破。'
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'], # MODIFIED: 可由S级或A级突破触发，更灵活
+                'comment': 'A级 - 波动压缩后，出现暴力突破或温和推进。'
             },
             {
                 'name': 'PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A',
-                'setup': ['BOX_STATE_HEALTHY_ACCUMULATION'], # 准备条件：处于健康吸筹箱体状态
-                'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'], # 触发条件：能量释放或放量突破
-                'comment': 'A级 - 健康吸筹箱体完成后，出现放量突破。'
+                'setup': ['BOX_STATE_HEALTHY_ACCUMULATION'],
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'], # MODIFIED: 可由S级或A级突破触发，更灵活
+                'comment': 'A级 - 健康吸筹箱体完成后，出现暴力突破或温和推进。'
             },
             {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
@@ -48,14 +48,14 @@ class PlaybookEngine:
             },
             {
                 'name': 'PLAYBOOK_GOLDEN_PIT_B',
-                'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'], # 使用打压吸筹作为Setup
+                'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'],
                 'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
                 'comment': 'B级 - 主力打压吸筹后，出现显性反转K线确认。'
             },
             {
                 'name': 'PLAYBOOK_MEAN_REVERSION_A',
-                'setup': ['OPP_STATE_NEGATIVE_DEVIATION', 'OSC_STATE_RSI_OVERSOLD'], # 要求至少满足一个
-                'trigger': ['OPP_BEHAVIOR_SELLING_EXHAUSTION_A', 'TRIGGER_DOMINANT_REVERSAL'], # 要求至少满足一个
+                'setup': ['OPP_STATE_NEGATIVE_DEVIATION', 'OSC_STATE_RSI_OVERSOLD'],
+                'trigger': ['OPP_BEHAVIOR_SELLING_EXHAUSTION_A', 'TRIGGER_DOMINANT_REversal'],
                 'comment': 'A级 - 统计学超卖 + 卖盘衰竭或反转K线。'
             }
         ]
@@ -159,6 +159,29 @@ class PlaybookEngine:
             is_positive_day = df['close_D'] > df['open_D']
             is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
             triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
+        
+        # 双层突破识别系统，以应对不同市场环境，取代单一、僵化的突破定义。
+        # --- S级触发器 (攻城锤): 暴力突破 ---
+        # 逻辑: 严格的三维标准（创20日高点 + 2倍以上放量 + 光头强实体阳线），捕捉高确定性的暴力突破。
+        is_price_breakout_s = df['close_D'] >= df['high_D'].rolling(20).max().shift(1)
+        volume_ma_20 = df['volume_D'].rolling(20).mean()
+        is_volume_confirmed_s = df['volume_D'] > (volume_ma_20 * 2.0)
+        price_range_s = (df['high_D'] - df['low_D']).replace(0, 0.0001)
+        close_position_in_range_s = (df['close_D'] - df['low_D']) / price_range_s
+        is_strength_confirmed_s = close_position_in_range_s >= 0.9
+        triggers['TRIGGER_EXPLOSIVE_BREAKOUT_S'] = is_price_breakout_s & is_volume_confirmed_s & is_strength_confirmed_s
+
+        # --- A级触发器 (手术刀): 温和推进 ---
+        # 逻辑: 更灵活的标准，捕捉温和、持续、重心不断上移的“碎步”上涨。
+        # 维度1: 位置 - 突破短期动量 (8日高点)
+        is_price_breakout_a = df['close_D'] >= df['high_D'].rolling(8).max().shift(1)
+        # 维度2: 能量 - 成交量健康温和 (>20日均量)
+        is_volume_confirmed_a = df['volume_D'] > volume_ma_20
+        # 维度3: 特征 - 重心上移 (当日优势 + 连续攻击)
+        is_winner_of_the_day = df['close_D'] > (df['high_D'] + df['low_D']) / 2
+        is_consecutive_attack = (df['high_D'] > df['high_D'].shift(1)) & (df['low_D'] > df['low_D'].shift(1))
+        is_character_confirmed_a = is_winner_of_the_day & is_consecutive_attack
+        triggers['TRIGGER_GRINDING_ADVANCE_A'] = is_price_breakout_a & is_volume_confirmed_a & is_character_confirmed_a
 
         # --- 3. 复合形态与指标触发器 (Pattern & Indicator Triggers) ---
         # 3.1 N字形态突破 (依赖原子状态)
