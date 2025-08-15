@@ -285,11 +285,11 @@
         "enabled": true,
         "description": "【V400.0 新增】趋势阶段评分模块的参数，用于精细化风险控制。",
         "pullback_s_plus_max_late_stage_score": {
-          "value": 50,
+          "value": 75,
           "description": "【S+回踩战法风控】该战法能容忍的最高“上涨末期分数”。50分意味着最多只能有两个风险子信号激活。"
         },
         "dynamic_offense_max_late_stage_score": {
-          "value": 30,
+          "value": 50,
           "description": "【A级动能进攻风控】协同进攻信号能容忍的最高“上涨末期分数”。30分意味着最多只能有一个风险子信号激活，要求更严格。"
         }
       },

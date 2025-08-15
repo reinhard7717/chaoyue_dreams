@@ -54,6 +54,13 @@ class FoundationIntelligence:
         # 直接使用数据层预计算的 'SLOPE_5_BBW_21_2.0_D' 列进行判断。
         is_still_squeezing = df[bbw_slope_col] < 0
         states['VOL_STATE_EXTREME_SQUEEZE'] = squeeze_window & is_still_squeezing
+        
+        # “波动率急剧扩张”风险信号，作为“上涨末期”评分的新维度。
+        # 定义：布林带宽度斜率为正，且其值处于近期高位（例如80%分位数以上），代表扩张具有实际意义。
+        is_expanding = df[bbw_slope_col] > 0
+        high_expansion_threshold = df[bbw_col].rolling(60).quantile(0.8)
+        is_in_high_expansion_zone = df[bbw_col] > high_expansion_threshold
+        states['VOL_STATE_EXPANDING_SHARPLY'] = is_expanding & is_in_high_expansion_zone
 
         return states
 
