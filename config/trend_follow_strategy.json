@@ -250,8 +250,8 @@
       "debug_params": {
         "enabled": { "value": false },
         "verbose_logging": { "value": true },
-        "probe_start_date": "2025-07-01",
-        "probe_date": "2025-08-28",
+        "probe_start_date": "2025-08-01",
+        "probe_date": "2025-09-28",
         "enable_pullback_decision_log": { "value": false, "description": "[新增] 是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"}
       },
       "strategy_info": {
