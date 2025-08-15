@@ -2,7 +2,7 @@
 # 版本: V100.1 - 初始化顺序与逻辑净化修复版
 import logging
 import pandas as pd
-from typing import Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import gc # [代码新增] 导入gc模块以支持内存回收
 
 from .trend_following.intelligence_layer import IntelligenceLayer
