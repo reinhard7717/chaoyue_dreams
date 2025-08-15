@@ -23,7 +23,13 @@ class PlaybookEngine:
         """
         return [
             {
-                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_S',
+                'name': 'PLAYBOOK_EXTREME_SQUEEZE_BREAKOUT_S_PLUS',
+                'setup': ['VOL_STATE_EXTREME_SQUEEZE'], # 使用更强的“极致压缩”作为准备条件
+                'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'],
+                'comment': 'S+级 - 波动极致压缩后，出现能量释放或放量突破。'
+            },
+            {
+                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_A',
                 'setup': ['VOL_STATE_SQUEEZE_WINDOW'],
                 'trigger': ['TRIGGER_ENERGY_RELEASE', 'TRIGGER_VOLUME_SPIKE_BREAKOUT'],
                 'comment': 'S级 - 波动压缩后，出现能量释放或放量突破。'

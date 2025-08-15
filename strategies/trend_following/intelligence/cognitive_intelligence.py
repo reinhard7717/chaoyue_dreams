@@ -442,82 +442,74 @@ class CognitiveIntelligence:
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V6.3 战术革新版】回踩战术诊断模块
-        - 核心重构: 1. 废除了被实战证明无效的 TACTIC_ASCENT_PULLBACK_B 和 TACTIC_ASCENT_HAMMER_A 战法。
-                      2. 引入了全新的、基于“回踩+显性反转确认”的 TACTIC_ASCENT_REVERSAL_A 战法。
-        - 收益: 裁撤弱旅，强化王牌。用经过数据验证的高胜率逻辑，替代低效的猜测性买入，提升策略整体表现。
+        【V7.0 终极重构版】回踩战术诊断模块
+        - 核心重构: 废除所有旧的回踩战法，全面转向“战场环境 + 回踩性质 + 统一确认”的三位一体新范式。
+                      所有战法都必须由最高级别的“显性反转K线”进行右侧确认。
+        - 收益: 彻底消灭了所有低效的左侧交易和基于单一形态的猜测性信号，
+                建立了统一、健壮、高胜率的回踩战术体系。
         """
-        # print("        -> [回踩战术矩阵 V6.3] 启动，正在进行三维联合作战诊断...")
+        print("        -> [回踩战术矩阵 V7.0 终极重构版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
         
-        # --- 1. 提取所有基础和增强信号 (逻辑不变) ---
-        is_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
+        # --- 1. 提取核心情报 ---
+        # 战场环境
         lookback_window = 15
         ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-        is_hammer = enhancements.get('is_hammer_candle', default_series)
-        is_fib_gold = enhancements.get('is_fib_golden_support', default_series)
-        is_suppressive = enhancements.get('is_suppressive_pullback', default_series)
-        is_dominant_reversal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+        
+        # 回踩性质 (昨日)
+        was_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series).shift(1).fillna(False)
+        was_suppressive_pullback = atomic.get('PULLBACK_STATE_SUPPRESSIVE_S', default_series).shift(1).fillna(False)
+        
+        # 统一确认信号 (今日)
+        is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
 
-        # --- 2. 按优先级生成唯一的战术信号 ---
-        # S级巡航期战法 (逻辑不变)
-        s_triple_plus_signal = is_in_cruise_window & is_suppressive & is_dominant_reversal
-        states['TACTIC_CRUISE_V_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
-        s_plus_plus_signal = is_in_cruise_window & is_suppressive & is_hammer & ~s_triple_plus_signal
-        states['TACTIC_CRUISE_PIT_HAMMER_S_PLUS_PLUS'] = s_plus_plus_signal
-        s_plus_signal = is_in_cruise_window & is_healthy_pullback & is_fib_gold & is_hammer & ~s_triple_plus_signal & ~s_plus_plus_signal
-        states['TACTIC_CRUISE_FIB_HAMMER_S_PLUS'] = s_plus_signal
-        s_signal = is_in_cruise_window & is_healthy_pullback & ~s_triple_plus_signal & ~s_plus_plus_signal & ~s_plus_signal
-        states['TACTIC_CRUISE_PULLBACK_S'] = s_signal
+        # --- 2. 【新范式】按优先级生成唯一的战术信号 ---
         
-        # 准备条件：昨日处于健康回踩状态
-        was_healthy_pullback = is_healthy_pullback.shift(1).fillna(False)
-        
-        # 触发条件：今天出现显性反转K线
-        is_reversal_confirmed = is_dominant_reversal
-        
-        # 新战法A级: 初升浪反转确认 = 在初升浪窗口内 + 昨日回踩 + 今日反转
-        a_signal = is_in_ascent_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_cruise_window
-        states['TACTIC_ASCENT_REVERSAL_A'] = a_signal
+        # 优先级 1 (S+++ 王牌): 巡航期 + 打压回踩(昨日) + 显性反转(今日) -> 经典的“黄金坑”V型反转
+        s_triple_plus_signal = is_in_cruise_window & was_suppressive_pullback & is_reversal_confirmed
+        states['TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
 
-        # 打印日志
+        # 优先级 2 (S+): 巡航期 + 健康回踩(昨日) + 显性反转(今日)
+        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & ~s_triple_plus_signal
+        states['TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS'] = s_plus_signal
+
+        # 优先级 3 (A+): 初升浪期 + 打压回踩(昨日) + 显性反转(今日)
+        a_plus_signal = is_in_ascent_window & was_suppressive_pullback & is_reversal_confirmed & ~is_in_cruise_window
+        states['TACTIC_ASCENT_PIT_REVERSAL_A_PLUS'] = a_plus_signal
+
+        # 优先级 4 (A): 初升浪期 + 健康回踩(昨日) + 显性反转(今日)
+        a_signal = is_in_ascent_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_cruise_window & ~a_plus_signal
+        states['TACTIC_ASCENT_PULLBACK_REVERSAL_A'] = a_signal
+
+        # --- 3. 打印日志 (适配新战法名称) ---
         tactic_name_map = {
-            "CRUISE_V_REVERSAL": "巡航V型反转(王牌)",
-            "CRUISE_PIT_HAMMER": "巡航黄金坑(锤子确认)",
-            "CRUISE_FIB_HAMMER": "巡航斐波那契(锤子确认)",
-            "CRUISE_PULLBACK": "巡航常规回踩",
-            "ASCENT_LOCKED_PULLBACK": "初升浪锁仓回踩",
-            "ASCENT_HAMMER": "初升浪回踩(锤子确认)",
-            "ASCENT_PULLBACK": "初升浪常规回踩"
+            "CRUISE_PIT_REVERSAL": "巡航黄金坑V反(王牌)",
+            "CRUISE_PULLBACK_REVERSAL": "巡航常规回踩确认",
+            "ASCENT_PIT_REVERSAL": "初升浪黄金坑V反",
+            "ASCENT_PULLBACK_REVERSAL": "初升浪常规回踩确认"
         }
         grade_map = {
-            "S_TRIPLE_PLUS": "S+++", "S_PLUS_PLUS": "S++", "S_PLUS": "S+",
-            "A_PLUS": "A+", "S": "S", "A": "A", "B": "B"
+            "S_TRIPLE_PLUS": "S+++", "S_PLUS": "S+", "A_PLUS": "A+", "A": "A"
         }
-        
         for name, series in states.items():
             if series.any():
-                # 从后向前匹配最长的等级key，以处理 S_PLUS, S 等情况
                 matched_grade_key = ""
                 for grade_key in sorted(grade_map.keys(), key=len, reverse=True):
                     if name.endswith(f"_{grade_key}"):
                         matched_grade_key = grade_key
                         break
-                
                 if matched_grade_key:
-                    # 提取战法key和等级
                     tactic_key_part = name.replace("TACTIC_", "").replace(f"_{matched_grade_key}", "")
                     cn_tactic = tactic_name_map.get(tactic_key_part, tactic_key_part)
                     cn_grade = grade_map.get(matched_grade_key, "")
                     print(f"          -> [{cn_grade}级战法] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
                 else:
-                    # 如果没有匹配到等级，使用旧的简单打印方式作为备用
                     print(f"          -> [战法确认] 侦测到 {series.sum()} 次“{name}”机会！")
 
         return states
