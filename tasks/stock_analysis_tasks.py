@@ -1483,21 +1483,20 @@ def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager)
 @with_cache_manager
 def run_global_performance_analysis(self, stock_list: list = None, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
     """
-    【V3.0 全景复盘总指挥】
-    对全市场（或指定列表）所有股票，在指定时间段内，进行并行回测分析。
+    【V3.1 联合作战版】
+    对全市场（或指定列表）所有股票，在指定时间段内，同时启动【最终信号】和【原子信号】的性能分析。
     - 工作流:
       1. (调度器) 获取所有股票代码。
-      2. (MapReduce) 派发并行的 `analyze_performance_from_db` 子任务，用于分析【最终信号】。
-      3. (独立任务) 派发 `run_atomic_signal_performance_analysis` 任务，用于分析【原子信号】。
+      2. (联合作战) 同时派发两个独立的分析工作流：
+         - 工作流A (MapReduce): 并行分析【最终信号】，并将结果聚合到Redis。
+         - 工作流B (独立任务): 分析【原子信号】，并将结果存入数据库功勋墙。
     """
     logger.info("="*80)
-    logger.info(f"--- [全局性能分析 V3.0 - 总指挥启动] ---")
+    logger.info(f"--- [全局性能分析 V3.1 - 联合作战总指挥启动] ---")
     logger.info(f"  - 分析时段: {start_date or '默认'} to {end_date or '默认'}")
     logger.info("="*80)
 
     try:
-        # --- Part 1: 分析【最终信号】(原有逻辑) ---
-        logger.info("--- [阶段 1/2] 正在调度【最终信号】性能分析任务...")
         codes_to_run = stock_list
         if not codes_to_run:
             logger.info("未提供股票列表，将自动获取全市场股票进行复盘...")
@@ -1510,8 +1509,10 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
             return {"status": "error", "reason": "Failed to get stock list."}
         
         total_stocks = len(codes_to_run)
-        logger.info(f"获取到 {total_stocks} 只股票，准备派发并行分析子任务 (Map)...")
+        logger.info(f"侦测到 {total_stocks} 个作战目标，准备下达联合作战指令...")
 
+        # --- 作战指令一: 启动【最终信号】分析兵团 (MapReduce) ---
+        logger.info("\n--- [指令 1/2] 正在向【最终信号分析兵团】派发 MapReduce 任务...")
         map_tasks = [
             analyze_performance_from_db.s(
                 stock_code=code,
@@ -1522,23 +1523,20 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
         reduce_task = aggregate_performance_results.s().set(queue='celery')
         workflow = chord(header=group(map_tasks), body=reduce_task)
         workflow.apply_async()
-        logger.info(f"成功派发 {total_stocks} 个【最终信号】分析子任务。聚合报告将在所有子任务完成后自动生成。")
+        logger.info(f"-> 指令已下达！{total_stocks} 个【最终信号】分析子任务已派发。")
 
-        # --- 代码修改开始 ---
-        # [修改原因] 新增 Part 2，用于独立调度原子信号的性能分析任务。
-        # --- Part 2: 分析【原子信号】(新增逻辑) ---
-        logger.info("\n--- [阶段 2/2] 正在调度【原子信号】全景沙盘推演任务...")
+        # --- 作战指令二: 启动【原子信号】分析特遣队 (独立任务) ---
+        logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发全景沙盘推演任务...")
         run_atomic_signal_performance_analysis.s().set(queue='celery').apply_async()
-        logger.info("【原子信号】全景沙盘推演任务已成功派发，将独立并行运行。")
-        # --- 代码修改结束 ---
-
-        logger.info(f"--- [全局性能分析 V3.0 - 所有任务派发完成] ---")
+        logger.info("-> 指令已下达！【原子信号】全景沙盘推演任务已派发，将独立并行运行。")
+        
+        logger.info("\n" + "="*80)
+        logger.info(f"--- [全局性能分析 V3.1 - 所有作战指令已下达] ---")
         return {"status": "all_workflows_dispatched", "total_stocks": total_stocks}
 
     except Exception as e:
         logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
-
 
 
 
