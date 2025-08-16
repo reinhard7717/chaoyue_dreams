@@ -262,7 +262,64 @@ class StrategyScoreComponent(models.Model):
     def __str__(self):
         return f"{self.daily_score} - {self.signal_name}: {self.score_value}"
 
+class StrategyDailyState(models.Model):
+    """
+    【V1.0】策略每日状态 (全景沙盘)
+    - 职责: 记录每日激活的所有原子状态和触发器，是性能分析的数据基础。
+    """
+    class SignalType(models.TextChoices):
+        STATE = 'State', _('原子状态')
+        TRIGGER = 'Trigger', _('触发事件')
+        UNKNOWN = 'Unknown', _('未知')
 
+    daily_score = models.ForeignKey(
+        StrategyDailyScore,
+        on_delete=models.CASCADE,
+        related_name='atomic_states_and_triggers',
+        verbose_name='所属每日分数'
+    )
+    signal_name = models.CharField(max_length=255, verbose_name='信号名称(代码)', db_index=True)
+    signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
+    signal_type = models.CharField(max_length=20, choices=SignalType.choices, default=SignalType.UNKNOWN, verbose_name='信号类型')
+
+    class Meta:
+        db_table = 'strategy_daily_state'
+        verbose_name = '策略每日状态'
+        verbose_name_plural = verbose_name
+        # 联合唯一索引确保一天一个信号只记录一次
+        unique_together = ('daily_score', 'signal_name')
+        indexes = [
+            models.Index(fields=['signal_name', 'signal_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.daily_score} - {self.signal_name}"
+
+# [修改原因] 新增模型，用于存储对原子信号进行性能分析后的最终结果。
+class AtomicSignalPerformance(models.Model):
+    """
+    【V1.0】原子信号性能功勋墙
+    - 职责: 存储对每个原子状态/触发器进行回测分析后的性能指标。
+    """
+    signal_name = models.CharField(max_length=255, primary_key=True, verbose_name='信号名称(代码)')
+    signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
+    signal_type = models.CharField(max_length=20, verbose_name='信号类型')
+    total_triggers = models.IntegerField(verbose_name='总触发次数')
+    successes = models.IntegerField(verbose_name='成功次数')
+    win_rate_pct = models.FloatField(verbose_name='胜率(%)')
+    avg_max_profit_pct = models.FloatField(verbose_name='平均最大涨幅(%)')
+    avg_max_drawdown_pct = models.FloatField(verbose_name='平均最大回撤(%)')
+    avg_exit_days = models.FloatField(verbose_name='平均退出天数')
+    last_analyzed = models.DateTimeField(auto_now=True, verbose_name='最后分析时间')
+
+    class Meta:
+        db_table = 'strategy_atomic_signal_performance'
+        verbose_name = '原子信号性能'
+        verbose_name_plural = verbose_name
+        ordering = ['-win_rate_pct']
+
+    def __str__(self):
+        return f"{self.signal_cn_name} ({self.signal_name}) - WinRate: {self.win_rate_pct:.2f}%"
 
 
 

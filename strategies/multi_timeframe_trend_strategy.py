@@ -67,7 +67,7 @@ class MultiTimeframeTrendStrategy:
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
         # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
 
-    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List]:
+    async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
         【总指挥层核心 - V506.1 新增起始日期计算支持】
         - 返回值变更: 现在返回一个包含四类对象的元组，以支持全量预计算。
@@ -84,7 +84,7 @@ class MultiTimeframeTrendStrategy:
         )
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
-            return ([], [], [], []) # 返回四个空列表
+            return ([], [], [], [], [])
         
         df_daily = all_dfs['D']
         # 检查 'concentration_90pct_D' 这个最核心的筹码指标是否存在于最新一天的数据中
@@ -94,7 +94,7 @@ class MultiTimeframeTrendStrategy:
             latest_date_str = latest_day_data.name.strftime('%Y-%m-%d')
             logger.warning(f"[{stock_code}] [前置检查失败] 在最新交易日 {latest_date_str} 缺少关键筹码数据 ('{required_chip_col}')。为保证信号质量，已跳过对该股票的完整策略分析。")
             print(f"  - [前置检查] 失败！最新交易日缺少关键筹码数据，跳过 {stock_code} 的分析。")
-            return ([], [], [], []) # 返回四个空列表，安全退出
+            return ([], [], [], [], [])
         else:
             print(f"  - [前置检查] 成功！关键筹码数据完整。")
 
@@ -109,24 +109,22 @@ class MultiTimeframeTrendStrategy:
         # 4. 战术引擎：现在返回四元组
         # 【代码修改】将 start_date_str 传递给战术引擎
         records_tuple = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
-        print(f"  - [战术引擎] 生成 {len(records_tuple[0])} 条日线级信号和 {len(records_tuple[2])} 条每日分数。")
+        # print(f"  - [战术引擎] 生成 {len(records_tuple[0])} 条日线级信号和 {len(records_tuple[2])} 条每日分数。")
 
         # 5. 盘中入场引擎 (只生成 TradingSignal，后三项为空)
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
-        print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_signals)} 条盘中确认信号。")
+        # print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_signals)} 条盘中确认信号。")
 
         # 6. 盘中风险预警引擎 (只生成 TradingSignal，后三项为空)
         risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
-        print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_signals)} 条风险预警信号。")
+        # print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_signals)} 条风险预警信号。")
 
         # 7. 信号汇总
-        # 将所有 TradingSignal 汇总
         all_signals = records_tuple[0] + intraday_entry_signals + risk_alert_signals
-        # 将所有 SignalPlaybookDetail 汇总
         all_details = records_tuple[1] + intraday_entry_details + risk_alert_details
-        # StrategyDailyScore 和 StrategyScoreComponent 只由战术引擎生成
         all_daily_scores = records_tuple[2]
         all_score_components = records_tuple[3]
+        all_daily_states = records_tuple[4] # 新增
         
         # 8. 结果排序
         if all_signals:
@@ -134,9 +132,9 @@ class MultiTimeframeTrendStrategy:
         
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
         
-        return (all_signals, all_details, all_daily_scores, all_score_components)
+        return (all_signals, all_details, all_daily_scores, all_score_components, all_daily_states)
 
-    async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List, List, List]:
+    async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List, List, List, List]:
         """
         【V506.0 适配版 - 闪电突袭模式】
         - 返回值变更: 现在返回一个包含四类对象的元组。
@@ -144,11 +142,11 @@ class MultiTimeframeTrendStrategy:
         print(f"\n⚡️ [总指挥层] 接到“闪电突袭”指令，正在以高效模式处理: {stock_code}")
         
         # run_for_stock 现在返回一个四元组
-        all_signals, all_details, all_daily_scores, all_score_components = await self.run_for_stock(stock_code, trade_time, latest_only=True)
+        all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time, latest_only=True)
         
         if not all_signals and not all_daily_scores:
             print(f"  - [闪电突袭] 未发现任何信号或分数，任务完成。")
-            return ([], [], [], [])
+            return ([], [], [], [], [])
             
         # 筛选最新的 TradingSignal
         latest_signals = []
@@ -167,9 +165,10 @@ class MultiTimeframeTrendStrategy:
         
         # 筛选最新的 StrategyScoreComponent
         latest_score_components = [comp for comp in all_score_components if comp.daily_score in latest_daily_scores]
+        latest_daily_states = [state for state in all_daily_states if state.daily_score in latest_daily_scores]
 
         print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_signals)} 条最新信号和 {len(latest_daily_scores)} 条最新分数。")
-        return (latest_signals, latest_details, latest_daily_scores, latest_score_components)
+        return (latest_signals, latest_details, latest_daily_scores, latest_score_components, latest_daily_states)
 
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
         """
@@ -353,37 +352,41 @@ class MultiTimeframeTrendStrategy:
         print(f"    {verdict}")
         print("=" * 95)
 
-    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List]:
+    async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
-        【V506.2 新增起始日期计算支持】
-        - 核心修改: 接收 start_date_str 并将其传递给底层的 apply_strategy 方法。
+        【V507.0 全景沙盘版】
+        - 返回值变更: 现在返回一个包含五类对象的元组。
         """
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
-            return ([], [], [], [])
+            # --- 代码修改开始 ---
+            return ([], [], [], [], [])
+            # --- 代码修改结束 ---
         try:
-            # TrendFollowStrategy 将独立负责运行其内部的情报层和所有分析
-            # 【代码修改】将 start_date_str 传递给 apply_strategy
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 df_daily_prepared, self.unified_config, start_date_str=start_date_str
             )
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("    - [战术引擎] 引擎返回了空的分析结果。")
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
-                return ([], [], [], [])
-            # 保存分析结果
+                # --- 代码修改开始 ---
+                return ([], [], [], [], [])
+                # --- 代码修改结束 ---
+            
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df
-            # 主动净化报告数据源
+            
             is_buy_signal_day = daily_analysis_df['signal_type'] == '买入信号'
             columns_to_clean = ['exit_signal_code', 'alert_level', 'alert_reason', 'exit_severity_level', 'exit_signal_reason']
             for col in columns_to_clean:
                 if col in daily_analysis_df.columns:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
-            # 调用报告层生成数据库记录
+            
+            # --- 代码修改开始 ---
+            # [修改原因] prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,
@@ -392,11 +395,10 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            # 修复误导性日志，使其打印真正有用的信息
-            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号和 {len(records_tuple[2])} 条每日分数。")
+            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号, {len(records_tuple[2])} 条每日分数, 和 {len(records_tuple[4])} 条每日状态。")
             return records_tuple
+            # --- 代码修改结束 ---
         finally:
-            # 清理临时数据
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df
             if hasattr(self.tactical_engine, '_last_risk_details_df'):

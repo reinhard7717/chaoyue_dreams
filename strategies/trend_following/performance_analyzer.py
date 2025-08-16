@@ -1,8 +1,10 @@
 # 文件: strategies/trend_following/performance_analyzer.py
 # 升级模块：性能分析器 (V3.0 深度复盘版)
+from typing import Dict
 import pandas as pd
 import numpy as np
 from .utils import get_param_value
+
 
 class PerformanceAnalyzer:
     """
@@ -21,6 +23,8 @@ class PerformanceAnalyzer:
         """
         self.df = df_indicators
         self.score_details_df = score_details_df
+        self.atomic_states = atomic_states if atomic_states is not None else {}
+        self.trigger_events = trigger_events if trigger_events is not None else {}
         self.analysis_params = analysis_params
         self.scoring_params = scoring_params
         if self.df is None or self.df.empty:
@@ -35,24 +39,67 @@ class PerformanceAnalyzer:
 
     def run_analysis(self) -> list:
         """
-        运行性能分析的主函数，并返回结构化的结果列表。
+        【V4.0 重构版】运行性能分析的主函数。
+        - 核心重构: 不再只分析买入信号，而是分析所有识别出的“事件”。
         """
-        buy_signals = self.df[self.df['signal_type'] == '买入信号']
-        if buy_signals.empty:
+        # --- 代码修改开始 ---
+        # [修改原因] 全面重构分析流程，以适应对所有信号源的评估。
+        print("    -> [性能分析器 V4.0 全景沙盘版] 启动...")
+        
+        # 步骤1: 识别出所有需要分析的事件
+        all_events_to_analyze = self._identify_all_events()
+        if not all_events_to_analyze:
+            print("      -> 未发现任何可供分析的事件。")
             return []
             
-        trade_outcomes = []
-        for entry_date, row in buy_signals.iterrows():
-            # 【代码修改】调用新的、功能更强大的分析方法
-            outcome_details = self._analyze_single_trade_performance(entry_date)
-            if outcome_details:
-                trade_outcomes.append({
-                    'entry_date': entry_date,
-                    **outcome_details  # 将详细结果字典解包合并
-                })
+        # 步骤2: 遍历每一个事件，模拟其后续表现
+        all_trade_outcomes = []
+        for signal_name, event_series in all_events_to_analyze.items():
+            event_dates = event_series.index[event_series]
+            if event_dates.empty:
+                continue
+            
+            for entry_date in event_dates:
+                outcome_details = self._analyze_single_trade_performance(entry_date)
+                if outcome_details:
+                    all_trade_outcomes.append({
+                        'signal_name': signal_name, # 关键：记录下是哪个信号触发的
+                        'entry_date': entry_date,
+                        **outcome_details
+                    })
         
-        # 【代码修改】调用新的聚合报告方法
-        return self._aggregate_and_report_v2(trade_outcomes)
+        # 步骤3: 聚合所有结果并生成报告
+        return self._aggregate_and_report_v2(all_trade_outcomes)
+
+    def _identify_all_events(self) -> Dict[str, pd.Series]:
+        """
+        【V4.0 新增】全情报源事件识别器
+        - 核心职责: 遍历所有信号源（得分信号、原子状态、触发器），
+                    并为每一个源生成一个“首次触发”的事件序列。
+        - 核心逻辑: 对于持续性状态，只在其首次变为True的那一天标记为事件。
+        """
+        all_events = {}
+        
+        # 1. 处理所有计分信号 (来自 score_details_df)
+        for signal_name in self.score_details_df.columns:
+            # 计分信号本身就是瞬时事件，直接使用
+            is_active = self.score_details_df[signal_name] > 0
+            all_events[signal_name] = is_active
+
+        # 2. 处理所有原子状态
+        for state_name, state_series in self.atomic_states.items():
+            if state_series.dtype == bool:
+                # 关键逻辑：只在状态首次进入时触发事件
+                is_first_day = state_series & ~state_series.shift(1).fillna(False)
+                all_events[state_name] = is_first_day
+
+        # 3. 处理所有触发器
+        for trigger_name, trigger_series in self.trigger_events.items():
+            if trigger_series.dtype == bool:
+                # 触发器本身就是瞬时事件，直接使用
+                all_events[trigger_name] = trigger_series
+                
+        return all_events
 
     def _analyze_single_trade_performance(self, entry_date) -> dict:
         """
@@ -132,48 +179,49 @@ class PerformanceAnalyzer:
 
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
-        【V3.0 新增核心方法】聚合所有详细交易结果，并按信号来源分组统计。
+        【V4.0 升级版】聚合所有详细交易结果，并按信号来源分组统计。
+        - 核心升级: 能够识别并正确标记 State 和 Trigger 类型。
         """
         if not trade_outcomes:
             return []
             
-        outcomes_df = pd.DataFrame(trade_outcomes).set_index('entry_date')
+        # --- 代码修改开始 ---
+        # [修改原因] 不再需要设置 entry_date 为索引，因为 signal_name 现在是分组的关键。
+        outcomes_df = pd.DataFrame(trade_outcomes)
         score_map = self.scoring_params.get('score_type_map', {})
         
         # 按信号名称对所有触发的交易结果进行分组
-        signal_groups = {}
-        for entry_date, outcome_row in outcomes_df.iterrows():
-            # 找出当天激活了哪些信号
-            active_signals = self.score_details_df.loc[entry_date]
-            active_signals = active_signals[active_signals > 0].index
-            
-            for signal_name in active_signals:
-                if signal_name not in signal_groups:
-                    signal_groups[signal_name] = []
-                signal_groups[signal_name].append(outcome_row.to_dict())
+        signal_groups = outcomes_df.groupby('signal_name')
 
         # 对每个信号组进行统计分析
         analysis_results = []
-        for signal_name, outcomes_list in signal_groups.items():
-            if signal_name not in score_map:
-                continue
+        for signal_name, group_df in signal_groups:
+            # 尝试从 score_map 获取元数据
+            signal_meta = score_map.get(signal_name)
             
-            group_df = pd.DataFrame(outcomes_list)
+            # 如果在 score_map 中找不到，则根据其来源（原子状态/触发器）赋予默认类型
+            if not signal_meta:
+                if signal_name in self.atomic_states:
+                    signal_type = 'State'
+                elif signal_name in self.trigger_events:
+                    signal_type = 'Trigger'
+                else:
+                    signal_type = 'Unknown'
+                signal_meta = {'cn_name': signal_name, 'type': signal_type}
+            # --- 代码修改结束 ---
+
             total_triggers = len(group_df)
             success_count = (group_df['outcome'] == 'success').sum()
             
-            # 计算胜率
             win_rate = (success_count / total_triggers) * 100 if total_triggers > 0 else 0
-            
-            # 计算平均指标
             avg_max_profit = group_df['max_profit_pct'].mean() * 100
             avg_max_drawdown = group_df['max_drawdown_pct'].mean() * 100
             avg_exit_days = group_df['exit_days'].mean()
             
             analysis_results.append({
                 'signal_name': signal_name,
-                'cn_name': score_map[signal_name].get('cn_name', signal_name),
-                'type': score_map[signal_name].get('type', 'unknown').capitalize(),
+                'cn_name': signal_meta.get('cn_name', signal_name),
+                'type': signal_meta.get('type', 'unknown').capitalize(),
                 'triggers': int(total_triggers),
                 'successes': int(success_count),
                 'win_rate_pct': round(win_rate, 2),
@@ -182,6 +230,5 @@ class PerformanceAnalyzer:
                 'avg_exit_days': round(avg_exit_days, 1),
             })
             
-        # 按触发次数排序，方便查看
-        analysis_results.sort(key=lambda x: x['triggers'], reverse=True)
+        analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True) # 按胜率排序
         return analysis_results

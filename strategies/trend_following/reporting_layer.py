@@ -3,7 +3,7 @@
 import pandas as pd
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
-from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent
+from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
 
 
 from .utils import get_params_block, get_param_value
@@ -52,6 +52,7 @@ class ReportingLayer:
         signal_details_to_create = []
         daily_scores_to_create = []
         score_components_to_create = []
+        daily_states_to_create = []
         
         strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
@@ -153,11 +154,32 @@ class ReportingLayer:
                 daily_score_obj.composite_score = composite_total
                 daily_score_obj.score_details_json = all_details_for_json
                 daily_scores_to_create.append(daily_score_obj)
+
+                # --- Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
+                # 遍历所有原子状态
+                for state_name, state_series in self.strategy.atomic_states.items():
+                    if state_series.get(trade_time, False): # 检查当天该状态是否为 True
+                        daily_states_to_create.append(StrategyDailyState(
+                            daily_score=daily_score_obj,
+                            signal_name=state_name,
+                            signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
+                            signal_type=StrategyDailyState.SignalType.STATE
+                        ))
+                # 遍历所有触发器
+                for trigger_name, trigger_series in self.strategy.trigger_events.items():
+                    if trigger_series.get(trade_time, False): # 检查当天该触发器是否为 True
+                        daily_states_to_create.append(StrategyDailyState(
+                            daily_score=daily_score_obj,
+                            signal_name=trigger_name,
+                            signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
+                            signal_type=StrategyDailyState.SignalType.TRIGGER
+                        ))
         print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
-              f"{len(daily_scores_to_create)} 条每日分数, "
-              f"{len(score_components_to_create)} 条分数组件。")
+            f"{len(daily_scores_to_create)} 条每日分数, "
+            f"{len(score_components_to_create)} 条分数组件, "
+            f"{len(daily_states_to_create)} 条每日状态。")
         
-        return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create)
+        return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
 
 
 

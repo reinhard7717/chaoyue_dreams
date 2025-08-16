@@ -429,8 +429,8 @@
         "playbook_scoring": {
             "说明": "剧本计分部分，适配 PlaybookEngine V2.0。",
             "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 500,
+            "PLAYBOOK_BREAKOUT_EVE_S": 450,
             "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 350,
-            "PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A": 350,
             "PLAYBOOK_PULLBACK_REBOUND_A": 300,
             "PLAYBOOK_GOLDEN_PIT_B": 250,
             "PLAYBOOK_MEAN_REVERSION_A": 350
@@ -456,7 +456,7 @@
           }
         },
         "positional_acceleration_hybrid_params": {
-            "enabled": true,
+            "enabled": false,
             "description": "【V1.0 混合奖励模型】为阵地优势加速提供带“三重保险”和“奖励上限”的动态奖励。",
             "min_base_score": {
                 "value": 400,
@@ -476,8 +476,7 @@
             }
         },
         "score_type_map": {
-          "说明": "【信号字典-净化版】定义所有信号的中文名和类型。已移除被剥离分数的上下文信号。",
-          "SCORE_POS_ACCEL_HYBRID_BONUS": { "cn_name": "【核心】阵地优势加速(混合奖励)", "type": "dynamic" },
+          "说明": "【信号字典-V2.2 突破前夜版】定义所有信号的中文名和类型。",
           "说明_COMPOSITE": "--- 战法分 (Composite) ---",
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": { "cn_name": "【战法S++】王牌结构突破", "type": "positional" },
           "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": { "cn_name": "【战法S+】衰竭反转", "type": "composite" },
@@ -504,8 +503,8 @@
           "BONUS_CONTEXT_STRONG_TREND": { "cn_name": "【环境】强趋势加成", "type": "context" },
           "说明_PLAYBOOK": "--- 剧本分 (Playbook) ---",
           "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": { "cn_name": "【剧本S+】极致压缩·暴力突破", "type": "playbook" },
+          "PLAYBOOK_BREAKOUT_EVE_S": { "cn_name": "【剧本S】突破前夜", "type": "playbook" },
           "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": { "cn_name": "【剧本A】常规压缩·突破", "type": "playbook" },
-          "PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A": { "cn_name": "【剧本A】箱体吸筹突破", "type": "playbook" },
           "PLAYBOOK_PULLBACK_REBOUND_A": { "cn_name": "【剧本A】趋势回踩反弹", "type": "playbook" },
           "PLAYBOOK_GOLDEN_PIT_B": { "cn_name": "【剧本B】黄金坑吸筹", "type": "playbook" },
           "PLAYBOOK_MEAN_REVERSION_A": { "cn_name": "【剧本A】均值回归反弹", "type": "playbook" },

@@ -109,6 +109,20 @@ class TrendFollowStrategy:
         # 返回进攻详情和合并后的完整风险详情
         return self.df_indicators, score_details_df, combined_risk_details_df
 
-    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str):
-        """对外暴露的报告生成接口"""
+    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
+        """
+        【V507.0 全景沙盘版】对外暴露的报告生成接口。
+        - 返回值变更: 现在返回一个包含五类对象的元组，新增了 StrategyDailyState 列表。
+        """
         return await self.reporting_layer.prepare_db_records(stock_code, result_df, score_details_df, risk_details_df, params, result_timeframe)
+
+
+
+
+
+
+
+
+
+
+

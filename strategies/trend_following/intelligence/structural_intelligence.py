@@ -141,7 +141,10 @@ class StructuralIntelligence:
         # “健康吸筹箱体” (S级信号): 在健康箱体内，要求缩量+筹码集中
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
         is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-        states['BOX_STATE_HEALTHY_ACCUMULATION'] = healthy_consolidation & is_shrinking_volume & is_chip_concentrating
+        healthy_accumulation_a = healthy_consolidation & is_shrinking_volume & is_chip_concentrating
+        states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_accumulation_a
+        is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', pd.Series(False, index=df.index))
+        states['STRUCTURE_BREAKOUT_EVE_S'] = healthy_accumulation_a & is_extreme_squeeze
         
         for key in states:
             if key not in states or states[key] is None:

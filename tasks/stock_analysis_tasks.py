@@ -24,8 +24,7 @@ from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-
-from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal
+from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
 from stock_models.index import TradeCalendar
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
@@ -157,7 +156,7 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
                 trade_time=analysis_end_time
             )
 
-        # 【新增代码】在保存前，根据 start_date_str 过滤结果
+        # 在保存前，根据 start_date_str 过滤结果
         # 这个逻辑块只在全历史模式下且提供了起始日期时执行
         if not latest_only and start_date_str and records_tuple:
             print(f"调试信息 [{stock_code}]: 准备应用日期过滤，起始日: {start_date_str}") # 调试输出
@@ -217,6 +216,89 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
         # 【代码修改】在Celery任务中，最好更新任务状态以方便监控
         self.update_state(state='FAILURE', meta={'exc': str(e)})
         return {"status": "error", "reason": str(e)}
+
+# 一个独立的、功能强大的Celery任务，用于对所有原子信号进行性能分析。
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_atomic_signal_performance_analysis', queue='celery')
+@with_cache_manager
+def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager):
+    """
+    【V1.0 全景沙盘推演任务】
+    - 核心职责: 1. 从 StrategyDailyState 读取所有原子信号的触发记录。
+                2. 对每个信号进行独立的性能回测。
+                3. 将分析结果存入 AtomicSignalPerformance 表。
+    """
+    logger.info("====== [全景沙盘推演 V1.0] 任务启动 ======")
+    
+    # 实例化性能分析服务
+    # 注意：这里我们假设您已将 PerformanceAnalyzer 的逻辑封装到一个服务中
+    # 如果没有，可以直接在这里实现查询和分析逻辑
+    performance_service = PerformanceAnalysisService(cache_manager)
+
+    async def main():
+        try:
+            # 1. 调用服务执行核心分析逻辑
+            # 服务内部会处理：查询、分组、模拟、聚合
+            analysis_results = await performance_service.analyze_all_atomic_signals()
+
+            if not analysis_results:
+                logger.warning("[沙盘推演] 未生成任何分析结果。")
+                return {"status": "success", "reason": "No results generated."}
+
+            # 2. 准备批量更新/创建的对象
+            records_to_update = []
+            records_to_create = []
+            existing_records = {
+                p.signal_name: p for p in await sync_to_async(list)(AtomicSignalPerformance.objects.all())
+            }
+
+            for result in analysis_results:
+                signal_name = result['signal_name']
+                if signal_name in existing_records:
+                    # 更新现有记录
+                    record = existing_records[signal_name]
+                    record.signal_cn_name = result['cn_name']
+                    record.signal_type = result['type']
+                    record.total_triggers = result['triggers']
+                    record.successes = result['successes']
+                    record.win_rate_pct = result['win_rate_pct']
+                    record.avg_max_profit_pct = result['avg_max_profit_pct']
+                    record.avg_max_drawdown_pct = result['avg_max_drawdown_pct']
+                    record.avg_exit_days = result['avg_exit_days']
+                    records_to_update.append(record)
+                else:
+                    # 创建新记录
+                    records_to_create.append(AtomicSignalPerformance(**{
+                        'signal_name': result['signal_name'],
+                        'signal_cn_name': result['cn_name'],
+                        'signal_type': result['type'],
+                        'total_triggers': result['triggers'],
+                        'successes': result['successes'],
+                        'win_rate_pct': result['win_rate_pct'],
+                        'avg_max_profit_pct': result['avg_max_profit_pct'],
+                        'avg_max_drawdown_pct': result['avg_max_drawdown_pct'],
+                        'avg_exit_days': result['avg_exit_days'],
+                    }))
+            
+            # 3. 批量执行数据库操作
+            if records_to_create:
+                await sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
+                logger.info(f"[沙盘推演] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
+            
+            if records_to_update:
+                await sync_to_async(AtomicSignalPerformance.objects.bulk_update)(
+                    records_to_update, 
+                    ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
+                     'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
+                )
+                logger.info(f"[沙盘推演] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
+
+            return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
+
+        except Exception as e:
+            logger.error(f"[沙盘推演] 任务执行时发生严重错误: {e}", exc_info=True)
+            return {"status": "error", "reason": str(e)}
+
+    return async_to_sync(main)()
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 @with_cache_manager
@@ -334,7 +416,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             cursor.execute(raw_sql)
             result = cursor.fetchone()
 
-        # 【新增代码】在Python中进行数据就绪检查，并提供更详细的日志
+        # 在Python中进行数据就绪检查，并提供更详细的日志
         if not result:
             logger.warning("【任务暂停】AdvancedChipMetrics 所有分表中没有任何数据。请检查上游筹码计算任务是否已运行。任务安全退出。")
             return {"status": "skipped", "reason": "AdvancedChipMetrics tables are completely empty."}
@@ -1205,6 +1287,89 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
         logger.error(f"[Map] 在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
         # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
         return []
+
+# [修改原因] 新增一个独立的、功能强大的Celery任务，用于对所有原子信号进行性能分析。
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_atomic_signal_performance_analysis', queue='celery')
+@with_cache_manager
+def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager):
+    """
+    【V1.0 全景沙盘推演任务】
+    - 核心职责: 1. 从 StrategyDailyState 读取所有原子信号的触发记录。
+                2. 对每个信号进行独立的性能回测。
+                3. 将分析结果存入 AtomicSignalPerformance 表。
+    """
+    logger.info("====== [全景沙盘推演 V1.0] 任务启动 ======")
+    
+    # 实例化性能分析服务
+    # 注意：这里我们假设您已将 PerformanceAnalyzer 的逻辑封装到一个服务中
+    # 如果没有，可以直接在这里实现查询和分析逻辑
+    performance_service = PerformanceAnalysisService(cache_manager)
+
+    async def main():
+        try:
+            # 1. 调用服务执行核心分析逻辑
+            # 服务内部会处理：查询、分组、模拟、聚合
+            analysis_results = await performance_service.analyze_all_atomic_signals()
+
+            if not analysis_results:
+                logger.warning("[沙盘推演] 未生成任何分析结果。")
+                return {"status": "success", "reason": "No results generated."}
+
+            # 2. 准备批量更新/创建的对象
+            records_to_update = []
+            records_to_create = []
+            existing_records = {
+                p.signal_name: p for p in await sync_to_async(list)(AtomicSignalPerformance.objects.all())
+            }
+
+            for result in analysis_results:
+                signal_name = result['signal_name']
+                if signal_name in existing_records:
+                    # 更新现有记录
+                    record = existing_records[signal_name]
+                    record.signal_cn_name = result['cn_name']
+                    record.signal_type = result['type']
+                    record.total_triggers = result['triggers']
+                    record.successes = result['successes']
+                    record.win_rate_pct = result['win_rate_pct']
+                    record.avg_max_profit_pct = result['avg_max_profit_pct']
+                    record.avg_max_drawdown_pct = result['avg_max_drawdown_pct']
+                    record.avg_exit_days = result['avg_exit_days']
+                    records_to_update.append(record)
+                else:
+                    # 创建新记录
+                    records_to_create.append(AtomicSignalPerformance(**{
+                        'signal_name': result['signal_name'],
+                        'signal_cn_name': result['cn_name'],
+                        'signal_type': result['type'],
+                        'total_triggers': result['triggers'],
+                        'successes': result['successes'],
+                        'win_rate_pct': result['win_rate_pct'],
+                        'avg_max_profit_pct': result['avg_max_profit_pct'],
+                        'avg_max_drawdown_pct': result['avg_max_drawdown_pct'],
+                        'avg_exit_days': result['avg_exit_days'],
+                    }))
+            
+            # 3. 批量执行数据库操作
+            if records_to_create:
+                await sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
+                logger.info(f"[沙盘推演] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
+            
+            if records_to_update:
+                await sync_to_async(AtomicSignalPerformance.objects.bulk_update)(
+                    records_to_update, 
+                    ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
+                     'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
+                )
+                logger.info(f"[沙盘推演] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
+
+            return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
+
+        except Exception as e:
+            logger.error(f"[沙盘推演] 任务执行时发生严重错误: {e}", exc_info=True)
+            return {"status": "error", "reason": str(e)}
+
+    return async_to_sync(main)()
 
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(

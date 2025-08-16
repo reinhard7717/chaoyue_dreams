@@ -29,16 +29,16 @@ class PlaybookEngine:
                 'comment': 'S+级 - 波动极致压缩后，出现高确定性的暴力突破。'
             },
             {
+                'name': 'PLAYBOOK_BREAKOUT_EVE_S',
+                'setup': ['STRUCTURE_BREAKOUT_EVE_S'], 
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
+                'comment': 'S级 - 在结构、波动、筹码三维共振的“突破前夜”发动的总攻。'
+            },
+            {
                 'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A', # MODIFIED: 命名优化，明确为“常规”压缩
                 'setup': ['VOL_STATE_SQUEEZE_WINDOW'],
                 'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'], # MODIFIED: 可由S级或A级突破触发，更灵活
                 'comment': 'A级 - 波动压缩后，出现暴力突破或温和推进。'
-            },
-            {
-                'name': 'PLAYBOOK_BOX_ACCUMULATION_BREAKOUT_A',
-                'setup': ['BOX_STATE_HEALTHY_ACCUMULATION'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'], # MODIFIED: 可由S级或A级突破触发，更灵活
-                'comment': 'A级 - 健康吸筹箱体完成后，出现暴力突破或温和推进。'
             },
             {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',

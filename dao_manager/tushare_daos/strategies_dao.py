@@ -504,25 +504,21 @@ class StrategiesDAO(BaseDAO):
             logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
             return None
 
-    async def save_strategy_signals(self, records_tuple: Tuple[List, List, List, List]) -> int:
+    async def save_strategy_signals(self, records_tuple: Tuple[List, List, List, List, List]) -> int:
         """
-        【V506.0 全量预计算适配版】
-        - 核心升级: 接收并处理一个包含四类对象的元组，增加了对 StrategyDailyScore 和 
-                    StrategyScoreComponent 的保存逻辑。
-        - 逻辑继承: 完全保留了原有的、针对 TradingSignal 的手动 UPSERT 和 NaN 清洗逻辑，
-                    并将该健壮模式应用于 StrategyDailyScore 的保存。
+        【V507.0 全景沙盤版】
+        - 核心升级: 接收并处理一个包含五类对象的元组，增加了对 StrategyDailyState 的保存逻辑。
         """
         if not records_tuple:
             return 0
-        
-        # 1. 解包四元组
-        signals, signal_details, daily_scores, score_components = records_tuple
+        # 解包五元组，增加 daily_states 列表。
+        signals, signal_details, daily_scores, score_components, daily_states = records_tuple
 
         if not signals and not daily_scores:
-            print("调试信息: [DAO-V506.0] 传入的信号和每日分数均为空，不执行任何操作。")
+            print("调试信息: [DAO-V507.0] 传入的信号和每日分数均为空，不执行任何操作。")
             return 0
 
-        # --- Part A: 清洗 TradingSignal 数据 (逻辑完全保留) ---
+        # --- Part A & B: 数据清洗 (逻辑不变) ---
         cleaned_signals = []
         if signals:
             numeric_fields = ['entry_score', 'risk_score', 'close_price']
@@ -535,7 +531,6 @@ class StrategiesDAO(BaseDAO):
                         setattr(signal_obj, field_name, None)
                 cleaned_signals.append(signal_obj)
         
-        # --- Part B: 清洗 StrategyDailyScore 数据 (应用相同逻辑) ---
         cleaned_daily_scores = []
         if daily_scores:
             numeric_fields = ['offensive_score', 'risk_score', 'final_score']
@@ -552,20 +547,19 @@ class StrategiesDAO(BaseDAO):
             """这个同步函数将所有数据库操作包裹在一个事务中。"""
             try:
                 with transaction.atomic():
-                    # --- Section 1: 处理 TradingSignal 和 SignalPlaybookDetail (逻辑保留) ---
+                    # --- Section 1 & 2: 处理 TradingSignal 和 StrategyDailyScore (逻辑不变) ---
                     if cleaned_signals:
-                        # 1.1 删除旧详情
                         signal_lookup_keys = [
                             Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)
                             for s in cleaned_signals
                         ]
+                        if not signal_lookup_keys: return 0 # 增加健壮性检查
                         existing_signals_pks = list(
                             TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys)).values_list('pk', flat=True)
                         )
                         if existing_signals_pks:
                             SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
                         
-                        # 1.2 手动 UPSERT 主信号
                         existing_signals_map = {
                             (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s
                             for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
@@ -581,13 +575,10 @@ class StrategiesDAO(BaseDAO):
                                 signals_to_update.append(existing_signal)
                             else:
                                 signals_to_create.append(signal_obj)
-                        
                         if signals_to_update:
                             TradingSignal.objects.bulk_update(signals_to_update, update_fields)
                         if signals_to_create:
                             TradingSignal.objects.bulk_create(signals_to_create)
-
-                        # 1.3 创建新详情
                         if signal_details:
                             refreshed_signals_map = {
                                 (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s.pk
@@ -601,27 +592,27 @@ class StrategiesDAO(BaseDAO):
                                     valid_details.append(detail)
                             if valid_details:
                                 SignalPlaybookDetail.objects.bulk_create(valid_details, ignore_conflicts=True)
-
-                    # --- Section 2: 处理 StrategyDailyScore 和 StrategyScoreComponent (新增逻辑) ---
+                    refreshed_scores_map = {} # 在Section 2和3之间共享
                     if cleaned_daily_scores:
-                        # 2.1 删除旧成分
                         score_lookup_keys = [
                             Q(stock_id=s.stock_id, trade_date=s.trade_date, strategy_name=s.strategy_name)
                             for s in cleaned_daily_scores
                         ]
+                        if not score_lookup_keys: return 0 # 增加健壮性检查
                         existing_scores_pks = list(
                             StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys)).values_list('pk', flat=True)
                         )
                         if existing_scores_pks:
                             StrategyScoreComponent.objects.filter(daily_score_id__in=existing_scores_pks).delete()
+                            # 在删除旧分数成分的同时，也删除旧的每日状态记录，确保数据一致性。
+                            StrategyDailyState.objects.filter(daily_score_id__in=existing_scores_pks).delete()
 
-                        # 2.2 手动 UPSERT 每日分数
                         existing_scores_map = {
                             (s.stock_id, s.trade_date, s.strategy_name): s
                             for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
                         }
                         scores_to_update, scores_to_create = [], []
-                        update_fields = ['offensive_score', 'risk_score', 'final_score', 'signal_type', 'score_details_json']
+                        update_fields = ['offensive_score', 'risk_score', 'final_score', 'signal_type', 'score_details_json', 'positional_score', 'dynamic_score', 'composite_score']
                         for score_obj in cleaned_daily_scores:
                             key = (score_obj.stock_id, score_obj.trade_date, score_obj.strategy_name)
                             if key in existing_scores_map:
@@ -631,18 +622,16 @@ class StrategiesDAO(BaseDAO):
                                 scores_to_update.append(existing_score)
                             else:
                                 scores_to_create.append(score_obj)
-
                         if scores_to_update:
                             StrategyDailyScore.objects.bulk_update(scores_to_update, update_fields)
                         if scores_to_create:
                             StrategyDailyScore.objects.bulk_create(scores_to_create)
-
-                        # 2.3 创建新成分
+                        # 刷新分数ID映射，供后续的成分和状态使用
+                        refreshed_scores_map = {
+                            (s.stock_id, s.trade_date, s.strategy_name): s.pk
+                            for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
+                        }
                         if score_components:
-                            refreshed_scores_map = {
-                                (s.stock_id, s.trade_date, s.strategy_name): s.pk
-                                for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
-                            }
                             valid_components = []
                             for comp in score_components:
                                 key = (comp.daily_score.stock_id, comp.daily_score.trade_date, comp.daily_score.strategy_name)
@@ -651,11 +640,23 @@ class StrategiesDAO(BaseDAO):
                                     valid_components.append(comp)
                             if valid_components:
                                 StrategyScoreComponent.objects.bulk_create(valid_components, ignore_conflicts=True)
+                    
+                    # --- Section 3: 处理 StrategyDailyState ---
+                    if daily_states:
+                        valid_states = []
+                        for state in daily_states:
+                            # 使用上面已经刷新过的 refreshed_scores_map
+                            key = (state.daily_score.stock_id, state.daily_score.trade_date, state.daily_score.strategy_name)
+                            if key in refreshed_scores_map:
+                                state.daily_score_id = refreshed_scores_map[key]
+                                valid_states.append(state)
+                        
+                        if valid_states:
+                            StrategyDailyState.objects.bulk_create(valid_states, ignore_conflicts=True)
 
-                # 返回总共处理的主对象数量
                 return len(cleaned_signals) + len(cleaned_daily_scores)
             except Exception as e:
-                print(f"错误: [DAO-V506.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
+                print(f"错误: [DAO-V507.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
                 import traceback
                 traceback.print_exc()
                 raise
@@ -664,7 +665,7 @@ class StrategiesDAO(BaseDAO):
             saved_count = await sync_to_async(_save_all_sync, thread_sensitive=True)()
             return saved_count
         except Exception as e:
-            print(f"错误: [DAO-V506.0] 异步执行事务时捕获到异常: {e}")
+            print(f"错误: [DAO-V507.0] 异步执行事务时捕获到异常: {e}")
             return 0
 
     # 筹码高级信息AdvancedChipMetrics

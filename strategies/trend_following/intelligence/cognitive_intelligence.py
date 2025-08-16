@@ -498,7 +498,7 @@ class CognitiveIntelligence:
                  3. 只有当“黄金阵地”建立后，次日出现“冲锋号”，才确认为终极战法。
         - 收益: 彻底根除基于静态“状态”的左侧交易思维，转为高确定性的右侧突破交易。
         """
-        print("        -> [终极战法合成模块 V1.0 王牌突击队] 启动...")
+        # print("        -> [终极战法合成模块 V1.0 王牌突击队] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -544,7 +544,7 @@ class CognitiveIntelligence:
         - 收益: 解决了该战法在主升浪末期被“诱多型”反转信号欺骗的致命缺陷，
                 从根本上提升了信号的安全性。
         """
-        print("        -> [回踩战术矩阵 V7.1 防诱多增强版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [回踩战术矩阵 V7.1 防诱多增强版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
