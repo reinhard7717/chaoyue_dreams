@@ -18,7 +18,7 @@ from utils.model_helpers import get_advanced_chip_metrics_model_by_code
 from stock_models.time_trade import StockCyqPerf, StockDailyBasic
 from utils.cache_get import StrategyCacheGet
 from utils.cache_manager import CacheManager
-from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent
+from stock_models.stock_analytics import TradingSignal, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
 from functools import reduce
 import operator
 
