@@ -46,54 +46,46 @@ class PerformanceAnalysisService:
         self.scoring_params = scoring_params
         if self.df is None or self.df.empty:
             raise ValueError("PerformanceAnalyzer 接收到的 df_indicators 为空。")
-        
+
         # 从配置中获取分析参数
         self.look_forward_days = get_param_value(self.analysis_params.get('look_forward_days'), 20)
         self.profit_target_pct = get_param_value(self.analysis_params.get('profit_target_pct'), 0.15)
         self.stop_loss_pct = get_param_value(self.analysis_params.get('stop_loss_pct'), 0.07)
-        
+
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
         【V2.0 核心】执行全市场原子信号的性能分析。
         """
         print("-> [Service V2.0] 启动全景沙盘推演...")
-        
+
         # 1. 从数据库获取所有需要分析的数据
         all_states_df, all_prices_df = await self._fetch_atomic_analysis_data_from_db()
-
         if all_states_df is None or all_prices_df is None:
             logger.warning("[Service V2.0] 无法获取原子状态或价格数据，分析终止。")
             return []
-
         # 2. 识别所有首次触发事件
         # 使用 groupby().apply() 来为每只股票独立计算首次触发日
         print("    -> [Service V2.0] 正在识别所有信号的首次触发事件...")
         first_trigger_events = all_states_df.groupby(['stock_code', 'signal_name'])['trade_date'].min().reset_index()
-        
         # 3. 模拟每一次交易
         print(f"    -> [Service V2.0] 准备对 {len(first_trigger_events)} 个首次触发事件进行交易模拟...")
         trade_outcomes = []
-        
         # 为了效率，将价格数据转换为字典 {stock_code: price_df}
         prices_by_stock = dict(iter(all_prices_df.groupby('stock_code')))
-
         for _, event in first_trigger_events.iterrows():
             stock_code = event['stock_code']
             signal_name = event['signal_name']
             entry_date = event['trade_date']
-            
             price_df = prices_by_stock.get(stock_code)
             if price_df is None:
                 continue
-
             outcome = self._analyze_single_trade_performance(entry_date, price_df)
             if outcome:
                 trade_outcomes.append({
                     'signal_name': signal_name,
                     **outcome
                 })
-        
         # 4. 聚合结果并生成最终报告
         print(f"    -> [Service V2.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条交易结果...")
         final_report = self._aggregate_atomic_results(trade_outcomes)
