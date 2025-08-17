@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following/reporting_layer.py
 # 报告层 (V400.0 - ORM重构版)
 import pandas as pd
+import numpy as np
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
 from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
