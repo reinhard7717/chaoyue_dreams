@@ -4,9 +4,25 @@ import pandas as pd
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
 from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
-
-
 from .utils import get_params_block, get_param_value
+
+# [修改原因] 新增一个辅助函数，用于递归地将数据结构（字典、列表）中的 NumPy 数值类型
+#           转换为 Python 原生类型，以解决 JSON 序列化错误。
+def _convert_numpy_types_for_json(obj: Any) -> Any:
+    """
+    递归遍历数据结构，将numpy的整数和浮点数转换为Python原生类型。
+    """
+    if isinstance(obj, dict):
+        return {key: _convert_numpy_types_for_json(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_numpy_types_for_json(element) for element in obj]
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
 
 class ReportingLayer:
     def __init__(self, strategy_instance):
@@ -38,13 +54,9 @@ class ReportingLayer:
             self.playbooks_cache = {}
             print(f"    -> [报告层] 警告：异步加载战法定义缓存失败。错误: {e}")
 
-    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List]:
+    async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V506.3 逻辑分离版】
-        - 核心修复: 解决了风险信号被错误地关联到 TradingSignal 的问题。
-        - 策略变更: 在创建 SignalPlaybookDetail 关联时，不再合并进攻和风险分数。
-                    现在只遍历 offensive_score_details (即 score_details_df)，
-                    确保一个买入信号只由进攻性战法构成，从根本上保证了数据模型的语义正确性。
+        【V506.4 类型净化版】
         """
         await self._ensure_playbooks_cached()
         
@@ -60,7 +72,6 @@ class ReportingLayer:
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
 
-        # --- Part 1: 生成 TradingSignal (事件驱动信号) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
         
         for trade_time, row in signal_days_df.iterrows():
@@ -69,6 +80,10 @@ class ReportingLayer:
                 '卖出信号': TradingSignal.SignalType.SELL,
                 '风险预警': TradingSignal.SignalType.WARN,
             }
+            
+            # 调用辅助函数净化 health_change_summary 字段
+            clean_health_summary = _convert_numpy_types_for_json(row.get('health_change_summary', {}))
+
             signal_obj = TradingSignal(
                 stock_id=stock_code,
                 trade_time=trade_time,
@@ -77,17 +92,16 @@ class ReportingLayer:
                 signal_type=signal_type_map_enum.get(row['signal_type']),
                 entry_score=row.get('entry_score', 0.0),
                 risk_score=row.get('risk_score', 0.0),
+                # 显式地将 veto_votes 转换为 Python 原生 int 类型
                 veto_votes=int(row.get('veto_votes', 0)),
                 close_price=row.get('close_D', 0.0),
-                health_change_summary=row.get('health_change_summary', {})
+                health_change_summary=clean_health_summary
             )
             signals_to_create.append(signal_obj)
 
-            # 只遍历进攻分数详情 (score_details_df)，不再合并风险分数
             if trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
-                    # 这里的 name 已经是干净的，没有 trg_ 前缀
                     playbook_obj = self.playbooks_cache.get(name)
                     if playbook_obj:
                         signal_details_to_create.append(SignalPlaybookDetail(
