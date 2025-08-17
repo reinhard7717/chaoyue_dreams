@@ -84,7 +84,7 @@ class PerformanceAnalysisService:
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        【V2.0 新增】为全景分析从数据库批量获取数据。
+        【V2.1 结构修复版】为全景分析从数据库批量获取数据。
         """
         # 定义分析的时间范围，例如过去一年
         end_date = date.today()
@@ -92,7 +92,7 @@ class PerformanceAnalysisService:
         
         print(f"    -> [DB Service V2.0] 正在加载全市场 {start_date} 到 {end_date} 的原子状态和价格数据...")
 
-        # 1. 异步获取所有股票在时间范围内的原子状态
+        # 1. 异步获取所有股票在时间范围内的原子状态 (此部分逻辑不变)
         states_qs = StrategyDailyState.objects.filter(
             daily_score__trade_date__range=(start_date, end_date)
         ).select_related('daily_score__stock')
@@ -110,22 +110,28 @@ class PerformanceAnalysisService:
             'daily_score__trade_date': 'trade_date'
         }, inplace=True)
 
-        # 2. 异步获取所有相关股票的日线行情
+        # 2. 异步获取所有相关股票的日线行情 (此部分调用不变)
         unique_stock_codes = all_states_df['stock_code'].unique().tolist()
         all_prices_df = await self.time_trade_dao.get_daily_data_for_stocks(
             unique_stock_codes, 
             start_date.strftime('%Y%m%d'), 
-            (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d') # 多获取一些数据用于前瞻
+            (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d')
         )
 
         if all_prices_df.empty:
             logger.warning("未能获取到任何相关股票的日线行情数据。")
             return None, None
             
+        # 3. 正确处理返回的DataFrame
+        # 重命名价格列
         all_prices_df.rename(columns={'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
-        all_prices_df.index = all_prices_df.index.date
+        
+        # DAO返回的DataFrame中，日期在名为 'trade_time' 的列里，我们只需将其重命名为 'trade_date' 即可。
+        # 之前错误的 `all_prices_df.index = all_prices_df.index.date` 已被移除。
+        all_prices_df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
 
-        return all_states_df, all_prices_df.reset_index().rename(columns={'index': 'trade_date'})
+        # 直接返回处理好的两个DataFrame
+        return all_states_df, all_prices_df
 
     def _analyze_single_trade_performance(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
