@@ -10,6 +10,6 @@ TRUNCATE TABLE strategy_daily_score;
 TRUNCATE TABLE strategy_trading_signal;
 TRUNCATE TABLE strategy_position_tracker;
 TRUNCATE TABLE strategy_daily_state;
-
+TRUNCATE TABLE strategy_atomic_signal_performance;
 -- 步骤3：【至关重要】重新启用外键约束检查，恢复数据库的正常保护机制。
 SET FOREIGN_KEY_CHECKS = 1;
