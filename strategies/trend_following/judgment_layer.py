@@ -122,16 +122,13 @@ class JudgmentLayer:
 
     def _calculate_static_veto_votes(self):
         """
-        【V318.3 逻辑净化版】
-        - 核心修复: 彻底移除了对已废弃的资金流信号的过滤逻辑。
-                    这段代码是之前重构后遗留的“逻辑幽灵”，现在已被完全清除，
-                    使否决票的计算逻辑更纯粹、更易于维护。
+        【V318.4 风险融合版】
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
 
-        # 风险1: 筹码结构严重失效 (3票)
+        # 风险1: 筹码结构严重失效 (3票) - 直接使用新的融合信号
         has_critical_chip_risk = atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
         df.loc[has_critical_chip_risk, 'veto_votes'] += 3
 
@@ -139,17 +136,11 @@ class JudgmentLayer:
         is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
         df.loc[is_in_distribution_phase, 'veto_votes'] += 1
         
-        # 风险3: 绝对否决信号 (2票)
+        # 风险3: 绝对否决信号 (2票) - 这里的逻辑可以保持，因为它处理的是更具体的、可配置的否决项
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
         if get_param_value(veto_params.get('enabled'), True):
             mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
-            
-            # --- 代码修改开始 ---
-            # [修改原因] 移除对已废弃的资金流信号的过滤逻辑，使代码更纯粹。
-            # 直接从配置文件读取所有需要否决的信号。
             veto_signals = get_param_value(veto_params.get('veto_signals'), [])
-            # --- 代码修改结束 ---
-            
             final_absolute_veto = pd.Series(False, index=df.index)
             for signal_name in veto_signals:
                 has_risk = atomic.get(signal_name, default_series)
@@ -166,14 +157,6 @@ class JudgmentLayer:
         risk_overrides_entry = df['risk_score'] > df['entry_score']
         is_in_ascent_phase = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
-        
-        # 风险5: 机会正在衰退 (1票)
-        is_opportunity_fading = atomic.get('SCORE_DYN_OPPORTUNITY_FADING', default_series)
-        df.loc[is_opportunity_fading, 'veto_votes'] += 1
-        
-        # 风险6: 风险正在抬头 (1票)
-        is_risk_escalating = atomic.get('SCORE_DYN_RISK_ESCALATING', default_series)
-        df.loc[is_risk_escalating, 'veto_votes'] += 1
 
     def _finalize_signals(self):
         """

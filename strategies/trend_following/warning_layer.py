@@ -141,22 +141,15 @@ class WarningLayer:
 
     def calculate_risk_score(self, critical_risk_details: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
         """
-        【V503.0 风险指挥官版】
-        - 核心升级: 1. 计算出总风险分后，立即调用“风险动量引擎”进行势能分析。
-                    2. 调用“成分诊断大脑”进行结构分析。
-                    3. 将两大引擎的分析结果合并，生成一份包含“成分+动量”的终极健康报告。
+        【V503.1 风险融合版】
         """
-        # print("        -> [风险指挥官 V503.0] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
-        # --- 步骤 A: 计算完整的风险构成和总分 ---
-        # 1. 读取“常规预警风险”的规则
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         warning_params = scoring_params.get('holding_warning_params', {})
         warning_rules = warning_params.get('signals', {})
         
-        # 2. 计算“常规风险”详情DataFrame
         risk_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
         for rule_name, score in warning_rules.items():
@@ -164,10 +157,8 @@ class WarningLayer:
             if signal_series.any():
                 risk_details_df[rule_name] = signal_series * score
         
-        # 3. 合并致命风险与常规风险，形成完整的风险构成
         combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
         
-        # 4. 应用“战场环境”调节器 (这部分逻辑保持不变)
         risk_multiplier = pd.Series(1.0, index=df.index)
         is_mean_reversion = atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', default_series)
         is_random_walk = atomic_states.get('FRACTAL_STATE_RANDOM_WALK', default_series)
@@ -176,54 +167,41 @@ class WarningLayer:
         if is_unstable_market.any():
             instability_multiplier = 1.3
             risk_multiplier.loc[is_unstable_market] *= instability_multiplier
-            print(f"          -> [风险放大器] 已为 {is_unstable_market.sum()} 天的“不稳定市场”应用 {instability_multiplier}x 风险乘数。")
 
         is_strong_trend = atomic_states.get('FRACTAL_STATE_STRONG_TREND', default_series)
         if is_strong_trend.any():
+            # 在强趋势中，我们只关心最核心的、不可被趋势消化的风险
             core_risks = {
-                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE", "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
-                "RISK_CONTEXT_LONG_TERM_DISTRIBUTION", "FRACTAL_RISK_TOP_DIVERGENCE",
-                "STRUCTURE_TOPPING_DANGER_S"
+                "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
+                "STRUCTURE_TOPPING_DANGER_S",
+                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE", 
+                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
+                "FRACTAL_RISK_TOP_DIVERGENCE",
             }
             trend_reduction_factor = 0.7
             for col in combined_risk_details_df.columns:
                 if col not in core_risks:
                     combined_risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
-            print(f"          -> [风险对冲器] 已为 {is_strong_trend.sum()} 天的“强趋势市场”期间，对非核心风险应用了 {trend_reduction_factor}x 折减系数。")
 
-        # 5. 重新计算应用了调节器后的总分
         adjusted_total_risk_score = combined_risk_details_df.sum(axis=1)
-        
-        # 6. 将全局乘数应用到总分上
         adjusted_total_risk_score *= risk_multiplier
         
-        # 7. 战略机会覆盖
         has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
         if has_strategic_opportunity.any():
             strategic_coverage_factor = get_param_value(warning_params.get('strategic_coverage_factor'), 0.3)
             adjusted_total_risk_score = adjusted_total_risk_score.where(~has_strategic_opportunity, adjusted_total_risk_score * strategic_coverage_factor)
-            print(f"          -> [战略覆盖已执行！] 已对 {has_strategic_opportunity.sum()} 天的总风险分应用了 {strategic_coverage_factor} 的覆盖系数。")
 
-        # --- 步骤 B: 调用两大诊断引擎 ---
-        # 1. 动量引擎: 分析总分的“势能”
         momentum_summary = self._diagnose_risk_momentum(adjusted_total_risk_score)
-        # 2. 成分引擎: 分析风险的“构成”
         composition_summary = self._diagnose_risk_dynamics(combined_risk_details_df)
 
-        # --- 步骤 C: 合并两大引擎的报告 ---
         final_health_summary = pd.Series([{} for _ in range(len(df))], index=df.index)
         for idx in df.index:
-            # 以成分报告为基础
             final_report = composition_summary.at[idx]
-            # 将动量报告合并进去
             momentum_report = momentum_summary.at[idx]
-            if momentum_report: # 如果动量报告不为空
+            if momentum_report:
                 final_report['momentum'] = momentum_report
-            
             final_health_summary.at[idx] = final_report
 
-        # print("        -> [风险指挥官 V503.0] 风险评估完成。")
-        # 返回最终调整后的总风险分，合并后的完整风险详情，以及包含“成分+动量”的终极健康报告
         return adjusted_total_risk_score, combined_risk_details_df, final_health_summary
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:

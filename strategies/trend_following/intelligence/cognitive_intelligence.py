@@ -178,6 +178,11 @@ class CognitiveIntelligence:
         is_chip_health_deteriorating = self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
         is_chip_price_divergence = self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) # [替代] 资金顶背离
         is_vol_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        
+        risk_1_chip_failure = self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
+        risk_2_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', default_series)
+        risk_3_confirmed_dist = self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series)
+        risk_4_deceptive_churn = self.strategy.atomic_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
 
         # --- 步骤2：联合裁定 (基于更严格、更可靠的筹码信号) ---
         # 【战局1: S级主升浪·黄金航道】 - 结构 + 动能 + 筹码 + 位置 (四重共振)
@@ -199,10 +204,10 @@ class CognitiveIntelligence:
             is_recent_reversal &
             is_ma_short_slope_positive
         )
-        # 【战局4: S级风险·顶部危险】 - 基于更可靠的筹码价格背离
+        # 【战局4: S级风险·顶部危险】 - 升级为多个高风险信号的融合体
+        # 最终裁定：只要任一顶层风险信号出现，就认为战局进入“顶部危险”状态
         structure_states['STRUCTURE_TOPPING_DANGER_S'] = (
-            is_chip_price_divergence |               # [替代] 资金顶背离
-            is_chip_health_deteriorating
+            risk_1_chip_failure | risk_2_late_stage | risk_3_confirmed_dist | risk_4_deceptive_churn
         )
         # 【战局5: F级禁区·下跌通道】 - 基于筹码发散
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = (

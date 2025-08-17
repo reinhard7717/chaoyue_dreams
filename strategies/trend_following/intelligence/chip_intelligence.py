@@ -121,22 +121,29 @@ class ChipIntelligence:
         # if is_worsening_turn.any():
         #     print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
         
-        # 整合所有筹码层面的风险信号，形成最终的系统性风险判断
+       # --- 终极风险信号合成 ---
         print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
+        # 原材料1: 筹码正在发散 (最核心的风险)
         chip_risk_1 = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
+        # 原材料2: 成本峰正在塌陷
         chip_risk_2 = self.strategy.atomic_states.get('CHIP_DYN_COST_FALLING', default_series)
+        # 原材料3: 获利盘比例正在崩塌
         chip_risk_3 = self.strategy.atomic_states.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
+        # 原材料4: 长期派发风险 (来自本模块)
         chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
+        # 原材料5: 集中趋势恶化拐点 (来自本模块)
         chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series)
+        # 原材料6: 获利盘恐慌加速出逃 (来自更底层的微观结构分析)
         chip_risk_6 = self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
+
+        # 最终裁定：只要上述任一高风险信号出现，就认为筹码结构严重失效
         is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6)
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
-        # if is_chip_structure_unhealthy.any():
-        #     print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
         
-        # print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 分析完毕。")
+        if is_chip_structure_unhealthy.any():
+            print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
+        
         return states, triggers
-
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
