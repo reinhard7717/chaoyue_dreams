@@ -26,31 +26,21 @@ class PerformanceAnalysisService:
     - 逻辑内聚: 将原 PerformanceAnalyzer 的核心模拟逻辑内聚到本服务中，实现端到端的分析。
     - 数据驱动: 分析的数据源从计分信号扩展为更底层的 StrategyDailyState 记录。
     """
-    def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, 
-                 atomic_states: Dict, trigger_events: Dict, 
-                 analysis_params: dict, scoring_params: dict):
+    def __init__(self, cache_manager: CacheManager):
         """
-        初始化分析器
-        :param df_indicators: 包含最终信号和K线数据的主DataFrame。
-        :param score_details_df: 包含每日各信号得分详情的DataFrame。
-        :param atomic_states: 包含所有原子状态的字典。
-        :param trigger_events: 包含所有触发事件的字典。
-        :param analysis_params: 性能分析模块的专属配置。
-        :param scoring_params: 四层计分模型的配置，用于获取信号元数据。
+        【V2.2 构造函数修复版】
         """
-        self.df = df_indicators
-        self.score_details_df = score_details_df
-        self.atomic_states = atomic_states if atomic_states is not None else {}
-        self.trigger_events = trigger_events if trigger_events is not None else {}
-        self.analysis_params = analysis_params
-        self.scoring_params = scoring_params
-        if self.df is None or self.df.empty:
-            raise ValueError("PerformanceAnalyzer 接收到的 df_indicators 为空。")
-
-        # 从配置中获取分析参数
-        self.look_forward_days = get_param_value(self.analysis_params.get('look_forward_days'), 20)
-        self.profit_target_pct = get_param_value(self.analysis_params.get('profit_target_pct'), 0.15)
-        self.stop_loss_pct = get_param_value(self.analysis_params.get('stop_loss_pct'), 0.07)
+        self.time_trade_dao = StockTimeTradeDAO(cache_manager)
+        # 加载策略配置以获取分析参数
+        unified_config_path = 'config/trend_follow_strategy.json'
+        self.unified_config = load_strategy_config(unified_config_path)
+        self.analyzer_params = get_params_block({'unified_config': self.unified_config}, 'performance_analysis_params')
+        self.scoring_params = get_params_block({'unified_config': self.unified_config}, 'four_layer_scoring_params')
+        
+        # 从配置中预加载分析参数
+        self.look_forward_days = get_param_value(self.analyzer_params.get('look_forward_days'), 20)
+        self.profit_target_pct = get_param_value(self.analyzer_params.get('profit_target_pct'), 0.15)
+        self.stop_loss_pct = get_param_value(self.analyzer_params.get('stop_loss_pct'), 0.07)
 
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:

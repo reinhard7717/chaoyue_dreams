@@ -13,11 +13,16 @@ class PerformanceAnalyzer:
                 最大收益/回撤、所需天数、退出原因等详细信息的字典。
     - 聚合能力: 聚合报告现在能计算胜率、平均盈亏、平均持有时长等更丰富的指标。
     """
-    def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, analysis_params: dict, scoring_params: dict):
+    def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, 
+                 atomic_states: Dict, trigger_events: Dict, 
+                 analysis_params: dict, scoring_params: dict):
         """
+        【V4.3 构造函数兼容版】
         初始化分析器
         :param df_indicators: 包含最终信号和K线数据的主DataFrame。
         :param score_details_df: 包含每日各信号得分详情的DataFrame。
+        :param atomic_states: 包含所有原子状态的字典。
+        :param trigger_events: 包含所有触发事件的字典。
         :param analysis_params: 性能分析模块的专属配置。
         :param scoring_params: 四层计分模型的配置，用于获取信号元数据。
         """
@@ -29,8 +34,6 @@ class PerformanceAnalyzer:
         self.scoring_params = scoring_params
         if self.df is None or self.df.empty:
             raise ValueError("PerformanceAnalyzer 接收到的 df_indicators 为空。")
-        if self.score_details_df is None or self.score_details_df.empty:
-            raise ValueError("PerformanceAnalyzer 接收到的 score_details_df 为空。")
         
         # 从配置中获取分析参数
         self.look_forward_days = get_param_value(self.analysis_params.get('look_forward_days'), 20)
