@@ -106,24 +106,28 @@ class PerformanceAnalyzer:
 
     def _analyze_single_trade_performance(self, entry_date) -> dict:
         """
-        【V3.0 新增核心方法】深度分析单次交易的性能表现。
-        - 返回一个包含详细指标的字典，而不仅仅是成功/失败。
+        【V3.1 T+1交易修正版】深度分析单次交易的性能表现。
         """
         try:
-            entry_price = self.df.loc[entry_date, 'close_D']
+            # 找到T日的索引位置
             entry_idx = self.df.index.get_loc(entry_date)
-            # 安全地切片，防止越界
+            # 检查是否存在T+1日的数据
+            if entry_idx + 1 >= len(self.df):
+                return None # 没有未来数据可供分析
+            # 获取T+1日的数据行
+            trade_day_row = self.df.iloc[entry_idx + 1]
+            # 使用T+1日的开盘价作为买入价
+            entry_price = trade_day_row['open_D']
+            # 回测观察窗口从T+1日开始，持续 look_forward_days
             look_forward_df = self.df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
         except (KeyError, IndexError):
-            return None # 如果找不到日期或索引，返回None
-
+            return None
         if look_forward_df.empty:
             return None
 
         target_price = entry_price * (1 + self.profit_target_pct)
         stop_price = entry_price * (1 - self.stop_loss_pct)
 
-        # 初始化性能指标
         max_profit_pct = 0.0
         days_to_max_profit = 0
         max_drawdown_pct = 0.0
@@ -132,34 +136,23 @@ class PerformanceAnalyzer:
         exit_days = self.look_forward_days
         final_outcome = 'timeout'
 
-        # 逐日分析未来走势
         for i, (date, row) in enumerate(look_forward_df.iterrows()):
             day_num = i + 1
             
-            # 更新期间最大收益
             daily_max_profit = (row['high_D'] / entry_price) - 1
             if daily_max_profit > max_profit_pct:
                 max_profit_pct = daily_max_profit
                 days_to_max_profit = day_num
 
-            # 更新期间最大回撤
             daily_max_drawdown = (row['low_D'] / entry_price) - 1
             if daily_max_drawdown < max_drawdown_pct:
                 max_drawdown_pct = daily_max_drawdown
                 days_to_max_drawdown = day_num
 
-            # 检查是否触发止盈或止损
             hit_target = row['high_D'] >= target_price
             hit_stop = row['low_D'] <= stop_price
 
-            if hit_target and hit_stop:
-                # 如果一天内同时触及，判断哪个先到
-                # 这是一个简化处理，实战中需要更高频数据。我们假设先到止损。
-                exit_reason = 'stop_loss'
-                final_outcome = 'failure'
-                exit_days = day_num
-                break
-            elif hit_target:
+            if hit_target:
                 exit_reason = 'profit_target'
                 final_outcome = 'success'
                 exit_days = day_num

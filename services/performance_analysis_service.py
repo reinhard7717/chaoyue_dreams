@@ -45,41 +45,71 @@ class PerformanceAnalysisService:
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
-        【V2.0 核心】执行全市场原子信号的性能分析。
+        【V3.0 统计学修正版】执行全市场原子信号的性能分析。
+        - 核心重构: 废除了原有的 `groupby().min()` 逻辑。
+        - 新逻辑:
+          1. 遍历所有股票，对每只股票独立进行全周期事件识别。
+          2. 区分“状态”和“触发器”：
+             - 状态(State): 只在状态首次进入时触发一次回测事件。
+             - 触发器(Trigger): 每次出现都触发回测事件。
+          3. 确保对回测周期内的所有有效事件进行分析，提供统计学上可靠的结果。
         """
-        print("-> [Service V2.0] 启动全景沙盘推演...")
+        print("-> [Service V3.0] 启动全景沙盘推演 (统计学修正版)...")
 
-        # 1. 从数据库获取所有需要分析的数据
+        # 1. 从数据库获取所有需要分析的数据 (此部分逻辑不变)
         all_states_df, all_prices_df = await self._fetch_atomic_analysis_data_from_db()
-        if all_states_df is None or all_prices_df is None:
-            logger.warning("[Service V2.0] 无法获取原子状态或价格数据，分析终止。")
+        if all_states_df is None or all_prices_df is None or all_states_df.empty or all_prices_df.empty:
+            logger.warning("[Service V3.0] 无法获取原子状态或价格数据，分析终止。")
             return []
-        # 2. 识别所有首次触发事件
-        # 使用 groupby().apply() 来为每只股票独立计算首次触发日
-        print("    -> [Service V2.0] 正在识别所有信号的首次触发事件...")
-        first_trigger_events = all_states_df.groupby(['stock_code', 'signal_name'])['trade_date'].min().reset_index()
-        # 3. 模拟每一次交易
-        print(f"    -> [Service V2.0] 准备对 {len(first_trigger_events)} 个首次触发事件进行交易模拟...")
+
+        print("    -> [Service V3.0] 数据加载完成，开始按股票识别所有有效触发事件...")
+        
+        # 2. 【核心重构】识别所有有效触发事件
         trade_outcomes = []
-        # 为了效率，将价格数据转换为字典 {stock_code: price_df}
         prices_by_stock = dict(iter(all_prices_df.groupby('stock_code')))
-        for _, event in first_trigger_events.iterrows():
-            stock_code = event['stock_code']
-            signal_name = event['signal_name']
-            entry_date = event['trade_date']
+        
+        # 按股票代码分组，对每只股票进行独立分析
+        for stock_code, stock_states_df in all_states_df.groupby('stock_code'):
             price_df = prices_by_stock.get(stock_code)
-            if price_df is None:
+            if price_df is None or price_df.empty:
                 continue
-            outcome = self._analyze_single_trade_performance(entry_date, price_df)
-            if outcome:
-                trade_outcomes.append({
-                    'signal_name': signal_name,
-                    **outcome
-                })
-        # 4. 聚合结果并生成最终报告
-        print(f"    -> [Service V2.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条交易结果...")
+
+            # 将该股票的状态数据透视为以日期为索引，信号为列的DataFrame
+            try:
+                pivoted_df = stock_states_df.pivot_table(
+                    index='trade_date', columns='signal_name', aggfunc='size', fill_value=0
+                ).astype(bool)
+            except Exception:
+                continue # 如果透视失败，跳过该股票
+
+            # 遍历每个信号
+            for signal_name in pivoted_df.columns:
+                signal_series = pivoted_df[signal_name].sort_index()
+                signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
+                signal_type = signal_meta.get('type', 'State').capitalize() # 默认为State
+
+                event_dates = []
+                if signal_type == 'State':
+                    # 对于状态信号，只在状态首次进入时触发
+                    is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
+                    event_dates = is_first_day[is_first_day].index.tolist()
+                else: # Trigger, Positional, Risk, etc. 都被视为瞬时事件
+                    # 对于触发器信号，每次出现都触发
+                    event_dates = signal_series[signal_series].index.tolist()
+
+                # 对识别出的所有事件日期进行交易模拟
+                for entry_date in event_dates:
+                    outcome = self._analyze_single_trade_performance(entry_date, price_df)
+                    if outcome:
+                        trade_outcomes.append({
+                            'signal_name': signal_name,
+                            **outcome
+                        })
+
+        # 3. 聚合结果并生成最终报告 (此部分逻辑不变)
+        print(f"    -> [Service V3.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条交易结果...")
         final_report = self._aggregate_atomic_results(trade_outcomes)
-        print(f"-> [Service V2.0] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
+        print(f"-> [Service V3.0] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
         return final_report
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
@@ -135,13 +165,36 @@ class PerformanceAnalysisService:
 
     def _analyze_single_trade_performance(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V2.0 迁移&重构】深度分析单次交易的性能表现 (从PerformanceAnalyzer迁移而来)。
-        - 这是一个纯计算函数，不依赖self.df。
+        【V2.1 T+1交易修正版】深度分析单次交易的性能表现。
         """
         try:
-            price_df_indexed = price_df.set_index('trade_date')
-            entry_price = price_df_indexed.loc[entry_date, 'close_D']
+            # 确保 price_df 的索引是日期类型，以便进行定位
+            price_df_indexed = price_df.set_index('trade_date').sort_index()
+            
+            # 找到T日的索引位置
             entry_idx = price_df_indexed.index.get_loc(entry_date)
+            
+            # 检查是否存在T+1日的数据
+            if entry_idx + 1 >= len(price_df_indexed):
+                return None
+
+            # 获取T+1日的数据行
+            trade_day_row = price_df_indexed.iloc[entry_idx + 1]
+            # 使用T+1日的开盘价作为买入价
+            # 注意：DAO层返回的原始列名是 open, high, low, close，服务层重命名为了带 _D 后缀的
+            # 这里需要确保 price_df 中有 open_D 列，或者使用原始的 open 列
+            # 假设 _fetch_atomic_analysis_data_from_db 已经提供了 open_D
+            if 'open_D' not in trade_day_row:
+                 # 如果没有 open_D，可能是因为 _fetch_atomic_analysis_data_from_db 没有重命名 open 列
+                 # 我们在这里做一个兼容处理
+                 if 'open' in trade_day_row:
+                     trade_day_row['open_D'] = trade_day_row['open']
+                 else:
+                     # 如果连 open 都没有，则无法继续
+                     return None
+            entry_price = trade_day_row['open_D']
+            
+            # 回测观察窗口从T+1日开始
             look_forward_df = price_df_indexed.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
         except (KeyError, IndexError):
             return None
@@ -222,7 +275,7 @@ class PerformanceAnalysisService:
             
         analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True)
         return analysis_results
-    # --- 代码修改结束 ---
+
 
     async def run_analysis_for_stock(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> list:
         """
