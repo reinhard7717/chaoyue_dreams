@@ -57,6 +57,13 @@ class PlaybookEngine:
                 'setup': ['OPP_STATE_NEGATIVE_DEVIATION', 'OSC_STATE_RSI_OVERSOLD'],
                 'trigger': ['OPP_BEHAVIOR_SELLING_EXHAUSTION_A', 'TRIGGER_DOMINANT_REversal'],
                 'comment': 'A级 - 统计学超卖 + 卖盘衰竭或反转K线。'
+            },
+            # “箱体底部反转”剧本
+            {
+                'name': 'PLAYBOOK_BOX_REVERSAL_B',
+                'setup': ['BOX_STATE_HEALTHY_CONSOLIDATION', 'VOL_STATE_SQUEEZE_WINDOW'],
+                'trigger': ['TRIGGER_BOX_BOTTOM_REVERSAL'],
+                'comment': 'B级 - 在健康箱体或压缩区底部，出现反转信号，执行低吸。'
             }
         ]
 
@@ -208,6 +215,18 @@ class PlaybookEngine:
         triggers['TRIGGER_BOX_BREAKOUT'] = self.strategy.atomic_states.get('BOX_EVENT_BREAKOUT', default_series)
         triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = self.strategy.atomic_states.get('BOARD_EVENT_EARTH_HEAVEN', default_series)
         triggers['TRIGGER_TREND_STABILIZING'] = self.strategy.atomic_states.get('MA_STATE_D_STABILIZING', default_series)
+
+        # [核心新增] 定义“箱体底部反转”复合触发器
+        p_box_reversal = trigger_params.get('box_bottom_reversal', {})
+        if get_param_value(p_box_reversal.get('enabled'), True) and 'box_bottom_D' in df.columns:
+            # 条件1: 价格触及或轻微跌破箱体下轨
+            proximity_ratio = get_param_value(p_box_reversal.get('proximity_ratio'), 0.015)
+            is_near_bottom = df['low_D'] <= df['box_bottom_D'] * (1 + proximity_ratio)
+            
+            # 条件2: 出现显性的反转K线作为确认信号
+            is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+            
+            triggers['TRIGGER_BOX_BOTTOM_REVERSAL'] = is_near_bottom & is_reversal_confirmed
 
         # --- 5. 最终安全检查 (Final Safety Check) ---
         # 确保所有触发器都已正确初始化，防止因计算失败导致后续流程出错

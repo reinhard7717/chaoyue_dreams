@@ -157,6 +157,11 @@ class JudgmentLayer:
         risk_overrides_entry = df['risk_score'] > df['entry_score']
         is_in_ascent_phase = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
         df.loc[risk_overrides_entry & ~is_in_ascent_phase, 'veto_votes'] += 1
+        
+        # 风险5: 核心原子风险信号 (1票)
+        # CHIP_DYN_COST_FALLING (成本松动) 信号回测显示有约30%的规避成功率，是重要的预警信号。
+        has_cost_falling_risk = atomic.get('CHIP_DYN_COST_FALLING', default_series)
+        df.loc[has_cost_falling_risk, 'veto_votes'] += 1
 
     def _finalize_signals(self):
         """

@@ -92,18 +92,14 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.0 融合思想版】
-        - 核心升级: 引入“健康吸筹箱体”信号。
-          - BOX_STATE_HEALTHY_CONSOLIDATION: 基础的、位于趋势线上方的箱体 (静态)。
-          - BOX_STATE_HEALTHY_ACCUMULATION: 在健康箱体内，要求同时满足“缩量”和“筹码集中” (动态)，是更高质量的突破前兆。
+        【V283.1 边界输出版】
         """
-        # print("        -> [工兵部队 V283.0] 启动，正在执行融合分析...")
+        print("        -> [工兵部队 V283.1] 启动，正在执行融合分析并输出箱体边界...")
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
             return states
 
-        # --- 1. 静态分析：识别箱体结构 ---
         lookback_window = get_param_value(box_params.get('lookback_window'), 8)
         max_amplitude_ratio = get_param_value(box_params.get('max_amplitude_ratio'), 0.05)
         rolling_high = df['high_D'].rolling(window=lookback_window).max()
@@ -114,7 +110,10 @@ class StructuralIntelligence:
         box_top = rolling_high
         box_bottom = rolling_low
 
-        # --- 2. 定义基础事件和状态 ---
+        # [核心新增] 将箱体的上下轨价格输出到主DataFrame，供其他模块使用
+        df['box_top_D'] = box_top
+        df['box_bottom_D'] = box_bottom
+
         was_below_top = df['close_D'].shift(1) <= box_top.shift(1)
         is_above_top = df['close_D'] > box_top
         states['BOX_EVENT_BREAKOUT'] = is_valid_box & is_above_top & was_below_top
@@ -125,7 +124,6 @@ class StructuralIntelligence:
         
         is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         
-        # 基础的“健康箱体”
         ma_params = get_params_block(self.strategy, 'ma_state_params')
         mid_ma_period = get_param_value(ma_params.get('mid_ma'), 55)
         mid_ma_col = f"EMA_{mid_ma_period}_D"
@@ -137,8 +135,6 @@ class StructuralIntelligence:
             healthy_consolidation = is_valid_box & is_in_box
         states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
 
-        # --- 3. 【融合生成】高质量信号 ---
-        # “健康吸筹箱体” (S级信号): 在健康箱体内，要求缩量+筹码集中
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
         is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
         healthy_accumulation_a = healthy_consolidation & is_shrinking_volume & is_chip_concentrating
@@ -416,14 +412,6 @@ class StructuralIntelligence:
         states['MECHANICS_ENERGY_ADVANTAGE'] = energy_ratio > 1.5
         # if states['MECHANICS_ENERGY_ADVANTAGE'].any():
         #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_ENERGY_ADVANTAGE'].sum()} 次“势能优势”信号！")
-
-        # --- 4. 成本动态诊断 (Cost Dynamics) ---
-        states['MECHANICS_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        # 使用动态阈值或一个合理的固定值来定义“加速”
-        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
-        states['MECHANICS_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
-        # if states['MECHANICS_COST_ACCELERATING'].any():
-        #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_COST_ACCELERATING'].sum()} 次“成本加速”信号！")
 
         print("        -> [结构力学诊断引擎 V401.0] 分析完毕。")
         return states

@@ -308,13 +308,6 @@ class ChipIntelligence:
         # if states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].any():
         #     print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
 
-        # --- 风险行为2: 恐慌盘割肉 (加速赶底) ---
-        is_sharp_drop = df['pct_change_D'] < -0.05
-        is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
-        states['RISK_BEHAVIOR_PANIC_SELLING'] = is_sharp_drop & is_panic_selling
-        # if states['RISK_BEHAVIOR_PANIC_SELLING'].any():
-        #     print(f"          -> [机会情报] 侦测到 {states['RISK_BEHAVIOR_PANIC_SELLING'].sum()} 次“恐慌盘割肉”行为(可能见底)！")
-            
         return states
 
 
