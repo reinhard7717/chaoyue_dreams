@@ -1395,98 +1395,120 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
     logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务完成 ======")
     return {"status": "success", "aggregated_signals": len(report_df_for_log), "cache_key": cache_key}
 
-# [修改原因] 新增一个独立的、功能强大的Celery任务，用于对所有原子信号进行性能分析。
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_atomic_signal_performance_analysis', queue='celery')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_atomic_signals_for_stock', queue='calculate_strategy')
 @with_cache_manager
-def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager):
+def analyze_atomic_signals_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
     """
-    【V1.1 持久化适配版】
-    - 核心职责: 1. 调用服务执行分析。
-                2. 将返回的统一结果直接持久化到 AtomicSignalPerformance 表。
+    【V1.0 新增 - Map 任务】分析单只股票的所有原子信号性能。
+    这个任务是计算密集型的，会被大量并行执行。
     """
-    logger.info("====== [全景沙盘推演 V1.1] 任务启动 ======")
+    logger.info(f"  -> [原子信号 Map] 开始分析股票: {stock_code}")
+    try:
+        # 假设 PerformanceAnalysisService 有一个方法可以处理单只股票
+        performance_service = PerformanceAnalysisService(cache_manager)
+        # 这个新方法需要您在 PerformanceAnalysisService 中实现，其逻辑是
+        # 从 analyze_all_atomic_signals 中提取处理单只股票的部分。
+        stock_results = async_to_sync(performance_service.analyze_atomic_signals_for_single_stock)(stock_code)
+        logger.info(f"  -- [原子信号 Map] 完成分析: {stock_code}，发现 {len(stock_results)} 个有效信号。")
+        return stock_results
+    except Exception as e:
+        logger.error(f"  !! [原子信号 Map] 分析股票 {stock_code} 时出错: {e}", exc_info=True)
+        return [] # 出错时返回空列表，不影响主流程
+
+# [核心新增] 2. 原子信号分析的 REDUCE 任务
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_atomic_signal_results', queue='celery')
+@with_cache_manager
+def aggregate_atomic_signal_results(self, results: list, *, cache_manager: CacheManager):
+    """
+    【V1.0 新增 - Reduce 任务】聚合所有股票的原子信号分析结果，并存入数据库。
+    """
+    logger.info("====== [原子信号分析 V1.0 - Reduce] 聚合任务启动 ======")
     
-    performance_service = PerformanceAnalysisService(cache_manager)
+    try:
+        # 1. 聚合计算逻辑 (与旧任务中的聚合部分类似)
+        all_stats = [item for sublist in results if sublist for item in sublist]
+        if not all_stats:
+            logger.warning("[原子信号 Reduce] 未能从任何股票中收集到有效的原子信号统计数据。")
+            return {"status": "finished", "reason": "no atomic data to aggregate"}
 
-    async def main():
-        try:
-            # 1. 调用服务执行核心分析逻辑
-            analysis_results = await performance_service.analyze_all_atomic_signals()
+        df = pd.DataFrame(all_stats)
+        # 注意：这里的 'triggers', 'successes' 等已经是单只股票的统计结果，直接分组求和即可
+        agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
+            total_triggers=('triggers', 'sum'),
+            total_successes=('successes', 'sum'),
+            # 为了正确计算加权平均，需要传递加权后的值
+            weighted_profit=('weighted_max_profit', 'sum'),
+            weighted_drawdown=('weighted_max_drawdown', 'sum'),
+            weighted_days=('weighted_exit_days', 'sum')
+        ).reset_index()
 
-            if not analysis_results:
-                logger.warning("[沙盘推演] 未生成任何分析结果。")
-                return {"status": "success", "reason": "No results generated."}
+        agg_df['win_rate_pct'] = (agg_df['total_successes'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
+        agg_df['avg_max_profit_pct'] = (agg_df['weighted_profit'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
+        agg_df['avg_max_drawdown_pct'] = (agg_df['weighted_drawdown'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
+        agg_df['avg_exit_days'] = (agg_df['weighted_days'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
 
-            # 2. 准备批量更新/创建的对象
-            records_to_update = []
-            records_to_create = []
-            existing_records = {
-                p.signal_name: p for p in await sync_to_async(list)(AtomicSignalPerformance.objects.all())
-            }
+        logger.info(f"[原子信号 Reduce] 成功聚合了 {len(agg_df)} 个独特的原子信号。")
 
-            for result in analysis_results:
-                signal_name = result['signal_name']
-                
-                # [核心修正] 直接使用返回的字典字段进行赋值
-                if signal_name in existing_records:
-                    record = existing_records[signal_name]
-                    record.signal_cn_name = result['cn_name']
-                    record.signal_type = result['type']
-                    record.total_triggers = result['triggers']
-                    record.successes = result['successes']
-                    record.win_rate_pct = result['win_rate_pct']
-                    record.avg_max_profit_pct = result['avg_max_profit_pct']
-                    record.avg_max_drawdown_pct = result['avg_max_drawdown_pct']
-                    record.avg_exit_days = result['avg_exit_days']
-                    records_to_update.append(record)
-                else:
-                    records_to_create.append(AtomicSignalPerformance(
-                        signal_name=result['signal_name'],
-                        signal_cn_name=result['cn_name'],
-                        signal_type=result['type'],
-                        total_triggers=result['triggers'],
-                        successes=result['successes'],
-                        win_rate_pct=result['win_rate_pct'],
-                        avg_max_profit_pct=result['avg_max_profit_pct'],
-                        avg_max_drawdown_pct=result['avg_max_drawdown_pct'],
-                        avg_exit_days=result['avg_exit_days'],
-                    ))
-            
-            # 3. 批量执行数据库操作
-            if records_to_create:
-                await sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
-                logger.info(f"[沙盘推演] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
-            
-            if records_to_update:
-                await sync_to_async(AtomicSignalPerformance.objects.bulk_update)(
-                    records_to_update, 
-                    ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
-                     'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
-                )
-                logger.info(f"[沙盘推演] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
+        # 2. 数据库持久化逻辑 (与旧任务中的数据库部分相同)
+        records_to_update = []
+        records_to_create = []
+        existing_records = {
+            p.signal_name: p for p in sync_to_async(list)(AtomicSignalPerformance.objects.all())
+        }
 
-            return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
+        for _, row in agg_df.iterrows():
+            signal_name = row['signal_name']
+            if signal_name in existing_records:
+                record = existing_records[signal_name]
+                record.signal_cn_name = row['cn_name']
+                record.signal_type = row['type']
+                record.total_triggers = row['total_triggers']
+                record.successes = row['total_successes']
+                record.win_rate_pct = row['win_rate_pct']
+                record.avg_max_profit_pct = row['avg_max_profit_pct']
+                record.avg_max_drawdown_pct = row['avg_max_drawdown_pct']
+                record.avg_exit_days = row['avg_exit_days']
+                records_to_update.append(record)
+            else:
+                records_to_create.append(AtomicSignalPerformance(
+                    signal_name=row['signal_name'],
+                    signal_cn_name=row['cn_name'],
+                    signal_type=row['type'],
+                    total_triggers=row['total_triggers'],
+                    successes=row['total_successes'],
+                    win_rate_pct=row['win_rate_pct'],
+                    avg_max_profit_pct=row['avg_max_profit_pct'],
+                    avg_max_drawdown_pct=row['avg_max_drawdown_pct'],
+                    avg_exit_days=row['avg_exit_days'],
+                ))
+        
+        if records_to_create:
+            sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
+            logger.info(f"[原子信号 Reduce] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
+        
+        if records_to_update:
+            sync_to_async(AtomicSignalPerformance.objects.bulk_update)(
+                records_to_update, 
+                ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
+                 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
+            )
+            logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
 
-        except Exception as e:
-            logger.error(f"[沙盘推演] 任务执行时发生严重错误: {e}", exc_info=True)
-            return {"status": "error", "reason": str(e)}
+        logger.info("====== [原子信号分析 V1.0 - Reduce] 聚合任务完成 ======")
+        return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
 
-    return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"[原子信号 Reduce] 聚合任务执行时发生严重错误: {e}", exc_info=True)
+        return {"status": "error", "reason": str(e)}
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
 @with_cache_manager
 def run_global_performance_analysis(self, stock_list: list = None, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
     """
-    【V3.1 联合作战版】
-    对全市场（或指定列表）所有股票，在指定时间段内，同时启动【最终信号】和【原子信号】的性能分析。
-    - 工作流:
-      1. (调度器) 获取所有股票代码。
-      2. (联合作战) 同时派发两个独立的分析工作流：
-         - 工作流A (MapReduce): 并行分析【最终信号】，并将结果聚合到Redis。
-         - 工作流B (独立任务): 分析【原子信号】，并将结果存入数据库功勋墙。
+    【V3.2 全并行架构版】
     """
     logger.info("="*80)
-    logger.info(f"--- [全局性能分析 V3.1 - 联合作战总指挥启动] ---")
+    logger.info(f"--- [全局性能分析 V3.2 - 全并行架构总指挥启动] ---")
     logger.info(f"  - 分析时段: {start_date or '默认'} to {end_date or '默认'}")
     logger.info("="*80)
 
@@ -1507,25 +1529,33 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
 
         # --- 作战指令一: 启动【最终信号】分析兵团 (MapReduce) ---
         logger.info("\n--- [指令 1/2] 正在向【最终信号分析兵团】派发 MapReduce 任务...")
-        map_tasks = [
+        map_tasks_final = [
             analyze_performance_from_db.s(
                 stock_code=code,
                 start_date=start_date,
                 end_date=end_date
             ).set(queue='calculate_strategy') for code in codes_to_run
         ]
-        reduce_task = aggregate_performance_results.s().set(queue='celery')
-        workflow = chord(header=group(map_tasks), body=reduce_task)
-        workflow.apply_async()
+        reduce_task_final = aggregate_performance_results.s().set(queue='celery')
+        workflow_final = chord(header=group(map_tasks_final), body=reduce_task_final)
+        workflow_final.apply_async()
         logger.info(f"-> 指令已下达！{total_stocks} 个【最终信号】分析子任务已派发。")
 
-        # --- 作战指令二: 启动【原子信号】分析特遣队 (独立任务) ---
-        logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发全景沙盘推演任务...")
-        run_atomic_signal_performance_analysis.s().set(queue='celery').apply_async()
-        logger.info("-> 指令已下达！【原子信号】全景沙盘推演任务已派发，将独立并行运行。")
+        # [核心修正] 使用新的 MapReduce 架构来派发原子信号分析任务
+        # --- 作战指令二: 启动【原子信号】分析特遣队 (MapReduce) ---
+        logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发 MapReduce 任务...")
+        map_tasks_atomic = [
+            analyze_atomic_signals_for_stock.s(
+                stock_code=code
+            ).set(queue='calculate_strategy') for code in codes_to_run
+        ]
+        reduce_task_atomic = aggregate_atomic_signal_results.s().set(queue='celery')
+        workflow_atomic = chord(header=group(map_tasks_atomic), body=reduce_task_atomic)
+        workflow_atomic.apply_async()
+        logger.info(f"-> 指令已下达！{total_stocks} 个【原子信号】分析子任务已派发，将并行运行。")
         
         logger.info("\n" + "="*80)
-        logger.info(f"--- [全局性能分析 V3.1 - 所有作战指令已下达] ---")
+        logger.info(f"--- [全局性能分析 V3.2 - 所有作战指令已下达] ---")
         return {"status": "all_workflows_dispatched", "total_stocks": total_stocks}
 
     except Exception as e:
