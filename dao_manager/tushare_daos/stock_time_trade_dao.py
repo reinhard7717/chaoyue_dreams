@@ -102,118 +102,79 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_daily_data_for_stocks(self, stock_codes: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """
-        【V2.0 - 新增核心方法】
-        批量获取多只股票在指定日期范围内的日线行情数据。
-        - 自动处理分表逻辑。
-        - 返回一个包含所有股票数据的、统一的 Pandas DataFrame。
-        Args:
-            stock_codes (List[str]): 股票代码列表, e.g., ['000001.SZ', '600519.SH'].
-            start_date (str): 开始日期, 格式 'YYYYMMDD'.
-            end_date (str): 结束日期, 格式 'YYYYMMDD'.
-        Returns:
-            pd.DataFrame: 包含所有股票日线数据的DataFrame，
-                          列至少包含 'stock_code', 'trade_time', 'close', 'high', 'low'。
-                          如果无数据则返回空的DataFrame。
+        【V2.1 - 字段补全版】
         """
         print(f"[DAO] StockTimeTradeDAO.get_daily_data_for_stocks: 正在为 {len(stock_codes)} 支股票获取 {start_date} 到 {end_date} 的数据...")
         if not stock_codes:
             return pd.DataFrame()
-
         try:
-            # 1. 按模型对股票代码进行分组
             model_to_codes_map = defaultdict(list)
             for code in stock_codes:
                 model_class = get_daily_data_model_by_code(code)
                 model_to_codes_map[model_class].append(code)
-
-            # 2. 准备日期对象
             start_dt = datetime.strptime(start_date, '%Y%m%d').date()
             end_dt = datetime.strptime(end_date, '%Y%m%d').date()
-
-            # 3. 并发查询所有分表
             query_tasks = []
             for model_class, codes in model_to_codes_map.items():
+                # [修正] 在 .values() 中增加 'open_qfq' 字段
                 queryset = model_class.objects.filter(
                     stock__stock_code__in=codes,
                     trade_time__gte=start_dt,
                     trade_time__lte=end_dt
-                ).values('stock__stock_code', 'trade_time', 'close_qfq', 'high_qfq', 'low_qfq')
+                ).values('stock__stock_code', 'trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq')
                 query_tasks.append(sync_to_async(list)(queryset))
             
-            # 使用 asyncio.gather 并发执行所有查询
             results_list_of_lists = await asyncio.gather(*query_tasks)
-
-            # 4. 合并所有查询结果
             all_data_list = [item for sublist in results_list_of_lists for item in sublist]
-
             if not all_data_list:
                 logger.warning(f"[DAO] 未能在任何分表中找到 {len(stock_codes)} 支股票在 {start_date}-{end_date} 期间的日线数据。")
                 return pd.DataFrame()
-
-            # 5. 转换为统一的DataFrame
             df = pd.DataFrame(all_data_list)
+            # [修正] 增加对 'open_qfq' 的重命名
             df.rename(columns={
                 'stock__stock_code': 'stock_code',
+                'open_qfq': 'open',
                 'close_qfq': 'close', 
                 'high_qfq': 'high', 
                 'low_qfq': 'low'
             }, inplace=True)
-            
-            # 确保 trade_time 是 date 类型，以便后续操作
             df['trade_time'] = pd.to_datetime(df['trade_time']).dt.date
-            
             print(f"[DAO] 成功获取并合并了 {len(df)} 条日线数据。")
             return df
-
         except Exception as e:
             logger.error(f"[DAO] 批量获取日线数据时发生错误: {e}", exc_info=True)
             return pd.DataFrame()
 
     async def get_daily_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        【V1.0 - 新增核心方法】
-        获取单只股票在指定日期范围内的日线行情数据。
-        - 自动处理分表逻辑。
-        - 返回一个以日期为索引的 Pandas DataFrame。
-        Args:
-            stock_code (str): 股票代码, e.g., '300437.SZ'.
-            start_date (str): 开始日期, 格式 'YYYYMMDD'.
-            end_date (str): 结束日期, 格式 'YYYYMMDD'.
-        Returns:
-            pd.DataFrame: 包含日线数据的DataFrame，索引为 'trade_time'，
-                          列至少包含 'close'。如果无数据则返回空的DataFrame。
+        【V1.1 - 字段补全版】
         """
-        # 打印调试信息，方便追踪
-        print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
+        # print(f"[DAO] StockTimeTradeDAO.get_daily_data: 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的数据...")
         try:
-            # 1. 确定要查询的正确模型（复用现有逻辑）
             model_class = get_daily_data_model_by_code(stock_code)
-            # 2. 将字符串日期转换为 datetime.date 对象以供查询
             start_dt = datetime.strptime(start_date, '%Y%m%d').date()
             end_dt = datetime.strptime(end_date, '%Y%m%d').date()
-            # 3. 构建异步查询
             queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_dt,
                 trade_time__lte=end_dt
             ).order_by('trade_time')
-            # 4. 高效地将异步查询结果转换为字典列表
-            #    只选择需要的字段，可以提升性能
-            data_list = [item async for item in queryset.values('trade_time', 'close_qfq', 'high_qfq', 'low_qfq')]
+            
+            # [修正] 在 .values() 中增加 'open_qfq' 字段
+            data_list = [item async for item in queryset.values('trade_time', 'open_qfq', 'close_qfq', 'high_qfq', 'low_qfq')]
+            
             if not data_list:
                 logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到 {stock_code} 在 {start_date}-{end_date} 期间的日线数据。")
-                return pd.DataFrame() # 返回一个空的DataFrame
-            # 5. 将字典列表转换为Pandas DataFrame
+                return pd.DataFrame()
             df = pd.DataFrame(data_list)
-            df.rename(columns={'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
-            # 6. 将 trade_time 列转换为 datetime 类型并设置其为索引，以满足上游服务的需求
+            # [修正] 增加对 'open_qfq' 的重命名
+            df.rename(columns={'open_qfq': 'open', 'close_qfq': 'close', 'high_qfq': 'high', 'low_qfq': 'low'}, inplace=True)
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)
             return df
-
         except Exception as e:
             logger.error(f"[DAO] 获取 {stock_code} 日线数据范围查询时发生错误: {e}", exc_info=True)
-            return pd.DataFrame() # 出错时也返回空的DataFrame
+            return pd.DataFrame()
 
     async def get_latest_daily_quote(self, stock_code: str) -> Optional[Dict]:
         """
