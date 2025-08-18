@@ -105,17 +105,30 @@ class PerformanceAnalysisService:
 
     def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.1 简化版】评估“进攻型”信号的表现 (看涨)。
+        【V4.2 T+1基准修正版】评估“进攻型”信号的表现 (看涨)。
         """
         try:
-            # [核心修正] 直接使用已设置好的索引进行查询。
+            # 步骤1: 定位到 T+1 日
             entry_idx = price_df.index.get_loc(entry_date)
-            if entry_idx + 1 >= len(price_df): return None
-            entry_price = price_df.iloc[entry_idx]['close_D']
-            look_forward_df = price_df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
+            trade_day_idx = entry_idx + 1
+            if trade_day_idx >= len(price_df):
+                return None
+
+            # 步骤2: 获取 T+1 日的开盘价作为基准
+            trade_day_row = price_df.iloc[trade_day_idx]
+            entry_price = trade_day_row['open_D']
+            
+            # 如果T+1开盘价无效，则无法进行评估
+            if pd.isna(entry_price) or entry_price <= 0:
+                return None
+
+            # 步骤3: 回测窗口从 T+1 日开始
+            look_forward_df = price_df.iloc[trade_day_idx : trade_day_idx + self.look_forward_days]
         except (KeyError, IndexError):
             return None
-        if look_forward_df.empty: return None
+        
+        if look_forward_df.empty:
+            return None
 
         target_price = entry_price * (1 + self.profit_target_pct)
         stop_price = entry_price * (1 - self.stop_loss_pct)
@@ -126,10 +139,13 @@ class PerformanceAnalysisService:
 
         for i, row in enumerate(look_forward_df.itertuples()):
             day_num = i + 1
+            # 回测从T+1日当天开始，所以要考虑当天的最高/最低价
             high_price = row.high_D
             low_price = row.low_D
+            
             max_profit_pct = max(max_profit_pct, (high_price / entry_price) - 1)
             max_drawdown_pct = min(max_drawdown_pct, (low_price / entry_price) - 1)
+
             if high_price >= target_price:
                 outcome, exit_days = 'success', day_num
                 break
@@ -144,17 +160,29 @@ class PerformanceAnalysisService:
 
     def _evaluate_defensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.1 简化版】评估“防御/风险型”信号的表现 (看跌)。
+        【V4.2 T+1基准修正版】评估“防御/风险型”信号的表现 (看跌)。
         """
         try:
-            # [核心修正] 直接使用已设置好的索引进行查询。
+            # 步骤1: 定位到 T+1 日
             entry_idx = price_df.index.get_loc(entry_date)
-            if entry_idx + 1 >= len(price_df): return None
-            entry_price = price_df.iloc[entry_idx]['close_D']
-            look_forward_df = price_df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
+            trade_day_idx = entry_idx + 1
+            if trade_day_idx >= len(price_df):
+                return None
+
+            # 步骤2: 获取 T+1 日的开盘价作为基准
+            trade_day_row = price_df.iloc[trade_day_idx]
+            entry_price = trade_day_row['open_D']
+
+            if pd.isna(entry_price) or entry_price <= 0:
+                return None
+
+            # 步骤3: 回测窗口从 T+1 日开始
+            look_forward_df = price_df.iloc[trade_day_idx : trade_day_idx + self.look_forward_days]
         except (KeyError, IndexError):
             return None
-        if look_forward_df.empty: return None
+        
+        if look_forward_df.empty:
+            return None
 
         target_price_fall = entry_price * (1 - self.stop_loss_pct)
         stop_price_rise = entry_price * (1 + self.profit_target_pct)
@@ -167,8 +195,10 @@ class PerformanceAnalysisService:
             day_num = i + 1
             high_price = row.high_D
             low_price = row.low_D
+            
             max_fall_pct = max(max_fall_pct, 1 - (low_price / entry_price))
             max_rise_pct = max(max_rise_pct, (high_price / entry_price) - 1)
+
             if low_price <= target_price_fall:
                 outcome, exit_days = 'success', day_num
                 break
