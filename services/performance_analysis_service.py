@@ -45,28 +45,28 @@ class PerformanceAnalysisService:
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
-        【V4.0 角色扮演版】执行全市场原子信号的性能分析。
-        - 核心重构:
-          1. 引入“角色”概念，区分进攻信号和风险信号。
-          2. 为不同角色调用不同的评估函数 (_evaluate_offensive_signal / _evaluate_defensive_signal)。
-          3. 聚合报告将能体现不同角色的评估结果。
+        【V4.1 索引修正版】执行全市场原子信号的性能分析。
         """
-        print("-> [Service V4.0] 启动全景沙盘推演 (角色扮演版)...")
+        print("-> [Service V4.1] 启动全景沙盘推演 (索引修正版)...")
 
         all_states_df, all_prices_df = await self._fetch_atomic_analysis_data_from_db()
         if all_states_df is None or all_prices_df is None or all_states_df.empty or all_prices_df.empty:
-            logger.warning("[Service V4.0] 无法获取原子状态或价格数据，分析终止。")
+            logger.warning("[Service V4.1] 无法获取原子状态或价格数据，分析终止。")
             return []
 
-        print("    -> [Service V4.0] 数据加载完成，开始按角色识别并评估所有事件...")
+        print("    -> [Service V4.1] 数据加载完成，开始按角色识别并评估所有事件...")
         
         trade_outcomes = []
         prices_by_stock = dict(iter(all_prices_df.groupby('stock_code')))
         
         for stock_code, stock_states_df in all_states_df.groupby('stock_code'):
-            price_df = prices_by_stock.get(stock_code)
-            if price_df is None or price_df.empty:
+            price_df_unindexed = prices_by_stock.get(stock_code)
+            if price_df_unindexed is None or price_df_unindexed.empty:
                 continue
+
+            # [核心修正] 在主循环中提前将价格DataFrame的索引设置为日期，并排序。
+            # 这样传递给评估函数的就是一个完全准备好的、可直接用于查询的DataFrame。
+            price_df = price_df_unindexed.set_index('trade_date').sort_index()
 
             try:
                 pivoted_df = stock_states_df.pivot_table(
@@ -77,46 +77,40 @@ class PerformanceAnalysisService:
 
             for signal_name in pivoted_df.columns:
                 signal_series = pivoted_df[signal_name].sort_index()
-                
-                # 步骤1: 角色识别
                 signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
-                # 默认为 'positional'，视为进攻型
                 signal_type = signal_meta.get('type', 'positional').lower() 
                 
-                # 关键逻辑：只在状态首次进入时触发事件，这对进攻和风险状态都适用
                 is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
                 event_dates = is_first_day[is_first_day].index.tolist()
 
                 for entry_date in event_dates:
                     outcome = None
-                    # 步骤2: 根据角色调用不同的评估脚本
+                    # 现在，传递给评估函数的是已经索引好的 price_df
                     if signal_type == 'risk':
                         outcome = self._evaluate_defensive_signal(entry_date, price_df)
-                    else: # 所有非 'risk' 类型都视为进攻型
+                    else:
                         outcome = self._evaluate_offensive_signal(entry_date, price_df)
                     
                     if outcome:
                         trade_outcomes.append({
                             'signal_name': signal_name,
-                            'signal_type_role': signal_type, # 记录角色
+                            'signal_type_role': signal_type,
                             **outcome
                         })
 
-        print(f"    -> [Service V4.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条评估结果...")
+        print(f"    -> [Service V4.1] 模拟完成，正在聚合 {len(trade_outcomes)} 条评估结果...")
         final_report = self._aggregate_atomic_results(trade_outcomes)
-        print(f"-> [Service V4.0] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
+        print(f"-> [Service V4.1] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
         return final_report
 
     def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.0 新增】评估“进攻型”信号的表现 (看涨)。
-        - 成功定义: 价格上涨达到止盈目标。
-        - 失败定义: 价格下跌触及止损目标。
+        【V4.1 简化版】评估“进攻型”信号的表现 (看涨)。
         """
         try:
+            # [核心修正] 直接使用已设置好的索引进行查询。
             entry_idx = price_df.index.get_loc(entry_date)
             if entry_idx + 1 >= len(price_df): return None
-            # 注意：这里我们使用T日的收盘价作为基准，因为状态是在T日收盘后确定的
             entry_price = price_df.iloc[entry_idx]['close_D']
             look_forward_df = price_df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
         except (KeyError, IndexError):
@@ -132,13 +126,10 @@ class PerformanceAnalysisService:
 
         for i, row in enumerate(look_forward_df.itertuples()):
             day_num = i + 1
-            # T+1日开盘买入后的日内最高/最低价
             high_price = row.high_D
             low_price = row.low_D
-            
             max_profit_pct = max(max_profit_pct, (high_price / entry_price) - 1)
             max_drawdown_pct = min(max_drawdown_pct, (low_price / entry_price) - 1)
-
             if high_price >= target_price:
                 outcome, exit_days = 'success', day_num
                 break
@@ -153,11 +144,10 @@ class PerformanceAnalysisService:
 
     def _evaluate_defensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.0 新增】评估“防御/风险型”信号的表现 (看跌)。
-        - 成功定义: 价格下跌达到目标 (复用 stop_loss_pct)。
-        - 失败定义: 价格反而上涨触及目标 (复用 profit_target_pct)。
+        【V4.1 简化版】评估“防御/风险型”信号的表现 (看跌)。
         """
         try:
+            # [核心修正] 直接使用已设置好的索引进行查询。
             entry_idx = price_df.index.get_loc(entry_date)
             if entry_idx + 1 >= len(price_df): return None
             entry_price = price_df.iloc[entry_idx]['close_D']
@@ -166,35 +156,30 @@ class PerformanceAnalysisService:
             return None
         if look_forward_df.empty: return None
 
-        # 对于风险信号，“目标”是下跌，“止损”是上涨
         target_price_fall = entry_price * (1 - self.stop_loss_pct)
         stop_price_rise = entry_price * (1 + self.profit_target_pct)
         
         outcome, exit_days = 'timeout', self.look_forward_days
-        max_fall_pct = 0.0 # 记录最大跌幅 (正数)
-        max_rise_pct = 0.0 # 记录最大反向涨幅 (正数)
+        max_fall_pct = 0.0
+        max_rise_pct = 0.0
 
         for i, row in enumerate(look_forward_df.itertuples()):
             day_num = i + 1
             high_price = row.high_D
             low_price = row.low_D
-            
-            # 注意这里的计算方式与进攻信号相反
             max_fall_pct = max(max_fall_pct, 1 - (low_price / entry_price))
             max_rise_pct = max(max_rise_pct, (high_price / entry_price) - 1)
-
             if low_price <= target_price_fall:
-                outcome, exit_days = 'success', day_num # 成功预测了下跌
+                outcome, exit_days = 'success', day_num
                 break
             if high_price >= stop_price_rise:
-                outcome, exit_days = 'failure', day_num # 预测失败，反而大涨
+                outcome, exit_days = 'failure', day_num
                 break
         
         return {
             'outcome': outcome, 'exit_days': exit_days,
-            # 为了统一报告格式，我们仍然使用 profit/drawdown 的键名，但其含义已变
-            'max_profit_pct': max_fall_pct,    # 对于风险信号，这代表“最大下跌收益率”
-            'max_drawdown_pct': max_rise_pct,  # 对于风险信号，这代表“最大反向亏损率”
+            'max_profit_pct': max_fall_pct,
+            'max_drawdown_pct': max_rise_pct,
         }
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
