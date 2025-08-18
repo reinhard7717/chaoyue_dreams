@@ -57,7 +57,7 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V506.4 类型净化版】
+        【V507.1 原子情报解放版】
         """
         await self._ensure_playbooks_cached()
         
@@ -73,18 +73,16 @@ class ReportingLayer:
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
 
+        # --- Part 1: 生成 TradingSignal (逻辑不变) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
-        
         for trade_time, row in signal_days_df.iterrows():
+            # ... (这部分代码保持不变) ...
             signal_type_map_enum = {
                 '买入信号': TradingSignal.SignalType.BUY,
                 '卖出信号': TradingSignal.SignalType.SELL,
                 '风险预警': TradingSignal.SignalType.WARN,
             }
-            
-            # 调用辅助函数净化 health_change_summary 字段
             clean_health_summary = _convert_numpy_types_for_json(row.get('health_change_summary', {}))
-
             signal_obj = TradingSignal(
                 stock_id=stock_code,
                 trade_time=trade_time,
@@ -93,13 +91,11 @@ class ReportingLayer:
                 signal_type=signal_type_map_enum.get(row['signal_type']),
                 entry_score=row.get('entry_score', 0.0),
                 risk_score=row.get('risk_score', 0.0),
-                # 显式地将 veto_votes 转换为 Python 原生 int 类型
                 veto_votes=int(row.get('veto_votes', 0)),
                 close_price=row.get('close_D', 0.0),
                 health_change_summary=clean_health_summary
             )
             signals_to_create.append(signal_obj)
-
             if trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
@@ -111,84 +107,82 @@ class ReportingLayer:
                             contributed_score=score
                         ))
 
-        # --- Part 2: 生成 StrategyDailyScore (全量每日分数) ---
-        if save_all_days:
-            for trade_time, row in result_df.iterrows():
-                daily_score_obj = StrategyDailyScore(
-                    stock_id=stock_code,
-                    trade_date=trade_time.date(),
-                    strategy_name=strategy_name,
-                    offensive_score=int(row.get('entry_score', 0)),
-                    risk_score=int(row.get('risk_score', 0)),
-                    final_score=row.get('final_score', 0.0),
-                    positional_score=0, # 初始化
-                    dynamic_score=0,    # 初始化
-                    composite_score=0,  # 初始化
-                    signal_type=row.get('signal_type', '无信号'),
-                    score_details_json={}
-                )
-                
-                all_details_for_json = {}
-                positional_total = 0
-                dynamic_total = 0
-                composite_total = 0
-                
-                # 在这里，合并是正确的，因为我们需要为每日分数记录所有的成分
-                if trade_time in score_details_df.index and trade_time in risk_details_df.index:
-                    combined_details = pd.concat([
-                        score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
-                        risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
-                    ])
+        # --- Part 2 & 3: 生成 StrategyDailyScore 和 StrategyDailyState ---
+        # 我们需要一个 daily_score_obj 到 trade_time 的映射，以便关联
+        daily_score_map = {}
 
-                    for signal_name, score_value in combined_details.items():
-                        signal_meta = score_type_map.get(signal_name, {})
-                        cn_name = signal_meta.get('cn_name', signal_name)
-                        score_type = signal_meta.get('type', 'unknown')
+        # 决定要迭代哪些天的数据
+        days_to_process_df = result_df if save_all_days else result_df[result_df['signal_type'] != '无信号']
+        
+        for trade_time, row in days_to_process_df.iterrows():
+            # --- Part 2: 生成 StrategyDailyScore ---
+            daily_score_obj = StrategyDailyScore(
+                stock_id=stock_code,
+                trade_date=trade_time.date(),
+                strategy_name=strategy_name,
+                offensive_score=int(row.get('entry_score', 0)),
+                risk_score=int(row.get('risk_score', 0)),
+                final_score=row.get('final_score', 0.0),
+                positional_score=0,
+                dynamic_score=0,
+                composite_score=0,
+                signal_type=row.get('signal_type', '无信号'),
+                score_details_json={}
+            )
+            daily_scores_to_create.append(daily_score_obj)
+            daily_score_map[trade_time] = daily_score_obj # 建立映射
 
-                        score_components_to_create.append(StrategyScoreComponent(
-                            daily_score=daily_score_obj,
-                            signal_name=signal_name,
-                            signal_cn_name=cn_name,
-                            score_type=score_type,
-                            score_value=int(score_value)
-                        ))
-                        
-                        if score_type == 'positional':
-                            positional_total += int(score_value)
-                        elif score_type == 'dynamic':
-                            dynamic_total += int(score_value)
-                        elif score_type == 'composite':
-                            composite_total += int(score_value)
-                        
-                        if score_type not in all_details_for_json:
-                            all_details_for_json[score_type] = []
-                        all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+            # --- Part 2.1: 生成 StrategyScoreComponent (逻辑不变) ---
+            all_details_for_json = {}
+            positional_total, dynamic_total, composite_total = 0, 0, 0
+            if trade_time in score_details_df.index and trade_time in risk_details_df.index:
+                combined_details = pd.concat([
+                    score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
+                    risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
+                ])
+                for signal_name, score_value in combined_details.items():
+                    signal_meta = score_type_map.get(signal_name, {})
+                    cn_name = signal_meta.get('cn_name', signal_name)
+                    score_type = signal_meta.get('type', 'unknown')
+                    score_components_to_create.append(StrategyScoreComponent(
+                        daily_score=daily_score_obj,
+                        signal_name=signal_name,
+                        signal_cn_name=cn_name,
+                        score_type=score_type,
+                        score_value=int(score_value)
+                    ))
+                    if score_type == 'positional': positional_total += int(score_value)
+                    elif score_type == 'dynamic': dynamic_total += int(score_value)
+                    elif score_type == 'composite': composite_total += int(score_value)
+                    if score_type not in all_details_for_json: all_details_for_json[score_type] = []
+                    all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+            daily_score_obj.positional_score = positional_total
+            daily_score_obj.dynamic_score = dynamic_total
+            daily_score_obj.composite_score = composite_total
+            daily_score_obj.score_details_json = all_details_for_json
 
-                daily_score_obj.positional_score = positional_total
-                daily_score_obj.dynamic_score = dynamic_total
-                daily_score_obj.composite_score = composite_total
-                daily_score_obj.score_details_json = all_details_for_json
-                daily_scores_to_create.append(daily_score_obj)
+        # --- [核心修正] Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
+        # 这个循环现在独立于 save_all_days，它会遍历所有计算过的日期
+        for trade_time, daily_score_obj in daily_score_map.items():
+            # 遍历所有原子状态
+            for state_name, state_series in self.strategy.atomic_states.items():
+                if state_series.get(trade_time, False):
+                    daily_states_to_create.append(StrategyDailyState(
+                        daily_score=daily_score_obj,
+                        signal_name=state_name,
+                        signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
+                        signal_type=StrategyDailyState.SignalType.STATE
+                    ))
+            # 遍历所有触发器
+            for trigger_name, trigger_series in self.strategy.trigger_events.items():
+                if trigger_series.get(trade_time, False):
+                    daily_states_to_create.append(StrategyDailyState(
+                        daily_score=daily_score_obj,
+                        signal_name=trigger_name,
+                        signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
+                        signal_type=StrategyDailyState.SignalType.TRIGGER
+                    ))
 
-                # --- Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
-                # 遍历所有原子状态
-                for state_name, state_series in self.strategy.atomic_states.items():
-                    if state_series.get(trade_time, False): # 检查当天该状态是否为 True
-                        daily_states_to_create.append(StrategyDailyState(
-                            daily_score=daily_score_obj,
-                            signal_name=state_name,
-                            signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
-                            signal_type=StrategyDailyState.SignalType.STATE
-                        ))
-                # 遍历所有触发器
-                for trigger_name, trigger_series in self.strategy.trigger_events.items():
-                    if trigger_series.get(trade_time, False): # 检查当天该触发器是否为 True
-                        daily_states_to_create.append(StrategyDailyState(
-                            daily_score=daily_score_obj,
-                            signal_name=trigger_name,
-                            signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
-                            signal_type=StrategyDailyState.SignalType.TRIGGER
-                        ))
         print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
             f"{len(daily_scores_to_create)} 条每日分数, "
             f"{len(score_components_to_create)} 条分数组件, "

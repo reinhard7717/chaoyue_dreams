@@ -270,26 +270,23 @@ class PerformanceAnalysisService:
 
     async def run_analysis_for_stock(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> list:
         """
-        【V2.2 逻辑重塑版】
-        为单个股票执行基于数据库的回测分析 (分析最终买入信号)。
-        - 核心重构: 不再传递包含所有信号组件的 score_details_df。
-                    取而代之，我们根据 StrategyDailyScore 中的 '买入信号' 记录，
-                    动态合成一个只包含最终买入事件的“纯净版”score_details_df，
-                    确保 PerformanceAnalyzer 只分析其应该分析的目标。
+        【V2.3 精确归因版】
+        为单个股票执行基于数据库的回测分析 (分析最终买入信号的构成组件)。
+        - 核心重构:
+          1. 获取完整的 score_details_df。
+          2. 筛选出 signal_type 为 '买入信号' 的日期。
+          3. 使用这些日期来过滤 score_details_df，得到一份只包含“功臣”信号的详情表。
+          4. 将这份精确的详情表交给 PerformanceAnalyzer 进行分析。
         """
         if not start_date:
             start_date = '1990-01-01'
         if not end_date:
             end_date = date.today().strftime('%Y-%m-%d')
 
-        # print(f"-> [Service V2.2] 开始分析股票 {stock_code} 的最终信号，日期范围: {start_date} 到 {end_date}")
+        # 步骤1: 获取包含价格、最终信号类型和【完整信号组件详情】的数据
+        df_indicators, score_details_df = await self._fetch_analysis_data_from_db(stock_code, start_date, end_date)
 
-        # 步骤1: 获取包含价格和每日信号类型的基础数据 (df_indicators)
-        # 注意：我们不再需要从 _fetch_analysis_data_from_db 获取 score_details_df
-        df_indicators, _ = await self._fetch_analysis_data_from_db(stock_code, start_date, end_date)
-
-        if df_indicators is None or df_indicators.empty:
-            # logger.warning(f"[{stock_code}] 获取并合并数据后，无有效数据可供分析。")
+        if df_indicators is None or df_indicators.empty or score_details_df is None or score_details_df.empty:
             return []
 
         if not get_param_value(self.analyzer_params.get('enabled'), False):
@@ -297,24 +294,29 @@ class PerformanceAnalysisService:
             return []
             
         try:
-            # 步骤2: 【核心修正】合成只包含最终买入信号的“纯净”信号详情
+            # 步骤2: 【核心修正】筛选出“功臣”信号，而不是创建虚拟信号
             # 找到所有被标记为“买入信号”的日期
             buy_signal_dates = df_indicators[df_indicators['signal_type'] == '买入信号'].index
             
             if buy_signal_dates.empty:
-                # logger.info(f"[{stock_code}] 在指定时间段内未发现任何'买入信号'。")
                 return []
 
-            # 创建一个与价格数据对齐的、只包含一个“虚拟”信号的DataFrame
-            synthetic_score_details_df = pd.DataFrame(0, index=df_indicators.index, columns=['FINAL_BUY_SIGNAL'])
-            # 在买入信号当天，将这个虚拟信号的值设为1
-            synthetic_score_details_df.loc[buy_signal_dates, 'FINAL_BUY_SIGNAL'] = 1
+            # 使用这些“买入日”来过滤完整的信号详情表
+            # .reindex() 可以保证即使某些日期在 score_details_df 中不存在也能安全处理
+            # .loc[] 在这里更直接，因为我们知道日期肯定存在
+            filtered_score_details_df = score_details_df.loc[score_details_df.index.isin(buy_signal_dates)]
 
-            # 步骤3: 使用纯净的情报调用分析器
+            # 优化：移除在这些买入日中从未出现过的信号（即整列都为0的信号）
+            filtered_score_details_df = filtered_score_details_df.loc[:, (filtered_score_details_df != 0).any(axis=0)]
+
+            if filtered_score_details_df.empty:
+                return []
+
+            # 步骤3: 使用精确的“功臣名单”调用分析器
             from strategies.trend_following.performance_analyzer import PerformanceAnalyzer
             analyzer = PerformanceAnalyzer(
                 df_indicators=df_indicators,
-                score_details_df=synthetic_score_details_df, # 传递合成的、纯净的信号详情
+                score_details_df=filtered_score_details_df, # 传递被精确过滤后的、包含真实信号的详情
                 atomic_states={},
                 trigger_events={},
                 analysis_params=self.analyzer_params,
@@ -323,7 +325,7 @@ class PerformanceAnalysisService:
 
             return analyzer.run_analysis()
         except Exception as e:
-            logger.error(f"[{stock_code}] (兼容模式)性能分析器在执行过程中发生异常: {e}", exc_info=True)
+            logger.error(f"[{stock_code}] (精确归因模式)性能分析器在执行过程中发生异常: {e}", exc_info=True)
             return []
 
     async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
