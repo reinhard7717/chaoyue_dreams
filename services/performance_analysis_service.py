@@ -114,32 +114,45 @@ class PerformanceAnalysisService:
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        【V2.2 数据接口修正版】为全景分析从数据库批量获取数据。
+        【V2.3 日期标准化版】为全景分析从数据库批量获取数据。
         """
-        # ... (方法前半部分逻辑不变) ...
         end_date = date.today()
         start_date = end_date - timedelta(days=365)
-        print(f"    -> [DB Service V2.0] 正在加载全市场 {start_date} 到 {end_date} 的原子状态和价格数据...")
-        states_qs = StrategyDailyState.objects.filter(daily_score__trade_date__range=(start_date, end_date)).select_related('daily_score__stock')
-        states_list = await sync_to_async(list)(states_qs.values('daily_score__stock__stock_code', 'daily_score__trade_date', 'signal_name'))
+        
+        # ... (获取 states_qs 和 states_list 的逻辑不变) ...
+        states_qs = StrategyDailyState.objects.filter(
+            daily_score__trade_date__range=(start_date, end_date)
+        ).select_related('daily_score__stock')
+        states_list = await sync_to_async(list)(
+            states_qs.values('daily_score__stock__stock_code', 'daily_score__trade_date', 'signal_name')
+        )
         if not states_list:
             logger.warning("在指定日期内未找到任何原子状态数据。")
             return None, None
+        
         all_states_df = pd.DataFrame(states_list)
-        all_states_df.rename(columns={'daily_score__stock__stock_code': 'stock_code', 'daily_score__trade_date': 'trade_date'}, inplace=True)
+        all_states_df.rename(columns={
+            'daily_score__stock__stock_code': 'stock_code',
+            'daily_score__trade_date': 'trade_date'
+        }, inplace=True)
+
         unique_stock_codes = all_states_df['stock_code'].unique().tolist()
         all_prices_df = await self.time_trade_dao.get_daily_data_for_stocks(
             unique_stock_codes, 
             start_date.strftime('%Y%m%d'), 
             (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d')
         )
+
         if all_prices_df.empty:
             logger.warning("未能获取到任何相关股票的日线行情数据。")
             return None, None
             
-        # [修正] 补充对 'open' 列的重命名
         all_prices_df.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
         all_prices_df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
+        
+        # [修正] 确保价格数据中的 trade_date 列是 date 对象，而不是 datetime 对象
+        all_prices_df['trade_date'] = pd.to_datetime(all_prices_df['trade_date']).dt.date
+
         return all_states_df, all_prices_df
 
     def _analyze_single_trade_performance(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
@@ -315,41 +328,62 @@ class PerformanceAnalysisService:
 
     async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        【V1.4 数据接口修正版】(旧方法) 从数据库中异步获取并构建分析所需的核心DataFrame。
+        【V1.5 日期标准化版】(旧方法) 从数据库中异步获取并构建分析所需的核心DataFrame。
         """
-        print(f"    -> [DB Service V1.4] 正在为 {stock_code} 从数据库加载 {start_date} 到 {end_date} 的数据...")
-        
         daily_price_df = await self.time_trade_dao.get_daily_data(stock_code, start_date.replace('-', ''), end_date.replace('-', ''))
         
         if daily_price_df.empty:
             logger.warning(f"[{stock_code}] 在指定日期内未找到日线行情数据。")
             return None, None
         
-        # [修正] 补充对 'open' 列的重命名
         daily_price_df.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
-        daily_price_df.index = daily_price_df.index.date
+        
+        # [修正] 确保索引是 date 对象
+        daily_price_df.index = pd.to_datetime(daily_price_df.index).date
 
-        # ... (方法余下部分逻辑不变) ...
-        daily_scores_qs = StrategyDailyScore.objects.filter(stock__stock_code=stock_code, trade_date__range=(start_date, end_date)).order_by('trade_date')
+        daily_scores_qs = StrategyDailyScore.objects.filter(
+            stock__stock_code=stock_code,
+            trade_date__range=(start_date, end_date)
+        ).order_by('trade_date')
         daily_scores_list = await sync_to_async(list)(daily_scores_qs.values('trade_date', 'signal_type'))
         if not daily_scores_list:
             logger.warning(f"[{stock_code}] 在指定日期内未找到策略分数数据。")
             return None, None
         daily_scores_df = pd.DataFrame(daily_scores_list)
+        # [修正] 确保用于 join 的索引也是 date 对象
+        daily_scores_df['trade_date'] = pd.to_datetime(daily_scores_df['trade_date']).dt.date
         daily_scores_df.set_index('trade_date', inplace=True)
+
         df_indicators = daily_price_df.join(daily_scores_df, how='inner')
         if df_indicators.empty:
             logger.warning(f"[{stock_code}] 日线行情与策略分数数据无法合并（日期不匹配）。")
             return None, None
-        score_components_qs = StrategyScoreComponent.objects.filter(daily_score__stock__stock_code=stock_code, daily_score__trade_date__range=(start_date, end_date)).select_related('daily_score')
-        components_list = await sync_to_async(list)(score_components_qs.values('daily_score__trade_date', 'signal_name', 'score_value'))
+        
+        score_components_qs = StrategyScoreComponent.objects.filter(
+            daily_score__stock__stock_code=stock_code,
+            daily_score__trade_date__range=(start_date, end_date)
+        ).select_related('daily_score')
+        
+        components_list = await sync_to_async(list)(
+            score_components_qs.values('daily_score__trade_date', 'signal_name', 'score_value')
+        )
         if not components_list:
-            logger.warning(f"[{stock_code}] 在指定日期内未找到分数构成详情数据。")
+            # logger.warning(f"[{stock_code}] 在指定日期内未找到分数构成详情数据。")
             return df_indicators, pd.DataFrame()
+
         components_df = pd.DataFrame(components_list)
         components_df.rename(columns={'daily_score__trade_date': 'trade_date'}, inplace=True)
-        score_details_df = components_df.pivot_table(index='trade_date', columns='signal_name', values='score_value', fill_value=0)
-        print(f"    -> [DB Service V1.4] 数据加载与转换完成[{stock_code}]。行情: {len(df_indicators)}天, 信号详情: {len(score_details_df)}天。")
+        
+        # [修正] 确保 pivot_table 的索引也是 date 对象
+        components_df['trade_date'] = pd.to_datetime(components_df['trade_date']).dt.date
+        
+        score_details_df = components_df.pivot_table(
+            index='trade_date',
+            columns='signal_name',
+            values='score_value',
+            fill_value=0
+        )
+        
         return df_indicators, score_details_df
 
 
