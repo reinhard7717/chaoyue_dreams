@@ -1140,39 +1140,6 @@ def aggregate_performance_results(self, results: list):
     logger.info("====== [全局信号性能分析 V1.0] 聚合任务完成 ======")
     return {"status": "success", "aggregated_signals": len(final_report_df)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_from_db', queue='calculate_strategy')
-@with_cache_manager
-def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
-    """
-    【V1.2 - 安静的Map任务】
-    作为MapReduce中的Map阶段，此任务只负责计算并返回原始数据，不打印任何报告。
-    - 核心修改: 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
-    """
-    async def main():
-        # 1. 初始化性能分析服务
-        service = PerformanceAnalysisService(cache_manager)
-        
-        # 2. 调用服务执行分析，并获取原始结果
-        raw_results = await service.run_analysis_for_stock(
-            stock_code=stock_code,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return raw_results
-
-    try:
-        result = async_to_sync(main)()
-        if result:
-            logger.info(f"[Map] {stock_code} 分析完成，发现 {len(result)} 条信号统计。")
-        else:
-            logger.info(f"[Map] {stock_code} 分析完成，无有效信号。")
-        return result
-    except Exception as e:
-        logger.error(f"[Map] 在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
-        # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
-        return []
-
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')
 def run_top_n_performance_analysis(
     self,
@@ -1500,6 +1467,39 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
     except Exception as e:
         logger.error(f"[原子信号 Reduce] 聚合任务执行时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_from_db', queue='calculate_strategy')
+@with_cache_manager
+def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
+    """
+    【V1.2 - 安静的Map任务】
+    作为MapReduce中的Map阶段，此任务只负责计算并返回原始数据，不打印任何报告。
+    - 核心修改: 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
+    """
+    async def main():
+        # 1. 初始化性能分析服务
+        service = PerformanceAnalysisService(cache_manager)
+        
+        # 2. 调用服务执行分析，并获取原始结果
+        raw_results = await service.run_analysis_for_stock(
+            stock_code=stock_code,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return raw_results
+
+    try:
+        result = async_to_sync(main)()
+        if result:
+            logger.info(f"[Map] {stock_code} 分析完成，发现 {len(result)} 条信号统计。")
+        else:
+            logger.info(f"[Map] {stock_code} 分析完成，无有效信号。")
+        return result
+    except Exception as e:
+        logger.error(f"[Map] 在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
+        # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
+        return []
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
 @with_cache_manager

@@ -31,16 +31,132 @@ class PerformanceAnalysisService:
         【V2.2 构造函数修复版】
         """
         self.time_trade_dao = StockTimeTradeDAO(cache_manager)
-        # 加载策略配置以获取分析参数
         unified_config_path = 'config/trend_follow_strategy.json'
         self.unified_config = load_strategy_config(unified_config_path)
         self.analyzer_params = get_params_block({'unified_config': self.unified_config}, 'performance_analysis_params')
         self.scoring_params = get_params_block({'unified_config': self.unified_config}, 'four_layer_scoring_params')
         
-        # 从配置中预加载分析参数
         self.look_forward_days = get_param_value(self.analyzer_params.get('look_forward_days'), 20)
         self.profit_target_pct = get_param_value(self.analyzer_params.get('profit_target_pct'), 0.15)
         self.stop_loss_pct = get_param_value(self.analyzer_params.get('stop_loss_pct'), 0.07)
+
+    # --- 代码修改开始 ---
+    # [修改原因] 实现 Celery Map 任务所需的核心业务逻辑。
+    async def analyze_atomic_signals_for_single_stock(self, stock_code: str) -> List[Dict]:
+        """
+        【V1.0 新增】为单只股票执行原子信号性能分析 (Map任务核心)。
+        """
+        # print(f"    -> [Service-Map] 开始分析 {stock_code}...")
+        
+        # 1. 获取该股票所需的数据
+        stock_states_df, price_df = await self._fetch_data_for_single_stock(stock_code)
+        if stock_states_df is None or price_df is None:
+            # print(f"    -> [Service-Map] {stock_code} 数据不足，跳过。")
+            return []
+
+        # 2. 评估逻辑 (从 analyze_all_atomic_signals 中剥离)
+        trade_outcomes = []
+        try:
+            pivoted_df = stock_states_df.pivot_table(
+                index='trade_date', columns='signal_name', aggfunc='size', fill_value=0
+            ).astype(bool)
+        except Exception:
+            return []
+
+        for signal_name in pivoted_df.columns:
+            signal_series = pivoted_df[signal_name].sort_index()
+            signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
+            signal_type = signal_meta.get('type', 'positional').lower()
+            
+            event_dates = []
+            if signal_type in ['trigger', 'composite', 'playbook']:
+                event_dates = signal_series[signal_series].index.tolist()
+            else:
+                is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
+                event_dates = is_first_day[is_first_day].index.tolist()
+
+            for entry_date in event_dates:
+                outcome = None
+                if signal_type == 'risk':
+                    outcome = self._evaluate_defensive_signal(entry_date, price_df)
+                else:
+                    outcome = self._evaluate_offensive_signal(entry_date, price_df)
+                
+                if outcome:
+                    trade_outcomes.append({
+                        'signal_name': signal_name,
+                        'signal_type_role': signal_type,
+                        **outcome
+                    })
+        
+        # 3. 聚合单只股票的结果，并为 Reduce 任务准备好加权数据
+        if not trade_outcomes:
+            return []
+            
+        outcomes_df = pd.DataFrame(trade_outcomes)
+        signal_groups = outcomes_df.groupby('signal_name')
+        stock_results = []
+        for signal_name, group_df in signal_groups:
+            signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
+            total_triggers = len(group_df)
+            success_count = (group_df['outcome'] == 'success').sum()
+            
+            # 计算平均值
+            avg_max_profit = group_df['max_profit_pct'].mean()
+            avg_max_drawdown = group_df['max_drawdown_pct'].mean()
+            avg_exit_days = group_df['exit_days'].mean()
+
+            stock_results.append({
+                'signal_name': signal_name,
+                'cn_name': signal_meta.get('cn_name', signal_name),
+                'type': signal_meta.get('type', 'unknown'),
+                'triggers': total_triggers,
+                'successes': success_count,
+                # [核心] 为Reduce任务传递加权值
+                'weighted_max_profit': avg_max_profit * total_triggers,
+                'weighted_max_drawdown': avg_max_drawdown * total_triggers,
+                'weighted_exit_days': avg_exit_days * total_triggers,
+            })
+        # print(f"    -> [Service-Map] 完成 {stock_code} 分析，返回 {len(stock_results)} 条信号统计。")
+        return stock_results
+
+    async def _fetch_data_for_single_stock(self, stock_code: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        """
+        【V1.0 新增】为单只股票获取原子状态和价格数据。
+        """
+        end_date = date.today()
+        start_date = end_date - timedelta(days=365)
+        
+        states_qs = StrategyDailyState.objects.filter(
+            daily_score__stock__stock_code=stock_code,
+            daily_score__trade_date__range=(start_date, end_date)
+        )
+        states_list = await sync_to_async(list)(
+            states_qs.values('daily_score__trade_date', 'signal_name')
+        )
+        if not states_list:
+            return None, None
+        
+        stock_states_df = pd.DataFrame(states_list)
+        stock_states_df.rename(columns={'daily_score__trade_date': 'trade_date'}, inplace=True)
+        stock_states_df['trade_date'] = pd.to_datetime(stock_states_df['trade_date'])
+
+        price_df_raw = await self.time_trade_dao.get_daily_data_for_stocks(
+            [stock_code], 
+            start_date.strftime('%Y%m%d'), 
+            (end_date + timedelta(days=self.look_forward_days)).strftime('%Y%m%d')
+        )
+        if price_df_raw.empty:
+            return None, None
+            
+        price_df_raw.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
+        price_df_raw.rename(columns={'trade_time': 'trade_date'}, inplace=True)
+        price_df_raw['trade_date'] = pd.to_datetime(price_df_raw['trade_date'])
+        
+        # 设置索引以便快速查找
+        price_df = price_df_raw.set_index('trade_date').sort_index()
+        
+        return stock_states_df, price_df
 
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
