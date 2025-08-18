@@ -114,12 +114,11 @@ class PerformanceAnalysisService:
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        【V2.3 日期标准化版】为全景分析从数据库批量获取数据。
+        【V2.4 数据类型强制标准化版】为全景分析从数据库批量获取数据。
         """
         end_date = date.today()
         start_date = end_date - timedelta(days=365)
         
-        # ... (获取 states_qs 和 states_list 的逻辑不变) ...
         states_qs = StrategyDailyState.objects.filter(
             daily_score__trade_date__range=(start_date, end_date)
         ).select_related('daily_score__stock')
@@ -136,7 +135,16 @@ class PerformanceAnalysisService:
             'daily_score__trade_date': 'trade_date'
         }, inplace=True)
 
+        # [核心修正] 在进行任何操作前，强制将 trade_date 列转换为标准的 date 对象。
+        # 这可以防止因原始数据类型为 object 而导致的 pivot_table 失败。
+        all_states_df['trade_date'] = pd.to_datetime(all_states_df['trade_date']).dt.date
+        print(f"调试信息: all_states_df['trade_date'] 的类型是 {all_states_df['trade_date'].dtype}")
+
         unique_stock_codes = all_states_df['stock_code'].unique().tolist()
+        if len(unique_stock_codes) == 0:
+            logger.warning("原子状态数据中未能提取出有效的股票代码。")
+            return None, None
+
         all_prices_df = await self.time_trade_dao.get_daily_data_for_stocks(
             unique_stock_codes, 
             start_date.strftime('%Y%m%d'), 
@@ -150,8 +158,9 @@ class PerformanceAnalysisService:
         all_prices_df.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
         all_prices_df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         
-        # [修正] 确保价格数据中的 trade_date 列是 date 对象，而不是 datetime 对象
+        # 确保价格数据中的 trade_date 列也是 date 对象 (此行已在之前修复中添加，保持即可)
         all_prices_df['trade_date'] = pd.to_datetime(all_prices_df['trade_date']).dt.date
+        print(f"调试信息: all_prices_df['trade_date'] 的类型是 {all_prices_df['trade_date'].dtype}")
 
         return all_states_df, all_prices_df
 
@@ -387,5 +396,4 @@ class PerformanceAnalysisService:
         )
         
         return df_indicators, score_details_df
-
 
