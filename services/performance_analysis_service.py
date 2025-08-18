@@ -45,72 +45,157 @@ class PerformanceAnalysisService:
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
-        【V3.0 统计学修正版】执行全市场原子信号的性能分析。
-        - 核心重构: 废除了原有的 `groupby().min()` 逻辑。
-        - 新逻辑:
-          1. 遍历所有股票，对每只股票独立进行全周期事件识别。
-          2. 区分“状态”和“触发器”：
-             - 状态(State): 只在状态首次进入时触发一次回测事件。
-             - 触发器(Trigger): 每次出现都触发回测事件。
-          3. 确保对回测周期内的所有有效事件进行分析，提供统计学上可靠的结果。
+        【V4.0 角色扮演版】执行全市场原子信号的性能分析。
+        - 核心重构:
+          1. 引入“角色”概念，区分进攻信号和风险信号。
+          2. 为不同角色调用不同的评估函数 (_evaluate_offensive_signal / _evaluate_defensive_signal)。
+          3. 聚合报告将能体现不同角色的评估结果。
         """
-        print("-> [Service V3.0] 启动全景沙盘推演 (统计学修正版)...")
+        print("-> [Service V4.0] 启动全景沙盘推演 (角色扮演版)...")
 
-        # 1. 从数据库获取所有需要分析的数据 (此部分逻辑不变)
         all_states_df, all_prices_df = await self._fetch_atomic_analysis_data_from_db()
         if all_states_df is None or all_prices_df is None or all_states_df.empty or all_prices_df.empty:
-            logger.warning("[Service V3.0] 无法获取原子状态或价格数据，分析终止。")
+            logger.warning("[Service V4.0] 无法获取原子状态或价格数据，分析终止。")
             return []
 
-        print("    -> [Service V3.0] 数据加载完成，开始按股票识别所有有效触发事件...")
+        print("    -> [Service V4.0] 数据加载完成，开始按角色识别并评估所有事件...")
         
-        # 2. 【核心重构】识别所有有效触发事件
         trade_outcomes = []
         prices_by_stock = dict(iter(all_prices_df.groupby('stock_code')))
         
-        # 按股票代码分组，对每只股票进行独立分析
         for stock_code, stock_states_df in all_states_df.groupby('stock_code'):
             price_df = prices_by_stock.get(stock_code)
             if price_df is None or price_df.empty:
                 continue
 
-            # 将该股票的状态数据透视为以日期为索引，信号为列的DataFrame
             try:
                 pivoted_df = stock_states_df.pivot_table(
                     index='trade_date', columns='signal_name', aggfunc='size', fill_value=0
                 ).astype(bool)
             except Exception:
-                continue # 如果透视失败，跳过该股票
+                continue
 
-            # 遍历每个信号
             for signal_name in pivoted_df.columns:
                 signal_series = pivoted_df[signal_name].sort_index()
+                
+                # 步骤1: 角色识别
                 signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
-                signal_type = signal_meta.get('type', 'State').capitalize() # 默认为State
+                # 默认为 'positional'，视为进攻型
+                signal_type = signal_meta.get('type', 'positional').lower() 
+                
+                # 关键逻辑：只在状态首次进入时触发事件，这对进攻和风险状态都适用
+                is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
+                event_dates = is_first_day[is_first_day].index.tolist()
 
-                event_dates = []
-                if signal_type == 'State':
-                    # 对于状态信号，只在状态首次进入时触发
-                    is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
-                    event_dates = is_first_day[is_first_day].index.tolist()
-                else: # Trigger, Positional, Risk, etc. 都被视为瞬时事件
-                    # 对于触发器信号，每次出现都触发
-                    event_dates = signal_series[signal_series].index.tolist()
-
-                # 对识别出的所有事件日期进行交易模拟
                 for entry_date in event_dates:
-                    outcome = self._analyze_single_trade_performance(entry_date, price_df)
+                    outcome = None
+                    # 步骤2: 根据角色调用不同的评估脚本
+                    if signal_type == 'risk':
+                        outcome = self._evaluate_defensive_signal(entry_date, price_df)
+                    else: # 所有非 'risk' 类型都视为进攻型
+                        outcome = self._evaluate_offensive_signal(entry_date, price_df)
+                    
                     if outcome:
                         trade_outcomes.append({
                             'signal_name': signal_name,
+                            'signal_type_role': signal_type, # 记录角色
                             **outcome
                         })
 
-        # 3. 聚合结果并生成最终报告 (此部分逻辑不变)
-        print(f"    -> [Service V3.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条交易结果...")
+        print(f"    -> [Service V4.0] 模拟完成，正在聚合 {len(trade_outcomes)} 条评估结果...")
         final_report = self._aggregate_atomic_results(trade_outcomes)
-        print(f"-> [Service V3.0] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
+        print(f"-> [Service V4.0] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
         return final_report
+
+    def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
+        """
+        【V4.0 新增】评估“进攻型”信号的表现 (看涨)。
+        - 成功定义: 价格上涨达到止盈目标。
+        - 失败定义: 价格下跌触及止损目标。
+        """
+        try:
+            entry_idx = price_df.index.get_loc(entry_date)
+            if entry_idx + 1 >= len(price_df): return None
+            # 注意：这里我们使用T日的收盘价作为基准，因为状态是在T日收盘后确定的
+            entry_price = price_df.iloc[entry_idx]['close_D']
+            look_forward_df = price_df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
+        except (KeyError, IndexError):
+            return None
+        if look_forward_df.empty: return None
+
+        target_price = entry_price * (1 + self.profit_target_pct)
+        stop_price = entry_price * (1 - self.stop_loss_pct)
+        
+        outcome, exit_days = 'timeout', self.look_forward_days
+        max_profit_pct = 0.0
+        max_drawdown_pct = 0.0
+
+        for i, row in enumerate(look_forward_df.itertuples()):
+            day_num = i + 1
+            # T+1日开盘买入后的日内最高/最低价
+            high_price = row.high_D
+            low_price = row.low_D
+            
+            max_profit_pct = max(max_profit_pct, (high_price / entry_price) - 1)
+            max_drawdown_pct = min(max_drawdown_pct, (low_price / entry_price) - 1)
+
+            if high_price >= target_price:
+                outcome, exit_days = 'success', day_num
+                break
+            if low_price <= stop_price:
+                outcome, exit_days = 'failure', day_num
+                break
+        
+        return {
+            'outcome': outcome, 'exit_days': exit_days,
+            'max_profit_pct': max_profit_pct, 'max_drawdown_pct': max_drawdown_pct,
+        }
+
+    def _evaluate_defensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
+        """
+        【V4.0 新增】评估“防御/风险型”信号的表现 (看跌)。
+        - 成功定义: 价格下跌达到目标 (复用 stop_loss_pct)。
+        - 失败定义: 价格反而上涨触及目标 (复用 profit_target_pct)。
+        """
+        try:
+            entry_idx = price_df.index.get_loc(entry_date)
+            if entry_idx + 1 >= len(price_df): return None
+            entry_price = price_df.iloc[entry_idx]['close_D']
+            look_forward_df = price_df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
+        except (KeyError, IndexError):
+            return None
+        if look_forward_df.empty: return None
+
+        # 对于风险信号，“目标”是下跌，“止损”是上涨
+        target_price_fall = entry_price * (1 - self.stop_loss_pct)
+        stop_price_rise = entry_price * (1 + self.profit_target_pct)
+        
+        outcome, exit_days = 'timeout', self.look_forward_days
+        max_fall_pct = 0.0 # 记录最大跌幅 (正数)
+        max_rise_pct = 0.0 # 记录最大反向涨幅 (正数)
+
+        for i, row in enumerate(look_forward_df.itertuples()):
+            day_num = i + 1
+            high_price = row.high_D
+            low_price = row.low_D
+            
+            # 注意这里的计算方式与进攻信号相反
+            max_fall_pct = max(max_fall_pct, 1 - (low_price / entry_price))
+            max_rise_pct = max(max_rise_pct, (high_price / entry_price) - 1)
+
+            if low_price <= target_price_fall:
+                outcome, exit_days = 'success', day_num # 成功预测了下跌
+                break
+            if high_price >= stop_price_rise:
+                outcome, exit_days = 'failure', day_num # 预测失败，反而大涨
+                break
+        
+        return {
+            'outcome': outcome, 'exit_days': exit_days,
+            # 为了统一报告格式，我们仍然使用 profit/drawdown 的键名，但其含义已变
+            'max_profit_pct': max_fall_pct,    # 对于风险信号，这代表“最大下跌收益率”
+            'max_drawdown_pct': max_rise_pct,  # 对于风险信号，这代表“最大反向亏损率”
+        }
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -239,7 +324,12 @@ class PerformanceAnalysisService:
 
     def _aggregate_atomic_results(self, trade_outcomes: List[Dict]) -> List[Dict]:
         """
-        【V2.0 新增】聚合所有原子信号的交易结果。
+        【V4.0 角色扮演版 - 聚合器】
+        聚合所有原子信号的交易结果，并体现角色差异。
+        - 核心逻辑:
+          1. 按信号名称分组。
+          2. 对每个组，根据其角色（进攻/风险）计算相应的统计指标。
+          3. 将结果格式化为统一的字典结构，字段名与 AtomicSignalPerformance 模型匹配。
         """
         if not trade_outcomes:
             return []
@@ -247,25 +337,30 @@ class PerformanceAnalysisService:
         outcomes_df = pd.DataFrame(trade_outcomes)
         score_map = self.scoring_params.get('score_type_map', {})
         
+        # 按信号名称分组
         signal_groups = outcomes_df.groupby('signal_name')
 
         analysis_results = []
         for signal_name, group_df in signal_groups:
+            # 从分组的第一行获取角色信息，因为同一信号的角色是固定的
+            role = group_df['signal_type_role'].iloc[0]
             signal_meta = score_map.get(signal_name, {})
-            signal_type = signal_meta.get('type', 'State' if signal_name.isupper() else 'Trigger').capitalize()
-
+            
             total_triggers = len(group_df)
             success_count = (group_df['outcome'] == 'success').sum()
-            
             win_rate = (success_count / total_triggers) * 100 if total_triggers > 0 else 0
+            
+            # 这里的 profit 和 drawdown 的含义是根据角色动态决定的
+            # _evaluate_... 方法已经确保了这一点
             avg_max_profit = group_df['max_profit_pct'].mean() * 100
             avg_max_drawdown = group_df['max_drawdown_pct'].mean() * 100
             avg_exit_days = group_df['exit_days'].mean()
             
+            # 最终返回的字典结构是统一的，与数据库模型字段对应
             analysis_results.append({
                 'signal_name': signal_name,
                 'cn_name': signal_meta.get('cn_name', signal_name),
-                'type': signal_type,
+                'type': role.capitalize(), # 存储信号的角色 (Risk, Positional, etc.)
                 'triggers': int(total_triggers),
                 'successes': int(success_count),
                 'win_rate_pct': round(win_rate, 2),

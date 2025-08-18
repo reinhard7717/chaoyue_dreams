@@ -1400,22 +1400,17 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
 @with_cache_manager
 def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager):
     """
-    【V1.0 全景沙盘推演任务】
-    - 核心职责: 1. 从 StrategyDailyState 读取所有原子信号的触发记录。
-                2. 对每个信号进行独立的性能回测。
-                3. 将分析结果存入 AtomicSignalPerformance 表。
+    【V1.1 持久化适配版】
+    - 核心职责: 1. 调用服务执行分析。
+                2. 将返回的统一结果直接持久化到 AtomicSignalPerformance 表。
     """
-    logger.info("====== [全景沙盘推演 V1.0] 任务启动 ======")
+    logger.info("====== [全景沙盘推演 V1.1] 任务启动 ======")
     
-    # 实例化性能分析服务
-    # 注意：这里我们假设您已将 PerformanceAnalyzer 的逻辑封装到一个服务中
-    # 如果没有，可以直接在这里实现查询和分析逻辑
     performance_service = PerformanceAnalysisService(cache_manager)
 
     async def main():
         try:
             # 1. 调用服务执行核心分析逻辑
-            # 服务内部会处理：查询、分组、模拟、聚合
             analysis_results = await performance_service.analyze_all_atomic_signals()
 
             if not analysis_results:
@@ -1431,8 +1426,9 @@ def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager)
 
             for result in analysis_results:
                 signal_name = result['signal_name']
+                
+                # [核心修正] 直接使用返回的字典字段进行赋值
                 if signal_name in existing_records:
-                    # 更新现有记录
                     record = existing_records[signal_name]
                     record.signal_cn_name = result['cn_name']
                     record.signal_type = result['type']
@@ -1444,18 +1440,17 @@ def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager)
                     record.avg_exit_days = result['avg_exit_days']
                     records_to_update.append(record)
                 else:
-                    # 创建新记录
-                    records_to_create.append(AtomicSignalPerformance(**{
-                        'signal_name': result['signal_name'],
-                        'signal_cn_name': result['cn_name'],
-                        'signal_type': result['type'],
-                        'total_triggers': result['triggers'],
-                        'successes': result['successes'],
-                        'win_rate_pct': result['win_rate_pct'],
-                        'avg_max_profit_pct': result['avg_max_profit_pct'],
-                        'avg_max_drawdown_pct': result['avg_max_drawdown_pct'],
-                        'avg_exit_days': result['avg_exit_days'],
-                    }))
+                    records_to_create.append(AtomicSignalPerformance(
+                        signal_name=result['signal_name'],
+                        signal_cn_name=result['cn_name'],
+                        signal_type=result['type'],
+                        total_triggers=result['triggers'],
+                        successes=result['successes'],
+                        win_rate_pct=result['win_rate_pct'],
+                        avg_max_profit_pct=result['avg_max_profit_pct'],
+                        avg_max_drawdown_pct=result['avg_max_drawdown_pct'],
+                        avg_exit_days=result['avg_exit_days'],
+                    ))
             
             # 3. 批量执行数据库操作
             if records_to_create:
@@ -1477,7 +1472,6 @@ def run_atomic_signal_performance_analysis(self, *, cache_manager: CacheManager)
             return {"status": "error", "reason": str(e)}
 
     return async_to_sync(main)()
-
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
 @with_cache_manager
