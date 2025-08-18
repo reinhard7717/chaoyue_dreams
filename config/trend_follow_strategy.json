@@ -739,7 +739,7 @@
                 "add_score": 180
               }
           ]
-        },
+      },
       "dynamic_mechanics_params": {
         "tactical_matrix_rules": {
           "enabled": true,
@@ -860,6 +860,22 @@
           "divergence_tolerance": 0.0005,
           "min_rebound_days": 1,
           "max_rebound_days": 3
+        }
+      },
+      "performance_analysis_params": {
+        "enabled": true,
+        "说明": "【战后复盘分析模块】用于在回测结束后，统计各项得分信号的未来表现。",
+        "look_forward_days": {
+          "value": 5,
+          "description": "【评判周期】向前看多少个交易日来判断信号的成败。例如5代表信号触发后的5天内。"
+        },
+        "profit_target_pct": {
+          "value": 0.10,
+          "description": "【胜利条件】盈利目标百分比。在评判周期内达到此涨幅，记为'胜利'。例如0.10代表10%。"
+        },
+        "stop_loss_pct": {
+          "value": 0.05,
+          "description": "【失败条件】止损百分比。在评判周期内达到此跌幅，记为'失败'。例如0.05代表5%。"
         }
       }
     }
@@ -1030,22 +1046,6 @@
       "说明_add_size": "加仓规模，是初始仓位的比例 (例如0.5代表加仓初始仓位的一半)。",
       "max_pyramid_count": 2,
       "说明_max_count": "最大允许的加仓次数，防止在趋势末期过度投入兵力。"
-    }
-  },
-  "performance_analysis_params": {
-    "enabled": true,
-    "说明": "【战后复盘分析模块】用于在回测结束后，统计各项得分信号的未来表现。",
-    "look_forward_days": {
-      "value": 5,
-      "description": "【评判周期】向前看多少个交易日来判断信号的成败。例如5代表信号触发后的5天内。"
-    },
-    "profit_target_pct": {
-      "value": 0.10,
-      "description": "【胜利条件】盈利目标百分比。在评判周期内达到此涨幅，记为'胜利'。例如0.10代表10%。"
-    },
-    "stop_loss_pct": {
-      "value": 0.05,
-      "description": "【失败条件】止损百分比。在评判周期内达到此跌幅，记为'失败'。例如0.05代表5%。"
     }
   }
 }
