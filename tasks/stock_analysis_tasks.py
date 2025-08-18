@@ -1387,9 +1387,10 @@ def analyze_atomic_signals_for_stock(self, stock_code: str, *, cache_manager: Ca
 @with_cache_manager
 def aggregate_atomic_signal_results(self, results: list, *, cache_manager: CacheManager):
     """
-    【V1.0 新增 - Reduce 任务】聚合所有股票的原子信号分析结果，并存入数据库。
+    【V1.1 异步修复版 - Reduce 任务】聚合所有股票的原子信号分析结果，并存入数据库。
+    - 核心修复: 修正了在同步任务中错误使用 sync_to_async 导致 'coroutine' object is not iterable 的问题。
     """
-    logger.info("====== [原子信号分析 V1.0 - Reduce] 聚合任务启动 ======")
+    logger.info("====== [原子信号分析 V1.1 - Reduce] 聚合任务启动 ======")
     
     try:
         # 1. 聚合计算逻辑 (与旧任务中的聚合部分类似)
@@ -1399,11 +1400,9 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
             return {"status": "finished", "reason": "no atomic data to aggregate"}
 
         df = pd.DataFrame(all_stats)
-        # 注意：这里的 'triggers', 'successes' 等已经是单只股票的统计结果，直接分组求和即可
         agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
             total_triggers=('triggers', 'sum'),
             total_successes=('successes', 'sum'),
-            # 为了正确计算加权平均，需要传递加权后的值
             weighted_profit=('weighted_max_profit', 'sum'),
             weighted_drawdown=('weighted_max_drawdown', 'sum'),
             weighted_days=('weighted_exit_days', 'sum')
@@ -1416,12 +1415,17 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
 
         logger.info(f"[原子信号 Reduce] 成功聚合了 {len(agg_df)} 个独特的原子信号。")
 
-        # 2. 数据库持久化逻辑 (与旧任务中的数据库部分相同)
+        # 2. 数据库持久化逻辑
         records_to_update = []
         records_to_create = []
+        
+        # --- 代码修改开始 ---
+        # [核心修正] AtomicSignalPerformance.objects.all() 是一个同步操作，在同步的Celery任务中可以直接调用，
+        #           无需使用 sync_to_async 进行包装。
         existing_records = {
-            p.signal_name: p for p in sync_to_async(list)(AtomicSignalPerformance.objects.all())
+            p.signal_name: p for p in AtomicSignalPerformance.objects.all()
         }
+        # --- 代码修改结束 ---
 
         for _, row in agg_df.iterrows():
             signal_name = row['signal_name']
@@ -1449,6 +1453,10 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                     avg_exit_days=row['avg_exit_days'],
                 ))
         
+        # [重要] 这里的数据库操作是IO密集型，且Django ORM的批量操作是同步的。
+        # 为了不长时间阻塞Celery worker的事件循环（如果它是eventlet/gevent），
+        # 最好还是将这些同步的DB调用包装在 sync_to_async 中，但这与上面的错误无关。
+        # 为了保持代码风格一致和最佳实践，我们保留这里的 sync_to_async。
         if records_to_create:
             sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
             logger.info(f"[原子信号 Reduce] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
@@ -1461,7 +1469,7 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
             )
             logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
 
-        logger.info("====== [原子信号分析 V1.0 - Reduce] 聚合任务完成 ======")
+        logger.info("====== [原子信号分析 V1.1 - Reduce] 聚合任务完成 ======")
         return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
 
     except Exception as e:
