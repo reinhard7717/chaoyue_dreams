@@ -45,16 +45,16 @@ class PerformanceAnalysisService:
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
-        【V4.1 索引修正版】执行全市场原子信号的性能分析。
+        【V4.2 状态/事件区分版】执行全市场原子信号的性能分析。
         """
-        print("-> [Service V4.1] 启动全景沙盘推演 (索引修正版)...")
+        print("-> [Service V4.2] 启动全景沙盘推演 (状态/事件区分版)...")
 
         all_states_df, all_prices_df = await self._fetch_atomic_analysis_data_from_db()
         if all_states_df is None or all_prices_df is None or all_states_df.empty or all_prices_df.empty:
-            logger.warning("[Service V4.1] 无法获取原子状态或价格数据，分析终止。")
+            logger.warning("[Service V4.2] 无法获取原子状态或价格数据，分析终止。")
             return []
 
-        print("    -> [Service V4.1] 数据加载完成，开始按角色识别并评估所有事件...")
+        print("    -> [Service V4.2] 数据加载完成，开始按角色和性质识别并评估所有信号...")
         
         trade_outcomes = []
         prices_by_stock = dict(iter(all_prices_df.groupby('stock_code')))
@@ -63,9 +63,6 @@ class PerformanceAnalysisService:
             price_df_unindexed = prices_by_stock.get(stock_code)
             if price_df_unindexed is None or price_df_unindexed.empty:
                 continue
-
-            # [核心修正] 在主循环中提前将价格DataFrame的索引设置为日期，并排序。
-            # 这样传递给评估函数的就是一个完全准备好的、可直接用于查询的DataFrame。
             price_df = price_df_unindexed.set_index('trade_date').sort_index()
 
             try:
@@ -77,15 +74,28 @@ class PerformanceAnalysisService:
 
             for signal_name in pivoted_df.columns:
                 signal_series = pivoted_df[signal_name].sort_index()
-                signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
-                signal_type = signal_meta.get('type', 'positional').lower() 
                 
-                is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
-                event_dates = is_first_day[is_first_day].index.tolist()
+                signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
+                signal_type = signal_meta.get('type', 'positional').lower()
+                
+                event_dates = []
+                # [核心修正] 根据信号的性质（状态 vs 事件）应用不同的评估协议
+                if signal_type in ['trigger', 'composite', 'playbook']:
+                    # 性质：事件。评估每一次发生。
+                    print(f"  -> [探针] 信号 {signal_name} (类型: {signal_type}) 被视为瞬时事件。")
+                    event_dates = signal_series[signal_series].index.tolist()
+                else:
+                    # 性质：状态。只评估首次进入。
+                    print(f"  -> [探针] 信号 {signal_name} (类型: {signal_type}) 被视为持续状态。")
+                    is_first_day = signal_series & ~signal_series.shift(1).fillna(False)
+                    event_dates = is_first_day[is_first_day].index.tolist()
+
+                if event_dates:
+                    print(f"    -> [探针] 为 {signal_name} 生成了 {len(event_dates)} 个评估日期。")
 
                 for entry_date in event_dates:
                     outcome = None
-                    # 现在，传递给评估函数的是已经索引好的 price_df
+                    # 根据角色调用评估函数 (此逻辑保持不变)
                     if signal_type == 'risk':
                         outcome = self._evaluate_defensive_signal(entry_date, price_df)
                     else:
@@ -98,9 +108,10 @@ class PerformanceAnalysisService:
                             **outcome
                         })
 
-        print(f"    -> [Service V4.1] 模拟完成，正在聚合 {len(trade_outcomes)} 条评估结果...")
+        # 这条日志现在应该能被正确打印，并且数量大于0
+        print(f"    -> [Service V4.2] 模拟完成，正在聚合 {len(trade_outcomes)} 条评估结果...")
         final_report = self._aggregate_atomic_results(trade_outcomes)
-        print(f"-> [Service V4.1] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
+        print(f"-> [Service V4.2] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
         return final_report
 
     def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
