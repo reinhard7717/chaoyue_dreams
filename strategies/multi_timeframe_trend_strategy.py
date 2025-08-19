@@ -385,7 +385,6 @@ class MultiTimeframeTrendStrategy:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
             
-            # --- 代码修改开始 ---
             # [修改原因] prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
@@ -395,9 +394,8 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号, {len(records_tuple[2])} 条每日分数, 和 {len(records_tuple[4])} 条每日状态。")
+            # print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号, {len(records_tuple[2])} 条每日分数, 和 {len(records_tuple[4])} 条每日状态。")
             return records_tuple
-            # --- 代码修改结束 ---
         finally:
             if hasattr(self.tactical_engine, '_last_score_details_df'):
                 del self.tactical_engine._last_score_details_df

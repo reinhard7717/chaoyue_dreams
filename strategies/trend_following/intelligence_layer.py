@@ -84,7 +84,7 @@ class IntelligenceLayer:
         【重构版】情报层总入口。
         - 核心职责: 按正确的依赖顺序，依次调用各专业情报模块，并整合其产出。
         """
-        print("--- [情报层总指挥官 V400.0] 开始执行所有诊断模块... ---")
+        # print("--- [情报层总指挥官 V400.0] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 

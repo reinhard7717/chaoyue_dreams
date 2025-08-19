@@ -459,7 +459,7 @@ class ChipIntelligence:
                       生成一个高确定性的S级机会信号。
         - 收益: 彻底解决了原子筹码信号因缺乏上下文而产生的“崩盘式集中”误判问题。
         """
-        print("        -> [黄金筹码机会合成模块 V1.0] 启动...")
+        # print("        -> [黄金筹码机会合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

@@ -106,7 +106,7 @@ class CognitiveIntelligence:
         - 评分逻辑: 构成上涨末期的四个核心风险子条件，每个贡献25分。
         - 收益: 实现了对趋势末期风险的精细化度量，为下游战术模块提供了更灵活的决策依据。
         """
-        print("        -> [趋势阶段评分模块 V400.0 风险仪表盘版] 启动...")
+        # print("        -> [趋势阶段评分模块 V400.0 风险仪表盘版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -454,7 +454,7 @@ class CognitiveIntelligence:
                       2. 使用“趋势阶段”上下文对该信号进行战略过滤，防止在上涨末期追高。
         - 收益: 废除了多个胜率平平的动能信号，创造了一个更高质量、更安全的A级动能信号。
         """
-        print("        -> [协同进攻动能合成模块 V1.0] 启动...")
+        # print("        -> [协同进攻动能合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

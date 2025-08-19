@@ -61,7 +61,7 @@ class TrendFollowStrategy:
                 # 筛选出索引日期大于等于起始日期的数据
                 # 使用 .copy() 避免后续操作出现 SettingWithCopyWarning
                 df_filtered = df[df.index.date >= start_date].copy()
-                print(f"调试信息: 已应用起始日期 {start_date_str}。策略计算的数据从 {len(df)} 行过滤至 {len(df_filtered)} 行。")
+                # print(f"调试信息: 已应用起始日期 {start_date_str}。策略计算的数据从 {len(df)} 行过滤至 {len(df_filtered)} 行。")
                 if df_filtered.empty:
                     print(f"调试信息: 应用起始日期过滤后，没有数据可供计算。")
                     return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -69,7 +69,7 @@ class TrendFollowStrategy:
             except (ValueError, TypeError) as e:
                 # 如果日期格式错误，则记录错误并继续处理全部数据
                 logger.error(f"无效的起始日期格式: '{start_date_str}'。错误: {e}。将处理全部历史记录。")
-                print(f"调试信息: 起始日期 '{start_date_str}' 格式无效，将计算全部历史数据。")
+                # print(f"调试信息: 起始日期 '{start_date_str}' 格式无效，将计算全部历史数据。")
         # 后续所有计算都使用可能被过滤后的 df_for_calculation
         self.df_indicators = ensure_numeric_types(df_for_calculation)
         # --- 指挥链 1/8: 基础情报层 ---
