@@ -158,12 +158,16 @@ class PlaybookEngine:
         p_platform_rebound = trigger_params.get('platform_pullback_trigger_params', {})
         if get_param_value(p_platform_rebound.get('enabled'), True):
             platform_price_col = 'PLATFORM_PRICE_STABLE'
-            if platform_price_col in df.columns:
+            winner_turnover_col = 'turnover_from_winners_ratio_D'
+            if platform_price_col in df.columns and winner_turnover_col in df.columns:
                 proximity_ratio = get_param_value(p_platform_rebound.get('proximity_ratio'), 0.01)
                 is_touching_platform = df['low_D'] <= df[platform_price_col] * (1 + proximity_ratio)
                 is_closing_above = df['close_D'] > df[platform_price_col]
                 is_positive_day = df['close_D'] > df['open_D']
+                # 核心过滤器：要求获利盘必须是锁仓状态（贡献换手率低于30%）
+                # 这能有效过滤掉主力利用平台反弹出货的伪信号
                 is_winner_holding_tight = df[winner_turnover_col] < 30.0
+                # 组合新的、更强大的触发条件
                 triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day & is_winner_holding_tight
 
         # 2.4 【趋势】趋势延续确认K线
