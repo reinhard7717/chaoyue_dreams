@@ -181,9 +181,7 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
         return async_to_sync(main)()
     except Exception as e:
         logger.error(f"执行核心策略逻辑 on {stock_code} 时出错: {e}", exc_info=True)
-        # 【代码修改】在Celery任务中，最好更新任务状态以方便监控
-        self.update_state(state='FAILURE', meta={'exc': str(e)})
-        return {"status": "error", "reason": str(e)}
+        raise
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_all_stocks_full_history', queue='celery')
 @with_cache_manager
