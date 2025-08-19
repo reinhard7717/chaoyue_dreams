@@ -539,36 +539,39 @@ class PerformanceAnalysisService:
             return []
             
         try:
-            # 步骤2: 【核心修正】筛选出“功臣”信号，而不是创建虚拟信号
-            # 找到所有被标记为“买入信号”的日期
+            # 步骤2: 筛选出“功臣”信号的详情
             buy_signal_dates = df_indicators[df_indicators['signal_type'] == '买入信号'].index
-            
             if buy_signal_dates.empty:
                 return []
-
-            # 使用这些“买入日”来过滤完整的信号详情表
-            # .reindex() 可以保证即使某些日期在 score_details_df 中不存在也能安全处理
-            # .loc[] 在这里更直接，因为我们知道日期肯定存在
+            
+            # 过滤出仅在买入日活跃的信号及其得分
             filtered_score_details_df = score_details_df.loc[score_details_df.index.isin(buy_signal_dates)]
-
-            # 优化：移除在这些买入日中从未出现过的信号（即整列都为0的信号）
+            # 移除在这些天从未触发过的信号列，进行优化
             filtered_score_details_df = filtered_score_details_df.loc[:, (filtered_score_details_df != 0).any(axis=0)]
-
             if filtered_score_details_df.empty:
                 return []
 
-            # 步骤3: 使用精确的“功臣名单”调用分析器
-            from strategies.trend_following.performance_analyzer import PerformanceAnalyzer
-            analyzer = PerformanceAnalyzer(
-                df_indicators=df_indicators,
-                score_details_df=filtered_score_details_df, # 传递被精确过滤后的、包含真实信号的详情
-                atomic_states={},
-                trigger_events={},
-                analysis_params=self.analyzer_params,
-                scoring_params=self.scoring_params
-            )
+            # 步骤3: 遍历所有“功臣”信号，评估其在触发日的后续表现
+            all_trade_outcomes = []
+            # 遍历每一列（即每一个信号）
+            for signal_name in filtered_score_details_df.columns:
+                # 找到该信号具体被触发的日期
+                event_series = filtered_score_details_df[signal_name] > 0
+                event_dates = event_series[event_series].index
 
-            return analyzer.run_analysis()
+                for entry_date in event_dates:
+                    # 调用服务自身的评估方法
+                    # 注意：df_indicators 包含了完整的价格数据，是评估所需的基础
+                    outcome = self._evaluate_offensive_signal(entry_date, df_indicators)
+                    if outcome:
+                        all_trade_outcomes.append({
+                            'signal_name': signal_name,
+                            'signal_type_role': self.scoring_params.get('score_type_map', {}).get(signal_name, {}).get('type', 'unknown'),
+                            **outcome
+                        })
+
+            # 步骤4: 使用服务自身的聚合方法，生成最终报告
+            return self._aggregate_atomic_results(all_trade_outcomes)
         except Exception as e:
             logger.error(f"[{stock_code}] (精确归因模式)性能分析器在执行过程中发生异常: {e}", exc_info=True)
             return []
