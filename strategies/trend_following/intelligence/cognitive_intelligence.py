@@ -213,7 +213,7 @@ class CognitiveIntelligence:
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = (
             is_ma_bearish &
             is_dyn_trend_weakening &
-            is_chip_diverging                        # [替代] 资金流出
+            is_chip_diverging
         )
 
         # print("        -> [联合作战司令部 V277.2 筹码核心版] 核心战局定义升级完成。") # MODIFIED: 修改版本号

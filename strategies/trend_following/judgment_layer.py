@@ -162,6 +162,9 @@ class JudgmentLayer:
         # CHIP_DYN_COST_FALLING (成本松动) 信号回测显示有约30%的规避成功率，是重要的预警信号。
         has_cost_falling_risk = atomic.get('CHIP_DYN_COST_FALLING', default_series)
         df.loc[has_cost_falling_risk, 'veto_votes'] += 1
+        # 根据最新战报，将规避成功率高达28%的“获利盘崩盘”信号也加入否决票体系。
+        has_winner_collapsing_risk = atomic.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
+        df.loc[has_winner_collapsing_risk, 'veto_votes'] += 1
 
     def _finalize_signals(self):
         """
