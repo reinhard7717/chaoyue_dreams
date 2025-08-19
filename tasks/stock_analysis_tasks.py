@@ -1385,13 +1385,14 @@ def analyze_atomic_signals_for_stock(self, stock_code: str, *, cache_manager: Ca
 @with_cache_manager
 def aggregate_atomic_signal_results(self, results: list, *, cache_manager: CacheManager):
     """
-    【V1.1 异步修复版 - Reduce 任务】聚合所有股票的原子信号分析结果，并存入数据库。
-    - 核心修复: 修正了在同步任务中错误使用 sync_to_async 导致 'coroutine' object is not iterable 的问题。
+    【V1.2 同步写入修复版 - Reduce 任务】
+    - 核心修复: 移除了对同步ORM方法不必要的、且错误的 sync_to_async 包装，
+                确保数据库写入操作被真正执行。
     """
-    logger.info("====== [原子信号分析 V1.1 - Reduce] 聚合任务启动 ======")
+    logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务启动 ======")
     
     try:
-        # 1. 聚合计算逻辑 (与旧任务中的聚合部分类似)
+        # 1. 聚合计算逻辑 (保持不变)
         all_stats = [item for sublist in results if sublist for item in sublist]
         if not all_stats:
             logger.warning("[原子信号 Reduce] 未能从任何股票中收集到有效的原子信号统计数据。")
@@ -1417,13 +1418,9 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
         records_to_update = []
         records_to_create = []
         
-        # --- 代码修改开始 ---
-        # [核心修正] AtomicSignalPerformance.objects.all() 是一个同步操作，在同步的Celery任务中可以直接调用，
-        #           无需使用 sync_to_async 进行包装。
         existing_records = {
             p.signal_name: p for p in AtomicSignalPerformance.objects.all()
         }
-        # --- 代码修改结束 ---
 
         for _, row in agg_df.iterrows():
             signal_name = row['signal_name']
@@ -1451,23 +1448,25 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                     avg_exit_days=row['avg_exit_days'],
                 ))
         
-        # [重要] 这里的数据库操作是IO密集型，且Django ORM的批量操作是同步的。
-        # 为了不长时间阻塞Celery worker的事件循环（如果它是eventlet/gevent），
-        # 最好还是将这些同步的DB调用包装在 sync_to_async 中，但这与上面的错误无关。
-        # 为了保持代码风格一致和最佳实践，我们保留这里的 sync_to_async。
+        # --- 代码修改开始 ---
+        # [核心修正] 在同步任务中，直接调用同步的ORM方法。
+        #           之前的 sync_to_async(...) 调用只创建了协程但未执行。
         if records_to_create:
-            sync_to_async(AtomicSignalPerformance.objects.bulk_create)(records_to_create)
+            print(f"调试信息: [原子信号 Reduce] 准备创建 {len(records_to_create)} 条记录...")
+            AtomicSignalPerformance.objects.bulk_create(records_to_create)
             logger.info(f"[原子信号 Reduce] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
         
         if records_to_update:
-            sync_to_async(AtomicSignalPerformance.objects.bulk_update)(
+            print(f"调试信息: [原子信号 Reduce] 准备更新 {len(records_to_update)} 条记录...")
+            AtomicSignalPerformance.objects.bulk_update(
                 records_to_update, 
                 ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
                  'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
             )
             logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
+        # --- 代码修改结束 ---
 
-        logger.info("====== [原子信号分析 V1.1 - Reduce] 聚合任务完成 ======")
+        logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务完成 ======")
         return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
 
     except Exception as e:
