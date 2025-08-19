@@ -1072,6 +1072,9 @@ def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: C
         analyzer = PerformanceAnalyzer(
             df_indicators=df_indicators,
             score_details_df=score_details_df,
+            atomic_states=strategy_orchestrator.tactical_engine.atomic_states,
+            trigger_events=strategy_orchestrator.tactical_engine.trigger_events,
+            playbook_states=strategy_orchestrator.tactical_engine.playbook_states,
             analysis_params=analyzer_params,
             scoring_params=scoring_params
         )

@@ -248,11 +248,11 @@ class OffensiveLayer:
             state_name = rule.get('if_state')
             bonus_signal_name = rule.get('signal_name')
             
-            # [新增代码] 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
+            # 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
             if not (state_name and bonus_signal_name):
                 continue
 
-            # [新增代码] 检查规则是否已被标记为“已废弃”。如果是，则跳过此规则。
+            # 检查规则是否已被标记为“已废弃”。如果是，则跳过此规则。
             # 这使得我们可以在不删除旧配置的情况下，安全地禁用它，便于未来复查。
             if rule.get('deprecated', False):
                 continue
@@ -262,45 +262,29 @@ class OffensiveLayer:
             
             # 判断此规则是“衰减模型”还是“固定加分模型”
             if rule.get('decay_model', False):
-                # --- 衰减奖励模型逻辑 ---
                 max_bonus = rule.get('max_bonus_score', 0)
                 decay_days = rule.get('decay_days', 1)
                 
-                # 确保衰减参数有效
-                if max_bonus <= 0 or decay_days <= 0:
+                if max_bonus <= 0 or decay_days <= 0 or not condition.any():
                     continue
 
-                # 找到所有触发事件的索引位置，这是衰减的起点
-                trigger_indices = np.where(condition)[0]
+                # 步骤1: 创建一个临时的Series来存储此规则产生的奖励分
+                bonus_series = pd.Series(0.0, index=entry_score.index)
                 
-                # 遍历每一个触发点
-                for start_idx in trigger_indices:
-                    # 计算每日的衰减量
-                    daily_decay = max_bonus / decay_days
-                    # 从触发点开始，向后应用衰减的奖励
-                    for i in range(decay_days):
-                        current_idx = start_idx + i
-                        # 防止索引越界
-                        if current_idx >= len(entry_score):
-                            break
-                        
-                        # 计算当天的奖励分数（线性衰减）
-                        current_bonus = max_bonus - (i * daily_decay)
-                        
-                        # 获取当前日期索引
-                        current_date = entry_score.index[current_idx]
-                        # 将计算出的奖励分加到总分上
-                        entry_score.at[current_date] += current_bonus
-                        
-                        # 在分数详情中记录这个加分项
-                        # 如果是第一次记录，需要先初始化该列
-                        if bonus_signal_name not in score_details_df.columns:
-                            score_details_df[bonus_signal_name] = 0.0
-                        score_details_df.at[current_date, bonus_signal_name] += current_bonus
+                # 步骤2: 使用辅助函数生成一个0-1的、带衰减效果的影响力序列
+                # 这个函数已经内置了处理窗口重叠的逻辑（取最大影响力）
+                influence_series = self.strategy.cognitive_intel._create_decaying_influence_series(condition, decay_days)
                 
-                if len(trigger_indices) > 0:
-                    print(f"          -> [衰减奖励] 已为 {len(trigger_indices)} 次“{state_name}”事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
-
+                # 步骤3: 将影响力序列乘以最大奖励分，得到最终的奖励分数序列
+                bonus_series = influence_series * max_bonus
+                
+                # 步骤4: 将计算好的奖励分数序列一次性地应用到总分和详情中
+                entry_score += bonus_series
+                if bonus_signal_name not in score_details_df.columns:
+                    score_details_df[bonus_signal_name] = 0.0
+                score_details_df[bonus_signal_name] += bonus_series
+                
+                print(f"          -> [衰减奖励] 已为 “{state_name}” 事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
             else:
                 # --- 固定加分模型逻辑 ---
                 bonus_value = rule.get('add_score', 0)

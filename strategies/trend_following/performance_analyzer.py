@@ -14,7 +14,7 @@ class PerformanceAnalyzer:
     - 聚合能力: 聚合报告现在能计算胜率、平均盈亏、平均持有时长等更丰富的指标。
     """
     def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, 
-                 atomic_states: Dict, trigger_events: Dict, 
+                 atomic_states: Dict, trigger_events: Dict, playbook_states: Dict,
                  analysis_params: dict, scoring_params: dict):
         """
         【V4.3 构造函数兼容版】
@@ -30,6 +30,7 @@ class PerformanceAnalyzer:
         self.score_details_df = score_details_df
         self.atomic_states = atomic_states if atomic_states is not None else {}
         self.trigger_events = trigger_events if trigger_events is not None else {}
+        self.playbook_states = playbook_states if playbook_states is not None else {}
         self.analysis_params = analysis_params
         self.scoring_params = scoring_params
         if self.df is None or self.df.empty:
@@ -46,7 +47,7 @@ class PerformanceAnalyzer:
         - 核心重构: 不再只分析买入信号，而是分析所有识别出的“事件”。
         """
         # --- 代码修改开始 ---
-        # [修改原因] 全面重构分析流程，以适应对所有信号源的评估。
+        # 全面重构分析流程，以适应对所有信号源的评估。
         print("    -> [性能分析器 V4.0 全景沙盘版] 启动...")
         
         # 步骤1: 识别出所有需要分析的事件
@@ -101,6 +102,12 @@ class PerformanceAnalyzer:
             if trigger_series.dtype == bool:
                 # 触发器本身就是瞬时事件，直接使用
                 all_events[trigger_name] = trigger_series
+
+        # 4. 处理所有战法剧本
+        for playbook_name, playbook_series in self.playbook_states.items():
+            if playbook_series.dtype == bool:
+                # 战法剧本信号也是瞬时事件
+                all_events[playbook_name] = playbook_series
                 
         return all_events
 
@@ -180,9 +187,7 @@ class PerformanceAnalyzer:
         """
         if not trade_outcomes:
             return []
-            
-        # --- 代码修改开始 ---
-        # [修改原因] 不再需要设置 entry_date 为索引，因为 signal_name 现在是分组的关键。
+        # 不再需要设置 entry_date 为索引，因为 signal_name 现在是分组的关键。
         outcomes_df = pd.DataFrame(trade_outcomes)
         score_map = self.scoring_params.get('score_type_map', {})
         
@@ -201,10 +206,11 @@ class PerformanceAnalyzer:
                     signal_type = 'State'
                 elif signal_name in self.trigger_events:
                     signal_type = 'Trigger'
+                elif signal_name in self.playbook_states: # 对战法剧本的识别
+                    signal_type = 'Playbook'
                 else:
                     signal_type = 'Unknown'
                 signal_meta = {'cn_name': signal_name, 'type': signal_type}
-            # --- 代码修改结束 ---
 
             total_triggers = len(group_df)
             success_count = (group_df['outcome'] == 'success').sum()

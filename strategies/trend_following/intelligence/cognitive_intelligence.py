@@ -121,35 +121,28 @@ class CognitiveIntelligence:
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         late_stage_score = pd.Series(0, index=df.index, dtype=int)
 
-        # 维度 1 & 2: 位置情报
-        is_overextended_bias = self.strategy.atomic_states.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series)
-        is_momentum_exhaustion = self.strategy.atomic_states.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series)
+        # 步骤 2.1: 将所有风险维度及其分数进行结构化定义
+        risk_dimensions = [
+            # 维度 1 & 2: 位置情报
+            {'condition': self.strategy.atomic_states.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series), 'score': 25},
+            {'condition': self.strategy.atomic_states.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series), 'score': 25},
+            # 维度 3 & 4: 行为情报
+            {'condition': self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series), 'score': 25},
+            {'condition': self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series), 'score': 25},
+            # 维度 5: 成交量剖析 (VPA)
+            {'condition': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', default_series) | self.strategy.atomic_states.get('RISK_VPA_VOLUME_ACCELERATING', default_series), 'score': 25},
+            # 维度 6: 波动率扩张
+            {'condition': self.strategy.atomic_states.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25}
+        ]
         
-        # 维度 3 & 4: 行为情报
-        is_distributing_action = self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
-        is_trend_engine_stalling = self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
-        
-        #  引入全新的维度 5 和 维度 6。
-        # 维度 5: 成交量剖析 (VPA)
-        is_vpa_stagnation = self.strategy.atomic_states.get('RISK_VPA_STAGNATION', default_series)
-        is_volume_accelerating = self.strategy.atomic_states.get('RISK_VPA_VOLUME_ACCELERATING', default_series)
-        has_vpa_risk = is_vpa_stagnation | is_volume_accelerating # 满足任一成交量风险即可
-
-        # 维度 6: 波动率扩张
-        is_vol_expanding = self.strategy.atomic_states.get('VOL_STATE_EXPANDING_SHARPLY', default_series)
-
-        # 2.3 根据子条件累加分数
-        late_stage_score += is_overextended_bias.astype(int) * 25
-        late_stage_score += is_momentum_exhaustion.astype(int) * 25
-        late_stage_score += is_distributing_action.astype(int) * 25
-        late_stage_score += is_trend_engine_stalling.astype(int) * 25
-        late_stage_score += has_vpa_risk.astype(int) * 25
-        late_stage_score += is_vol_expanding.astype(int) * 25
+        # 步骤 2.2: 循环遍历风险维度，累加分数
+        for dim in risk_dimensions:
+            late_stage_score += dim['condition'].astype(int) * dim['score']
         
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
-        # 升级布尔信号的阈值，保持相对严格性 (3 out of 6)。
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 75 
+        # 步骤 2.3: 升级布尔信号的阈值，保持相对严格性 (3 out of 6)。
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 75
 
         return states
 

@@ -385,7 +385,7 @@ class StructuralIntelligence:
         atomic = self.strategy.atomic_states
 
         # --- 1. 军备检查 (Prerequisite Check) ---
-        # [修改原因] 统一检查所有依赖的列，确保模块的健壮性。
+        # 统一检查所有依赖的列，确保模块的健壮性。
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'SLOPE_5_BBW_21_2.0_D', # 惯量诊断所需
             'support_below_D', 'pressure_above_D',                   # 势能诊断所需
@@ -397,7 +397,7 @@ class StructuralIntelligence:
             return states
 
         # --- 2. 惯量诊断 (Inertia Diagnosis) ---
-        # [修改原因] 增强惯量定义。惯量减小 = 供应在锁定(筹码集中度斜率<0) AND 市场趋于平静(波动率斜率<0)。
+        # 增强惯量定义。惯量减小 = 供应在锁定(筹码集中度斜率<0) AND 市场趋于平静(波动率斜率<0)。
         # 这种共振是比单一条件更可靠的“山雨欲来风满楼”的信号。
         is_supply_locking = df['SLOPE_5_concentration_90pct_D'] < 0
         is_volatility_squeezing = df['SLOPE_5_BBW_21_2.0_D'] < 0
@@ -413,7 +413,17 @@ class StructuralIntelligence:
         # if states['MECHANICS_ENERGY_ADVANTAGE'].any():
         #     print(f"          -> [力学情报] 侦测到 {states['MECHANICS_ENERGY_ADVANTAGE'].sum()} 次“势能优势”信号！")
 
-        print("        -> [结构力学诊断引擎 V401.0] 分析完毕。")
+        # --- 4. 成本动态诊断 (Cost Dynamics Diagnosis) ---
+        # 成本加速抬高：成本斜率和加速度均为正，代表主力拉升意愿强烈且正在加强。
+        is_cost_slope_positive = df['SLOPE_5_peak_cost_D'] > 0
+        is_cost_accel_positive = df['ACCEL_5_peak_cost_D'] > 0
+        states['MECHANICS_COST_ACCELERATING'] = is_cost_slope_positive & is_cost_accel_positive
+        
+        # 成本企稳减速：成本仍在抬高（斜率为正），但加速度已转负，表明拉升速度放缓，可能进入平台整理或洗盘阶段。
+        is_cost_accel_negative = df['ACCEL_5_peak_cost_D'] < 0
+        states['MECHANICS_COST_STABILIZING'] = is_cost_slope_positive & is_cost_accel_negative
+
+        print("        -> [结构力学诊断引擎 V401.1] 分析完毕。") # MODIFIED: 修改版本号
         return states
 
 

@@ -714,8 +714,8 @@ class MultiTimeframeTrendStrategy:
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            # MODIFIED: 修正了返回值解包。run_for_stock 返回四元组，需用四个变量接收。
-            all_signals, all_details, _all_daily_scores, _all_score_components = await self.run_for_stock(stock_code, trade_time=end_date)
+            # 修正了返回值解包。run_for_stock 返回四元组，需用四个变量接收。
+            all_signals, all_details, _all_daily_scores, _all_score_components, _all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date)
             if not all_signals:
                 print("[信息] 核心策略未生成任何信号记录。")
                 return
@@ -798,11 +798,11 @@ class MultiTimeframeTrendStrategy:
           4. 启动分析器，获取并返回分析结果。
         """
         print("=" * 80)
-        print(f"--- [信号性能分析任务启动 V1.1] ---")
+        print(f"--- [信号性能分析任务启动 V1.2] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 分析时段: {start_date} to {end_date}")
         print("=" * 80)
-        analysis_results = [] # MODIFIED: 初始化一个变量来存储结果
+        analysis_results = []
         try:
             # 步骤 1: 运行核心策略，生成回测数据
             print("    -> [阶段 1/3] 正在执行全历史策略计算，请稍候...")
@@ -816,13 +816,13 @@ class MultiTimeframeTrendStrategy:
             analyzer_params = get_params_block(self.tactical_engine, 'performance_analysis_params')
             if not get_param_value(analyzer_params.get('enabled'), False):
                 print("    -> [信息] 性能分析模块在配置文件中被禁用，任务终止。")
-                return [] # MODIFIED: 返回空列表
+                return []
             # 从战术引擎获取最后一次运行的详细结果
             df_indicators = self.daily_analysis_df
             score_details_df = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
             if df_indicators is None or df_indicators.empty or score_details_df.empty:
                 print("    -> [错误] 策略运行后未能获取有效的分析数据，无法进行性能分析。")
-                return [] # MODIFIED: 返回空列表
+                return []
             # 步骤 3: 运行分析器
             print("    -> [阶段 3/3] 注入数据并运行分析器...")
             try:
@@ -832,10 +832,13 @@ class MultiTimeframeTrendStrategy:
                 analyzer = PerformanceAnalyzer(
                     df_indicators=df_indicators,
                     score_details_df=score_details_df,
+                    atomic_states=self.tactical_engine.atomic_states,
+                    trigger_events=self.tactical_engine.trigger_events,
+                    playbook_states=self.tactical_engine.playbook_states,
                     analysis_params=analyzer_params,
                     scoring_params=scoring_params
                 )
-                # MODIFIED: 捕获分析器返回的原始数据
+                # 捕获分析器返回的原始数据
                 analysis_results = analyzer.run_analysis()
             except ImportError:
                 print("    -> [严重错误] 无法导入 PerformanceAnalyzer 模块。请确保文件存在于 'strategies/trend_following/' 目录下。")
@@ -856,5 +859,5 @@ class MultiTimeframeTrendStrategy:
                 del self.tactical_engine._last_risk_details_df
             gc.collect()
             print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
-            # MODIFIED: 在finally块中返回结果，确保无论如何都有返回值
+            # 在finally块中返回结果，确保无论如何都有返回值
             return analysis_results

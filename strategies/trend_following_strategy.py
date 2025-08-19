@@ -31,6 +31,7 @@ class TrendFollowStrategy:
         self.atomic_states = {}
         self.playbook_states = {}
         self.setup_scores = {}
+        self.trigger_events = {}
         self.df_indicators = pd.DataFrame()
 
         # 初始化所有分层模块，并将主策略实例(self)传递给它们，以便共享配置和状态
@@ -73,9 +74,9 @@ class TrendFollowStrategy:
         # 后续所有计算都使用可能被过滤后的 df_for_calculation
         self.df_indicators = ensure_numeric_types(df_for_calculation)
         # --- 指挥链 1/8: 基础情报层 ---
-        trigger_events = self.intelligence_layer.run_all_diagnostics()
+        self.trigger_events = self.intelligence_layer.run_all_diagnostics()
         # --- 指挥链 2/8: 进攻层 ---
-        entry_score, score_details_df = self.offensive_layer.calculate_entry_score(trigger_events)
+        entry_score, score_details_df = self.offensive_layer.calculate_entry_score(self.trigger_events)
         self.df_indicators['entry_score'] = entry_score
         # --- 指挥链 3/8: 离场层 (仅计算致命风险) ---
         # ExitLayer 现在只返回一个包含致命风险详情的DataFrame
@@ -101,7 +102,7 @@ class TrendFollowStrategy:
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
         # 2. 只删除那些确定不再需要的、过程中的大型变量
         try:
-            del trigger_events, entry_score
+            del entry_score
             del critical_risk_details_df, risk_score, risk_change_summary
             gc.collect()
         except NameError:
