@@ -40,8 +40,98 @@ class PerformanceAnalysisService:
         self.profit_target_pct = get_param_value(self.analyzer_params.get('profit_target_pct'), 0.15)
         self.stop_loss_pct = get_param_value(self.analyzer_params.get('stop_loss_pct'), 0.07)
 
-    # --- 代码修改开始 ---
-    # [修改原因] 实现 Celery Map 任务所需的核心业务逻辑。
+    @staticmethod
+    def _simulate_trade_outcome(
+        entry_date: date, 
+        price_df: pd.DataFrame, 
+        look_forward_days: int, 
+        profit_target_pct: float, 
+        stop_loss_pct: float,
+        is_offensive: bool = True
+    ) -> Optional[Dict]:
+        """
+        【权威交易模拟引擎 V1.0】
+        根据给定的入场点和参数，模拟未来N天的交易表现。
+        这是一个纯函数，不依赖任何实例状态。
+
+        Args:
+            entry_date (date): 信号触发日期 (T日)。
+            price_df (pd.DataFrame): 包含 'open_D', 'high_D', 'low_D' 列的价格数据，索引为datetime。
+            look_forward_days (int): 向前看的天数。
+            profit_target_pct (float): 止盈目标百分比 (例如 0.15)。
+            stop_loss_pct (float): 止损目标百分比 (例如 0.07)。
+            is_offensive (bool): 信号类型。True为进攻型(看涨)，False为防御型(看跌)。
+
+        Returns:
+            Optional[Dict]: 包含交易结果详情的字典，如果无法评估则返回None。
+        """
+        try:
+            # 确保索引是 datetime 类型
+            if not isinstance(price_df.index, pd.DatetimeIndex):
+                price_df.index = pd.to_datetime(price_df.index)
+
+            # 找到T+1日
+            entry_datetime = pd.to_datetime(entry_date)
+            future_dates = price_df.index[price_df.index > entry_datetime]
+            if future_dates.empty:
+                return None
+            trade_day = future_dates[0]
+            
+            # 获取入场价和回测窗口
+            entry_price = price_df.loc[trade_day, 'open_D']
+            if pd.isna(entry_price) or entry_price <= 0:
+                return None
+            
+            look_forward_df = price_df.loc[trade_day:].head(look_forward_days)
+
+        except (KeyError, IndexError):
+            return None
+
+        if look_forward_df.empty:
+            return None
+
+        # 根据信号类型定义止盈止损价
+        if is_offensive:
+            target_price = entry_price * (1 + profit_target_pct)
+            stop_price = entry_price * (1 - stop_loss_pct)
+        else: # 防御型信号
+            target_price = entry_price * (1 - stop_loss_pct) # 成功是下跌
+            stop_price = entry_price * (1 + profit_target_pct) # 失败是上涨
+
+        outcome, exit_days = 'timeout', len(look_forward_df)
+        max_profit_pct = 0.0
+        max_drawdown_pct = 0.0
+
+        for i, row in enumerate(look_forward_df.itertuples()):
+            day_num = i + 1
+            high_price = row.high_D
+            low_price = row.low_D
+
+            if is_offensive:
+                max_profit_pct = max(max_profit_pct, (high_price / entry_price) - 1)
+                max_drawdown_pct = min(max_drawdown_pct, (low_price / entry_price) - 1)
+                if high_price >= target_price:
+                    outcome, exit_days = 'success', day_num
+                    break
+                if low_price <= stop_price:
+                    outcome, exit_days = 'failure', day_num
+                    break
+            else: # 防御型信号
+                max_profit_pct = max(max_profit_pct, 1 - (low_price / entry_price)) # 利润是向下跌幅
+                max_drawdown_pct = min(max_drawdown_pct, (high_price / entry_price) - 1) # 回撤是向上涨幅
+                if low_price <= target_price:
+                    outcome, exit_days = 'success', day_num
+                    break
+                if high_price >= stop_price:
+                    outcome, exit_days = 'failure', day_num
+                    break
+        
+        return {
+            'outcome': outcome, 'exit_days': exit_days,
+            'max_profit_pct': max_profit_pct, 'max_drawdown_pct': max_drawdown_pct,
+        }
+
+    # 实现 Celery Map 任务所需的核心业务逻辑。
     async def analyze_atomic_signals_for_single_stock(self, stock_code: str) -> List[Dict]:
         """
         【V1.0 新增】为单只股票执行原子信号性能分析 (Map任务核心)。
@@ -232,112 +322,33 @@ class PerformanceAnalysisService:
 
     def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.2 T+1基准修正版】评估“进攻型”信号的表现 (看涨)。
+        【V4.3 逻辑统一版】评估“进攻型”信号的表现 (看涨)。
+        现在是 _simulate_trade_outcome 的一个简单包装器。
         """
-        try:
-            # 步骤1: 定位到 T+1 日
-            entry_idx = price_df.index.get_loc(entry_date)
-            trade_day_idx = entry_idx + 1
-            if trade_day_idx >= len(price_df):
-                return None
-
-            # 步骤2: 获取 T+1 日的开盘价作为基准
-            trade_day_row = price_df.iloc[trade_day_idx]
-            entry_price = trade_day_row['open_D']
-            
-            # 如果T+1开盘价无效，则无法进行评估
-            if pd.isna(entry_price) or entry_price <= 0:
-                return None
-
-            # 步骤3: 回测窗口从 T+1 日开始
-            look_forward_df = price_df.iloc[trade_day_idx : trade_day_idx + self.look_forward_days]
-        except (KeyError, IndexError):
-            return None
-        
-        if look_forward_df.empty:
-            return None
-
-        target_price = entry_price * (1 + self.profit_target_pct)
-        stop_price = entry_price * (1 - self.stop_loss_pct)
-        
-        outcome, exit_days = 'timeout', self.look_forward_days
-        max_profit_pct = 0.0
-        max_drawdown_pct = 0.0
-
-        for i, row in enumerate(look_forward_df.itertuples()):
-            day_num = i + 1
-            # 回测从T+1日当天开始，所以要考虑当天的最高/最低价
-            high_price = row.high_D
-            low_price = row.low_D
-            
-            max_profit_pct = max(max_profit_pct, (high_price / entry_price) - 1)
-            max_drawdown_pct = min(max_drawdown_pct, (low_price / entry_price) - 1)
-
-            if high_price >= target_price:
-                outcome, exit_days = 'success', day_num
-                break
-            if low_price <= stop_price:
-                outcome, exit_days = 'failure', day_num
-                break
-        
-        return {
-            'outcome': outcome, 'exit_days': exit_days,
-            'max_profit_pct': max_profit_pct, 'max_drawdown_pct': max_drawdown_pct,
-        }
+        # 调用统一的静态模拟函数，消除冗余代码。
+        return self._simulate_trade_outcome(
+            entry_date=entry_date,
+            price_df=price_df,
+            look_forward_days=self.look_forward_days,
+            profit_target_pct=self.profit_target_pct,
+            stop_loss_pct=self.stop_loss_pct,
+            is_offensive=True
+        )
 
     def _evaluate_defensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V4.2 T+1基准修正版】评估“防御/风险型”信号的表现 (看跌)。
+        【V4.3 逻辑统一版】评估“防御/风险型”信号的表现 (看跌)。
+        现在是 _simulate_trade_outcome 的一个简单包装器。
         """
-        try:
-            # 步骤1: 定位到 T+1 日
-            entry_idx = price_df.index.get_loc(entry_date)
-            trade_day_idx = entry_idx + 1
-            if trade_day_idx >= len(price_df):
-                return None
-
-            # 步骤2: 获取 T+1 日的开盘价作为基准
-            trade_day_row = price_df.iloc[trade_day_idx]
-            entry_price = trade_day_row['open_D']
-
-            if pd.isna(entry_price) or entry_price <= 0:
-                return None
-
-            # 步骤3: 回测窗口从 T+1 日开始
-            look_forward_df = price_df.iloc[trade_day_idx : trade_day_idx + self.look_forward_days]
-        except (KeyError, IndexError):
-            return None
-        
-        if look_forward_df.empty:
-            return None
-
-        target_price_fall = entry_price * (1 - self.stop_loss_pct)
-        stop_price_rise = entry_price * (1 + self.profit_target_pct)
-        
-        outcome, exit_days = 'timeout', self.look_forward_days
-        max_fall_pct = 0.0
-        max_rise_pct = 0.0
-
-        for i, row in enumerate(look_forward_df.itertuples()):
-            day_num = i + 1
-            high_price = row.high_D
-            low_price = row.low_D
-            
-            max_fall_pct = max(max_fall_pct, 1 - (low_price / entry_price))
-            max_rise_pct = max(max_rise_pct, (high_price / entry_price) - 1)
-
-            if low_price <= target_price_fall:
-                outcome, exit_days = 'success', day_num
-                break
-            if high_price >= stop_price_rise:
-                outcome, exit_days = 'failure', day_num
-                break
-        
-        return {
-            'outcome': outcome, 'exit_days': exit_days,
-            'max_profit_pct': max_fall_pct,
-            'max_drawdown_pct': max_rise_pct,
-        }
+        # 调用统一的静态模拟函数，消除冗余代码。
+        return self._simulate_trade_outcome(
+            entry_date=entry_date,
+            price_df=price_df,
+            look_forward_days=self.look_forward_days,
+            profit_target_pct=self.profit_target_pct,
+            stop_loss_pct=self.stop_loss_pct,
+            is_offensive=False
+        )
 
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """

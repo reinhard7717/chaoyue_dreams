@@ -4,7 +4,7 @@ from typing import Dict
 import pandas as pd
 import numpy as np
 from .utils import get_param_value
-
+from services.performance_analysis_service import PerformanceAnalysisService
 
 class PerformanceAnalyzer:
     """
@@ -17,12 +17,13 @@ class PerformanceAnalyzer:
                  atomic_states: Dict, trigger_events: Dict, playbook_states: Dict,
                  analysis_params: dict, scoring_params: dict):
         """
-        【V4.3 构造函数兼容版】
+        【V4.4 全信号源构造版】
         初始化分析器
         :param df_indicators: 包含最终信号和K线数据的主DataFrame。
         :param score_details_df: 包含每日各信号得分详情的DataFrame。
         :param atomic_states: 包含所有原子状态的字典。
         :param trigger_events: 包含所有触发事件的字典。
+        :param playbook_states: 包含所有战法剧本激活状态的字典。
         :param analysis_params: 性能分析模块的专属配置。
         :param scoring_params: 四层计分模型的配置，用于获取信号元数据。
         """
@@ -43,12 +44,12 @@ class PerformanceAnalyzer:
 
     def run_analysis(self) -> list:
         """
-        【V4.0 重构版】运行性能分析的主函数。
+        【V4.1 角色识别重构版】运行性能分析的主函数。
         - 核心重构: 不再只分析买入信号，而是分析所有识别出的“事件”。
+        - 核心增强: 在循环中查找每个信号的元数据，以确定其角色（进攻型/防御型），
+                    并将此信息传递给模拟函数。
         """
-        # --- 代码修改开始 ---
-        # 全面重构分析流程，以适应对所有信号源的评估。
-        print("    -> [性能分析器 V4.0 全景沙盘版] 启动...")
+        print("    -> [性能分析器 V4.1 角色识别版] 启动...")
         
         # 步骤1: 识别出所有需要分析的事件
         all_events_to_analyze = self._identify_all_events()
@@ -58,16 +59,24 @@ class PerformanceAnalyzer:
             
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
+        score_map = self.scoring_params.get('score_type_map', {})
+
         for signal_name, event_series in all_events_to_analyze.items():
             event_dates = event_series.index[event_series]
             if event_dates.empty:
                 continue
             
+            # [核心逻辑] 查找信号元数据以确定其角色
+            signal_meta = score_map.get(signal_name, {})
+            signal_type = signal_meta.get('type', 'positional').lower() # 默认为进攻型
+            is_offensive_signal = (signal_type != 'risk')
+
             for entry_date in event_dates:
-                outcome_details = self._analyze_single_trade_performance(entry_date)
+                # [核心逻辑] 将信号角色传递给模拟函数
+                outcome_details = self._analyze_single_trade_performance(entry_date, is_offensive=is_offensive_signal)
                 if outcome_details:
                     all_trade_outcomes.append({
-                        'signal_name': signal_name, # 关键：记录下是哪个信号触发的
+                        'signal_name': signal_name,
                         'entry_date': entry_date,
                         **outcome_details
                     })
@@ -113,72 +122,19 @@ class PerformanceAnalyzer:
 
     def _analyze_single_trade_performance(self, entry_date) -> dict:
         """
-        【V3.1 T+1交易修正版】深度分析单次交易的性能表现。
+        【V4.1 角色识别版】深度分析单次交易的性能表现。
+        - 核心修改: 接收 is_offensive 参数，以决定调用哪种模拟逻辑。
         """
-        try:
-            # 找到T日的索引位置
-            entry_idx = self.df.index.get_loc(entry_date)
-            # 检查是否存在T+1日的数据
-            if entry_idx + 1 >= len(self.df):
-                return None # 没有未来数据可供分析
-            # 获取T+1日的数据行
-            trade_day_row = self.df.iloc[entry_idx + 1]
-            # 使用T+1日的开盘价作为买入价
-            entry_price = trade_day_row['open_D']
-            # 回测观察窗口从T+1日开始，持续 look_forward_days
-            look_forward_df = self.df.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
-        except (KeyError, IndexError):
-            return None
-        if look_forward_df.empty:
-            return None
-
-        target_price = entry_price * (1 + self.profit_target_pct)
-        stop_price = entry_price * (1 - self.stop_loss_pct)
-
-        max_profit_pct = 0.0
-        days_to_max_profit = 0
-        max_drawdown_pct = 0.0
-        days_to_max_drawdown = 0
-        exit_reason = 'timeout'
-        exit_days = self.look_forward_days
-        final_outcome = 'timeout'
-
-        for i, (date, row) in enumerate(look_forward_df.iterrows()):
-            day_num = i + 1
-            
-            daily_max_profit = (row['high_D'] / entry_price) - 1
-            if daily_max_profit > max_profit_pct:
-                max_profit_pct = daily_max_profit
-                days_to_max_profit = day_num
-
-            daily_max_drawdown = (row['low_D'] / entry_price) - 1
-            if daily_max_drawdown < max_drawdown_pct:
-                max_drawdown_pct = daily_max_drawdown
-                days_to_max_drawdown = day_num
-
-            hit_target = row['high_D'] >= target_price
-            hit_stop = row['low_D'] <= stop_price
-
-            if hit_target:
-                exit_reason = 'profit_target'
-                final_outcome = 'success'
-                exit_days = day_num
-                break
-            elif hit_stop:
-                exit_reason = 'stop_loss'
-                final_outcome = 'failure'
-                exit_days = day_num
-                break
-        
-        return {
-            'outcome': final_outcome,
-            'exit_reason': exit_reason,
-            'exit_days': exit_days,
-            'max_profit_pct': max_profit_pct,
-            'days_to_max_profit': days_to_max_profit,
-            'max_drawdown_pct': max_drawdown_pct,
-            'days_to_max_drawdown': days_to_max_drawdown,
-        }
+        # --- 【代码修改开始】 ---
+        # [修改原因] 调用权威的静态模拟函数，并传入正确的信号角色。
+        return PerformanceAnalysisService._simulate_trade_outcome(
+            entry_date=entry_date,
+            price_df=self.df,
+            look_forward_days=self.look_forward_days,
+            profit_target_pct=self.profit_target_pct,
+            stop_loss_pct=self.stop_loss_pct,
+            is_offensive=is_offensive # 将接收到的角色参数传递下去
+        )
 
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
