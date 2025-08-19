@@ -166,12 +166,14 @@ class IntelligenceLayer:
                 print(decision_log_df.loc[final_tactic_days, display_cols])
                 print("--- [探针结束] ---\n")
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
-        
-        
-        # (一些简单的、遗留的触发器逻辑可以保留在这里)
+
         is_in_squeeze_window = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
-        trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
-        
+        vol_ma_col = 'VOL_MA_21_D'
+        if vol_ma_col in df.columns:
+            is_volume_confirmed = df['volume_D'] > (df[vol_ma_col] * 1.5)
+            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False) & is_volume_confirmed
+        else:
+            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_out & is_in_squeeze_window.shift(1).fillna(False)
         print("--- [情报层总指挥官 V400.0] 所有诊断模块执行完毕。 ---")
         return trigger_events

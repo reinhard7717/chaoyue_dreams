@@ -163,7 +163,8 @@ class PlaybookEngine:
                 is_touching_platform = df['low_D'] <= df[platform_price_col] * (1 + proximity_ratio)
                 is_closing_above = df['close_D'] > df[platform_price_col]
                 is_positive_day = df['close_D'] > df['open_D']
-                triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day
+                is_shrinking_volume = df['volume_D'] < df[vol_ma_col]
+                triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day & is_shrinking_volume
 
         # 2.4 【趋势】趋势延续确认K线
         p_cont = trigger_params.get('trend_continuation_candle', {})

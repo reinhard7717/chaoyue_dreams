@@ -228,8 +228,10 @@ class ChipIntelligence:
         states = {}
         # --- 机会1: S级 - 筹码断层新生 (结构性重置) ---
         fault_formed_col = 'is_chip_fault_formed_D'
+        long_ma_col = 'EMA_55_D'
         if fault_formed_col in df.columns:
-            states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col]
+            is_in_uptrend_context = df['close_D'] > df[long_ma_col]
+            states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col] & is_in_uptrend_context
             # if df[fault_formed_col].any():
             #     print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
         # --- 机会2: A级 - 高利润安全垫 (持股心态稳定) ---
