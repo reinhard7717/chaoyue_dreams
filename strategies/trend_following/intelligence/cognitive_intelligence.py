@@ -508,8 +508,7 @@ class CognitiveIntelligence:
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         has_energy_advantage = atomic.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
         
-        # [修改原因] 引入分层逻辑，同时定义 S++ 和 S+ 级别的战备状态。
-        
+        # 引入分层逻辑，同时定义 S++ 和 S+ 级别的战备状态。
         # 步骤 1.1: 计算满足条件的数量
         condition_sum = (
             is_prime_chip_structure.astype(int) +
@@ -537,14 +536,22 @@ class CognitiveIntelligence:
 
         # --- 3. 【终极裁定】生成S++级王牌战法 ---
         # 条件：昨日处于“黄金阵地”状态，今日响起了“冲锋号”
-        was_setup_yesterday = setup_prime_structure_s.shift(1).fillna(False)
         is_triggered_today = trigger_prime_breakout_s
-        
-        final_tactic_signal = was_setup_yesterday & is_triggered_today
-        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'] = final_tactic_signal
 
-        if final_tactic_signal.any():
-            print(f"          -> [S++级王牌战法确认] 侦测到 {final_tactic_signal.sum()} 次“黄金结构突破”机会！")
+        # 3.1 生成 S++ 战法
+        was_setup_s_plus_plus_yesterday = setup_s_plus_plus.shift(1).fillna(False)
+        final_tactic_s_plus_plus = was_setup_s_plus_plus_yesterday & is_triggered_today
+        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'] = final_tactic_s_plus_plus
+
+        # 3.2 生成 S+ 战法
+        was_setup_s_plus_yesterday = setup_s_plus.shift(1).fillna(False)
+        final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today
+        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS'] = final_tactic_s_plus
+        
+        if final_tactic_s_plus_plus.any():
+            print(f"          -> [S++级王牌战法] 侦测到 {final_tactic_s_plus_plus.sum()} 次“终极结构突破”机会！")
+        if final_tactic_s_plus.any():
+            print(f"          -> [S+级王牌战法] 侦测到 {final_tactic_s_plus.sum()} 次“次级结构突破”机会！")
 
         return states
 
