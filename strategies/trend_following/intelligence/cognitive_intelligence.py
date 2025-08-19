@@ -508,9 +508,22 @@ class CognitiveIntelligence:
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         has_energy_advantage = atomic.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
         
-        # 最终的“黄金阵地”状态：必须同时满足筹码、波动率和力学优势
-        setup_prime_structure_s = is_prime_chip_structure & is_extreme_squeeze & has_energy_advantage
-        states['SETUP_PRIME_STRUCTURE_S'] = setup_prime_structure_s
+        # [修改原因] 引入分层逻辑，同时定义 S++ 和 S+ 级别的战备状态。
+        
+        # 步骤 1.1: 计算满足条件的数量
+        condition_sum = (
+            is_prime_chip_structure.astype(int) +
+            is_extreme_squeeze.astype(int) +
+            has_energy_advantage.astype(int)
+        )
+        
+        # 步骤 1.2: 定义 S++ 级的战备状态 (三位一体)
+        setup_s_plus_plus = (condition_sum == 3)
+        states['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'] = setup_s_plus_plus # 存储这个中间状态，虽然当前未使用，但便于未来调试
+
+        # 步骤 1.3: 定义 S+ 级的战备状态 (三者取二)
+        setup_s_plus = (condition_sum == 2)
+        states['SETUP_PRIME_STRUCTURE_S_PLUS'] = setup_s_plus
 
         # --- 2. 定义S级“突破冲锋号” (Prime Trigger) ---
         # 这是一个融合了多种确认方式的、高强度的突破事件

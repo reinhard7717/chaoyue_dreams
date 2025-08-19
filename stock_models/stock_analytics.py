@@ -295,7 +295,7 @@ class StrategyDailyState(models.Model):
     def __str__(self):
         return f"{self.daily_score} - {self.signal_name}"
 
-# [修改原因] 新增模型，用于存储对原子信号进行性能分析后的最终结果。
+# 用于存储对原子信号进行性能分析后的最终结果。
 class AtomicSignalPerformance(models.Model):
     """
     【V1.0】原子信号性能功勋墙

@@ -23,9 +23,9 @@ class PlaybookEngine:
         """
         return [
             {
-                'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS', # MODIFIED: 命名优化，强调“爆炸”效应
+                'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS',
                 'setup': ['VOL_STATE_EXTREME_SQUEEZE'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S'], # MODIFIED: 必须由最强的S级“攻城锤”触发
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S'],
                 'comment': 'S+级 - 波动极致压缩后，出现高确定性的暴力突破。'
             },
             {
@@ -35,22 +35,28 @@ class PlaybookEngine:
                 'comment': 'S级 - 在结构、波动、筹码三维共振的“突破前夜”发动的总攻。'
             },
             {
-                'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A', # MODIFIED: 命名优化，明确为“常规”压缩
+                'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A',
                 'setup': ['VOL_STATE_SQUEEZE_WINDOW'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'], # MODIFIED: 可由S级或A级突破触发，更灵活
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
                 'comment': 'A级 - 波动压缩后，出现暴力突破或温和推进。'
             },
             {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
-                'trigger': ['TRIGGER_PULLBACK_REBOUND', 'TRIGGER_PLATFORM_PULLBACK_REBOUND'],
+                'trigger': ['TRIGGER_PULLBACK_REBOUND'],
                 'comment': 'A级 - 主升浪结构中，出现均线或平台的回踩反弹。'
             },
             {
-                'name': 'PLAYBOOK_GOLDEN_PIT_B',
+                'name': 'PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS',
+                'setup': ['PLATFORM_STATE_STABLE_FORMED'], # 前置条件：必须已形成稳固平台
+                'trigger': ['TRIGGER_PLATFORM_PULLBACK_REBOUND'], # 触发事件：在该平台上发生回踩反弹
+                'comment': 'A+级 - 在已形成的稳固筹码平台上发生的回踩反弹，确定性更高。'
+            },
+            {
+                'name': 'PLAYBOOK_GOLDEN_PIT_A_PLUS',
                 'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'],
                 'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
-                'comment': 'B级 - 主力打压吸筹后，出现显性反转K线确认。'
+                'comment': 'A+级 - 主力打压吸筹后，出现显性反转K线确认。'
             },
             {
                 'name': 'PLAYBOOK_MEAN_REVERSION_A',
