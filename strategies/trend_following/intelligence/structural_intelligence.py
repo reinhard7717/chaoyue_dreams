@@ -88,6 +88,32 @@ class StructuralIntelligence:
                 dynamic_threshold_long = df[long_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
 
+        # --- A级机会 - 均线收敛突破 ---
+        # 条件A: 短期或长期均线必须处于“粘合压缩”状态
+        is_highly_converged = (
+            states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index)) |
+            states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index))
+        )
+        
+        # 条件B: 出现能量释放阳线作为突破确认
+        # 注意：这里需要从 self.strategy.trigger_events 获取，但它在 intelligence_layer 的后期才生成。
+        # 因此，我们在这里直接实现其核心逻辑，以避免循环依赖。
+        p_energy = get_params_block(self.strategy, 'trigger_event_params').get('energy_release', {})
+        vol_ma_col = 'VOL_MA_21_D'
+        is_breakout_candle = pd.Series(False, index=df.index)
+        if get_param_value(p_energy.get('enabled'), True) and vol_ma_col in df.columns:
+            is_positive_day = df['close_D'] > df['open_D']
+            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            body_ratio = (df['close_D'] - df['open_D']) / body_range
+            is_strong_body = body_ratio.fillna(1.0) > get_param_value(p_energy.get('min_body_ratio'), 0.5)
+            volume_ratio = get_param_value(p_energy.get('volume_ratio'), 1.5)
+            is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
+            is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
+
+        # 最终信号：昨日处于收敛状态，今日出现突破阳线
+        was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
+        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_breakout_candle
+        
         return states
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
