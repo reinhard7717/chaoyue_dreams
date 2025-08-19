@@ -151,13 +151,13 @@ class StructuralIntelligence:
 
     def diagnose_platform_states(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V129.2 健壮部署版 - 筹码平台诊断模块】
-        - 核心修复: 修正了对筹码和价格列的引用，不再使用错误的 'CHIP_' 前缀，
-                    确保能够正确从数据层获取 'peak_cost_D' 和 'close_D'。
-        - 功能增强: 增加了更详细的日志输出和更强的防御性编程，确保在缺少数据时
-                    能够优雅地处理并返回标准化的空结果，防止下游模块出错。
+        【V129.3 健康基因注入版 - 筹码平台诊断模块】
+        - 核心重构: 彻底重写了“稳固平台”的定义。不再只依赖被动的成本峰稳定，
+                    而是主动融合了“成交量萎缩”和“筹码动态集中”两大健康度指标。
+        - 收益: 新的平台定义能够精确识别出“健康的吸筹平台”，从根本上过滤掉
+                “滞涨盘整”和“阴跌”等伪平台信号，为下游战法提供高质量的基石。
         """
-        # print("        -> [诊断模块 V129.2] 正在执行筹码平台状态诊断...")
+        # print("        -> [诊断模块 V129.3 健康基因注入版] 正在执行筹码平台状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -183,8 +183,14 @@ class StructuralIntelligence:
         # 条件B: 当前价格位于长期趋势均线之上，确保平台处于上升趋势中
         is_above_long_ma = df[close_col] > df[long_ma_col]
         
+        # 条件C : 成交量健康 - 必须处于缩量状态
+        is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
+        
+        # 条件D : 筹码健康 - 必须处于动态集中过程
+        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        
         # 组合成最终的“稳固平台形成”状态
-        stable_formed_series = is_cost_stable & is_above_long_ma
+        stable_formed_series = is_cost_stable & is_above_long_ma & is_shrinking_volume & is_chip_concentrating
         states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
         
         # --- 步骤3: 将有效的平台价格记录下来，供后续模块使用 ---

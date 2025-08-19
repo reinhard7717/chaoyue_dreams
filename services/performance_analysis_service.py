@@ -199,6 +199,7 @@ class PerformanceAnalysisService:
             stock_results.append({
                 'signal_name': signal_name,
                 'cn_name': signal_meta.get('cn_name', signal_name),
+                # 直接使用从 score_map 中获取的真实类型
                 'type': signal_meta.get('type', 'unknown'),
                 'triggers': total_triggers,
                 'successes': success_count,

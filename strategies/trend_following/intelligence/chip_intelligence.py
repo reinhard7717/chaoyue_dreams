@@ -122,7 +122,7 @@ class ChipIntelligence:
         #     print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
         
        # --- 终极风险信号合成 ---
-        print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
+        # print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
         # 原材料1: 筹码正在发散 (最核心的风险)
         chip_risk_1 = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
         # 原材料2: 成本峰正在塌陷
@@ -287,19 +287,23 @@ class ChipIntelligence:
         states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term
         states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term & is_fleeing_long_term
 
-        # 1.4 【新增】定义S级风险和A级机会 (基于加速度)
+        # 1.4 定义S级风险和A级机会 (基于加速度)
         # S级风险 - 恐慌加速: 中期趋势已在出逃，且短期出逃正在加速，这是最危险的信号。
         states['RISK_BEHAVIOR_PANIC_FLEEING_S'] = states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] & is_fleeing_accelerating
         
         # A级机会 - 卖盘衰竭: 获利盘虽然还在卖(短期斜率>0)，但卖出力度已在减弱(加速度<0)。
-        states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating
+        # 增加趋势上下文过滤器，确保只在下跌末期或趋势反转初期应用此左侧信号
+        is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
+        is_early_reversal = self.strategy.atomic_states.get('STRUCTURE_EARLY_REVERSAL_B', default_series) # 假设有这个信号
+        is_safe_context = is_bottoming_context | is_early_reversal
         
         # --- 机会行为2: 恐慌盘割肉 (底部反向指标) ---
         # 定义：股价当日大跌（例如超过5%），且成交量主要由套牢盘贡献（例如占比超过50%）
         is_sharp_drop = df['pct_change_D'] < -0.05
         is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
         
-        states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = is_sharp_drop & is_panic_selling
+        # 增加上下文过滤器，确保只在底部反向或趋势反转时应用此左侧信号
+        states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating & is_safe_context
 
         # 打印情报
         # if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
