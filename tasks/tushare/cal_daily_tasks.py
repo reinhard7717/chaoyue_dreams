@@ -6,7 +6,7 @@ from chaoyue_dreams.celery import app as celery_app
 from tasks.stock_analysis_tasks import schedule_precompute_advanced_chips
 from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_today, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_yesterday, save_fund_flow_data_this_week_task, save_hm_detail_data_today
 from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task, save_trade_cal
-from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_cyq_data_today_task, save_day_data_this_week_batch, save_day_data_today_task, save_day_data_yesterday_task, save_month_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_daily_basic_data_yesterday_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_stocks_minute_data_yesterday_task, save_week_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
+from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_cyq_data_today_task, save_day_data_this_week_batch, save_day_data_today_task, save_month_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_week_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
 from tasks.tushare.industry_tasks import save_ths_index_today_task, save_ths_index_yesterday_task
 
 
@@ -98,19 +98,6 @@ def run_yesterday_data_ingestion_task(self):
         logger.info("开始执行: （昨日）分钟数据采集调度任务...")
         # 使用 .delay() 或 .apply_async() 异步触发子任务
         # .delay() 是 .apply_async() 的简化版
-        minute_task_result = save_stocks_minute_data_yesterday_task.delay()
-        logger.info(f"已分派（昨日）分钟数据采集调度任务。任务ID: {minute_task_result.id}")
-
-        # 步骤 2: 执行日线数据（含筹码）采集任务
-        # 这个任务会采集日线数据，并且内部包含了筹码数据的采集
-        logger.info("开始执行: （昨日）日线数据（含筹码）采集任务...")
-        daily_data_task_result = save_day_data_yesterday_task.delay()
-        logger.info(f"已分派（昨日）日线数据（含筹码）采集任务。任务ID: {daily_data_task_result.id}")
-
-        # 步骤 3: 执行当日基本信息采集任务
-        logger.info("开始执行: （昨日）基本信息采集任务...")
-        daily_basic_task_result = save_stocks_daily_basic_data_yesterday_task.delay()
-        logger.info(f"已分派（昨日）基本信息采集任务。任务ID: {daily_basic_task_result.id}")
 
         # 步骤4：执行指数每日指标
         logger.info("开始执行: （昨日）指数每日指标...")
