@@ -111,13 +111,13 @@ class StructuralIntelligence:
             is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
             is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
 
-        # 最终信号：昨日处于收敛状态，今日出现突破阳线
+        # 为突破K线增加更严格的确认条件：必须站上所有短期均线
+        is_decisive_breakout = is_breakout_candle & (df['close_D'] > df[short_ma]) & (df['close_D'] > df[mid_ma])
+        # 最终信号：昨日处于收敛状态，今日出现决定性的突破阳线，且处于长期上升趋势中
         was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
-        # 增加趋势过滤器，确保只在上升趋势中寻找突破机会
         is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
-        # 将趋势过滤器加入最终的逻辑判断
-        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_breakout_candle & is_in_uptrend_context
-        
+        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_decisive_breakout & is_in_uptrend_context
+
         return states
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

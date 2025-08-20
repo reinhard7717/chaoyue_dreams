@@ -147,11 +147,11 @@ class ChipIntelligence:
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.0 灵魂注入版】
-        - 核心重构: 引入“成本试金石”原则。现在，所有“筹码集中”的判断，都必须
-                    满足“成本峰稳定或抬高”这一前置条件。
-        - 收益: 从根本上解决了“崩盘式集中”的逻辑陷阱，能够精确区分“建设性吸筹”
-                与“毁灭性套牢”，极大提升了筹码分析的可靠性。
+        【V284.1 逻辑澄清版】
+        - 核心澄清: 增加了注释，明确了 is_in_high_level_zone 变量的用途。
+                    它作为战略过滤器，将“客观发散”升级为在“高位危险区”发生的、
+                    更具实战意义的“风险发散”信号。
+        - 收益: 提升了代码的可读性和可维护性，阐明了信号分层的设计思想。
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
@@ -172,6 +172,7 @@ class ChipIntelligence:
             print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
             
+        # [代码注释] 定义“战场上下文”过滤器，用于区分发散行为的风险等级
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
@@ -197,11 +198,19 @@ class ChipIntelligence:
         states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = states['CHIP_DYN_CONCENTRATING'] & is_accelerating_action
         
         # 2.5 发散动态 (逻辑不变，因为发散总是坏事)
+        # 定义客观的发散行为：无论股价处于何种位置，筹码在物理上正在散开
         is_objective_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_objective_diverging_action
+        
+        # [代码注释] 将客观行为与战场上下文结合，生成有实战意义的风险信号
+        # 只有在高位危险区的发散，才被定义为需要警惕的 CHIP_DYN_DIVERGING 风险
         states['CHIP_DYN_DIVERGING'] = is_objective_diverging_action & is_in_high_level_zone
+        
+        # 同理，定义客观的加速发散行为
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
+        
+        # [代码注释] 只有在高位危险区的加速发散，才是最高级别的风险信号
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         
         # --- 步骤3: 对“筹码成本”进行动态分析  ---

@@ -157,20 +157,20 @@ class BehavioralIntelligence:
         p_healthy = p.get('healthy_pullback_rules', {})
         is_gentle_drop = df['pct_change_D'] > get_param_value(p_healthy.get('min_pct_change'), -0.05)
         
-        # [修改] 1. 收紧缩量条件：使用shrinking_ratio (通常为0.8)
+        # 1. 收紧缩量条件：使用shrinking_ratio (通常为0.8)
         shrinking_ratio = get_params_block(self.strategy, 'volatility_state_params').get('shrinking_ratio', 0.8)
         is_shrinking_volume = df['volume_D'] < (df['VOL_MA_21_D'] * shrinking_ratio)
         
-        # [修改] 2. 收紧锁仓条件：获利盘换手率阈值改为更严格的30%
+        # 2. 收紧锁仓条件：获利盘换手率阈值改为更严格的30%
         winner_turnover_low_threshold = 30.0 # 硬编码，因为这是一个关键的战术判断
         is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < winner_turnover_low_threshold
 
-        # [新增] 3. 增加趋势生命线约束：回踩低点不能跌破EMA21
-        is_above_trend_line = df['low_D'] > df['EMA_21_D']
+        # 趋势生命线约束：允许盘中跌破，但要求收盘价必须收复！
+        is_above_trend_line = df['close_D'] > df['EMA_21_D']
 
         is_healthy_character = is_gentle_drop & is_shrinking_volume & is_winner_holding_tight & is_above_trend_line
 
-        # ... (打压回踩部分逻辑不变) ...
+        # 打压回踩
         p_suppression = p.get('suppression_pullback_rules', {})
         is_significant_drop = df['pct_change_D'] < get_param_value(p_suppression.get('min_drop_pct'), -0.03)
         is_panic_selling = df['turnover_from_losers_ratio_D'] > get_param_value(p_suppression.get('min_loser_turnover_ratio'), 40.0)
