@@ -45,7 +45,9 @@ class StructuralIntelligence:
 
         states['MA_STATE_PRICE_ABOVE_SHORT_MA'] = df['close_D'] > df[short_ma]
         states['MA_STATE_PRICE_ABOVE_MID_MA'] = df['close_D'] > df[mid_ma]
-        states['MA_STATE_PRICE_ABOVE_LONG_MA'] = df['close_D'] > df[long_ma]
+        is_price_above = df['close_D'] > df[long_ma]
+        is_ma_rising = df[long_ma_slope_col] > 0
+        states['MA_STATE_PRICE_ABOVE_LONG_MA'] = is_price_above & is_ma_rising
         
         stable_bullish = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
         states['MA_STATE_STABLE_BULLISH'] = stable_bullish
@@ -120,9 +122,11 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.1 边界输出版】
+        【V283.2 健康基因注入版】
+        - 核心升级: 为“健康箱体”的定义注入了“成交量萎缩”和“筹码集中”两大核心健康基因，
+                    从根本上过滤掉“阴跌平台”和“死股盘整”等伪信号。
         """
-        print("        -> [工兵部队 V283.1] 启动，正在执行融合分析并输出箱体边界...")
+        print("        -> [工兵部队 V283.2 健康基因注入版] 启动，正在执行融合分析并输出箱体边界...") # MODIFIED: 修改版本号和描述
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -138,7 +142,6 @@ class StructuralIntelligence:
         box_top = rolling_high
         box_bottom = rolling_low
 
-        # [核心新增] 将箱体的上下轨价格输出到主DataFrame，供其他模块使用
         df['box_top_D'] = box_top
         df['box_bottom_D'] = box_bottom
 
@@ -153,19 +156,29 @@ class StructuralIntelligence:
         is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         
         ma_params = get_params_block(self.strategy, 'ma_state_params')
-        mid_ma_period = get_param_value(ma_params.get('mid_ma'), 55)
-        mid_ma_col = f"EMA_{mid_ma_period}_D"
-        if mid_ma_col in df.columns:
+        # 使用长期均线作为趋势过滤器，更可靠
+        long_ma_period = get_param_value(ma_params.get('long_ma'), 55)
+        long_ma_col = f"EMA_{long_ma_period}_D"
+        
+        # 重新定义“健康盘整”，注入两大健康基因
+        healthy_consolidation = pd.Series(False, index=df.index)
+        if long_ma_col in df.columns:
             box_midpoint = (box_top + box_bottom) / 2
-            is_box_above_ma = box_midpoint > df[mid_ma_col]
-            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma
-        else:
-            healthy_consolidation = is_valid_box & is_in_box
+            is_box_above_ma = box_midpoint > df[long_ma_col]
+            
+            # 健康基因1: 成交量必须萎缩
+            is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
+            # 健康基因2: 筹码必须在集中
+            is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
+
+            # 最终裁定：形态(is_valid_box & is_in_box) + 趋势(is_box_above_ma) + 内部行为(is_shrinking_volume & is_chip_concentrating)
+            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_shrinking_volume & is_chip_concentrating
+        
         states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
 
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
         is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-        healthy_accumulation_a = healthy_consolidation & is_shrinking_volume & is_chip_concentrating
+        healthy_accumulation_a = healthy_consolidation # healthy_consolidation 已经包含了所有健康条件
         states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_accumulation_a
         is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', pd.Series(False, index=df.index))
         states['STRUCTURE_BREAKOUT_EVE_S'] = healthy_accumulation_a & is_extreme_squeeze
@@ -334,9 +347,6 @@ class StructuralIntelligence:
         # 【A级进攻】成熟稳定: 长短期趋势同向看涨，但长期趋势已不再加速（减速或匀速）
         dynamics_states['DYN_TREND_MATURE_STABLE'] = is_long_slope_positive & is_short_slope_positive & ~is_long_accel_positive
 
-        # 【B级进攻】底部反转: 长期趋势仍向下，但短期趋势已率先加速向上
-        dynamics_states['DYN_TREND_BOTTOM_REVERSING'] = is_long_slope_negative & is_short_slope_positive & (df[short_slope_col] > df[short_slope_col].shift(1))
-
         # 【S级风险】动能衰减: 长期趋势虽向上，但已开始减速，且短期趋势已逆转
         dynamics_states['DYN_TREND_WEAKENING_DECELERATING'] = is_long_slope_positive & is_long_accel_negative & is_short_slope_negative
 
@@ -404,7 +414,6 @@ class StructuralIntelligence:
         # if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
         #     print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”支撑。")
         return states
-
 
     def diagnose_structural_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

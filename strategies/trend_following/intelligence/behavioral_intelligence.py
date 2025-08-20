@@ -125,16 +125,13 @@ class BehavioralIntelligence:
 
     def diagnose_pullback_character(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V500.0 统一回踩诊断中心】
-        - 核心重构: 取代了原有的 _diagnose_healthy_pullback 和 _diagnose_suppression_pullback 模块。
-        - 核心职责: 1. 识别所有发生在建设性背景下的回踩行为。
-                    2. 对回踩的“性质”进行分类（健康的、打压式的等）。
-                    3. 输出不同性质的、中立的原子状态，供下游决策。
+        【V508.1 严格定义版】
+        - 核心升级: 全面收紧了“健康回踩”的定义，增加了“未破关键趋势线”的硬性约束，
+                    并收紧了对成交量和获利盘惜售的判断标准，旨在从根本上提升信号质量。
         """
-        # print("        -> [统一回踩诊断中心 V500.0] 启动...")
+        # print("        -> [统一回踩诊断中心 V508.1 严格定义版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         default_series = pd.Series(False, index=df.index)
-        # 使用统一的参数块
         p = get_params_block(self.strategy, 'pullback_analysis_params')
         if not get_param_value(p.get('enabled'), False):
             return states
@@ -142,35 +139,38 @@ class BehavioralIntelligence:
         # --- 1. 军备检查 ---
         required_cols = [
             'pct_change_D', 'turnover_from_losers_ratio_D', 'turnover_from_winners_ratio_D',
-            'SLOPE_5_concentration_90pct_D', 'close_D', 'volume_D', 'VOL_MA_21_D'
+            'SLOPE_5_concentration_90pct_D', 'close_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'EMA_21_D' # 新增 low_D 和 EMA_21_D
         ]
         if any(c not in df.columns for c in required_cols):
             print("          -> [警告] 缺少诊断“回踩性质”所需列，模块跳过。")
             return states
 
-        # --- 2. 定义通用的“建设性背景” ---
+        # --- 2. 定义通用的“建设性背景” (逻辑不变) ---
         is_in_uptrend = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
         is_in_ascent_wave = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
-        is_in_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
-        is_in_box = self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series)
-        is_constructive_context = is_in_uptrend | is_in_ascent_wave | is_in_squeeze | is_in_box
+        is_constructive_context = is_in_uptrend | is_in_ascent_wave
 
         # --- 3. 识别并定性回踩行为 ---
-        # 基础条件：当天是下跌的
         is_pullback_day = df['pct_change_D'] < 0
 
-        # 3.1 定性“健康回踩”的特征
+        # [代码修改] 3.1 全面收紧“健康回踩”的特征定义
         p_healthy = p.get('healthy_pullback_rules', {})
         is_gentle_drop = df['pct_change_D'] > get_param_value(p_healthy.get('min_pct_change'), -0.05)
-        is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
-        # [修改原因] V508.0 新增：要求健康回踩时，获利盘必须是惜售的（锁仓）。
-        # 这是判断“真洗盘”和“真出货”的核心区别。
-        winner_turnover_low_threshold = get_param_value(p_healthy.get('max_winner_turnover_ratio'), 30.0)
+        
+        # [修改] 1. 收紧缩量条件：使用shrinking_ratio (通常为0.8)
+        shrinking_ratio = get_params_block(self.strategy, 'volatility_state_params').get('shrinking_ratio', 0.8)
+        is_shrinking_volume = df['volume_D'] < (df['VOL_MA_21_D'] * shrinking_ratio)
+        
+        # [修改] 2. 收紧锁仓条件：获利盘换手率阈值改为更严格的30%
+        winner_turnover_low_threshold = 30.0 # 硬编码，因为这是一个关键的战术判断
         is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < winner_turnover_low_threshold
 
-        is_healthy_character = is_gentle_drop & is_shrinking_volume & is_winner_holding_tight
+        # [新增] 3. 增加趋势生命线约束：回踩低点不能跌破EMA21
+        is_above_trend_line = df['low_D'] > df['EMA_21_D']
 
-        # 3.2 定性“打压回踩”的特征
+        is_healthy_character = is_gentle_drop & is_shrinking_volume & is_winner_holding_tight & is_above_trend_line
+
+        # ... (打压回踩部分逻辑不变) ...
         p_suppression = p.get('suppression_pullback_rules', {})
         is_significant_drop = df['pct_change_D'] < get_param_value(p_suppression.get('min_drop_pct'), -0.03)
         is_panic_selling = df['turnover_from_losers_ratio_D'] > get_param_value(p_suppression.get('min_loser_turnover_ratio'), 40.0)
@@ -178,17 +178,14 @@ class BehavioralIntelligence:
         is_suppressive_character = is_significant_drop & is_panic_selling & is_winner_holding
 
         # --- 4. 组合生成最终的中立状态信号 ---
-        # 筹码稳定是所有有效回踩的共同要求
         divergence_tolerance = get_param_value(p_suppression.get('divergence_tolerance'), 0.0005)
         is_chip_stable = df['SLOPE_5_concentration_90pct_D'] < divergence_tolerance
 
-        # 最终状态1: 健康回踩
+        # [代码修改] 使用新的、更严格的 is_healthy_character
         states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context
         if states['PULLBACK_STATE_HEALTHY_S'].any():
             print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
 
-        # 最终状态2: 打压回踩 (需要后续V型反转确认)
-        # 注意：打压回踩本身不是买点，它只是一个“事件”，真正的买点在它被确认之后
         is_suppression_event = is_pullback_day & is_suppressive_character & is_constructive_context & is_chip_stable
         min_rebound_days = get_param_value(p_suppression.get('min_rebound_days'), 1)
         max_rebound_days = get_param_value(p_suppression.get('max_rebound_days'), 3)
