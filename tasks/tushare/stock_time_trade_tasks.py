@@ -164,21 +164,24 @@ def save_stocks_minute_data_today_task(trade_time_str=None, batch_size: int = 31
 
 @celery_app.task(queue='SaveData_TimeTrade')
 @with_cache_manager
-def save_stocks_minute_data_yesterday_batch(stock_codes: list, cache_manager=None):
+def save_stocks_minute_data_batch(stock_codes: list, trade_date_str: str, cache_manager=None):
     """
-    从Tushare批量获取并保存上一个交易日的分钟级交易数据（异步并发处理）
+    从Tushare批量获取并保存指定交易日的分钟级交易数据（异步并发处理）
     Args:
         stock_codes: 股票代码列表
+        trade_date_str: 需要获取数据的交易日字符串 (格式: 'YYYY-MM-DD')
     """
+    # [修改] 直接使用传入的 trade_date_str 参数，不再内部计算日期
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    latest_trade_date = TradeCalendar.get_latest_trade_date()
-    if not latest_trade_date:
-        logger.warning("未能从交易日历中获取到上一个交易日，任务终止。")
-        print("调试: 未能获取到上一个交易日，任务终止。")
-        return
-    start_date_str = f"{latest_trade_date} 00:00:00"
-    end_date_str = f"{latest_trade_date} 23:59:59"
-    print(f"开始保存 {len(stock_codes)} 个股票, 交易日 {latest_trade_date} 的分钟数据任务...")
+    
+    # [修改] 根据传入的日期构造时间范围
+    start_date_str = f"{trade_date_str} 00:00:00"
+    end_date_str = f"{trade_date_str} 23:59:59"
+    
+    # [修改] 更新日志和调试信息
+    print(f"开始保存 {len(stock_codes)} 个股票, 交易日 {trade_date_str} 的分钟数据任务...")
+    logger.info(f"开始处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
+
     async def main():
         # 3. 执行业务逻辑
         return await stock_time_trade_dao.save_minute_time_trade_history_by_stock_codes(
@@ -186,35 +189,69 @@ def save_stocks_minute_data_yesterday_batch(stock_codes: list, cache_manager=Non
             start_date_str=start_date_str,
             end_date_str=end_date_str
         )
+    
     async_to_sync(main)()
-    print(f"保存股票 {len(stock_codes)} 个的上一个交易日 ({latest_trade_date}) 分钟级交易数据完成。")
+    
+    # [修改] 更新完成后的日志和调试信息
+    print(f"保存股票 {len(stock_codes)} 个的交易日 ({trade_date_str}) 分钟级交易数据完成。")
+    logger.info(f"完成处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
 
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_yesterday_task', queue='celery')
+# 2. 重构并重命名调度器任务，以处理最近N天的数据
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_latest_days_task', queue='celery')
 @with_cache_manager
-def save_stocks_minute_data_yesterday_task(batch_size: int = 310, cache_manager=None):
+def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: int = 5, cache_manager=None):
     """
     【无绑定版】
-    调度器任务：分派昨日分钟数据获取任务。
+    调度器任务：分派获取最近N个交易日分钟数据的任务。
+    Args:
+        batch_size (int): 每个批次处理的股票数量。
+        num_days (int): 需要获取最近多少个交易日的数据。
     """
-    logger.info(f"任务启动: save_stocks_minute_data_yesterday_task (调度器模式) - 批次大小: {batch_size}")
+    logger.info(f"任务启动: save_stocks_minute_data_latest_days_task - 获取最近 {num_days} 天数据, 批次大小: {batch_size}")
+
+    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+    if not trade_dates:
+        logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
+        print("调试: 未能获取到最近的交易日列表，任务终止。")
+        return {"status": "skipped", "message": "未能获取到交易日列表"}
+
+    logger.info(f"成功获取到最近 {len(trade_dates)} 个交易日: {trade_dates}")
+    print(f"调试: 将为以下交易日分派任务: {trade_dates}")
+
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     async def main():
         return await stock_basic_dao.get_stock_list()
     all_stocks = async_to_sync(main)()
+
     if not all_stocks:
         logger.warning("未找到任何股票代码，跳过任务")
         return {"status": "skipped", "message": "未找到任何股票代码"}
+
     all_stock_codes = [stock.stock_code for stock in all_stocks]
     total_codes_count = len(all_stock_codes)
     total_dispatched_batches = 0
-    logger.info(f"准备为 {total_codes_count} 个股票分派批量任务...")
-    for i in range(0, total_codes_count, batch_size):
-        batch_codes = all_stock_codes[i:i + batch_size]
-        if batch_codes:
-            save_stocks_minute_data_yesterday_batch.s(stock_codes=batch_codes).set().apply_async()
-            total_dispatched_batches += 1
-    logger.info(f"任务结束: save_stocks_minute_data_yesterday_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
-    return {"status": "success", "dispatched_batches": total_dispatched_batches}
+    logger.info(f"准备为 {total_codes_count} 个股票分派任务...")
+
+    # [修改] 增加外层循环，遍历所有需要处理的交易日
+    for trade_date in trade_dates:
+        trade_date_str = trade_date.strftime('%Y-%m-%d')
+        logger.info(f"开始为交易日 {trade_date_str} 分派批量任务...")
+        print(f"调试: 正在为交易日 {trade_date_str} 创建批次...")
+        
+        # 内层循环，将所有股票代码分批处理
+        for i in range(0, total_codes_count, batch_size):
+            batch_codes = all_stock_codes[i:i + batch_size]
+            if batch_codes:
+                # [修改] 调用新的工作任务，并传入股票批次和对应的交易日
+                save_stocks_minute_data_batch.s(
+                    stock_codes=batch_codes, 
+                    trade_date_str=trade_date_str
+                ).set().apply_async()
+                total_dispatched_batches += 1
+    
+    logger.info(f"任务结束: save_stocks_minute_data_latest_days_task - 共为 {len(trade_dates)} 个交易日分派了 {total_dispatched_batches} 个批量任务")
+    return {"status": "success", "dispatched_batches": total_dispatched_batches, "trade_days_processed": len(trade_dates)}
 
 #  ================ 今日基本信息 数据任务 ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task', queue='SaveData_TimeTrade')
@@ -257,22 +294,53 @@ def save_stocks_daily_basic_data_today_task(cache_manager=None):
         raise e
 
 #  ================ 昨日基本信息 数据任务 ================
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
+# 重命名任务并更新Celery name属性，使其能处理最近N天的数据
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_latest_days_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def save_stocks_daily_basic_data_yesterday_task(cache_manager=None):
+def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manager=None):
     """
     【无绑定版】
-    获取并保存昨日股票重要的基本面指标。
+    获取并保存最近N个交易日所有股票重要的基本面指标。
+    Args:
+        num_days (int): 需要获取最近多少个交易日的数据。
     """
-    logger.info(f"开始处理昨日股票重要的基本面指标...")
+    # [修改] 更新启动日志
+    logger.info(f"任务启动: save_stocks_daily_basic_data_latest_days_task - 获取最近 {num_days} 个交易日的基本面指标。")
+
+    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+    if not trade_dates:
+        logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
+        print("调试: 未能获取到最近的交易日列表，任务终止。")
+        return {"status": "skipped", "message": "未能获取到交易日列表"}
+    
+    logger.info(f"成功获取到最近 {len(trade_dates)} 个交易日: {trade_dates}")
+    print(f"调试: 将为以下交易日获取基本面指标: {trade_dates}")
+
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    today_date = timezone.now().date()
-    yesterday = today_date - datetime.timedelta(days=1)
-    print("开始保存 昨日股票重要的基本面指标...")
-    async def main():
-        return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=yesterday)
-    result = async_to_sync(main)()
-    print(f"保存 昨日股票重要的基本面指标 完成。result: {result}")
+    # [新增] 用于存储每个交易日处理结果的字典
+    results_summary = {}
+
+    # [修改] 循环处理获取到的每一个交易日
+    for trade_date in trade_dates:
+        trade_date_str = trade_date.strftime('%Y-%m-%d')
+        logger.info(f"开始处理交易日 {trade_date_str} 的股票基本面指标...")
+        print(f"开始保存交易日 {trade_date_str} 的股票基本面指标...")
+
+        async def main():
+            # [修改] 调用DAO时传入循环中的当前交易日
+            return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=trade_date)
+        
+        result = async_to_sync(main)()
+        # [新增] 将当天的处理结果存入汇总字典
+        results_summary[trade_date_str] = result
+        
+        print(f"保存交易日 {trade_date_str} 的股票基本面指标完成。result: {result}")
+        logger.info(f"处理交易日 {trade_date_str} 的数据完成。")
+
+    # [修改] 更新结束日志和返回信息
+    logger.info(f"任务结束: save_stocks_daily_basic_data_latest_days_task - 共处理了 {len(trade_dates)} 个交易日。")
+    return {"status": "success", "processed_days": len(trade_dates), "details": results_summary}
 
 #  ================ 日线数据任务（当日） ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_today_task', queue='SaveHistoryData_TimeTrade')
@@ -291,21 +359,53 @@ def save_day_data_today_task(cache_manager=None):
     print(f"保存 日线数据任务（当日） 完成。result: {result}")
 
 #  ================ 日线数据任务（昨日） ================
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def save_day_data_yesterday_task(cache_manager=None):
+def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     """
     【无绑定版】
-    保存昨日日线数据。
+    保存最近N个交易日的日线数据。
+    Args:
+        num_days (int): 需要获取最近多少个交易日的数据。
     """
+    # [修改] 更新启动日志
+    logger.info(f"任务启动: save_day_data_latest_days_task - 获取最近 {num_days} 个交易日的日线数据。")
+
+    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+    if not trade_dates:
+        logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
+        print("调试: 未能获取到最近的交易日列表，任务终止。")
+        return {"status": "skipped", "message": "未能获取到交易日列表"}
+
+    logger.info(f"成功获取到最近 {len(trade_dates)} 个交易日: {trade_dates}")
+    print(f"调试: 将为以下交易日获取日线数据: {trade_dates}")
+
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    today_date = timezone.now().date()
-    yesterday = today_date - datetime.timedelta(days=1)
-    print("开始保存 日线数据任务（昨日）...")
-    async def main():
-        return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=yesterday)
-    result = async_to_sync(main)()
-    print(f"保存 日线数据任务（昨日） 完成。result: {result}")
+    # [新增] 用于存储每个交易日处理结果的字典
+    results_summary = {}
+
+    # [修改] 循环处理获取到的每一个交易日
+    for trade_date in trade_dates:
+        trade_date_str = trade_date.strftime('%Y-%m-%d')
+        logger.info(f"开始处理交易日 {trade_date_str} 的日线数据...")
+        print(f"开始保存交易日 {trade_date_str} 的日线数据...")
+
+        async def main():
+            # [修改] 调用DAO时传入循环中的当前交易日
+            # 保持原始参数名 `trade_date` 以确保兼容性
+            return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=trade_date)
+        
+        result = async_to_sync(main)()
+        # [新增] 将当天的处理结果存入汇总字典
+        results_summary[trade_date_str] = result
+        
+        print(f"保存交易日 {trade_date_str} 的日线数据完成。result: {result}")
+        logger.info(f"处理交易日 {trade_date_str} 的日线数据完成。")
+
+    # [修改] 更新结束日志和返回信息
+    logger.info(f"任务结束: save_day_data_latest_days_task - 共处理了 {len(trade_dates)} 个交易日。")
+    return {"status": "success", "processed_days": len(trade_dates), "details": results_summary}
 
 #  ================ 周线数据任务（当日） ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_week_data_today_task', queue='SaveHistoryData_TimeTrade')
@@ -323,7 +423,6 @@ def save_week_data_today_task(cache_manager=None):
         return await stock_time_trade_dao.save_weekly_time_trade(trade_date=day_str)
     result = async_to_sync(main)()
     print(f"保存 周线数据任务（当日） 完成。result: {result}")
-
 
 #  ================ 周线数据任务（昨日） ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_week_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
@@ -482,7 +581,6 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str, cache_manag
         logger.error(f"执行器任务[CYQ Perf]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
         raise # 重新抛出异常，以便Celery的autoretry机制接管
 
-
 # --- 2. 分发器任务 (Dispatcher Task) ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery', bind=True)
 @with_cache_manager
@@ -554,17 +652,40 @@ def save_cyq_data_today_task():
     dispatch_cyq_tasks_for_date.delay(trade_date_str=today_date_str)
     return {"status": "dispatcher_called", "date": today_date_str}
 
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_yesterday_task', queue='celery')
-def save_cyq_data_yesterday_task():
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_latest_days_task', queue='celery')
+def save_cyq_data_latest_days_task(num_days: int = 5):
     """
-    【调度器】用于获取【昨天】CYQ数据的入口任务。
+    【调度器】用于获取【最近N个交易日】CYQ数据的入口任务。
+    它会为每个交易日调用一次分发器任务。
+    Args:
+        num_days (int): 需要获取最近多少个交易日的数据。
     """
-    logger.info(f"调度器任务[CYQ Yesterday]启动...")
-    yesterday = timezone.now().date() - datetime.timedelta(days=1)
-    yesterday_date_str = yesterday.strftime('%Y-%m-%d')
-    # 调用分发器，并传入昨天的日期
-    dispatch_cyq_tasks_for_date.delay(trade_date_str=yesterday_date_str)
-    return {"status": "dispatcher_called", "date": yesterday_date_str}
+    # [修改] 更新启动日志
+    logger.info(f"调度器任务[CYQ Latest Days]启动: 准备为最近 {num_days} 个交易日分派任务。")
+
+    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+    if not trade_dates:
+        logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
+        print("调试: 未能获取到最近的交易日列表，任务终止。")
+        return {"status": "skipped", "message": "未能获取到交易日列表"}
+
+    logger.info(f"获取到 {len(trade_dates)} 个交易日: {trade_dates}")
+    print(f"调试: 将为以下交易日分派任务: {trade_dates}")
+
+    dispatched_dates = []
+    # [修改] 循环处理获取到的每一个交易日
+    for trade_date in trade_dates:
+        trade_date_str = trade_date.strftime('%Y-%m-%d')
+        logger.info(f"正在为交易日 {trade_date_str} 调用分发器...")
+        print(f"调试: 调用分发器处理日期 {trade_date_str}")
+        # [修改] 为每个交易日调用分发器任务
+        dispatch_cyq_tasks_for_date.delay(trade_date_str=trade_date_str)
+        dispatched_dates.append(trade_date_str)
+
+    # [修改] 更新结束日志和返回信息
+    logger.info(f"调度器任务[CYQ Latest Days]完成: 已为 {len(dispatched_dates)} 个交易日调用了分发器。")
+    return {"status": "dispatchers_called", "processed_days_count": len(dispatched_dates), "dates": dispatched_dates}
 
 
 # ===================================================

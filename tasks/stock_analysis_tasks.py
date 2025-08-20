@@ -607,7 +607,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 if last_metric:
                     last_metric_date = last_metric.trade_time
                 else:
-                    logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
+                    # logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                     incremental_flag = False
             fetch_start_date = None
             if incremental_flag and last_metric_date:
