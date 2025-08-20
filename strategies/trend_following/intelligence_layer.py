@@ -147,8 +147,7 @@ class IntelligenceLayer:
         trigger_events = self.playbook_engine.define_trigger_events(df)
         trigger_events.update(chip_triggers) # 合并筹码司令部产出的特殊触发器
         self.strategy.trigger_events = trigger_events # 挂载到strategy实例，供后续模块使用
-        # self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_reconcentration_tactic(df))
-        # self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_rally_tactic(df))
+        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_prime_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         # [修改原因] 新增战术决策日志探针的调用逻辑，用于深度调试。

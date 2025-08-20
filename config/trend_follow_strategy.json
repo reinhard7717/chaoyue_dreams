@@ -307,6 +307,7 @@
             "说明_新筹码体系": "--- 分级筹码信号 (含加速度) ---",
             "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 1500,
             "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 1200,
+            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1100,
             "说明_原有信号": "--- 原有阵地信号 ---",
             "OPP_PEAK_BATTLE_BREAKOUT_A": 500,
             "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 450,
@@ -353,7 +354,6 @@
           "说明": "【战法分】作为锦上添花的强力共振信号。已移除所有与回踩相关的、可能重叠的规则。",
           "rules": [
             { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
-            { "name": "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS", "score": 700, "all_of": ["OPP_CHIP_FAULT_REBIRTH_S", "CHIP_STATE_HIGH_PROFIT_CUSHION", "MA_STATE_AGGRESSIVE_BULLISH"], "none_of": ["RISK_BEHAVIOR_WINNERS_FLEEING"] },
             { "name": "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS", "score": 800, "all_of": ["BOARD_EVENT_EARTH_HEAVEN", "CHIP_DYN_CONCENTRATING"], "none_of": [] }
           ]
         },
@@ -484,7 +484,7 @@
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": { "cn_name": "【战法S++】王牌结构突破(终极)", "type": "positional" },
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": { "cn_name": "【战法S+】王牌结构突破(次级)", "type": "positional" },
           "TACTIC_EXHAUSTION_REVERSAL_S_PLUS": { "cn_name": "【战法S+】衰竭反转", "type": "composite" },
-          "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": { "cn_name": "【战法S+】断层新生·主升浪", "type": "composite" },
+          "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": { "cn_name": "【战法S+】断层新生·主升浪", "type": "positional" },
           "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS": { "cn_name": "【战法S+】地天板反转", "type": "composite" },
           "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": { "cn_name": "【战法S+++】巡航黄金坑V反(王牌)", "type": "positional" },
           "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": { "cn_name": "【战法A+】初升浪黄金坑V反", "type": "positional" },

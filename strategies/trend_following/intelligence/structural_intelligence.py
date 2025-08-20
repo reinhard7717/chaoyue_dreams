@@ -94,7 +94,6 @@ class StructuralIntelligence:
             states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index)) |
             states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index))
         )
-        
         # 条件B: 出现能量释放阳线作为突破确认
         # 注意：这里需要从 self.strategy.trigger_events 获取，但它在 intelligence_layer 的后期才生成。
         # 因此，我们在这里直接实现其核心逻辑，以避免循环依赖。

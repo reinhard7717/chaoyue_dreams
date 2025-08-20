@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 from enum import Enum
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state
 
 class MainForceState(Enum):
     """
@@ -687,7 +687,41 @@ class CognitiveIntelligence:
         
         return pd.DataFrame(log_data)
 
+    # 专门用于合成高级战法的方法
+    def synthesize_advanced_tactics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】高级战法合成模块
+        - 核心职责: 合成那些需要复杂时序逻辑（例如“事件A发生后N天内出现事件B”）的高级战法。
+        """
+        states = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_series = pd.Series(False, index=df.index)
 
+        # --- 战法1: 【战法S+】断层新生·主升浪 (重构版) ---
+        # 核心事件: 筹码断层新生
+        fault_event = atomic.get('OPP_CHIP_FAULT_REBIRTH_S', default_series)
+        
+        # 确认信号: 强力阳线 或 筹码点火
+        confirmation_trigger = (
+            triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series) |
+            triggers.get('TRIGGER_CHIP_IGNITION', default_series)
+        )
+        
+        # 状态过滤: 必须处于主升浪黄金航道
+        is_in_main_uptrend = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+
+        # 时序逻辑: 在断层事件发生后的3天窗口期内，寻找确认信号
+        fault_window = fault_event.rolling(window=3, min_periods=1).max().astype(bool)
+        
+        # 最终裁定: (处于断层窗口期) AND (今日出现确认信号) AND (全程处于主升浪背景)
+        final_signal = fault_window & confirmation_trigger & is_in_main_uptrend
+        states['TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS'] = final_signal
+        
+        if final_signal.any():
+            print(f"          -> [S+级战法重构版] 侦测到 {final_signal.sum()} 次“断层新生·主升浪”机会！")
+            
+        return states
 
 
 
