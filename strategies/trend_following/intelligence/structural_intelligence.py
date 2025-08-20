@@ -112,7 +112,10 @@ class StructuralIntelligence:
 
         # 最终信号：昨日处于收敛状态，今日出现突破阳线
         was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
-        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_breakout_candle
+        # 增加趋势过滤器，确保只在上升趋势中寻找突破机会
+        is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
+        # 将趋势过滤器加入最终的逻辑判断
+        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_breakout_candle & is_in_uptrend_context
         
         return states
 

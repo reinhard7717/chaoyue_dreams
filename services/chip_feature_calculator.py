@@ -1,4 +1,4 @@
-# 文件: services/calculators/chip_feature_calculator.py
+# 文件: services/chip_feature_calculator.py
 
 import pandas as pd
 import numpy as np
@@ -32,10 +32,9 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V11.0 健壮版】
-        - 修复: 彻底解决 UnboundLocalError 问题。
-        - 重构: 优化计算流程，将计算分为“基础指标 -> 增强上下文 -> 升维指标”三步，
-                确保所有升维计算模块共享同一个、完整的上下文，逻辑更清晰，代码更健壮。
+        【V11.1 逻辑修正版】
+        - 修正: 移除了对已废弃的 fund_flow_metrics 的调用。
+        - 修正: 将 chip_health_score 的计算剥离，因为它依赖于后计算的斜率指标。
         """
         # --- 0. 前置检查 ---
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg_cost', 'close_price', 'total_chip_volume']):
@@ -51,9 +50,8 @@ class ChipFeatureCalculator:
         turnover_info = self._calculate_effective_turnover()
         turnover_structure_info = self._calculate_turnover_structure()
         turnover_at_peak_info = self._calculate_turnover_at_peak(peaks_info)
-        
+
         # --- 2. 构建升维计算所需的“增强上下文” ---
-        # 将所有基础计算结果合并到上下文中，供后续所有升维计算模块使用
         context_for_derived_metrics = {
             **self.ctx, 
             **peaks_info, 
@@ -80,7 +78,6 @@ class ChipFeatureCalculator:
         if 'total_winner_rate' in summary_info:
             all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
 
-        # 这两个值是计算 peak_absorption_intensity 的中间产物，不需要存入数据库
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
 
@@ -110,12 +107,27 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_peaks(self) -> dict:
+        """
+        【V10.1 逻辑统一版】
+        - 优化: 统一了单峰和多峰情况下，主峰范围(peak_range)的计算逻辑，
+                使其全部基于 find_peaks 的返回结果，消除了硬编码。
+        """
         # 【代码修改】: 增加 width 参数，让 find_peaks 计算山峰宽度
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
+        # 辅助函数，用于从插值索引中获取价格
+        def get_price_from_interpolated_index(interp_idx):
+            price_indices = self.df.index.to_numpy()
+            price_values = self.df['price'].to_numpy()
+            return np.interp(interp_idx, price_indices, price_values)
+
         if len(peaks) == 0:
+            # 如果 find_peaks 未找到任何山峰，则使用全局最大值作为唯一山峰
             peak_idx = self.df['percent'].idxmax()
             peak_price = self.df.loc[peak_idx, 'price']
+            # 【代码修改】: 单峰情况下，也提供一个默认的、较窄的范围，避免后续计算出错
+            peak_range_low = peak_price * 0.995
+            peak_range_high = peak_price * 1.005
             return {
                 'peak_cost': peak_price,
                 'peak_percent': self.df.loc[peak_idx, 'percent'],
@@ -125,32 +137,24 @@ class ChipFeatureCalculator:
                 'secondary_peak_cost': None,
                 'peak_distance_ratio': None,
                 'peak_strength_ratio': None,
-                # 【新增】: 为单峰情况提供一个默认的范围
-                'peak_range_low': peak_price * 0.99,
-                'peak_range_high': peak_price * 1.01,
+                'peak_range_low': peak_range_low,
+                'peak_range_high': peak_range_high,
             }
 
         prominences = properties['prominences']
         main_peak_idx_in_peaks = np.argmax(prominences)
         main_peak_df_idx = peaks[main_peak_idx_in_peaks]
-        
+
         main_peak_cost = self.df.iloc[main_peak_df_idx]['price']
         main_peak_percent = self.df.iloc[main_peak_df_idx]['percent']
         main_peak_volume = int(main_peak_percent / 100 * self.ctx['total_chip_volume'])
         peak_stability = prominences[main_peak_idx_in_peaks] / self.df['percent'].mean() if self.df['percent'].mean() > 0 else 1.0
 
-        # ▼▼▼【核心修改】: 提取主峰的精确左右边界 ▼▼▼
-        # 'left_ips' 和 'right_ips' 是 find_peaks 返回的、基于插值计算的精确边界索引（可以是浮点数）
-        # 我们需要将它们转换为实际的价格
+        # ▼▼▼ 统一使用插值法获取精确边界 ▼▼▼
         left_boundary_idx = properties['left_ips'][main_peak_idx_in_peaks]
         right_boundary_idx = properties['right_ips'][main_peak_idx_in_peaks]
-        
-        # 使用 np.interp 进行线性插值，从浮点索引精确映射到价格
-        price_indices = self.df.index.to_numpy()
-        price_values = self.df['price'].to_numpy()
-        peak_range_low = np.interp(left_boundary_idx, price_indices, price_values)
-        peak_range_high = np.interp(right_boundary_idx, price_indices, price_values)
-        # ▲▲▲【核心修改】▲▲▲
+        peak_range_low = get_price_from_interpolated_index(left_boundary_idx)
+        peak_range_high = get_price_from_interpolated_index(right_boundary_idx)
 
         result = {
             'peak_cost': main_peak_cost,
@@ -158,7 +162,6 @@ class ChipFeatureCalculator:
             'peak_volume': main_peak_volume,
             'peak_stability': peak_stability,
             'is_multi_peak': len(peaks) > 1,
-            # 【新增】: 将计算出的精确范围加入返回结果
             'peak_range_low': peak_range_low,
             'peak_range_high': peak_range_high,
         }
@@ -283,114 +286,26 @@ class ChipFeatureCalculator:
 
         return {'turnover_volume_in_cost_range_70pct': turnover_volume}
 
-    def _calculate_fund_flow_metrics(self) -> dict:
-        """
-        【V6.1 全天候作战版】
-        - 核心升级: 采用弹性融合逻辑，智能处理外部数据源缺失问题。
-        - 算法:
-          1. 永远以最可靠的交易所数据(CY)为基准。
-          2. 检查同花顺(THS)和东方财富(DC)数据是否有效(非None,非NaN)。
-          3. 统计有效数据源的数量(1-3个)。
-          4. 基于有效数据源，重新定义“共识”与“分歧”：
-             - 共识: 至少有2个有效源，且它们的判断完全一致。
-             - 分歧: 至少有2个有效源，且它们的判断不一致。
-             - 单一信源: 只有1个有效源时，不产生共识或分歧信号。
-        """
-        # --- 1. 内部评估 (基准数据) ---
-        cy_keys = [
-            'buy_lg_amount', 'buy_elg_amount', 'sell_lg_amount', 'sell_elg_amount',
-            'buy_sm_vol', 'buy_md_vol', 'sell_sm_vol', 'sell_md_vol'
-        ]
-        # 如果连最核心的交易所数据都没有，则直接放弃
-        if not all(pd.notna(self.ctx.get(key)) for key in cy_keys):
-            trade_date_str = self.ctx.get('trade_time', '未知日期')
-            print(f"调试信息: [{trade_date_str}] 缺少核心交易所资金流数据，跳过所有资金流指标计算。")
-            return {}
-
-        # 计算内部评估结果
-        main_force_buy_amount = float(self.ctx.get('buy_lg_amount', 0)) + float(self.ctx.get('buy_elg_amount', 0))
-        main_force_sell_amount = float(self.ctx.get('sell_lg_amount', 0)) + float(self.ctx.get('sell_elg_amount', 0))
-        internal_main_force_net_amount = (main_force_buy_amount - main_force_sell_amount) * 10000
-
-        retail_buy_vol = float(self.ctx.get('buy_sm_vol', 0)) + float(self.ctx.get('buy_md_vol', 0))
-        retail_sell_vol = float(self.ctx.get('sell_sm_vol', 0)) + float(self.ctx.get('sell_md_vol', 0))
-        internal_retail_net_volume = (retail_buy_vol - retail_sell_vol) * 100
-
-        # --- 2. 外部参照与有效性检查 ---
-        # 获取外部数据，如果不存在或为NaN，则为None
-        ths_net_amount = self.ctx.get('ths_buy_lg_amount')
-        dc_net_amount = self.ctx.get('dc_net_amount')
-        
-        # 检查数据有效性 (pd.notna可以正确处理None和NaN)
-        is_cy_valid = True # 运行到这里，CY必然有效
-        is_ths_valid = pd.notna(ths_net_amount)
-        is_dc_valid = pd.notna(dc_net_amount)
-
-        # --- 3. 弹性融合裁决 ---
-        # 存储所有有效源的判断符号 (-1, 0, 1)
-        valid_signs = []
-        if is_cy_valid:
-            valid_signs.append(np.sign(internal_main_force_net_amount))
-        if is_ths_valid:
-            valid_signs.append(np.sign(float(ths_net_amount)))
-        if is_dc_valid:
-            valid_signs.append(np.sign(float(dc_net_amount)))
-        
-        source_count = len(valid_signs)
-        consensus_inflow = False
-        consensus_outflow = False
-        divergence = False
-
-        # 只有当有效数据源大于等于2个时，才可能产生“共识”或“分歧”
-        if source_count >= 2:
-            # 检查所有有效源的判断是否完全一致
-            is_all_same = all(s == valid_signs[0] for s in valid_signs)
-            
-            if is_all_same:
-                # 如果判断一致，则根据方向确定是共识流入还是共识流出
-                if valid_signs[0] > 0:
-                    consensus_inflow = True
-                elif valid_signs[0] < 0:
-                    consensus_outflow = True
-            else:
-                # 如果判断不一致，则标记为分歧
-                divergence = True
-
-        return {
-            # 内部评估结果
-            'main_force_net_inflow_amount': internal_main_force_net_amount,
-            'retail_net_inflow_volume': internal_retail_net_volume,
-            # 外部参照数据 (即使无效也存储None)
-            'ths_main_force_net_amount': float(ths_net_amount) if is_ths_valid else None,
-            'dc_main_force_net_amount': float(dc_net_amount) if is_dc_valid else None,
-            # 最终融合信号
-            'fund_flow_data_source_count': source_count,
-            'consensus_main_force_inflow': consensus_inflow,
-            'consensus_main_force_outflow': consensus_outflow,
-            'fund_flow_divergence': divergence,
-        }
-
     def _calculate_advanced_structures(self, context: dict) -> dict:
         """
-        【V6.0 新增】计算“控盘度”、“利润质量”、“价码关系”三大升维指标。
+        【V6.1 逻辑修正版】
+        - 修正: 移除了 chip_health_score 的计算，因为它依赖于后计算的斜率指标。
+        - 修正: 彻底移除了对已废弃的资金流指标的依赖。
         """
         results = {}
         
         # --- 1. 控盘度指标 (Control Metrics) ---
         peak_volume = context.get('peak_volume')
-        total_float_share = self.ctx.get('total_chip_volume') # total_chip_volume 就是流通股本
+        total_float_share = self.ctx.get('total_chip_volume')
         if peak_volume is not None and total_float_share and total_float_share > 0:
             results['peak_control_ratio'] = (peak_volume / total_float_share) * 100
 
-        # 计算筹码峰吸筹强度需要筹码峰的宽度信息
         peak_cost = context.get('peak_cost')
         daily_turnover = self.ctx.get('daily_turnover_volume')
-        # 从 context 中直接获取由 _calculate_peaks 计算好的精确范围
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
 
         if daily_turnover and daily_turnover > 0 and peak_range_low is not None and peak_range_high is not None:
-            # 使用精确的、数据驱动的范围来估算换手
             turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
             results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover
         else:
@@ -401,10 +316,8 @@ class ChipFeatureCalculator:
         if close_price:
             winners_df = self.df[self.df['price'] < close_price]
             if not winners_df.empty:
-                # 计算获利盘的加权平均成本
                 winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
                 results['winner_avg_cost'] = winner_avg_cost
-                # 计算获利盘的安全垫
                 if winner_avg_cost > 0:
                     results['winner_profit_margin'] = ((close_price - winner_avg_cost) / winner_avg_cost) * 100
 
@@ -412,40 +325,14 @@ class ChipFeatureCalculator:
         if close_price and peak_cost and peak_cost > 0:
             results['price_to_peak_ratio'] = close_price / peak_cost
         
-        # 计算筹码Z-Score
         if close_price:
             weighted_mean = self.ctx.get('weight_avg_cost')
-            # 计算加权标准差
             weighted_std = np.sqrt(np.average((self.df['price'] - weighted_mean)**2, weights=self.df['percent']))
             if weighted_std and weighted_std > 0:
                 results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
 
-        # --- 4. 超级指标: 筹码健康分 (Chip Health Score) ---
-        # 这是一个可以持续优化的专家打分系统，这里提供一个初始版本
-        score = 50.0 # 基础分
-        
-        # ▼▼▼【代码修改】: 增加对 None 值的健壮性检查 ▼▼▼
-        # 集中度越高越好
-        conc_90 = context.get('concentration_90pct') # 直接获取值，可能是 None
-        if conc_90 is not None: # 只有在值有效时才进行计算
-            score += (0.3 - min(conc_90, 0.3)) * 100 # 集中度低于30%开始加分，最多加30分
-        # ▲▲▲【代码修改】▲▲▲
-
-        # 集中度在收敛加分
-        conc_slope = context.get('concentration_90pct_slope_5d', 0)
-        if conc_slope < 0: score += 5
-        # 获利盘安全垫越高越好
-        profit_margin = results.get('winner_profit_margin', 0)
-        score += min(profit_margin, 20) # 最多加20分
-        # 股价在主峰之上加分
-        price_ratio = results.get('price_to_peak_ratio', 1.0)
-        if price_ratio > 1.05: score += 10
-        # 共识性流入加分
-        if context.get('consensus_main_force_inflow'): score += 15
-        # 共识性流出扣分
-        if context.get('consensus_main_force_outflow'): score -= 20
-        
-        results['chip_health_score'] = max(0, min(100, round(score, 2))) # 确保分数在0-100之间
+        # 【代码修改】: 筹码健康分在此处不再计算，返回一个None占位
+        results['chip_health_score'] = None
 
         return results
 

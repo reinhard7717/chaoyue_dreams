@@ -27,6 +27,7 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
 from stock_models.index import TradeCalendar
 from services.chip_feature_calculator import ChipFeatureCalculator
+from services.chip_score_calculator import calculate_chip_health_score
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
@@ -127,14 +128,14 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
         
-        # 【代码修改】增强日志，以反映新的 start_date_str 参数
+        # 增强日志，以反映新的 start_date_str 参数
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
         if latest_only:
             analysis_end_time = f"{trade_date} 16:00:00" if trade_date else None
             logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
         else:
             analysis_end_time = None
-            # 【代码修改】在全历史模式下，检查并记录 start_date_str
+            # 在全历史模式下，检查并记录 start_date_str
             if start_date_str:
                 logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str})，将从 [{start_date_str}] 开始保存记录。")
                 print(f"调试信息 [{stock_code}]: 全历史模式，指定起始日期 {start_date_str}") # 调试输出
@@ -198,7 +199,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         cache_manager (CacheManager): 由装饰器注入的缓存管理器实例。
     """
     try:
-        # 【代码修改】根据 start_date_str 参数更新日志
+        # 根据 start_date_str 参数更新日志
         if start_date_str:
             logger.info(f"====== [公共数据库建设-全历史 V7.1] 启动 (指定起始日期: {start_date_str}) ======")
             print(f"调试信息：任务将从 {start_date_str} 开始计算和保存策略数据。") # 调试输出
@@ -224,7 +225,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
                 stock_code=code, 
                 trade_date=None, 
                 latest_only=False,
-                start_date_str=start_date_str  # 【代码修改】将参数传递给子任务
+                start_date_str=start_date_str  # 将参数传递给子任务
             ).set(queue='calculate_strategy') for code in all_codes
         ]
         
@@ -234,7 +235,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         
         logger.info(f"[公共数据库] 已成功为 {stock_count} 只股票启动【全历史】分数计算任务。")
         
-        # 【代码修改】在返回结果中也包含 start_date_str，方便追踪
+        # 在返回结果中也包含 start_date_str，方便追踪
         return {"status": "workflow_started", "stock_count": stock_count, "start_date": start_date_str}
     except Exception as e:
         logger.error(f"[公共数据库-全历史] 任务启动时发生严重错误: {e}", exc_info=True)
@@ -277,7 +278,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         # 1.3.2 构建 UNION ALL 子查询部分 
         union_all_query = " UNION ALL ".join([f"SELECT trade_time, stock_id FROM {table}" for table in table_names])
 
-        # 【代码修改】修改SQL查询逻辑：不再使用HAVING过滤，而是直接获取最新日期及其数据量
+        # 修改SQL查询逻辑：不再使用HAVING过滤，而是直接获取最新日期及其数据量
         # 这样可以获取到调试信息，即使数据未满足要求
         raw_sql = f"""
             SELECT
@@ -295,7 +296,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
 
         # 1.3.4 执行查询
         with connection.cursor() as cursor:
-            # 【代码修改】移除了HAVING子句，因此不再需要传递参数
+            # 移除了HAVING子句，因此不再需要传递参数
             cursor.execute(raw_sql)
             result = cursor.fetchone()
 
@@ -324,7 +325,7 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         # 步骤2: 使用权威日期进行精确的数据清理 
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:
-            # 【代码修改】这里的 latest_trade_date 已经是 date 对象，可以直接使用
+            # 这里的 latest_trade_date 已经是 date 对象，可以直接使用
             start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
             end_of_day_aware = start_of_day_aware + timedelta(days=1)
             
@@ -569,13 +570,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.5, 模式: {mode})...")
         get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
         
-        # 【代码修改】使 get_latest_metric_async 接受动态模型作为参数
+        # 使 get_latest_metric_async 接受动态模型作为参数
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
             try:
-                # 【代码修改】使用传入的 model 进行查询
+                # 使用传入的 model 进行查询
                 return model.objects.filter(stock=stock_info_obj).latest('trade_time')
-            except model.DoesNotExist: # 【代码修改】捕获特定模型的异常
+            except model.DoesNotExist: # 捕获特定模型的异常
                 return None
         
         # get_data_async 已是通用函数，无需修改
@@ -688,7 +689,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
             daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
             merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-            # --- 核心计算循环，逻辑不变 ---
+
+            # --- 核心计算循环 ---
             grouped_data = merged_df.groupby('trade_time')
             all_metrics_list = []
             for trade_date, daily_full_df in grouped_data:
@@ -696,40 +698,40 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     continue
                 context_data = daily_full_df.iloc[0].to_dict()
                 chip_data_for_calc = daily_full_df[['price', 'percent']]
-                if not chip_data_for_calc.empty:
-                    percent_sum = chip_data_for_calc['percent'].sum()
-                    if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
-                        normalized_percent = chip_data_for_calc['percent'] / percent_sum
-                    else:
-                        normalized_percent = chip_data_for_calc['percent'] / 100.0
-                    weight_avg_cost = np.average(chip_data_for_calc['price'], weights=normalized_percent)
-                    context_data['weight_avg_cost'] = weight_avg_cost
-                else:
+                # 不再预计算 weight_avg_cost，直接传入上下文
+                # Calculator 内部的 _calculate_summary_metrics 会计算并更新它
+                if chip_data_for_calc.empty:
                     continue
+                # 手动在 context 中加入一个 Calculator 内部会计算的初始值，避免前置检查失败
+                context_data['weight_avg_cost'] = 0 # 临时占位
                 calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
                 daily_metrics = calculator.calculate_all_metrics()
                 if daily_metrics:
                     daily_metrics['trade_time'] = trade_date
                     daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                     all_metrics_list.append(daily_metrics)
-            
             if not all_metrics_list:
-                # logger.info(f"[{stock_code}] 没有需要计算的新指标。任务正常结束。")
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
-            
             new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
             final_metrics_df = new_metrics_df
             if incremental_flag and last_metric_date:
-                # 【代码修改】使用动态模型获取历史指标数据
                 past_metrics_df = await get_data_async(
                     MetricsModel, stock_info, 
                     start_date=fetch_start_date
                 )
                 if not past_metrics_df.empty:
                     past_metrics_df = past_metrics_df.set_index('trade_time')
+                    # 确保索引是 DatetimeIndex 类型以进行正确排序和连接
+                    if not isinstance(past_metrics_df.index, pd.DatetimeIndex):
+                        past_metrics_df.index = pd.to_datetime(past_metrics_df.index)
+                    if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
+                        new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
+
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
-            
-            # --- 指标衍生计算，逻辑不变 ---
+                    # 去重，保留新计算的数据
+                    final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
+
+            # --- 指标衍生计算 ---
             slope_periods = [5, 8, 13, 21, 34, 55, 89, 144]
             accel_periods = [5, 21]
             if 'peak_cost' in final_metrics_df.columns:
@@ -745,10 +747,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
                 )
                 final_metrics_df['concentration_90pct_slope_5d'] = concentration_slope_5d
-            
+
+            # 在所有斜率指标计算完毕后，重新计算/更新筹码健康分
+            print(f"[{stock_code}] 正在重新计算筹码健康分...")
+            final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
+
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
-            # 【代码修改】从动态模型中获取字段信息
             model_fields = {f.name for f in MetricsModel._meta.get_fields()}
             for trade_date, row in records_to_save_df.iterrows():
                 record_data = {}
@@ -769,10 +774,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 record_data.pop('id', None)
                 record_data.pop('stock', None)
                 if record_data:
-                    # 【代码修改】使用动态模型创建实例
+                    # 使用动态模型创建实例
                     records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
             
-            # 【代码修改】调用重构后的函数，传入动态模型
+            # 调用重构后的函数，传入动态模型
             await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": len(records_to_create)}
@@ -1149,7 +1154,7 @@ def run_top_n_performance_analysis(
     end_date_str: str = '2025-12-31',
     profit_threshold: float = 10.0,
     holding_days: int = 5,
-    # 【代码修改】将 strategy_name 的默认值改为 None，使其成为可选参数
+    # 将 strategy_name 的默认值改为 None，使其成为可选参数
     strategy_name: str = None
 ):
     """
@@ -1173,7 +1178,7 @@ def run_top_n_performance_analysis(
     logger.info("\n" + "="*60)
     logger.info(f"=======      Top-{top_n} 信号性能聚焦分析报告      =======")
     logger.info("="*60)
-    # 【代码修改】根据 strategy_name 是否提供，动态生成日志信息
+    # 根据 strategy_name 是否提供，动态生成日志信息
     if strategy_name:
         logger.info(f" 分析策略: {strategy_name}")
     else:
@@ -1192,7 +1197,7 @@ def run_top_n_performance_analysis(
     logger.info("步骤1: 正在从数据库中筛选【每日】Top-N买入信号...")
     top_signals = []
     for trade_date in tqdm(trade_dates, desc="筛选每日信号"):
-        # 【代码修改】构建动态查询条件
+        # 构建动态查询条件
         filter_kwargs = {
             'trade_date': trade_date,
             'signal_type': '买入信号'
