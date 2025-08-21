@@ -118,11 +118,11 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.0 健康基因注入版】 - [职责调整] 已被提升为一级诊断单元。
-        - 核心升级: 为“健康箱体”的定义注入了“成交量萎缩”和“筹码集中”两大核心健康基因，
-                    从根本上过滤掉“阴跌平台”和“死股盘整”等伪信号。
+        【V284.1 职责净化版】
+        - 核心重构: 彻底移除了对 'STRUCTURE_BREAKOUT_EVE_S' 的定义。本方法的职责被严格限定为
+                    只诊断与“箱体”直接相关的原子状态，确保了“单一事实来源”原则。
         """
-        # print("        -> [工兵部队 V284.0 健康基因注入版] 启动，正在执行融合分析并输出箱体边界...") # MODIFIED: 修改版本号和描述
+        print("        -> [工兵部队 V284.1 职责净化版] 启动，正在输出纯粹的箱体边界与状态...") # MODIFIED: 修改版本号和描述
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -161,19 +161,14 @@ class StructuralIntelligence:
             is_box_above_ma = box_midpoint > df[long_ma_col]
             
             is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
-            # [核心依赖] 此处现在可以确定性地获取到经过“成本试金石”检验的筹码集中信号
             is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-            print(f"          -> [探针] diagnose_box_states: CHIP_DYN_CONCENTRATING 信号激活了 {is_chip_concentrating.sum()} 天。") # 调试探针
-
+            
             healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_shrinking_volume & is_chip_concentrating
         
         states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
-
-        # STRUCTURE_BOX_ACCUMULATION_A 与 BOX_STATE_HEALTHY_CONSOLIDATION 定义统一
         states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_consolidation
         
-        is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', pd.Series(False, index=df.index))
-        states['STRUCTURE_BREAKOUT_EVE_S'] = states['STRUCTURE_BOX_ACCUMULATION_A'] & is_extreme_squeeze
+        # [代码删除] 彻底移除对 STRUCTURE_BREAKOUT_EVE_S 的定义，将其职责完全交给 `synthesize_composite_structures`
         
         for key in states:
             if key not in states or states[key] is None:
@@ -226,32 +221,31 @@ class StructuralIntelligence:
 
     def synthesize_composite_structures(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】复合结构合成模块 (由 diagnose_market_structure_command 重构而来)
-        - 核心职责: 消费【所有】已生成的原子情报，进行情报融合，生成更高维度的复合结构情报。
-        - 设计原则: 只读不写。本模块不进行任何新的诊断，只做高级别的逻辑“与/或”运算。
+        【V1.1 逻辑修正版】复合结构合成模块
+        - 核心修正: 修正了 'STRUCTURE_BREAKOUT_EVE_S' 的合成逻辑，使其正确地融合
+                    “健康吸筹箱体”与“波动率极致压缩”两大S级前置条件。
         """
-        print("          -> [结构情报司令部] 启动，正在进行高维度复合情报合成...")
+        print("          -> [结构情报司令部 V1.1] 启动，正在进行高维度复合情报合成...") # MODIFIED: 修改版本号
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
-        atomic = self.strategy.atomic_states # 直接从全局状态池读取所有情报
+        atomic = self.strategy.atomic_states
 
-        # 复合情报1: “阵地优势” - 一个稳固的平台，必须得到动态趋势线的确认
+        # 复合情报1: “平台获趋势支撑” (逻辑不变)
         is_platform_stable = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
 
-        # 复合情报2: “健康盘整” - 一个箱体整理，必须发生在关键趋势线上方
-        # 修复了对不存在的 BOX_STATE_CONSOLIDATING 的引用
-        is_healthy_box = atomic.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
-        is_above_long_ma = atomic.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
-        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = is_healthy_box & is_above_long_ma
+        # [代码修改] 复合情报2: “突破前夜” (S级战术信号) - 逻辑修正与净化
+        # 移除了冗余的 'STRUCTURE_BOX_ABOVE_TRENDLINE' 中间信号。
+        # 新定义：一个健康的吸筹箱体 + 波动率被压缩到极致 = 突破前夜
+        is_healthy_accumulation = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
+        is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
+        
+        # [代码新增] 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康箱体等价
+        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
 
-        # 复合情报3: “突破前夜” (S级战术信号) - 极致的共振信号
-        is_on_stable_platform = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-        # STRUCTURE_BREAKOUT_EVE_S 的定义现在基于更可靠的复合信号
-        composite_states['STRUCTURE_BREAKOUT_EVE_S'] = composite_states.get('STRUCTURE_BOX_ABOVE_TRENDLINE', default_series) & is_on_stable_platform
-
-        print("        -> [结构情报司令部] 复合情报合成完毕。")
+        print("        -> [结构情报司令部 V1.1] 复合情报合成完毕。")
         
         return composite_states
 
