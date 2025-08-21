@@ -496,92 +496,117 @@ def save_month_data_yesterday_task(cache_manager=None):
     retry_backoff_max=300
 )
 @with_cache_manager
-def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str, cache_manager=None):
+# [修改] 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
+def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, start_date_str: str = None, end_date_str: str = None, cache_manager=None):
     """
-    【执行器】获取并保存【单个】股票在【指定日期】的CYQ筹码分布数据。
-    [修改] 适配新的DAO方法，先获取StockInfo对象再调用。
+    【执行器】获取并保存【单个】股票在【指定日期或日期范围】的CYQ筹码分布数据。
+    [修改] 适配新的DAO方法，并支持日期范围。
     """
-    # print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, date={trade_date_str}")
+    # print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, trade_date={trade_date_str}, start_date={start_date_str}, end_date={end_date_str}")
 
     async def _async_task():
         """将所有异步逻辑封装在一个协程中"""
-        # MODIFIED: 实例化两个DAO
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
         stock_basic_dao = StockBasicInfoDao(cache_manager)
         
-        # MODIFIED: 1. 将 stock_code 转换为 StockInfo 对象
-        # DAO需要StockInfo对象，而不是stock_code字符串
         stock_obj = await stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:
             logger.warning(f"执行器[CYQ Chips]: 未找到股票 {stock_code} 的信息，任务终止。")
             return
 
-        # MODIFIED: 2. 解析日期字符串
-        trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+        # [修改] 增加逻辑判断，以兼容单日和日期范围两种模式
+        start_date, end_date = None, None
+        if trade_date_str:
+            # 兼容旧的单日模式
+            start_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+            end_date = start_date # 单日查询时，开始和结束日期相同
+            print(f"调试: 执行器接收到单日参数: stock={stock_code}, date={start_date}")
+        elif start_date_str and end_date_str:
+            # 新的日期范围模式
+            start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            print(f"调试: 执行器接收到日期范围参数: stock={stock_code}, start={start_date}, end={end_date}")
+        else:
+            logger.error(f"执行器[CYQ Chips]错误: 必须提供 trade_date_str 或 (start_date_str 和 end_date_str)。stock={stock_code}")
+            return
 
-        # MODIFIED: 3. 调用新的DAO方法
-        # - 传入 stock=stock_obj 对象
-        # - 将单个日期同时用于 start_date 和 end_date
-        # - @with_rate_limit 装饰器会自动处理 limiter 参数，此处无需传递
+        # [修改] 调用DAO方法时，同时传入 start_date 和 end_date
         await stock_time_trade_dao.save_cyq_chips_for_stock(
             stock=stock_obj, 
-            start_date=trade_date
+            start_date=start_date,
+            end_date=end_date # [修改] 传入结束日期
         )
 
     try:
-        # MODIFIED: 使用 asyncio.run() 来执行异步逻辑
         asyncio.run(_async_task())
-        # print(f"执行器任务[CYQ Chips]完成: stock={stock_code}, date={trade_date_str}")
     except Exception as e:
-        logger.error(f"执行器任务[CYQ Chips]失败: stock={stock_code}, date={trade_date_str}, error={e}", exc_info=True)
-        raise # 重新抛出异常，以便Celery的autoretry机制接管
+        # [修改] 完善错误日志
+        log_ctx = f"stock={stock_code}, trade_date={trade_date_str}, start={start_date_str}, end={end_date_str}"
+        logger.error(f"执行器任务[CYQ Chips]失败: {log_ctx}, error={e}", exc_info=True)
+        raise
 
 # --- 2. 分发器任务 (Dispatcher Task) ---
+# [修改] 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery', bind=True)
 @with_cache_manager
-def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: CacheManager):
+def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_str: str = None, end_date_str: str = None, cache_manager: CacheManager):
     """
-    【分发器 V2.2 - 手动分块修复版】
-    - 核心修复: 修复了 'group' object has no attribute 'chunks' 的 AttributeError。
-                不再使用错误的 .chunks() 方法，而是通过 Python 循环和列表切片来手动创建
-                每个任务批次，然后为每个批次创建一个 group 并带有延迟地分发。
+    【分发器 V2.3 - 兼容日期范围】
+    - 核心修改: 能够接收 start_date_str 和 end_date_str，为指定范围分发任务。
+                同时保留对 trade_date_str 的支持，以兼容旧的调用方式。
     """
-    print(f"分发器任务[V2.2 手动分块版]启动，准备为日期 {trade_date_str} 分发CYQ任务...")
+    # [修改] 增加逻辑判断，以兼容单日和日期范围两种模式
+    final_start_date_str, final_end_date_str = None, None
+    log_date_info = ""
+    if trade_date_str:
+        # 兼容旧的单日模式
+        final_start_date_str = trade_date_str
+        final_end_date_str = trade_date_str
+        log_date_info = f"日期 {trade_date_str}"
+    elif start_date_str and end_date_str:
+        # 新的日期范围模式
+        final_start_date_str = start_date_str
+        final_end_date_str = end_date_str
+        log_date_info = f"日期范围 {start_date_str} 到 {end_date_str}"
+    else:
+        logger.error("分发器错误: 必须提供 trade_date_str 或 (start_date_str 和 end_date_str)。")
+        return {"status": "error", "message": "Invalid date arguments"}
+
+    print(f"分发器任务[V2.3 范围兼容版]启动，准备为 {log_date_info} 分发CYQ任务...")
     async def main():
-        # 1. 获取股票列表 
         stock_dao = StockBasicInfoDao(cache_manager_instance=cache_manager)
         print("分发器：正在通过 DAO (含缓存) 获取股票列表...")
         stock_list = await stock_dao.get_stock_list()
         all_stock_codes = [stock.stock_code for stock in stock_list]
         if not all_stock_codes:
-            logger.warning(f"分发器：未能通过DAO获取到任何股票代码，日期 {trade_date_str} 的任务未分发。")
+            logger.warning(f"分发器：未能通过DAO获取到任何股票代码，{log_date_info} 的任务未分发。")
             return {"status": "skipped", "message": "no stocks found via DAO"}
+        
         stock_count = len(all_stock_codes)
-        # 2. 定义分块参数 
         chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 190) 
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 60)
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size_per_stock} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
-        # 3. 准备所有任务签名 
+        
         all_tasks = []
         for stock_code in all_stock_codes:
-            all_tasks.append(save_single_stock_cyq_chips.s(stock_code=stock_code, trade_date_str=trade_date_str))
-            # all_tasks.append(save_single_stock_cyq_perf.s(stock_code=stock_code, trade_date_str=trade_date_str))
-        # 4. 【核心修正】手动分块并分发
+            # [修改] 调用执行器任务时，使用新的关键字参数传递日期范围
+            all_tasks.append(save_single_stock_cyq_chips.s(
+                stock_code=stock_code, 
+                start_date_str=final_start_date_str,
+                end_date_str=final_end_date_str
+            ))
+        
         total_tasks = len(all_tasks)
-        # 因为每只股票有2个任务，所以任务的块大小是股票块大小的3倍
         task_chunk_size = chunk_size_per_stock * 1
         batch_num = 0
-        # 使用 range(start, stop, step) 来遍历 all_tasks 列表
         for i in range(0, total_tasks, task_chunk_size):
-            # 从 all_tasks 列表中切出当前批次的任务
             chunk_of_tasks = all_tasks[i : i + task_chunk_size]
-            # 为这个小批次创建一个 group
             task_group = group(chunk_of_tasks)
-            # 计算延迟并异步执行
             countdown = batch_num * delay_between_chunks
             task_group.apply_async(countdown=countdown)
             print(f"  -> 第 {batch_num + 1} 批任务 (共 {len(chunk_of_tasks)} 个) 已调度，将在 {countdown} 秒后执行。")
             batch_num += 1
+        
         message = f"分发器：成功调度了 {stock_count} 只股票的CYQ任务 (共 {total_tasks} 个)，已分 {batch_num} 批平滑处理。"
         print(message)
         logger.info(message)
@@ -590,7 +615,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
     try:
         return async_to_sync(main)()
     except Exception as e:
-        logger.error(f"分发器任务失败，日期: {trade_date_str}, error: {e}", exc_info=True)
+        logger.error(f"分发器任务失败，日期信息: {log_date_info}, error: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
 
 # --- 3. 调度器任务 (Scheduler Task) ---
@@ -603,45 +628,50 @@ def save_cyq_data_today_task():
     """
     logger.info(f"调度器任务[CYQ Today]启动...")
     today_date_str = timezone.now().date().strftime('%Y-%m-%d')
-    # 调用分发器，并传入当天的日期
+    # 调用分发器，并传入当天的日期 (保持旧的调用方式)
     dispatch_cyq_tasks_for_date.delay(trade_date_str=today_date_str)
     return {"status": "dispatcher_called", "date": today_date_str}
 
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_cyq_data_latest_days_task', queue='celery')
 def save_cyq_data_latest_days_task(num_days: int = 5):
     """
-    【调度器】用于获取【最近N个交易日】CYQ数据的入口任务。
-    它会为每个交易日调用一次分发器任务。
+    【调度器 V2.0 - 范围优化版】用于获取【最近N个交易日】CYQ数据的入口任务。
+    它会计算日期范围，然后调用一次分发器任务。
     Args:
         num_days (int): 需要获取最近多少个交易日的数据。
     """
-    # [修改] 更新启动日志
-    logger.info(f"调度器任务[CYQ Latest Days]启动: 准备为最近 {num_days} 个交易日分派任务。")
+    logger.info(f"调度器任务[CYQ Latest Days - 范围优化版]启动: 准备为最近 {num_days} 个交易日分派任务。")
 
-    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
     trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
     if not trade_dates:
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
         print("调试: 未能获取到最近的交易日列表，任务终止。")
         return {"status": "skipped", "message": "未能获取到交易日列表"}
 
-    logger.info(f"获取到 {len(trade_dates)} 个交易日: {trade_dates}")
-    print(f"调试: 将为以下交易日分派任务: {trade_dates}")
+    # [修改] 核心逻辑变更：不再循环，而是确定日期范围
+    # trade_dates 列表是降序的（从近到远）
+    end_date = trade_dates[0]      # 最近的交易日作为结束日期
+    start_date = trade_dates[-1]   # 最远的交易日作为开始日期
 
-    dispatched_dates = []
-    # [修改] 循环处理获取到的每一个交易日
-    for trade_date in trade_dates:
-        trade_date_str = trade_date.strftime('%Y-%m-%d')
-        logger.info(f"正在为交易日 {trade_date_str} 调用分发器...")
-        print(f"调试: 调用分发器处理日期 {trade_date_str}")
-        # [修改] 为每个交易日调用分发器任务
-        dispatch_cyq_tasks_for_date.delay(trade_date_str=trade_date_str)
-        dispatched_dates.append(trade_date_str)
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
 
-    # [修改] 更新结束日志和返回信息
-    logger.info(f"调度器任务[CYQ Latest Days]完成: 已为 {len(dispatched_dates)} 个交易日调用了分发器。")
-    return {"status": "dispatchers_called", "processed_days_count": len(dispatched_dates), "dates": dispatched_dates}
+    logger.info(f"获取到 {len(trade_dates)} 个交易日，确定的处理范围为: {start_date_str} 到 {end_date_str}")
+    print(f"调试: 将为日期范围 {start_date_str} - {end_date_str} 调用一次分发器。")
 
+    # [修改] 一次性调用分发器，传入开始和结束日期
+    dispatch_cyq_tasks_for_date.delay(
+        start_date_str=start_date_str,
+        end_date_str=end_date_str
+    )
+
+    logger.info(f"调度器任务[CYQ Latest Days - 范围优化版]完成: 已为日期范围 {start_date_str} - {end_date_str} 调用了分发器。")
+    return {
+        "status": "dispatcher_called_with_range", 
+        "processed_days_count": len(trade_dates), 
+        "start_date": start_date_str,
+        "end_date": end_date_str
+    }
 
 # ===================================================
 #                      本周任务
