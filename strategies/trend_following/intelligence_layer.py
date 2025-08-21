@@ -81,31 +81,27 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【重构版】情报层总入口。
-        - 核心职责: 按正确的依赖顺序，依次调用各专业情报模块，并整合其产出。
+        【V401.0 指挥链重构版】情报层总入口。
+        - 核心重构: 调整了诊断模块的调用顺序，将结构诊断拆分为“原子诊断”和“复合合成”两步，
+                    彻底解决了因依赖顺序错误导致的情报不一致问题。
         """
-        # print("--- [情报层总指挥官 V400.0] 开始执行所有诊断模块... ---")
+        print("--- [情报层总指挥官 V401.0 指挥链重构版] 开始执行所有诊断模块... ---") # MODIFIED: 修改版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础K线与板形态识别 ---
-        # 此阶段为DataFrame添加基础的形态识别列，是所有后续分析的基础。
-        # print("    - [阶段1/5] 正在执行基础形态识别...")
+        print("    - [阶段1/6] 正在执行基础形态识别...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
 
-        # --- 阶段二: 核心原子状态生成 ---
-        # 此阶段生成所有不依赖于其他诊断模块的基础原子状态。
-        # print("    - [阶段2/5] 正在生成核心原子状态...")
-        # 2.1 基础指标状态 (波动率, 震荡)
+        # --- 阶段二: 核心原子状态生成 (第一梯队) ---
+        print("    - [阶段2/6] 正在生成第一梯队原子状态 (无跨模块依赖)...")
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_oscillator_states(df))
-        # 2.2 结构与趋势状态 (均线, 趋势动态, 斐波那契)
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_trend_dynamics(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_fibonacci_support(df))
-        # 2.3 筹码状态 (最核心的部分)
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
@@ -115,23 +111,23 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
 
-        # --- 阶段三: 复合状态与行为模式诊断 ---
-        # 此阶段的方法依赖于阶段二生成的原子状态。
-        # print("    - [阶段3/5] 正在诊断复合状态与行为模式...")
-        # 3.1 复合结构诊断
-        df, structure_states = self.structural_intel.diagnose_market_structure_command(df)
-        self.strategy.atomic_states.update(structure_states)
+        # --- 阶段三: 核心原子状态生成 (第二梯队 - 依赖第一梯队) ---
+        print("    - [阶段3/6] 正在生成第二梯队原子状态 (依赖第一梯队)...")
+        # [核心修改] 将 diagnose_box_states 和 diagnose_platform_states 从旧的“司令部”中解放出来，直接调用
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
+        df, platform_states = self.structural_intel.diagnose_platform_states(df)
+        self.strategy.atomic_states.update(platform_states)
         self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics(df))
-        # 3.2 复合行为诊断
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_pullback_character(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_behavioral_patterns(df))
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
 
-        # --- 阶段四: 顶层认知合成 ---
-        # 此阶段是情报的最高层抽象，合成战场上下文、趋势阶段和主力行为序列。
-        # print("    - [阶段4/5] 正在执行顶层认知合成...")
+        # --- 阶段四: 复合与认知合成 ---
+        print("    - [阶段4/6] 正在执行复合与认知合成...")
+        # [核心修改] 调用重构后的、只负责合成的 synthesize_composite_structures
+        self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
@@ -142,24 +138,19 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
         # --- 阶段五: 生成最终的触发器与剧本 ---
-        # 这是情报层的最终产出，供下游决策层使用。
-        # print("    - [阶段5/5] 正在生成触发器与交易剧本...")
+        print("    - [阶段5/6] 正在生成触发器与交易剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
-        trigger_events.update(chip_triggers) # 合并筹码司令部产出的特殊触发器
-        self.strategy.trigger_events = trigger_events # 挂载到strategy实例，供后续模块使用
+        trigger_events.update(chip_triggers)
+        self.strategy.trigger_events = trigger_events
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_prime_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
-        # [修改原因] 新增战术决策日志探针的调用逻辑，用于深度调试。
         debug_params = get_params_block(self.strategy, 'debug_params')
         if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
             decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
-            
-            # 筛选出有最终决策的日子
             final_tactic_days = decision_log_df.filter(like='FINAL_').any(axis=1)
             if final_tactic_days.any():
                 print("\n--- [回踩战术决策日志探针] ---")
-                # 为了清晰，只显示关键的决策列
                 display_cols = [col for col in decision_log_df.columns if 'POTENTIAL_' in col or 'FINAL_' in col]
                 print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
                 print(decision_log_df.loc[final_tactic_days, display_cols])
@@ -173,6 +164,9 @@ class IntelligenceLayer:
             is_volume_confirmed = df['volume_D'] > (df[vol_ma_col] * 1.5)
             trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False) & is_volume_confirmed
         else:
-            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_out & is_in_squeeze_window.shift(1).fillna(False)
-        print("--- [情报层总指挥官 V400.0] 所有诊断模块执行完毕。 ---")
+            # 修复变量名错误
+            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
+        
+        # --- 阶段六: 最终报告 ---
+        print("--- [情报层总指挥官 V401.0] 所有诊断模块执行完毕。 ---") # MODIFIED: 修改版本号
         return trigger_events

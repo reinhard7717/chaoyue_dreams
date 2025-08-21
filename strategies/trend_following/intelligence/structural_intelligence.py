@@ -17,12 +17,13 @@ class StructuralIntelligence:
 
     def diagnose_ma_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.1 健壮修复版】
+        【V283.2 逻辑修正版】
         - 核心修复 1: 彻底移除了对不存在的 'MA_ZSCORE_D' 列的引用，该逻辑是无效的。
         - 核心修复 2: 修正了对均线粘合度(CV)列名的引用，以匹配数据层因后缀叠加而产生的
                       实际列名 (例如 'MA_CONV_CV_SHORT_D_D')，确保动态粘合状态能被正确计算。
+        - 核心修复 3 (本次修改): 修正了 is_decisive_breakout 的逻辑，确保突破K线必须站上所有粘合的均线。
         """
-        # print("          -> [均线野战部队 V283.1 健壮修复版] 启动，正在执行融合分析...")
+        # print("          -> [均线野战部队 V283.2 逻辑修正版] 启动，正在执行融合分析...") # MODIFIED: 修改版本号和描述
         states = {}
         p = get_params_block(self.strategy, 'ma_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -91,14 +92,10 @@ class StructuralIntelligence:
                 states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
 
         # --- A级机会 - 均线收敛突破 ---
-        # 条件A: 短期或长期均线必须处于“粘合压缩”状态
         is_highly_converged = (
             states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index)) |
             states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index))
         )
-        # 条件B: 出现能量释放阳线作为突破确认
-        # 注意：这里需要从 self.strategy.trigger_events 获取，但它在 intelligence_layer 的后期才生成。
-        # 因此，我们在这里直接实现其核心逻辑，以避免循环依赖。
         p_energy = get_params_block(self.strategy, 'trigger_event_params').get('energy_release', {})
         vol_ma_col = 'VOL_MA_21_D'
         is_breakout_candle = pd.Series(False, index=df.index)
@@ -111,9 +108,8 @@ class StructuralIntelligence:
             is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
             is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
 
-        # 为突破K线增加更严格的确认条件：必须站上所有短期均线
+        # [代码修改] 为突破K线增加更严格的确认条件：必须站上所有短期均线
         is_decisive_breakout = is_breakout_candle & (df['close_D'] > df[short_ma]) & (df['close_D'] > df[mid_ma])
-        # 最终信号：昨日处于收敛状态，今日出现决定性的突破阳线，且处于长期上升趋势中
         was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
         is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
         states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_decisive_breakout & is_in_uptrend_context
@@ -122,11 +118,11 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.2 健康基因注入版】
+        【V284.0 健康基因注入版】 - [职责调整] 已被提升为一级诊断单元。
         - 核心升级: 为“健康箱体”的定义注入了“成交量萎缩”和“筹码集中”两大核心健康基因，
                     从根本上过滤掉“阴跌平台”和“死股盘整”等伪信号。
         """
-        print("        -> [工兵部队 V283.2 健康基因注入版] 启动，正在执行融合分析并输出箱体边界...") # MODIFIED: 修改版本号和描述
+        # print("        -> [工兵部队 V284.0 健康基因注入版] 启动，正在执行融合分析并输出箱体边界...") # MODIFIED: 修改版本号和描述
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -156,32 +152,28 @@ class StructuralIntelligence:
         is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
         
         ma_params = get_params_block(self.strategy, 'ma_state_params')
-        # 使用长期均线作为趋势过滤器，更可靠
         long_ma_period = get_param_value(ma_params.get('long_ma'), 55)
         long_ma_col = f"EMA_{long_ma_period}_D"
         
-        # 重新定义“健康盘整”，注入两大健康基因
         healthy_consolidation = pd.Series(False, index=df.index)
         if long_ma_col in df.columns:
             box_midpoint = (box_top + box_bottom) / 2
             is_box_above_ma = box_midpoint > df[long_ma_col]
             
-            # 健康基因1: 成交量必须萎缩
             is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
-            # 健康基因2: 筹码必须在集中
+            # [核心依赖] 此处现在可以确定性地获取到经过“成本试金石”检验的筹码集中信号
             is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
+            print(f"          -> [探针] diagnose_box_states: CHIP_DYN_CONCENTRATING 信号激活了 {is_chip_concentrating.sum()} 天。") # 调试探针
 
-            # 最终裁定：形态(is_valid_box & is_in_box) + 趋势(is_box_above_ma) + 内部行为(is_shrinking_volume & is_chip_concentrating)
             healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_shrinking_volume & is_chip_concentrating
         
         states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
 
-        is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
-        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-        healthy_accumulation_a = healthy_consolidation # healthy_consolidation 已经包含了所有健康条件
-        states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_accumulation_a
+        # STRUCTURE_BOX_ACCUMULATION_A 与 BOX_STATE_HEALTHY_CONSOLIDATION 定义统一
+        states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_consolidation
+        
         is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', pd.Series(False, index=df.index))
-        states['STRUCTURE_BREAKOUT_EVE_S'] = healthy_accumulation_a & is_extreme_squeeze
+        states['STRUCTURE_BREAKOUT_EVE_S'] = states['STRUCTURE_BOX_ACCUMULATION_A'] & is_extreme_squeeze
         
         for key in states:
             if key not in states or states[key] is None:
@@ -192,119 +184,76 @@ class StructuralIntelligence:
 
     def diagnose_platform_states(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V129.3 健康基因注入版 - 筹码平台诊断模块】
+        【V129.4 健康基因注入版】 - [职责调整] 已被提升为一级诊断单元。
         - 核心重构: 彻底重写了“稳固平台”的定义。不再只依赖被动的成本峰稳定，
                     而是主动融合了“成交量萎缩”和“筹码动态集中”两大健康度指标。
-        - 收益: 新的平台定义能够精确识别出“健康的吸筹平台”，从根本上过滤掉
-                “滞涨盘整”和“阴跌”等伪平台信号，为下游战法提供高质量的基石。
         """
-        # print("        -> [诊断模块 V129.3 健康基因注入版] 正在执行筹码平台状态诊断...")
+        # print("        -> [诊断模块 V129.4 健康基因注入版] 正在执行筹码平台状态诊断...") # MODIFIED: 修改版本号
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1: 检查核心数据是否存在 ---
         peak_cost_col = 'peak_cost_D'
         close_col = 'close_D'
-        long_ma_col = 'EMA_55_D' # 平台必须位于长期均线上方才有意义
+        long_ma_col = 'EMA_55_D'
         
         required_cols = [peak_cost_col, close_col, long_ma_col]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"          -> [警告] 缺少诊断平台状态所需的核心列: {missing}。模块将返回空结果。")
-            # 即使失败，也要确保返回标准化的输出结构，防止下游模块调用失败
             df['PLATFORM_PRICE_STABLE'] = np.nan
             states['PLATFORM_STATE_STABLE_FORMED'] = default_series
-            states['PLATFORM_FAILURE'] = default_series
+            states['STRUCTURE_PLATFORM_BROKEN'] = default_series # 修正：确保所有路径都有返回值
             return df, states
 
-        # --- 步骤2: 定义并计算“稳固平台形成”状态 ---
-        # 条件A: 筹码峰成本在短期内高度稳定 (滚动5日的标准差/均值 < 2%)
         is_cost_stable = (df[peak_cost_col].rolling(5).std() / df[peak_cost_col].rolling(5).mean()) < 0.02
-        
-        # 条件B: 当前价格位于长期趋势均线之上，确保平台处于上升趋势中
         is_above_long_ma = df[close_col] > df[long_ma_col]
-        
-        # 条件C : 成交量健康 - 必须处于缩量状态
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
-        
-        # 条件D : 筹码健康 - 必须处于动态集中过程
         is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
         
-        # 组合成最终的“稳固平台形成”状态
         stable_formed_series = is_cost_stable & is_above_long_ma & is_shrinking_volume & is_chip_concentrating
         states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
         
-        # --- 步骤3: 将有效的平台价格记录下来，供后续模块使用 ---
-        # 只有在平台形成当天，才记录下当天的平台价格，否则为NaN
         df['PLATFORM_PRICE_STABLE'] = df[peak_cost_col].where(stable_formed_series)
         
-        # --- 步骤4: 定义并计算“平台破位”风险 ---
-        # 条件A: 昨日处于稳固平台之上
         was_on_platform = stable_formed_series.shift(1).fillna(False)
-        
-        # 条件B: 今日收盘价跌破了昨日的平台价格
-        # 使用 ffill() 填充平台价格，以处理平台形成后、破位前的那些天
         stable_platform_price_series = df['PLATFORM_PRICE_STABLE'].ffill()
         is_breaking_down = df[close_col] < stable_platform_price_series.shift(1)
         
-        # 组合成最终的“平台破位”风险信号
         platform_failure_series = was_on_platform & is_breaking_down
         states['STRUCTURE_PLATFORM_BROKEN'] = platform_failure_series
 
-        # --- 步骤5: 打印诊断日志 ---
-        # print(f"          -> '稳固平台形成' 状态诊断完成，共激活 {stable_formed_series.sum()} 天。")
-        # print(f"          -> '平台破位' 风险诊断完成，共激活 {platform_failure_series.sum()} 天。")
-
         return df, states
 
-    def diagnose_market_structure_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_composite_structures(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V272.0 市场结构战区司令部】
-        - 核心重构: 这不是一次合并，而是一次战略整合。
-        - 新架构:
-          1. 本司令部统一指挥下属的三个专业化兵种：均线野战部队、价格工兵部队、筹码特种侦察部队。
-          2. 它首先收集所有基础的“原子结构情报”。
-          3. 然后，它进行情报融合，生成更高维度的、包含协同作战思想的“复合结构情报”。
-        - 收益: 极大地提升了代码的组织性和可读性，并能产出远比单个模块更有价值的协同信号。
+        【V1.0 新增】复合结构合成模块 (由 diagnose_market_structure_command 重构而来)
+        - 核心职责: 消费【所有】已生成的原子情报，进行情报融合，生成更高维度的复合结构情报。
+        - 设计原则: 只读不写。本模块不进行任何新的诊断，只做高级别的逻辑“与/或”运算。
         """
-        # print("        -> [市场结构战区司令部 V272.0] 启动，正在整合全战场结构情报...")
-        
-        # --- 1. 依次调动下属的专业化兵种，收集原子情报 ---
-        # print("          -> 正在调动：均线野战部队、价格工兵部队、筹码特种侦察部队...")
-        ma_states = self.diagnose_ma_states(df)
-        box_states = self.diagnose_box_states(df)
-        df, platform_states = self.diagnose_platform_states(df) # 平台诊断会修改df，需要接收
-        
-        # 将所有原子情报汇总
-        atomic_structure_states = {**ma_states, **box_states, **platform_states}
-        
-        # --- 2. 进行情报融合与战术研判，生成复合情报 ---
-        # print("          -> 正在进行情报融合，生成高维度复合情报...")
+        print("          -> [结构情报司令部] 启动，正在进行高维度复合情报合成...")
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states # 直接从全局状态池读取所有情报
 
         # 复合情报1: “阵地优势” - 一个稳固的平台，必须得到动态趋势线的确认
-        is_platform_stable = atomic_structure_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-        is_above_mid_ma = atomic_structure_states.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
+        is_platform_stable = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
 
         # 复合情报2: “健康盘整” - 一个箱体整理，必须发生在关键趋势线上方
-        is_in_box = atomic_structure_states.get('BOX_STATE_CONSOLIDATING', default_series)
-        is_above_long_ma = atomic_structure_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
-        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = is_in_box & is_above_long_ma
+        # 修复了对不存在的 BOX_STATE_CONSOLIDATING 的引用
+        is_healthy_box = atomic.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
+        is_above_long_ma = atomic.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = is_healthy_box & is_above_long_ma
 
         # 复合情报3: “突破前夜” (S级战术信号) - 极致的共振信号
-        # 定义：价格被压缩在一个健康的箱体内，而这个箱体本身就建立在一个稳固的筹码平台上，
-        #       同时，整个结构都位于主升趋势线之上。这是大战一触即发的终极信号！
-        is_healthy_box = composite_states.get('STRUCTURE_BOX_ABOVE_TRENDLINE', default_series)
-        is_on_stable_platform = atomic_structure_states.get('PLATFORM_STATE_STABLE_FORMED', default_series)
-        composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_box & is_on_stable_platform
+        is_on_stable_platform = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
+        # STRUCTURE_BREAKOUT_EVE_S 的定义现在基于更可靠的复合信号
+        composite_states['STRUCTURE_BREAKOUT_EVE_S'] = composite_states.get('STRUCTURE_BOX_ABOVE_TRENDLINE', default_series) & is_on_stable_platform
 
-        # print("        -> [市场结构战区司令部 V272.0] 情报整合完毕。")
+        print("        -> [结构情报司令部] 复合情报合成完毕。")
         
-        # 返回所有原子情报和复合情报的集合，以及可能被修改的df
-        return df, {**atomic_structure_states, **composite_states}
-
+        return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

@@ -176,7 +176,7 @@ class ChipIntelligence:
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
-        # [修改原因] 引入“成本试金石”，区分真假筹码集中。
+        # 引入“成本试金石”，区分真假筹码集中。
         # 2.1 定义客观的集中趋势
         is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
         
