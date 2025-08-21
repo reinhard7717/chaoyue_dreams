@@ -1722,21 +1722,25 @@ class StockTimeTradeDAO(BaseDAO):
         return None
 
     @with_rate_limit(name='api_cyq_chips')
-    # MODIFIED: 2. 修改方法签名，增加一个名为 'limiter' 的关键字参数来接收注入的对象
     async def save_cyq_chips_for_stock(self, stock: StockInfo, start_date: date = None, end_date: date = None, *, limiter) -> None:
         """
-        保存单只股票的每日筹码分布数据（已支持分表和10万行追溯）。
-        速率限制由 @with_rate_limit 装饰器注入和管理。
+        【V3.0 统一逻辑修正版】保存单只股票的每日筹码分布数据。
+        - 核心修正: 采用统一的分页和追溯逻辑，并通过动态构建参数字典来精确调用API。
+                    这解决了因错误处理可选日期参数（None vs "" vs 默认值）而导致的API调用失败问题。
+                    此版本对所有场景（范围查询、历史追溯）都同样健壮。
+
         :param stock: StockInfo 模型实例。
-        :param start_date: 开始日期，默认为 None (从最早开始)。
-        :param end_date: 结束日期，默认为 None (到最新)。
+        :param start_date: 开始日期，可选。
+        :param end_date: 结束日期，可选。
         :param limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
         """
-        # print(f"DAO: 开始获取 {stock.stock_code} 的筹码分布数据（支持10万行以上追溯）...")
-        # 核心的追溯抓取逻辑保持不变
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
-        current_end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
+        # [修改] 正确处理可选日期参数，将None转换为None，而不是默认值或空字符串
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else None
+        current_end_date_str = end_date.strftime('%Y%m%d') if end_date else None
+        
         all_dfs_for_stock = []
+        
+        # [修改] 回归统一的、健壮的内外双循环分页逻辑
         # 外层循环：处理10万行限制，通过调整 end_date 实现追溯
         while True:
             offset = 0
@@ -1752,35 +1756,45 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 try:
                     while not await limiter.acquire():
-                        # 如果获取许可失败，说明速率已达上限，异步等待后重试
                         print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待10秒后重试... (股票: {stock.stock_code})")
                         await asyncio.sleep(10)
-                    # 成功获取许可后，执行API调用
-                    # print(f"PID[{os.getpid()}] API[api_cyq_chips] 成功获取许可，正在为 {stock.stock_code} (offset={offset}) 调用API...")
-                    # 这里的 self.ts_pro 是你封装的Tushare客户端实例
-                    df = self.ts_pro.cyq_chips(**{
-                        "ts_code": stock.stock_code, 
-                        "start_date": start_date_str, 
-                        "end_date": current_end_date_str, 
-                        "limit": limit, 
+                    
+                    # [修改] 动态构建API参数，只包含有值的参数，这是最关键的修正
+                    api_params = {
+                        "ts_code": stock.stock_code,
+                        "limit": limit,
                         "offset": offset
-                    }, fields=["ts_code", "trade_date", "price", "percent"])
+                    }
+                    if start_date_str:
+                        api_params['start_date'] = start_date_str
+                    if current_end_date_str:
+                        api_params['end_date'] = current_end_date_str
+                    
+                    print(f"调试: DAO准备调用Tushare API [cyq_chips]，动态参数: {api_params}")
+                    
+                    df = self.ts_pro.cyq_chips(**api_params, fields=["ts_code", "trade_date", "price", "percent"])
+
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}", exc_info=True)
-                    await asyncio.sleep(5) # 异常时仍然等待
+                    await asyncio.sleep(5)
                     df = pd.DataFrame()
+                
                 if df.empty:
                     break
+                
                 dfs_for_this_cycle.append(df)
+                
                 if len(df) < limit:
                     break # 如果返回的数据量小于请求量，说明是最后一页了
+                
                 offset += limit
+
             if not dfs_for_this_cycle:
                 break # 如果当前追溯周期没有获取到任何数据，则结束整个过程
+            
             all_dfs_for_stock.extend(dfs_for_this_cycle)
+            
             if limit_hit:
-                # 如果触及10万行限制，找到当前周期的最后一条记录的日期
-                # 作为下一轮追溯的结束日期
                 last_df_in_cycle = dfs_for_this_cycle[-1]
                 last_trade_date = last_df_in_cycle['trade_date'].iloc[-1]
                 current_end_date_str = last_trade_date
@@ -1788,30 +1802,31 @@ class StockTimeTradeDAO(BaseDAO):
                 continue # 继续外层循环，开始下一轮追溯
             else:
                 break # 如果没有触及10万行限制，说明所有数据已获取完毕
+
+        # --- 数据处理和保存部分保持不变 ---
         if not all_dfs_for_stock:
             print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
             return
-        # --- 数据处理和保存部分完全保持不变 ---
+
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
         if combined_df.empty:
             return
+        
         combined_df['stock'] = stock
-        # 注意：Tushare返回的 trade_date 是 'YYYYMMDD' 格式的字符串
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
         target_model = get_cyq_chips_model_by_code(stock.stock_code)
-        # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
-        # 假设你有一个异步的批量更新或插入方法
+        
+        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         await self._save_all_to_db_native_upsert(
             model_class=target_model,
             data_list=data_list,
             unique_fields=['stock', 'trade_time', 'price']
         )
-
 
 
 
