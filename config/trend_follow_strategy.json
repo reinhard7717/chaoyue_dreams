@@ -412,6 +412,7 @@
         "trigger_events": {
           "说明": "触发器计分部分。",
           "scoring": {
+            "TRIGGER_PRIME_BREAKOUT_S": 200,
             "TRIGGER_CHIP_IGNITION": 150,
             "VOL_BREAKOUT_FROM_SQUEEZE": 70,
             "TRIGGER_DOMINANT_REVERSAL": 50,
