@@ -31,7 +31,7 @@ class PlaybookEngine:
             {
                 'name': 'PLAYBOOK_BREAKOUT_EVE_S',
                 'setup': ['STRUCTURE_BREAKOUT_EVE_S'], 
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
+                'trigger': ['TRIGGER_PRIME_BREAKOUT_S'],
                 'comment': 'S级 - 在结构、波动、筹码三维共振的“突破前夜”发动的总攻。'
             },
             {
@@ -177,7 +177,21 @@ class PlaybookEngine:
             is_positive_day = df['close_D'] > df['open_D']
             is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
             triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
-        
+
+        # 这个触发器是为 STRUCTURE_BREAKOUT_EVE_S 量身定制的。
+        # 它要求今天的突破，必须决定性地超越【昨天】的箱体顶部。
+        if 'box_top_D' in df.columns:
+            # 条件1: 必须是一根“能量释放”阳线 (自带量价齐升属性)
+            is_energy_release_candle = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
+            
+            # 条件2: 收盘价必须高于【昨日】箱体顶部的 1% (决定性突破，过滤假动作)
+            yesterday_box_top = df['box_top_D'].shift(1)
+            is_decisive_breakout = df['close_D'] > (yesterday_box_top * 1.01)
+            
+            triggers['TRIGGER_PRIME_BREAKOUT_S'] = is_energy_release_candle & is_decisive_breakout
+        else:
+            triggers['TRIGGER_PRIME_BREAKOUT_S'] = default_series
+
         # 双层突破识别系统，以应对不同市场环境，取代单一、僵化的突破定义。
         # --- S级触发器 (攻城锤): 暴力突破 ---
         # 逻辑: 严格的三维标准（创20日高点 + 2倍以上放量 + 光头强实体阳线），捕捉高确定性的暴力突破。

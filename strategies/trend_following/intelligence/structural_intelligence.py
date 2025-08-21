@@ -118,11 +118,13 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.1 职责净化版】
+        【V284.2 逻辑放宽版】
         - 核心重构: 彻底移除了对 'STRUCTURE_BREAKOUT_EVE_S' 的定义。本方法的职责被严格限定为
                     只诊断与“箱体”直接相关的原子状态，确保了“单一事实来源”原则。
+        - 核心修正 (本次): 将健康箱体的判断条件从“量缩 AND 筹码集中”放宽为“量缩 OR 筹码集中”，
+                         以捕捉更多样、更真实的吸筹模式，彻底解决信号瓶颈问题。
         """
-        print("        -> [工兵部队 V284.1 职责净化版] 启动，正在输出纯粹的箱体边界与状态...") # MODIFIED: 修改版本号和描述
+        print("        -> [工兵部队 V284.2 逻辑放宽版] 启动，正在输出纯粹的箱体边界与状态...") # MODIFIED: 修改版本号和描述
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -163,12 +165,13 @@ class StructuralIntelligence:
             is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
             is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
             
-            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_shrinking_volume & is_chip_concentrating
+            # [代码修改] 将严苛的 AND 条件修改为更符合实战的 OR 条件
+            is_healthy_internal = is_shrinking_volume | is_chip_concentrating
+            
+            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_healthy_internal
         
         states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
         states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_consolidation
-        
-        # [代码删除] 彻底移除对 STRUCTURE_BREAKOUT_EVE_S 的定义，将其职责完全交给 `synthesize_composite_structures`
         
         for key in states:
             if key not in states or states[key] is None:
