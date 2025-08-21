@@ -610,7 +610,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
         all_tasks = []
         for stock_code in all_stock_codes:
             all_tasks.append(save_single_stock_cyq_chips.s(stock_code=stock_code, trade_date_str=trade_date_str))
-            all_tasks.append(save_single_stock_cyq_perf.s(stock_code=stock_code, trade_date_str=trade_date_str))
+            # all_tasks.append(save_single_stock_cyq_perf.s(stock_code=stock_code, trade_date_str=trade_date_str))
         # 4. 【核心修正】手动分块并分发
         total_tasks = len(all_tasks)
         # 因为每只股票有2个任务，所以任务的块大小是股票块大小的2倍
