@@ -558,7 +558,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
             return {"status": "skipped", "message": "no stocks found via DAO"}
         stock_count = len(all_stock_codes)
         # 2. 定义分块参数 
-        chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 33) 
+        chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 30) 
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 10)
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size_per_stock} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
         # 3. 准备所有任务签名 
@@ -569,7 +569,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str, *, cache_manager: Cac
         # 4. 【核心修正】手动分块并分发
         total_tasks = len(all_tasks)
         # 因为每只股票有2个任务，所以任务的块大小是股票块大小的3倍
-        task_chunk_size = chunk_size_per_stock * 3
+        task_chunk_size = chunk_size_per_stock * 1
         batch_num = 0
         # 使用 range(start, stop, step) 来遍历 all_tasks 列表
         for i in range(0, total_tasks, task_chunk_size):
