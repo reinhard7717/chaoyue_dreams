@@ -1821,7 +1821,7 @@ class StockTimeTradeDAO(BaseDAO):
         data_list = final_df.to_dict('records')
         target_model = get_cyq_chips_model_by_code(stock.stock_code)
         
-        print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
+        # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         await self._save_all_to_db_native_upsert(
             model_class=target_model,
             data_list=data_list,
