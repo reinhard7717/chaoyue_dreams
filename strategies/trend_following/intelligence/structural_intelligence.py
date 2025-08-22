@@ -108,7 +108,7 @@ class StructuralIntelligence:
             is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
             is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
 
-        # [代码修改] 为突破K线增加更严格的确认条件：必须站上所有短期均线
+        # 为突破K线增加更严格的确认条件：必须站上所有短期均线
         is_decisive_breakout = is_breakout_candle & (df['close_D'] > df[short_ma]) & (df['close_D'] > df[mid_ma])
         was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
         is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
@@ -165,7 +165,7 @@ class StructuralIntelligence:
             is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
             is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
             
-            # [代码修改] 将严苛的 AND 条件修改为更符合实战的 OR 条件
+            # 将严苛的 AND 条件修改为更符合实战的 OR 条件
             is_healthy_internal = is_shrinking_volume | is_chip_concentrating
             
             healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_healthy_internal
@@ -238,7 +238,7 @@ class StructuralIntelligence:
         is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
 
-        # [代码修改] 复合情报2: “突破前夜” (S级战术信号) - 逻辑修正与净化
+        # 复合情报2: “突破前夜” (S级战术信号) - 逻辑修正与净化
         # 移除了冗余的 'STRUCTURE_BOX_ABOVE_TRENDLINE' 中间信号。
         # 新定义：一个健康的吸筹箱体 + 波动率被压缩到极致 = 突破前夜
         is_healthy_accumulation = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)

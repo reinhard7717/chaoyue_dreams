@@ -347,7 +347,7 @@ class ChipIntelligence:
         # --- 2. 识别“政权更迭”事件 ---
         is_peak_changed = (df['peak_cost_D'].pct_change().abs() > 0.015)
         
-        # --- 3. [代码修改] 使用向量化状态机替代for循环 ---
+        # --- 3. 使用向量化状态机替代for循环 ---
         stability_period = 3 # 需要稳定3天
         
         # 步骤 3.1: 使用 cumsum 创建事件区块ID，每个ID代表一个潜在的稳定观察期

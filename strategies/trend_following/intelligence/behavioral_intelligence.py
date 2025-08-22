@@ -153,7 +153,7 @@ class BehavioralIntelligence:
         # --- 3. 识别并定性回踩行为 ---
         is_pullback_day = df['pct_change_D'] < 0
 
-        # [代码修改] 3.1 全面收紧“健康回踩”的特征定义
+        # 3.1 全面收紧“健康回踩”的特征定义
         p_healthy = p.get('healthy_pullback_rules', {})
         is_gentle_drop = df['pct_change_D'] > get_param_value(p_healthy.get('min_pct_change'), -0.05)
         
@@ -181,7 +181,7 @@ class BehavioralIntelligence:
         divergence_tolerance = get_param_value(p_suppression.get('divergence_tolerance'), 0.0005)
         is_chip_stable = df['SLOPE_5_concentration_90pct_D'] < divergence_tolerance
 
-        # [代码修改] 使用新的、更严格的 is_healthy_character
+        # 使用新的、更严格的 is_healthy_character
         states['PULLBACK_STATE_HEALTHY_S'] = is_pullback_day & is_healthy_character & is_constructive_context
         if states['PULLBACK_STATE_HEALTHY_S'].any():
             print(f"          -> [情报] 侦测到 {states['PULLBACK_STATE_HEALTHY_S'].sum()} 次“S级健康回踩”状态。")
