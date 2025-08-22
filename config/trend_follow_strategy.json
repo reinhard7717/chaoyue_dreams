@@ -15,7 +15,7 @@
             "apply_on": ["D", "60", "30"],
             "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233]
           },
-          { "apply_on": ["W"], "periods": [5, 13, 21, 34, 55, 89, 144, 233] }
+          { "apply_on": ["W"], "periods": [5, 10, 13, 21, 34, 55, 89, 144, 233] }
         ]
       },
       "vol_ma": {
@@ -398,7 +398,11 @@
 
             "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
             "FRACTAL_RISK_TOP_DIVERGENCE": 800,
-            "FRACTAL_EVENT_TREND_EXHAUSTION": 500
+            "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
+
+            "说明_STRATEGIC": "--- 战略级风险 (周线) ---",
+            "CONTEXT_STRATEGIC_TOPPING_RISK_W": 500,
+            "CONTEXT_PSYCH_REJECTION_BEARISH_W": 400
           }
         },
         "trigger_enhancement_params": {
@@ -438,6 +442,30 @@
             "PLAYBOOK_GOLDEN_PIT_A_PLUS": 480,
             "PLAYBOOK_MEAN_REVERSION_A": 350,
             "PLAYBOOK_BOX_REVERSAL_B": 300
+        },
+        "strategic_context_scoring": {
+          "enabled": true,
+          "description": "【V1.0 新增】周线战略背景加分模块。用于奖励处于战略顺风期的日线信号。",
+          "bullish_bonus": {
+            "value": 200,
+            "description": "当周线战略分数 >= 5 时，提供的基础顺风奖励分。"
+          },
+          "ignition_bonus": {
+            "value": 100,
+            "description": "当周线处于'点火期'时，提供的额外奖励分。"
+          },
+          "trend_health_bonus": {
+            "value": 250,
+            "description": "【V4.0新增】当周线趋势被诊断为'健康强劲'时，提供的最高级别顺风奖励。"
+          },
+          "breakout_eve_bonus": {
+            "value": 150,
+            "description": "【V4.0新增】当股价处于52周高点附近（突破前夜）时，提供的机会奖励。"
+          },
+          "reversal_confirm_bonus": {
+            "value": 120,
+            "description": "【V4.0新增】当日线信号得到周线看涨K线反转形态确认时，提供的共振奖励。"
+          }
         },
         "judgment_params": {
           "enabled": true,
@@ -649,7 +677,24 @@
           "BOX_EVENT_BREAKDOWN": { "cn_name": "【风险】箱体破位事件", "type": "risk" },
           "VOL_EVENT_SQUEEZE": { "cn_name": "【触发】波动压缩事件", "type": "trigger" },
           "TRIGGER_BOX_BOTTOM_REVERSAL": { "cn_name": "【触发】箱体底部反转", "type": "trigger" },
-          "TRIGGER_PRIME_BREAKOUT_S": { "cn_name": "【触发S】突破冲锋号", "type": "trigger" }
+          "TRIGGER_PRIME_BREAKOUT_S": { "cn_name": "【触发S】突破冲锋号", "type": "trigger" },
+
+          "说明_STRATEGIC": "--- 战略信号 (周线) ---",
+          "CONTEXT_STRATEGIC_BULLISH_W": { "cn_name": "【周】战略性看涨", "type": "context" },
+          "CONTEXT_STRATEGIC_BEARISH_W": { "cn_name": "【周】战略性看跌", "type": "risk" },
+          "CONTEXT_STRATEGIC_TOPPING_RISK_W": { "cn_name": "【周】战略性顶部风险", "type": "risk" },
+          "CONTEXT_STRATEGIC_IGNITION_W": { "cn_name": "【周】战略性点火期", "type": "context" },
+          "CONTEXT_NEAR_52W_HIGH_W": { "cn_name": "【周】接近52周高点", "type": "context" },
+          "CONTEXT_PSYCH_REVERSAL_BULLISH_W": { "cn_name": "【周】看涨K线反转", "type": "context" },
+          "CONTEXT_PSYCH_REJECTION_BEARISH_W": { "cn_name": "【周】看跌K线拒绝", "type": "risk" },
+          "CONTEXT_TREND_HEALTH_STRONG_W": { "cn_name": "【周】趋势健康度强", "type": "context" },
+
+          "说明_STRATEGIC_BONUS": "--- 战略加分项 ---",
+          "STRATEGIC_BULLISH_BONUS_W": { "cn_name": "【加分】周线战略看涨", "type": "context" },
+          "STRATEGIC_IGNITION_BONUS_W": { "cn_name": "【加分】周线点火期", "type": "context" },
+          "STRATEGIC_HEALTH_BONUS_W": { "cn_name": "【加分】周线趋势健康", "type": "context" },
+          "STRATEGIC_BREAKOUT_EVE_BONUS_W": { "cn_name": "【加分】周线突破前夜", "type": "context" },
+          "STRATEGIC_REVERSAL_BONUS_W": { "cn_name": "【加分】周线看涨反转确认", "type": "context" }
         }
       },
       "trigger_event_params": {

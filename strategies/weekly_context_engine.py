@@ -36,74 +36,139 @@ class WeeklyContextEngine:
         self.indicator_cfg = config.get('feature_engineering_params', {}).get('indicators', {})
         # 3. 从周线专属的逻辑块中，获取剧本定义
         self.playbook_params = self.params.get('strategy_playbooks', {})
+        # 初始化K线形态识别器，用于周线心理学分析
+        kline_params = config.get('strategy_params', {}).get('trend_follow', {}).get('kline_pattern_params', {})
+        self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
 
     def generate_context(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 联合情报分析流水线】
-        - 核心重构: 将分析过程重构为清晰的流水线，每一步都为下一步提供
-                    更深层次的情报，最终合成为量化的战略分数。
+        【V4.0 · 战略情报生成流水线】
         """
         if df_weekly is None or df_weekly.empty:
             logger.warning("周线上下文引擎输入DataFrame为空，无法生成信号。")
             return pd.DataFrame()
 
-        print("\n" + "="*30 + "【周线联合情报中心 V3.0】启动" + "="*30)
+        print("\n" + "="*30 + "【周线战略战场指挥官 V4.0】启动" + "="*30)
         
         context_df = df_weekly.copy()
 
-        # --- 流水线 1/5: 基础剧本诊断 (可选，可保留或移除) ---
-        # 这一步计算一些基础的、事件驱动的信号，可以作为后续分析的补充
-        context_df = self._calculate_all_playbooks(context_df)
+        # --- 流水线 1/7: 定义战场关键参照物 (新) ---
+        print("---【步骤1/6: 定义战场关键参照物】---")
+        context_df = self._define_key_reference_levels(context_df)
+
+        # --- 流水线 2/7: 解读周线K线心理学 (新) ---
+        print("---【步骤2/6: 解读周线K线心理学】---")
+        context_df = self._analyze_candlestick_psychology(context_df)
+
+        # --- 流水线 3/7: 标定动态风险控制线 (新) ---
+        print("---【步骤3/6: 标定动态风险控制线】---")
+        context_df = self._calculate_dynamic_risk_levels(context_df)
         
-        # --- 流水线 2/5: 构建市场状态机 (核心进化一) ---
-        print("---【步骤1/4: 构建市场状态机】---")
+        # --- 流水线 4/7: 诊断趋势“品格” (新) ---
+        print("---【步骤4/6: 诊断趋势“品格”】---")
+        context_df = self._characterize_trend_health(context_df)
+
+        # --- 流水线 5/7: 构建市场状态机 (原) ---
+        print("---【步骤5/6: 构建市场状态机】---")
         context_df = self._build_market_regime(context_df)
 
-        # --- 流水线 3/5: 深度量价分析 (核心进化二) ---
-        print("---【步骤2/4: 深度量价分析】---")
+        # --- 流水线 6/7: 深度量价与背离分析 (原) ---
+        print("---【步骤6/6: 深度量价与背离分析】---")
         context_df = self._analyze_vpa(context_df)
-
-        # --- 流水线 4/5: 关键背离检测 (核心进化三) ---
-        print("---【步骤3/4: 关键背离检测】---")
         context_df = self._detect_divergences(context_df)
 
-        # --- 流水线 5/5: 合成战略分数与最终信号 (核心进化四) ---
-        print("---【步骤4/4: 合成战略分数与最终信号】---")
+        # --- 流水线 7/7: 合成战略分数与最终信号 (升级) ---
+        print("---【最终步骤: 合成战略分数与最终信号】---")
         context_df = self._calculate_strategic_score(context_df)
         
-        # 基于战略分数，生成最终的、更高级的战略节点状态
         score = context_df['strategic_score_W']
-        context_df['state_node_main_ascent_W'] = score >= 5  # 主升浪/强多头区
-        context_df['state_node_ignition_W'] = score.between(2, 5, inclusive='left') # 点火/观察区
-        context_df['state_node_topping_W'] = score <= -3 # 顶部/高风险区
+        context_df['state_node_main_ascent_W'] = score >= 5
+        context_df['state_node_ignition_W'] = score.between(2, 5, inclusive='left')
+        context_df['state_node_topping_W'] = score <= -3
         
-        # 增加一个免疫状态，用于日线策略
-        immunity_threshold = self.playbook_params.get('washout_score_playbook', {}).get('immunity_score_threshold', 3)
-        immunity_window = self.playbook_params.get('washout_score_playbook', {}).get('immunity_window', 3)
-        if 'washout_score_W' in context_df.columns:
-            had_recent_strong_washout = (context_df['washout_score_W'].rolling(window=immunity_window).max().shift(1) >= immunity_threshold)
-            context_df['state_washout_immunity_W'] = had_recent_strong_washout.fillna(False)
-        else:
-            context_df['state_washout_immunity_W'] = pd.Series(False, index=context_df.index)
-
         # 筛选最终需要注入日线的信号列
         final_signal_cols = [
+            # 核心分数与状态
             'strategic_score_W',
             'state_node_main_ascent_W',
             'state_node_ignition_W',
             'state_node_topping_W',
-            'state_washout_immunity_W'
+            # 新增的战略情报
+            'ref_dist_from_52w_high_W', # 距离52周高点的距离(百分比)
+            'ref_support_level_W',      # 关键支撑位
+            'risk_volatility_stop_W',   # 波动率止损位
+            'psych_reversal_bullish_W', # K线看涨反转信号
+            'psych_rejection_bearish_W',# K线看跌反转信号
+            'trend_health_strong_W',    # 趋势健康度强
         ]
-        # 也可以选择性地加入一些诊断信号供日线使用
-        # final_signal_cols.extend(['regime_bull_vol_expansion_W', 'risk_bearish_divergence_W'])
         
-        # 确保只返回新增的、且在final_signal_cols列表中的列
         original_cols = df_weekly.columns
         output_cols = [col for col in context_df.columns if col in final_signal_cols and col not in original_cols]
         
-        print(f"    - [情报中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
-        print("="*30 + "【周线联合情报中心 V3.0】执行完毕" + "="*30 + "\n")
+        print(f"    - [指挥中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
+        print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
         return context_df[output_cols]
+
+    # --- 新增模块 ---
+    def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
+        """【新增】定义战场关键参照物"""
+        # 1. 52周高点
+        high_52w = df['high_W'].rolling(52, min_periods=20).max()
+        df['ref_dist_from_52w_high_W'] = (df['close_W'] - high_52w) / high_52w
+        
+        # 2. 关键支撑位 (定义为过去26周的最低点)
+        df['ref_support_level_W'] = df['low_W'].rolling(26, min_periods=10).min()
+        
+        print("    - [参照物] 完成。已标定52周高点与关键支撑位。")
+        return df
+
+    def _analyze_candlestick_psychology(self, df: pd.DataFrame) -> pd.DataFrame:
+        """【新增】解读周线K线心理学"""
+        # 复用日线策略的K线形态识别器
+        df_with_patterns = self.pattern_recognizer.identify_all(df, suffix='_W')
+        
+        # 提取关键的心理学信号
+        # 1. 看涨反转/确认信号 (如锤子线, 看涨吞没)
+        bullish_patterns = ['HAMMER_W', 'INVHAMMER_W', 'BULLISH_ENGULFING_W', 'PIERCING_W', 'MORNINGSTAR_W']
+        df['psych_reversal_bullish_W'] = df_with_patterns[[p for p in bullish_patterns if p in df_with_patterns.columns]].any(axis=1)
+        
+        # 2. 看跌反转/拒绝信号 (如射击之星, 看跌吞没)
+        bearish_patterns = ['SHOOTINGSTAR_W', 'BEARISH_ENGULFING_W', 'DARKCLOUDCOVER_W', 'EVENINGSTAR_W']
+        df['psych_rejection_bearish_W'] = df_with_patterns[[p for p in bearish_patterns if p in df_with_patterns.columns]].any(axis=1)
+
+        print("    - [心理学] 完成。已解读周线K线的多空意图。")
+        return df
+
+    def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
+        """【新增】标定动态风险控制线"""
+        atr_col = 'ATR_14_W'
+        if atr_col not in df.columns:
+            print(f"    - [风险线-警告] 缺少 {atr_col} 列，无法计算动态风险线。")
+            df['risk_volatility_stop_W'] = np.nan
+            return df
+            
+        # 定义风险线为：收盘价下方 2 倍 ATR
+        df['risk_volatility_stop_W'] = df['close_W'] - (2 * df[atr_col])
+        
+        print("    - [风险线] 完成。已基于ATR计算动态风险控制线。")
+        return df
+
+    def _characterize_trend_health(self, df: pd.DataFrame) -> pd.DataFrame:
+        """【新增】诊断趋势“品格”"""
+        ema10_col = 'EMA_10_W'
+        ema21_col = 'EMA_21_W'
+        if not all(c in df.columns for c in [ema10_col, ema21_col]):
+            print("    - [趋势品格-警告] 缺少EMA列，无法诊断趋势健康度。")
+            df['trend_health_strong_W'] = False
+            return df
+            
+        # 定义强健康趋势为：收盘价 > 10周线 > 21周线
+        is_price_above_ema10 = df['close_W'] > df[ema10_col]
+        is_ema10_above_ema21 = df[ema10_col] > df[ema21_col]
+        df['trend_health_strong_W'] = is_price_above_ema10 & is_ema10_above_ema21
+        
+        print("    - [趋势品格] 完成。已诊断趋势的健康度。")
+        return df
 
     def _build_market_regime(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -214,6 +279,19 @@ class WeeklyContextEngine:
         # 3. 背离信号加减分
         score += df.get('opp_bullish_divergence_W', 0) * 3     # 底背离是强反转信号
         score -= df.get('risk_bearish_divergence_W', 0) * 4    # 顶背离是极重要风险
+
+        # 4. 战略情报加减分
+        # 4.1 趋势品格加分：健康的趋势是强加分项
+        score += df.get('trend_health_strong_W', 0) * 2
+        
+        # 4.2 K线心理学加减分：周线反转形态有很高的权重
+        score += df.get('psych_reversal_bullish_W', 0) * 3
+        score -= df.get('psych_rejection_bearish_W', 0) * 4
+        
+        # 4.3 关键位置加减分：接近52周高点是强势特征
+        dist_from_high = df.get('ref_dist_from_52w_high_W', 0)
+        # 当股价在52周高点下方5%以内时，认为是即将突破的强势区，加分
+        score += (dist_from_high.between(-0.05, 0.05)) * 2
 
         df['strategic_score_W'] = score
         print("    - [战略计分] 完成。已生成综合战略分数。")
