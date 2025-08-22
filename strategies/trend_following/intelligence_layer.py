@@ -81,22 +81,27 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V401.0 指挥链重构版】情报层总入口。
-        - 核心重构: 调整了诊断模块的调用顺序，将结构诊断拆分为“原子诊断”和“复合合成”两步，
-                    彻底解决了因依赖顺序错误导致的情报不一致问题。
+        【V401.1 周线情报适配版】情报层总入口。
+        - 核心升级: 新增了对周线战略情报的诊断和转化流程。
         """
-        print("--- [情报层总指挥官 V401.0 指挥链重构版] 开始执行所有诊断模块... ---") # MODIFIED: 修改版本号
+        print("--- [情报层总指挥官 V401.1 周线情报适配版] 开始执行所有诊断模块... ---") # MODIFIED: 修改版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础K线与板形态识别 ---
-        print("    - [阶段1/6] 正在执行基础形态识别...")
+        print("    - [阶段1/7] 正在执行基础形态识别...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
 
-        # --- 阶段二: 核心原子状态生成 (第一梯队) ---
-        print("    - [阶段2/6] 正在生成第一梯队原子状态 (无跨模块依赖)...")
+        # --- 代码修改开始 ---
+        # --- 阶段二: 注入并转化周线战略情报 ---
+        print("    - [阶段2/7] 正在注入并转化周线战略情报...")
+        self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
+        # --- 代码修改结束 ---
+
+        # --- 阶段三: 核心原子状态生成 (第一梯队) ---
+        print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_oscillator_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
@@ -111,9 +116,9 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
 
-        # --- 阶段三: 核心原子状态生成 (第二梯队 - 依赖第一梯队) ---
-        print("    - [阶段3/6] 正在生成第二梯队原子状态 (依赖第一梯队)...")
-        # [核心修改] 将 diagnose_box_states 和 diagnose_platform_states 从旧的“司令部”中解放出来，直接调用
+        # --- 阶段四: 核心原子状态生成 (第二梯队 - 依赖第一梯队) ---
+        print("    - [阶段4/7] 正在生成第二梯队原子状态 (依赖第一梯队)...")
+        # 将 diagnose_box_states 和 diagnose_platform_states 从旧的“司令部”中解放出来，直接调用
         self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
         df, platform_states = self.structural_intel.diagnose_platform_states(df)
         self.strategy.atomic_states.update(platform_states)
@@ -124,9 +129,9 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
 
-        # --- 阶段四: 复合与认知合成 ---
-        print("    - [阶段4/6] 正在执行复合与认知合成...")
-        # [核心修改] 调用重构后的、只负责合成的 synthesize_composite_structures
+        # --- 阶段五: 复合与认知合成 ---
+        print("    - [阶段5/7] 正在执行复合与认知合成...")
+        # 调用重构后的、只负责合成的 synthesize_composite_structures
         self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
@@ -137,8 +142,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
-        # --- 阶段五: 生成最终的触发器与剧本 ---
-        print("    - [阶段5/6] 正在生成触发器与交易剧本...")
+        # --- 阶段六: 生成最终的触发器与剧本 ---
+        print("    - [阶段6/7] 正在生成触发器与交易剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         trigger_events.update(chip_triggers)
         self.strategy.trigger_events = trigger_events
@@ -164,9 +169,54 @@ class IntelligenceLayer:
             is_volume_confirmed = df['volume_D'] > (df[vol_ma_col] * 1.5)
             trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False) & is_volume_confirmed
         else:
-            # 修复变量名错误
             trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
-        # --- 阶段六: 最终报告 ---
-        print("--- [情报层总指挥官 V401.0] 所有诊断模块执行完毕。 ---") # MODIFIED: 修改版本号
+        # --- 阶段七: 最终报告 ---
+        print("--- [情报层总指挥官 V401.1] 所有诊断模块执行完毕。 ---") # MODIFIED: 修改版本号
         return trigger_events
+
+    def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增】周线战略情报转化器
+        - 核心职责: 将从周线引擎注入的、连续的战略分数和状态信号，
+                    转化为日线引擎各模块可以理解的、离散的布尔型原子状态。
+        """
+        strategic_states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # 1. 转化战略分数
+        score_col = 'strategic_score_W'
+        if score_col in df.columns:
+            score = df[score_col]
+            # 状态: 战略性看涨 (强顺风) - 用于进攻层加分
+            strategic_states['CONTEXT_STRATEGIC_BULLISH_W'] = score >= 5
+            # 状态: 战略性看跌 (逆风) - 用于判断层增加否决票
+            strategic_states['CONTEXT_STRATEGIC_BEARISH_W'] = score < 0
+        else:
+            # 如果分数不存在，则所有相关状态都为False
+            strategic_states['CONTEXT_STRATEGIC_BULLISH_W'] = default_series
+            strategic_states['CONTEXT_STRATEGIC_BEARISH_W'] = default_series
+            print("    - [周线情报转化-警告] 未找到 'strategic_score_W' 列。")
+
+        # 2. 转化战略顶部风险信号
+        topping_col = 'state_node_topping_W'
+        if topping_col in df.columns:
+            # 状态: 战略性顶部风险 - 用于判断层和离场层的强否决
+            strategic_states['CONTEXT_STRATEGIC_TOPPING_RISK_W'] = df[topping_col]
+        else:
+            strategic_states['CONTEXT_STRATEGIC_TOPPING_RISK_W'] = default_series
+            print(f"    - [周线情报转化-警告] 未找到 '{topping_col}' 列。")
+            
+        # 3. 转化战略点火信号 (可选，用于进攻层)
+        ignition_col = 'state_node_ignition_W'
+        if ignition_col in df.columns:
+            strategic_states['CONTEXT_STRATEGIC_IGNITION_W'] = df[ignition_col]
+        else:
+            strategic_states['CONTEXT_STRATEGIC_IGNITION_W'] = default_series
+
+        print(f"    - [周线情报转化] 完成。已生成 {len(strategic_states)} 个战略级原子状态。")
+        return strategic_states
+
+
+
+

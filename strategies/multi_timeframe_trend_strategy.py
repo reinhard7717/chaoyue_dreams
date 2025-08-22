@@ -172,9 +172,9 @@ class MultiTimeframeTrendStrategy:
 
     def _merge_strategic_context_to_daily(self, df_daily: pd.DataFrame, df_weekly_context: pd.DataFrame) -> pd.DataFrame:
         """
-        【情报融合模块】
+        【情报融合模块 V3.0 · 适配战略分数版】
         将周线级别的战略信号，精准地合并到日线数据中。
-        采用 reindex + ffill 的技术，确保周一生成的信号能正确地应用到本周的每一个交易日。
+        - 核心升级: 新增对 'strategic_score_W' (浮点数) 的处理逻辑。
         """
         # 健壮性检查
         if df_weekly_context is None or df_weekly_context.empty:
@@ -193,12 +193,15 @@ class MultiTimeframeTrendStrategy:
         # 步骤3: 对合并过来的列进行类型标准化，确保数据一致性
         for col in df_weekly_context.columns:
             if col not in df_merged.columns: continue
-            
-            if col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_')):
+            if col == 'strategic_score_W':
+                # 新增：对战略分数进行处理，填充为0，并确保是浮点数
+                df_merged[col] = df_merged[col].fillna(0).astype(float)
+            elif col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_', 'regime_', 'vpa_', 'cmf_', 'risk_', 'opp_')):
+                # 修改：扩展布尔型信号的前缀范围，以适应V3.0引擎的新输出
                 df_merged[col] = df_merged[col].fillna(False).astype(bool)
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
-        
+
         print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
         return df_merged
 

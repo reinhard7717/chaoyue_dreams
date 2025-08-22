@@ -172,6 +172,16 @@ class JudgmentLayer:
         # 根据最新战报，将规避成功率高达28%的“获利盘崩盘”信号也加入否决票体系。
         has_winner_collapsing_risk = atomic.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
         df.loc[has_winner_collapsing_risk, 'veto_votes'] += 1
+        
+        # 风险6: 周线战略顶层风险 (Strategic Veto)
+        # 这是最高级别的风险，拥有强大的否决权
+        # 6.1 周线发出“顶部区域”强风险信号，投3票 (强否决)
+        is_strategic_topping = atomic.get('CONTEXT_STRATEGIC_TOPPING_RISK_W', default_series)
+        df.loc[is_strategic_topping, 'veto_votes'] += 3
+        
+        # 6.2 周线处于“战略看跌”状态，投1票 (软否决)
+        is_strategic_bearish = atomic.get('CONTEXT_STRATEGIC_BEARISH_W', default_series)
+        df.loc[is_strategic_bearish, 'veto_votes'] += 1
 
     def _finalize_signals(self):
         """

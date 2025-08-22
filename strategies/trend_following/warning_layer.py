@@ -63,29 +63,31 @@ class WarningLayer:
 
     def _diagnose_risk_dynamics(self, combined_risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V502.0 定量诊断大脑】【代码优化】
-        - 核心升级: 实现从“定性”到“定量”的飞跃。
-        - 优化说明: 原始的 for 循环被完全向量化的 `melt`, `merge`, 和 `groupby` 操作替代。
-                    代码首先将宽格式的风险数据（每天一行，每风险一列）转换为长格式，
-                    然后进行高效的列间计算，最后按日期分组聚合回所需的字典列表格式。
-                    这避免了逐行处理，性能得到数量级的提升。
+        【V502.1 健壮性修复版】
+        - 核心修复: 修复了当DataFrame索引有名称时，`reset_index().melt()` 因找不到 'index' 列而崩溃的问题。
+        - 修复逻辑: 通过 `reset_index(names='trade_time')` 强制将索引列命名为 'trade_time'，
+                    并在后续的 melt, merge, groupby 操作中统一使用此名称，消除了对默认行为的依赖。
         """
-        # print("          -> [定量诊断大脑 V502.0] 启动，正在进行风险量化分析...")
+        # print("          -> [定量诊断大脑 V502.1 健壮性修复版] 启动，正在进行风险量化分析...")
         
         # 使用全向量化操作替代 for 循环
         if combined_risk_details_df.empty:
             return pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)
 
+        # --- 代码修改开始 ---
+        # [修改原因] 强制将索引转换为一个名为 'trade_time' 的列，避免依赖不确定的默认列名 'index'。
         # 步骤1: 将当日和昨日的风险数据转换为长格式
-        risk_today_long = combined_risk_details_df.reset_index().melt(
-            id_vars='index', var_name='risk_name', value_name='score'
+        risk_today_long = combined_risk_details_df.reset_index(names='trade_time').melt(
+            id_vars='trade_time', var_name='risk_name', value_name='score'
         )
-        risk_yesterday_long = combined_risk_details_df.shift(1).reset_index().melt(
-            id_vars='index', var_name='risk_name', value_name='prev_score'
+        risk_yesterday_long = combined_risk_details_df.shift(1).reset_index(names='trade_time').melt(
+            id_vars='trade_time', var_name='risk_name', value_name='prev_score'
         )
         
         # 步骤2: 合并数据，使每一行包含当日和昨日的分数
-        merged_risks = pd.merge(risk_today_long, risk_yesterday_long, on=['index', 'risk_name']).fillna(0)
+        # [修改原因] 更新 merge 的 on 参数以匹配新的列名 'trade_time'。
+        merged_risks = pd.merge(risk_today_long, risk_yesterday_long, on=['trade_time', 'risk_name']).fillna(0)
+        # --- 代码修改结束 ---
         
         # 步骤3: 过滤掉没有风险变化的行以提高效率
         active_risks = merged_risks[(merged_risks['score'] > 0) | (merged_risks['prev_score'] > 0)].copy()
@@ -112,7 +114,10 @@ class WarningLayer:
         def format_group(group):
             return group[['risk_name', 'cn_name', 'score', 'prev_score', 'change', 'change_pct']].rename(columns={'risk_name': 'name'}).round(2).to_dict('records')
 
-        grouped = active_risks.sort_values('abs_change', ascending=False).groupby(['index', 'category']).apply(format_group)
+        # --- 代码修改开始 ---
+        # [修改原因] 更新 groupby 的分组键以匹配新的列名 'trade_time'。
+        grouped = active_risks.sort_values('abs_change', ascending=False).groupby(['trade_time', 'category']).apply(format_group)
+        # --- 代码修改结束 ---
         
         # 步骤7: 将分组结果重新组合成最终的 Series
         final_summary = grouped.unstack(level='category').apply(lambda row: row.dropna().to_dict(), axis=1)

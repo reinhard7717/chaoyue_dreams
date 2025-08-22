@@ -10,11 +10,16 @@ logger = logging.getLogger(__name__)
 
 class WeeklyContextEngine:
     """
-    【V1.0】周线战略上下文引擎
-    - 职能定位: 不再是独立的策略，而是作为战略参谋部，为日线策略提供
-                更高维度的周线级别战略背景信号 (Context)。
-    - 输入: 一个包含所有周线指标的 DataFrame。
-    - 输出: 一个只包含 'state_..._W', 'playbook_..._W' 等战略信号的 DataFrame。
+    【V3.0】周线战略上下文引擎 - 联合情报中心版
+    - 职能定位: 进化为“联合情报中心的首席战略官”，为日线策略提供
+                一个包含市场状态、量价关系、关键背离和量化战略分数
+                的、深刻而立体的战场沙盘。
+    - 核心进化:
+      1.  **市场状态机**: 融合趋势与波动率，定义四种核心市场状态。
+      2.  **量价分析引擎**: 深入分析OBV和CMF，洞察资金真实意图。
+      3.  **背离检测引擎**: 引入实用的价格与RSI背离检测，提供前瞻性信号。
+      4.  **量化战略分数**: 将所有分析合成为一个分数，为日线策略提供
+                         带有置信度的作战指导。
     """
 
     def __init__(self, config: dict):
@@ -34,148 +39,185 @@ class WeeklyContextEngine:
 
     def generate_context(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.2 · 精确靶向版】
-        - 核心升级: 放宽了“战略共识”的形成门槛，不再强求特定的动态背景。
-        - 新逻辑:
-          1. 只要有对应的剧本信号触发，就形成初步的“战略意图”。
-          2. 让“风险否决”机制去精准地审查和剔除那些在错误背景下产生的“意图”。
-          3. 这种“先大胆假设，后小心求证”的流程，能更好地捕捉到与风险期重叠的信号。
+        【V3.0 · 联合情报分析流水线】
+        - 核心重构: 将分析过程重构为清晰的流水线，每一步都为下一步提供
+                    更深层次的情报，最终合成为量化的战略分数。
         """
         if df_weekly is None or df_weekly.empty:
             logger.warning("周线上下文引擎输入DataFrame为空，无法生成信号。")
             return pd.DataFrame()
 
-        print("\n" + "="*30 + "【周线战略参谋部 V2.2】启动" + "="*30)
+        print("\n" + "="*30 + "【周线联合情报中心 V3.0】启动" + "="*30)
         
-        # --- 步骤 1 & 2: 计算基础情报 (不变) ---
-        print("---【步骤1/5 & 2/5: 计算基础剧本与动态背景】---")
-        context_df = self._calculate_all_playbooks(df_weekly)
-        slope_col, accel_col = 'SLOPE_5_EMA_21_W', 'ACCEL_5_EMA_21_W'
-        if slope_col in context_df.columns and accel_col in context_df.columns:
-            slope, accel = context_df[slope_col], context_df[accel_col]
-            context_df['state_trend_accelerating_W'] = (slope > 0) & (accel > 0)
-            context_df['state_trend_stable_rising_W'] = (slope > 0) & (accel <= 0)
-            context_df['state_trend_decelerating_fall_W'] = (slope < 0) & (accel > 0)
-            context_df['state_trend_accelerating_fall_W'] = (slope < 0) & (accel < 0)
-            context_df['filter_trend_is_healthy_W'] = context_df['state_trend_accelerating_W'] | context_df['state_trend_stable_rising_W']
-        else:
-            print(f"    - [动态分析-警告] 缺少斜率分析列，部分诊断将受影响。")
-            for col in ['filter_trend_is_healthy_W', 'state_trend_accelerating_W', 'state_trend_stable_rising_W', 'state_trend_decelerating_fall_W', 'state_trend_accelerating_fall_W']:
-                context_df[col] = pd.Series(False, index=context_df.index)
+        context_df = df_weekly.copy()
+
+        # --- 流水线 1/5: 基础剧本诊断 (可选，可保留或移除) ---
+        # 这一步计算一些基础的、事件驱动的信号，可以作为后续分析的补充
+        context_df = self._calculate_all_playbooks(context_df)
         
-        # --- 步骤 3: 【核心修改】建立更宽松的“战略意图” ---
-        print("\n---【步骤3/5: 建立初步战略意图 (放宽门槛)】---")
-        default_series = pd.Series(False, index=context_df.index)
+        # --- 流水线 2/5: 构建市场状态机 (核心进化一) ---
+        print("---【步骤1/4: 构建市场状态机】---")
+        context_df = self._build_market_regime(context_df)
+
+        # --- 流水线 3/5: 深度量价分析 (核心进化二) ---
+        print("---【步骤2/4: 深度量价分析】---")
+        context_df = self._analyze_vpa(context_df)
+
+        # --- 流水线 4/5: 关键背离检测 (核心进化三) ---
+        print("---【步骤3/4: 关键背离检测】---")
+        context_df = self._detect_divergences(context_df)
+
+        # --- 流水线 5/5: 合成战略分数与最终信号 (核心进化四) ---
+        print("---【步骤4/4: 合成战略分数与最终信号】---")
+        context_df = self._calculate_strategic_score(context_df)
         
-        # === 3.1 定义“进攻意图” ===
-        # 只要有任何一个进攻型剧本触发，就认为有“进攻意图”
-        offensive_playbooks = ['playbook_CLASSIC_BREAKOUT_W', 'playbook_BOX_CONSOLIDATION_BREAKOUT_W', 'playbook_ACE_SIGNAL_BREAKOUT_TRIGGER_W', 'playbook_COPPOCK_ACCELERATING_W']
-        valid_offensive = [p for p in offensive_playbooks if p in context_df.columns]
-        context_df['intent_offensive_W'] = context_df[valid_offensive].any(axis=1) if valid_offensive else default_series
-        print(f"    - [战略意图] “进攻意图”初步形成 {context_df['intent_offensive_W'].sum()} 周。")
-
-        # === 3.2 定义“反转意图” ===
-        # 只要有任何一个反转型剧本触发，就认为有“反转意图”
-        reversal_playbooks = ['playbook_TRIX_GOLDEN_CROSS_W', 'playbook_COPPOCK_STABILIZING_W', 'playbook_OVERSOLD_REBOUND_BIAS_W']
-        valid_reversal = [p for p in reversal_playbooks if p in context_df.columns]
-        context_df['intent_reversal_W'] = context_df[valid_reversal].any(axis=1) if valid_reversal else default_series
-        print(f"    - [战略意图] “反转意图”初步形成 {context_df['intent_reversal_W'].sum()} 周。")
-
-        # === 3.3 定义“洗盘意图” ===
-        # 只要洗盘分数达到阈值，就认为有“洗盘意图”
-        washout_params = self.playbook_params.get('washout_score_playbook', {})
-        washout_score_threshold = washout_params.get('score_threshold', 3)
-        context_df['intent_washout_W'] = context_df.get('washout_score_W', pd.Series(0, index=context_df.index)) >= washout_score_threshold
-        print(f"    - [战略意图] “洗盘意图”初步形成 {context_df['intent_washout_W'].sum()} 周。")
-
-        # --- 步骤 4: 应用“风险否决”与“机会确认”双重过滤 ---
-        print("\n---【步骤4/5: 应用双重过滤机制】---")
-        strategic_veto = self._diagnose_strategic_risks(context_df)
-        is_healthy_dynamic = context_df.get('filter_trend_is_healthy_W', default_series)
-        is_reversal_dynamic = context_df.get('state_trend_decelerating_fall_W', default_series)
-
-        # === 4.1 形成最终的“强多头共识” ===
-        # 条件：有进攻意图 AND 动态背景健康 AND 未被风险否决
-        context_df['consensus_strong_bullish_W'] = context_df['intent_offensive_W'] & is_healthy_dynamic & ~strategic_veto
+        # 基于战略分数，生成最终的、更高级的战略节点状态
+        score = context_df['strategic_score_W']
+        context_df['state_node_main_ascent_W'] = score >= 5  # 主升浪/强多头区
+        context_df['state_node_ignition_W'] = score.between(2, 5, inclusive='left') # 点火/观察区
+        context_df['state_node_topping_W'] = score <= -3 # 顶部/高风险区
         
-        # === 4.2 形成最终的“底部反转共识” ===
-        # 条件：有反转意图 AND 动态背景配合(下跌减速) AND 未被风险否决
-        context_df['consensus_bottom_reversal_W'] = context_df['intent_reversal_W'] & is_reversal_dynamic & ~strategic_veto
-        
-        # === 4.3 形成最终的“洗盘观察共识” ===
-        # 条件：有洗盘意图 AND 动态背景健康 AND 未被风险否决
-        context_df['consensus_washout_watch_W'] = context_df['intent_washout_W'] & is_healthy_dynamic & ~strategic_veto
-
-        # print(f"    - [最终共识] “强多头共识”在过滤后，最终确认 {context_df['consensus_strong_bullish_W'].sum()} 周。")
-        # print(f"    - [最终共识] “底部反转共识”在过滤后，最终确认 {context_df['consensus_bottom_reversal_W'].sum()} 周。")
-        # print(f"    - [最终共识] “洗盘观察共识”在过滤后，最终确认 {context_df['consensus_washout_watch_W'].sum()} 周。")
-
-        # --- 步骤 5: 信号合成与输出 (不变) ---
-        print("\n---【步骤5/5: 最终信号合成与输出】---")
-        context_df['state_node_main_ascent_W'] = context_df['consensus_strong_bullish_W']
-        context_df['state_node_ignition_W'] = context_df['consensus_bottom_reversal_W']
-        context_df['state_node_washout_W'] = context_df['consensus_washout_watch_W']
-        context_df['state_node_topping_W'] = context_df.get('veto_strategic_risk_W', default_series)
-        immunity_threshold = washout_params.get('immunity_score_threshold', 3)
-        immunity_window = washout_params.get('immunity_window', 3)
+        # 增加一个免疫状态，用于日线策略
+        immunity_threshold = self.playbook_params.get('washout_score_playbook', {}).get('immunity_score_threshold', 3)
+        immunity_window = self.playbook_params.get('washout_score_playbook', {}).get('immunity_window', 3)
         if 'washout_score_W' in context_df.columns:
             had_recent_strong_washout = (context_df['washout_score_W'].rolling(window=immunity_window).max().shift(1) >= immunity_threshold)
             context_df['state_washout_immunity_W'] = had_recent_strong_washout.fillna(False)
         else:
-            context_df['state_washout_immunity_W'] = default_series
-        signal_cols = [col for col in context_df.columns if col.startswith(('state_node_', 'state_washout_immunity_W', 'veto_'))]
+            context_df['state_washout_immunity_W'] = pd.Series(False, index=context_df.index)
+
+        # 筛选最终需要注入日线的信号列
+        final_signal_cols = [
+            'strategic_score_W',
+            'state_node_main_ascent_W',
+            'state_node_ignition_W',
+            'state_node_topping_W',
+            'state_washout_immunity_W'
+        ]
+        # 也可以选择性地加入一些诊断信号供日线使用
+        # final_signal_cols.extend(['regime_bull_vol_expansion_W', 'risk_bearish_divergence_W'])
+        
+        # 确保只返回新增的、且在final_signal_cols列表中的列
         original_cols = df_weekly.columns
-        final_signal_cols = [col for col in signal_cols if col not in original_cols]
-        print(f"    - [周线引擎] 已生成 {len(final_signal_cols)} 个最终周线战略指挥信号。")
-        print("="*30 + "【周线战略参谋部 V2.2】执行完毕" + "="*30 + "\n")
-        return context_df[final_signal_cols]
+        output_cols = [col for col in context_df.columns if col in final_signal_cols and col not in original_cols]
+        
+        print(f"    - [情报中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
+        print("="*30 + "【周线联合情报中心 V3.0】执行完毕" + "="*30 + "\n")
+        return context_df[output_cols]
 
-    def _diagnose_strategic_risks(self, df: pd.DataFrame) -> pd.Series:
+    def _build_market_regime(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.1 新增】战略风险诊断模块 (具备持续影响力的风险否决权)
-        - 核心升级: 引入“战略戒备”状态。当一个高危风险（如破位下跌）被识别后，
-                    其否决效应会持续N周，而不是仅在当周生效。
+        【核心进化一】构建市场状态机
+        融合趋势(EMA斜率)和波动率(布林带宽度BBW)，将市场划分为四种核心状态。
+        这符合A股牛市分“放量快牛”和“缩量慢牛”的特征。
+        使用滚动分位数作为阈值，自适应不同股票的波动特性，避免了固定阈值的陷阱。
         """
-        print("\n---【诊断模块: 战略风险否决 V2.1】---")
-        default_series = pd.Series(False, index=df.index)
-        
-        # --- 风险1: 高位放量滞涨 (瞬时风险) ---
-        is_topping_dynamic = df.get('state_trend_stable_rising_W', default_series)
-        has_rejection = df.get('rejection_signal_W', pd.Series(0, index=df.index)) < 0
-        risk_stagnation = is_topping_dynamic & has_rejection
-        # print(f"    - [风险诊断] “高位滞涨”瞬时风险识别 {risk_stagnation.sum()} 周。")
-        
-        # --- 风险2: 破位下跌确认 (触发持续性风险) ---
-        is_falling_dynamic = df.get('state_trend_accelerating_fall_W', default_series)
-        short_ma_col, long_ma_col = 'EMA_13_W', 'EMA_55_W'
-        if short_ma_col in df.columns and long_ma_col in df.columns:
-            is_ma_downtrend = df[short_ma_col] < df[long_ma_col]
-        else:
-            is_ma_downtrend = default_series
-        
-        # “破位下跌”事件，只在首次发生时触发
-        breakdown_event = (is_falling_dynamic & is_ma_downtrend) & ~(is_falling_dynamic & is_ma_downtrend).shift(1).fillna(False)
-        # print(f"    - [风险诊断] “破位下跌”事件触发 {breakdown_event.sum()} 周。")
+        slope_col = 'SLOPE_5_EMA_21_W'
+        bbw_col = 'BBW_20_2.0_W'
+        if not all(c in df.columns for c in [slope_col, bbw_col]):
+            print("    - [状态机-警告] 缺少斜率或BBW列，无法构建市场状态机。")
+            return df
 
-        # --- 核心升级: 建立“战略戒备”状态窗口 ---
-        # 当“破位下跌”事件发生后，启动一个为期4周的“战略戒备”窗口
-        # 在这个窗口期内，风险否决信号将持续为True
-        persistence_weeks = 4
-        # 使用一个简单的计数器来实现状态持久化
-        counter = pd.Series(0, index=df.index)
-        counter[breakdown_event] = persistence_weeks
-        counter = counter.replace(0, np.nan).ffill().fillna(0)
-        days_in_window = counter.groupby(breakdown_event.cumsum()).cumcount()
-        persistent_breakdown_risk = (days_in_window < persistence_weeks) & (counter > 0)
-        # print(f"    - [风险诊断] “持续性破位风险”(战略戒备)共激活 {persistent_breakdown_risk.sum()} 周。")
+        # 1. 定义趋势状态
+        is_uptrend = df[slope_col] > 0
+        is_downtrend = df[slope_col] < 0
 
-        # --- 合并所有风险，形成最终的“风险否决”信号 ---
-        # 最终否决信号 = 瞬时的高位滞涨风险 OR 持续性的破位下跌风险
-        final_veto_signal = risk_stagnation | persistent_breakdown_risk
-        df['veto_strategic_risk_W'] = final_veto_signal # 将否决信号也输出，便于调试
-        # print(f"    - [风险诊断] 最终战略风险否决信号在 {final_veto_signal.sum()} 周被激活。")
+        # 2. 定义波动率状态 (使用滚动分位数，更具适应性)
+        # 使用过去一年(52周)的数据作为参考系
+        vol_high_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(0.70)
+        vol_low_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(0.30)
         
-        return final_veto_signal
+        is_vol_expansion = df[bbw_col] > vol_high_threshold
+        is_vol_contraction = df[bbw_col] < vol_low_threshold
+
+        # 3. 组合成四种市场状态
+        df['regime_bull_vol_expansion_W'] = is_uptrend & is_vol_expansion     # 牛市主升浪 (快牛)
+        df['regime_bull_quiet_W'] = is_uptrend & is_vol_contraction          # 牛市静默期 (慢牛/蓄力)
+        df['regime_bear_vol_expansion_W'] = is_downtrend & is_vol_expansion    # 熊市主跌浪 (杀跌)
+        df['regime_bear_quiet_W'] = is_downtrend & is_vol_contraction         # 熊市静默期 (阴跌/筑底)
+        
+        print("    - [状态机] 完成。已将市场划分为四种核心状态。")
+        return df
+
+    def _analyze_vpa(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【核心进化二】深度量价分析引擎
+        利用OBV和CMF洞察资金的真实意图，判断价格行为的健康度。
+        这在A股市场尤其重要，因为“聪明钱”的动向往往领先于价格。
+        """
+        obv_col = 'OBV_W'
+        cmf_col = 'CMF_21_W'
+        slope_ema_col = 'SLOPE_5_EMA_21_W'
+        if not all(c in df.columns for c in [obv_col, cmf_col, slope_ema_col]):
+            print("    - [VPA-警告] 缺少OBV或CMF列，无法进行深度量价分析。")
+            return df
+
+        # 1. OBV趋势与价格趋势验证
+        # 使用简单差分计算OBV短期趋势， robust and simple
+        slope_obv = df[obv_col].diff(5) 
+        df['vpa_health_W'] = (df[slope_ema_col] > 0) & (slope_obv > 0)
+
+        # 2. CMF资金流状态
+        # CMF > 0.05 通常被认为是机构在吸筹
+        # CMF < -0.05 通常被认为是机构在派发
+        df['cmf_accumulation_W'] = df[cmf_col] > 0.05
+        df['cmf_distribution_W'] = df[cmf_col] < -0.05
+        
+        print("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
+        return df
+
+    def _detect_divergences(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【核心进化三】关键背离检测引擎
+        检测价格与RSI指标的背离，提供极具价值的前瞻性信号。
+        实现方式采用滚动窗口对比，避免了寻找精确波峰/波谷的数学陷阱，更贴近实战。
+        """
+        rsi_col = 'RSI_12_W'
+        if rsi_col not in df.columns:
+            print("    - [背离检测-警告] 缺少RSI列，无法进行背离检测。")
+            return df
+        
+        N = 26 # 使用半年(26周)作为背离的观察窗口
+
+        # 1. 检测熊市顶背离 (价格新高附近，RSI却明显走弱)
+        price_near_high = df['high_W'] >= df['high_W'].rolling(N).max() * 0.98
+        rsi_not_at_high = df[rsi_col] < df[rsi_col].rolling(N).max() * 0.85
+        df['risk_bearish_divergence_W'] = price_near_high & rsi_not_at_high
+
+        # 2. 检测牛市底背离 (价格新低附近，RSI却拒绝创新低)
+        price_near_low = df['low_W'] <= df['low_W'].rolling(N).min() * 1.02
+        rsi_not_at_low = df[rsi_col] > df[rsi_col].rolling(N).min() * 1.15
+        df['opp_bullish_divergence_W'] = price_near_low & rsi_not_at_low
+        
+        print("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
+        return df
+
+    def _calculate_strategic_score(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【核心进化四】合成量化战略分数
+        将所有维度的分析结果，通过加权计分，合成为一个综合性的战略分数。
+        分数权重体现了A股市场的经验：风险信号的权重通常高于机会信号。
+        """
+        score = pd.Series(0.0, index=df.index)
+
+        # 1. 市场状态基础分
+        score += df.get('regime_bull_vol_expansion_W', 0) * 3  # 最强的状态
+        score += df.get('regime_bull_quiet_W', 0) * 2          # 次强的状态
+        score -= df.get('regime_bear_vol_expansion_W', 0) * 5  # 最危险的状态，强力否决
+        score -= df.get('regime_bear_quiet_W', 0) * 2          # 次危险的状态
+
+        # 2. 量价分析加减分
+        score += df.get('vpa_health_W', 0) * 2
+        score += df.get('cmf_accumulation_W', 0) * 2
+        score -= df.get('cmf_distribution_W', 0) * 3          # 资金派发是重要风险
+
+        # 3. 背离信号加减分
+        score += df.get('opp_bullish_divergence_W', 0) * 3     # 底背离是强反转信号
+        score -= df.get('risk_bearish_divergence_W', 0) * 4    # 顶背离是极重要风险
+
+        df['strategic_score_W'] = score
+        print("    - [战略计分] 完成。已生成综合战略分数。")
+        return df
 
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """

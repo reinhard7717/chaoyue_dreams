@@ -121,6 +121,24 @@ class OffensiveLayer:
                     score_details_df[playbook_name] = playbook_series * score
         
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
+
+        # --- 7. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
+        # 这是来自更高维度的指令，拥有独立的加分逻辑
+        strategic_bonus_params = scoring_params.get('strategic_context_scoring', {})
+        if get_param_value(strategic_bonus_params.get('enabled'), True):
+            # 7.1 强顺风加分
+            bullish_bonus = get_param_value(strategic_bonus_params.get('bullish_bonus'), 200)
+            is_bullish = atomic_states.get('CONTEXT_STRATEGIC_BULLISH_W', default_series)
+            if is_bullish.any():
+                entry_score.loc[is_bullish] += bullish_bonus
+                score_details_df['STRATEGIC_BULLISH_BONUS_W'] = is_bullish * bullish_bonus
+            
+            # 7.2 点火期加分
+            ignition_bonus = get_param_value(strategic_bonus_params.get('ignition_bonus'), 100)
+            is_ignition = atomic_states.get('CONTEXT_STRATEGIC_IGNITION_W', default_series)
+            if is_ignition.any():
+                entry_score.loc[is_ignition] += ignition_bonus
+                score_details_df['STRATEGIC_IGNITION_BONUS_W'] = is_ignition * ignition_bonus
         return entry_score, score_details_df
 
     def _create_persistent_state_from_events(self, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series) -> pd.Series:
