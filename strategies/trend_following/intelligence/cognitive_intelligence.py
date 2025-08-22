@@ -499,53 +499,39 @@ class CognitiveIntelligence:
 
     def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 王牌突击队】终极战法合成模块
-        - 核心思想: 严格分离“阵地构筑(Setup)”与“冲锋号(Trigger)”。
-        - 流程: 1. 定义S级的“黄金阵地”状态。
-                 2. 定义S级的“突破冲锋号”事件。
-                 3. 只有当“黄金阵地”建立后，次日出现“冲锋号”，才确认为终极战法。
-        - 收益: 彻底根除基于静态“状态”的左侧交易思维，转为高确定性的右侧突破交易。
+        【V1.1 幽灵清除版】终极战法合成模块
+        - 核心修复: 移除了对 TRIGGER_PRIME_BREAKOUT_S 的错误重复定义。
+                    该信号的唯一定义源已被统一到 playbook_engine.py 中，
+                    彻底解决了“信号身份盗用”问题，确保了战术逻辑的纯洁性。
         """
-        # print("        -> [终极战法合成模块 V1.0 王牌突击队] 启动...")
+        print("        -> [终极战法合成模块 V1.1 幽灵清除版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 定义S级“黄金阵地” (Prime Setup) ---
-        # 这是一个多维度共振的“压缩弹簧”状态
         is_prime_chip_structure = atomic.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         has_energy_advantage = atomic.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
         
-        # 引入分层逻辑，同时定义 S++ 和 S+ 级别的战备状态。
-        # 步骤 1.1: 计算满足条件的数量
         condition_sum = (
             is_prime_chip_structure.astype(int) +
             is_extreme_squeeze.astype(int) +
             has_energy_advantage.astype(int)
         )
         
-        # 步骤 1.2: 定义 S++ 级的战备状态 (三位一体)
         setup_s_plus_plus = (condition_sum == 3)
-        states['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'] = setup_s_plus_plus # 存储这个中间状态，虽然当前未使用，但便于未来调试
+        states['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'] = setup_s_plus_plus
 
-        # 步骤 1.3: 定义 S+ 级的战备状态 (三者取二)
         setup_s_plus = (condition_sum == 2)
         states['SETUP_PRIME_STRUCTURE_S_PLUS'] = setup_s_plus
 
-        # --- 2. 定义S级“突破冲锋号” (Prime Trigger) ---
-        # 这是一个融合了多种确认方式的、高强度的突破事件
-        is_energy_release = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
-        is_volume_breakout = triggers.get('TRIGGER_VOLUME_SPIKE_BREAKOUT', default_series)
-        is_fractal_breakout = triggers.get('FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED', default_series)
-
-        # 最终的“冲锋号”事件：满足任一高强度突破信号即可
-        trigger_prime_breakout_s = is_energy_release | is_volume_breakout | is_fractal_breakout
-        states['TRIGGER_PRIME_BREAKOUT_S'] = trigger_prime_breakout_s
+        # --- 2. 获取真正的S级“突破冲锋号” ---
+        # [代码修改] 从 trigger_events 中直接获取由 playbook_engine.py 定义的、唯一的、正确的信号
+        trigger_prime_breakout_s = triggers.get('TRIGGER_PRIME_BREAKOUT_S', default_series)
 
         # --- 3. 【终极裁定】生成S++级王牌战法 ---
-        # 条件：昨日处于“黄金阵地”状态，今日响起了“冲锋号”
         is_triggered_today = trigger_prime_breakout_s
 
         # 3.1 生成 S++ 战法
@@ -557,7 +543,7 @@ class CognitiveIntelligence:
         was_setup_s_plus_yesterday = setup_s_plus.shift(1).fillna(False)
         final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today
         states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS'] = final_tactic_s_plus
-        
+
         if final_tactic_s_plus_plus.any():
             print(f"          -> [S++级王牌战法] 侦测到 {final_tactic_s_plus_plus.sum()} 次“终极结构突破”机会！")
         if final_tactic_s_plus.any():
