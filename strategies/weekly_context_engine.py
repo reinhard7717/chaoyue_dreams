@@ -5,6 +5,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import logging
+from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 
 logger = logging.getLogger(__name__)
 
