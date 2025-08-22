@@ -19,29 +19,35 @@ class MainForceState(Enum):
 
 def _create_decaying_influence_series(event_series: pd.Series, window_days: int) -> pd.Series:
     """
-    【新增辅助函数】创建一个随时间线性衰减的影响力分数序列。
+    【新增辅助函数】【代码优化】创建一个随时间线性衰减的影响力分数序列。
     - 功能: 从一个事件(True/False)序列，生成一个0-1的浮点数序列。
     - 逻辑: 事件发生当天影响力为1.0，随后在window_days内线性衰减至0。
             如果窗口期内发生新事件，影响力会重置为1.0并重新开始衰减。
-    - 返回: 一个代表“影响力分数”的pandas Series。
+    - 优化说明: 原始的嵌套循环实现被完全向量化的pandas操作替代。
+                新方法通过记录事件发生时的位置，使用`ffill()`快速向前填充最近的事件位置，
+                然后通过向量化算术运算一次性计算出所有日期的衰减值。
+                这避免了Python层面的循环，效率提升显著。
     """
-    influence = pd.Series(0.0, index=event_series.index)
-    event_indices = event_series[event_series].index
+    # 使用全向量化操作替代嵌套循环
+    if not event_series.any():
+        return pd.Series(0.0, index=event_series.index)
     
-    for event_idx in event_indices:
-        start_pos = event_series.index.get_loc(event_idx)
-        # 确保窗口不会超出数据范围
-        end_pos = min(start_pos + window_days, len(event_series))
-        
-        for i in range(start_pos, end_pos):
-            days_passed = i - start_pos
-            decay_factor = (window_days - days_passed) / window_days
-            # 只有当新的影响力大于旧的，才更新（处理窗口重叠问题）
-            current_influence_idx = event_series.index[i]
-            if decay_factor > influence.at[current_influence_idx]:
-                influence.at[current_influence_idx] = decay_factor
-                
-    return influence
+    # 步骤1: 创建一个序列，其中只有事件发生日有值，值为当天的索引位置(整数)
+    positions = np.arange(len(event_series))
+    event_positions = pd.Series(positions, index=event_series.index).where(event_series)
+    
+    # 步骤2: 向前填充，使得每一天都知道最近一次事件发生的位置
+    last_event_pos = event_positions.ffill()
+    
+    # 步骤3: 计算自最近一次事件以来经过的天数
+    days_since_event = pd.Series(positions, index=event_series.index) - last_event_pos
+    
+    # 步骤4: 计算衰减因子，并过滤掉超出窗口期的影响
+    influence = (window_days - days_since_event) / window_days
+    influence = influence.where(days_since_event < window_days, 0).fillna(0)
+    
+    # 步骤5: 确保影响力不会小于0
+    return influence.clip(lower=0)
 
 class CognitiveIntelligence:
     def __init__(self, strategy_instance):
@@ -244,57 +250,61 @@ class CognitiveIntelligence:
 
     def determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V304.1 信号源修复版】
+        【V304.1 信号源修复版】【代码优化】
         - 核心修复: 全面修正了此状态机对上游原子信号的引用，使其与情报层实际生成的信号名完全匹配。
                     解决了因引用不存在的信号而导致整个模块失效的严重问题。
+        - 优化说明: 原始实现通过for循环遍历DataFrame并使用.at/.iloc进行读写，效率低下。
+                    优化后的版本将所有条件判断所需的Series预先转换为NumPy数组，
+                    在循环中直接对NumPy数组进行索引和赋值。这避免了pandas索引的巨大开销，
+                    使得循环体内的操作非常快，显著提升了整体性能。
         """
         # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---") # MODIFIED: 修改版本号
-        df['main_force_state'] = MainForceState.IDLE.value
-        for i in range(1, len(df)):
-            prev_state_val = df.at[df.index[i-1], 'main_force_state']
-            prev_state = MainForceState(prev_state_val)
-            s = {
-                # 筹码集中状态
-                'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).iloc[i],
-                # 资金流入状态
-                'is_inflow': self.strategy.atomic_states.get('CAPITAL_STATE_INFLOW_CONFIRMED', pd.Series(False, index=df.index)).iloc[i],
-                # 价格急跌信号
-                'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).iloc[i],
-                # 横盘状态
-                'is_sideways': abs(df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).iloc[i]) < 0.01,
-                # 拉升/突破信号 - 使用最高质量的S级突破信号
-                'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).iloc[i],
-                # 筹码断层信号 - 使用正确的列名
-                'is_chip_fault': df.get('is_chip_fault_formed_D', pd.Series(False, index=df.index)).iloc[i],
-                # 派发信号 - 使用最明确的主峰派发风险信号
-                'is_distributing': self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', pd.Series(False, index=df.index)).iloc[i],
-                # 筹码发散信号 - 使用正确的信号名
-                'is_diverging': self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', pd.Series(False, index=df.index)).iloc[i],
-                # 滞涨信号
-                'is_stagnation': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).iloc[i],
-                # 跌破长期均线
-                'is_below_long_ma': df.at[df.index[i], 'close_D'] < df.at[df.index[i], 'EMA_55_D'],
-            }
+        
+        # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
+        conditions = {
+            'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_inflow': self.strategy.atomic_states.get('CAPITAL_STATE_INFLOW_CONFIRMED', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_sideways': (df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).abs() < 0.01).to_numpy(dtype=bool),
+            'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_chip_fault': df.get('is_chip_fault_formed_D', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_distributing': self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_diverging': self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_stagnation': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_below_long_ma': (df['close_D'] < df['EMA_55_D']).to_numpy(dtype=bool),
+        }
+        
+        # 步骤2: 初始化一个NumPy数组用于存储状态结果
+        n = len(df)
+        main_force_state_arr = np.full(n, MainForceState.IDLE.value, dtype=int)
 
+        # 步骤3: 循环主体直接操作NumPy数组，效率远高于操作DataFrame
+        for i in range(1, n):
+            prev_state = MainForceState(main_force_state_arr[i-1])
             current_state = prev_state
+
             if prev_state == MainForceState.IDLE:
-                if s['is_concentrating'] and s['is_inflow']: current_state = MainForceState.ACCUMULATING
+                if conditions['is_concentrating'][i] and conditions['is_inflow'][i]: current_state = MainForceState.ACCUMULATING
             elif prev_state == MainForceState.ACCUMULATING:
-                if s['is_markup_breakout'] or s['is_chip_fault']: current_state = MainForceState.MARKUP
-                elif s['is_sharp_drop'] and s['is_concentrating']: current_state = MainForceState.WASHING
-                elif s['is_distributing'] or s['is_diverging']: current_state = MainForceState.DISTRIBUTING
+                if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
+                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
+                elif conditions['is_distributing'][i] or conditions['is_diverging'][i]: current_state = MainForceState.DISTRIBUTING
             elif prev_state == MainForceState.WASHING:
-                if s['is_markup_breakout'] or s['is_chip_fault']: current_state = MainForceState.MARKUP
-                elif not s['is_concentrating']: current_state = MainForceState.DISTRIBUTING
-                elif s['is_sideways'] and s['is_concentrating']: current_state = MainForceState.ACCUMULATING
+                if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
+                elif not conditions['is_concentrating'][i]: current_state = MainForceState.DISTRIBUTING
+                elif conditions['is_sideways'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.ACCUMULATING
             elif prev_state == MainForceState.MARKUP:
-                if s['is_distributing'] or s['is_diverging'] or s['is_stagnation']: current_state = MainForceState.DISTRIBUTING
-                elif s['is_sharp_drop'] and s['is_concentrating']: current_state = MainForceState.WASHING
+                if conditions['is_distributing'][i] or conditions['is_diverging'][i] or conditions['is_stagnation'][i]: current_state = MainForceState.DISTRIBUTING
+                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
             elif prev_state == MainForceState.DISTRIBUTING:
-                if s['is_below_long_ma']: current_state = MainForceState.COLLAPSE
+                if conditions['is_below_long_ma'][i]: current_state = MainForceState.COLLAPSE
             elif prev_state == MainForceState.COLLAPSE:
-                if s['is_sideways'] and not s['is_below_long_ma']: current_state = MainForceState.IDLE
-            df.at[df.index[i], 'main_force_state'] = current_state.value
+                if conditions['is_sideways'][i] and not conditions['is_below_long_ma'][i]: current_state = MainForceState.IDLE
+            
+            main_force_state_arr[i] = current_state.value
+            
+        # 步骤4: 将最终的NumPy结果数组一次性赋值给DataFrame的新列
+        df['main_force_state'] = main_force_state_arr
         # print("    --- [战略推演单元 V304.1 信号源修复版] 主力行为序列已生成。 ---") # MODIFIED: 修改版本号
         return df
 

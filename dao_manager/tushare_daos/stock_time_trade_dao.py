@@ -213,110 +213,69 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"[DAO] 获取 {stock_code} 最新日线行情时发生错误: {e}", exc_info=True)
             return None
 
-    async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
+    @with_rate_limit(name='api_daily')
+    async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None,
+                                                           end_date: date = None, *, limiter) -> dict:
         """
-        保存指定日期区间的所有股票日线交易数据，自动分表 (完全向量化优化版)
-        1. 一次性预加载所有股票信息，根除N+1查询。
-        2. 对每一页数据进行完全向量化处理，包括对象映射和模型分类。
-        3. 处理完一页数据后立即分组并存入数据库，有效控制内存。
+        【V2.0 智能参数修正版】根据指定的日期或日期范围，获取并保存所有股票的日线交易数据。
+        - 核心修正: 动态构建API参数。
+          - 当 trade_date 被提供时，API调用使用 'trade_date' 参数。
+          - 当 start_date/end_date 被提供时，API调用使用 'start_date'/'end_date' 参数。
+        这解决了当 start_date 和 end_date 相同时，API返回空数据的问题。
+
+        :param trade_date: 单个交易日期。
+        :param start_date: 开始日期。
+        :param end_date: 结束日期。
+        :param limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
+        :return: 包含处理结果的字典。
         """
-        # --- 在所有循环开始前，一次性预加载全部股票信息 ---
-        print("正在预加载所有股票的基础信息...")
-        # 1. 调用您提供的方法获取所有股票对象列表
-        all_stocks_list = await self.stock_basic_dao.get_stock_list()
-        if not all_stocks_list:
-            logger.warning("未能从数据库或缓存中获取任何股票信息，任务终止。")
-            return {}
-        
-        # 2. 构建一个以ts_code为键，StockInfo对象为值的高效查找字典
-        stock_map = {stock.stock_code: stock for stock in all_stocks_list}
-        print(f"股票信息预加载完成，共加载 {len(stock_map)} 条。")
-
-        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
-        start_date_str = start_date.strftime('%Y%m%d') if start_date else "20250101"
-        end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-        
-        offset = 0
-        limit = 6000
-        page_num = 1
-        all_results = {} # 用于收集所有保存操作的结果
-
-        while True:
-            if offset >= 100000:
-                logger.warning(f"offset已达10万，停止拉取。{start_date_str} - {end_date_str}, freq=Day")
-                break
-            
-            df = self.ts_pro.stk_factor(
-                **{
-                    "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str,
-                    "end_date": end_date_str, "offset": offset, "limit": limit
-                },
-                fields=[
-                    "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol",
-                    "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq",
-                    "low_qfq", "pre_close_hfq", "pre_close_qfq"
-                ]
-            )
-            if df.empty:
-                break
-
-            # --- 对整页DataFrame进行向量化处理，彻底替代for循环 ---
-            # 1. 数据清洗
-            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-            
-            # 2. 向量化映射stock对象 (使用预加载的全局stock_map)
-            df['stock'] = df['ts_code'].map(stock_map)
-            
-            # 3. 丢弃关键字段为空或在数据库中找不到对应stock的行
-            df.dropna(subset=['trade_date', 'stock'], inplace=True)
-
-            if df.empty:
-                print(f"当前页数据经清洗后为空，跳至下一页。")
-                if len(df) < limit: # 原始df长度判断分页是否结束
-                    break
-                offset += limit
-                page_num += 1
-                continue
-
-            # 4. 向量化转换日期格式
-            df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-            
-            # 5. 向量化应用函数，为每行数据动态确定其应存入的模型类
-            df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
-
-            # --- 页级处理，立即使用groupby对DataFrame进行高效分组并保存 ---
-            for model_class, group_df in df.groupby('model_class', sort=False):
-                if group_df.empty:
-                    continue
-                
-                # 6. 从分组后的DataFrame中直接选择所需列，并转换为字典列表
-                #    这步替代了 set_time_trade_day_data 方法
-                data_list = group_df[[
-                    "stock", "trade_time", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol",
-                    "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq",
-                    "low_qfq", "pre_close_hfq", "pre_close_qfq"
-                ]].to_dict('records')
-
-                # 7. 批量保存该模型的数据
-                res = await self._save_all_to_db_native_upsert(
-                    model_class=model_class,
-                    data_list=data_list,
-                    unique_fields=['stock', 'trade_time']
-                )
-                # 汇总结果
-                model_name = model_class.__name__
-                if model_name not in all_results:
-                    all_results[model_name] = []
-                all_results[model_name].extend(res)
-                logger.info(f"保存 {model_name} 的日线数据完成. 插入/更新了 {len(data_list)} 条记录。")
-
-            if len(df) < limit:
-                break
-            offset += limit
-            page_num += 1
-            
-        logger.info(f"指定日期区间的日线数据保存任务全部完成。")
-        return all_results
+        all_stocks = await self.stock_basic_dao.get_all_stocks_from_db()
+        if not all_stocks:
+            logger.warning("数据库中没有股票基础数据，无法执行日线数据保存任务。")
+            return {"status": "warning", "message": "No stock basic data found."}
+        # 格式化所有可能的日期参数，None值保持为None
+        trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else None
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else None
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else None
+        all_dfs = []
+        for stock in all_stocks:
+            try:
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_daily] 速率超限，等待10秒后重试... (股票: {stock.stock_code})")
+                    await asyncio.sleep(10)
+                # 动态构建API参数字典，这是解决问题的关键
+                api_params = {
+                    "ts_code": stock.stock_code,
+                }
+                if trade_date_str:
+                    api_params['trade_date'] = trade_date_str
+                else:
+                    # 只有在没有指定单日查询时，才使用日期范围
+                    if start_date_str:
+                        api_params['start_date'] = start_date_str
+                    if end_date_str:
+                        api_params['end_date'] = end_date_str
+                print(f"调试: DAO准备调用Tushare API [daily]，动态参数: {api_params}")
+                df = self.ts_pro.daily(**api_params)
+                if not df.empty:
+                    df['stock'] = stock
+                    all_dfs.append(df)
+            except Exception as e:
+                logger.error(f"获取股票 {stock.stock_code} 的日线数据时出错: {e}", exc_info=True)
+                await asyncio.sleep(5)
+        if not all_dfs:
+            print("DAO: 未获取到任何股票的日线数据。")
+            return {"status": "success", "message": "No daily data fetched, task completed."}
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        processed_df = self.data_format_process_trade.format_daily_dataframe(combined_df)
+        data_list = processed_df.to_dict('records')
+        print(f"DAO: 准备保存 {len(data_list)} 条日线数据...")
+        await self._save_all_to_db_native_upsert(
+            model_class=StockDaily,
+            data_list=data_list,
+            unique_fields=['stock', 'trade_date']
+        )
+        return {"status": "success", "message": f"Saved {len(data_list)} daily trade records."}
 
     async def save_daily_time_trade_history_by_stock_codes(self, stock_codes: List[str]) -> Dict:
         """
@@ -1530,7 +1489,7 @@ class StockTimeTradeDAO(BaseDAO):
         """
         获取并保存单个股票的历史筹码及胜率数据。
         此方法被并行的Celery任务调用。
-        [修改] 已适配分布式速率限制。
+        已适配分布式速率限制。
         """
         # print(f"DAO: 开始获取 {stock.stock_code} 的筹码及胜率数据...")
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20160101"
@@ -1588,13 +1547,13 @@ class StockTimeTradeDAO(BaseDAO):
         """
         获取股票的每日筹码分布历史数据 (已修改为直接查询分表数据库)
         1. [移除] 删除了所有Redis缓存查询逻辑。
-        2. [修改] 根据股票代码动态选择正确的分表Model进行查询。
+        2. 根据股票代码动态选择正确的分表Model进行查询。
         3. [修正] 修正了ORM查询条件以正确通过外键关联进行过滤。
         """
-        # [修改] 第一步：根据股票代码动态获取对应的分表Model
+        # 第一步：根据股票代码动态获取对应的分表Model
         target_model = get_cyq_chips_model_by_code(stock_code)
         print(f"DAO: 正在为股票 {stock_code} 从数据表 {target_model.__name__} 查询筹码分布历史。")
-        # [修改] 第二步：直接使用动态获取的Model进行数据库查询
+        # 第二步：直接使用动态获取的Model进行数据库查询
         # 注意：
         # 1. 使用 target_model.objects 进行查询。
         # 2. 过滤器使用 'stock__stock_code' 来通过外键关联查询。
@@ -1612,7 +1571,7 @@ class StockTimeTradeDAO(BaseDAO):
         2. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
         3. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep，防止阻塞事件循环。
         4. [重构] 重构批处理机制，以适应分表场景。
-        5. [修改] 引入 aiolimiter 进行专业、高效的API限流，替换固定的 asyncio.sleep。
+        5. 引入 aiolimiter 进行专业、高效的API限流，替换固定的 asyncio.sleep。
         """
         # --- 日期字符串格式化 (无变化) ---
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
@@ -1643,7 +1602,7 @@ class StockTimeTradeDAO(BaseDAO):
                         limit_hit = True
                         break
                     try:
-                        # [修改] 使用 aiolimiter 作为异步上下文管理器来包裹API调用
+                        # 使用 aiolimiter 作为异步上下文管理器来包裹API调用
                         # 这是更专业、高效和健壮的限流方式
                         async with self.limiter:
                             print(f"正在请求 {stock.stock_code} 的数据, offset={offset}...") # 调试信息
@@ -1689,7 +1648,7 @@ class StockTimeTradeDAO(BaseDAO):
                     combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
                     final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
                     data_dicts_for_stock = final_df.to_dict('records')
-                    # [修改] 分表批处理核心逻辑
+                    # 分表批处理核心逻辑
                     if data_dicts_for_stock:
                         # 1. 获取当前股票对应的正确Model
                         target_model = get_cyq_chips_model_by_code(stock.stock_code)
@@ -1707,7 +1666,7 @@ class StockTimeTradeDAO(BaseDAO):
                                 unique_fields=['stock', 'trade_time', 'price']
                             )
                             batched_data_by_model[target_model] = [] # 清空已保存的批次
-        # --- [修改] 在所有股票处理完毕后，保存所有分表中剩余的数据 ---
+        # --- 在所有股票处理完毕后，保存所有分表中剩余的数据 ---
         logger.info("所有股票数据拉取完成，开始保存剩余的最后一批数据...")
         for model, data_list in batched_data_by_model.items():
             if data_list:
@@ -1734,13 +1693,13 @@ class StockTimeTradeDAO(BaseDAO):
         :param end_date: 结束日期，可选。
         :param limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
         """
-        # [修改] 正确处理可选日期参数，将None转换为None，而不是默认值或空字符串
+        # 正确处理可选日期参数，将None转换为None，而不是默认值或空字符串
         start_date_str = start_date.strftime('%Y%m%d') if start_date else None
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else None
         
         all_dfs_for_stock = []
         
-        # [修改] 回归统一的、健壮的内外双循环分页逻辑
+        # 回归统一的、健壮的内外双循环分页逻辑
         # 外层循环：处理10万行限制，通过调整 end_date 实现追溯
         while True:
             offset = 0
@@ -1759,7 +1718,7 @@ class StockTimeTradeDAO(BaseDAO):
                         print(f"PID[{os.getpid()}] API[api_cyq_chips] 速率超限，等待10秒后重试... (股票: {stock.stock_code})")
                         await asyncio.sleep(10)
                     
-                    # [修改] 动态构建API参数，只包含有值的参数，这是最关键的修正
+                    # 动态构建API参数，只包含有值的参数，这是最关键的修正
                     api_params = {
                         "ts_code": stock.stock_code,
                         "limit": limit,

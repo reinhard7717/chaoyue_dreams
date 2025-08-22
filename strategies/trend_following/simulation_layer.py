@@ -8,7 +8,7 @@ class SimulationLayer:
         self.strategy = strategy_instance
 
     def run_position_management_simulation(self):
-        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
+        # print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V190.0】启动 " + "="*20)
         df = self.strategy.df_indicators
         sim_params = get_params_block(self.strategy, 'position_management_params')
         if not get_param_value(sim_params.get('enabled'), False):
@@ -62,7 +62,7 @@ class SimulationLayer:
                 if df.loc[current_date, 'trade_action'] == '':
                     df.loc[current_date, 'trade_action'] = 'HOLD'
             df.loc[current_date, 'position_size'] = position_size
-        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
+        # print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
 
     def _check_tactical_alerts(self, row) -> Tuple[int, str]:
         exit_params = get_params_block(self.strategy, 'exit_strategy_params')

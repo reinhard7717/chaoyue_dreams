@@ -15,35 +15,42 @@ class DynamicMechanicsEngine:
 
     def run_force_vector_analysis(self) -> Dict[str, pd.Series]:
         """
-        【V317.0 新增】动态力学分析引擎
+        【V317.0 新增】【代码优化】动态力学分析引擎
         - 核心职责: 计算进攻分和风险分的“加速度”，捕捉双向动能的剧烈变化。
                     这是判断趋势强化或转折的关键“势能”情报。
+        - 优化说明: 在 .rolling().apply() 中，将参数 `raw` 从默认的 `False` 修改为 `True`。
+                    这使得传递给lambda函数的是底层的NumPy数组而非pandas Series对象，
+                    减少了每次调用的开销，从而提升了计算速度。同时，将缺失值检查
+                    从 `len(y.dropna()) == window` 修改为更高效的 `not np.isnan(y).any()`。
         """
         # print("        -> [动态力学分析引擎 V317.0] 启动，正在计算势能加速度...")
         states = {}
         df = self.strategy.df_indicators
         
-        # 确保 entry_score 和 risk_score 已经计算完毕
         if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
             print("          -> [警告] 缺少 entry_score 或 risk_score，力学分析跳过。")
             return states
 
-        window = 5 # 使用5日窗口计算趋势和加速度
+        window = 5
+
+        # 将 raw 设置为 True，并使用更高效的 numpy a nan check
+        def calculate_slope(y):
+            # 检查窗口内是否有NaN值，如果有则无法计算，返回NaN
+            if np.isnan(y).any():
+                return np.nan
+            # 使用scipy计算线性回归斜率
+            return linregress(np.arange(window), y).slope
 
         # 1. 计算“进攻”和“风险”的趋势（斜率）
-        entry_score_slope = df['entry_score'].rolling(window).apply(
-            lambda y: linregress(np.arange(window), y).slope if len(y.dropna()) == window else np.nan, raw=False
-        )
-        risk_score_slope = df['risk_score'].rolling(window).apply(
-            lambda y: linregress(np.arange(window), y).slope if len(y.dropna()) == window else np.nan, raw=False
-        )
+        entry_score_slope = df['entry_score'].rolling(window).apply(calculate_slope, raw=True)
+        risk_score_slope = df['risk_score'].rolling(window).apply(calculate_slope, raw=True)
 
         # 2. 计算“进攻”和“风险”的加速度（斜率的差分）
         entry_score_accel = entry_score_slope.diff()
         risk_score_accel = risk_score_slope.diff()
 
         # 3. 定义加速度阈值，过滤掉无意义的波动
-        accel_threshold = 1.0 # 当加速度变化大于1时，我们认为是有意义的
+        accel_threshold = 1.0
 
         # 4. 生成四种核心的“力学”原子状态
         states['FORCE_VECTOR_OFFENSE_ACCELERATING'] = entry_score_accel > accel_threshold
