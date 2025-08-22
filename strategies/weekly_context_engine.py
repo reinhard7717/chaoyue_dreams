@@ -129,14 +129,24 @@ class WeeklyContextEngine:
         df_with_patterns = self.pattern_recognizer.identify_all(df, suffix='_W')
         
         # 提取关键的心理学信号
-        # 1. 看涨反转/确认信号 (如锤子线, 看涨吞没)
-        bullish_patterns = ['HAMMER_W', 'INVHAMMER_W', 'BULLISH_ENGULFING_W', 'PIERCING_W', 'MORNINGSTAR_W']
+        # 1. 看涨反转/确认信号 (如锤子线, 看涨吞没, 刺透, 早晨之星)
+        bullish_patterns = [
+            'kline_s_hammer_shape_decent_W', 'kline_s_hammer_shape_perfect_W',
+            'kline_c_bullish_engulfing_decent_W', 'kline_c_bullish_engulfing_perfect_W',
+            'kline_c_piercing_line_decent_W', 'kline_c_piercing_line_perfect_W',
+            'kline_c_morning_star_W'
+        ]
         df['psych_reversal_bullish_W'] = df_with_patterns[[p for p in bullish_patterns if p in df_with_patterns.columns]].any(axis=1)
         
-        # 2. 看跌反转/拒绝信号 (如射击之星, 看跌吞没)
-        bearish_patterns = ['SHOOTINGSTAR_W', 'BEARISH_ENGULFING_W', 'DARKCLOUDCOVER_W', 'EVENINGSTAR_W']
+        # 2. 看跌反转/拒绝信号 (如上吊线, 看跌吞没, 乌云盖顶, 黄昏之星)
+        #    注意：射击之星(Shooting Star)和上吊线(Hanging Man)形态相同，仅上下文不同，故此处使用上吊线形态作为识别依据。
+        bearish_patterns = [
+            'kline_s_hanging_man_shape_decent_W', 'kline_s_hanging_man_shape_perfect_W',
+            'kline_c_bearish_engulfing_decent_W', 'kline_c_bearish_engulfing_perfect_W',
+            'kline_c_dark_cloud_cover_decent_W', 'kline_c_dark_cloud_cover_perfect_W',
+            'kline_c_evening_star_W'
+        ]
         df['psych_rejection_bearish_W'] = df_with_patterns[[p for p in bearish_patterns if p in df_with_patterns.columns]].any(axis=1)
-
         print("    - [心理学] 完成。已解读周线K线的多空意图。")
         return df
 

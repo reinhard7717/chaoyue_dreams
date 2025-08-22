@@ -56,14 +56,17 @@ class KlinePatternRecognizer:
             }
         }
 
-    def identify_all(self, df: pd.DataFrame) -> pd.DataFrame:
+    def identify_all(self, df: pd.DataFrame, suffix: str = '_D') -> pd.DataFrame:
         """
-        【修改 V2.1 - Bug修复版】运行所有K线形态识别。
+        【修改 V2.2 - 多周期适配版】运行所有K线形态识别。
+        - 新增功能: 接受一个 'suffix' 参数 (默认为 '_D')，使其能够动态处理
+                    不同时间周期的数据 (如 '_W' 代表周线)。
         - 修复了“三只乌鸦”形态中 prev2 未定义的严重Bug。
         - 统一并优化了“三白兵”和“三只乌鸦”的识别逻辑，使其更清晰、健壮。
         """
         # --- 0. 基础数据和衍生变量预计算 ---
-        op, hi, lo, cl = df['open_D'], df['high_D'], df['low_D'], df['close_D']
+        # [代码修改] 使用传入的suffix动态构建列名
+        op, hi, lo, cl = df[f'open{suffix}'], df[f'high{suffix}'], df[f'low{suffix}'], df[f'close{suffix}']
         kline_range = (hi - lo).replace(0, 0.0001)
         body_size = abs(cl - op)
         body_size_safe = body_size.replace(0, 0.0001) # 用于除法的安全版本
@@ -90,51 +93,52 @@ class KlinePatternRecognizer:
                   'is_long_body_decent': is_long_body_decent.shift(2), 'is_long_body_perfect': is_long_body_perfect.shift(2) }
         
         # --- 1. 十字星 (Doji) ---
-        df['kline_s_doji_decent'] = is_doji_body_decent
-        df['kline_s_doji_perfect'] = is_doji_body_perfect
+        # [代码修改] 所有输出列名都动态添加suffix
+        df[f'kline_s_doji_decent{suffix}'] = is_doji_body_decent
+        df[f'kline_s_doji_perfect{suffix}'] = is_doji_body_perfect
 
         # --- 2. 吞没形态 (Engulfing) ---
         engulf_base_bullish = prev1['is_red'] & is_green & (cl > prev1['op']) & (op < prev1['cl'])
         engulf_base_bearish = prev1['is_green'] & is_red & (cl < prev1['op']) & (op > prev1['cl'])
-        df['kline_c_bullish_engulfing_decent'] = engulf_base_bullish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['decent'])
-        df['kline_c_bullish_engulfing_perfect'] = engulf_base_bullish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['perfect'])
-        df['kline_c_bearish_engulfing_decent'] = engulf_base_bearish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['decent'])
-        df['kline_c_bearish_engulfing_perfect'] = engulf_base_bearish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['perfect'])
+        df[f'kline_c_bullish_engulfing_decent{suffix}'] = engulf_base_bullish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['decent'])
+        df[f'kline_c_bullish_engulfing_perfect{suffix}'] = engulf_base_bullish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['perfect'])
+        df[f'kline_c_bearish_engulfing_decent{suffix}'] = engulf_base_bearish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['decent'])
+        df[f'kline_c_bearish_engulfing_perfect{suffix}'] = engulf_base_bearish & (body_size > prev1['body_size'] * self.params['engulfing']['prev_body_ratio']['perfect'])
 
         # --- 3. 锤子线 (Hammer) / 上吊线 (Hanging Man) ---
         hammer_shape_decent = (lower_shadow >= body_size_safe * self.params['hammer']['lower_shadow_ratio']['decent']) & \
                               (upper_shadow <= body_size_safe * self.params['hammer']['upper_shadow_ratio']['decent'])
         hammer_shape_perfect = (lower_shadow >= body_size_safe * self.params['hammer']['lower_shadow_ratio']['perfect']) & \
                                (upper_shadow <= body_size_safe * self.params['hammer']['upper_shadow_ratio']['perfect'])
-        df['kline_s_hammer_shape_decent'] = hammer_shape_decent & is_green
-        df['kline_s_hammer_shape_perfect'] = hammer_shape_perfect & is_green
-        df['kline_s_hanging_man_shape_decent'] = hammer_shape_decent & is_red
-        df['kline_s_hanging_man_shape_perfect'] = hammer_shape_perfect & is_red
+        df[f'kline_s_hammer_shape_decent{suffix}'] = hammer_shape_decent & is_green
+        df[f'kline_s_hammer_shape_perfect{suffix}'] = hammer_shape_perfect & is_green
+        df[f'kline_s_hanging_man_shape_decent{suffix}'] = hammer_shape_decent & is_red
+        df[f'kline_s_hanging_man_shape_perfect{suffix}'] = hammer_shape_perfect & is_red
 
         # --- 4. 星线形态 (Morning/Evening Star) ---
         is_star_body = is_small_body_decent.shift(1)
         morning_star_gap = np.maximum(prev1['op'], prev1['cl']) < prev2['cl']
-        df['kline_c_morning_star'] = prev2['is_red'] & prev2['is_long_body_decent'] & is_star_body & morning_star_gap & \
+        df[f'kline_c_morning_star{suffix}'] = prev2['is_red'] & prev2['is_long_body_decent'] & is_star_body & morning_star_gap & \
                                      is_green & is_long_body_decent & (cl > (prev2['op'] + prev2['cl']) / 2)
         evening_star_gap = np.minimum(prev1['op'], prev1['cl']) > prev2['cl']
-        df['kline_c_evening_star'] = prev2['is_green'] & prev2['is_long_body_decent'] & is_star_body & evening_star_gap & \
+        df[f'kline_c_evening_star{suffix}'] = prev2['is_green'] & prev2['is_long_body_decent'] & is_star_body & evening_star_gap & \
                                      is_red & is_long_body_decent & (cl < (prev2['op'] + prev2['cl']) / 2)
 
         # --- 5. 刺透形态 (Piercing) / 乌云盖顶 (Dark Cloud) ---
         piercing_base = prev1['is_red'] & prev1['is_long_body_decent'] & is_green & (op < prev1['lo']) & (cl < prev1['op'])
-        df['kline_c_piercing_line_decent'] = piercing_base & (cl > prev1['cl'] + prev1['body_size'] * self.params['piercing']['penetration_ratio']['decent'])
-        df['kline_c_piercing_line_perfect'] = piercing_base & (cl > prev1['cl'] + prev1['body_size'] * self.params['piercing']['penetration_ratio']['perfect'])
+        df[f'kline_c_piercing_line_decent{suffix}'] = piercing_base & (cl > prev1['cl'] + prev1['body_size'] * self.params['piercing']['penetration_ratio']['decent'])
+        df[f'kline_c_piercing_line_perfect{suffix}'] = piercing_base & (cl > prev1['cl'] + prev1['body_size'] * self.params['piercing']['penetration_ratio']['perfect'])
         
         dark_cloud_base = prev1['is_green'] & prev1['is_long_body_decent'] & is_red & (op > prev1['hi']) & (cl > prev1['op'])
-        df['kline_c_dark_cloud_cover_decent'] = dark_cloud_base & (cl < prev1['cl'] - prev1['body_size'] * self.params['piercing']['penetration_ratio']['decent'])
-        df['kline_c_dark_cloud_cover_perfect'] = dark_cloud_base & (cl < prev1['cl'] - prev1['body_size'] * self.params['piercing']['penetration_ratio']['perfect'])
+        df[f'kline_c_dark_cloud_cover_decent{suffix}'] = dark_cloud_base & (cl < prev1['cl'] - prev1['body_size'] * self.params['piercing']['penetration_ratio']['decent'])
+        df[f'kline_c_dark_cloud_cover_perfect{suffix}'] = dark_cloud_base & (cl < prev1['cl'] - prev1['body_size'] * self.params['piercing']['penetration_ratio']['perfect'])
 
         # --- 6. 三白兵 (Three White Soldiers) ---
         is_day1_green = prev2['is_green'] & prev2['is_long_body_decent']
         is_day2_green = prev1['is_green'] & prev1['is_long_body_decent']
         is_day3_green = is_green & is_long_body_decent
         
-        df['kline_c_three_white_soldiers'] = is_day1_green & is_day2_green & is_day3_green & \
+        df[f'kline_c_three_white_soldiers{suffix}'] = is_day1_green & is_day2_green & is_day3_green & \
                                              (prev1['cl'] > prev2['cl']) & (cl > prev1['cl']) & \
                                              (prev1['op'] < prev2['cl']) & (prev1['op'] > prev2['op']) & \
                                              (op < prev1['cl']) & (op > prev1['op'])
@@ -144,7 +148,7 @@ class KlinePatternRecognizer:
         is_day2_red = prev1['is_red'] & prev1['is_long_body_decent']
         is_day3_red = is_red & is_long_body_decent
 
-        df['kline_c_three_black_crows'] = is_day1_red & is_day2_red & is_day3_red & \
+        df[f'kline_c_three_black_crows{suffix}'] = is_day1_red & is_day2_red & is_day3_red & \
                                           (prev1['cl'] < prev2['cl']) & (cl < prev1['cl']) & \
                                           (prev1['op'] > prev2['cl']) & (prev1['op'] < prev2['op']) & \
                                           (op > prev1['cl']) & (op < prev1['op'])
@@ -153,29 +157,27 @@ class KlinePatternRecognizer:
         is_body_inside = (np.maximum(op, cl) < prev1['op']) & (np.minimum(op, cl) > prev1['cl'])
         is_body_inside_rev = (np.maximum(op, cl) < prev1['cl']) & (np.minimum(op, cl) > prev1['op']) # 反向
         
-        df['kline_c_bullish_harami'] = prev1['is_red'] & prev1['is_long_body_decent'] & is_green & is_small_body_decent & is_body_inside
-        df['kline_c_bearish_harami'] = prev1['is_green'] & prev1['is_long_body_decent'] & is_red & is_small_body_decent & is_body_inside_rev
-        df['kline_c_harami_cross'] = prev1['is_long_body_decent'] & is_doji_body_decent & (is_body_inside | is_body_inside_rev)
+        df[f'kline_c_bullish_harami{suffix}'] = prev1['is_red'] & prev1['is_long_body_decent'] & is_green & is_small_body_decent & is_body_inside
+        df[f'kline_c_bearish_harami{suffix}'] = prev1['is_green'] & prev1['is_long_body_decent'] & is_red & is_small_body_decent & is_body_inside_rev
+        df[f'kline_c_harami_cross{suffix}'] = prev1['is_long_body_decent'] & is_doji_body_decent & (is_body_inside | is_body_inside_rev)
 
         # --- 8. 镊子顶 (Tweezer Top) / 镊子底 (Tweezer Bottom) ---
-        # 核心是高点/低点几乎一致，前后K线颜色相反
-        df['kline_c_tweezer_top'] = (abs(hi - prev1['hi']) / hi < 0.001) & prev1['is_green'] & is_red
-        df['kline_c_tweezer_bottom'] = (abs(lo - prev1['lo']) / lo < 0.001) & prev1['is_red'] & is_green
+        df[f'kline_c_tweezer_top{suffix}'] = (abs(hi - prev1['hi']) / hi < 0.001) & prev1['is_green'] & is_red
+        df[f'kline_c_tweezer_bottom{suffix}'] = (abs(lo - prev1['lo']) / lo < 0.001) & prev1['is_red'] & is_green
 
         # --- 9. 光头光脚K线 (Marubozu) ---
         is_marubozu = (upper_shadow / kline_range < 0.05) & (lower_shadow / kline_range < 0.05)
-        df['kline_s_marubozu_white'] = is_marubozu & is_green
-        df['kline_s_marubozu_black'] = is_marubozu & is_red
+        df[f'kline_s_marubozu_white{suffix}'] = is_marubozu & is_green
+        df[f'kline_s_marubozu_black{suffix}'] = is_marubozu & is_red
 
         # --- 10. 上升三法 (Rising) / 下降三法 (Falling Three Methods) ---
-        # 这是一个复杂的5日形态，这里实现一个简化但有效的版本
         day1_long_green = is_long_body_decent.shift(4) & is_green.shift(4)
         three_reds_in_body = (is_red.shift(3) & is_red.shift(2) & is_red.shift(1)) & \
                              (hi.shift(3) < hi.shift(4)) & (lo.shift(3) > lo.shift(4)) & \
                              (hi.shift(2) < hi.shift(4)) & (lo.shift(2) > lo.shift(4)) & \
                              (hi.shift(1) < hi.shift(4)) & (lo.shift(1) > lo.shift(4))
         day5_breakout_green = is_long_body_decent & is_green & (cl > cl.shift(4))
-        df['kline_c_rising_three_methods'] = day1_long_green & three_reds_in_body & day5_breakout_green
+        df[f'kline_c_rising_three_methods{suffix}'] = day1_long_green & three_reds_in_body & day5_breakout_green
 
         day1_long_red = is_long_body_decent.shift(4) & is_red.shift(4)
         three_greens_in_body = (is_green.shift(3) & is_green.shift(2) & is_green.shift(1)) & \
@@ -183,31 +185,36 @@ class KlinePatternRecognizer:
                                (hi.shift(2) < hi.shift(4)) & (lo.shift(2) > lo.shift(4)) & \
                                (hi.shift(1) < hi.shift(4)) & (lo.shift(1) > lo.shift(4))
         day5_breakout_red = is_long_body_decent & is_red & (cl < cl.shift(4))
-        df['kline_c_falling_three_methods'] = day1_long_red & three_greens_in_body & day5_breakout_red
+        df[f'kline_c_falling_three_methods{suffix}'] = day1_long_red & three_greens_in_body & day5_breakout_red
 
         # --- 11 & 12. 其他组合形态 ---
-        # 向上跳空两只乌鸦 (看跌)
-        df['kline_c_upside_gap_two_crows'] = is_green.shift(2) & (op.shift(1) > cl.shift(2)) & is_red.shift(1) & \
+        df[f'kline_c_upside_gap_two_crows{suffix}'] = is_green.shift(2) & (op.shift(1) > cl.shift(2)) & is_red.shift(1) & \
                                              (op > op.shift(1)) & (op < cl.shift(1)) & is_red & (cl < cl.shift(2))
         
-        # 向下跳空并列阴线 (看涨)
-        df['kline_c_downside_tasuki_gap'] = is_red.shift(2) & (op.shift(1) < cl.shift(2)) & is_red.shift(1) & \
+        df[f'kline_c_downside_tasuki_gap{suffix}'] = is_red.shift(2) & (op.shift(1) < cl.shift(2)) & is_red.shift(1) & \
                                             (op > cl.shift(1)) & (op < op.shift(1)) & is_green & (cl > op.shift(1))
 
-        # 看涨反击线
-        df['kline_c_bullish_counterattack'] = prev1['is_red'] & prev1['is_long_body_decent'] & is_green & is_long_body_decent & \
+        df[f'kline_c_bullish_counterattack{suffix}'] = prev1['is_red'] & prev1['is_long_body_decent'] & is_green & is_long_body_decent & \
                                              (abs(cl - prev1['cl']) / cl < 0.001)
-        # 看跌反击线
-        df['kline_c_bearish_counterattack'] = prev1['is_green'] & prev1['is_long_body_decent'] & is_red & is_long_body_decent & \
+        df[f'kline_c_bearish_counterattack{suffix}'] = prev1['is_green'] & prev1['is_long_body_decent'] & is_red & is_long_body_decent & \
                                               (abs(cl - prev1['cl']) / cl < 0.001)
         
-        # 看涨分离线
-        df['kline_c_bullish_separating_lines'] = prev1['is_red'] & is_green & is_marubozu & \
+        df[f'kline_c_bullish_separating_lines{suffix}'] = prev1['is_red'] & is_green & is_marubozu & \
                                                  (abs(op - prev1['op']) / op < 0.001)
-        # 看跌分离线
-        df['kline_c_bearish_separating_lines'] = prev1['is_green'] & is_red & is_marubozu & \
+        df[f'kline_c_bearish_separating_lines{suffix}'] = prev1['is_green'] & is_red & is_marubozu & \
                                                   (abs(op - prev1['op']) / op < 0.001)
-
-        # print(f"    [调试-K线识别器]: 已完成所有形态分析，为DataFrame添加了新的布尔列。")
+        
         return df
+
+
+
+
+
+
+
+
+
+
+
+
 
