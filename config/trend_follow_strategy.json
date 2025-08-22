@@ -252,7 +252,7 @@
         "verbose_logging": { "value": true },
         "probe_start_date": "2025-08-01",
         "probe_date": "2025-09-28",
-        "enable_pullback_decision_log": { "value": false, "description": "[新增] 是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"}
+        "enable_pullback_decision_log": { "value": false, "description": "是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"}
       },
       "strategy_info": {
         "name": { "value": "救援飞哥版_V238", "说明": "策略唯一标识名称" },
@@ -300,7 +300,7 @@
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
             "说明": "【阵地分-净化版】作为开仓地基，分数权重最高。已移除所有纯上下文/前置信号的独立计分。",
-            "说明_新增": "--- [新增] 联合作战回踩战法 (三位一体，互斥) ---",
+            "说明_新增": "--- 联合作战回踩战法 (三位一体，互斥) ---",
             "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 1300,
             "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 850,
             "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 700,
@@ -416,7 +416,7 @@
         "trigger_events": {
           "说明": "触发器计分部分。",
           "scoring": {
-            "TRIGGER_PRIME_BREAKOUT_S": 200,
+            "TRIGGER_PRIME_BREAKOUT_S": 150,
             "TRIGGER_CHIP_IGNITION": 150,
             "VOL_BREAKOUT_FROM_SQUEEZE": 70,
             "TRIGGER_DOMINANT_REVERSAL": 50,
@@ -425,7 +425,7 @@
             "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
             "FRACTAL_EVENT_TREND_FORMING": 100,
             
-            "说明_新增触发器计分": "--- [新增] 激活被浪费的触发器 ---",
+            "说明_新增触发器计分": "--- 激活被浪费的触发器 ---",
             "TRIGGER_N_SHAPE_BREAKOUT": 80,
             "TRIGGER_MACD_LOW_CROSS": 60,
             "TRIGGER_BOX_BREAKOUT": 70,
@@ -890,6 +890,13 @@
                 "description": "对处于“周线级强趋势”的终极顺风环境，给予固定的最高级别环境奖励。",
                 "decay_model": false,
                 "add_score": 180
+              },
+              {
+                "if_state": "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS",
+                "signal_name": "BONUS_SETUP_S_PLUS_PLUS",
+                "description": "当进攻发动前的准备状态是“三位一体”的S++级黄金阵地时，给予巨额奖励分。",
+                "decay_model": false,
+                "add_score": 300
               }
           ]
       },

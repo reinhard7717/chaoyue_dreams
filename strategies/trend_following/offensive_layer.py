@@ -69,29 +69,18 @@ class OffensiveLayer:
         # --- 4. 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
         p_hybrid = scoring_params.get('positional_acceleration_hybrid_params', {})
         if get_param_value(p_hybrid.get('enabled'), True):
-            # 4.1 计算动态
             positional_change = positional_score.diff(1).fillna(0)
             positional_accel = positional_change.diff(1).fillna(0)
-
-            # 4.2 获取实战参数 (三重保险 + 奖励参数)
             min_base_score = get_param_value(p_hybrid.get('min_base_score'), 400)
             min_score_increase = get_param_value(p_hybrid.get('min_score_increase'), 150)
             multiplier = get_param_value(p_hybrid.get('score_multiplier'), 2.0)
-            max_bonus = get_param_value(p_hybrid.get('max_bonus_score'), 800) # 新增：奖励上限
-
-            # 4.3 应用三重保险过滤器
+            max_bonus = get_param_value(p_hybrid.get('max_bonus_score'), 800)
             is_base_strong = positional_score.shift(1) >= min_base_score
             is_increase_significant = positional_change >= min_score_increase
             is_accelerating = positional_accel > 0
-            
-            # 最终的“发射许可”条件
             launch_condition = is_base_strong & is_increase_significant & is_accelerating
-
             if launch_condition.any():
-                # 4.4 计算奖励分，并施加“安全上限”
                 accel_bonus_score = (positional_accel * multiplier).clip(upper=max_bonus)
-                
-                # 4.5 将奖励分施加到总分和详情中
                 final_bonus = accel_bonus_score.where(launch_condition, 0)
                 entry_score += final_bonus
                 score_details_df['SCORE_POS_ACCEL_HYBRID_BONUS'] = final_bonus
@@ -110,7 +99,6 @@ class OffensiveLayer:
                 entry_score.loc[final_trigger_condition] += score
                 score_details_df[signal_name] = final_trigger_condition * score
 
-        # [修改原因] 适配 PlaybookEngine V2.0 的输出。playbook_states 现在是一个纯粹的布尔序列字典。
         # --- 6. 评估“剧本火力” (Playbook Scoring) ---
         playbook_rules = scoring_params.get('playbook_scoring', {})
         if playbook_rules:
@@ -123,17 +111,13 @@ class OffensiveLayer:
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
 
         # --- 7. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
-        # 这是来自更高维度的指令，拥有独立的加分逻辑
         strategic_bonus_params = scoring_params.get('strategic_context_scoring', {})
         if get_param_value(strategic_bonus_params.get('enabled'), True):
-            # 7.1 强顺风加分
             bullish_bonus = get_param_value(strategic_bonus_params.get('bullish_bonus'), 200)
             is_bullish = atomic_states.get('CONTEXT_STRATEGIC_BULLISH_W', default_series)
             if is_bullish.any():
                 entry_score.loc[is_bullish] += bullish_bonus
                 score_details_df['STRATEGIC_BULLISH_BONUS_W'] = is_bullish * bullish_bonus
-            
-            # 7.2 点火期加分
             ignition_bonus = get_param_value(strategic_bonus_params.get('ignition_bonus'), 100)
             is_ignition = atomic_states.get('CONTEXT_STRATEGIC_IGNITION_W', default_series)
             if is_ignition.any():
@@ -258,41 +242,32 @@ class OffensiveLayer:
             bonus_signal_name = rule.get('signal_name')
             
             # 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
-            if not (state_name and bonus_signal_name):
+            if not (state_name and bonus_signal_name) or rule.get('deprecated', False):
                 continue
 
-            # 检查规则是否已被标记为“已废弃”。如果是，则跳过此规则。
-            # 这使得我们可以在不删除旧配置的情况下，安全地禁用它，便于未来复查。
-            if rule.get('deprecated', False):
+            condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=entry_score.index)).shift(1).fillna(False)
+            
+            if not condition.any():
                 continue
-
-            # 从原子状态池中获取触发条件序列
-            condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=entry_score.index))
             
             # 判断此规则是“衰减模型”还是“固定加分模型”
             if rule.get('decay_model', False):
                 max_bonus = rule.get('max_bonus_score', 0)
                 decay_days = rule.get('decay_days', 1)
-                
                 if max_bonus <= 0 or decay_days <= 0 or not condition.any():
                     continue
-
                 # 步骤1: 创建一个临时的Series来存储此规则产生的奖励分
                 bonus_series = pd.Series(0.0, index=entry_score.index)
-                
                 # 步骤2: 使用辅助函数生成一个0-1的、带衰减效果的影响力序列
                 # 这个函数已经内置了处理窗口重叠的逻辑（取最大影响力）
                 influence_series = self.strategy.cognitive_intel._create_decaying_influence_series(condition, decay_days)
-                
                 # 步骤3: 将影响力序列乘以最大奖励分，得到最终的奖励分数序列
                 bonus_series = influence_series * max_bonus
-                
                 # 步骤4: 将计算好的奖励分数序列一次性地应用到总分和详情中
                 entry_score += bonus_series
                 if bonus_signal_name not in score_details_df.columns:
                     score_details_df[bonus_signal_name] = 0.0
                 score_details_df[bonus_signal_name] += bonus_series
-                
                 print(f"          -> [衰减奖励] 已为 “{state_name}” 事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
             else:
                 # --- 固定加分模型逻辑 ---
@@ -304,6 +279,13 @@ class OffensiveLayer:
                     # 在详情中记录这个加分项
                     score_details_df[bonus_signal_name] = condition * bonus_value
                     print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
+                # 显式处理固定加分模型
+                fixed_bonus = rule.get('add_score', 0)
+                if fixed_bonus > 0:
+                    # 奖励只施加在满足前置条件后的“当天”
+                    bonus_series = condition * fixed_bonus
+                    entry_score += bonus_series
+                    score_details_df[bonus_signal_name] = bonus_series
             
         return entry_score, score_details_df
 
