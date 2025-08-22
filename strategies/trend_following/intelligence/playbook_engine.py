@@ -184,11 +184,15 @@ class PlaybookEngine:
             # 条件1: 必须是一根“能量释放”阳线 (自带量价齐升属性)
             is_energy_release_candle = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
             
-            # 条件2: 收盘价必须高于【昨日】箱体顶部的 1% (决定性突破，过滤假动作)
+            # 条件2: 收盘价必须高于【昨日】箱体顶部的 1% (决定性突破)
             yesterday_box_top = df['box_top_D'].shift(1)
             is_decisive_breakout = df['close_D'] > (yesterday_box_top * 1.01)
             
-            triggers['TRIGGER_PRIME_BREAKOUT_S'] = is_energy_release_candle & is_decisive_breakout
+            # [新增] 条件3: “制导系统” - 前一日必须是“突破前夜”
+            yesterday_was_breakout_eve = self.strategy.atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series).shift(1).fillna(False)
+            
+            # 最终裁定：必须同时满足所有三个条件
+            triggers['TRIGGER_PRIME_BREAKOUT_S'] = is_energy_release_candle & is_decisive_breakout & yesterday_was_breakout_eve
         else:
             triggers['TRIGGER_PRIME_BREAKOUT_S'] = default_series
 
