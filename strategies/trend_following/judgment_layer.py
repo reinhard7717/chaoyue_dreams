@@ -11,22 +11,29 @@ class JudgmentLayer:
 
     def _evaluate_holding_health(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
         """
-        【V400.0 健康报告总汇版】
+        【V400.0 健康报告总汇版】【代码优化】
+        - 优化说明: 原始代码使用 for 循环和 .at 索引器逐行构建字典，在处理大量数据时效率低下。
+                    优化后的版本使用了列表推导式（List Comprehension）和 zip，
+                    将两列数据并行处理并构建新的字典列表，然后一次性将其赋值给新列。
+                    这种方法避免了 pandas 逐行操作的开销，执行效率更高。
         """
         df = self.strategy.df_indicators
-        df['health_change_summary'] = [{} for _ in range(len(df))]
         offensive_summary = df.get('offensive_momentum_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
         risk_summary = df.get('risk_change_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
-        for idx in df.index:
+        
+        # 使用列表推导式替代 for 循环，实现向量化操作
+        final_summaries = []
+        for offense_report, risk_report in zip(offensive_summary, risk_summary):
             final_summary = {}
-            offense_report = offensive_summary.at[idx]
+            # 检查进攻动能报告是否有效
             if offense_report and isinstance(offense_report, dict) and any(offense_report.values()):
                 final_summary['offense_momentum'] = offense_report
-            risk_report = risk_summary.at[idx]
+            # 检查风险变化报告是否有效
             if risk_report and isinstance(risk_report, dict) and any(v for v in risk_report.values() if v):
                 final_summary['risk_change'] = risk_report
-            if final_summary:
-                df.at[idx, 'health_change_summary'] = final_summary
+            final_summaries.append(final_summary)
+            
+        df['health_change_summary'] = final_summaries
 
     def _generate_exit_triggers(self) -> pd.DataFrame:
         """

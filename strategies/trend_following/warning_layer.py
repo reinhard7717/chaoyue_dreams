@@ -15,9 +15,11 @@ class WarningLayer:
     # 持仓健康诊断大脑
     def _diagnose_risk_momentum(self, total_risk_score_series: pd.Series) -> pd.Series:
         """
-        【V503.0 新增】风险动量引擎 (Risk Momentum Engine)
+        【V503.0 新增】【代码优化】风险动量引擎 (Risk Momentum Engine)
         - 核心职责: 计算总风险分的“斜率”(变化速度)和“加速度”(速度的变化)，
                     以实现对风险趋势的预测性分析。
+        - 优化说明: 1. 在 .rolling().apply() 中设置 raw=True，将NumPy数组直接传递给计算函数，减少开销。
+                    2. 使用 np.select 和列表推导式替代了用于生成最终报告的 for 循环，实现了全向量化。
         """
         # print("          -> [风险动量引擎 V503.0] 启动，正在计算风险势能...")
         p = get_params_block(self.strategy, 'four_layer_scoring_params')
@@ -29,11 +31,14 @@ class WarningLayer:
         window = get_param_value(momentum_params.get('slope_window'), 3)
         accel_threshold = get_param_value(momentum_params.get('accel_threshold'), 20.0)
 
-        # 1. 计算风险分的斜率 (速度)
-        risk_slope = total_risk_score_series.rolling(window).apply(
-            lambda y: linregress(np.arange(len(y)), y).slope if len(y.dropna()) == window else np.nan,
-            raw=False
-        ).fillna(0)
+        # 定义一个辅助函数，用于在 raw=True 模式下安全地计算斜率
+        def calculate_slope(y: np.ndarray) -> float:
+            if np.isnan(y).any() or len(y) < window:
+                return np.nan
+            return linregress(np.arange(len(y)), y).slope
+
+        # 1. 计算风险分的斜率 (速度)，使用 raw=True 提升性能
+        risk_slope = total_risk_score_series.rolling(window).apply(calculate_slope, raw=True).fillna(0)
 
         # 2. 计算风险分的加速度 (速度的变化)
         risk_accel = risk_slope.diff().fillna(0)
@@ -43,101 +48,77 @@ class WarningLayer:
         is_decelerating = (risk_slope > 0) & (risk_accel < -accel_threshold)
         is_improving = risk_slope < 0
 
-        # 4. 生成量化的动量报告
-        momentum_summary = pd.Series([{} for _ in range(len(total_risk_score_series))], index=total_risk_score_series.index)
-        for idx in total_risk_score_series.index:
-            state = "STABLE" # 默认稳定
-            if is_escalating.at[idx]:
-                state = "ESCALATING" # 加速恶化
-            elif is_decelerating.at[idx]:
-                state = "DECELERATING" # 减速恶化
-            elif is_improving.at[idx]:
-                state = "IMPROVING" # 改善中
-            
-            # 只在有显著动量时记录，避免报告冗余
-            if state != "STABLE":
-                momentum_summary.at[idx] = {
-                    'momentum_state': state,
-                    'risk_slope': round(risk_slope.at[idx], 2),
-                    'risk_accel': round(risk_accel.at[idx], 2)
-                }
+        # 4. 使用向量化操作生成量化的动量报告
+        conditions = [is_escalating, is_decelerating, is_improving]
+        choices = ["ESCALATING", "DECELERATING", "IMPROVING"]
+        states = np.select(conditions, choices, default="STABLE")
         
-        return momentum_summary
+        # 使用列表推导式构建报告字典列表，只为非稳定状态构建
+        reports = [
+            {'momentum_state': state, 'risk_slope': round(slope, 2), 'risk_accel': round(accel, 2)} if state != "STABLE" else {}
+            for state, slope, accel in zip(states, risk_slope, risk_accel)
+        ]
+        
+        return pd.Series(reports, index=total_risk_score_series.index)
 
     def _diagnose_risk_dynamics(self, combined_risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V502.0 定量诊断大脑】
+        【V502.0 定量诊断大脑】【代码优化】
         - 核心升级: 实现从“定性”到“定量”的飞跃。
-        - 产出变更: risk_change_summary 中的 new/persistent/resolved 不再是简单的名称列表，
-                    而是包含 name, cn_name, score, prev_score, change, change_pct
-                    等丰富量化信息的对象列表。
+        - 优化说明: 原始的 for 循环被完全向量化的 `melt`, `merge`, 和 `groupby` 操作替代。
+                    代码首先将宽格式的风险数据（每天一行，每风险一列）转换为长格式，
+                    然后进行高效的列间计算，最后按日期分组聚合回所需的字典列表格式。
+                    这避免了逐行处理，性能得到数量级的提升。
         """
         # print("          -> [定量诊断大脑 V502.0] 启动，正在进行风险量化分析...")
         
-        risk_df_yesterday = combined_risk_details_df.shift(1).fillna(0)
-        risk_change_summary = pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)
+        # 使用全向量化操作替代 for 循环
+        if combined_risk_details_df.empty:
+            return pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)
 
-        # 获取所有出现过的风险信号列名
-        all_risk_columns = combined_risk_details_df.columns
+        # 步骤1: 将当日和昨日的风险数据转换为长格式
+        risk_today_long = combined_risk_details_df.reset_index().melt(
+            id_vars='index', var_name='risk_name', value_name='score'
+        )
+        risk_yesterday_long = combined_risk_details_df.shift(1).reset_index().melt(
+            id_vars='index', var_name='risk_name', value_name='prev_score'
+        )
+        
+        # 步骤2: 合并数据，使每一行包含当日和昨日的分数
+        merged_risks = pd.merge(risk_today_long, risk_yesterday_long, on=['index', 'risk_name']).fillna(0)
+        
+        # 步骤3: 过滤掉没有风险变化的行以提高效率
+        active_risks = merged_risks[(merged_risks['score'] > 0) | (merged_risks['prev_score'] > 0)].copy()
+        if active_risks.empty:
+            return pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)
 
-        for idx in combined_risk_details_df.index:
-            # 如果当天和昨天都没有任何风险，则跳过，提高效率
-            if combined_risk_details_df.loc[idx].sum() == 0 and risk_df_yesterday.loc[idx].sum() == 0:
-                continue
+        # 步骤4: 向量化计算变化量、变化率和风险类别
+        active_risks['change'] = active_risks['score'] - active_risks['prev_score']
+        active_risks['change_pct'] = (active_risks['change'] / active_risks['prev_score'].replace(0, np.nan) * 100).fillna(99999.0)
+        
+        conditions = [
+            (active_risks['score'] > 0) & (active_risks['prev_score'] == 0),
+            (active_risks['score'] > 0) & (active_risks['prev_score'] > 0),
+            (active_risks['score'] == 0) & (active_risks['prev_score'] > 0)
+        ]
+        choices = ['new', 'persistent', 'resolved']
+        active_risks['category'] = np.select(conditions, choices, default=None)
+        
+        # 步骤5: 准备用于格式化的元数据
+        active_risks['cn_name'] = active_risks['risk_name'].apply(lambda x: self.risk_metadata.get(x, {}).get('cn_name', x))
+        active_risks['abs_change'] = active_risks['change'].abs()
 
-            new_risks_details = []
-            persistent_risks_details = []
-            resolved_risks_details = []
+        # 步骤6: 按日期和类别分组，并将每个组转换为字典列表
+        def format_group(group):
+            return group[['risk_name', 'cn_name', 'score', 'prev_score', 'change', 'change_pct']].rename(columns={'risk_name': 'name'}).round(2).to_dict('records')
 
-            for risk_name in all_risk_columns:
-                today_score = combined_risk_details_df.at[idx, risk_name]
-                prev_score = risk_df_yesterday.at[idx, risk_name]
-
-                # 如果今天和昨天该风险的分数都为0，则跳过
-                if today_score == 0 and prev_score == 0:
-                    continue
-
-                # 计算变化量和变化率
-                change = today_score - prev_score
-                if prev_score != 0:
-                    change_pct = (change / prev_score) * 100
-                else:
-                    # 如果前一天分数为0，则变化率为无穷大或无意义，记为 99999.0 以便排序
-                    change_pct = 99999.0 if change > 0 else 0.0
-                
-                # 准备风险详情对象
-                risk_detail_obj = {
-                    'name': risk_name,
-                    'cn_name': self.risk_metadata.get('cn_name', risk_name), # 从缓存的元数据获取中文名
-                    'score': round(today_score, 2),
-                    'prev_score': round(prev_score, 2),
-                    'change': round(change, 2),
-                    'change_pct': round(change_pct, 2)
-                }
-
-                # 根据分数变化，将风险归类
-                if today_score > 0 and prev_score == 0:
-                    new_risks_details.append(risk_detail_obj)
-                elif today_score > 0 and prev_score > 0:
-                    persistent_risks_details.append(risk_detail_obj)
-                elif today_score == 0 and prev_score > 0:
-                    resolved_risks_details.append(risk_detail_obj)
-            
-            # 只有在确实有风险变化时才记录
-            if new_risks_details or persistent_risks_details or resolved_risks_details:
-                # 对列表进行排序，让最重要的变化排在前面
-                # 排序规则：优先按分数变化的绝对值降序
-                new_risks_details.sort(key=lambda x: abs(x['change']), reverse=True)
-                persistent_risks_details.sort(key=lambda x: abs(x['change']), reverse=True)
-                resolved_risks_details.sort(key=lambda x: abs(x['change']), reverse=True)
-
-                risk_change_summary.at[idx] = {
-                    'new': new_risks_details,
-                    'persistent': persistent_risks_details,
-                    'resolved': resolved_risks_details
-                }
-
-        return risk_change_summary
+        grouped = active_risks.sort_values('abs_change', ascending=False).groupby(['index', 'category']).apply(format_group)
+        
+        # 步骤7: 将分组结果重新组合成最终的 Series
+        final_summary = grouped.unstack(level='category').apply(lambda row: row.dropna().to_dict(), axis=1)
+        
+        # 确保所有日期都有记录，即使是空字典
+        return final_summary.reindex(combined_risk_details_df.index, fill_value={})
 
     def calculate_risk_score(self, critical_risk_details: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
         """

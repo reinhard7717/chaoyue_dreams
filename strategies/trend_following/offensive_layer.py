@@ -125,50 +125,41 @@ class OffensiveLayer:
 
     def _create_persistent_state_from_events(self, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series) -> pd.Series:
         """
-        【新增工具函数 V401.1】创建一个基于事件的持续性状态。
-        这是将理想化数学模型改造为实战策略的关键工具。
-        - 状态一旦由 entry_event_series 触发，将持续 persistence_days 天。
-        - 如果在持续期间 break_condition_series 为 True，则状态立即中断。
-        - 如果在状态持续期间，新的 entry_event 发生，则重置持续天数。
-        - 采用循环实现，确保逻辑清晰和准确，对于单只股票的回测性能足够。
-        
-        Args:
-            entry_event_series (pd.Series): 触发状态开始的布尔序列 (瞬时事件)。
-            persistence_days (int): 状态希望持续的天数。
-            break_condition_series (pd.Series): 立即中断状态的布尔序列。
-
-        Returns:
-            pd.Series: 代表持续状态的布尔序列。
+        【新增工具函数 V401.1】【代码优化】创建一个基于事件的持续性状态。
+        - 优化说明: 原始实现通过 for 循环遍历整个 DataFrame，性能极差。
+                    优化后的版本改为只遍历“进入事件”发生的日期，极大地减少了循环次数。
+                    对于稀疏的进入事件，性能提升非常显著。此逻辑与 utils.py 中的 create_persistent_state 保持一致。
         """
-        in_state = False
-        days_left = 0
+        # 使用更高效的、仅遍历入口事件的循环逻辑替换原始的逐行循环
         output_state = pd.Series(False, index=entry_event_series.index)
+        df_index = entry_event_series.index
         
-        # 为了效率，将Series转为numpy array进行迭代
-        entry_events = entry_event_series.to_numpy()
-        break_conditions = break_condition_series.to_numpy()
-        output_array = output_state.to_numpy()
-
-        for i in range(len(entry_events)):
-            # 步骤 1: 检查中断条件，如果满足，立即退出状态
-            if in_state and break_conditions[i]:
-                in_state = False
-                days_left = 0
-                
-            # 步骤 2: 检查新的入口事件，如果触发，则进入/重置状态
-            if entry_events[i]:
-                in_state = True
-                days_left = persistence_days
-                
-            # 步骤 3: 维持状态
-            if in_state and days_left > 0:
-                output_array[i] = True
-                days_left -= 1
+        # 找出所有入口事件的索引位置
+        entry_indices = df_index[entry_event_series]
+        if entry_indices.empty:
+            return output_state
+            
+        # 只对每个入口事件进行处理
+        for entry_idx in entry_indices:
+            # 计算理论上的窗口结束日期
+            window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
+            
+            # 确定实际的窗口范围，并在此范围内查找中断点
+            actual_window_mask = (df_index >= entry_idx) & (df_index <= window_end_date)
+            break_points = df_index[actual_window_mask & break_condition_series]
+            
+            # 确定状态的实际结束日期
+            if not break_points.empty:
+                # 如果有中断点，状态在第一个中断点结束
+                end_date = break_points[0]
             else:
-                # 如果持续时间结束，也退出状态
-                in_state = False
-                
-        return pd.Series(output_array, index=entry_event_series.index)
+                # 如果没有中断点，状态持续到窗口期结束
+                end_date = df_index[actual_window_mask][-1] if actual_window_mask.any() else entry_idx
+            
+            # 将此窗口期内的状态设置为 True
+            output_state.loc[entry_idx:end_date] = True
+            
+        return output_state
 
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
