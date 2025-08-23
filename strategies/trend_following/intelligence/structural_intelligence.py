@@ -165,8 +165,10 @@ class StructuralIntelligence:
             is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
             is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
             
-            # 将严苛的 AND 条件修改为更符合实战的 OR 条件
-            is_healthy_internal = is_shrinking_volume | is_chip_concentrating
+            # [修改原因] 回测证明 V284.2 的 OR 条件过于宽松，产生了大量胜率仅5%的噪声信号。
+            #           恢复为严格的 AND 条件，要求必须同时满足“量缩”和“筹码集中”两大特征，
+            #           才能被确认为“健康吸筹”，从而大幅提升信号质量。
+            is_healthy_internal = is_shrinking_volume & is_chip_concentrating
             
             healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_healthy_internal
         

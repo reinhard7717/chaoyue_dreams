@@ -88,7 +88,7 @@
         "apply_on": ["D"],
         "params": { "ma_periods": [3, 5, 10] }
       },
-      "atr": { "enabled": true, "apply_on": ["D"], "periods": [14] },
+      "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
       "fibonacci_levels": {
         "enabled": true,
         "apply_on": ["D"],
