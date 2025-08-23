@@ -154,68 +154,65 @@ class CognitiveIntelligence:
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V277.2 筹码核心版】 - 联合作战司令部
-        - 核心重构: 彻底移除了对资金流信号的依赖，全面转向基于筹码结构和行为的判断，
-                    使其更适应A股的实际情况。
+        【V278.0 力量分析版】 - 联合作战司令部
+        - 核心重构: 废除了基于价格形态的、已被证明无效的“突破前夜”信号。
+        - 核心新增: 引入了全新的S级“黄金阵地构筑”信号，该信号基于“结构力量”、“势能储备”和
+                    “动能优势”三大力量支柱的共振，从根本上提升了突破准备状态的识别质量。
         """
-        # print("        -> [联合作战司令部 V277.2 筹码核心版] 启动，正在打造终极S级战局信号...") # MODIFIED: 修改版本号
+        print("        -> [联合作战司令部 V278.0 力量分析版] 启动，正在分析战场核心结构...") # MODIFIED: 修改版本号和描述
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 步骤1：情报总览 (全面转向筹码核心信号) ---
+        # --- 步骤1：情报总览 ---
         is_ma_bullish = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
         is_ma_bearish = self.strategy.atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-        is_ma_converging = self.strategy.atomic_states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', default_series) | self.strategy.atomic_states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', default_series)
         is_price_above_long_ma = self.strategy.atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
         is_recent_reversal = self.strategy.atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         is_ma_short_slope_positive = self.strategy.atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
         is_dyn_trend_healthy = self.strategy.atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
         is_dyn_trend_weakening = self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
-        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series) # [替代] 资金流入
-        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series) # [替代] 资金流出
-        is_chip_health_excellent = df.get('chip_health_score_D', 0) > 80
-        is_chip_health_deteriorating = self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
-        is_chip_price_divergence = self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) # [替代] 资金顶背离
-        is_vol_squeeze = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', default_series)
+        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
         
         risk_1_chip_failure = self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
         risk_2_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', default_series)
         risk_3_confirmed_dist = self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series)
         risk_4_deceptive_churn = self.strategy.atomic_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
 
-        # --- 步骤2：联合裁定 (基于更严格、更可靠的筹码信号) ---
-        # 【战局1: S级主升浪·黄金航道】 - 结构 + 动能 + 筹码 + 位置 (四重共振)
+        # --- 步骤2：联合裁定 ---
+        # 【战局1: S级主升浪·黄金航道】
         structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = (
-            is_ma_bullish &                          # 1. 结构: 完美多头排列
-            is_dyn_trend_healthy &                   # 2. 动能: 趋势正在健康加速
-            is_chip_concentrating &                  # 3. 筹码: 供应正在被锁定 (替代资金流入)
-            is_price_above_long_ma                   # 4. 位置: 占据战略制高点
+            is_ma_bullish & is_dyn_trend_healthy & is_chip_concentrating & is_price_above_long_ma
         )
-        # 【战局2: A级突破前夜·能量压缩】 - 
-        structure_states['STRUCTURE_BREAKOUT_EVE_A'] = (
-            is_vol_squeeze &
-            is_chip_concentrating &
-            is_ma_converging &
-            is_price_above_long_ma
+        
+        # 废除基于形态的、胜率仅6%的旧“突破前夜”信号，引入基于三大力量支柱共振的全新S级信号。
+        # 【战局2: S级战备·黄金阵地构筑】
+        # 支柱1: 结构力量 - 必须具备S级的黄金筹码结构
+        is_prime_chip_structure = self.strategy.atomic_states.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
+        # 支柱2: 势能储备 - 波动率必须被极致压缩
+        is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        # 支柱3: 动能优势 - 底层力学必须向多头倾斜
+        has_energy_advantage = self.strategy.atomic_states.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
+        
+        # 最终裁定：三大力量支柱必须同时存在
+        structure_states['SETUP_PRIME_STRUCTURE_S'] = (
+            is_prime_chip_structure & is_extreme_squeeze & has_energy_advantage
         )
-        # 【战局3: B级反转初期·黎明微光】 - 
+
+        # 【战局3: B级反转初期·黎明微光】
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = (
-            is_recent_reversal &
-            is_ma_short_slope_positive
+            is_recent_reversal & is_ma_short_slope_positive
         )
-        # 【战局4: S级风险·顶部危险】 - 升级为多个高风险信号的融合体
-        # 最终裁定：只要任一顶层风险信号出现，就认为战局进入“顶部危险”状态
+        # 【战局4: S级风险·顶部危险】
         structure_states['STRUCTURE_TOPPING_DANGER_S'] = (
             risk_1_chip_failure | risk_2_late_stage | risk_3_confirmed_dist | risk_4_deceptive_churn
         )
-        # 【战局5: F级禁区·下跌通道】 - 基于筹码发散
+        # 【战局5: F级禁区·下跌通道】
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = (
-            is_ma_bearish &
-            is_dyn_trend_weakening &
-            is_chip_diverging
+            is_ma_bearish & is_dyn_trend_weakening & is_chip_diverging
         )
 
-        # print("        -> [联合作战司令部 V277.2 筹码核心版] 核心战局定义升级完成。") # MODIFIED: 修改版本号
+        print("        -> [联合作战司令部 V278.0 力量分析版] 核心战局定义升级完成。") # MODIFIED: 修改版本号
         return structure_states
 
     def run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -499,12 +496,12 @@ class CognitiveIntelligence:
 
     def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 幽灵清除版】终极战法合成模块
-        - 核心修复: 移除了对 TRIGGER_PRIME_BREAKOUT_S 的错误重复定义。
-                    该信号的唯一定义源已被统一到 playbook_engine.py 中，
-                    彻底解决了“信号身份盗用”问题，确保了战术逻辑的纯洁性。
+        【V2.0 战略过滤版】终极战法合成模块
+        - 核心修复: 为S++和S+级王牌战法增加了“必须处于上涨初期”的战略环境过滤器。
+        - 收益: 解决了该战法在上涨末期被“力竭性突破”欺骗的致命缺陷，
+                确保我们的王牌武器只在战役的“点火阶段”投入，而不是在“高潮出货”阶段。
         """
-        print("        -> [终极战法合成模块 V1.1 幽灵清除版] 启动...") # MODIFIED: 修改版本号和描述
+        print("        -> [终极战法合成模块 V2.0 战略过滤版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -527,21 +524,27 @@ class CognitiveIntelligence:
         setup_s_plus = (condition_sum == 2)
         states['SETUP_PRIME_STRUCTURE_S_PLUS'] = setup_s_plus
 
-        # --- 2. 获取真正的S级“突破冲锋号” ---
-        # [代码修改] 从 trigger_events 中直接获取由 playbook_engine.py 定义的、唯一的、正确的信号
+        # --- 2. 获取S级“突破冲锋号” ---
         trigger_prime_breakout_s = triggers.get('TRIGGER_PRIME_BREAKOUT_S', default_series)
 
-        # --- 3. 【终极裁定】生成S++级王牌战法 ---
+        # --- 3. 定义战略环境过滤器 ---
+        # 这是本次修复的核心。确保终极战法在触发的当天，战场环境依然是安全的“上涨初期”。
+        # 这解决了因突破当天状态变化而导致战法在错误时机触发的致命逻辑陷阱。
+        is_in_early_stage_today = atomic.get('CONTEXT_TREND_STAGE_EARLY', default_series)
+
+        # --- 4. 【终极裁定】生成王牌战法 (已注入战略智慧) ---
         is_triggered_today = trigger_prime_breakout_s
 
-        # 3.1 生成 S++ 战法
+        # 4.1 生成 S++ 战法
         was_setup_s_plus_plus_yesterday = setup_s_plus_plus.shift(1).fillna(False)
-        final_tactic_s_plus_plus = was_setup_s_plus_plus_yesterday & is_triggered_today
+        # 最终裁定 = 昨日S++级准备就绪 AND 今日发动S级总攻 AND 【今日必须仍处于上涨初期】
+        final_tactic_s_plus_plus = was_setup_s_plus_plus_yesterday & is_triggered_today & is_in_early_stage_today
         states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'] = final_tactic_s_plus_plus
 
-        # 3.2 生成 S+ 战法
+        # 4.2 生成 S+ 战法
         was_setup_s_plus_yesterday = setup_s_plus.shift(1).fillna(False)
-        final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today
+        # 最终裁定 = 昨日S+级准备就绪 AND 今日发动S级总攻 AND 【今日必须仍处于上涨初期】 (且不与S++重叠)
+        final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today & is_in_early_stage_today & ~final_tactic_s_plus_plus
         states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS'] = final_tactic_s_plus
 
         if final_tactic_s_plus_plus.any():

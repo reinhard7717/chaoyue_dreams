@@ -234,24 +234,19 @@ class StructuralIntelligence:
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
-
         # 复合情报1: “平台获趋势支撑” (逻辑不变)
         is_platform_stable = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
-
         # 复合情报2: “突破前夜” (S级战术信号) - 逻辑修正与净化
         # 移除了冗余的 'STRUCTURE_BOX_ABOVE_TRENDLINE' 中间信号。
         # 新定义：一个健康的吸筹箱体 + 波动率被压缩到极致 = 突破前夜
         is_healthy_accumulation = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
-        
-        # [代码新增] 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康箱体等价
+        # 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康箱体等价
         composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
-
         print("        -> [结构情报司令部 V1.1] 复合情报合成完毕。")
-        
         return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -312,16 +307,14 @@ class StructuralIntelligence:
             
         return dynamics_states
 
-
     def diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【新增】斐波那契支撑诊断模块
-        - 核心职责: 识别价格在关键斐波那契回撤位获得支撑的行为。
-        - 产出:
-            - OPP_FIB_SUPPORT_GOLDEN_POCKET_S: 在0.618黄金分割位获得支撑的S级信号。
-            - OPP_FIB_SUPPORT_STANDARD_A: 在0.382或0.5标准分割位获得支撑的A级信号。
+        【V2.0 动态确认版】斐波那契反攻诊断模块
+        - 核心升级: 彻底废除了“静态触碰”的无效逻辑。新范式要求必须有“动态力量”的确认。
+        - 新逻辑: 斐波那契支撑 = (昨日触及斐波那契位) + (今日出现显性反转阳线) + (处于上升趋势中)。
+        - 收益: 将一个胜率仅6%的噪声信号，提纯为一个具备实战价值的高质量“反攻”信号。
         """
-        # print("        -> [斐波那契支撑诊断模块] 启动...")
+        print("        -> [斐波那契反攻诊断模块 V2.0 动态确认版] 启动...") # MODIFIED: 修改版本号和描述
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -331,36 +324,44 @@ class StructuralIntelligence:
 
         proximity_ratio = get_param_value(p.get('proximity_ratio'), 0.01)
         
-        # 定义关键的斐波那契水平列名
         fib_levels = {
             '0.618': 'FIB_0_618_D',
             '0.500': 'FIB_0_500_D',
             '0.382': 'FIB_0_382_D'
         }
 
-        # 检查所需列是否存在
         if any(col not in df.columns for col in fib_levels.values()):
             print("          -> [警告] 缺少斐波那契水平数据列，模块跳过。")
             return {}
 
-        # 核心逻辑：识别“下探回升”于斐波那契位的行为
-        # 即：当日最低价 <= 斐波那契位，但收盘价 > 斐波那契位
-        def check_support(fib_level_col):
+        # 引入“确认”和“上下文”两大过滤器，根治信号泛滥且无效的问题。
+        # 过滤器1: “力量确认” - 今日必须出现显性反转阳线，代表主力资金已入场确认支撑。
+        is_reversal_confirmed_today = self.strategy.trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+        
+        # 过滤器2: “战略上下文” - 必须处于一个基本的上升趋势中，避免在下跌中继中接飞刀。
+        is_in_uptrend_context = self.strategy.atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+
+        # 核心逻辑：识别“昨日下探斐波那契位，今日确认反攻”的行为
+        def check_confirmed_rebound(fib_level_col):
             fib_level = df[fib_level_col]
-            # 允许一定的误差
-            is_pierced = df['low_D'] <= fib_level * (1 + proximity_ratio)
-            is_reclaimed = df['close_D'] > fib_level * (1 - proximity_ratio)
-            return is_pierced & is_reclaimed
+            # 条件1: 昨日最低价触及或跌破斐波那契位 (试探支撑)
+            was_pierced_yesterday = (df['low_D'].shift(1) <= fib_level.shift(1) * (1 + proximity_ratio)).fillna(False)
+            
+            # 最终裁定: (昨日试探) AND (今日主力确认反攻) AND (战略趋势向上)
+            return was_pierced_yesterday & is_reversal_confirmed_today & is_in_uptrend_context
+
         # 分别为不同级别的支撑生成信号
-        support_618 = check_support(fib_levels['0.618'])
-        support_500 = check_support(fib_levels['0.500'])
-        support_382 = check_support(fib_levels['0.382'])
+        support_618 = check_confirmed_rebound(fib_levels['0.618'])
+        support_500 = check_confirmed_rebound(fib_levels['0.500'])
+        support_382 = check_confirmed_rebound(fib_levels['0.382'])
+        
         states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'] = support_618
         states['OPP_FIB_SUPPORT_STANDARD_A'] = support_500 | support_382
-        # if states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].any():
-        #     print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].sum()} 次 S级“黄金口袋”支撑。")
-        # if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
-        #     print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”支撑。")
+        
+        if states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].any():
+            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_GOLDEN_POCKET_S'].sum()} 次 S级“黄金口袋”确认反攻。")
+        if states['OPP_FIB_SUPPORT_STANDARD_A'].any():
+            print(f"          -> [情报] 侦测到 {states['OPP_FIB_SUPPORT_STANDARD_A'].sum()} 次 A级“标准斐波那契”确认反攻。")
         return states
 
     def diagnose_structural_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

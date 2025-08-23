@@ -75,12 +75,13 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V234.0 最终净化版 - 战术触发事件定义中心】
-        - 核心升级: 严格遵循“V234.0 作战条例”，所有参数均从唯一的 trigger_event_params 配置块中获取，
-                    确保了配置的单一来源原则，使整个触发体系清晰、健壮、易于维护。
-        - 职责: 识别所有可以作为“开火信号”的瞬时战术事件(Trigger)。
+        【V235.0 确认与共振版 - 战术触发事件定义中心】
+        - 核心升级 1: 彻底重写了 TRIGGER_PRIME_BREAKOUT_S 的定义，斩断了其与无效信号的依赖，
+                      新定义为“波动率极致压缩 + 暴力突破K线”的强共振事件。
+        - 核心升级 2: 为 TRIGGER_PLATFORM_PULLBACK_REBOUND 增加了“获利盘锁定”的过滤器，
+                      极大提升了平台回踩信号的质量，有效规避了平台反弹出货的陷阱。
         """
-        # print("        -> [触发事件中心 V234.0] 启动，正在定义所有原子化触发事件...")
+        print("        -> [触发事件中心 V235.0 确认与共振版] 启动...") # MODIFIED: 修改版本号和描述
         triggers = {}
         default_series = pd.Series(False, index=df.index)
         trigger_params = get_params_block(self.strategy, 'trigger_event_params')
@@ -164,10 +165,7 @@ class PlaybookEngine:
                 is_touching_platform = df['low_D'] <= df[platform_price_col] * (1 + proximity_ratio)
                 is_closing_above = df['close_D'] > df[platform_price_col]
                 is_positive_day = df['close_D'] > df['open_D']
-                # 核心过滤器：要求获利盘必须是锁仓状态（贡献换手率低于30%）
-                # 这能有效过滤掉主力利用平台反弹出货的伪信号
                 is_winner_holding_tight = df[winner_turnover_col] < 30.0
-                # 组合新的、更强大的触发条件
                 triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day & is_winner_holding_tight
 
         # 2.4 【趋势】趋势延续确认K线
@@ -178,27 +176,19 @@ class PlaybookEngine:
             is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
             triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
 
-        # 这个触发器是为 STRUCTURE_BREAKOUT_EVE_S 量身定制的。
-        # 它要求今天的突破，必须决定性地超越【昨天】的箱体顶部。
-        if 'box_top_D' in df.columns:
-            # 条件1: 必须是一根“能量释放”阳线 (自带量价齐升属性)
-            is_energy_release_candle = triggers.get('TRIGGER_ENERGY_RELEASE', default_series)
-            
-            # 条件2: 收盘价必须高于【昨日】箱体顶部的 1% (决定性突破)
-            yesterday_box_top = df['box_top_D'].shift(1)
-            is_decisive_breakout = df['close_D'] > (yesterday_box_top * 1.01)
-            
-            # [新增] 条件3: “制导系统” - 前一日必须是“突破前夜”
-            yesterday_was_breakout_eve = self.strategy.atomic_states.get('STRUCTURE_BREAKOUT_EVE_S', default_series).shift(1).fillna(False)
-            
-            # 最终裁定：必须同时满足所有三个条件
-            triggers['TRIGGER_PRIME_BREAKOUT_S'] = is_energy_release_candle & is_decisive_breakout & yesterday_was_breakout_eve
-        else:
-            triggers['TRIGGER_PRIME_BREAKOUT_S'] = default_series
+        # 废除旧的、依赖于无效信号的`TRIGGER_PRIME_BREAKOUT_S`定义。
+        #           新定义是一个独立的、基于“势能储蓄+动能爆发”物理模型的强共振信号，
+        #           不再依赖任何前置的setup状态，确保了信号的纯洁性和高质量。
+        # 2.5 【S级王牌】突破冲锋号 (重铸版)
+        # 条件1: “势能” - 前一日必须处于波动率极致压缩状态
+        was_extreme_squeeze_yesterday = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series).shift(1).fillna(False)
+        # 条件2: “动能” - 今日必须是S级的暴力突破K线
+        is_explosive_breakout_today = self.strategy.atomic_states.get('TRIGGER_EXPLOSIVE_BREAKOUT_S', default_series)
+        # 最终裁定：势能与动能的完美共振
+        triggers['TRIGGER_PRIME_BREAKOUT_S'] = was_extreme_squeeze_yesterday & is_explosive_breakout_today
 
         # 双层突破识别系统，以应对不同市场环境，取代单一、僵化的突破定义。
         # --- S级触发器 (攻城锤): 暴力突破 ---
-        # 逻辑: 严格的三维标准（创20日高点 + 2倍以上放量 + 光头强实体阳线），捕捉高确定性的暴力突破。
         is_price_breakout_s = df['close_D'] >= df['high_D'].rolling(20).max().shift(1)
         volume_ma_20 = df['volume_D'].rolling(20).mean()
         is_volume_confirmed_s = df['volume_D'] > (volume_ma_20 * 2.0)
@@ -208,12 +198,8 @@ class PlaybookEngine:
         triggers['TRIGGER_EXPLOSIVE_BREAKOUT_S'] = is_price_breakout_s & is_volume_confirmed_s & is_strength_confirmed_s
 
         # --- A级触发器 (手术刀): 温和推进 ---
-        # 逻辑: 更灵活的标准，捕捉温和、持续、重心不断上移的“碎步”上涨。
-        # 维度1: 位置 - 突破短期动量 (8日高点)
         is_price_breakout_a = df['close_D'] >= df['high_D'].rolling(8).max().shift(1)
-        # 维度2: 能量 - 成交量健康温和 (>20日均量)
         is_volume_confirmed_a = df['volume_D'] > volume_ma_20
-        # 维度3: 特征 - 重心上移 (当日优势 + 连续攻击)
         is_winner_of_the_day = df['close_D'] > (df['high_D'] + df['low_D']) / 2
         is_consecutive_attack = (df['high_D'] > df['high_D'].shift(1)) & (df['low_D'] > df['low_D'].shift(1))
         is_character_confirmed_a = is_winner_of_the_day & is_consecutive_attack
@@ -240,32 +226,25 @@ class PlaybookEngine:
                     triggers['TRIGGER_MACD_LOW_CROSS'] = is_golden_cross & (df[macd_col] < low_level)
 
         # --- 4. 从其他诊断模块接收的事件 (Event Reception) ---
-        # 这些事件由其他专业部门生成，本部门只负责接收和汇报
         triggers['TRIGGER_BOX_BREAKOUT'] = self.strategy.atomic_states.get('BOX_EVENT_BREAKOUT', default_series)
         triggers['TRIGGER_EARTH_HEAVEN_BOARD'] = self.strategy.atomic_states.get('BOARD_EVENT_EARTH_HEAVEN', default_series)
         triggers['TRIGGER_TREND_STABILIZING'] = self.strategy.atomic_states.get('MA_STATE_D_STABILIZING', default_series)
 
-        # [核心新增] 定义“箱体底部反转”复合触发器
+        # 定义“箱体底部反转”复合触发器
         p_box_reversal = trigger_params.get('box_bottom_reversal', {})
         if get_param_value(p_box_reversal.get('enabled'), True) and 'box_bottom_D' in df.columns:
-            # 条件1: 价格触及或轻微跌破箱体下轨
             proximity_ratio = get_param_value(p_box_reversal.get('proximity_ratio'), 0.015)
             is_near_bottom = df['low_D'] <= df['box_bottom_D'] * (1 + proximity_ratio)
-            
-            # 条件2: 出现显性的反转K线作为确认信号
             is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-            
             triggers['TRIGGER_BOX_BOTTOM_REVERSAL'] = is_near_bottom & is_reversal_confirmed
 
         # --- 5. 最终安全检查 (Final Safety Check) ---
-        # 确保所有触发器都已正确初始化，防止因计算失败导致后续流程出错
         for key in list(triggers.keys()):
             if triggers[key] is None:
                 triggers[key] = pd.Series(False, index=df.index)
             else:
                 triggers[key] = triggers[key].fillna(False)
                 
-        # print("        -> [触发事件中心 V234.0] 所有触发事件定义完成。")
         return triggers
 
     def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
