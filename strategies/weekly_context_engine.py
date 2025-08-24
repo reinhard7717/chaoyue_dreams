@@ -54,32 +54,32 @@ class WeeklyContextEngine:
         context_df = df_weekly.copy()
 
         # --- 流水线 1/7: 定义战场关键参照物 (新) ---
-        print("---【步骤1/6: 定义战场关键参照物】---")
+        # print("---【步骤1/6: 定义战场关键参照物】---")
         context_df = self._define_key_reference_levels(context_df)
 
         # --- 流水线 2/7: 解读周线K线心理学 (新) ---
-        print("---【步骤2/6: 解读周线K线心理学】---")
+        # print("---【步骤2/6: 解读周线K线心理学】---")
         context_df = self._analyze_candlestick_psychology(context_df)
 
         # --- 流水线 3/7: 标定动态风险控制线 (新) ---
-        print("---【步骤3/6: 标定动态风险控制线】---")
+        # print("---【步骤3/6: 标定动态风险控制线】---")
         context_df = self._calculate_dynamic_risk_levels(context_df)
         
         # --- 流水线 4/7: 诊断趋势“品格” (新) ---
-        print("---【步骤4/6: 诊断趋势“品格”】---")
+        # print("---【步骤4/6: 诊断趋势“品格”】---")
         context_df = self._characterize_trend_health(context_df)
 
         # --- 流水线 5/7: 构建市场状态机 (原) ---
-        print("---【步骤5/6: 构建市场状态机】---")
+        # print("---【步骤5/6: 构建市场状态机】---")
         context_df = self._build_market_regime(context_df)
 
         # --- 流水线 6/7: 深度量价与背离分析 (原) ---
-        print("---【步骤6/6: 深度量价与背离分析】---")
+        # print("---【步骤6/6: 深度量价与背离分析】---")
         context_df = self._analyze_vpa(context_df)
         context_df = self._detect_divergences(context_df)
 
         # --- 流水线 7/7: 合成战略分数与最终信号 (升级) ---
-        print("---【最终步骤: 合成战略分数与最终信号】---")
+        # print("---【最终步骤: 合成战略分数与最终信号】---")
         context_df = self._calculate_strategic_score(context_df)
         
         score = context_df['strategic_score_W']
@@ -106,8 +106,8 @@ class WeeklyContextEngine:
         original_cols = df_weekly.columns
         output_cols = [col for col in context_df.columns if col in final_signal_cols and col not in original_cols]
         
-        print(f"    - [指挥中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
-        print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
+        # print(f"    - [指挥中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
+        # print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
         return context_df[output_cols]
 
     # --- 新增模块 ---
@@ -305,7 +305,7 @@ class WeeklyContextEngine:
         score += (dist_from_high.between(-0.05, 0.05)) * 2
 
         df['strategic_score_W'] = score
-        print("    - [战略计分] 完成。已生成综合战略分数。")
+        # print("    - [战略计分] 完成。已生成综合战略分数。")
         return df
 
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:

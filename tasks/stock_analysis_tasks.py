@@ -132,15 +132,15 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
         if latest_only:
             analysis_end_time = f"{trade_date} 16:00:00" if trade_date else None
-            logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
+            # logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for date {trade_date}")
         else:
             analysis_end_time = None
             # 在全历史模式下，检查并记录 start_date_str
             if start_date_str:
-                logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str})，将从 [{start_date_str}] 开始保存记录。")
+                # logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str})，将从 [{start_date_str}] 开始保存记录。")
                 print(f"调试信息 [{stock_code}]: 全历史模式，指定起始日期 {start_date_str}") # 调试输出
             else:
-                logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全部历史数据]")
+                # logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全部历史数据]")
                 print(f"调试信息 [{stock_code}]: 全历史模式，处理所有数据") # 调试输出
 
         records_tuple = None # 初始化为 None

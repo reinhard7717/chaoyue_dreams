@@ -181,7 +181,7 @@ class MultiTimeframeTrendStrategy:
             print("    - [情报融合] 周线引擎未返回任何战略信号，跳过注入。")
             return df_daily
         
-        print(f"    - [情报融合] 准备将 {len(df_weekly_context.columns)} 个周线信号注入日线数据...")
+        # print(f"    - [情报融合] 准备将 {len(df_weekly_context.columns)} 个周线信号注入日线数据...")
         
         # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别，并用 'ffill' 向前填充
         # 这能完美地将周一的信号值广播到周二、三、四、五
@@ -202,7 +202,7 @@ class MultiTimeframeTrendStrategy:
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
 
-        print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
+        # print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
         return df_merged
 
     def _deploy_field_coroner_probe(self, df: pd.DataFrame, probe_date: str, score_details: pd.DataFrame, risk_details: pd.DataFrame, **kwargs):
