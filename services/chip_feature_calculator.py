@@ -19,12 +19,6 @@ class ChipFeatureCalculator:
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
         
-        # 确保核心计算列为 float 类型，防止 Decimal 类型在后续计算中引发 TypeError
-        # 使用 pd.to_numeric 是最稳健的方式，它可以正确处理已经是数值类型的列，并将 Decimal 转为 float
-        if 'price' in self.df.columns:
-            self.df['price'] = pd.to_numeric(self.df['price'], errors='coerce')
-        if 'percent' in self.df.columns:
-            self.df['percent'] = pd.to_numeric(self.df['percent'], errors='coerce')
         if not self.df.empty:
             percent_sum = self.df['percent'].sum()
             # 检查总和是否接近100，且大于0，以避免除以0的错误
