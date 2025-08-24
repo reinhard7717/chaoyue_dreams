@@ -24,6 +24,8 @@ class Playbook(models.Model):
         RISK = 'RISK', '风险剧本'
         EXIT = 'EXIT', '离场策略'
         TRIGGER = 'TRIGGER', '触发事件'
+        CONTEXT = 'CONTEXT', '环境信号'
+        UNKNOWN = 'UNKNOWN', '未知类型'
 
     name = models.CharField(max_length=255, primary_key=True, help_text="战法/规则的唯一英文代码 (例如 TACTIC_LOCK_CHIP_RALLY_S)")
     cn_name = models.CharField(max_length=255, help_text="战法/规则的中文名称")

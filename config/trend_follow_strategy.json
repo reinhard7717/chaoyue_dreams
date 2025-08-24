@@ -310,10 +310,9 @@
             "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1100,
             "说明_原有信号": "--- 原有阵地信号 ---",
             "SETUP_PRIME_STRUCTURE_S": 600,
-            "STRUCTURE_BREAKOUT_EVE_S": 600, 
             "OPP_PEAK_BATTLE_BREAKOUT_A": 500,
             "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 450,
-            "OPP_SQUEEZE_ZONE_SHAKEOUT_A": 320,
+            "OPP_SQUEZE_ZONE_SHAKEOUT_A": 320,
             "OPP_BEHAVIOR_SELLING_EXHAUSTION_A": 280,
             "OPP_MA_CONVERGENCE_BREAKOUT_A": 220,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
@@ -509,8 +508,7 @@
             }
         },
         "score_type_map": {
-          "说明": "【信号字典-V2.3 全覆盖版】定义所有信号的中文名和类型。已补全所有情报层生成的原子状态。",
-
+          "说明": "【信号字典-V2.4 全覆盖增强版】定义所有信号的中文名和类型。已补全所有情报层生成的原子状态。",
           "说明_COMPOSITE": "--- 战法分 (Composite) ---",
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": { "cn_name": "【战法S++】王牌结构突破(终极)", "type": "positional" },
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": { "cn_name": "【战法S+】王牌结构突破(次级)", "type": "positional" },
@@ -521,8 +519,12 @@
           "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": { "cn_name": "【战法A+】初升浪黄金坑V反", "type": "positional" },
           "TACTIC_ASCENT_PULLBACK_REVERSAL_A": { "cn_name": "【战法A】初升浪回踩确认", "type": "positional" },
           "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": { "cn_name": "【战法S+】巡航回踩确认", "type": "positional" },
-
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
+          "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS": { "cn_name": "【战备S++】终极黄金阵地", "type": "positional" },
+          "SETUP_PRIME_STRUCTURE_S_PLUS": { "cn_name": "【战备S+】次级黄金阵地", "type": "positional" },
+          "SETUP_PRIME_STRUCTURE_S": { "cn_name": "【战备S】黄金阵地构筑", "type": "positional" },
+          "CHIP_STRUCTURE_PRIME_OPPORTUNITY_S": { "cn_name": "【机会S】黄金筹码结构", "type": "positional" },
+          "STRUCTURE_BREAKOUT_EVE_S": { "cn_name": "【结构S】突破前夜", "type": "positional" },
           "PEAK_DYN_FORTRESS_SUPPORT": { "cn_name": "【机会B+】支撑堡垒形成", "type": "positional" },
           "PEAK_DYN_STEALTH_ACCUMULATION": { "cn_name": "【机会B】隐蔽吸筹峰形成", "type": "positional" },
           "OPP_PEAK_BATTLE_BREAKOUT_A": { "cn_name": "【机会A+】主峰换手突破", "type": "positional" },
@@ -547,7 +549,6 @@
           "STRUCTURE_BOX_ABOVE_TRENDLINE": { "cn_name": "【结构】箱体位于趋势线上", "type": "positional" },
           "STRUCTURE_MAIN_UPTREND_WAVE_S": { "cn_name": "【结构S】主升浪黄金航道", "type": "positional" },
           "STRUCTURE_EARLY_REVERSAL_B": { "cn_name": "【结构B】反转初期", "type": "positional" },
-          "SETUP_PRIME_STRUCTURE_S": { "cn_name": "【战备S】黄金阵地构筑", "type": "positional" },
           "KLINE_STATE_WASHOUT_WINDOW": { "cn_name": "【K线】巨阴洗盘窗口", "type": "positional" },
           "KLINE_STATE_GAP_SUPPORT_ACTIVE": { "cn_name": "【K线】缺口支撑激活", "type": "positional" },
           "KLINE_STATE_N_SHAPE_CONSOLIDATION": { "cn_name": "【K线】N字板盘整", "type": "positional" },
@@ -565,6 +566,7 @@
           "MA_STATE_SHORT_CONVERGENCE_SQUEEZE": { "cn_name": "【均线】短期粘合压缩", "type": "positional" },
           "MA_STATE_LONG_CONVERGENCE_SQUEEZE": { "cn_name": "【均线】长期粘合压缩", "type": "positional" },
           "STRUCTURE_BOX_ACCUMULATION_A": { "cn_name": "【结构A】健康吸筹箱体", "type": "positional" },
+          "BOX_STATE_HEALTHY_CONSOLIDATION": { "cn_name": "【形态】健康箱体盘整", "type": "positional" },
           "OSC_STATE_RSI_OVERSOLD": { "cn_name": "【震荡】RSI超卖", "type": "positional" },
           "OSC_STATE_MACD_BULLISH": { "cn_name": "【震荡】MACD看涨", "type": "positional" },
           "OSC_STATE_MACD_DIVERGENCE": { "cn_name": "【震荡】MACD顶背离", "type": "positional" },
@@ -574,9 +576,10 @@
           "VOL_STATE_EXTREME_SQUEEZE": { "cn_name": "【波动】极致压缩", "type": "positional" },
           "OPP_MA_CONVERGENCE_BREAKOUT_A": { "cn_name": "【机会A】均线收敛突破", "type": "positional" },
           "PLATFORM_STATE_STABLE_FORMED": { "cn_name": "【形态】稳固平台形成", "type": "positional" },
-
           "说明_DYNAMIC": "--- 动能分 (Dynamic) ---",
           "DYN_AGGRESSIVE_OFFENSE_A": { "cn_name": "【动能A】侵略性协同进攻", "type": "dynamic" },
+          "MECHANICS_COST_ACCELERATING": { "cn_name": "【力学】成本加速抬升", "type": "dynamic" },
+          "MECHANICS_COST_STABILIZING": { "cn_name": "【力学】成本企稳", "type": "dynamic" },
           "FORCE_VECTOR_OFFENSE_ACCELERATING": { "cn_name": "【力学】进攻加速", "type": "dynamic" },
           "FORCE_VECTOR_OFFENSE_DECELERATING": { "cn_name": "【力学】进攻减速", "type": "dynamic" },
           "FORCE_VECTOR_RISK_ACCELERATING": { "cn_name": "【力学】风险加速", "type": "dynamic" },
@@ -590,13 +593,11 @@
           "CHIP_DYN_COST_ACCELERATING": { "cn_name": "【筹码】成本加速抬升", "type": "dynamic" },
           "CHIP_DYN_HEALTH_IMPROVING": { "cn_name": "【筹码】健康度改善", "type": "dynamic" },
           "CHIP_DYN_WINNER_RATE_RISING": { "cn_name": "【筹码】获利盘比例上升", "type": "dynamic" },
-
           "说明_CONTEXT": "--- 环境加分 (Context) ---",
           "BONUS_CONTEXT_MAIN_UPTREND": { "cn_name": "【环境】主升浪加成", "type": "context" },
           "BONUS_CONTEXT_STRONG_TREND": { "cn_name": "【环境】强趋势加成", "type": "context" },
           "CONTEXT_TREND_STAGE_EARLY": { "cn_name": "【环境】上涨初期", "type": "context" },
           "CONTEXT_RECENT_REVERSAL_SIGNAL": { "cn_name": "【环境】近期有反转信号", "type": "context" },
-
           "说明_PLAYBOOK": "--- 剧本分 (Playbook) ---",
           "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": { "cn_name": "【剧本S+】极致压缩·暴力突破", "type": "playbook" },
           "PLAYBOOK_BREAKOUT_EVE_S": { "cn_name": "【剧本S】突破前夜", "type": "playbook" },
@@ -606,8 +607,8 @@
           "PLAYBOOK_GOLDEN_PIT_A_PLUS": { "cn_name": "【剧本A+】黄金坑吸筹", "type": "playbook" },
           "PLAYBOOK_MEAN_REVERSION_A": { "cn_name": "【剧本A】均值回归反弹", "type": "playbook" },
           "PLAYBOOK_BOX_REVERSAL_B": { "cn_name": "【剧本B】箱体底部反转", "type": "playbook" },
-
           "说明_RISK": "--- 风险分 (Risk) ---",
+          "CONTEXT_TREND_LATE_STAGE_SCORE": { "cn_name": "【风险】上涨末期分数", "type": "risk" },
           "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE": { "cn_name": "【系统风险】筹码结构严重失效", "type": "risk" },
           "RISK_CHIP_CONC_ACCEL_WORSENING": { "cn_name": "【风险】筹码集中趋势恶化", "type": "risk" },
           "RISK_BEHAVIOR_PANIC_FLEEING_S": { "cn_name": "【风险S+】抛压失控", "type": "risk" },
@@ -652,7 +653,6 @@
           "DYN_TREND_TOPPING_DIVERGENCE": { "cn_name": "【动能】顶部背离", "type": "risk" },
           "CHIP_DYN_OBJECTIVE_DIVERGING": { "cn_name": "【筹码】客观发散", "type": "risk" },
           "CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING": { "cn_name": "【筹码】客观加速发散", "type": "risk" },
-
           "说明_TRIGGER": "--- 触发器 (Trigger) ---",
           "TRIGGER_CHIP_IGNITION": { "cn_name": "【触发】筹码点火", "type": "trigger" },
           "VOL_BREAKOUT_FROM_SQUEEZE": { "cn_name": "【触发】波动压缩后突破", "type": "trigger" },
@@ -678,7 +678,6 @@
           "VOL_EVENT_SQUEEZE": { "cn_name": "【触发】波动压缩事件", "type": "trigger" },
           "TRIGGER_BOX_BOTTOM_REVERSAL": { "cn_name": "【触发】箱体底部反转", "type": "trigger" },
           "TRIGGER_PRIME_BREAKOUT_S": { "cn_name": "【触发S】突破冲锋号", "type": "trigger" },
-
           "说明_STRATEGIC": "--- 战略信号 (周线) ---",
           "CONTEXT_STRATEGIC_BULLISH_W": { "cn_name": "【周】战略性看涨", "type": "context" },
           "CONTEXT_STRATEGIC_BEARISH_W": { "cn_name": "【周】战略性看跌", "type": "risk" },
@@ -688,7 +687,6 @@
           "CONTEXT_PSYCH_REVERSAL_BULLISH_W": { "cn_name": "【周】看涨K线反转", "type": "context" },
           "CONTEXT_PSYCH_REJECTION_BEARISH_W": { "cn_name": "【周】看跌K线拒绝", "type": "risk" },
           "CONTEXT_TREND_HEALTH_STRONG_W": { "cn_name": "【周】趋势健康度强", "type": "context" },
-
           "说明_STRATEGIC_BONUS": "--- 战略加分项 ---",
           "STRATEGIC_BULLISH_BONUS_W": { "cn_name": "【加分】周线战略看涨", "type": "context" },
           "STRATEGIC_IGNITION_BONUS_W": { "cn_name": "【加分】周线点火期", "type": "context" },

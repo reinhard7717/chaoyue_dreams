@@ -118,13 +118,12 @@ class StructuralIntelligence:
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.2 逻辑放宽版】
-        - 核心重构: 彻底移除了对 'STRUCTURE_BREAKOUT_EVE_S' 的定义。本方法的职责被严格限定为
-                    只诊断与“箱体”直接相关的原子状态，确保了“单一事实来源”原则。
-        - 核心修正 (本次): 将健康箱体的判断条件从“量缩 AND 筹码集中”放宽为“量缩 OR 筹码集中”，
-                         以捕捉更多样、更真实的吸筹模式，彻底解决信号瓶颈问题。
+        【V285.0 职责收缩版】
+        - 核心重构: 彻底废除了本模块内关于“健康箱体”的定义。回测证明，基于价格的箱体
+                    胜率仅为5.5%，是无效的噪声信号。本模块的职责被严格限定为只输出
+                    纯粹的、客观的箱体边界和突破/跌破事件。
         """
-        print("        -> [工兵部队 V284.2 逻辑放宽版] 启动，正在输出纯粹的箱体边界与状态...") # MODIFIED: 修改版本号和描述
+        print("        -> [工兵部队 V285.0 职责收缩版] 启动，正在输出纯粹的箱体边界...") # MODIFIED: 修改版本号和描述
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -151,29 +150,10 @@ class StructuralIntelligence:
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
-        is_in_box = (df['close_D'] < box_top) & (df['close_D'] > box_bottom)
-        
-        ma_params = get_params_block(self.strategy, 'ma_state_params')
-        long_ma_period = get_param_value(ma_params.get('long_ma'), 55)
-        long_ma_col = f"EMA_{long_ma_period}_D"
-        
-        healthy_consolidation = pd.Series(False, index=df.index)
-        if long_ma_col in df.columns:
-            box_midpoint = (box_top + box_bottom) / 2
-            is_box_above_ma = box_midpoint > df[long_ma_col]
-            
-            is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', pd.Series(False, index=df.index))
-            is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-            
-            # [修改原因] 回测证明 V284.2 的 OR 条件过于宽松，产生了大量胜率仅5%的噪声信号。
-            #           恢复为严格的 AND 条件，要求必须同时满足“量缩”和“筹码集中”两大特征，
-            #           才能被确认为“健康吸筹”，从而大幅提升信号质量。
-            is_healthy_internal = is_shrinking_volume & is_chip_concentrating
-            
-            healthy_consolidation = is_valid_box & is_in_box & is_box_above_ma & is_healthy_internal
-        
-        states['BOX_STATE_HEALTHY_CONSOLIDATION'] = healthy_consolidation
-        states['STRUCTURE_BOX_ACCUMULATION_A'] = healthy_consolidation
+        # [修改原因] 彻底移除基于价格箱体的“健康吸筹”判断逻辑。
+        #           该信号 (STRUCTURE_BOX_ACCUMULATION_A) 胜率仅5.5%，是高质量策略的“毒药”。
+        #           其定义权将移交给基于成本分析的 diagnose_platform_states 模块。
+        # healthy_consolidation, BOX_STATE_HEALTHY_CONSOLIDATION, STRUCTURE_BOX_ACCUMULATION_A 已被删除
         
         for key in states:
             if key not in states or states[key] is None:
@@ -184,11 +164,13 @@ class StructuralIntelligence:
 
     def diagnose_platform_states(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V129.4 健康基因注入版】 - [职责调整] 已被提升为一级诊断单元。
-        - 核心重构: 彻底重写了“稳固平台”的定义。不再只依赖被动的成本峰稳定，
-                    而是主动融合了“成交量萎缩”和“筹码动态集中”两大健康度指标。
+        【V130.0 权力扩张版】
+        - 核心升级: 本模块正式接管“健康吸筹结构”的定义权。
+        - 新增职责: 在输出高质量的“稳固平台”信号的同时，也输出 `STRUCTURE_BOX_ACCUMULATION_A`
+                    信号。这使得所有依赖旧箱体信号的上游模块，能无缝地、自动地切换到
+                    这个胜率更高（14.1% vs 5.5%）的、基于成本的结构判断上来。
         """
-        # print("        -> [诊断模块 V129.4 健康基因注入版] 正在执行筹码平台状态诊断...") # MODIFIED: 修改版本号
+        print("        -> [诊断模块 V130.0 权力扩张版] 正在执行筹码平台状态诊断...") # MODIFIED: 修改版本号和描述
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -202,7 +184,8 @@ class StructuralIntelligence:
             print(f"          -> [警告] 缺少诊断平台状态所需的核心列: {missing}。模块将返回空结果。")
             df['PLATFORM_PRICE_STABLE'] = np.nan
             states['PLATFORM_STATE_STABLE_FORMED'] = default_series
-            states['STRUCTURE_PLATFORM_BROKEN'] = default_series # 修正：确保所有路径都有返回值
+            states['STRUCTURE_PLATFORM_BROKEN'] = default_series
+            states['STRUCTURE_BOX_ACCUMULATION_A'] = default_series # 确保有返回值
             return df, states
 
         is_cost_stable = (df[peak_cost_col].rolling(5).std() / df[peak_cost_col].rolling(5).mean()) < 0.02
@@ -212,6 +195,10 @@ class StructuralIntelligence:
         
         stable_formed_series = is_cost_stable & is_above_long_ma & is_shrinking_volume & is_chip_concentrating
         states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
+        
+        # [修改原因] 权力交接的核心。让基于成本的“稳固平台”成为“健康吸筹结构”的唯一定义。
+        #           这使得所有上游模块自动升级，用14.1%胜率的信号替换掉5.5%的噪声。
+        states['STRUCTURE_BOX_ACCUMULATION_A'] = stable_formed_series
         
         df['PLATFORM_PRICE_STABLE'] = df[peak_cost_col].where(stable_formed_series)
         
@@ -226,27 +213,29 @@ class StructuralIntelligence:
 
     def synthesize_composite_structures(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 逻辑修正版】复合结构合成模块
-        - 核心修正: 修正了 'STRUCTURE_BREAKOUT_EVE_S' 的合成逻辑，使其正确地融合
-                    “健康吸筹箱体”与“波动率极致压缩”两大S级前置条件。
+        【V2.0 成本核心版】复合结构合成模块
+        - 核心升级: 本模块现在消费的是由 `diagnose_platform_states` 提供的、基于成本的
+                    `STRUCTURE_BOX_ACCUMULATION_A` 信号。
+        - 收益: 使得“突破前夜” (`STRUCTURE_BREAKOUT_EVE_S`) 信号的质量得到了根本性的提升，
+                其基础从5.5%胜率的“价格箱体”升级为14.1%胜率的“成本平台”。
         """
-        print("          -> [结构情报司令部 V1.1] 启动，正在进行高维度复合情报合成...") # MODIFIED: 修改版本号
+        print("          -> [结构情报司令部 V2.0 成本核心版] 启动，正在进行高维度复合情报合成...") # MODIFIED: 修改版本号和描述
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
-        # 复合情报1: “平台获趋势支撑” (逻辑不变)
+        # 复合情报1: “平台获趋势支撑” (逻辑不变, 质量已提升)
         is_platform_stable = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
-        # 复合情报2: “突破前夜” (S级战术信号) - 逻辑修正与净化
-        # 移除了冗余的 'STRUCTURE_BOX_ABOVE_TRENDLINE' 中间信号。
-        # 新定义：一个健康的吸筹箱体 + 波动率被压缩到极致 = 突破前夜
+        # 复合情报2: “突破前夜” (S级战术信号) - 质量已自动升级
+        # [修改原因] 增加注释，明确信号源已升级。
+        # 新定义：一个健康的“成本平台” + 波动率被压缩到极致 = 高质量的突破前夜
         is_healthy_accumulation = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
-        # 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康箱体等价
-        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('BOX_STATE_HEALTHY_CONSOLIDATION', default_series)
-        print("        -> [结构情报司令部 V1.1] 复合情报合成完毕。")
+        # 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康吸筹结构等价
+        composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
+        print("        -> [结构情报司令部 V2.0 成本核心版] 复合情报合成完毕。")
         return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
