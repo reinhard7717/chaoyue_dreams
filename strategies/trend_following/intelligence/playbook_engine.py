@@ -23,24 +23,6 @@ class PlaybookEngine:
         """
         return [
             {
-                'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS',
-                'setup': ['VOL_STATE_EXTREME_SQUEEZE'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S'],
-                'comment': 'S+级 - 波动极致压缩后，出现高确定性的暴力突破。'
-            },
-            {
-                'name': 'PLAYBOOK_BREAKOUT_EVE_S',
-                'setup': ['STRUCTURE_BREAKOUT_EVE_S'], 
-                'trigger': ['TRIGGER_PRIME_BREAKOUT_S'],
-                'comment': 'S级 - 在结构、波动、筹码三维共振的“突破前夜”发动的总攻。'
-            },
-            {
-                'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A',
-                'setup': ['VOL_STATE_SQUEEZE_WINDOW'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
-                'comment': 'A级 - 波动压缩后，出现暴力突破或温和推进。'
-            },
-            {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
                 'trigger': ['TRIGGER_PULLBACK_REBOUND'],
@@ -48,8 +30,8 @@ class PlaybookEngine:
             },
             {
                 'name': 'PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS',
-                'setup': ['PLATFORM_STATE_STABLE_FORMED'], # 前置条件：必须已形成稳固平台
-                'trigger': ['TRIGGER_PLATFORM_PULLBACK_REBOUND'], # 触发事件：在该平台上发生回踩反弹
+                'setup': ['PLATFORM_STATE_STABLE_FORMED'],
+                'trigger': ['TRIGGER_PLATFORM_PULLBACK_REBOUND'],
                 'comment': 'A+级 - 在已形成的稳固筹码平台上发生的回踩反弹，确定性更高。'
             },
             {

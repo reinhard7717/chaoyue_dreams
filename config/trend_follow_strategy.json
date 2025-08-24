@@ -295,7 +295,7 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V337.0 战法手册版】计分体系。进攻逻辑已全部移至此处。",
+        "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
         "positional_scoring": {
           "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
           "positive_signals": {
@@ -309,7 +309,7 @@
             "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 1200,
             "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1100,
             "说明_原有信号": "--- 原有阵地信号 ---",
-            "SETUP_PRIME_STRUCTURE_S": 600,
+            "说明_修改": "移除了对 SETUP_PRIME_STRUCTURE_S 的直接计分。这是一个'准备状态'，分数将奖励给最终确认的'战术剧本'。",
             "OPP_PEAK_BATTLE_BREAKOUT_A": 500,
             "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 450,
             "OPP_SQUEZE_ZONE_SHAKEOUT_A": 320,
@@ -388,18 +388,15 @@
             "BEHAVIOR_DECEPTIVE_RALLY_S": 1500,
             "RISK_PEAK_BATTLE_DISTRIBUTION_A": 1300,
             "BEHAVIOR_DECEPTIVE_RALLY_A": 1200,
-
             "说明_S": "--- S级风险 (结构性崩塌) ---",
             "RISK_BEHAVIOR_WINNERS_FLEEING_A": 1200,
             "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1200,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
             "STRUCTURE_TOPPING_DANGER_S": 250,
             "STRUCTURE_PLATFORM_BROKEN": 200,
-
             "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
             "FRACTAL_RISK_TOP_DIVERGENCE": 800,
             "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
-
             "说明_STRATEGIC": "--- 战略级风险 (周线) ---",
             "CONTEXT_STRATEGIC_TOPPING_RISK_W": 500,
             "CONTEXT_PSYCH_REJECTION_BEARISH_W": 400
@@ -412,7 +409,6 @@
             "description": "【核心参数】要求当日的'阵地分'必须达到此阈值，'触发器'分数才会被计入。这确保了触发器只在基础稳固时才起作用。"
           }
         },
-
         "trigger_events": {
           "说明": "触发器计分部分。",
           "scoring": {
@@ -424,7 +420,6 @@
             "TRIGGER_ENERGY_RELEASE": 50,
             "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
             "FRACTAL_EVENT_TREND_FORMING": 100,
-            
             "说明_新增触发器计分": "--- 激活被浪费的触发器 ---",
             "TRIGGER_N_SHAPE_BREAKOUT": 80,
             "TRIGGER_MACD_LOW_CROSS": 60,
@@ -433,11 +428,12 @@
           }
         },
         "playbook_scoring": {
-            "说明": "剧本计分部分，适配 PlaybookEngine V2.0。",
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 500,
-            "PLAYBOOK_BREAKOUT_EVE_S": 450,
+            "说明": "【V2.1 剧本核心版】剧本计分部分。分数已重新校准，集中奖励高质量的、经过确认的战术剧本。",
+            "说明_修改": "大幅提高对'压缩突破'系列剧本的奖励分数，以补偿从'阵地分'中移除的'准备状态'分数。",
+            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 1000,
+            "PLAYBOOK_BREAKOUT_EVE_S": 900,
+            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 650,
             "PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS": 400,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 350,
             "PLAYBOOK_PULLBACK_REBOUND_A": 300,
             "PLAYBOOK_GOLDEN_PIT_A_PLUS": 480,
             "PLAYBOOK_MEAN_REVERSION_A": 350,

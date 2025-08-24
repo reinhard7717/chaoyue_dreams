@@ -722,6 +722,55 @@ class CognitiveIntelligence:
             
         return states
 
+    def synthesize_squeeze_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】压缩突破战术剧本合成模块
+        - 核心职责: 严格执行“战备(Setup) + 确认(Trigger)”的战术剧本逻辑，
+                      将低胜率的“准备状态”信号，升级为高胜率的“确认后”战法。
+        - 收益: 根治了因“抢跑”而导致的低胜率问题，确保只在多头力量得到最终确认后才出击。
+        """
+        print("        -> [压缩突破战术剧本合成模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 剧本1: S+级 - 极致压缩·暴力突破 ---
+        # 战备(昨日): 波动率处于极致压缩状态
+        setup_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series).shift(1).fillna(False)
+        # 确认(今日): 出现S级的暴力突破阳线
+        trigger_explosive_breakout = triggers.get('TRIGGER_EXPLOSIVE_BREAKOUT_S', default_series)
+        # 最终剧本:
+        states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = setup_extreme_squeeze & trigger_explosive_breakout
+
+        # --- 剧本2: S级 - 突破前夜·决战冲锋 ---
+        # 战备(昨日): 结构、波动、筹码三维共振的“突破前夜”
+        setup_breakout_eve = atomic.get('STRUCTURE_BREAKOUT_EVE_S', default_series).shift(1).fillna(False)
+        # 确认(今日): 出现S级的王牌“突破冲锋号”
+        trigger_prime_breakout = triggers.get('TRIGGER_PRIME_BREAKOUT_S', default_series)
+        # 最终剧本:
+        states['PLAYBOOK_BREAKOUT_EVE_S'] = setup_breakout_eve & trigger_prime_breakout
+
+        # --- 剧本3: A级 - 常规压缩·确认突破 ---
+        # 战备(昨日): 处于常规的压缩窗口期
+        setup_normal_squeeze = atomic.get('VOL_STATE_SQUEEZE_WINDOW', default_series).shift(1).fillna(False)
+        # 确认(今日): 出现S级暴力突破 或 A级温和推进
+        trigger_any_breakout = (
+            triggers.get('TRIGGER_EXPLOSIVE_BREAKOUT_S', default_series) |
+            triggers.get('TRIGGER_GRINDING_ADVANCE_A', default_series)
+        )
+        # 最终剧本 (注意：需要排除掉更高级别的S+剧本，保证信号互斥)
+        states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze & trigger_any_breakout & ~states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
+
+        # --- 打印战报 ---
+        if states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].any():
+            print(f"          -> [S+级剧本] 侦测到 {states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].sum()} 次“极致压缩·暴力突破”！")
+        if states['PLAYBOOK_BREAKOUT_EVE_S'].any():
+            print(f"          -> [S级剧本] 侦测到 {states['PLAYBOOK_BREAKOUT_EVE_S'].sum()} 次“突破前夜·决战冲锋”！")
+        if states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].any():
+            print(f"          -> [A级剧本] 侦测到 {states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].sum()} 次“常规压缩·确认突破”！")
+
+        return states
 
 
 
