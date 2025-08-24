@@ -84,24 +84,24 @@ class IntelligenceLayer:
         【V401.1 周线情报适配版】情报层总入口。
         - 核心升级: 新增了对周线战略情报的诊断和转化流程。
         """
-        print("--- [情报层总指挥官 V401.1 周线情报适配版] 开始执行所有诊断模块... ---") # MODIFIED: 修改版本号
+        # print("--- [情报层总指挥官 V401.1 周线情报适配版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础K线与板形态识别 ---
-        print("    - [阶段1/7] 正在执行基础形态识别...")
+        # print("    - [阶段1/7] 正在执行基础形态识别...")
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
 
         # --- 代码修改开始 ---
         # --- 阶段二: 注入并转化周线战略情报 ---
-        print("    - [阶段2/7] 正在注入并转化周线战略情报...")
+        # print("    - [阶段2/7] 正在注入并转化周线战略情报...")
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
         # --- 代码修改结束 ---
 
         # --- 阶段三: 核心原子状态生成 (第一梯队) ---
-        print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
+        # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_volatility_states(df))
         self.strategy.atomic_states.update(self.foundation_intel.diagnose_oscillator_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
@@ -117,7 +117,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
 
         # --- 阶段四: 核心原子状态生成 (第二梯队 - 依赖第一梯队) ---
-        print("    - [阶段4/7] 正在生成第二梯队原子状态 (依赖第一梯队)...")
+        # print("    - [阶段4/7] 正在生成第二梯队原子状态 (依赖第一梯队)...")
         # 将 diagnose_box_states 和 diagnose_platform_states 从旧的“司令部”中解放出来，直接调用
         self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
         df, platform_states = self.structural_intel.diagnose_platform_states(df)
@@ -130,7 +130,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
 
         # --- 阶段五: 复合与认知合成 ---
-        print("    - [阶段5/7] 正在执行复合与认知合成...")
+        # print("    - [阶段5/7] 正在执行复合与认知合成...")
         # 调用重构后的、只负责合成的 synthesize_composite_structures
         self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
@@ -143,7 +143,7 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
         # --- 阶段六: 生成最终的触发器与剧本 ---
-        print("    - [阶段6/7] 正在生成触发器与交易剧本...")
+        # print("    - [阶段6/7] 正在生成触发器与交易剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         trigger_events.update(chip_triggers)
         self.strategy.trigger_events = trigger_events
@@ -155,7 +155,7 @@ class IntelligenceLayer:
             decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
             final_tactic_days = decision_log_df.filter(like='FINAL_').any(axis=1)
             if final_tactic_days.any():
-                print("\n--- [回踩战术决策日志探针] ---")
+                # print("\n--- [回踩战术决策日志探针] ---")
                 display_cols = [col for col in decision_log_df.columns if 'POTENTIAL_' in col or 'FINAL_' in col]
                 print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
                 print(decision_log_df.loc[final_tactic_days, display_cols])
@@ -172,7 +172,7 @@ class IntelligenceLayer:
             trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
         # --- 阶段七: 最终报告 ---
-        print("--- [情报层总指挥官 V401.1] 所有诊断模块执行完毕。 ---") # MODIFIED: 修改版本号
+        # print("--- [情报层总指挥官 V401.1] 所有诊断模块执行完毕。 ---")
         return trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

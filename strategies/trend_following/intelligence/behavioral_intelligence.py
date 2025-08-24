@@ -127,7 +127,7 @@ class BehavioralIntelligence:
         - 核心升级: 全面收紧了“健康回踩”的定义，增加了“未破关键趋势线”的硬性约束，
                     并收紧了对成交量和获利盘惜售的判断标准，旨在从根本上提升信号质量。
         """
-        print("        -> [统一回踩诊断中心 V509.0 质量门升级版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [统一回踩诊断中心 V509.0 质量门升级版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         p = get_params_block(self.strategy, 'pullback_analysis_params')

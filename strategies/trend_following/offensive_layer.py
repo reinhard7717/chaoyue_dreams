@@ -15,7 +15,7 @@ class OffensiveLayer:
         - 核心升级: 新增了对 playbook_states 的处理逻辑，激活了“均值回归”等剧本的计分能力。
         - 核心加固: 增加了对“安全开关”逻辑中 foundation_signals 的健壮性检查。
         """
-        # print("        -> [进攻方案评估中心 V337.2 武器库升级版] 启动...") # MODIFIED: 修改版本号
+        # print("        -> [进攻方案评估中心 V337.2 武器库升级版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         

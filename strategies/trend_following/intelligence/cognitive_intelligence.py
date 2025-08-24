@@ -159,7 +159,7 @@ class CognitiveIntelligence:
         - 核心新增: 引入了全新的S级“黄金阵地构筑”信号，该信号基于“结构力量”、“势能储备”和
                     “动能优势”三大力量支柱的共振，从根本上提升了突破准备状态的识别质量。
         """
-        print("        -> [联合作战司令部 V278.0 力量分析版] 启动，正在分析战场核心结构...") # MODIFIED: 修改版本号和描述
+        # print("        -> [联合作战司令部 V278.0 力量分析版] 启动，正在分析战场核心结构...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -212,7 +212,7 @@ class CognitiveIntelligence:
             is_ma_bearish & is_dyn_trend_weakening & is_chip_diverging
         )
 
-        print("        -> [联合作战司令部 V278.0 力量分析版] 核心战局定义升级完成。") # MODIFIED: 修改版本号
+        # print("        -> [联合作战司令部 V278.0 力量分析版] 核心战局定义升级完成。")
         return structure_states
 
     def run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -221,7 +221,7 @@ class CognitiveIntelligence:
         - 核心重构: 重新定义了“派发事件”，使其基于更可靠的筹码和行为信号，
                     彻底摆脱了对资金流数据的依赖。
         """
-        # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...") # MODIFIED: 修改版本号
+        # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...")
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -242,7 +242,7 @@ class CognitiveIntelligence:
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
 
-        # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。") # MODIFIED: 修改版本号
+        # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。")
         return cognitive_states
 
     def determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -255,7 +255,7 @@ class CognitiveIntelligence:
                     在循环中直接对NumPy数组进行索引和赋值。这避免了pandas索引的巨大开销，
                     使得循环体内的操作非常快，显著提升了整体性能。
         """
-        # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---") # MODIFIED: 修改版本号
+        # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---")
         
         # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
         conditions = {
@@ -302,7 +302,7 @@ class CognitiveIntelligence:
             
         # 步骤4: 将最终的NumPy结果数组一次性赋值给DataFrame的新列
         df['main_force_state'] = main_force_state_arr
-        # print("    --- [战略推演单元 V304.1 信号源修复版] 主力行为序列已生成。 ---") # MODIFIED: 修改版本号
+        # print("    --- [战略推演单元 V304.1 信号源修复版] 主力行为序列已生成。 ---")
         return df
 
     def synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -351,7 +351,7 @@ class CognitiveIntelligence:
                       S级“筹码结构黄金机会”信号。
         - 收益: 确保S+级战法只在最安全、最有利的战局下发动，从根本上解决了其胜率低下的问题。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.0 王牌重铸版)”...") # MODIFIED: 修改版本号
+        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.0 王牌重铸版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -501,7 +501,7 @@ class CognitiveIntelligence:
         - 收益: 解决了该战法在上涨末期被“力竭性突破”欺骗的致命缺陷，
                 确保我们的王牌武器只在战役的“点火阶段”投入，而不是在“高潮出货”阶段。
         """
-        print("        -> [终极战法合成模块 V2.0 战略过滤版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [终极战法合成模块 V2.0 战略过滤版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -561,7 +561,7 @@ class CognitiveIntelligence:
         - 收益: 解决了该战法在主升浪末期被“诱多型”反转信号欺骗的致命缺陷，
                 从根本上提升了信号的安全性。
         """
-        # print("        -> [回踩战术矩阵 V7.1 防诱多增强版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [回踩战术矩阵 V7.1 防诱多增强版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events

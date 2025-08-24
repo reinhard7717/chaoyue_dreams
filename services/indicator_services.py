@@ -735,7 +735,7 @@ class IndicatorService:
         - 核心修正: 移除了对 ma_convergence 指标的重复计算，只保留唯一的、在方法内部的直接实现。
         - 核心修正: 标准化了对 advanced_fund_features 的调用，移除了不必要的 suffix 参数。
         """
-        # print(f"  [指标计算V110.1] 开始为周期 '{timeframe_key}' 计算指标...") # MODIFIED: 修改版本号
+        # print(f"  [指标计算V110.1] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -1007,7 +1007,7 @@ class IndicatorService:
             price_std = df['close_D'].rolling(cv_window).std()
             # 加上一个极小值防止除以零
             df[cv_col] = price_std / (price_mean + 1e-6)
-            print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
+            # print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
 
         # --- 3. 计算日线结构势能 (Energy Ratio) ---
         # 注意：这需要筹码数据已经合并到df中
@@ -1015,7 +1015,7 @@ class IndicatorService:
         if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns and energy_col not in df.columns:
             # 加上一个极小值防止除以零
             df[energy_col] = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
-            print(f"      -> 结构势能 ({energy_col}) 计算完成。")
+            # print(f"      -> 结构势能 ({energy_col}) 计算完成。")
 
         all_dfs[timeframe] = df
         return all_dfs

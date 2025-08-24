@@ -81,7 +81,7 @@ class PlaybookEngine:
         - 核心升级 2: 为 TRIGGER_PLATFORM_PULLBACK_REBOUND 增加了“获利盘锁定”的过滤器，
                       极大提升了平台回踩信号的质量，有效规避了平台反弹出货的陷阱。
         """
-        print("        -> [触发事件中心 V235.0 确认与共振版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [触发事件中心 V235.0 确认与共振版] 启动...")
         triggers = {}
         default_series = pd.Series(False, index=df.index)
         trigger_params = get_params_block(self.strategy, 'trigger_event_params')

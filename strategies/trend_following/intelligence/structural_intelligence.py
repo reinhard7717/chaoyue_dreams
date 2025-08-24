@@ -23,7 +23,7 @@ class StructuralIntelligence:
                       实际列名 (例如 'MA_CONV_CV_SHORT_D_D')，确保动态粘合状态能被正确计算。
         - 核心修复 3 (本次修改): 修正了 is_decisive_breakout 的逻辑，确保突破K线必须站上所有粘合的均线。
         """
-        # print("          -> [均线野战部队 V283.2 逻辑修正版] 启动，正在执行融合分析...") # MODIFIED: 修改版本号和描述
+        # print("          -> [均线野战部队 V283.2 逻辑修正版] 启动，正在执行融合分析...")
         states = {}
         p = get_params_block(self.strategy, 'ma_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -123,7 +123,7 @@ class StructuralIntelligence:
                     胜率仅为5.5%，是无效的噪声信号。本模块的职责被严格限定为只输出
                     纯粹的、客观的箱体边界和突破/跌破事件。
         """
-        print("        -> [工兵部队 V285.0 职责收缩版] 启动，正在输出纯粹的箱体边界...") # MODIFIED: 修改版本号和描述
+        # print("        -> [工兵部队 V285.0 职责收缩版] 启动，正在输出纯粹的箱体边界...")
         states = {}
         box_params = get_params_block(self.strategy, 'dynamic_box_params')
         if not get_param_value(box_params.get('enabled'), False) or df.empty:
@@ -170,7 +170,7 @@ class StructuralIntelligence:
                     信号。这使得所有依赖旧箱体信号的上游模块，能无缝地、自动地切换到
                     这个胜率更高（14.1% vs 5.5%）的、基于成本的结构判断上来。
         """
-        print("        -> [诊断模块 V130.0 权力扩张版] 正在执行筹码平台状态诊断...") # MODIFIED: 修改版本号和描述
+        # print("        -> [诊断模块 V130.0 权力扩张版] 正在执行筹码平台状态诊断...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -219,7 +219,7 @@ class StructuralIntelligence:
         - 收益: 使得“突破前夜” (`STRUCTURE_BREAKOUT_EVE_S`) 信号的质量得到了根本性的提升，
                 其基础从5.5%胜率的“价格箱体”升级为14.1%胜率的“成本平台”。
         """
-        print("          -> [结构情报司令部 V2.0 成本核心版] 启动，正在进行高维度复合情报合成...") # MODIFIED: 修改版本号和描述
+        # print("          -> [结构情报司令部 V2.0 成本核心版] 启动，正在进行高维度复合情报合成...")
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
@@ -235,7 +235,7 @@ class StructuralIntelligence:
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
         # 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康吸筹结构等价
         composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
-        print("        -> [结构情报司令部 V2.0 成本核心版] 复合情报合成完毕。")
+        # print("        -> [结构情报司令部 V2.0 成本核心版] 复合情报合成完毕。")
         return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -303,7 +303,7 @@ class StructuralIntelligence:
         - 新逻辑: 斐波那契支撑 = (昨日触及斐波那契位) + (今日出现显性反转阳线) + (处于上升趋势中)。
         - 收益: 将一个胜率仅6%的噪声信号，提纯为一个具备实战价值的高质量“反攻”信号。
         """
-        print("        -> [斐波那契反攻诊断模块 V2.0 动态确认版] 启动...") # MODIFIED: 修改版本号和描述
+        # print("        -> [斐波那契反攻诊断模块 V2.0 动态确认版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -404,7 +404,7 @@ class StructuralIntelligence:
         is_cost_accel_negative = df['ACCEL_5_peak_cost_D'] < 0
         states['MECHANICS_COST_STABILIZING'] = is_cost_slope_positive & is_cost_accel_negative
 
-        print("        -> [结构力学诊断引擎 V401.1] 分析完毕。") # MODIFIED: 修改版本号
+        print("        -> [结构力学诊断引擎 V401.1] 分析完毕。")
         return states
 
 
