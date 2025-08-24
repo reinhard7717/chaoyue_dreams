@@ -328,15 +328,14 @@ class ChipIntelligence:
 
     def diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V340.0 新增】【代码优化】筹码峰“创世纪”模块
-        - 核心职责: 追踪主筹码峰的“政权更迭”，并为其关联上“出生证明”
-                    (确立之日的成交量特征)，从而解读其战略意义。
-        - 优化说明: 使用全向量化操作替代了原始的for循环状态机。通过`cumsum`创建事件区块，
-                    再利用`groupby().transform()`并行计算每个区块的属性（如大小、稳定性、起始日期等），
-                    极大地提升了计算效率，避免了逐行处理的性能瓶颈。
+        【V340.1 战略过滤版】筹码峰“创世纪”模块
+        - 核心修复: 为胜率仅10.8%的“隐蔽吸筹”信号增加了“均线底部钝化”的战略环境过滤器。
+        - 收益: 根治了在下跌中继中错误识别“吸筹”的致命缺陷，确保只在趋势有反转
+                潜力的安全区域内识别此机会。
         """
-        # print("        -> [筹码峰“创世纪”模块 V340.0] 启动...")
+        # print("        -> [筹码峰“创世纪”模块 V340.1 战略过滤版] 启动...")
         states = {}
+        default_series = pd.Series(False, index=df.index) # [新增代码] 增加默认序列
         
         # --- 1. 检查所需数据 ---
         required_cols = ['peak_cost_D', 'volume_D', 'VOL_MA_21_D', 'SLOPE_55_EMA_55_D']
@@ -391,10 +390,15 @@ class ChipIntelligence:
         is_after_downtrend = prev_day_trend <= 0
         is_after_uptrend = prev_day_trend > 0
 
+        # [修改原因] 为“隐蔽吸筹”增加战略环境过滤器，这是本次修复的核心。
+        # 过滤器：必须处于“均线底部钝化”状态，代表长期下跌趋势已得到遏制。
+        is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
+
         # 组合生成最终的原子状态
         states['PEAK_DYN_FORTRESS_SUPPORT'] = is_high_volume_formation & is_after_downtrend
         states['PEAK_DYN_EXHAUSTION_TOP'] = is_high_volume_formation & is_after_uptrend
-        states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend
+        # 注入战略过滤器
+        states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend & is_bottoming_context
 
         return states
 

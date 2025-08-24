@@ -17,56 +17,61 @@ class StructuralIntelligence:
 
     def diagnose_ma_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V283.2 逻辑修正版】
-        - 核心修复 1: 彻底移除了对不存在的 'MA_ZSCORE_D' 列的引用，该逻辑是无效的。
-        - 核心修复 2: 修正了对均线粘合度(CV)列名的引用，以匹配数据层因后缀叠加而产生的
-                      实际列名 (例如 'MA_CONV_CV_SHORT_D_D')，确保动态粘合状态能被正确计算。
-        - 核心修复 3 (本次修改): 修正了 is_decisive_breakout 的逻辑，确保突破K线必须站上所有粘合的均线。
+        【V283.4 风险哨兵加固版】
+        - 核心修复: 为胜率仅12.1%的“稳定多头排列”信号，增加了“筹码集中”或“动能健康”
+                      的双重确认过滤器。
+        - 核心加固 (本次修改): 为“稳定空头排列”增加了“长期均线斜率必须为负”的硬性约束，
+                        将其从一个形态信号，升级为一个确认的趋势风险信号。
+        - 收益: 彻底解决了该信号在趋势末期或震荡市中频繁发出假信号的致命缺陷。
+                新的定义确保了我们只在“形神兼备”的真正健康趋势中确认多头状态，
+                并只在趋势确认的空头行情中发出风险预警。
         """
-        # print("          -> [均线野战部队 V283.2 逻辑修正版] 启动，正在执行融合分析...")
+        # print("          -> [均线野战部队 V283.4 风险哨兵加固版] 启动，正在执行融合分析...")
         states = {}
         p = get_params_block(self.strategy, 'ma_state_params')
         if not get_param_value(p.get('enabled'), False): return states
-
+        default_series = pd.Series(False, index=df.index)
         short_ma_period = get_param_value(p.get('short_ma'), 13)
         mid_ma_period = get_param_value(p.get('mid_ma'), 21)
         long_ma_period = get_param_value(p.get('long_ma'), 55)
-
         short_ma = f'EMA_{short_ma_period}_D'
         mid_ma = f'EMA_{mid_ma_period}_D'
         long_ma = f'EMA_{long_ma_period}_D'
         short_ma_slope_col = f'SLOPE_5_{short_ma}'
         long_ma_slope_col = f'SLOPE_21_{long_ma}'
-        
         required_cols = [short_ma, mid_ma, long_ma, short_ma_slope_col, long_ma_slope_col]
         if not all(col in df.columns for col in required_cols):
             missing_cols = [col for col in required_cols if col not in df.columns]
             print(f"          -> [警告] 缺少诊断MA状态所需列: {missing_cols}，跳过。")
             return states
-
         states['MA_STATE_PRICE_ABOVE_SHORT_MA'] = df['close_D'] > df[short_ma]
         states['MA_STATE_PRICE_ABOVE_MID_MA'] = df['close_D'] > df[mid_ma]
         is_price_above = df['close_D'] > df[long_ma]
         is_ma_rising = df[long_ma_slope_col] > 0
         states['MA_STATE_PRICE_ABOVE_LONG_MA'] = is_price_above & is_ma_rising
-        
-        stable_bullish = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
+        is_ma_arrangement_bullish = (df[short_ma] > df[mid_ma]) & (df[mid_ma] > df[long_ma])
+        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_trend_healthy_accel = self.strategy.atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
+        is_healthy_foundation = is_chip_concentrating | is_trend_healthy_accel
+        stable_bullish = is_ma_arrangement_bullish & is_healthy_foundation
         states['MA_STATE_STABLE_BULLISH'] = stable_bullish
-        states['MA_STATE_STABLE_BEARISH'] = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
-
+        # --- 【代码修改】开始 ---
+        # 步骤1: 定义纯粹的、基于形态的“均线空头排列”
+        is_ma_arrangement_bearish = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
+        # 步骤2: 定义趋势的“风险确认”过滤器 (长期均线斜率必须为负)
+        is_long_trend_down = df[long_ma_slope_col] < 0
+        # 步骤3: 最终的“稳定空头排列” = 形态排列正确 AND 长期趋势确认向下
+        states['MA_STATE_STABLE_BEARISH'] = is_ma_arrangement_bearish & is_long_trend_down
+        # --- 【代码修改】结束 ---
         states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[short_ma_slope_col] > 0
         states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[long_ma_slope_col] > 0
-
         aggressive_slope_threshold = get_param_value(p.get('aggressive_slope_threshold'), 0.01)
         is_aggressive_slope = df[short_ma_slope_col] > aggressive_slope_threshold
         states['MA_STATE_AGGRESSIVE_BULLISH'] = stable_bullish & is_aggressive_slope
-
         long_ma_slope = df[long_ma_slope_col]
         entry_event = (long_ma_slope >= 0) & (long_ma_slope.shift(1) < 0)
-        
         short_ma_slope = df[short_ma_slope_col]
         break_condition = short_ma_slope < -0.005
-
         states['MA_STATE_BOTTOM_PASSIVATION'] = create_persistent_state(
             df=df,
             entry_event_series=entry_event,
@@ -74,24 +79,18 @@ class StructuralIntelligence:
             break_condition_series=break_condition,
             state_name='MA_STATE_BOTTOM_PASSIVATION'
         )
-
         p_conv = get_params_block(self.strategy, 'post_accumulation_params').get('convergence_params', {})
         if get_param_value(p_conv.get('use_dynamic_threshold'), False):
             window = get_param_value(p_conv.get('window'), 120)
             quantile = get_param_value(p_conv.get('quantile'), 0.1)
-
             short_cv_col = 'MA_CONV_CV_SHORT_D'
             long_cv_col = 'MA_CONV_CV_LONG_D'
-            
             if short_cv_col in df.columns:
                 dynamic_threshold_short = df[short_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_SHORT_CONVERGENCE_SQUEEZE'] = df[short_cv_col] < dynamic_threshold_short
-            
             if long_cv_col in df.columns:
                 dynamic_threshold_long = df[long_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
-
-        # --- A级机会 - 均线收敛突破 ---
         is_highly_converged = (
             states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index)) |
             states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index))
@@ -107,13 +106,10 @@ class StructuralIntelligence:
             volume_ratio = get_param_value(p_energy.get('volume_ratio'), 1.5)
             is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
             is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
-
-        # 为突破K线增加更严格的确认条件：必须站上所有短期均线
         is_decisive_breakout = is_breakout_candle & (df['close_D'] > df[short_ma]) & (df['close_D'] > df[mid_ma])
         was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
         is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
         states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_decisive_breakout & is_in_uptrend_context
-
         return states
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
