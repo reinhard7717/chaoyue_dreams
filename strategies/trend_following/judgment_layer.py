@@ -209,11 +209,11 @@ class JudgmentLayer:
 
         df.loc[final_sell_condition | final_warning_condition, 'final_score'] = df.loc[final_sell_condition | final_warning_condition, 'risk_score']
         
-        debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'net_score', 'final_score', 'signal_type', 'main_force_state']
-        final_check_df = df[(df['signal_type'] != '无信号') & (df['signal_type'] != '中性')].tail(10)
-        if not final_check_df.empty:
-            cols_to_show = [col for col in debug_cols if col in final_check_df.columns]
-            print("          -> [最终分数审查报告]:")
-            print(final_check_df[cols_to_show])
-        else:
-            print("          -> [最终分数审查报告]: 在最近的记录中未发现任何有效信号。")
+        # debug_cols = ['entry_score', 'risk_score', 'veto_votes', 'net_score', 'final_score', 'signal_type', 'main_force_state']
+        # final_check_df = df[(df['signal_type'] != '无信号') & (df['signal_type'] != '中性')].tail(10)
+        # if not final_check_df.empty:
+        #     cols_to_show = [col for col in debug_cols if col in final_check_df.columns]
+        #     print("          -> [最终分数审查报告]:")
+        #     print(final_check_df[cols_to_show])
+        # else:
+        #     print("          -> [最终分数审查报告]: 在最近的记录中未发现任何有效信号。")

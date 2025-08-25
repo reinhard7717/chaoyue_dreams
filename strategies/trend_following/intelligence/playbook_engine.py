@@ -23,12 +23,6 @@ class PlaybookEngine:
         """
         return [
             {
-                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_A',
-                'setup': ['VOL_STATE_SQUEEZE_WINDOW', 'MA_STATE_SHORT_CONVERGENCE_SQUEEZE'],
-                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
-                'comment': 'A级 - 波动或均线压缩后，出现确认性的突破阳线。'
-            },
-            {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
                 'trigger': ['TRIGGER_PULLBACK_REBOUND'],

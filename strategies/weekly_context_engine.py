@@ -147,7 +147,7 @@ class WeeklyContextEngine:
             'kline_c_evening_star_W'
         ]
         df['psych_rejection_bearish_W'] = df_with_patterns[[p for p in bearish_patterns if p in df_with_patterns.columns]].any(axis=1)
-        print("    - [心理学] 完成。已解读周线K线的多空意图。")
+        # print("    - [心理学] 完成。已解读周线K线的多空意图。")
         return df
 
     def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -157,11 +157,9 @@ class WeeklyContextEngine:
             print(f"    - [风险线-警告] 缺少 {atr_col} 列，无法计算动态风险线。")
             df['risk_volatility_stop_W'] = np.nan
             return df
-            
         # 定义风险线为：收盘价下方 2 倍 ATR
         df['risk_volatility_stop_W'] = df['close_W'] - (2 * df[atr_col])
-        
-        print("    - [风险线] 完成。已基于ATR计算动态风险控制线。")
+        # print("    - [风险线] 完成。已基于ATR计算动态风险控制线。")
         return df
 
     def _characterize_trend_health(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -172,13 +170,11 @@ class WeeklyContextEngine:
             print("    - [趋势品格-警告] 缺少EMA列，无法诊断趋势健康度。")
             df['trend_health_strong_W'] = False
             return df
-            
         # 定义强健康趋势为：收盘价 > 10周线 > 21周线
         is_price_above_ema10 = df['close_W'] > df[ema10_col]
         is_ema10_above_ema21 = df[ema10_col] > df[ema21_col]
         df['trend_health_strong_W'] = is_price_above_ema10 & is_ema10_above_ema21
-        
-        print("    - [趋势品格] 完成。已诊断趋势的健康度。")
+        # print("    - [趋势品格] 完成。已诊断趋势的健康度。")
         return df
 
     def _build_market_regime(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -211,8 +207,7 @@ class WeeklyContextEngine:
         df['regime_bull_quiet_W'] = is_uptrend & is_vol_contraction          # 牛市静默期 (慢牛/蓄力)
         df['regime_bear_vol_expansion_W'] = is_downtrend & is_vol_expansion    # 熊市主跌浪 (杀跌)
         df['regime_bear_quiet_W'] = is_downtrend & is_vol_contraction         # 熊市静默期 (阴跌/筑底)
-        
-        print("    - [状态机] 完成。已将市场划分为四种核心状态。")
+        # print("    - [状态机] 完成。已将市场划分为四种核心状态。")
         return df
 
     def _analyze_vpa(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -239,7 +234,7 @@ class WeeklyContextEngine:
         df['cmf_accumulation_W'] = df[cmf_col] > 0.05
         df['cmf_distribution_W'] = df[cmf_col] < -0.05
         
-        print("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
+        # print("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
         return df
 
     def _detect_divergences(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -264,8 +259,7 @@ class WeeklyContextEngine:
         price_near_low = df['low_W'] <= df['low_W'].rolling(N).min() * 1.02
         rsi_not_at_low = df[rsi_col] > df[rsi_col].rolling(N).min() * 1.15
         df['opp_bullish_divergence_W'] = price_near_low & rsi_not_at_low
-        
-        print("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
+        # print("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
         return df
 
     def _calculate_strategic_score(self, df: pd.DataFrame) -> pd.DataFrame:

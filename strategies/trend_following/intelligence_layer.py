@@ -159,7 +159,12 @@ class IntelligenceLayer:
                 print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
                 print(decision_log_df.loc[final_tactic_days, display_cols])
                 print("--- [探针结束] ---\n")
+        # 步骤1: 生成由 PlaybookEngine 定义的标准剧本
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
+        # 步骤2: 调用认知层，生成更复杂的、基于压缩突破的战术剧本
+        squeeze_playbooks = self.cognitive_intel.synthesize_squeeze_playbooks(df)
+        # 步骤3: 将新生成的战术剧本并入总的剧本状态池，供进攻层统一计分
+        self.strategy.playbook_states.update(squeeze_playbooks)
 
         is_in_squeeze_window = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
         is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
