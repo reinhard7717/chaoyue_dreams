@@ -117,16 +117,29 @@ class PerformanceAnalyzer:
             if playbook_series.dtype == bool:
                 # 战法剧本信号也是瞬时事件
                 all_events[playbook_name] = playbook_series
-                
-        return all_events
+        score_map = self.scoring_params.get('score_type_map', {})
+        filtered_events = {}
+        # 遍历所有收集到的信号
+        for signal_name, signal_series in all_events.items():
+            # 从信号地图中查找该信号的元数据
+            signal_meta = score_map.get(signal_name, {})
+            # 获取信号类型，如果找不到，则默认为 'unknown'，也会被保留
+            signal_type = signal_meta.get('type', 'unknown')
+            # 核心过滤逻辑：只保留类型不是 'context' 的信号
+            if signal_type != 'context':
+                filtered_events[signal_name] = signal_series
+        original_count = len(all_events)
+        filtered_count = len(filtered_events)
+        print(f"      -> [战报净化] 已执行过滤：从 {original_count} 个原始信号中筛选出 {filtered_count} 个战斗/风险信号进行分析。")
+        
+        return filtered_events
 
     def _analyze_single_trade_performance(self, entry_date, is_offensive: bool) -> dict:
         """
         【V4.1 角色识别版】深度分析单次交易的性能表现。
         - 核心修改: 接收 is_offensive 参数，以决定调用哪种模拟逻辑。
         """
-        # --- 【代码修改开始】 ---
-        # [修改原因] 调用权威的静态模拟函数，并传入正确的信号角色。
+        # 调用权威的静态模拟函数，并传入正确的信号角色。
         return PerformanceAnalysisService._simulate_trade_outcome(
             entry_date=entry_date,
             price_df=self.df,

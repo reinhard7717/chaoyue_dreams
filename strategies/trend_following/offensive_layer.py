@@ -11,19 +11,19 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V337.2 武器库升级版】
-        - 核心升级: 新增了对 playbook_states 的处理逻辑，激活了“均值回归”等剧本的计分能力。
-        - 核心加固: 增加了对“安全开关”逻辑中 foundation_signals 的健壮性检查。
+        【V339.0 精英制胜版】
+        - 核心升级: 实现了“动能催化剂”逻辑。动能信号的分数只有在“纯阵地分”达到
+                    `min_positional_score_for_dynamic` 阈值时才会被激活。
+        - 核心哲学: 贯彻“精英制胜”原则，确保动能信号只作为锦上添花的催化剂，
+                    而非构建决策的核心，大幅提升信号的信噪比。
         """
-        # print("        -> [进攻方案评估中心 V337.2 武器库升级版] 启动...")
+        # print("        -> [进攻方案评估中心 V339.0 精英制胜版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
-        
         entry_score = pd.Series(0.0, index=df.index)
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         default_series = pd.Series(False, index=df.index)
-
         # --- 1. 评估“战法火力” (Composite Scoring) ---
         composite_rules = scoring_params.get('composite_scoring', {}).get('rules', [])
         for rule in composite_rules:
@@ -47,26 +47,36 @@ class OffensiveLayer:
             if final_condition.any():
                 entry_score.loc[final_condition] += score
                 score_details_df[rule_name] = final_condition * score
-
-        # --- 2. 评估“阵地/动能火力” (Atomic Scoring) ---
+        # --- 2. 评估“阵地火力” (Positional Scoring) ---
         positional_rules = scoring_params.get('positional_scoring', {}).get('positive_signals', {})
         for signal_name, score in positional_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
             if signal_series.any():
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
-        dynamic_rules = scoring_params.get('dynamic_scoring', {}).get('positive_signals', {})
-        for signal_name, score in dynamic_rules.items():
-            signal_series = atomic_states.get(signal_name, default_series)
-            if signal_series.any():
-                entry_score.loc[signal_series] += score
-                score_details_df[signal_name] = signal_series * score
-
-        # --- 3. 计算纯粹的“阵地分”用于后续逻辑 ---
+        # --- 3. 计算纯粹的“阵地分”，这是后续所有条件判断的核心基石 ---
         valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
         positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 4. 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
+        # --- 【代码修改】开始：实现“动能催化剂”逻辑 ---
+        # --- 4. 评估“动能火力” (Dynamic Scoring)，带前置条件判断 ---
+        dynamic_params = scoring_params.get('dynamic_scoring', {})
+        dynamic_rules = dynamic_params.get('positive_signals', {})
+        # 4.1 读取“安全锁”参数：激活催化剂所需的最低阵地分
+        min_pos_score_for_dyn_params = dynamic_params.get('min_positional_score_for_dynamic', {})
+        min_pos_score_for_dyn = get_param_value(min_pos_score_for_dyn_params, 300)
+        # 4.2 创建前置条件：只有阵地分达标的日子，动能信号才有资格计分
+        dynamic_precondition_met = (positional_score >= min_pos_score_for_dyn)
+        if dynamic_precondition_met.any():
+            print(f"          -> [动能催化剂] 在 {dynamic_precondition_met.sum()} 天满足阵地分门槛(>={min_pos_score_for_dyn})，动能信号被激活。")
+            for signal_name, score in dynamic_rules.items():
+                signal_series = atomic_states.get(signal_name, default_series)
+                # 核心逻辑：信号必须同时满足自身触发条件 和 阵地分达标的前置条件
+                final_dynamic_condition = signal_series & dynamic_precondition_met
+                if final_dynamic_condition.any():
+                    entry_score.loc[final_dynamic_condition] += score
+                    score_details_df[signal_name] = final_dynamic_condition * score
+        # --- 5. 评估“阵地优势加速度”火力 (带安全开关的涡轮增压引擎) ---
         p_hybrid = scoring_params.get('positional_acceleration_hybrid_params', {})
         if get_param_value(p_hybrid.get('enabled'), True):
             positional_change = positional_score.diff(1).fillna(0)
@@ -84,9 +94,8 @@ class OffensiveLayer:
                 final_bonus = accel_bonus_score.where(launch_condition, 0)
                 entry_score += final_bonus
                 score_details_df['SCORE_POS_ACCEL_HYBRID_BONUS'] = final_bonus
-                print(f"          -> [混合奖励模型] 已为 {launch_condition.sum()} 天满足“三重保险”的加速信号施加了动态奖励分！")
-
-        # --- 5. 评估“触发器火力” ---
+                # print(f"          -> [混合奖励模型] 已为 {launch_condition.sum()} 天满足“三重保险”的加速信号施加了动态奖励分！")
+        # --- 6. 评估“触发器火力” ---
         trigger_rules = scoring_params.get('trigger_events', {}).get('scoring', {})
         enhancement_params = scoring_params.get('trigger_enhancement_params', {})
         is_enhancement_enabled = get_param_value(enhancement_params.get('enabled'), False)
@@ -98,8 +107,7 @@ class OffensiveLayer:
             if final_trigger_condition.any():
                 entry_score.loc[final_trigger_condition] += score
                 score_details_df[signal_name] = final_trigger_condition * score
-
-        # --- 6. 评估“剧本火力” (Playbook Scoring) ---
+        # --- 7. 评估“剧本火力” (Playbook Scoring) ---
         playbook_rules = scoring_params.get('playbook_scoring', {})
         if playbook_rules:
             for playbook_name, score in playbook_rules.items():
@@ -107,10 +115,8 @@ class OffensiveLayer:
                 if playbook_series.any():
                     entry_score.loc[playbook_series] += score
                     score_details_df[playbook_name] = playbook_series * score
-        
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
-
-        # --- 7. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
+        # --- 8. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
         strategic_bonus_params = scoring_params.get('strategic_context_scoring', {})
         if get_param_value(strategic_bonus_params.get('enabled'), True):
             bullish_bonus = get_param_value(strategic_bonus_params.get('bullish_bonus'), 200)
