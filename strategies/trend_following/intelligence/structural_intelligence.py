@@ -209,29 +209,29 @@ class StructuralIntelligence:
 
     def synthesize_composite_structures(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 成本核心版】复合结构合成模块
+        【V2.1 角色明确版】复合结构合成模块
         - 核心升级: 本模块现在消费的是由 `diagnose_platform_states` 提供的、基于成本的
                     `STRUCTURE_BOX_ACCUMULATION_A` 信号。
+        - 角色明确 (本次修改): 明确 `STRUCTURE_BREAKOUT_EVE_S` (突破前夜) 是一个高质量的、
+                        但【非方向性】的“战备状态”信号。它的核心价值在于作为高级战术剧本
+                        的输入，而不应被直接用于计分。
         - 收益: 使得“突破前夜” (`STRUCTURE_BREAKOUT_EVE_S`) 信号的质量得到了根本性的提升，
                 其基础从5.5%胜率的“价格箱体”升级为14.1%胜率的“成本平台”。
         """
-        # print("          -> [结构情报司令部 V2.0 成本核心版] 启动，正在进行高维度复合情报合成...")
+        # print("          -> [结构情报司令部 V2.1 角色明确版] 启动，正在进行高维度复合情报合成...")
         composite_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
-        # 复合情报1: “平台获趋势支撑” (逻辑不变, 质量已提升)
         is_platform_stable = atomic.get('PLATFORM_STATE_STABLE_FORMED', default_series)
         is_above_mid_ma = atomic.get('MA_STATE_PRICE_ABOVE_MID_MA', default_series)
         composite_states['STRUCTURE_PLATFORM_WITH_TREND_SUPPORT'] = is_platform_stable & is_above_mid_ma
-        # 复合情报2: “突破前夜” (S级战术信号) - 质量已自动升级
-        # [修改原因] 增加注释，明确信号源已升级。
-        # 新定义：一个健康的“成本平台” + 波动率被压缩到极致 = 高质量的突破前夜
+        # 增加注释，明确信号的“战备”性质，它本身不预测方向。
+        # 复合情报2: “突破前夜” (S级战备状态) - 质量已自动升级
+        # 新定义：一个健康的“成本平台” + 波动率被压缩到极致 = 高质量的突破前夜 (高势能，方向待确认)
         is_healthy_accumulation = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
-        # 为了兼容旧的信号名称，我们保留 STRUCTURE_BOX_ABOVE_TRENDLINE，并使其与健康吸筹结构等价
         composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
-        # print("        -> [结构情报司令部 V2.0 成本核心版] 复合情报合成完毕。")
         return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

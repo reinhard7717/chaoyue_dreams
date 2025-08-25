@@ -23,6 +23,12 @@ class PlaybookEngine:
         """
         return [
             {
+                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_A',
+                'setup': ['VOL_STATE_SQUEEZE_WINDOW', 'MA_STATE_SHORT_CONVERGENCE_SQUEEZE'],
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_GRINDING_ADVANCE_A'],
+                'comment': 'A级 - 波动或均线压缩后，出现确认性的突破阳线。'
+            },
+            {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
                 'trigger': ['TRIGGER_PULLBACK_REBOUND'],
@@ -137,30 +143,35 @@ class PlaybookEngine:
                 is_positive_day = df['close_D'] > df['open_D']
                 triggers['TRIGGER_PULLBACK_REBOUND'] = was_touching_support & is_rebounded_above & is_positive_day
 
-        # 2.3 【筹码】回踩平台反弹 (S级战术动作)
+        # 2.3 【筹码】回踩平台反弹 (S级战术动作) - V2.0 重构版
         p_platform_rebound = trigger_params.get('platform_pullback_trigger_params', {})
         if get_param_value(p_platform_rebound.get('enabled'), True):
             platform_price_col = 'PLATFORM_PRICE_STABLE'
+            # 引入数据层提供的筹码动态斜率指标
             winner_turnover_col = 'turnover_from_winners_ratio_D'
-            if platform_price_col in df.columns and winner_turnover_col in df.columns:
-                proximity_ratio = get_param_value(p_platform_rebound.get('proximity_ratio'), 0.01)
-                is_touching_platform = df['low_D'] <= df[platform_price_col] * (1 + proximity_ratio)
-                is_closing_above = df['close_D'] > df[platform_price_col]
+            conc_slope_col = 'SLOPE_5_concentration_90pct_D'
+            required_cols = [platform_price_col, winner_turnover_col, conc_slope_col]
+            if all(c in df.columns for c in required_cols):
+                # 条件1: 形态上触及平台并收回 (核心形态)
+                proximity_ratio = get_param_value(p_platform_rebound.get('proximity_ratio'), 0.015) # 适度放宽接近比率
+                # 使用 ffill() 填充平台价格，确保在平台形成后的日子里都能引用到
+                stable_platform_price = df[platform_price_col].ffill()
+                is_touching_platform = df['low_D'] <= stable_platform_price * (1 + proximity_ratio)
+                is_closing_above = df['close_D'] > stable_platform_price
                 is_positive_day = df['close_D'] > df['open_D']
-                is_winner_holding_tight = df[winner_turnover_col] < 30.0
-                triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = is_touching_platform & is_closing_above & is_positive_day & is_winner_holding_tight
+                base_rebound_shape = is_touching_platform & is_closing_above & is_positive_day
+                # 条件2: 行为上得到确认 (三选一即可，大幅提高灵活性和捕捉能力)
+                # 确认逻辑 A: 获利盘依然在锁定 (旧逻辑，但放宽阈值)
+                is_winner_holding_tight = df[winner_turnover_col] < 40.0
+                # 确认逻辑 B: 出现显性反转K线，代表资金入场确认
+                is_dominant_reversal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
+                # 确认逻辑 C: 筹码在回踩后重新开始集中 (最强的信号)
+                is_chip_reconcentrating = df[conc_slope_col] > 0
+                # 最终确认 = A 或 B 或 C
+                is_behavior_confirmed = is_winner_holding_tight | is_dominant_reversal | is_chip_reconcentrating
+                # 最终裁定: 必须同时满足形态和行为确认
+                triggers['TRIGGER_PLATFORM_PULLBACK_REBOUND'] = base_rebound_shape & is_behavior_confirmed
 
-        # 2.4 【趋势】趋势延续确认K线
-        p_cont = trigger_params.get('trend_continuation_candle', {})
-        if get_param_value(p_cont.get('enabled'), True):
-            lookback_period = get_param_value(p_cont.get('lookback_period'), 8)
-            is_positive_day = df['close_D'] > df['open_D']
-            is_new_high = df['close_D'] >= df['high_D'].shift(1).rolling(window=lookback_period).max()
-            triggers['TRIGGER_TREND_CONTINUATION_CANDLE'] = is_positive_day & is_new_high
-
-        # 废除旧的、依赖于无效信号的`TRIGGER_PRIME_BREAKOUT_S`定义。
-        #           新定义是一个独立的、基于“势能储蓄+动能爆发”物理模型的强共振信号，
-        #           不再依赖任何前置的setup状态，确保了信号的纯洁性和高质量。
         # 2.5 【S级王牌】突破冲锋号 (重铸版)
         # 条件1: “势能” - 前一日必须处于波动率极致压缩状态
         was_extreme_squeeze_yesterday = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series).shift(1).fillna(False)
