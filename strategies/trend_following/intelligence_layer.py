@@ -98,7 +98,6 @@ class IntelligenceLayer:
         # --- 阶段二: 注入并转化周线战略情报 ---
         # print("    - [阶段2/7] 正在注入并转化周线战略情报...")
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
-        # --- 代码修改结束 ---
 
         # --- 阶段三: 核心原子状态生成 (第一梯队) ---
         # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
@@ -110,6 +109,7 @@ class IntelligenceLayer:
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_opportunities(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_formation_dynamics(df))
