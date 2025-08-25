@@ -111,7 +111,6 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_opportunities(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_formation_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
