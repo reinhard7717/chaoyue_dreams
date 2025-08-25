@@ -66,7 +66,14 @@ class FoundationIntelligence:
         return states
 
     def diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V234.1 数据驱动加固版】震荡指标状态诊断中心"""
+        """
+        【V234.2 机会提纯版】震荡指标状态诊断中心
+        - 核心增强 (本次修改): 为“负向乖离”机会信号(OPP_STATE_NEGATIVE_DEVIATION)增加了一个关键的
+                        过滤器：`df['close_D'] > df['open_D']`。
+        - 战术收益: 此修改将一个纯粹的“超卖状态”提纯为了一个“超卖反弹机会”。它要求在满足统计学
+                    超卖的当天，必须出现买盘力量压倒卖盘力量（收阳），这代表市场开始对超卖
+                    状态做出积极反应，从而极大地提升了信号的实战价值和胜率。
+        """
         states = {}
         p = get_params_block(self.strategy, 'oscillator_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -90,15 +97,18 @@ class FoundationIntelligence:
         # --- BIAS机会状态的诊断 ---
         p_bias = p.get('bias_dynamic_threshold', {})
         bias_col = 'BIAS_55_D'
-        # 【代码修改】增加对 'BIAS_55_D' 列的显式检查，确保数据存在
         if bias_col in df.columns:
             window = get_param_value(p_bias.get('window'), 120)
             quantile = get_param_value(p_bias.get('quantile'), 0.1)
-            # 动态阈值计算是策略逻辑的一部分，予以保留
             dynamic_oversold_threshold = df[bias_col].rolling(window=window).quantile(quantile)
-            states['OPP_STATE_NEGATIVE_DEVIATION'] = df[bias_col] < dynamic_oversold_threshold
+
+            # 核心条件：乖离率低于动态阈值，进入超卖区
+            is_oversold = df[bias_col] < dynamic_oversold_threshold
+            # 增强过滤器：当天必须收阳，代表有资金开始尝试承接
+            is_rebound_attempt = df['close_D'] > df['open_D']
+            # 最终裁定：超卖状态 + 反弹尝试 = 高质量机会
+            states['OPP_STATE_NEGATIVE_DEVIATION'] = is_oversold & is_rebound_attempt
         else:
             print(f"          -> [警告] 缺少诊断BIAS所需列 '{bias_col}'，跳过。")
 
         return states
-

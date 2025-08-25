@@ -83,9 +83,18 @@ class CognitiveIntelligence:
         is_slope_weakening = df['SLOPE_5_EMA_13_D'] < 0.001
         states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & is_slope_weakening
         
-        # 2.3 融合生成“危险战区”状态
-        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | states['CONTEXT_RISK_MOMENTUM_EXHAUSTION']
-        
+        # 2.3 筹码维度 (新增)
+        # 定义：筹码结构出现持续性恶化（短期和中期趋势都在发散）
+        is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
+        is_mid_term_diverging = df['SLOPE_21_concentration_90pct_D'] > 0
+        states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] = is_short_term_diverging & is_mid_term_diverging
+
+        # 2.4 融合生成“危险战区”状态 (纳入新维度)
+        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
+            states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | 
+            states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] |
+            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] # 新增的或逻辑
+        )
         return states
 
     def diagnose_recent_reversal_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -236,7 +245,9 @@ class CognitiveIntelligence:
         distribution_event = (
             self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) | # 主峰高位派发
             self.strategy.atomic_states.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) | # 获利盘长期出逃
-            self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)               # 筹码结构发散
+            self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series) |              # 筹码结构发散
+            self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |      # [新增] 价格筹码顶背离
+            self.strategy.atomic_states.get('RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS', default_series) # [新增] S+级获利盘加速出逃
         )
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)

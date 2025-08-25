@@ -203,42 +203,56 @@ class BehavioralIntelligence:
 
     def diagnose_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V337.0 战术重命名版】主力操纵战术“反侦察”模块
-        - 核心升级: 将原有的 `BEHAVIOR_STEALTH_ABSORPTION_A` 重命名为
-                    `OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A` (建设性洗盘吸筹)，
-                    以更精确地描述其“在建设性背景下，通过打压完成吸筹”的战术内涵。
+        【V338.0 微观重构版】主力操纵战术“反侦察”模块
+        - 核心重构 (本次修改): 彻底重写了 `OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A` 的定义。
+                        废除了旧的、仅基于价格和筹码集中度斜率的模糊判断。
+                        新定义引入了微观成交结构指标，通过精确量化“谁在卖、谁在买”，
+                        将一个低效信号升级为能够精准识别“主力利用恐慌盘吸筹”的A级机会信号。
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
 
-        # --- 1. 军备检查与基础行为定义 ---
-        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'close_D', 'EMA_55_D',
+            'turnover_from_losers_ratio_D', 'turnover_from_winners_ratio_D',
+            'SLOPE_5_concentration_90pct_D'
+        ]
         if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 缺少诊断行为模式所需列，模块跳过。缺失: {missing_cols}")
             return {}
-        is_sharp_drop = df['pct_change_D'] < -0.04
+        
+        # --- 2. “建设性洗盘吸筹”机会诊断 (A级机会) ---
+        # 新定义：在上升趋势中，股价下跌，但成交量主要由恐慌的套牢盘贡献，
+        #       而获利盘坚定锁仓，同时整体筹码结构仍在改善。这是典型的主力吸筹行为。
+        
+        # 条件1: 处于上升趋势的战略背景下
+        is_in_uptrend_context = df['close_D'] > df['EMA_55_D']
+        # 条件2: 当日股价出现有意义的下跌
+        is_meaningful_drop = df['pct_change_D'] < -0.02
+        # 条件3: 套牢盘正在恐慌性割肉 (贡献超过40%的换手)
+        is_losers_capitulating = df['turnover_from_losers_ratio_D'] > 40.0
+        # 条件4: 获利盘坚定锁仓 (贡献换手低于30%)
+        are_winners_holding = df['turnover_from_winners_ratio_D'] < 30.0
+        # 条件5: 整体筹码结构依然在集中 (最关键的确认)
+        is_chip_structure_improving = df['SLOPE_5_concentration_90pct_D'] <= 0
+        
+        # 最终裁定
+        states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = (
+            is_in_uptrend_context &
+            is_meaningful_drop &
+            is_losers_capitulating &
+            are_winners_holding &
+            is_chip_structure_improving
+        )
+        
+        # --- 3. “诱多派发”风险诊断 (逻辑保持，但基础更清晰) ---
         is_strong_rally = df['pct_change_D'] > 0.03
-        is_high_volume = df['volume_D'] > df['VOL_MA_21_D'] * 1.5
-        
-        # --- 2. 核心证据：筹码结构 ---
-        # [修改原因] 我们现在只依赖最核心的筹码证据，不再需要资金流。
-        # 注意：这里的 is_concentrating_trend 是一个临时的、无偏见的客观判断，
-        # 它只关心集中度斜率为负，不关心成本峰方向。
-        conc_slope_col = 'SLOPE_5_concentration_90pct_D'
-        if conc_slope_col not in df.columns: return {}
-        is_concentrating_trend = df[conc_slope_col] < 0
         is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
-
-        # --- 3. “建设性洗盘吸筹”机会诊断 ---
-        # 核心矛盾：价格暴跌 VS 筹码客观集中
-        is_core_absorption_conflict = is_sharp_drop & is_high_volume & is_concentrating_trend
-        
-        # [修改原因] 重命名信号，使其战术含义更清晰。
-        states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = is_core_absorption_conflict
-        
-        # --- 4. “诱多派发”风险诊断  ---
         is_core_distribution_conflict = is_strong_rally & is_chip_diverging
         states['BEHAVIOR_DECEPTIVE_RALLY_A'] = is_core_distribution_conflict
-        states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict # 简化，不再依赖资金流
+        states['BEHAVIOR_DECEPTIVE_RALLY_S'] = is_core_distribution_conflict
 
         return states
 
