@@ -49,52 +49,40 @@ class WeeklyContextEngine:
             logger.warning("周线上下文引擎输入DataFrame为空，无法生成信号。")
             return pd.DataFrame()
 
-        print("\n" + "="*30 + "【周线战略战场指挥官 V4.0】启动" + "="*30)
-        
+        # print("\n" + "="*30 + "【周线战略战场指挥官 V4.0】启动" + "="*30)
         context_df = df_weekly.copy()
-
         # --- 流水线 1/7: 定义战场关键参照物 (新) ---
         # print("---【步骤1/6: 定义战场关键参照物】---")
         context_df = self._define_key_reference_levels(context_df)
-
         # --- 流水线 2/7: 解读周线K线心理学 (新) ---
         # print("---【步骤2/6: 解读周线K线心理学】---")
         context_df = self._analyze_candlestick_psychology(context_df)
-
         # --- 流水线 3/7: 标定动态风险控制线 (新) ---
         # print("---【步骤3/6: 标定动态风险控制线】---")
         context_df = self._calculate_dynamic_risk_levels(context_df)
-        
         # --- 流水线 4/7: 诊断趋势“品格” (新) ---
         # print("---【步骤4/6: 诊断趋势“品格”】---")
         context_df = self._characterize_trend_health(context_df)
-
         # --- 流水线 5/7: 构建市场状态机 (原) ---
         # print("---【步骤5/6: 构建市场状态机】---")
         context_df = self._build_market_regime(context_df)
-
         # --- 流水线 6/7: 深度量价与背离分析 (原) ---
         # print("---【步骤6/6: 深度量价与背离分析】---")
         context_df = self._analyze_vpa(context_df)
         context_df = self._detect_divergences(context_df)
-
         # --- 流水线 7/7: 合成战略分数与最终信号 (升级) ---
         # print("---【最终步骤: 合成战略分数与最终信号】---")
         context_df = self._calculate_strategic_score(context_df)
-        
         score = context_df['strategic_score_W']
         context_df['state_node_main_ascent_W'] = score >= 5
         context_df['state_node_ignition_W'] = score.between(2, 5, inclusive='left')
         context_df['state_node_topping_W'] = score <= -3
-        
         # 筛选最终需要注入日线的信号列
         final_signal_cols = [
-            # 核心分数与状态
             'strategic_score_W',
             'state_node_main_ascent_W',
             'state_node_ignition_W',
             'state_node_topping_W',
-            # 新增的战略情报
             'ref_dist_from_52w_high_W', # 距离52周高点的距离(百分比)
             'ref_support_level_W',      # 关键支撑位
             'risk_volatility_stop_W',   # 波动率止损位
@@ -102,32 +90,27 @@ class WeeklyContextEngine:
             'psych_rejection_bearish_W',# K线看跌反转信号
             'trend_health_strong_W',    # 趋势健康度强
         ]
-        
         original_cols = df_weekly.columns
         output_cols = [col for col in context_df.columns if col in final_signal_cols and col not in original_cols]
-        
         # print(f"    - [指挥中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
         # print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
         return context_df[output_cols]
 
-    # --- 新增模块 ---
+
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【新增】定义战场关键参照物"""
+        """定义战场关键参照物"""
         # 1. 52周高点
         high_52w = df['high_W'].rolling(52, min_periods=20).max()
         df['ref_dist_from_52w_high_W'] = (df['close_W'] - high_52w) / high_52w
-        
         # 2. 关键支撑位 (定义为过去26周的最低点)
         df['ref_support_level_W'] = df['low_W'].rolling(26, min_periods=10).min()
-        
-        print("    - [参照物] 完成。已标定52周高点与关键支撑位。")
+        # print("    - [参照物] 完成。已标定52周高点与关键支撑位。")
         return df
 
     def _analyze_candlestick_psychology(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【新增】解读周线K线心理学"""
+        """解读周线K线心理学"""
         # 复用日线策略的K线形态识别器
         df_with_patterns = self.pattern_recognizer.identify_all(df, suffix='_W')
-        
         # 提取关键的心理学信号
         # 1. 看涨反转/确认信号 (如锤子线, 看涨吞没, 刺透, 早晨之星)
         bullish_patterns = [
@@ -137,7 +120,6 @@ class WeeklyContextEngine:
             'kline_c_morning_star_W'
         ]
         df['psych_reversal_bullish_W'] = df_with_patterns[[p for p in bullish_patterns if p in df_with_patterns.columns]].any(axis=1)
-        
         # 2. 看跌反转/拒绝信号 (如上吊线, 看跌吞没, 乌云盖顶, 黄昏之星)
         #    注意：射击之星(Shooting Star)和上吊线(Hanging Man)形态相同，仅上下文不同，故此处使用上吊线形态作为识别依据。
         bearish_patterns = [
@@ -151,7 +133,7 @@ class WeeklyContextEngine:
         return df
 
     def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【新增】标定动态风险控制线"""
+        """标定动态风险控制线"""
         atr_col = 'ATR_14_W'
         if atr_col not in df.columns:
             print(f"    - [风险线-警告] 缺少 {atr_col} 列，无法计算动态风险线。")
@@ -163,7 +145,7 @@ class WeeklyContextEngine:
         return df
 
     def _characterize_trend_health(self, df: pd.DataFrame) -> pd.DataFrame:
-        """【新增】诊断趋势“品格”"""
+        """诊断趋势“品格”"""
         ema10_col = 'EMA_10_W'
         ema21_col = 'EMA_21_W'
         if not all(c in df.columns for c in [ema10_col, ema21_col]):

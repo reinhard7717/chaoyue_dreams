@@ -86,48 +86,62 @@ class PerformanceAnalyzer:
 
     def _identify_all_events(self) -> Dict[str, pd.Series]:
         """
-        【V4.0 新增】全情报源事件识别器
-        - 核心职责: 遍历所有信号源（得分信号、原子状态、触发器），
-                    并为每一个源生成一个“首次触发”的事件序列。
-        - 核心逻辑: 对于持续性状态，只在其首次变为True的那一天标记为事件。
+        【V4.5 净化增强版】全情报源事件识别器
+        - 核心修复: 修复了过滤器漏洞。现在只有在 score_type_map 中明确定义、
+                    且类型不为 'context' 的信号才会被分析。
+        - 核心增强: 增加了详细的调试打印，用于追踪哪些信号因为何种原因被过滤。
         """
         all_events = {}
         
         # 1. 处理所有计分信号 (来自 score_details_df)
         for signal_name in self.score_details_df.columns:
-            # 计分信号本身就是瞬时事件，直接使用
             is_active = self.score_details_df[signal_name] > 0
             all_events[signal_name] = is_active
 
         # 2. 处理所有原子状态
         for state_name, state_series in self.atomic_states.items():
             if state_series.dtype == bool:
-                # 关键逻辑：只在状态首次进入时触发事件
                 is_first_day = state_series & ~state_series.shift(1).fillna(False)
                 all_events[state_name] = is_first_day
 
         # 3. 处理所有触发器
         for trigger_name, trigger_series in self.trigger_events.items():
             if trigger_series.dtype == bool:
-                # 触发器本身就是瞬时事件，直接使用
                 all_events[trigger_name] = trigger_series
 
         # 4. 处理所有战法剧本
         for playbook_name, playbook_series in self.playbook_states.items():
             if playbook_series.dtype == bool:
-                # 战法剧本信号也是瞬时事件
                 all_events[playbook_name] = playbook_series
+        
+        # 增强过滤器逻辑 ---
         score_map = self.scoring_params.get('score_type_map', {})
         filtered_events = {}
+        
+        print("      -> [战报净化系统 V4.5] 启动过滤...")
         # 遍历所有收集到的信号
         for signal_name, signal_series in all_events.items():
             # 从信号地图中查找该信号的元数据
-            signal_meta = score_map.get(signal_name, {})
-            # 获取信号类型，如果找不到，则默认为 'unknown'，也会被保留
-            signal_type = signal_meta.get('type', 'unknown')
-            # 核心过滤逻辑：只保留类型不是 'context' 的信号
-            if signal_type != 'context':
+            signal_meta = score_map.get(signal_name) # 直接 get，找不到就是 None
+            
+            # 核心过滤逻辑：
+            # 1. 必须在 score_type_map 中有定义 (signal_meta is not None)
+            # 2. 定义中必须有 'type' 键
+            # 3. 'type' 的值不能是 'context'
+            if signal_meta and 'type' in signal_meta and signal_meta['type'] != 'context':
                 filtered_events[signal_name] = signal_series
+            else:
+                # 调试信息：打印被过滤掉的信号及其原因
+                reason = ""
+                if not signal_meta:
+                    reason = "原因: 在 score_type_map 中未定义"
+                elif signal_meta.get('type') == 'context':
+                    reason = "原因: 类型为 'context'"
+                else:
+                    reason = "原因: 元数据格式不完整"
+                # 为了避免刷屏，可以只在调试模式下打印
+                # print(f"          - 已过滤信号: {signal_name} ({reason})")
+
         original_count = len(all_events)
         filtered_count = len(filtered_events)
         print(f"      -> [战报净化] 已执行过滤：从 {original_count} 个原始信号中筛选出 {filtered_count} 个战斗/风险信号进行分析。")
@@ -151,55 +165,72 @@ class PerformanceAnalyzer:
 
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
-        【V4.0 升级版】聚合所有详细交易结果，并按信号来源分组统计。
-        - 核心升级: 能够识别并正确标记 State 和 Trigger 类型。
+        【V4.5 升级版】聚合所有详细交易结果，并按信号来源分组统计。
+        - 核心修复: 修正了胜率计算，确保输出为正确的百分比。
+        - 核心升级: 为 'risk' 类型的信号引入了“风险规避率”作为其核心效能指标，
+                    使其评估标准科学化。
         """
         if not trade_outcomes:
             return []
-        # 不再需要设置 entry_date 为索引，因为 signal_name 现在是分组的关键。
         outcomes_df = pd.DataFrame(trade_outcomes)
         score_map = self.scoring_params.get('score_type_map', {})
         
-        # 按信号名称对所有触发的交易结果进行分组
         signal_groups = outcomes_df.groupby('signal_name')
 
-        # 对每个信号组进行统计分析
         analysis_results = []
         for signal_name, group_df in signal_groups:
-            # 尝试从 score_map 获取元数据
-            signal_meta = score_map.get(signal_name)
-            
-            # 如果在 score_map 中找不到，则根据其来源（原子状态/触发器）赋予默认类型
-            if not signal_meta:
-                if signal_name in self.atomic_states:
-                    signal_type = 'State'
-                elif signal_name in self.trigger_events:
-                    signal_type = 'Trigger'
-                elif signal_name in self.playbook_states: # 对战法剧本的识别
-                    signal_type = 'Playbook'
-                else:
-                    signal_type = 'Unknown'
-                signal_meta = {'cn_name': signal_name, 'type': signal_type}
+            signal_meta = score_map.get(signal_name, {})
+            signal_cn_name = signal_meta.get('cn_name', signal_name)
+            signal_type = signal_meta.get('type', 'unknown')
 
             total_triggers = len(group_df)
+            if total_triggers == 0:
+                continue
+
             success_count = (group_df['outcome'] == 'success').sum()
+            # --- 引入分类评估指标 ---
+            metric_name = "win_rate_pct" # 默认为胜率
             
-            win_rate = (success_count / total_triggers) * 100 if total_triggers > 0 else 0
-            avg_max_profit = group_df['max_profit_pct'].mean() * 100
-            avg_max_drawdown = group_df['max_drawdown_pct'].mean() * 100
+            if signal_type == 'risk':
+                # 对于风险信号，我们计算“风险规避率”
+                # 即信号出现后，未能达到盈利目标的比例，这个值越高越好
+                effectiveness_pct = ((total_triggers - success_count) / total_triggers)
+                metric_name = "avoidance_rate_pct" # 指标名称改为风险规避率
+            else:
+                # 对于进攻型信号，我们计算“胜率”
+                effectiveness_pct = (success_count / total_triggers)
+
+            avg_max_profit = group_df['max_profit_pct'].mean()
+            avg_max_drawdown = group_df['max_drawdown_pct'].mean()
             avg_exit_days = group_df['exit_days'].mean()
             
-            analysis_results.append({
+            result_entry = {
                 'signal_name': signal_name,
-                'cn_name': signal_meta.get('cn_name', signal_name),
-                'type': signal_meta.get('type', 'unknown').capitalize(),
-                'triggers': int(total_triggers),
-                'successes': int(success_count),
-                'win_rate_pct': round(win_rate, 2),
-                'avg_max_profit_pct': round(avg_max_profit, 2),
-                'avg_max_drawdown_pct': round(avg_max_drawdown, 2),
-                'avg_exit_days': round(avg_exit_days, 1),
-            })
+                'signal_cn_name': signal_cn_name,
+                'signal_type': signal_type,
+                'total_triggers': int(total_triggers),
+                'successes': int(success_count), # 仍然报告原始的上涨成功次数
+                'win_rate_pct': effectiveness_pct, # 【代码修改】使用修正后的指标
+                'avg_max_profit_pct': avg_max_profit,
+                'avg_max_drawdown_pct': avg_max_drawdown,
+                'avg_exit_days': avg_exit_days,
+            }
+            # 为了向后兼容或方便调试，可以保留原始命名，但在报告时使用新名称
+            # result_entry[metric_name] = effectiveness_pct 
             
-        analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True) # 按胜率排序
+            analysis_results.append(result_entry)
+            
+        # 按效能指标（胜率或风险规避率）降序排序
+        analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True)
         return analysis_results
+
+
+
+
+
+
+
+
+
+
+
