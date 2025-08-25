@@ -53,16 +53,6 @@ class FoundationIntelligence:
         high_expansion_threshold = df[bbw_col].rolling(60).quantile(0.8)
         is_in_high_expansion_zone = df[bbw_col] > high_expansion_threshold
         states['VOL_STATE_EXPANDING_SHARPLY'] = is_expanding & is_in_high_expansion_zone
-        # 创建“确认打击”型A级机会信号
-        # 战备条件(昨日): 昨天处于任何一种压缩窗口期
-        was_in_squeeze_window_yesterday = squeeze_window.shift(1).fillna(False)
-        # 确认条件(今日): 今天必须是一根强力的突破阳线
-        is_positive_day = df['close_D'] > df['open_D']
-        is_breaking_boll_mid = df['close_D'] > df['BBM_21_2.0_D'] # 突破布林中轨，确认短期强势
-        is_volume_confirmed = df['volume_D'] > df[vol_ma_col] * 1.2 # 成交量温和放大
-        is_strong_breakout_candle_today = is_positive_day & is_breaking_boll_mid & is_volume_confirmed
-        # 最终裁定: 昨日战备 + 今日确认 = A级机会
-        states['OPP_SQUEEZE_BREAKOUT_CONFIRMED_A'] = was_in_squeeze_window_yesterday & is_strong_breakout_candle_today
         return states
 
     def diagnose_oscillator_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

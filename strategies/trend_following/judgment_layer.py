@@ -68,7 +68,7 @@ class JudgmentLayer:
         - 核心变化: 移除了对特定“加速状态”的硬性过滤。由于“阵地优势加速”已作为
                     核心奖励分融入 entry_score，本层只需根据最终的净得分进行决策即可。
         """
-        print("    --- [最高作战指挥部 V501.0 纯粹决策版] 启动... ---")
+        # print("    --- [最高作战指挥部 V501.0 纯粹决策版] 启动... ---")
         df = self.strategy.df_indicators
         
         df['final_score'] = 0.0

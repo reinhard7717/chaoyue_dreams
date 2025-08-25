@@ -740,7 +740,7 @@ class CognitiveIntelligence:
                       将低胜率的“准备状态”信号，升级为高胜率的“确认后”战法。
         - 收益: 根治了因“抢跑”而导致的低胜率问题，确保只在多头力量得到最终确认后才出击。
         """
-        print("        -> [压缩突破战术剧本合成模块 V1.0] 启动...")
+        # print("        -> [压缩突破战术剧本合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events

@@ -91,25 +91,6 @@ class StructuralIntelligence:
             if long_cv_col in df.columns:
                 dynamic_threshold_long = df[long_cv_col].rolling(window=window).quantile(quantile)
                 states['MA_STATE_LONG_CONVERGENCE_SQUEEZE'] = df[long_cv_col] < dynamic_threshold_long
-        is_highly_converged = (
-            states.get('MA_STATE_SHORT_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index)) |
-            states.get('MA_STATE_LONG_CONVERGENCE_SQUEEZE', pd.Series(False, index=df.index))
-        )
-        p_energy = get_params_block(self.strategy, 'trigger_event_params').get('energy_release', {})
-        vol_ma_col = 'VOL_MA_21_D'
-        is_breakout_candle = pd.Series(False, index=df.index)
-        if get_param_value(p_energy.get('enabled'), True) and vol_ma_col in df.columns:
-            is_positive_day = df['close_D'] > df['open_D']
-            body_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-            body_ratio = (df['close_D'] - df['open_D']) / body_range
-            is_strong_body = body_ratio.fillna(1.0) > get_param_value(p_energy.get('min_body_ratio'), 0.5)
-            volume_ratio = get_param_value(p_energy.get('volume_ratio'), 1.5)
-            is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
-            is_breakout_candle = is_positive_day & is_strong_body & is_volume_spike
-        is_decisive_breakout = is_breakout_candle & (df['close_D'] > df[short_ma]) & (df['close_D'] > df[mid_ma])
-        was_converged_yesterday = is_highly_converged.shift(1).fillna(False)
-        is_in_uptrend_context = states.get('MA_STATE_PRICE_ABOVE_LONG_MA', pd.Series(False, index=df.index))
-        states['OPP_MA_CONVERGENCE_BREAKOUT_A'] = was_converged_yesterday & is_decisive_breakout & is_in_uptrend_context
         return states
 
     def diagnose_box_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -400,7 +381,7 @@ class StructuralIntelligence:
         is_cost_accel_negative = df['ACCEL_5_peak_cost_D'] < 0
         states['MECHANICS_COST_STABILIZING'] = is_cost_slope_positive & is_cost_accel_negative
 
-        print("        -> [结构力学诊断引擎 V401.1] 分析完毕。")
+        # print("        -> [结构力学诊断引擎 V401.1] 分析完毕。")
         return states
 
 
