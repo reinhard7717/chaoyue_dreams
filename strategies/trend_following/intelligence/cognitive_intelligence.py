@@ -418,36 +418,48 @@ class CognitiveIntelligence:
         is_cruise_condition_met = atomic.get('CHIP_DYN_CONCENTRATING', default_series) if require_concentration else pd.Series(True, index=df.index)
 
         # --- 5. 构建带“容错机制”的状态机 ---
-        is_in_rally_state = pd.Series(False, index=df.index)
-        cruise_warning_active = False # [新逻辑] 引入“健康预警”状态标志
-        for i in range(1, len(df)):
+        n = len(df)
+        # 步骤5.1: 将所有需要在循环中访问的Pandas Series一次性转换为NumPy数组
+        hard_term_arr = hard_termination_condition.to_numpy(dtype=bool)
+        cruise_cond_arr = is_cruise_condition_met.to_numpy(dtype=bool)
+        ignition_arr = ignition_event.to_numpy(dtype=bool)
+        
+        # 步骤5.2: 初始化一个NumPy数组来存储状态结果
+        rally_state_arr = np.full(n, False, dtype=bool)
+        
+        # 步骤5.3: 在高性能的NumPy循环中执行状态机逻辑
+        cruise_warning_active = False # 引入“健康预警”状态标志
+        for i in range(1, n):
             # 检查硬性熄火条件，这是最高优先级
-            if hard_termination_condition.iloc[i]:
-                is_in_rally_state.iloc[i] = False
+            if hard_term_arr[i]:
+                rally_state_arr[i] = False
                 cruise_warning_active = False
                 continue
 
             # 如果昨天处于巡航状态
-            if is_in_rally_state.iloc[i-1]:
+            if rally_state_arr[i-1]:
                 # 检查软性巡航条件
-                if is_cruise_condition_met.iloc[i]:
+                if cruise_cond_arr[i]:
                     # 条件满足，继续健康巡航，并解除预警
-                    is_in_rally_state.iloc[i] = True
+                    rally_state_arr[i] = True
                     cruise_warning_active = False
                 else:
                     # 条件不满足，检查是否已在预警状态
                     if cruise_warning_active:
                         # 已经预警过一次，这是连续第二次失败，终止巡航
-                        is_in_rally_state.iloc[i] = False
+                        rally_state_arr[i] = False
                         cruise_warning_active = False
                     else:
                         # 这是第一次失败，进入预警状态，但巡航继续
-                        is_in_rally_state.iloc[i] = True
+                        rally_state_arr[i] = True
                         cruise_warning_active = True
             # 如果今天有点火信号，则开启巡航
-            elif ignition_event.iloc[i]:
-                is_in_rally_state.iloc[i] = True
+            elif ignition_arr[i]:
+                rally_state_arr[i] = True
                 cruise_warning_active = False # 新的巡航开始时，总是健康的
+        
+        # 步骤5.4: 将计算结果转换回Pandas Series
+        is_in_rally_state = pd.Series(rally_state_arr, index=df.index)
         
         final_tactic_signal = is_in_rally_state & ~hard_termination_condition
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal

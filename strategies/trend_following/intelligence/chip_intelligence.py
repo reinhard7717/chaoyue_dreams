@@ -445,10 +445,12 @@ class ChipIntelligence:
             is_high_volume &
             did_not_collapse
         )
-        final_opportunity_signal = pd.Series(False, index=df.index)
-        for i in range(1, confirmation_lookback_days + 1):
-            is_recent_setup = peak_battle_setup.shift(i).fillna(False)
-            final_opportunity_signal |= (is_price_rising_meaningfully & is_recent_setup)
+        had_recent_setup = peak_battle_setup.shift(1).rolling(
+            window=confirmation_lookback_days, 
+            min_periods=1
+        ).max().astype(bool)
+        
+        final_opportunity_signal = is_price_rising_meaningfully & had_recent_setup
         
         states['OPP_PEAK_BATTLE_BREAKOUT_A'] = final_opportunity_signal
 

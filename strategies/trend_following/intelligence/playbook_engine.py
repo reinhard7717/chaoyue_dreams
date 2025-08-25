@@ -160,7 +160,7 @@ class PlaybookEngine:
                 # 确认逻辑 B: 出现显性反转K线，代表资金入场确认
                 is_dominant_reversal = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
                 # 确认逻辑 C: 筹码在回踩后重新开始集中 (最强的信号)
-                is_chip_reconcentrating = df[conc_slope_col] > 0
+                is_chip_reconcentrating = df[conc_slope_col] < 0
                 # 最终确认 = A 或 B 或 C
                 is_behavior_confirmed = is_winner_holding_tight | is_dominant_reversal | is_chip_reconcentrating
                 # 最终裁定: 必须同时满足形态和行为确认
