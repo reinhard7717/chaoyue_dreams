@@ -685,7 +685,8 @@
           "STRATEGIC_IGNITION_BONUS_W": { "cn_name": "【加分】周线点火期", "type": "context" },
           "STRATEGIC_HEALTH_BONUS_W": { "cn_name": "【加分】周线趋势健康", "type": "context" },
           "STRATEGIC_BREAKOUT_EVE_BONUS_W": { "cn_name": "【加分】周线突破前夜", "type": "context" },
-          "STRATEGIC_REVERSAL_BONUS_W": { "cn_name": "【加分】周线看涨反转确认", "type": "context" }
+          "STRATEGIC_REVERSAL_BONUS_W": { "cn_name": "【加分】周线看涨反转确认", "type": "context" },
+          "BONUS_SETUP_S_PLUS_PLUS": { "cn_name": "【加分】S++黄金阵地奖励", "type": "context" }
         }
       },
       "trigger_event_params": {

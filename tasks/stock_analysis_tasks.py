@@ -1095,55 +1095,58 @@ def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: C
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_performance_results', queue='celery')
 def aggregate_performance_results(self, results: list):
     """
-    【结果聚合任务 V1.0 - Reduce】
-    收集所有并行计算任务的结果，进行全局聚合，并打印最终报告。
+    【V2.0 指标感知版 - Reduce】
+    - 核心升级: 能够识别 'metric_name' 字段，并根据其值为 'risk' 信号
+                显示“风险规避率”，为其他信号显示“成功率”，解决了指标混淆问题。
     """
-    logger.info("====== [全局信号性能分析 V1.0] 聚合任务启动 ======")
+    logger.info("====== [全局信号性能分析 V2.0 - Reduce] 聚合任务启动 ======")
     logger.info(f"已收到来自 {len(results)} 个并行任务的结果，开始聚合...")
 
-    # 1. 扁平化结果列表
-    # results 是一个列表的列表, e.g., [[...], [...], []]
     all_stats = [item for sublist in results if sublist for item in sublist]
-
     if not all_stats:
         logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
         return {"status": "finished", "reason": "no data to aggregate"}
 
-    # 2. 聚合数据
     df = pd.DataFrame(all_stats)
-    
-    # 按信号的原始名称和类型分组，对触发和成功次数求和
-    agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
-        triggers=('triggers', 'sum'),
+
+    agg_df = df.groupby(['signal_name', 'signal_cn_name', 'signal_type', 'metric_name']).agg(
+        triggers=('total_triggers', 'sum'),
         successes=('successes', 'sum')
     ).reset_index()
 
-    # 3. 计算全局成功率
-    agg_df['success_rate'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+    # 效能指标的计算保持不变，因为它现在是标准化的
+    agg_df['effectiveness_pct'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
+    # 特别处理风险信号的效能指标
+    is_risk = agg_df['signal_type'] == 'risk'
+    agg_df.loc[is_risk, 'effectiveness_pct'] = 1 - agg_df.loc[is_risk, 'effectiveness_pct']
 
-    # 4. 格式化输出
+    # 格式化输出
     agg_df = agg_df.rename(columns={
-        'cn_name': '信号名称',
-        'type': '类型',
+        'signal_cn_name': '信号名称',
+        'signal_type': '类型',
         'triggers': '总触发',
-        'successes': '总成功',
-        'success_rate': '成功率(%)'
+        'successes': '总成功'
     })
-    agg_df['成功率(%)'] = agg_df['成功率(%)'].apply(lambda x: f"{x:.1%}")
-    
-    # 按类型和成功率排序
-    final_report_df = agg_df.sort_values(
-        by=['类型', '成功率(%)', '总触发'], 
-        ascending=[True, False, False]
-    )[['信号名称', '类型', '总触发', '总成功', '成功率(%)']]
+    def format_effectiveness(row):
+        value = row['effectiveness_pct']
+        return f"{value:.1%}"
 
-    # 5. 打印最终报告
-    print("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
+    agg_df['效能指标(%)'] = agg_df.apply(format_effectiveness, axis=1)
+    agg_df['指标类型'] = np.where(agg_df['类型'] == 'risk', '风险规避率', '成功率')
+    
+    # 按效能指标排序
+    final_report_df = agg_df.sort_values(
+        by=['类型', 'effectiveness_pct', '总触发'], 
+        ascending=[True, False, False]
+    )[['信号名称', '类型', '总触发', '总成功', '指标类型', '效能指标(%)']]
+
+    # 打印最终报告
+    print("\n\n" + "="*35 + " [全市场信号性能终极报告 V2.0] " + "="*35)
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
         print(final_report_df.to_string(index=False))
     print("=" * 95 + "\n")
     
-    logger.info("====== [全局信号性能分析 V1.0] 聚合任务完成 ======")
+    logger.info("====== [全局信号性能分析 V2.0 - Reduce] 聚合任务完成 ======")
     return {"status": "success", "aggregated_signals": len(final_report_df)}
 
 @celery_app.task(bind=True, name="tasks.stock_analysis_tasks.run_top_n_performance_analysis", queue='calculate_strategy')

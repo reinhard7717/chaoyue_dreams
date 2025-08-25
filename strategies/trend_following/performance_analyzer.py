@@ -86,66 +86,63 @@ class PerformanceAnalyzer:
 
     def _identify_all_events(self) -> Dict[str, pd.Series]:
         """
-        【V4.5 净化增强版】全情报源事件识别器
-        - 核心修复: 修复了过滤器漏洞。现在只有在 score_type_map 中明确定义、
-                    且类型不为 'context' 的信号才会被分析。
-        - 核心增强: 增加了详细的调试打印，用于追踪哪些信号因为何种原因被过滤。
+        【V4.6 终极净化版】全情报源事件识别器
+        - 核心修复: 修复了过滤器漏洞，现在对所有来源的信号（包括计分详情）
+                    都应用统一的、严格的过滤规则。
         """
         all_events = {}
         
-        # 1. 处理所有计分信号 (来自 score_details_df)
+        # 步骤1: 收集所有潜在的信号源
+        # 1.1 来自计分详情
         for signal_name in self.score_details_df.columns:
             is_active = self.score_details_df[signal_name] > 0
             all_events[signal_name] = is_active
 
-        # 2. 处理所有原子状态
+        # 1.2 来自原子状态
         for state_name, state_series in self.atomic_states.items():
             if state_series.dtype == bool:
                 is_first_day = state_series & ~state_series.shift(1).fillna(False)
                 all_events[state_name] = is_first_day
 
-        # 3. 处理所有触发器
+        # 1.3 来自触发器
         for trigger_name, trigger_series in self.trigger_events.items():
             if trigger_series.dtype == bool:
                 all_events[trigger_name] = trigger_series
 
-        # 4. 处理所有战法剧本
+        # 1.4 来自战法剧本
         for playbook_name, playbook_series in self.playbook_states.items():
             if playbook_series.dtype == bool:
                 all_events[playbook_name] = playbook_series
         
-        # 增强过滤器逻辑 ---
+        # --- 【代码修改】开始：应用统一的终极过滤器 ---
         score_map = self.scoring_params.get('score_type_map', {})
         filtered_events = {}
         
-        print("      -> [战报净化系统 V4.5] 启动过滤...")
-        # 遍历所有收集到的信号
+        print("      -> [战报净化系统 V4.6 终极版] 启动过滤...")
+        # 步骤2: 对所有收集到的信号进行统一过滤
         for signal_name, signal_series in all_events.items():
-            # 从信号地图中查找该信号的元数据
-            signal_meta = score_map.get(signal_name) # 直接 get，找不到就是 None
+            signal_meta = score_map.get(signal_name)
             
             # 核心过滤逻辑：
-            # 1. 必须在 score_type_map 中有定义 (signal_meta is not None)
+            # 1. 必须在 score_type_map 中有定义
             # 2. 定义中必须有 'type' 键
             # 3. 'type' 的值不能是 'context'
             if signal_meta and 'type' in signal_meta and signal_meta['type'] != 'context':
                 filtered_events[signal_name] = signal_series
             else:
                 # 调试信息：打印被过滤掉的信号及其原因
-                reason = ""
                 if not signal_meta:
                     reason = "原因: 在 score_type_map 中未定义"
                 elif signal_meta.get('type') == 'context':
                     reason = "原因: 类型为 'context'"
                 else:
                     reason = "原因: 元数据格式不完整"
-                # 为了避免刷屏，可以只在调试模式下打印
                 # print(f"          - 已过滤信号: {signal_name} ({reason})")
 
         original_count = len(all_events)
         filtered_count = len(filtered_events)
         print(f"      -> [战报净化] 已执行过滤：从 {original_count} 个原始信号中筛选出 {filtered_count} 个战斗/风险信号进行分析。")
-        
+
         return filtered_events
 
     def _analyze_single_trade_performance(self, entry_date, is_offensive: bool) -> dict:
@@ -165,10 +162,11 @@ class PerformanceAnalyzer:
 
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
-        【V4.5 升级版】聚合所有详细交易结果，并按信号来源分组统计。
-        - 核心修复: 修正了胜率计算，确保输出为正确的百分比。
-        - 核心升级: 为 'risk' 类型的信号引入了“风险规避率”作为其核心效能指标，
-                    使其评估标准科学化。
+        【V4.6 指标标准化版】
+        - 核心修复: 彻底分离了“胜率”和“风险规避率”的计算和命名。
+                    现在会输出一个名为 'effectiveness_pct' 的标准化效能指标，
+                    并附带一个 'metric_name' 字段来解释该指标的含义。
+                    这解决了下游聚合任务的混淆问题。
         """
         if not trade_outcomes:
             return []
@@ -181,6 +179,7 @@ class PerformanceAnalyzer:
         for signal_name, group_df in signal_groups:
             signal_meta = score_map.get(signal_name, {})
             signal_cn_name = signal_meta.get('cn_name', signal_name)
+            # --- 【代码修改】开始：明确获取信号类型 ---
             signal_type = signal_meta.get('type', 'unknown')
 
             total_triggers = len(group_df)
@@ -188,17 +187,19 @@ class PerformanceAnalyzer:
                 continue
 
             success_count = (group_df['outcome'] == 'success').sum()
+            
             # --- 引入分类评估指标 ---
-            metric_name = "win_rate_pct" # 默认为胜率
+            metric_name = "win_rate" # 默认指标名称
             
             if signal_type == 'risk':
-                # 对于风险信号，我们计算“风险规避率”
-                # 即信号出现后，未能达到盈利目标的比例，这个值越高越好
-                effectiveness_pct = ((total_triggers - success_count) / total_triggers)
-                metric_name = "avoidance_rate_pct" # 指标名称改为风险规避率
+                # 对于风险信号，计算“风险规避率”
+                effectiveness_pct = ((total_triggers - success_count) / total_triggers) if total_triggers > 0 else 0
+                metric_name = "avoidance_rate" # 指标名称改为风险规避率
             else:
-                # 对于进攻型信号，我们计算“胜率”
-                effectiveness_pct = (success_count / total_triggers)
+                # 对于进攻型信号，计算“胜率”
+                effectiveness_pct = (success_count / total_triggers) if total_triggers > 0 else 0
+            
+            # --- 【代码修改】结束 ---
 
             avg_max_profit = group_df['max_profit_pct'].mean()
             avg_max_drawdown = group_df['max_drawdown_pct'].mean()
@@ -209,19 +210,17 @@ class PerformanceAnalyzer:
                 'signal_cn_name': signal_cn_name,
                 'signal_type': signal_type,
                 'total_triggers': int(total_triggers),
-                'successes': int(success_count), # 仍然报告原始的上涨成功次数
-                'win_rate_pct': effectiveness_pct, # 【代码修改】使用修正后的指标
+                'successes': int(success_count),
+                'effectiveness_pct': effectiveness_pct, # 标准化效能指标
+                'metric_name': metric_name,             # 效能指标的名称
                 'avg_max_profit_pct': avg_max_profit,
                 'avg_max_drawdown_pct': avg_max_drawdown,
                 'avg_exit_days': avg_exit_days,
             }
-            # 为了向后兼容或方便调试，可以保留原始命名，但在报告时使用新名称
-            # result_entry[metric_name] = effectiveness_pct 
-            
             analysis_results.append(result_entry)
             
-        # 按效能指标（胜率或风险规避率）降序排序
-        analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True)
+        # 按效能指标降序排序
+        analysis_results.sort(key=lambda x: x['effectiveness_pct'], reverse=True)
         return analysis_results
 
 
