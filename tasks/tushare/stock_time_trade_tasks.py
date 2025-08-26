@@ -390,7 +390,7 @@ def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     logger.info(f"根据 {num_days} 个交易日计算出日期范围: {start_date_str} 到 {end_date_str}")
 
     # 2. 一次性获取所有股票代码 (逻辑不变)
-    stock_basic_dao = StockBasicDAO(cache_manager)
+    stock_basic_dao = StockBasicInfoDao(cache_manager)
     try:
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
         all_stock_codes = [s.stock_code for s in all_stocks]
