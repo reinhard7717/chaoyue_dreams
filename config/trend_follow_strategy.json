@@ -1185,7 +1185,7 @@
       "trailing_model": "MOVING_AVERAGE",
       "说明_trailing": "【第三道防线】锁定利润模型。让利润顺着趋势奔跑，同时保护已有战果。MOVING_AVERAGE: 当价格收盘有效跌破指定的移动平均线时，全线止盈。",
       "ma_type": "EMA",
-      "ma_period": 20,
+      "ma_period": 21,
       "说明_ma": "移动止盈使用的均线类型(EMA/SMA)和周期。EMA20是中期趋势的经典生命线。"
     },
     "pyramiding": {
