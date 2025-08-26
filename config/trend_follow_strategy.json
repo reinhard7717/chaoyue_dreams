@@ -1036,8 +1036,8 @@
       "realtime_strategy_params": {
         "enabled": true,
         "说明": "【V1.0 盘中策略引擎参数】定义盘中实时交易策略的各项参数。",
-        "trade_start_time": "09:35",
-        "trade_end_time": "14:55",
+        "trade_start_time": "09:45",
+        "trade_end_time": "14:50",
         "min_data_points_5min": 21,
         "min_data_points_30min": 34,
         "min_data_points_60min": 55,
