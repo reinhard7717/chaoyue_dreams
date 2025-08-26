@@ -242,8 +242,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #           自定义任务调度参数
 # ===================================================
 # CYQ 筹码数据下载任务的平滑分发配置
-CYQ_TASK_CHUNK_SIZE = 10      # 每批处理的股票数量
-CYQ_TASK_CHUNK_DELAY = 10     # 每批任务之间的延迟时间（秒）
+CYQ_TASK_CHUNK_SIZE = 19     # 每批处理的股票数量
+CYQ_TASK_CHUNK_DELAY = 6     # 每批任务之间的延迟时间（秒）
 
 API_RATE_LIMITS = {
     # 为未明确配置的API提供一个安全的默认值
