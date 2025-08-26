@@ -1,3 +1,4 @@
+{# dashboard/fav_trend_following_list.html #}
 {% extends 'base.html' %}
 {% load static %}
 {% load tz %}
@@ -76,6 +77,13 @@
             <td>
               {% if tracker.status == 'HOLDING' %}
                 {% if latest_daily_score %}
+                  <div class="strategy-action-display" style="margin-bottom: 10px;"> {# 修改代码行：移除 font-weight: bold，由CSS类控制 #}
+                    策略动作: 
+                    {# 修改代码行：使用 get_trade_action_display 获取中文名称，并应用动态样式类 #}
+                    <span class="action-{{ latest_daily_score.trade_action|lower|replace:'_|-'}}">
+                      {{ latest_daily_score.get_trade_action_display }}
+                    </span>
+                  </div>
                   <div class="score-matrix">
                     <!-- 总分行 -->
                     <div class="matrix-row">

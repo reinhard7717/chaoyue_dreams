@@ -7,8 +7,7 @@ from typing import Dict, List, Any, Tuple
 from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
 from .utils import get_params_block, get_param_value
 
-# [修改原因] 新增一个辅助函数，用于递归地将数据结构（字典、列表）中的 NumPy 数值类型
-#           转换为 Python 原生类型，以解决 JSON 序列化错误。
+# 辅助函数，用于递归地将数据结构（字典、列表）中的 NumPy 数值类型，转换为 Python 原生类型，以解决 JSON 序列化错误。
 def _convert_numpy_types_for_json(obj: Any) -> Any:
     """
     递归遍历数据结构，将numpy的整数和浮点数转换为Python原生类型。
@@ -57,8 +56,9 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V507.1 原子情报解放版】
-        """
+        【V508.0 精细化交易动作版】
+        - 核心升级: 将模拟层生成的精细化交易动作保存到 StrategyDailyScore 的 trade_action 字段。
+        """ # 修改代码行
         await self._ensure_playbooks_cached()
         
         signals_to_create = []
@@ -76,7 +76,6 @@ class ReportingLayer:
         # --- Part 1: 生成 TradingSignal (逻辑不变) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
         for trade_time, row in signal_days_df.iterrows():
-            # ... (这部分代码保持不变) ...
             signal_type_map_enum = {
                 '买入信号': TradingSignal.SignalType.BUY,
                 '卖出信号': TradingSignal.SignalType.SELL,
@@ -110,13 +109,14 @@ class ReportingLayer:
         # --- Part 2 & 3: 生成 StrategyDailyScore 和 StrategyDailyState ---
         daily_score_map = {}
 
-        # [修改原因] 修复了当 save_all_days=False 时，原子状态数据丢失的BUG。
-        # [修复逻辑] 无论 save_all_days 如何设置，我们都需要为所有计算过的日期创建 StrategyDailyScore 对象，
-        #           以便后续的 StrategyDailyState 能够正确关联。
-        #           因此，这里的迭代对象从 days_to_process_df 改为 result_df (即所有日期)。
-        #           而在循环内部，通过 if save_all_days 条件来决定是否将该对象加入最终的保存列表。
         for trade_time, row in result_df.iterrows():
             # --- Part 2: 生成 StrategyDailyScore ---
+            # 确保 trade_action 字段的值在 StrategyDailyScore.TradeActionType 的 choices 中
+            trade_action_value = row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value)
+            if trade_action_value not in StrategyDailyScore.TradeActionType.values:
+                print(f"    -> [报告层-警告] 日期 {trade_time.date()} 的 trade_action '{trade_action_value}' 不在有效选项中，将使用默认值 'NO_SIGNAL'。")
+                trade_action_value = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
+
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
                 trade_date=trade_time.date(),
@@ -128,7 +128,8 @@ class ReportingLayer:
                 dynamic_score=0,
                 composite_score=0,
                 signal_type=row.get('signal_type', '无信号'),
-                score_details_json={}
+                score_details_json={},
+                trade_action=trade_action_value # 修改代码行：使用经过验证的 trade_action_value
             )
             # 只有在需要保存的日子，才将其加入待创建列表
             if save_all_days or (row['signal_type'] != '无信号'):
@@ -198,7 +199,6 @@ class ReportingLayer:
             f"{len(daily_states_to_create)} 条每日状态。")
         
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
-
 
 
 

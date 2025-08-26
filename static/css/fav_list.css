@@ -139,3 +139,76 @@
 #fav-trend-table .col-actions {
     width: 8%;
 }
+
+/* 为不同的交易动作定义样式 */
+.action-initial-entry {
+    color: #28a745;
+    font-weight: bold;
+}
+
+/* 首次建仓 */
+.action-add-position {
+    color: #17a2b8;
+    font-weight: bold;
+}
+
+/* 加仓 */
+.action-reduce-position {
+    color: #ffc107;
+    font-weight: bold;
+}
+
+/* 减仓 (包含高抛) */
+.action-profit-exit {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+/* 止盈清仓 */
+.action-stop-loss-exit {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+/* 止损清仓 */
+.action-risk-exit {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+/* 风险清仓 */
+.action-trend-broken-exit {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+/* 趋势破位清仓 */
+.action-hold {
+    color: #6c757d;
+}
+
+/* 持仓观望 */
+.action-avoid {
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* 规避 */
+.action-proceed-with-caution {
+    color: #ffc107;
+    font-style: italic;
+}
+
+/* 谨慎持仓 */
+.action-force-attack {
+    color: #28a745;
+    font-weight: bold;
+}
+
+/* 强力进攻 */
+.action-no-signal {
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* 无信号 */
