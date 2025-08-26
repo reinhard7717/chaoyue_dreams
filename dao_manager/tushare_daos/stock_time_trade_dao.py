@@ -283,11 +283,13 @@ class StockTimeTradeDAO(BaseDAO):
         trade_date: Optional[str] = None
     ) -> Dict:
         """
-        【V2.1 - 兼容单日查询】保存多只股票的历史或单日日线交易数据，自动分表
+        【V2.1 - 兼容单日查询，保留stk_factor】保存多只股票的历史或单日日线交易数据，自动分表
         核心优化:
         1. 【消除N+1查询】一次性获取所有需要的StockInfo对象。
         2. 【向量化处理】使用Pandas进行高效的数据关联、转换和分组。
-        3. 【兼容模式】新增 trade_date 参数。如果提供，则只查询指定单日数据，无需分页；否则，查询全部历史数据并进行分页。
+        3. 【兼容模式】新增 trade_date 参数。
+           - 如果提供，则只查询指定单日数据（无需分页）。
+           - 否则，查询全部历史数据并进行分页（原始逻辑）。
         """
         if not stock_codes:
             logger.warning("传入的stock_codes列表为空，任务终止。")
@@ -296,90 +298,92 @@ class StockTimeTradeDAO(BaseDAO):
         # 1. 一次性获取所有相关股票信息，并创建高效查找映射
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
-        
         if not stock_map:
             logger.warning(f"提供的stock_codes: {stock_codes} 在数据库中均未找到对应的StockInfo。")
             return {}
 
         stock_codes_str = ",".join(stock_codes)
         data_dicts_by_model = {}
-        
-        # 2. 根据是否传入 trade_date 准备API请求
-        api_params = {
-            "ts_code": stock_codes_str,
-            "fields": [
-                "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_chg", "vol",
-                "amount"
-                # 注意：因子接口 stk_factor 和日线接口 daily 的字段名可能不同，例如 pct_change vs pct_chg
-                # 这里假设使用 daily 接口，如果必须用 stk_factor，请将 pct_chg 改回 pct_change 并添加其他因子字段
-            ]
-        }
 
-        all_data_df = pd.DataFrame()
+        # 内部函数，用于处理DataFrame，避免代码重复
+        def process_dataframe(df: pd.DataFrame):
+            if df.empty:
+                return
+            
+            # 3. 向量化数据处理
+            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            
+            # 3.1 【向量化关联】
+            df['stock'] = df['ts_code'].map(stock_map)
+            df.dropna(subset=['stock'], inplace=True)
+            if df.empty:
+                return
+
+            # 3.2 【向量化转换】
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 3.3 【向量化分组】
+            df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
+            
+            for model_class, group_df in df.groupby('model_class', sort=False):
+                # 3.4 【批量准备数据】
+                columns_to_keep = [
+                    'stock', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol',
+                    'amount', 'adj_factor', 'open_hfq', 'open_qfq', 'close_hfq', 'close_qfq', 'high_hfq', 'high_qfq', 'low_hfq',
+                    'low_qfq', 'pre_close_hfq', 'pre_close_qfq'
+                ]
+                final_cols = [col for col in columns_to_keep if col in group_df.columns]
+                data_to_save = group_df[final_cols].where(pd.notnull(group_df), None).to_dict('records')
+                
+                if model_class not in data_dicts_by_model:
+                    data_dicts_by_model[model_class] = []
+                data_dicts_by_model[model_class].extend(data_to_save)
+
+        # 2. 根据是否传入 trade_date 决定API调用策略
+        api_fields = [
+            "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol",
+            "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq",
+            "low_qfq", "pre_close_hfq", "pre_close_qfq"
+        ]
 
         if trade_date:
-            # --- 单日查询逻辑 ---
+            # --- 单日查询逻辑 (无需分页) ---
             logger.info(f"执行单日查询: date={trade_date}, stocks={len(stock_codes)}个")
-            api_params["trade_date"] = trade_date.replace('-', '') # Tushare需要 YYYYMMDD 格式
-            # 使用 daily 接口更适合此场景
-            df = self.ts_pro.daily(**api_params)
-            if df is not None and not df.empty:
-                all_data_df = df
+            df = self.ts_pro.stk_factor(
+                ts_code=stock_codes_str,
+                trade_date=trade_date, # Tushare需要 YYYYMMDD 格式
+                fields=api_fields
+            )
+            process_dataframe(df)
         else:
-            # --- 历史数据分页查询逻辑 (原逻辑) ---
+            # --- 历史数据分页查询逻辑 (完全保留原始逻辑) ---
             logger.info(f"执行历史查询: stocks={len(stock_codes)}个")
-            api_params.update({
-                "start_date": "20000101",
-                "end_date": "",
-            })
-            # 如果必须用 stk_factor，请替换下面的 daily 为 stk_factor
-            # 并且需要自行处理分页逻辑
-            # 为了简化，这里假设历史查询也用 daily 接口，它返回一个完整的DataFrame
-            df = self.ts_pro.daily(**api_params)
-            if df is not None and not df.empty:
-                all_data_df = df
+            offset = 0
+            limit = 6000
+            while True:
+                if offset >= 100000:
+                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
+                    break
+                
+                df = self.ts_pro.stk_factor(
+                    ts_code=stock_codes_str,
+                    start_date="20000101",
+                    offset=offset,
+                    limit=limit,
+                    fields=api_fields
+                )
+                
+                if df.empty:
+                    break
+                
+                process_dataframe(df)
 
-        if all_data_df.empty:
-            logger.warning(f"API未返回任何数据。参数: trade_date={trade_date}, stock_count={len(stock_codes)}")
-            return {}
-
-        # 3. 向量化数据处理 (对获取到的完整DataFrame进行处理)
-        df = all_data_df
-        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-
-        # 3.1 【向量化关联】使用map将StockInfo对象关联到每一行
-        df['stock'] = df['ts_code'].map(stock_map)
-        df.dropna(subset=['stock'], inplace=True)
-        if df.empty:
-            logger.warning("关联StockInfo后，当前批次无有效数据。")
-            return {}
-
-        # 3.2 【向量化转换】批量转换日期格式
-        df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+                if len(df) < limit:
+                    break
+                offset += limit
         
-        # 3.3 【向量化分组】根据ts_code确定分表模型
-        df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
-        
-        for model_class, group_df in df.groupby('model_class', sort=False):
-            # 3.4 【批量准备数据】
-            # 注意：这里的列名需要与你的分表模型字段完全对应
-            # Tushare的 'pct_chg' 需要映射到模型的 'pct_change' 字段
-            group_df = group_df.rename(columns={'pct_chg': 'pct_change'})
-            
-            columns_to_keep = [
-                'stock', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol',
-                'amount'
-                # 如果使用stk_factor，在这里加上其他因子字段
-            ]
-            final_cols = [col for col in columns_to_keep if col in group_df.columns]
-            data_to_save = group_df[final_cols].where(pd.notnull(group_df), None).to_dict('records')
-            
-            if model_class not in data_dicts_by_model:
-                data_dicts_by_model[model_class] = []
-            data_dicts_by_model[model_class].extend(data_to_save)
-
-        # 4. 批量保存
+        # 5. 批量保存
         result = {}
         for model_class, data_list in data_dicts_by_model.items():
             if not data_list: continue
