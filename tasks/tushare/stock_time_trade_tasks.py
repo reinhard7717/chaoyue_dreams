@@ -360,10 +360,9 @@ def save_day_data_today_task(cache_manager=None):
     print(f"保存 日线数据任务（当日） 完成。result: {result}")
 
 #  ================ 日线数据任务（昨日） ================
-STOCK_BATCH_SIZE = 300
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
+def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 300, cache_manager=None):
     """
     【V4.0 - 自动日期范围版】
     保存最近N个交易日的所有股票日线数据。
@@ -405,7 +404,7 @@ def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     # 3. 按股票批次处理数据 (逻辑不变)
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     results_summary = {}
-    total_batches = ceil(len(all_stock_codes) / STOCK_BATCH_SIZE)
+    total_batches = ceil(len(all_stock_codes) / stock_batch_size)
     
     # Tushare API needs YYYYMMDD format
     start_date_api = start_date.strftime('%Y%m%d')
@@ -415,9 +414,9 @@ def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     print(f"===== 开始保存日期范围 {start_date_str} to {end_date_str} 的日线数据... =====")
 
     # 将所有股票代码分批处理
-    for i in range(0, len(all_stock_codes), STOCK_BATCH_SIZE):
-        batch_num = (i // STOCK_BATCH_SIZE) + 1
-        stock_batch = all_stock_codes[i:i + STOCK_BATCH_SIZE]
+    for i in range(0, len(all_stock_codes), stock_batch_size):
+        batch_num = (i // stock_batch_size) + 1
+        stock_batch = all_stock_codes[i:i + stock_batch_size]
         
         logger.info(f"处理批次 {batch_num}/{total_batches} (含 {len(stock_batch)} 只股票) for date range {start_date_str} to {end_date_str}")
         print(f"调试: 处理批次 {batch_num}/{total_batches}...")

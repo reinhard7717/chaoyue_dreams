@@ -631,8 +631,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             is_data_healthy = True
             audit_warnings = []
             other_essential_dfs = {
-                "日线数据": data_dfs.get("daily_data"),
-                "基本数据": data_dfs.get("daily_basic")
+                "daily_data": data_dfs.get("daily_data"),
+                "daily_basic": data_dfs.get("daily_basic")
             }
             for name, df in other_essential_dfs.items():
                 if df is None or df.empty:
