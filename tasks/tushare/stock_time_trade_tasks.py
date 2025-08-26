@@ -603,7 +603,6 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
     if trade_date_str:
         # 兼容旧的单日模式
         final_start_date_str = trade_date_str
-        final_end_date_str = trade_date_str
         log_date_info = f"日期 {trade_date_str}"
     elif start_date_str and end_date_str:
         # 新的日期范围模式

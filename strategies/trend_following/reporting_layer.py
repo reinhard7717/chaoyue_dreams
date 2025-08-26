@@ -108,13 +108,14 @@ class ReportingLayer:
                         ))
 
         # --- Part 2 & 3: 生成 StrategyDailyScore 和 StrategyDailyState ---
-        # 我们需要一个 daily_score_obj 到 trade_time 的映射，以便关联
         daily_score_map = {}
 
-        # 决定要迭代哪些天的数据
-        days_to_process_df = result_df if save_all_days else result_df[result_df['signal_type'] != '无信号']
-        
-        for trade_time, row in days_to_process_df.iterrows():
+        # [修改原因] 修复了当 save_all_days=False 时，原子状态数据丢失的BUG。
+        # [修复逻辑] 无论 save_all_days 如何设置，我们都需要为所有计算过的日期创建 StrategyDailyScore 对象，
+        #           以便后续的 StrategyDailyState 能够正确关联。
+        #           因此，这里的迭代对象从 days_to_process_df 改为 result_df (即所有日期)。
+        #           而在循环内部，通过 if save_all_days 条件来决定是否将该对象加入最终的保存列表。
+        for trade_time, row in result_df.iterrows():
             # --- Part 2: 生成 StrategyDailyScore ---
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
@@ -129,8 +130,10 @@ class ReportingLayer:
                 signal_type=row.get('signal_type', '无信号'),
                 score_details_json={}
             )
-            daily_scores_to_create.append(daily_score_obj)
-            daily_score_map[trade_time] = daily_score_obj # 建立映射
+            # 只有在需要保存的日子，才将其加入待创建列表
+            if save_all_days or (row['signal_type'] != '无信号'):
+                daily_scores_to_create.append(daily_score_obj)
+            daily_score_map[trade_time] = daily_score_obj # 关键：为所有日期建立映射
 
             # --- Part 2.1: 生成 StrategyScoreComponent (逻辑不变) ---
             all_details_for_json = {}
@@ -144,13 +147,15 @@ class ReportingLayer:
                     signal_meta = score_type_map.get(signal_name, {})
                     cn_name = signal_meta.get('cn_name', signal_name)
                     score_type = signal_meta.get('type', 'unknown')
-                    score_components_to_create.append(StrategyScoreComponent(
-                        daily_score=daily_score_obj,
-                        signal_name=signal_name,
-                        signal_cn_name=cn_name,
-                        score_type=score_type,
-                        score_value=int(score_value)
-                    ))
+                    # 只有在需要保存的日子，才创建关联的组件
+                    if save_all_days or (row['signal_type'] != '无信号'):
+                        score_components_to_create.append(StrategyScoreComponent(
+                            daily_score=daily_score_obj,
+                            signal_name=signal_name,
+                            signal_cn_name=cn_name,
+                            score_type=score_type,
+                            score_value=int(score_value)
+                        ))
                     if score_type == 'positional': positional_total += int(score_value)
                     elif score_type == 'dynamic': dynamic_total += int(score_value)
                     elif score_type == 'composite': composite_total += int(score_value)
@@ -161,9 +166,13 @@ class ReportingLayer:
             daily_score_obj.composite_score = composite_total
             daily_score_obj.score_details_json = all_details_for_json
 
-        # --- [核心修正] Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
+        # --- Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
         # 这个循环现在独立于 save_all_days，它会遍历所有计算过的日期
         for trade_time, daily_score_obj in daily_score_map.items():
+            # 确保只有在需要保存的日子，才创建关联的每日状态记录。
+            should_save_this_day = save_all_days or (result_df.loc[trade_time, 'signal_type'] != '无信号')
+            if not should_save_this_day:
+                continue # 如果今天不需要保存，则跳过，不生成任何状态记录
             # 遍历所有原子状态
             for state_name, state_series in self.strategy.atomic_states.items():
                 if state_series.get(trade_time, False):

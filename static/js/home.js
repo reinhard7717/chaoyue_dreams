@@ -92,6 +92,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 </td>
             `;
             favoritesTbody.appendChild(row);
+            // 假设 flashRow 是全局可用的
             flashRow(row, 'add');
             updateStockRow(favData);
         }
@@ -129,6 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const percentCell = row.querySelector('[data-field="change_percent"]');
             const volumeCell = row.querySelector('[data-field="volume"]');
 
+            // 假设 formatNumber, formatVolume, formatPercent, flashRow 是全局可用的
             if (priceCell && updateData.current_price !== undefined) priceCell.textContent = formatNumber(updateData.current_price, 2);
             if (volumeCell && updateData.volume !== undefined) volumeCell.textContent = formatVolume(updateData.volume);
 
@@ -151,6 +153,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const stockName = row.dataset.stockName;
             const favoriteId = row.dataset.id;
 
+            // 假设 getCookie 和 showNotification 是全局可用的
             if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
                 removeButton.disabled = true;
                 removeButton.textContent = '移除中...';
@@ -241,6 +244,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     event.preventDefault();
 
                     if (!selectedStockCode) {
+                        // 假设 showNotification 是全局可用的
                         showNotification('请先从搜索结果中选择一只股票', 'warning');
                         return;
                     }
@@ -250,6 +254,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     addButton.innerHTML = '<span class="icon">+</span> 添加中...';
 
                     try {
+                        // 假设 getCookie 是全局可用的
                         const csrfToken = getCookie('csrftoken');
                         const response = await fetch('/dashboard/api/favorites/', {
                             method: 'POST',
@@ -261,15 +266,13 @@ document.addEventListener('DOMContentLoaded', function () {
                             body: JSON.stringify({ stock_code: selectedStockCode })
                         });
 
-                        // 【代码修改】API返回的是一个包含 detail 信息的对象，而不是序列化的 Favorite 对象
                         const responseData = await response.json();
 
                         if (response.ok) {
-                            // 【代码修改】直接使用后端返回的友好提示信息
+                            // 假设 showNotification 是全局可用的
                             showNotification(responseData.detail || `股票 ${selectedStockCode} 操作成功！`, 'success');
                             searchInput.value = '';
                             selectedStockCode = null;
-                            // 刷新页面以看到新添加的自选股（简单有效的方案）
                             setTimeout(() => window.location.reload(), 1000);
                         } else {
                             const errorMsg = responseData.detail || (responseData.stock_code ? `代码: ${responseData.stock_code[0]}` : '添加失败，请检查该股票是否已在自选列表中');
@@ -294,4 +297,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         connectWebSocket();
     }
+
+    // 在这里调用上面定义的初始化函数，以确保它能够执行
+    initializeHomePage();
 });

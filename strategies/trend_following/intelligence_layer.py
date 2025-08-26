@@ -218,7 +218,7 @@ class IntelligenceLayer:
         else:
             strategic_states['CONTEXT_STRATEGIC_IGNITION_W'] = default_series
 
-        print(f"    - [周线情报转化] 完成。已生成 {len(strategic_states)} 个战略级原子状态。")
+        # print(f"    - [周线情报转化] 完成。已生成 {len(strategic_states)} 个战略级原子状态。")
         return strategic_states
 
 

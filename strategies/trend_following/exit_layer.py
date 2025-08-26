@@ -21,13 +21,6 @@ class ExitLayer:
         critical_risk_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
 
-        # 直接将两个终极风险信号识别为致命风险
-        # 假设这两个信号在配置文件中也有对应的分数
-        critical_rules['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = critical_rules.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', 500)
-        critical_rules['STRUCTURE_TOPPING_DANGER_S'] = critical_rules.get('STRUCTURE_TOPPING_DANGER_S', 500)
-        # 将周线战略顶部风险也识别为致命风险
-        critical_rules['CONTEXT_STRATEGIC_TOPPING_RISK_W'] = critical_rules.get('CONTEXT_STRATEGIC_TOPPING_RISK_W', 500)
-
         for rule_name, score in critical_rules.items():
             signal_series = self.strategy.atomic_states.get(rule_name, default_series)
             if signal_series.any():

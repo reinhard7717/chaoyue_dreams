@@ -52,7 +52,26 @@ class JudgmentLayer:
         overflow_threshold = get_param_value(p_judge.get('risk_overflow_threshold'), 1000)
         triggers_df['EXIT_RISK_OVERFLOW'] = self.strategy.risk_score > overflow_threshold
 
-        # --- 防线三: 利润保护 (Profit Protector) ---
+        # --- 防线三: 趋势破位 (Trend Broken) ---
+        #  实现“第三道防线”，即基于移动平均线的技术性移动止盈/止损。
+        #           这是保护利润和控制回撤的关键纪律。
+        p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
+        p_trailing = p_pos_mgmt.get('trailing_stop', {})
+        triggers_df['EXIT_TREND_BROKEN'] = pd.Series(False, index=df.index) # 默认不触发
+        if get_param_value(p_trailing.get('enabled'), False):
+            model = get_param_value(p_trailing.get('trailing_model'))
+            if model == 'MOVING_AVERAGE':
+                ma_type = get_param_value(p_trailing.get('ma_type'), 'EMA').upper()
+                ma_period = get_param_value(p_trailing.get('ma_period'), 20)
+                ma_col = f'{ma_type}_{ma_period}_D'
+                if ma_col in df.columns:
+                    # 当日收盘价低于移动平均线，则触发趋势破位信号
+                    triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[ma_col]
+                    print(f"    -> [第三道防线] 已激活：趋势破位监控 (基于 {ma_col})。")
+                else:
+                    print(f"    -> [第三道防线-警告] 无法找到移动平均线列: {ma_col}，趋势破位监控未激活。")
+
+        # --- 防线四: 利润保护 (Profit Protector - 暂未完全实现) ---
         p_protector = p_judge.get('profit_protector', {})
         if get_param_value(p_protector.get('enabled'), False):
             max_drawdown_pct = get_param_value(p_protector.get('max_drawdown_pct'), 0.15)
@@ -80,7 +99,7 @@ class JudgmentLayer:
         df['dynamic_action'] = self._get_dynamic_combat_action()
         exit_triggers = self._generate_exit_triggers()
         is_sell_signal = exit_triggers.any(axis=1)
-        self.strategy.exit_triggers = exit_triggers[is_sell_signal]
+        self.strategy.exit_triggers = exit_triggers
         df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
 
         # --- 买入决策核心逻辑 ---

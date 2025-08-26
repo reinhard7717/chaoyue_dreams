@@ -307,12 +307,14 @@
             "说明_筹码体系": "--- 分级筹码信号 (含加速度) ---",
             "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 1500,
             "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 1200,
-            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1100,
+            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1350,
             "说明_原有信号": "--- 原有阵地信号 ---",
             "说明_修改": "【本次修改】移除了对 SETUP_PRIME_STRUCTURE_S, STRUCTURE_BREAKOUT_EVE_S 等所有'准备状态'信号的直接计分。这些信号是剧本的'前置条件'，分数将奖励给最终确认的'战术剧本'，而不是奖励'等待'本身。",
-            "OPP_PEAK_BATTLE_BREAKOUT_A": 500,
-            "OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A": 480,
-            "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 450
+            "OPP_PEAK_BATTLE_BREAKOUT_A": 450,
+            "OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A": 450,
+            "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 400,
+            "CHIP_CONC_LOCKED_AND_STABLE_A": 350,
+            "KLINE_STATE_N_SHAPE_CONSOLIDATION": 300
           }
         },
         "positional_momentum_params": {
@@ -397,13 +399,14 @@
             "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 1200,
             "RISK_CHIP_PRICE_DIVERGENCE": 1100,
             "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 1000,
-            "STRUCTURE_TOPPING_DANGER_S": 250,
-            "STRUCTURE_PLATFORM_BROKEN": 200,
+            "说明_新增": "--- 【V83.0 新增】将原硬编码的致命风险统一纳入配置 ---",
+            "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE": 1200, "说明_新增1": "S级系统性风险，筹码结构严重失效，必须离场。",
+            "STRUCTURE_TOPPING_DANGER_S": 1000, "说明_新增2": "S级顶部危险结构形成，大概率是阶段性顶部。",
             "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
             "FRACTAL_RISK_TOP_DIVERGENCE": 800,
             "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
             "说明_STRATEGIC": "--- 战略级风险 (周线) ---",
-            "CONTEXT_STRATEGIC_TOPPING_RISK_W": 500,
+            "CONTEXT_STRATEGIC_TOPPING_RISK_W": 800, "说明_新增3": "周线级别的战略顶部风险，必须规避。",
             "CONTEXT_PSYCH_REJECTION_BEARISH_W": 400
           }
         },
@@ -1161,7 +1164,6 @@
   "position_management_params": {
     "enabled": true,
     "说明": "【V100.0 标准作战条例】定义了从建仓、加仓到止盈止损的全流程战术动作。",
-
     "initial_sizing": {
       "enabled": true,
       "sizing_model": "FIXED_RISK_PERCENT",
@@ -1169,7 +1171,6 @@
       "risk_per_trade_percent": 2.0,
       "说明_risk_pct": "单笔交易愿意承受的最大风险，占总资金的百分比 (例如2.0代表2%)。这是我军的生命线！"
     },
-
     "stop_loss": {
       "enabled": true,
       "initial_stop_model": "PLATFORM_SUPPORT",
@@ -1179,25 +1180,31 @@
       "min_stop_loss_percent": 4.0,
       "说明_min_pct": "为防止止损位因平台过近而过于贴近成本价，强制设置一个最小的止损幅度(例如4%)，保证部队有足够的腾挪空间。"
     },
-
     "trailing_stop": {
       "enabled": true,
       "trailing_model": "MOVING_AVERAGE",
-      "说明_trailing": "锁定利润模型。让利润顺着趋势奔跑，同时保护已有战果。MOVING_AVERAGE: 当价格收盘有效跌破指定的移动平均线时，全线止盈。",
+      "说明_trailing": "【第三道防线】锁定利润模型。让利润顺着趋势奔跑，同时保护已有战果。MOVING_AVERAGE: 当价格收盘有效跌破指定的移动平均线时，全线止盈。",
       "ma_type": "EMA",
       "ma_period": 20,
       "说明_ma": "移动止盈使用的均线类型(EMA/SMA)和周期。EMA20是中期趋势的经典生命线。"
     },
-
     "pyramiding": {
-      "enabled": false,
-      "说明": "乘胜追击（金字塔加仓）规则。在优势战局下扩大战果，但需谨慎使用。",
+      "enabled": true,
+      "说明": "【乘胜追击】金字塔加仓规则。在优势战局下扩大战果，但需谨慎使用。",
       "trigger_condition": "NEW_BUY_SIGNAL",
-      "说明_trigger": "加仓的触发条件。NEW_BUY_SIGNAL: 出现新的、评分达标的买入信号时。",
+      "说明_trigger": "加仓的触发条件。NEW_BUY_SIGNAL: 在盈利持仓期间，出现新的、评分达标的买入信号时。",
       "add_size_ratio": 0.5,
       "说明_add_size": "加仓规模，是初始仓位的比例 (例如0.5代表加仓初始仓位的一半)。",
       "max_pyramid_count": 2,
       "说明_max_count": "最大允许的加仓次数，防止在趋势末期过度投入兵力。"
+    },
+    "risk_based_reduction": {
+      "enabled": true,
+      "说明": "【风险减仓】基于风险评分的主动减仓模块，用于控制回撤。",
+      "level_2_alert_reduction_pct": 0.3,
+      "说明_l2": "当风险预警达到2级(中度风险)时，减仓的百分比。",
+      "level_3_alert_reduction_pct": 0.5,
+      "说明_l3": "当风险预警达到3级(高度风险)时，减仓的百分比。"
     }
   }
 }
