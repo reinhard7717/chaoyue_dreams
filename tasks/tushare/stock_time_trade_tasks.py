@@ -5,6 +5,7 @@ import datetime
 from django.conf import settings
 from asgiref.sync import async_to_sync
 from celery import chord, group, chain
+from math import ceil
 from django.db import models
 from django.utils import timezone
 import time
