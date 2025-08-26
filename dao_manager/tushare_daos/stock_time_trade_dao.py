@@ -1745,7 +1745,7 @@ class StockTimeTradeDAO(BaseDAO):
                     if current_end_date_str:
                         api_params['end_date'] = current_end_date_str
                     
-                    print(f"调试: DAO准备调用Tushare API [cyq_chips]，动态参数: {api_params}")
+                    # print(f"调试: DAO准备调用Tushare API [cyq_chips]，动态参数: {api_params}")
                     
                     df = self.ts_pro.cyq_chips(**api_params, fields=["ts_code", "trade_date", "price", "percent"])
 
