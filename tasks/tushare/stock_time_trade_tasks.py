@@ -360,27 +360,36 @@ def save_day_data_today_task(cache_manager=None):
     print(f"保存 日线数据任务（当日） 完成。result: {result}")
 
 #  ================ 日线数据任务（昨日） ================
-STOCK_BATCH_SIZE = 400
-
-# I've renamed the task and its 'name' parameter for clarity
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_by_date_range_task', queue='SaveHistoryData_TimeTrade')
+STOCK_BATCH_SIZE = 300
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def save_day_data_by_date_range_task(start_date_str: str, end_date_str: Optional[str] = None, cache_manager=None):
+def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     """
-    【V3.0 - 日期范围版】
-    保存指定日期范围内所有股票的日线数据。
-    - 任务不再按天循环，而是将所有股票分批，为每一批股票获取指定日期范围的全部数据。
+    【V4.0 - 自动日期范围版】
+    保存最近N个交易日的所有股票日线数据。
+    任务内部通过TradeCalendar自动计算起始和结束日期。
     
     Args:
-        start_date_str (str): 开始日期, 格式 'YYYY-MM-DD'.
-        end_date_str (Optional[str]): 结束日期, 格式 'YYYY-MM-DD'. 如果不提供，则默认为开始日期.
+        num_days (int): 需要获取最近多少个交易日的数据。
     """
-    if not end_date_str:
-        end_date_str = start_date_str
-        
-    logger.info(f"任务启动: save_day_data_by_date_range_task - 获取日期范围 {start_date_str} 到 {end_date_str} 的日线数据。")
+    logger.info(f"任务启动: save_day_data_latest_days_task - 获取最近 {num_days} 个交易日的日线数据。")
     
-    # 1. 一次性获取所有股票代码
+    # 1. 【新逻辑】使用TradeCalendar获取最近N个交易日
+    trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+    if not trade_dates:
+        logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
+        return {"status": "skipped", "message": "未能获取到交易日列表"}
+    
+    # 列表是降序的 (从近到远)，所以结束日期是第一个，开始日期是最后一个
+    end_date = trade_dates[0]
+    start_date = trade_dates[-1]
+    
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+    
+    logger.info(f"根据 {num_days} 个交易日计算出日期范围: {start_date_str} 到 {end_date_str}")
+
+    # 2. 一次性获取所有股票代码 (逻辑不变)
     stock_basic_dao = StockBasicDAO(cache_manager)
     try:
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
@@ -393,14 +402,14 @@ def save_day_data_by_date_range_task(start_date_str: str, end_date_str: Optional
         logger.error(f"获取股票列表时发生错误: {e}")
         return {"status": "failed", "message": f"获取股票列表失败: {e}"}
 
-    # 2. 按股票批次处理数据 (不再有外层的日期循环)
+    # 3. 按股票批次处理数据 (逻辑不变)
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     results_summary = {}
     total_batches = ceil(len(all_stock_codes) / STOCK_BATCH_SIZE)
     
     # Tushare API needs YYYYMMDD format
-    start_date_api = start_date_str.replace('-', '')
-    end_date_api = end_date_str.replace('-', '')
+    start_date_api = start_date.strftime('%Y%m%d')
+    end_date_api = end_date.strftime('%Y%m%d')
 
     logger.info(f"===== 开始处理日期范围 {start_date_str} to {end_date_str} 的日线数据... =====")
     print(f"===== 开始保存日期范围 {start_date_str} to {end_date_str} 的日线数据... =====")
@@ -414,7 +423,7 @@ def save_day_data_by_date_range_task(start_date_str: str, end_date_str: Optional
         print(f"调试: 处理批次 {batch_num}/{total_batches}...")
 
         async def main():
-            # 调用修改后的DAO方法，传入日期范围
+            # 调用DAO方法，传入自动计算出的日期范围
             return await stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(
                 stock_codes=stock_batch,
                 start_date=start_date_api,
@@ -432,8 +441,14 @@ def save_day_data_by_date_range_task(start_date_str: str, end_date_str: Optional
             print(f"调试: {error_msg}")
             results_summary[f"batch_{batch_num}"] = {"status": "error", "message": str(e)}
 
-    logger.info(f"任务结束: save_day_data_by_date_range_task - 日期范围 {start_date_str} to {end_date_str} 处理完毕。")
-    return {"status": "success", "processed_batches": total_batches, "details": results_summary}
+    logger.info(f"任务结束: save_day_data_latest_days_task - 日期范围 {start_date_str} to {end_date_str} 处理完毕。")
+    return {
+        "status": "success", 
+        "processed_days": len(trade_dates),
+        "date_range": f"{start_date_str} to {end_date_str}",
+        "processed_batches": total_batches, 
+        "details": results_summary
+    }
 
 #  ================ 周线数据任务（当日） ================
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_week_data_today_task', queue='SaveHistoryData_TimeTrade')
