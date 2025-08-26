@@ -359,51 +359,85 @@ def save_day_data_today_task(cache_manager=None):
     print(f"保存 日线数据任务（当日） 完成。result: {result}")
 
 #  ================ 日线数据任务（昨日） ================
+STOCK_BATCH_SIZE = 400
+
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def save_day_data_latest_days_task(num_days: int = 5, cache_manager=None):
     """
-    【无绑定版】
+    【V2.0 - 批量优化版】
     保存最近N个交易日的日线数据。
+    优化点: 按天循环，在每天内部将所有股票分批，批量从Tushare获取数据。
+    这极大地减少了API请求次数 (从 每天N次API请求 优化为 每天 ceil(总股票数/批大小) 次)。
+    
     Args:
         num_days (int): 需要获取最近多少个交易日的数据。
     """
-    # [修改] 更新启动日志
     logger.info(f"任务启动: save_day_data_latest_days_task - 获取最近 {num_days} 个交易日的日线数据。")
-
-    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    
+    # 1. 获取需要处理的交易日列表
     trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
     if not trade_dates:
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
-        print("调试: 未能获取到最近的交易日列表，任务终止。")
         return {"status": "skipped", "message": "未能获取到交易日列表"}
-
     logger.info(f"成功获取到最近 {len(trade_dates)} 个交易日: {trade_dates}")
-    print(f"调试: 将为以下交易日获取日线数据: {trade_dates}")
 
+    # 2. 一次性获取所有股票代码
+    stock_basic_dao = StockBasicDAO(cache_manager)
+    try:
+        all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
+        all_stock_codes = [s.stock_code for s in all_stocks]
+        if not all_stock_codes:
+            logger.warning("未能获取到任何股票列表，任务终止。")
+            return {"status": "skipped", "message": "未能获取到股票列表"}
+        logger.info(f"获取到 {len(all_stock_codes)} 只股票待处理。")
+    except Exception as e:
+        logger.error(f"获取股票列表时发生错误: {e}")
+        return {"status": "failed", "message": f"获取股票列表失败: {e}"}
+
+    # 3. 按天、按股票批次处理数据
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    # [新增] 用于存储每个交易日处理结果的字典
     results_summary = {}
+    total_batches = ceil(len(all_stock_codes) / STOCK_BATCH_SIZE)
 
-    # [修改] 循环处理获取到的每一个交易日
     for trade_date in trade_dates:
         trade_date_str = trade_date.strftime('%Y-%m-%d')
-        logger.info(f"开始处理交易日 {trade_date_str} 的日线数据...")
-        print(f"开始保存交易日 {trade_date_str} 的日线数据...")
-
-        async def main():
-            # [修改] 调用DAO时传入循环中的当前交易日
-            # 保持原始参数名 `trade_date` 以确保兼容性
-            return await stock_time_trade_dao.save_daily_time_trade_history_by_trade_dates(trade_date=trade_date)
+        trade_date_api_format = trade_date.strftime('%Y%m%d') # Tushare API格式
         
-        result = async_to_sync(main)()
-        # [新增] 将当天的处理结果存入汇总字典
-        results_summary[trade_date_str] = result
+        logger.info(f"===== 开始处理交易日 {trade_date_str} 的日线数据... =====")
+        print(f"===== 开始保存交易日 {trade_date_str} 的日线数据... =====")
         
-        print(f"保存交易日 {trade_date_str} 的日线数据完成。result: {result}")
-        logger.info(f"处理交易日 {trade_date_str} 的日线数据完成。")
+        day_results = {}
+        
+        # 将所有股票代码分批处理
+        for i in range(0, len(all_stock_codes), STOCK_BATCH_SIZE):
+            batch_num = (i // STOCK_BATCH_SIZE) + 1
+            stock_batch = all_stock_codes[i:i + STOCK_BATCH_SIZE]
+            
+            logger.info(f"[{trade_date_str}] 处理批次 {batch_num}/{total_batches} (含 {len(stock_batch)} 只股票)")
+            print(f"调试: [{trade_date_str}] 处理批次 {batch_num}/{total_batches}...")
 
-    # [修改] 更新结束日志和返回信息
+            async def main():
+                # 调用修改后的DAO方法，并传入 trade_date
+                return await stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(
+                    stock_codes=stock_batch,
+                    trade_date=trade_date_api_format
+                )
+            
+            try:
+                result = async_to_sync(main)()
+                day_results[f"batch_{batch_num}"] = result
+                print(f"调试: [{trade_date_str}] 批次 {batch_num} 保存完成。result: {result}")
+                logger.info(f"[{trade_date_str}] 批次 {batch_num} 处理完成。")
+            except Exception as e:
+                error_msg = f"[{trade_date_str}] 批次 {batch_num} 处理失败: {e}"
+                logger.error(error_msg)
+                print(f"调试: {error_msg}")
+                day_results[f"batch_{batch_num}"] = {"status": "error", "message": str(e)}
+
+        results_summary[trade_date_str] = day_results
+        logger.info(f"===== 处理交易日 {trade_date_str} 的日线数据完成。 =====")
+
     logger.info(f"任务结束: save_day_data_latest_days_task - 共处理了 {len(trade_dates)} 个交易日。")
     return {"status": "success", "processed_days": len(trade_dates), "details": results_summary}
 
