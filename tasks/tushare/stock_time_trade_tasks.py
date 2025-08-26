@@ -9,7 +9,7 @@ from math import ceil
 from django.db import models
 from django.utils import timezone
 import time
-from typing import List
+from typing import List, Optional
 from django.db.models.functions import TruncDate
 from utils.task_helpers import with_cache_manager
 from chaoyue_dreams.celery import app as celery_app  # 从 celery.py 导入 app 实例并重命名为 celery_app
