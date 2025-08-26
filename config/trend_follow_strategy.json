@@ -1032,6 +1032,40 @@
           "value": 0.05,
           "description": "【失败条件】止损百分比。在评判周期内达到此跌幅，记为'失败'。例如0.05代表5%。"
         }
+      },
+      "realtime_strategy_params": {
+        "enabled": true,
+        "说明": "【V1.0 盘中策略引擎参数】定义盘中实时交易策略的各项参数。",
+        "trade_start_time": "09:35",
+        "trade_end_time": "14:55",
+        "min_data_points_5min": 21,
+        "min_data_points_30min": 34,
+        "min_data_points_60min": 55,
+        "playbooks": {
+          "说明": "盘中交易剧本参数。",
+          "vwap_breakout": {
+            "enabled": true,
+            "说明": "5分钟VWAP突破动能剧本。",
+            "vwap_breakout_volume_multiplier": 1.5,
+            "vwap_breakout_min_pct_change": 0.005
+          },
+          "bollinger_breakout": {
+            "enabled": true,
+            "说明": "5分钟布林带突破剧本。",
+            "bollinger_breakout_volume_multiplier": 1.8,
+            "bollinger_breakout_max_bbw": 0.02
+          },
+          "ema_bullish_breakout_30min": {
+            "enabled": true,
+            "说明": "30分钟EMA多头排列突破剧本。此剧本主要依赖EMA指标本身，无额外参数。"
+          },
+          "pullback_rebound": {
+            "enabled": true,
+            "说明": "5分钟VWAP回调支撑反弹剧本。",
+            "pullback_vwap_tolerance_pct": 0.002,
+            "pullback_max_volume_multiplier": 1.2
+          }
+        }
       }
     }
   },
