@@ -229,7 +229,7 @@ class StockTimeTradeDAO(BaseDAO):
         :param limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
         :return: 包含处理结果的字典。
         """
-        all_stocks = await self.stock_basic_dao.get_all_stocks_from_db()
+        all_stocks = await self.stock_basic_dao.get_stock_list()
         if not all_stocks:
             logger.warning("数据库中没有股票基础数据，无法执行日线数据保存任务。")
             return {"status": "warning", "message": "No stock basic data found."}
