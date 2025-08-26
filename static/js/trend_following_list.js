@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
         console.log('正在初始化【策略监控中心】页面功能...');
 
         // --- 折叠功能 ---
+        // 将两个不同的事件处理逻辑分开，避免冲突
         tableBody.addEventListener('click', function (event) {
             const toggleBtn = event.target.closest('.toggle-playbooks');
             if (toggleBtn) {
@@ -48,6 +49,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         async function initializeFavoriteButtons() {
             try {
+                // 假设 getCookie 和 showNotification 是在 dashboard.js 中定义的全局函数
                 const response = await fetch('/dashboard/api/favorites/', {
                     headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
                 });
@@ -75,14 +77,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const stockCode = button.dataset.stockCode;
 
-            // 1. 防御性检查：现在只检查 stockCode
             if (!stockCode) {
                 showNotification('无法获取股票代码，操作已取消', 'error');
                 console.error('错误：点击了添加自选按钮，但未能从 data-stock-code 属性中获取到值。');
                 return;
             }
 
-            // 2. 更新按钮为加载状态 
             updateButtonState(button, false, true);
 
             try {
@@ -94,24 +94,20 @@ document.addEventListener('DOMContentLoaded', function () {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRFToken': csrfToken
                     },
-                    // 3. 【核心修改】请求体中只包含 stock_code
                     body: JSON.stringify({
                         stock_code: stockCode,
                     })
                 });
 
-                const responseData = await response.json(); // 无论成功失败，都先解析响应体
+                const responseData = await response.json();
 
                 if (response.ok) {
-                    // 4. 使用后端返回的友好提示信息
                     showNotification(responseData.detail || `股票 ${stockCode} 操作成功！`, 'success');
                     favoriteStockCodes.add(stockCode);
                     updateButtonState(button, true);
                 } else {
-                    // 5. 同样使用后端返回的错误信息
                     const errorMsg = responseData.detail || `添加 ${stockCode} 失败`;
                     showNotification(errorMsg, 'error');
-                    // 如果错误是因为已存在，也应该将按钮更新为“已添加”状态
                     if (response.status === 400 && errorMsg.includes('已存在')) {
                         updateButtonState(button, true);
                     } else {
@@ -124,10 +120,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // 使用事件委托来处理所有“添加自选”按钮的点击事件
+        // 为添加自选按钮单独设置一个事件监听器
         tableBody.addEventListener('click', handleAddFavorite);
 
         // 初始化
         initializeFavoriteButtons();
     }
+
+    // 在这里调用上面定义的初始化函数，以确保它能够执行
+    initializeTrendListPage();
 });

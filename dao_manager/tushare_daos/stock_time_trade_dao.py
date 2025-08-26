@@ -280,22 +280,21 @@ class StockTimeTradeDAO(BaseDAO):
     async def save_daily_time_trade_history_by_stock_codes(
         self, 
         stock_codes: List[str], 
-        trade_date: Optional[str] = None
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> Dict:
         """
-        【V2.1 - 兼容单日查询，保留stk_factor】保存多只股票的历史或单日日线交易数据，自动分表
-        核心优化:
-        1. 【消除N+1查询】一次性获取所有需要的StockInfo对象。
-        2. 【向量化处理】使用Pandas进行高效的数据关联、转换和分组。
-        3. 【兼容模式】新增 trade_date 参数。
-           - 如果提供，则只查询指定单日数据（无需分页）。
-           - 否则，查询全部历史数据并进行分页（原始逻辑）。
+        【V2.2 - 支持日期范围查询，保留stk_factor】
+        保存多只股票在指定日期范围内的日线交易数据。
+        - 如果 start_date 和 end_date 相同 (或只提供了 start_date)，则执行单日查询。
+        - 如果 start_date 和 end_date 不同，则执行范围查询（带分页）。
+        - 如果均未提供，则获取全部历史数据（带分页）。
         """
         if not stock_codes:
             logger.warning("传入的stock_codes列表为空，任务终止。")
             return {}
 
-        # 1. 一次性获取所有相关股票信息，并创建高效查找映射
+        # 1. 一次性获取股票信息
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
         if not stock_map:
@@ -304,30 +303,19 @@ class StockTimeTradeDAO(BaseDAO):
 
         stock_codes_str = ",".join(stock_codes)
         data_dicts_by_model = {}
-
+        
         # 内部函数，用于处理DataFrame，避免代码重复
         def process_dataframe(df: pd.DataFrame):
-            if df.empty:
-                return
-            
-            # 3. 向量化数据处理
+            # (This helper function remains the same as the previous version)
+            if df.empty: return
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
-            
-            # 3.1 【向量化关联】
             df['stock'] = df['ts_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
-            if df.empty:
-                return
-
-            # 3.2 【向量化转换】
+            if df.empty: return
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
-            # 3.3 【向量化分组】
             df['model_class'] = df['ts_code'].apply(get_daily_data_model_by_code)
-            
             for model_class, group_df in df.groupby('model_class', sort=False):
-                # 3.4 【批量准备数据】
                 columns_to_keep = [
                     'stock', 'trade_time', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_change', 'vol',
                     'amount', 'adj_factor', 'open_hfq', 'open_qfq', 'close_hfq', 'close_qfq', 'high_hfq', 'high_qfq', 'low_hfq',
@@ -335,44 +323,49 @@ class StockTimeTradeDAO(BaseDAO):
                 ]
                 final_cols = [col for col in columns_to_keep if col in group_df.columns]
                 data_to_save = group_df[final_cols].where(pd.notnull(group_df), None).to_dict('records')
-                
                 if model_class not in data_dicts_by_model:
                     data_dicts_by_model[model_class] = []
                 data_dicts_by_model[model_class].extend(data_to_save)
 
-        # 2. 根据是否传入 trade_date 决定API调用策略
-        api_fields = [
-            "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol",
-            "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq",
-            "low_qfq", "pre_close_hfq", "pre_close_qfq"
-        ]
-
-        if trade_date:
-            # --- 单日查询逻辑 (无需分页) ---
-            logger.info(f"执行单日查询: date={trade_date}, stocks={len(stock_codes)}个")
-            df = self.ts_pro.stk_factor(
-                ts_code=stock_codes_str,
-                trade_date=trade_date, # Tushare需要 YYYYMMDD 格式
-                fields=api_fields
-            )
+        # 2. 准备API参数
+        api_params = {
+            "ts_code": stock_codes_str,
+            "fields": [
+                "ts_code", "trade_date", "close", "open", "high", "low", "pre_close", "change", "pct_change", "vol",
+                "amount", "adj_factor", "open_hfq", "open_qfq", "close_hfq", "close_qfq", "high_hfq", "high_qfq", "low_hfq",
+                "low_qfq", "pre_close_hfq", "pre_close_qfq"
+            ]
+        }
+        
+        # 3. 根据日期参数决定API调用策略
+        # Case 1: Single Day Query
+        if start_date and (end_date is None or start_date == end_date):
+            logger.info(f"执行单日查询: date={start_date}, stocks={len(stock_codes)}个")
+            api_params["trade_date"] = start_date
+            df = self.ts_pro.stk_factor(**api_params)
             process_dataframe(df)
+        
+        # Case 2: Date Range or Full History Query (both require pagination)
         else:
-            # --- 历史数据分页查询逻辑 (完全保留原始逻辑) ---
-            logger.info(f"执行历史查询: stocks={len(stock_codes)}个")
+            if start_date and end_date:
+                logger.info(f"执行范围查询: {start_date} to {end_date}, stocks={len(stock_codes)}个")
+                api_params["start_date"] = start_date
+                api_params["end_date"] = end_date
+            else:
+                logger.info(f"执行历史查询 (无日期范围): stocks={len(stock_codes)}个")
+                api_params["start_date"] = "20000101"
+
             offset = 0
             limit = 6000
             while True:
                 if offset >= 100000:
-                    logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq=Day")
+                    logger.warning(f"offset已达10万，停止拉取。params={api_params}")
                     break
                 
-                df = self.ts_pro.stk_factor(
-                    ts_code=stock_codes_str,
-                    start_date="20000101",
-                    offset=offset,
-                    limit=limit,
-                    fields=api_fields
-                )
+                api_params["offset"] = offset
+                api_params["limit"] = limit
+                
+                df = self.ts_pro.stk_factor(**api_params)
                 
                 if df.empty:
                     break
@@ -383,7 +376,7 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 offset += limit
         
-        # 5. 批量保存
+        # 4. 批量保存
         result = {}
         for model_class, data_list in data_dicts_by_model.items():
             if not data_list: continue
