@@ -437,7 +437,7 @@ class IndicatorService:
         # 任务准备: 旧筹码和资金流
         needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
-                'advanced_fund_features', 'chip_cost_breakthrough', 
+                'chip_cost_breakthrough', 
                 'chip_pressure_release', 'winner_rate_reversal', 'capital_flow_divergence'
             ]
             for key, params in indicators_config.items() if isinstance(params, dict)
@@ -758,12 +758,7 @@ class IndicatorService:
             'atrr': self.calculate_atrr, 'obv': self.calculate_obv, 'kdj': self.calculate_kdj,
             'uo': self.calculate_uo, 'vwap': self.calculate_vwap, 'atr': self.calculate_atr,
             'consolidation_period': self.calculate_consolidation_period,
-            'advanced_fund_features': self.calculate_advanced_fund_features,
             'fibonacci_levels': self.calculate_fibonacci_levels,
-            # --- 代码删除 ---
-            # 'ma_convergence' 指标的计算已内联到此方法末尾，不再需要独立函数
-            # 'ma_convergence': self.calculate_ma_convergence 
-            # --- 代码删除结束 ---
         }
         
         def merge_results(result_data, target_df):
@@ -780,15 +775,12 @@ class IndicatorService:
         # --- 阶段一: 常规指标计算循环 ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
-            
-            # --- 代码修改开始 ---
             # 修正跳过逻辑，确保 ma_convergence 不会在此处被查找
             if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore', 'ma_convergence'] or not params.get('enabled', False): continue
-            # --- 代码修改结束 ---
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
-            if indicator_name in ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']:
+            if indicator_name in ['consolidation_period', 'fibonacci_levels']:
                 continue
 
             configs_to_process = params.get('configs', [params])
@@ -834,9 +826,8 @@ class IndicatorService:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
         # --- 阶段二: 复合指标计算循环 ---
-        # --- 代码修改开始 ---
         # 修正复合指标列表，移除 ma_convergence
-        composite_indicator_keys = ['consolidation_period', 'advanced_fund_features', 'fibonacci_levels']
+        composite_indicator_keys = ['consolidation_period', 'fibonacci_levels']
         for indicator_key in composite_indicator_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
@@ -2219,37 +2210,6 @@ class IndicatorService:
         result_df['dynamic_consolidation_duration'].fillna(0, inplace=True)
         
         return result_df
-
-    async def calculate_advanced_fund_features(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
-        """
-        【V1.1 标准化版】计算基于资金流和筹码的衍生特征。
-        - 核心修正: 移除了不必要的 suffix 参数，以符合 V110 的统一后缀添加规范。
-        """
-        required_cols = ['buy_lg_amount', 'weight_avg', 'close']
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [依赖错误] 资金流衍生特征计算跳过，因缺失必要列: {missing}。请确保上游数据已正确合并。")
-            return None
-
-        try:
-            derived_features = pd.DataFrame(index=df.index)
-            
-            # --- 代码修改开始 ---
-            # 从 params['params'] 而不是 params 直接获取参数，以匹配新的调用方式
-            ma_periods = params.get('params', {}).get('ma_periods', [3, 5, 10])
-            # --- 代码修改结束 ---
-
-            for period in ma_periods:
-                derived_features[f'fund_buy_lg_amount_ma{period}'] = df['buy_lg_amount'].rolling(window=period).mean()
-
-            cost_basis = df['weight_avg'].replace(0, np.nan)
-            derived_features['chip_cost_deviation'] = df['close'] / cost_basis - 1
-            
-            return derived_features
-
-        except Exception as e:
-            print(f"    - [严重错误] 计算资金流和筹码衍生特征时发生意外: {e}")
-            return None
 
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """

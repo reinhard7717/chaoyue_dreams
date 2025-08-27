@@ -1070,7 +1070,13 @@
           "enabled": true,
           "说明": "盘中K线形态识别参数。",
           "apply_on": ["5min", "30min"],
-          "patterns": ["CDL_HAMMER", "CDL_ENGULFING", "CDL_DOJI", "CDL_STAR"]
+          "patterns": ["CDL_HAMMER", "CDL_ENGULFING", "CDL_DOJI", "CDL_STAR"],
+          "hammer_strength_params": {
+            "min_body_ratio": 0.1,
+            "max_upper_shadow_ratio": 0.2,
+            "min_lower_shadow_ratio": 0.6,
+            "说明": "锤头线强度参数：实体占比最小，上影线占比最大，下影线占比最小"
+          }
         },
         "volume_anomalies": {
           "enabled": true,
@@ -1085,7 +1091,10 @@
           "说明": "盘中波动率分析参数。",
           "apply_on": ["5min"],
           "bbw_slope_period": 5,
-          "intraday_range_threshold_pct": 0.01
+          "intraday_range_threshold_pct": 0.01,
+          "bbw_lookback_window": 120,
+          "bbw_squeeze_percentile_threshold": 0.3,
+          "说明_bbw_squeeze": "BBW分位数回溯窗口和收缩阈值，用于量化BBW收缩程度"
         },
         "advanced_vwap_params": {
           "enabled": true,
@@ -1099,7 +1108,10 @@
           "enabled": true,
           "说明": "盘中支撑与阻力位参数。",
           "pivot_points_enabled": true,
-          "prev_day_close_enabled": true
+          "prev_day_close_enabled": true,
+          "rebound_strength_min_pct": 0.005,
+          "rejection_strength_min_pct": 0.005,
+          "说明_strength_pct": "反弹/拒绝强度最小百分比，用于量化支撑阻力反弹/拒绝强度"
         },
         "micro_price_action_params": {
           "enabled": true,
@@ -1131,6 +1143,158 @@
             "说明": "5分钟VWAP回调支撑反弹剧本。",
             "pullback_vwap_tolerance_pct": 0.002,
             "pullback_max_volume_multiplier": 1.2
+          },
+          "intraday_candlestick_reversal": {
+            "enabled": true,
+            "说明": "盘中K线反转形态剧本。",
+            "min_reversal_volume_multiplier": 1.2,
+            "min_reversal_pct_change": 0.008
+          },
+          "volume_breakout_with_bbw_squeeze": {
+            "enabled": true,
+            "说明": "布林带压缩后放量突破剧本。",
+            "volume_multiplier": 2.0,
+            "bbw_squeeze_quantile": 0.2
+          },
+          "vwap_channel_rebound": {
+            "enabled": true,
+            "说明": "VWAP通道支撑反弹剧本。",
+            "channel_std_dev": 1.0,
+            "rebound_min_pct_change": 0.003
+          },
+          "multi_timeframe_ema_confluence": {
+            "enabled": true,
+            "说明": "多周期EMA共振突破剧本。",
+            "min_30min_ema_slope": 0.0001,
+            "min_60min_ema_slope": 0.00005
+          },
+          "pivot_point_reversal": {
+            "enabled": true,
+            "说明": "枢轴点支撑反转剧本。",
+            "pivot_tolerance_pct": 0.0015,
+            "rebound_volume_multiplier": 1.2
+          },
+          "micro_price_rejection_rebound": {
+            "enabled": true,
+            "说明": "微观价格行为拒绝反弹剧本。",
+            "rejection_min_shadow_body_ratio": 0.8,
+            "rejection_volume_multiplier": 1.1
+          }
+        },
+        "intraday_scoring_params": {
+          "enabled": true,
+          "说明": "【V2.0 盘中评分系统参数】定义盘中实时信号的评分逻辑和评级阈值，引入分层判定。",
+          "base_score_per_playbook": {
+            "说明": "每个成功触发的剧本的基础分数。",
+            "5min VWAP Breakout": 50,
+            "5min Bollinger Breakout": 60,
+            "30min EMA Bullish Breakout": 70,
+            "5min VWAP Pullback Rebound": 40,
+            "Intraday Candlestick Reversal": 45,
+            "BBW Squeeze Volume Breakout": 80,
+            "VWAP Channel Rebound": 50,
+            "Multi-timeframe EMA Confluence": 90,
+            "Pivot Point Reversal": 55,
+            "Micro Price Rejection Rebound": 35
+          },
+          "tiered_feature_scoring": {
+            "说明": "基于特征程度的分层加减分权重。'metric'为特征名称，'direction'为正向(positive)或负向(negative)影响，'tiers'定义阈值和分数。",
+            "VOLUME_RATIO_TO_MA": {
+              "metric": "VOLUME_RATIO_TO_MA",
+              "direction": "dynamic",
+              "tiers": [
+                {"threshold": 1.5, "score_up": 15, "score_down": -15, "description": "放量 (1.5x均量)"},
+                {"threshold": 2.0, "score_up": 30, "score_down": -30, "description": "巨量 (2.0x均量)"},
+                {"threshold": 3.0, "score_up": 50, "score_down": -50, "description": "天量 (3.0x均量)"}
+              ]
+            },
+            "BBW_PERCENTILE": {
+              "metric": "BBW_PERCENTILE",
+              "direction": "positive_inverse",
+              "tiers": [
+                {"threshold": 0.3, "score": 10, "description": "BBW中度收缩 (低于30%分位)"},
+                {"threshold": 0.1, "score": 25, "description": "BBW高度收缩 (低于10%分位)"},
+                {"threshold": 0.05, "score": 40, "description": "BBW极致收缩 (低于5%分位)"}
+              ]
+            },
+            "VWAP_DEVIATION_PCT": {
+              "metric": "VWAP_DEVIATION_PCT",
+              "direction": "dynamic",
+              "tiers": [
+                {"threshold": 0.005, "score_up": 10, "score_down": -10, "description": "VWAP小幅偏离 (0.5%)"},
+                {"threshold": 0.01, "score_up": 20, "score_down": -20, "description": "VWAP中幅偏离 (1%)"},
+                {"threshold": 0.02, "score_up": 30, "score_down": -30, "description": "VWAP大幅偏离 (2%)"}
+              ]
+            },
+            "LOWER_SHADOW_RATIO": {
+              "metric": "LOWER_SHADOW_RATIO",
+              "direction": "positive",
+              "tiers": [
+                {"threshold": 0.3, "score": 10, "description": "长下影线 (影线占比>30%)"},
+                {"threshold": 0.5, "score": 25, "description": "极长下影线 (影线占比>50%)"}
+              ]
+            },
+            "UPPER_SHADOW_RATIO": {
+              "metric": "UPPER_SHADOW_RATIO",
+              "direction": "negative",
+              "tiers": [
+                {"threshold": 0.3, "score": -10, "description": "长上影线 (影线占比>30%)"},
+                {"threshold": 0.5, "score": -25, "description": "极长上影线 (影线占比>50%)"}
+              ]
+            },
+            "HAMMER_STRENGTH_SCORE": {
+              "metric": "HAMMER_STRENGTH_SCORE",
+              "direction": "positive",
+              "tiers": [
+                {"threshold": 0.5, "score": 20, "description": "中等强度锤头线"},
+                {"threshold": 0.8, "score": 40, "description": "高强度锤头线"}
+              ]
+            },
+            "REBOUND_STRENGTH_FROM_SUPPORT": {
+              "metric": "PRICE_REBOUNDING_FROM_SUPPORT",
+              "direction": "positive",
+              "tiers": [
+                {"threshold": 0.005, "score": 20, "description": "支撑位小幅反弹"},
+                {"threshold": 0.01, "score": 40, "description": "支撑位强劲反弹"}
+              ]
+            },
+            "REJECTION_STRENGTH_AT_RESISTANCE": {
+              "metric": "PRICE_REJECTION_AT_RESISTANCE",
+              "direction": "negative",
+              "tiers": [
+                {"threshold": 0.005, "score": -20, "description": "阻力位小幅拒绝"},
+                {"threshold": 0.01, "score": -40, "description": "阻力位强劲拒绝"}
+              ]
+            }
+          },
+          "fixed_feature_scoring": {
+            "说明": "无法分层判定的二元特征加减分。",
+            "CDL_ENGULFING_BULLISH": 30,
+            "CDL_MORNINGSTAR": 25,
+            "CDL_ENGULFING_BEARISH": -30,
+            "CDL_EVENINGSTAR": -25,
+            "EMA_BULLISH_CONFLUENCE": 40,
+            "VOLUME_PRICE_DIVERGENCE_BEARISH": -40,
+            "VWAP_SLOPE_UP": 10,
+            "VWAP_SLOPE_DOWN": -10,
+            "PRICE_ABOVE_PREV_CLOSE": 10,
+            "PRICE_BELOW_PREV_CLOSE": -10
+          },
+          "rating_thresholds": {
+            "说明": "盘中信心分数对应的评级。",
+            "STRONG_BUY": 150,
+            "BUY": 80,
+            "NEUTRAL": -50,
+            "SELL": -100,
+            "STRONG_SELL": -150
+          },
+          "daily_score_influence_multiplier": {
+            "value": 0.5,
+            "说明": "日线策略的'entry_score'对盘中评分的影响乘数。例如，日线1000分，乘数0.5，则盘中额外加500分。"
+          },
+          "daily_risk_penalty_multiplier": {
+            "value": 0.8,
+            "说明": "日线策略的'risk_score'对盘中评分的惩罚乘数。例如，日线200分风险，乘数0.8，则盘中额外扣160分。"
           }
         }
       }
