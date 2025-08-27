@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 import argparse
 import optuna
-import numpy as np # 新增导入 numpy
+import numpy as np #导入 numpy
 
 # --- 修改开始: 配置 Django 设置 ---
 # 请将 'your_project_name.settings' 替换为您的实际 Django 项目的 settings 模块路径。
@@ -167,8 +167,8 @@ def run_local_transformer_training_batch(
     processing_order: str = 'asc',
     n_trials: int = 20,
     epochs: int = 10,
-    n_jobs: int = 1, # 新增 n_jobs 参数，默认为 1 (串行)
-    gpu_id: Optional[int] = None # 新增 gpu_id 参数，默认为 None (不指定)
+    n_jobs: int = 1, # n_jobs 参数，默认为 1 (串行)
+    gpu_id: Optional[int] = None # gpu_id 参数，默认为 None (不指定)
     ):
     logger.info("开始执行本地 Transformer 模型批量训练任务...")
 
@@ -294,7 +294,7 @@ def run_local_transformer_training_batch(
                 # 为每个股票代码创建一个独立的 SQLite 数据库文件，避免多进程冲突
                 storage=f"sqlite:///{item_path}/optuna_study_{item_name}_2.db",
                 study_name=f"transformer_tuning_{item_name}_2",
-                load_if_exists=True  # 新增：如果已存在则直接加载
+                load_if_exists=True  #：如果已存在则直接加载
             )
             print("开始 Optuna 超参数优化。")
             objective_with_epochs = partial(objective, strategy=strategy, item_name=item_name, epochs=epochs)
@@ -406,7 +406,7 @@ if __name__ == '__main__':
         default=10,
         help="每次 trial 训练的 epoch 数，默认 10"
     )
-    # 新增 n_jobs 和 gpu_id 参数
+    # n_jobs 和 gpu_id 参数
     parser.add_argument(
         "--n-jobs",
         type=int,

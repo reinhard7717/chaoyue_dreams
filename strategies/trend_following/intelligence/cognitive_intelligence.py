@@ -93,7 +93,7 @@ class CognitiveIntelligence:
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
             states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | 
             states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] |
-            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] # 新增的或逻辑
+            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] #的或逻辑
         )
         return states
 
@@ -602,7 +602,7 @@ class CognitiveIntelligence:
         was_suppressive_pullback = atomic.get('PULLBACK_STATE_SUPPRESSIVE_S', default_series).shift(1).fillna(False)
         # 统一确认信号 (今日)
         is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-        # 新增：获取“上涨末期”上下文状态
+        #：获取“上涨末期”上下文状态
         late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
         # 从配置中读取此战法能容忍的最高风险分数
         p_trend_stage = get_params_block(self.strategy, 'trend_stage_params', {})

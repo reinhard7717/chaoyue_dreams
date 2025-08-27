@@ -115,7 +115,7 @@ def multiply(value, arg):
         print(f"DEBUG: multiply filter error - value: {value}, arg: {arg}") # 调试信息
         return 0.0 # 发生错误时返回0.0，或根据业务需求处理
 
-# 新增代码行：定义 subtract 过滤器
+#代码行：定义 subtract 过滤器
 @register.filter
 def subtract(value, arg):
     """

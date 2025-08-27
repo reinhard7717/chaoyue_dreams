@@ -362,7 +362,7 @@ class WeeklyContextEngine:
         """
         # print(f"\n--- 剧本检查: [{params.get('说明', '均线处于上升状态')}] ---")
         target_ma_period = params.get('ma_period', 21)
-        # 新增斜率阈值参数，要求均线每周至少上涨0.1%才算有效上涨
+        #斜率阈值参数，要求均线每周至少上涨0.1%才算有效上涨
         slope_threshold_pct = params.get('slope_threshold_pct', 0.1) 
         # print(f"    - 配置参数: ma_period={target_ma_period}, slope_threshold_pct={slope_threshold_pct}%")
         
@@ -404,7 +404,7 @@ class WeeklyContextEngine:
         """
         # print(f"\n--- 剧本检查: [{params.get('说明', '均线拐头向上事件')}] ---")
         target_ma_period = params.get('ma_period', 21)
-        # 新增加速度阈值参数，如果JSON中没有，则默认为0
+        #加速度阈值参数，如果JSON中没有，则默认为0
         accel_threshold = params.get('accel_threshold', 0) 
         # print(f"    - 配置参数: ma_period={target_ma_period}, accel_threshold={accel_threshold}")
         

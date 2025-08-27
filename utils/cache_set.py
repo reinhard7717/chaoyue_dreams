@@ -29,7 +29,7 @@ def _msgpack_default_packer(obj):
     # 或者 return str(obj) 作为最后的尝试
     raise TypeError(f"Object of type {obj.__class__.__name__} is not MSGPACK serializable")
 
-# 新增辅助函数：递归转换数据结构中的 Decimal 对象
+#辅助函数：递归转换数据结构中的 Decimal 对象
 def convert_decimals(obj):
     """
     递归遍历对象，转换所有 Decimal 类型为字符串。
@@ -157,7 +157,7 @@ class CacheSet():
             score = trade_datetime.timestamp()
             data_to_serialize = data_to_cache.copy()
             
-            # 新增：递归转换数据结构中的 Decimal 对象
+            #：递归转换数据结构中的 Decimal 对象
             data_to_serialize = convert_decimals(data_to_serialize)
             
             if 'stock' in data_to_serialize:

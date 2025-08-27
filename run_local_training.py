@@ -163,7 +163,7 @@ def run_local_transformer_training_batch(
     model_base_dir_path_str: str = None, # 命令行参数，但在子进程中会从Django settings重新读取
     params_file_path_str: str = None,   # 命令行参数，但在子进程中会从Django settings重新读取
     processing_order: str = 'asc',
-    num_processes: int = None # 新增参数: 并行进程数
+    num_processes: int = None #参数: 并行进程数
     ):
     logger.info("开始执行本地 Transformer 模型批量训练任务 (多进程并行)...")
 

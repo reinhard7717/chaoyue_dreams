@@ -1038,9 +1038,76 @@
         "说明": "【V1.0 盘中策略引擎参数】定义盘中实时交易策略的各项参数。",
         "trade_start_time": "09:45",
         "trade_end_time": "14:50",
+        "base_timeframe": "1min",
+        "processed_timeframes": ["5min", "30min", "60min"],
         "min_data_points_5min": 21,
         "min_data_points_30min": 34,
         "min_data_points_60min": 55,
+        "indicators": {
+          "说明": "盘中基础技术指标配置。",
+          "ema": {
+            "enabled": true,
+            "configs": [
+              { "apply_on": ["5min", "30min", "60min"], "periods": [5, 13, 21, 34, 55] }
+            ]
+          },
+          "vol_ma": {
+            "enabled": true,
+            "configs": [
+              { "apply_on": ["5min", "30min", "60min"], "periods": [21] }
+            ]
+          },
+          "boll_bands_and_width": {
+            "enabled": true,
+            "configs": [
+              { "apply_on": ["5min", "30min"], "periods": [20], "std_dev": 2.0 }
+            ]
+          },
+          "vwap": { "enabled": true, "apply_on": ["5min"] },
+          "atr": { "enabled": true, "apply_on": ["5min", "30min"], "periods": [14] }
+        },
+        "kline_patterns": {
+          "enabled": true,
+          "说明": "盘中K线形态识别参数。",
+          "apply_on": ["5min", "30min"],
+          "patterns": ["CDL_HAMMER", "CDL_ENGULFING", "CDL_DOJI", "CDL_STAR"]
+        },
+        "volume_anomalies": {
+          "enabled": true,
+          "说明": "盘中成交量异动分析参数。",
+          "apply_on": ["5min"],
+          "giant_volume_multiplier": 2.0,
+          "shrinking_volume_ratio": 0.5,
+          "volume_ma_period": 21
+        },
+        "volatility_params": {
+          "enabled": true,
+          "说明": "盘中波动率分析参数。",
+          "apply_on": ["5min"],
+          "bbw_slope_period": 5,
+          "intraday_range_threshold_pct": 0.01
+        },
+        "advanced_vwap_params": {
+          "enabled": true,
+          "说明": "VWAP相关高级指标参数。",
+          "apply_on": ["5min"],
+          "vwap_ma_period": 5,
+          "vwap_channel_std_dev": 1.0,
+          "vwap_deviation_threshold_pct": 0.005
+        },
+        "intraday_sr_params": {
+          "enabled": true,
+          "说明": "盘中支撑与阻力位参数。",
+          "pivot_points_enabled": true,
+          "prev_day_close_enabled": true
+        },
+        "micro_price_action_params": {
+          "enabled": true,
+          "说明": "价格行为微观结构参数。",
+          "apply_on": ["5min"],
+          "min_shadow_body_ratio": 0.8,
+          "rejection_threshold_pct": 0.003
+        },
         "playbooks": {
           "说明": "盘中交易剧本参数。",
           "vwap_breakout": {

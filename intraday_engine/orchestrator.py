@@ -185,7 +185,7 @@ class IntradayEngineOrchestrator:
         for stock_code in watchlist:
             df = intraday_data_map.get(stock_code)
             if df is None: continue
-            print(f"-> 正在为待买入池中的 {stock_code} 执行策略分析...") # 新增调试信息
+            print(f"-> 正在为待买入池中的 {stock_code} 执行策略分析...") #调试信息
             buy_signal = self.strategy.run_strategy(df, {"stock_code": stock_code})
             if buy_signal:
                 all_signals.append(buy_signal)
@@ -195,7 +195,7 @@ class IntradayEngineOrchestrator:
         for stock_code, pos_info in position_list.items():
             df = intraday_data_map.get(stock_code)
             if df is None: continue
-            print(f"-> 正在为持仓池中的 {stock_code} 执行策略分析...") # 新增调试信息
+            print(f"-> 正在为持仓池中的 {stock_code} 执行策略分析...") #调试信息
             t_signal = self.strategy.run_t_and_risk_control(df, pos_info)
             if t_signal:
                 t_signal['user_id'] = pos_info.get('user_id')

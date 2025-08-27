@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter # 用于 TensorBoard 日志
 # 导入 PyTorch AMP (自动混合精度) 相关模块
-from torch.amp import autocast, GradScaler # 新增: 导入 AMP 模块
+from torch.amp import autocast, GradScaler #: 导入 AMP 模块
 
 # 导入必要的库 (数据处理和特征工程)
 import os
@@ -403,7 +403,7 @@ def prepare_data_for_transformer(
     fs_max_features: Optional[int] = None,
     fs_selection_threshold: Union[str, float] = 'median',
     target_scaler_type: str = 'minmax', # 可选: 'minmax', 'standard', 'robust'
-    random_state_seed: Optional[int] = 42 # 新增: 随机种子参数
+    random_state_seed: Optional[int] = 42 #: 随机种子参数
 ) -> Tuple[
     np.ndarray, np.ndarray, # train_features, train_targets
     np.ndarray, np.ndarray, # val_features, val_targets
@@ -1833,7 +1833,7 @@ def evaluate_transformer_model(
     test_loader: DataLoader,
     criterion: nn.Module,
     target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler], # 修改类型提示
-    mae_metric: nn.Module, # 新增 mae_metric 参数，用于计算 MAE
+    mae_metric: nn.Module, # mae_metric 参数，用于计算 MAE
     device: Optional[torch.device] = None
 ) -> Dict[str, float]:
     """

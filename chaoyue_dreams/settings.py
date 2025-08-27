@@ -178,7 +178,7 @@ CACHES = {
             'SOCKET_TIMEOUT': 15,  # 从5秒增加到15秒
             'RETRY_ON_TIMEOUT': True,
             'MAX_CONNECTIONS': 100,
-            # 新增重试策略配置
+            #重试策略配置
             'RETRY_TIMES': 3,  # 重试3次
             'RETRY_DELAY': 0.5,  # 重试间隔0.5秒.
             # 添加连接池配置

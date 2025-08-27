@@ -105,7 +105,7 @@ def main():
                             full_path = os.path.join(root, file)
                             # 计算相对于 STRATEGY_DATA_DIR 的路径，保留目录结构
                             relative_path = os.path.relpath(full_path, STRATEGY_DATA_DIR)
-                            print(f"INFO: Adding file to archive list: {relative_path}")  # 新增打印，方便调试
+                            print(f"INFO: Adding file to archive list: {relative_path}")  #打印，方便调试
                             files_to_archive_relative.append(relative_path)
 
     # --- 执行打包 ---

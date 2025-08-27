@@ -124,7 +124,7 @@ class MultiTimeframeTrendStrategy:
         all_details = records_tuple[1] + intraday_entry_details + risk_alert_details
         all_daily_scores = records_tuple[2]
         all_score_components = records_tuple[3]
-        all_daily_states = records_tuple[4] # 新增
+        all_daily_states = records_tuple[4] #
         
         # 8. 结果排序
         if all_signals:
@@ -194,7 +194,7 @@ class MultiTimeframeTrendStrategy:
         for col in df_weekly_context.columns:
             if col not in df_merged.columns: continue
             if col == 'strategic_score_W':
-                # 新增：对战略分数进行处理，填充为0，并确保是浮点数
+                #：对战略分数进行处理，填充为0，并确保是浮点数
                 df_merged[col] = df_merged[col].fillna(0).astype(float)
             elif col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_', 'regime_', 'vpa_', 'cmf_', 'risk_', 'opp_')):
                 # 修改：扩展布尔型信号的前缀范围，以适应V3.0引擎的新输出

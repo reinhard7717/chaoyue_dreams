@@ -28,7 +28,7 @@ class SimulationLayer:
         # 修改代码行：使用copy避免SettingWithCopyWarning，并确保操作的是独立副本
         df = self.strategy.df_indicators.copy() 
         
-        # 新增代码行：确保 'open_D' 列存在，如果不存在，则创建并填充NaN
+        #代码行：确保 'open_D' 列存在，如果不存在，则创建并填充NaN
         if 'open_D' not in df.columns:
             df['open_D'] = pd.NA
             print("    - 警告: 'open_D' 列不存在，将使用NaN填充。T+1开盘价入场将受影响。")
@@ -57,7 +57,7 @@ class SimulationLayer:
         df['alert_reason'] = ''
         df['trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
         df['current_profit_loss_pct'] = 0.0
-        # 新增代码行：记录实际入场价或平均成本
+        #代码行：记录实际入场价或平均成本
         df['entry_price_actual'] = 0.0 
 
         # 模拟过程中的实时状态变量
@@ -97,7 +97,7 @@ class SimulationLayer:
                         exit_action = StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value
                     elif 'EXIT_CRITICAL_HIT' in triggered_reasons or 'EXIT_RISK_OVERFLOW' in triggered_reasons:
                         exit_action = StrategyDailyScore.TradeActionType.RISK_EXIT.value
-                    # 新增代码行：明确止损清仓
+                    #代码行：明确止损清仓
                     elif 'EXIT_STOP_LOSS' in triggered_reasons: 
                         exit_action = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     
@@ -117,7 +117,7 @@ class SimulationLayer:
                 if pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count:
                     add_amount = 1.0 * add_size_ratio # 假设初始仓位为1.0
                     
-                    # 新增代码行：更新平均成本
+                    #代码行：更新平均成本
                     old_total_cost = current_position_size * actual_entry_price
                     new_total_size = current_position_size + add_amount
                     new_total_cost = old_total_cost + (add_amount * current_price) # 加仓价格为当日收盘价
@@ -137,7 +137,7 @@ class SimulationLayer:
 
                 # 只有在风险升级时才减仓
                 if alert_level > last_reduction_level:
-                    # 新增代码行：减仓动作统一为 REDUCE_POSITION
+                    #代码行：减仓动作统一为 REDUCE_POSITION
                     reduction_action = StrategyDailyScore.TradeActionType.REDUCE_POSITION.value
                     
                     if alert_level == 3: # 高度风险

@@ -316,40 +316,40 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                 # 构建当前股票数据根目录的预期路径 (例如: /data/strategy_models/000001)
                 expected_stock_data_root = base_data_path / stock_code
                 # 构建 prepared_data 子目录的预期路径
-                prepared_data_path = expected_stock_data_root / "prepared_data" # 新增行：构建 prepared_data 目录路径
-                should_schedule = False # 新增行：标志是否需要调度任务
-                reason = "" # 新增行：记录调度或跳过的原因
+                prepared_data_path = expected_stock_data_root / "prepared_data" #构建 prepared_data 目录路径
+                should_schedule = False #标志是否需要调度任务
+                reason = "" #记录调度或跳过的原因
 
                 # 检查股票数据根目录是否存在
                 # if not expected_stock_data_root.is_dir():
                 #     should_schedule = True
-                #     reason = f"股票根目录 '{expected_stock_data_root}' 不存在" # 新增行：记录原因
-                #     logger.info(f"股票 {stock_code}: {reason}，标记为需要调度.") # 新增行：日志说明原因
+                #     reason = f"股票根目录 '{expected_stock_data_root}' 不存在" #记录原因
+                #     logger.info(f"股票 {stock_code}: {reason}，标记为需要调度.") #日志说明原因
                 # else:
                 #     # 如果根目录存在，检查 prepared_data 子目录
-                #     if not prepared_data_path.is_dir(): # 新增行：检查 prepared_data 目录是否存在
+                #     if not prepared_data_path.is_dir(): #检查 prepared_data 目录是否存在
                 #         should_schedule = True
-                #         reason = f"prepared_data 子目录 '{prepared_data_path}' 不存在" # 新增行：记录原因
-                #         logger.info(f"股票 {stock_code}: 根目录存在，但 {reason}，标记为需要调度.") # 新增行：日志说明原因
+                #         reason = f"prepared_data 子目录 '{prepared_data_path}' 不存在" #记录原因
+                #         logger.info(f"股票 {stock_code}: 根目录存在，但 {reason}，标记为需要调度.") #日志说明原因
                 #     else:
                 #         # 如果 prepared_data 子目录存在，检查是否有 .npz 文件
                 #         # 使用 glob 查找所有 .npz 文件，并用 any() 判断是否存在至少一个
-                #         has_npz_files = any(prepared_data_path.glob("*.joblib")) # 新增行：检查是否存在 .joblib 文件
-                #         if not has_npz_files: # 新增行：如果不存在 .npz 文件
+                #         has_npz_files = any(prepared_data_path.glob("*.joblib")) #检查是否存在 .joblib 文件
+                #         if not has_npz_files: #如果不存在 .npz 文件
                 #             should_schedule = True
-                #             reason = f"prepared_data 子目录 '{prepared_data_path}' 中不存在 .npz 文件" # 新增行：记录原因
-                #             logger.info(f"股票 {stock_code}: 根目录和 prepared_data 子目录存在，但 {reason}，标记为需要调度.") # 新增行：日志说明原因
+                #             reason = f"prepared_data 子目录 '{prepared_data_path}' 中不存在 .npz 文件" #记录原因
+                #             logger.info(f"股票 {stock_code}: 根目录和 prepared_data 子目录存在，但 {reason}，标记为需要调度.") #日志说明原因
                 #         else:
                 #             # 根目录、prepared_data 子目录都存在，且存在 .npz 文件，则跳过
-                #             should_schedule = False # 新增行：明确不需要调度
-                #             reason = f"股票根目录和 prepared_data 子目录存在且包含 .npz 文件" # 新增行：记录原因
+                #             should_schedule = False #明确不需要调度
+                #             reason = f"股票根目录和 prepared_data 子目录存在且包含 .npz 文件" #记录原因
                 #             # logger.info(f"跳过 {stock_code} 的 Transformer 数据处理任务分派 ({reason}).") # 修改行：日志信息说明跳过原因
                 #             total_skipped_tasks += 1
 
                 should_schedule = True
 
                 # 根据 should_schedule 标志决定是否分派任务
-                if should_schedule: # 新增行：根据标志决定是否调度
+                if should_schedule: #根据标志决定是否调度
                     logger.info(f"分派 {stock_code} 的 Transformer 数据处理任务到 'Train_Transformer_Prepare_Data' 队列 (原因: {reason}).") # 修改行：日志说明调度原因
                     # 调用任务，确保使用原始的任务函数名
                     prepare_task_signature = process_stock_data_for_transformer_training.s( # 修改行：确保使用原始的任务函数名

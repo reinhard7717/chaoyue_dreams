@@ -610,7 +610,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     - 移除了未使用的变量 full_range2, upper_shadow1, lower_shadow1。
     :param df: 包含原始数据的 DataFrame，列名应包含特定时间框架的 OHLCV 数据 (例如 'open_D', 'high_D', 'low_D', 'close_D', 'volume_D')。
     :param tf: 当前要检测的时间框架字符串 (例如 'D', '60', '15')。
-    :param naming_config: 包含列命名规范的字典。 # 新增参数说明
+    :param naming_config: 包含列命名规范的字典。 #参数说明
     :return: 返回一个 DataFrame，索引与输入 df 一致。每列代表一个K线形态 (例如 'KAP_BULLISHENGULFING_D')，
              值为 1 表示看涨形态，-1 表示看跌形态，0 表示无此形态。
     """
@@ -631,7 +631,7 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     ]
     # 初始化默认的结果DataFrame，所有形态信号默认为0，索引与输入df一致
     # Use naming_config to get pattern prefix if available, otherwise use default 'KAP_'
-    kline_pattern_prefix = naming_config.get('kline_pattern_naming_convention', {}).get('prefix', 'KAP_') # 新增：从命名规范获取K线形态前缀
+    kline_pattern_prefix = naming_config.get('kline_pattern_naming_convention', {}).get('prefix', 'KAP_') #：从命名规范获取K线形态前缀
     default_pattern_df = pd.DataFrame(0, index=df.index, columns=[f'{kline_pattern_prefix}{name.upper()}_{tf}' for name in pattern_names]) # 使用获取到的前缀
 
     # 检查所需列是否存在于输入DataFrame中
@@ -2270,8 +2270,8 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
     # 计算K线和D线之间的差值
     kd_spread = k_s - d_s
     # 定义斜率和价差变化的阈值，用于判断动量强弱
-    slope_threshold = 3.0 # 新增行: K/D线变化超过此值视为强动量
-    spread_change_threshold = 1.0 # 新增行: K-D价差变化超过此值视为价差动量
+    slope_threshold = 3.0 # K/D线变化超过此值视为强动量
+    spread_change_threshold = 1.0 # K-D价差变化超过此值视为价差动量
 
     # --- 1. 极端超买/超卖区评分 (最高优先级) ---
     # K线或D线进入极端超卖区，评分设为95
@@ -2295,40 +2295,40 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
 
     # --- 3. "钩子"或反转信号 (从极端区反转，强信号) ---
     # K线从极端超卖区向上反转 (前一周期在极端超卖区，当前周期K线向上且回到非极端区)
-    k_bull_hook = (k_s.shift(1) < ext_os) & (k_s > k_s.shift(1)) & (k_s >= ext_os) # 新增行: K线向上钩子条件
+    k_bull_hook = (k_s.shift(1) < ext_os) & (k_s > k_s.shift(1)) & (k_s >= ext_os) # K线向上钩子条件
     # D线从极端超卖区向上反转
-    d_bull_hook = (d_s.shift(1) < ext_os) & (d_s > d_s.shift(1)) & (d_s >= ext_os) # 新增行: D线向上钩子条件
-    any_bull_hook = k_bull_hook | d_bull_hook # 新增行: 组合K/D线向上钩子条件
-    score.loc[any_bull_hook] = np.maximum(score.loc[any_bull_hook], 90.0) # 新增行: 向上钩子评分
+    d_bull_hook = (d_s.shift(1) < ext_os) & (d_s > d_s.shift(1)) & (d_s >= ext_os) # D线向上钩子条件
+    any_bull_hook = k_bull_hook | d_bull_hook # 组合K/D线向上钩子条件
+    score.loc[any_bull_hook] = np.maximum(score.loc[any_bull_hook], 90.0) # 向上钩子评分
     # print(f"调试信息: 向上钩子信号应用，影响 {any_bull_hook.sum()} 个点。") # 调试信息
     # K线从极端超买区向下反转
-    k_bear_hook = (k_s.shift(1) > ext_ob) & (k_s < k_s.shift(1)) & (k_s <= ext_ob) # 新增行: K线向下钩子条件
+    k_bear_hook = (k_s.shift(1) > ext_ob) & (k_s < k_s.shift(1)) & (k_s <= ext_ob) # K线向下钩子条件
     # D线从极端超买区向下反转
-    d_bear_hook = (d_s.shift(1) > ext_ob) & (d_s < d_s.shift(1)) & (d_s <= ext_ob) # 新增行: D线向下钩子条件
-    any_bear_hook = k_bear_hook | d_bear_hook # 新增行: 组合K/D线向下钩子条件
-    score.loc[any_bear_hook] = np.minimum(score.loc[any_bear_hook], 10.0) # 新增行: 向下钩子评分
+    d_bear_hook = (d_s.shift(1) > ext_ob) & (d_s < d_s.shift(1)) & (d_s <= ext_ob) # D线向下钩子条件
+    any_bear_hook = k_bear_hook | d_bear_hook # 组合K/D线向下钩子条件
+    score.loc[any_bear_hook] = np.minimum(score.loc[any_bear_hook], 10.0) # 向下钩子评分
     # print(f"调试信息: 向下钩子信号应用，影响 {any_bear_hook.sum()} 个点。") # 调试信息
 
     # --- 4. 动量/斜率分析 (K线和D线同时强劲上涨/下跌) ---
     # K线和D线同时强劲上涨
-    strong_bull_momentum = (k_slope > slope_threshold) & (d_slope > slope_threshold) # 新增行: 强劲上涨动量条件
+    strong_bull_momentum = (k_slope > slope_threshold) & (d_slope > slope_threshold) # 强劲上涨动量条件
     # 在现有评分基础上增加，但不超过100
-    score.loc[strong_bull_momentum] = np.clip(score.loc[strong_bull_momentum] + 3, 0, 100) # 新增行: 强劲上涨动量评分调整
+    score.loc[strong_bull_momentum] = np.clip(score.loc[strong_bull_momentum] + 3, 0, 100) # 强劲上涨动量评分调整
     # print(f"调试信息: 强劲上涨动量应用，影响 {strong_bull_momentum.sum()} 个点。") # 调试信息
     # K线和D线同时强劲下跌
-    strong_bear_momentum = (k_slope < -slope_threshold) & (d_slope < -slope_threshold) # 新增行: 强劲下跌动量条件
+    strong_bear_momentum = (k_slope < -slope_threshold) & (d_slope < -slope_threshold) # 强劲下跌动量条件
     # 在现有评分基础上减少，但不低于0
-    score.loc[strong_bear_momentum] = np.clip(score.loc[strong_bear_momentum] - 3, 0, 100) # 新增行: 强劲下跌动量评分调整
+    score.loc[strong_bear_momentum] = np.clip(score.loc[strong_bear_momentum] - 3, 0, 100) # 强劲下跌动量评分调整
     # print(f"调试信息: 强劲下跌动量应用，影响 {strong_bear_momentum.sum()} 个点。") # 调试信息
 
     # --- 5. K-D价差分析 (K线和D线之间距离的变化) ---
     # K线在D线之上且价差扩大 (多头动量增强)
-    bullish_spread_strengthening = (k_s > d_s) & (kd_spread.diff() > spread_change_threshold) # 新增行: 多头价差增强条件
-    score.loc[bullish_spread_strengthening] = np.clip(score.loc[bullish_spread_strengthening] + 2, 0, 100) # 新增行: 多头价差增强评分调整
+    bullish_spread_strengthening = (k_s > d_s) & (kd_spread.diff() > spread_change_threshold) # 多头价差增强条件
+    score.loc[bullish_spread_strengthening] = np.clip(score.loc[bullish_spread_strengthening] + 2, 0, 100) # 多头价差增强评分调整
     # print(f"调试信息: 多头价差增强应用，影响 {bullish_spread_strengthening.sum()} 个点。") # 调试信息
     # K线在D线之下且价差扩大 (空头动量增强)
-    bearish_spread_strengthening = (k_s < d_s) & (kd_spread.diff() < -spread_change_threshold) # 新增行: 空头价差增强条件
-    score.loc[bearish_spread_strengthening] = np.clip(score.loc[bearish_spread_strengthening] - 2, 0, 100) # 新增行: 空头价差增强评分调整
+    bearish_spread_strengthening = (k_s < d_s) & (kd_spread.diff() < -spread_change_threshold) # 空头价差增强条件
+    score.loc[bearish_spread_strengthening] = np.clip(score.loc[bearish_spread_strengthening] - 2, 0, 100) # 空头价差增强评分调整
     # print(f"调试信息: 空头价差增强应用，影响 {bearish_spread_strengthening.sum()} 个点。") # 调试信息
 
     # --- 6. 金叉/死叉信号 ---
@@ -2834,7 +2834,7 @@ def calculate_ichimoku_score(close: pd.Series, tenkan: pd.Series, kijun: pd.Seri
     score.loc[cs_below_price & chikou_valid] -= max_chikou_price_points * 1.0
 
     # 迟行线与云的关系 (更强的趋势确认信号)
-    # 新增迟行线与云的关系，这是非常重要的确认信号
+    #迟行线与云的关系，这是非常重要的确认信号
     # 迟行线在26周期前的云上方：更强看涨，表示价格已突破未来阻力
     cs_above_cloud_26_ago = (cs > cloud_top.shift(26)) & chikou_valid
     # 迟行线在26周期前的云下方：更强看跌，表示价格已跌破未来支撑
