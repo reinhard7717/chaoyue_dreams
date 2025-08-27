@@ -733,7 +733,6 @@ class IndicatorService:
         """
         【V110.1 逻辑净化版】根据配置为指定时间周期计算所有技术指标，并为所有列统一添加后缀。
         - 核心修正: 移除了对 ma_convergence 指标的重复计算，只保留唯一的、在方法内部的直接实现。
-        - 核心修正: 标准化了对 advanced_fund_features 的调用，移除了不必要的 suffix 参数。
         """
         # print(f"  [指标计算V110.1] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:

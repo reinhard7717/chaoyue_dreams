@@ -83,11 +83,6 @@
           { "apply_on": ["W"], "periods": [20] }
         ]
       },
-      "advanced_fund_features": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "params": { "ma_periods": [3, 5, 10] }
-      },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
       "fibonacci_levels": {
         "enabled": true,
