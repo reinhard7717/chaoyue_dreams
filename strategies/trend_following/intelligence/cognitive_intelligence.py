@@ -529,7 +529,7 @@ class CognitiveIntelligence:
         )
         
         # 定义协同进攻的原始触发条件：至少2个动能信号同时激活
-        is_synergistic_offense = (num_active_signals >= 3)
+        is_synergistic_offense = (num_active_signals >= 4)
 
         # 3. 获取战略过滤器：是否处于上涨末期
         late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
