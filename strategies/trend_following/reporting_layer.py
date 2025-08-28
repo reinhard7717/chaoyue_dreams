@@ -129,7 +129,7 @@ class ReportingLayer:
                 composite_score=0,
                 signal_type=row.get('signal_type', '无信号'),
                 score_details_json={},
-                trade_action=trade_action_value # 修改代码行：使用经过验证的 trade_action_value
+                trade_action=trade_action_value # 使用经过验证的 trade_action_value
             )
             # 只有在需要保存的日子，才将其加入待创建列表
             if save_all_days or (row['signal_type'] != '无信号'):

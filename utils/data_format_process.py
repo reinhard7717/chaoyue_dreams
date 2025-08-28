@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # 对所有字段做一次NaN/None清洗
 def safe_value(val):
-    # 修改代码行：首先检查值是否是 Django 模型实例，如果是则直接返回
+    # 首先检查值是否是 Django 模型实例，如果是则直接返回
     if isinstance(val, Model):
         return val
     # 递归处理 dict

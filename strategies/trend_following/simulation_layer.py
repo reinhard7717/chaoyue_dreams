@@ -28,7 +28,7 @@ class SimulationLayer:
         # 修改代码行：使用copy避免SettingWithCopyWarning，并确保操作的是独立副本
         df = self.strategy.df_indicators.copy() 
         
-        #代码行：确保 'open_D' 列存在，如果不存在，则创建并填充NaN
+        # 新增代码行：确保 'open_D' 列存在，如果不存在，则创建并填充NaN
         if 'open_D' not in df.columns:
             df['open_D'] = pd.NA
             print("    - 警告: 'open_D' 列不存在，将使用NaN填充。T+1开盘价入场将受影响。")
@@ -50,14 +50,21 @@ class SimulationLayer:
         pyramiding_enabled = get_param_value(p_pyramid.get('enabled'), False)
         add_size_ratio = get_param_value(p_pyramid.get('add_size_ratio'), 0.5)
         max_pyramid_count = get_param_value(p_pyramid.get('max_pyramid_count'), 2)
-        
+
+        # --- 读取止损参数 ---
+        p_stop_loss = sim_params.get('stop_loss', {})
+        stop_loss_enabled = get_param_value(p_stop_loss.get('enabled'), False)
+        initial_stop_model = get_param_value(p_stop_loss.get('initial_stop_model'))
+        atr_multiplier_for_platform = get_param_value(p_stop_loss.get('atr_multiplier_for_platform'), 0.5)
+        min_stop_loss_percent = get_param_value(p_stop_loss.get('min_stop_loss_percent'), 0.04) # 转换为小数
+
         # --- 初始化模拟状态列和变量 ---
         df['position_size'] = 0.0
         df['alert_level'] = 0
         df['alert_reason'] = ''
         df['trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
         df['current_profit_loss_pct'] = 0.0
-        #代码行：记录实际入场价或平均成本
+        # 新增代码行：记录实际入场价或平均成本
         df['entry_price_actual'] = 0.0 
 
         # 模拟过程中的实时状态变量
@@ -66,6 +73,7 @@ class SimulationLayer:
         actual_entry_price = 0.0    
         pyramid_count = 0
         last_reduction_level = 0
+        stop_loss_price = 0.0 # 新增代码行：初始化止损价格
 
         # --- 核心模拟循环 ---
         for i in range(len(df)): # 修改代码行：使用索引迭代
@@ -85,7 +93,21 @@ class SimulationLayer:
 
             # --- 1. 持仓状态下的决策 ---
             if in_position:
-                # 1.1 检查清仓信号 (三道防线)
+                # 新增代码行：1.1 检查止损信号 (第一道防线：初始止损)
+                if stop_loss_enabled and current_price < stop_loss_price:
+                    print(f"  -> {current_date.date()}: [止损清仓] 价格 {current_price:.2f} 跌破止损位 {stop_loss_price:.2f}。")
+                    in_position = False
+                    current_position_size = 0.0
+                    actual_entry_price = 0.0
+                    pyramid_count = 0
+                    last_reduction_level = 0
+                    stop_loss_price = 0.0 # 新增代码行：清仓后重置止损价格
+                    df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
+                    df.loc[current_date, 'position_size'] = current_position_size
+                    df.loc[current_date, 'entry_price_actual'] = actual_entry_price
+                    continue # 当天清仓后，不再执行其他操作
+
+                # 1.2 检查清仓信号 (三道防线，不含止损)
                 exit_triggers = self.strategy.exit_triggers.loc[current_date]
                 if exit_triggers.any():
                     triggered_reasons = exit_triggers[exit_triggers].index.tolist()
@@ -97,9 +119,9 @@ class SimulationLayer:
                         exit_action = StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value
                     elif 'EXIT_CRITICAL_HIT' in triggered_reasons or 'EXIT_RISK_OVERFLOW' in triggered_reasons:
                         exit_action = StrategyDailyScore.TradeActionType.RISK_EXIT.value
-                    #代码行：明确止损清仓
-                    elif 'EXIT_STOP_LOSS' in triggered_reasons: 
-                        exit_action = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
+                    # 删除代码行：移除对 EXIT_STOP_LOSS 的外部依赖检查
+                    # elif 'EXIT_STOP_LOSS' in triggered_reasons: 
+                    #     exit_action = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     
                     print(f"  -> {current_date.date()}: [清仓离场] 触发三道防线: {', '.join(triggered_reasons)}")
                     in_position = False
@@ -107,17 +129,18 @@ class SimulationLayer:
                     actual_entry_price = 0.0    # 清仓后重置
                     pyramid_count = 0           # 清仓后重置
                     last_reduction_level = 0    # 清仓后重置
+                    stop_loss_price = 0.0 # 新增代码行：清仓后重置止损价格
                     df.loc[current_date, 'trade_action'] = exit_action
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price # 记录清仓后的实际入场价为0
                     continue # 当天清仓后，不再执行其他操作
 
-                # 1.2 检查加仓信号 (金字塔)
+                # 1.3 检查加仓信号 (金字塔)
                 is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
                 if pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count:
                     add_amount = 1.0 * add_size_ratio # 假设初始仓位为1.0
                     
-                    #代码行：更新平均成本
+                    # 新增代码行：更新平均成本
                     old_total_cost = current_position_size * actual_entry_price
                     new_total_size = current_position_size + add_amount
                     new_total_cost = old_total_cost + (add_amount * current_price) # 加仓价格为当日收盘价
@@ -130,14 +153,14 @@ class SimulationLayer:
                     print(f"  -> {current_date.date()}: [乘胜追击] 盈利中出现新买点，执行第 {pyramid_count} 次加仓。新均价: {actual_entry_price:.2f}")
                     last_reduction_level = 0 # 加仓后重置减仓状态
 
-                # 1.3 检查减仓信号 (风险控制)
+                # 1.4 检查减仓信号 (风险控制)
                 alert_level, alert_reason = self._check_tactical_alerts(row)
                 df.loc[current_date, 'alert_level'] = alert_level
                 df.loc[current_date, 'alert_reason'] = alert_reason
 
                 # 只有在风险升级时才减仓
                 if alert_level > last_reduction_level:
-                    #代码行：减仓动作统一为 REDUCE_POSITION
+                    # 新增代码行：减仓动作统一为 REDUCE_POSITION
                     reduction_action = StrategyDailyScore.TradeActionType.REDUCE_POSITION.value
                     
                     if alert_level == 3: # 高度风险
@@ -153,7 +176,7 @@ class SimulationLayer:
                         last_reduction_level = 2
                         print(f"  -> {current_date.date()}: [风险减仓] 风险升至2级，减仓 {level_2_reduction:.0%}")
                 
-                # 1.4 如果无特殊动作，则标记为持有
+                # 1.5 如果无特殊动作，则标记为持有
                 # 修改代码行：检查是否已被其他动作覆盖
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
@@ -174,6 +197,27 @@ class SimulationLayer:
                         actual_entry_price = t_plus_1_open # 使用T+1开盘价
                         pyramid_count = 1 # 首次建仓也算一次“加仓”
                         last_reduction_level = 0
+
+                        # 新增代码行：计算初始止损价格
+                        if stop_loss_enabled:
+                            if initial_stop_model == 'PLATFORM_SUPPORT' and 'PLATFORM_PRICE_STABLE' in df.columns and 'ATR_14_D' in df.columns:
+                                platform_price = df.loc[current_date, 'PLATFORM_PRICE_STABLE']
+                                atr_value = df.loc[current_date, 'ATR_14_D']
+                                if pd.notna(platform_price) and pd.notna(atr_value) and platform_price > 0:
+                                    # 平台价格下方 N 倍ATR作为缓冲
+                                    stop_price_from_platform = platform_price - atr_multiplier_for_platform * atr_value
+                                    # 强制最小止损幅度
+                                    min_stop_price_from_entry = actual_entry_price * (1 - min_stop_loss_percent)
+                                    # 最终止损价取两者中较高者（更靠近入场价，提供更严格的保护）
+                                    stop_loss_price = max(stop_price_from_platform, min_stop_price_from_entry)
+                                else:
+                                    # 如果平台数据无效，仅使用最小止损幅度
+                                    stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
+                            else:
+                                # 如果模型不是平台支撑或所需列缺失，仅使用最小止损幅度
+                                stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
+                            print(f"  -> {current_date.date()}: [止损设置] 初始止损位设定为: {stop_loss_price:.2f}")
+                        
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
                         print(f"  -> {current_date.date()}: [建立仓位] 信号分值达标，入场。T+1开盘价: {actual_entry_price:.2f}")
                     else:

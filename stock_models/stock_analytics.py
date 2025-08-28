@@ -233,7 +233,7 @@ class StrategyDailyScore(models.Model):
     composite_score = models.IntegerField(default=0, verbose_name='战法分')
     signal_type = models.CharField(max_length=20, verbose_name='信号类型')
     score_details_json = models.JSONField(default=dict, verbose_name='分数构成详情(JSON)')
-    trade_action = models.CharField( # 修改代码行：使用新的 TradeActionType 枚举
+    trade_action = models.CharField( # 使用新的 TradeActionType 枚举
         max_length=50,
         choices=TradeActionType.choices,
         default=TradeActionType.NO_SIGNAL, # 修改默认值

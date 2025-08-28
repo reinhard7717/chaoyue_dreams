@@ -131,44 +131,6 @@ class OffensiveLayer:
                 score_details_df['STRATEGIC_IGNITION_BONUS_W'] = is_ignition * ignition_bonus
         return entry_score, score_details_df
 
-    def _create_persistent_state_from_events(self, entry_event_series: pd.Series, persistence_days: int, break_condition_series: pd.Series) -> pd.Series:
-        """
-        【新增工具函数 V401.1】【代码优化】创建一个基于事件的持续性状态。
-        - 优化说明: 原始实现通过 for 循环遍历整个 DataFrame，性能极差。
-                    优化后的版本改为只遍历“进入事件”发生的日期，极大地减少了循环次数。
-                    对于稀疏的进入事件，性能提升非常显著。此逻辑与 utils.py 中的 create_persistent_state 保持一致。
-        """
-        # 使用更高效的、仅遍历入口事件的循环逻辑替换原始的逐行循环
-        output_state = pd.Series(False, index=entry_event_series.index)
-        df_index = entry_event_series.index
-        
-        # 找出所有入口事件的索引位置
-        entry_indices = df_index[entry_event_series]
-        if entry_indices.empty:
-            return output_state
-            
-        # 只对每个入口事件进行处理
-        for entry_idx in entry_indices:
-            # 计算理论上的窗口结束日期
-            window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
-            
-            # 确定实际的窗口范围，并在此范围内查找中断点
-            actual_window_mask = (df_index >= entry_idx) & (df_index <= window_end_date)
-            break_points = df_index[actual_window_mask & break_condition_series]
-            
-            # 确定状态的实际结束日期
-            if not break_points.empty:
-                # 如果有中断点，状态在第一个中断点结束
-                end_date = break_points[0]
-            else:
-                # 如果没有中断点，状态持续到窗口期结束
-                end_date = df_index[actual_window_mask][-1] if actual_window_mask.any() else entry_idx
-            
-            # 将此窗口期内的状态设置为 True
-            output_state.loc[entry_idx:end_date] = True
-            
-        return output_state
-
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
         【V501.1 修复版】进攻动能诊断大脑
@@ -186,12 +148,8 @@ class OffensiveLayer:
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
         
-        # --- 修复 get_param_value 参数数量错误 ---
-        # [错误原因] 原代码向 get_param_value 传入了3个参数，导致 TypeError。
-        # [修复逻辑] 正确的调用方式是两步：1. 先获取上一级的参数字典。 2. 再从该字典中获取目标参数，并将其和默认值传给 get_param_value。
         momentum_params = scoring_params.get('momentum_diagnostics_params', {})
         fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 500)
-        # --- 结束 ---
         
         self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
 
