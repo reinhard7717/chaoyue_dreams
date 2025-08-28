@@ -515,7 +515,7 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日日K线数据': {
-        'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_latest_days_task',
+        'task': 'tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task',
         'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
