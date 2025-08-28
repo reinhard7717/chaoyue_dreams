@@ -67,7 +67,7 @@ class JudgmentLayer:
                 if ma_col in df.columns:
                     # 当日收盘价低于移动平均线，则触发趋势破位信号
                     triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[ma_col]
-                    print(f"    -> [第三道防线] 已激活：趋势破位监控 (基于 {ma_col})。")
+                    # print(f"    -> [第三道防线] 已激活：趋势破位监控 (基于 {ma_col})。")
                 else:
                     print(f"    -> [第三道防线-警告] 无法找到移动平均线列: {ma_col}，趋势破位监控未激活。")
 

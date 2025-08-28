@@ -195,25 +195,19 @@ class OffensiveLayer:
         # 检查该模块是否启用，若未启用则直接返回，不进行任何操作
         if not get_param_value(bonus_params.get('enabled'), False):
             return entry_score, score_details_df
-        
         # 获取所有奖励规则的列表
         bonus_rules = bonus_params.get('bonuses', [])
-        
         # 遍历每一条奖励规则
         for rule in bonus_rules:
             # 从规则中获取核心参数
             state_name = rule.get('if_state')
             bonus_signal_name = rule.get('signal_name')
-            
             # 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
             if not (state_name and bonus_signal_name) or rule.get('deprecated', False):
                 continue
-
             condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=entry_score.index)).shift(1).fillna(False)
-            
             if not condition.any():
                 continue
-            
             # 判断此规则是“衰减模型”还是“固定加分模型”
             if rule.get('decay_model', False):
                 max_bonus = rule.get('max_bonus_score', 0)
@@ -232,7 +226,7 @@ class OffensiveLayer:
                 if bonus_signal_name not in score_details_df.columns:
                     score_details_df[bonus_signal_name] = 0.0
                 score_details_df[bonus_signal_name] += bonus_series
-                print(f"          -> [衰减奖励] 已为 “{state_name}” 事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
+                # print(f"          -> [衰减奖励] 已为 “{state_name}” 事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
             else:
                 # --- 固定加分模型逻辑 ---
                 bonus_value = rule.get('add_score', 0)
@@ -242,7 +236,7 @@ class OffensiveLayer:
                     entry_score.loc[condition] += bonus_value
                     # 在详情中记录这个加分项
                     score_details_df[bonus_signal_name] = condition * bonus_value
-                    print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
+                    # print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
                 # 显式处理固定加分模型
                 fixed_bonus = rule.get('add_score', 0)
                 if fixed_bonus > 0:
