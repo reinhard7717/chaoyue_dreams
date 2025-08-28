@@ -456,14 +456,6 @@ class BehavioralIntelligence:
         # 风险信号3: 【量能失控】成交量仍在加速放大
         # 定义: 成交量的5日加速度为正，说明市场情绪可能过热，换手失控。
         states['RISK_VPA_VOLUME_ACCELERATING'] = df['ACCEL_5_volume_D'] > 0
-
-        # --- 3. 【S级风险融合】定义“动态对倒风险” ---
-        # 最终裁决: 只要出现“滞涨”或“效率衰竭”，就视为高风险。如果同时伴随“量能失控”，则是最高级别的风险。
-        is_high_risk = states.get('RISK_VPA_STAGNATION', default_series) | states.get('RISK_VPA_EFFICIENCY_DECLINING', default_series)
-        is_critical_risk = is_high_risk & states.get('RISK_VPA_VOLUME_ACCELERATING', default_series)
-        
-        # 我们将这个融合后的S级风险，命名为“动态对倒风险”
-        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_high_risk | is_critical_risk
         
         # print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
         return states
