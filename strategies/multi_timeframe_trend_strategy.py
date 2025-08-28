@@ -363,20 +363,37 @@ class MultiTimeframeTrendStrategy:
         df_daily_prepared = all_dfs.get('D_CONTEXT')
         if df_daily_prepared is None or df_daily_prepared.empty:
             print("    - [战术引擎] 日线数据为空，跳过执行。")
-            # --- 代码修改开始 ---
             return ([], [], [], [], [])
-            # --- 代码修改结束 ---
+        # 获取最新的周线战略分数
+        # 确保 'strategic_score_W' 列存在且DataFrame不为空
+        latest_strategic_score_W = df_daily_prepared['strategic_score_W'].iloc[-1] if 'strategic_score_W' in df_daily_prepared.columns and not df_daily_prepared.empty else 0.0
+        # 复制一份配置，以便根据周线战略分数动态调整日线策略参数
+        dynamic_config = self.unified_config.copy()
+        # 获取日线策略的评分参数块
+        four_layer_scoring_params = dynamic_config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
+        # 获取周线战略协同参数
+        weekly_synergy_params = dynamic_config.get('weekly_context_params', {}).get('synergy_with_daily', {})
+        adjustment_factor = weekly_synergy_params.get('entry_threshold_adjustment_factor', 5)
+        min_entry_threshold = weekly_synergy_params.get('min_daily_entry_threshold', 50)
+        max_entry_threshold = weekly_synergy_params.get('max_daily_entry_threshold', 150)
+        # 根据周线战略分数调整日线策略的最低进攻分数 (entry_score_threshold)
+        base_entry_threshold = four_layer_scoring_params.get('entry_score_threshold', 100)
+        # 如果周线分数高（看涨），降低日线入场门槛；如果周线分数低（看跌），提高日线入场门槛
+        adjusted_entry_threshold = base_entry_threshold - (latest_strategic_score_W * adjustment_factor)
+        # 设置上下限，防止极端调整
+        adjusted_entry_threshold = max(min_entry_threshold, min(max_entry_threshold, adjusted_entry_threshold))
+        # 更新配置
+        dynamic_config['strategy_params']['trend_follow']['four_layer_scoring_params']['entry_score_threshold'] = adjusted_entry_threshold
+        print(f"    - [战略协同] 最新周线战略分数: {latest_strategic_score_W:.2f}。日线入场门槛从 {base_entry_threshold} 调整至 {adjusted_entry_threshold:.2f}。")
+        # 将调整后的配置传递给战术引擎
         try:
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
-                df_daily_prepared, self.unified_config, start_date_str=start_date_str
+                df_daily_prepared, dynamic_config, start_date_str=start_date_str # 使用 dynamic_config
             )
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("    - [战术引擎] 引擎返回了空的分析结果。")
                 self.daily_analysis_df = pd.DataFrame(index=df_daily_prepared.index)
-                # --- 代码修改开始 ---
                 return ([], [], [], [], [])
-                # --- 代码修改结束 ---
-            
             self.daily_analysis_df = daily_analysis_df.reindex(df_daily_prepared.index)
             self.tactical_engine._last_score_details_df = score_details_df
             self.tactical_engine._last_risk_details_df = risk_details_df

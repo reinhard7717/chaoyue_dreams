@@ -40,6 +40,7 @@ class WeeklyContextEngine:
         # 初始化K线形态识别器，用于周线心理学分析
         kline_params = config.get('strategy_params', {}).get('trend_follow', {}).get('kline_pattern_params', {})
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
+        self._warned_missing_cols_weekly = set()
 
     def generate_context(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
@@ -51,22 +52,22 @@ class WeeklyContextEngine:
 
         # print("\n" + "="*30 + "【周线战略战场指挥官 V4.0】启动" + "="*30)
         context_df = df_weekly.copy()
-        # --- 流水线 1/7: 定义战场关键参照物 (新) ---
+        # --- 流水线 1/7: 定义战场关键参照物 ---
         # print("---【步骤1/6: 定义战场关键参照物】---")
         context_df = self._define_key_reference_levels(context_df)
-        # --- 流水线 2/7: 解读周线K线心理学 (新) ---
+        # --- 流水线 2/7: 解读周线K线心理学 ---
         # print("---【步骤2/6: 解读周线K线心理学】---")
         context_df = self._analyze_candlestick_psychology(context_df)
-        # --- 流水线 3/7: 标定动态风险控制线 (新) ---
+        # --- 流水线 3/7: 标定动态风险控制线 ---
         # print("---【步骤3/6: 标定动态风险控制线】---")
         context_df = self._calculate_dynamic_risk_levels(context_df)
-        # --- 流水线 4/7: 诊断趋势“品格” (新) ---
+        # --- 流水线 4/7: 诊断趋势“品格” ---
         # print("---【步骤4/6: 诊断趋势“品格”】---")
         context_df = self._characterize_trend_health(context_df)
-        # --- 流水线 5/7: 构建市场状态机 (原) ---
+        # --- 流水线 5/7: 构建市场状态机  ---
         # print("---【步骤5/6: 构建市场状态机】---")
         context_df = self._build_market_regime(context_df)
-        # --- 流水线 6/7: 深度量价与背离分析 (原) ---
+        # --- 流水线 6/7: 深度量价与背离分析  ---
         # print("---【步骤6/6: 深度量价与背离分析】---")
         context_df = self._analyze_vpa(context_df)
         context_df = self._detect_divergences(context_df)
@@ -74,27 +75,44 @@ class WeeklyContextEngine:
         # print("---【最终步骤: 合成战略分数与最终信号】---")
         context_df = self._calculate_strategic_score(context_df)
         score = context_df['strategic_score_W']
-        context_df['state_node_main_ascent_W'] = score >= 5
-        context_df['state_node_ignition_W'] = score.between(2, 5, inclusive='left')
-        context_df['state_node_topping_W'] = score <= -3
-        # 筛选最终需要注入日线的信号列
-        final_signal_cols = [
+        context_df['state_node_main_ascent_W'] = score >= self.params.get('main_ascent_score_threshold', 5)
+        context_df['state_node_ignition_W'] = score.between(self.params.get('ignition_score_lower', 2), self.params.get('ignition_score_upper', 5), inclusive='left')
+        context_df['state_node_topping_W'] = score <= self.params.get('topping_score_threshold', -3)
+        
+        context_df = self._calculate_all_playbooks(context_df) # 确保调用了所有剧本
+        
+        all_weekly_signal_cols = [col for col in context_df.columns if col.endswith('_W') and col not in df_weekly.columns]
+        
+        # 确保核心战略分数和状态节点始终包含
+        core_strategic_cols = [
             'strategic_score_W',
             'state_node_main_ascent_W',
             'state_node_ignition_W',
             'state_node_topping_W',
-            'ref_dist_from_52w_high_W', # 距离52周高点的距离(百分比)
-            'ref_support_level_W',      # 关键支撑位
-            'risk_volatility_stop_W',   # 波动率止损位
-            'psych_reversal_bullish_W', # K线看涨反转信号
-            'psych_rejection_bearish_W',# K线看跌反转信号
-            'trend_health_strong_W',    # 趋势健康度强
+            'ref_dist_from_52w_high_W',
+            'ref_support_level_W',
+            'risk_volatility_stop_W',
+            'psych_reversal_bullish_W',
+            'psych_rejection_bearish_W',
+            'trend_health_strong_W',
+            'regime_bull_vol_expansion_W', # 添加市场状态机信号
+            'regime_bull_quiet_W',
+            'regime_bear_vol_expansion_W',
+            'regime_bear_quiet_W',
+            'vpa_health_W', # 添加VPA信号
+            'cmf_accumulation_W',
+            'cmf_distribution_W',
+            'risk_bearish_divergence_W', # 添加背离信号
+            'opp_bullish_divergence_W',
         ]
-        original_cols = df_weekly.columns
-        output_cols = [col for col in context_df.columns if col in final_signal_cols and col not in original_cols]
-        # print(f"    - [指挥中心] 已生成 {len(output_cols)} 个最终周线战略指挥信号。")
+        # 合并所有需要输出的列，并去重
+        final_output_cols = list(set(core_strategic_cols + all_weekly_signal_cols))
+        # 确保所有列都存在于 context_df 中
+        final_output_cols = [col for col in final_output_cols if col in context_df.columns]
+
+        # print(f"    - [指挥中心] 已生成 {len(final_output_cols)} 个最终周线战略指挥信号。")
         # print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
-        return context_df[output_cols]
+        return context_df[final_output_cols]
 
 
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -146,17 +164,20 @@ class WeeklyContextEngine:
 
     def _characterize_trend_health(self, df: pd.DataFrame) -> pd.DataFrame:
         """诊断趋势“品格”"""
-        ema10_col = 'EMA_10_W'
-        ema21_col = 'EMA_21_W'
+        # EMA周期配置化
+        ema10_period = self.params.get('trend_health_ema_short', 10)
+        ema21_period = self.params.get('trend_health_ema_long', 21)
+        ema10_col = f'EMA_{ema10_period}_W'
+        ema21_col = f'EMA_{ema21_period}_W'
         if not all(c in df.columns for c in [ema10_col, ema21_col]):
-            print("    - [趋势品格-警告] 缺少EMA列，无法诊断趋势健康度。")
+            logger.warning("    - [趋势品格-警告] 缺少EMA列，无法诊断趋势健康度。")
             df['trend_health_strong_W'] = False
             return df
         # 定义强健康趋势为：收盘价 > 10周线 > 21周线
         is_price_above_ema10 = df['close_W'] > df[ema10_col]
         is_ema10_above_ema21 = df[ema10_col] > df[ema21_col]
         df['trend_health_strong_W'] = is_price_above_ema10 & is_ema10_above_ema21
-        # print("    - [趋势品格] 完成。已诊断趋势的健康度。")
+        logger.debug("    - [趋势品格] 完成。已诊断趋势的健康度。")
         return df
 
     def _build_market_regime(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -169,7 +190,7 @@ class WeeklyContextEngine:
         slope_col = 'SLOPE_5_EMA_21_W'
         bbw_col = 'BBW_20_2.0_W'
         if not all(c in df.columns for c in [slope_col, bbw_col]):
-            print("    - [状态机-警告] 缺少斜率或BBW列，无法构建市场状态机。")
+            logger.warning("    - [状态机-警告] 缺少斜率或BBW列，无法构建市场状态机。")
             return df
 
         # 1. 定义趋势状态
@@ -177,9 +198,13 @@ class WeeklyContextEngine:
         is_downtrend = df[slope_col] < 0
 
         # 2. 定义波动率状态 (使用滚动分位数，更具适应性)
+        # 阈值配置化
+        vol_high_quantile = self.params.get('regime_vol_high_quantile', 0.70)
+        vol_low_quantile = self.params.get('regime_vol_low_quantile', 0.30)
+
         # 使用过去一年(52周)的数据作为参考系
-        vol_high_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(0.70)
-        vol_low_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(0.30)
+        vol_high_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(vol_high_quantile)
+        vol_low_threshold = df[bbw_col].rolling(52, min_periods=20).quantile(vol_low_quantile)
         
         is_vol_expansion = df[bbw_col] > vol_high_threshold
         is_vol_contraction = df[bbw_col] < vol_low_threshold
@@ -189,7 +214,7 @@ class WeeklyContextEngine:
         df['regime_bull_quiet_W'] = is_uptrend & is_vol_contraction          # 牛市静默期 (慢牛/蓄力)
         df['regime_bear_vol_expansion_W'] = is_downtrend & is_vol_expansion    # 熊市主跌浪 (杀跌)
         df['regime_bear_quiet_W'] = is_downtrend & is_vol_contraction         # 熊市静默期 (阴跌/筑底)
-        # print("    - [状态机] 完成。已将市场划分为四种核心状态。")
+        logger.debug("    - [状态机] 完成。已将市场划分为四种核心状态。")
         return df
 
     def _analyze_vpa(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -202,21 +227,24 @@ class WeeklyContextEngine:
         cmf_col = 'CMF_21_W'
         slope_ema_col = 'SLOPE_5_EMA_21_W'
         if not all(c in df.columns for c in [obv_col, cmf_col, slope_ema_col]):
-            print("    - [VPA-警告] 缺少OBV或CMF列，无法进行深度量价分析。")
+            logger.warning("    - [VPA-警告] 缺少OBV或CMF列，无法进行深度量价分析。")
             return df
 
         # 1. OBV趋势与价格趋势验证
         # 使用简单差分计算OBV短期趋势， robust and simple
-        slope_obv = df[obv_col].diff(5) 
+        # OBV斜率周期配置化
+        obv_slope_period = self.params.get('vpa_obv_slope_period', 5)
+        slope_obv = df[obv_col].diff(obv_slope_period) 
         df['vpa_health_W'] = (df[slope_ema_col] > 0) & (slope_obv > 0)
 
         # 2. CMF资金流状态
-        # CMF > 0.05 通常被认为是机构在吸筹
-        # CMF < -0.05 通常被认为是机构在派发
-        df['cmf_accumulation_W'] = df[cmf_col] > 0.05
-        df['cmf_distribution_W'] = df[cmf_col] < -0.05
+        # CMF阈值配置化
+        cmf_acc_thresh = self.params.get('cmf_accumulation_threshold', 0.05)
+        cmf_dist_thresh = self.params.get('cmf_distribution_threshold', -0.05)
+        df['cmf_accumulation_W'] = df[cmf_col] > cmf_acc_thresh
+        df['cmf_distribution_W'] = df[cmf_col] < cmf_dist_thresh
         
-        # print("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
+        logger.debug("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
         return df
 
     def _detect_divergences(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -227,21 +255,27 @@ class WeeklyContextEngine:
         """
         rsi_col = 'RSI_12_W'
         if rsi_col not in df.columns:
-            print("    - [背离检测-警告] 缺少RSI列，无法进行背离检测。")
+            logger.warning("    - [背离检测-警告] 缺少RSI列，无法进行背离检测。")
             return df
         
-        N = 26 # 使用半年(26周)作为背离的观察窗口
+        N = self.params.get('divergence_lookback_weeks', 26) # 观察窗口配置化
+
+        # 背离检测阈值配置化
+        price_near_high_factor = self.params.get('price_near_high_factor', 0.98)
+        rsi_not_at_high_factor = self.params.get('rsi_not_at_high_factor', 0.85)
+        price_near_low_factor = self.params.get('price_near_low_factor', 1.02)
+        rsi_not_at_low_factor = self.params.get('rsi_not_at_low_factor', 1.15)
 
         # 1. 检测熊市顶背离 (价格新高附近，RSI却明显走弱)
-        price_near_high = df['high_W'] >= df['high_W'].rolling(N).max() * 0.98
-        rsi_not_at_high = df[rsi_col] < df[rsi_col].rolling(N).max() * 0.85
+        price_near_high = df['high_W'] >= df['high_W'].rolling(N).max() * price_near_high_factor
+        rsi_not_at_high = df[rsi_col] < df[rsi_col].rolling(N).max() * rsi_not_at_high_factor
         df['risk_bearish_divergence_W'] = price_near_high & rsi_not_at_high
 
         # 2. 检测牛市底背离 (价格新低附近，RSI却拒绝创新低)
-        price_near_low = df['low_W'] <= df['low_W'].rolling(N).min() * 1.02
-        rsi_not_at_low = df[rsi_col] > df[rsi_col].rolling(N).min() * 1.15
+        price_near_low = df['low_W'] <= df['low_W'].rolling(N).min() * price_near_low_factor
+        rsi_not_at_low = df[rsi_col] > df[rsi_col].rolling(N).min() * rsi_not_at_low_factor
         df['opp_bullish_divergence_W'] = price_near_low & rsi_not_at_low
-        # print("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
+        logger.debug("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
         return df
 
     def _calculate_strategic_score(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -251,46 +285,51 @@ class WeeklyContextEngine:
         分数权重体现了A股市场的经验：风险信号的权重通常高于机会信号。
         """
         score = pd.Series(0.0, index=df.index)
+        # 权重配置化
+        weights = self.params.get('strategic_score_weights', {})
 
         # 1. 市场状态基础分
-        score += df.get('regime_bull_vol_expansion_W', 0) * 3  # 最强的状态
-        score += df.get('regime_bull_quiet_W', 0) * 2          # 次强的状态
-        score -= df.get('regime_bear_vol_expansion_W', 0) * 5  # 最危险的状态，强力否决
-        score -= df.get('regime_bear_quiet_W', 0) * 2          # 次危险的状态
+        score += df.get('regime_bull_vol_expansion_W', 0) * weights.get('regime_bull_vol_expansion', 3)
+        score += df.get('regime_bull_quiet_W', 0) * weights.get('regime_bull_quiet', 2)
+        score -= df.get('regime_bear_vol_expansion_W', 0) * weights.get('regime_bear_vol_expansion', 5)
+        score -= df.get('regime_bear_quiet_W', 0) * weights.get('regime_bear_quiet', 2)
 
         # 2. 量价分析加减分
-        score += df.get('vpa_health_W', 0) * 2
-        score += df.get('cmf_accumulation_W', 0) * 2
-        score -= df.get('cmf_distribution_W', 0) * 3          # 资金派发是重要风险
+        score += df.get('vpa_health_W', 0) * weights.get('vpa_health', 2)
+        score += df.get('cmf_accumulation_W', 0) * weights.get('cmf_accumulation', 2)
+        score -= df.get('cmf_distribution_W', 0) * weights.get('cmf_distribution', 3)
 
         # 3. 背离信号加减分
-        score += df.get('opp_bullish_divergence_W', 0) * 3     # 底背离是强反转信号
-        score -= df.get('risk_bearish_divergence_W', 0) * 4    # 顶背离是极重要风险
+        # 增加牛市底背离的权重，使其作为战略机会更突出
+        score += df.get('opp_bullish_divergence_W', 0) * weights.get('opp_bullish_divergence', 4) # 从3提高到4
+        # 增加熊市顶背离的权重，使其作为战略风险更突出
+        score -= df.get('risk_bearish_divergence_W', 0) * weights.get('risk_bearish_divergence', 5) # 从4提高到5
 
         # 4. 战略情报加减分
         # 4.1 趋势品格加分：健康的趋势是强加分项
-        score += df.get('trend_health_strong_W', 0) * 2
+        score += df.get('trend_health_strong_W', 0) * weights.get('trend_health_strong', 2)
         
         # 4.2 K线心理学加减分：周线反转形态有很高的权重
-        score += df.get('psych_reversal_bullish_W', 0) * 3
-        score -= df.get('psych_rejection_bearish_W', 0) * 4
+        score += df.get('psych_reversal_bullish_W', 0) * weights.get('psych_reversal_bullish', 3)
+        score -= df.get('psych_rejection_bearish_W', 0) * weights.get('psych_rejection_bearish', 4)
         
         # 4.3 关键位置加减分：接近52周高点是强势特征
         dist_from_high = df.get('ref_dist_from_52w_high_W', 0)
         # 当股价在52周高点下方5%以内时，认为是即将突破的强势区，加分
-        score += (dist_from_high.between(-0.05, 0.05)) * 2
+        high_proximity_threshold = self.params.get('high_proximity_threshold', 0.05) # 阈值配置化
+        score += (dist_from_high.between(-high_proximity_threshold, high_proximity_threshold)) * weights.get('high_proximity_bonus', 2)
 
         df['strategic_score_W'] = score
-        # print("    - [战略计分] 完成。已生成综合战略分数。")
+        logger.debug("    - [战略计分] 完成。已生成综合战略分数。")
         return df
 
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V3.5 命名规范化版】动态遍历JSON配置，并确保输出的剧本名称为大写，与日线策略对齐。
         """
-        # print("\n" + "="*80)
-        # print(f"---【周线战略层(V3.5 命名规范化) - 检查最新一周: {df.index[-1].date()}】---")
-        # print("="*80)
+        # logger.debug("\n" + "="*80) # 替换为logger
+        # logger.debug(f"---【周线战略层(V3.5 命名规范化) - 检查最新一周: {df.index[-1].date()}】---") # 替换为logger
+        # logger.debug("="*80) # 替换为logger
         
         context_df = df.copy()
         
@@ -322,7 +361,7 @@ class WeeklyContextEngine:
                             # 将 'coppock_stabilizing' 转换为 'PLAYBOOK_COPPOCK_STABILIZING_W'
                             col_name = f"playbook_{signal_suffix.upper()}_W"
                             context_df[col_name] = result_series
-                            # print(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'")
+                            # logger.debug(f"    - [多信号输出模式] 已生成规范化列: '{col_name}'") # 替换为logger
                     elif isinstance(results, pd.Series):
                         if 'score' in playbook_name:
                             col_name = 'washout_score_W'
@@ -333,26 +372,14 @@ class WeeklyContextEngine:
                             base_name = playbook_name.replace('_playbook', '').upper()
                             col_name = f"playbook_{base_name}_W"
                         
-                        # print(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...")
+                        # logger.debug(f"    - [单信号输出模式] 正在为规范化列 '{col_name}' 赋值...") # 替换为logger
                         context_df[col_name] = results
                 else:
-                    # print(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---")
-                    print("    - 结论: [未启用]")
+                    # logger.debug(f"\n--- 剧本检查: [{params.get('说明', playbook_name)}] ---") # 替换为logger
+                    logger.debug("    - 结论: [未启用]")
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
 
-        # print("\n---【周线战略层(V3.5) - 剧本计算总结】---")
-        # for col in context_df.columns:
-        #     if col.startswith('playbook_'):
-        #         # label = col.replace('playbook_', '').replace('_W', '').replace('_', ' ').title()
-        #         print(f"【剧本-{col}】触发周数: {context_df[col].sum()}")
-        # if 'washout_score_W' in context_df.columns:
-        #     score = context_df['washout_score_W']
-        #     print(f"【诊断-洗盘】有分数的周数: {(score > 0).sum()} (最高分: {score.max()})")
-        # if 'rejection_signal_W' in context_df.columns:
-        #     rejection = context_df['rejection_signal_W']
-        #     print(f"【诊断-风险】有拒绝信号的周数: {(rejection < 0).sum()}")
-        
         return context_df
 
     def _playbook_ma20_is_rising(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -541,7 +568,7 @@ class WeeklyContextEngine:
         # 条件1: 均线排列关系不变
         ma_aligned = (df[short_col] > df[mid_col]) & (df[mid_col] > df[long_col])
         
-        # 条件2 (修改): 股价在支撑均线的“容忍区”之上
+        # 条件2: 股价在支撑均线的“容忍区”之上
         support_level_with_tolerance = df[mid_col] * (1 - tolerance_pct)
         price_above_support_zone = df['close_W'] > support_level_with_tolerance
 
@@ -551,9 +578,9 @@ class WeeklyContextEngine:
         
         final_signal = ma_aligned & price_above_support_zone & is_core_ma_rising
         
-        last = df.iloc[-1]
-        ma_last = ma_aligned.iloc[-1]
-        pas_last = price_above_support_zone.iloc[-1]
+        # last = df.iloc[-1]
+        # ma_last = ma_aligned.iloc[-1]
+        # pas_last = price_above_support_zone.iloc[-1]
         
         # print(f"    - 条件1 (均线多头): {'[✓]' if ma_last else '[✗]'} (EMA{short_ma}: {last.get(short_col, 0):.2f} > EMA{mid_ma}: {last.get(mid_col, 0):.2f} > EMA{long_ma}: {last.get(long_col, 0):.2f})")
         # print(f"    - 条件2 (股价在支撑容忍区上): {'[✓]' if pas_last else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} > 支撑区下轨: {support_level_with_tolerance.iloc[-1]:.2f})")
@@ -574,10 +601,10 @@ class WeeklyContextEngine:
         was_oversold = (df[bias_col].shift(1) < oversold_threshold)
         is_rebounding = (df[bias_col] > rebound_trigger)
         final_signal = was_oversold & is_rebounding
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        wo_last = was_oversold.iloc[-1]
-        ir_last = is_rebounding.iloc[-1]
+        # last = df.iloc[-1]
+        # prev = df.iloc[-2]
+        # wo_last = was_oversold.iloc[-1]
+        # ir_last = is_rebounding.iloc[-1]
         # print(f"    - 条件1 (上周曾超卖): {'[✓]' if wo_last else '[✗]'} (上周BIAS: {prev.get(bias_col, 0):.2f} < 阈值: {oversold_threshold})")
         # print(f"    - 条件2 (本周正反弹): {'[✓]' if ir_last else '[✗]'} (本周BIAS: {last.get(bias_col, 0):.2f} > 阈值: {rebound_trigger})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
@@ -684,16 +711,16 @@ class WeeklyContextEngine:
         is_volume_breakout = df['volume_W'] > (box_avg_volume.shift(1) * volume_multiplier)
         was_in_consolidation = is_low_volatility_week.shift(1).fillna(False)
         final_signal = (was_in_consolidation & is_price_breakout & is_volume_breakout)
-        last_idx = -1
-        prev_bbw = df[bbw_col].iloc[last_idx - 1]
-        prev_bbw_thresh = dynamic_bbw_threshold.iloc[last_idx - 1]
-        prev_box_high = box_high.shift(1).iloc[last_idx]
-        prev_box_avg_vol = box_avg_volume.shift(1).iloc[last_idx]
-        curr_close = df['close_W'].iloc[last_idx]
-        curr_vol = df['volume_W'].iloc[last_idx]
-        c1 = was_in_consolidation.iloc[last_idx]
-        c2 = is_price_breakout.iloc[last_idx]
-        c3 = is_volume_breakout.iloc[last_idx]
+        # last_idx = -1
+        # prev_bbw = df[bbw_col].iloc[last_idx - 1]
+        # prev_bbw_thresh = dynamic_bbw_threshold.iloc[last_idx - 1]
+        # prev_box_high = box_high.shift(1).iloc[last_idx]
+        # prev_box_avg_vol = box_avg_volume.shift(1).iloc[last_idx]
+        # curr_close = df['close_W'].iloc[last_idx]
+        # curr_vol = df['volume_W'].iloc[last_idx]
+        # c1 = was_in_consolidation.iloc[last_idx]
+        # c2 = is_price_breakout.iloc[last_idx]
+        # c3 = is_volume_breakout.iloc[last_idx]
         # print(f"    - 条件1 (前一周处于盘整期): {'[✓]' if c1 else '[✗]'} (前周BBW: {prev_bbw:.4f} vs 动态阈值: {prev_bbw_thresh:.4f})")
         # print(f"    - 条件2 (价格突破箱顶): {'[✓]' if c2 else '[✗]'} (本周收盘: {curr_close:.2f} vs 前周箱顶: {prev_box_high:.2f})")
         # print(f"    - 条件3 (成交量突破): {'[✓]' if c3 else '[✗]'} (本周成交量: {curr_vol:.0f} vs 阈值: {(prev_box_avg_vol * volume_multiplier):.0f})")
@@ -785,9 +812,9 @@ class WeeklyContextEngine:
         signal_accelerating = is_rising & is_accelerating
 
         # --- 调试信息 ---
-        last_idx = -1
-        s_stab_last = signal_stabilizing.iloc[last_idx]
-        s_accel_last = signal_accelerating.iloc[last_idx]
+        # last_idx = -1
+        # s_stab_last = signal_stabilizing.iloc[last_idx]
+        # s_accel_last = signal_accelerating.iloc[last_idx]
         # print(f"    - [左侧信号: 企稳]")
         # print(f"      - 条件1 (深水区拐头): {'[✓]' if s_stab_last else '[✗]'} (上周值: {df[coppock_col].shift(1).iloc[last_idx]:.2f} < {deep_value_threshold} AND 发生拐头)")
         # print(f"    - [右侧信号: 加速]")
@@ -839,16 +866,14 @@ class WeeklyContextEngine:
 
         final_signal = is_price_breakout & is_volume_breakout & is_trix_ok
 
-        last = df.iloc[-1]
-        c1 = is_price_breakout.iloc[-1]
-        c2 = is_volume_breakout.iloc[-1]
-        c3 = is_trix_ok.iloc[-1]
-        
+        # last = df.iloc[-1]
+        # c1 = is_price_breakout.iloc[-1]
+        # c2 = is_volume_breakout.iloc[-1]
+        # c3 = is_trix_ok.iloc[-1]
         # print(f"    - 条件1 (突破年线): {'[✓]' if c1 else '[✗]'} (收盘价: {last.get('close_W', 0):.2f} vs 前{lookback_weeks}周高点: {period_high.iloc[-1]:.2f})")
         # print(f"    - 条件2 (2倍放量): {'[✓]' if c2 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
         # if trix_confirm:
         #     print(f"    - 条件3 (TRIX确认): {'[✓]' if c3 else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} > 信号线: {last.get(trix_signal_col, 0):.2f})")
-        
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         
         return final_signal.fillna(False)
@@ -868,11 +893,11 @@ class WeeklyContextEngine:
         is_high_volume = df['volume_W'] > df[vol_ma_col] * volume_multiplier
         is_closing_lower = df['close_W'] < df[['open_W', 'close_W']].mean(axis=1)
         final_signal = (is_near_resistance & is_long_upper_shadow & is_high_volume & is_closing_lower)
-        last = df.iloc[-1]
-        c1 = is_near_resistance.iloc[-1]
-        c2 = is_long_upper_shadow.iloc[-1]
-        c3 = is_high_volume.iloc[-1]
-        c4 = is_closing_lower.iloc[-1]
+        # last = df.iloc[-1]
+        # c1 = is_near_resistance.iloc[-1]
+        # c2 = is_long_upper_shadow.iloc[-1]
+        # c3 = is_high_volume.iloc[-1]
+        # c4 = is_closing_lower.iloc[-1]
         # print(f"    - 条件1 (触及压力): {'[✓]' if c1 else '[✗]'} (最高价: {last.get('high_W', 0):.2f} vs 压力: {last.get(resistance_col, 0):.2f})")
         # print(f"    - 条件2 (长上影线): {'[✓]' if c2 else '[✗]'}")
         # print(f"    - 条件3 (放出大量): {'[✓]' if c3 else '[✗]'} (成交量: {last.get('volume_W', 0):.0f} vs 阈值: {(last.get(vol_ma_col, 0) * volume_multiplier):.0f})")
@@ -885,9 +910,8 @@ class WeeklyContextEngine:
         missing_cols = [col for col in cols if col not in df.columns]
         if missing_cols:
             if log_details:
-                print(f"      - [依赖检查] 失败! 缺少以下必需列: {missing_cols}")
-            if not hasattr(self, '_warned_missing_cols_weekly'):
-                self._warned_missing_cols_weekly = set()
+                logger.debug(f"      - [依赖检查] 失败! 缺少以下必需列: {missing_cols}")
+            # 使用实例变量存储已警告的缺失列，避免重复日志
             if tuple(missing_cols) not in self._warned_missing_cols_weekly:
                  logger.warning(f"周线策略缺少必需列: {missing_cols}，相关剧本将跳过。")
                  self._warned_missing_cols_weekly.add(tuple(missing_cols))

@@ -236,6 +236,28 @@
         "volume_multiplier": 2.0,
         "vol_ma_period": 5,
         "trix_confirm": true
+      },
+      "strategic_score_weights": {
+        "说明": "战略分数各组成部分的权重",
+        "regime_bull_vol_expansion": 4,
+        "regime_bull_quiet": 2,
+        "regime_bear_vol_expansion": 6,
+        "regime_bear_quiet": 2,
+        "vpa_health": 2,
+        "cmf_accumulation": 2,
+        "cmf_distribution": 3,
+        "opp_bullish_divergence": 4,
+        "risk_bearish_divergence": 5,
+        "trend_health_strong": 2,
+        "psych_reversal_bullish": 3,
+        "psych_rejection_bearish": 4,
+        "high_proximity_bonus": 2
+      },
+      "synergy_with_daily": {
+        "说明": "周线战略分数对日线策略的影响参数",
+        "entry_threshold_adjustment_factor": 5,
+        "min_daily_entry_threshold": 50,
+        "max_daily_entry_threshold": 150
       }
     }
   },
