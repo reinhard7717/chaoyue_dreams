@@ -24,7 +24,7 @@ class SimulationLayer:
           5. 交易动作: 输出更精细的交易动作，包括区分止盈/止损/风险/趋势破位清仓，
                        首次建仓/加仓，以及在无明确交易时根据动态力学战术矩阵输出状态。
         """
-        print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V509.0】启动 " + "="*20)
+        # print("\n" + "="*20 + " 【战术持仓管理模拟引擎 V509.0】启动 " + "="*20)
         # 使用copy避免SettingWithCopyWarning，并确保操作的是独立副本
         df = self.strategy.df_indicators.copy() 
         
@@ -95,7 +95,7 @@ class SimulationLayer:
             if in_position:
                 # 1.1 检查止损信号 (第一道防线：初始止损)
                 if stop_loss_enabled and current_price < stop_loss_price:
-                    print(f"  -> {current_date.date()}: [止损清仓] 价格 {current_price:.2f} 跌破止损位 {stop_loss_price:.2f}。")
+                    # print(f"  -> {current_date.date()}: [止损清仓] 价格 {current_price:.2f} 跌破止损位 {stop_loss_price:.2f}。")
                     in_position = False
                     current_position_size = 0.0
                     actual_entry_price = 0.0
@@ -123,7 +123,7 @@ class SimulationLayer:
                     # elif 'EXIT_STOP_LOSS' in triggered_reasons: 
                     #     exit_action = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     
-                    print(f"  -> {current_date.date()}: [清仓离场] 触发三道防线: {', '.join(triggered_reasons)}")
+                    # print(f"  -> {current_date.date()}: [清仓离场] 触发三道防线: {', '.join(triggered_reasons)}")
                     in_position = False
                     current_position_size = 0.0 # 清仓后重置
                     actual_entry_price = 0.0    # 清仓后重置
@@ -150,7 +150,7 @@ class SimulationLayer:
                     pyramid_count += 1
                     
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.ADD_POSITION.value
-                    print(f"  -> {current_date.date()}: [乘胜追击] 盈利中出现新买点，执行第 {pyramid_count} 次加仓。新均价: {actual_entry_price:.2f}")
+                    # print(f"  -> {current_date.date()}: [乘胜追击] 盈利中出现新买点，执行第 {pyramid_count} 次加仓。新均价: {actual_entry_price:.2f}")
                     last_reduction_level = 0 # 加仓后重置减仓状态
 
                 # 1.4 检查减仓信号 (风险控制)
@@ -168,13 +168,13 @@ class SimulationLayer:
                         current_position_size -= reduction_amount
                         df.loc[current_date, 'trade_action'] = reduction_action
                         last_reduction_level = 3
-                        print(f"  -> {current_date.date()}: [风险减仓] 风险升至3级，减仓 {level_3_reduction:.0%}")
+                        # print(f"  -> {current_date.date()}: [风险减仓] 风险升至3级，减仓 {level_3_reduction:.0%}")
                     elif alert_level == 2: # 中度风险
                         reduction_amount = current_position_size * level_2_reduction
                         current_position_size -= reduction_amount
                         df.loc[current_date, 'trade_action'] = reduction_action
                         last_reduction_level = 2
-                        print(f"  -> {current_date.date()}: [风险减仓] 风险升至2级，减仓 {level_2_reduction:.0%}")
+                        # print(f"  -> {current_date.date()}: [风险减仓] 风险升至2级，减仓 {level_2_reduction:.0%}")
                 
                 # 1.5 如果无特殊动作，则标记为持有
                 # 检查是否已被其他动作覆盖
@@ -216,14 +216,14 @@ class SimulationLayer:
                             else:
                                 # 如果模型不是平台支撑或所需列缺失，仅使用最小止损幅度
                                 stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
-                            print(f"  -> {current_date.date()}: [止损设置] 初始止损位设定为: {stop_loss_price:.2f}")
+                            # print(f"  -> {current_date.date()}: [止损设置] 初始止损位设定为: {stop_loss_price:.2f}")
                         
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
-                        print(f"  -> {current_date.date()}: [建立仓位] 信号分值达标，入场。T+1开盘价: {actual_entry_price:.2f}")
+                        # print(f"  -> {current_date.date()}: [建立仓位] 信号分值达标，入场。T+1开盘价: {actual_entry_price:.2f}")
                     else:
                         # 如果T+1开盘价缺失，则不建仓，标记为无信号
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
-                        print(f"  -> {current_date.date()}: [跳过建仓] 信号分值达标，但T+1开盘价缺失或无效，跳过建仓。")
+                        # print(f"  -> {current_date.date()}: [跳过建仓] 信号分值达标，但T+1开盘价缺失或无效，跳过建仓。")
                 else:
                     # 空仓时，根据 dynamic_action 记录更精细的状态
                     if current_dynamic_action == 'AVOID':
@@ -241,7 +241,7 @@ class SimulationLayer:
         
         # 将更新后的DataFrame保存回策略实例
         self.strategy.df_indicators = df 
-        print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
+        # print("="*25 + " 【持仓管理模拟】执行完毕 " + "="*25 + "\n")
 
     def _check_tactical_alerts(self, row) -> Tuple[int, str]:
         exit_params = get_params_block(self.strategy, 'exit_strategy_params')
