@@ -376,7 +376,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
 # 任务：训练 Transformer 模型 (从已准备数据加载)
 @celery_app.task(bind=True, name='tasks.tushare.train_transformer_tasks.batch_train_following_strategy_transformer', queue="Train_Transformer_Model")
 def batch_train_following_strategy_transformer(self, stock_code: str, params_file: str = "", model_dir=""):
-    print(f"DEBUG: !!!!! Celery task ENTRY for {stock_code} !!!!!") # 修改：增加一个醒目的print语句
+    print(f"DEBUG: !!!!! Celery task ENTRY for {stock_code} !!!!!") # 增加一个醒目的print语句
     logger.info(f"开始执行 {stock_code} 的 Transformer 模型训练任务...")
     # 实例化策略，传递参数文件和模型目录
     params_file=settings.INDICATOR_PARAMETERS_CONFIG_PATH

@@ -9,7 +9,7 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed # 引入并行处理模块
 import torch # 引入torch，用于设置多进程启动方式和检查CUDA
 
-# --- 修改开始: 配置 Django 设置 ---
+# --- 配置 Django 设置 ---
 # 请将 'your_project_name.settings' 替换为您的实际 Django 项目的 settings 模块路径。
 DJANGO_SETTINGS_MODULE_NAME = 'chaoyue_dreams.settings' # <--- 【重要】请用户根据实际项目结构修改此行
 
@@ -27,7 +27,7 @@ try:
 except Exception as e:
     print(f"WARNING: 无法在主进程中加载或配置 Django settings '{DJANGO_SETTINGS_MODULE_NAME}': {e}")
     print("WARNING: 脚本将尝试在没有 Django settings 的情况下运行 (主进程)。子进程将再次尝试加载。")
-# --- 修改结束 ---
+
 
 
 # --- 模块导入 ---

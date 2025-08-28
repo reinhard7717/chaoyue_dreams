@@ -501,7 +501,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 用sync_to_async包装ORM查询
         @sync_to_async
         def get_trade_times():
-            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 修改：自动分表
+            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 自动分表
             qs = model.objects.filter(
                 stock=stock,
                 trade_time__gte=start_datetime,
@@ -524,10 +524,10 @@ class StockTimeTradeDAO(BaseDAO):
         if cache_data is not None:
             stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
             cache_data['stock'] = stock
-            return get_minute_data_model_by_code_and_timelevel(stock_code, '5')(**cache_data)  # 修改：自动分表
+            return get_minute_data_model_by_code_and_timelevel(stock_code, '5')(**cache_data)  # 自动分表
         @sync_to_async
         def get_latest_kline():
-            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 修改：自动分表
+            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 自动分表
             record = (model.objects
                     .filter(stock=stock)
                     .order_by('-trade_time')

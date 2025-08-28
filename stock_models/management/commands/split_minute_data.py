@@ -71,7 +71,7 @@ class Command(BaseCommand):
 
         for stock_code in stock_codes:  # 外层循环：遍历每个股票代码
             for time_level in time_levels:  # 内层循环：遍历每个时间级别
-                queryset = StockMinuteData.objects.filter(stock__stock_code=stock_code, time_level=time_level).order_by('trade_time')  # 修改：按trade_time正序查询
+                queryset = StockMinuteData.objects.filter(stock__stock_code=stock_code, time_level=time_level).order_by('trade_time')  # 按trade_time正序查询
                 total = queryset.count()
                 if total > 0:
                     print(f"开始迁移 股票代码={stock_code}，time_level={time_level} 的数据，共{total}条")

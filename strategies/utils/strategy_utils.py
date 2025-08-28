@@ -293,7 +293,7 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         if not isinstance(indi_naming_conf, dict):
             logger.warning(f"指标 '{indicator_key}' (尝试使用主配置键 '{main_config_lookup_key}') 在命名规范中未找到或配置无效，跳过背离检测。")
             continue
-        # --- 修改结束 ---
+        
 
         # 假设 dd_params 中的键是小写 internal_key，或需要进一步映射到实际用于匹配模式的内部名称
         internal_key_for_div = indicator_key.lower()
@@ -420,7 +420,7 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                 logger.warning(f"价格列 '{price_type}' 在 TF {tf_check} ({possible_tf_suffixes}) 未找到或全为 NaN。跳过指标 '{indicator_key}' 在此 TF 的检测。")
                 continue
             price_series = data[current_price_col] # 使用 current_price_col
-            # --- 修改结束 ---
+            
 
             indicator_col = None
             # 尝试根据模式和参数构建列名并查找
@@ -2182,13 +2182,13 @@ def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series:
     # print("开始计算SAR评分...") # 调试信息
 
     # 复制原始Series，避免修改传入的Series，并进行NaN处理
-    close_s = close.copy() # 修改：复制原始Series，避免修改原始数据
-    sar_s = sar.copy()     # 修改：复制原始Series，避免修改原始数据
+    close_s = close.copy() # 复制原始Series，避免修改原始数据
+    sar_s = sar.copy()     # 复制原始Series，避免修改原始数据
 
     # 优化NaN处理：对close_s和sar_s进行前向填充，再后向填充，以处理序列中间的NaN。
     # 如果序列开头或结尾有NaN，且没有数据可填充，则这些NaN会保留。
-    close_s = close_s.ffill().bfill() # 修改：对close_s进行ffill和bfill填充
-    sar_s = sar_s.ffill().bfill()     # 修改：对sar_s进行ffill和bfill填充
+    close_s = close_s.ffill().bfill() # 对close_s进行ffill和bfill填充
+    sar_s = sar_s.ffill().bfill()     # 对sar_s进行ffill和bfill填充
 
     # 如果填充后仍有NaN（例如，原始序列就是全NaN），则返回中性分数。
     if close_s.isnull().all() or sar_s.isnull().all(): # 原始逻辑：如果close_s或sar_s全NaN，返回50
@@ -2209,39 +2209,39 @@ def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series:
     score.loc[sell_signal] = 25.0 # 原始逻辑：卖出信号得25分
 
     # 优化：计算非信号条件，避免重复计算
-    not_signal_cond = ~(buy_signal | sell_signal) # 修改：使用或操作符简化非信号条件判断
+    not_signal_cond = ~(buy_signal | sell_signal) # 使用或操作符简化非信号条件判断
 
     # 增强评分规则：考虑SAR与Close的相对距离和趋势强度
     # 仅对非信号日进行更细致的评分
     # 趋势强度因子：SAR与Close的百分比距离
     # 使用 np.where 避免除以零，并确保类型一致。如果close_s为0，则diff_ratio也为0。
-    diff_ratio = np.where(close_s != 0, (close_s - sar_s) / close_s, 0) # 修改：计算SAR与Close的百分比距离，避免除以零
+    diff_ratio = np.where(close_s != 0, (close_s - sar_s) / close_s, 0) # 计算SAR与Close的百分比距离，避免除以零
 
     # 趋势向上 (Close > SAR) 且非信号日
-    bullish_trend_cond = (close_s > sar_s) & not_signal_cond # 修改：定义看涨趋势条件
+    bullish_trend_cond = (close_s > sar_s) & not_signal_cond # 定义看涨趋势条件
     if bullish_trend_cond.any(): # 优化：只有当条件为真时才进行计算
         # 基础分60，额外分数根据diff_ratio调整，最大额外分数30 (总分90)
         # 调整系数1000意味着每1%的diff_ratio增加10分，3%的diff_ratio达到最高额外分30。
-        additional_score_bullish = np.minimum(30.0, diff_ratio[bullish_trend_cond] * 1000) # 修改：根据diff_ratio计算额外分数，上限30
+        additional_score_bullish = np.minimum(30.0, diff_ratio[bullish_trend_cond] * 1000) # 根据diff_ratio计算额外分数，上限30
         # 确保分数至少为60，然后加上额外分数
-        score.loc[bullish_trend_cond] = np.maximum(score.loc[bullish_trend_cond], 60.0 + additional_score_bullish) # 修改：应用增强后的看涨分数
+        score.loc[bullish_trend_cond] = np.maximum(score.loc[bullish_trend_cond], 60.0 + additional_score_bullish) # 应用增强后的看涨分数
 
     # 趋势向下 (Close < SAR) 且非信号日
-    bearish_trend_cond = (close_s < sar_s) & not_signal_cond # 修改：定义看跌趋势条件
+    bearish_trend_cond = (close_s < sar_s) & not_signal_cond # 定义看跌趋势条件
     if bearish_trend_cond.any(): # 优化：只有当条件为真时才进行计算
         # 基础分40，额外分数根据diff_ratio调整，最大额外分数30 (总分10)
         # diff_ratio此时为负值，我们取其绝对值来计算减分。
-        additional_score_bearish = np.minimum(30.0, -diff_ratio[bearish_trend_cond] * 1000) # 修改：根据diff_ratio计算额外分数，上限30
+        additional_score_bearish = np.minimum(30.0, -diff_ratio[bearish_trend_cond] * 1000) # 根据diff_ratio计算额外分数，上限30
         # 确保分数至多为40，然后减去额外分数
-        score.loc[bearish_trend_cond] = np.minimum(score.loc[bearish_trend_cond], 40.0 - additional_score_bearish) # 修改：应用增强后的看跌分数
+        score.loc[bearish_trend_cond] = np.minimum(score.loc[bearish_trend_cond], 40.0 - additional_score_bearish) # 应用增强后的看跌分数
 
     # 考虑SAR与Close非常接近的情况 (震荡或盘整)
     # 如果SAR和Close的绝对百分比差异小于某个阈值 (例如0.5%)，则分数更接近50。
     # 这种情况下，表示市场处于盘整或不确定状态，优先级低于明确的趋势强度。
-    proximity_threshold = 0.005 # 0.5% # 修改：定义接近阈值
-    neutral_cond = not_signal_cond & (np.abs(diff_ratio) < proximity_threshold) # 修改：定义中性条件
+    proximity_threshold = 0.005 # 0.5% # 定义接近阈值
+    neutral_cond = not_signal_cond & (np.abs(diff_ratio) < proximity_threshold) # 定义中性条件
     if neutral_cond.any(): # 优化：只有当条件为真时才进行计算
-        score.loc[neutral_cond] = 50.0 # 修改：中性条件得50分，覆盖弱趋势分数
+        score.loc[neutral_cond] = 50.0 # 中性条件得50分，覆盖弱趋势分数
 
     # print("SAR评分计算完成。") # 调试信息
     return score.clip(0, 100) # 原始逻辑：分数裁剪到0-100

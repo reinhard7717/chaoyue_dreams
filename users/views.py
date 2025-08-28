@@ -29,7 +29,7 @@ def register(request):
         if form.is_valid():
             form.save()  # 保存普通用户
             print("新用户注册成功")  # 调试信息
-            return redirect(reverse('users:login'))  # 修改：注册成功后跳转到 /users/login/
+            return redirect(reverse('users:login'))  # 注册成功后跳转到 /users/login/
     else:
         form = UserCreationForm()
     return render(request, 'users/register.html', {'form': form})

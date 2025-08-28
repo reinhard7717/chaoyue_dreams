@@ -12,7 +12,7 @@ import numpy as np
 import optuna
 
 
-# --- 修改开始: 配置 Django 设置 ---
+# --- 配置 Django 设置 ---
 # 请将 'your_project_name.settings' 替换为您的实际 Django 项目的 settings 模块路径。
 # 例如: 如果您的项目根目录下有一个名为 'myproject' 的应用包含了 settings.py,
 # 并且 'E:\chaoyue_dreams' 是项目根目录 (PYTHONPATH 包含此路径或其父目录),

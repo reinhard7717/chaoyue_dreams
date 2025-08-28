@@ -12,7 +12,7 @@ import argparse
 import optuna
 import numpy as np #导入 numpy
 
-# --- 修改开始: 配置 Django 设置 ---
+# --- 配置 Django 设置 ---
 # 请将 'your_project_name.settings' 替换为您的实际 Django 项目的 settings 模块路径。
 # 例如: 如果您的项目根目录下有一个名为 'myproject' 的应用包含了 settings.py,
 # 并且 'E:\chaoyue_dreams' 是项目根目录 (PYTHONPATH 包含此路径或其父目录),
@@ -33,7 +33,7 @@ try:
 except Exception as e:
     print(f"WARNING: 无法加载或配置 Django settings '{DJANGO_SETTINGS_MODULE_NAME}': {e}")
     print("WARNING: 脚本将尝试在没有 Django settings 的情况下运行。某些 Django 特定功能可能受限或失败。")
-# --- 修改结束 ---
+
 
 
 # --- 模块导入 ---
@@ -251,13 +251,13 @@ def run_local_transformer_training_batch(
     else:
         print(f"INFO: 将按正序处理股票文件夹。") # 提示信息
 
-    total_stock_folders = len(all_item_names) # 修改：总数现在是排序后的列表长度
+    total_stock_folders = len(all_item_names) # 总数现在是排序后的列表长度
     print(f"DEBUG: 在 '{actual_model_base_dir}' 中找到 {total_stock_folders} 个潜在的股票文件夹。")
 
-    # 修改：遍历排序/反转后的 item_name 列表
+    # 遍历排序/反转后的 item_name 列表
     for item_idx, item_name in enumerate(all_item_names):
         processed_stock_folders += 1
-        item_path = actual_model_base_dir / item_name # 修改：根据 item_name 构建完整路径
+        item_path = actual_model_base_dir / item_name # 根据 item_name 构建完整路径
 
         prepared_data_path = item_path / "prepared_data"
         trained_model_path = item_path / "trained_model"
@@ -316,7 +316,7 @@ def run_local_transformer_training_batch(
             strategy.selected_feature_names_for_transformer:
                 logger.info(f"[{item_name}] Transformer 贝叶斯优化+最终训练成功完成。")
                 successfully_trained_count += 1
-                # 修改：将 best_params 保存到股票对应的 trained_model 目录下
+                # 将 best_params 保存到股票对应的 trained_model 目录下
                 best_params_filepath = trained_model_path / f"{item_name}_best_params.json"
                 os.makedirs(trained_model_path, exist_ok=True) # 确保目录存在
                 with open(best_params_filepath, "w") as f:

@@ -197,7 +197,7 @@ class MultiTimeframeTrendStrategy:
                 #：对战略分数进行处理，填充为0，并确保是浮点数
                 df_merged[col] = df_merged[col].fillna(0).astype(float)
             elif col.startswith(('playbook_', 'signal_', 'state_', 'event_', 'filter_', 'regime_', 'vpa_', 'cmf_', 'risk_', 'opp_')):
-                # 修改：扩展布尔型信号的前缀范围，以适应V3.0引擎的新输出
+                # 扩展布尔型信号的前缀范围，以适应V3.0引擎的新输出
                 df_merged[col] = df_merged[col].fillna(False).astype(bool)
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)

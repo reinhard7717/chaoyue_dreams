@@ -117,7 +117,7 @@ class IndexBasicDAO(BaseDAO):
             )
         )()
         # print(f"查询到的开盘日数量: {len(trade_days_raw)}")  # 调试信息
-        # 修改：兼容字符串和datetime.date类型
+        # 兼容字符串和datetime.date类型
         trade_days = []
         for day in trade_days_raw:
             if isinstance(day, datetime.date):

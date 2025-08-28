@@ -101,7 +101,7 @@ def main():
                 # 遍历 prepared_data 目录，收集所有 .npz、.save 和 .json 文件的相对路径
                 for root, _, files in os.walk(prepared_data_path):
                     for file in files:
-                        if file.endswith('.npz') or file.endswith('.save') or file.endswith('.json'):  # 修改：同时收集 .npz、.save 和 .json 文件
+                        if file.endswith('.npz') or file.endswith('.save') or file.endswith('.json'):  # 同时收集 .npz、.save 和 .json 文件
                             full_path = os.path.join(root, file)
                             # 计算相对于 STRATEGY_DATA_DIR 的路径，保留目录结构
                             relative_path = os.path.relpath(full_path, STRATEGY_DATA_DIR)
