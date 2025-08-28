@@ -177,7 +177,7 @@ class IntelligenceLayer:
         
         # --- 阶段七: 最终报告 ---
         # print("--- [情报层总指挥官 V401.1] 所有诊断模块执行完毕。 ---")
-        print("所有 trigger_events 信号名称:", list(trigger_events.keys()))
+        # print("所有 trigger_events 信号名称:", list(trigger_events.keys()))
         return trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
