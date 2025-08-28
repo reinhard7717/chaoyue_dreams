@@ -22,7 +22,7 @@ from stock_models.time_trade import IndexDaily, StockCyqPerf, StockDailyBasic, S
 from stock_models.fund_flow import FundFlowCntTHS, FundFlowIndustryTHS
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from utils.cache_manager import CacheManager
-from utils.model_helpers import get_minute_data_model_by_code_and_timelevel
+from utils.model_helpers import get_daily_data_model_by_code, get_minute_data_model_by_code_and_timelevel
 
 logger = logging.getLogger("dao")
 

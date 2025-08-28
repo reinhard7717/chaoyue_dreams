@@ -112,7 +112,7 @@ class ChipFeatureCalculator:
         - 优化: 统一了单峰和多峰情况下，主峰范围(peak_range)的计算逻辑，
                 使其全部基于 find_peaks 的返回结果，消除了硬编码。
         """
-        # 【代码修改】: 增加 width 参数，让 find_peaks 计算山峰宽度
+        # : 增加 width 参数，让 find_peaks 计算山峰宽度
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         
         # 辅助函数，用于从插值索引中获取价格
@@ -125,7 +125,7 @@ class ChipFeatureCalculator:
             # 如果 find_peaks 未找到任何山峰，则使用全局最大值作为唯一山峰
             peak_idx = self.df['percent'].idxmax()
             peak_price = self.df.loc[peak_idx, 'price']
-            # 【代码修改】: 单峰情况下，也提供一个默认的、较窄的范围，避免后续计算出错
+            # : 单峰情况下，也提供一个默认的、较窄的范围，避免后续计算出错
             peak_range_low = peak_price * 0.995
             peak_range_high = peak_price * 1.005
             return {
@@ -331,7 +331,7 @@ class ChipFeatureCalculator:
             if weighted_std and weighted_std > 0:
                 results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
 
-        # 【代码修改】: 筹码健康分在此处不再计算，返回一个None占位
+        # : 筹码健康分在此处不再计算，返回一个None占位
         results['chip_health_score'] = None
 
         return results

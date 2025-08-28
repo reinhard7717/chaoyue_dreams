@@ -140,7 +140,7 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
         # 2. 获取当日所有1分钟K线数据
         time_trade_dao = StockTimeTradeDAO(cache_manager)
         # 获取从开盘到当前时间的所有1分钟K线数据
-        all_1min_klines_df = await time_trade_dao.get_1min_kline_data_for_day(stock_code, trade_date)
+        all_1min_klines_df = await time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
 
         # 检查数据量是否足够进行5分钟K线聚合和指标计算
         min_required_1min_data = REALTIME_STRATEGY_CONFIG.get('min_data_points_5min', 21) * 5 # 至少需要21根5分钟K线，即105根1分钟K线

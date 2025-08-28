@@ -58,7 +58,7 @@ class OffensiveLayer:
         valid_pos_cols = [col for col in positional_rules.keys() if col in score_details_df.columns]
         positional_score = score_details_df[valid_pos_cols].sum(axis=1) if valid_pos_cols else pd.Series(0.0, index=df.index)
 
-        # --- 【代码修改】开始：实现“动能催化剂”逻辑 ---
+        # --- 开始：实现“动能催化剂”逻辑 ---
         # --- 4. 评估“动能火力” (Dynamic Scoring)，带前置条件判断 ---
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         dynamic_rules = dynamic_params.get('positive_signals', {})
@@ -186,12 +186,12 @@ class OffensiveLayer:
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
         
-        # --- 【代码修改】修复 get_param_value 参数数量错误 ---
+        # --- 修复 get_param_value 参数数量错误 ---
         # [错误原因] 原代码向 get_param_value 传入了3个参数，导致 TypeError。
         # [修复逻辑] 正确的调用方式是两步：1. 先获取上一级的参数字典。 2. 再从该字典中获取目标参数，并将其和默认值传给 get_param_value。
         momentum_params = scoring_params.get('momentum_diagnostics_params', {})
         fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 500)
-        # --- 【代码修改】结束 ---
+        # --- 结束 ---
         
         self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
 

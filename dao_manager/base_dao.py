@@ -636,7 +636,7 @@ class BaseDAO(Generic[T]):
         total_records = len(data_list)
         failed_count = 0
         # 2. 字段元数据分析
-        # 【代码修改】使用 model_class._meta.fields 替代 get_fields()，避免包含没有列的反向关系。
+        # 使用 model_class._meta.fields 替代 get_fields()，避免包含没有列的反向关系。
         # .fields 只包含模型中定义的具体字段，更安全、更准确。
         all_model_fields = {f.name for f in model_class._meta.fields}
         unique_field_set = set(unique_fields)
@@ -668,13 +668,13 @@ class BaseDAO(Generic[T]):
         # 4. 将准备好的数据转换为DataFrame
         df = pd.DataFrame(prepared_data_list)
         # 5. 转换关系字段列
-        # 【代码修改】同样使用 model_class._meta.fields，因为外键（ForeignKey）也包含在 .fields 中。
+        # 同样使用 model_class._meta.fields，因为外键（ForeignKey）也包含在 .fields 中。
         for field in model_class._meta.fields:
             if field.is_relation and not field.auto_created:
                 field_name = field.name
                 column_name = field.column
                 if field_name in df.columns:
-                    # 【代码修改】这是解决外键约束错误的核心。
+                    # 这是解决外键约束错误的核心。
                     # 之前: lambda x: x.pk (错误地假设总是关联主键)
                     # 现在: lambda x: getattr(x, field.target_field.name)
                     # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
@@ -711,11 +711,11 @@ class BaseDAO(Generic[T]):
         if df.empty:
             return 0
 
-        # 【代码修改】为目标表定义一个唯一的锁键
+        # 为目标表定义一个唯一的锁键
         lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
         
-        # 【代码修改】通过 CacheManager 获取 Redis 客户端并加锁
+        # 通过 CacheManager 获取 Redis 客户端并加锁
         try:
             # 1. 确保 CacheManager 中的 Redis 客户端已初始化
             redis_client = await self.cache_manager._ensure_client()
@@ -796,7 +796,7 @@ class BaseDAO(Generic[T]):
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
 
-        # --- 【代码修改】死锁预防：按唯一键排序 ---
+        # --- 死锁预防：按唯一键排序 ---
         # 创建字段名到列名的映射
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
         # 获取唯一键对应的数据库列名
@@ -826,7 +826,7 @@ class BaseDAO(Generic[T]):
         )
         params_list_of_tuples = [tuple(row) for row in df.replace({np.nan: None}).to_numpy()]
         
-        # --- 【代码修改】数据库执行阶段：增加死锁重试逻辑 ---
+        # --- 数据库执行阶段：增加死锁重试逻辑 ---
         max_retries = 3 # 定义最大重试次数
         for attempt in range(max_retries):
             try:
@@ -879,7 +879,7 @@ class BaseDAO(Generic[T]):
                     )
                     raise ValueError(error_msg)
                 prepared_data[fk_field_name] = fk_instance
-        # 【代码修改】使用 model_class._meta.fields 确保只清理模型中实际定义的字段。
+        # 使用 model_class._meta.fields 确保只清理模型中实际定义的字段。
         model_field_names = {f.name for f in model_class._meta.fields}
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
         return cleaned_data

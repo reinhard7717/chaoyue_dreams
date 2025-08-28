@@ -91,7 +91,7 @@
                 </thead>
                 <tbody id="favorites-tbody">
                     {% for fav in user_favorites %}
-                    {# ▼▼▼【代码修改】: 新增了 data-stock-name 属性 ▼▼▼ #}
+                    {# ▼▼▼: 新增了 data-stock-name 属性 ▼▼▼ #}
                     <tr data-stock-code="{{ fav.stock.stock_code }}" data-id="{{ fav.id }}" data-stock-name="{{ fav.stock.stock_name }}">
                         <td class="stock-code">{{ fav.stock.stock_code }}</td>
                         <td class="stock-name">{{ fav.stock.stock_name }}</td>
@@ -100,7 +100,7 @@
                         <td class="volume" data-field="volume">-</td>
                         <td class="strategy-signal" data-field="signal">-</td>
                         <td class="actions">
-                            {# ▼▼▼【代码修改】: 统一使用 data-id 属性 ▼▼▼ #}
+                            {# ▼▼▼: 统一使用 data-id 属性 ▼▼▼ #}
                             <button class="btn btn-danger btn-sm action-btn remove-favorite-btn" data-action="remove" data-id="{{ fav.id }}">移除</button>
                         </td>
                     </tr>
@@ -111,7 +111,7 @@
          <div class="table-loading" id="favorites-loading" style="display: none;">
              <p>正在加载数据...</p> {# 可以放一个加载动画 #}
          </div>
-         {# ▼▼▼【代码修改】: 根据列表是否为空，决定是否显示“列表为空”的提示 ▼▼▼ #}
+         {# ▼▼▼: 根据列表是否为空，决定是否显示“列表为空”的提示 ▼▼▼ #}
          <div class="table-empty" id="favorites-empty" {% if user_favorites %}style="display: none;"{% endif %}>
              <p>自选股列表为空，请通过上方搜索添加。</p>
          </div>

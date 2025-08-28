@@ -2044,7 +2044,7 @@ class IndicatorService:
                 append=False
             )
             if copp_df is not None and not copp_df.empty:
-                # ▼▼▼【代码修改】: 核心修复，兼容Series和DataFrame返回值 ▼▼▼
+                # ▼▼▼: 核心修复，兼容Series和DataFrame返回值 ▼▼▼
                 # 检查返回的是否是Series，如果是，则转换为DataFrame，以统一处理
                 if isinstance(copp_df, pd.Series):
                     copp_df = copp_df.to_frame()
@@ -2055,7 +2055,7 @@ class IndicatorService:
                     actual_name = copp_df.columns[0]
                     copp_df.rename(columns={actual_name: expected_name}, inplace=True)
                     # print(f"    - [指标重命名] 已将列 '{actual_name}' 重命名为 '{expected_name}'")
-                # ▲▲▲【代码修改】: 修改结束 ▲▲▲
+                # ▲▲▲: 修改结束 ▲▲▲
                 return copp_df
         except Exception as e:
             # 增加数据量不足的特定警告

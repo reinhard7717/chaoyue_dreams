@@ -1089,7 +1089,7 @@ class FundFlowDao(BaseDAO):
         limit = 2000
         
         while True:
-            # 【代码修改】在每次API调用前，检查并更新调用次数
+            # 在每次API调用前，检查并更新调用次数
             try:
                 # 对Redis键执行原子+1操作，返回操作后的值
                 current_count = await redis_client.incr(api_limit_key)

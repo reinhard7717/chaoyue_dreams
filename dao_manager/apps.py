@@ -8,7 +8,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# 【代码修改】请将下面的 'StockAnalysisConfig' 和 'dao_manager' 替换成您自己的app名称
+# 请将下面的 'StockAnalysisConfig' 和 'dao_manager' 替换成您自己的app名称
 # 例如，如果您的app叫 'core'，则类名为 'CoreConfig'，name属性为 'core'
 class DaoManagerConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'

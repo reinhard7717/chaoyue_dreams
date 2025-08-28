@@ -333,7 +333,7 @@ class IndustryDao(BaseDAO):
         for i, ths_index in enumerate(ths_index_list):
             print(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
             try:
-                # 【代码修改】明确指定需要的字段，减少不必要的数据传输
+                # 明确指定需要的字段，减少不必要的数据传输
                 df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,name,weight,in_date,out_date,is_new")
                 if df is None or df.empty:
                     logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")

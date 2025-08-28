@@ -114,7 +114,7 @@ class PerformanceAnalyzer:
             if playbook_series.dtype == bool:
                 all_events[playbook_name] = playbook_series
         
-        # --- 【代码修改】开始：应用统一的终极过滤器 ---
+        # --- 开始：应用统一的终极过滤器 ---
         score_map = self.scoring_params.get('score_type_map', {})
         filtered_events = {}
         
@@ -179,7 +179,7 @@ class PerformanceAnalyzer:
         for signal_name, group_df in signal_groups:
             signal_meta = score_map.get(signal_name, {})
             signal_cn_name = signal_meta.get('cn_name', signal_name)
-            # --- 【代码修改】开始：明确获取信号类型 ---
+            # --- 开始：明确获取信号类型 ---
             signal_type = signal_meta.get('type', 'unknown')
 
             total_triggers = len(group_df)
@@ -199,7 +199,7 @@ class PerformanceAnalyzer:
                 # 对于进攻型信号，计算“胜率”
                 effectiveness_pct = (success_count / total_triggers) if total_triggers > 0 else 0
             
-            # --- 【代码修改】结束 ---
+            # --- 结束 ---
 
             avg_max_profit = group_df['max_profit_pct'].mean()
             avg_max_drawdown = group_df['max_drawdown_pct'].mean()

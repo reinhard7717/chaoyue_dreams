@@ -74,7 +74,7 @@ class MultiTimeframeTrendStrategy:
         - 新增功能: 增加了 start_date_str 参数，用于指定策略计算的起始点。
         """
         mode_str = "闪电突袭" if latest_only else "全面战役"
-        # 【代码修改】在日志中体现 start_date_str
+        # 在日志中体现 start_date_str
         start_info = f", 计算起始于: {start_date_str}" if start_date_str and not latest_only else ""
         print(f"\n🚀 [总指挥层 - {mode_str}] 开始处理股票: {stock_code}, 交易时间: {trade_time}{start_info}")
 
@@ -107,7 +107,7 @@ class MultiTimeframeTrendStrategy:
         all_dfs['D_CONTEXT'] = df_daily_with_context
 
         # 4. 战术引擎：现在返回四元组
-        # 【代码修改】将 start_date_str 传递给战术引擎
+        # 将 start_date_str 传递给战术引擎
         records_tuple = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
         # print(f"  - [战术引擎] 生成 {len(records_tuple[0])} 条日线级信号和 {len(records_tuple[2])} 条每日分数。")
 

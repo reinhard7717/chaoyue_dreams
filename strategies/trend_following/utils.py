@@ -30,11 +30,11 @@ def get_params_block(strategy_instance, block_name: str, default_return: Any = N
         # 如果传入的是对象实例，用 getattr() 安全地获取属性
         config = getattr(strategy_instance, 'unified_config', {})
 
-    # 【代码修改】后续逻辑都基于上面提取出的 config 字典进行操作，不再依赖于 strategy_instance 的类型
+    # 后续逻辑都基于上面提取出的 config 字典进行操作，不再依赖于 strategy_instance 的类型
     trend_follow_params = config.get('strategy_params', {}).get('trend_follow', {})
     params = trend_follow_params.get(block_name)
     if params is None:
-        # 【代码修改】如果第一层没找到，从配置的根目录再找一次
+        # 如果第一层没找到，从配置的根目录再找一次
         params = config.get(block_name)
     
     if params is not None:

@@ -14,23 +14,16 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_minute_data_model_by_code_and_timelevel
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockCyqPerf, StockDailyBasic, StockMinuteData, StockWeeklyData, StockMonthlyData
+from stock_models.time_trade import StockCyqPerf, StockDailyBasic, StockWeeklyData, StockMonthlyData
 from utils.cache_get import StockInfoCacheGet, StockTimeTradeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockInfoCacheSet, StockTimeTradeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockInfoFormatProcess, StockTimeTradeFormatProcess
-from stock_models.time_trade import StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
-from stock_models.time_trade import (
-            StockMinuteData_1_SZ, StockMinuteData_1_SH, StockMinuteData_1_BJ, StockMinuteData_1_CY, StockMinuteData_1_KC,
-            StockMinuteData_5_SZ, StockMinuteData_5_SH, StockMinuteData_5_BJ, StockMinuteData_5_CY, StockMinuteData_5_KC,
-            StockMinuteData_15_SZ, StockMinuteData_15_SH, StockMinuteData_15_BJ, StockMinuteData_15_CY, StockMinuteData_15_KC,
-            StockMinuteData_30_SZ, StockMinuteData_30_SH, StockMinuteData_30_BJ, StockMinuteData_30_CY, StockMinuteData_30_KC,
-            StockMinuteData_60_SZ, StockMinuteData_60_SH, StockMinuteData_60_BJ, StockMinuteData_60_CY, StockMinuteData_60_KC,
-        )
+
 
 BATCH_SAVE_SIZE = 110000  # 每10000条数据保存一次
 logger = logging.getLogger("dao")
@@ -441,37 +434,57 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_data_list
 
     # =============== A股分钟行情 ===============
-    def get_minute_model(self, stock_code: str, time_level: str):
+    async def get_1_min_kline_time_by_day(self, stock_code: str, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
-        根据stock_code和time_level返回对应的分钟数据模型
+        【新增】获取指定股票在指定日期的所有1分钟K线数据。
+        此方法用于盘中策略引擎，提供当日的原始1分钟数据。
+        Args:
+            stock_code (str): 股票代码。
+            trade_date (datetime.date): 交易日期。
+        Returns:
+            Optional[pd.DataFrame]: 包含当日1分钟K线数据的DataFrame，如果获取失败则为None。
         """
-        # 只分5/15/30/60，1min默认用原表
-        if time_level not in ['1', '5', '15', '30', '60']:
-            return StockMinuteData
-        if stock_code.endswith('.SZ'):
-            if stock_code.startswith('3'):
-                return {
-                    '1': StockMinuteData_1_CY, '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY
-                }[time_level]
-            else:
-                return {
-                    '1': StockMinuteData_1_SZ, '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ
-                }[time_level]
-        elif stock_code.endswith('.SH'):
-            if stock_code.startswith('68'):
-                return {
-                    '1': StockMinuteData_1_KC, '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC
-                }[time_level]
-            else:
-                return {
-                    '1': StockMinuteData_1_SH, '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH
-                }[time_level]
-        elif stock_code.endswith('.BJ'):
-            return {
-                '1': StockMinuteData_1_BJ, '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ
-            }[time_level]
-        else:
-            return StockMinuteData
+        try:
+            # 获取1分钟数据对应的分表模型，使用 model_helpers 中的辅助函数
+            model_class = get_minute_data_model_by_code_and_timelevel(stock_code, '1') # '1' 是数字字符串
+            if not model_class:
+                logger.error(f"未能找到股票 {stock_code} 对应的1分钟K线模型。")
+                return None
+
+            # 构建查询时间范围：从当日0点到次日0点（不含）
+            # 数据库存储的是UTC时间，所以查询条件也应是UTC时间
+            start_datetime = datetime.combine(trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_datetime = (datetime.combine(trade_date, datetime.max.time()) + timedelta(seconds=1)).replace(tzinfo=timezone.utc)
+
+            # 异步查询数据库
+            kline_queryset = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_datetime,
+                trade_time__lt=end_datetime
+            ).order_by('trade_time')
+
+            kline_values = await sync_to_async(list)(kline_queryset.values(
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            ))
+
+            if not kline_values:
+                logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
+                return None
+
+            df = pd.DataFrame.from_records(kline_values)
+            
+            # 数据后处理：确保时间索引和列名标准化
+            # 从数据库取出的时间已经是UTC，直接设置为索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            df.rename(columns={'vol': 'volume'}, inplace=True) # 统一列名
+            
+            logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的1分钟K线 for {stock_code}")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
+            return None
 
     async def get_5_min_kline_time_by_day(self, stock_code: str, date: datetime.date = None) -> List[str]:
         """
@@ -488,7 +501,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 用sync_to_async包装ORM查询
         @sync_to_async
         def get_trade_times():
-            model = self.get_minute_model(stock_code, '5')  # 修改：自动分表
+            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 修改：自动分表
             qs = model.objects.filter(
                 stock=stock,
                 trade_time__gte=start_datetime,
@@ -511,10 +524,10 @@ class StockTimeTradeDAO(BaseDAO):
         if cache_data is not None:
             stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
             cache_data['stock'] = stock
-            return self.get_minute_model(stock_code, '5')(**cache_data)  # 修改：自动分表
+            return get_minute_data_model_by_code_and_timelevel(stock_code, '5')(**cache_data)  # 修改：自动分表
         @sync_to_async
         def get_latest_kline():
-            model = self.get_minute_model(stock_code, '5')  # 修改：自动分表
+            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 修改：自动分表
             record = (model.objects
                     .filter(stock=stock)
                     .order_by('-trade_time')
@@ -552,7 +565,7 @@ class StockTimeTradeDAO(BaseDAO):
                 print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
                 await asyncio.sleep(0.25)
                 try:
-                    # 【代码修改】将API调用放入try-except块
+                    # 将API调用放入try-except块
                     df = self.ts_pro.stk_mins(**{
                         "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
                         "limit": limit, "offset": offset
@@ -584,7 +597,7 @@ class StockTimeTradeDAO(BaseDAO):
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
                 df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
                 df['trade_time'] = df['trade_time'].dt.tz_localize(None)
-                df['model_class'] = df['ts_code'].apply(lambda code: self.get_minute_model(code, time_level))
+                df['model_class'] = df['ts_code'].apply(lambda code: get_minute_data_model_by_code_and_timelevel(code, time_level))
                 for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty:
                         continue
@@ -620,7 +633,7 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"未能找到股票代码为 {stock_code} 的股票信息，任务终止。")
             return 0
 
-        model_class = self.get_minute_model(stock_code, time_level)
+        model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
         if not model_class:
             logger.error(f"未能为 {stock_code} 和时间级别 {time_level}min 找到对应的数据库模型，任务终止。")
             return 0
@@ -753,7 +766,7 @@ class StockTimeTradeDAO(BaseDAO):
             stock_code = record['ts_code']
             
             # 3.1 准备数据库载荷
-            model_class = self.get_minute_model(stock_code, time_level)
+            model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if model_class:
                 db_record = record.copy()
                 # 为数据库准备：关联stock对象，转换时区
@@ -822,7 +835,7 @@ class StockTimeTradeDAO(BaseDAO):
     async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
         """
         【V2.1 - time_level 参数解析Bug修复版】
-        - 核心修复: 正确处理 '1T', '5T' 这样的Pandas频率字符串，提取出数字部分传给 get_minute_model。
+        - 核心修复: 正确处理 '1T', '5T' 这样的Pandas频率字符串，提取出数字部分传给 get_minute_data_model_by_code_and_timelevel。
         """
         try:
             # --- 核心修复开始 ---
@@ -834,7 +847,7 @@ class StockTimeTradeDAO(BaseDAO):
                 return None
             
             # 使用提取出的数字 '1', '5' 等来获取正确的模型
-            model_class = self.get_minute_model(stock_code, time_level_digit)
+            model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level_digit)
             # --- 核心修复结束 ---
 
             if not model_class:
@@ -879,7 +892,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 注意：由于我们需要最新的N条，而不知道具体时间范围，
         # 直接使用 order_by + limit 的方式更高效。
         try:
-            model_class = self.get_minute_model(stock_code, time_level)
+            model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if not model_class:
                 return None
 

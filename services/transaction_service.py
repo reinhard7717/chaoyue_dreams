@@ -25,18 +25,18 @@ class TransactionService:
         try:
             with db_transaction.atomic():
                 tracker = PositionTracker.objects.select_for_update().get(id=tracker_id)
-                # 【代码修改】增加按 created_at 排序，确保同一天内录入的交易顺序正确
+                # 增加按 created_at 排序，确保同一天内录入的交易顺序正确
                 transactions = tracker.transactions.order_by('transaction_date', 'created_at')
 
                 current_quantity = Decimal(0)
                 total_cost = Decimal(0)
-                # 【代码修改】使用一个在循环中迭代的平均成本变量
+                # 使用一个在循环中迭代的平均成本变量
                 running_avg_cost = Decimal(0)
                 
                 print(f"开始为 Tracker ID: {tracker_id} 重新计算状态...") # 调试信息
                 for tx in transactions:
                     if tx.transaction_type == Transaction.TransactionType.BUY:
-                        # 【代码修改】修正了加权平均成本的计算逻辑
+                        # 修正了加权平均成本的计算逻辑
                         total_cost = (current_quantity * running_avg_cost) + (tx.quantity * tx.price)
                         current_quantity += tx.quantity
                         if current_quantity > 0:
@@ -47,14 +47,14 @@ class TransactionService:
                     elif tx.transaction_type == Transaction.TransactionType.SELL:
                         current_quantity -= tx.quantity
                         print(f"  [卖出] 日期: {tx.transaction_date.date()}, 数量: {tx.quantity}, 新数量: {current_quantity}") # 调试信息
-                        # 【代码修改】如果持仓被卖光，则将成本和数量都归零
+                        # 如果持仓被卖光，则将成本和数量都归零
                         if current_quantity <= 0:
                             current_quantity = Decimal(0)
                             total_cost = Decimal(0)
                             running_avg_cost = Decimal(0)
                 
                 tracker.current_quantity = current_quantity
-                # 【代码修改】使用循环计算出的最终成本
+                # 使用循环计算出的最终成本
                 tracker.average_cost = running_avg_cost
                 
                 # 根据最终数量更新状态

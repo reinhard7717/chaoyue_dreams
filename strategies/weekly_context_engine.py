@@ -318,7 +318,7 @@ class WeeklyContextEngine:
                     
                     if isinstance(results, dict):
                         for signal_suffix, result_series in results.items():
-                            # ▼▼▼【代码修改】: 规范化多信号输出的剧本名称 ▼▼▼
+                            # ▼▼▼: 规范化多信号输出的剧本名称 ▼▼▼
                             # 将 'coppock_stabilizing' 转换为 'PLAYBOOK_COPPOCK_STABILIZING_W'
                             col_name = f"playbook_{signal_suffix.upper()}_W"
                             context_df[col_name] = result_series

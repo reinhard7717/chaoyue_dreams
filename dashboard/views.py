@@ -44,7 +44,7 @@ def dashboard_view(request, cache_manager=None):
     【已重构】渲染主控台页面。
     使用 @with_cache_manager_for_views 装饰器自动管理Redis连接。
     """
-    # 【代码修改】直接使用由装饰器注入的 cache_manager 实例
+    # 直接使用由装饰器注入的 cache_manager 实例
     user_dao = UserDAO(cache_manager_instance=cache_manager)
     """渲染主控台页面"""
     get_favorites_async = user_dao.get_user_favorites
@@ -142,7 +142,7 @@ def trend_following_list(request):
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
-        # 【代码修改】简化排序逻辑，直接按剧本的中文名或英文名排序
+        # 简化排序逻辑，直接按剧本的中文名或英文名排序
         active_playbooks.sort(key=lambda p: p.cn_name or p.name)
         
         all_logs_in_memory.append({
@@ -155,7 +155,7 @@ def trend_following_list(request):
             'close_price': signal.close_price,
         })
 
-    # 【代码修改】简化排序逻辑，直接按剧本的中文名或英文名排序
+    # 简化排序逻辑，直接按剧本的中文名或英文名排序
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: p.cn_name or p.name)
 
     selected_playbooks_pks = request.GET.getlist('playbooks')
@@ -230,26 +230,26 @@ def fav_trend_following_list(request):
         snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
         key_dates = {'initial': None, 'last_buy': None, 'latest': None}
         
-        # 【代码修改】获取股票代码，用于后续动态选择模型
+        # 获取股票代码，用于后续动态选择模型
         stock_code = tracker.stock.stock_code
 
         if snapshot_list:
             key_dates['latest'] = snapshot_list[0].snapshot_date
             score_lookups.add((tracker.stock_id, key_dates['latest']))
-            # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+            # 收集筹码指标查询需求时，带上 stock_code
             chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['latest']))
 
         if transactions:
             key_dates['initial'] = transactions[0].transaction_date.date()
             score_lookups.add((tracker.stock_id, key_dates['initial']))
-            # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+            # 收集筹码指标查询需求时，带上 stock_code
             chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['initial']))
             
             last_buy_tx = next((tx for tx in reversed(transactions) if tx.transaction_type == Transaction.TransactionType.BUY), None)
             if last_buy_tx:
                 key_dates['last_buy'] = last_buy_tx.transaction_date.date()
                 score_lookups.add((tracker.stock_id, key_dates['last_buy']))
-                # 【代码修改】收集筹码指标查询需求时，带上 stock_code
+                # 收集筹码指标查询需求时，带上 stock_code
                 chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['last_buy']))
         
         trackers_with_key_dates.append({'tracker': tracker, 'key_dates': key_dates})
@@ -264,7 +264,7 @@ def fav_trend_following_list(request):
             ).prefetch_related('components')
             score_map = {(s.stock_id, s.trade_date): s for s in all_key_scores}
 
-    # 【代码修改】适配分表，动态查询 AdvancedChipMetrics
+    # 适配分表，动态查询 AdvancedChipMetrics
     chip_metrics_map = {}
     if chip_metrics_lookups:
         # 3.1 按分表模型对查询条件进行分组
@@ -323,7 +323,7 @@ def fav_trend_following_list(request):
                 key=lambda c: c.score_value,
                 reverse=True
             )
-            # 【代码修改】根据您的要求，移除了此处的 print 调试语句
+            # 根据您的要求，移除了此处的 print 调试语句
 
         trackers_for_display.append({
             'tracker': tracker,
@@ -545,7 +545,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
         transaction = serializer.save()
         print(f"交易记录创建成功: ID={transaction.id}, Tracker ID={tracker.id}") # 调试信息
         
-        # 3. 【代码修改】调用核心服务，一步完成持仓状态更新和快照重建触发
+        # 3. 调用核心服务，一步完成持仓状态更新和快照重建触发
         TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker.id)
         print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
 
@@ -572,11 +572,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if tracker.user != user:
             raise PermissionDenied("你没有权限操作此持仓记录。")
 
-        # 2. 【代码修改】先执行数据库删除操作
+        # 2. 先执行数据库删除操作
         instance.delete()
         print(f"交易记录 {tx_id_for_log} 已从数据库删除。") # 调试信息
         
-        # 3. 【代码修改】调用核心服务，重新计算所有状态并触发快照重建
+        # 3. 调用核心服务，重新计算所有状态并触发快照重建
         TransactionService.recalculate_tracker_state_and_rebuild_snapshots(tracker.id)
         print(f"已为 Tracker ID {tracker.id} 调用核心服务进行状态更新。") # 调试信息
 
