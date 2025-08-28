@@ -95,8 +95,8 @@ class CognitiveIntelligence:
         is_vpa_efficiency_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
         is_chip_diverging_for_churn = df['SLOPE_5_concentration_90pct_D'] > 0
         states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
-        if states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].any():
-            print(f"          -> [S级风险] 侦测到 {states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()} 次“动态对倒嫌疑”！")
+        # if states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].any():
+            # print(f"          -> [S级风险] 侦测到 {states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()} 次“动态对倒嫌疑”！")
 
         # 2.5 融合生成“危险战区”状态 (纳入新维度)
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
@@ -541,8 +541,8 @@ class CognitiveIntelligence:
         final_signal = is_synergistic_offense & is_in_safe_stage
         states['DYN_AGGRESSIVE_OFFENSE_A'] = final_signal
         
-        if final_signal.any():
-            print(f"          -> [A级动能确认] 侦测到 {final_signal.sum()} 次安全的“侵略性协同进攻”！")
+        # if final_signal.any():
+        #     print(f"          -> [A级动能确认] 侦测到 {final_signal.sum()} 次安全的“侵略性协同进攻”！")
 
         return states
 
@@ -815,12 +815,12 @@ class CognitiveIntelligence:
         states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze & trigger_any_breakout & ~states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
 
         # --- 打印战报 ---
-        if states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].any():
-            print(f"          -> [S+级剧本] 侦测到 {states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].sum()} 次“极致压缩·暴力突破”！")
-        if states['PLAYBOOK_BREAKOUT_EVE_S'].any():
-            print(f"          -> [S级剧本] 侦测到 {states['PLAYBOOK_BREAKOUT_EVE_S'].sum()} 次“突破前夜·决战冲锋”！")
-        if states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].any():
-            print(f"          -> [A级剧本] 侦测到 {states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].sum()} 次“常规压缩·确认突破”！")
+        # if states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].any():
+        #     print(f"          -> [S+级剧本] 侦测到 {states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'].sum()} 次“极致压缩·暴力突破”！")
+        # if states['PLAYBOOK_BREAKOUT_EVE_S'].any():
+        #     print(f"          -> [S级剧本] 侦测到 {states['PLAYBOOK_BREAKOUT_EVE_S'].sum()} 次“突破前夜·决战冲锋”！")
+        # if states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].any():
+        #     print(f"          -> [A级剧本] 侦测到 {states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'].sum()} 次“常规压缩·确认突破”！")
 
         return states
 

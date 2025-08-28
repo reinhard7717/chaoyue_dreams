@@ -308,7 +308,7 @@ class BehavioralIntelligence:
         first_breakout_event = was_in_setup_phase & is_ignition_day
         
         states['POST_ACCUMULATION_ASCENT_C'] = first_breakout_event
-        print(f"          -> [最终事件] 识别到 {first_breakout_event.sum()} 天为“初升浪启动事件” (POST_ACCUMULATION_ASCENT_C)。")
+        # print(f"          -> [最终事件] 识别到 {first_breakout_event.sum()} 天为“初升浪启动事件” (POST_ACCUMULATION_ASCENT_C)。")
 
         # --- 5. 生成“持续性状态” ---
         break_condition = df['close_D'] < df[break_ma_col]
@@ -320,7 +320,7 @@ class BehavioralIntelligence:
             state_name='STRUCTURE_POST_ACCUMULATION_ASCENT_C'
         )
         states['STRUCTURE_POST_ACCUMULATION_ASCENT_C'] = ascent_state
-        print(f"          -> [最终状态] “初升浪”结构状态共持续 {ascent_state.sum()} 天 (STRUCTURE_POST_ACCUMULATION_ASCENT_C)。")
+        # print(f"          -> [最终状态] “初升浪”结构状态共持续 {ascent_state.sum()} 天 (STRUCTURE_POST_ACCUMULATION_ASCENT_C)。")
             
         return states
 

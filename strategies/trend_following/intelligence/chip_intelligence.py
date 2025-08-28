@@ -155,8 +155,8 @@ class ChipIntelligence:
         is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6 | chip_risk_7 | chip_risk_8)
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
         
-        if is_chip_structure_unhealthy.any():
-            print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
+        # if is_chip_structure_unhealthy.any():
+            # print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
         
         return states, triggers
 
@@ -504,8 +504,8 @@ class ChipIntelligence:
         # 3. 最终裁定：结构与战场的完美共振
         final_signal = is_chip_locked & is_in_early_stage
         states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = final_signal
-        if final_signal.any():
-            print(f"          -> [S级机会确认] 侦测到 {final_signal.sum()} 次“筹码结构黄金机会”！")
+        # if final_signal.any():
+        #     print(f"          -> [S级机会确认] 侦测到 {final_signal.sum()} 次“筹码结构黄金机会”！")
         return states
 
     def diagnose_chip_price_divergence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

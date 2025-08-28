@@ -68,7 +68,7 @@ class OffensiveLayer:
         # 4.2 创建前置条件：只有阵地分达标的日子，动能信号才有资格计分
         dynamic_precondition_met = (positional_score >= min_pos_score_for_dyn)
         if dynamic_precondition_met.any():
-            print(f"          -> [动能催化剂] 在 {dynamic_precondition_met.sum()} 天满足阵地分门槛(>={min_pos_score_for_dyn})，动能信号被激活。")
+            # print(f"          -> [动能催化剂] 在 {dynamic_precondition_met.sum()} 天满足阵地分门槛(>={min_pos_score_for_dyn})，动能信号被激活。")
             for signal_name, score in dynamic_rules.items():
                 signal_series = atomic_states.get(signal_name, default_series)
                 # 核心逻辑：信号必须同时满足自身触发条件 和 阵地分达标的前置条件
