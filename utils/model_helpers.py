@@ -8,9 +8,46 @@ from stock_models.time_trade import (
     StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ,
     AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC,
     AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ, StockDailyBasic_CY,
-    StockDailyBasic_SZ, StockDailyBasic_KC, StockDailyBasic_SH, StockDailyBasic_BJ
+    StockDailyBasic_SZ, StockDailyBasic_KC, StockDailyBasic_SH, StockDailyBasic_BJ,
+    StockMinuteData_1_SZ, StockMinuteData_5_SZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_60_SZ,
+    StockMinuteData_1_CY, StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY,
+    StockMinuteData_1_SH, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH,
+    StockMinuteData_1_KC, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
+    StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
 )
+from typing import Type, Optional
+from django.db import models
 
+def get_minute_data_model_by_code_and_timelevel(stock_code: str, time_level_str: str) -> Optional[Type[models.Model]]:
+    """
+    根据股票代码和分钟级别字符串返回对应的分钟线数据分表Model。
+    Args:
+        stock_code (str): 股票代码，例如 '000001.SZ'。
+        time_level_str (str): 分钟级别字符串，例如 '1', '5', '15', '30', '60'。
+    Returns:
+        Optional[Type[models.Model]]: 对应的Django模型类，如果未找到则为 None。
+    """
+    if not time_level_str.isdigit():
+        print(f"调试信息: 分钟线级别 '{time_level_str}' 必须是数字字符串。")
+        return None
+
+    model_map = None
+    if stock_code.endswith('.SZ'):
+        base_map = {'1': StockMinuteData_1_SZ, '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ}
+        cy_map = {'1': StockMinuteData_1_CY, '5': StockMinuteData_5_CY, '15': StockMinuteData_15_CY, '30': StockMinuteData_30_CY, '60': StockMinuteData_60_CY}
+        model_map = cy_map if stock_code.startswith('3') else base_map
+    elif stock_code.endswith('.SH'):
+        base_map = {'1': StockMinuteData_1_SH, '5': StockMinuteData_5_SH, '15': StockMinuteData_15_SH, '30': StockMinuteData_30_SH, '60': StockMinuteData_60_SH}
+        kc_map = {'1': StockMinuteData_1_KC, '5': StockMinuteData_5_KC, '15': StockMinuteData_15_KC, '30': StockMinuteData_30_KC, '60': StockMinuteData_60_KC}
+        model_map = kc_map if stock_code.startswith('68') else base_map
+    elif stock_code.endswith('.BJ'):
+        model_map = {'1': StockMinuteData_1_BJ, '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ}
+    
+    if model_map and time_level_str in model_map:
+        return model_map[time_level_str]
+    else:
+        print(f"调试信息: 未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的分钟线数据库模型。")
+        return None
 
 def get_daily_data_model_by_code(stock_code: str):
     """
