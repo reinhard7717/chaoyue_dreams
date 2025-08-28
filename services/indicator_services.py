@@ -197,12 +197,16 @@ class IndicatorService:
         Returns:
             Optional[pd.DataFrame]: 包含原始 OHLCV 数据的 DataFrame，如果获取失败则为 None。
         """
+        # 预处理 time_level 字符串，移除 'min' 后缀，以匹配 DAO 层的模型查找逻辑
+        processed_time_level = str(time_level).lower()
+        if processed_time_level.endswith('min'):
+            processed_time_level = processed_time_level.replace('min', '')
         # ▼▼▼【代码修改 V117.28】: 确保获取实时数据 ▼▼▼
         # 如果 trade_time 未提供（例如在实时触发的场景），则使用当前时间作为查询终点。
         # 这确保了DAO层能够获取到截至目前的最新数据，包括当天的盘中K线。
         df = await self.indicator_dao.get_history_ohlcv_df(
             stock_code=stock_code, 
-            time_level=time_level, 
+            time_level=processed_time_level,
             limit=needed_bars, 
             trade_time=trade_time # 直接传递，不做任何处理
         )
