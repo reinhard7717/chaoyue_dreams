@@ -172,14 +172,14 @@ def save_stocks_minute_data_batch(stock_codes: list, trade_date_str: str, cache_
         stock_codes: 股票代码列表
         trade_date_str: 需要获取数据的交易日字符串 (格式: 'YYYY-MM-DD')
     """
-    # [修改] 直接使用传入的 trade_date_str 参数，不再内部计算日期
+    # 直接使用传入的 trade_date_str 参数，不再内部计算日期
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     
-    # [修改] 根据传入的日期构造时间范围
+    # 根据传入的日期构造时间范围
     start_date_str = f"{trade_date_str} 00:00:00"
     end_date_str = f"{trade_date_str} 23:59:59"
     
-    # [修改] 更新日志和调试信息
+    # 更新日志和调试信息
     print(f"开始保存 {len(stock_codes)} 个股票, 交易日 {trade_date_str} 的分钟数据任务...")
     logger.info(f"开始处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
 
@@ -193,7 +193,7 @@ def save_stocks_minute_data_batch(stock_codes: list, trade_date_str: str, cache_
     
     async_to_sync(main)()
     
-    # [修改] 更新完成后的日志和调试信息
+    # 更新完成后的日志和调试信息
     print(f"保存股票 {len(stock_codes)} 个的交易日 ({trade_date_str}) 分钟级交易数据完成。")
     logger.info(f"完成处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
 
@@ -234,7 +234,7 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
     total_dispatched_batches = 0
     logger.info(f"准备为 {total_codes_count} 个股票分派任务...")
 
-    # [修改] 增加外层循环，遍历所有需要处理的交易日
+    # 增加外层循环，遍历所有需要处理的交易日
     for trade_date in trade_dates:
         trade_date_str = trade_date.strftime('%Y-%m-%d')
         logger.info(f"开始为交易日 {trade_date_str} 分派批量任务...")
@@ -244,7 +244,7 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
         for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
             if batch_codes:
-                # [修改] 调用新的工作任务，并传入股票批次和对应的交易日
+                # 调用新的工作任务，并传入股票批次和对应的交易日
                 save_stocks_minute_data_batch.s(
                     stock_codes=batch_codes, 
                     trade_date_str=trade_date_str
@@ -305,7 +305,7 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
     Args:
         num_days (int): 需要获取最近多少个交易日的数据。
     """
-    # [修改] 更新启动日志
+    # 更新启动日志
     logger.info(f"任务启动: save_stocks_daily_basic_data_latest_days_task - 获取最近 {num_days} 个交易日的基本面指标。")
 
     # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
@@ -322,14 +322,14 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
     # [新增] 用于存储每个交易日处理结果的字典
     results_summary = {}
 
-    # [修改] 循环处理获取到的每一个交易日
+    # 循环处理获取到的每一个交易日
     for trade_date in trade_dates:
         trade_date_str = trade_date.strftime('%Y-%m-%d')
         logger.info(f"开始处理交易日 {trade_date_str} 的股票基本面指标...")
         print(f"开始保存交易日 {trade_date_str} 的股票基本面指标...")
 
         async def main():
-            # [修改] 调用DAO时传入循环中的当前交易日
+            # 调用DAO时传入循环中的当前交易日
             return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=trade_date)
         
         result = async_to_sync(main)()
@@ -339,7 +339,7 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
         print(f"保存交易日 {trade_date_str} 的股票基本面指标完成。result: {result}")
         logger.info(f"处理交易日 {trade_date_str} 的数据完成。")
 
-    # [修改] 更新结束日志和返回信息
+    # 更新结束日志和返回信息
     logger.info(f"任务结束: save_stocks_daily_basic_data_latest_days_task - 共处理了 {len(trade_dates)} 个交易日。")
     return {"status": "success", "processed_days": len(trade_dates), "details": results_summary}
 
@@ -537,11 +537,11 @@ def save_month_data_yesterday_task(cache_manager=None):
     retry_backoff_max=300
 )
 @with_cache_manager
-# [修改] 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
+# 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
 def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, start_date_str: str = None, end_date_str: str = None, cache_manager=None):
     """
     【执行器】获取并保存【单个】股票在【指定日期或日期范围】的CYQ筹码分布数据。
-    [修改] 适配新的DAO方法，并支持日期范围。
+    适配新的DAO方法，并支持日期范围。
     """
     # print(f"执行器任务[CYQ Chips]启动: stock={stock_code}, trade_date={trade_date_str}, start_date={start_date_str}, end_date={end_date_str}")
 
@@ -555,7 +555,7 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, 
             logger.warning(f"执行器[CYQ Chips]: 未找到股票 {stock_code} 的信息，任务终止。")
             return
 
-        # [修改] 增加逻辑判断，以兼容单日和日期范围两种模式
+        # 增加逻辑判断，以兼容单日和日期范围两种模式
         start_date, end_date = None, None
         if trade_date_str:
             # 兼容旧的单日模式
@@ -571,23 +571,23 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, 
             logger.error(f"执行器[CYQ Chips]错误: 必须提供 trade_date_str 或 (start_date_str 和 end_date_str)。stock={stock_code}")
             return
 
-        # [修改] 调用DAO方法时，同时传入 start_date 和 end_date
+        # 调用DAO方法时，同时传入 start_date 和 end_date
         await stock_time_trade_dao.save_cyq_chips_for_stock(
             stock=stock_obj, 
             start_date=start_date,
-            end_date=end_date # [修改] 传入结束日期
+            end_date=end_date # 传入结束日期
         )
 
     try:
         asyncio.run(_async_task())
     except Exception as e:
-        # [修改] 完善错误日志
+        # 完善错误日志
         log_ctx = f"stock={stock_code}, trade_date={trade_date_str}, start={start_date_str}, end={end_date_str}"
         logger.error(f"执行器任务[CYQ Chips]失败: {log_ctx}, error={e}", exc_info=True)
         raise
 
 # --- 2. 分发器任务 (Dispatcher Task) ---
-# [修改] 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
+# 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.dispatch_cyq_tasks_for_date', queue='celery', bind=True)
 @with_cache_manager
 def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_str: str = None, end_date_str: str = None, cache_manager: CacheManager):
@@ -596,7 +596,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
     - 核心修改: 能够接收 start_date_str 和 end_date_str，为指定范围分发任务。
                 同时保留对 trade_date_str 的支持，以兼容旧的调用方式。
     """
-    # [修改] 增加逻辑判断，以兼容单日和日期范围两种模式
+    # 增加逻辑判断，以兼容单日和日期范围两种模式
     final_start_date_str, final_end_date_str = None, None
     log_date_info = ""
     if trade_date_str:
@@ -630,7 +630,7 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
         
         all_tasks = []
         for stock_code in all_stock_codes:
-            # [修改] 调用执行器任务时，使用新的关键字参数传递日期范围
+            # 调用执行器任务时，使用新的关键字参数传递日期范围
             all_tasks.append(save_single_stock_cyq_chips.s(
                 stock_code=stock_code, 
                 start_date_str=final_start_date_str,
@@ -689,7 +689,7 @@ def save_cyq_data_latest_days_task(num_days: int = 5):
         print("调试: 未能获取到最近的交易日列表，任务终止。")
         return {"status": "skipped", "message": "未能获取到交易日列表"}
 
-    # [修改] 核心逻辑变更：不再循环，而是确定日期范围
+    # 核心逻辑变更：不再循环，而是确定日期范围
     # trade_dates 列表是降序的（从近到远）
     end_date = trade_dates[0]      # 最近的交易日作为结束日期
     start_date = trade_dates[-1]   # 最远的交易日作为开始日期
@@ -700,7 +700,7 @@ def save_cyq_data_latest_days_task(num_days: int = 5):
     logger.info(f"获取到 {len(trade_dates)} 个交易日，确定的处理范围为: {start_date_str} 到 {end_date_str}")
     print(f"调试: 将为日期范围 {start_date_str} - {end_date_str} 调用一次分发器。")
 
-    # [修改] 一次性调用分发器，传入开始和结束日期
+    # 一次性调用分发器，传入开始和结束日期
     dispatch_cyq_tasks_for_date.delay(
         start_date_str=start_date_str,
         end_date_str=end_date_str

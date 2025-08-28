@@ -335,7 +335,10 @@
             "DYN_AGGRESSIVE_OFFENSE_A": 250,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
             "DYN_TREND_HEALTHY_ACCELERATING": 120,
-            "CHIP_DYN_S_ACCEL_CONCENTRATING": 120
+            "CHIP_DYN_S_ACCEL_CONCENTRATING": 120,
+            "MECHANICS_CHIP_ACCUMULATION_MOMENTUM": 150,
+            "CHIP_DYN_HEALTH_IMPROVING": 100,
+            "CHIP_DYN_WINNER_PROFIT_MARGIN_RISING": 80
           }
         },
         "positional_acceleration_scoring": {
@@ -376,7 +379,9 @@
             "CHIP_DYN_HEALTH_DETERIORATING": 150,
             "RISK_BEHAVIOR_WINNERS_FLEEING_C": 150,
             "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 120,
-            "HOLD_RISK_HEALTH_STALLING": 100
+            "HOLD_RISK_HEALTH_STALLING": 100,
+            "MECHANICS_CHIP_DISTRIBUTION_MOMENTUM": 200,
+            "CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING": 150
           }
         },
         "critical_exit_params": {
@@ -582,6 +587,8 @@
           "CHIP_DYN_COST_ACCELERATING": { "cn_name": "【筹码】成本加速抬升", "type": "dynamic" },
           "CHIP_DYN_HEALTH_IMPROVING": { "cn_name": "【筹码】健康度改善", "type": "dynamic" },
           "CHIP_DYN_WINNER_RATE_RISING": { "cn_name": "【筹码】获利盘比例上升", "type": "dynamic" },
+          "CHIP_DYN_WINNER_PROFIT_MARGIN_RISING": { "cn_name": "【筹码】利润垫抬升", "type": "dynamic" },
+          "MECHANICS_CHIP_ACCUMULATION_MOMENTUM": { "cn_name": "【力学】筹码吸筹动能", "type": "dynamic" },
           "说明_CONTEXT": "--- 环境加分 (Context) ---",
           "BONUS_CONTEXT_MAIN_UPTREND": { "cn_name": "【环境】主升浪加成", "type": "context" },
           "BONUS_CONTEXT_STRONG_TREND": { "cn_name": "【环境】强趋势加成", "type": "context" },
@@ -644,6 +651,8 @@
           "DYN_TREND_TOPPING_DIVERGENCE": { "cn_name": "【动能】顶部背离", "type": "risk" },
           "CHIP_DYN_OBJECTIVE_DIVERGING": { "cn_name": "【筹码】客观发散", "type": "risk" },
           "CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING": { "cn_name": "【筹码】客观加速发散", "type": "risk" },
+          "MECHANICS_CHIP_DISTRIBUTION_MOMENTUM": { "cn_name": "【力学】筹码派发动能", "type": "risk" },
+          "CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING": { "cn_name": "【筹码】利润垫收缩", "type": "risk" },
           "说明_TRIGGER": "--- 触发器 (Trigger) ---",
           "TRIGGER_CHIP_IGNITION": { "cn_name": "【触发】筹码点火", "type": "context" },
           "VOL_BREAKOUT_FROM_SQUEEZE": { "cn_name": "【触发】波动压缩后突破", "type": "context" },
@@ -903,7 +912,8 @@
               "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
               "RISK_BEHAVIOR_WINNERS_FLEEING",
               "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
-              "STRUCTURE_TOPPING_DANGER_S"
+              "STRUCTURE_TOPPING_DANGER_S",
+              "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN"
             ],
             "description": "【硬性否决】S级红线风险列表。只要触发其中任何一个，无论分数多高，都禁止开仓。"
           },

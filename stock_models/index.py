@@ -182,7 +182,7 @@ class TradeCalendar(models.Model):
         # 2. 将QuerySet物化为列表
         trade_dates_list = list(trade_dates_queryset)
         
-        # [修改] 增加Python层面的强制排序，作为最终保障
+        # 增加Python层面的强制排序，作为最终保障
         # 确保无论底层数据库行为如何，返回的列表都是严格降序的（从近到远）
         trade_dates_list.sort(reverse=True)
         

@@ -292,7 +292,7 @@ class BehavioralIntelligence:
         
         # 条件B: 结合其他盘整信号，增加确定性
         is_other_setup = (
-            self.strategy.atomic_states.get('BOX_STATE_HEALTHY_ACCUMULATION', default_series) |
+            self.strategy.atomic_states.get('STRUCTURE_BOX_ACCUMULATION_A', default_series) |
             self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         )
         

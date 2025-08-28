@@ -78,7 +78,7 @@ class ChipIntelligence:
             # print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
 
         # --- 步骤 5: A/S 级静态结果与复合机会诊断 (直接使用预计算列) ---
-       # --- A级动态阈值 (新增) ---
+        # --- A级动态阈值 ---
         locked_conc_quantile = get_param_value(p_struct.get('locked_concentration_quantile'), 0.10) # 筹码集中度必须优于过去90%的时间
         cost_stability_quantile = get_param_value(p_struct.get('cost_stability_quantile'), 0.20) # 成本波动必须小于过去80%的时间
         
@@ -113,15 +113,25 @@ class ChipIntelligence:
         worsening_threshold = 1.05
         concentration_21d_ago = df[conc_col].shift(21)
         is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
-        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = is_concentration_worsened & is_in_high_level_zone
+        # 增加21日筹码集中度斜率为正的条件，直接判断筹码发散趋势
+        is_21d_slope_diverging = df[conc_slope_21d_col] > 0
+        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = (is_concentration_worsened | is_21d_slope_diverging) & is_in_high_level_zone
 
         # 风险诊断2: 筹码集中趋势恶化拐点。直接使用预计算的 'ACCEL_21_concentration_90pct_D' 列。
         is_worsening_turn = (df[conc_accel_21d_col] > 0) & (df[conc_accel_21d_col].shift(1) <= 0)
         states['RISK_CHIP_CONC_ACCEL_WORSENING'] = is_worsening_turn
         # if is_worsening_turn.any():
         #     print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
+
+        # 风险诊断3: 价格筹码顶背离 (S级风险)
+        # 逻辑：价格创近期新高，但筹码集中度却在发散（SLOPE_5_concentration_90pct_D > 0）
+        is_price_new_high = df['close_D'] > df['close_D'].rolling(window=20, min_periods=1).max().shift(1)
+        is_chip_diverging_short_term = df[conc_slope_col] > 0
+        states['RISK_CHIP_PRICE_DIVERGENCE'] = is_price_new_high & is_chip_diverging_short_term & is_in_high_level_zone
+        # if states['RISK_CHIP_PRICE_DIVERGENCE'].any():
+        #     print(f"            -> [S级风险] 侦测到 {states['RISK_CHIP_PRICE_DIVERGENCE'].sum()} 次“价格筹码顶背离”！")
         
-       # --- 终极风险信号合成 ---
+        # --- 终极风险信号合成 ---
         # print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
         # 原材料1: 筹码正在发散 (最核心的风险)
         chip_risk_1 = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
@@ -135,9 +145,13 @@ class ChipIntelligence:
         chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series)
         # 原材料6: 获利盘恐慌加速出逃 (来自更底层的微观结构分析)
         chip_risk_6 = self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
+        # 原材料7: 价格筹码顶背离 (来自本模块)
+        chip_risk_7 = states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series)
+        # 原材料8: 筹码健康度恶化 (来自diagnose_chip_dynamics)
+        chip_risk_8 = self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
 
         # 最终裁定：只要上述任一高风险信号出现，就认为筹码结构严重失效
-        is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6)
+        is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6 | chip_risk_7 | chip_risk_8)
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
         
         if is_chip_structure_unhealthy.any():
@@ -254,7 +268,6 @@ class ChipIntelligence:
             states['CHIP_DYN_WINNER_RATE_RISING'] = df[winner_rate_slope_col] > 0
         return states
 
-
     def diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V341.2 加速度增强版】高级筹码“风险与行为”情报诊断模块
@@ -312,6 +325,7 @@ class ChipIntelligence:
         is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
         
         # 增加上下文过滤器，确保只在底部反向或趋势反转时应用此左侧信号
+        states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = is_sharp_drop & is_panic_selling & is_safe_context
         states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating & is_safe_context
 
         # 打印情报
@@ -324,7 +338,6 @@ class ChipIntelligence:
         #     print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
 
         return states
-
 
     def diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -511,5 +524,69 @@ class ChipIntelligence:
         
         # 3. 组合成最终的顶背离风险信号
         states['RISK_CHIP_PRICE_DIVERGENCE'] = is_new_high & is_chip_diverging
+        return states
+
+    def diagnose_chip_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V320.0 数据驱动版】筹码动态诊断模块
+        - 核心重构: 完全重构为直接消费数据层预计算好的“斜率”和“加速度”列。
+                    不再进行任何动态计算，显著提升了性能和代码的健壮性。
+        """
+        # print("        -> [筹码动态诊断模块 V320.0 数据驱动版] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
+            'SLOPE_5_total_winner_rate_D', 'ACCEL_21_total_winner_rate_D',
+            'SLOPE_5_chip_health_score_D', # [新增] 筹码健康度斜率
+            'SLOPE_5_winner_profit_margin_D' # [新增] 获利盘利润垫斜率
+        ]
+        if any(col not in df.columns for col in required_cols):
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            print(f"          -> [警告] 缺少筹码动态诊断所需列，模块跳过。缺失: {missing_cols}")
+            return {}
+
+        # --- 2. 筹码集中/发散动态 (速度与加速度) ---
+        # 筹码集中：5日集中度斜率为负 (集中度数值越小代表越集中)
+        states['CHIP_DYN_CONCENTRATING'] = df['SLOPE_5_concentration_90pct_D'] < 0
+        # 筹码加速集中：5日集中度加速度为负 (集中趋势在强化)
+        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = df['ACCEL_5_concentration_90pct_D'] < 0
+        # 筹码发散：5日集中度斜率为正
+        states['CHIP_DYN_DIVERGING'] = df['SLOPE_5_concentration_90pct_D'] > 0
+        # 筹码加速发散：5日集中度加速度为正
+        states['CHIP_DYN_ACCEL_DIVERGING'] = df['ACCEL_5_concentration_90pct_D'] > 0
+
+        # --- 3. 成本动态 (速度与加速度) ---
+        # 成本抬升：5日成本峰斜率为正
+        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
+        # 成本加速抬升：5日成本峰加速度为正
+        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0
+        # 成本松动：5日成本峰斜率为负
+        states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
+
+        # --- 4. 获利盘动态 (速度与加速度) ---
+        # 获利盘比例上升：5日获利盘比例斜率为正
+        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
+        # 获利盘崩盘：5日获利盘比例斜率为负
+        states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < 0
+        # 获利盘加速崩盘：21日获利盘比例加速度为负
+        states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_21_total_winner_rate_D'] < 0
+
+        # --- 5. 筹码健康度动态 (速度) ---
+        # 筹码健康度改善：5日筹码健康度斜率为正 且 筹码集中度在增加
+        states['CHIP_DYN_HEALTH_IMPROVING'] = (df['SLOPE_5_chip_health_score_D'] > 0) & states['CHIP_DYN_CONCENTRATING']
+        # 筹码健康度恶化：5日筹码健康度斜率为负 且 筹码集中度在发散
+        states['CHIP_DYN_HEALTH_DETERIORATING'] = (df['SLOPE_5_chip_health_score_D'] < 0) & states['CHIP_DYN_DIVERGING']
+        
+        # --- 6. 获利盘利润垫动态 (速度) ---
+        # 获利盘利润垫抬升：5日获利盘利润垫斜率为正
+        states['CHIP_DYN_WINNER_PROFIT_MARGIN_RISING'] = df['SLOPE_5_winner_profit_margin_D'] > 0
+        # 获利盘利润垫收缩：5日获利盘利润垫斜率为负
+        states['CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING'] = df['SLOPE_5_winner_profit_margin_D'] < 0
+
+        # print("        -> [筹码动态诊断模块 V320.0] 分析完毕。")
         return states
 

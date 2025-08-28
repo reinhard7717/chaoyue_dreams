@@ -73,7 +73,7 @@ def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.d
     print(f"调试信息：子任务 {task_id} ({method_name}) 执行成功。")
     return {"status": "success", "method": method_name, "task_id": task_id}
 
-# [修改] 原任务被重构为编排和分派任务
+# 原任务被重构为编排和分派任务
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_today():
     """
@@ -145,7 +145,7 @@ def execute_fund_flow_dao_method(method_name: str, trade_date: str, cache_manage
     print(f"调试信息：子任务 {task_id} ({method_name}) 执行成功。")
     return {"status": "success", "method": method_name, "task_id": task_id}
     
-# [修改] 原任务被重构为编排和分派任务
+# 原任务被重构为编排和分派任务
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_yesterday', queue='SaveHistoryData_TimeTrade')
 def save_fund_flow_daily_data_yesterday():
     """
@@ -202,7 +202,7 @@ def execute_save_fund_flow_method(method_name: str, start_date: str, end_date: s
         logger.error(f"子任务 {task_id} ({method_name}) 执行失败: {e}", exc_info=True)
         raise
 
-# [修改] 原任务被重构为编排和分派任务
+# 原任务被重构为编排和分派任务
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_data_this_week_task', queue='celery')
 def save_fund_flow_data_this_week_task():
     """
@@ -247,15 +247,15 @@ def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date:
     fund_flow_dao = FundFlowDao(cache_manager)
     # [优化] 定义一个异步主函数来使用asyncio.gather并发执行所有数据获取任务
     async def main():
-        # [修改] 将三个独立的异步任务放入一个列表中
+        # 将三个独立的异步任务放入一个列表中
         tasks = [
             fund_flow_dao.save_history_fund_flow_daily_data(start_date=start_date, end_date=end_date),
             fund_flow_dao.save_history_fund_flow_daily_ths_data(start_date=start_date, end_date=end_date),
             fund_flow_dao.save_history_fund_flow_daily_dc_data(start_date=start_date, end_date=end_date)
         ]
-        # [修改] 使用 asyncio.gather 并发运行所有任务，并设置 return_exceptions=True 以便捕获所有异常而不是中途停止
+        # 使用 asyncio.gather 并发运行所有任务，并设置 return_exceptions=True 以便捕获所有异常而不是中途停止
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        # [修改] 检查每个任务的结果，进行精细化的日志记录
+        # 检查每个任务的结果，进行精细化的日志记录
         source_names = ["Tushare", "同花顺", "东方财富"]
         has_error = False
         for name, result in zip(source_names, results):
@@ -265,14 +265,14 @@ def save_fund_flow_daily_data_history_batch(start_date: datetime.date, end_date:
             else:
                 logger.info(f"数据源 [{name}] 在处理日期范围 {start_date}-{end_date} 时成功。")
         return not has_error # 如果没有错误，返回True
-    # [修改] 只需调用一次 async_to_sync() 来执行异步主函数
+    # 只需调用一次 async_to_sync() 来执行异步主函数
     success = async_to_sync(main)()
     if success:
         logger.info(f"成功完成日期范围 {start_date}-{end_date} 的所有资金流数据保存任务。")
         return {"status": "success"}
     else:
         logger.warning(f"日期范围 {start_date}-{end_date} 的资金流数据保存任务部分失败。")
-        # [修改] 即使部分失败，也认为是可接受的完成，以便Celery不重试。错误已记录。
+        # 即使部分失败，也认为是可接受的完成，以便Celery不重试。错误已记录。
         return {"status": "partial_success"}
 
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_history_task', queue='celery')

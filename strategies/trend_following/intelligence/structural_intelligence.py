@@ -380,6 +380,21 @@ class StructuralIntelligence:
         # 成本企稳减速：成本仍在抬高（斜率为正），但加速度已转负，表明拉升速度放缓，可能进入平台整理或洗盘阶段。
         is_cost_accel_negative = df['ACCEL_5_peak_cost_D'] < 0
         states['MECHANICS_COST_STABILIZING'] = is_cost_slope_positive & is_cost_accel_negative
+        
+        # --- 5. 筹码驱动动能诊断 (Chip-driven Momentum Diagnosis) ---
+        # 筹码吸筹动能：筹码集中度在增加 (SLOPE_5_concentration_90pct_D < 0) 且 成本峰在抬升 (SLOPE_5_peak_cost_D > 0)
+        is_chip_concentrating = df['SLOPE_5_concentration_90pct_D'] < 0
+        is_cost_rising = df['SLOPE_5_peak_cost_D'] > 0
+        states['MECHANICS_CHIP_ACCUMULATION_MOMENTUM'] = is_chip_concentrating & is_cost_rising
+        if states['MECHANICS_CHIP_ACCUMULATION_MOMENTUM'].any():
+            print(f"          -> [力学情报] 侦测到 {states['MECHANICS_CHIP_ACCUMULATION_MOMENTUM'].sum()} 次“筹码吸筹动能”信号！")
+
+        # 筹码派发动能：筹码集中度在发散 (SLOPE_5_concentration_90pct_D > 0) 且 成本峰在下降 (SLOPE_5_peak_cost_D < 0)
+        is_chip_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
+        is_cost_falling = df['SLOPE_5_peak_cost_D'] < 0
+        states['MECHANICS_CHIP_DISTRIBUTION_MOMENTUM'] = is_chip_diverging & is_cost_falling
+        if states['MECHANICS_CHIP_DISTRIBUTION_MOMENTUM'].any():
+            print(f"          -> [力学情报] 侦测到 {states['MECHANICS_CHIP_DISTRIBUTION_MOMENTUM'].sum()} 次“筹码派发动能”信号！")
 
         # print("        -> [结构力学诊断引擎 V401.1] 分析完毕。")
         return states

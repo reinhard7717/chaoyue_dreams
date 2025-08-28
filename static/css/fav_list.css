@@ -128,12 +128,12 @@
 
 #fav-trend-table .col-setup {
     width: 20%;
-    /* [修改] 减少宽度 */
+    /* 减少宽度 */
 }
 
 #fav-trend-table .col-tracking {
     width: 46%;
-    /* [修改] 显著增加宽度 */
+    /* 显著增加宽度 */
 }
 
 #fav-trend-table .col-actions {

@@ -49,7 +49,7 @@ class PlaybookEngine:
             # “箱体底部反转”剧本
             {
                 'name': 'PLAYBOOK_BOX_REVERSAL_B',
-                'setup': ['BOX_STATE_HEALTHY_CONSOLIDATION', 'VOL_STATE_SQUEEZE_WINDOW'],
+                'setup': ['STRUCTURE_BOX_ACCUMULATION_A', 'VOL_STATE_SQUEEZE_WINDOW'],
                 'trigger': ['TRIGGER_BOX_BOTTOM_REVERSAL'],
                 'comment': 'B级 - 在健康箱体或压缩区底部，出现反转信号，执行低吸。'
             }

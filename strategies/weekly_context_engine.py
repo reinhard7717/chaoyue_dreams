@@ -423,7 +423,7 @@ class WeeklyContextEngine:
         slope_was_not_positive = slope.shift(1) <= 0
         condition1_turn_up = slope_is_positive & slope_was_not_positive
         
-        # 条件2 (新增): 加速度必须为正，且大于阈值，确保是“有力”的拐头
+        # 条件2: 加速度必须为正，且大于阈值，确保是“有力”的拐头
         condition2_is_accelerating = acceleration > accel_threshold
 
         # 条件3: 收盘价在均线之上作为确认
@@ -504,7 +504,7 @@ class WeeklyContextEngine:
         avg_volume = df['volume_W'].shift(1).rolling(window=lookback_weeks).mean()
         is_volume_breakout = df['volume_W'] > (avg_volume * volume_multiplier)
         
-        # 条件3 (新增): 趋势动能确认
+        # 条件3: 趋势动能确认
         # 要求突破发生时，周线级别的趋势速度必须是正向的
         slope_threshold = params.get('slope_threshold', 0) # 允许在JSON中配置最小斜率
         is_trend_supportive = df[slope_col] > slope_threshold
@@ -545,7 +545,7 @@ class WeeklyContextEngine:
         support_level_with_tolerance = df[mid_col] * (1 - tolerance_pct)
         price_above_support_zone = df['close_W'] > support_level_with_tolerance
 
-        # 条件3 (新增): 核心趋势线必须向上运行
+        # 条件3: 核心趋势线必须向上运行
         slope_threshold = params.get('slope_threshold', 0)
         is_core_ma_rising = df[mid_slope_col] > slope_threshold
         
@@ -726,7 +726,7 @@ class WeeklyContextEngine:
         condition1_is_golden_cross = (df[trix_col] > df[trix_signal_col]) & \
                                      (df[trix_col].shift(1) <= df[trix_signal_col].shift(1))
         
-        # 条件2 (新增): TRIX线自身斜率必须大于阈值，确保是强力金叉
+        # 条件2: TRIX线自身斜率必须大于阈值，确保是强力金叉
         trix_slope = df[trix_col].diff(1)
         condition2_is_strong_momentum = trix_slope > slope_threshold
 

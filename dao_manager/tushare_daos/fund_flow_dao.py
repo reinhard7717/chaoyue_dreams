@@ -105,7 +105,7 @@ class FundFlowDao(BaseDAO):
             # 内层分页循环 (此逻辑保持不变，但现在作用于小块)
             while True:
                 try:
-                    # [修改] API调用现在使用分块的起止日期
+                    # API调用现在使用分块的起止日期
                     df = self.ts_pro.moneyflow(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
@@ -131,7 +131,7 @@ class FundFlowDao(BaseDAO):
                     break # 当前分块的数据已全部获取完毕
                 
                 offset += limit
-                # [修改] 移除旧的10万行限制逻辑，因为分块策略使其不再必要
+                # 移除旧的10万行限制逻辑，因为分块策略使其不再必要
         
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何资金流向数据。")
@@ -238,7 +238,7 @@ class FundFlowDao(BaseDAO):
             
             while True:
                 try:
-                    # [修改] API调用现在使用分块的起止日期，并调用 moneyflow_ths 接口
+                    # API调用现在使用分块的起止日期，并调用 moneyflow_ths 接口
                     df = self.ts_pro.moneyflow_ths(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
@@ -273,11 +273,11 @@ class FundFlowDao(BaseDAO):
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
-        # [修改] 一次性批量获取所有涉及的股票信息
+        # 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
-        # [修改] 使用向量化操作进行数据关联和清洗
+        # 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
@@ -285,16 +285,16 @@ class FundFlowDao(BaseDAO):
             return
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # [修改] 调用 get_fund_flow_ths_model_by_code 进行动态分表模型匹配
+        # 调用 get_fund_flow_ths_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_ths_model_by_code)
 
         total_rows = 0
-        # [修改] 按目标模型（即目标数据表）进行分组并批量保存
+        # 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
             
-            # [修改] 准备最终要存入数据库的数据，丢弃辅助列
+            # 准备最终要存入数据库的数据，丢弃辅助列
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
 
@@ -373,7 +373,7 @@ class FundFlowDao(BaseDAO):
             
             while True:
                 try:
-                    # [修改] API调用现在使用分块的起止日期，并调用 moneyflow_dc 接口
+                    # API调用现在使用分块的起止日期，并调用 moneyflow_dc 接口
                     df = self.ts_pro.moneyflow_dc(**{
                         "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
@@ -408,11 +408,11 @@ class FundFlowDao(BaseDAO):
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
-        # [修改] 一次性批量获取所有涉及的股票信息
+        # 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
         
-        # [修改] 使用向量化操作进行数据关联和清洗
+        # 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
@@ -420,16 +420,16 @@ class FundFlowDao(BaseDAO):
             return
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        # [修改] 调用 get_fund_flow_dc_model_by_code 进行动态分表模型匹配
+        # 调用 get_fund_flow_dc_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_dc_model_by_code)
 
         total_rows = 0
-        # [修改] 按目标模型（即目标数据表）进行分组并批量保存
+        # 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
             
-            # [修改] 准备最终要存入数据库的数据，丢弃辅助列。注意：'name'字段在DC模型中是需要的，所以不丢弃。
+            # 准备最终要存入数据库的数据，丢弃辅助列。注意：'name'字段在DC模型中是需要的，所以不丢弃。
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
 
@@ -1083,7 +1083,7 @@ class FundFlowDao(BaseDAO):
         api_limit_key = f"api_limit:hm_detail:{date.today().isoformat()}"
         API_DAILY_LIMIT = 2 # 每日API调用上限
 
-        # --- 2. [修改] 调整分页获取逻辑以集成限制检查 ---
+        # --- 2. 调整分页获取逻辑以集成限制检查 ---
         all_dfs = []
         offset = 0
         limit = 2000

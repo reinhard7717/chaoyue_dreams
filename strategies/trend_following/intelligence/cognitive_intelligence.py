@@ -83,17 +83,27 @@ class CognitiveIntelligence:
         is_slope_weakening = df['SLOPE_5_EMA_13_D'] < 0.001
         states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & is_slope_weakening
         
-        # 2.3 筹码维度 (新增)
+        # 2.3 筹码维度
         # 定义：筹码结构出现持续性恶化（短期和中期趋势都在发散）
         is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
         is_mid_term_diverging = df['SLOPE_21_concentration_90pct_D'] > 0
         states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] = is_short_term_diverging & is_mid_term_diverging
+        
+        # 2.4 动态对倒嫌疑 (S级风险)
+        # 逻辑：成交量放大 (SLOPE_5_volume_D > 0) 但资金效率下降 (SLOPE_5_VPA_EFFICIENCY_D < 0) 且筹码发散 (SLOPE_5_concentration_90pct_D > 0)
+        is_volume_increasing = df['SLOPE_5_volume_D'] > 0
+        is_vpa_efficiency_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
+        is_chip_diverging_for_churn = df['SLOPE_5_concentration_90pct_D'] > 0
+        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
+        if states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].any():
+            print(f"          -> [S级风险] 侦测到 {states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()} 次“动态对倒嫌疑”！")
 
-        # 2.4 融合生成“危险战区”状态 (纳入新维度)
+        # 2.5 融合生成“危险战区”状态 (纳入新维度)
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
             states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | 
             states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] |
-            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] #的或逻辑
+            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] |
+            states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] # 纳入动态对倒嫌疑
         )
         return states
 
@@ -147,7 +157,15 @@ class CognitiveIntelligence:
             # 维度 5: 成交量剖析 (VPA)
             {'condition': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', default_series) | self.strategy.atomic_states.get('RISK_VPA_VOLUME_ACCELERATING', default_series), 'score': 25},
             # 维度 6: 波动率扩张
-            {'condition': self.strategy.atomic_states.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25}
+            {'condition': self.strategy.atomic_states.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25},
+            # 维度 7: 价格筹码顶背离
+            {'condition': self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series), 'score': 25},
+            # 维度 8: 获利盘恐慌加速出逃
+            {'condition': self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series), 'score': 25},
+            # 维度 9: 筹码派发动能
+            {'condition': self.strategy.atomic_states.get('MECHANICS_CHIP_DISTRIBUTION_MOMENTUM', default_series), 'score': 25},
+            # 维度 10: 筹码健康度恶化
+            {'condition': self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25}
         ]
         
         # 步骤 2.2: 循环遍历风险维度，累加分数
@@ -156,8 +174,8 @@ class CognitiveIntelligence:
         
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
-        # 步骤 2.3: 升级布尔信号的阈值，保持相对严格性 (3 out of 6)。
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 75
+        # 风险维度增加到10个，因此阈值也需要相应调整，例如从100分（4/8）调整到125分（5/10）
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 125
 
         return states
 
@@ -246,8 +264,8 @@ class CognitiveIntelligence:
             self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) | # 主峰高位派发
             self.strategy.atomic_states.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) | # 获利盘长期出逃
             self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series) |              # 筹码结构发散
-            self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |      # [新增] 价格筹码顶背离
-            self.strategy.atomic_states.get('RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS', default_series) # [新增] S+级获利盘加速出逃
+            self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |      # 价格筹码顶背离
+            self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)     # S+级获利盘加速出逃，修正信号名称
         )
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
@@ -263,7 +281,7 @@ class CognitiveIntelligence:
                     解决了因引用不存在的信号而导致整个模块失效的严重问题。
         - 优化说明: 原始实现通过for循环遍历DataFrame并使用.at/.iloc进行读写，效率低下。
                     优化后的版本将所有条件判断所需的Series预先转换为NumPy数组，
-                    在循环中直接对NumPy数组进行索引和赋值。这避免了pandas索引的巨大开销，
+                    在循环中直接对NumPy数组进行索引和赋值。这避免了Python层面的循环，
                     使得循环体内的操作非常快，显著提升了整体性能。
         """
         # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---")
@@ -271,7 +289,7 @@ class CognitiveIntelligence:
         # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
         conditions = {
             'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_inflow': self.strategy.atomic_states.get('CAPITAL_STATE_INFLOW_CONFIRMED', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 'is_inflow': self.strategy.atomic_states.get('CAPITAL_STATE_INFLOW_CONFIRMED', pd.Series(False, index=df.index)).to_numpy(dtype=bool), # [修改] 移除对资金流的依赖
             'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_sideways': (df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).abs() < 0.01).to_numpy(dtype=bool),
             'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
@@ -292,7 +310,9 @@ class CognitiveIntelligence:
             current_state = prev_state
 
             if prev_state == MainForceState.IDLE:
-                if conditions['is_concentrating'][i] and conditions['is_inflow'][i]: current_state = MainForceState.ACCUMULATING
+                # [修改开始] 移除对资金流的依赖，仅基于筹码集中判断吸筹
+                if conditions['is_concentrating'][i]: current_state = MainForceState.ACCUMULATING
+                # [修改结束]
             elif prev_state == MainForceState.ACCUMULATING:
                 if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
                 elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
@@ -488,6 +508,12 @@ class CognitiveIntelligence:
         is_cost_accel_mech = atomic.get('MECHANICS_COST_ACCELERATING', default_series)
         is_conc_accel = atomic.get('CHIP_DYN_S_ACCEL_CONCENTRATING', default_series)
         is_inertia_decreasing = atomic.get('MECHANICS_INERTIA_DECREASING', default_series)
+        # 筹码吸筹动能
+        is_chip_accumulation_momentum = atomic.get('MECHANICS_CHIP_ACCUMULATION_MOMENTUM', default_series)
+        # 筹码健康度改善
+        is_chip_health_improving = atomic.get('CHIP_DYN_HEALTH_IMPROVING', default_series)
+        # 获利盘利润垫抬升
+        is_winner_profit_margin_rising = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_RISING', default_series)
 
         # 2. 计算当天有多少个动能信号被触发 (协同原则)
         # 将布尔序列转换为整数 (True=1, False=0) 并按行求和
@@ -496,11 +522,14 @@ class CognitiveIntelligence:
             is_cost_accel_chip.astype(int) +
             is_cost_accel_mech.astype(int) +
             is_conc_accel.astype(int) +
-            is_inertia_decreasing.astype(int)
+            is_inertia_decreasing.astype(int) +
+            is_chip_accumulation_momentum.astype(int) +
+            is_chip_health_improving.astype(int) +
+            is_winner_profit_margin_rising.astype(int)
         )
         
         # 定义协同进攻的原始触发条件：至少2个动能信号同时激活
-        is_synergistic_offense = (num_active_signals >= 2)
+        is_synergistic_offense = (num_active_signals >= 3)
 
         # 3. 获取战略过滤器：是否处于上涨末期
         late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
