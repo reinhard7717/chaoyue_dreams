@@ -52,6 +52,7 @@ class ChipIntelligence:
         conc_accel_col = 'ACCEL_5_concentration_90pct_D'
         conc_accel_21d_col = 'ACCEL_21_concentration_90pct_D'
         cost_slope_col = 'SLOPE_5_peak_cost_D'
+        conc_slope_21d_col = 'SLOPE_21_concentration_90pct_D'
 
         # --- 步骤 3: 动态阈值计算 (保留，因为这是策略自适应逻辑的一部分) ---
         p_struct = p.get('structure_params', {})
