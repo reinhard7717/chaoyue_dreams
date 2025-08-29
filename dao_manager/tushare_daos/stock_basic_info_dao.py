@@ -47,7 +47,7 @@ class StockBasicInfoDao(BaseDAO):
                 # 将缓存数据转换为模型实例列表            
                 for stock_dict in cached_data:
                     # logger.info(f"get_stock_list: {stock_dict}")
-                    if stock_dict.get('list_status') == 'L':
+                    if stock_dict.get('list_status') == 'L' and not stock_dict.get('stock_code', '').endswith('.BJ'):
                         return_data.append(StockInfo(**stock_dict))
             if return_data:
                 return return_data  # 直接返回模型实例列表
@@ -56,7 +56,7 @@ class StockBasicInfoDao(BaseDAO):
         try:
             # 从数据库读取
             return_data = await sync_to_async(
-                lambda: list(StockInfo.objects.filter(list_status='L').order_by('stock_code')),
+                lambda: list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').order_by('stock_code')),
                 thread_sensitive=True
             )()
             if return_data:
