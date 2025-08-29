@@ -98,7 +98,7 @@ class IntelligenceLayer:
         # print("    - [阶段2/7] 正在注入并转化周线战略情报...")
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
         # 调用战略级筹码情报诊断模块，并将其结果添加到原子状态
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_strategic_chip_states(df))
+        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
 
         # --- 阶段三: 核心原子状态生成 (第一梯队) ---
         # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
@@ -225,7 +225,7 @@ class IntelligenceLayer:
 
     def _diagnose_long_term_daily_chip_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【新增】日线长周期筹码战略上下文诊断模块
+        日线长周期筹码战略上下文诊断模块
         - 核心职责: 直接从日线数据中读取长周期筹码指标，并将其转化为原子状态。
                     这些状态将作为战略层面的上下文，影响日线策略的决策。
         """

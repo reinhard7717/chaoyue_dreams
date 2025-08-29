@@ -490,23 +490,23 @@
           },
           "long_term_chip_accumulation_bonus": {
             "value": 150,
-            "description": "【新增】当长期日线筹码处于集中状态时，提供的战略加分。"
+            "description": "当长期日线筹码处于集中状态时，提供的战略加分。"
           },
           "long_term_chip_accel_accumulation_bonus": {
             "value": 200,
-            "description": "【新增】当长期日线筹码处于加速集中状态时，提供的额外战略加分。"
+            "description": "当长期日线筹码处于加速集中状态时，提供的额外战略加分。"
           },
           "long_term_chip_health_improving_bonus": {
             "value": 100,
-            "description": "【新增】当长期日线筹码健康度改善时，提供的战略加分。"
+            "description": "当长期日线筹码健康度改善时，提供的战略加分。"
           },
           "long_term_chip_divergence_penalty": {
             "value": -200,
-            "description": "【新增】当长期日线筹码处于发散状态时，施加的战略惩罚。"
+            "description": "当长期日线筹码处于发散状态时，施加的战略惩罚。"
           },
           "long_term_chip_accel_divergence_penalty": {
             "value": -300,
-            "description": "【新增】当长期日线筹码处于加速发散状态时，施加的额外战略惩罚。"
+            "description": "当长期日线筹码处于加速发散状态时，施加的额外战略惩罚。"
           }
         },
         "judgment_params": {
