@@ -15,7 +15,6 @@ from strategies.weekly_context_engine import WeeklyContextEngine
 from utils.cache_manager import CacheManager
 from utils.config_loader import load_strategy_config
 from strategies.trend_following.utils import get_params_block, get_param_value
-from .trend_following.intelligence_layer import MainForceState
 
 
 # 初始化日志记录器
@@ -269,11 +268,6 @@ class MultiTimeframeTrendStrategy:
             vote_details.append("【筹码地基审查】投出 3 票")
             calculated_veto_votes += 3
 
-        # 推演逻辑 2: 主力行为风险 (1票)
-        main_force_state_val = probe_row.get('main_force_state', -1)
-        main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
-        print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
-        
         # 展示所有被激活的S级信号
         s_level_signals = {
             "S级主升浪": "STRUCTURE_MAIN_UPTREND_WAVE_S",
@@ -288,10 +282,6 @@ class MultiTimeframeTrendStrategy:
             print(f"    - [S级信号] 激活的S级信号: {', '.join(active_s_signals)}")
         else:
             print("    - [S级信号] 未激活任何S级信号。")
-
-        if main_force_state_str in ['DISTRIBUTING', 'COLLAPSE']:
-            vote_details.append("【主力行为审查】投出 1 票")
-            calculated_veto_votes += 1
 
         # 推演逻辑 3: 绝对否决权风险 (2票)
         veto_params = get_params_block(self.tactical_engine, 'absolute_veto_params')
@@ -333,7 +323,6 @@ class MultiTimeframeTrendStrategy:
         # --- 2. 核心决策依据 ---
         print("\n  --- 2. 核心决策依据 ---")
         dynamic_action = probe_row.get('dynamic_action', 'N/A')
-        print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
         print(f"    - [动态力学] 战术指令: {dynamic_action}")
 
         # --- 3. 首席法医官结论 ---

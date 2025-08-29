@@ -157,10 +157,6 @@ class JudgmentLayer:
         # 风险1: 筹码结构严重失效 (3票) - 直接使用新的融合信号
         has_critical_chip_risk = atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
         df.loc[has_critical_chip_risk, 'veto_votes'] += 3
-
-        # 风险2: 主力正在派发或崩盘 (1票)
-        is_in_distribution_phase = df['main_force_state'].isin([MainForceState.DISTRIBUTING.value, MainForceState.COLLAPSE.value])
-        df.loc[is_in_distribution_phase, 'veto_votes'] += 1
         
         # 风险3: 绝对否决信号 (2票) - 这里的逻辑可以保持，因为它处理的是更具体的、可配置的否决项
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
