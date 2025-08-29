@@ -38,7 +38,8 @@ class ChipIntelligence:
             'ACCEL_21_concentration_90pct_D',    # 21日筹码集中度加速度 (用于风险预警)
             'peak_cost_D',                       # 成本峰价格
             'SLOPE_5_peak_cost_D',               # 5日成本峰斜率
-            'ACCEL_5_peak_cost_D'               # 5日成本峰加速度 (用于点火信号)
+            'ACCEL_5_peak_cost_D',               # 5日成本峰加速度 (用于点火信号)
+            'SLOPE_21_concentration_90pct_D'     # 21日筹码集中度斜率，用于长期派发风险诊断
         ]
         # 如果任一必需列在DataFrame中不存在，则打印警告并安全退出，保证策略不会因数据缺失而崩溃。
         if any(col not in df.columns for col in required_cols):
@@ -542,8 +543,8 @@ class ChipIntelligence:
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
             'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
             'SLOPE_5_total_winner_rate_D', 'ACCEL_21_total_winner_rate_D',
-            'SLOPE_5_chip_health_score_D', # [新增] 筹码健康度斜率
-            'SLOPE_5_winner_profit_margin_D' # [新增] 获利盘利润垫斜率
+            'SLOPE_5_chip_health_score_D', # 筹码健康度斜率
+            'SLOPE_5_winner_profit_margin_D' # 获利盘利润垫斜率
         ]
         if any(col not in df.columns for col in required_cols):
             missing_cols = [col for col in required_cols if col not in df.columns]

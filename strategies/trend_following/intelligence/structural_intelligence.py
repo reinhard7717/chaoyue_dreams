@@ -55,14 +55,12 @@ class StructuralIntelligence:
         is_healthy_foundation = is_chip_concentrating | is_trend_healthy_accel
         stable_bullish = is_ma_arrangement_bullish & is_healthy_foundation
         states['MA_STATE_STABLE_BULLISH'] = stable_bullish
-        # --- 开始 ---
         # 步骤1: 定义纯粹的、基于形态的“均线空头排列”
         is_ma_arrangement_bearish = (df[short_ma] < df[mid_ma]) & (df[mid_ma] < df[long_ma])
         # 步骤2: 定义趋势的“风险确认”过滤器 (长期均线斜率必须为负)
         is_long_trend_down = df[long_ma_slope_col] < 0
         # 步骤3: 最终的“稳定空头排列” = 形态排列正确 AND 长期趋势确认向下
         states['MA_STATE_STABLE_BEARISH'] = is_ma_arrangement_bearish & is_long_trend_down
-        # --- 结束 ---
         states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[short_ma_slope_col] > 0
         states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[long_ma_slope_col] > 0
         aggressive_slope_threshold = get_param_value(p.get('aggressive_slope_threshold'), 0.01)

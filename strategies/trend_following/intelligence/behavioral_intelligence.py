@@ -161,7 +161,7 @@ class BehavioralIntelligence:
         is_shrinking_volume = df['volume_D'] < (df['VOL_MA_21_D'] * shrinking_ratio)
         
         # 条件2: 获利盘必须惜售
-        winner_turnover_low_threshold = get_param_value(p_healthy.get('max_winner_turnover_ratio'), 30.0)
+        winner_turnover_low_threshold = get_param_value(p_healthy.get('max_winner_turnover_ratio'), 40.0)
         is_winner_holding_tight = df['turnover_from_winners_ratio_D'] < winner_turnover_low_threshold
 
         # 条件3: 必须守住趋势生命线 (允许盘中跌破，但收盘价必须收复)

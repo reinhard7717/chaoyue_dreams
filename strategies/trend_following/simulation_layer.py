@@ -56,7 +56,7 @@ class SimulationLayer:
         stop_loss_enabled = get_param_value(p_stop_loss.get('enabled'), False)
         initial_stop_model = get_param_value(p_stop_loss.get('initial_stop_model'))
         atr_multiplier_for_platform = get_param_value(p_stop_loss.get('atr_multiplier_for_platform'), 0.5)
-        min_stop_loss_percent = get_param_value(p_stop_loss.get('min_stop_loss_percent'), 0.04) # 转换为小数
+        min_stop_loss_percent = get_param_value(p_stop_loss.get('min_stop_loss_percent'), 4.0) / 100.0  # 转换为小数
 
         # --- 初始化模拟状态列和变量 ---
         df['position_size'] = 0.0
@@ -119,9 +119,6 @@ class SimulationLayer:
                         exit_action = StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value
                     elif 'EXIT_CRITICAL_HIT' in triggered_reasons or 'EXIT_RISK_OVERFLOW' in triggered_reasons:
                         exit_action = StrategyDailyScore.TradeActionType.RISK_EXIT.value
-                    # 删除代码行：移除对 EXIT_STOP_LOSS 的外部依赖检查
-                    # elif 'EXIT_STOP_LOSS' in triggered_reasons: 
-                    #     exit_action = StrategyDailyScore.TradeActionType.STOP_LOSS_EXIT.value
                     
                     # print(f"  -> {current_date.date()}: [清仓离场] 触发三道防线: {', '.join(triggered_reasons)}")
                     in_position = False

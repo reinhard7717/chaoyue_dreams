@@ -824,6 +824,13 @@
           "description": "定义“筹码点火”触发器的参数。",
           "accel_threshold": 0.01
         },
+        "critical_failure_params": {
+          "enabled": true,
+          "min_required_risks": {
+            "value": 3,
+            "description": "【V320.2 风险聚合版】定义“筹码结构严重失效”所需的最小激活风险信号数量。例如3代表至少3个子风险同时激活。"
+          }
+        },
         "accel_concentration_threshold": {
             "value": -0.001,
             "description": "定义“筹码加速集中”的加速度阈值。"
