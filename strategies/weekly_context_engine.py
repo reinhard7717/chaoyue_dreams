@@ -287,8 +287,6 @@ class WeeklyContextEngine:
         score = pd.Series(0.0, index=df.index)
         # 权重配置化
         weights = self.params.get('strategic_score_weights', {})
-        # 获取原子状态，用于访问日线长周期筹码状态
-        atomic = self.strategy.atomic_states 
 
         # 1. 市场状态基础分
         score += df.get('regime_bull_vol_expansion_W', 0) * weights.get('regime_bull_vol_expansion', 3)
