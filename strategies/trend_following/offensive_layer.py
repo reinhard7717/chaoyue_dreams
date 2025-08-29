@@ -231,7 +231,7 @@ class OffensiveLayer:
                 # --- 固定加分模型逻辑 ---
                 bonus_value = rule.get('add_score', 0)
                 # 只有在条件触发且奖励分大于0时才执行
-                if condition.any() and fixed_bonus != 0:
+                if condition.any() and bonus_value != 0:
                     # 将固定的奖励分加到总分上
                     entry_score.loc[condition] += bonus_value
                     # 在详情中记录这个加分项
