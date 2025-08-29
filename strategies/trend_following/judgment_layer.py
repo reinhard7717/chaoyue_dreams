@@ -201,6 +201,16 @@ class JudgmentLayer:
         # 6.2 周线处于“战略看跌”状态，投1票 (软否决)
         is_strategic_bearish = atomic.get('CONTEXT_STRATEGIC_BEARISH_W', default_series)
         df.loc[is_strategic_bearish, 'veto_votes'] += 1
+        
+        # 风险7: 战略级筹码长期发散 (Strategic Chip Divergence)
+        # 如果日线长周期筹码集中度持续发散，即使短期有买入信号，也应谨慎。
+        is_long_term_chip_diverging = atomic.get('CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D', default_series)
+        df.loc[is_long_term_chip_diverging, 'veto_votes'] += 2 # 给予2票否决，因为长期筹码发散是严重风险
+
+        # 风险8: 战略级筹码长期发散加速 (Strategic Chip Accelerated Divergence)
+        # 长期发散且加速，是更严重的风险。
+        is_strategic_chip_accel_diverging = atomic.get('CONTEXT_CHIP_STRATEGIC_LONG_TERM_ACCEL_DIVERGENCE_W', default_series)
+        df.loc[is_strategic_chip_accel_diverging, 'veto_votes'] += 3 # 给予3票否决，最高级别风险
 
     def _finalize_signals(self):
         """

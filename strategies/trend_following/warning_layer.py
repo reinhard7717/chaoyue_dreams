@@ -75,7 +75,7 @@ class WarningLayer:
             return pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)
 
         # --- 代码修改开始 ---
-        # [修改原因] 强制将索引转换为一个名为 'trade_time' 的列，避免依赖不确定的默认列名 'index'。
+        # 强制将索引转换为一个名为 'trade_time' 的列，避免依赖不确定的默认列名 'index'。
         # 步骤1: 将当日和昨日的风险数据转换为长格式
         risk_today_long = combined_risk_details_df.reset_index(names='trade_time').melt(
             id_vars='trade_time', var_name='risk_name', value_name='score'
@@ -85,7 +85,7 @@ class WarningLayer:
         )
         
         # 步骤2: 合并数据，使每一行包含当日和昨日的分数
-        # [修改原因] 更新 merge 的 on 参数以匹配新的列名 'trade_time'。
+        # 更新 merge 的 on 参数以匹配新的列名 'trade_time'。
         merged_risks = pd.merge(risk_today_long, risk_yesterday_long, on=['trade_time', 'risk_name']).fillna(0)
         # --- 代码修改结束 ---
         
@@ -115,7 +115,7 @@ class WarningLayer:
             return group[['risk_name', 'cn_name', 'score', 'prev_score', 'change', 'change_pct']].rename(columns={'risk_name': 'name'}).round(2).to_dict('records')
 
         # --- 代码修改开始 ---
-        # [修改原因] 更新 groupby 的分组键以匹配新的列名 'trade_time'。
+        # 更新 groupby 的分组键以匹配新的列名 'trade_time'。
         grouped = active_risks.sort_values('abs_change', ascending=False).groupby(['trade_time', 'category']).apply(format_group)
         # --- 代码修改结束 ---
         

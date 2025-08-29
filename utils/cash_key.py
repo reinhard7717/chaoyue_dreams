@@ -550,7 +550,7 @@ class StockCashKey(CashKey):
 
     def intraday_real_ticks(self, stock_code: str, date_str: str) -> str:
         """
-        【新增】为真实的、带有买卖盘属性的逐笔成交数据 (realtime_tick) 生成ZSET缓存键。
+        为真实的、带有买卖盘属性的逐笔成交数据 (realtime_tick) 生成ZSET缓存键。
         """
         return self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -606,7 +606,7 @@ class IntradayEngineCashKey(CashKey):
             date=date_str
         )
     """
-    【新增】盘中实时计算引擎专用的缓存键生成器。
+    盘中实时计算引擎专用的缓存键生成器。
     """
     def stock_calculated_data_key(self, stock_code: str, trade_date: str) -> str:
         """

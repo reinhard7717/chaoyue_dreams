@@ -616,7 +616,7 @@ class FundFlowFormatProcess(BaseDAO):
     
     def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         """
-        【新增】将Tushare的limit_list_ths接口返回的单行数据，格式化为准备入库的字典。
+        将Tushare的limit_list_ths接口返回的单行数据，格式化为准备入库的字典。
         此方法参照 set_fund_flow_data 的健壮性设计。
         :param stock: 关联的股票信息StockInfo对象。
         :param df_data: Tushare接口返回的DataFrame中的一行数据 (通常是NamedTuple)。

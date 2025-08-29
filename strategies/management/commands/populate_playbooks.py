@@ -44,7 +44,7 @@ class Command(BaseCommand):
                 default_score=score
             ))
         
-        # [修改原因] 无论创建还是更新，都将此信号标记为已处理。
+        # 无论创建还是更新，都将此信号标记为已处理。
         processed_signals.add(name)
 
     def handle(self, *args, **options):
@@ -73,7 +73,7 @@ class Command(BaseCommand):
 
         playbooks_to_create = []
         playbooks_to_update = []
-        # [修改原因] 初始化一个集合，用于存储所有在计分模块中处理过的信号。
+        # 初始化一个集合，用于存储所有在计分模块中处理过的信号。
         processed_signals = set()
 
         self.stdout.write('  -> Parsing offensive playbooks...')
@@ -99,7 +99,7 @@ class Command(BaseCommand):
             elif isinstance(rules, dict):
                 for name, score in rules.items():
                     if name.startswith('说明_'): continue
-                    # [修改原因] 触发器信号在score_type_map中的key不带'trg_'前缀，但在数据库中需要带上以作区分。
+                    # 触发器信号在score_type_map中的key不带'trg_'前缀，但在数据库中需要带上以作区分。
                     #           这里的逻辑保持不变，但在后续的查漏补缺中要注意这一点。
                     is_trigger = section_key == 'trigger_events'
                     db_name = name # 默认数据库名与配置文件名一致
@@ -146,7 +146,7 @@ class Command(BaseCommand):
                     to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
                 )
 
-        # [修改原因] 这是本次升级的核心。遍历 `score_type_map` 以确保所有已定义的信号都被同步。
+        # 这是本次升级的核心。遍历 `score_type_map` 以确保所有已定义的信号都被同步。
         self.stdout.write('  -> Final check: Ensuring all defined signals exist in database...')
         unprocessed_count = 0
         # 定义从JSON类型字符串到模型枚举的映射

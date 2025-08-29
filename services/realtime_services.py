@@ -340,7 +340,7 @@ class RealtimeServices:
 
     async def _get_all_base_data(self, stock_codes: List[str], trade_date: str) -> tuple[dict, dict]:
         """
-        【新增】并发获取所有股票的行情快照和真实逐笔数据。
+        并发获取所有股票的行情快照和真实逐笔数据。
         """
         print(f"  -> [数据获取] 开始为 {len(stock_codes)} 支股票并发获取基础数据...")
         
@@ -370,7 +370,7 @@ class RealtimeServices:
 
     async def _get_all_real_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
-        【新增】并发获取多只股票的真实逐笔数据。
+        并发获取多只股票的真实逐笔数据。
         """
         tasks = [self.realtime_dao.get_daily_real_ticks(code, trade_date) for code in stock_codes]
         results = await asyncio.gather(*tasks)

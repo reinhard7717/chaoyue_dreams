@@ -478,7 +478,7 @@ class StockRealtimeCacheGet(CacheGet):
     # ▼▼▼ 新增方法: 从缓存读取真实的逐笔成交数据 ▼▼▼
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
-        【新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部真实逐笔成交数据】。
+        从Redis ZSET缓存中获取指定股票、指定日期的【全部真实逐笔成交数据】。
         """
         try:
             # 1. 统一日期格式

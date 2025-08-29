@@ -125,7 +125,7 @@ class StructuralIntelligence:
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
         
-        # [修改原因] 彻底移除基于价格箱体的“健康吸筹”判断逻辑。
+        # 彻底移除基于价格箱体的“健康吸筹”判断逻辑。
         #           该信号 (STRUCTURE_BOX_ACCUMULATION_A) 胜率仅5.5%，是高质量策略的“毒药”。
         #           其定义权将移交给基于成本分析的 diagnose_platform_states 模块。
         # healthy_consolidation, BOX_STATE_HEALTHY_CONSOLIDATION, STRUCTURE_BOX_ACCUMULATION_A 已被删除
@@ -171,7 +171,7 @@ class StructuralIntelligence:
         stable_formed_series = is_cost_stable & is_above_long_ma & is_shrinking_volume & is_chip_concentrating
         states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
         
-        # [修改原因] 权力交接的核心。让基于成本的“稳固平台”成为“健康吸筹结构”的唯一定义。
+        # 权力交接的核心。让基于成本的“稳固平台”成为“健康吸筹结构”的唯一定义。
         #           这使得所有上游模块自动升级，用14.1%胜率的信号替换掉5.5%的噪声。
         states['STRUCTURE_BOX_ACCUMULATION_A'] = stable_formed_series
         

@@ -231,7 +231,7 @@ class IntradayEngineOrchestrator:
             await pipe.execute()
         logger.info(f"已将 {len(signals)} 条信号写入Redis，供Dashboard展示。")
         
-        # --- 【新增】触发WebSocket推送 ---
+        # --- 触发WebSocket推送 ---
         channel_layer = get_channel_layer()
         if channel_layer:
             for signal in signals:

@@ -83,7 +83,7 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             'payload': data.get('payload', {})
         }))
 
-    # 【新增】专门处理盘中引擎信号的方法
+    # 专门处理盘中引擎信号的方法
     async def intraday_signal_update(self, event):
         """
         处理由后端引擎通过Channel Layer发送来的盘中信号。

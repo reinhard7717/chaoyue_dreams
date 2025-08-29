@@ -149,7 +149,7 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
 @with_cache_manager
 def save_real_tick_data_single(stock_code: str, cache_manager=None):
     """
-    【新增】获取并保存单只股票的当日全部真实逐笔数据 (realtime_tick)。
+    获取并保存单只股票的当日全部真实逐笔数据 (realtime_tick)。
     这是一个高频、IO密集型任务。
     """
     if not stock_code:

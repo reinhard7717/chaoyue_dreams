@@ -403,7 +403,9 @@
             "RISK_CONTEXT_BATTLE_AT_MAIN_PEAK_B": 120,
             "HOLD_RISK_HEALTH_STALLING": 100,
             "MECHANICS_CHIP_DISTRIBUTION_MOMENTUM": 200,
-            "CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING": 150
+            "CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING": 150,
+            "CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D": 400,
+            "CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": 500
           }
         },
         "critical_exit_params": {
@@ -429,7 +431,9 @@
             "FRACTAL_EVENT_TREND_EXHAUSTION": 500,
             "说明_STRATEGIC": "--- 战略级风险 (周线) ---",
             "CONTEXT_STRATEGIC_TOPPING_RISK_W": 800, "说明_新增3": "周线级别的战略顶部风险，必须规避。",
-            "CONTEXT_PSYCH_REJECTION_BEARISH_W": 400
+            "CONTEXT_PSYCH_REJECTION_BEARISH_W": 400,
+            "CRITICAL_RISK_CHIP_LONG_TERM_DIVERGENCE_D": 1500,
+            "CRITICAL_RISK_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": 2000
           }
         },
         "trigger_enhancement_params": {
@@ -483,6 +487,26 @@
           "reversal_confirm_bonus": {
             "value": 120,
             "description": "【V4.0新增】当日线信号得到周线看涨K线反转形态确认时，提供的共振奖励。"
+          },
+          "long_term_chip_accumulation_bonus": {
+            "value": 150,
+            "description": "【新增】当长期日线筹码处于集中状态时，提供的战略加分。"
+          },
+          "long_term_chip_accel_accumulation_bonus": {
+            "value": 200,
+            "description": "【新增】当长期日线筹码处于加速集中状态时，提供的额外战略加分。"
+          },
+          "long_term_chip_health_improving_bonus": {
+            "value": 100,
+            "description": "【新增】当长期日线筹码健康度改善时，提供的战略加分。"
+          },
+          "long_term_chip_divergence_penalty": {
+            "value": -200,
+            "description": "【新增】当长期日线筹码处于发散状态时，施加的战略惩罚。"
+          },
+          "long_term_chip_accel_divergence_penalty": {
+            "value": -300,
+            "description": "【新增】当长期日线筹码处于加速发散状态时，施加的额外战略惩罚。"
           }
         },
         "judgment_params": {
@@ -715,7 +739,15 @@
           "STRATEGIC_HEALTH_BONUS_W": { "cn_name": "【加分】周线趋势健康", "type": "context" },
           "STRATEGIC_BREAKOUT_EVE_BONUS_W": { "cn_name": "【加分】周线突破前夜", "type": "context" },
           "STRATEGIC_REVERSAL_BONUS_W": { "cn_name": "【加分】周线看涨反转确认", "type": "context" },
-          "BONUS_SETUP_S_PLUS_PLUS": { "cn_name": "【加分】S++黄金阵地奖励", "type": "context" }
+          "BONUS_SETUP_S_PLUS_PLUS": { "cn_name": "【加分】S++黄金阵地奖励", "type": "context" },
+          "说明_STRATEGIC_CHIP_LONG_TERM": "--- 战略级日线长周期筹码信号 ---",
+          "CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D": { "cn_name": "【周线级】长期筹码集中", "type": "context" },
+          "CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D": { "cn_name": "【周线级】长期筹码加速集中", "type": "context" },
+          "CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D": { "cn_name": "【周线级】长期筹码发散", "type": "risk" },
+          "CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": { "cn_name": "【周线级】长期筹码加速发散", "type": "risk" },
+          "CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D": { "cn_name": "【周线级】长期筹码健康改善", "type": "context" },
+          "CRITICAL_RISK_CHIP_LONG_TERM_DIVERGENCE_D": { "cn_name": "【致命风险】长期筹码发散", "type": "risk" },
+          "CRITICAL_RISK_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": { "cn_name": "【致命风险】长期筹码加速发散", "type": "risk" }
         }
       },
       "trigger_event_params": {
@@ -1406,7 +1438,9 @@
       "FRACTAL_RISK_TOP_DIVERGENCE",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
       "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
-      "STRUCTURE_TOPPING_DANGER_S"
+      "STRUCTURE_TOPPING_DANGER_S",
+          "CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D",
+          "CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D"
     ],
     "mitigation_rules": {
       "说明": "豁免/缓解规则。当强大的正面信号出现时，可以抵消掉某些'绝对否决'风险。",

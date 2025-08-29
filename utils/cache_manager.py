@@ -781,7 +781,7 @@ class CacheManager:
 
     async def sadd(self, key: str, *values: Any) -> Optional[int]:
         """
-        【新增】(异步) 向集合添加一个或多个成员。
+        (异步) 向集合添加一个或多个成员。
         
         Args:
             key (str): 集合的键。
@@ -812,7 +812,7 @@ class CacheManager:
 
     async def smembers(self, key: str) -> Optional[List[Any]]:
         """
-        【新增】(异步) 获取集合中的所有成员。
+        (异步) 获取集合中的所有成员。
         
         Args:
             key (str): 集合的键。
@@ -841,7 +841,7 @@ class CacheManager:
 
     async def expire(self, key: str, timeout: int) -> bool:
         """
-        【新增】(异步) 为指定的键设置过期时间。
+        (异步) 为指定的键设置过期时间。
         
         Args:
             key (str): 目标键。
@@ -871,7 +871,7 @@ class CacheManager:
 
     async def close(self):
         """
-        【新增】(异步) 优雅地关闭所有已创建的 Redis 客户端连接。
+        (异步) 优雅地关闭所有已创建的 Redis 客户端连接。
         这是一个重要的清理方法，应在应用或一个完整任务周期结束时调用。
         """
         # print("DEBUG: CacheManager 正在关闭所有 Redis 连接...")

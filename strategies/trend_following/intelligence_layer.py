@@ -94,10 +94,11 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
 
-        # --- 代码修改开始 ---
         # --- 阶段二: 注入并转化周线战略情报 ---
         # print("    - [阶段2/7] 正在注入并转化周线战略情报...")
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
+        # 调用战略级筹码情报诊断模块，并将其结果添加到原子状态
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_strategic_chip_states(df))
 
         # --- 阶段三: 核心原子状态生成 (第一梯队) ---
         # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
@@ -182,7 +183,7 @@ class IntelligenceLayer:
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【新增】周线战略情报转化器
+        周线战略情报转化器
         - 核心职责: 将从周线引擎注入的、连续的战略分数和状态信号，
                     转化为日线引擎各模块可以理解的、离散的布尔型原子状态。
         """
@@ -221,6 +222,61 @@ class IntelligenceLayer:
 
         # print(f"    - [周线情报转化] 完成。已生成 {len(strategic_states)} 个战略级原子状态。")
         return strategic_states
+
+    def _diagnose_long_term_daily_chip_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增】日线长周期筹码战略上下文诊断模块
+        - 核心职责: 直接从日线数据中读取长周期筹码指标，并将其转化为原子状态。
+                    这些状态将作为战略层面的上下文，影响日线策略的决策。
+        """
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # 检查所需的长周期筹码斜率/加速度列
+        required_cols = [
+            'SLOPE_21_concentration_90pct_D',
+            'ACCEL_21_concentration_90pct_D',
+            'SLOPE_21_chip_health_score_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"            -> [警告] 日线长周期筹码战略诊断缺少数据: {missing_cols}，模块已跳过。")
+            # 临时填充NaN，确保后续代码不报错，但信号将为False
+            for col in missing_cols:
+                df[col] = np.nan # Ensure column exists to prevent KeyError later
+
+        # --- 1. 长期筹码集中度趋势 ---
+        # 21日筹码集中度斜率 < 0 表示长期集中
+        is_long_term_concentrating = df.get('SLOPE_21_concentration_90pct_D', default_series) < 0
+        states['CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D'] = is_long_term_concentrating
+
+        # 21日筹码集中度斜率 > 0 表示长期发散
+        is_long_term_diverging = df.get('SLOPE_21_concentration_90pct_D', default_series) > 0
+        states['CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D'] = is_long_term_diverging
+
+        # --- 2. 长期筹码集中度加速度 ---
+        # 21日筹码集中度加速度 < 0 表示长期集中加速
+        is_long_term_accel_concentrating = df.get('ACCEL_21_concentration_90pct_D', default_series) < 0
+        states['CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D'] = is_long_term_accel_concentrating
+
+        # 21日筹码集中度加速度 > 0 表示长期发散加速
+        is_long_term_accel_diverging = df.get('ACCEL_21_concentration_90pct_D', default_series) > 0
+        states['CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D'] = is_long_term_accel_diverging
+
+        # --- 3. 长期筹码健康度趋势 ---
+        # 21日筹码健康分斜率 > 0 表示长期健康度改善
+        is_long_term_health_improving = df.get('SLOPE_21_chip_health_score_D', default_series) > 0
+        states['CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D'] = is_long_term_health_improving
+
+        # print(f"            -> [日线长周期筹码战略诊断] 已生成 {len(states)} 个战略级原子状态。")
+        return states
+
+
+
+
+
+
+
 
 
 

@@ -333,7 +333,7 @@ class IndicatorService:
         if not all_dfs:
             return {}
         
-        # --- 步骤 2: 【新增】【第二道工序】计算元特征 (Hurst, CV等) ---
+        # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
         all_dfs = await self._calculate_meta_features(all_dfs, config)
 
         # --- 步骤 3: 【原步骤2】计算VPA效率指标 ---
@@ -967,7 +967,7 @@ class IndicatorService:
         df = all_dfs[timeframe]
         
         # --- 1. 计算赫斯特指数 (Hurst Exponent) ---
-        # [修改原因] 此处是赫斯特指数计算的正确位置，保证其在斜率计算前完成。
+        # 此处是赫斯特指数计算的正确位置，保证其在斜率计算前完成。
         hurst_window = 120 # 暂时硬编码，未来可从配置读取
         hurst_col = f'hurst_{hurst_window}d_D'
         if 'close_D' in df.columns and hurst_col not in df.columns:
@@ -1118,7 +1118,7 @@ class IndicatorService:
 
     async def _process_single_industry_strength(self, industry, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【新增】处理单个行业的强度计算，便于并行化。
+        处理单个行业的强度计算，便于并行化。
         """
         # print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
 
@@ -1158,7 +1158,7 @@ class IndicatorService:
                 10 * momentum_score +          # 趋势基础分
                 15 * fund_flow_score +         # 资金跟随分
                 10 * volume_score +            # 成交活跃分
-                15 * rs_score +                # 【新增】相对强度分
+                15 * rs_score +                # 相对强度分
                 15 * leader_score +            # 龙头效应分
                 15 * cohesion_score +          # 板块协同分
                 30 * echelon_score             # 【核心】涨停梯队分
@@ -2357,7 +2357,7 @@ class IndicatorService:
 
     async def _calculate_leader_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
-        【新增】计算龙头效应得分。
+        计算龙头效应得分。
         简易版：直接使用数据源提供的领涨股。
         如果领涨股当天涨幅 > 5%，则认为龙头效应强。
         """
@@ -2374,7 +2374,7 @@ class IndicatorService:
 
     async def _calculate_cohesion_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """
-        【新增】计算板块协同性（上涨广度）得分。
+        计算板块协同性（上涨广度）得分。
         统计板块内上涨家数占比和涨幅超过5%的家数。
         """
         # 1. 获取板块成分股
@@ -2441,7 +2441,7 @@ class IndicatorService:
 
     async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
         """
-        【新增】计算行业相对大盘的强度得分。
+        计算行业相对大盘的强度得分。
         """
         if industry_daily_df.empty or market_daily_df.empty:
             return 0.0
@@ -2469,7 +2469,7 @@ class IndicatorService:
 
     async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 10, market_code: str = '000300.SH') -> pd.DataFrame:
         """
-        【新增】分析行业轮动，识别强度排名持续上升的板块。
+        分析行业轮动，识别强度排名持续上升的板块。
         这是一个高阶扫描器，用于发现潜在的市场新主线。
         """
         print(f"\n--- [行业轮动分析] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")

@@ -188,7 +188,7 @@ class ChipIntelligence:
             print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
             
-        # [代码注释] 定义“战场上下文”过滤器，用于区分发散行为的风险等级
+        # 定义“战场上下文”过滤器，用于区分发散行为的风险等级
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         
         # --- 步骤2: 对“筹码集中度”进行动态分析 ---
@@ -218,7 +218,7 @@ class ChipIntelligence:
         is_objective_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_objective_diverging_action
         
-        # [代码注释] 将客观行为与战场上下文结合，生成有实战意义的风险信号
+        # 将客观行为与战场上下文结合，生成有实战意义的风险信号
         # 只有在高位危险区的发散，才被定义为需要警惕的 CHIP_DYN_DIVERGING 风险
         states['CHIP_DYN_DIVERGING'] = is_objective_diverging_action & is_in_high_level_zone
         
@@ -226,7 +226,7 @@ class ChipIntelligence:
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
         
-        # [代码注释] 只有在高位危险区的加速发散，才是最高级别的风险信号
+        # 只有在高位危险区的加速发散，才是最高级别的风险信号
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         
         # --- 步骤3: 对“筹码成本”进行动态分析  ---
@@ -405,7 +405,7 @@ class ChipIntelligence:
         is_after_downtrend = prev_day_trend <= 0
         is_after_uptrend = prev_day_trend > 0
 
-        # [修改原因] 为“隐蔽吸筹”增加战略环境过滤器，这是本次修复的核心。
+        # 为“隐蔽吸筹”增加战略环境过滤器，这是本次修复的核心。
         # 过滤器：必须处于“均线底部钝化”状态，代表长期下跌趋势已得到遏制。
         is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
 
@@ -591,4 +591,16 @@ class ChipIntelligence:
 
         # print("        -> [筹码动态诊断模块 V320.0] 分析完毕。")
         return states
+
+
+
+
+
+
+
+
+
+
+
+
 

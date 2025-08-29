@@ -471,7 +471,7 @@ class StrategiesDAO(BaseDAO):
     @sync_to_async(thread_sensitive=True)
     def get_daily_basic_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: int = 1200) -> Optional[pd.DataFrame]:
         """
-        【新增】获取指定股票的历史每日基本面数据 (StockDailyBasic)。
+        获取指定股票的历史每日基本面数据 (StockDailyBasic)。
         """
         try:
             qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code)

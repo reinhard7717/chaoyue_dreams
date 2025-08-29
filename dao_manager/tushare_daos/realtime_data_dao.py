@@ -242,7 +242,7 @@ class StockRealtimeDAO(BaseDAO):
 
     async def get_realtime_market_snapshot(self, src: str = 'dc') -> Optional[pd.DataFrame]:
         """
-        【新增】获取实时涨跌幅排名，作为市场雷达。
+        获取实时涨跌幅排名，作为市场雷达。
         数据源默认为东方财富(dc)，信息更全。
         此数据为瞬时快照，通常不进行持久化。
         """

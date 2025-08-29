@@ -219,7 +219,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
         
         # --- 代码修改开始：将 start_date_str 参数透传给子任务 ---
-        # [修改原因] 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
+        # 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
         analysis_tasks = [
             run_multi_timeframe_strategy.s(
                 stock_code=code, 

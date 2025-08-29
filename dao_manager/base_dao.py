@@ -760,8 +760,8 @@ class BaseDAO(Generic[T]):
         """
         【V24 - 死锁优化版】使用 executemany 并增加排序和重试机制来处理死锁。
         - 策略:
-        1. 【新增】排序: 在插入前，对DataFrame按唯一键进行排序，确保所有事务以相同顺序请求锁，极大降低死锁概率。
-        2. 【新增】重试: 捕获 (1213, 'Deadlock found...') 异常，等待一个短暂的随机时间后自动重试，以处理偶发的死锁情况。
+        1. 排序: 在插入前，对DataFrame按唯一键进行排序，确保所有事务以相同顺序请求锁，极大降低死锁概率。
+        2. 重试: 捕获 (1213, 'Deadlock found...') 异常，等待一个短暂的随机时间后自动重试，以处理偶发的死锁情况。
         3.  保留了原有的高效 executemany 批量操作。
         """
         if df.empty:
@@ -888,7 +888,7 @@ class BaseDAO(Generic[T]):
     @sync_to_async
     def _get_or_create_fk_sync(fk_model: Type[models.Model], code_value: str) -> models.Model | None:
         """
-        【新增】同步的辅助方法，用于执行数据库的 get_or_create 操作。
+        同步的辅助方法，用于执行数据库的 get_or_create 操作。
         这是被 sync_to_async 包装的核心，确保数据库调用在同步线程中执行。
         """
         # 关键假设：我们假设您的 StockInfo 模型中，用来唯一标识股票的字段名叫 'stock_code'。

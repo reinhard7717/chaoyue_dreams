@@ -231,19 +231,12 @@ class OffensiveLayer:
                 # --- 固定加分模型逻辑 ---
                 bonus_value = rule.get('add_score', 0)
                 # 只有在条件触发且奖励分大于0时才执行
-                if condition.any() and bonus_value > 0:
+                if condition.any() and fixed_bonus != 0:
                     # 将固定的奖励分加到总分上
                     entry_score.loc[condition] += bonus_value
                     # 在详情中记录这个加分项
                     score_details_df[bonus_signal_name] = condition * bonus_value
                     # print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
-                # 显式处理固定加分模型
-                fixed_bonus = rule.get('add_score', 0)
-                if fixed_bonus > 0:
-                    # 奖励只施加在满足前置条件后的“当天”
-                    bonus_series = condition * fixed_bonus
-                    entry_score += bonus_series
-                    score_details_df[bonus_signal_name] = bonus_series
             
         return entry_score, score_details_df
 

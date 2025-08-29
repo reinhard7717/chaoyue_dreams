@@ -751,7 +751,7 @@ class StockRealtimeCacheSet(CacheSet):
 
     async def batch_append_real_ticks(self, tick_data_map: Dict[str, pd.DataFrame]) -> bool:
         """
-        【新增】使用 Pipeline 批量将真实的逐笔成交数据 (realtime_tick) 追加到当日的 Redis ZSET 中。
+        使用 Pipeline 批量将真实的逐笔成交数据 (realtime_tick) 追加到当日的 Redis ZSET 中。
         
         Args:
             tick_data_map (Dict[str, pd.DataFrame]): 字典，键为股票代码，值为包含逐笔数据的DataFrame。

@@ -218,9 +218,7 @@ class MultiTimeframeTrendStrategy:
             probe_dt = pd.to_datetime(probe_date).date()
             probe_row = df.loc[df.index.date == probe_dt].iloc[0]
             probe_ts = probe_row.name
-            stock_code = probe_row.get('stock_code', 'N/A')
-            if stock_code == 'N/A' and 'stock_id_D' in probe_row:
-                 stock_code = probe_row['stock_id_D']
+            stock_code = probe_row.get('stock_id_D', 'N/A') 
             print(f"  [案件编号]: {stock_code} @ {probe_date}")
             print(f"  [初步报告]: 进攻分={probe_row.get('entry_score', 0):.2f}, 风险分={probe_row.get('risk_score', 0):.2f}, 最终信号='{probe_row.get('signal_type', 'N/A')}'")
             print("-" * 95)
@@ -276,12 +274,12 @@ class MultiTimeframeTrendStrategy:
         main_force_state_str = {s.value: s.name for s in MainForceState}.get(main_force_state_val, 'UNKNOWN')
         print(f"    - [主力行为] 当日状态: {main_force_state_str} ({main_force_state_val})")
         
-        # 【增强】展示所有被激活的S级信号
+        # 展示所有被激活的S级信号
         s_level_signals = {
             "S级主升浪": "STRUCTURE_MAIN_UPTREND_WAVE_S",
             "S级顶部危险": "STRUCTURE_TOPPING_DANGER_S",
             "S级突破前夜": "STRUCTURE_BREAKOUT_EVE_S",
-            "S级黄金坑": "CPA_FALL_WITH_MAIN_FORCE_ABSORBING",
+            "S级黄金坑": "PLAYBOOK_GOLDEN_PIT_A_PLUS", 
             "S级分形突破": "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED",
             "S级分形顶背离": "FRACTAL_RISK_TOP_DIVERGENCE"
         }
@@ -298,9 +296,8 @@ class MultiTimeframeTrendStrategy:
         # 推演逻辑 3: 绝对否决权风险 (2票)
         veto_params = get_params_block(self.tactical_engine, 'absolute_veto_params')
         mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
-        chip_risks_in_veto = {"RISK_CAPITAL_STRUCT_MAIN_FORCE_DISTRIBUTING", "CONTEXT_RECENT_DISTRIBUTION_PRESSURE"}
-        veto_signals = [s for s in get_param_value(veto_params.get('veto_signals'), []) if s not in chip_risks_in_veto]
-        for signal_name in veto_signals:
+        config_veto_signals = get_param_value(veto_params.get('veto_signals'), [])
+        for signal_name in config_veto_signals:
             if probe_day_atomic.get(signal_name, False):
                 mitigators = mitigation_rules.get(signal_name, {}).get('mitigated_by', [])
                 has_mitigator = any(probe_day_atomic.get(m, False) for m in mitigators)
@@ -405,7 +402,7 @@ class MultiTimeframeTrendStrategy:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
             
-            # [修改原因] prepare_db_records 现在返回五元组。
+            # prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,

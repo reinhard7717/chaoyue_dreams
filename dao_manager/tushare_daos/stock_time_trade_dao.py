@@ -436,7 +436,7 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情 ===============
     async def get_1_min_kline_time_by_day(self, stock_code: str, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
-        【新增】获取指定股票在指定日期的所有1分钟K线数据。
+        获取指定股票在指定日期的所有1分钟K线数据。
         此方法用于盘中策略引擎，提供当日的原始1分钟数据。
         Args:
             stock_code (str): 股票代码。
