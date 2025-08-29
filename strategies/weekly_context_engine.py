@@ -350,6 +350,8 @@ class WeeklyContextEngine:
 
         for playbook_name, params in self.playbook_params.items():
             if playbook_name == "说明": continue
+            if playbook_name in ["strategic_score_weights", "synergy_with_daily"]:
+                continue
 
             if playbook_name in playbook_map:
                 if params.get('enabled', False):
