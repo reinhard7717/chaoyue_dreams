@@ -715,8 +715,9 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V319.1 探针专属修复版】
-        - 核心修复: 修正了对 run_for_stock 返回的四元组的解包，确保所有返回值都被正确接收。
+        【V319.2 探针专属修复版 - 调试报告增强】
+        - 核心修改: 增强了调试报告，现在会输出每天的进攻总分、风险总分，以及激活的详细进攻和风险项。
+        - 修复: 修正了对 run_for_stock 返回的五元组的解包，确保所有返回值都被正确接收。
         - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
         - 新流程:
           1. 正常执行 `run_for_stock` 以生成所有分析结果。
@@ -725,31 +726,39 @@ class MultiTimeframeTrendStrategy:
           4. 最后，展示全流程的信号透视报告。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.1 探针专属修复版)] ---")
+        print(f"--- [历史回溯调试启动 (V319.2 探针专属修复版 - 调试报告增强)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            # 修正了返回值解包。run_for_stock 返回四元组，需用四个变量接收。
-            all_signals, all_details, _all_daily_scores, _all_score_components, _all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date)
-            if not all_signals:
-                print("[信息] 核心策略未生成任何信号记录。")
+            # 修正了返回值解包。run_for_stock 返回五元组，需用五个变量接收。
+            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date)
+            if not all_signals and not all_daily_scores:
+                print("[信息] 核心策略未生成任何信号或每日分数记录。")
                 return
+            
             # 步骤 1.1: 在内存中构建信号到详情的映射
             signal_to_details_map = {}
             for detail in all_details:
-                # 使用 signal 对象的内存地址作为 key
                 signal_key = id(detail.signal)
                 if signal_key not in signal_to_details_map:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
+
+            # 步骤 1.2: 构建日期到每日分数和分数组件的映射
+            daily_score_map = {score.trade_date: score for score in all_daily_scores}
+            daily_components_map = {}
+            for comp in all_score_components:
+                if comp.daily_score.trade_date not in daily_components_map:
+                    daily_components_map[comp.daily_score.trade_date] = []
+                daily_components_map[comp.daily_score.trade_date].append(comp)
+
             # 步骤 2: 检查是否需要部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
                 print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-                # 从战术引擎获取最后一次运行的详细结果
                 last_df = self.daily_analysis_df
                 last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
                 last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
@@ -762,41 +771,67 @@ class MultiTimeframeTrendStrategy:
                     )
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
+            
             # 步骤 3: 展示全流程信号透视报告
-            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号...")
+            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt = pd.to_datetime(start_date).tz_localize('UTC')
             end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
-            # 筛选出在指定时间段内的主信号
-            debug_period_signals = [
-                s for s in all_signals 
-                if start_dt <= s.trade_time.replace(tzinfo=start_dt.tzinfo) <= end_dt
+            
+            # 筛选出在指定时间段内的所有每日分数记录，因为它们包含了所有日期的得分信息
+            debug_period_daily_scores = [
+                ds for ds in all_daily_scores
+                if start_dt.date() <= ds.trade_date <= end_dt.date()
             ]
-            if not debug_period_signals:
-                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何信号。")
+            if not debug_period_daily_scores:
+                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
-            debug_period_signals.sort(key=lambda x: x.trade_time)
+            debug_period_daily_scores.sort(key=lambda x: x.trade_date)
+
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            # 遍历信号对象，而不是字典
-            for signal_obj in debug_period_signals:
-                # 使用对象属性访问，而不是字典键
-                time_obj = signal_obj.trade_time
-                time_str = time_obj.strftime('%Y-%m-%d %H:%M:%S %Z')
-                tf = signal_obj.timeframe
-                # 获取与当前信号关联的详情
-                signal_key = id(signal_obj)
-                related_details = signal_to_details_map.get(signal_key, [])
+            
+            for daily_score_obj in debug_period_daily_scores:
+                trade_date = daily_score_obj.trade_date
+                time_str = trade_date.strftime('%Y-%m-%d')
+                
+                # 获取对应的信号对象（如果有的话）
+                signal_obj = next((s for s in all_signals if s.trade_time.date() == trade_date), None)
+                
+                # 获取与当前日期关联的详情和组件
+                related_details = signal_to_details_map.get(id(signal_obj), []) if signal_obj else []
+                related_components = daily_components_map.get(trade_date, [])
+
                 playbooks_str = ", ".join(
-                    # 增加一个检查，确保 playbook 对象存在且有 cn_name
                     [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
                 ) if related_details else "无剧本信息"
-                signal_type_display = signal_obj.get_signal_type_display()
-                details = ""
-                if signal_obj.signal_type == 'BUY':
-                    details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
-                elif signal_obj.signal_type in ['SELL', 'WARN']:
-                    details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
-                print(f"{time_str}  [周期:{tf:>3s}] [类型:{signal_type_display:<6s}] | {details}")
-            print(f"--- [历史回溯调试完成] ---")
+                
+                # 打印每日总分
+                print(f"\n{time_str} [周期:  D] [进攻总分: {daily_score_obj.offensive_score:<7.0f}] [风险总分: {daily_score_obj.risk_score:<7.0f}] [信号类型: {daily_score_obj.signal_type}]")
+                
+                # 打印激活的进攻项
+                offensive_components = [c for c in related_components if c.score_type in ['positional', 'dynamic', 'composite', 'strategic_context', 'trigger']]
+                if offensive_components:
+                    print("  激活进攻项:")
+                    for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
+                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
+                
+                # 打印激活的风险项
+                risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk']]
+                if risk_components:
+                    print("  激活风险项:")
+                    for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
+                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
+                
+                # 如果有具体的交易信号，也打印出来
+                if signal_obj:
+                    signal_type_display = signal_obj.get_signal_type_display()
+                    details = ""
+                    if signal_obj.signal_type == 'BUY':
+                        details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
+                    elif signal_obj.signal_type in ['SELL', 'WARN']:
+                        details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
+                    print(f"  [交易信号]: [类型:{signal_type_display:<6s}] | {details}")
+
+            print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
