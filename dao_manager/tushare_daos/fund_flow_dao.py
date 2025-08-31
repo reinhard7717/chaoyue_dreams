@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime, timedelta
 import time
 from typing import Dict, List
-
+from asgiref.sync import sync_to_async
 import numpy as np
 import pandas as pd
 from utils.cache_manager import CacheManager

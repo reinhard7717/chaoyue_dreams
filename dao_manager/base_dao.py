@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import time
 import random
 from django.db.utils import OperationalError
-from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic, Callable # 类型提示
+from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic # 类型提示
 from datetime import datetime, date
 from django.db import connection, models # Django 模型
 from decimal import Decimal
@@ -21,7 +21,7 @@ import pandas as pd # 导入 Decimal
 import tushare as ts
 from django.conf import settings # Django 设置
 
-from django.db import DatabaseError, IntegrityError, models, transaction # Django 数据库异常和事务
+from django.db import models, transaction # Django 数据库异常和事务
 from asgiref.sync import sync_to_async # 异步转换工具
 from utils.cache_manager import CacheManager
 
