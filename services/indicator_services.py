@@ -404,7 +404,7 @@ class IndicatorService:
         """
         print(f"--- [数据准备V8.2] 开始为 {stock_code} 准备基础数据与指标 ---")
         
-        # 1. 从配置中解析需要哪些时间周期的数据 (逻辑不变)
+        # 1. 从配置中解析需要哪些时间周期的数据
         required_tfs = self._discover_required_timeframes_from_config(config)
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
@@ -418,7 +418,7 @@ class IndicatorService:
         else:
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
         
-        # 2. 确定需要从API获取的“基础”时间周期 (逻辑不变)
+        # 2. 确定需要从API获取的“基础”时间周期
         base_tfs_to_fetch = set()
         resample_map = {} 
         for tf in required_tfs:
@@ -428,7 +428,7 @@ class IndicatorService:
             else:
                 base_tfs_to_fetch.add(tf)
 
-        # 3. 检查并准备所有补充数据的获取任务 (逻辑不变)
+        # 3. 检查并准备所有补充数据的获取任务
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         tasks = []
         needs_legacy_supplemental_data = any(
@@ -474,17 +474,17 @@ class IndicatorService:
                 return ('fund_flow_tushare', df)
             tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
 
-        # 4. 准备所有“基础”OHLCV数据获取任务 (逻辑不变)
+        # 4. 准备所有“基础”OHLCV数据获取任务
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
             tasks.append(_fetch_and_tag_data(tf, trade_time))
 
-        # 5. 并发执行所有数据获取任务 (逻辑不变)
+        # 5. 并发执行所有数据获取任务
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 6. 分类处理获取到的数据 (逻辑不变)
+        # 6. 分类处理获取到的数据
         raw_dfs: Dict[str, pd.DataFrame] = {}
         supplemental_dfs: Dict[str, pd.DataFrame] = {}
         for result in all_data_results:
@@ -494,6 +494,12 @@ class IndicatorService:
             if not (isinstance(result, tuple) and len(result) == 2): continue
             tag, data = result
             if isinstance(data, pd.DataFrame) and not data.empty:
+                # 找出所有 object 类型的列，这些列可能包含 Decimal 对象
+                object_cols = data.select_dtypes(include=['object']).columns
+                for col in object_cols:
+                    # 尝试将这些列转换为数值类型。pd.to_numeric能正确处理Decimal对象。
+                    # errors='coerce'会把无法转换的值变为NaN，保证代码不会中断。
+                    data[col] = pd.to_numeric(data[col], errors='coerce')
                 if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     supplemental_dfs[tag] = data
                 else:
@@ -512,12 +518,12 @@ class IndicatorService:
                  # 识别并移除补充数据中的冲突列，以避免merge时产生_x, _y后缀
                 conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
                 if not conflicting_cols.empty:
-                    print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
+                    # print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
                     df_supp_std = df_supp_std.drop(columns=conflicting_cols)
                 # 获取真正要被合并的新列名
                 new_cols_to_merge = df_supp_std.columns
                 if new_cols_to_merge.empty:
-                    print(f"    - [数据合并] '{tag}' 数据在移除冲突列后为空，跳过合并。")
+                    # print(f"    - [数据合并] '{tag}' 数据在移除冲突列后为空，跳过合并。")
                     continue
                 # 执行合并
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
