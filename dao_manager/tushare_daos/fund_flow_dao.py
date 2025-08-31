@@ -65,8 +65,7 @@ class FundFlowDao(BaseDAO):
         :param limit: 返回的数据条数
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
-        print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        # --- 代码新增开始 ---
+        # print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
         model_class = self.get_fund_flow_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定常规资金流向数据模型。")
@@ -89,7 +88,7 @@ class FundFlowDao(BaseDAO):
             df.set_index('trade_time', inplace=True)
             # 移除ORM生成的id和外键id列，保持数据纯净
             df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
-            print(f"DAO: 成功获取 {len(df)} 条常规日级资金流数据。") # 调试信息
+            # print(f"DAO: 成功获取 {len(df)} 条常规日级资金流数据。") # 调试信息
             return df
         except Exception as e:
             logger.error(f"查询常规日级资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
@@ -238,8 +237,7 @@ class FundFlowDao(BaseDAO):
         :param limit: 返回的数据条数
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
-        print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        # --- 代码新增开始 ---
+        # print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
         model_class = self.get_fund_flow_ths_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定同花顺资金流向数据模型。")
@@ -262,7 +260,7 @@ class FundFlowDao(BaseDAO):
             df.set_index('trade_time', inplace=True)
             # 移除ORM生成的id和外键id列
             df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
-            print(f"DAO: 成功获取 {len(df)} 条同花顺资金流数据。") # 调试信息
+            # print(f"DAO: 成功获取 {len(df)} 条同花顺资金流数据。") # 调试信息
             return df
         except Exception as e:
             logger.error(f"查询同花顺资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
@@ -411,8 +409,7 @@ class FundFlowDao(BaseDAO):
         :param limit: 返回的数据条数
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
-        print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        # --- 代码新增开始 ---
+        # print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
         model_class = self.get_fund_flow_dc_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定东方财富资金流向数据模型。")
@@ -435,7 +432,7 @@ class FundFlowDao(BaseDAO):
             df.set_index('trade_time', inplace=True)
             # 移除ORM生成的id和外键id列
             df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
-            print(f"DAO: 成功获取 {len(df)} 条东方财富资金流数据。") # 调试信息
+            # print(f"DAO: 成功获取 {len(df)} 条东方财富资金流数据。") # 调试信息
             return df
         except Exception as e:
             logger.error(f"查询东方财富资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
