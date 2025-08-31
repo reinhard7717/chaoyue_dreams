@@ -509,9 +509,20 @@ class IndicatorService:
         for tag, df_supp in supplemental_dfs.items():
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
             if df_supp_std is not None and not df_supp_std.empty:
-                # 使用 left join 合并，并用 ffill 填充可能因节假日产生的缺失值
+                 # 识别并移除补充数据中的冲突列，以避免merge时产生_x, _y后缀
+                conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
+                if not conflicting_cols.empty:
+                    print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
+                    df_supp_std = df_supp_std.drop(columns=conflicting_cols)
+                # 获取真正要被合并的新列名
+                new_cols_to_merge = df_supp_std.columns
+                if new_cols_to_merge.empty:
+                    print(f"    - [数据合并] '{tag}' 数据在移除冲突列后为空，跳过合并。")
+                    continue
+                # 执行合并
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
-                df_daily_master[list(df_supp_std.columns)] = df_daily_master[list(df_supp_std.columns)].ffill()
+                # 仅对新合并的列执行ffill
+                df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
         print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
