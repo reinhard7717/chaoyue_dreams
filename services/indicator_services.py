@@ -385,7 +385,7 @@ class IndicatorService:
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
         
         #  调用军械库清单生成器 ▼▼▼
-        self._log_final_data_columns(all_dfs)
+        # self._log_final_data_columns(all_dfs)
         
         return all_dfs
 
