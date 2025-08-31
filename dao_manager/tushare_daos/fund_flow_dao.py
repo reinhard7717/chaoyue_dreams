@@ -57,6 +57,44 @@ class FundFlowDao(BaseDAO):
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailySZ  # 默认返回深市主板
 
+    async def get_fund_flow_daily_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
+        """
+        【新增】获取单个股票的历史日级资金流向数据 (Tushare moneyflow 接口)
+        :param stock_code: 股票代码
+        :param trade_date: 查询的截止日期
+        :param limit: 返回的数据条数
+        :return: 包含资金流向数据的DataFrame，以trade_time为索引
+        """
+        print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
+        # --- 代码新增开始 ---
+        model_class = self.get_fund_flow_model_by_code(stock_code)
+        if not model_class:
+            logger.warning(f"无法为股票 {stock_code} 确定常规资金流向数据模型。")
+            return pd.DataFrame()
+        try:
+            # 异步查询数据库
+            qs = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__lte=trade_date
+            ).order_by('-trade_time')[:limit]
+            # 使用异步推导式高效获取数据
+            data_list = [item async for item in qs.values()]
+            if not data_list:
+                print(f"DAO: 未找到 {stock_code} 的常规日级资金流数据。") # 调试信息
+                return pd.DataFrame()
+            # 转换为DataFrame
+            df = pd.DataFrame(data_list)
+            # 将 trade_time 设置为UTC时区的DatetimeIndex，以满足上层服务要求
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            # 移除ORM生成的id和外键id列，保持数据纯净
+            df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
+            print(f"DAO: 成功获取 {len(df)} 条常规日级资金流数据。") # 调试信息
+            return df
+        except Exception as e:
+            logger.error(f"查询常规日级资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
+            return pd.DataFrame()
+
     async def save_history_fund_flow_daily_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 (终极优化版 V3 - 客户端分块策略)
@@ -192,6 +230,44 @@ class FundFlowDao(BaseDAO):
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailyTHS_SZ  # 默认返回深市主板
 
+    async def get_fund_flow_ths_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
+        """
+        【新增】获取单个股票的历史日级资金流向数据 (同花顺)
+        :param stock_code: 股票代码
+        :param trade_date: 查询的截止日期
+        :param limit: 返回的数据条数
+        :return: 包含资金流向数据的DataFrame，以trade_time为索引
+        """
+        print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
+        # --- 代码新增开始 ---
+        model_class = self.get_fund_flow_ths_model_by_code(stock_code)
+        if not model_class:
+            logger.warning(f"无法为股票 {stock_code} 确定同花顺资金流向数据模型。")
+            return pd.DataFrame()
+        try:
+            # 异步查询数据库
+            qs = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__lte=trade_date
+            ).order_by('-trade_time')[:limit]
+            # 使用异步推导式高效获取数据
+            data_list = [item async for item in qs.values()]
+            if not data_list:
+                print(f"DAO: 未找到 {stock_code} 的同花顺资金流数据。") # 调试信息
+                return pd.DataFrame()
+            # 转换为DataFrame
+            df = pd.DataFrame(data_list)
+            # 将 trade_time 设置为UTC时区的DatetimeIndex
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            # 移除ORM生成的id和外键id列
+            df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
+            print(f"DAO: 成功获取 {len(df)} 条同花顺资金流数据。") # 调试信息
+            return df
+        except Exception as e:
+            logger.error(f"查询同花顺资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
+            return pd.DataFrame()
+
     async def save_history_fund_flow_daily_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 - 同花顺 (参照save_history_fund_flow_daily_data重构)
@@ -326,6 +402,44 @@ class FundFlowDao(BaseDAO):
         else:
             logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
             return FundFlowDailyDC_SZ  # 默认返回深市主板
+
+    async def get_fund_flow_dc_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
+        """
+        【新增】获取单个股票的历史日级资金流向数据 (东方财富)
+        :param stock_code: 股票代码
+        :param trade_date: 查询的截止日期
+        :param limit: 返回的数据条数
+        :return: 包含资金流向数据的DataFrame，以trade_time为索引
+        """
+        print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
+        # --- 代码新增开始 ---
+        model_class = self.get_fund_flow_dc_model_by_code(stock_code)
+        if not model_class:
+            logger.warning(f"无法为股票 {stock_code} 确定东方财富资金流向数据模型。")
+            return pd.DataFrame()
+        try:
+            # 异步查询数据库
+            qs = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__lte=trade_date
+            ).order_by('-trade_time')[:limit]
+            # 使用异步推导式高效获取数据
+            data_list = [item async for item in qs.values()]
+            if not data_list:
+                print(f"DAO: 未找到 {stock_code} 的东方财富资金流数据。") # 调试信息
+                return pd.DataFrame()
+            # 转换为DataFrame
+            df = pd.DataFrame(data_list)
+            # 将 trade_time 设置为UTC时区的DatetimeIndex
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            # 移除ORM生成的id和外键id列
+            df.drop(columns=['id', 'stock_id'], inplace=True, errors='ignore')
+            print(f"DAO: 成功获取 {len(df)} 条东方财富资金流数据。") # 调试信息
+            return df
+        except Exception as e:
+            logger.error(f"查询东方财富资金流数据时出错 (stock: {stock_code}): {e}", exc_info=True)
+            return pd.DataFrame()
 
     async def save_history_fund_flow_daily_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
@@ -674,6 +788,21 @@ class FundFlowDao(BaseDAO):
         return result
     
     # ============== 行业资金流向数据 - 同花顺 ==============
+    @sync_to_async
+    def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
+        """获取行业的历史资金流数据"""
+        # print(f"    [DAO] 正在获取行业 {industry_code} 从 {start_date} 到 {end_date} 的资金流...")
+        qs = FundFlowIndustryTHS.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        ).order_by('trade_time')
+        df = pd.DataFrame(list(qs.values()))
+        if not df.empty:
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+        return df
+
     async def save_history_fund_flow_industry_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
         【V2.0 - 向量化优化版】保存历史行业资金流向数据 - 同花顺

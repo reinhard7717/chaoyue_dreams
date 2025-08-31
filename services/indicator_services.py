@@ -1180,7 +1180,7 @@ class IndicatorService:
             # 使用 asyncio.gather 获取一个行业的所有数据
             data_tasks = {
                 "daily": self.indicator_dao.get_industry_daily_data(industry.ts_code, start_date, trade_date),
-                "flow": self.indicator_dao.get_industry_fund_flow(industry.ts_code, start_date, trade_date)
+                "flow": self.fund_flow_dao.get_industry_fund_flow(industry.ts_code, start_date, trade_date)
             }
             data_results = await asyncio.gather(*data_tasks.values())
             
