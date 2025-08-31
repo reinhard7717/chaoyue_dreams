@@ -223,7 +223,7 @@ class CacheManager:
     def _serialize(self, data: Any) -> bytes:
         """
         (内部方法) 使用 umsgpack 将 Python 对象序列化为字节。
-        - 核心修改: 先调用 _clean_data_for_serialization 清洗数据，再进行打包。
+        - 先调用 _clean_data_for_serialization 清洗数据，再进行打包。
         """
         try:
             # 1. 在序列化之前，主动清洗数据

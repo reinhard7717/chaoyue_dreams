@@ -194,7 +194,7 @@ class CacheSet():
 
 class UserCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_user = UserCashKey()
 
@@ -227,7 +227,7 @@ class UserCacheSet(CacheSet):
 
 class IndexCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_index = IndexCashKey()
         self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
@@ -367,7 +367,7 @@ class IndexCacheSet(CacheSet):
 
 class StockInfoCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_stock = StockCashKey()
    
@@ -384,7 +384,7 @@ class StockInfoCacheSet(CacheSet):
 
 class StockTimeTradeCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
@@ -540,7 +540,7 @@ class StockTimeTradeCacheSet(CacheSet):
 
 class StockIndicatorsCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_stock = StockCashKey()
 
@@ -800,7 +800,7 @@ class StockRealtimeCacheSet(CacheSet):
 
 class StrategyCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):

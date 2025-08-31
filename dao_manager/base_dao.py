@@ -45,7 +45,7 @@ class BaseDAO(Generic[T]):
         """
         初始化 BaseDAO。
         【V2.0 - 依赖注入版】
-        - 核心修改: 不再自己创建 CacheManager，而是接收一个外部传入的实例。
+        - 不再自己创建 CacheManager，而是接收一个外部传入的实例。
 
         Args:
             cache_manager_instance: 一个已经初始化的 CacheManager 实例。
@@ -57,7 +57,7 @@ class BaseDAO(Generic[T]):
         self.api_service = api_service
         self.cache_timeout = cache_timeout
         
-        # 【核心修改】直接使用传入的 CacheManager 实例
+        # 直接使用传入的 CacheManager 实例
         self.cache_manager = cache_manager_instance # <--- 2. 赋值
 
         self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
@@ -704,7 +704,7 @@ class BaseDAO(Generic[T]):
         """
         【V25 - 分布式锁版】的异步批处理调度器。
         - 策略:
-          1. 【核心修改】在处理任何批次前，通过 self.cache_manager 为当前目标表获取一个Redis分布式锁。
+          1. 在处理任何批次前，通过 self.cache_manager 为当前目标表获取一个Redis分布式锁。
           2. 这可以确保在同一时间内，只有一个进程/任务流可以向该表写入数据，从根本上消除并发写入导致的死锁。
           3. 锁会在所有批次处理完毕或发生异常后自动释放。
         """

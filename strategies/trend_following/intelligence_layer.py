@@ -55,6 +55,7 @@ class IntelligenceLayer:
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
+        self.fund_flow_intel = FundFlowIntelligence(self.strategy)
 
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """
@@ -99,6 +100,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
         # 调用战略级筹码情报诊断模块，并将其结果添加到原子状态
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
+        # 诊断资金流原子信号
+        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
 
         # --- 阶段三: 核心原子状态生成 (第一梯队) ---
         # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
@@ -140,6 +143,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
         self.strategy.atomic_states.update(self.cognitive_intel.run_cognitive_synthesis_engine(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
+        # 交叉验证筹码和资金流信号
+        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
         # --- 阶段六: 生成最终的触发器与剧本 ---

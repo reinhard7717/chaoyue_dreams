@@ -46,7 +46,7 @@ def dispatch_derived_data_tasks(self, primary_results, trade_time_str=None):
 def run_daily_data_ingestion_task(self, trade_time_str=None):
     """
     【V2.0 两阶段工作流版】
-    - 核心修改: 将任务流重构为两个阶段，彻底解决数据就绪时间的依赖问题。
+    - 将任务流重构为两个阶段，彻底解决数据就绪时间的依赖问题。
       - 阶段一: 并行执行数据就绪快的核心数据任务（分钟、日线、周线、月线、CYQ）。
       - 阶段二: 在阶段一完成后，通过回调启动一个新的分发器，该分发器负责执行数据就绪慢的衍生数据任务（每日指标、资金流等），并增加了延迟执行的保险机制。
     """

@@ -129,7 +129,7 @@ class CacheGet():
     
 class UserCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def initialize(self):
@@ -180,7 +180,7 @@ class UserCacheGet(CacheGet):
 
 class IndexCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def all_indexes(self) -> Optional[List[Dict]]:
@@ -284,7 +284,7 @@ class IndexCacheGet(CacheGet):
 
 class StockInfoCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def all_stocks(self) -> Optional[List[Dict]]:
@@ -315,7 +315,7 @@ class StockInfoCacheGet(CacheGet):
 
 class StockTimeTradeCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def stock_day_basic_info_by_limit(self, stock_code: str, limit: int) -> Optional[Dict[str, Any]]:
@@ -520,7 +520,7 @@ class StockRealtimeCacheGet(CacheGet):
 
 class StockIndicatorsCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def latest_kdj(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
@@ -564,7 +564,7 @@ class StockIndicatorsCacheGet(CacheGet):
 
 class StrategyCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
-        # 【核心修改】调用父类并传递实例
+        # 调用父类并传递实例
         super().__init__(cache_manager_instance)
 
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str):

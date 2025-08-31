@@ -148,7 +148,7 @@ class PerformanceAnalyzer:
     def _analyze_single_trade_performance(self, entry_date, is_offensive: bool) -> dict:
         """
         【V4.1 角色识别版】深度分析单次交易的性能表现。
-        - 核心修改: 接收 is_offensive 参数，以决定调用哪种模拟逻辑。
+        - 接收 is_offensive 参数，以决定调用哪种模拟逻辑。
         """
         # 调用权威的静态模拟函数，并传入正确的信号角色。
         return PerformanceAnalysisService._simulate_trade_outcome(

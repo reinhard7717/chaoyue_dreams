@@ -286,7 +286,7 @@ class PerformanceAnalysisService:
                 signal_type = signal_meta.get('type', 'positional').lower()
                 
                 event_dates = []
-                # [核心修正] 根据信号的性质（状态 vs 事件）应用不同的评估协议
+                # 根据信号的性质（状态 vs 事件）应用不同的评估协议
                 if signal_type in ['trigger', 'composite', 'playbook']:
                     # 性质：事件。评估每一次发生。
                     # print(f"  -> [探针] 信号 {signal_name} (类型: {signal_type}) 被视为瞬时事件。")
@@ -374,7 +374,7 @@ class PerformanceAnalysisService:
             'daily_score__trade_date': 'trade_date'
         }, inplace=True)
 
-        # [核心修正] 强制转换为Pandas原生datetime64[ns]类型，不再使用.dt.date
+        # 强制转换为Pandas原生datetime64[ns]类型，不再使用.dt.date
         all_states_df['trade_date'] = pd.to_datetime(all_states_df['trade_date'])
         print(f"调试信息: all_states_df['trade_date'] 的类型是 {all_states_df['trade_date'].dtype}")
 
@@ -396,7 +396,7 @@ class PerformanceAnalysisService:
         all_prices_df.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
         all_prices_df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         
-        # [核心修正] 同样，将价格数据的日期也强制转换为datetime64[ns]类型
+        # 同样，将价格数据的日期也强制转换为datetime64[ns]类型
         all_prices_df['trade_date'] = pd.to_datetime(all_prices_df['trade_date'])
         print(f"调试信息: all_prices_df['trade_date'] 的类型是 {all_prices_df['trade_date'].dtype}")
 

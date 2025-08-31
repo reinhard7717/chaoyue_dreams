@@ -2,7 +2,6 @@
 # 统合判断层 (V404.2 - 逻辑净化版)
 import pandas as pd
 import numpy as np
-from .intelligence_layer import MainForceState
 from .utils import get_params_block, get_param_value
 
 class JudgmentLayer:

@@ -310,6 +310,12 @@
           "description": "【A级动能进攻风控】协同进攻信号能容忍的最高“上涨末期分数”。30分意味着最多只能有一个风险子信号激活，要求更严格。"
         }
       },
+      "fund_flow_params": {
+        "enabled": true,
+        "ts_consecutive_inflow_days": 3,
+        "ths_large_buy_rate_threshold": 0.5,
+        "dc_super_large_buy_rate_threshold": 0.3
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
@@ -331,7 +337,9 @@
             "OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A": 450,
             "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 400,
             "CHIP_CONC_LOCKED_AND_STABLE_A": 350,
-            "KLINE_STATE_N_SHAPE_CONSOLIDATION": 300
+            "KLINE_STATE_N_SHAPE_CONSOLIDATION": 300,
+            "CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A": 150,
+            "CHIP_FUND_FLOW_ACCUMULATION_STRONG_S": 250
           }
         },
         "positional_momentum_params": {
@@ -393,6 +401,7 @@
             "CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING": 400,
             "RISK_DYN_PROFIT_MARGIN_SHRINKING_A": 350,
             "RISK_BEHAVIOR_WINNERS_FLEEING_B": 350,
+            "RISK_CHIP_FUND_FLOW_DISTRIBUTION_A": 350, "说明_RISK_CHIP_FUND_FLOW_DISTRIBUTION_A": "A级风险，筹码与资金流协同派发",
             "CHIP_DYN_DIVERGING": 300,
             "CHIP_DYN_WINNER_RATE_COLLAPSING": 300,
             "MA_STATE_STABLE_BEARISH": 250,
@@ -562,6 +571,8 @@
           "TACTIC_ASCENT_PULLBACK_REVERSAL_A": { "cn_name": "【战法A】初升浪回踩确认", "type": "positional" },
           "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": { "cn_name": "【战法S+】巡航回踩确认", "type": "positional" },
           "说明_POSITIONAL": "--- 阵地分 (Positional) ---",
+          "CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A": { "cn_name": "【机会A】筹码资金协同吸筹", "type": "positional" },
+          "CHIP_FUND_FLOW_ACCUMULATION_STRONG_S": { "cn_name": "【机会S】筹码资金强力吸筹", "type": "positional" },
           "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS": { "cn_name": "【战备S++】终极黄金阵地", "type": "context" },
           "SETUP_PRIME_STRUCTURE_S_PLUS": { "cn_name": "【战备S+】次级黄金阵地", "type": "context" },
           "SETUP_PRIME_STRUCTURE_S": { "cn_name": "【战备S】黄金阵地构筑", "type": "context" },
@@ -650,6 +661,7 @@
           "PLAYBOOK_MEAN_REVERSION_A": { "cn_name": "【剧本A】均值回归反弹", "type": "playbook" },
           "PLAYBOOK_BOX_REVERSAL_B": { "cn_name": "【剧本B】箱体底部反转", "type": "playbook" },
           "说明_RISK": "--- 风险分 (Risk) ---",
+          "RISK_CHIP_FUND_FLOW_DISTRIBUTION_A": { "cn_name": "【风险A】筹码资金协同派发", "type": "risk" },
           "CONTEXT_RISK_CHIP_STRUCTURE_DECAY": { "cn_name": "【风险】筹码结构持续恶化", "type": "risk" },
           "RISK_CHIP_PRICE_DIVERGENCE": { "cn_name": "【风险S】价格筹码顶背离", "type": "risk" },
           "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": { "cn_name": "【风险S+】获利盘加速出逃", "type": "risk" },

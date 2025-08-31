@@ -289,7 +289,7 @@ class CognitiveIntelligence:
         # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
         conditions = {
             'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            # 'is_inflow': self.strategy.atomic_states.get('CAPITAL_STATE_INFLOW_CONFIRMED', pd.Series(False, index=df.index)).to_numpy(dtype=bool), # [修改] 移除对资金流的依赖
+            'is_fund_inflow_confirmed': self.strategy.atomic_states.get('CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_sideways': (df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).abs() < 0.01).to_numpy(dtype=bool),
             'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
@@ -310,9 +310,7 @@ class CognitiveIntelligence:
             current_state = prev_state
 
             if prev_state == MainForceState.IDLE:
-                # [修改开始] 移除对资金流的依赖，仅基于筹码集中判断吸筹
                 if conditions['is_concentrating'][i]: current_state = MainForceState.ACCUMULATING
-                # [修改结束]
             elif prev_state == MainForceState.ACCUMULATING:
                 if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
                 elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
@@ -335,6 +333,65 @@ class CognitiveIntelligence:
         df['main_force_state'] = main_force_state_arr
         # print("    --- [战略推演单元 V304.1 信号源修复版] 主力行为序列已生成。 ---")
         return df
+
+    def synthesize_chip_fund_flow_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】筹码与资金流协同合成模块
+        - 核心职责: 将筹码集中信号与多种资金流净流入信号进行交叉验证，生成更高置信度的复合信号。
+        - 收益: 减少单一信号的误判，提升主力吸筹判断的准确性。
+        """
+        print("        -> [筹码与资金流协同合成模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 获取核心筹码信号 ---
+        is_chip_concentrating = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_chip_accel_concentrating = atomic.get('CHIP_DYN_S_ACCEL_CONCENTRATING', default_series)
+        is_chip_locked_stable = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
+
+        # --- 2. 获取三种资金流净流入信号 ---
+        is_ts_net_inflow = atomic.get('FUND_FLOW_TS_NET_INFLOW', default_series)
+        is_ths_net_inflow = atomic.get('FUND_FLOW_THS_NET_INFLOW', default_series)
+        is_dc_net_inflow = atomic.get('FUND_FLOW_DC_NET_INFLOW', default_series)
+
+        # --- 3. 交叉验证：筹码集中 + 资金净流入 ---
+        # A级信号: 筹码集中度增加 AND 至少两种资金流显示净流入
+        states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'] = (
+            is_chip_concentrating & 
+            ((is_ts_net_inflow & is_ths_net_inflow) | 
+             (is_ts_net_inflow & is_dc_net_inflow) | 
+             (is_ths_net_inflow & is_dc_net_inflow))
+        )
+        if states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].any():
+            print(f"          -> [A级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].sum()} 次“筹码资金协同吸筹”！")
+
+        # S级信号: 筹码加速集中 或 筹码锁定稳定 AND 三种资金流均显示净流入
+        states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'] = (
+            (is_chip_accel_concentrating | is_chip_locked_stable) & 
+            is_ts_net_inflow & is_ths_net_inflow & is_dc_net_inflow
+        )
+        if states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].any():
+            print(f"          -> [S级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].sum()} 次“筹码资金强力吸筹”！")
+
+        # --- 4. 交叉验证：筹码发散 + 资金净流出 (风险信号) ---
+        is_chip_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
+        is_ts_net_outflow = atomic.get('FUND_FLOW_TS_NET_OUTFLOW', default_series)
+        is_ths_net_outflow = atomic.get('FUND_FLOW_THS_NET_OUTFLOW', default_series)
+        is_dc_net_outflow = atomic.get('FUND_FLOW_DC_NET_OUTFLOW', default_series)
+
+        # A级风险: 筹码发散 AND 至少两种资金流显示净流出
+        states['RISK_CHIP_FUND_FLOW_DISTRIBUTION_A'] = (
+            is_chip_diverging & 
+            ((is_ts_net_outflow & is_ths_net_outflow) | 
+             (is_ts_net_outflow & is_dc_net_outflow) | 
+             (is_ths_net_outflow & is_dc_net_outflow))
+        )
+        if states['RISK_CHIP_FUND_FLOW_DISTRIBUTION_A'].any():
+            print(f"          -> [A级风险] 侦测到 {states['RISK_CHIP_FUND_FLOW_DISTRIBUTION_A'].sum()} 次“筹码资金协同派发”！")
+
+        print("        -> [筹码与资金流协同合成模块 V1.0] 合成完毕。")
+        return states
 
     def synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

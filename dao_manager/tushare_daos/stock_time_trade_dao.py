@@ -31,7 +31,7 @@ time_levels = ["5", "15", "30", "60"] # "1",
 
 class StockTimeTradeDAO(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.cache_limit = 500 # 定义缓存数量上限
@@ -542,8 +542,8 @@ class StockTimeTradeDAO(BaseDAO):
         """
         【V4 - 健壮与限速最终版】保存股票的历史分钟级交易数据
         - 策略:
-        1. 【核心修复】在每次API调用前加入一个短暂的延时(asyncio.sleep)，以遵守API的调用频率限制，防止因请求过快而返回空数据。
-        2. 【核心修复】将API调用置于try...except块中，捕获潜在的网络或API异常，增强程序的健壮性。
+        1. 在每次API调用前加入一个短暂的延时(asyncio.sleep)，以遵守API的调用频率限制，防止因请求过快而返回空数据。
+        2. 将API调用置于try...except块中，捕获潜在的网络或API异常，增强程序的健壮性。
         3. 保留了V3版本的正确分页逻辑，即使用API返回的原始行数进行判断。
         """
         if not stock_codes:

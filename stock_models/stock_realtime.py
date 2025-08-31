@@ -29,7 +29,7 @@ class StockRealtimeData(models.Model):
 class StockLevel5Data(models.Model):
     """
     【V2.0 - 重构版】买卖五档盘口数据模型
-    - 核心修改: 移除 order_diff 和 order_ratio 字段，这些衍生指标应在应用层计算。
+    - 移除 order_diff 和 order_ratio 字段，这些衍生指标应在应用层计算。
                 模型只负责存储来自数据源的原始盘口数据。
     """
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="level5_data", verbose_name=_("股票"))

@@ -137,7 +137,7 @@ class IntradayEngineOrchestrator:
     async def run_single_cycle(self, time_level: str = '1'):
         """
         【盘中循环 V2.1 - 健壮版】从Redis读取状态，执行分析，并将结果写回Redis。
-        - 核心修改: 使用 asyncio.gather(..., return_exceptions=True) 来防止单个股票分析失败导致整个循环崩溃。
+        - 使用 asyncio.gather(..., return_exceptions=True) 来防止单个股票分析失败导致整个循环崩溃。
         """
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)

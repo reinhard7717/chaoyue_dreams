@@ -17,7 +17,7 @@ def get_param_value(param: Any, default: Any = None) -> Any:
 def get_params_block(strategy_instance, block_name: str, default_return: Any = None) -> dict:
     """
     【V1.1 健壮版】
-    - 核心修改: 智能判断传入的 strategy_instance 是对象还是字典，并从中安全地提取配置。
+    - 智能判断传入的 strategy_instance 是对象还是字典，并从中安全地提取配置。
     """
     if default_return is None:
         default_return = {}

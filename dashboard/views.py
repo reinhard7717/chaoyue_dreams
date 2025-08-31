@@ -77,7 +77,7 @@ def dashboard_view(request, cache_manager=None):
 def trend_following_list(request):
     """
     【V5.1 - 简化版】
-    - 核心修改: 废除“近3天”的固定逻辑，改为默认显示最新交易日的数据。
+    - 废除“近3天”的固定逻辑，改为默认显示最新交易日的数据。
     - 功能增强: 增加日期选择功能，允许用户查询任意历史交易日的买入信号。
     - 代码清理: 移除了 get_playbook_priority 相关的复杂排序逻辑。
     """
@@ -366,7 +366,7 @@ def fav_trend_following_list(request):
 def realtime_engine_view(request, cache_manager=None):
     """
     【V2.1 - 策略信号版】渲染盘中引擎实时监控页面。
-    - 核心修改: 只从最终的策略信号键 (ZSET) 中获取数据。
+    - 只从最终的策略信号键 (ZSET) 中获取数据。
     """
     user = request.user
     today_str = date.today().strftime('%Y-%m-%d')
@@ -440,7 +440,7 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         """
         【V6.0 - 简化版】
-        - 核心修改: 移除所有关于价格、日期、数量的参数依赖和交易创建逻辑。
+        - 移除所有关于价格、日期、数量的参数依赖和交易创建逻辑。
         - 核心职责: 只负责创建 FavoriteStock 和一个初始状态的 PositionTracker。
                      真正的交易录入完全交由用户在前端完成。
         """

@@ -387,7 +387,7 @@ class WeeklyContextEngine:
     def _playbook_ma20_is_rising(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.1 升级剧本】: 识别指定周线均线是否处于“有效”上升状态。
-        - 核心修改: 引入斜率阈值，过滤掉几乎走平的“伪上涨”状态。
+        - 引入斜率阈值，过滤掉几乎走平的“伪上涨”状态。
         """
         # print(f"\n--- 剧本检查: [{params.get('说明', '均线处于上升状态')}] ---")
         target_ma_period = params.get('ma_period', 21)
@@ -428,7 +428,7 @@ class WeeklyContextEngine:
     def _playbook_ma20_turn_up_event(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.1 升级剧本】: 识别指定周线均线“加速拐头向上”的事件。
-        - 核心修改: 引入二阶斜率（加速度）作为判断条件。
+        - 引入二阶斜率（加速度）作为判断条件。
                      要求拐头不仅是方向改变，还必须是“加速”的，以提高信号质量。
         """
         # print(f"\n--- 剧本检查: [{params.get('说明', '均线拐头向上事件')}] ---")
@@ -732,7 +732,7 @@ class WeeklyContextEngine:
     def _playbook_trix_golden_cross(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.2 升级剧本】: 识别周线TRIX“强力金叉”。
-        - 核心修改: 增加TRIX线自身斜率的判断，要求金叉时必须是“加速向上”的。
+        - 增加TRIX线自身斜率的判断，要求金叉时必须是“加速向上”的。
         """
         # print(f"\n--- 剧本检查: [{params.get('说明', 'TRIX金叉')}] ---")
         trix_cfg = self.indicator_cfg.get('trix', {})
@@ -774,7 +774,7 @@ class WeeklyContextEngine:
     def _playbook_coppock_reversal(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V3.4 升级剧本】: Coppock指标形态学 - 分离左侧企稳与右侧加速信号。
-        - 核心修改: 不再输出单一信号，而是返回一个包含两个独立信号的字典：
+        - 不再输出单一信号，而是返回一个包含两个独立信号的字典：
           1. coppock_stabilizing (左侧): 捕捉深水区“跌势衰竭，首次拐头”的瞬间。
           2. coppock_accelerating (右侧): 捕捉拐头后“上涨加速，动能确认”的瞬间。
         """

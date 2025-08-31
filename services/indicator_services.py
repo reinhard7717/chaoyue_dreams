@@ -19,6 +19,7 @@ from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from core.constants import TimeLevel
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
+from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from utils.cache_manager import CacheManager
 from utils.math_tools import hurst_exponent
 
@@ -40,15 +41,16 @@ class IndicatorService:
     def __init__(self, cache_manager_instance: CacheManager):
         """
         【V8.1 依赖注入版】初始化 IndicatorService。
-        - 核心修改: 接收 CacheManager 实例，并将其注入所有内部创建的DAO。
+        - 接收 CacheManager 实例，并将其注入所有内部创建的DAO。
         """
-        # 【核心修复】将 cache_manager_instance 传递给所有DAO的构造函数
+        # 将 cache_manager_instance 传递给所有DAO的构造函数
         self.indicator_dao = IndicatorDAO(cache_manager_instance)
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.stock_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.strategies_dao = StrategiesDAO(cache_manager_instance)
+        self.fund_flow_dao = FundFlowDao(cache_manager_instance)
 
         self.momentum_lookback = 60 # 动量计算回看周期
         self.fund_flow_lookback = 5   # 资金流计算回看周期
@@ -392,7 +394,7 @@ class IndicatorService:
         stock_code: str,
         config: dict,
         trade_time: Optional[str] = None,
-        latest_only: bool = False # <--- 接收并执行指令
+        latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
         【V8.1 情报锻造中心-完整版】
@@ -424,7 +426,7 @@ class IndicatorService:
         base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
         # print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
 
-        # 2. 【核心修改】确定需要从API获取的“基础”时间周期
+        # 2. 确定需要从API获取的“基础”时间周期
         base_tfs_to_fetch = set()
         resample_map = {} # 记录需要从哪个源周期合成目标周期
         for tf in required_tfs:
@@ -465,7 +467,7 @@ class IndicatorService:
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
             # print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
         
-        # ▼▼▼【核心新增】任务准备: 每日基本面数据 (换手率等) ▼▼▼
+        # ▼▼▼任务准备: 每日基本面数据 (换手率等) ▼▼▼
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             # 假设 strategies_dao 中有一个方法可以获取这些数据
@@ -474,10 +476,34 @@ class IndicatorService:
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
         # print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
+        
+        # ▼▼▼ #任务准备: 三种资金流数据 ▼▼▼
+        fund_flow_params = self._find_params_recursively(config, 'fund_flow_params') # 从配置中获取资金流参数
+        needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False # 判断是否启用资金流
+        
+        if needs_fund_flow_data: # 如果启用资金流
+            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.now().date() # 获取日期对象
+            
+            async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
+                df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取同花顺资金流
+                return ('fund_flow_ths', df)
+            tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+            # print("    - [任务规划] 已添加“同花顺资金流”获取任务。")
+
+            async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
+                df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取东方财富资金流
+                return ('fund_flow_dc', df)
+            tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+            # print("    - [任务规划] 已添加“东方财富资金流”获取任务。")
+
+            async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
+                df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取Tushare资金流
+                return ('fund_flow_tushare', df)
+            tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+            # print("    - [任务规划] 已添加“Tushare资金流”获取任务。")
 
         # 4. 准备所有“基础”OHLCV数据获取任务
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
-            # 不再传递 bars_to_fetch，直接使用外部作用域的 base_needed_bars
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
 
@@ -495,6 +521,9 @@ class IndicatorService:
         df_legacy_supplemental: Optional[pd.DataFrame] = None
         df_advanced_chips: Optional[pd.DataFrame] = None
         df_daily_basic: Optional[pd.DataFrame] = None
+        df_fund_flow_ths: Optional[pd.DataFrame] = None
+        df_fund_flow_dc: Optional[pd.DataFrame] = None
+        df_fund_flow_tushare: Optional[pd.DataFrame] = None
         
         for result in all_data_results:
             if isinstance(result, Exception):
@@ -516,6 +545,12 @@ class IndicatorService:
                     # print(f"    - [数据类型标准化] 已将 {len(decimal_cols)} 个高级筹码指标列的类型从 Decimal 转换为 float。")
             elif tag == 'daily_basic':
                 if isinstance(data, pd.DataFrame): df_daily_basic = data
+            elif tag == 'fund_flow_ths':
+                if isinstance(data, pd.DataFrame): df_fund_flow_ths = data
+            elif tag == 'fund_flow_dc':
+                if isinstance(data, pd.DataFrame): df_fund_flow_dc = data
+            elif tag == 'fund_flow_tushare':
+                if isinstance(data, pd.DataFrame): df_fund_flow_tushare = data
             else: # 处理 OHLCV 数据
                 if isinstance(data, pd.DataFrame) and not data.empty:
                     raw_dfs[tag] = data
@@ -526,7 +561,7 @@ class IndicatorService:
         
         print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
 
-        # 7. 【核心新增】执行重采样，锻造周线和月线OHLCV及核心指标
+        # 7. 执行重采样，锻造周线和月线OHLCV及核心指标
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -571,6 +606,22 @@ class IndicatorService:
                     df = pd.merge(df, df_daily_basic_std, left_index=True, right_index=True, how='left')
                     # 使用 ffill 填充周末或节假日可能产生的缺失值
                     df[list(df_daily_basic_std.columns)] = df[list(df_daily_basic_std.columns)].ffill()
+
+                # 合并三种资金流数据
+                if df_fund_flow_ths is not None and not df_fund_flow_ths.empty:
+                    df_fund_flow_ths_std = self._standardize_df_index_to_utc(df_fund_flow_ths)
+                    df = pd.merge(df, df_fund_flow_ths_std, left_index=True, right_index=True, how='left')
+                    df[list(df_fund_flow_ths_std.columns)] = df[list(df_fund_flow_ths_std.columns)].ffill()
+                
+                if df_fund_flow_dc is not None and not df_fund_flow_dc.empty:
+                    df_fund_flow_dc_std = self._standardize_df_index_to_utc(df_fund_flow_dc)
+                    df = pd.merge(df, df_fund_flow_dc_std, left_index=True, right_index=True, how='left')
+                    df[list(df_fund_flow_dc_std.columns)] = df[list(df_fund_flow_dc_std.columns)].ffill()
+
+                if df_fund_flow_tushare is not None and not df_fund_flow_tushare.empty:
+                    df_fund_flow_tushare_std = self._standardize_df_index_to_utc(df_fund_flow_tushare)
+                    df = pd.merge(df, df_fund_flow_tushare_std, left_index=True, right_index=True, how='left')
+                    df[list(df_fund_flow_tushare_std.columns)] = df[list(df_fund_flow_tushare_std.columns)].ffill()
             
             # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
@@ -1489,7 +1540,7 @@ class IndicatorService:
             
             stoch_df = await asyncio.to_thread(_sync_stoch)
 
-            # ▼▼▼【修改】增加对 None 返回值的健壮性检查 ▼▼▼
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if stoch_df is None or stoch_df.empty:
                 logger.warning(f"KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 计算结果为空，可能数据量不足。")
                 return None
@@ -1644,7 +1695,7 @@ class IndicatorService:
             
             macd_df = await asyncio.to_thread(_sync_macd)
 
-            # ▼▼▼【修改】增加对 None 返回值的健壮性检查 ▼▼▼
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if macd_df is None or macd_df.empty:
                 logger.warning(f"MACD (f={period_fast},s={period_slow},sig={signal_period}) 计算结果为空，可能数据量不足。")
                 return None
@@ -1782,12 +1833,12 @@ class IndicatorService:
                 return ta.rsi(close=df[close_col], length=period, append=False)
             rsi_series = await asyncio.to_thread(_sync_rsi)
 
-            # ▼▼▼【修改】增加对 None 返回值的健壮性检查 ▼▼▼
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if rsi_series is None or not isinstance(rsi_series, pd.Series) or rsi_series.empty:
                 logger.warning(f"RSI (周期 {period}) 计算结果为空或无效，可能数据量不足。")
                 return None
             
-            # 【修改】在创建DataFrame时显式传入索引，更加安全
+            #  在创建DataFrame时显式传入索引，更加安全
             return pd.DataFrame({f'RSI_{period}': rsi_series}, index=df.index)
             # ▲▲▲ 修改结束 ▲▲▲
 

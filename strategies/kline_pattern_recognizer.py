@@ -35,7 +35,7 @@ class KlinePatternRecognizer:
 
     def _get_default_params(self) -> Dict:
         """
-        【修改】定义所有形态识别的默认阈值，区分为“标准级”和“完美级”。
+         定义所有形态识别的默认阈值，区分为“标准级”和“完美级”。
         """
         return {
             # 通用参数

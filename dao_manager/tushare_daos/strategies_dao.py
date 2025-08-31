@@ -26,7 +26,7 @@ logger = logging.getLogger("dao")
 
 class StrategiesDAO(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)

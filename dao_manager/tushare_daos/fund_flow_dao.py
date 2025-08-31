@@ -25,7 +25,7 @@ logger = logging.getLogger("dao")
 
 class FundFlowDao(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
         self.data_format_process = FundFlowFormatProcess(cache_manager_instance)
@@ -844,7 +844,7 @@ class FundFlowDao(BaseDAO):
         combined_df.drop_duplicates(subset=['trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         
-        # [核心修正] trade_time 是 trade_date 转换而来，不再需要 stock 关联
+        # trade_time 是 trade_date 转换而来，不再需要 stock 关联
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         
         # 将Pandas的NaN转换为Python的None以适应数据库
@@ -856,11 +856,11 @@ class FundFlowDao(BaseDAO):
             return {}
 
         # 4. 批量保存
-        # [核心修正] unique_fields 应该是 'trade_time'，而不是 'stock', 'trade_time'
+        # unique_fields 应该是 'trade_time'，而不是 'stock', 'trade_time'
         result =  await self._save_all_to_db_native_upsert(
             model_class=FundFlowMarketDc,
             data_list=data_dicts,
-            unique_fields=['stock', 'trade_time']
+            unique_fields=['trade_time']
         )
         
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
@@ -1061,7 +1061,7 @@ class FundFlowDao(BaseDAO):
         """
         【V2 - API调用限制版】保存游资每日明细数据。
         - 策略:
-        1. 【核心修改】引入基于Redis的每日API调用计数器，确保 hm_detail 接口每天最多被调用2次。
+        1. 引入基于Redis的每日API调用计数器，确保 hm_detail 接口每天最多被调用2次。
         2. 在每次分页循环（即每次API调用）前，检查并增加计数器。
         3. 如果超出限制，则立即停止获取数据，并处理已获取的数据。
         """

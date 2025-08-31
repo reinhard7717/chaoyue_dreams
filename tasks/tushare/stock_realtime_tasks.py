@@ -41,7 +41,7 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     """
     【V2.0 依赖注入版】
     异步获取所有需要处理的股票代码列表。
-    - 核心修改: 不再自己创建DAO，而是接收一个外部传入的DAO实例。
+    - 不再自己创建DAO，而是接收一个外部传入的DAO实例。
     """
     favorite_stock_codes = set()
     all_stock_codes = set()

@@ -173,7 +173,7 @@ class Transaction(models.Model):
 class DailyPositionSnapshot(models.Model):
     """
     【V5.0 交易账户版】
-    - 核心修改: profit_loss 和 profit_loss_pct 的计算基准变为 PositionTracker 的 average_cost。
+    - profit_loss 和 profit_loss_pct 的计算基准变为 PositionTracker 的 average_cost。
     """
     tracker = models.ForeignKey(PositionTracker, on_delete=models.CASCADE, related_name='snapshots', null=True, blank=True)
     snapshot_date = models.DateField(db_index=True)

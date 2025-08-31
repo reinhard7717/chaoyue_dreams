@@ -41,7 +41,7 @@ def replace(value, args):
     自定义模板过滤器，用于替换字符串中的子串。
     用法: {{ some_string|replace:"old|new" }}
     """
-    # --- 【核心修改】---
+    # --- ---
     # 使用竖线 '|' 作为新的分隔符
     if '|' not in args:
         return value # 如果参数格式不正确，直接返回原值

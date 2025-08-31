@@ -39,7 +39,7 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     """
     【V2.0 依赖注入版】
     异步获取所有需要处理的股票代码列表。
-    - 核心修改: 不再自己创建DAO，而是接收一个外部传入的DAO实例。
+    - 不再自己创建DAO，而是接收一个外部传入的DAO实例。
     """
     favorite_stock_codes = set()
     all_stock_codes = set()
@@ -112,7 +112,7 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
 def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, latest_only: bool = False, start_date_str: str = None, *, cache_manager: CacheManager):
     """
     【V4.2 - 支持起始日期的策略计算任务】
-    - 核心修改: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
+    - 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
     - 新增功能: 增加了可选参数 `start_date_str`。当 `latest_only=False` 时，
                 可以指定一个起始日期，任务将只保存该日期之后（含当天）的策略记录。
                 这保证了指标计算的准确性（使用全历史数据），同时提供了灵活的数据保存范围。
@@ -365,7 +365,7 @@ def update_favorite_stock_trackers(self):
     """
     【V3.1 - 健壮版】
     每日运行，为所有活跃的 PositionTracker 创建当日的状态快照。
-    - 核心修改: 采用“先检查、再创建”的模式，彻底避免因任务重跑导致的 IntegrityError。
+    - 采用“先检查、再创建”的模式，彻底避免因任务重跑导致的 IntegrityError。
     """
     try:
         # 步骤 1: 确定需要生成快照的日期（最新的一个交易日）
@@ -561,7 +561,7 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
     """
     【执行器 V10.5 - 分表适配版】
-    - 核心修改: 适配 AdvancedChipMetrics 模型分表，动态读写对应的数据库表。
+    - 适配 AdvancedChipMetrics 模型分表，动态读写对应的数据库表。
     - 技术改造: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
     """
     time_trade_dao = StockTimeTradeDAO(cache_manager)
@@ -922,7 +922,7 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
     """
     【V1.1 报告生成版】
     对单个股票在指定的历史时间段内，运行策略并对所有买入信号的后续表现进行统计分析。
-    - 核心修改: 此任务现在负责接收底层的原始分析数据，并将其格式化为一份完整的、人类可读的报告。
+    - 此任务现在负责接收底层的原始分析数据，并将其格式化为一份完整的、人类可读的报告。
     """
     logger.info("="*80)
     logger.info(f"--- [单股票信号性能分析任务启动] ---")
@@ -1358,7 +1358,7 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
         print(report_df_for_print.to_string(index=False))
     logger.info("=" * 95 + "\n")
 
-    # 8. 【核心修复】将最终报告转换为Python原生对象(List[Dict])，再进行持久化
+    # 8. 将最终报告转换为Python原生对象(List[Dict])，再进行持久化
     #    我们使用未被格式化用于打印的 report_df_for_log，以保留原始的数值类型。
     report_data = report_df_for_log.to_dict(orient='records')
     
@@ -1460,7 +1460,7 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                 ))
         
         # --- 代码修改开始 ---
-        # [核心修正] 在同步任务中，直接调用同步的ORM方法。
+        # 在同步任务中，直接调用同步的ORM方法。
         #           之前的 sync_to_async(...) 调用只创建了协程但未执行。
         if records_to_create:
             print(f"调试信息: [原子信号 Reduce] 准备创建 {len(records_to_create)} 条记录...")
@@ -1490,7 +1490,7 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
     """
     【V1.2 - 安静的Map任务】
     作为MapReduce中的Map阶段，此任务只负责计算并返回原始数据，不打印任何报告。
-    - 核心修改: 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
+    - 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
     """
     async def main():
         # 1. 初始化性能分析服务
@@ -1557,7 +1557,7 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
         workflow_final.apply_async()
         logger.info(f"-> 指令已下达！{total_stocks} 个【最终信号】分析子任务已派发。")
 
-        # [核心修正] 使用新的 MapReduce 架构来派发原子信号分析任务
+        # 使用新的 MapReduce 架构来派发原子信号分析任务
         # --- 作战指令二: 启动【原子信号】分析特遣队 (MapReduce) ---
         logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发 MapReduce 任务...")
         map_tasks_atomic = [

@@ -15,7 +15,7 @@ class UserDAO(BaseDAO):
     用户DAO，用于管理用户相关操作
     """
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
 
         self.cache_set = UserCacheSet(self.cache_manager)

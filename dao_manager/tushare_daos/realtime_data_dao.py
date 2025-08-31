@@ -358,7 +358,7 @@ class StockRealtimeDAO(BaseDAO):
             return {}
 
     
-    # ▼▼▼ 核心修改: 区分数据源，处理不同单位 ▼▼▼
+    # ▼▼▼ 区分数据源，处理不同单位 ▼▼▼
     def _process_serialized_data(self, data_with_scores: list, source: str) -> Optional[pd.DataFrame]:
         """
         【V4.0 - 数据源区分版】

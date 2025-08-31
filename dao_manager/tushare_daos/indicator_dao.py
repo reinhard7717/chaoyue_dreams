@@ -136,7 +136,7 @@ class IndicatorDAO(BaseDAO):
     指标数据访问对象，负责指标数据的读取和存储
     """
     def __init__(self, cache_manager_instance: CacheManager):
-        # 【核心修改】调用 super() 时，将 cache_manager_instance 传递进去
+        # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
         
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
@@ -292,7 +292,7 @@ class IndicatorDAO(BaseDAO):
         """
         print(f"      - [DAO查询] 正在查询股票 {stock_code} 的所属行业...")
         try:
-            # ▼▼▼【代码实现】: 这是您需要的新方法的核心逻辑 ▼▼▼
+            # ▼▼▼ 这是您需要的新方法的核心逻辑 ▼▼▼
             # 使用 Django 异步 ORM 进行查询
             # 1. select_related('ths_index'): 预加载关联的行业信息，避免N+1查询。
             # 2. filter(stock__stock_code=...): 按股票代码过滤。
@@ -302,7 +302,7 @@ class IndicatorDAO(BaseDAO):
                 stock__stock_code=stock_code,
                 out_date__isnull=True
             ).afirst()
-            # ▲▲▲【代码实现】: 核心逻辑结束 ▲▲▲
+            # ▲▲▲ 核心逻辑结束 ▲▲▲
 
             if membership and membership.ths_index:
                 # 如果找到了有效的成员关系，并且其关联的指数也存在

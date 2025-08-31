@@ -42,7 +42,7 @@ class MultiTimeframeTrendStrategy:
     def __init__(self, cache_manager_instance: CacheManager):
         """
         【V203.2 依赖注入版】初始化总指挥部。
-        - 核心修改: 接收 CacheManager 实例，并将其注入所有下属服务和引擎。
+        - 接收 CacheManager 实例，并将其注入所有下属服务和引擎。
         """
         # print("--- [总指挥部] 正在初始化 (V203.2)... ---")
         
@@ -705,7 +705,7 @@ class MultiTimeframeTrendStrategy:
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
         【V319.2 探针专属修复版 - 调试报告增强】
-        - 核心修改: 增强了调试报告，现在会输出每天的进攻总分、风险总分，以及激活的详细进攻和风险项。
+        - 增强了调试报告，现在会输出每天的进攻总分、风险总分，以及激活的详细进攻和风险项。
         - 修复: 修正了对 run_for_stock 返回的五元组的解包，确保所有返回值都被正确接收。
         - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
         - 新流程:
@@ -830,7 +830,7 @@ class MultiTimeframeTrendStrategy:
     async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
         【V1.1 返回值适配版】信号性能分析总指挥方法
-        - 核心修改: 方法现在会返回性能分析器计算出的原始结果列表，以供上层调用者（如Celery任务）进行格式化展示。
+        - 方法现在会返回性能分析器计算出的原始结果列表，以供上层调用者（如Celery任务）进行格式化展示。
         - 职责: 作为一个独立的、用于深度回测的入口，编排策略运行和性能分析的流程。
         - 流程:
           1. 运行全历史策略，生成回测区间内的所有指标和信号。
