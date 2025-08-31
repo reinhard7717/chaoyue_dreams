@@ -561,80 +561,72 @@ class IndicatorService:
         
         print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
 
-        # 7. 执行重采样，锻造周线和月线OHLCV及核心指标
+        # 7. 【核心修改点 1/3】提前合并所有日级别数据
+        # 将所有补充数据（资金流、筹码、基本面）合并到主日线DataFrame中
+        df_daily_master = raw_dfs['D']
+        for tag, df_supp in supplemental_dfs.items():
+            df_supp_std = self._standardize_df_index_to_utc(df_supp)
+            if df_supp_std is not None and not df_supp_std.empty:
+                # 使用 left join 合并，并用 ffill 填充可能因节假日产生的缺失值
+                df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
+                df_daily_master[list(df_supp_std.columns)] = df_daily_master[list(df_supp_std.columns)].ffill()
+        # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
+        raw_dfs['D'] = df_daily_master
+        print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
+
+        # 8. 执行重采样，锻造周线和月线OHLCV及核心指标
         if resample_map:
-            df_daily = raw_dfs['D']
+            df_daily = raw_dfs['D'] # 现在 df_daily 是包含所有信息的“大师版”
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    # print(f"    - [数据锻造] 开始从日线数据合成 '{target_tf}' 周期数据...")
-                    ohlc_rule = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-                    resample_period = 'W-FRI' if target_tf == 'W' else 'ME' # 'ME' for MonthEnd
-                    df_resampled = df_daily.resample(resample_period).agg(ohlc_rule)
+                    # 【核心修改点 2/3】创建动态的、全面的聚合规则
+                    aggregation_rules = {
+                        'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+                    }
+                    # 动态为所有金额和交易量相关的列设置 'sum' 规则
+                    for col in df_daily.columns:
+                        if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
+                            if col not in aggregation_rules:
+                                aggregation_rules[col] = 'sum'
+                    # 动态为所有比率相关的列设置 'last' 规则
+                    for col in df_daily.columns:
+                        if 'rate' in col.lower():
+                            if col not in aggregation_rules:
+                                aggregation_rules[col] = 'last'
+                    # 特殊处理可能被误判的列
+                    if 'turnover_rate' in aggregation_rules:
+                        aggregation_rules['turnover_rate'] = 'mean' # 周换手率用平均更合理
+                    
+                    resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
+                    # 使用全面的聚合规则进行重采样
+                    df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
                     
                     if not df_resampled.empty:
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
-
                         raw_dfs[target_tf] = df_resampled
-                        print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录。")
+                        print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
 
-        # 8. 标准化所有周期的索引，并准备并发计算指标
+        # 9. 标准化所有周期的索引，并准备并发计算指标
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
-
         async def _calculate_for_tf(tf, df):
-            # print(f"    - [指标计算] 开始为周期 '{tf}' 准备并计算指标...")
-            # 标准化索引
             df = self._standardize_df_index_to_utc(df)
-            
-            # 【核心】只为日线数据融合补充数据
-            if tf == 'D':
-                if df_legacy_supplemental is not None and not df_legacy_supplemental.empty:
-                    df_legacy_std = self._standardize_df_index_to_utc(df_legacy_supplemental)
-                    df = pd.merge(df, df_legacy_std, left_index=True, right_index=True, how='left')
-                    df[list(df_legacy_std.columns)] = df[list(df_legacy_std.columns)].ffill()
-                
-                if df_advanced_chips is not None and not df_advanced_chips.empty:
-                    df_advanced_chips_std = self._standardize_df_index_to_utc(df_advanced_chips)
-                    df = pd.merge(df, df_advanced_chips_std, left_index=True, right_index=True, how='left')
-                    df[list(df_advanced_chips_std.columns)] = df[list(df_advanced_chips_std.columns)].ffill()
-
-                if df_daily_basic is not None and not df_daily_basic.empty:
-                    df_daily_basic_std = self._standardize_df_index_to_utc(df_daily_basic)
-                    df = pd.merge(df, df_daily_basic_std, left_index=True, right_index=True, how='left')
-                    # 使用 ffill 填充周末或节假日可能产生的缺失值
-                    df[list(df_daily_basic_std.columns)] = df[list(df_daily_basic_std.columns)].ffill()
-
-                # 合并三种资金流数据
-                if df_fund_flow_ths is not None and not df_fund_flow_ths.empty:
-                    df_fund_flow_ths_std = self._standardize_df_index_to_utc(df_fund_flow_ths)
-                    df = pd.merge(df, df_fund_flow_ths_std, left_index=True, right_index=True, how='left')
-                    df[list(df_fund_flow_ths_std.columns)] = df[list(df_fund_flow_ths_std.columns)].ffill()
-                
-                if df_fund_flow_dc is not None and not df_fund_flow_dc.empty:
-                    df_fund_flow_dc_std = self._standardize_df_index_to_utc(df_fund_flow_dc)
-                    df = pd.merge(df, df_fund_flow_dc_std, left_index=True, right_index=True, how='left')
-                    df[list(df_fund_flow_dc_std.columns)] = df[list(df_fund_flow_dc_std.columns)].ffill()
-
-                if df_fund_flow_tushare is not None and not df_fund_flow_tushare.empty:
-                    df_fund_flow_tushare_std = self._standardize_df_index_to_utc(df_fund_flow_tushare)
-                    df = pd.merge(df, df_fund_flow_tushare_std, left_index=True, right_index=True, how='left')
-                    df[list(df_fund_flow_tushare_std.columns)] = df[list(df_fund_flow_tushare_std.columns)].ffill()
-            
+            # 【核心修改点 3/3】移除此处冗余的合并逻辑
+            # 因为所有合并操作已在步骤7中提前完成，这里的df已经是包含所有信息的完整版
             # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
-            # print(f"      -> 周期 '{tf}' 指标计算完成。")
             return tf, df_with_indicators
+        # --- 代码修改结束 ---
 
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
 
-        # 9. 并发执行所有指标计算任务
+        # 10. 并发执行所有指标计算任务
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
-
         for res in processed_results:
             if isinstance(res, Exception):
                 print(f"    - 错误: 指标计算任务中出现异常: {res}")
@@ -645,8 +637,6 @@ class IndicatorService:
                     processed_dfs[tf] = df_processed
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
-
-        # print(f"--- [数据准备V8.1] 数据准备完成，最终字典包含的周期: {sorted(list(processed_dfs.keys()))} ---")
         return processed_dfs
 
     def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
