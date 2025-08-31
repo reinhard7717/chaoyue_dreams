@@ -16,6 +16,7 @@ from .intelligence.chip_intelligence import ChipIntelligence
 from .intelligence.behavioral_intelligence import BehavioralIntelligence
 from .intelligence.cognitive_intelligence import CognitiveIntelligence
 from .intelligence.playbook_engine import PlaybookEngine
+from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 
 class MainForceState(Enum):
     """
