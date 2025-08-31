@@ -397,30 +397,35 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.2 流程修正版】
-        - 核心修正: 调整了数据处理流程，确保所有日级别数据（资金流、基本面等）在重采样生成周/月线之前被完全合并。
-        - 功能增强: 实现了动态的、全面的重采样聚合规则，能正确处理资金流等补充数据列。
-        - 逻辑净化: 移除了后续步骤中冗余的数据合并代码。
+        【V8.5 智能重命名修复版】
+        - 核心修正: 解决了因删除冲突列导致部分资金流数据丢失的问题。
+        - 解决方案: 采用“智能重命名”策略替代“删除冲突列”。在合并补充数据前，为其所有列（除少数真正冗余的列外）
+                    自动添加来源标签作为后缀（如 'net_amount' -> 'net_amount_fund_flow_ths'），
+                    从而保留所有数据源的完整信息，同时避免了列名冲突。
+        - 增强: 对整个方法添加了详尽的中文注释，清晰地解释了每一步的逻辑和目的。
         """
-        print(f"--- [数据准备V8.2] 开始为 {stock_code} 准备基础数据与指标 ---")
+        print(f"--- [数据准备V8.5] 开始为 {stock_code} 准备基础数据与指标 ---")
         
-        # 1. 从配置中解析需要哪些时间周期的数据
+        # 1. 从策略配置中解析需要计算哪些时间周期（'D', 'W', 'M'等）的数据
         required_tfs = self._discover_required_timeframes_from_config(config)
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
         
+        # 根据是否为“闪电模式”（只获取最新数据）来确定需要加载的基础数据条数
         if latest_only:
             max_lookback = self._get_max_lookback_period(config)
-            safety_buffer = 100 
+            safety_buffer = 100  # 安全缓冲，防止指标计算因数据不足而出错
             base_needed_bars = max_lookback + safety_buffer
             print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
         else:
+            # 全量回测模式，加载配置文件中指定的较大数据量
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
         
-        # 2. 确定需要从API获取的“基础”时间周期
+        # 2. 确定需要从数据源（API/数据库）直接获取的“基础”时间周期
+        # 例如，如果需要周线('W')或月线('M')，我们必须获取日线('D')数据来进行重采样合成
         base_tfs_to_fetch = set()
-        resample_map = {} 
+        resample_map = {}  # 记录需要从哪个基础周期合成目标周期，如 {'W': 'D'}
         for tf in required_tfs:
             if tf in ['W', 'M']:
                 base_tfs_to_fetch.add('D') 
@@ -428,9 +433,11 @@ class IndicatorService:
             else:
                 base_tfs_to_fetch.add(tf)
 
-        # 3. 检查并准备所有补充数据的获取任务
+        # 3. 根据策略配置，检查并准备所有“补充数据”（如资金流、筹码、基本面）的异步获取任务
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        tasks = []
+        tasks = []  # 用于存放所有异步数据获取任务的列表
+        
+        # 准备旧版补充数据（资金流+筹码）的获取任务
         needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
                 'chip_cost_breakthrough', 
@@ -444,6 +451,8 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
+        
+        # 准备高级筹码指标数据的获取任务
         chip_params = self._find_params_recursively(config, 'chip_feature_params')
         needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
         if needs_advanced_chip_data:
@@ -452,11 +461,15 @@ class IndicatorService:
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
+        
+        # 准备每日基本面数据（如换手率）的获取任务
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
+        
+        # 准备多种来源（同花顺, 东方财富, Tushare）的资金流数据获取任务
         fund_flow_params = self._find_params_recursively(config, 'fund_flow_params')
         needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False
         if needs_fund_flow_data:
@@ -474,19 +487,19 @@ class IndicatorService:
                 return ('fund_flow_tushare', df)
             tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
 
-        # 4. 准备所有“基础”OHLCV数据获取任务
+        # 4. 准备所有“基础”OHLCV（开高低收量）K线数据的异步获取任务
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
             tasks.append(_fetch_and_tag_data(tf, trade_time))
 
-        # 5. 并发执行所有数据获取任务
+        # 5. 使用 asyncio.gather 并发执行所有数据获取任务，最大化I/O效率
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 6. 分类处理获取到的数据
-        raw_dfs: Dict[str, pd.DataFrame] = {}
-        supplemental_dfs: Dict[str, pd.DataFrame] = {}
+        # 6. 分类处理获取到的数据结果
+        raw_dfs: Dict[str, pd.DataFrame] = {}  # 存放基础OHLCV数据
+        supplemental_dfs: Dict[str, pd.DataFrame] = {}  # 存放所有补充数据
         for result in all_data_results:
             if isinstance(result, Exception):
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
@@ -494,88 +507,101 @@ class IndicatorService:
             if not (isinstance(result, tuple) and len(result) == 2): continue
             tag, data = result
             if isinstance(data, pd.DataFrame) and not data.empty:
-                # 找出所有 object 类型的列，这些列可能包含 Decimal 对象
+                # 【V8.4修复】统一数据类型，将从数据库取出的Decimal等对象转为Pandas计算友好的float64
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
-                    # 尝试将这些列转换为数值类型。pd.to_numeric能正确处理Decimal对象。
-                    # errors='coerce'会把无法转换的值变为NaN，保证代码不会中断。
                     data[col] = pd.to_numeric(data[col], errors='coerce')
+                
+                # 根据标签将数据分类存入不同的字典
                 if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
+        
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
         print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
 
-        # 7. 【核心修改点 1/3】提前合并所有日级别数据
-        # 将所有补充数据（资金流、筹码、基本面）合并到主日线DataFrame中
+        # --- 代码修改开始 ---
+        # 7. 【核心修改点 V8.5】提前合并所有日级别数据，采用“智能重命名”策略
         df_daily_master = raw_dfs['D']
+        # 定义一个列表，包含那些在补充数据中确实是冗余、应被丢弃的列
+        COLS_TO_DROP_FROM_SUPPLEMENTAL = ['close', 'pct_change', 'ts_code', 'trade_date']
+        
         for tag, df_supp in supplemental_dfs.items():
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
             if df_supp_std is not None and not df_supp_std.empty:
-                 # 识别并移除补充数据中的冲突列，以避免merge时产生_x, _y后缀
-                conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
-                if not conflicting_cols.empty:
-                    # print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
-                    df_supp_std = df_supp_std.drop(columns=conflicting_cols)
-                # 获取真正要被合并的新列名
-                new_cols_to_merge = df_supp_std.columns
+                # 步骤A: 从补充数据中移除真正冗余的列
+                cols_to_drop_existing = [col for col in COLS_TO_DROP_FROM_SUPPLEMENTAL if col in df_supp_std.columns]
+                df_to_merge = df_supp_std.drop(columns=cols_to_drop_existing)
+
+                # 步骤B: 为所有剩余的列名添加来源标签作为后缀，以保证其唯一性
+                renaming_dict = {col: f"{col}_{tag}" for col in df_to_merge.columns}
+                df_to_merge = df_to_merge.rename(columns=renaming_dict)
+                
+                # 获取重命名后的新列名列表，用于后续的ffill操作
+                new_cols_to_merge = df_to_merge.columns
                 if new_cols_to_merge.empty:
-                    # print(f"    - [数据合并] '{tag}' 数据在移除冲突列后为空，跳过合并。")
+                    print(f"    - [数据合并] '{tag}' 数据在预处理后为空，跳过合并。")
                     continue
-                # 执行合并
-                df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
-                # 仅对新合并的列执行ffill
+
+                # 步骤C: 执行合并，使用left join保留主数据的完整性
+                df_daily_master = pd.merge(df_daily_master, df_to_merge, left_index=True, right_index=True, how='left')
+                
+                # 步骤D: 仅对新合并的列执行前向填充(ffill)，以处理节假日等造成的缺失值
                 df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
-        # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
+        # --- 代码修改结束 ---
+
+        # 用合并了所有补充数据的“大师版”日线数据，替换掉原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
         print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
 
-        # 8. 执行重采样，锻造周线和月线OHLCV及核心指标
+        # 8. 如果需要，执行重采样，从日线数据合成周线和月线数据
         if resample_map:
-            df_daily = raw_dfs['D'] # 现在 df_daily 是包含所有信息的“大师版”
+            df_daily = raw_dfs['D']  # 此处df_daily已是包含所有信息的完整版
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    # 【核心修改点 2/3】创建动态的、全面的聚合规则
+                    # 动态创建全面的聚合规则字典
                     aggregation_rules = {
                         'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
                     }
-                    # 动态为所有金额和交易量相关的列设置 'sum' 规则
+                    # 为金额、成交量、净流入等列自动设置求和('sum')规则
                     for col in df_daily.columns:
                         if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
                             if col not in aggregation_rules:
                                 aggregation_rules[col] = 'sum'
-                    # 动态为所有比率相关的列设置 'last' 规则
+                    # 为比率型列自动设置取期末值('last')规则
                     for col in df_daily.columns:
                         if 'rate' in col.lower():
                             if col not in aggregation_rules:
                                 aggregation_rules[col] = 'last'
-                    # 特殊处理可能被误判的列
+                    # 特殊处理：周换手率用平均值('mean')比期末值更合理
                     if 'turnover_rate' in aggregation_rules:
-                        aggregation_rules['turnover_rate'] = 'mean' # 周换手率用平均更合理
+                        aggregation_rules['turnover_rate'] = 'mean'
                     
+                    # 设置重采样周期：周线以周五('W-FRI')为结束点，月线以月末('ME')为结束点
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
-                    # 使用全面的聚合规则进行重采样
+                    
+                    # 执行重采样和聚合
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
-                    df_resampled.dropna(how='all', inplace=True)
+                    df_resampled.dropna(how='all', inplace=True)  # 删除完全为空的行
                     
                     if not df_resampled.empty:
+                        # 为周线数据额外计算一些无法通过简单聚合得到的“合成指标”
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
+                        
                         raw_dfs[target_tf] = df_resampled
                         print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
 
-        # 9. 标准化所有周期的索引，并准备并发计算指标
+        # 9. 准备对所有需要的时间周期数据（日、周、月等）并发计算技术指标
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
         async def _calculate_for_tf(tf, df):
+            # 标准化索引并调用指标计算引擎
             df = self._standardize_df_index_to_utc(df)
-            # 【核心修改点 3/3】移除此处冗余的合并逻辑
-            # 因为所有合并操作已在步骤7中提前完成，这里的df已经是包含所有信息的完整版
-            # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators
 
@@ -595,6 +621,8 @@ class IndicatorService:
                     processed_dfs[tf] = df_processed
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
+        
+        # 返回最终处理好的、包含所有指标的、按时间周期分的DataFrame字典
         return processed_dfs
 
     def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
