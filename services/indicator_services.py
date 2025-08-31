@@ -541,13 +541,11 @@ class IndicatorService:
             # 标准化补充数据的索引为UTC时区，以便与主数据对齐
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
             if df_supp_std is not None and not df_supp_std.empty:
-                # --- 代码修改开始 ---
-                # 【核心修正 V8.6】采用精准后缀策略
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     suffix = f"_{tag}"
                     df_supp_std = df_supp_std.add_suffix(suffix)
-                    print(f"    - [数据合并] 为资金流数据源 '{tag}' 的所有列添加后缀 '{suffix}'。")
+                    # print(f"    - [数据合并] 为资金流数据源 '{tag}' 的所有列添加后缀 '{suffix}'。")
                 else:
                     # 对于其他补充数据（如daily_basic），采用移除冲突列的保守策略，以保证OHLCV数据的权威性
                     conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
@@ -560,12 +558,10 @@ class IndicatorService:
                 if new_cols_to_merge.empty:
                     print(f"    - [数据合并] '{tag}' 数据在处理后无新列可合并，跳过。")
                     continue
-
                 # 使用 'left' join 将处理后的补充数据合并到主日线数据中
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
                 # 对新合并的列进行前向填充（ffill），处理因节假日等原因造成的缺失值
                 df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
-                # --- 代码修改结束 ---
 
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
@@ -593,16 +589,13 @@ class IndicatorService:
                     # 特殊处理换手率，周换手率用平均值可能更合理
                     if 'turnover_rate' in aggregation_rules:
                         aggregation_rules['turnover_rate'] = 'mean'
-                    
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
-                    
                     if not df_resampled.empty:
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
-                        
                         raw_dfs[target_tf] = df_resampled
                         print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
 
