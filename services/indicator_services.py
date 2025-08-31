@@ -501,11 +501,9 @@ class IndicatorService:
             return (tf_to_fetch, df)
         for tf in base_tfs_to_fetch:
             tasks.append(_fetch_and_tag_data(tf, trade_time))
-
         # --- 步骤 6: 并发执行所有数据获取任务 ---
         # 使用 asyncio.gather 并发运行所有收集到的任务，提高数据获取效率
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-
         # --- 步骤 7: 分类和预处理获取到的数据 ---
         raw_dfs: Dict[str, pd.DataFrame] = {} # 存放基础OHLCV数据
         supplemental_dfs: Dict[str, pd.DataFrame] = {} # 存放所有补充数据
@@ -514,26 +512,22 @@ class IndicatorService:
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
                 continue
             if not (isinstance(result, tuple) and len(result) == 2): continue
-            
             tag, data = result # 解包任务返回的标识和DataFrame
             if isinstance(data, pd.DataFrame) and not data.empty:
                 # 统一数据类型，防止Decimal与float运算冲突
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                
                 # 根据tag将数据分类存入不同的字典
                 if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
-        
         # 核心的日线数据是所有计算的基础，如果获取失败则无法继续
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
-        print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
-
+        # print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
         # --- 步骤 8: 【核心逻辑】合并所有日级别数据 ---
         # 将所有补充数据合并到主日线DataFrame中，形成一个包含所有信息的“大师版”日线数据
         df_daily_master = raw_dfs['D']
@@ -550,13 +544,13 @@ class IndicatorService:
                     # 对于其他补充数据（如daily_basic），采用移除冲突列的保守策略，以保证OHLCV数据的权威性
                     conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
                     if not conflicting_cols.empty:
-                        print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
+                        # print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
                         df_supp_std = df_supp_std.drop(columns=conflicting_cols)
                 
                 # 获取处理后真正要被合并的新列名
                 new_cols_to_merge = df_supp_std.columns
                 if new_cols_to_merge.empty:
-                    print(f"    - [数据合并] '{tag}' 数据在处理后无新列可合并，跳过。")
+                    # print(f"    - [数据合并] '{tag}' 数据在处理后无新列可合并，跳过。")
                     continue
                 # 使用 'left' join 将处理后的补充数据合并到主日线数据中
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
@@ -565,7 +559,7 @@ class IndicatorService:
 
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
-        print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
+        # print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
 
         # --- 步骤 9: 执行重采样，生成周线和月线数据 ---
         if resample_map:
