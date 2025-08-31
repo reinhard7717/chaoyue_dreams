@@ -478,7 +478,7 @@ class IndicatorService:
         fund_flow_params = self._find_params_recursively(config, 'fund_flow_params')
         needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False
         if needs_fund_flow_data:
-            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.now().date()
+            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
             # 同花顺资金流
             async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
                 df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)

@@ -289,7 +289,7 @@ class CognitiveIntelligence:
         # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
         conditions = {
             'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_fund_inflow_confirmed': self.strategy.atomic_states.get('CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_fund_inflow_confirmed': self.strategy.atomic_states.get('CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool), # [修改代码] 增加新的协同信号作为推演证据
             'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_sideways': (df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).abs() < 0.01).to_numpy(dtype=bool),
             'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
