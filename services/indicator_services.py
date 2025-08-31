@@ -397,50 +397,40 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.1 情报锻造中心-完整版】
-        - 核心重构: 不再独立获取周/月线数据，而是从日线数据中通过 resample 合成。
-        - 新增功能: 调用 _calculate_synthetic_weekly_indicators 合成复杂的周线指标。
-        - 流程整合: 完整集成了旧筹码、新筹码等补充数据的并发获取与合并逻辑。
-        - 日志优化: 提供了更清晰的数据处理流程追踪日志。
+        【V8.2 流程修正版】
+        - 核心修正: 调整了数据处理流程，确保所有日级别数据（资金流、基本面等）在重采样生成周/月线之前被完全合并。
+        - 功能增强: 实现了动态的、全面的重采样聚合规则，能正确处理资金流等补充数据列。
+        - 逻辑净化: 移除了后续步骤中冗余的数据合并代码。
         """
-        print(f"--- [数据准备V8.1] 开始为 {stock_code} 准备基础数据与指标 ---")
+        print(f"--- [数据准备V8.2] 开始为 {stock_code} 准备基础数据与指标 ---")
         
-        # 1. 从配置中解析需要哪些时间周期的数据
+        # 1. 从配置中解析需要哪些时间周期的数据 (逻辑不变)
         required_tfs = self._discover_required_timeframes_from_config(config)
         if not required_tfs:
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
         
-        # ▼▼▼ 闪电模式的核心实现 ▼▼▼
-        # 步骤1: 根据模式决定基础数据量
         if latest_only:
-            # 闪电模式：智能计算最少需要的数据量
             max_lookback = self._get_max_lookback_period(config)
-            safety_buffer = 100 # 增加一个慷慨的安全缓冲,确保周线合成和指标预热
+            safety_buffer = 100 
             base_needed_bars = max_lookback + safety_buffer
             print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
         else:
-            # 全面模式：使用配置中的默认值
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
         
-        base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 500)
-        # print(f"    - [配置读取] 策略请求的基础数据量: {base_needed_bars} bars, 需要的周期: {sorted(list(required_tfs))}")
-
-        # 2. 确定需要从API获取的“基础”时间周期
+        # 2. 确定需要从API获取的“基础”时间周期 (逻辑不变)
         base_tfs_to_fetch = set()
-        resample_map = {} # 记录需要从哪个源周期合成目标周期
+        resample_map = {} 
         for tf in required_tfs:
             if tf in ['W', 'M']:
-                base_tfs_to_fetch.add('D') # 周线和月线都需要日线作为原材料
+                base_tfs_to_fetch.add('D') 
                 resample_map[tf] = 'D'
             else:
-                base_tfs_to_fetch.add(tf) # 其他周期（如D, 60, 30）直接获取
+                base_tfs_to_fetch.add(tf)
 
-        # 3. 检查并准备所有补充数据的获取任务
+        # 3. 检查并准备所有补充数据的获取任务 (逻辑不变)
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         tasks = []
-
-        # 任务准备: 旧筹码和资金流
         needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
                 'chip_cost_breakthrough', 
@@ -454,9 +444,6 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-            # print("    - [任务规划] 已添加“旧筹码与资金流”获取任务。")
-
-        # 任务准备: 新筹码(AdvancedChipMetrics)
         chip_params = self._find_params_recursively(config, 'chip_feature_params')
         needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
         if needs_advanced_chip_data:
@@ -465,100 +452,55 @@ class IndicatorService:
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-            # print("    - [任务规划] 已添加“新筹码(AdvancedChipMetrics)”获取任务。")
-        
-        # ▼▼▼任务准备: 每日基本面数据 (换手率等) ▼▼▼
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
-            # 假设 strategies_dao 中有一个方法可以获取这些数据
-            # 如果没有，我们需要在 DAO 层添加它
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
-        # print("    - [任务规划] 已添加“每日基本面(换手率等)”获取任务。")
-        
-        # ▼▼▼ #任务准备: 三种资金流数据 ▼▼▼
-        fund_flow_params = self._find_params_recursively(config, 'fund_flow_params') # 从配置中获取资金流参数
-        needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False # 判断是否启用资金流
-        
-        if needs_fund_flow_data: # 如果启用资金流
-            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.now().date() # 获取日期对象
-            
+        fund_flow_params = self._find_params_recursively(config, 'fund_flow_params')
+        needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False
+        if needs_fund_flow_data:
+            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.now().date()
             async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取同花顺资金流
+                df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)
                 return ('fund_flow_ths', df)
             tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-            # print("    - [任务规划] 已添加“同花顺资金流”获取任务。")
-
             async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取东方财富资金流
+                df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit)
                 return ('fund_flow_dc', df)
             tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-            # print("    - [任务规划] 已添加“东方财富资金流”获取任务。")
-
             async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit) # 调用DAO获取Tushare资金流
+                df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
                 return ('fund_flow_tushare', df)
             tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-            # print("    - [任务规划] 已添加“Tushare资金流”获取任务。")
 
-        # 4. 准备所有“基础”OHLCV数据获取任务
+        # 4. 准备所有“基础”OHLCV数据获取任务 (逻辑不变)
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
-
         for tf in base_tfs_to_fetch:
             tasks.append(_fetch_and_tag_data(tf, trade_time))
-            # print(f"    - [任务规划] 已添加“OHLCV({tf})”获取任务，请求 {bars_to_fetch} 条数据。")
 
-        # 5. 并发执行所有数据获取任务
-        # print("    - [数据获取] 开始并发执行所有数据获取任务...")
+        # 5. 并发执行所有数据获取任务 (逻辑不变)
         all_data_results = await asyncio.gather(*tasks, return_exceptions=True)
-        # print("    - [数据获取] 所有任务执行完毕。")
 
-        # 6. 分类处理获取到的数据
+        # 6. 分类处理获取到的数据 (逻辑不变)
         raw_dfs: Dict[str, pd.DataFrame] = {}
-        df_legacy_supplemental: Optional[pd.DataFrame] = None
-        df_advanced_chips: Optional[pd.DataFrame] = None
-        df_daily_basic: Optional[pd.DataFrame] = None
-        df_fund_flow_ths: Optional[pd.DataFrame] = None
-        df_fund_flow_dc: Optional[pd.DataFrame] = None
-        df_fund_flow_tushare: Optional[pd.DataFrame] = None
-        
+        supplemental_dfs: Dict[str, pd.DataFrame] = {}
         for result in all_data_results:
             if isinstance(result, Exception):
                 print(f"      -> 警告: 一个数据获取任务失败: {result}")
                 continue
             if not (isinstance(result, tuple) and len(result) == 2): continue
-            
             tag, data = result
-            if tag == 'legacy_supplemental':
-                if isinstance(data, pd.DataFrame): df_legacy_supplemental = data
-            elif tag == 'advanced_chips':
-                if isinstance(data, pd.DataFrame): 
-                    df_advanced_chips = data
-                    # 1. 找出所有 Decimal 类型的列
-                    decimal_cols = df_advanced_chips.select_dtypes(include=['object']).columns
-                    for col in decimal_cols:
-                        # 尝试将 Decimal 列转换为 float64，无法转换的错误值设为 NaN
-                        df_advanced_chips[col] = pd.to_numeric(df_advanced_chips[col], errors='coerce')
-                    # print(f"    - [数据类型标准化] 已将 {len(decimal_cols)} 个高级筹码指标列的类型从 Decimal 转换为 float。")
-            elif tag == 'daily_basic':
-                if isinstance(data, pd.DataFrame): df_daily_basic = data
-            elif tag == 'fund_flow_ths':
-                if isinstance(data, pd.DataFrame): df_fund_flow_ths = data
-            elif tag == 'fund_flow_dc':
-                if isinstance(data, pd.DataFrame): df_fund_flow_dc = data
-            elif tag == 'fund_flow_tushare':
-                if isinstance(data, pd.DataFrame): df_fund_flow_tushare = data
-            else: # 处理 OHLCV 数据
-                if isinstance(data, pd.DataFrame) and not data.empty:
+            if isinstance(data, pd.DataFrame) and not data.empty:
+                if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
+                    supplemental_dfs[tag] = data
+                else:
                     raw_dfs[tag] = data
-
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
-        
         print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
 
         # 7. 【核心修改点 1/3】提前合并所有日级别数据
@@ -619,7 +561,6 @@ class IndicatorService:
             # 调用指标计算引擎
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators
-        # --- 代码修改结束 ---
 
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
