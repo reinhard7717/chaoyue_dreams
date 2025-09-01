@@ -397,15 +397,16 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.6 精准后缀修复版】
-        - 核心修正: 实现了更精准的列名冲突处理策略，避免了对非冲突数据的过度重命名。
+        【V8.8 双向对齐终极版】
+        - 核心修正: 在合并前，强制将主数据和所有补充数据的DatetimeIndex都标准化到午夜(normalize)。
+                    这确保了无论原始数据的时间戳是收盘时刻还是午夜，都能实现精确的日期对齐，
+                    从根本上杜绝了因时间部分不一致导致的合并失败和数据错位风险。
         - 解决方案: 仅对多来源且存在同名列的资金流数据（fund_flow_*）添加来源后缀，确保所有资金流数据被完整保留。
                    对于其他补充数据（如daily_basic），则沿用“移除冲突列”的策略，以保护主OHLCV数据的权威性。
         - 优化: 对整个方法进行了代码审查，并添加了详尽的中文注释，解释了每一步的逻辑。
         """
-        # 打印开始处理的日志，版本号V8.6表明了当前的修复状态
-        print(f"--- [数据准备V8.6] 开始为 {stock_code} 准备基础数据与指标 ---")
-        
+        # [修改代码行] 更新版本号和日志信息
+        print(f"--- [数据准备V8.8] 开始为 {stock_code} 准备基础数据与指标 ---")
         # --- 步骤 1: 解析配置，确定需要计算的时间周期 ---
         # 从策略配置文件中，找出所有需要生成指标的时间周期（如 'D', 'W', 'M'）
         required_tfs = self._discover_required_timeframes_from_config(config)
@@ -413,7 +414,6 @@ class IndicatorService:
             # 如果配置中没有任何时间周期要求，则直接返回空字典，终止处理
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")
             return {}
-        
         # --- 步骤 2: 确定数据加载量 ---
         # 判断是否为“闪电模式”（latest_only=True），该模式仅用于最新交易日的快速信号生成
         if latest_only:
@@ -425,7 +425,6 @@ class IndicatorService:
         else:
             # 在完整回测或常规模式下，加载配置文件中指定的默认数据量（通常较大，如1200条）
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
-        
         # --- 步骤 3: 规划数据获取策略 ---
         # base_tfs_to_fetch: 存储需要直接从API获取的基础时间周期数据
         # resample_map: 存储需要通过重采样生成的目标时间周期及其来源（如 {'W': 'D'}）
@@ -437,12 +436,10 @@ class IndicatorService:
                 resample_map[tf] = 'D'
             else:  # 其他时间周期（如 'D', '60T'）直接获取
                 base_tfs_to_fetch.add(tf)
-
         # --- 步骤 4: 准备所有补充数据的异步获取任务 ---
         # 根据策略配置，判断需要哪些类型的补充数据（旧版筹码、高级筹码、日度基本面、各类资金流等）
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         tasks = [] # 用于收集所有异步任务的列表
-
         # 检查是否需要旧版的资金流和筹码数据
         needs_legacy_supplemental_data = any(
             params.get('enabled', False) and key in [
@@ -456,7 +453,6 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df) # 返回一个元组，包含数据标识和DataFrame
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-
         # 检查是否需要高级筹码指标数据
         chip_params = self._find_params_recursively(config, 'chip_feature_params')
         needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
@@ -466,14 +462,12 @@ class IndicatorService:
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-
         # 日度基本面数据是常用数据，默认获取
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
-
         # 检查是否需要各类资金流数据
         fund_flow_params = self._find_params_recursively(config, 'fund_flow_params')
         needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False
@@ -494,7 +488,6 @@ class IndicatorService:
                 df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
                 return ('fund_flow_tushare', df)
             tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-
         # --- 步骤 5: 准备基础OHLCV数据的异步获取任务 ---
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
@@ -531,12 +524,14 @@ class IndicatorService:
         # --- 步骤 8: 【核心逻辑】合并所有日级别数据 ---
         # 将所有补充数据合并到主日线DataFrame中，形成一个包含所有信息的“大师版”日线数据
         df_daily_master = raw_dfs['D']
-        # 在合并前，将主数据的索引标准化到午夜，消除时间部分差异。
+        # 日期对齐修复：在合并前，将主数据的索引标准化到午夜，消除时间部分差异。
         df_daily_master.index = df_daily_master.index.normalize()
         for tag, df_supp in supplemental_dfs.items():
             # 标准化补充数据的索引为UTC时区，以便与主数据对齐
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
             if df_supp_std is not None and not df_supp_std.empty:
+                # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
+                df_supp_std.index = df_supp_std.index.normalize()
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     suffix = f"_{tag}"
@@ -548,7 +543,6 @@ class IndicatorService:
                     if not conflicting_cols.empty:
                         # print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
                         df_supp_std = df_supp_std.drop(columns=conflicting_cols)
-                
                 # 获取处理后真正要被合并的新列名
                 new_cols_to_merge = df_supp_std.columns
                 if new_cols_to_merge.empty:
@@ -558,11 +552,9 @@ class IndicatorService:
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
                 # 对新合并的列进行前向填充（ffill），处理因节假日等原因造成的缺失值
                 df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
-
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
         # print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
-
         # --- 步骤 9: 执行重采样，生成周线和月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D'] # 现在 df_daily 是包含所有信息的“大师版”
@@ -594,7 +586,6 @@ class IndicatorService:
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
                         raw_dfs[target_tf] = df_resampled
                         print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
-
         # --- 步骤 10: 并发计算所有时间周期的技术指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
@@ -602,11 +593,9 @@ class IndicatorService:
             df = self._standardize_df_index_to_utc(df)
             df_with_indicators = await self._calculate_indicators_for_timescale(df, indicators_config, tf)
             return tf, df_with_indicators
-
         for tf, df in raw_dfs.items():
             if tf in required_tfs:
                 calc_tasks.append(_calculate_for_tf(tf, df))
-
         # --- 步骤 11: 收集并整理指标计算结果 ---
         processed_results = await asyncio.gather(*calc_tasks, return_exceptions=True)
         for res in processed_results:
@@ -619,7 +608,6 @@ class IndicatorService:
                     processed_dfs[tf] = df_processed
                 else:
                     print(f"    - 警告: 周期 '{tf}' 的指标计算结果为空DataFrame，已被丢弃。")
-        
         # 返回最终处理好的数据字典
         return processed_dfs
 
