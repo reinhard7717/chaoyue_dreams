@@ -531,6 +531,8 @@ class IndicatorService:
         # --- 步骤 8: 【核心逻辑】合并所有日级别数据 ---
         # 将所有补充数据合并到主日线DataFrame中，形成一个包含所有信息的“大师版”日线数据
         df_daily_master = raw_dfs['D']
+        # 在合并前，将主数据的索引标准化到午夜，消除时间部分差异。
+        df_daily_master.index = df_daily_master.index.normalize()
         for tag, df_supp in supplemental_dfs.items():
             # 标准化补充数据的索引为UTC时区，以便与主数据对齐
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
