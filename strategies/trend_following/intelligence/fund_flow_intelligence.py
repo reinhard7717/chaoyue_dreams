@@ -37,7 +37,7 @@ class FundFlowIntelligence:
             # 连续净流入
             consecutive_days = get_param_value(p.get('ts_consecutive_inflow_days'), 3)
             states['FUND_FLOW_TS_CONSECUTIVE_INFLOW'] = (df[net_mf_amount_col] > 0).rolling(window=consecutive_days, min_periods=consecutive_days).sum() == consecutive_days
-            print(f"          -> Tushare资金流诊断完成。净流入: {states['FUND_FLOW_TS_NET_INFLOW'].sum()} 天。")
+            # print(f"          -> Tushare资金流诊断完成。净流入: {states['FUND_FLOW_TS_NET_INFLOW'].sum()} 天。")
         else:
             print(f"          -> [警告] 缺少Tushare资金流列 '{net_mf_amount_col}'，跳过。")
 
@@ -50,7 +50,7 @@ class FundFlowIntelligence:
         if net_amount_ths_col in df.columns:
             states['FUND_FLOW_THS_NET_INFLOW'] = df[net_amount_ths_col] > 0
             states['FUND_FLOW_THS_NET_OUTFLOW'] = df[net_amount_ths_col] < 0
-            print(f"          -> 同花顺资金流诊断完成。净流入: {states['FUND_FLOW_THS_NET_INFLOW'].sum()} 天。")
+            # print(f"          -> 同花顺资金流诊断完成。净流入: {states['FUND_FLOW_THS_NET_INFLOW'].sum()} 天。")
         else:
             print(f"          -> [警告] 缺少同花顺资金流列 '{net_amount_ths_col}'，跳过。")
 
@@ -58,7 +58,7 @@ class FundFlowIntelligence:
         if buy_lg_amount_rate_ths_col in df.columns:
             large_buy_threshold = get_param_value(p.get('ths_large_buy_rate_threshold'), 0.5) # 例如，大单买入占比超过50%
             states['FUND_FLOW_THS_LARGE_BUY_DOMINANT'] = df[buy_lg_amount_rate_ths_col] > large_buy_threshold
-            print(f"          -> 同花顺大单买入占比诊断完成。大单主导: {states['FUND_FLOW_THS_LARGE_BUY_DOMINANT'].sum()} 天。")
+            # print(f"          -> 同花顺大单买入占比诊断完成。大单主导: {states['FUND_FLOW_THS_LARGE_BUY_DOMINANT'].sum()} 天。")
         else:
             print(f"          -> [警告] 缺少同花顺大单买入占比列 '{buy_lg_amount_rate_ths_col}'，跳过。")
 
@@ -70,14 +70,14 @@ class FundFlowIntelligence:
         if net_amount_dc_col in df.columns:
             states['FUND_FLOW_DC_NET_INFLOW'] = df[net_amount_dc_col] > 0
             states['FUND_FLOW_DC_NET_OUTFLOW'] = df[net_amount_dc_col] < 0
-            print(f"          -> 东方财富资金流诊断完成。净流入: {states['FUND_FLOW_DC_NET_INFLOW'].sum()} 天。")
+            # print(f"          -> 东方财富资金流诊断完成。净流入: {states['FUND_FLOW_DC_NET_INFLOW'].sum()} 天。")
         else:
             print(f"          -> [警告] 缺少东方财富资金流列 '{net_amount_dc_col}'，跳过。")
 
         if buy_elg_amount_rate_dc_col in df.columns:
             super_large_buy_threshold = get_param_value(p.get('dc_super_large_buy_rate_threshold'), 0.3) # 例如，超大单买入占比超过30%
             states['FUND_FLOW_DC_SUPER_LARGE_BUY_DOMINANT'] = df[buy_elg_amount_rate_dc_col] > super_large_buy_threshold
-            print(f"          -> 东方财富超大单买入占比诊断完成。超大单主导: {states['FUND_FLOW_DC_SUPER_LARGE_BUY_DOMINANT'].sum()} 天。")
+            # print(f"          -> 东方财富超大单买入占比诊断完成。超大单主导: {states['FUND_FLOW_DC_SUPER_LARGE_BUY_DOMINANT'].sum()} 天。")
         else:
             print(f"          -> [警告] 缺少东方财富超大单买入占比列 '{buy_elg_amount_rate_dc_col}'，跳过。")
 
