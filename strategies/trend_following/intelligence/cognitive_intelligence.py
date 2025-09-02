@@ -66,7 +66,7 @@ class CognitiveIntelligence:
         # print("        -> [战场上下文诊断模块 V339.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
-
+        atomic = self.strategy.atomic_states
         # --- 1. 军备检查 ---
         required_cols = ['BIAS_21_D', 'close_D', 'high_D', 'SLOPE_5_EMA_13_D']
         if any(c not in df.columns for c in required_cols):
