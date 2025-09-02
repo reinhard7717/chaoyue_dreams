@@ -742,11 +742,22 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     final_metrics_df[f'peak_cost_slope_{period}d'] = slope
                 for period in accel_periods:
                     final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
-            if 'concentration_90pct' in final_metrics_df.columns:
-                concentration_slope_5d = final_metrics_df['concentration_90pct'].rolling(window=5, min_periods=2).apply(
+            def calculate_slope(series, window):
+                return series.rolling(window=window, min_periods=2).apply(
                     lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
                 )
-                final_metrics_df['concentration_90pct_slope_5d'] = concentration_slope_5d
+
+            # 计算 90% 集中度的多周期斜率
+            if 'concentration_90pct' in final_metrics_df.columns:
+                print(f"[{stock_code}] 正在计算 90% 筹码集中度的多周期斜率...")
+                final_metrics_df['concentration_90pct_slope_5d'] = calculate_slope(final_metrics_df['concentration_90pct'], 5)
+                final_metrics_df['concentration_90pct_slope_21d'] = calculate_slope(final_metrics_df['concentration_90pct'], 21)
+                final_metrics_df['concentration_90pct_slope_55d'] = calculate_slope(final_metrics_df['concentration_90pct'], 55)
+
+            # 计算 70% 集中度的 5 日斜率
+            if 'concentration_70pct' in final_metrics_df.columns:
+                print(f"[{stock_code}] 正在计算 70% 筹码集中度的5日斜率...")
+                final_metrics_df['concentration_70pct_slope_5d'] = calculate_slope(final_metrics_df['concentration_70pct'], 5)
 
             # 在所有斜率指标计算完毕后，重新计算/更新筹码健康分
             print(f"[{stock_code}] 正在重新计算筹码健康分...")

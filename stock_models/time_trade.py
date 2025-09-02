@@ -1549,8 +1549,12 @@ class AdvancedChipMetrics_SZ(models.Model):
     peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
+    concentration_70pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='70%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_70pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='70%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
     concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
     concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    concentration_90pct_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度21日斜率', null=True, blank=True, help_text="中期趋势。")
+    concentration_90pct_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度55日斜率', null=True, blank=True, help_text="长期趋势。")
     peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
     secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")
@@ -1653,8 +1657,12 @@ class AdvancedChipMetrics_SH(models.Model):
     peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
+    concentration_70pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='70%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_70pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='70%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
     concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
     concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    concentration_90pct_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度21日斜率', null=True, blank=True, help_text="中期趋势。")
+    concentration_90pct_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度55日斜率', null=True, blank=True, help_text="长期趋势。")
     peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
     secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")
@@ -1757,8 +1765,12 @@ class AdvancedChipMetrics_CY(models.Model):
     peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
+    concentration_70pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='70%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_70pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='70%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
     concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
     concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    concentration_90pct_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度21日斜率', null=True, blank=True, help_text="中期趋势。")
+    concentration_90pct_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度55日斜率', null=True, blank=True, help_text="长期趋势。")
     peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
     secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")
@@ -1861,8 +1873,12 @@ class AdvancedChipMetrics_KC(models.Model):
     peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
+    concentration_70pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='70%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_70pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='70%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
     concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
     concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    concentration_90pct_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度21日斜率', null=True, blank=True, help_text="中期趋势。")
+    concentration_90pct_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度55日斜率', null=True, blank=True, help_text="长期趋势。")
     peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
     secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")
@@ -1965,8 +1981,12 @@ class AdvancedChipMetrics_BJ(models.Model):
     peak_cost_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='筹码峰成本21日加速度', null=True, blank=True)
 
     # --- 4. 筹码结构与分布指标 ---
+    concentration_70pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='70%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
+    concentration_70pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='70%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
     concentration_90pct = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='90%筹码集中度', null=True, blank=True, help_text="值越小越集中。")
     concentration_90pct_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度5日斜率', null=True, blank=True, help_text="负值表示筹码趋于集中。")
+    concentration_90pct_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度21日斜率', null=True, blank=True, help_text="中期趋势。")
+    concentration_90pct_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, verbose_name='90%集中度55日斜率', null=True, blank=True, help_text="长期趋势。")
     peak_stability = models.DecimalField(max_digits=12, decimal_places=6, verbose_name='筹码峰稳定性', null=True, blank=True, help_text="值越大越稳定，代表主力控盘能力强。")
     is_multi_peak = models.BooleanField(verbose_name='是否多峰形态', default=False, help_text="持仓成本是否分散。")
     secondary_peak_cost = models.DecimalField(max_digits=12, decimal_places=4, verbose_name='次筹码峰成本', null=True, blank=True, help_text="潜在的压力或支撑位。")

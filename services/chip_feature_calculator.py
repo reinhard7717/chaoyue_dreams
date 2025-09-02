@@ -211,12 +211,13 @@ class ChipFeatureCalculator:
             return min_width, (best_start_price, best_end_price)
 
         width_90, _ = get_concentration_range_vectorized(90.0)
-        _, range_70 = get_concentration_range_vectorized(70.0)
+        width_70, range_70 = get_concentration_range_vectorized(70.0)
         
         self.ctx['cost_range_70pct'] = range_70
 
         return {
             'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
+            'concentration_70pct': width_70 / self.ctx['weight_avg_cost'] if width_70 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
         }
 
     def _calculate_winner_structure(self) -> dict:
