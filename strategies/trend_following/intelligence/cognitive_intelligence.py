@@ -324,6 +324,7 @@ class CognitiveIntelligence:
         # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...")
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
 
         # --- 认知链 1/2: 识别“突破派发”风险 ---
         # [修改] 将判断依据从资金流转向筹码发散
