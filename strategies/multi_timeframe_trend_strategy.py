@@ -103,7 +103,26 @@ class MultiTimeframeTrendStrategy:
             df_daily_with_context = all_dfs['D']
         else:
             df_daily_with_context = self._merge_strategic_context_to_daily(all_dfs['D'], df_weekly_context)
-        all_dfs['D_CONTEXT'] = df_daily_with_context
+        # 终极情报融合：将所有周线指标注入日线数据
+        df_weekly_full = all_dfs.get('W')
+        if df_weekly_full is not None and not df_weekly_full.empty:
+            print(f"  - [情报融合] 正在将 {len(df_weekly_full.columns)} 个周线指标注入日线数据...")
+            # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别，并用 'ffill' 向前填充
+            df_weekly_aligned = df_weekly_full.reindex(df_daily_with_context.index, method='ffill')
+            # 步骤2: 使用 merge 合并，将所有周线列添加到日线DataFrame中
+            df_fully_merged = df_daily_with_context.merge(
+                df_weekly_aligned, 
+                left_index=True, 
+                right_index=True, 
+                how='left', 
+                suffixes=('', '_dup_W') # 如果有重名列，给周线列加上后缀
+            )
+            print("  - [情报融合] 周线指标注入完成。")
+        else:
+            df_fully_merged = df_daily_with_context
+            print("  - [情报融合] 未发现周线数据，跳过周线指标注入。")
+        # 使用完全融合后的DataFrame进行后续所有操作
+        all_dfs['D_CONTEXT'] = df_fully_merged
 
         # 4. 战术引擎：现在返回四元组
         # 将 start_date_str 传递给战术引擎
