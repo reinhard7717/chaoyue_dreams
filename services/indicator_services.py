@@ -673,7 +673,7 @@ class IndicatorService:
         cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
         
         # 避免除以零
-        synthetic_indicators['CMF_21'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
+        synthetic_indicators['CMF_21_W'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
         
         # --- 2. 合成周线RSI (Relative Strength Index) ---
         # 步骤2.1: 在日线上计算每日的价格变动
@@ -694,7 +694,7 @@ class IndicatorService:
         # 步骤2.6: 计算RSI
         rsi = 100 - (100 / (1 + rs))
         # 将结果添加到DataFrame中，注意不要加后缀
-        synthetic_indicators['RSI_13'] = rsi
+        synthetic_indicators['RSI_13_W'] = rsi
         # print("      -> [高级指标合成室] 合成完成。")
         return synthetic_indicators
 
@@ -927,7 +927,11 @@ class IndicatorService:
                         logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
         # --- 阶段四: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
-        rename_map = {col: f"{col}{suffix}" for col in df_for_calc.columns}
+        rename_map = {
+            col: f"{col}{suffix}"
+            for col in df_for_calc.columns
+            if not str(col).endswith(suffix)
+        }
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
 
