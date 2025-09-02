@@ -131,35 +131,63 @@ class ChipIntelligence:
         is_price_new_high = df['close_D'] > df['close_D'].rolling(window=20, min_periods=1).max().shift(1)
         is_chip_diverging_short_term = df[conc_slope_col] > 0
         states['RISK_CHIP_PRICE_DIVERGENCE'] = is_price_new_high & is_chip_diverging_short_term & is_in_high_level_zone
+        atomic = self.strategy.atomic_states
+        # 复合机会 1 (S级): “锁仓点火” - 主力完成锁仓后，开始加速拉升成本，进入主升浪标志。
+        # 场景 (静态): 筹码已经锁定且稳定 (CHIP_CONC_LOCKED_AND_STABLE_A)。
+        # 剧情 (动态): 成本峰正在“加速”抬升 (CHIP_DYN_COST_ACCELERATING)。
+        is_locked_and_stable = states.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
+        is_cost_accelerating = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
+        states['OPP_STRATEGY_LOCKED_FLOAT_IGNITION_S'] = is_locked_and_stable & is_cost_accelerating
+        
+        # 复合机会 2 (A级): “盘整突破前兆” - 在关键成本区拉锯时，筹码持续被收集，预示向上突破概率大。
+        # 场景 (静态): 价格在成本密集区内震荡 (CHIP_STATE_PRICE_IN_PEAK_COST_ZONE)。
+        # 剧情 (动态): 筹码发生“共振式”集中 (CHIP_DYN_CONCENTRATING_RESONANCE_A)。
+        is_in_battle_zone = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
+        is_concentrating_resonance = atomic.get('CHIP_DYN_CONCENTRATING_RESONANCE_A', default_series)
+        states['OPP_STRATEGY_BREAKOUT_PRECURSOR_A'] = is_in_battle_zone & is_concentrating_resonance
+        
+        # 复合风险 1 (S级): “高位派发确认” - 股价脱离成本区很远，且筹码出现系统性派发迹象。
+        # 场景 (静态): 价格显著脱离成本区 (CHIP_STATE_PRICE_ABOVE_PEAK_COST)。
+        # 剧情 (动态): 筹码发生“共振式”派发 (RISK_CHIP_DIVERGING_RESONANCE_A)。
+        is_price_far_above_cost = atomic.get('CHIP_STATE_PRICE_ABOVE_PEAK_COST', default_series)
+        is_diverging_resonance = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
+        states['RISK_STRATEGY_DISTRIBUTION_CONFIRMED_S'] = is_price_far_above_cost & is_diverging_resonance
+        
+        # 复合风险 2 (A级): “主力自救失败” - 价格跌回成本区，但筹码却仍在发散，说明护盘失败。
+        # 场景 (静态): 价格在成本密集区内震荡 (CHIP_STATE_PRICE_IN_PEAK_COST_ZONE)。
+        # 剧情 (动态): 筹码仍在发散 (CHIP_DYN_DIVERGING)。
+        is_diverging_tactical = atomic.get('CHIP_DYN_DIVERGING', default_series)
+        states['RISK_STRATEGY_BAILOUT_FAILURE_A'] = is_in_battle_zone & is_diverging_tactical
+        
+        strategic_scenarios = self.diagnose_strategic_scenarios(df)
+        states.update(strategic_scenarios) # 将新生成的战略情景信号合并到总状态中
+        
+        static_multi_dyn_scenarios = self.diagnose_static_multi_dynamic_scenarios(df)
+        states.update(static_multi_dyn_scenarios)
+        
         # if states['RISK_CHIP_PRICE_DIVERGENCE'].any():
         #     print(f"            -> [S级风险] 侦测到 {states['RISK_CHIP_PRICE_DIVERGENCE'].sum()} 次“价格筹码顶背离”！")
         
-        # --- 终极风险信号合成 ---
+        # --- 步骤 8: 终极风险信号合成 (原步骤7) ---
         # print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
-        # 原材料1: 筹码正在发散 (最核心的风险)
-        chip_risk_1 = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
-        # 原材料2: 成本峰正在塌陷
-        chip_risk_2 = self.strategy.atomic_states.get('CHIP_DYN_COST_FALLING', default_series)
-        # 原材料3: 获利盘比例正在崩塌
-        chip_risk_3 = self.strategy.atomic_states.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
-        # 原材料4: 长期派发风险 (来自本模块)
+        chip_risk_1 = atomic.get('CHIP_DYN_DIVERGING', default_series)
+        chip_risk_2 = atomic.get('CHIP_DYN_COST_FALLING', default_series)
+        chip_risk_3 = atomic.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
         chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-        # 原材料5: 集中趋势恶化拐点 (来自本模块)
         chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series)
-        # 原材料6: 获利盘恐慌加速出逃 (来自更底层的微观结构分析)
-        chip_risk_6 = self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
-        # 原材料7: 价格筹码顶背离 (来自本模块)
+        chip_risk_6 = atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
         chip_risk_7 = states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series)
-        # 原材料8: 筹码健康度恶化 (来自diagnose_chip_dynamics)
-        chip_risk_8 = self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
-
+        chip_risk_8 = atomic.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
+        chip_risk_9 = states.get('RISK_STRATEGY_DISTRIBUTION_CONFIRMED_S', default_series)
+        chip_risk_10 = states.get('RISK_STRATEGY_BAILOUT_FAILURE_A', default_series)
+        chip_risk_11 = states.get('SCENARIO_HIGH_ALTITUDE_EVACUATION_S', default_series)
+        chip_risk_12 = states.get('SCENARIO_DAM_CRACKING_B', default_series)
+        
         # 最终裁定：只要上述任一高风险信号出现，就认为筹码结构严重失效
-        is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | chip_risk_5 | chip_risk_6 | chip_risk_7 | chip_risk_8)
+        is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | 
+                                       chip_risk_5 | chip_risk_6 | chip_risk_7 | chip_risk_8 | 
+                                       chip_risk_9 | chip_risk_10 | chip_risk_11 | chip_risk_12)
         states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
-        
-        # if is_chip_structure_unhealthy.any():
-            # print(f"            -> [系统风险] 侦测到 {is_chip_structure_unhealthy.sum()} 次“筹码结构严重失效”！")
-        
         return states, triggers
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -180,6 +208,8 @@ class ChipIntelligence:
             
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'SLOPE_21_concentration_90pct_D',
+            'SLOPE_55_concentration_90pct_D',
             'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
             'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
             'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
@@ -204,30 +234,34 @@ class ChipIntelligence:
         
         # 2.3 定义“绿色通道”豁免条件
         is_washout_absorption = self.strategy.atomic_states.get('OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A', default_series)
+        is_bottoming_phase = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series) # 获取市场是否处于底部钝化状态
         
-        # 2.4 最终的“建设性筹码集中” = (常规集中) 或 (豁免的特殊集中)
-        states['CHIP_DYN_CONCENTRATING'] = (is_concentrating_trend & is_cost_constructive) | is_washout_absorption
-
-        # 2.4 加速动态 (现在自动继承了“建设性”的前提)
+        # 2.4 重新定义基础的“建设性筹码集中” (主要看短期)
+        states['CHIP_DYN_CONCENTRATING'] = (is_concentrating_short_term & is_cost_constructive) | is_washout_absorption | (is_concentrating_short_term & is_bottoming_phase)
+        # 定义“共振式集中”(A级机会)：短、中、长周期均在集中，这是最强的吸筹信号。
+        states['CHIP_DYN_CONCENTRATING_RESONANCE_A'] = is_concentrating_short_term & is_concentrating_mid_term & is_concentrating_long_term & is_cost_constructive
+        # 定义“背离式吸筹”(B级机会)：长期仍在发散或走平，但短期已逆转为集中，是潜在的底部反转信号。
+        is_long_term_not_improving = ~is_concentrating_long_term # 长期趋势未改善
+        states['OPP_CHIP_REVERSAL_GATHERING_B'] = is_long_term_not_improving & is_concentrating_short_term & is_cost_constructive
+        
+        # 2.5 加速动态 (继承基础的“建设性”前提)
         p_chip = get_params_block(self.strategy, 'chip_feature_params')
         accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
         is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
         states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = states['CHIP_DYN_CONCENTRATING'] & is_accelerating_action
-        
-        # 2.5 发散动态 (逻辑不变，因为发散总是坏事)
-        # 定义客观的发散行为：无论股价处于何种位置，筹码在物理上正在散开
-        is_objective_diverging_action = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_objective_diverging_action
-        
-        # 将客观行为与战场上下文结合，生成有实战意义的风险信号
-        # 只有在高位危险区的发散，才被定义为需要警惕的 CHIP_DYN_DIVERGING 风险
-        states['CHIP_DYN_DIVERGING'] = is_objective_diverging_action & is_in_high_level_zone
-        
-        # 同理，定义客观的加速发散行为
+        # 2.6 重新定义发散动态
+        # 客观发散行为
+        states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_diverging_short_term
+        # 结合高位上下文，生成战术风险信号
+        states['CHIP_DYN_DIVERGING'] = is_diverging_short_term & is_in_high_level_zone
+        # 定义“共振式派发”(A级风险)：短、中、长周期均在发散，这是最明确的派发信号。
+        states['RISK_CHIP_DIVERGING_RESONANCE_A'] = is_diverging_short_term & is_diverging_mid_term & is_diverging_long_term & is_in_high_level_zone
+        # 定义“背离式派发”(B级风险)：长期仍在集中，但短期已逆转为发散，是潜在的顶部反转预警。
+        is_long_term_still_good = is_concentrating_long_term # 长期趋势看似良好
+        states['RISK_CHIP_REVERSAL_DIVERGING_B'] = is_long_term_still_good & is_diverging_short_term & is_in_high_level_zone
+        # 加速发散风险
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
         states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
-        
-        # 只有在高位危险区的加速发散，才是最高级别的风险信号
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         
         # --- 步骤3: 对“筹码成本”进行动态分析  ---
@@ -593,10 +627,231 @@ class ChipIntelligence:
         # print("        -> [筹码动态诊断模块 V320.0] 分析完毕。")
         return states
 
+    # “静态筹码结构诊断”方法
+    def diagnose_static_chip_structure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 场景扩充版】静态筹码结构诊断模块
+        - 核心职责: 诊断当前价格与成本分布的静态关系，以及筹码分布的形态特征。
+        - 核心升级 (本次修改): 新增了“价格低于成本峰”的静态场景，为识别深度反转信号提供基础。
+        """
+        print("            -> [静态筹码结构诊断模块 V1.1] 启动...") # [修改代码行]
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        
+        # --- 1. 军备检查 ---
+        required_cols = ['close_D', 'peak_cost_D', 'concentration_70pct_D', 'concentration_90pct_D', 'total_winner_rate_D']
+        if any(c not in df.columns for c in required_cols):
+            print("              -> [警告] 缺少诊断静态筹码结构所需列，模块跳过。")
+            return {}
 
+        # --- 2. 价格与成本峰关系诊断 ---
+        profit_cushion_ratio = 1.15 # 价格比成本峰高出15%
+        states['CHIP_STATE_PRICE_ABOVE_PEAK_COST'] = df['close_D'] > (df['peak_cost_D'] * profit_cushion_ratio)
 
+        entanglement_ratio = 0.05 # 价格在成本峰上下5%的区域内
+        states['CHIP_STATE_PRICE_IN_PEAK_COST_ZONE'] = (df['close_D'] / df['peak_cost_D']).between(1 - entanglement_ratio, 1 + entanglement_ratio)
 
+        # [新增代码块开始]
+        # 信号3: 价格显著低于成本区 (大部分持仓者被套牢，市场处于绝望状态)
+        loss_zone_ratio = 0.90 # 价格比成本峰低10%
+        states['CHIP_STATE_PRICE_BELOW_PEAK_COST'] = df['close_D'] < (df['peak_cost_D'] * loss_zone_ratio)
+        # [新增代码块结束]
 
+        # --- 3. 筹码分布形态诊断 ---
+        concentration_gap = (df['concentration_90pct_D'] - df['concentration_70pct_D']).replace(0, np.nan)
+        compactness_ratio = concentration_gap / df['concentration_70pct_D']
+        compact_threshold = 0.3 
+        states['CHIP_STRUCTURE_HIGHLY_COMPACT'] = compactness_ratio < compact_threshold
+
+        # --- 4. 获利盘状态诊断 ---
+        states['CHIP_STATE_UNIVERSAL_PROFIT'] = df['total_winner_rate_D'] > 95.0
+        
+        print("            -> [静态筹码结构诊断模块 V1.1] 诊断完毕。") # [修改代码行]
+        return states
+
+    # “筹码行为诊断”方法
+    def diagnose_chip_behavior_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】筹码行为诊断模块
+        - 核心职责: 基于换手率数据，诊断获利盘的抛售意愿和亏损盘的止损行为。
+                    这是洞察市场情绪和主力意图的关键。
+        - 输出: 一系列描述市场参与者“动态行为”的中性原子信号。
+        """
+        print("            -> [筹码行为诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        # turnover_from_winners_ratio_D: 获利盘换手率
+        # turnover_from_losers_ratio_D: 亏损盘换手率
+        required_cols = ['turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D']
+        if any(c not in df.columns for c in required_cols):
+            print("              -> [警告] 缺少诊断筹码行为所需列 (如 turnover_from_winners_ratio_D)，模块跳过。")
+            return {}
+
+        # --- 2. 获利盘行为诊断 ---
+        # 信号1: 获利盘抛压较大 (获利盘换手率高于一个动态阈值，例如60日均值的1.5倍)
+        winner_turnover_ma = df['turnover_from_winners_ratio_D'].rolling(60).mean()
+        is_high_winner_turnover = df['turnover_from_winners_ratio_D'] > (winner_turnover_ma * 1.8)
+        states['CHIP_BEHAVIOR_HIGH_PROFIT_TAKING_PRESSURE'] = is_high_winner_turnover
+
+        # --- 3. 亏损盘行为诊断 ---
+        # 信号2: 亏损盘恐慌杀跌/投降 (股价大跌的同时，亏损盘换手率激增)
+        is_sharp_drop = df['pct_change_D'] < -0.05 # 股价大跌超过5%
+        loser_turnover_ma = df['turnover_from_losers_ratio_D'].rolling(60).mean()
+        is_high_loser_turnover = df['turnover_from_losers_ratio_D'] > (loser_turnover_ma * 2.0)
+        states['CHIP_BEHAVIOR_LOSER_CAPITULATION'] = is_sharp_drop & is_high_loser_turnover
+        
+        print("            -> [筹码行为诊断模块 V1.0] 诊断完毕。")
+        return states
+
+    def diagnose_strategic_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】战略情景诊断模块 (静态 x 多维动态)
+        - 核心职责: 融合静态筹码“场景”与短、中、长三维动态筹码“剧情”，生成具备高度战术背景的复合原子信号。
+        - 收益: 将分析从“信号”提升至“情景”层面，能够更精准地解读主力意图，区分洗盘与出货、吸筹与反弹。
+        """
+        # print("        -> [战略情景诊断模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 提取基础“场景”（静态信号）---
+        # 场景1: 堡垒已成 (筹码高度紧凑，主力高度控盘)
+        is_fortress_static = atomic.get('CHIP_STRUCTURE_HIGHLY_COMPACT', default_series)
+        # 场景2: 阵地战 (价格在成本密集区拉锯)
+        is_battlezone_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
+        # 场景3: 高空巡航 (价格已大幅脱离成本区，有丰厚利润垫)
+        is_high_altitude_static = atomic.get('CHIP_STATE_PRICE_ABOVE_PEAK_COST', default_series)
+
+        # --- 2. 提取各维度“剧情”（动态信号）---
+        # 剧情1: 短期动态
+        is_concentrating_short = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_diverging_short = atomic.get('CHIP_DYN_DIVERGING', default_series)
+        # 新增更多维度的动态“剧情”
+        is_cost_accelerating = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
+        is_cost_falling = atomic.get('CHIP_DYN_COST_FALLING', default_series)
+        is_profit_margin_rising = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_RISING', default_series)
+        is_profit_margin_shrinking = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING', default_series)
+        is_selling_exhausted = atomic.get('OPP_BEHAVIOR_SELLING_EXHAUSTION_A', default_series)
+        # 剧情2: 共振动态 (最强趋势)
+        is_concentrating_resonance = atomic.get('CHIP_DYN_CONCENTRATING_RESONANCE_A', default_series)
+        is_diverging_resonance = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
+        # 剧情3: 背离动态 (拐点信号)
+        is_reversal_gathering = atomic.get('OPP_CHIP_REVERSAL_GATHERING_B', default_series)
+        is_reversal_diverging = atomic.get('RISK_CHIP_REVERSAL_DIVERGING_B', default_series)
+
+        # --- 3. 融合“场景”与“剧情”，生成全新战略原子信号 ---
+        # === 机会情景 ===
+        # 情景A1 (S级机会): “主升浪共振” (原A级信号升级)
+        # 解读: 主力已高度控盘（静态），且仍在全周期持续吸筹（动态1），同时成本正在加速抬升（动态2），
+        #      获利盘的利润也在增加（动态3）。这是最强的上涨共振信号。
+        states['SCENARIO_MAIN_WAVE_RESONANCE_S'] = (
+            is_fortress_static &
+            is_concentrating_resonance &
+            is_cost_accelerating &
+            is_profit_margin_rising
+        )
+
+        # 情景A2 (A级机会): “阵地战转折点” (原B级信号升级)
+        # 解读: 在关键成本区拉锯时（静态），出现了底部反转式的吸筹信号（动态1），且卖盘已出现衰竭迹象（动态2）。
+        #      这表明空头力量衰竭，多头即将掌控局面，是突破前的黄金坑。
+        states['SCENARIO_BATTLEZONE_TURNING_POINT_A'] = (
+            is_battlezone_static &
+            is_reversal_gathering &
+            is_selling_exhausted
+        )
+        # === 风险情景 ===
+        # 情景R1 (S级风险): “高位派发陷阱” (原信号逻辑增强)
+        # 解读: 在获利丰厚的高位（静态），出现全周期共振式的派发（动态1），同时获利盘的平均利润开始收缩（动态2）。
+        #      这是典型的“明拉暗出”，是极度危险的顶部信号。
+        states['SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP_S'] = (
+            is_high_altitude_static &
+            is_diverging_resonance &
+            is_profit_margin_shrinking
+        )
+
+        # 情景R2 (A级风险): “堡垒内部瓦解” (原B级信号升级)
+        # 解读: 堡垒看似稳固（静态），但短期已出现派发迹象（动态1），且成本峰开始松动（动态2）。
+        #      这表明主力已无心守盘，高控盘成为派发的掩护，风险极高。
+        states['SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A'] = (
+            is_fortress_static &
+            is_reversal_diverging &
+            is_cost_falling
+        )
+        
+        # === 中性观察情景 ===
+        # 情景N1 (中性): “堡垒下的洗盘”
+        # 解读: 主力控盘度很高，短期的筹码发散大概率是洗盘行为，旨在清洗浮筹，可继续观察。
+        states['SCENARIO_WASHOUT_BELOW_FORTRESS_N'] = is_fortress_static & is_diverging_short & ~is_diverging_resonance
+
+        return states
+
+    def diagnose_static_multi_dynamic_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】静态-多动态交叉验证模块 (补充)
+        - 核心职责: 识别更多基于特定静态筹码场景与多维动态行为组合的战术信号。
+        """
+        print("        -> [静态-多动态交叉验证模块(补充) V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查：确保所有必需的动态列都存在 ---
+        # 动态计算缺失的加速度列，如果数据工程层未提供
+        if 'SLOPE_5_close_D' in df.columns and 'ACCEL_5_close_D' not in df.columns:
+            df['ACCEL_5_close_D'] = df['SLOPE_5_close_D'].diff()
+        if 'SLOPE_5_turnover_from_losers_ratio_D' in df.columns and 'ACCEL_5_turnover_from_losers_ratio_D' not in df.columns:
+            df['ACCEL_5_turnover_from_losers_ratio_D'] = df['SLOOPE_5_turnover_from_losers_ratio_D'].diff()
+        if 'SLOPE_5_turnover_from_winners_ratio_D' in df.columns and 'ACCEL_5_turnover_from_winners_ratio_D' not in df.columns:
+            df['ACCEL_5_turnover_from_winners_ratio_D'] = df['SLOPE_5_turnover_from_winners_ratio_D'].diff()
+
+        required_cols = [
+            'ACCEL_5_turnover_from_losers_ratio_D', 'SLOPE_5_concentration_90pct_D', 'SLOPE_5_close_D',
+            'ACCEL_5_turnover_from_winners_ratio_D', 'ACCEL_5_close_D', 'ACCEL_5_concentration_90pct_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 静态-多动态交叉验证(补充)模块缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+        # --- 2. 生成复合信号 ---
+        # === 机会信号 ===
+        # 信号1 (S级机会): 深水炸弹·绝望反转
+        # 解读: 在最悲观的区域，恐慌抛售已近尾声，同时有新主力在悄悄吸筹，价格也开始响应。
+        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
+        is_bleeding_stopping_dyn = df['ACCEL_5_turnover_from_losers_ratio_D'] < 0 # 套牢盘抛售加速度为负（抛压减速）
+        is_stealth_buying_start_dyn = df['SLOPE_5_concentration_90pct_D'] < 0 # 筹码开始集中
+        is_price_turning_up_dyn = df['SLOPE_5_close_D'] > 0 # 价格开始回升
+        states['OPP_CHIP_DEEP_WATER_REVERSAL_S'] = (
+            is_despair_zone_static &
+            is_bleeding_stopping_dyn &
+            is_stealth_buying_start_dyn &
+            is_price_turning_up_dyn
+        )
+        # 信号2 (A级机会): 阵地战·吸筹确认
+        # 解读: 在关键的拉锯战中，主力吸筹的意愿和力度都在增强，同时浮筹被有效清洗。
+        is_battle_zone_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
+        is_absorption_accelerating_dyn = df['ACCEL_5_concentration_90pct_D'] < 0 # 筹码加速集中
+        is_losers_giving_up_dyn = df['SLOPE_5_turnover_from_losers_ratio_D'] < 0 # 套牢盘换手率下降（惜售或已被洗出）
+        states['OPP_CHIP_ACCUMULATION_CONFIRMED_A'] = (
+            is_battle_zone_static &
+            is_absorption_accelerating_dyn &
+            is_losers_giving_up_dyn
+        )
+        # === 风险信号 ===
+        # 信号3 (S级风险): 高位狂欢·亢奋陷阱
+        # 解读: 在市场最乐观的时候，主力利用散户的追高情绪，加速派发筹码，同时拉升力度减弱。
+        is_euphoria_zone_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
+        is_winner_selling_accel_dyn = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0 # 获利盘抛售加速
+        is_chip_diverging_dyn = df['SLOPE_5_concentration_90pct_D'] > 0 # 筹码开始发散
+        is_price_momentum_fading_dyn = df['ACCEL_5_close_D'] < 0 # 价格上涨加速度放缓
+        states['RISK_CHIP_EUPHORIA_TRAP_S'] = (
+            is_euphoria_zone_static &
+            is_winner_selling_accel_dyn &
+            is_chip_diverging_dyn &
+            is_price_momentum_fading_dyn
+        )
+        return states
 
 
 

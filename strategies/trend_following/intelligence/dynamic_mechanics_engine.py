@@ -58,8 +58,265 @@ class DynamicMechanicsEngine:
         states['FORCE_VECTOR_RISK_ACCELERATING'] = risk_score_accel > accel_threshold
         states['FORCE_VECTOR_RISK_DECELERATING'] = risk_score_accel < -accel_threshold
         
+        # 5. 生成两种复合的“力学”中性状态
+        # 状态1: 纯粹进攻动能 (进攻加速 & 风险减速) - 最理想的做多环境
+        states['FORCE_VECTOR_PURE_OFFENSIVE_MOMENTUM'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_DECELERATING']
+        
+        # 状态2: 混沌扩张状态 (进攻加速 & 风险也加速) - 能量激增但方向不明，通常是变盘前兆
+        states['FORCE_VECTOR_CHAOTIC_EXPANSION'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_ACCELERATING']
+        
         self.strategy.atomic_states.update(states)
         
         # print("          -> [力学分析引擎] 进攻/风险的加速度情报已生成。")
         return states
+
+    def diagnose_micro_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】微观力学诊断模块
+        - 核心职责: 直接利用数据层预计算的基础指标（价格、成交量、波动率、筹码）的
+                      斜率和加速度，生成描述市场微观力学状态的原子信号。
+        - 收益: 捕捉比宏观分数更具体、更底层的市场动态，如“量价共振”、“缩量上涨”等。
+        """
+        print("        -> [微观力学诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查：确保所有必需的斜率和加速度列都存在 ---
+        required_cols = [
+            'ACCEL_5_close_D', 'ACCEL_5_volume_D',
+            'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D',
+            'ACCEL_5_concentration_90pct_D', 'ACCEL_5_peak_cost_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 微观力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 生成微观力学信号 ---
+        # 信号1 (S级机会): “内外共振·主升确认”
+        # 解读: 内部结构（筹码加速集中 & 成本加速抬升）与外部表现（价格加速上涨）完美共振，
+        #      是主升浪最强烈的确认信号。
+        is_internal_accelerating = (df['ACCEL_5_concentration_90pct_D'] < 0) & (df['ACCEL_5_peak_cost_D'] > 0)
+        is_external_accelerating = df['ACCEL_5_close_D'] > 0
+        states['OPP_DYN_INTERNAL_EXTERNAL_RESONANCE_S'] = is_internal_accelerating & is_external_accelerating
+
+        # 信号2 (A级机会): “波动率点火”
+        # 解读: 波动率经过收缩后（斜率 < 0），开始加速扩张（加速度 > 0），且价格同步加速上涨。
+        #      这是经典的“Squeeze”形态突破，能量由静转动，极具爆发力。
+        is_volatility_squeezing = df['SLOPE_5_BBW_21_2.0_D'] < 0
+        is_volatility_igniting = df['ACCEL_5_BBW_21_2.0_D'] > 0
+        states['DYN_VOLATILITY_BREAKOUT_A'] = is_volatility_squeezing.shift(1) & is_volatility_igniting & is_external_accelerating
+
+        # 信号3 (B级中性/机会): “量价共振”
+        # 解读: 价格和成交量同步加速上涨，代表上涨趋势健康、能量充沛。
+        is_volume_accelerating = df['ACCEL_5_volume_D'] > 0
+        states['DYN_PRICE_VOLUME_RESONANCE_B'] = is_external_accelerating & is_volume_accelerating
+
+        # 信号4 (B级风险): “力竭上涨”
+        # 解读: 价格仍在加速上涨，但成交量的加速度却为负（能量在衰减），是典型的量价背离，
+        #      预示上涨动能即将衰竭，是潜在的顶部风险信号。
+        is_volume_decelerating = df['ACCEL_5_volume_D'] < 0
+        states['RISK_DYN_EXHAUSTION_RALLY_B'] = is_external_accelerating & is_volume_decelerating
+
+        return states
+
+    def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
+        """
+        【V317.3 终极协同版】动态力学分析总指挥
+        - 核心职责: 统一调度宏观、微观、多时间维度及终极的“静态-动态”交叉验证分析，
+                      生成一套完整的、具备最高战略洞察力的动态力学原子信号。
+        - 核心升级 (本次修改): 新增了对 diagnose_static_multi_timeframe_scenarios 模块的调用。
+        """
+        print("        -> [动态力学分析总指挥 V317.3] 启动...") # [修改代码行]
+        states = {}
+        df = self.strategy.df_indicators
+        
+        # --- 步骤1: 执行宏观力学分析 (基于复合分数) ---
+        if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
+            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力学分析跳过。")
+        else:
+            window = 5
+            def calculate_slope(y):
+                if np.isnan(y).any():
+                    return np.nan
+                return linregress(np.arange(window), y).slope
+
+            entry_score_slope = df['entry_score'].rolling(window).apply(calculate_slope, raw=True)
+            risk_score_slope = df['risk_score'].rolling(window).apply(calculate_slope, raw=True)
+            entry_score_accel = entry_score_slope.diff()
+            risk_score_accel = risk_score_slope.diff()
+            accel_threshold = 1.0
+
+            states['FORCE_VECTOR_OFFENSE_ACCELERATING'] = entry_score_accel > accel_threshold
+            states['FORCE_VECTOR_OFFENSE_DECELERATING'] = entry_score_accel < -accel_threshold
+            states['FORCE_VECTOR_RISK_ACCELERATING'] = risk_score_accel > accel_threshold
+            states['FORCE_VECTOR_RISK_DECELERATING'] = risk_score_accel < -accel_threshold
+            states['FORCE_VECTOR_PURE_OFFENSIVE_MOMENTUM'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_DECELERATING']
+            states['FORCE_VECTOR_CHAOTIC_EXPANSION'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_ACCELERATING']
+        
+        # --- 步骤2: 执行微观力学分析 (基于基础指标) ---
+        micro_dynamic_states = self.diagnose_micro_dynamics(df)
+        states.update(micro_dynamic_states)
+
+        # --- 步骤3: 执行多时间维度力学分析 (交叉验证) ---
+        multi_timeframe_states = self.diagnose_multi_timeframe_dynamics(df)
+        states.update(multi_timeframe_states)
+
+        # --- 步骤4: 执行终极的静态-多时间维度交叉验证 ---
+        # 注意：此步骤必须在前序模块（尤其是筹码情报模块）运行之后执行，以确保原子状态可用
+        static_multi_timeframe_states = self.diagnose_static_multi_timeframe_scenarios(df)
+        states.update(static_multi_timeframe_states)
+
+        self.strategy.atomic_states.update(states)
+        
+        print("          -> [动态力学分析总指挥] 宏观/微观/多周期/终极交叉验证情报已全部生成。") # [修改代码行]
+        return states
+
+    def diagnose_multi_timeframe_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】多时间维度力学诊断模块
+        - 核心职责: 交叉验证短期（5日）与长期（21日）的动态指标（斜率/加速度），
+                      以识别趋势的“共振”与“背离”，生成更高置信度的信号。
+        - 收益: 区分健康的趋势与虚假的突破/反弹，精准捕捉趋势的确认、衰竭与反转点。
+        """
+        print("        -> [多时间维度力学诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查：确保所有必需的多周期斜率/加速度列都存在 ---
+        required_cols = [
+            'SLOPE_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 多时间维度力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 定义各周期的基本动态 ---
+        # 短期动态
+        is_price_rising_short = df['SLOPE_5_close_D'] > 0
+        is_chip_concentrating_short = df['SLOPE_5_concentration_90pct_D'] < 0
+
+        # 长期动态
+        is_price_rising_long = df['SLOPE_21_close_D'] > 0
+        is_price_falling_long = df['SLOPE_21_close_D'] < 0
+        is_price_fall_decelerating_long = df['ACCEL_21_close_D'] > 0 # 长期下跌趋势在减速
+        is_chip_diverging_long = df['SLOPE_21_concentration_90pct_D'] > 0
+
+        # --- 3. 生成多周期交叉验证信号 ---
+        # 信号1 (S级机会): “全周期趋势共振”
+        # 解读: 短期和长期的价格趋势均为上涨，且短期筹码仍在持续集中。
+        #      这是最健康、最强劲的上涨形态，表明多周期力量形成合力。
+        states['OPP_DYN_TREND_RESONANCE_S'] = (
+            is_price_rising_short &
+            is_price_rising_long &
+            is_chip_concentrating_short
+        )
+
+        # 信号2 (S级风险): “结构性衰竭反弹”
+        # 解读: 价格短期看似在上涨，但其赖以生存的长期筹码结构却在持续瓦解（发散）。
+        #      这是典型的“拉高出货”或“无根反弹”，是极度危险的顶部背离信号。
+        states['RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S'] = (
+            is_price_rising_short &
+            is_chip_diverging_long
+        )
+
+        # 信号3 (A级机会): “长周期底部拐点”
+        # 解读: 长期下跌趋势已出现明显的减速信号，同时短期价格趋势已率先反转向上。
+        #      这表明下跌动能衰竭，新的上涨周期可能正在酝酿，是左侧交易的理想信号。
+        states['OPP_DYN_LONG_CYCLE_INFLECTION_A'] = (
+            is_price_falling_long.shift(1) & # 确保前一天还是长期下跌趋势
+            is_price_fall_decelerating_long &
+            is_price_rising_short
+        )
+
+        return states
+
+    def diagnose_static_multi_timeframe_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 重构】静态-多时间维度交叉验证模块 (终极)
+        - 核心职责: 在特定的静态筹码“战场”上，对一组原始的、多维度的动态“军力”（斜率/加速度）
+                      进行直接的协同检验，生成最高级别的战略信号。
+        - 核心升级 (本次修改): 不再依赖于预先组合的复合动态信号，而是将一个静态信号与多个
+                              原始动态信号直接进行逻辑与运算，实现更精细、更透明的信号定义。
+        """
+        print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...") # [修改代码行]
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查：确保所有必需的“原子状态”和“动态指标列”都存在 ---
+        required_atomic_states = [
+            'CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', 'CHIP_STATE_UNIVERSAL_PROFIT', 'CHIP_STATE_PRICE_BELOW_PEAK_COST'
+        ]
+        required_dynamic_cols = [ # [新增代码行]
+            'SLOPE_5_close_D', 'ACCEL_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
+        ] # [新增代码行]
+
+        if any(key not in atomic for key in required_atomic_states):
+            missing_keys = [key for key in required_atomic_states if key not in atomic]
+            print(f"          -> [警告] 终极模块缺少关键[静态原子状态]: {missing_keys}，模块已跳过！")
+            return states
+        
+        if any(c not in df.columns for c in required_dynamic_cols): # [新增代码行]
+            missing_cols = [c for c in required_dynamic_cols if c not in df.columns] # [新增代码行]
+            print(f"          -> [警告] 终极模块缺少关键[动态指标列]: {missing_cols}，模块已跳过！") # [新增代码行]
+            return states # [新增代码行]
+
+        # --- 2. 生成终极交叉验证信号 ---
+        # 信号1 (S级机会): “阵地战·协同突破”
+        # 静态场景: 价格在成本密集区拉锯 (阵地战)。
+        # 动态军力: [短期价格加速上涨] AND [长期价格趋势向上] AND [短期筹码持续集中]。
+        # 解读: 在最关键的战略要地，多周期、多维度的力量已形成统一战线，向上突破已是箭在弦上。
+        is_trench_warfare_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
+        states['OPP_STATIC_DYN_BREAKTHROUGH_S'] = ( # [修改代码行]
+            is_trench_warfare_static &
+            (df['ACCEL_5_close_D'] > 0) &                 # 短期价格在加速
+            (df['SLOPE_21_close_D'] > 0) &                 # 长期价格趋势向上
+            (df['SLOPE_5_concentration_90pct_D'] < 0)     # 短期筹码在集中
+        )
+
+        # 信号2 (S级风险): “亢奋顶点·结构瓦解”
+        # 静态场景: 市场普遍获利，散户情绪高涨 (狂欢区)。
+        # 动态军力: [短期价格仍在上涨(迷惑性)] AND [长期筹码结构已在瓦解] AND [短期筹码也开始松动]。
+        # 解读: 在散户最疯狂追高的时候，长、短期主力资金均已在坚决派发，是极端危险的顶部背离。
+        is_euphoria_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
+        states['RISK_STATIC_DYN_COLLAPSE_S'] = ( # [修改代码行]
+            is_euphoria_static &
+            (df['SLOPE_5_close_D'] > 0) &                   # 短期价格仍在上涨，制造繁荣假象
+            (df['SLOPE_21_concentration_90pct_D'] > 0) &    # 长期筹码结构在瓦解
+            (df['SLOPE_5_concentration_90pct_D'] > 0)      # 短期筹码也开始松动
+        )
+
+        # 信号3 (A级机会): “绝望冰点·周期拐点”
+        # 静态场景: 价格处于成本峰下方，大部分人亏损 (绝望区)。
+        # 动态军力: [长期下跌趋势在减速] AND [短期价格趋势已率先反转向上]。
+        # 解读: 在市场最悲观的区域，长期下跌动能衰竭，同时新的短期买盘开始入场，形成“双重确认”的拐点信号。
+        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
+        states['OPP_STATIC_DYN_INFLECTION_A'] = ( # [修改代码行]
+            is_despair_zone_static &
+            (df['ACCEL_21_close_D'] > 0) &                 # 长期下跌趋势在减速
+            (df['SLOPE_5_close_D'] > 0) &                  # 短期价格趋势已反转向上
+            ((df['SLOPE_21_close_D'] < 0).shift(1))        # 确保前一天仍处于长期下跌趋势中
+        )
+
+        return states
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

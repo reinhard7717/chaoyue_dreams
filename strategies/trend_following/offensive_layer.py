@@ -115,6 +115,40 @@ class OffensiveLayer:
                 if playbook_series.any():
                     entry_score.loc[playbook_series] += score
                     score_details_df[playbook_name] = playbook_series * score
+        # --- 7.1. 评估“精英剧本火力” (Elite Playbook Scoring) ---
+        # 目的: 为情报层合成的最高级别S+和S++剧本赋予决定性的高分。
+        elite_playbook_rules = {
+            'PLAYBOOK_PRIME_BREAKOUT_S_PLUS_PLUS': 1500, # S++级王牌战法，给予最高分
+            'PLAYBOOK_RESONANCE_IGNITION_S': 1200,       # S级主升浪共振，确定性极高
+            'PLAYBOOK_BOTTOM_REVERSAL_S': 1000          # S级深度反转，值得重仓
+        }
+        for playbook_name, score in elite_playbook_rules.items():
+            playbook_series = self.strategy.playbook_states.get(playbook_name, default_series)
+            if playbook_series.any():
+                entry_score.loc[playbook_series] += score
+                score_details_df[playbook_name] = playbook_series * score
+                print(f"          -> [精英剧本火力] 侦测到王牌剧本 “{playbook_name}”，增加 {score} 分！")
+        # --- 7.2. 【新增】评估“精英原子信号火力” (Elite Atomic Signal Scoring) ---
+        # 目的: 确保所有由底层逻辑共振产生的S级以上机会信号，都能直接贡献决定性分数。
+        elite_atomic_rules = {
+            # 结构-动态融合信号 (最高级别)
+            'OPP_STATIC_DYN_FUSION_IGNITION_S_PLUS': 1500, # 静态-动态融合引爆点
+            # 资金流-动态融合信号
+            'OPP_FUND_FLOW_STATIC_DYN_CONFLUENCE_S_PLUS': 1300, # 主力控盘下的三维共振
+            # 多时间维度共振信号
+            'OPP_STRUCTURE_MTF_IGNITION_S_PLUS': 1200, # 战略点火，战术强攻
+            'OPP_FUND_FLOW_MTF_DYN_ALIGNMENT_S': 1000, # 多维资金动态协同
+            # 静态-多动态协同信号
+            'OPP_SQUEEZE_MULTI_CONFIRMED_BREAKOUT_S': 900, # 极致压缩后的协同突破
+            'OPP_STATIC_DYN_BREAKTHROUGH_S': 800, # 阵地战协同突破
+        }
+        for signal_name, score in elite_atomic_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
+                print(f"          -> [精英原子火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
+
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
         # --- 8. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
         strategic_bonus_params = scoring_params.get('strategic_context_scoring', {})

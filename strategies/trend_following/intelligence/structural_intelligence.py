@@ -61,6 +61,12 @@ class StructuralIntelligence:
         is_long_trend_down = df[long_ma_slope_col] < 0
         # 步骤3: 最终的“稳定空头排列” = 形态排列正确 AND 长期趋势确认向下
         states['MA_STATE_STABLE_BEARISH'] = is_ma_arrangement_bearish & is_long_trend_down
+        # S级风险信号: “死亡交叉确认”
+        # 定义: 中期均线(21)刚刚下穿长期均线(55)，这是一个非常经典和重要的趋势转空信号。
+        was_mid_above_long = df[mid_ma].shift(1) >= df[long_ma].shift(1)
+        is_mid_below_long = df[mid_ma] < df[long_ma]
+        states['RISK_MA_DEATH_CROSS_CONFIRMED_S'] = was_mid_above_long & is_mid_below_long
+
         states['MA_STATE_SHORT_SLOPE_POSITIVE'] = df[short_ma_slope_col] > 0
         states['MA_STATE_LONG_SLOPE_POSITIVE'] = df[long_ma_slope_col] > 0
         aggressive_slope_threshold = get_param_value(p.get('aggressive_slope_threshold'), 0.01)
@@ -211,6 +217,16 @@ class StructuralIntelligence:
         is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         composite_states['STRUCTURE_BREAKOUT_EVE_S'] = is_healthy_accumulation & is_extreme_squeeze
         composite_states['STRUCTURE_BOX_ABOVE_TRENDLINE'] = atomic.get('STRUCTURE_BOX_ACCUMULATION_A', default_series)
+        # S级机会信号: “多时间维度趋势共振”
+        # 定义: 日线结构形成多头排列的“战术”信号，必须发生在周线趋势已经确认向上的“战略”背景下。
+        # 这是过滤掉熊市反弹陷阱，捕捉主升浪中继的强大过滤器。
+        is_daily_bullish_structure = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
+        weekly_ma_slope_col = 'SLOPE_5_EMA_21_W'
+        if weekly_ma_slope_col in df.columns:
+            is_weekly_trend_confirmed_up = df[weekly_ma_slope_col] > 0
+            composite_states['STRUCTURE_MTF_TREND_ALIGNMENT_S'] = is_daily_bullish_structure & is_weekly_trend_confirmed_up
+        else:
+            print(f"          -> [警告] 缺少周线斜率列 '{weekly_ma_slope_col}'，无法生成S级多维共振信号。")
         return composite_states
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -229,14 +245,18 @@ class StructuralIntelligence:
         long_accel_col = 'ACCEL_55_EMA_55_D'
         # 短期趋势的速度
         short_slope_col = 'SLOPE_13_EMA_13_D'
+        short_accel_col = 'ACCEL_13_EMA_13_D'
 
-        if not all(c in df.columns for c in [long_slope_col, long_accel_col, short_slope_col]):
-            print("          -> [错误] 动态惯性诊断缺少必要的斜率/加速度列，跳过。")
+        required_cols = [long_slope_col, long_accel_col, short_slope_col, short_accel_col]
+        if not all(c in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [错误] 动态惯性诊断缺少必要的斜率/加速度列: {missing_cols}，跳过。")
             return {}
 
         long_slope = df[long_slope_col]
         long_accel = df[long_accel_col]
         short_slope = df[short_slope_col]
+        short_accel = df[short_accel_col]
 
         # --- 2. 定义基础布尔条件 ---
         is_long_slope_positive = long_slope > 0
@@ -246,6 +266,7 @@ class StructuralIntelligence:
         
         is_short_slope_positive = short_slope > 0
         is_short_slope_negative = short_slope < 0
+        is_short_accel_positive = short_accel > 0
         
         # --- 3. 组合生成高维度动态状态 ---
         # 【S级进攻】健康加速: 长短期趋势同向看涨，且长期趋势在加速
@@ -261,9 +282,18 @@ class StructuralIntelligence:
         dynamics_states['DYN_TREND_BEARISH_ACCELERATING'] = is_long_slope_negative & is_short_slope_negative & is_long_accel_negative
 
         # 【B级风险】顶部背离: 价格创近期新高，但长短期斜率均在下降
-        is_new_high = df['high_D'] >= df['high_D'].shift(1).rolling(window=10).max()
-        is_slope_weakening = (long_slope < long_slope.shift(1)) & (short_slope < short_slope.shift(1))
-        dynamics_states['DYN_TREND_TOPPING_DIVERGENCE'] = is_new_high & is_slope_weakening
+        is_price_rising = df['pct_change_D'] > 0
+        is_short_slope_falling = short_slope < short_slope.shift(1)
+        # 定义：价格在上涨，但短期上涨动能（斜率）在减弱，这是顶背离的微观表现
+        dynamics_states['DYN_MOMENTUM_PRICE_SLOPE_DIVERGENCE'] = is_price_rising & is_short_slope_falling
+
+        # 基于加速度的原子信号
+        # 【中性状态】上涨趋势稳定期 (主升浪中段): 长期趋势向上，但加速度为负，表明从爆发式增长进入稳定增长
+        dynamics_states['DYN_ACCEL_STATE_UPTREND_STABILIZING'] = is_long_slope_positive & is_long_accel_negative
+        # 【中性状态】下跌趋势减速期 (潜在底部区): 长期趋势向下，但加速度为正，表明下跌动能正在衰竭
+        dynamics_states['DYN_ACCEL_STATE_DOWNTREND_WEAKENING'] = is_long_slope_negative & is_long_accel_positive
+        # 【中性状态】短期动能爆发: 短期趋势的加速度为正，表明短期内有资金在快速入场
+        dynamics_states['DYN_ACCEL_STATE_SHORT_TERM_BURST'] = is_short_accel_positive
 
         # --- 4. 打印调试信息 ---
         # for name, series in dynamics_states.items():
@@ -397,7 +427,121 @@ class StructuralIntelligence:
         # print("        -> [结构力学诊断引擎 V401.1] 分析完毕。")
         return states
 
+    def diagnose_mtf_trend_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V300.0 战略协同引擎】多时间维度趋势协同诊断
+        - 核心职责: 交叉验证战略层面(周线)和战术层面(日线)的趋势动态(斜率与加速度)，
+                    生成最高级别的S++级机会与风险信号。
+        - 核心逻辑:
+          - S++机会(“战略点火”): 周线趋势开始加速的同时，日线趋势也在加速，形成最强共振。
+          - S++风险(“战略衰竭”): 周线趋势已在减速，但日线仍在加速冲顶，是典型的顶部背离陷阱。
+        """
+        print("        -> [战略协同引擎 V300.0] 启动，正在进行多维动态交叉验证...") # [新增代码行]
+        states = {}
+        default_series = pd.Series(False, index=df.index)
 
+        # --- 1. 定义并检查所需的多维动态数据列 ---
+        # 战略层面 (周线)
+        weekly_slope_col = 'SLOPE_5_EMA_21_W'
+        weekly_accel_col = 'ACCEL_5_EMA_21_W'
+        # 战术层面 (日线)
+        daily_slope_col = 'SLOPE_13_EMA_13_D'
+        daily_accel_col = 'ACCEL_13_EMA_13_D'
+
+        required_cols = [weekly_slope_col, weekly_accel_col, daily_slope_col, daily_accel_col]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 战略协同引擎缺少关键数据列: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 获取数据并定义基础布尔状态 ---
+        weekly_slope = df[weekly_slope_col]
+        weekly_accel = df[weekly_accel_col]
+        daily_slope = df[daily_slope_col]
+        daily_accel = df[daily_accel_col]
+
+        is_weekly_slope_positive = weekly_slope > 0
+        is_weekly_slope_negative = weekly_slope < 0
+        is_weekly_accel_positive = weekly_accel > 0
+        is_weekly_accel_negative = weekly_accel < 0
+
+        is_daily_slope_positive = daily_slope > 0
+        is_daily_accel_positive = daily_accel > 0
+
+        # --- 3. 组合生成S++级战略协同信号 ---
+
+        # S++级机会: “战略点火，战术强攻” (Strategic Ignition & Tactical Assault)
+        # 解读: 长期趋势开始进入主升段 (周线加速)，短期趋势也正猛烈上攻 (日线加速)。
+        # 这是最值得重仓参与的黄金时刻，代表长短周期力量完美共振。
+        states['OPP_STRUCTURE_MTF_IGNITION_S_PLUS'] = is_weekly_accel_positive & is_daily_accel_positive
+
+        # A+级机会: “战略顺风，战术助推” (Strategic Tailwind & Tactical Boost)
+        # 解读: 长期趋势已确立 (周线斜率>0)，短期趋势开始发力 (日线加速)。
+        # 这是主升浪途中的健康加仓或入场信号。
+        states['OPP_STRUCTURE_MTF_TAILWIND_A_PLUS'] = is_weekly_slope_positive & is_daily_accel_positive
+
+        # S++级风险: “战略衰竭，战术诱多” (Strategic Exhaustion & Tactical Deception)
+        # 解读: 长期趋势的上涨动能已在衰竭 (周线减速)，但短期趋势仍在制造最后的疯狂 (日线加速)。
+        # 这是典型的顶部背离，是逃顶的绝佳信号。
+        states['RISK_STRUCTURE_MTF_EXHAUSTION_S_PLUS'] = is_weekly_accel_negative & is_daily_accel_positive
+
+        # A+级风险: “战略逆风，战术反弹” (Strategic Headwind & Tactical Rebound)
+        # 解读: 长期趋势已是明确的下跌 (周线斜率<0)，任何日线级别的上涨 (日线斜率>0) 都可能是熊市反弹。
+        # 这是需要高度警惕的陷阱，应避免参与。
+        states['RISK_STRUCTURE_MTF_HEADWIND_A_PLUS'] = is_weekly_slope_negative & is_daily_slope_positive
+
+        print("        -> [战略协同引擎 V300.0] 分析完毕。") # [新增代码行]
+        return states
+
+    def diagnose_static_dynamic_fusion(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V400.0 静态-动态融合引擎】
+        - 核心职责: 将一个高质量的“静态战备”信号与多个“多维动态”信号进行交叉验证，
+                    生成具备因果逻辑的、最高置信度的S++级信号。
+        - 核心逻辑:
+          - S++机会(“引爆点”): 在“突破前夜”的静态高势能状态下，同时观测到“战略与战术”
+                           层面的双重加速，确认总攻开始。
+          - S++风险(“陷阱”): 在“突破前夜”的静态高势能状态下，观测到“战略衰竭”与
+                         “战术诱多”的致命背离，确认是假突破陷阱。
+        """
+        print("        -> [静态-动态融合引擎 V400.0] 启动，正在寻找战场引爆点...") # [新增代码行]
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
+
+        # --- 1. 定义并检查所需的核心信号 ---
+        # 核心静态战备信号 (高势能状态)
+        static_setup_signal = 'STRUCTURE_BREAKOUT_EVE_S'
+        # 核心多维动态机会信号 (最强动能确认)
+        dynamic_opportunity_signal = 'OPP_STRUCTURE_MTF_IGNITION_S_PLUS'
+        # 核心多维动态风险信号 (最强背离确认)
+        dynamic_risk_signal = 'RISK_STRUCTURE_MTF_EXHAUSTION_S_PLUS'
+
+        required_signals = [static_setup_signal, dynamic_opportunity_signal, dynamic_risk_signal]
+        missing_signals = [s for s in required_signals if s not in atomic]
+        if missing_signals:
+            print(f"          -> [严重警告] 静态-动态融合引擎缺少核心原子信号: {missing_signals}，模块已跳过！")
+            return states
+
+        # --- 2. 获取核心信号序列 ---
+        is_static_setup_ready = atomic.get(static_setup_signal, default_series)
+        is_dynamic_opportunity_confirmed = atomic.get(dynamic_opportunity_signal, default_series)
+        is_dynamic_risk_confirmed = atomic.get(dynamic_risk_signal, default_series)
+
+        # --- 3. 组合生成S++级融合信号 ---
+
+        # S++级机会: “静态-动态融合·引爆点” (Static-Dynamic Fusion: Ignition Point)
+        # 解读: 战场(极致压缩的稳定平台)已就绪，且总司令部(周线)和前线指挥官(日线)同时下达了“加速总攻”的命令。
+        # 这是整个策略体系中确定性最高的进攻信号之一。
+        states['OPP_STATIC_DYN_FUSION_IGNITION_S_PLUS'] = is_static_setup_ready & is_dynamic_opportunity_confirmed
+
+        # S++级风险: “静态-动态融合·陷阱” (Static-Dynamic Fusion: Bull Trap)
+        # 解读: 战场看似就绪，但前线部队(日线)的“加速冲锋”并未得到总司令部(周线)的支援，
+        # 反而总部正在撤退(周线减速)。这是典型的诱多出货陷阱。
+        states['RISK_STATIC_DYN_FUSION_TRAP_S_PLUS'] = is_static_setup_ready & is_dynamic_risk_confirmed
+
+        print("        -> [静态-动态融合引擎 V400.0] 分析完毕。") # [新增代码行]
+        return states
 
 
 

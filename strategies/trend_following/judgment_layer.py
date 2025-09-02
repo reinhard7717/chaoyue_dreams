@@ -204,8 +204,26 @@ class JudgmentLayer:
 
         # 风险8: 战略级筹码长期发散加速 (Strategic Chip Accelerated Divergence)
         # 长期发散且加速，是更严重的风险。
-        is_strategic_chip_accel_diverging = atomic.get('CONTEXT_CHIP_STRATEGIC_LONG_TERM_ACCEL_DIVERGENCE_W', default_series)
+        is_strategic_chip_accel_diverging = atomic.get('CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D', default_series)
         df.loc[is_strategic_chip_accel_diverging, 'veto_votes'] += 3 # 给予3票否决，最高级别风险
+        
+        # 风险9: 高级S级风险信号 (Advanced S-Grade Risks)
+        # 9.1 周线与日线RSI顶背离，是经典的顶部信号，给予2票否决
+        has_mtf_divergence = atomic.get('RISK_MTF_RSI_BEARISH_DIVERGENCE_S', default_series)
+        df.loc[has_mtf_divergence, 'veto_votes'] += 2
+
+        # 9.2 获利盘恐慌加速出逃，是市场情绪崩溃的强烈信号，给予3票强否决
+        has_panic_fleeing = atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
+        df.loc[has_panic_fleeing, 'veto_votes'] += 3
+        
+        # --- 风险10: 更多S级陷阱信号 (More S-Grade Trap Signals) ---
+        # 10.1 静态-动态融合崩塌信号，是结构性风险的强烈预警，给予3票强否决
+        has_static_dyn_collapse = atomic.get('RISK_STATIC_DYN_COLLAPSE_S', default_series)
+        df.loc[has_static_dyn_collapse, 'veto_votes'] += 3
+
+        # 10.2 主力缺席的诱多式拉升，是典型的出货陷阱，给予3票强否决
+        has_deceptive_rally = atomic.get('RISK_FUND_FLOW_DECEPTIVE_RALLY_S_PLUS', default_series)
+        df.loc[has_deceptive_rally, 'veto_votes'] += 3
 
     def _finalize_signals(self):
         """

@@ -143,6 +143,21 @@ class WarningLayer:
             if signal_series.any():
                 risk_details_df[rule_name] = signal_series * score
         
+        # --- 精英原子风险计分 (Elite Atomic Risk Scoring) ---
+        # 目的: 硬编码计入最关键的S级风险信号，防止因配置疏忽而遗漏。
+        elite_atomic_risks = {
+            'RISK_STATIC_DYN_COLLAPSE_S': 500,          # 静态-动态融合崩塌
+            'RISK_HIGH_VOL_DIVERGENT_RALLY_S': 450,     # 高波动区的背离诱多
+            'RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S': 400,# 结构性衰竭反弹
+            'RISK_MTF_RSI_BEARISH_DIVERGENCE_S': 350,   # 周线与日线RSI顶背离
+            'RISK_MA_DEATH_CROSS_CONFIRMED_S': 300,     # 均线死亡交叉确认
+        }
+        for risk_name, score in elite_atomic_risks.items():
+            signal_series = atomic_states.get(risk_name, default_series)
+            if signal_series.any():
+                risk_details_df[risk_name] = signal_series * score
+                print(f"          -> [精英原子风险] 侦测到高危信号 “{risk_name}”，增加 {score} 风险分！")
+
         combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
         
         risk_multiplier = pd.Series(1.0, index=df.index)

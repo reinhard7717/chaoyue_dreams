@@ -345,6 +345,9 @@ class IndicatorService:
         # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
         
+        # --- 步骤 4.5: 【第四道工序】统一计算所有加速度 (斜率的斜率) ---
+        all_dfs = await self._calculate_all_accelerations(all_dfs, config)
+        
         # --- 步骤 5: 【原步骤4】注入其他上下文信息  ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
@@ -1090,6 +1093,60 @@ class IndicatorService:
             all_dfs[timeframe] = df
 
         # print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
+        return all_dfs
+
+    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】加速度计算引擎
+        - 核心职责: 读取 accel_params 配置，计算指定指标的“斜率的斜率”，即加速度。
+        - 前置条件: 必须在 _calculate_all_slopes 执行完毕后调用。
+        """
+        accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
+        if not accel_params.get('enabled', False):
+            return all_dfs
+
+        series_to_accel = accel_params.get('series_to_accel', {})
+        if not series_to_accel:
+            return all_dfs
+
+        print("    - [加速度引擎] 开始计算核心指标的加速度...")
+        for base_col_name, periods in series_to_accel.items():
+            if "说明" in base_col_name:
+                continue
+            
+            # 从基础列名中解析出时间周期 (e.g., 'EMA_21_W' -> 'W')
+            timeframe = base_col_name.split('_')[-1]
+            if timeframe not in all_dfs or all_dfs[timeframe] is None:
+                print(f"      -> 警告: 加速度计算跳过，因为找不到周期 '{timeframe}' 的DataFrame。")
+                continue
+
+            df = all_dfs[timeframe]
+            
+            # 遍历该指标需要计算加速度的所有周期
+            for period in periods:
+                # 加速度是“斜率的斜率”，所以我们先定位对应的斜率列
+                # 例如，要计算 EMA_21_W 的 5 周期加速度，我们需要找到 SLOPE_5_EMA_21_W
+                slope_col_name = f'SLOPE_{period}_{base_col_name}'
+                
+                if slope_col_name not in df.columns:
+                    print(f"      -> 警告: 无法计算加速度，因为找不到源斜率列 '{slope_col_name}'。")
+                    continue
+                
+                # 计算斜率列自身的斜率，即加速度
+                source_series = df[slope_col_name]
+                # 使用与斜率相同的计算方法：线性回归的系数
+                x = np.arange(len(source_series))
+                accel_series = source_series.rolling(window=period).apply(
+                    lambda y: np.polyfit(x[:len(y)], y, 1)[0] if len(y) >= 2 else np.nan,
+                    raw=False
+                )
+                
+                # 定义加速度列的名称
+                accel_col_name = f'ACCEL_{period}_{base_col_name}'
+                df[accel_col_name] = accel_series
+                print(f"      -> 已在周期 '{timeframe}' 中生成加速度列: {accel_col_name}")
+
+        print("    - [加速度引擎] 计算完成。")
         return all_dfs
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:

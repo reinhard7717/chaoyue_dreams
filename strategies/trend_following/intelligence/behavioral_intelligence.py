@@ -56,9 +56,9 @@ class BehavioralIntelligence:
 
             states['KLINE_STATE_GAP_SUPPORT_ACTIVE'] = create_persistent_state(
                 df=df,
-                entry_event_series=gap_up_event,         # 使用新参数名: entry_event_series
+                entry_event_series=gap_up_event,
                 persistence_days=persistence_days,
-                break_condition_series=price_fills_gap,  # 使用新参数名: break_condition_series
+                break_condition_series=price_fills_gap,
                 state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
             )
 
@@ -67,25 +67,275 @@ class BehavioralIntelligence:
         if get_param_value(p_nshape.get('enabled'), True):
             rally_threshold = get_param_value(p_nshape.get('rally_threshold'), 0.097)
             consolidation_days_max = get_param_value(p_nshape.get('consolidation_days_max'), 3)
-            
             is_strong_rally = df['pct_change_D'] >= rally_threshold
             consolidation_window = is_strong_rally.shift(1).rolling(window=consolidation_days_max, min_periods=1).max().astype(bool)
             is_not_rally_today = df['pct_change_D'] < rally_threshold
             states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = consolidation_window & is_not_rally_today
 
+        # --- 4. “老鸭头”形态形成中 (Old Duck Head Forming) ---
+        p_duck = p.get('old_duck_head_params', {})
+        if get_param_value(p_duck.get('enabled'), True):
+            # 定义均线
+            ma5_col = 'EMA_5_D'
+            ma10_col = 'EMA_10_D'
+            ma60_col = 'EMA_60_D'
+            required_cols = [ma5_col, ma10_col, ma60_col, 'VOL_MA_21_D', 'volume_D']
+            if all(c in df.columns for c in required_cols):
+                # 条件1: 5日、10日均线在60日均线上方，形成“鸭头顶”
+                head_formed = (df[ma5_col].shift(1) > df[ma60_col].shift(1)) & (df[ma10_col].shift(1) > df[ma60_col].shift(1))
+                # 条件2: 5日均线死叉10日均线，形成“鸭鼻孔”
+                is_dead_cross = (df[ma5_col] < df[ma10_col]) & (df[ma5_col].shift(1) >= df[ma10_col].shift(1))
+                # 条件3: 形成死叉后，股价并未大幅下跌，而是在60日线上方缩量整理
+                is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
+                is_above_ma60 = df['close_D'] > df[ma60_col]
+                # 将“死叉”事件转化为一个持续状态，代表“鸭头”形成后的整理期
+                duck_head_forming_event = is_dead_cross & head_formed
+                # 状态打破条件：5日线重新金叉10日线（即将张口），或跌破60日线
+                break_condition = ((df[ma5_col] > df[ma10_col]) & (df[ma5_col].shift(1) <= df[ma10_col].shift(1))) | (df['close_D'] < df[ma60_col])
+                # 使用状态机生成“老鸭头形成中”的持续状态
+                duck_head_state = create_persistent_state(
+                    df=df,
+                    entry_event_series=duck_head_forming_event,
+                    persistence_days=get_param_value(p_duck.get('max_forming_days'), 20),
+                    break_condition_series=break_condition,
+                    state_name='KLINE_STATE_OLD_DUCK_HEAD_FORMING'
+                )
+                # 最终状态必须满足缩量和在60日线上方整理
+                states['KLINE_STATE_OLD_DUCK_HEAD_FORMING'] = duck_head_state & is_shrinking_volume & is_above_ma60
+
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True):
             vol_ma_col = 'VOL_MA_21_D'
             if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
-                
                 # 定义“恐慌性大跌”
                 sharp_drop_threshold = get_param_value(p_atomic.get('sharp_drop_threshold'), -0.04)
                 states['KLINE_SHARP_DROP'] = df['pct_change_D'] < sharp_drop_threshold
-                
                 # 定义“显著放量”
                 high_volume_ratio = get_param_value(p_atomic.get('high_volume_ratio'), 1.5)
                 states['KLINE_HIGH_VOLUME'] = df['volume_D'] > df[vol_ma_col] * high_volume_ratio
 
+        advanced_atomics = self.diagnose_advanced_atomic_signals(df)
+        states.update(advanced_atomics)
+
+        # --- 调用高级行为状态诊断模块 ---
+        advanced_behaviors = self.diagnose_advanced_behavioral_states(df)
+        states.update(advanced_behaviors)
+        return states
+
+    def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】高级原子信号诊断模块
+        - 核心职责: 基于基础指标的斜率、加速度以及多指标的交互关系，生成更深层次的原子信号。
+        - 产出: 一系列描述市场微观动态和潜在拐点的原子状态。
+        """
+        print("        -> [高级原子诊断模块 V1.0] 启动，正在生成深层动态信号...")
+        states = {}
+        p = get_params_block(self.strategy, 'advanced_atomic_params', {}) # 假设配置文件中有此参数块
+        if not get_param_value(p.get('enabled'), True): return states
+
+        # --- 1. K线与价格行为原子信号 ---
+        # 信号1: 收盘价在当日K线中的位置 (0-1之间，越高越强)
+        price_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        close_position_in_range = (df['close_D'] - df['low_D']) / price_range
+        states['PRICE_DYN_STRONG_CLOSE'] = close_position_in_range > get_param_value(p.get('strong_close_threshold'), 0.8)
+        states['PRICE_DYN_WEAK_CLOSE'] = close_position_in_range < get_param_value(p.get('weak_close_threshold'), 0.2)
+
+        # 信号2: 连续上涨/下跌天数 (用于判断短期惯性)
+        is_up_day = df['pct_change_D'] > 0
+        is_down_day = df['pct_change_D'] < 0
+        # 使用cumsum技巧计算连续天数
+        up_streak = is_up_day.groupby((is_up_day != is_up_day.shift()).cumsum()).cumcount() + 1
+        down_streak = is_down_day.groupby((is_down_day != is_down_day.shift()).cumsum()).cumcount() + 1
+        states['PRICE_DYN_CONSECUTIVE_UP_STREAK_3D'] = (up_streak >= 3) & is_up_day
+        states['PRICE_DYN_CONSECUTIVE_DOWN_STREAK_3D'] = (down_streak >= 3) & is_down_day
+
+        # --- 2. 波动率动态原子信号 ---
+        bbw_col = 'BBW_21_2.0_D'
+        bbw_slope_col = 'SLOPE_5_BBW_21_2.0_D'
+        bbw_accel_col = 'ACCEL_5_BBW_21_2.0_D'
+        if all(c in df.columns for c in [bbw_col, bbw_slope_col, bbw_accel_col]):
+            # 信号3: 波动率扩张/收缩 (基于斜率)
+            states['VOL_DYN_EXPANDING'] = df[bbw_slope_col] > 0
+            states['VOL_DYN_CONTRACTING'] = df[bbw_slope_col] < 0
+            # 信号4: 波动率加速扩张 (基于加速度，可能预示极端行情)
+            states['VOL_DYN_ACCEL_EXPANSION'] = df[bbw_accel_col] > 0
+
+        # --- 3. 振荡器动态原子信号 (以RSI为例) ---
+        rsi_col = 'RSI_13_D'
+        # 假设数据工程层已经计算了RSI的斜率和加速度
+        rsi_slope_col = 'SLOPE_5_RSI_13_D' # 假设列名为 SLOPE_5_RSI_13_D
+        rsi_accel_col = 'ACCEL_5_RSI_13_D' # 假设列名为 ACCEL_5_RSI_13_D
+        
+        # 为了演示，如果数据不存在，我们即时计算。但在生产环境中，应由数据工程层提供。
+        if rsi_col in df.columns:
+            if rsi_slope_col not in df.columns:
+                df[rsi_slope_col] = df[rsi_col].rolling(5).apply(lambda x: np.polyfit(range(5), x, 1)[0] if len(x.dropna()) == 5 else np.nan, raw=True)
+            if rsi_accel_col not in df.columns:
+                df[rsi_accel_col] = df[rsi_slope_col].diff()
+
+            if all(c in df.columns for c in [rsi_slope_col, rsi_accel_col]):
+                # 信号5: RSI动能上升/下降 (基于斜率)
+                states['OSC_DYN_RSI_MOMENTUM_RISING'] = df[rsi_slope_col] > 0
+                states['OSC_DYN_RSI_MOMENTUM_FALLING'] = df[rsi_slope_col] < 0
+                # 信号6: RSI动能加速/减速 (基于加速度)
+                states['OSC_DYN_RSI_MOMENTUM_ACCELERATING'] = df[rsi_accel_col] > 0
+                states['OSC_DYN_RSI_MOMENTUM_DECELERATING'] = df[rsi_accel_col] < 0
+                # 信号7: 经典看跌背离 (价格上涨，但RSI动能下降)
+                is_price_up = df['pct_change_D'] > 0
+                states['OSC_DYN_RSI_BEARISH_DIVERGENCE'] = is_price_up & states['OSC_DYN_RSI_MOMENTUM_FALLING']
+
+        # --- 4. 筹码行为动态原子信号 ---
+        loser_turnover_slope_col = 'SLOPE_5_turnover_from_losers_ratio_D'
+        loser_turnover_accel_col = 'ACCEL_5_turnover_from_losers_ratio_D'
+        if all(c in df.columns for c in [loser_turnover_slope_col, loser_turnover_accel_col]):
+            # 信号8: 恐慌盘抛售衰竭机会 (抛售仍在继续，但速度在减慢)
+            is_loser_selling = df[loser_turnover_slope_col] > 0
+            is_selling_decelerating = df[loser_turnover_accel_col] < 0
+            states['CHIP_BEHAVIOR_LOSER_CAPITULATION_EXHAUSTION'] = is_loser_selling & is_selling_decelerating
+            
+        # --- 5. 多时间维度交叉验证原子信号 (Multi-Timeframe Cross-Validation Atomics) ---
+        # 军备检查：确保所有必需的斜率和加速度列都存在
+        required_multi_timeframe_cols = [
+            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D',
+            'SLOPE_5_winner_profit_margin_D', 'SLOPE_21_winner_profit_margin_D',
+            'SLOPE_55_concentration_90pct_D', 'SLOPE_5_turnover_from_losers_ratio_D', 'SLOPE_5_turnover_from_winners_ratio_D',
+            'SLOPE_55_turnover_from_winners_ratio_D', 'SLOPE_5_close_D',
+            'ACCEL_5_VPA_EFFICIENCY_D', 'SLOPE_21_EMA_55_D' # 假设 EMA_55_D 的21日斜率已由数据工程层提供
+        ]
+        
+        # 动态计算缺失的加速度列，如果数据工程层未提供 (生产环境应由数据工程层提供)
+        if 'SLOPE_5_winner_profit_margin_D' in df.columns and 'ACCEL_5_winner_profit_margin_D' not in df.columns:
+            df['ACCEL_5_winner_profit_margin_D'] = df['SLOPE_5_winner_profit_margin_D'].diff()
+        if 'SLOPE_5_pressure_above_D' in df.columns and 'ACCEL_5_pressure_above_D' not in df.columns:
+            df['ACCEL_5_pressure_above_D'] = df['SLOPE_5_pressure_above_D'].diff()
+        if 'SLOPE_5_energy_ratio_D' in df.columns and 'ACCEL_5_energy_ratio_D' not in df.columns:
+            df['ACCEL_5_energy_ratio_D'] = df['SLOPE_5_energy_ratio_D'].diff()
+        if 'SLOPE_5_VPA_EFFICIENCY_D' in df.columns and 'ACCEL_5_VPA_EFFICIENCY_D' not in df.columns:
+            df['ACCEL_5_VPA_EFFICIENCY_D'] = df['SLOPE_5_VPA_EFFICIENCY_D'].diff()
+
+        if all(col in df.columns for col in required_multi_timeframe_cols):
+            # === 机会信号 ===
+            # 信号9 (A级机会): 筹码加速集中确认中期趋势
+            # 解读: 短期筹码集中加速，且中期筹码也处于集中状态，表明吸筹趋势强劲且持续。
+            is_short_accel_conc = df['ACCEL_5_concentration_90pct_D'] < get_param_value(p.get('concentration_accel_confirm_threshold'), 0)
+            is_mid_term_conc = df['SLOPE_21_concentration_90pct_D'] < 0
+            states['OPP_CHIP_ACCEL_CONCENTRATION_CONFIRMED_A'] = is_short_accel_conc & is_mid_term_conc
+
+            # 信号10 (B级机会): 获利盘利润垫短期反转
+            # 解读: 获利盘利润垫短期开始回升，而中期曾处于下降趋势，可能预示着止跌企稳或反弹。
+            is_short_profit_rising = df['SLOPE_5_winner_profit_margin_D'] > get_param_value(p.get('profit_cushion_reversal_slope_threshold'), 0)
+            is_mid_profit_falling = df['SLOPE_21_winner_profit_margin_D'] < 0
+            states['OPP_BEHAVIOR_PROFIT_CUSHION_REVERSAL_B'] = is_short_profit_rising & is_mid_profit_falling
+
+            # 信号11 (A级机会): 长期吸筹下的短期洗盘
+            # 解读: 长期筹码持续集中，但短期出现套牢盘恐慌性抛售，而获利盘惜售，是主力利用洗盘吸筹的经典行为。
+            is_long_term_conc = df['SLOPE_55_concentration_90pct_D'] < 0
+            is_short_loser_selling = df['SLOPE_5_turnover_from_losers_ratio_D'] > get_param_value(p.get('wash_out_accumulation_loser_slope_threshold'), 0)
+            is_short_winner_holding = df['SLOPE_5_turnover_from_winners_ratio_D'] < get_param_value(p.get('wash_out_accumulation_winner_slope_threshold'), 0)
+            states['OPP_BEHAVIOR_WASH_OUT_ACCUMULATION_A'] = is_long_term_conc & is_short_loser_selling & is_short_winner_holding
+
+            # === 风险信号 ===
+            # 信号12 (B级风险): 筹码短期发散预警
+            # 解读: 中期筹码仍在集中，但短期已出现发散迹象，可能是主力开始试探性派发或洗盘力度过大。
+            is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > get_param_value(p.get('chip_short_term_divergence_slope_threshold'), 0)
+            is_mid_term_concentrating = df['SLOPE_21_concentration_90pct_D'] < 0
+            states['RISK_CHIP_SHORT_TERM_DIVERGENCE_WARNING_B'] = is_short_term_diverging & is_mid_term_concentrating
+
+            # 信号13 (S级风险): 长期派发下的诱多拉升
+            # 解读: 长期获利盘持续派发，但短期股价却在上涨，这是最危险的诱多出货信号。
+            is_long_term_winner_dist = df['SLOPE_55_turnover_from_winners_ratio_D'] > get_param_value(p.get('deceptive_rally_long_term_winner_slope_threshold'), 0)
+            is_short_term_price_rally = df['SLOPE_5_close_D'] > 0
+            states['RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S'] = is_long_term_winner_dist & is_short_term_price_rally
+
+            # 信号14 (C级风险): 市场效率加速衰竭
+            # 解读: 资金攻击效率加速下降，即使在上升趋势中也预示着动能的严重不足，可能面临滞涨或反转。
+            is_efficiency_accel_falling = df['ACCEL_5_VPA_EFFICIENCY_D'] < get_param_value(p.get('market_engine_stalling_accel_threshold'), 0)
+            is_in_uptrend_context = df['SLOPE_21_EMA_55_D'] > 0 # 假设21日EMA55斜率代表中期趋势
+            states['RISK_MARKET_ENGINE_STALLING_ACCEL_C'] = is_efficiency_accel_falling & is_in_uptrend_context
+        else:
+            missing_multi_cols = [col for col in required_multi_timeframe_cols if col not in df.columns]
+            print(f"            -> [警告] 多时间维度交叉验证模块缺少关键数据: {missing_multi_cols}，部分信号已跳过！")
+
+        # --- 6. 静态-多动态交叉验证原子信号 (Static-Multi-Dynamic Cross-Validation) ---
+        # 军备检查：确保所有必需的静态和动态列都存在
+        required_static_multi_dyn_cols = [
+            'close_D', 'EMA_233_D', 'SLOPE_5_close_D', 'ACCEL_5_close_D',
+            'concentration_90pct_D', 'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'winner_profit_margin_D', 'SLOPE_5_winner_profit_margin_D',
+            'total_winner_rate_D', 'SLOPE_5_turnover_from_winners_ratio_D', 'ACCEL_5_turnover_from_winners_ratio_D',
+            'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_volume_D', 'SLOPE_5_pressure_above_D',
+            'SLOPE_5_turnover_from_losers_ratio_D', 'ACCEL_5_turnover_from_losers_ratio_D'
+        ]
+        
+        # 动态计算缺失的加速度列，如果数据工程层未提供 (生产环境应由数据工程层提供)
+        if 'SLOPE_5_close_D' in df.columns and 'ACCEL_5_close_D' not in df.columns:
+            df['ACCEL_5_close_D'] = df['SLOPE_5_close_D'].diff()
+        if 'SLOPE_5_turnover_from_winners_ratio_D' in df.columns and 'ACCEL_5_turnover_from_winners_ratio_D' not in df.columns:
+            df['ACCEL_5_turnover_from_winners_ratio_D'] = df['SLOPE_5_turnover_from_winners_ratio_D'].diff()
+        if 'SLOPE_5_volume_D' in df.columns and 'ACCEL_5_volume_D' not in df.columns:
+            df['ACCEL_5_volume_D'] = df['SLOPE_5_volume_D'].diff()
+
+        if all(col in df.columns for col in required_static_multi_dyn_cols):
+            # === 机会信号 ===
+            # 信号15 (S级机会): 长期底部反转共振
+            # 解读: 静态上，价格处于长期均线下方（超跌）；动态上，短期价格斜率转正，筹码集中度加速改善，获利盘利润垫回升。
+            #      这是多重信号共振的强劲底部反转信号。
+            is_below_long_ma_static = df['close_D'] < df['EMA_233_D'] * get_param_value(p.get('long_ma_oversold_ratio'), 0.95) # 价格低于233日均线5%
+            is_short_price_slope_positive = df['SLOPE_5_close_D'] > get_param_value(p.get('short_price_slope_positive_threshold'), 0)
+            is_chip_accel_improving = df['ACCEL_5_concentration_90pct_D'] < get_param_value(p.get('chip_accel_improving_threshold'), 0) # 集中度加速下降（集中度改善）
+            is_profit_cushion_rising = df['SLOPE_5_winner_profit_margin_D'] > get_param_value(p.get('profit_cushion_rising_threshold'), 0)
+            states['OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S'] = (
+                is_below_long_ma_static &
+                is_short_price_slope_positive &
+                is_chip_accel_improving &
+                is_profit_cushion_rising
+            )
+
+            # 信号16 (A级机会): 极致压缩后的蓄势待发
+            # 解读: 静态上，波动率处于极致收缩状态；动态上，波动率仍在收缩，成交量加速萎缩，上方压力正在被消化。
+            #      这是突破前的典型蓄势信号。
+            is_extreme_squeeze_static = df['BBW_21_2.0_D'] < get_param_value(p.get('bbw_extreme_squeeze_threshold'), 0.05) # BBW低于0.05
+            is_bbw_contracting_dyn = df['SLOPE_5_BBW_21_2.0_D'] < get_param_value(p.get('bbw_contracting_slope_threshold'), 0)
+            is_volume_accel_shrinking_dyn = df['ACCEL_5_volume_D'] < get_param_value(p.get('volume_accel_shrinking_threshold'), 0) # 成交量加速萎缩
+            is_pressure_clearing_dyn = df['SLOPE_5_pressure_above_D'] < get_param_value(p.get('pressure_clearing_slope_threshold'), 0)
+            states['OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A'] = (
+                is_extreme_squeeze_static &
+                is_bbw_contracting_dyn &
+                is_volume_accel_shrinking_dyn &
+                is_pressure_clearing_dyn
+            )
+
+            # === 风险信号 ===
+            # 信号17 (S级风险): 高位多重背离派发
+            # 解读: 静态上，价格处于近期高位；动态上，短期价格斜率下降，获利盘换手率加速上升，筹码集中度开始发散。
+            #      这是多重信号共振的强劲顶部派发信号。
+            is_near_high_range_static = states.get('PRICE_STATE_NEAR_HIGH_RANGE', pd.Series(False, index=df.index)) # 假设此信号已由其他模块生成
+            is_short_price_slope_negative = df['SLOPE_5_close_D'] < get_param_value(p.get('short_price_slope_negative_threshold'), 0)
+            is_winner_selling_accel_dyn = df['ACCEL_5_turnover_from_winners_ratio_D'] > get_param_value(p.get('winner_selling_accel_threshold'), 0) # 获利盘抛售加速
+            is_chip_diverging_dyn = df['SLOPE_5_concentration_90pct_D'] > get_param_value(p.get('chip_diverging_slope_threshold'), 0)
+            states['RISK_STATIC_HIGH_ALTITUDE_MULTI_DIVERGENCE_S'] = (
+                is_near_high_range_static &
+                is_short_price_slope_negative &
+                is_winner_selling_accel_dyn &
+                is_chip_diverging_dyn
+            )
+
+            # 信号18 (A级风险): 趋势末期主力诱多出货
+            # 解读: 静态上，获利盘比例很高（市场情绪乐观）；动态上，短期价格加速上涨，但套牢盘抛售却在加速。
+            #      这表明主力在利用拉升吸引散户接盘，同时悄悄出货。
+            is_high_winner_rate_static = df['total_winner_rate_D'] > get_param_value(p.get('high_winner_rate_static_threshold'), 90.0)
+            is_price_accel_rising_dyn = df['ACCEL_5_close_D'] > get_param_value(p.get('price_accel_rising_threshold'), 0)
+            is_loser_selling_accel_dyn = df['ACCEL_5_turnover_from_losers_ratio_D'] > get_param_value(p.get('loser_selling_accel_threshold'), 0) # 套牢盘抛售加速
+            states['RISK_STATIC_DECEPTIVE_RALLY_ACCEL_DISTRIBUTION_A'] = (
+                is_high_winner_rate_static &
+                is_price_accel_rising_dyn &
+                is_loser_selling_accel_dyn
+            )
+        else:
+            missing_static_multi_dyn_cols = [col for col in required_static_multi_dyn_cols if col not in df.columns]
+            print(f"            -> [警告] 静态-多动态交叉验证模块缺少关键数据: {missing_static_multi_dyn_cols}，部分信号已跳过！")
+
+        print(f"        -> [高级原子诊断模块 V1.3] 已生成 {len(states)} 个深层动态信号。") # [修改代码行]
         return states
 
     def diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -495,10 +745,114 @@ class BehavioralIntelligence:
 
         return enhancements
 
+    # “价格-成交量原子信号诊断”方法
+    def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】价格与成交量基础原子信号诊断模块
+        - 核心职责: 生成描述当前价格位置和基础量价关系的中性原子信号。
+                    这些信号是构成更复杂战术判断的“乐高积木”。
+        - 输出: 一系列描述客观事实的原子状态，如 PRICE_... 和 VOL_...。
+        """
+        print("        -> [价格成交量原子诊断模块 V1.0] 启动...")
+        states = {}
+        p = get_params_block(self.strategy, 'price_volume_atomic_params')
+        if not get_param_value(p.get('enabled'), True): return states
 
+        # --- 1. 价格位置原子信号 (Price Position Atomics) ---
+        # 信号1: 价格处于近期高位区间 (潜在突破区)
+        lookback_period = get_param_value(p.get('range_lookback'), 20)
+        high_range_percentile = get_param_value(p.get('high_range_percentile'), 0.90)
+        rolling_high = df['high_D'].rolling(window=lookback_period).max()
+        rolling_low = df['low_D'].rolling(window=lookback_period).min()
+        price_range = (rolling_high - rolling_low).replace(0, np.nan)
+        high_range_threshold = rolling_low + price_range * high_range_percentile
+        states['PRICE_STATE_NEAR_HIGH_RANGE'] = df['close_D'] > high_range_threshold
 
+        # 信号2: 价格处于近期低位区间 (潜在支撑区)
+        low_range_percentile = get_param_value(p.get('low_range_percentile'), 0.10)
+        low_range_threshold = rolling_low + price_range * low_range_percentile
+        states['PRICE_STATE_NEAR_LOW_RANGE'] = df['close_D'] < low_range_threshold
 
+        # --- 2. 量价关系原子信号 (Volume-Price Atomics) ---
+        vol_ma_col = 'VOL_MA_21_D'
+        if vol_ma_col in df.columns:
+            # 信号3: 价涨量增 (健康的上涨)
+            is_price_up = df['pct_change_D'] > 0
+            is_volume_up = df['volume_D'] > df['volume_D'].shift(1)
+            states['VOL_BEHAVIOR_HEALTHY_RALLY'] = is_price_up & is_volume_up
 
+            # 信号4: 价涨量缩 (上涨动能衰竭的迹象)
+            is_volume_down = df['volume_D'] < df['volume_D'].shift(1)
+            states['VOL_BEHAVIOR_UNHEALTHY_RALLY'] = is_price_up & is_volume_down
+
+            # 信号5: 价跌量增 (恐慌或放量下跌)
+            is_price_down = df['pct_change_D'] < 0
+            states['VOL_BEHAVIOR_DISTRIBUTION_DROP'] = is_price_down & is_volume_up
+
+            # 信号6: 价跌量缩 (下跌动能减弱或惜售)
+            states['VOL_BEHAVIOR_WEAKENING_DROP'] = is_price_down & is_volume_down
+
+        print(f"        -> [价格成交量原子诊断模块 V1.0] 已生成 {len(states)} 个基础原子信号。")
+        return states
+
+    def diagnose_advanced_behavioral_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】高级行为状态诊断模块
+        - 核心职责: 基于获利盘利润垫、上方压力、市场能量效率等深层指标的动态变化，
+                      生成描述市场心理和运行效率的高级行为原子信号。
+        - 收益: 提供了超越传统量价分析的视角，能够更早地发现持股信心的变化和趋势衰竭的迹象。
+        """
+        print("        -> [高级行为状态诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'SLOPE_5_winner_profit_margin_D',
+            'SLOPE_5_pressure_above_D',
+            'SLOPE_5_energy_ratio_D',
+            'EMA_55_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 缺少高级行为诊断所需列，模块跳过。缺失: {missing_cols}")
+            return {}
+
+        # --- 2. 获利盘心理动态 (Profit Cushion Dynamics) ---
+        # 信号1 (A级机会): 利润安全垫扩张
+        # 解读: 获利盘的平均利润在增加，表明持股信心增强，抛压减小，趋势健康。
+        is_cushion_expanding = df['SLOPE_5_winner_profit_margin_D'] > 0
+        states['BEHAVIOR_PROFIT_CUSHION_EXPANDING_A'] = is_cushion_expanding
+
+        # 信号2 (A级风险): 利润安全垫收缩
+        # 解读: 获利盘的平均利润在减少，可能引发恐慌性抛售，是趋势弱化的早期预警。
+        is_cushion_shrinking = df['SLOPE_5_winner_profit_margin_D'] < 0
+        states['RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A'] = is_cushion_shrinking
+
+        # --- 3. 市场阻力动态 (Overhead Pressure Dynamics) ---
+        # 信号3 (B级机会): 上方套牢盘压力正在被消化
+        # 解读: 上方的套牢盘正在减少，意味着多头正在成功地解放前期的被套筹码，为上涨扫清障碍。
+        is_pressure_clearing = df['SLOPE_5_pressure_above_D'] < 0
+        states['BEHAVIOR_CLEARING_OVERHEAD_PRESSURE_B'] = is_pressure_clearing
+
+        # 信号4 (B级风险): 上方套牢盘压力正在积聚
+        # 解读: 股价上涨乏力，导致上方套牢盘越来越多，形成沉重的阻力位。
+        is_pressure_building = df['SLOPE_5_pressure_above_D'] > 0
+        states['RISK_BEHAVIOR_BUILDING_OVERHEAD_PRESSURE_B'] = is_pressure_building
+
+        # --- 4. 市场引擎效率动态 (Market Engine Efficiency) ---
+        # 信号5 (B级机会): 市场引擎正在加速
+        # 解读: 资金的攻击效率在提升，表明市场上涨的“性价比”很高，是健康的表现。
+        is_engine_accelerating = df['SLOPE_5_energy_ratio_D'] > 0
+        is_in_uptrend = df['close_D'] > df['EMA_55_D']
+        states['BEHAVIOR_MARKET_ENGINE_ACCELERATING_B'] = is_engine_accelerating & is_in_uptrend
+
+        # 信号6 (B级风险): 市场引擎正在失速
+        # 解读: 资金的攻击效率在下降，可能出现“费力不讨好”的滞涨情况，是趋势衰竭的前兆。
+        is_engine_stalling = df['SLOPE_5_energy_ratio_D'] < 0
+        states['RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B'] = is_engine_stalling & is_in_uptrend
+
+        return states
 
 
 

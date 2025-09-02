@@ -52,6 +52,31 @@ class PlaybookEngine:
                 'setup': ['STRUCTURE_BOX_ACCUMULATION_A', 'VOL_STATE_SQUEEZE_WINDOW'],
                 'trigger': ['TRIGGER_BOX_BOTTOM_REVERSAL'],
                 'comment': 'B级 - 在健康箱体或压缩区底部，出现反转信号，执行低吸。'
+            },
+            # “压缩突破”剧本
+            {
+                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_S',
+                'setup': ['OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A'],
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_SQUEEZE_IGNITION_A'],
+                'comment': 'S级 - 波动率极致压缩后，出现暴力突破或点火信号确认。'
+            },
+            {
+                'name': 'PLAYBOOK_PRIME_BREAKOUT_S_PLUS_PLUS',
+                'setup': ['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'],
+                'trigger': ['TRIGGER_PRIME_BREAKOUT_S'],
+                'comment': 'S++级(王牌) - 在“黄金阵地”完全构筑后(筹码+波动+力学三维共振)，由“王牌冲锋号”确认总攻。'
+            },
+            {
+                'name': 'PLAYBOOK_BOTTOM_REVERSAL_S',
+                'setup': ['OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S'],
+                'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
+                'comment': 'S级(新增) - 在多重信号共振的“长期底部”形成后，由“显性反转K线”确认反转启动。'
+            },
+            {
+                'name': 'PLAYBOOK_RESONANCE_IGNITION_S',
+                'setup': ['SCENARIO_MAIN_WAVE_RESONANCE_S'],
+                'trigger': ['TRIGGER_CHIP_IGNITION', 'TRIGGER_ENERGY_RELEASE'],
+                'comment': 'S级(新增) - 在“主升浪共振”(控盘+全周期吸筹+成本加速)的完美状态下，由“筹码点火”或“能量释放”信号确认加速。'
             }
         ]
 
@@ -115,6 +140,20 @@ class PlaybookEngine:
             volume_ratio = get_param_value(p_energy.get('volume_ratio'), 1.5)
             is_volume_spike = df['volume_D'] > df[vol_ma_col] * volume_ratio
             triggers['TRIGGER_ENERGY_RELEASE'] = is_positive_day & is_strong_body & is_volume_spike
+
+        # 1.5 【A级】压缩点火阳线 (Squeeze Ignition) # “压缩点火”触发器
+        p_squeeze_ignition = trigger_params.get('squeeze_ignition_candle', {})
+        if get_param_value(p_squeeze_ignition.get('enabled'), True):
+            boll_mid_col = 'BBM_21_2.0_D'
+            if boll_mid_col in df.columns and vol_ma_col in df.columns:
+                # 条件1: 必须是阳线
+                is_positive_candle = df['pct_change_D'] > 0
+                # 条件2: 收盘价必须突破布林带中轨
+                is_breaking_mid = df['close_D'] > df[boll_mid_col]
+                # 条件3: 成交量温和放大
+                min_vol_ratio = get_param_value(p_squeeze_ignition.get('min_volume_ratio'), 1.2)
+                is_volume_moderate_spike = df['volume_D'] > df[vol_ma_col] * min_vol_ratio
+                triggers['TRIGGER_SQUEEZE_IGNITION_A'] = is_positive_candle & is_breaking_mid & is_volume_moderate_spike
 
         # --- 2. 结构与趋势触发器 (Structure & Trend Triggers) ---
         # 2.1 【经典】放量突破近期高点

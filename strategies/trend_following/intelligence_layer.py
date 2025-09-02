@@ -17,6 +17,7 @@ from .intelligence.behavioral_intelligence import BehavioralIntelligence
 from .intelligence.cognitive_intelligence import CognitiveIntelligence
 from .intelligence.playbook_engine import PlaybookEngine
 from .intelligence.fund_flow_intelligence import FundFlowIntelligence
+from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 
 class MainForceState(Enum):
     """
@@ -57,6 +58,7 @@ class IntelligenceLayer:
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
+        self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
 
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """
@@ -91,71 +93,101 @@ class IntelligenceLayer:
         self.strategy.atomic_states = {}
 
         # --- 阶段一: 基础K线与板形态识别 ---
+        # 此阶段生成所有最基础的原子信号，它们仅依赖于数据工程层提供的指标。
         # print("    - [阶段1/7] 正在执行基础形态识别...")
+        # 1.1 基础K线与形态
         df = self.pattern_recognizer.identify_all(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
-
-        # --- 阶段二: 注入并转化周线战略情报 ---
-        # print("    - [阶段2/7] 正在注入并转化周线战略情报...")
-        self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
-        # 调用战略级筹码情报诊断模块，并将其结果添加到原子状态
-        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
-        # 诊断资金流原子信号
+        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_price_volume_atomics(df))
+        # 1.2 基础层情报 (波动率, 震荡指标, 资金流)
+        self.strategy.atomic_states.update(self.foundation_intel.run_foundation_analysis_command())
         self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
-
-        # --- 阶段三: 核心原子状态生成 (第一梯队) ---
-        # print("    - [阶段3/7] 正在生成第一梯队原子状态 (无跨模块依赖)...")
-        self.strategy.atomic_states.update(self.foundation_intel.diagnose_volatility_states(df))
-        self.strategy.atomic_states.update(self.foundation_intel.diagnose_oscillator_states(df))
+        # 1.3 结构层基础情报 (均线, 箱体, 趋势动态)
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_trend_dynamics(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_fibonacci_support(df))
+        # 1.4 筹码层基础情报 (静态, 行为, 动态)
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_static_chip_structure(df))
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_behavior_states(df))
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_dynamics(df))
+        self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
+
+        # --- 阶段二: 一级情报合成与上下文诊断 (依赖基础原子) ---
+        # 此阶段基于第一阶段的原子信号，生成更复杂的上下文状态和复合信号。
+        # print("    - [阶段 2/6] 正在进行一级情报合成与上下文诊断...")
+        # 2.1 诊断战场上下文区域 (如高位风险区)
+        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
+        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
+        # 2.2 诊断筹码平台、结构力学等
+        df, platform_states = self.structural_intel.diagnose_platform_states(df)
+        self.strategy.atomic_states.update(platform_states)
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics(df))
+        # 2.3 运行动态力学引擎
+        self.mechanics_engine.run_dynamic_analysis_command()
+        # 2.4 运行高级筹码诊断 (依赖上下文和基础筹码信号)
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_opportunities(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_formation_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_battle_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
-
-        # --- 阶段四: 核心原子状态生成 (第二梯队 - 依赖第一梯队) ---
-        # print("    - [阶段4/7] 正在生成第二梯队原子状态 (依赖第一梯队)...")
-        # 将 diagnose_box_states 和 diagnose_platform_states 从旧的“司令部”中解放出来，直接调用
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
-        df, platform_states = self.structural_intel.diagnose_platform_states(df)
-        self.strategy.atomic_states.update(platform_states)
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_pullback_character(df))
+        # 2.5 运行高级行为诊断
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_behavioral_patterns(df))
-        pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
-
-        # --- 阶段五: 复合与认知合成 ---
-        # print("    - [阶段5/7] 正在执行复合与认知合成...")
-        # 调用重构后的、只负责合成的 synthesize_composite_structures
-        self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
+        
+        # --- 阶段三: 高级认知与结构合成 (依赖一级合成情报) ---
+        # 此阶段进行最高层级的认知判断，定义市场结构、趋势阶段等。
+        # print("    - [阶段 3/6] 正在进行高级认知与结构合成...")
+        # 3.1 合成筹码与资金流的协同信号
+        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
+        # 3.2 合成多时间维度趋势协同信号
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_mtf_trend_synergy(df))
+        # 3.3 合成顶部行为
+        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
+        # 3.4 评分趋势阶段
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
+        # 3.5 合成黄金筹码机会
         self.strategy.atomic_states.update(self.chip_intel.synthesize_prime_chip_opportunity(df))
+        # 3.6 诊断市场核心结构 (生成 STRUCTURE_MAIN_UPTREND_WAVE_S 等关键状态)
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
+        # 3.7 合成复合结构
+        self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
+        # 3.8 静态-动态融合
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_static_dynamic_fusion(df))
+
+        # --- 阶段四: 战术场景诊断 (依赖高层认知状态) ---
+        # 此阶段诊断具体的战术场景，如回踩，它们的定性依赖于市场结构等高层状态。
+        # print("    - [阶段 4/6] 正在诊断具体战术场景...")
+        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_pullback_character(df))
+        pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
+
+        # --- 阶段五: 最终认知合成与主力行为推演 ---
+        # print("    - [阶段 5/6] 正在进行最终认知合成与主力行为推演...")
         self.strategy.atomic_states.update(self.cognitive_intel.run_cognitive_synthesis_engine(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
-        # 交叉验证筹码和资金流信号
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
         self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
 
-        # --- 阶段六: 生成最终的触发器与剧本 ---
-        # print("    - [阶段6/7] 正在生成触发器与交易剧本...")
+        # --- 阶段六: 生成触发器、战法与交易剧本 ---
+        # print("    - [阶段 6/6] 正在生成触发器、战法与交易剧本...")
+        # 6.1 定义所有基础触发器
         trigger_events = self.playbook_engine.define_trigger_events(df)
         trigger_events.update(chip_triggers)
         self.strategy.trigger_events = trigger_events
+        # 6.2 基于触发器和原子状态，合成高级战法
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_prime_tactic(df))
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
+        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_reconcentration_tactic(df))
+        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_lock_chip_rally_tactic(df))
+        # 6.3 生成最终的交易剧本
+        self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
+        squeeze_playbooks = self.cognitive_intel.synthesize_squeeze_playbooks(df)
+        self.strategy.playbook_states.update(squeeze_playbooks)
+        # 6.4 (调试模块)
         debug_params = get_params_block(self.strategy, 'debug_params')
         if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
             decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
@@ -166,25 +198,9 @@ class IntelligenceLayer:
                 print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
                 print(decision_log_df.loc[final_tactic_days, display_cols])
                 print("--- [探针结束] ---\n")
-        # 步骤1: 生成由 PlaybookEngine 定义的标准剧本
-        self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(trigger_events)
-        # 步骤2: 调用认知层，生成更复杂的、基于压缩突破的战术剧本
-        squeeze_playbooks = self.cognitive_intel.synthesize_squeeze_playbooks(df)
-        # 步骤3: 将新生成的战术剧本并入总的剧本状态池，供进攻层统一计分
-        self.strategy.playbook_states.update(squeeze_playbooks)
-
-        is_in_squeeze_window = self.strategy.atomic_states.get('VOL_STATE_SQUEEZE_WINDOW', pd.Series(False, index=df.index))
-        is_bb_breakout = df['close_D'] > df.get('BBU_21_2.0_D', float('inf'))
-        vol_ma_col = 'VOL_MA_21_D'
-        if vol_ma_col in df.columns:
-            is_volume_confirmed = df['volume_D'] > (df[vol_ma_col] * 1.5)
-            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False) & is_volume_confirmed
-        else:
-            trigger_events['VOL_BREAKOUT_FROM_SQUEEZE'] = is_bb_breakout & is_in_squeeze_window.shift(1).fillna(False)
         
         # --- 阶段七: 最终报告 ---
-        # print("--- [情报层总指挥官 V401.1] 所有诊断模块执行完毕。 ---")
-        # print("所有 trigger_events 信号名称:", list(trigger_events.keys()))
+        print("--- [情报层总指挥官 V401.2] 所有诊断模块执行完毕。 ---")
         return trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

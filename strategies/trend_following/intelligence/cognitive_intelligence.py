@@ -165,7 +165,11 @@ class CognitiveIntelligence:
             # 维度 9: 筹码派发动能
             {'condition': self.strategy.atomic_states.get('MECHANICS_CHIP_DISTRIBUTION_MOMENTUM', default_series), 'score': 25},
             # 维度 10: 筹码健康度恶化
-            {'condition': self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25}
+            {'condition': self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25},
+            # 维度 11: 主峰高位派发嫌疑
+            {'condition': self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series), 'score': 30},
+            # 维度 12: 顶层结构性风险
+            {'condition': self.strategy.atomic_states.get('STRUCTURE_TOPPING_DANGER_S', default_series), 'score': 35}
         ]
         
         # 步骤 2.2: 循环遍历风险维度，累加分数
@@ -174,8 +178,8 @@ class CognitiveIntelligence:
         
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
-        # 风险维度增加到10个，因此阈值也需要相应调整，例如从100分（4/8）调整到125分（5/10）
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 125
+        # 风险维度增加到10个，因此阈值也需要相应调整，例如从100分（4/8）调整到150分（5/10）
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 150
 
         return states
 
