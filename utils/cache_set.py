@@ -341,7 +341,7 @@ class IndexCacheSet(CacheSet):
             bool: 缓存操作是否成功。
         """
         # 使用 'latest' 作为 subtype 或 id 来标识这是最新的数据点
-        # ***核心修改：转换 StockInfo 和 datetime 对象***
+        # ***转换 StockInfo 和 datetime 对象***
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"latest_time_series.data_to_cache转换失败。")
@@ -357,7 +357,7 @@ class IndexCacheSet(CacheSet):
             time_level: 时间级别 (e.g., '5', '30', 'Day').
             data_to_cache: 经过处理的、可JSON序列化的时间序列数据字典。
         """
-        # ***核心修改：转换 StockInfo 和 datetime 对象***
+        # ***转换 StockInfo 和 datetime 对象***
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
             logger.error(f"history_time_series.data_to_cache转换失败。")

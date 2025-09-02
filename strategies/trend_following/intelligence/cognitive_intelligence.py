@@ -19,35 +19,27 @@ class MainForceState(Enum):
 
 def _create_decaying_influence_series(event_series: pd.Series, window_days: int) -> pd.Series:
     """
-    【新增辅助函数】【代码优化】创建一个随时间线性衰减的影响力分数序列。
+    【新增辅助函数】【代码优化 V2.0】创建一个随时间线性衰减的影响力分数序列。
     - 功能: 从一个事件(True/False)序列，生成一个0-1的浮点数序列。
     - 逻辑: 事件发生当天影响力为1.0，随后在window_days内线性衰减至0。
             如果窗口期内发生新事件，影响力会重置为1.0并重新开始衰减。
-    - 优化说明: 原始的嵌套循环实现被完全向量化的pandas操作替代。
-                新方法通过记录事件发生时的位置，使用`ffill()`快速向前填充最近的事件位置，
-                然后通过向量化算术运算一次性计算出所有日期的衰减值。
-                这避免了Python层面的循环，效率提升显著。
+    - 优化说明: V2.0版本采用更高效的向量化实现。通过计算每个事件区块内的累积和（代表天数），
+                然后直接进行向量化算术运算，避免了V1.0版本中ffill()等多次全量数据操作，性能更优。
     """
-    # 使用全向量化操作替代嵌套循环
     if not event_series.any():
         return pd.Series(0.0, index=event_series.index)
     
-    # 步骤1: 创建一个序列，其中只有事件发生日有值，值为当天的索引位置(整数)
-    positions = np.arange(len(event_series))
-    event_positions = pd.Series(positions, index=event_series.index).where(event_series)
-    
-    # 步骤2: 向前填充，使得每一天都知道最近一次事件发生的位置
-    last_event_pos = event_positions.ffill()
-    
-    # 步骤3: 计算自最近一次事件以来经过的天数
-    days_since_event = pd.Series(positions, index=event_series.index) - last_event_pos
-    
-    # 步骤4: 计算衰减因子，并过滤掉超出窗口期的影响
-    influence = (window_days - days_since_event) / window_days
-    influence = influence.where(days_since_event < window_days, 0).fillna(0)
-    
-    # 步骤5: 确保影响力不会小于0
-    return influence.clip(lower=0)
+    # 使用更高效的向量化方法
+    # 步骤1: 当事件发生时，值为1，否则为0
+    events = event_series.astype(int)
+    # 步骤2: 使用cumsum创建事件区块ID，当新事件发生时，ID会增加
+    event_blocks = events.cumsum()
+    # 步骤3: 在每个区块内，计算自区块开始以来的天数
+    days_since_event = events.groupby(event_blocks).cumsum() - 1
+    # 步骤4: 计算衰减影响力，并确保其在[0, 1]范围内
+    influence = 1.0 - (days_since_event / window_days)
+    return influence.clip(lower=0, upper=1)
+
 
 class CognitiveIntelligence:
     def __init__(self, strategy_instance):
@@ -56,6 +48,72 @@ class CognitiveIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
+        self._get_atomic_score = lambda name, default=0.5: self.strategy.atomic_states.get(name, pd.Series(default, index=self.strategy.df.index))
+
+    def run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V337.1 筹码核心版】认知综合引擎
+        - 核心重构: 重新定义了“派发事件”，使其基于更可靠的筹码和行为信号，
+                    彻底摆脱了对资金流数据的依赖。
+        """
+        # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...")
+        df = self.synthesize_contextual_zone_scores(df)
+        df = self.synthesize_cognitive_scores(df)
+        cognitive_states = {}
+        default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
+
+        # --- 认知链 1/2: 识别“突破派发”风险 ---
+        # 将判断依据从资金流转向筹码发散
+        is_strong_rally = df['pct_change_D'] > 0.03
+        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
+        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_chip_diverging
+
+        # --- 认知链 2/2: 汇总“近期派发压力”上下文 ---
+       # 重新定义“派发事件”，融入更多行为层面的风险信号
+        distribution_event = (
+            atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) |          # 主峰高位派发
+            atomic.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) |          # 获利盘长期出逃
+            atomic.get('CHIP_DYN_DIVERGING', default_series) |                       # 筹码结构发散
+            atomic.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |               # 价格筹码顶背离
+            atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series) |            # S+级获利盘加速出逃
+            atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series) | # 利润安全垫收缩
+            atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)| # 长期派发下的诱多拉升
+            atomic.get('VOL_BEHAVIOR_DISTRIBUTION_DROP', default_series)             # 价跌量增的经典派发
+        )
+        p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
+        lookback = get_param_value(p_dist.get('lookback_days'), 10)
+        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).max().astype(bool)
+        # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。")
+        return cognitive_states
+
+    def synthesize_contextual_zone_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】战场上下文评分模块
+        - 核心职责: 将 diagnose_contextual_zones 中的布尔逻辑，升级为连续的0-1得分。
+        """
+        print("        -> [战场上下文评分模块 V1.0] 启动...")
+        
+        # --- 1. 量化“高位危险区”得分 ---
+        # 将多个风险信号融合成一个0-1的综合风险分
+        risk_scores = {
+            'bias': self._get_atomic_score('SCORE_RISK_OVEREXTENDED_BIAS'),
+            'exhaustion': self._get_atomic_score('SCORE_RISK_MOMENTUM_EXHAUSTION'),
+            'chip_decay': self._get_atomic_score('SCORE_RISK_CHIP_STRUCTURE_DECAY'),
+            'churn': self._get_atomic_score('SCORE_RISK_DYNAMIC_DECEPTIVE_CHURN'),
+            'deceptive_rally': self._get_atomic_score('SCORE_RISK_DECEPTIVE_RALLY_LONG_TERM'),
+            'chip_strategic_decay': self._get_atomic_score('SCORE_RISK_CHIP_STRATEGIC_DECAY'),
+            'structural_weakness': self._get_atomic_score('SCORE_RISK_STRUCTURAL_WEAKNESS_RALLY'),
+            'engine_stalling': self._get_atomic_score('SCORE_RISK_MARKET_ENGINE_STALLING'),
+            'volume_spike_down': self._get_atomic_score('SCORE_RISK_VOL_PRICE_SPIKE_DOWN')
+        }
+        
+        risk_df = pd.DataFrame(risk_scores)
+        # 使用最大值作为最终风险分，代表最严重的风险维度
+        df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = risk_df.max(axis=1)
+        self.strategy.atomic_states['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE']
+        
+        return df
 
     def diagnose_contextual_zones(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -65,7 +123,8 @@ class CognitiveIntelligence:
         """
         # print("        -> [战场上下文诊断模块 V339.0] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        high_zone_score = df.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', pd.Series(0.5, index=df.index))
+        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = high_zone_score > high_zone_score.rolling(120).quantile(0.80)
         atomic = self.strategy.atomic_states
         # --- 1. 军备检查 ---
         required_cols = ['BIAS_21_D', 'close_D', 'high_D', 'SLOPE_5_EMA_13_D']
@@ -162,13 +221,22 @@ class CognitiveIntelligence:
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
 
-        # --- 1. 定义“上涨初期” (Early Stage) - 逻辑保持不变 ---
-        is_in_ascent_structure = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
-        yearly_high = df['high_D'].rolling(250, min_periods=1).max()
-        yearly_low = df['low_D'].rolling(250, min_periods=1).min()
+        # --- 1. 计算“上涨初期”的量化分数 (Early Stage Score) ---
+        # 维度1: 结构位置得分 (是否处于初升浪结构)
+        ascent_structure_score = atomic.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series).astype(float)
+        # 维度2: 价格区间得分 (价格在年内区间的位置，越低分越高)
+        yearly_high = df['high_D'].rolling(250, min_periods=60).max()
+        yearly_low = df['low_D'].rolling(250, min_periods=60).min()
         price_range = (yearly_high - yearly_low).replace(0, np.nan)
-        is_in_lower_half_range = df['close_D'] < (yearly_low + price_range * 0.5)
-        states['CONTEXT_TREND_STAGE_EARLY'] = is_in_ascent_structure | is_in_lower_half_range
+        # 计算价格在区间内的百分位，并反转 (低位=高分)
+        price_position_score = 1 - ((df['close_D'] - yearly_low) / price_range)
+        price_position_score = price_position_score.clip(0, 1).fillna(0.5)
+        # 最终得分取两者最大值，反映“或”逻辑
+        early_stage_score = pd.concat([ascent_structure_score, price_position_score], axis=1).max(axis=1)
+        df['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = early_stage_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
+        # 基于新得分生成布尔状态
+        states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6 # 得分高于0.6认为是初期
 
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         late_stage_score = pd.Series(0, index=df.index, dtype=int)
@@ -185,14 +253,11 @@ class CognitiveIntelligence:
             {'condition': atomic.get('RISK_VPA_STAGNATION', default_series) | atomic.get('RISK_VPA_VOLUME_ACCELERATING', default_series), 'score': 25},
             # 维度 6: 波动率扩张
             {'condition': atomic.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25},
-            # 维度 7: 价格筹码顶背离
-            {'condition': atomic.get('RISK_CHIP_PRICE_DIVERGENCE', default_series), 'score': 25},
+            # 维度 7: 认知层派发风险 (替代了多个零散筹码风险)
+            # 当认知看跌得分超过0.8（高风险）时，直接给予高额风险分
+            {'condition': df.get('COGNITIVE_BEARISH_SCORE', pd.Series(0.5, index=df.index)) > 0.8, 'score': 40},
             # 维度 8: 获利盘恐慌加速出逃
             {'condition': atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series), 'score': 25},
-            # 维度 9: 筹码派发动能
-            {'condition': atomic.get('MECHANICS_CHIP_DISTRIBUTION_MOMENTUM', default_series), 'score': 25},
-            # 维度 10: 筹码健康度恶化
-            {'condition': atomic.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25},
             # 维度 11: 主峰高位派发嫌疑
             {'condition': atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series), 'score': 30},
             # 维度 12: 顶层结构性风险
@@ -205,12 +270,6 @@ class CognitiveIntelligence:
             {'condition': atomic.get('OSC_DYN_RSI_BEARISH_DIVERGENCE', default_series), 'score': 20},
             # 维度 16: 长期派发背景下的诱多拉升 (S级战略风险)
             {'condition': atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series), 'score': 35},
-            # 维度 17: 共振式派发 (A级风险)，短中长周期都在出货，信号明确。
-            {'condition': atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series), 'score': 30},
-            # 维度 18: 高位派发陷阱 (S级风险)，获利丰厚+共振派发+利润收缩，极度危险。
-            {'condition': atomic.get('SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP_S', default_series), 'score': 35},
-            # 维度 19: 高位狂欢亢奋陷阱 (S级风险)，市场最乐观时主力加速派发。
-            {'condition': atomic.get('RISK_CHIP_EUPHORIA_TRAP_S', default_series), 'score': 35},
             # 维度 20: 结构性衰竭反弹 (S级风险)，价格上涨但根基瓦解，典型的诱多。
             {'condition': atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series), 'score': 35},
             # 维度 21: 市场引擎失速 (S级风险)，上涨效率崩溃，是趋势即将终结的强烈信号。
@@ -316,41 +375,6 @@ class CognitiveIntelligence:
 
         # print("        -> [联合作战司令部 V278.0 力量分析版] 核心战局定义升级完成。")
         return structure_states
-
-    def run_cognitive_synthesis_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V337.1 筹码核心版】认知综合引擎
-        - 核心重构: 重新定义了“派发事件”，使其基于更可靠的筹码和行为信号，
-                    彻底摆脱了对资金流数据的依赖。
-        """
-        # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...")
-        cognitive_states = {}
-        default_series = pd.Series(False, index=df.index)
-        atomic = self.strategy.atomic_states
-
-        # --- 认知链 1/2: 识别“突破派发”风险 ---
-        # 将判断依据从资金流转向筹码发散
-        is_strong_rally = df['pct_change_D'] > 0.03
-        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
-        cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_chip_diverging
-
-        # --- 认知链 2/2: 汇总“近期派发压力”上下文 ---
-       # 重新定义“派发事件”，融入更多行为层面的风险信号
-        distribution_event = (
-            atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) |          # 主峰高位派发
-            atomic.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) |          # 获利盘长期出逃
-            atomic.get('CHIP_DYN_DIVERGING', default_series) |                       # 筹码结构发散
-            atomic.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |               # 价格筹码顶背离
-            atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series) |            # S+级获利盘加速出逃
-            atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series) | # 利润安全垫收缩
-            atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)| # 长期派发下的诱多拉升
-            atomic.get('VOL_BEHAVIOR_DISTRIBUTION_DROP', default_series)             # 价跌量增的经典派发
-        )
-        p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
-        lookback = get_param_value(p_dist.get('lookback_days'), 10)
-        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).max().astype(bool)
-        # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。")
-        return cognitive_states
 
     def determine_main_force_behavior_sequence(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1024,6 +1048,44 @@ class CognitiveIntelligence:
 
         return states
 
+    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【新增】顶层认知得分合成模块
+        - 核心职责: 消费底层模块生成的量化得分，将其融合成更高维度的认知层得分。
+        - 收益: 将策略的判断基础从“是否”提升到“多强”，实现决策的精细化。
+        """
+        print("        -> [顶层认知得分合成模块 V1.0] 启动，正在量化多维态势...")
+        
+        # --- 1. 合成“认知看涨得分” (Cognitive Bullish Score) ---
+        # 融合了筹码的集中动能、成本支撑强度和结构稳定性
+        bullish_score_cols = [
+            'CHIP_SCORE_CONCENTRATION_MOMENTUM',
+            'CHIP_SCORE_COST_SUPPORT_MOMENTUM',
+            'CHIP_SCORE_STRUCTURE_STABILITY'
+        ]
+        
+        # 检查必需的列是否存在，如果不存在则赋予中性分0.5
+        for col in bullish_score_cols:
+            if col not in df.columns:
+                df[col] = 0.5
+                
+        # 定义各维度权重
+        weights = {'CONCENTRATION': 0.4, 'COST_SUPPORT': 0.3, 'STABILITY': 0.3}
+        
+        df['COGNITIVE_BULLISH_SCORE'] = (
+            df['CHIP_SCORE_CONCENTRATION_MOMENTUM'] * weights['CONCENTRATION'] +
+            df['CHIP_SCORE_COST_SUPPORT_MOMENTUM'] * weights['COST_SUPPORT'] +
+            df['CHIP_SCORE_STRUCTURE_STABILITY'] * weights['STABILITY']
+        )
+        
+        # --- 2. 合成“认知看跌得分” (Cognitive Bearish Score) ---
+        # 目前主要由筹码派发风险得分代表
+        if 'CHIP_SCORE_DISTRIBUTION_RISK' in df.columns:
+            df['COGNITIVE_BEARISH_SCORE'] = df['CHIP_SCORE_DISTRIBUTION_RISK']
+        else:
+            df['COGNITIVE_BEARISH_SCORE'] = 0.5 # 若无数据则为中性
+            
+        return df
 
 
 

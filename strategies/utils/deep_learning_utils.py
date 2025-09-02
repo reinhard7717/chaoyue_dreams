@@ -1518,7 +1518,7 @@ def train_transformer_model(
                               logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.")
 
 
-                    # 早停逻辑 (核心修改：使用 current_best_model_filepath)
+                    # 早停逻辑 (使用 current_best_model_filepath)
                     if early_stopping_patience > 0:
                         if consecutive_nan_metric_epochs >= nan_metric_patience:
                             logger.info(f"监控指标 '{monitor_metric}' 连续 {consecutive_nan_metric_epochs} 轮为 NaN，触发早停。")

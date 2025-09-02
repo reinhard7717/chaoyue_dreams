@@ -38,7 +38,7 @@
     .signal-reason { margin-top: 5px; font-size: 1.1em; }
     .signal-playbook { font-style: italic; color: #ccc; font-size: 0.9em; }
 
-    /* 核心修改：将类名选择器中的下划线替换为横杠，以匹配CSS命名惯例和JS中的处理 */
+    /* 将类名选择器中的下划线替换为横杠，以匹配CSS命名惯例和JS中的处理 */
     .signal-card.buy { border-left-color: #28a745; }
     .signal-card.take-profit-t { border-left-color: #ffc107; }
     .signal-card.buy-dip-t { border-left-color: #17a2b8; }
@@ -68,7 +68,7 @@
         <div class="signal-stream-wrapper" style="margin-top: 20px;">
             <div id="signal-stream">
                 {% for signal in initial_signals %}
-                    {# 核心修改：动态类名生成。使用 slugify 过滤器将 'TAKE_PROFIT_T' 转换为 'take-profit-t'，确保CSS能正确匹配 #}
+                    {# 动态类名生成。使用 slugify 过滤器将 'TAKE_PROFIT_T' 转换为 'take-profit-t'，确保CSS能正确匹配 #}
                     <div class="signal-card {{ signal.signal_type|slugify }}">
                         <div class="signal-icon">
                             {# 图标逻辑保持不变 #}

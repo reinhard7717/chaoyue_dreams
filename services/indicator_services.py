@@ -388,7 +388,7 @@ class IndicatorService:
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
         
         #  调用军械库清单生成器 ▼▼▼
-        # self._log_final_data_columns(all_dfs)
+        self._log_final_data_columns(all_dfs)
         
         return all_dfs
 
@@ -1371,7 +1371,7 @@ class IndicatorService:
         try:
             # 步骤3: 定义一个内部同步函数来执行计算。
             def _sync_atrn():
-                # 核心修改：pandas_ta 没有 atrn，我们先计算 atr
+                # pandas_ta 没有 atrn，我们先计算 atr
                 atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
                 
                 if atr_series is None or atr_series.empty:

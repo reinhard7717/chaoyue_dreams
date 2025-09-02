@@ -15,6 +15,37 @@ class BehavioralIntelligence:
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
+    def synthesize_behavioral_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】行为模式评分模块
+        - 核心职责: 将 diagnose_behavioral_patterns 中的布尔逻辑，升级为连续的0-1得分。
+        """
+        print("        -> [行为模式评分模块 V1.0] 启动...")
+        # --- 1. 量化“建设性洗盘吸筹”得分 ---
+        # 将构成机会的多个条件相乘，得到最终置信度
+        # 条件1: 上升趋势背景得分
+        uptrend_score = (df.get('close_D', 1) / df.get('EMA_55_D', 1)).clip(lower=1.0) - 1.0
+        uptrend_context_score = self.strategy._calculate_normalized_score(uptrend_score, window=120, ascending=True)
+        # 条件2: 下跌行为得分 (跌幅在-2%到-7%之间得分最高)
+        drop_score = 1 - (df['pct_change_D'] - (-0.045)).abs() / 0.025
+        meaningful_drop_score = drop_score.clip(0, 1)
+        # 条件3: 套牢盘割肉得分
+        losers_capitulating_score = self.strategy._calculate_normalized_score(df.get('turnover_from_losers_ratio_D', 0), window=120, ascending=True)
+        # 条件4: 获利盘锁仓得分
+        winners_holding_score = self.strategy._calculate_normalized_score(df.get('turnover_from_winners_ratio_D', 0), window=120, ascending=False)
+        # 条件5: 筹码结构改善得分
+        chip_improving_score = self.strategy._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', 0), window=120, ascending=False)
+        # 最终得分
+        df['BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION'] = (
+            uptrend_context_score *
+            meaningful_drop_score *
+            losers_capitulating_score *
+            winners_holding_score *
+            chip_improving_score
+        )
+        self.strategy.atomic_states['BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION'] = df['BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION']
+        return df
+
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V273.0 装备换代版】
@@ -23,6 +54,7 @@ class BehavioralIntelligence:
                   使其完全兼容我们新建的 V271.0 “状态机引擎”。
         - 收益: 确保了基础侦察部队能够正确使用现代化的通用工具，实现了全军装备的同步。
         """
+        df = self.synthesize_behavioral_scores(df)
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -447,28 +479,9 @@ class BehavioralIntelligence:
             return {}
         
         # --- 2. “建设性洗盘吸筹”机会诊断 (A级机会) ---
-        # 新定义：在上升趋势中，股价下跌，但成交量主要由恐慌的套牢盘贡献，
-        #       而获利盘坚定锁仓，同时整体筹码结构仍在改善。这是典型的主力吸筹行为。
-        
-        # 条件1: 处于上升趋势的战略背景下
-        is_in_uptrend_context = df['close_D'] > df['EMA_55_D']
-        # 条件2: 当日股价出现有意义的下跌
-        is_meaningful_drop = df['pct_change_D'] < -0.02
-        # 条件3: 套牢盘正在恐慌性割肉 (贡献超过40%的换手)
-        is_losers_capitulating = df['turnover_from_losers_ratio_D'] > 40.0
-        # 条件4: 获利盘坚定锁仓 (贡献换手低于30%)
-        are_winners_holding = df['turnover_from_winners_ratio_D'] < 30.0
-        # 条件5: 整体筹码结构依然在集中 (最关键的确认)
-        is_chip_structure_improving = df['SLOPE_5_concentration_90pct_D'] <= 0
-        
-        # 最终裁定
-        states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = (
-            is_in_uptrend_context &
-            is_meaningful_drop &
-            is_losers_capitulating &
-            are_winners_holding &
-            is_chip_structure_improving
-        )
+        washout_score = df.get('BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION', pd.Series(0.5, index=df.index))
+        # 定义：当综合得分进入历史最高的15%区间时，确认为机会
+        states['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'] = washout_score > washout_score.rolling(120).quantile(0.85)
         
         # --- 3. “诱多派发”风险诊断 (逻辑保持，但基础更清晰) ---
         is_strong_rally = df['pct_change_D'] > 0.03

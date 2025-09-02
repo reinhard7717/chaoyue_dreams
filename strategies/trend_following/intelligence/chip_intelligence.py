@@ -17,663 +17,313 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V320.1 数据驱动重构版】筹码情报最高司令部
-        - 核心重构: 根据数据层提供的预计算列清单，本方法已完全重构为直接消费这些高性能特征。
-                    不再进行任何动态的斜率或加速度计算，显著提升了性能和代码的健壮性。
-        - 核心修改: 移除了对资金流的直接依赖，资金流交叉验证逻辑已转移到 CognitiveIntelligence。
+        【V320.7 终极完全量化版】筹码情报最高司令部
+        - 核心重构: 所有信号，包括基础过程、复合机会、以及最终的风险裁决，
+                    均已改造为消费专属的量化得分，标志着本模块的全面量化升级最终完成。
         """
-        # print("        -> [筹码情报最高司令部 V320.1 数据驱动重构版] 启动...")
+        print("        -> [筹码情报最高司令部 V320.7 终极完全量化版] 启动...")
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
-        
-        # --- 步骤 0: 内部依赖前置处理 ---
-        # 为了确保本模块的独立性和健壮性，我们首先在内部调用基础诊断模块，
-        # 生成所有后续高级诊断所依赖的“静态”和“行为”原子状态。
-        # 这可以防止因外部调用时序问题导致的“状态未找到”错误。
+        df = self.diagnose_quantitative_chip_scores(df)
         static_states = self.diagnose_static_chip_structure(df)
         states.update(static_states)
-        self.strategy.atomic_states.update(static_states) # 确保全局状态也被更新
-        
-        # 核心修改：将 diagnose_dynamic_chip_states 的调用提前。
-        # 这个模块现在是所有高级“共振”和“背离”信号的基础，必须先于其他诊断模块执行。
+        self.strategy.atomic_states.update(static_states)
         dynamic_states = self.diagnose_dynamic_chip_states(df)
         states.update(dynamic_states)
         self.strategy.atomic_states.update(dynamic_states)
-
         behavior_states = self.diagnose_chip_behavior_states(df)
         states.update(behavior_states)
-        self.strategy.atomic_states.update(behavior_states) # 确保全局状态也被更新
-
+        self.strategy.atomic_states.update(behavior_states)
+        peak_formation_states = self.diagnose_peak_formation_dynamics(df)
+        states.update(peak_formation_states)
+        opportunity_states = self.diagnose_chip_opportunities(df)
+        states.update(opportunity_states)
+        risk_behavior_states = self.diagnose_chip_risks_and_behaviors(df)
+        states.update(risk_behavior_states)
+        peak_battle_states = self.diagnose_peak_battle_dynamics(df)
+        states.update(peak_battle_states)
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
             return states, triggers
-
-        # --- 步骤 1: 校验数据层是否提供了所有必需的预计算列 ---
-        required_cols = [
-            'concentration_90pct_D',             # 90%筹码集中度 (静态值)
-            'SLOPE_5_concentration_90pct_D',     # 5日筹码集中度斜率 (速度)
-            'ACCEL_5_concentration_90pct_D',     # 5日筹码集中度加速度
-            'ACCEL_21_concentration_90pct_D',    # 21日筹码集中度加速度 (用于风险预警)
-            'peak_cost_D',                       # 成本峰价格
-            'SLOPE_5_peak_cost_D',               # 5日成本峰斜率
-            'ACCEL_5_peak_cost_D',               # 5日成本峰加速度 (用于点火信号)
-            'SLOPE_21_concentration_90pct_D'     # 21日筹码集中度斜率，用于长期派发风险诊断
-        ]
-        # 如果任一必需列在DataFrame中不存在，则打印警告并安全退出，保证策略不会因数据缺失而崩溃。
-        if any(col not in df.columns for col in required_cols):
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            print(f"          -> [警告] 缺少筹码分级诊断所需列，跳过。缺失: {missing_cols}")
-            return states, triggers
-
-        # --- 步骤 2: 为常用列创建更简洁的变量名，提高代码可读性 ---
-        conc_col = 'concentration_90pct_D'
-        conc_slope_col = 'SLOPE_5_concentration_90pct_D'
-        conc_accel_col = 'ACCEL_5_concentration_90pct_D'
-        conc_accel_21d_col = 'ACCEL_21_concentration_90pct_D'
-        cost_slope_col = 'SLOPE_5_peak_cost_D'
-        conc_slope_21d_col = 'SLOPE_21_concentration_90pct_D'
-        conc_slope_55d_col = 'SLOPE_55_concentration_90pct_D'
-        
-        # --- 步骤 2.5: 定义顶层战略背景 (直接使用55日斜率) ---
-        # 这个模块直接利用最长周期的斜率，为整个策略提供宏观的“天气预报”。
-        # 所有的战术信号（如买入、卖出）都应该在这个宏观背景下进行解读。
-        # 战略吸筹期：长达一个季度的筹码都在持续集中，表明主力在进行战略性建仓。
-        states['CONTEXT_CHIP_STRATEGIC_GATHERING'] = df[conc_slope_55d_col] < 0
-        # 战略派发期：长达一个季度的筹码都在持续发散，表明主力在进行战略性出货。
-        states['CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'] = df[conc_slope_55d_col] > 0
-
-        # --- 步骤 3: 动态阈值计算 (保留，因为这是策略自适应逻辑的一部分) ---
-        p_struct = p.get('structure_params', {})
-        steady_gathering_quantile = get_param_value(p_struct.get('steady_gathering_quantile'), 0.40)
-        accel_gathering_quantile = get_param_value(p_struct.get('accel_gathering_quantile'), 0.15)
-        # 使用滚动分位数计算动态阈值，以适应不同市况和个股波动性
-        steady_threshold = df[conc_slope_col].rolling(window=120, min_periods=20).quantile(steady_gathering_quantile)
-        accel_threshold = df[conc_slope_col].rolling(window=120, min_periods=20).quantile(accel_gathering_quantile)
-
-        # --- 步骤 4: C/B/B+ 级动态过程诊断 (直接使用预计算列) ---
-        # C级: 筹码稳步聚集。直接使用预计算的 'SLOPE_5_concentration_90pct_D' 列进行判断。
-        is_steady_gathering = (df[conc_slope_col] < steady_threshold) & (df[conc_slope_col] >= accel_threshold)
-        states['CHIP_CONC_STEADY_GATHERING_C'] = is_steady_gathering
-
-        # B级: 筹码加速聚集。直接使用预计算的 'SLOPE_5_concentration_90pct_D' 列进行判断。
-        is_accelerated_gathering = df[conc_slope_col] < accel_threshold
-        states['CHIP_CONC_ACCELERATED_GATHERING_B'] = is_accelerated_gathering
-
-        # B+级: 筹码聚集强化。直接使用预计算的 'ACCEL_5_concentration_90pct_D' 列。
-        # 加速度为负，代表集中趋势在强化 (因为斜率本身是负的，变得更负，所以其导数/加速度也为负)。
-        is_intensifying = df[conc_accel_col] < 0
-        states['CHIP_CONC_INTENSIFYING_B_PLUS'] = is_accelerated_gathering & is_intensifying
-        # if states['CHIP_CONC_INTENSIFYING_B_PLUS'].any():
-            # print(f"            -> [情报] 侦测到 {states['CHIP_CONC_INTENSIFYING_B_PLUS'].sum()} 次 B+级“筹码聚集强化”战术信号！")
-
-        # --- 步骤 5: A/S 级静态结果与复合机会诊断 (直接使用预计算列) ---
-        # --- A级动态阈值 ---
-        locked_conc_quantile = get_param_value(p_struct.get('locked_concentration_quantile'), 0.10) # 筹码集中度必须优于过去90%的时间
-        cost_stability_quantile = get_param_value(p_struct.get('cost_stability_quantile'), 0.20) # 成本波动必须小于过去80%的时间
-        
-        # 计算动态阈值
-        locked_conc_threshold = df[conc_col].rolling(window=120, min_periods=20).quantile(locked_conc_quantile)
-        cost_stability_threshold = df[cost_slope_col].abs().rolling(window=120, min_periods=20).quantile(cost_stability_quantile)
-
-        # --- A/S 级静态结果与复合机会诊断 (使用新阈值) ---
-        # A级: 筹码锁定稳定。
-        is_highly_concentrated_dynamic = df[conc_col] < locked_conc_threshold
-        is_cost_peak_stable_dynamic = df[cost_slope_col].abs() < cost_stability_threshold
-        states['CHIP_CONC_LOCKED_AND_STABLE_A'] = is_highly_concentrated_dynamic & is_cost_peak_stable_dynamic
-        
-        # S级: 筹码锁仓突破 (逻辑不变，但基础更可靠)
-        is_breakout_candle = self.strategy.atomic_states.get('TRIGGER_BREAKOUT_CANDLE', default_series)
-        states['OPP_CHIP_LOCKED_BREAKOUT_S'] = states['CHIP_CONC_LOCKED_AND_STABLE_A'] & is_breakout_candle
-        
-        # if states['CHIP_CONC_LOCKED_AND_STABLE_A'].any():
-        #     print(f"            -> [情报] 侦测到 {states['CHIP_CONC_LOCKED_AND_STABLE_A'].sum()} 次 A级“筹码锁定稳定”机会！")
-        # if states['OPP_CHIP_LOCKED_BREAKOUT_S'].any():
-        #     print(f"            -> [情报] 侦测到 {states['OPP_CHIP_LOCKED_BREAKOUT_S'].sum()} 次 S级“筹码锁仓突破”王牌机会！")
-
-        # --- 步骤 6: 独立触发器与风险诊断 (直接使用预计算列) ---
-        # 点火触发器: 直接使用预计算的 'ACCEL_5_peak_cost_D' 列。
-        p_ignition = p.get('ignition_params', {})
-        if get_param_value(p_ignition.get('enabled'), True):
-            accel_threshold_ignition = get_param_value(p_ignition.get('accel_threshold'), 0.01)
-            triggers['TRIGGER_CHIP_IGNITION'] = df.get('ACCEL_5_peak_cost_D', 0) > accel_threshold_ignition
-
-        # 风险诊断1: 长期派发风险
-        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-        worsening_threshold = 1.05
-        concentration_21d_ago = df[conc_col].shift(21)
-        is_concentration_worsened = df[conc_col] > (concentration_21d_ago * worsening_threshold)
-        # 增加21日筹码集中度斜率为正的条件，直接判断筹码发散趋势
-        is_21d_slope_diverging = df[conc_slope_21d_col] > 0
-        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = (is_concentration_worsened | is_21d_slope_diverging) & is_in_high_level_zone
-
-        # 风险诊断2: 筹码集中趋势恶化拐点。直接使用预计算的 'ACCEL_21_concentration_90pct_D' 列。
-        is_worsening_turn = (df[conc_accel_21d_col] > 0) & (df[conc_accel_21d_col].shift(1) <= 0)
-        states['RISK_CHIP_CONC_ACCEL_WORSENING'] = is_worsening_turn
-        # if is_worsening_turn.any():
-        #     print(f"            -> [风险] 侦测到 {is_worsening_turn.sum()} 次“筹码集中趋势恶化”拐点！")
-
-        # 风险诊断3: 价格筹码顶背离 (S级风险)
-        # 逻辑：价格创近期新高，但筹码集中度却在发散（SLOPE_5_concentration_90pct_D > 0）
-        is_price_new_high = df['close_D'] > df['close_D'].rolling(window=20, min_periods=1).max().shift(1)
-        is_chip_diverging_short_term = df[conc_slope_col] > 0
-        states['RISK_CHIP_PRICE_DIVERGENCE'] = is_price_new_high & is_chip_diverging_short_term & is_in_high_level_zone
-        atomic = self.strategy.atomic_states
-        # 复合机会 1 (S级): “锁仓点火” - 主力完成锁仓后，开始加速拉升成本，进入主升浪标志。
-        # 场景 (静态): 筹码已经锁定且稳定 (CHIP_CONC_LOCKED_AND_STABLE_A)。
-        # 剧情 (动态): 成本峰正在“加速”抬升 (CHIP_DYN_COST_ACCELERATING)。
-        is_locked_and_stable = states.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        is_cost_accelerating = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
-        states['OPP_STRATEGY_LOCKED_FLOAT_IGNITION_S'] = is_locked_and_stable & is_cost_accelerating
-        
-        # 复合机会 2 (A级): “盘整突破前兆” - 在关键成本区拉锯时，筹码持续被收集，预示向上突破概率大。
-        # 场景 (静态): 价格在成本密集区内震荡 (CHIP_STATE_PRICE_IN_PEAK_COST_ZONE)。
-        # 剧情 (动态): 筹码发生“共振式”集中 (CHIP_DYN_CONCENTRATING_RESONANCE_A)。
-        is_in_battle_zone = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
-        is_concentrating_resonance = atomic.get('CHIP_DYN_CONCENTRATING_RESONANCE_A', default_series)
-        states['OPP_STRATEGY_BREAKOUT_PRECURSOR_A'] = is_in_battle_zone & is_concentrating_resonance
-        
-        # 复合风险 1 (S级): “高位派发确认” - 股价脱离成本区很远，且筹码出现系统性派发迹象。
-        # 场景 (静态): 价格显著脱离成本区 (CHIP_STATE_PRICE_ABOVE_PEAK_COST)。
-        # 剧情 (动态): 筹码发生“共振式”派发 (RISK_CHIP_DIVERGING_RESONANCE_A)。
-        is_price_far_above_cost = atomic.get('CHIP_STATE_PRICE_ABOVE_PEAK_COST', default_series)
-        is_diverging_resonance = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
-        states['RISK_STRATEGY_DISTRIBUTION_CONFIRMED_S'] = is_price_far_above_cost & is_diverging_resonance
-        
-        # 复合风险 2 (A级): “主力自救失败” - 价格跌回成本区，但筹码却仍在发散，说明护盘失败。
-        # 场景 (静态): 价格在成本密集区内震荡 (CHIP_STATE_PRICE_IN_PEAK_COST_ZONE)。
-        # 剧情 (动态): 筹码仍在发散 (CHIP_DYN_DIVERGING)。
-        is_diverging_tactical = atomic.get('CHIP_DYN_DIVERGING', default_series)
-        states['RISK_STRATEGY_BAILOUT_FAILURE_A'] = is_in_battle_zone & is_diverging_tactical
-        
+        # 顶层战略背景
+        strategic_score = df['CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING']
+        states['CONTEXT_CHIP_STRATEGIC_GATHERING'] = strategic_score > strategic_score.rolling(120).quantile(0.60)
+        states['CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'] = strategic_score < strategic_score.rolling(120).quantile(0.40)
+        # C/B/B+ 级动态过程
+        gathering_score = df['CHIP_SCORE_GATHERING_INTENSITY']
+        b_plus_threshold = gathering_score.rolling(120).quantile(0.95)
+        b_threshold = gathering_score.rolling(120).quantile(0.85)
+        c_threshold = gathering_score.rolling(120).quantile(0.70)
+        states['CHIP_CONC_INTENSIFYING_B_PLUS'] = gathering_score > b_plus_threshold
+        states['CHIP_CONC_ACCELERATED_GATHERING_B'] = (gathering_score > b_threshold) & (gathering_score <= b_plus_threshold)
+        states['CHIP_CONC_STEADY_GATHERING_C'] = (gathering_score > c_threshold) & (gathering_score <= b_threshold)
+        # A/S 级静态结果与复合机会
+        locked_stable_score = df['CHIP_SCORE_STRUCTURE_LOCKED_STABLE']
+        states['CHIP_CONC_LOCKED_AND_STABLE_A'] = locked_stable_score > locked_stable_score.rolling(120).quantile(0.90)
+        locked_breakout_score = df['CHIP_SCORE_OPP_LOCKED_BREAKOUT']
+        states['OPP_CHIP_LOCKED_BREAKOUT_S'] = locked_breakout_score > locked_breakout_score.rolling(120).quantile(0.95)
+        # 独立触发器与风险
+        ignition_trigger_score = df['CHIP_SCORE_TRIGGER_IGNITION']
+        # 将硬编码的 > 0.98 替换为动态分位数，以保持逻辑一致性
+        triggers['TRIGGER_CHIP_IGNITION'] = ignition_trigger_score > ignition_trigger_score.rolling(120).quantile(0.98)
+        long_term_risk_score = df['CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION']
+        states['RISK_CONTEXT_LONG_TERM_DISTRIBUTION'] = long_term_risk_score > long_term_risk_score.rolling(120).quantile(0.90)
+        worsening_turn_score = df['CHIP_SCORE_RISK_WORSENING_TURN']
+        states['RISK_CHIP_CONC_ACCEL_WORSENING'] = worsening_turn_score > worsening_turn_score[worsening_turn_score > 0].rolling(60).quantile(0.80)
+        price_divergence_states = self.diagnose_chip_price_divergence(df)
+        states.update(price_divergence_states)
+        prime_opp_states = self.synthesize_prime_chip_opportunity(df)
+        states.update(prime_opp_states)
+        # 核心复合信号
+        ignition_score = df['CHIP_SCORE_OPP_LOCKED_IGNITION']
+        states['OPP_STRATEGY_LOCKED_FLOAT_IGNITION_S'] = ignition_score > ignition_score.rolling(120).quantile(0.95)
+        precursor_score = df['CHIP_SCORE_OPP_BREAKOUT_PRECURSOR']
+        states['OPP_STRATEGY_BREAKOUT_PRECURSOR_A'] = precursor_score > precursor_score.rolling(120).quantile(0.90)
+        dist_confirmed_score = df['CHIP_SCORE_RISK_DISTRIBUTION_CONFIRMED']
+        states['RISK_STRATEGY_DISTRIBUTION_CONFIRMED_S'] = dist_confirmed_score > dist_confirmed_score.rolling(120).quantile(0.95)
+        bailout_failure_score = df['CHIP_SCORE_RISK_BAILOUT_FAILURE']
+        states['RISK_STRATEGY_BAILOUT_FAILURE_A'] = bailout_failure_score > bailout_failure_score.rolling(120).quantile(0.90)
+        # 战略情景
         strategic_scenarios = self.diagnose_strategic_scenarios(df)
-        states.update(strategic_scenarios) # 将新生成的战略情景信号合并到总状态中
-        
+        states.update(strategic_scenarios)
         static_multi_dyn_scenarios = self.diagnose_static_multi_dynamic_scenarios(df)
         states.update(static_multi_dyn_scenarios)
-        
-        # --- 步骤 7: 执行终极的静态-多时间维度交叉验证 ---
-        # 此模块依赖于 diagnose_static_chip_structure 生成的静态状态，
-        # 将其置于本模块内调用，可以确保依赖关系和调用时序的绝对正确。
         final_crossover_states = self.diagnose_static_multi_timeframe_scenarios(df)
         states.update(final_crossover_states)
-        
-        # if states['RISK_CHIP_PRICE_DIVERGENCE'].any():
-        #     print(f"            -> [S级风险] 侦测到 {states['RISK_CHIP_PRICE_DIVERGENCE'].sum()} 次“价格筹码顶背离”！")
-        
-        # --- 步骤 8: 终极风险信号合成 (原步骤7) ---
-        # print("          -> [复合风险合成] 正在整合所有筹码层面的风险信号...")
-        chip_risk_1 = atomic.get('CHIP_DYN_DIVERGING', default_series)
-        chip_risk_2 = atomic.get('CHIP_DYN_COST_FALLING', default_series)
-        chip_risk_3 = atomic.get('CHIP_DYN_WINNER_RATE_COLLAPSING', default_series)
-        chip_risk_4 = states.get('RISK_CONTEXT_LONG_TERM_DISTRIBUTION', default_series)
-        chip_risk_5 = states.get('RISK_CHIP_CONC_ACCEL_WORSENING', default_series)
-        chip_risk_6 = atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)
-        chip_risk_7 = states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series)
-        chip_risk_8 = atomic.get('CHIP_DYN_HEALTH_DETERIORATING', default_series)
-        chip_risk_9 = states.get('RISK_STRATEGY_DISTRIBUTION_CONFIRMED_S', default_series)
-        chip_risk_10 = states.get('RISK_STRATEGY_BAILOUT_FAILURE_A', default_series)
-        chip_risk_11 = states.get('SCENARIO_HIGH_ALTITUDE_EVACUATION_S', default_series)
-        chip_risk_12 = states.get('SCENARIO_DAM_CRACKING_B', default_series)
-        
-        # 最终裁定：只要上述任一高风险信号出现，就认为筹码结构严重失效
-        is_chip_structure_unhealthy = (chip_risk_1 | chip_risk_2 | chip_risk_3 | chip_risk_4 | 
-                                       chip_risk_5 | chip_risk_6 | chip_risk_7 | chip_risk_8 | 
-                                       chip_risk_9 | chip_risk_10 | chip_risk_11 | chip_risk_12)
-        states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = is_chip_structure_unhealthy
+        # --- 步骤 8: 终极风险信号合成 (唯一的、最终的风险裁决逻辑) ---
+        critical_risk_score = df['CHIP_SCORE_RISK_CRITICAL_FAILURE']
+        states['RISK_CHIP_STRUCTURE_CRITICAL_FAILURE'] = critical_risk_score > critical_risk_score.rolling(120).quantile(0.90)
+
         return states, triggers
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V285.0 多维共振重构版】
-        - 核心重构: 彻底重构了动态分析逻辑，引入了基于5日(战术)、21日(趋势)、55日(战略)
-                    三个时间维度的交叉验证体系。
-        - 核心新增: 创造了全新的“共振”与“背离”系列原子信号，极大地提升了对主力真实意图的
-                    识别精度，能够有效区分短期洗盘与长期出货、底部吸筹与下跌中继。
+        【V3.0 终极量化消费版】
+        - 核心重构: 本方法不再进行任何布尔运算或阈值判断，而是完全消费由评分模块生成的
+                    专属“基础动态得分”，并基于动态分位数将其转换为最终的布尔型原子状态。
         """
-        # print("            -> [动态筹码分析中心 V285.0 多维共振重构版] 启动...")
+        # print("            -> [动态筹码分析中心 V285.2 量化消费版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
-        
         # --- 步骤1: 军备检查 ---
-        base_required_cols = ['concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D', 'chip_health_score_D']
-        if any(col not in df.columns for col in base_required_cols):
-            return states
-            
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_21_concentration_90pct_D',
-            'SLOPE_55_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
-            'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
-            'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
+        required_scores = [
+            'CHIP_SCORE_CONCENTRATION_RESONANCE', 'CHIP_SCORE_CONCENTRATION_DIVERGENCE',
+            'CHIP_SCORE_DYN_CONCENTRATING', 'CHIP_SCORE_DYN_DIVERGING',
+            'CHIP_SCORE_DYN_S_ACCEL_CONCENTRATING', 'CHIP_SCORE_DYN_ACCEL_DIVERGING',
+            'CHIP_SCORE_DYN_COST_RISING', 'CHIP_SCORE_DYN_COST_ACCELERATING', 'CHIP_SCORE_DYN_COST_FALLING',
+            'CHIP_SCORE_DYN_WINNER_RATE_COLLAPSING', 'CHIP_SCORE_DYN_WINNER_RATE_ACCEL_COLLAPSING',
+            'CHIP_SCORE_DYN_HEALTH_IMPROVING', 'CHIP_SCORE_DYN_HEALTH_DETERIORATING'
         ]
-        if any(col not in df.columns for col in required_cols):
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
+        if any(score not in df.columns for score in required_scores):
+            missing = [s for s in required_scores if s not in df.columns]
+            print(f"            -> [严重警告] 动态分析中心缺少关键的量化得分数据，模块已跳过！缺失: {missing}")
             return states
             
-        is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-        
-        # --- 步骤2: 对“筹码集中度”进行多周期动态分析 ---
-        # 2.1 定义短、中、长周期的客观集中/发散趋势
-        is_concentrating_short_term = df['SLOPE_5_concentration_90pct_D'] < 0
-        is_concentrating_mid_term = df['SLOPE_21_concentration_90pct_D'] < 0
-        is_concentrating_long_term = df['SLOPE_55_concentration_90pct_D'] < 0
-        is_diverging_short_term = df['SLOPE_5_concentration_90pct_D'] > 0
-        is_diverging_mid_term = df['SLOPE_21_concentration_90pct_D'] > 0
-        is_diverging_long_term = df['SLOPE_55_concentration_90pct_D'] > 0
-        
-        # 2.2 定义“成本试金石”：成本峰必须稳定或抬高，这是判断吸筹行为是否“健康”的关键
-        cost_stability_tolerance = -0.001 # 允许非常微小的负斜率，以容忍正常波动
-        is_cost_constructive = df['SLOPE_5_peak_cost_D'] >= cost_stability_tolerance
-        
-        # 2.3 定义“绿色通道”豁免条件 (专家规则)
-        is_washout_absorption = self.strategy.atomic_states.get('OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A', default_series)
-        is_bottoming_phase = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-        
-        # 2.4 重新定义基础的“建设性筹码集中” (主要看短期战术)
-        states['CHIP_DYN_CONCENTRATING'] = (is_concentrating_short_term & is_cost_constructive) | is_washout_absorption | (is_concentrating_short_term & is_bottoming_phase)
-        
-        # 2.5 【信号深化】定义“共振式集中”(A级机会)：短、中、长周期均在集中，这是最强的吸筹信号。
-        states['CHIP_DYN_CONCENTRATING_RESONANCE_A'] = is_concentrating_short_term & is_concentrating_mid_term & is_concentrating_long_term & is_cost_constructive
-        
-        # 2.6 【信号扩展】定义“背离式吸筹”(B级机会)：长期仍在发散或走平，但短期已逆转为集中，是潜在的底部反转信号。
-        is_long_term_not_improving = ~is_concentrating_long_term # 长期趋势未改善
-        states['OPP_CHIP_REVERSAL_GATHERING_B'] = is_long_term_not_improving & is_concentrating_short_term & is_cost_constructive
-        
-        # 2.7 加速动态 (继承基础的“建设性”前提)
-        p_chip = get_params_block(self.strategy, 'chip_feature_params')
-        accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
-        is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
-        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = states['CHIP_DYN_CONCENTRATING'] & is_accelerating_action
+        # --- 步骤2: 基于量化得分，定义所有动态原子状态 ---
+        # 定义一个辅助函数，避免重复代码
+        def get_state(score_name: str, quantile: float):
+            score = df[score_name]
+            return score > score.rolling(120).quantile(quantile)
 
-        # 2.8 重新定义发散动态，并注入“高位”上下文使其成为风险信号
-        states['CHIP_DYN_DIVERGING'] = is_diverging_short_term & is_in_high_level_zone
+        # 高级动态
+        states['CHIP_DYN_CONCENTRATING_RESONANCE_A'] = get_state('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.90)
+        states['OPP_CHIP_REVERSAL_GATHERING_B'] = get_state('CHIP_SCORE_CONCENTRATION_DIVERGENCE', 0.90)
+        states['RISK_CHIP_DIVERGING_RESONANCE_A'] = get_state('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.10) == False
+        states['RISK_CHIP_REVERSAL_DIVERGING_B'] = get_state('CHIP_SCORE_CONCENTRATION_DIVERGENCE', 0.10) == False
         
-        # 2.9 【信号深化】定义“共振式派发”(A级风险)：短、中、长周期均在发散，这是最明确的派发信号。
-        states['RISK_CHIP_DIVERGING_RESONANCE_A'] = is_diverging_short_term & is_diverging_mid_term & is_diverging_long_term & is_in_high_level_zone
+        # 基础动态 (quantile=0.5 相当于判断得分是否高于中位数，等价于原来的 > 0)
+        states['CHIP_DYN_CONCENTRATING'] = get_state('CHIP_SCORE_DYN_CONCENTRATING', 0.50)
+        states['CHIP_DYN_DIVERGING'] = get_state('CHIP_SCORE_DYN_DIVERGING', 0.50)
+        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = get_state('CHIP_SCORE_DYN_S_ACCEL_CONCENTRATING', 0.75) # 加速需要更强的信号
+        states['CHIP_DYN_ACCEL_DIVERGING'] = get_state('CHIP_SCORE_DYN_ACCEL_DIVERGING', 0.75)
         
-        # 2.10 【信号扩展】定义“背离式派发”(B级风险)：长期仍在集中，但短期已逆转为发散，是潜在的顶部反转预警。
-        is_long_term_still_good = is_concentrating_long_term # 长期趋势看似良好
-        states['RISK_CHIP_REVERSAL_DIVERGING_B'] = is_long_term_still_good & is_diverging_short_term & is_in_high_level_zone
+        states['CHIP_DYN_COST_RISING'] = get_state('CHIP_SCORE_DYN_COST_RISING', 0.50)
+        states['CHIP_DYN_COST_ACCELERATING'] = get_state('CHIP_SCORE_DYN_COST_ACCELERATING', 0.85) # 加速需要更强的信号
+        states['CHIP_DYN_COST_FALLING'] = get_state('CHIP_SCORE_DYN_COST_FALLING', 0.50)
         
-        # 2.11 加速发散风险
-        is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
-        states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
+        states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = get_state('CHIP_SCORE_DYN_WINNER_RATE_COLLAPSING', 0.80) # 崩盘是严重事件
+        states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = get_state('CHIP_SCORE_DYN_WINNER_RATE_ACCEL_COLLAPSING', 0.75)
         
-        # --- 步骤3: 对“筹码成本”进行动态分析 (逻辑不变) ---
-        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
-        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
-        states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
+        states['CHIP_DYN_HEALTH_IMPROVING'] = get_state('CHIP_SCORE_DYN_HEALTH_IMPROVING', 0.60)
+        states['CHIP_DYN_HEALTH_DETERIORATING'] = get_state('CHIP_SCORE_DYN_HEALTH_DETERIORATING', 0.60)
         
-        # --- 步骤4 & 5 (逻辑不变) ---
-        winner_rate_collapse_threshold = -1.0
-        states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
-        states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
-        states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
-        states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
-        
-        print("            -> [动态筹码分析中心 V285.0] 分析完毕。")
+        print("            -> [动态筹码分析中心 V3.0] 分析完毕。")
         return states
 
     def diagnose_chip_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V341.0 新增】高级筹码“机会”情报诊断模块
-        - 核心职责: 识别由高级筹码指标揭示的、结构性的看涨机会。
+        【V343.0 终极竣工版】高级筹码“机会”情报诊断模块
+        - 核心升级: 所有机会信号均由评分中心内生计算的专属得分驱动，消除所有外部布尔依赖。
         """
-        # print("        -> [高级筹码机会诊断模块 V341.0] 启动...")
+        print("        -> [高级筹码机会诊断模块 V343.0] 启动...")
         states = {}
-        # --- 机会1: S级 - 筹码断层新生 (结构性重置) ---
-        fault_formed_col = 'is_chip_fault_formed_D'
-        long_ma_col = 'EMA_55_D'
-        if fault_formed_col in df.columns:
-            is_in_uptrend_context = df['close_D'] > df[long_ma_col]
-            states['OPP_CHIP_FAULT_REBIRTH_S'] = df[fault_formed_col] & is_in_uptrend_context
-            # if df[fault_formed_col].any():
-            #     print(f"          -> [情报] 侦测到 {df[fault_formed_col].sum()} 次 S级“筹码断层新生”机会！")
-        # --- 机会2: A级 - 高利润安全垫 (持股心态稳定) ---
-        profit_margin_col = 'winner_profit_margin_D'
-        if profit_margin_col in df.columns:
-            # 定义：获利盘的平均利润超过20%，代表持股心态极其稳定
-            states['CHIP_STATE_HIGH_PROFIT_CUSHION'] = df[profit_margin_col] > 20.0
-        # --- 机会3: 获利盘持续上升 (市场情绪积极) ---
-        winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
-        if winner_rate_slope_col in df.columns:
-            states['CHIP_DYN_WINNER_RATE_RISING'] = df[winner_rate_slope_col] > 0
-        # --- 机会4: A级 - 主峰强力吸筹 (主力猛烈抢筹) ---
-        absorption_col = 'peak_absorption_intensity_D'
-        if absorption_col in df.columns:
-            # 条件1: 筹码必须处于集中趋势中
-            is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
-            # 条件2: 主峰吸筹强度必须显著高于近期平均水平 (例如，高于过去60日的80%分位数)
-            high_absorption_threshold = df[absorption_col].rolling(60).quantile(0.80)
-            is_intense_absorption = df[absorption_col] > high_absorption_threshold
-            # 最终裁定: 趋势与强度的共振
-            states['OPP_CHIP_INTENSE_ABSORPTION_A'] = is_concentrating & is_intense_absorption
+        # --- 1. 军备检查 ---
+        required_scores = [
+            'CHIP_SCORE_OPP_FAULT_REBIRTH', 'CHIP_SCORE_OPP_PROFIT_CUSHION',
+            'CHIP_SCORE_DYN_WINNER_RATE_RISING', 'CHIP_SCORE_OPP_ABSORPTION_INTENSITY'
+        ]
+        if any(c not in df.columns for c in required_scores):
+            missing = [s for s in required_scores if s not in df.columns]
+            print(f"          -> [警告] 缺少机会诊断所需得分，模块跳过。缺失: {missing}")
+            return {}
+        # --- 机会1: S级 - 筹码断层新生 (基于内生得分) ---
+        rebirth_score = df['CHIP_SCORE_OPP_FAULT_REBIRTH']
+        # 这是一个事件信号，我们捕捉得分显著的时刻
+        states['OPP_CHIP_FAULT_REBIRTH_S'] = rebirth_score > rebirth_score[rebirth_score > 0].rolling(60).quantile(0.95)
+        # --- 机会2: A级 - 高利润安全垫 (基于得分) ---
+        profit_cushion_score = df['CHIP_SCORE_OPP_PROFIT_CUSHION']
+        high_cushion_threshold = profit_cushion_score.rolling(120).quantile(0.90)
+        states['CHIP_STATE_HIGH_PROFIT_CUSHION'] = profit_cushion_score > high_cushion_threshold
+        # --- 机会3: 获利盘持续上升 (基于得分) ---
+        rising_score = df['CHIP_SCORE_DYN_WINNER_RATE_RISING']
+        states['CHIP_DYN_WINNER_RATE_RISING'] = rising_score > rising_score.rolling(120).quantile(0.5)
+        # --- 机会4: A级 - 主峰强力吸筹 (基于得分) ---
+        absorption_score = df['CHIP_SCORE_OPP_ABSORPTION_INTENSITY']
+        concentrating_score = df['CHIP_SCORE_DYN_CONCENTRATING']
+        intense_absorption_score = absorption_score * concentrating_score
+        states['OPP_CHIP_INTENSE_ABSORPTION_A'] = intense_absorption_score > intense_absorption_score.rolling(120).quantile(0.85)
         return states
 
     def diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V341.2 加速度增强版】高级筹码“风险与行为”情报诊断模块
-        - 核心升级: 引入 turnover_from_winners_ratio_D 的加速度判断，
-                    新增 S级“恐慌加速”风险 和 A级“卖盘衰竭”机会，
-                    使风险评估体系具备了预测趋势拐点的能力。
+        【V342.0 量化上下文版】高级筹码“风险与行为”情报诊断模块
+        - 核心升级: 机会信号的生成增加了量化的“安全上下文”得分作为过滤器，提高信号质量。
         """
         # print("        -> [高级筹码风险与行为诊断模块 V341.2 加速度增强版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
-
         # --- 1. 军备检查 ---
-        # 检查基础指标、斜率和加速度指标
-        required_cols = [
-            'turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D',
-            'SLOPE_5_turnover_from_winners_ratio_D', 'ACCEL_5_turnover_from_winners_ratio_D',
-            'SLOPE_21_turnover_from_winners_ratio_D', 'ACCEL_21_turnover_from_winners_ratio_D',
-            'SLOPE_55_turnover_from_winners_ratio_D', 'ACCEL_55_turnover_from_winners_ratio_D'
+        required_scores = [
+            'CHIP_SCORE_BEHAVIOR_PROFIT_TAKING', 'CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION',
+            'CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION', 'CHIP_SCORE_CONTEXT_SAFE',
+            'CHIP_SCORE_RISK_PANIC_FLEEING'
         ]
-        if any(c not in df.columns for c in required_cols):
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            print(f"          -> [警告] 缺少成交量微观结构或其斜率/加速度数据，模块跳过。缺失: {missing_cols}")
+        if any(c not in df.columns for c in required_scores):
+            missing = [s for s in required_scores if s not in df.columns]
+            print(f"          -> [警告] 缺少风险与行为诊断所需得分，模块跳过。缺失: {missing}")
             return {}
             
-        is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        high_zone_score = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', pd.Series(0, index=df.index)).astype(float)
 
-        # --- 风险行为1: 获利盘出逃 (分层动态评估) ---
-        # 1.1 获取各周期的抛压趋势 (速度)
-        is_fleeing_short_term = df['SLOPE_5_turnover_from_winners_ratio_D'] > 0
-        is_fleeing_mid_term = df['SLOPE_21_turnover_from_winners_ratio_D'] > 0
-        is_fleeing_long_term = df['SLOPE_55_turnover_from_winners_ratio_D'] > 0
+        # --- 2. 基于量化得分定义风险与机会 ---
+        profit_taking_score = df['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING']
+        exhaustion_score = df['CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION']
+        capitulation_score = df['CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION']
+        safe_context_score = df['CHIP_SCORE_CONTEXT_SAFE']
+        panic_fleeing_score = df['CHIP_SCORE_RISK_PANIC_FLEEING']
 
-        # 1.2 获取抛压趋势的变化 (加速度) - 我们最关心短期的变化
-        is_fleeing_accelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0
-        is_fleeing_decelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] < 0
+        # 2.1 定义风险等级 (基于得分 * 上下文)
+        fleeing_score_in_high_zone = profit_taking_score * high_zone_score
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_C'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.60)
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.75)
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.90)
 
-        # 1.3 定义风险等级 (基于速度)
-        states['RISK_BEHAVIOR_WINNERS_FLEEING_C'] = is_in_high_zone & is_fleeing_short_term
-        states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term
-        states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = is_in_high_zone & is_fleeing_short_term & is_fleeing_mid_term & is_fleeing_long_term
-
-        # 1.4 定义S级风险和A级机会 (基于加速度)
-        # S级风险 - 恐慌加速: 中期趋势已在出逃，且短期出逃正在加速，这是最危险的信号。
-        states['RISK_BEHAVIOR_PANIC_FLEEING_S'] = states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] & is_fleeing_accelerating
+        # 2.2 定义S级风险 - 恐慌加速 (基于专属得分)
+        states['RISK_BEHAVIOR_PANIC_FLEEING_S'] = panic_fleeing_score > panic_fleeing_score.rolling(120).quantile(0.95)
         
-        # A级机会 - 卖盘衰竭: 获利盘虽然还在卖(短期斜率>0)，但卖出力度已在减弱(加速度<0)。
-        # 增加趋势上下文过滤器，确保只在下跌末期或趋势反转初期应用此左侧信号
-        is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-        is_early_reversal = self.strategy.atomic_states.get('STRUCTURE_EARLY_REVERSAL_B', default_series) # 假设有这个信号
-        is_safe_context = is_bottoming_context | is_early_reversal
-        
-        # --- 机会行为2: 恐慌盘割肉 (底部反向指标) ---
-        # 定义：股价当日大跌（例如超过5%），且成交量主要由套牢盘贡献（例如占比超过50%）
-        is_sharp_drop = df['pct_change_D'] < -0.05
-        is_panic_selling = df['turnover_from_losers_ratio_D'] > 50.0
-        
-        # 增加上下文过滤器，确保只在底部反向或趋势反转时应用此左侧信号
-        states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = is_sharp_drop & is_panic_selling & is_safe_context
-        states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = is_fleeing_short_term & is_fleeing_decelerating & is_safe_context
+        # 2.3 定义机会信号 (基于得分 * 上下文)
+        # A级机会 - 卖盘衰竭
+        selling_exhaustion_opp_score = exhaustion_score * safe_context_score
+        states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = selling_exhaustion_opp_score > selling_exhaustion_opp_score.rolling(120).quantile(0.90)
 
-        # 打印情报
-        # if states['RISK_BEHAVIOR_PANIC_FLEEING_S'].any():
-        #     print(f"          -> [S级战略风险] 侦测到 {states['RISK_BEHAVIOR_PANIC_FLEEING_S'].sum()} 次“获利盘恐慌加速出逃”！")
-        # elif states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].any():
-        #     print(f"          -> [A级战略风险] 侦测到 {states['RISK_BEHAVIOR_WINNERS_FLEEING_A'].sum()} 次“长期派发”共振！")
-        
-        # if states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].any():
-        #     print(f"          -> [A级机会情报] 侦测到 {states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'].sum()} 次“卖盘衰竭”信号！")
-
+        # A级机会 - 恐慌盘割肉
+        panic_capitulation_opp_score = capitulation_score * safe_context_score
+        states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = panic_capitulation_opp_score > panic_capitulation_opp_score.rolling(120).quantile(0.90)
         return states
 
     def diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V340.1 战略过滤版】【代码优化】筹码峰“创世纪”模块
-        - 核心修复: 为胜率仅10.8%的“隐蔽吸筹”信号增加了“均线底部钝化”的战略环境过滤器。
-        - 收益: 根治了在下跌中继中错误识别“吸筹”的致命缺陷，确保只在趋势有反转
-                潜力的安全区域内识别此机会。
-        - 优化说明: 1. 将多次 groupby().transform() 合并为一次 groupby().agg()，显著减少计算开销。
-                    2. 使用 merge 替代 map(dict) 操作，以获得更好的性能和内存效率。
+        【V342.0 终极量化消费版】筹码峰“创世纪”模块
+        - 核心重构: 彻底抛弃所有内部的硬编码阈值和复杂时序逻辑，全面转向消费由评分模块
+                    生成的专属“筹码峰创世纪”情景得分，实现与系统其他部分的完美统一。
         """
         # print("        -> [筹码峰“创世纪”模块 V340.1 战略过滤版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
-        # --- 1. 检查所需数据 ---
-        required_cols = ['peak_cost_D', 'volume_D', 'VOL_MA_21_D', 'SLOPE_55_EMA_55_D']
-        if any(c not in df.columns for c in required_cols):
-            print("          -> [警告] 缺少诊断筹码峰起源所需数据，模块跳过。")
+        # --- 1. 军备检查 ---
+        required_scores = [
+            'PEAK_SCORE_OPP_FORTRESS_SUPPORT',
+            'PEAK_SCORE_RISK_EXHAUSTION_TOP',
+            'PEAK_SCORE_OPP_STEALTH_ACCUMULATION'
+        ]
+        if any(c not in df.columns for c in required_scores):
+            missing = [s for s in required_scores if s not in df.columns]
+            print(f"          -> [警告] 筹码峰创世纪模块缺少关键得分数据: {missing}，模块已跳过！")
             return {}
-        # --- 2. 识别“政权更迭”事件 ---
-        is_peak_changed = (df['peak_cost_D'].pct_change().abs() > 0.015)
-        # --- 3. 使用向量化状态机替代for循环 ---
-        stability_period = 3 # 需要稳定3天
-        # 步骤 3.1: 使用 cumsum 创建事件区块ID
-        change_blocks = is_peak_changed.cumsum()
-        # 步骤 3.2: 使用一次 agg 操作计算所有区块属性，而非多次 transform
-        block_stats = df.groupby(change_blocks)['peak_cost_D'].agg(['size', 'std', 'mean'])
-        block_stats.rename(columns={'size': 'block_sizes', 'std': 'block_std', 'mean': 'block_mean'}, inplace=True)
-        # 步骤 3.3: 将聚合结果合并回原始 DataFrame
-        df_temp = df.join(block_stats, on=change_blocks.name)
-        # 计算稳定性
-        is_block_stable = (df_temp['block_std'] / df_temp['block_mean'].replace(0, np.nan)).fillna(0) < 0.01
-        # 步骤 3.4: 确定哪些区块是“已确认形成”的
-        is_formation_confirmed = (df_temp['block_sizes'] >= stability_period) & is_block_stable
-        # 步骤 3.5: 获取已确认区块的“出生证明”
-        # 获取每个区块的起始日期
-        block_start_indices = df.index.to_series().groupby(change_blocks).transform('first')
-        # 仅保留已确认区块的起始日期
-        formation_dates = block_start_indices.where(is_formation_confirmed)
-        # 步骤 3.6: 使用 merge 高效获取形成日的成交量比率
-        unique_formation_dates_df = pd.DataFrame(index=formation_dates.dropna().unique())
-        if not unique_formation_dates_df.empty:
-            formation_day_data = df.loc[unique_formation_dates_df.index, ['volume_D', 'VOL_MA_21_D']]
-            formation_day_data['formation_volume_ratios'] = formation_day_data['volume_D'] / formation_day_data['VOL_MA_21_D'].replace(0, np.nan)
-            # 使用 merge 将比率映射回 formation_dates 对应的位置
-            formation_dates_with_ratio = formation_dates.reset_index().dropna().merge(
-                formation_day_data[['formation_volume_ratios']],
-                left_on=0,
-                right_index=True,
-                how='left'
-            ).set_index('index')
-            formation_volume_ratios = formation_dates_with_ratio['formation_volume_ratios']
-        else:
-            formation_volume_ratios = pd.Series(np.nan, index=df.index)
-        # --- 4. 解读“出生证明”，生成战略信号 ---
-        is_high_volume_formation = formation_volume_ratios > 2.0
-        is_low_volume_formation = formation_volume_ratios < 0.7
-        # 获取形成前一天的趋势状态
-        trend_at_formation = df['SLOPE_55_EMA_55_D'].shift(1).loc[formation_dates.dropna()].to_dict()
-        prev_day_trend = formation_dates.map(trend_at_formation)
-        is_after_downtrend = prev_day_trend <= 0
-        is_after_uptrend = prev_day_trend > 0
-        # 为“隐蔽吸筹”增加战略环境过滤器，这是本次修复的核心。
-        # 过滤器：必须处于“均线底部钝化”状态，代表长期下跌趋势已得到遏制。
-        is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-        # 组合生成最终的原子状态
-        states['PEAK_DYN_FORTRESS_SUPPORT'] = is_high_volume_formation & is_after_downtrend
-        states['PEAK_DYN_EXHAUSTION_TOP'] = is_high_volume_formation & is_after_uptrend
-        # 注入战略过滤器
-        states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend & is_bottoming_context
+        # --- 2. 基于得分生成最终信号 ---
+        # 定义一个辅助函数，用于识别得分序列中的高置信度事件
+        def get_event_state(score_name: str, quantile: float):
+            score = df[score_name]
+            # 仅在得分大于0时进行判断，因为这些是事件驱动的得分
+            return (score > 0) & (score > score[score > 0].rolling(60, min_periods=5).quantile(quantile))
+        # S级机会: 堡垒支撑
+        states['PEAK_DYN_FORTRESS_SUPPORT'] = get_event_state('PEAK_SCORE_OPP_FORTRESS_SUPPORT', 0.90)
+        # S级风险: 衰竭顶
+        states['PEAK_DYN_EXHAUSTION_TOP'] = get_event_state('PEAK_SCORE_RISK_EXHAUSTION_TOP', 0.90)
+        # A级机会: 隐蔽吸筹
+        states['PEAK_DYN_STEALTH_ACCUMULATION'] = get_event_state('PEAK_SCORE_OPP_STEALTH_ACCUMULATION', 0.85)
         return states
 
     def diagnose_peak_battle_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V509.0 生产就绪版】主峰攻防战诊断模块
-        - 核心逻辑: 采用“准备日+确认日”的两步时序逻辑，识别在主峰激烈换手后得到确认的突破机会。
-                    同时，识别在高位区域发生的、有派发嫌疑的放量滞涨风险。
-        - 状态: 已移除所有调试探针，代码已净化。
+        【V6.1 完美闭环版】主峰攻防战诊断模块
+        - 核心升级: 风险信号的上下文过滤逻辑已融入评分模块，本模块仅做纯粹的得分消费。
         """
         states = {}
-        default_series = pd.Series(False, index=df.index)
-
         # --- 1. 军备检查 ---
-        required_cols = [
-            'turnover_at_peak_ratio_D', 'price_to_peak_ratio_D', 'pct_change_D',
-            'volume_D', 'VOL_MA_21_D', 'close_D', 'EMA_55_D'
+        required_scores = [
+            'CHIP_SCORE_OPP_PEAK_BATTLE_BREAKOUT',
+            'CHIP_SCORE_RISK_PEAK_BATTLE_DISTRIBUTION_IN_ZONE'
         ]
-        if any(c not in df.columns for c in required_cols):
+        if any(c not in df.columns for c in required_scores):
+            missing_cols = [c for c in required_scores if c not in df.columns]
+            print(f"          -> [警告] 主峰攻防战模块缺少关键得分数据: {missing_cols}，模块已跳过！")
             return {}
-        
-        # --- 2. 定义参数 ---
-        high_battle_threshold = 40.0
-        proximity_threshold = 0.03
-        volume_multiplier = 1.5
-        meaningful_rise_pct = 0.02
-        confirmation_lookback_days = 3
-
-        # --- 3. 定义基础条件 ---
-        is_battle_intense = df['turnover_at_peak_ratio_D'] > high_battle_threshold
-        is_price_at_peak = df['price_to_peak_ratio_D'].between(1 - proximity_threshold, 1 + proximity_threshold)
-        is_high_volume = df['volume_D'] > (df['VOL_MA_21_D'] * volume_multiplier)
-        is_constructive_context = df['close_D'] > df['EMA_55_D']
-        is_in_high_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-        is_price_rising_meaningfully = df['pct_change_D'] > meaningful_rise_pct
-        is_price_stagnant_or_falling = df['pct_change_D'] < 0.01
-        did_not_collapse = df['pct_change_D'] > -0.03
-
-        # --- 4. 机会信号的两步确认 ---
-        peak_battle_setup = (
-            is_constructive_context &
-            is_price_at_peak &
-            is_battle_intense &
-            is_high_volume &
-            did_not_collapse
-        )
-        had_recent_setup = peak_battle_setup.shift(1).rolling(
-            window=confirmation_lookback_days, 
-            min_periods=1
-        ).max().astype(bool)
-        
-        final_opportunity_signal = is_price_rising_meaningfully & had_recent_setup
-        
-        states['OPP_PEAK_BATTLE_BREAKOUT_A'] = final_opportunity_signal
-
-        # --- 5. 风险信号的定义 ---
-        risk_signal = (
-            is_in_high_zone &
-            is_price_at_peak &
-            is_battle_intense &
-            is_high_volume &
-            is_price_stagnant_or_falling
-        )
-        states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = risk_signal
-
-        # (可选) 保留最终的情报报告，作为策略的正常日志输出
-        # if final_opportunity_signal.any():
-        #     print(f"          -> [A+级机会情报] 侦测到 {final_opportunity_signal.sum()} 次“主峰换手突破(确认后)”！")
-        # if risk_signal.any():
-        #     print(f"          -> [A级风险情报] 侦测到 {risk_signal.sum()} 次“主峰高位派发嫌疑”！")
-
+        # --- 2. 基于得分生成最终信号 ---
+        breakout_score = df['CHIP_SCORE_OPP_PEAK_BATTLE_BREAKOUT']
+        states['OPP_PEAK_BATTLE_BREAKOUT_A'] = breakout_score > breakout_score.rolling(120).quantile(0.90)
+        # 消费包含上下文的新得分
+        distribution_score = df['CHIP_SCORE_RISK_PEAK_BATTLE_DISTRIBUTION_IN_ZONE']
+        states['RISK_PEAK_BATTLE_DISTRIBUTION_A'] = distribution_score > distribution_score.rolling(120).quantile(0.90)
         return states
 
     def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】黄金筹码机会合成模块
-        - 核心职责: 融合“筹码锁定”的微观结构与“上涨初期”的宏观战场环境，
-                      生成一个高确定性的S级机会信号。
-        - 收益: 彻底解决了原子筹码信号因缺乏上下文而产生的“崩盘式集中”误判问题。
+        【V2.0 量化消费版】黄金筹码机会合成模块
+        - 核心重构: 消费专属的`CHIP_SCORE_PRIME_OPPORTUNITY`得分，该得分已融合了
+                    “筹码锁定质量”与“上涨初期”的战场环境，从而更精准地识别高确定性机会。
         """
         # print("        -> [黄金筹码机会合成模块 V1.0] 启动...")
         states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-        # 1. 获取结构条件：筹码必须已经锁定且稳定
-        is_chip_locked = atomic.get('CHIP_CONC_LOCKED_AND_STABLE_A', default_series)
-        # 2. 获取战场条件：必须处于上涨初期
-        is_in_early_stage = atomic.get('CONTEXT_TREND_STAGE_EARLY', default_series)
-        # 3. 最终裁定：结构与战场的完美共振
-        final_signal = is_chip_locked & is_in_early_stage
-        states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = final_signal
-        # if final_signal.any():
-        #     print(f"          -> [S级机会确认] 侦测到 {final_signal.sum()} 次“筹码结构黄金机会”！")
+        # --- 1. 军备检查 ---
+        required_score = 'CHIP_SCORE_PRIME_OPPORTUNITY'
+        if required_score not in df.columns:
+            print(f"          -> [警告] 黄金机会模块缺少关键得分数据: {required_score}，模块已跳过！")
+            return states
+            
+        # --- 2. 基于得分生成最终信号 ---
+        prime_score = df[required_score]
+        # 定义：黄金机会得分高于过去95%的时间，确认为S级机会
+        prime_threshold = prime_score.rolling(120).quantile(0.95)
+        states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = prime_score > prime_threshold
         return states
 
     def diagnose_chip_price_divergence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】筹码价格顶背离诊断模块
-        - 核心职责: 识别“价格创近期新高，但筹码结构却在同步恶化”的经典顶部风险信号。
+        【V2.0 量化消费版】筹码价格顶背离诊断模块
+        - 核心重构: 消费专属的`CHIP_SCORE_RISK_PRICE_DIVERGENCE`得分，该得分已量化了
+                    “价格新高程度”与“筹码发散强度”的背离程度，使风险识别更灵敏。
         """
         states = {}
-        default_series = pd.Series(False, index=df.index)
-        
-        # 1. 定义“价格创近期新高”
-        is_new_high = df['close_D'] > df['close_D'].shift(1).rolling(window=20).max()
-        
-        # 2. 定义“筹码结构恶化”
-        #    我们使用“筹码正在发散”作为最核心的恶化指标
-        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
-        
-        # 3. 组合成最终的顶背离风险信号
-        states['RISK_CHIP_PRICE_DIVERGENCE'] = is_new_high & is_chip_diverging
-        return states
-
-    def diagnose_chip_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V320.0 数据驱动版】筹码动态诊断模块
-        - 核心重构: 完全重构为直接消费数据层预计算好的“斜率”和“加速度”列。
-                    不再进行任何动态计算，显著提升了性能和代码的健壮性。
-        """
-        # print("        -> [筹码动态诊断模块 V320.0 数据驱动版] 启动...")
-        states = {}
-        # default_series = pd.Series(False, index=df.index)
-
         # --- 1. 军备检查 ---
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D', 'ACCEL_5_peak_cost_D',
-            'SLOPE_5_total_winner_rate_D', 'ACCEL_21_total_winner_rate_D',
-            'SLOPE_5_chip_health_score_D', # 筹码健康度斜率
-            'SLOPE_5_winner_profit_margin_D' # 获利盘利润垫斜率
-        ]
-        if any(col not in df.columns for col in required_cols):
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            print(f"          -> [警告] 缺少筹码动态诊断所需列，模块跳过。缺失: {missing_cols}")
-            return {}
-
-        # --- 2. 筹码集中/发散动态 (速度与加速度) ---
-        # 筹码集中：5日集中度斜率为负 (集中度数值越小代表越集中)
-        states['CHIP_DYN_CONCENTRATING'] = df['SLOPE_5_concentration_90pct_D'] < 0
-        # 筹码加速集中：5日集中度加速度为负 (集中趋势在强化)
-        states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = df['ACCEL_5_concentration_90pct_D'] < 0
-        # 筹码发散：5日集中度斜率为正
-        states['CHIP_DYN_DIVERGING'] = df['SLOPE_5_concentration_90pct_D'] > 0
-        # 筹码加速发散：5日集中度加速度为正
-        states['CHIP_DYN_ACCEL_DIVERGING'] = df['ACCEL_5_concentration_90pct_D'] > 0
-
-        # --- 3. 成本动态 (速度与加速度) ---
-        # 成本抬升：5日成本峰斜率为正
-        states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
-        # 成本加速抬升：5日成本峰加速度为正
-        states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > 0
-        # 成本松动：5日成本峰斜率为负
-        states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
-
-        # --- 4. 获利盘动态 (速度与加速度) ---
-        # 获利盘比例上升：5日获利盘比例斜率为正
-        states['CHIP_DYN_WINNER_RATE_RISING'] = df['SLOPE_5_total_winner_rate_D'] > 0
-        # 获利盘崩盘：5日获利盘比例斜率为负
-        states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < 0
-        # 获利盘加速崩盘：21日获利盘比例加速度为负
-        states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_21_total_winner_rate_D'] < 0
-
-        # --- 5. 筹码健康度动态 (速度) ---
-        # 筹码健康度改善：5日筹码健康度斜率为正 且 筹码集中度在增加
-        states['CHIP_DYN_HEALTH_IMPROVING'] = (df['SLOPE_5_chip_health_score_D'] > 0) & states['CHIP_DYN_CONCENTRATING']
-        # 筹码健康度恶化：5日筹码健康度斜率为负 且 筹码集中度在发散
-        states['CHIP_DYN_HEALTH_DETERIORATING'] = (df['SLOPE_5_chip_health_score_D'] < 0) & states['CHIP_DYN_DIVERGING']
-        
-        # --- 6. 获利盘利润垫动态 (速度) ---
-        # 获利盘利润垫抬升：5日获利盘利润垫斜率为正
-        states['CHIP_DYN_WINNER_PROFIT_MARGIN_RISING'] = df['SLOPE_5_winner_profit_margin_D'] > 0
-        # 获利盘利润垫收缩：5日获利盘利润垫斜率为负
-        states['CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING'] = df['SLOPE_5_winner_profit_margin_D'] < 0
-        
-        # --- 7. 上方压力动态 (速度与加速度) ---
-        # 上方压力减少：5日上方压力斜率为负
-        states['CHIP_DYN_PRESSURE_DECREASING'] = df['SLOPE_5_pressure_above_D'] < 0
-        # 上方压力加速减少 (A级机会): 压力不仅在减少，而且减少的速度在加快，是强烈的突破前兆。
-        states['CHIP_DYN_PRESSURE_RAPIDLY_DECREASING_A'] = states['CHIP_DYN_PRESSURE_DECREASING'] & (df['ACCEL_5_pressure_above_D'] < 0)
-
-        # print("        -> [筹码动态诊断模块 V320.0] 分析完毕。")
+        required_score = 'CHIP_SCORE_RISK_PRICE_DIVERGENCE'
+        if required_score not in df.columns:
+            print(f"          -> [警告] 价格顶背离模块缺少关键得分数据: {required_score}，模块已跳过！")
+            return states
+            
+        # --- 2. 基于得分生成最终风险信号 ---
+        divergence_score = df[required_score]
+        # 定义：顶背离风险得分高于过去95%的时间，确认为S级风险
+        divergence_threshold = divergence_score.rolling(120).quantile(0.95)
+        states['RISK_CHIP_PRICE_DIVERGENCE'] = divergence_score > divergence_threshold
         return states
 
     # “静态筹码结构诊断”方法
@@ -688,73 +338,57 @@ class ChipIntelligence:
         # default_series = pd.Series(False, index=df.index)
         
         # --- 1. 军备检查 ---
-        required_cols = ['close_D', 'peak_cost_D', 'concentration_70pct_D', 'concentration_90pct_D', 'total_winner_rate_D']
-        if any(c not in df.columns for c in required_cols):
-            print("              -> [警告] 缺少诊断静态筹码结构所需列，模块跳过。")
+        required_scores = [
+            'CHIP_SCORE_STATIC_PRICE_MOMENTUM', 'CHIP_SCORE_STATIC_COMPACTNESS', 
+            'CHIP_SCORE_STRUCTURE_FORTRESS', 'CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY',
+            'CHIP_SCORE_STATIC_PRICE_BELOW_PEAK'
+        ]
+        if any(s not in df.columns for s in required_scores):
+            print("              -> [警告] 缺少诊断静态筹码结构所需得分，模块跳过。")
             return {}
-        # --- 2. 价格与成本峰关系诊断 ---
-        profit_cushion_ratio = 1.15 # 价格比成本峰高出15%
-        states['CHIP_STATE_PRICE_ABOVE_PEAK_COST'] = df['close_D'] > (df['peak_cost_D'] * profit_cushion_ratio)
-        entanglement_ratio = 0.05 # 价格在成本峰上下5%的区域内
-        states['CHIP_STATE_PRICE_IN_PEAK_COST_ZONE'] = (df['close_D'] / df['peak_cost_D']).between(1 - entanglement_ratio, 1 + entanglement_ratio)
-        # 信号3: 价格显著低于成本区 (大部分持仓者被套牢，市场处于绝望状态)
-        loss_zone_ratio = 0.90 # 价格比成本峰低10%
-        states['CHIP_STATE_PRICE_BELOW_PEAK_COST'] = df['close_D'] < (df['peak_cost_D'] * loss_zone_ratio)
+        # --- 2. 价格与成本峰关系诊断 (完全基于得分) ---
+        price_momentum_score = df['CHIP_SCORE_STATIC_PRICE_MOMENTUM']
+        states['CHIP_STATE_PRICE_ABOVE_PEAK_COST'] = price_momentum_score > price_momentum_score.rolling(120).quantile(0.85)
 
-        # --- 3. 筹码分布形态诊断 ---
-        concentration_gap = (df['concentration_90pct_D'] - df['concentration_70pct_D']).replace(0, np.nan)
-        compactness_ratio = concentration_gap / df['concentration_70pct_D']
-        compact_threshold = 0.3 
-        states['CHIP_STRUCTURE_HIGHLY_COMPACT'] = compactness_ratio < compact_threshold
+        proximity_score = df['CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY']
+        states['CHIP_STATE_PRICE_IN_PEAK_COST_ZONE'] = proximity_score > proximity_score.rolling(120).quantile(0.90) # 价格非常接近成本
         
-        # --- 3.5. S级堡垒结构诊断 (新) ---
-        # 定义：一个真正坚固的堡垒，必须是单峰结构、主力高度控盘、且主峰强度远超次峰。
-        # 条件1: 主力高度控盘 (主峰控盘比 > 50%)
-        is_high_control = df['peak_control_ratio_D'] > 0.5
-        # 条件2: 主峰绝对强势 (主峰强度是次峰的2倍以上)
-        is_dominant_peak = df['peak_strength_ratio_D'] > 2.0
-        # 条件3: 单峰结构 (最关键的结构健康度指标)
-        is_single_peak = ~df['is_multi_peak_D'].fillna(False).astype(bool)
-        # 最终裁定: 三大条件必须同时满足
-        states['CHIP_STRUCTURE_FORTRESS_S'] = is_high_control & is_dominant_peak & is_single_peak
+        below_peak_score = df['CHIP_SCORE_STATIC_PRICE_BELOW_PEAK']
+        states['CHIP_STATE_PRICE_BELOW_PEAK_COST'] = below_peak_score > below_peak_score.rolling(120).quantile(0.85)
 
-        # --- 4. 获利盘状态诊断 ---
-        states['CHIP_STATE_UNIVERSAL_PROFIT'] = df['total_winner_rate_D'] > 95.0
+        # --- 3. 筹码分布形态诊断 (基于得分) ---
+        compactness_score = df['CHIP_SCORE_STATIC_COMPACTNESS']
+        states['CHIP_STRUCTURE_HIGHLY_COMPACT'] = compactness_score > compactness_score.rolling(120).quantile(0.85)
         
+        # --- 3.5. S级堡垒结构诊断 (基于得分) ---
+        fortress_score = df['CHIP_SCORE_STRUCTURE_FORTRESS']
+        states['CHIP_STRUCTURE_FORTRESS_S'] = fortress_score > fortress_score.rolling(120).quantile(0.95)
+
+        # --- 4. 获利盘状态诊断 (基于得分) ---
+        euphoria_score = self._calculate_normalized_score(df.get('total_winner_rate_D', pd.Series(50, index=df.index)), window=120, ascending=True)
+        states['CHIP_STATE_UNIVERSAL_PROFIT'] = euphoria_score > 0.95
         print("            -> [静态筹码结构诊断模块 V1.1] 诊断完毕。")
         return states
 
     # “筹码行为诊断”方法
     def diagnose_chip_behavior_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】【代码优化】筹码行为诊断模块
-        - 核心职责: 基于换手率数据，诊断获利盘的抛售意愿和亏损盘的止损行为。
-                    这是洞察市场情绪和主力意图的关键。
-        - 输出: 一系列描述市场参与者“动态行为”的中性原子信号。
-        - 优化说明: 避免了对 'turnover_from_winners_ratio_D' 和 'turnover_from_losers_ratio_D' 的重复滚动均值计算。
+        【V2.0 完美闭环版】筹码行为诊断模块
+        - 核心升级: 恐慌杀跌的识别逻辑完全基于量化得分，消除了硬编码跌幅阈值。
         """
-        # print("            -> [筹码行为诊断模块 V1.0] 启动...")
+        print("            -> [筹码行为诊断模块 V2.0] 启动...")
         states = {}
-        # default_series = pd.Series(False, index=df.index)
         # --- 1. 军备检查 ---
-        # turnover_from_winners_ratio_D: 获利盘换手率
-        # turnover_from_losers_ratio_D: 亏损盘换手率
-        required_cols = ['turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D', 'pct_change_D']
-        if any(c not in df.columns for c in required_cols):
-            print("              -> [警告] 缺少诊断筹码行为所需列 (如 turnover_from_winners_ratio_D)，模块跳过。")
+        required_scores = ['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING_INTENSITY', 'CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION']
+        if any(s not in df.columns for s in required_scores):
+            print("              -> [警告] 缺少诊断筹码行为所需得分，模块跳过。")
             return {}
-        # --- 2. 获利盘行为诊断 ---
-        # 信号1: 获利盘抛压较大 (获利盘换手率高于一个动态阈值，例如60日均值的1.5倍)
-        winner_turnover_ma = df['turnover_from_winners_ratio_D'].rolling(60).mean()
-        is_high_winner_turnover = df['turnover_from_winners_ratio_D'] > (winner_turnover_ma * 1.8)
-        states['CHIP_BEHAVIOR_HIGH_PROFIT_TAKING_PRESSURE'] = is_high_winner_turnover
-        # --- 3. 亏损盘行为诊断 ---
-        # 信号2: 亏损盘恐慌杀跌/投降 (股价大跌的同时，亏损盘换手率激增)
-        is_sharp_drop = df['pct_change_D'] < -0.05 # 股价大跌超过5%
-        loser_turnover_ma = df['turnover_from_losers_ratio_D'].rolling(60).mean()
-        is_high_loser_turnover = df['turnover_from_losers_ratio_D'] > (loser_turnover_ma * 2.0)
-        states['CHIP_BEHAVIOR_LOSER_CAPITULATION'] = is_sharp_drop & is_high_loser_turnover
-        print("            -> [筹码行为诊断模块 V1.0] 诊断完毕。")
+        # --- 2. 获利盘行为诊断 (基于得分) ---
+        pressure_score = df['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING_INTENSITY']
+        states['CHIP_BEHAVIOR_HIGH_PROFIT_TAKING_PRESSURE'] = pressure_score > pressure_score.rolling(120).quantile(0.85)
+        # --- 3. 亏损盘行为诊断 (基于升级后的得分) ---
+        capitulation_score = df['CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION']
+        states['CHIP_BEHAVIOR_LOSER_CAPITULATION'] = capitulation_score > capitulation_score.rolling(120).quantile(0.90)
         return states
 
     def diagnose_strategic_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -765,77 +399,40 @@ class ChipIntelligence:
         """
         # print("        -> [战略情景诊断模块 V1.0] 启动...")
         states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 提取基础“场景”（静态信号）---
-        # 场景1: 堡垒已成 (筹码高度紧凑，主力高度控盘)
-        is_fortress_static = atomic.get('CHIP_STRUCTURE_HIGHLY_COMPACT', default_series)
-        # 场景2: 阵地战 (价格在成本密集区拉锯)
-        is_battlezone_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
-        # 场景3: 高空巡航 (价格已大幅脱离成本区，有丰厚利润垫)
-        is_high_altitude_static = atomic.get('CHIP_STATE_PRICE_ABOVE_PEAK_COST', default_series)
-
-        # --- 2. 提取各维度“剧情”（动态信号）---
-        # 剧情1: 短期动态
-        is_concentrating_short = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
-        is_diverging_short = atomic.get('CHIP_DYN_DIVERGING', default_series)
-        # 新增更多维度的动态“剧情”
-        is_cost_accelerating = atomic.get('CHIP_DYN_COST_ACCELERATING', default_series)
-        is_cost_falling = atomic.get('CHIP_DYN_COST_FALLING', default_series)
-        is_profit_margin_rising = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_RISING', default_series)
-        is_profit_margin_shrinking = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING', default_series)
-        is_selling_exhausted = atomic.get('OPP_BEHAVIOR_SELLING_EXHAUSTION_A', default_series)
-        # 剧情2: 共振动态 (最强趋势)
-        is_concentrating_resonance = atomic.get('CHIP_DYN_CONCENTRATING_RESONANCE_A', default_series)
-        is_diverging_resonance = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
-        # 剧情3: 背离动态 (拐点信号)
-        is_reversal_gathering = atomic.get('OPP_CHIP_REVERSAL_GATHERING_B', default_series)
-        is_reversal_diverging = atomic.get('RISK_CHIP_REVERSAL_DIVERGING_B', default_series)
-
-        # --- 3. 融合“场景”与“剧情”，生成全新战略原子信号 ---
+        # --- 1. 军备检查：确保所有必需的“战略情景得分”都存在 ---
+        required_scores = [
+            'CHIP_SCORE_SCENARIO_MAIN_WAVE_RESONANCE',
+            'CHIP_SCORE_SCENARIO_BATTLEZONE_TURNING_POINT',
+            'CHIP_SCORE_SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP',
+            'CHIP_SCORE_SCENARIO_FORTRESS_INTERNAL_COLLAPSE'
+        ]
+        if any(c not in df.columns for c in required_scores):
+            missing_cols = [c for c in required_scores if c not in df.columns]
+            print(f"          -> [警告] 战略情景模块缺少关键得分数据: {missing_cols}，模块已跳过！")
+            return states
+            
+        # --- 2. 基于情景得分，生成最终的布尔信号 ---
         # === 机会情景 ===
-        # 情景A1 (S级机会): “主升浪共振” (原A级信号升级)
-        # 解读: 主力已高度控盘（静态），且仍在全周期持续吸筹（动态1），同时成本正在加速抬升（动态2），
-        #      获利盘的利润也在增加（动态3）。这是最强的上涨共振信号。
-        states['SCENARIO_MAIN_WAVE_RESONANCE_S'] = (
-            is_fortress_static &
-            is_concentrating_resonance &
-            is_cost_accelerating &
-            is_profit_margin_rising
-        )
+        # S级机会: “主升浪共振”得分极高
+        main_wave_score = df['CHIP_SCORE_SCENARIO_MAIN_WAVE_RESONANCE']
+        states['SCENARIO_MAIN_WAVE_RESONANCE_S'] = main_wave_score > main_wave_score.rolling(120).quantile(0.95)
 
-        # 情景A2 (A级机会): “阵地战转折点” (原B级信号升级)
-        # 解读: 在关键成本区拉锯时（静态），出现了底部反转式的吸筹信号（动态1），且卖盘已出现衰竭迹象（动态2）。
-        #      这表明空头力量衰竭，多头即将掌控局面，是突破前的黄金坑。
-        states['SCENARIO_BATTLEZONE_TURNING_POINT_A'] = (
-            is_battlezone_static &
-            is_reversal_gathering &
-            is_selling_exhausted
-        )
-        # === 风险情景 ===
-        # 情景R1 (S级风险): “高位派发陷阱” (原信号逻辑增强)
-        # 解读: 在获利丰厚的高位（静态），出现全周期共振式的派发（动态1），同时获利盘的平均利润开始收缩（动态2）。
-        #      这是典型的“明拉暗出”，是极度危险的顶部信号。
-        states['SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP_S'] = (
-            is_high_altitude_static &
-            is_diverging_resonance &
-            is_profit_margin_shrinking
-        )
-
-        # 情景R2 (A级风险): “堡垒内部瓦解” (原B级信号升级)
-        # 解读: 堡垒看似稳固（静态），但短期已出现派发迹象（动态1），且成本峰开始松动（动态2）。
-        #      这表明主力已无心守盘，高控盘成为派发的掩护，风险极高。
-        states['SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A'] = (
-            is_fortress_static &
-            is_reversal_diverging &
-            is_cost_falling
-        )
+        # A级机会: “阵地战转折点”得分较高
+        battlezone_score = df['CHIP_SCORE_SCENARIO_BATTLEZONE_TURNING_POINT']
+        states['SCENARIO_BATTLEZONE_TURNING_POINT_A'] = battlezone_score > battlezone_score.rolling(120).quantile(0.90)
         
-        # === 中性观察情景 ===
-        # 情景N1 (中性): “堡垒下的洗盘”
-        # 解读: 主力控盘度很高，短期的筹码发散大概率是洗盘行为，旨在清洗浮筹，可继续观察。
-        states['SCENARIO_WASHOUT_BELOW_FORTRESS_N'] = is_fortress_static & is_diverging_short & ~is_diverging_resonance
+        # === 风险情景 ===
+        # S级风险: “高位派发陷阱”得分极高
+        trap_score = df['CHIP_SCORE_SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP']
+        states['SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP_S'] = trap_score > trap_score.rolling(120).quantile(0.95)
+
+        # A级风险: “堡垒内部瓦解”得分较高
+        collapse_score = df['CHIP_SCORE_SCENARIO_FORTRESS_INTERNAL_COLLAPSE']
+        states['SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A'] = collapse_score > collapse_score.rolling(120).quantile(0.90)
+        
+        # === 中性观察情景 (基于得分) ===
+        washout_score = df['CHIP_SCORE_SCENARIO_WASHOUT_BELOW_FORTRESS']
+        states['SCENARIO_WASHOUT_BELOW_FORTRESS_N'] = washout_score > washout_score.rolling(120).quantile(0.80)
 
         return states
 
@@ -846,120 +443,439 @@ class ChipIntelligence:
         """
         # print("        -> [静态-多动态交叉验证模块(补充) V1.0] 启动...")
         states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 军备检查：确保所有必需的动态列都存在 ---
-        # 动态计算缺失的加速度列，如果数据工程层未提供
-        if 'SLOPE_5_close_D' in df.columns and 'ACCEL_5_close_D' not in df.columns:
-            df['ACCEL_5_close_D'] = df['SLOPE_5_close_D'].diff()
-        if 'SLOPE_5_turnover_from_losers_ratio_D' in df.columns and 'ACCEL_5_turnover_from_losers_ratio_D' not in df.columns:
-            df['ACCEL_5_turnover_from_losers_ratio_D'] = df['SLOPE_5_turnover_from_losers_ratio_D'].diff()
-        if 'SLOPE_5_turnover_from_winners_ratio_D' in df.columns and 'ACCEL_5_turnover_from_winners_ratio_D' not in df.columns:
-            df['ACCEL_5_turnover_from_winners_ratio_D'] = df['SLOPE_5_turnover_from_winners_ratio_D'].diff()
-
-        required_cols = [
-            'ACCEL_5_turnover_from_losers_ratio_D', 'SLOPE_5_concentration_90pct_D', 'SLOPE_5_close_D',
-            'ACCEL_5_turnover_from_winners_ratio_D', 'ACCEL_5_close_D', 'ACCEL_5_concentration_90pct_D'
+        required_scores = [
+            'CHIP_SCORE_OPP_DEEP_WATER_REVERSAL',
+            'CHIP_SCORE_OPP_ACCUMULATION_CONFIRMED',
+            'CHIP_SCORE_RISK_EUPHORIA_TRAP'
         ]
-        if any(c not in df.columns for c in required_cols):
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            print(f"          -> [警告] 静态-多动态交叉验证(补充)模块缺少关键数据: {missing_cols}，模块已跳过！")
+        if any(c not in df.columns for c in required_scores):
+            missing_cols = [c for c in required_scores if c not in df.columns]
+            print(f"          -> [警告] 静态-多动态交叉验证(补充)模块缺少关键得分数据: {missing_cols}，模块已跳过！")
             return states
-        # --- 2. 生成复合信号 ---
-        # === 机会信号 ===
-        # 信号1 (S级机会): 深水炸弹·绝望反转
-        # 解读: 在最悲观的区域，恐慌抛售已近尾声，同时有新主力在悄悄吸筹，价格也开始响应。
-        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
-        is_bleeding_stopping_dyn = df['ACCEL_5_turnover_from_losers_ratio_D'] < 0 # 套牢盘抛售加速度为负（抛压减速）
-        is_stealth_buying_start_dyn = df['SLOPE_5_concentration_90pct_D'] < 0 # 筹码开始集中
-        is_price_turning_up_dyn = df['SLOPE_5_close_D'] > 0 # 价格开始回升
-        states['OPP_CHIP_DEEP_WATER_REVERSAL_S'] = (
-            is_despair_zone_static &
-            is_bleeding_stopping_dyn &
-            is_stealth_buying_start_dyn &
-            is_price_turning_up_dyn
-        )
-        # 信号2 (A级机会): 阵地战·吸筹确认
-        # 解读: 在关键的拉锯战中，主力吸筹的意愿和力度都在增强，同时浮筹被有效清洗。
-        is_battle_zone_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
-        is_absorption_accelerating_dyn = df['ACCEL_5_concentration_90pct_D'] < 0 # 筹码加速集中
-        is_losers_giving_up_dyn = df['SLOPE_5_turnover_from_losers_ratio_D'] < 0 # 套牢盘换手率下降（惜售或已被洗出）
-        states['OPP_CHIP_ACCUMULATION_CONFIRMED_A'] = (
-            is_battle_zone_static &
-            is_absorption_accelerating_dyn &
-            is_losers_giving_up_dyn
-        )
-        # === 风险信号 ===
-        # 信号3 (S级风险): 高位狂欢·亢奋陷阱
-        # 解读: 在市场最乐观的时候，主力利用散户的追高情绪，加速派发筹码，同时拉升力度减弱。
-        is_euphoria_zone_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
-        is_winner_selling_accel_dyn = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0 # 获利盘抛售加速
-        is_chip_diverging_dyn = df['SLOPE_5_concentration_90pct_D'] > 0 # 筹码开始发散
-        is_price_momentum_fading_dyn = df['ACCEL_5_close_D'] < 0 # 价格上涨加速度放缓
-        states['RISK_CHIP_EUPHORIA_TRAP_S'] = (
-            is_euphoria_zone_static &
-            is_winner_selling_accel_dyn &
-            is_chip_diverging_dyn &
-            is_price_momentum_fading_dyn
-        )
+            
+        # --- 2. 基于情景得分生成最终信号 ---
+        # S级机会: 深水炸弹·绝望反转
+        reversal_score = df['CHIP_SCORE_OPP_DEEP_WATER_REVERSAL']
+        states['OPP_CHIP_DEEP_WATER_REVERSAL_S'] = reversal_score > reversal_score.rolling(120).quantile(0.98) # 极稀有，用98%分位
+
+        # A级机会: 阵地战·吸筹确认
+        accumulation_score = df['CHIP_SCORE_OPP_ACCUMULATION_CONFIRMED']
+        states['OPP_CHIP_ACCUMULATION_CONFIRMED_A'] = accumulation_score > accumulation_score.rolling(120).quantile(0.90)
+
+        # S级风险: 高位狂欢·亢奋陷阱
+        trap_score = df['CHIP_SCORE_RISK_EUPHORIA_TRAP']
+        states['RISK_CHIP_EUPHORIA_TRAP_S'] = trap_score > trap_score.rolling(120).quantile(0.95)
         return states
 
     def diagnose_static_multi_timeframe_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 重构】【职责迁移】静态-多时间维度交叉验证模块 (终极)
-        - 核心职责: 在特定的静态筹码“战场”上，对一组原始的、多维度的动态“军力”（斜率/加速度）
-                      进行直接的协同检验，生成最高级别的战略信号。
-        - 迁移说明: 此方法因强依赖本模块生成的静态筹码状态，已从 DynamicMechanicsEngine 迁移至此，
-                    以保证模块职责的内聚性和调用时序的正确性。
+        【V3.0 量化消费版】静态-多时间维度交叉验证模块 (终极)
+        - 核心重构: 全面转向消费由评分模块生成的专属情景得分 (`CHIP_SCORE_*`)，
+                    通过动态分位数阈值，识别出最高置信度的S级和A级战术信号。
         """
         # print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...")
         states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-        # --- 1. 军备检查：确保所有必需的“原子状态”和“动态指标列”都存在 ---
-        required_atomic_states = [
-            'CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', 'CHIP_STATE_UNIVERSAL_PROFIT', 'CHIP_STATE_PRICE_BELOW_PEAK_COST'
+        # --- 1. 军备检查：确保所有必需的“终极情景得分”都存在 ---
+        required_scores = [
+            'CHIP_SCORE_OPP_BREAKTHROUGH',
+            'CHIP_SCORE_RISK_COLLAPSE',
+            'CHIP_SCORE_OPP_INFLECTION'
         ]
-        required_dynamic_cols = [
-            'SLOPE_5_close_D', 'ACCEL_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
-            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
-        ]
-        if any(key not in atomic for key in required_atomic_states):
-            missing_keys = [key for key in required_atomic_states if key not in atomic]
-            print(f"          -> [警告] 终极模块缺少关键[静态原子状态]: {missing_keys}，模块已跳过！")
+        if any(c not in df.columns for c in required_scores):
+            missing_cols = [c for c in required_scores if c not in df.columns]
+            print(f"          -> [警告] 终极模块缺少关键得分数据: {missing_cols}，模块已跳过！")
             return states
-        if any(c not in df.columns for c in required_dynamic_cols):
-            missing_cols = [c for c in required_dynamic_cols if c not in df.columns]
-            print(f"          -> [警告] 终极模块缺少关键[动态指标列]: {missing_cols}，模块已跳过！")
-            return states
-        # --- 2. 生成终极交叉验证信号 ---
+            
+        # --- 2. 基于情景得分生成最终信号 ---
         # 信号1 (S级机会): “阵地战·协同突破”
-        is_trench_warfare_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
-        states['OPP_STATIC_DYN_BREAKTHROUGH_S'] = (
-            is_trench_warfare_static &
-            (df['ACCEL_5_close_D'] > 0) &
-            (df['SLOPE_21_close_D'] > 0) &
-            (df['SLOPE_5_concentration_90pct_D'] < 0)
-        )
+        breakthrough_score = df['CHIP_SCORE_OPP_BREAKTHROUGH']
+        states['OPP_STATIC_DYN_BREAKTHROUGH_S'] = breakthrough_score > breakthrough_score.rolling(120).quantile(0.95)
+
         # 信号2 (S级风险): “亢奋顶点·结构瓦解”
-        is_euphoria_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
-        states['RISK_STATIC_DYN_COLLAPSE_S'] = (
-            is_euphoria_static &
-            (df['SLOPE_5_close_D'] > 0) &
-            (df['SLOPE_21_concentration_90pct_D'] > 0) &
-            (df['SLOPE_5_concentration_90pct_D'] > 0)
-        )
+        collapse_score = df['CHIP_SCORE_RISK_COLLAPSE']
+        states['RISK_STATIC_DYN_COLLAPSE_S'] = collapse_score > collapse_score.rolling(120).quantile(0.95)
+
         # 信号3 (A级机会): “绝望冰点·周期拐点”
-        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
-        states['OPP_STATIC_DYN_INFLECTION_A'] = (
-            is_despair_zone_static &
-            (df['ACCEL_21_close_D'] > 0) &
-            (df['SLOPE_5_close_D'] > 0) &
-            ((df['SLOPE_21_close_D'] < 0).shift(1))
-        )
+        inflection_score = df['CHIP_SCORE_OPP_INFLECTION']
+        states['OPP_STATIC_DYN_INFLECTION_A'] = inflection_score > inflection_score.rolling(120).quantile(0.90)
         return states
 
+    def diagnose_quantitative_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V2.0 量化评分中心版】筹码信号量化评分诊断模块
+        - 核心职责: 将所有关键的筹码信号升级为0-1之间的连续得分，成为量化分析的核心枢纽。
+        - 核心新增 (本次修改): 新增了“共振得分”和“背离得分”的计算，以量化多周期趋势的一致性与分歧。
+        """
+        # print("        -> [筹码信号量化评分模块 V2.0] 启动，正在深化信号层次...")
+        # 辅助函数，用于安全地从 atomic_states 获取分数
+        def _get_atomic_score(name: str, default: float = 0.5) -> pd.Series:
+            return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
+        # --- 1. 多周期集中趋势动能得分 ---
+        # 使用_calculate_normalized_score将斜率转换为0-1的得分，斜率越小（负得越多），得分越高
+        score_5d = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        score_21d = self._calculate_normalized_score(df.get('SLOPE_21_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        score_55d = self._calculate_normalized_score(df.get('SLOPE_55_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        # --- 2. 共振与背离得分 ---
+        weights = {'short': 0.5, 'mid': 0.3, 'long': 0.2}
+        df['CHIP_SCORE_CONCENTRATION_RESONANCE'] = (score_5d * weights['short'] + score_21d * weights['mid'] + score_55d * weights['long'])
+        df['CHIP_SCORE_CONCENTRATION_DIVERGENCE'] = score_5d - score_55d
+        # --- 3. 集中趋势动能得分 (Concentration Momentum Score) ---
+        if 'SLOPE_5_concentration_90pct_D' in df.columns:
+            df['CHIP_SCORE_CONCENTRATION_MOMENTUM'] = self._calculate_normalized_score(series=df['SLOPE_5_concentration_90pct_D'], window=120, ascending=False)
+        # --- 4. 成本支撑强度得分 (Cost Support Score) ---
+        if 'SLOPE_5_peak_cost_D' in df.columns:
+            df['CHIP_SCORE_COST_SUPPORT_MOMENTUM'] = self._calculate_normalized_score(series=df['SLOPE_5_peak_cost_D'], window=120, ascending=True)
+        # --- 5. 结构稳定性得分 (Structural Stability Score) ---
+        required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D']
+        if all(c in df.columns for c in required_cols):
+            control_score = self._calculate_normalized_score(df['peak_control_ratio_D'], window=120)
+            strength_score = self._calculate_normalized_score(df['peak_strength_ratio_D'], window=120)
+            # 使用“次峰强度比”来量化“单峰纯度”，替代原有的 is_multi_peak_D 布尔值
+            # peak_strength_ratio_D 越小，说明次峰越弱，单峰纯度越高。对于真单峰，该值为NaN，填充为0。
+            # ascending=False 意味着值越小，得分越高。
+            single_peak_purity_score = self._calculate_normalized_score(
+                df.get('peak_strength_ratio_D', 0).fillna(0), 
+                window=120, 
+                ascending=False
+            )
+            df['CHIP_SCORE_STRUCTURE_STABILITY'] = (
+                0.3 * control_score +
+                0.3 * strength_score +
+                0.4 * single_peak_purity_score
+            )
+        # --- 6. 派发风险得分 (Distribution Risk Score) ---
+        risk_cols = ['SLOPE_5_concentration_90pct_D', 'SLOPE_5_turnover_from_winners_ratio_D']
+        if all(c in df.columns for c in risk_cols):
+            divergence_risk = self._calculate_normalized_score(df['SLOPE_5_concentration_90pct_D'], window=120, ascending=True)
+            profit_taking_risk = self._calculate_normalized_score(df['SLOPE_5_turnover_from_winners_ratio_D'], window=120, ascending=True)
+            df['CHIP_SCORE_DISTRIBUTION_RISK'] = (divergence_risk + profit_taking_risk) / 2
+        # --- 7. 行为量化得分 ---
+        behavior_cols = [
+            'turnover_from_winners_ratio_D', 'SLOPE_5_turnover_from_winners_ratio_D',
+            'SLOPE_21_turnover_from_winners_ratio_D', 'SLOPE_55_turnover_from_winners_ratio_D',
+            'ACCEL_5_turnover_from_winners_ratio_D', 'turnover_from_losers_ratio_D'
+        ]
+        if all(c in df.columns for c in behavior_cols):
+            # 7.1 获利盘抛压得分 (Profit Taking Pressure Score)
+            # 综合评估短、中、长期的抛售趋势
+            pressure_5d = self._calculate_normalized_score(df['SLOPE_5_turnover_from_winners_ratio_D'], window=120, ascending=True)
+            pressure_21d = self._calculate_normalized_score(df['SLOPE_21_turnover_from_winners_ratio_D'], window=120, ascending=True)
+            pressure_55d = self._calculate_normalized_score(df['SLOPE_55_turnover_from_winners_ratio_D'], window=120, ascending=True)
+            df['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING'] = (pressure_5d * 0.5 + pressure_21d * 0.3 + pressure_55d * 0.2)
+            df['CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION'] = self._calculate_normalized_score(df['ACCEL_5_turnover_from_winners_ratio_D'], window=120, ascending=False)
+            # 7.3 恐慌盘投降得分 (Panic Capitulation Score) - 升级版
+            # a. 量化下跌剧烈程度，替代 is_sharp_drop
+            sharp_drop_score = self._calculate_normalized_score(df['pct_change_D'], window=60, ascending=False)
+            # b. 结合亏损盘换手率计算最终得分
+            loser_turnover_score = self._calculate_normalized_score(df['turnover_from_losers_ratio_D'], window=120, ascending=True)
+            df['CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION'] = loser_turnover_score * sharp_drop_score
+        # --- 8. 机会与静态结构得分 ---
+        # 8.1 利润安全垫得分 (越高越好)
+        if 'winner_profit_margin_D' in df.columns:
+            df['CHIP_SCORE_OPP_PROFIT_CUSHION'] = self._calculate_normalized_score(df['winner_profit_margin_D'], window=120, ascending=True)
+        # 8.2 主峰吸筹强度得分 (越高越好)
+        if 'peak_absorption_intensity_D' in df.columns:
+            df['CHIP_SCORE_OPP_ABSORPTION_INTENSITY'] = self._calculate_normalized_score(df['peak_absorption_intensity_D'], window=120, ascending=True)
+        # 8.3 价格动能得分 (价格相对成本峰越高，得分越高)
+        if 'price_to_peak_ratio_D' in df.columns:
+            df['CHIP_SCORE_STATIC_PRICE_MOMENTUM'] = self._calculate_normalized_score(df['price_to_peak_ratio_D'], window=120, ascending=True)
+        # 8.4 结构紧凑度得分 (c90-c70的差距越小，得分越高)
+        if 'concentration_90pct_D' in df.columns and 'concentration_70pct_D' in df.columns:
+            concentration_gap = df['concentration_90pct_D'] - df['concentration_70pct_D']
+            df['CHIP_SCORE_STATIC_COMPACTNESS'] = self._calculate_normalized_score(concentration_gap, window=120, ascending=False)
+        # --- 9. 战略情景得分 (Scenario Conviction Scores) ---
+        # 9.1 创建情景所需的基础得分
+        # 看涨背离得分 (短期趋势好于长期)
+        bullish_reversal_score = df.get('CHIP_SCORE_CONCENTRATION_DIVERGENCE', pd.Series(0, index=df.index)).clip(lower=0)
+        # 看跌背离得分 (短期趋势差于长期)
+        bearish_reversal_score = (-df.get('CHIP_SCORE_CONCENTRATION_DIVERGENCE', pd.Series(0, index=df.index))).clip(lower=0)
+        # 利润垫抬升得分
+        profit_margin_rising_score = self._calculate_normalized_score(df.get('SLOPE_5_winner_profit_margin_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        # 利润垫收缩得分
+        profit_margin_shrinking_score = self._calculate_normalized_score(df.get('SLOPE_5_winner_profit_margin_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        # 成本下降得分
+        cost_falling_score = self._calculate_normalized_score(df.get('SLOPE_5_peak_cost_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        # 阵地战邻近得分 (价格越接近成本峰，得分越高)
+        if 'price_to_peak_ratio_D' in df.columns:
+            proximity = 1 - (df['price_to_peak_ratio_D'] - 1).abs()
+            df['CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY'] = proximity.clip(lower=0)
+        # 9.2 计算复合情景得分 (使用乘法融合各维度得分)
+        df['CHIP_SCORE_SCENARIO_MAIN_WAVE_RESONANCE'] = (
+            df.get('CHIP_SCORE_STRUCTURE_STABILITY', 0.5) *
+            df.get('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.5) *
+            df.get('CHIP_SCORE_COST_SUPPORT_MOMENTUM', 0.5) *
+            profit_margin_rising_score
+        )
+        df['CHIP_SCORE_SCENARIO_BATTLEZONE_TURNING_POINT'] = (
+            df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) *
+            bullish_reversal_score *
+            df.get('CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION', 0.5)
+        )
+        df['CHIP_SCORE_SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP'] = (
+            df.get('CHIP_SCORE_STATIC_PRICE_MOMENTUM', 0.5) *
+            (1 - df.get('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.5)) * # 派发是集中的反面
+            profit_margin_shrinking_score
+        )
+        df['CHIP_SCORE_SCENARIO_FORTRESS_INTERNAL_COLLAPSE'] = (
+            df.get('CHIP_SCORE_STRUCTURE_STABILITY', 0.5) *
+            bearish_reversal_score *
+            cost_falling_score
+        )
+        # --- 10. 复合状态与交叉验证得分 ---
+        # 10.1 筹码锁定稳定得分 (A级状态)
+        concentration_score = self._calculate_normalized_score(df.get('concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        cost_stability_score = self._calculate_normalized_score(df.get('SLOPE_5_peak_cost_D', pd.Series(0, index=df.index)).abs(), window=120, ascending=False)
+        df['CHIP_SCORE_STRUCTURE_LOCKED_STABLE'] = concentration_score * cost_stability_score
+        # 10.2 行为强度得分 (替代硬编码阈值)
+        if 'turnover_from_winners_ratio_D' in df.columns:
+            df['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING_INTENSITY'] = self._calculate_normalized_score(df['turnover_from_winners_ratio_D'], window=120, ascending=True)
+        if 'turnover_from_losers_ratio_D' in df.columns:
+            df['CHIP_SCORE_BEHAVIOR_LOSER_CAPITULATION_INTENSITY'] = self._calculate_normalized_score(df['turnover_from_losers_ratio_D'], window=120, ascending=True)
+        # 10.3 静态-多动态交叉验证情景得分
+        # S级机会: 深水炸弹·绝望反转
+        despair_zone_score = self._calculate_normalized_score(df.get('price_to_peak_ratio_D', pd.Series(1, index=df.index)), window=120, ascending=False)
+        bleeding_stopping_score = self._calculate_normalized_score(df.get('ACCEL_5_turnover_from_losers_ratio_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        stealth_buying_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        price_turning_score = self._calculate_normalized_score(df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        df['CHIP_SCORE_OPP_DEEP_WATER_REVERSAL'] = despair_zone_score * bleeding_stopping_score * stealth_buying_score * price_turning_score
+        # A级机会: 阵地战·吸筹确认
+        absorption_accel_score = self._calculate_normalized_score(df.get('ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        losers_giving_up_score = self._calculate_normalized_score(df.get('SLOPE_5_turnover_from_losers_ratio_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        df['CHIP_SCORE_OPP_ACCUMULATION_CONFIRMED'] = df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) * absorption_accel_score * losers_giving_up_score
+        # S级风险: 高位狂欢·亢奋陷阱
+        euphoria_score = self._calculate_normalized_score(df.get('total_winner_rate_D', pd.Series(50, index=df.index)), window=120, ascending=True)
+        winner_selling_accel_score = self._calculate_normalized_score(df.get('ACCEL_5_turnover_from_winners_ratio_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        chip_diverging_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        price_momentum_fading_score = self._calculate_normalized_score(df.get('ACCEL_5_close_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        df['CHIP_SCORE_RISK_EUPHORIA_TRAP'] = euphoria_score * winner_selling_accel_score * chip_diverging_score * price_momentum_fading_score
+        # --- 11. 终极交叉验证与复合机会得分 ---
+        # 11.1 S级机会: “阵地战·协同突破”得分
+        price_accel_score = self._calculate_normalized_score(df.get('ACCEL_5_close_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        mid_term_price_trend_score = self._calculate_normalized_score(df.get('SLOPE_21_close_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        short_term_concentration_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        df['CHIP_SCORE_OPP_BREAKTHROUGH'] = df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) * price_accel_score * mid_term_price_trend_score * short_term_concentration_score
+        # 11.2 S级风险: “亢奋顶点·结构瓦解”得分
+        short_term_price_trend_score = self._calculate_normalized_score(df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        mid_term_divergence_score = self._calculate_normalized_score(df.get('SLOPE_21_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        short_term_divergence_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        df['CHIP_SCORE_RISK_COLLAPSE'] = euphoria_score * short_term_price_trend_score * mid_term_divergence_score * short_term_divergence_score
+        # 11.3 A级机会: “绝望冰点·周期拐点”得分 (升级版)
+        mid_term_price_accel_score = self._calculate_normalized_score(df.get('ACCEL_21_close_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        # 将二元化的 was_in_downtrend_yesterday 替换为连续的 prior_downtrend_strength_score
+        prior_downtrend_strength_score = self._calculate_normalized_score(df.get('SLOPE_21_close_D', 0).shift(1), window=60, ascending=False)
+        df['CHIP_SCORE_OPP_INFLECTION'] = despair_zone_score * mid_term_price_accel_score * short_term_price_trend_score * prior_downtrend_strength_score
+        high_zone_score = _get_atomic_score('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE')
+        # 11.4 S级机会: “黄金筹码机会”得分
+        # 注意: CONTEXT_TREND_STAGE_EARLY 来自外部模块，这里假设它是一个0/1的Series
+        early_stage_score = _get_atomic_score('COGNITIVE_SCORE_TREND_STAGE_EARLY')
+        df['CHIP_SCORE_PRIME_OPPORTUNITY'] = df.get('CHIP_SCORE_STRUCTURE_LOCKED_STABLE', 0.5) * early_stage_score
+        # 11.5 S级风险: “价格筹码顶背离”得分
+        new_high_score = self._calculate_normalized_score(df.get('close_D', pd.Series(0, index=df.index)), window=60, ascending=True) # 用60日价格分位数代表“新高”程度
+        df['CHIP_SCORE_RISK_PRICE_DIVERGENCE'] = new_high_score * short_term_divergence_score
+        # --- 12. 终极战术情景得分 ---
+        # 12.1 S级机会: “锁仓点火”得分
+        cost_accelerating_score = self._calculate_normalized_score(df.get('ACCEL_5_peak_cost_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        df['CHIP_SCORE_OPP_LOCKED_IGNITION'] = df.get('CHIP_SCORE_STRUCTURE_LOCKED_STABLE', 0.5) * cost_accelerating_score
+        # 12.2 主峰攻防战得分
+        battle_intensity_score = self._calculate_normalized_score(df.get('turnover_at_peak_ratio_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        high_volume_score = self._calculate_normalized_score(df.get('volume_D', pd.Series(0, index=df.index)) / df.get('VOL_MA_21_D', pd.Series(1, index=df.index)), window=120, ascending=True)
+        # 攻防战“准备”阶段的质量得分
+        battle_setup_score = (
+            df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) *
+            battle_intensity_score *
+            high_volume_score
+        )
+        # A级机会: “主峰换手突破”得分 (需要近期的“准备”+当日的“确认”)
+        price_rising_meaningfully_score = self._calculate_normalized_score(df.get('pct_change_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        had_recent_setup_score = battle_setup_score.shift(1).rolling(window=3, min_periods=1).max()
+        df['CHIP_SCORE_OPP_PEAK_BATTLE_BREAKOUT'] = had_recent_setup_score * price_rising_meaningfully_score
+        # A级风险: “主峰高位派发”得分
+        price_stagnant_score = self._calculate_normalized_score(df.get('pct_change_D', pd.Series(0, index=df.index)), window=120, ascending=False) # 涨不动得分高
+        df['CHIP_SCORE_RISK_PEAK_BATTLE_DISTRIBUTION'] = battle_setup_score * price_stagnant_score
+        # --- 13. 核心过程与复合风险量化 ---
+        # 13.1 筹码聚集强度得分 (用于C/B/B+级信号)
+        concentration_accel_score = self._calculate_normalized_score(df.get('ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        df['CHIP_SCORE_GATHERING_INTENSITY'] = df.get('CHIP_SCORE_CONCENTRATION_MOMENTUM', 0.5) * concentration_accel_score
+        # 13.2 长期派发风险得分
+        # a. 21日集中度恶化程度得分
+        conc_worsened_ratio = df.get('concentration_90pct_D', 1) / df.get('concentration_90pct_D', 1).shift(21)
+        conc_worsened_score = self._calculate_normalized_score(conc_worsened_ratio, window=120, ascending=True) # ratio > 1 is bad
+        # b. 21日斜率发散得分
+        slope_21d_diverging_score = self._calculate_normalized_score(df.get('SLOPE_21_concentration_90pct_D', 0), window=120, ascending=True)
+        # c. 高位区风险得分 (假设 CONTEXT_RISK_HIGH_LEVEL_ZONE 是 0/1)
+        df['CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION'] = ((conc_worsened_score + slope_21d_diverging_score) / 2) * high_zone_score
+        # 13.3 盘整突破前兆得分 (A级机会)
+        df['CHIP_SCORE_OPP_BREAKOUT_PRECURSOR'] = df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) * df.get('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.5)
+        # 13.4 高位派发确认得分 (S级风险)
+        df['CHIP_SCORE_RISK_DISTRIBUTION_CONFIRMED'] = df.get('CHIP_SCORE_STATIC_PRICE_MOMENTUM', 0.5) * (1 - df.get('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.5))
+        # 13.5 主力自救失败得分 (A级风险)
+        df['CHIP_SCORE_RISK_BAILOUT_FAILURE'] = df.get('CHIP_SCORE_SCENARIO_BATTLEZONE_PROXIMITY', 0) * short_term_divergence_score
+        # --- 14. 终极信号量化 (收官) ---
+        # 14.1 S级堡垒结构得分
+        control_score = self._calculate_normalized_score(df.get('peak_control_ratio_D', 0), window=120)
+        strength_score = self._calculate_normalized_score(df.get('peak_strength_ratio_D', 0), window=120)
+        single_peak_score = self._calculate_normalized_score(
+            df.get('peak_strength_ratio_D', 0).fillna(0), 
+            window=120, 
+            ascending=False
+        )
+        df['CHIP_SCORE_STRUCTURE_FORTRESS'] = control_score * strength_score * single_peak_score
+        # 14.2 锁仓突破得分
+        # a. 突破K线质量分 (综合考虑涨幅和放量)
+        breakout_candle_score = price_rising_meaningfully_score * high_volume_score
+        # b. 最终得分
+        df['CHIP_SCORE_OPP_LOCKED_BREAKOUT'] = df.get('CHIP_SCORE_STRUCTURE_LOCKED_STABLE', 0.5) * breakout_candle_score
+        # 14.3 点火信号得分
+        df['CHIP_SCORE_TRIGGER_IGNITION'] = self._calculate_normalized_score(df.get('ACCEL_5_peak_cost_D', 0), window=120, ascending=True)
+        # 14.4 终极风险裁定得分 (V2.0 状态型升级版)
+        winner_rate_collapse_score = self._calculate_normalized_score(df.get('SLOPE_5_total_winner_rate_D', 0), window=120, ascending=False)
+        health_deterioration_score = self._calculate_normalized_score(df.get('SLOPE_5_chip_health_score_D', 0), window=120, ascending=False)
+        # 将“事件型”的拐点检测，升级为“状态型”的恶化强度量化
+        conc_accel_21d = df.get('ACCEL_21_concentration_90pct_D', pd.Series(0, index=df.index))
+        # 只保留加速恶化的部分(>0)，将其作为风险强度的原始度量
+        worsening_intensity = conc_accel_21d.clip(lower=0)
+        # 对这个“恶化强度”进行归一化，得到最终的风险得分
+        df['CHIP_SCORE_RISK_WORSENING_TURN'] = self._calculate_normalized_score(worsening_intensity, window=120, ascending=True)
+        fleeing_b_score = self._calculate_normalized_score(df.get('CHIP_SCORE_BEHAVIOR_PROFIT_TAKING', 0.5), window=120, ascending=True)
+        fleeing_accel_score = (1 - df.get('CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION', 0.5))
+        df['CHIP_SCORE_RISK_PANIC_FLEEING'] = fleeing_b_score * fleeing_accel_score
+        # 重新构建终极风险得分DataFrame
+        short_term_divergence_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)), window=120, ascending=True)
+        cost_falling_score = self._calculate_normalized_score(df.get('SLOPE_5_peak_cost_D', pd.Series(0, index=df.index)), window=120, ascending=False)
+        risk_scores_df = pd.DataFrame({
+            'risk_1': short_term_divergence_score,
+            'risk_2': cost_falling_score,
+            'risk_3': winner_rate_collapse_score,
+            'risk_4': df.get('CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION', 0),
+            'risk_5': df.get('CHIP_SCORE_RISK_WORSENING_TURN', 0), # 使用新的、更稳健的“状态型”得分
+            'risk_6': df.get('CHIP_SCORE_RISK_PANIC_FLEEING', 0),
+            'risk_7': df.get('CHIP_SCORE_RISK_PRICE_DIVERGENCE', 0),
+            'risk_8': health_deterioration_score,
+            'risk_9': df.get('CHIP_SCORE_RISK_DISTRIBUTION_CONFIRMED', 0),
+            'risk_10': df.get('CHIP_SCORE_RISK_BAILOUT_FAILURE', 0),
+            'risk_11': df.get('CHIP_SCORE_SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP', 0),
+            'risk_12': df.get('CHIP_SCORE_SCENARIO_FORTRESS_INTERNAL_COLLAPSE', 0)
+        })
+        df['CHIP_SCORE_RISK_CRITICAL_FAILURE'] = risk_scores_df.max(axis=1)
+        # --- 15. 基础动态与上下文得分 (基石) ---
+        # 15.1 宏观战略背景得分
+        df['CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING'] = score_55d # 直接复用55日集中趋势得分
+        # 15.2 基础动态原子得分
+        cost_constructive_score = self._calculate_normalized_score(df.get('SLOPE_5_peak_cost_D', 0), window=60, ascending=True)
+        washout_score = _get_atomic_score('BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION')
+        bottoming_score = _get_atomic_score('SCORE_MA_STATE_BOTTOM_PASSIVATION')
+        concentrating_score_1 = df.get('CHIP_SCORE_CONCENTRATION_MOMENTUM', 0.5) * cost_constructive_score
+        concentrating_score_2 = washout_score
+        concentrating_score_3 = df.get('CHIP_SCORE_CONCENTRATION_MOMENTUM', 0.5) * bottoming_score
+        df['CHIP_SCORE_DYN_CONCENTRATING'] = pd.concat([concentrating_score_1, concentrating_score_2, concentrating_score_3], axis=1).max(axis=1)
+        df['CHIP_SCORE_DYN_DIVERGING'] = (1 - df.get('CHIP_SCORE_CONCENTRATION_MOMENTUM', 0.5)) * high_zone_score
+        df['CHIP_SCORE_DYN_S_ACCEL_CONCENTRATING'] = df.get('CHIP_SCORE_DYN_CONCENTRATING', 0.5) * concentration_accel_score
+        df['CHIP_SCORE_DYN_ACCEL_DIVERGING'] = self._calculate_normalized_score(df.get('ACCEL_5_concentration_90pct_D', 0), window=120, ascending=True) * high_zone_score
+        df['CHIP_SCORE_DYN_COST_RISING'] = df.get('CHIP_SCORE_COST_SUPPORT_MOMENTUM', 0.5)
+        df['CHIP_SCORE_DYN_COST_ACCELERATING'] = df.get('CHIP_SCORE_TRIGGER_IGNITION', 0.5)
+        df['CHIP_SCORE_DYN_COST_FALLING'] = cost_falling_score
+        df['CHIP_SCORE_DYN_WINNER_RATE_RISING'] = self._calculate_normalized_score(df.get('SLOPE_5_total_winner_rate_D', 0), window=120, ascending=True)
+        df['CHIP_SCORE_DYN_WINNER_RATE_COLLAPSING'] = winner_rate_collapse_score
+        df['CHIP_SCORE_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = self._calculate_normalized_score(df.get('ACCEL_5_total_winner_rate_D', 0), window=120, ascending=False)
+        health_improving_score = self._calculate_normalized_score(df.get('SLOPE_5_chip_health_score_D', 0), window=120, ascending=True)
+        df['CHIP_SCORE_DYN_HEALTH_IMPROVING'] = health_improving_score * df.get('CHIP_SCORE_DYN_CONCENTRATING', 0.5)
+        df['CHIP_SCORE_DYN_HEALTH_DETERIORATING'] = health_deterioration_score * df.get('CHIP_SCORE_DYN_DIVERGING', 0.5)
+        # 15.3 上下文过滤器得分
+        uptrend_context_score = self._calculate_normalized_score(df.get('close_D', 1) / df.get('EMA_55_D', 1), window=120, ascending=True)
+        df['CHIP_SCORE_CONTEXT_UPTREND'] = uptrend_context_score.clip(lower=0)
+        early_reversal_score = _get_atomic_score('SCORE_STRUCTURE_EARLY_REVERSAL')
+        df['CHIP_SCORE_CONTEXT_SAFE'] = pd.concat([bottoming_score, early_reversal_score], axis=1).max(axis=1)
+        # --- 16. 筹码峰“创世纪”过程量化 (V3.0 终极纯化版) ---
+        # 16.1 计算基础变化指标
+        peak_cost_series = df.get('peak_cost_D', pd.Series(np.nan, index=df.index))
+        peak_change_pct = peak_cost_series.pct_change().abs().fillna(0)
+        # 16.2 量化“新峰形成”的各个维度
+        # a. 变化强度得分
+        peak_change_intensity_score = self._calculate_normalized_score(peak_change_pct, window=60, ascending=True)
+        # b. 形成过程稳定性得分 (使用近期波动率作为代理)
+        peak_cost_volatility = peak_cost_series.rolling(5).std() / peak_cost_series.rolling(5).mean()
+        formation_stability_score = self._calculate_normalized_score(peak_cost_volatility.fillna(1), window=60, ascending=False)
+        # c. 形成过程持续度得分 (V2.0 纯化版)
+        # 废除 is_stable_day 的布尔判断，改为量化“近期平均变化率”
+        # 近期平均变化率越低，代表持续稳定性越高
+        avg_instability = peak_change_pct.rolling(10, min_periods=3).mean()
+        formation_duration_score = self._calculate_normalized_score(avg_instability.fillna(1), window=60, ascending=False)
+        # 16.3 合成“新峰形成置信度”得分
+        formation_confidence_score = (
+            peak_change_intensity_score * 
+            formation_stability_score * 
+            formation_duration_score
+        )
+        # 16.4 基于新的置信度得分，计算最终的“创世纪”情景得分
+        vol_ratio = df.get('volume_D', 1) / df.get('VOL_MA_21_D', 1)
+        high_volume_score = self._calculate_normalized_score(vol_ratio, window=60, ascending=True)
+        low_volume_score = 1 - high_volume_score
+        prior_trend_slope = df.get('SLOPE_55_EMA_55_D', pd.Series(0, index=df.index)).shift(1)
+        prior_downtrend_score = self._calculate_normalized_score(prior_trend_slope, window=60, ascending=False)
+        prior_uptrend_score = self._calculate_normalized_score(prior_trend_slope, window=60, ascending=True)
+        df['PEAK_SCORE_OPP_FORTRESS_SUPPORT'] = formation_confidence_score * high_volume_score * prior_downtrend_score
+        df['PEAK_SCORE_RISK_EXHAUSTION_TOP'] = formation_confidence_score * high_volume_score * prior_uptrend_score
+        df['PEAK_SCORE_OPP_STEALTH_ACCUMULATION'] = formation_confidence_score * low_volume_score * prior_downtrend_score * df.get('CHIP_SCORE_CONTEXT_SAFE', 0.5)
+        # --- 17. 最终抛光：量化剩余的微观逻辑 ---
+        # 17.1 静态价格区间得分
+        df['CHIP_SCORE_STATIC_PRICE_BELOW_PEAK'] = self._calculate_normalized_score(df.get('price_to_peak_ratio_D', 1.0), window=120, ascending=False)
+        # 17.2 主峰高位派发风险（含高位区上下文）
+        df['CHIP_SCORE_RISK_PEAK_BATTLE_DISTRIBUTION_IN_ZONE'] = df.get('CHIP_SCORE_RISK_PEAK_BATTLE_DISTRIBUTION', 0.5) * high_zone_score
+        # 17.3 中性场景：堡垒下洗盘得分
+        compactness_score = df.get('CHIP_SCORE_STATIC_COMPACTNESS', 0.5)
+        diverging_short_score = self._calculate_normalized_score(df.get('SLOPE_5_concentration_90pct_D', 0), window=120, ascending=True)
+        not_diverging_resonance_score = df.get('CHIP_SCORE_CONCENTRATION_RESONANCE', 0.5) # 共振分越高，越不可能是共振派发
+        df['CHIP_SCORE_SCENARIO_WASHOUT_BELOW_FORTRESS'] = compactness_score * diverging_short_score * not_diverging_resonance_score
+        # 17.4 风险拐点事件得分
+        conc_accel_21d = df.get('ACCEL_21_concentration_90pct_D', pd.Series(0, index=df.index))
+        is_turn_event = (conc_accel_21d > 0) & (conc_accel_21d.shift(1) <= 0)
+        # 量化拐点的强度（即当日加速度的大小）
+        turn_magnitude = conc_accel_21d.where(is_turn_event, 0)
+        df['CHIP_SCORE_RISK_WORSENING_TURN'] = self._calculate_normalized_score(turn_magnitude, window=120, ascending=True)
+        # --- 18. 终极竣工：内生化最后的机会信号得分 ---
+        # 18.1 量化“筹码断层新生”事件得分，替代 is_chip_fault_formed_D 的布尔逻辑
+        # a. 断层强度得分 (强度越大，得分越高)
+        fault_strength_score = self._calculate_normalized_score(
+            df.get('chip_fault_strength_D', 0).fillna(0), 
+            window=120, 
+            ascending=True
+        )
+        # b. 真空区“清澈度”得分 (真空区筹码占比越小，得分越高)
+        vacuum_clearance_score = self._calculate_normalized_score(
+            df.get('chip_fault_vacuum_percent_D', 100).fillna(100), 
+            window=120, 
+            ascending=False
+        )
+        # c. 最终得分是强度、清澈度、以及趋势背景的乘积
+        df['CHIP_SCORE_OPP_FAULT_REBIRTH'] = (
+            fault_strength_score * 
+            vacuum_clearance_score * 
+            df.get('CHIP_SCORE_CONTEXT_UPTREND', 0.5)
+        )
+        return df
+
+    def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
+        """
+        【新增】计算滚动归一化得分的辅助函数。
+        使用滚动分位数排名，将一个指标转换为0-1之间的得分。
+        :param series: 原始数据Series。
+        :param window: 滚动窗口大小。
+        :param ascending: 排序方向。True表示值越大得分越高，False反之。
+        :return: 归一化后的得分Series。
+        """
+        # 使用rank(pct=True)计算每个值在滚动窗口内的百分位排名
+        # min_periods设为窗口的1/4，以在数据初期尽快产生有效值
+        ranked = series.rolling(window=window, min_periods=window // 4).rank(pct=True)
+        
+        # 根据ascending参数决定最终得分
+        # 如果是降序（值越小越好，如筹码集中度），则用1减去排名
+        if not ascending:
+            score = 1 - ranked
+        else:
+            score = ranked
+            
+        # 用0.5（中性值）填充无法计算的NaN值
+        return score.fillna(0.5)
 
 
 
