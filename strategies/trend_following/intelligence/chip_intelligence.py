@@ -192,11 +192,11 @@ class ChipIntelligence:
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.1 逻辑澄清版】
-        - 核心澄清: 增加了注释，明确了 is_in_high_level_zone 变量的用途。
-                    它作为战略过滤器，将“客观发散”升级为在“高位危险区”发生的、
-                    更具实战意义的“风险发散”信号。
-        - 收益: 提升了代码的可读性和可维护性，阐明了信号分层的设计思想。
+        【V284.2 错误修复与逻辑完善版】
+        - 核心修复: 修复了因变量未定义导致的 `NameError` 严重错误。
+        - 核心完善: 完整实现了基于短、中、长三周期的筹码动态分析逻辑，
+                    补充了缺失的变量定义，使“共振”与“背离”信号的计算准确无误。
+        - 收益: 提升了代码的健壮性和可读性，并确保了高级筹码动态信号的正确生成。
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
@@ -222,10 +222,14 @@ class ChipIntelligence:
         # 定义“战场上下文”过滤器，用于区分发散行为的风险等级
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         
-        # --- 步骤2: 对“筹码集中度”进行动态分析 ---
-        # 引入“成本试金石”，区分真假筹码集中。
-        # 2.1 定义客观的集中趋势
-        is_concentrating_trend = df['SLOPE_5_concentration_90pct_D'] < 0
+        # --- 步骤2: 对“筹码集中度”进行多周期动态分析 ---
+        # 2.1 定义短、中、长周期的客观集中/发散趋势
+        is_concentrating_short_term = df['SLOPE_5_concentration_90pct_D'] < 0
+        is_concentrating_mid_term = df['SLOPE_21_concentration_90pct_D'] < 0
+        is_concentrating_long_term = df['SLOPE_55_concentration_90pct_D'] < 0
+        is_diverging_short_term = df['SLOPE_5_concentration_90pct_D'] > 0
+        is_diverging_mid_term = df['SLOPE_21_concentration_90pct_D'] > 0
+        is_diverging_long_term = df['SLOPE_55_concentration_90pct_D'] > 0
         
         # 2.2 定义“成本试金石”：成本峰必须稳定或抬高
         # 我们允许非常微小的负斜率，以容忍正常波动
