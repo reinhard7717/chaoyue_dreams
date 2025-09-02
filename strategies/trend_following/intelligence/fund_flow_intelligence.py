@@ -172,7 +172,13 @@ class FundFlowIntelligence:
             rally_threshold = get_param_value(p.get('fomo_rally_threshold'), 0.03) # 涨幅超过3%
             fomo_threshold = get_param_value(p.get('fomo_retail_rate_threshold'), 0.60) # 散户(小+中单)买入占比超过60%
             is_strong_rally = df[pct_change_col] > rally_threshold
-            is_retail_driven = (df[sm_rate_col] + df[md_rate_col]) > fomo_threshold
+            # 直接操作NumPy数组可以避免创建临时的Pandas Series，从而减少内存开销和计算时间
+            sm_rate_arr = df[sm_rate_col].to_numpy()
+            md_rate_arr = df[md_rate_col].to_numpy()
+            is_retail_driven = (sm_rate_arr + md_rate_arr) > fomo_threshold # 直接操作NumPy数组可以避免创建临时的Pandas Series，从而减少内存开销和计算时间
+            sm_rate_arr = df[sm_rate_col].to_numpy()
+            md_rate_arr = df[md_rate_col].to_numpy()
+            is_retail_driven = (sm_rate_arr + md_rate_arr) > fomo_threshold
             states['RISK_FUND_FLOW_RETAIL_FOMO_B'] = is_strong_rally & is_retail_driven
 
         print("        -> [资金流情报模块 V4.0 战术共振版] 诊断完毕。")

@@ -427,78 +427,72 @@ class ChipIntelligence:
 
     def diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V340.1 战略过滤版】筹码峰“创世纪”模块
+        【V340.1 战略过滤版】【代码优化】筹码峰“创世纪”模块
         - 核心修复: 为胜率仅10.8%的“隐蔽吸筹”信号增加了“均线底部钝化”的战略环境过滤器。
         - 收益: 根治了在下跌中继中错误识别“吸筹”的致命缺陷，确保只在趋势有反转
                 潜力的安全区域内识别此机会。
+        - 优化说明: 1. 将多次 groupby().transform() 合并为一次 groupby().agg()，显著减少计算开销。
+                    2. 使用 merge 替代 map(dict) 操作，以获得更好的性能和内存效率。
         """
         # print("        -> [筹码峰“创世纪”模块 V340.1 战略过滤版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index) # [新增代码] 增加默认序列
-        
+        default_series = pd.Series(False, index=df.index)
         # --- 1. 检查所需数据 ---
         required_cols = ['peak_cost_D', 'volume_D', 'VOL_MA_21_D', 'SLOPE_55_EMA_55_D']
         if any(c not in df.columns for c in required_cols):
             print("          -> [警告] 缺少诊断筹码峰起源所需数据，模块跳过。")
             return {}
-
         # --- 2. 识别“政权更迭”事件 ---
         is_peak_changed = (df['peak_cost_D'].pct_change().abs() > 0.015)
-        
         # --- 3. 使用向量化状态机替代for循环 ---
         stability_period = 3 # 需要稳定3天
-        
-        # 步骤 3.1: 使用 cumsum 创建事件区块ID，每个ID代表一个潜在的稳定观察期
+        # 步骤 3.1: 使用 cumsum 创建事件区块ID
         change_blocks = is_peak_changed.cumsum()
-        
-        # 步骤 3.2: 使用 groupby().transform() 并行计算每个区块的属性
-        # 计算每个区块的大小（持续天数）
-        block_sizes = change_blocks.groupby(change_blocks).transform('size')
-        # 计算每个区块内成本峰的相对标准差，判断其稳定性
-        block_std = df['peak_cost_D'].groupby(change_blocks).transform('std')
-        block_mean = df['peak_cost_D'].groupby(change_blocks).transform('mean')
-        is_block_stable = (block_std / block_mean.replace(0, np.nan)).fillna(0) < 0.01
-        
-        # 步骤 3.3: 确定哪些区块是“已确认形成”的
-        is_formation_confirmed = (block_sizes >= stability_period) & is_block_stable
-        
-        # 步骤 3.4: 获取已确认区块的“出生证明”
-        # 获取每个区块的起始日期（即政权更迭日）
+        # 步骤 3.2: 使用一次 agg 操作计算所有区块属性，而非多次 transform
+        block_stats = df.groupby(change_blocks)['peak_cost_D'].agg(['size', 'std', 'mean'])
+        block_stats.rename(columns={'size': 'block_sizes', 'std': 'block_std', 'mean': 'block_mean'}, inplace=True)
+        # 步骤 3.3: 将聚合结果合并回原始 DataFrame
+        df_temp = df.join(block_stats, on=change_blocks.name)
+        # 计算稳定性
+        is_block_stable = (df_temp['block_std'] / df_temp['block_mean'].replace(0, np.nan)).fillna(0) < 0.01
+        # 步骤 3.4: 确定哪些区块是“已确认形成”的
+        is_formation_confirmed = (df_temp['block_sizes'] >= stability_period) & is_block_stable
+        # 步骤 3.5: 获取已确认区块的“出生证明”
+        # 获取每个区块的起始日期
         block_start_indices = df.index.to_series().groupby(change_blocks).transform('first')
         # 仅保留已确认区块的起始日期
         formation_dates = block_start_indices.where(is_formation_confirmed)
-        
-        # 为了获取形成日的成交量比率，创建一个从日期到比率的映射
-        unique_formation_dates = formation_dates.dropna().unique()
-        if len(unique_formation_dates) > 0:
-            formation_day_data = df.loc[unique_formation_dates]
-            # 使用 .get() 增加健壮性，防止 VOL_MA_21_D 为0
-            ratio_map = (formation_day_data['volume_D'] / formation_day_data['VOL_MA_21_D'].replace(0, np.nan)).to_dict()
-            formation_volume_ratios = formation_dates.map(ratio_map)
+        # 步骤 3.6: 使用 merge 高效获取形成日的成交量比率
+        unique_formation_dates_df = pd.DataFrame(index=formation_dates.dropna().unique())
+        if not unique_formation_dates_df.empty:
+            formation_day_data = df.loc[unique_formation_dates_df.index, ['volume_D', 'VOL_MA_21_D']]
+            formation_day_data['formation_volume_ratios'] = formation_day_data['volume_D'] / formation_day_data['VOL_MA_21_D'].replace(0, np.nan)
+            # 使用 merge 将比率映射回 formation_dates 对应的位置
+            formation_dates_with_ratio = formation_dates.reset_index().dropna().merge(
+                formation_day_data[['formation_volume_ratios']],
+                left_on=0,
+                right_index=True,
+                how='left'
+            ).set_index('index')
+            formation_volume_ratios = formation_dates_with_ratio['formation_volume_ratios']
         else:
             formation_volume_ratios = pd.Series(np.nan, index=df.index)
-
         # --- 4. 解读“出生证明”，生成战略信号 ---
         is_high_volume_formation = formation_volume_ratios > 2.0
         is_low_volume_formation = formation_volume_ratios < 0.7
-        
         # 获取形成前一天的趋势状态
         trend_at_formation = df['SLOPE_55_EMA_55_D'].shift(1).loc[formation_dates.dropna()].to_dict()
         prev_day_trend = formation_dates.map(trend_at_formation)
-        
         is_after_downtrend = prev_day_trend <= 0
         is_after_uptrend = prev_day_trend > 0
-
         # 为“隐蔽吸筹”增加战略环境过滤器，这是本次修复的核心。
         # 过滤器：必须处于“均线底部钝化”状态，代表长期下跌趋势已得到遏制。
         is_bottoming_context = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
-
         # 组合生成最终的原子状态
         states['PEAK_DYN_FORTRESS_SUPPORT'] = is_high_volume_formation & is_after_downtrend
         states['PEAK_DYN_EXHAUSTION_TOP'] = is_high_volume_formation & is_after_uptrend
         # 注入战略过滤器
         states['PEAK_DYN_STEALTH_ACCUMULATION'] = is_low_volume_formation & is_after_downtrend & is_bottoming_context
-
         return states
 
     def diagnose_peak_battle_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -733,15 +727,15 @@ class ChipIntelligence:
     # “筹码行为诊断”方法
     def diagnose_chip_behavior_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】筹码行为诊断模块
+        【V1.0 新增】【代码优化】筹码行为诊断模块
         - 核心职责: 基于换手率数据，诊断获利盘的抛售意愿和亏损盘的止损行为。
                     这是洞察市场情绪和主力意图的关键。
         - 输出: 一系列描述市场参与者“动态行为”的中性原子信号。
+        - 优化说明: 避免了对 'turnover_from_winners_ratio_D' 和 'turnover_from_losers_ratio_D' 的重复滚动均值计算。
         """
         # print("            -> [筹码行为诊断模块 V1.0] 启动...")
         states = {}
         # default_series = pd.Series(False, index=df.index)
-
         # --- 1. 军备检查 ---
         # turnover_from_winners_ratio_D: 获利盘换手率
         # turnover_from_losers_ratio_D: 亏损盘换手率
@@ -749,20 +743,17 @@ class ChipIntelligence:
         if any(c not in df.columns for c in required_cols):
             print("              -> [警告] 缺少诊断筹码行为所需列 (如 turnover_from_winners_ratio_D)，模块跳过。")
             return {}
-
         # --- 2. 获利盘行为诊断 ---
         # 信号1: 获利盘抛压较大 (获利盘换手率高于一个动态阈值，例如60日均值的1.5倍)
         winner_turnover_ma = df['turnover_from_winners_ratio_D'].rolling(60).mean()
         is_high_winner_turnover = df['turnover_from_winners_ratio_D'] > (winner_turnover_ma * 1.8)
         states['CHIP_BEHAVIOR_HIGH_PROFIT_TAKING_PRESSURE'] = is_high_winner_turnover
-
         # --- 3. 亏损盘行为诊断 ---
         # 信号2: 亏损盘恐慌杀跌/投降 (股价大跌的同时，亏损盘换手率激增)
         is_sharp_drop = df['pct_change_D'] < -0.05 # 股价大跌超过5%
         loser_turnover_ma = df['turnover_from_losers_ratio_D'].rolling(60).mean()
         is_high_loser_turnover = df['turnover_from_losers_ratio_D'] > (loser_turnover_ma * 2.0)
         states['CHIP_BEHAVIOR_LOSER_CAPITULATION'] = is_sharp_drop & is_high_loser_turnover
-        
         print("            -> [筹码行为诊断模块 V1.0] 诊断完毕。")
         return states
 

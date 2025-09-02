@@ -345,12 +345,13 @@ class FoundationIntelligence:
         if all(c in df.columns for c in [macd_line_col, signal_line_col]):
             macd_line = df[macd_line_col]
             signal_line = df[signal_line_col]
+            prev_macd_line = macd_line.shift(1)
+            prev_signal_line = signal_line.shift(1)
             # 机会信号 (B级): MACD金叉，短期动能上穿长期动能
-            is_golden_cross = (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1))
+            is_golden_cross = (macd_line > signal_line) & (prev_macd_line <= prev_signal_line)
             states['OSC_TRIGGER_MACD_GOLDEN_CROSS_B'] = is_golden_cross
-
             # 风险信号 (B级): MACD死叉，短期动能下穿长期动能
-            is_death_cross = (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1))
+            is_death_cross = (macd_line < signal_line) & (prev_macd_line >= prev_signal_line)
             states['RISK_TRIGGER_MACD_DEATH_CROSS_B'] = is_death_cross
         else:
             print(f"          -> [警告] 缺少诊断MACD交叉所需列: '{macd_line_col}' 或 '{signal_line_col}'，跳过。")

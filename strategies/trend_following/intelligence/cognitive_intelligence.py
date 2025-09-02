@@ -143,13 +143,10 @@ class CognitiveIntelligence:
         """
         states = {}
         default_series = pd.Series(False, index=df.index)
-        
         # 我们认为“显性反转阳线”是最高质量的反转信号
         is_reversal_trigger = self.strategy.atomic_states.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-        
         # 使用滚动窗口检查过去3天内是否出现过该信号
-        had_recent_reversal = is_reversal_trigger.rolling(window=3, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
-        
+        had_recent_reversal = is_reversal_trigger.rolling(window=3, min_periods=1).max().astype(bool)
         states['CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
         return states
 
@@ -231,8 +228,13 @@ class CognitiveIntelligence:
         ]
         
         # 步骤 2.2: 循环遍历风险维度，累加分数
-        for dim in risk_dimensions:
-            late_stage_score += dim['condition'].astype(int) * dim['score']
+        # 使用列表推导式和np.add.reduce进行向量化求和，取代Python for循环
+        score_components = [
+            dim['condition'].to_numpy(dtype=np.int8) * dim['score']
+            for dim in risk_dimensions
+        ]
+        late_stage_score_arr = np.add.reduce(score_components)
+        late_stage_score = pd.Series(late_stage_score_arr, index=df.index, dtype=int)
         
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
@@ -327,7 +329,7 @@ class CognitiveIntelligence:
         atomic = self.strategy.atomic_states
 
         # --- 认知链 1/2: 识别“突破派发”风险 ---
-        # [修改] 将判断依据从资金流转向筹码发散
+        # 将判断依据从资金流转向筹码发散
         is_strong_rally = df['pct_change_D'] > 0.03
         is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
         cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_chip_diverging
@@ -346,8 +348,7 @@ class CognitiveIntelligence:
         )
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
-        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).apply(np.any, raw=True).fillna(0).astype(bool)
-
+        cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).max().astype(bool)
         # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。")
         return cognitive_states
 

@@ -27,14 +27,11 @@ class DynamicMechanicsEngine:
             print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力学分析跳过。")
             return states
         window = 5
-        # 定义一个高效的斜率计算函数
-        def calculate_slope(y):
-            if np.isnan(y).any():
-                return np.nan
-            return linregress(np.arange(window), y).slope
         # 1. 计算“进攻”和“风险”的趋势（斜率）
-        entry_score_slope = df['entry_score'].rolling(window).apply(calculate_slope, raw=True)
-        risk_score_slope = df['risk_score'].rolling(window).apply(calculate_slope, raw=True)
+        entry_score_series = df['entry_score']
+        risk_score_series = df['risk_score']
+        entry_score_slope = (-2 * entry_score_series.shift(4) - entry_score_series.shift(3) + entry_score_series.shift(1) + 2 * entry_score_series) / 10
+        risk_score_slope = (-2 * risk_score_series.shift(4) - risk_score_series.shift(3) + risk_score_series.shift(1) + 2 * risk_score_series) / 10
         # 2. 计算“进攻”和“风险”的加速度（斜率的差分）
         entry_score_accel = entry_score_slope.diff()
         risk_score_accel = risk_score_slope.diff()

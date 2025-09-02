@@ -123,18 +123,19 @@ class StructuralIntelligence:
         df['box_top_D'] = box_top
         df['box_bottom_D'] = box_bottom
 
-        was_below_top = df['close_D'].shift(1) <= box_top.shift(1)
+        # 预先计算前一日的数据，避免重复调用 .shift(1)，提高效率
+        prev_close = df['close_D'].shift(1)
+        prev_box_top = box_top.shift(1)
+        prev_box_bottom = box_bottom.shift(1)
+        # 使用预计算的变量判断突破
+        was_below_top = prev_close <= prev_box_top
         is_above_top = df['close_D'] > box_top
         states['BOX_EVENT_BREAKOUT'] = is_valid_box & is_above_top & was_below_top
         
-        was_above_bottom = df['close_D'].shift(1) >= box_bottom.shift(1)
+        # 使用预计算的变量判断跌破
+        was_above_bottom = prev_close >= prev_box_bottom
         is_below_bottom = df['close_D'] < box_bottom
         states['BOX_EVENT_BREAKDOWN'] = is_valid_box & is_below_bottom & was_above_bottom
-        
-        # 彻底移除基于价格箱体的“健康吸筹”判断逻辑。
-        #           该信号 (STRUCTURE_BOX_ACCUMULATION_A) 胜率仅5.5%，是高质量策略的“毒药”。
-        #           其定义权将移交给基于成本分析的 diagnose_platform_states 模块。
-        # healthy_consolidation, BOX_STATE_HEALTHY_CONSOLIDATION, STRUCTURE_BOX_ACCUMULATION_A 已被删除
         
         for key in states:
             if key not in states or states[key] is None:
@@ -169,7 +170,17 @@ class StructuralIntelligence:
             states['STRUCTURE_BOX_ACCUMULATION_A'] = default_series # 确保有返回值
             return df, states
 
-        is_cost_stable = (df[peak_cost_col].rolling(5).std() / df[peak_cost_col].rolling(5).mean()) < 0.02
+        # 预先计算滚动均值和标准差，避免重复计算，并明确计算变异系数(CV)
+        rolling_cost = df[peak_cost_col].rolling(5)
+        rolling_mean_cost = rolling_cost.mean()
+        rolling_std_cost = rolling_cost.std()
+        
+        # 使用 np.errstate 避免在均值为0时出现除零警告
+        with np.errstate(divide='ignore', invalid='ignore'):
+            coeff_of_variation = rolling_std_cost / rolling_mean_cost
+        
+        # 将计算中可能产生的 NaN 或 inf 结果安全地处理为 False
+        is_cost_stable = (coeff_of_variation < 0.02).fillna(False)
         is_above_long_ma = df[close_col] > df[long_ma_col]
         is_shrinking_volume = self.strategy.atomic_states.get('VOL_STATE_SHRINKING', default_series)
         is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
