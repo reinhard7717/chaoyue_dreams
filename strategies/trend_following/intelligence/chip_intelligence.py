@@ -26,6 +26,18 @@ class ChipIntelligence:
         states = {}
         triggers = {}
         default_series = pd.Series(False, index=df.index)
+        
+        # --- 步骤 0: 内部依赖前置处理 ---
+        # 为了确保本模块的独立性和健壮性，我们首先在内部调用基础诊断模块，
+        # 生成所有后续高级诊断所依赖的“静态”和“行为”原子状态。
+        # 这可以防止因外部调用时序问题导致的“状态未找到”错误。
+        static_states = self.diagnose_static_chip_structure(df)
+        states.update(static_states)
+        self.strategy.atomic_states.update(static_states) # 确保全局状态也被更新
+
+        behavior_states = self.diagnose_chip_behavior_states(df)
+        states.update(behavior_states)
+        self.strategy.atomic_states.update(behavior_states) # 确保全局状态也被更新
 
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
@@ -653,19 +665,14 @@ class ChipIntelligence:
         if any(c not in df.columns for c in required_cols):
             print("              -> [警告] 缺少诊断静态筹码结构所需列，模块跳过。")
             return {}
-
         # --- 2. 价格与成本峰关系诊断 ---
         profit_cushion_ratio = 1.15 # 价格比成本峰高出15%
         states['CHIP_STATE_PRICE_ABOVE_PEAK_COST'] = df['close_D'] > (df['peak_cost_D'] * profit_cushion_ratio)
-
         entanglement_ratio = 0.05 # 价格在成本峰上下5%的区域内
         states['CHIP_STATE_PRICE_IN_PEAK_COST_ZONE'] = (df['close_D'] / df['peak_cost_D']).between(1 - entanglement_ratio, 1 + entanglement_ratio)
-
-        # [新增代码块开始]
         # 信号3: 价格显著低于成本区 (大部分持仓者被套牢，市场处于绝望状态)
         loss_zone_ratio = 0.90 # 价格比成本峰低10%
         states['CHIP_STATE_PRICE_BELOW_PEAK_COST'] = df['close_D'] < (df['peak_cost_D'] * loss_zone_ratio)
-        # [新增代码块结束]
 
         # --- 3. 筹码分布形态诊断 ---
         concentration_gap = (df['concentration_90pct_D'] - df['concentration_70pct_D']).replace(0, np.nan)
