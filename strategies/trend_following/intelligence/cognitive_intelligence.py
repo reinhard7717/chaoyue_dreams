@@ -572,7 +572,7 @@ class CognitiveIntelligence:
                       S级“筹码结构黄金机会”信号。
         - 收益: 确保S+级战法只在最安全、最有利的战局下发动，从根本上解决了其胜率低下的问题。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.0 王牌重铸版)”...")
+        # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.0 王牌重铸版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events

@@ -436,9 +436,9 @@ class StructuralIntelligence:
           - S++机会(“战略点火”): 周线趋势开始加速的同时，日线趋势也在加速，形成最强共振。
           - S++风险(“战略衰竭”): 周线趋势已在减速，但日线仍在加速冲顶，是典型的顶部背离陷阱。
         """
-        print("        -> [战略协同引擎 V300.0] 启动，正在进行多维动态交叉验证...")
+        # print("        -> [战略协同引擎 V300.0] 启动，正在进行多维动态交叉验证...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 定义并检查所需的多维动态数据列 ---
         # 战略层面 (周线)
@@ -504,7 +504,7 @@ class StructuralIntelligence:
           - S++风险(“陷阱”): 在“突破前夜”的静态高势能状态下，观测到“战略衰竭”与
                          “战术诱多”的致命背离，确认是假突破陷阱。
         """
-        print("        -> [静态-动态融合引擎 V400.0] 启动，正在寻找战场引爆点...")
+        # print("        -> [静态-动态融合引擎 V400.0] 启动，正在寻找战场引爆点...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
