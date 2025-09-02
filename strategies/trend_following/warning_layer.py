@@ -189,7 +189,7 @@ class WarningLayer:
             if signal_series.any():
                 current_score = risk_details_df.get(risk_name, pd.Series(0.0, index=df.index))
                 risk_details_df[risk_name] = current_score.add(signal_series * score, fill_value=0)
-                print(f"          -> [精英原子风险] 侦测到高危信号 “{risk_name}”，增加 {score} 风险分！")
+                # print(f"          -> [精英原子风险] 侦测到高危信号 “{risk_name}”，增加 {score} 风险分！")
 
         combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
         

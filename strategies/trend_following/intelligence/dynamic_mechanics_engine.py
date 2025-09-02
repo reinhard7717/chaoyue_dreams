@@ -84,9 +84,9 @@ class DynamicMechanicsEngine:
                       斜率和加速度，生成描述市场微观力学状态的原子信号。
         - 收益: 捕捉比宏观分数更具体、更底层的市场动态，如“量价共振”、“缩量上涨”等。
         """
-        print("        -> [微观力学诊断模块 V1.0] 启动...")
+        # print("        -> [微观力学诊断模块 V1.0] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查：确保所有必需的斜率和加速度列都存在 ---
         required_cols = [
@@ -134,9 +134,9 @@ class DynamicMechanicsEngine:
                       以识别趋势的“共振”与“背离”，生成更高置信度的信号。
         - 收益: 区分健康的趋势与虚假的突破/反弹，精准捕捉趋势的确认、衰竭与反转点。
         """
-        print("        -> [多时间维度力学诊断模块 V1.0] 启动...")
+        # print("        -> [多时间维度力学诊断模块 V1.0] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查：确保所有必需的多周期斜率/加速度列都存在 ---
         required_cols = [
@@ -195,9 +195,9 @@ class DynamicMechanicsEngine:
                       以洞察市场情绪的真实状态和趋势的内在健康度。
         - 收益: 提供了超越传统量价分析的视角，能更早地识别趋势的“质变”。
         """
-        print("        -> [行为力学诊断模块 V1.0] 启动...")
+        # print("        -> [行为力学诊断模块 V1.0] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
         required_cols = [

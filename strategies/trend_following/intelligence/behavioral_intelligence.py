@@ -128,7 +128,7 @@ class BehavioralIntelligence:
         - 核心职责: 基于基础指标的斜率、加速度以及多指标的交互关系，生成更深层次的原子信号。
         - 产出: 一系列描述市场微观动态和潜在拐点的原子状态。
         """
-        print("        -> [高级原子诊断模块 V1.0] 启动，正在生成深层动态信号...")
+        # print("        -> [高级原子诊断模块 V1.0] 启动，正在生成深层动态信号...")
         states = {}
         p = get_params_block(self.strategy, 'advanced_atomic_params', {}) # 假设配置文件中有此参数块
         if not get_param_value(p.get('enabled'), True): return states
@@ -335,7 +335,7 @@ class BehavioralIntelligence:
             missing_static_multi_dyn_cols = [col for col in required_static_multi_dyn_cols if col not in df.columns]
             print(f"            -> [警告] 静态-多动态交叉验证模块缺少关键数据: {missing_static_multi_dyn_cols}，部分信号已跳过！")
 
-        print(f"        -> [高级原子诊断模块 V1.3] 已生成 {len(states)} 个深层动态信号。") # [修改代码行]
+        print(f"        -> [高级原子诊断模块 V1.3] 已生成 {len(states)} 个深层动态信号。")
         return states
 
     def diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -753,7 +753,7 @@ class BehavioralIntelligence:
                     这些信号是构成更复杂战术判断的“乐高积木”。
         - 输出: 一系列描述客观事实的原子状态，如 PRICE_... 和 VOL_...。
         """
-        print("        -> [价格成交量原子诊断模块 V1.0] 启动...")
+        # print("        -> [价格成交量原子诊断模块 V1.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
@@ -802,7 +802,7 @@ class BehavioralIntelligence:
                       生成描述市场心理和运行效率的高级行为原子信号。
         - 收益: 提供了超越传统量价分析的视角，能够更早地发现持股信心的变化和趋势衰竭的迹象。
         """
-        print("        -> [高级行为状态诊断模块 V1.0] 启动...")
+        # print("        -> [高级行为状态诊断模块 V1.0] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 

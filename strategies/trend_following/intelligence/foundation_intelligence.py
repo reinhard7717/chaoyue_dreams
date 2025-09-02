@@ -126,8 +126,8 @@ class FoundationIntelligence:
         
         # --- RSI 相关状态 ---
         rsi_col = 'RSI_13_D'
-        rsi_slope_col = 'SLOPE_5_RSI_13_D' # [新增代码行]
-        rsi_accel_col = 'ACCEL_5_RSI_13_D' # [新增代码行]
+        rsi_slope_col = 'SLOPE_5_RSI_13_D'
+        rsi_accel_col = 'ACCEL_5_RSI_13_D'
         if rsi_col in df.columns:
             states['OSC_STATE_RSI_OVERBOUGHT'] = df[rsi_col] > get_param_value(p.get('rsi_overbought'), 80)
             states['OSC_STATE_RSI_OVERSOLD'] = df[rsi_col] < get_param_value(p.get('rsi_oversold'), 25)

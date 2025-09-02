@@ -49,7 +49,7 @@ class PerformanceAnalyzer:
         - 核心增强: 在循环中查找每个信号的元数据，以确定其角色（进攻型/防御型），
                     并将此信息传递给模拟函数。
         """
-        print("    -> [性能分析器 V4.1 角色识别版] 启动...")
+        # print("    -> [性能分析器 V4.1 角色识别版] 启动...")
         
         # 步骤1: 识别出所有需要分析的事件
         all_events_to_analyze = self._identify_all_events()

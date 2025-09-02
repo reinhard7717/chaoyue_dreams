@@ -231,7 +231,7 @@ class ChipIntelligence:
         - 核心新增: 创造了全新的“共振”与“背离”系列原子信号，极大地提升了对主力真实意图的
                     识别精度，能够有效区分短期洗盘与长期出货、底部吸筹与下跌中继。
         """
-        print("            -> [动态筹码分析中心 V285.0 多维共振重构版] 启动...")
+        # print("            -> [动态筹码分析中心 V285.0 多维共振重构版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         
@@ -620,7 +620,7 @@ class ChipIntelligence:
         """
         # print("        -> [筹码动态诊断模块 V320.0 数据驱动版] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
         required_cols = [
@@ -689,9 +689,9 @@ class ChipIntelligence:
         - 核心职责: 诊断当前价格与成本分布的静态关系，以及筹码分布的形态特征。
         - 核心升级 (本次修改): 新增了“价格低于成本峰”的静态场景，为识别深度反转信号提供基础。
         """
-        print("            -> [静态筹码结构诊断模块 V1.1] 启动...")
+        # print("            -> [静态筹码结构诊断模块 V1.1] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
         
         # --- 1. 军备检查 ---
         required_cols = ['close_D', 'peak_cost_D', 'concentration_70pct_D', 'concentration_90pct_D', 'total_winner_rate_D']
@@ -738,9 +738,9 @@ class ChipIntelligence:
                     这是洞察市场情绪和主力意图的关键。
         - 输出: 一系列描述市场参与者“动态行为”的中性原子信号。
         """
-        print("            -> [筹码行为诊断模块 V1.0] 启动...")
+        # print("            -> [筹码行为诊断模块 V1.0] 启动...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        # default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
         # turnover_from_winners_ratio_D: 获利盘换手率
@@ -853,7 +853,7 @@ class ChipIntelligence:
         【V1.0 新增】静态-多动态交叉验证模块 (补充)
         - 核心职责: 识别更多基于特定静态筹码场景与多维动态行为组合的战术信号。
         """
-        print("        -> [静态-多动态交叉验证模块(补充) V1.0] 启动...")
+        # print("        -> [静态-多动态交叉验证模块(补充) V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -922,7 +922,7 @@ class ChipIntelligence:
         - 迁移说明: 此方法因强依赖本模块生成的静态筹码状态，已从 DynamicMechanicsEngine 迁移至此，
                     以保证模块职责的内聚性和调用时序的正确性。
         """
-        print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...")
+        # print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

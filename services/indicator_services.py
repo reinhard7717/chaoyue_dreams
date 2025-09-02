@@ -408,7 +408,7 @@ class IndicatorService:
                    对于其他补充数据（如daily_basic），则沿用“移除冲突列”的策略，以保护主OHLCV数据的权威性。
         - 优化: 对整个方法进行了代码审查，并添加了详尽的中文注释，解释了每一步的逻辑。
         """
-        # [修改代码行] 更新版本号和日志信息
+        # 更新版本号和日志信息
         print(f"--- [数据准备V8.8] 开始为 {stock_code} 准备基础数据与指标 ---")
         # --- 步骤 1: 解析配置，确定需要计算的时间周期 ---
         # 从策略配置文件中，找出所有需要生成指标的时间周期（如 'D', 'W', 'M'）
@@ -815,7 +815,7 @@ class IndicatorService:
         # --- 阶段一: 常规指标计算循环 ---
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
-            # [新增代码行] 如果是周线('W')，并且指标是已知由合成模块处理的(cmf, rsi)，则跳过此处的常规计算
+            # 如果是周线('W')，并且指标是已知由合成模块处理的(cmf, rsi)，则跳过此处的常规计算
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']:
                 continue
             # 修正跳过逻辑，确保 ma_convergence 不会在此处被查找

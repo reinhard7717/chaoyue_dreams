@@ -41,7 +41,7 @@ class ExitLayer:
             signal_series = self.strategy.atomic_states.get(risk_name, default_series)
             if signal_series.any():
                 critical_risk_details_df[risk_name] = signal_series * score
-                print(f"          -> [行为陷阱侦测] 侦测到致命风险 “{risk_name}”，触发紧急离场！")
+                # print(f"          -> [行为陷阱侦测] 侦测到致命风险 “{risk_name}”，触发紧急离场！")
 
         # --- 步骤2: 硬编码终极安全网，监控最高级别的S+级风险信号 ---
         # 目的: 确保策略对最危险的陷阱有本能的规避能力，防止因配置疏忽导致灾难性亏损。
@@ -76,7 +76,7 @@ class ExitLayer:
                     critical_risk_details_df[risk_name] = critical_risk_details_df[risk_name].add(signal_series * score, fill_value=0)
                 else:
                     critical_risk_details_df[risk_name] = signal_series * score
-                print(f"          -> [终极安全网] 侦测到致命风险 “{risk_name}”，触发紧急离场！")
+                # print(f"          -> [终极安全网] 侦测到致命风险 “{risk_name}”，触发紧急离场！")
         
         return critical_risk_details_df
 

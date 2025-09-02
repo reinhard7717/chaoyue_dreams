@@ -24,7 +24,7 @@ class FundFlowIntelligence:
           5.  【静态-多动态协同 (本次新增)】: 将高置信度的静态信号作为“地基”，
                                          与多个动态信号进行“共振”验证，生成最高级别的S+级战术信号。
         """
-        print("        -> [资金流情报模块 V4.0 战术共振版] 启动...") # [修改代码行]
+        # print("        -> [资金流情报模块 V4.0 战术共振版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -108,7 +108,7 @@ class FundFlowIntelligence:
             'SLOPE_5_net_amount_fund_flow_ths_D',
             'net_amount_fund_flow_ths_D'
         ]
-        is_weekly_momentum_improving = default_series # [新增代码行]
+        is_weekly_momentum_improving = default_series
         if all(c in df.columns for c in required_mtf_dyn_cols):
             is_weekly_momentum_improving = df['SLOPE_5_CMF_21_W'] > 0
             is_daily_inflow_igniting = df['ACCEL_5_net_amount_fund_flow_ths_D'] > 0
@@ -175,7 +175,7 @@ class FundFlowIntelligence:
             is_retail_driven = (df[sm_rate_col] + df[md_rate_col]) > fomo_threshold
             states['RISK_FUND_FLOW_RETAIL_FOMO_B'] = is_strong_rally & is_retail_driven
 
-        print("        -> [资金流情报模块 V4.0 战术共振版] 诊断完毕。") # [修改代码行]
+        print("        -> [资金流情报模块 V4.0 战术共振版] 诊断完毕。")
         return states
 
 

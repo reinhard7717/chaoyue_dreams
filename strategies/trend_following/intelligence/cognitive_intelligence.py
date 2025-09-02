@@ -454,7 +454,7 @@ class CognitiveIntelligence:
         - 核心职责: 将筹码集中信号与多种资金流净流入信号进行交叉验证，生成更高置信度的复合信号。
         - 收益: 减少单一信号的误判，提升主力吸筹判断的准确性。
         """
-        print("        -> [筹码与资金流协同合成模块 V1.0] 启动...")
+        # print("        -> [筹码与资金流协同合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

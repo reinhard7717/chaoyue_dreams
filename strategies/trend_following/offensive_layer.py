@@ -127,7 +127,7 @@ class OffensiveLayer:
             if playbook_series.any():
                 entry_score.loc[playbook_series] += score
                 score_details_df[playbook_name] = playbook_series * score
-                print(f"          -> [精英剧本火力] 侦测到王牌剧本 “{playbook_name}”，增加 {score} 分！")
+                # print(f"          -> [精英剧本火力] 侦测到王牌剧本 “{playbook_name}”，增加 {score} 分！")
         # --- 7.2. 评估“精英原子信号火力” (Elite Atomic Signal Scoring) ---
         # 目的: 确保所有由底层逻辑共振产生的S级以上机会信号，都能直接贡献决定性分数。
         elite_atomic_rules = {
@@ -155,7 +155,7 @@ class OffensiveLayer:
             if signal_series.any():
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
-                print(f"          -> [精英原子火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
+                # print(f"          -> [精英原子火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
         # --- 7.3. 评估“行为与结构机会火力” (Behavioral & Structural Opportunity Scoring) ---
         # 目的: 为行为层和结构层识别出的高质量A级机会信号赋予基础阵地分。
         behavioral_opportunity_rules = {
@@ -189,7 +189,7 @@ class OffensiveLayer:
                 current_score = score_details_df.get(signal_name, pd.Series(0.0, index=df.index))
                 score_details_df[signal_name] = current_score.add(signal_series * score, fill_value=0)
                 entry_score = entry_score.add(signal_series * score, fill_value=0)
-                print(f"          -> [精英动态火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
+                # print(f"          -> [精英动态火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
 
         # --- 7.5. 评估“经典与复合信号火力” (Classic & Composite Signal Scoring) ---
         # 目的: 确保所有具备高市场共识度的经典信号和高质量的复合信号，都能直接贡献分数。
@@ -213,7 +213,7 @@ class OffensiveLayer:
                 current_score = score_details_df.get(signal_name, pd.Series(0.0, index=df.index))
                 score_details_df[signal_name] = current_score.add(signal_series * score, fill_value=0)
                 entry_score = entry_score.add(signal_series * score, fill_value=0)
-                print(f"          -> [经典复合火力] 侦测到信号 “{signal_name}”，增加 {score} 分！")
+                # print(f"          -> [经典复合火力] 侦测到信号 “{signal_name}”，增加 {score} 分！")
                 
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
         # --- 8. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
@@ -239,7 +239,7 @@ class OffensiveLayer:
             if is_gathering.any():
                 entry_score.loc[is_gathering] += gathering_bonus
                 score_details_df['STRATEGIC_GATHERING_BONUS_D'] = is_gathering * gathering_bonus
-                print(f"          -> [战略顺风] 侦测到处于“战略吸筹期”，为 {is_gathering.sum()} 天的信号增加 {gathering_bonus} 分！")
+                # print(f"          -> [战略顺风] 侦测到处于“战略吸筹期”，为 {is_gathering.sum()} 天的信号增加 {gathering_bonus} 分！")
         # --- 10. 评估“主升浪黄金航道”背景火力 (Main Uptrend Wave Context Bonus) ---
         # 这是对当前战局的最终判断。如果已确认进入主升浪，那么任何战术进攻的成功率都会大增。
         main_uptrend_params = scoring_params.get('main_uptrend_context_scoring', {})
@@ -250,7 +250,7 @@ class OffensiveLayer:
             if is_in_main_uptrend.any():
                 entry_score.loc[is_in_main_uptrend] += uptrend_bonus
                 score_details_df['CONTEXT_MAIN_UPTREND_BONUS_S'] = is_in_main_uptrend * uptrend_bonus
-                print(f"          -> [战局顺风] 侦测到处于“主升浪黄金航道”，为 {is_in_main_uptrend.sum()} 天的信号增加 {uptrend_bonus} 分！")
+                # print(f"          -> [战局顺风] 侦测到处于“主升浪黄金航道”，为 {is_in_main_uptrend.sum()} 天的信号增加 {uptrend_bonus} 分！")
         # --- 11. 评估“堡垒式主升浪”背景火力 (Fortress Uptrend Context Bonus) ---
         # 这是最高质量的战局判断。如果已确认进入由S级堡垒结构支撑的主升浪，
         # 意味着主力高度控盘，上涨确定性极高，应给予最高级别的环境加成。
@@ -262,7 +262,7 @@ class OffensiveLayer:
             if is_in_fortress_uptrend.any():
                 entry_score.loc[is_in_fortress_uptrend] += fortress_bonus
                 score_details_df['CONTEXT_FORTRESS_UPTREND_BONUS_S_PLUS'] = is_in_fortress_uptrend * fortress_bonus
-                print(f"          -> [S+战局顺风] 侦测到处于“堡垒式主升浪”，为 {is_in_fortress_uptrend.sum()} 天的信号增加 {fortress_bonus} 分！")
+                # print(f"          -> [S+战局顺风] 侦测到处于“堡垒式主升浪”，为 {is_in_fortress_uptrend.sum()} 天的信号增加 {fortress_bonus} 分！")
         return entry_score, score_details_df
 
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:

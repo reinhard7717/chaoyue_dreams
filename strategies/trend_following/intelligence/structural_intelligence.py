@@ -436,7 +436,7 @@ class StructuralIntelligence:
           - S++机会(“战略点火”): 周线趋势开始加速的同时，日线趋势也在加速，形成最强共振。
           - S++风险(“战略衰竭”): 周线趋势已在减速，但日线仍在加速冲顶，是典型的顶部背离陷阱。
         """
-        print("        -> [战略协同引擎 V300.0] 启动，正在进行多维动态交叉验证...") # [新增代码行]
+        print("        -> [战略协同引擎 V300.0] 启动，正在进行多维动态交叉验证...")
         states = {}
         default_series = pd.Series(False, index=df.index)
 
@@ -490,7 +490,7 @@ class StructuralIntelligence:
         # 这是需要高度警惕的陷阱，应避免参与。
         states['RISK_STRUCTURE_MTF_HEADWIND_A_PLUS'] = is_weekly_slope_negative & is_daily_slope_positive
 
-        print("        -> [战略协同引擎 V300.0] 分析完毕。") # [新增代码行]
+        print("        -> [战略协同引擎 V300.0] 分析完毕。")
         return states
 
     def diagnose_static_dynamic_fusion(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -504,7 +504,7 @@ class StructuralIntelligence:
           - S++风险(“陷阱”): 在“突破前夜”的静态高势能状态下，观测到“战略衰竭”与
                          “战术诱多”的致命背离，确认是假突破陷阱。
         """
-        print("        -> [静态-动态融合引擎 V400.0] 启动，正在寻找战场引爆点...") # [新增代码行]
+        print("        -> [静态-动态融合引擎 V400.0] 启动，正在寻找战场引爆点...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
@@ -540,7 +540,7 @@ class StructuralIntelligence:
         # 反而总部正在撤退(周线减速)。这是典型的诱多出货陷阱。
         states['RISK_STATIC_DYN_FUSION_TRAP_S_PLUS'] = is_static_setup_ready & is_dynamic_risk_confirmed
 
-        print("        -> [静态-动态融合引擎 V400.0] 分析完毕。") # [新增代码行]
+        print("        -> [静态-动态融合引擎 V400.0] 分析完毕。")
         return states
 
     def diagnose_structural_risks_and_regimes(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -552,7 +552,7 @@ class StructuralIntelligence:
           2. 市场状态识别: 基于Hurst指数，判断当前市场是趋势市还是均值回归市。
           3. 多维共振超涨风险: 结合日线与周线BIAS，识别最高级别的顶部风险。
         """
-        print("        -> [结构风险与状态诊断模块 V1.0] 启动...") # [新增代码行]
+        # print("        -> [结构风险与状态诊断模块 V1.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'structural_risk_params')
         if not get_param_value(p.get('enabled'), True): return states
@@ -582,7 +582,7 @@ class StructuralIntelligence:
             weekly_threshold = df['BIAS_20_W'].rolling(52).quantile(0.95) # 周线看过去一年(52周)
             is_weekly_overextended = df['BIAS_20_W'] > weekly_threshold
             states['RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S'] = is_daily_overextended & is_weekly_overextended
-        print("        -> [结构风险与状态诊断模块 V1.0] 诊断完毕。") # [新增代码行]
+        print("        -> [结构风险与状态诊断模块 V1.0] 诊断完毕。")
         return states
 
 
