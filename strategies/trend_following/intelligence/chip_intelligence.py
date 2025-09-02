@@ -165,6 +165,12 @@ class ChipIntelligence:
         static_multi_dyn_scenarios = self.diagnose_static_multi_dynamic_scenarios(df)
         states.update(static_multi_dyn_scenarios)
         
+        # --- 步骤 7: 执行终极的静态-多时间维度交叉验证 ---
+        # 此模块依赖于 diagnose_static_chip_structure 生成的静态状态，
+        # 将其置于本模块内调用，可以确保依赖关系和调用时序的绝对正确。
+        final_crossover_states = self.diagnose_static_multi_timeframe_scenarios(df)
+        states.update(final_crossover_states)
+        
         # if states['RISK_CHIP_PRICE_DIVERGENCE'].any():
         #     print(f"            -> [S级风险] 侦测到 {states['RISK_CHIP_PRICE_DIVERGENCE'].sum()} 次“价格筹码顶背离”！")
         
@@ -857,7 +863,60 @@ class ChipIntelligence:
         )
         return states
 
-
+    def diagnose_static_multi_timeframe_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 重构】【职责迁移】静态-多时间维度交叉验证模块 (终极)
+        - 核心职责: 在特定的静态筹码“战场”上，对一组原始的、多维度的动态“军力”（斜率/加速度）
+                      进行直接的协同检验，生成最高级别的战略信号。
+        - 迁移说明: 此方法因强依赖本模块生成的静态筹码状态，已从 DynamicMechanicsEngine 迁移至此，
+                    以保证模块职责的内聚性和调用时序的正确性。
+        """
+        print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 军备检查：确保所有必需的“原子状态”和“动态指标列”都存在 ---
+        required_atomic_states = [
+            'CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', 'CHIP_STATE_UNIVERSAL_PROFIT', 'CHIP_STATE_PRICE_BELOW_PEAK_COST'
+        ]
+        required_dynamic_cols = [
+            'SLOPE_5_close_D', 'ACCEL_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
+        ]
+        if any(key not in atomic for key in required_atomic_states):
+            missing_keys = [key for key in required_atomic_states if key not in atomic]
+            print(f"          -> [警告] 终极模块缺少关键[静态原子状态]: {missing_keys}，模块已跳过！")
+            return states
+        if any(c not in df.columns for c in required_dynamic_cols):
+            missing_cols = [c for c in required_dynamic_cols if c not in df.columns]
+            print(f"          -> [警告] 终极模块缺少关键[动态指标列]: {missing_cols}，模块已跳过！")
+            return states
+        # --- 2. 生成终极交叉验证信号 ---
+        # 信号1 (S级机会): “阵地战·协同突破”
+        is_trench_warfare_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
+        states['OPP_STATIC_DYN_BREAKTHROUGH_S'] = (
+            is_trench_warfare_static &
+            (df['ACCEL_5_close_D'] > 0) &
+            (df['SLOPE_21_close_D'] > 0) &
+            (df['SLOPE_5_concentration_90pct_D'] < 0)
+        )
+        # 信号2 (S级风险): “亢奋顶点·结构瓦解”
+        is_euphoria_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
+        states['RISK_STATIC_DYN_COLLAPSE_S'] = (
+            is_euphoria_static &
+            (df['SLOPE_5_close_D'] > 0) &
+            (df['SLOPE_21_concentration_90pct_D'] > 0) &
+            (df['SLOPE_5_concentration_90pct_D'] > 0)
+        )
+        # 信号3 (A级机会): “绝望冰点·周期拐点”
+        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
+        states['OPP_STATIC_DYN_INFLECTION_A'] = (
+            is_despair_zone_static &
+            (df['ACCEL_21_close_D'] > 0) &
+            (df['SLOPE_5_close_D'] > 0) &
+            ((df['SLOPE_21_close_D'] < 0).shift(1))
+        )
+        return states
 
 
 

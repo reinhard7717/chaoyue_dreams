@@ -15,59 +15,63 @@ class DynamicMechanicsEngine:
 
     def run_force_vector_analysis(self) -> Dict[str, pd.Series]:
         """
-        【V317.0 新增】【代码优化】动态力学分析引擎
-        - 核心职责: 计算进攻分和风险分的“加速度”，捕捉双向动能的剧烈变化。
-                    这是判断趋势强化或转折的关键“势能”情报。
-        - 优化说明: 在 .rolling().apply() 中，将参数 `raw` 从默认的 `False` 修改为 `True`。
-                    这使得传递给lambda函数的是底层的NumPy数组而非pandas Series对象，
-                    减少了每次调用的开销，从而提升了计算速度。同时，将缺失值检查
-                    从 `len(y.dropna()) == window` 修改为更高效的 `not np.isnan(y).any()`。
+        【V317.3 宏观专属版】宏观动态力学分析引擎
+        - 核心职责: (本次修改) 专门负责计算进攻分和风险分的“加速度”，捕捉双向动能的剧烈变化。
+                    此方法被设计为在 entry_score 和 risk_score 计算完成之后调用。
+        - 收益:     这是判断趋势强化或转折的关键“势能”情报。
         """
-        # print("        -> [动态力学分析引擎 V317.0] 启动，正在计算势能加速度...")
+        # print("        -> [宏观力学分析引擎 V317.3] 启动，正在计算分数势能...")
         states = {}
         df = self.strategy.df_indicators
-        
         if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
-            print("          -> [警告] 缺少 entry_score 或 risk_score，力学分析跳过。")
+            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力学分析跳过。")
             return states
-
         window = 5
-
-        # 将 raw 设置为 True，并使用更高效的 numpy a nan check
+        # 定义一个高效的斜率计算函数
         def calculate_slope(y):
-            # 检查窗口内是否有NaN值，如果有则无法计算，返回NaN
             if np.isnan(y).any():
                 return np.nan
-            # 使用scipy计算线性回归斜率
             return linregress(np.arange(window), y).slope
-
         # 1. 计算“进攻”和“风险”的趋势（斜率）
         entry_score_slope = df['entry_score'].rolling(window).apply(calculate_slope, raw=True)
         risk_score_slope = df['risk_score'].rolling(window).apply(calculate_slope, raw=True)
-
         # 2. 计算“进攻”和“风险”的加速度（斜率的差分）
         entry_score_accel = entry_score_slope.diff()
         risk_score_accel = risk_score_slope.diff()
-
         # 3. 定义加速度阈值，过滤掉无意义的波动
         accel_threshold = 1.0
-
         # 4. 生成四种核心的“力学”原子状态
         states['FORCE_VECTOR_OFFENSE_ACCELERATING'] = entry_score_accel > accel_threshold
         states['FORCE_VECTOR_OFFENSE_DECELERATING'] = entry_score_accel < -accel_threshold
         states['FORCE_VECTOR_RISK_ACCELERATING'] = risk_score_accel > accel_threshold
         states['FORCE_VECTOR_RISK_DECELERATING'] = risk_score_accel < -accel_threshold
-        
         # 5. 生成两种复合的“力学”中性状态
-        # 状态1: 纯粹进攻动能 (进攻加速 & 风险减速) - 最理想的做多环境
         states['FORCE_VECTOR_PURE_OFFENSIVE_MOMENTUM'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_DECELERATING']
-        
-        # 状态2: 混沌扩张状态 (进攻加速 & 风险也加速) - 能量激增但方向不明，通常是变盘前兆
         states['FORCE_VECTOR_CHAOTIC_EXPANSION'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_ACCELERATING']
-        
         self.strategy.atomic_states.update(states)
-        
-        # print("          -> [力学分析引擎] 进攻/风险的加速度情报已生成。")
+        # print("          -> [宏观力学分析引擎] 进攻/风险的加速度情报已生成。")
+        return states
+
+    def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
+        """
+        【V317.4 微观协同版】微观及协同力学分析总指挥
+        - 核心职责: 统一调度微观、多时间维度及终极的“静态-动态”交叉验证分析。
+        - 核心修正 (本次修改): 移除了依赖后期分数的“宏观力学分析”部分，解决了在情报层
+                          前期调用时因缺少 `entry_score` 而产生警告的问题。
+                          现在此方法专注于处理基础指标衍生的动态力学。
+        """
+        # print("        -> [微观及协同力学分析总指挥 V317.4] 启动...")
+        states = {}
+        df = self.strategy.df_indicators
+        # --- 移除了原有的宏观力学分析部分 ---
+        # --- 步骤1: 执行微观力学分析 (基于基础指标) ---
+        micro_dynamic_states = self.diagnose_micro_dynamics(df)
+        states.update(micro_dynamic_states)
+        # --- 步骤2: 执行多时间维度力学分析 (交叉验证) ---
+        multi_timeframe_states = self.diagnose_multi_timeframe_dynamics(df)
+        states.update(multi_timeframe_states)
+        self.strategy.atomic_states.update(states)
+        # print("          -> [微观及协同力学分析总指挥] 微观/多周期/终极交叉验证情报已全部生成。")
         return states
 
     def diagnose_micro_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -118,58 +122,6 @@ class DynamicMechanicsEngine:
         is_volume_decelerating = df['ACCEL_5_volume_D'] < 0
         states['RISK_DYN_EXHAUSTION_RALLY_B'] = is_external_accelerating & is_volume_decelerating
 
-        return states
-
-    def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
-        """
-        【V317.3 终极协同版】动态力学分析总指挥
-        - 核心职责: 统一调度宏观、微观、多时间维度及终极的“静态-动态”交叉验证分析，
-                      生成一套完整的、具备最高战略洞察力的动态力学原子信号。
-        - 核心升级 (本次修改): 新增了对 diagnose_static_multi_timeframe_scenarios 模块的调用。
-        """
-        print("        -> [动态力学分析总指挥 V317.3] 启动...") # [修改代码行]
-        states = {}
-        df = self.strategy.df_indicators
-        
-        # --- 步骤1: 执行宏观力学分析 (基于复合分数) ---
-        if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
-            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力学分析跳过。")
-        else:
-            window = 5
-            def calculate_slope(y):
-                if np.isnan(y).any():
-                    return np.nan
-                return linregress(np.arange(window), y).slope
-
-            entry_score_slope = df['entry_score'].rolling(window).apply(calculate_slope, raw=True)
-            risk_score_slope = df['risk_score'].rolling(window).apply(calculate_slope, raw=True)
-            entry_score_accel = entry_score_slope.diff()
-            risk_score_accel = risk_score_slope.diff()
-            accel_threshold = 1.0
-
-            states['FORCE_VECTOR_OFFENSE_ACCELERATING'] = entry_score_accel > accel_threshold
-            states['FORCE_VECTOR_OFFENSE_DECELERATING'] = entry_score_accel < -accel_threshold
-            states['FORCE_VECTOR_RISK_ACCELERATING'] = risk_score_accel > accel_threshold
-            states['FORCE_VECTOR_RISK_DECELERATING'] = risk_score_accel < -accel_threshold
-            states['FORCE_VECTOR_PURE_OFFENSIVE_MOMENTUM'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_DECELERATING']
-            states['FORCE_VECTOR_CHAOTIC_EXPANSION'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_ACCELERATING']
-        
-        # --- 步骤2: 执行微观力学分析 (基于基础指标) ---
-        micro_dynamic_states = self.diagnose_micro_dynamics(df)
-        states.update(micro_dynamic_states)
-
-        # --- 步骤3: 执行多时间维度力学分析 (交叉验证) ---
-        multi_timeframe_states = self.diagnose_multi_timeframe_dynamics(df)
-        states.update(multi_timeframe_states)
-
-        # --- 步骤4: 执行终极的静态-多时间维度交叉验证 ---
-        # 注意：此步骤必须在前序模块（尤其是筹码情报模块）运行之后执行，以确保原子状态可用
-        static_multi_timeframe_states = self.diagnose_static_multi_timeframe_scenarios(df)
-        states.update(static_multi_timeframe_states)
-
-        self.strategy.atomic_states.update(states)
-        
-        print("          -> [动态力学分析总指挥] 宏观/微观/多周期/终极交叉验证情报已全部生成。") # [修改代码行]
         return states
 
     def diagnose_multi_timeframe_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -232,79 +184,6 @@ class DynamicMechanicsEngine:
         )
 
         return states
-
-    def diagnose_static_multi_timeframe_scenarios(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.0 重构】静态-多时间维度交叉验证模块 (终极)
-        - 核心职责: 在特定的静态筹码“战场”上，对一组原始的、多维度的动态“军力”（斜率/加速度）
-                      进行直接的协同检验，生成最高级别的战略信号。
-        - 核心升级 (本次修改): 不再依赖于预先组合的复合动态信号，而是将一个静态信号与多个
-                              原始动态信号直接进行逻辑与运算，实现更精细、更透明的信号定义。
-        """
-        print("        -> [静态-多时间维度交叉验证模块(终极) V2.0] 启动...") # [修改代码行]
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 军备检查：确保所有必需的“原子状态”和“动态指标列”都存在 ---
-        required_atomic_states = [
-            'CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', 'CHIP_STATE_UNIVERSAL_PROFIT', 'CHIP_STATE_PRICE_BELOW_PEAK_COST'
-        ]
-        required_dynamic_cols = [ # [新增代码行]
-            'SLOPE_5_close_D', 'ACCEL_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
-            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
-        ] # [新增代码行]
-
-        if any(key not in atomic for key in required_atomic_states):
-            missing_keys = [key for key in required_atomic_states if key not in atomic]
-            print(f"          -> [警告] 终极模块缺少关键[静态原子状态]: {missing_keys}，模块已跳过！")
-            return states
-        
-        if any(c not in df.columns for c in required_dynamic_cols): # [新增代码行]
-            missing_cols = [c for c in required_dynamic_cols if c not in df.columns] # [新增代码行]
-            print(f"          -> [警告] 终极模块缺少关键[动态指标列]: {missing_cols}，模块已跳过！") # [新增代码行]
-            return states # [新增代码行]
-
-        # --- 2. 生成终极交叉验证信号 ---
-        # 信号1 (S级机会): “阵地战·协同突破”
-        # 静态场景: 价格在成本密集区拉锯 (阵地战)。
-        # 动态军力: [短期价格加速上涨] AND [长期价格趋势向上] AND [短期筹码持续集中]。
-        # 解读: 在最关键的战略要地，多周期、多维度的力量已形成统一战线，向上突破已是箭在弦上。
-        is_trench_warfare_static = atomic.get('CHIP_STATE_PRICE_IN_PEAK_COST_ZONE', default_series)
-        states['OPP_STATIC_DYN_BREAKTHROUGH_S'] = ( # [修改代码行]
-            is_trench_warfare_static &
-            (df['ACCEL_5_close_D'] > 0) &                 # 短期价格在加速
-            (df['SLOPE_21_close_D'] > 0) &                 # 长期价格趋势向上
-            (df['SLOPE_5_concentration_90pct_D'] < 0)     # 短期筹码在集中
-        )
-
-        # 信号2 (S级风险): “亢奋顶点·结构瓦解”
-        # 静态场景: 市场普遍获利，散户情绪高涨 (狂欢区)。
-        # 动态军力: [短期价格仍在上涨(迷惑性)] AND [长期筹码结构已在瓦解] AND [短期筹码也开始松动]。
-        # 解读: 在散户最疯狂追高的时候，长、短期主力资金均已在坚决派发，是极端危险的顶部背离。
-        is_euphoria_static = atomic.get('CHIP_STATE_UNIVERSAL_PROFIT', default_series)
-        states['RISK_STATIC_DYN_COLLAPSE_S'] = ( # [修改代码行]
-            is_euphoria_static &
-            (df['SLOPE_5_close_D'] > 0) &                   # 短期价格仍在上涨，制造繁荣假象
-            (df['SLOPE_21_concentration_90pct_D'] > 0) &    # 长期筹码结构在瓦解
-            (df['SLOPE_5_concentration_90pct_D'] > 0)      # 短期筹码也开始松动
-        )
-
-        # 信号3 (A级机会): “绝望冰点·周期拐点”
-        # 静态场景: 价格处于成本峰下方，大部分人亏损 (绝望区)。
-        # 动态军力: [长期下跌趋势在减速] AND [短期价格趋势已率先反转向上]。
-        # 解读: 在市场最悲观的区域，长期下跌动能衰竭，同时新的短期买盘开始入场，形成“双重确认”的拐点信号。
-        is_despair_zone_static = atomic.get('CHIP_STATE_PRICE_BELOW_PEAK_COST', default_series)
-        states['OPP_STATIC_DYN_INFLECTION_A'] = ( # [修改代码行]
-            is_despair_zone_static &
-            (df['ACCEL_21_close_D'] > 0) &                 # 长期下跌趋势在减速
-            (df['SLOPE_5_close_D'] > 0) &                  # 短期价格趋势已反转向上
-            ((df['SLOPE_21_close_D'] < 0).shift(1))        # 确保前一天仍处于长期下跌趋势中
-        )
-
-        return states
-
-
 
 
 
