@@ -34,6 +34,12 @@ class ChipIntelligence:
         static_states = self.diagnose_static_chip_structure(df)
         states.update(static_states)
         self.strategy.atomic_states.update(static_states) # 确保全局状态也被更新
+        
+        # 核心修改：将 diagnose_dynamic_chip_states 的调用提前。
+        # 这个模块现在是所有高级“共振”和“背离”信号的基础，必须先于其他诊断模块执行。
+        dynamic_states = self.diagnose_dynamic_chip_states(df)
+        states.update(dynamic_states)
+        self.strategy.atomic_states.update(dynamic_states)
 
         behavior_states = self.diagnose_chip_behavior_states(df)
         states.update(behavior_states)
@@ -67,6 +73,15 @@ class ChipIntelligence:
         conc_accel_21d_col = 'ACCEL_21_concentration_90pct_D'
         cost_slope_col = 'SLOPE_5_peak_cost_D'
         conc_slope_21d_col = 'SLOPE_21_concentration_90pct_D'
+        conc_slope_55d_col = 'SLOPE_55_concentration_90pct_D'
+        
+        # --- 步骤 2.5: 定义顶层战略背景 (直接使用55日斜率) ---
+        # 这个模块直接利用最长周期的斜率，为整个策略提供宏观的“天气预报”。
+        # 所有的战术信号（如买入、卖出）都应该在这个宏观背景下进行解读。
+        # 战略吸筹期：长达一个季度的筹码都在持续集中，表明主力在进行战略性建仓。
+        states['CONTEXT_CHIP_STRATEGIC_GATHERING'] = df[conc_slope_55d_col] < 0
+        # 战略派发期：长达一个季度的筹码都在持续发散，表明主力在进行战略性出货。
+        states['CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'] = df[conc_slope_55d_col] > 0
 
         # --- 步骤 3: 动态阈值计算 (保留，因为这是策略自适应逻辑的一部分) ---
         p_struct = p.get('structure_params', {})
@@ -210,18 +225,19 @@ class ChipIntelligence:
 
     def diagnose_dynamic_chip_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V284.2 错误修复与逻辑完善版】
-        - 核心修复: 修复了因变量未定义导致的 `NameError` 严重错误。
-        - 核心完善: 完整实现了基于短、中、长三周期的筹码动态分析逻辑，
-                    补充了缺失的变量定义，使“共振”与“背离”信号的计算准确无误。
-        - 收益: 提升了代码的健壮性和可读性，并确保了高级筹码动态信号的正确生成。
+        【V285.0 多维共振重构版】
+        - 核心重构: 彻底重构了动态分析逻辑，引入了基于5日(战术)、21日(趋势)、55日(战略)
+                    三个时间维度的交叉验证体系。
+        - 核心新增: 创造了全新的“共振”与“背离”系列原子信号，极大地提升了对主力真实意图的
+                    识别精度，能够有效区分短期洗盘与长期出货、底部吸筹与下跌中继。
         """
+        print("            -> [动态筹码分析中心 V285.0 多维共振重构版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
+        
+        # --- 步骤1: 军备检查 ---
         base_required_cols = ['concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D', 'chip_health_score_D']
-        base_missing_cols = [col for col in base_required_cols if col not in df.columns]
-        if base_missing_cols:
-            print(f"            -> [严重警告] 动态筹码分析中心缺少最基础的静态筹码数据: {base_missing_cols}，模块已完全跳过！")
+        if any(col not in df.columns for col in base_required_cols):
             return states
             
         required_cols = [
@@ -232,12 +248,11 @@ class ChipIntelligence:
             'SLOPE_5_total_winner_rate_D', 'ACCEL_5_total_winner_rate_D',
             'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
         ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
+        if any(col not in df.columns for col in required_cols):
+            missing_cols = [col for col in required_cols if col not in df.columns]
             print(f"            -> [严重警告] 动态分析中心缺少关键的斜率/加速度数据: {missing_cols}，模块已跳过！")
             return states
             
-        # 定义“战场上下文”过滤器，用于区分发散行为的风险等级
         is_in_high_level_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         
         # --- 步骤2: 对“筹码集中度”进行多周期动态分析 ---
@@ -249,56 +264,58 @@ class ChipIntelligence:
         is_diverging_mid_term = df['SLOPE_21_concentration_90pct_D'] > 0
         is_diverging_long_term = df['SLOPE_55_concentration_90pct_D'] > 0
         
-        # 2.2 定义“成本试金石”：成本峰必须稳定或抬高
-        # 我们允许非常微小的负斜率，以容忍正常波动
-        cost_stability_tolerance = -0.001 
+        # 2.2 定义“成本试金石”：成本峰必须稳定或抬高，这是判断吸筹行为是否“健康”的关键
+        cost_stability_tolerance = -0.001 # 允许非常微小的负斜率，以容忍正常波动
         is_cost_constructive = df['SLOPE_5_peak_cost_D'] >= cost_stability_tolerance
         
-        # 2.3 定义“绿色通道”豁免条件
+        # 2.3 定义“绿色通道”豁免条件 (专家规则)
         is_washout_absorption = self.strategy.atomic_states.get('OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A', default_series)
-        is_bottoming_phase = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series) # 获取市场是否处于底部钝化状态
+        is_bottoming_phase = self.strategy.atomic_states.get('MA_STATE_BOTTOM_PASSIVATION', default_series)
         
-        # 2.4 重新定义基础的“建设性筹码集中” (主要看短期)
+        # 2.4 重新定义基础的“建设性筹码集中” (主要看短期战术)
         states['CHIP_DYN_CONCENTRATING'] = (is_concentrating_short_term & is_cost_constructive) | is_washout_absorption | (is_concentrating_short_term & is_bottoming_phase)
-        # 定义“共振式集中”(A级机会)：短、中、长周期均在集中，这是最强的吸筹信号。
+        
+        # 2.5 【信号深化】定义“共振式集中”(A级机会)：短、中、长周期均在集中，这是最强的吸筹信号。
         states['CHIP_DYN_CONCENTRATING_RESONANCE_A'] = is_concentrating_short_term & is_concentrating_mid_term & is_concentrating_long_term & is_cost_constructive
-        # 定义“背离式吸筹”(B级机会)：长期仍在发散或走平，但短期已逆转为集中，是潜在的底部反转信号。
+        
+        # 2.6 【信号扩展】定义“背离式吸筹”(B级机会)：长期仍在发散或走平，但短期已逆转为集中，是潜在的底部反转信号。
         is_long_term_not_improving = ~is_concentrating_long_term # 长期趋势未改善
         states['OPP_CHIP_REVERSAL_GATHERING_B'] = is_long_term_not_improving & is_concentrating_short_term & is_cost_constructive
         
-        # 2.5 加速动态 (继承基础的“建设性”前提)
+        # 2.7 加速动态 (继承基础的“建设性”前提)
         p_chip = get_params_block(self.strategy, 'chip_feature_params')
         accel_threshold = get_param_value(p_chip.get('accel_concentration_threshold'), -0.001)
         is_accelerating_action = df['ACCEL_5_concentration_90pct_D'] < accel_threshold
         states['CHIP_DYN_S_ACCEL_CONCENTRATING'] = states['CHIP_DYN_CONCENTRATING'] & is_accelerating_action
-        # 2.6 重新定义发散动态
-        # 客观发散行为
-        states['CHIP_DYN_OBJECTIVE_DIVERGING'] = is_diverging_short_term
-        # 结合高位上下文，生成战术风险信号
+
+        # 2.8 重新定义发散动态，并注入“高位”上下文使其成为风险信号
         states['CHIP_DYN_DIVERGING'] = is_diverging_short_term & is_in_high_level_zone
-        # 定义“共振式派发”(A级风险)：短、中、长周期均在发散，这是最明确的派发信号。
+        
+        # 2.9 【信号深化】定义“共振式派发”(A级风险)：短、中、长周期均在发散，这是最明确的派发信号。
         states['RISK_CHIP_DIVERGING_RESONANCE_A'] = is_diverging_short_term & is_diverging_mid_term & is_diverging_long_term & is_in_high_level_zone
-        # 定义“背离式派发”(B级风险)：长期仍在集中，但短期已逆转为发散，是潜在的顶部反转预警。
+        
+        # 2.10 【信号扩展】定义“背离式派发”(B级风险)：长期仍在集中，但短期已逆转为发散，是潜在的顶部反转预警。
         is_long_term_still_good = is_concentrating_long_term # 长期趋势看似良好
         states['RISK_CHIP_REVERSAL_DIVERGING_B'] = is_long_term_still_good & is_diverging_short_term & is_in_high_level_zone
-        # 加速发散风险
+        
+        # 2.11 加速发散风险
         is_accel_diverging_action = df['ACCEL_5_concentration_90pct_D'] > 0
-        states['CHIP_DYN_OBJECTIVE_ACCEL_DIVERGING'] = is_accel_diverging_action
         states['CHIP_DYN_ACCEL_DIVERGING'] = is_accel_diverging_action & is_in_high_level_zone
         
-        # --- 步骤3: 对“筹码成本”进行动态分析  ---
+        # --- 步骤3: 对“筹码成本”进行动态分析 (逻辑不变) ---
         states['CHIP_DYN_COST_RISING'] = df['SLOPE_5_peak_cost_D'] > 0
         cost_accel_threshold = self.dynamic_thresholds.get('cost_accel_significant', 0.01)
         states['CHIP_DYN_COST_ACCELERATING'] = df['ACCEL_5_peak_cost_D'] > cost_accel_threshold
         states['CHIP_DYN_COST_FALLING'] = df['SLOPE_5_peak_cost_D'] < 0
         
-        # --- 步骤4 & 5  ---
+        # --- 步骤4 & 5 (逻辑不变) ---
         winner_rate_collapse_threshold = -1.0
         states['CHIP_DYN_WINNER_RATE_COLLAPSING'] = df['SLOPE_5_total_winner_rate_D'] < winner_rate_collapse_threshold
         states['CHIP_DYN_WINNER_RATE_ACCEL_COLLAPSING'] = df['ACCEL_5_total_winner_rate_D'] < 0
         states['CHIP_DYN_HEALTH_IMPROVING'] = df['SLOPE_5_chip_health_score_D'] > 0
         states['CHIP_DYN_HEALTH_DETERIORATING'] = df['SLOPE_5_chip_health_score_D'] < 0
         
+        print("            -> [动态筹码分析中心 V285.0] 分析完毕。")
         return states
 
     def diagnose_chip_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -325,6 +342,16 @@ class ChipIntelligence:
         winner_rate_slope_col = 'SLOPE_5_total_winner_rate_D'
         if winner_rate_slope_col in df.columns:
             states['CHIP_DYN_WINNER_RATE_RISING'] = df[winner_rate_slope_col] > 0
+        # --- 机会4: A级 - 主峰强力吸筹 (主力猛烈抢筹) ---
+        absorption_col = 'peak_absorption_intensity_D'
+        if absorption_col in df.columns:
+            # 条件1: 筹码必须处于集中趋势中
+            is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index))
+            # 条件2: 主峰吸筹强度必须显著高于近期平均水平 (例如，高于过去60日的80%分位数)
+            high_absorption_threshold = df[absorption_col].rolling(60).quantile(0.80)
+            is_intense_absorption = df[absorption_col] > high_absorption_threshold
+            # 最终裁定: 趋势与强度的共振
+            states['OPP_CHIP_INTENSE_ABSORPTION_A'] = is_concentrating & is_intense_absorption
         return states
 
     def diagnose_chip_risks_and_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -645,6 +672,12 @@ class ChipIntelligence:
         states['CHIP_DYN_WINNER_PROFIT_MARGIN_RISING'] = df['SLOPE_5_winner_profit_margin_D'] > 0
         # 获利盘利润垫收缩：5日获利盘利润垫斜率为负
         states['CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING'] = df['SLOPE_5_winner_profit_margin_D'] < 0
+        
+        # --- 7. 上方压力动态 (速度与加速度) ---
+        # 上方压力减少：5日上方压力斜率为负
+        states['CHIP_DYN_PRESSURE_DECREASING'] = df['SLOPE_5_pressure_above_D'] < 0
+        # 上方压力加速减少 (A级机会): 压力不仅在减少，而且减少的速度在加快，是强烈的突破前兆。
+        states['CHIP_DYN_PRESSURE_RAPIDLY_DECREASING_A'] = states['CHIP_DYN_PRESSURE_DECREASING'] & (df['ACCEL_5_pressure_above_D'] < 0)
 
         # print("        -> [筹码动态诊断模块 V320.0] 分析完毕。")
         return states
@@ -656,7 +689,7 @@ class ChipIntelligence:
         - 核心职责: 诊断当前价格与成本分布的静态关系，以及筹码分布的形态特征。
         - 核心升级 (本次修改): 新增了“价格低于成本峰”的静态场景，为识别深度反转信号提供基础。
         """
-        print("            -> [静态筹码结构诊断模块 V1.1] 启动...") # [修改代码行]
+        print("            -> [静态筹码结构诊断模块 V1.1] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
         
@@ -679,11 +712,22 @@ class ChipIntelligence:
         compactness_ratio = concentration_gap / df['concentration_70pct_D']
         compact_threshold = 0.3 
         states['CHIP_STRUCTURE_HIGHLY_COMPACT'] = compactness_ratio < compact_threshold
+        
+        # --- 3.5. S级堡垒结构诊断 (新) ---
+        # 定义：一个真正坚固的堡垒，必须是单峰结构、主力高度控盘、且主峰强度远超次峰。
+        # 条件1: 主力高度控盘 (主峰控盘比 > 50%)
+        is_high_control = df['peak_control_ratio_D'] > 0.5
+        # 条件2: 主峰绝对强势 (主峰强度是次峰的2倍以上)
+        is_dominant_peak = df['peak_strength_ratio_D'] > 2.0
+        # 条件3: 单峰结构 (最关键的结构健康度指标)
+        is_single_peak = ~df['is_multi_peak_D']
+        # 最终裁定: 三大条件必须同时满足
+        states['CHIP_STRUCTURE_FORTRESS_S'] = is_high_control & is_dominant_peak & is_single_peak
 
         # --- 4. 获利盘状态诊断 ---
         states['CHIP_STATE_UNIVERSAL_PROFIT'] = df['total_winner_rate_D'] > 95.0
         
-        print("            -> [静态筹码结构诊断模块 V1.1] 诊断完毕。") # [修改代码行]
+        print("            -> [静态筹码结构诊断模块 V1.1] 诊断完毕。")
         return states
 
     # “筹码行为诊断”方法
@@ -819,7 +863,7 @@ class ChipIntelligence:
         if 'SLOPE_5_close_D' in df.columns and 'ACCEL_5_close_D' not in df.columns:
             df['ACCEL_5_close_D'] = df['SLOPE_5_close_D'].diff()
         if 'SLOPE_5_turnover_from_losers_ratio_D' in df.columns and 'ACCEL_5_turnover_from_losers_ratio_D' not in df.columns:
-            df['ACCEL_5_turnover_from_losers_ratio_D'] = df['SLOOPE_5_turnover_from_losers_ratio_D'].diff()
+            df['ACCEL_5_turnover_from_losers_ratio_D'] = df['SLOPE_5_turnover_from_losers_ratio_D'].diff()
         if 'SLOPE_5_turnover_from_winners_ratio_D' in df.columns and 'ACCEL_5_turnover_from_winners_ratio_D' not in df.columns:
             df['ACCEL_5_turnover_from_winners_ratio_D'] = df['SLOPE_5_turnover_from_winners_ratio_D'].diff()
 

@@ -24,27 +24,51 @@ class PlaybookEngine:
         return [
             {
                 'name': 'PLAYBOOK_PULLBACK_REBOUND_A',
+                'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_PULLBACK_REBOUND'],
+                'comment': 'A级 - [趋势市]主升浪结构中，出现均线或平台的回踩反弹。'
+            },
+            {
+                'name': 'PLAYBOOK_PULLBACK_REBOUND_B_ANY_REGIME',
                 'setup': ['STRUCTURE_MAIN_UPTREND_WAVE_S'],
                 'trigger': ['TRIGGER_PULLBACK_REBOUND'],
-                'comment': 'A级 - 主升浪结构中，出现均线或平台的回踩反弹。'
+                'comment': 'B级 - [任意市]主升浪结构中的回踩反弹。'
             },
             {
                 'name': 'PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS',
+                'setup': ['PLATFORM_STATE_STABLE_FORMED', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_PLATFORM_PULLBACK_REBOUND'],
+                'comment': 'A+级 - [趋势市]在已形成的稳固筹码平台上发生的回踩反弹，确定性更高。'
+            },
+            {
+                'name': 'PLAYBOOK_STABLE_PLATFORM_REBOUND_B_PLUS_ANY_REGIME',
                 'setup': ['PLATFORM_STATE_STABLE_FORMED'],
                 'trigger': ['TRIGGER_PLATFORM_PULLBACK_REBOUND'],
-                'comment': 'A+级 - 在已形成的稳固筹码平台上发生的回踩反弹，确定性更高。'
+                'comment': 'B+级 - [任意市]在稳固筹码平台上的回踩反弹。'
             },
             {
                 'name': 'PLAYBOOK_GOLDEN_PIT_A_PLUS',
+                'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
+                'comment': 'A+级 - [趋势市]主力打压吸筹后，出现显性反转K线确认。'
+            },
+            {
+                'name': 'PLAYBOOK_GOLDEN_PIT_B_PLUS_ANY_REGIME',
                 'setup': ['OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A'],
                 'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
-                'comment': 'A+级 - 主力打压吸筹后，出现显性反转K线确认。'
+                'comment': 'B+级 - [任意市]主力打压吸筹后的反转确认。'
             },
             {
                 'name': 'PLAYBOOK_MEAN_REVERSION_A',
                 'setup': ['OPP_STATE_NEGATIVE_DEVIATION', 'OSC_STATE_RSI_OVERSOLD'],
-                'trigger': ['OPP_BEHAVIOR_SELLING_EXHAUSTION_A', 'TRIGGER_DOMINANT_REversal'],
+                'trigger': ['OPP_BEHAVIOR_SELLING_EXHAUSTION_A', 'TRIGGER_DOMINANT_REVERSAL'],
                 'comment': 'A级 - 统计学超卖 + 卖盘衰竭或反转K线。'
+            },
+            {
+                'name': 'PLAYBOOK_REGIME_MEAN_REVERSION_A_PLUS',
+                'setup': ['STRUCTURE_REGIME_MEAN_REVERTING', 'OPP_STATE_NEGATIVE_DEVIATION'],
+                'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
+                'comment': 'A+级 - [均值回归市]在确认的市场状态下，捕捉超卖后的强力反转信号。'
             },
             # “箱体底部反转”剧本
             {
@@ -56,27 +80,45 @@ class PlaybookEngine:
             # “压缩突破”剧本
             {
                 'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_S',
+                'setup': ['OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_SQUEEZE_IGNITION_A'],
+                'comment': 'S级 - [趋势市]波动率极致压缩后，出现暴力突破或点火信号确认。'
+            },
+            {
+                'name': 'PLAYBOOK_SQUEEZE_BREAKOUT_A_ANY_REGIME',
                 'setup': ['OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A'],
                 'trigger': ['TRIGGER_EXPLOSIVE_BREAKOUT_S', 'TRIGGER_SQUEEZE_IGNITION_A'],
-                'comment': 'S级 - 波动率极致压缩后，出现暴力突破或点火信号确认。'
+                'comment': 'A级 - [任意市]波动率极致压缩后的突破确认。'
             },
             {
                 'name': 'PLAYBOOK_PRIME_BREAKOUT_S_PLUS_PLUS',
+                'setup': ['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_PRIME_BREAKOUT_S'],
+                'comment': 'S++级(王牌) - [趋势市]在“黄金阵地”完全构筑后，由“王牌冲锋号”确认总攻。'
+            },
+            {
+                'name': 'PLAYBOOK_PRIME_BREAKOUT_S_ANY_REGIME',
                 'setup': ['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'],
                 'trigger': ['TRIGGER_PRIME_BREAKOUT_S'],
-                'comment': 'S++级(王牌) - 在“黄金阵地”完全构筑后(筹码+波动+力学三维共振)，由“王牌冲锋号”确认总攻。'
+                'comment': 'S级(王牌) - [任意市]在“黄金阵地”构筑后的总攻确认。'
             },
             {
                 'name': 'PLAYBOOK_BOTTOM_REVERSAL_S',
-                'setup': ['OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S'],
+                'setup': ['OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S', 'STRUCTURE_REGIME_MEAN_REVERTING'],
                 'trigger': ['TRIGGER_DOMINANT_REVERSAL'],
-                'comment': 'S级(新增) - 在多重信号共振的“长期底部”形成后，由“显性反转K线”确认反转启动。'
+                'comment': 'S级 - [均值回归市]在多重信号共振的“长期底部”形成后，由“显性反转K线”确认反转启动。'
             },
             {
                 'name': 'PLAYBOOK_RESONANCE_IGNITION_S',
+                'setup': ['SCENARIO_MAIN_WAVE_RESONANCE_S', 'STRUCTURE_REGIME_TRENDING'],
+                'trigger': ['TRIGGER_CHIP_IGNITION', 'TRIGGER_ENERGY_RELEASE'],
+                'comment': 'S级 - [趋势市]在“主升浪共振”的完美状态下，由“筹码点火”或“能量释放”信号确认加速。'
+            },
+            {
+                'name': 'PLAYBOOK_RESONANCE_IGNITION_A_ANY_REGIME',
                 'setup': ['SCENARIO_MAIN_WAVE_RESONANCE_S'],
                 'trigger': ['TRIGGER_CHIP_IGNITION', 'TRIGGER_ENERGY_RELEASE'],
-                'comment': 'S级(新增) - 在“主升浪共振”(控盘+全周期吸筹+成本加速)的完美状态下，由“筹码点火”或“能量释放”信号确认加速。'
+                'comment': 'A级 - [任意市]在“主升浪共振”状态下的加速确认。'
             }
         ]
 

@@ -128,7 +128,7 @@ class OffensiveLayer:
                 entry_score.loc[playbook_series] += score
                 score_details_df[playbook_name] = playbook_series * score
                 print(f"          -> [精英剧本火力] 侦测到王牌剧本 “{playbook_name}”，增加 {score} 分！")
-        # --- 7.2. 【新增】评估“精英原子信号火力” (Elite Atomic Signal Scoring) ---
+        # --- 7.2. 评估“精英原子信号火力” (Elite Atomic Signal Scoring) ---
         # 目的: 确保所有由底层逻辑共振产生的S级以上机会信号，都能直接贡献决定性分数。
         elite_atomic_rules = {
             # 结构-动态融合信号 (最高级别)
@@ -141,6 +141,14 @@ class OffensiveLayer:
             # 静态-多动态协同信号
             'OPP_SQUEEZE_MULTI_CONFIRMED_BREAKOUT_S': 900, # 极致压缩后的协同突破
             'OPP_STATIC_DYN_BREAKTHROUGH_S': 800, # 阵地战协同突破
+            # S级机会: 价格超跌 + 多重底部共振信号，是确定性极高的左侧反转信号。
+            'OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S': 1400,
+            # A级机会: 主峰强力吸筹，代表主力在关键成本区不计成本地猛烈抢筹，是后续行情启动的强烈信号。
+            'OPP_CHIP_INTENSE_ABSORPTION_A': 470,
+            # A级机会: 上方压力锐减，表明突破前的最后障碍正在被快速清除，是极强的突破前兆。
+            'CHIP_DYN_PRESSURE_RAPIDLY_DECREASING_A': 490,
+            # S+级机会: 战略性协同建仓，筹码锁定且资金持续流入，是最高质量的主力建仓信号。
+            'CHIP_FUND_FLOW_ACCUMULATION_STRATEGIC_S_PLUS': 1450,
         }
         for signal_name, score in elite_atomic_rules.items():
             signal_series = atomic_states.get(signal_name, default_series)
@@ -148,7 +156,65 @@ class OffensiveLayer:
                 entry_score.loc[signal_series] += score
                 score_details_df[signal_name] = signal_series * score
                 print(f"          -> [精英原子火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
+        # --- 7.3. 评估“行为与结构机会火力” (Behavioral & Structural Opportunity Scoring) ---
+        # 目的: 为行为层和结构层识别出的高质量A级机会信号赋予基础阵地分。
+        behavioral_opportunity_rules = {
+            # A级机会: 主力利用恐慌盘进行洗盘吸筹的经典行为。
+            'OPP_BEHAVIOR_WASH_OUT_ACCUMULATION_A': 450,
+            # A级机会: 极致压缩后的蓄势待发，是突破前的典型信号。
+            'OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A': 460,
+        }
+        for signal_name, score in behavioral_opportunity_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                entry_score.loc[signal_series] += score
+                score_details_df[signal_name] = signal_series * score
 
+        # --- 7.4. 评估“精英动态与认知信号火力” (Elite Dynamic & Cognitive Signal Scoring) ---
+        # 目的: 确保所有由底层力学共振或顶层认知判断产生的高确定性机会信号，都能直接贡献决定性分数。
+        elite_dynamic_cognitive_rules = {
+            # S级机会: 内外共振·主升确认，内部筹码结构与外部价格表现完美共振，是主升浪最强信号。
+            'OPP_DYN_INTERNAL_EXTERNAL_RESONANCE_S': 1100,
+            # S级机会: 全周期趋势共振，短中长期力量形成合力，是最健康的上涨形态。
+            'OPP_DYN_TREND_RESONANCE_S': 1050,
+            # A级机会: 市场引擎点火，价格与资金效率同步加速，上涨健康且高效。
+            'OPP_DYN_MARKET_ENGINE_IGNITION_A': 550,
+            # A级机会: 长周期底部拐点，下跌动能衰竭且短期趋势反转，是理想的左侧信号。
+            'OPP_DYN_LONG_CYCLE_INFLECTION_A': 500,
+        }
+        for signal_name, score in elite_dynamic_cognitive_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                # 使用 .add() 方法以安全地合并分数，避免覆盖
+                current_score = score_details_df.get(signal_name, pd.Series(0.0, index=df.index))
+                score_details_df[signal_name] = current_score.add(signal_series * score, fill_value=0)
+                entry_score = entry_score.add(signal_series * score, fill_value=0)
+                print(f"          -> [精英动态火力] 侦测到王牌信号 “{signal_name}”，增加 {score} 分！")
+
+        # --- 7.5. 评估“经典与复合信号火力” (Classic & Composite Signal Scoring) ---
+        # 目的: 确保所有具备高市场共识度的经典信号和高质量的复合信号，都能直接贡献分数。
+        classic_composite_rules = {
+            # A级机会: 认知层合成的侵略性协同进攻信号，代表多重动能共振且处于安全区。
+            'DYN_AGGRESSIVE_OFFENSE_A': 520,
+            # A级机会: 放量上涨，量价齐升，是强烈的买盘确认信号。
+            'VOL_PRICE_SPIKE_UP_A': 480,
+            # B级机会: MACD金叉，经典的短期动能转强信号。
+            'OSC_TRIGGER_MACD_GOLDEN_CROSS_B': 250,
+            # A级机会: 持续净流入，表明买盘具有连续性，而非一日游的脉冲行为。
+            'FUND_FLOW_SUSTAINED_INFLOW_A': 480,
+            # A级机会: 高强度净流入，代表买盘意愿坚决，其强度足以主导当日价格趋势。
+            'FUND_FLOW_HIGH_INTENSITY_INFLOW_A': 510,
+            # A级环境: 市场处于趋势状态，宏观环境有利于趋势跟踪策略，是重要的顺风信号。
+            'STRUCTURE_REGIME_TRENDING': 450,
+        }
+        for signal_name, score in classic_composite_rules.items():
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                current_score = score_details_df.get(signal_name, pd.Series(0.0, index=df.index))
+                score_details_df[signal_name] = current_score.add(signal_series * score, fill_value=0)
+                entry_score = entry_score.add(signal_series * score, fill_value=0)
+                print(f"          -> [经典复合火力] 侦测到信号 “{signal_name}”，增加 {score} 分！")
+                
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
         # --- 8. 评估“周线战略背景”火力 (Strategic Context Bonus) ---
         strategic_bonus_params = scoring_params.get('strategic_context_scoring', {})
@@ -163,6 +229,40 @@ class OffensiveLayer:
             if is_ignition.any():
                 entry_score.loc[is_ignition] += ignition_bonus
                 score_details_df['STRATEGIC_IGNITION_BONUS_W'] = is_ignition * ignition_bonus
+        # --- 9. 评估“日线长周期筹码战略背景”火力 (Daily Long-Term Chip Context Bonus) ---
+        # 这是对宏观战局的最终判断。如果大部队正在战略集结，那么任何战术进攻的成功率都会大增。
+        chip_context_params = scoring_params.get('chip_context_scoring', {})
+        if get_param_value(chip_context_params.get('enabled'), True):
+            # 顺风加成：如果处于长达一个季度的战略吸筹期，给予显著加分。
+            gathering_bonus = get_param_value(chip_context_params.get('strategic_gathering_bonus'), 300)
+            is_gathering = atomic_states.get('CONTEXT_CHIP_STRATEGIC_GATHERING', default_series)
+            if is_gathering.any():
+                entry_score.loc[is_gathering] += gathering_bonus
+                score_details_df['STRATEGIC_GATHERING_BONUS_D'] = is_gathering * gathering_bonus
+                print(f"          -> [战略顺风] 侦测到处于“战略吸筹期”，为 {is_gathering.sum()} 天的信号增加 {gathering_bonus} 分！")
+        # --- 10. 评估“主升浪黄金航道”背景火力 (Main Uptrend Wave Context Bonus) ---
+        # 这是对当前战局的最终判断。如果已确认进入主升浪，那么任何战术进攻的成功率都会大增。
+        main_uptrend_params = scoring_params.get('main_uptrend_context_scoring', {})
+        if get_param_value(main_uptrend_params.get('enabled'), True):
+            # 顺风加成：如果认知层确认当前处于S级主升浪黄金航道，给予显著加分。
+            uptrend_bonus = get_param_value(main_uptrend_params.get('uptrend_bonus'), 350)
+            is_in_main_uptrend = atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+            if is_in_main_uptrend.any():
+                entry_score.loc[is_in_main_uptrend] += uptrend_bonus
+                score_details_df['CONTEXT_MAIN_UPTREND_BONUS_S'] = is_in_main_uptrend * uptrend_bonus
+                print(f"          -> [战局顺风] 侦测到处于“主升浪黄金航道”，为 {is_in_main_uptrend.sum()} 天的信号增加 {uptrend_bonus} 分！")
+        # --- 11. 评估“堡垒式主升浪”背景火力 (Fortress Uptrend Context Bonus) ---
+        # 这是最高质量的战局判断。如果已确认进入由S级堡垒结构支撑的主升浪，
+        # 意味着主力高度控盘，上涨确定性极高，应给予最高级别的环境加成。
+        fortress_uptrend_params = scoring_params.get('fortress_uptrend_context_scoring', {})
+        if get_param_value(fortress_uptrend_params.get('enabled'), True):
+            # S+级顺风加成：如果认知层确认当前处于堡垒式主升浪，给予决定性加分。
+            fortress_bonus = get_param_value(fortress_uptrend_params.get('fortress_bonus'), 500)
+            is_in_fortress_uptrend = atomic_states.get('STRUCTURE_FORTRESS_UPTREND_S_PLUS', default_series)
+            if is_in_fortress_uptrend.any():
+                entry_score.loc[is_in_fortress_uptrend] += fortress_bonus
+                score_details_df['CONTEXT_FORTRESS_UPTREND_BONUS_S_PLUS'] = is_in_fortress_uptrend * fortress_bonus
+                print(f"          -> [S+战局顺风] 侦测到处于“堡垒式主升浪”，为 {is_in_fortress_uptrend.sum()} 天的信号增加 {fortress_bonus} 分！")
         return entry_score, score_details_df
 
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:

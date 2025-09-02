@@ -70,6 +70,9 @@ class DynamicMechanicsEngine:
         # --- 步骤2: 执行多时间维度力学分析 (交叉验证) ---
         multi_timeframe_states = self.diagnose_multi_timeframe_dynamics(df)
         states.update(multi_timeframe_states)
+        # --- 步骤3: 执行行为力学分析 (基于情绪与效率指标) ---
+        behavioral_states = self.diagnose_behavioral_mechanics(df)
+        states.update(behavioral_states)
         self.strategy.atomic_states.update(states)
         # print("          -> [微观及协同力学分析总指挥] 微观/多周期/终极交叉验证情报已全部生成。")
         return states
@@ -185,7 +188,55 @@ class DynamicMechanicsEngine:
 
         return states
 
+    def diagnose_behavioral_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】行为力学诊断模块
+        - 核心职责: 分析资金效率、获利盘/亏损盘行为的动态变化（加速度），
+                      以洞察市场情绪的真实状态和趋势的内在健康度。
+        - 收益: 提供了超越传统量价分析的视角，能更早地识别趋势的“质变”。
+        """
+        print("        -> [行为力学诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
 
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'SLOPE_5_close_D', 'ACCEL_5_close_D',
+            'ACCEL_5_VPA_EFFICIENCY_D',
+            'ACCEL_5_turnover_from_winners_ratio_D',
+            'ACCEL_5_turnover_from_losers_ratio_D'
+        ]
+        if any(c not in df.columns for c in required_cols):
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            print(f"          -> [警告] 行为力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 资金效率力学 ---
+        # 机会信号 (A级): “市场引擎点火”
+        # 解读: 价格加速上涨的同时，资金效率也在加速提升，表明上涨健康且高效。
+        is_price_accelerating = df['ACCEL_5_close_D'] > 0
+        is_efficiency_accelerating = df['ACCEL_5_VPA_EFFICIENCY_D'] > 0
+        states['OPP_DYN_MARKET_ENGINE_IGNITION_A'] = is_price_accelerating & is_efficiency_accelerating
+
+        # 风险信号 (S级): “市场引擎失速”
+        # 解读: 价格仍在上涨，但资金效率却在加速下滑，是严重的顶背离信号。
+        is_price_rising = df['SLOPE_5_close_D'] > 0
+        is_efficiency_collapsing = df['ACCEL_5_VPA_EFFICIENCY_D'] < 0
+        states['RISK_DYN_MARKET_ENGINE_STALLING_S'] = is_price_rising & is_efficiency_collapsing
+
+        # --- 3. 交易情绪力学 ---
+        # 风险信号 (S级): “获利盘恐慌加速”
+        # 解读: 股价下跌的同时，获利盘卖出行为在“加速”，是踩踏式下跌的预警。
+        is_price_falling = df['SLOPE_5_close_D'] < 0
+        is_winner_selling_accelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0
+        states['RISK_DYN_PANIC_SELLING_ACCELERATING_S'] = is_price_falling & is_winner_selling_accelerating
+
+        # 机会信号 (A级): “恐慌盘投降衰竭”
+        # 解读: 股价下跌的同时，亏损盘卖出行为在“减速”，表明卖压衰竭，是潜在的底部信号。
+        is_loser_selling_decelerating = df['ACCEL_5_turnover_from_losers_ratio_D'] < 0
+        states['OPP_DYN_CAPITULATION_EXHAUSTION_A'] = is_price_falling & is_loser_selling_decelerating
+
+        return states
 
 
 

@@ -151,11 +151,44 @@ class WarningLayer:
             'RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S': 400,# 结构性衰竭反弹
             'RISK_MTF_RSI_BEARISH_DIVERGENCE_S': 350,   # 周线与日线RSI顶背离
             'RISK_MA_DEATH_CROSS_CONFIRMED_S': 300,     # 均线死亡交叉确认
+            # A级风险: 获利盘的平均利润在减少，是趋势弱化的重要早期预警。
+            'RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A': 350,
+            # B级风险: 上方套牢盘越来越多，形成阻力，表明上涨乏力。
+            'RISK_BEHAVIOR_BUILDING_OVERHEAD_PRESSURE_B': 300,
+            # A级风险: 短中长周期都在派发，是系统性出货的明确信号。
+            'RISK_CHIP_DIVERGING_RESONANCE_A': 400,
+            # A级风险: 主力堡垒看似稳固，但内部已开始瓦解，是危险的背离信号。
+            'SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A': 420,
+            # S级风险: 战略派发背景下的任何拉升都应被视为高风险事件。
+            'RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S': 550,
+            # S级风险: 市场引擎失速，上涨效率崩溃，是趋势即将终结的强烈信号。
+            'RISK_DYN_MARKET_ENGINE_STALLING_S': 600,
+            # S级风险: 获利盘恐慌加速，是市场情绪崩溃、踩踏式下跌的预警。
+            'RISK_DYN_PANIC_SELLING_ACCELERATING_S': 580,
+            # S级风险: 认知层合成的顶部危险结构信号，代表多重风险共振。
+            'STRUCTURE_TOPPING_DANGER_S': 520,
+            # A级风险: 放量杀跌，是恐慌或主力出货的直接体现，是强烈的风险预警。
+            'RISK_VOL_PRICE_SPIKE_DOWN_A': 480,
+            # F级风险: 认知层判定的下跌通道，是绝对的逆风环境，风险极高。
+            'STRUCTURE_BEARISH_CHANNEL_F': 450,
+            # B级风险: MACD死叉，经典的短期动能转弱信号。
+            'RISK_TRIGGER_MACD_DEATH_CROSS_B': 250,
+            # A级风险: 主峰高位派发嫌疑，在高位区域发生激烈换手但价格滞涨，是典型的派发行为。
+            'RISK_PEAK_BATTLE_DISTRIBUTION_A': 460,
+            # B级风险: 散户狂热风险，股价大涨但主要由散户买盘驱动，是情绪过热的危险信号。
+            'RISK_FUND_FLOW_RETAIL_FOMO_B': 310,
+            # S级风险: 结构性长期超涨，股价长期严重偏离均线，回归压力巨大，结构不稳定。
+            'RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S': 470,
+            # S级风险: 多维共振超涨，日线和周线同时严重超涨，是极度危险的顶部共振信号。
+            'RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S': 530,
+            # B级风险: 市场处于均值回归状态，追涨策略的风险显著增加，突破很可能是陷阱。
+            'STRUCTURE_REGIME_MEAN_REVERTING': 280,
         }
         for risk_name, score in elite_atomic_risks.items():
             signal_series = atomic_states.get(risk_name, default_series)
             if signal_series.any():
-                risk_details_df[risk_name] = signal_series * score
+                current_score = risk_details_df.get(risk_name, pd.Series(0.0, index=df.index))
+                risk_details_df[risk_name] = current_score.add(signal_series * score, fill_value=0)
                 print(f"          -> [精英原子风险] 侦测到高危信号 “{risk_name}”，增加 {score} 风险分！")
 
         combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)

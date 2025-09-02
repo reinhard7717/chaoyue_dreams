@@ -21,16 +21,18 @@ class JudgmentLayer:
         risk_summary = df.get('risk_change_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
         
         # 使用列表推导式替代 for 循环，实现向量化操作
-        final_summaries = []
-        for offense_report, risk_report in zip(offensive_summary, risk_summary):
+        def create_summary(offense_report, risk_report):
+            # 定义一个内部辅助函数来构建单个报告字典
             final_summary = {}
-            # 检查进攻动能报告是否有效
+            # 检查进攻动能报告是否有效且非空
             if offense_report and isinstance(offense_report, dict) and any(offense_report.values()):
                 final_summary['offense_momentum'] = offense_report
-            # 检查风险变化报告是否有效
+            # 检查风险变化报告是否有效且非空
             if risk_report and isinstance(risk_report, dict) and any(v for v in risk_report.values() if v):
                 final_summary['risk_change'] = risk_report
-            final_summaries.append(final_summary)
+            return final_summary
+        # 使用列表推导式和zip并行处理两个Series，并调用辅助函数
+        final_summaries = [create_summary(o, r) for o, r in zip(offensive_summary, risk_summary)]
             
         df['health_change_summary'] = final_summaries
 
@@ -224,6 +226,77 @@ class JudgmentLayer:
         # 10.2 主力缺席的诱多式拉升，是典型的出货陷阱，给予3票强否决
         has_deceptive_rally = atomic.get('RISK_FUND_FLOW_DECEPTIVE_RALLY_S_PLUS', default_series)
         df.loc[has_deceptive_rally, 'veto_votes'] += 3
+        
+        # --- 风险11: 顶层战略筹码风险 (Top-Level Strategic Chip Risk) ---
+        # 这是基于最长周期（55日）的宏观判断，拥有极高的否决优先级。
+        # 11.1 宏观背景风险：如果股票处于长达一个季度的“战略派发期”，这是一个非常危险的宏观背景，给予2票否决。
+        is_strategic_distribution = atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
+        df.loc[is_strategic_distribution, 'veto_votes'] += 2
+
+        # 11.2 宏观陷阱确认：如果在“战略派发期”这个恶劣天气下，还出现了“拉升”这种看似利好的行为，
+        # 这就是我们刚刚在认知层合成的S级“诱多陷阱”，必须给予最强的3票否决。
+        has_strategic_trap = atomic.get('RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S', default_series)
+        df.loc[has_strategic_trap, 'veto_votes'] += 3
+        
+        # --- 风险12: 高级行为与结构陷阱 (Advanced Behavioral & Structural Traps) ---
+        # 12.1 高位多重背离派发，是强烈的顶部信号，给予3票强否决。
+        has_high_altitude_divergence = atomic.get('RISK_STATIC_HIGH_ALTITUDE_MULTI_DIVERGENCE_S', default_series)
+        df.loc[has_high_altitude_divergence, 'veto_votes'] += 3
+
+        # 12.2 长期派发背景下的诱多拉升，是典型的出货陷阱，给予3票强否决。
+        has_deceptive_rally_long_term = atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)
+        df.loc[has_deceptive_rally_long_term, 'veto_votes'] += 3
+
+        # --- 风险13: 新增力学层与认知层S级风险否决票 ---
+        # 13.1 市场引擎失速，是上涨动能终结的强烈信号，给予3票强否决。
+        has_engine_stalling = atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', default_series)
+        df.loc[has_engine_stalling, 'veto_votes'] += 3
+
+        # 13.2 结构性衰竭反弹，是典型的诱多陷阱，给予3票强否决。
+        has_structural_weakness_rally = atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series)
+        df.loc[has_structural_weakness_rally, 'veto_votes'] += 3
+
+        # 13.3 认知层合成的顶部危险结构信号，代表多重风险共振，给予3票强否决。
+        has_topping_danger = atomic.get('STRUCTURE_TOPPING_DANGER_S', default_series)
+        df.loc[has_topping_danger, 'veto_votes'] += 3
+        
+        # --- 风险14: 新增基础层与结构层风险否决票 ---
+        # 14.1 放量杀跌，是恐慌或主力出货的直接体现，给予3票强否决。
+        has_volume_spike_down = atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
+        df.loc[has_volume_spike_down, 'veto_votes'] += 3
+
+        # 14.2 处于下跌通道，是绝对的逆风环境，给予3票强否决。
+        is_in_bearish_channel = atomic.get('STRUCTURE_BEARISH_CHANNEL_F', default_series)
+        df.loc[is_in_bearish_channel, 'veto_votes'] += 3
+
+        # 14.3 MACD死叉，经典的短期动能转弱信号，给予1票软否决。
+        has_macd_death_cross = atomic.get('RISK_TRIGGER_MACD_DEATH_CROSS_B', default_series)
+        df.loc[has_macd_death_cross, 'veto_votes'] += 1
+
+        # --- 风险15: 新增筹码结构瓦解风险否决票 ---
+        # 15.1 堡垒内部瓦解，主力高控盘成为派发的掩护，风险极高，给予3票强否决。
+        has_fortress_collapse = atomic.get('SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A', default_series)
+        df.loc[has_fortress_collapse, 'veto_votes'] += 3
+
+        # 15.2 主峰高位派发嫌疑，是典型的主力出货行为，给予3票强否决。
+        has_peak_distribution = atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series)
+        df.loc[has_peak_distribution, 'veto_votes'] += 3
+
+        # --- 风险16: 新增资金流结构风险否决票 ---
+        # 16.1 散户狂热风险，上涨由散户情绪驱动，根基不稳，是潜在的顶部信号，给予2票否决。
+        has_retail_fomo = atomic.get('RISK_FUND_FLOW_RETAIL_FOMO_B', default_series)
+        df.loc[has_retail_fomo, 'veto_votes'] += 2
+
+        # --- 风险17: 新增结构性风险与市场状态否决票 ---
+        # 17.1 结构性长期超涨，股价严重偏离均线，结构不稳定，给予2票否决。
+        has_overextended = atomic.get('RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S', default_series)
+        df.loc[has_overextended, 'veto_votes'] += 2
+        # 17.2 多维共振超涨，日线周线同时超涨，是极强的顶部风险信号，给予3票强否决。
+        has_mtf_overextended = atomic.get('RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S', default_series)
+        df.loc[has_mtf_overextended, 'veto_votes'] += 3
+        # 17.3 市场处于均值回归状态，与趋势跟踪策略的根本逻辑相悖，给予2票否决。
+        is_mean_reverting = atomic.get('STRUCTURE_REGIME_MEAN_REVERTING', default_series)
+        df.loc[is_mean_reverting, 'veto_votes'] += 2
 
     def _finalize_signals(self):
         """

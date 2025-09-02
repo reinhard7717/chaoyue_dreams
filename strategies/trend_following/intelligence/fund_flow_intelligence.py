@@ -31,6 +31,18 @@ class FundFlowIntelligence:
         p = get_params_block(self.strategy, 'fund_flow_params')
         if not get_param_value(p.get('enabled'), False):
             return states
+        
+        # --- 0. 军备检查 (统一检查所有需要的列) ---
+        required_cols = [
+            'net_mf_amount_fund_flow_tushare_D', 'net_amount_fund_flow_ths_D', 'buy_lg_amount_rate_fund_flow_ths_D',
+            'net_amount_fund_flow_dc_D', 'buy_elg_amount_rate_fund_flow_dc_D', 'SLOPE_5_net_amount_fund_flow_ths_D',
+            'SLOPE_5_buy_lg_amount_rate_fund_flow_ths_D', 'CMF_21_W', 'SLOPE_5_CMF_21_W', 'ACCEL_5_net_amount_fund_flow_ths_D',
+            'net_d5_amount_fund_flow_ths_D', 'net_amount_rate_fund_flow_dc_D', 'buy_sm_amount_rate_fund_flow_ths_D',
+            'buy_md_amount_rate_fund_flow_ths_D', 'pct_change_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [警告] 缺少资金流诊断所需列，部分信号可能无法生成。缺失: {missing_cols}")
 
         # --- 1. 基础静态信号 (沿用并作为后续分析的基础) ---
         # Tushare
@@ -136,6 +148,32 @@ class FundFlowIntelligence:
             is_inflow_accelerating &
             is_weekly_momentum_deteriorating
         )
+        
+        # --- 7. 新增战术与风险信号 (持续性、强度、结构) ---
+        # 7.1 A级机会: 持续净流入 (Sustained Net Inflow)
+        # 逻辑: 过去5个交易日的累计资金净流入为正，表明买盘具有连续性。
+        sustained_inflow_col = 'net_d5_amount_fund_flow_ths_D'
+        if sustained_inflow_col in df.columns:
+            states['FUND_FLOW_SUSTAINED_INFLOW_A'] = df[sustained_inflow_col] > 0
+
+        # 7.2 A级机会: 高强度净流入 (High-Intensity Net Inflow)
+        # 逻辑: 资金净流入额占当天总成交额的比例显著偏高，代表买盘意愿坚决。
+        intensity_col = 'net_amount_rate_fund_flow_dc_D'
+        if intensity_col in df.columns:
+            intensity_threshold = get_param_value(p.get('dc_net_inflow_intensity_threshold'), 5.0) # 阈值: 净流入占成交额5%
+            states['FUND_FLOW_HIGH_INTENSITY_INFLOW_A'] = df[intensity_col] > intensity_threshold
+
+        # 7.3 B级风险: 散户狂热风险 (Retail FOMO Risk)
+        # 逻辑: 股价大涨，但主要是由小单和中单买盘驱动，是情绪过热的危险信号。
+        sm_rate_col = 'buy_sm_amount_rate_fund_flow_ths_D'
+        md_rate_col = 'buy_md_amount_rate_fund_flow_ths_D'
+        pct_change_col = 'pct_change_D'
+        if all(c in df.columns for c in [sm_rate_col, md_rate_col, pct_change_col]):
+            rally_threshold = get_param_value(p.get('fomo_rally_threshold'), 0.03) # 涨幅超过3%
+            fomo_threshold = get_param_value(p.get('fomo_retail_rate_threshold'), 0.60) # 散户(小+中单)买入占比超过60%
+            is_strong_rally = df[pct_change_col] > rally_threshold
+            is_retail_driven = (df[sm_rate_col] + df[md_rate_col]) > fomo_threshold
+            states['RISK_FUND_FLOW_RETAIL_FOMO_B'] = is_strong_rally & is_retail_driven
 
         print("        -> [资金流情报模块 V4.0 战术共振版] 诊断完毕。") # [修改代码行]
         return states

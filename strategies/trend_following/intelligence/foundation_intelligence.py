@@ -35,8 +35,12 @@ class FoundationIntelligence:
         capital_range_states = self.diagnose_capital_and_range_states(df)
         states.update(capital_range_states)
         
+        # --- 步骤4: 诊断经典技术指标 (MACD交叉, 量比) ---
+        classic_states = self.diagnose_classic_indicators(df)
+        states.update(classic_states)
+        
         # 在生成所有基础原子后，更新 self.strategy.atomic_states
-        # 这样步骤4才能消费到最新的原子状态
+        # 这样后续步骤才能消费到最新的原子状态
         self.strategy.atomic_states.update(states)
 
         # --- 步骤4: 诊断协同效应状态 (交叉验证) ---
@@ -325,7 +329,48 @@ class FoundationIntelligence:
         
         return states
 
+    def diagnose_classic_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】经典技术指标诊断模块
+        - 核心职责: 诊断MACD金叉/死叉事件和量比异动，生成经典的动能和成交量原子信号。
+        - 收益: 捕捉被广泛市场参与者认可的交易信号，增强策略的普适性。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'classic_indicator_params')
+        if not get_param_value(p.get('enabled'), True): return states
 
+        # --- 1. MACD 金叉/死叉事件 ---
+        macd_line_col = 'MACD_13_34_8_D'
+        signal_line_col = 'MACDs_13_34_8_D'
+        if all(c in df.columns for c in [macd_line_col, signal_line_col]):
+            macd_line = df[macd_line_col]
+            signal_line = df[signal_line_col]
+            # 机会信号 (B级): MACD金叉，短期动能上穿长期动能
+            is_golden_cross = (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1))
+            states['OSC_TRIGGER_MACD_GOLDEN_CROSS_B'] = is_golden_cross
+
+            # 风险信号 (B级): MACD死叉，短期动能下穿长期动能
+            is_death_cross = (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1))
+            states['RISK_TRIGGER_MACD_DEATH_CROSS_B'] = is_death_cross
+        else:
+            print(f"          -> [警告] 缺少诊断MACD交叉所需列: '{macd_line_col}' 或 '{signal_line_col}'，跳过。")
+
+        # --- 2. 量比异动信号 ---
+        vol_ratio_col = 'volume_ratio_D'
+        if vol_ratio_col in df.columns:
+            volume_spike_threshold = get_param_value(p.get('volume_ratio_spike_threshold'), 2.5)
+            is_volume_spike = df[vol_ratio_col] > volume_spike_threshold
+            # 机会信号 (A级): 放量上涨，量价齐升，是强烈的买盘确认信号
+            is_price_up = df['close_D'] > df['open_D']
+            states['VOL_PRICE_SPIKE_UP_A'] = is_volume_spike & is_price_up
+
+            # 风险信号 (A级): 放量下跌，恐慌或出货迹象，是强烈的风险预警
+            is_price_down = df['close_D'] < df['open_D']
+            states['RISK_VOL_PRICE_SPIKE_DOWN_A'] = is_volume_spike & is_price_down
+        else:
+            print(f"          -> [警告] 缺少诊断量比所需列 '{vol_ratio_col}'，跳过。")
+
+        return states
 
 
 

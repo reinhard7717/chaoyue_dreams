@@ -79,9 +79,13 @@ class CognitiveIntelligence:
         states['CONTEXT_RISK_OVEREXTENDED_BIAS'] = df['BIAS_21_D'] > bias_overbought_threshold
         
         # 2.2 动能维度
+        # 新定义: 价格处于高位，并且出现显著的行为衰竭信号
         is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85
-        is_slope_weakening = df['SLOPE_5_EMA_13_D'] < 0.001
-        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & is_slope_weakening
+        # 行为衰竭信号1: 获利盘的利润安全垫正在收缩
+        is_profit_cushion_shrinking = atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series)
+        # 行为衰竭信号2: 市场引擎（资金效率）正在失速
+        is_market_engine_stalling = atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series)
+        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & (is_profit_cushion_shrinking | is_market_engine_stalling)
         
         # 2.3 筹码维度
         # 定义：筹码结构出现持续性恶化（短期和中期趋势都在发散）
@@ -97,13 +101,38 @@ class CognitiveIntelligence:
         states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
         # if states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].any():
             # print(f"          -> [S级风险] 侦测到 {states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()} 次“动态对倒嫌疑”！")
+            
+        # 2.5 S级战略风险：长期派发背景下的诱多拉升
+        is_deceptive_rally_long_term = atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)
+        
+        # 2.6 筹码层战略级风险
+        # 风险维度A: 股票处于长达一个季度的“战略派发期”，这是最危险的宏观背景。
+        is_strategic_distribution = atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
+        # 风险维度B: 筹码出现“共振式派发”，短中长周期都在出货，信号强度极高。
+        is_resonant_distribution = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
+        states['CONTEXT_RISK_CHIP_STRATEGIC_DECAY'] = is_strategic_distribution | is_resonant_distribution
 
-        # 2.5 融合生成“危险战区”状态 (纳入新维度)
+        # 2.7 力学层S级结构性风险
+        # 风险维度A: 结构性衰竭反弹，短期上涨但长期筹码结构瓦解，是典型的诱多。
+        is_structural_weakness_rally = atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series)
+        # 风险维度B: 市场引擎失速，价格上涨但资金效率崩溃，上涨已是强弩之末。
+        is_market_engine_stalling_S = atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', default_series)
+
+        # 2.8 基础层经典风险
+        # 风险维度: 放量杀跌，是恐慌或主力出货的直接体现。
+        is_volume_spike_down = atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
+
+        # 2.9 融合生成“危险战区”状态
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
             states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | 
             states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] |
             states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] |
-            states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] # 纳入动态对倒嫌疑
+            states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] |
+            is_deceptive_rally_long_term |
+            states['CONTEXT_RISK_CHIP_STRATEGIC_DECAY'] |
+            is_structural_weakness_rally | # 纳入结构性衰竭反弹风险
+            is_market_engine_stalling_S |   # 纳入市场引擎失速风险
+            is_volume_spike_down # 纳入放量杀跌风险
         )
         return states
 
@@ -134,6 +163,7 @@ class CognitiveIntelligence:
         # print("        -> [趋势阶段评分模块 V400.0 风险仪表盘版] 启动...")
         states = {}
         default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
 
         # --- 1. 定义“上涨初期” (Early Stage) - 逻辑保持不变 ---
         is_in_ascent_structure = self.strategy.atomic_states.get('STRUCTURE_POST_ACCUMULATION_ASCENT_C', default_series)
@@ -149,27 +179,55 @@ class CognitiveIntelligence:
         # 步骤 2.1: 将所有风险维度及其分数进行结构化定义
         risk_dimensions = [
             # 维度 1 & 2: 位置情报
-            {'condition': self.strategy.atomic_states.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series), 'score': 25},
-            {'condition': self.strategy.atomic_states.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series), 'score': 25},
+            {'condition': atomic.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series), 'score': 25},
+            {'condition': atomic.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series), 'score': 25},
             # 维度 3 & 4: 行为情报
-            {'condition': self.strategy.atomic_states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series), 'score': 25},
-            {'condition': self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series), 'score': 25},
+            {'condition': atomic.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series), 'score': 25},
+            {'condition': atomic.get('DYN_TREND_WEAKENING_DECELERATING', default_series), 'score': 25},
             # 维度 5: 成交量剖析 (VPA)
-            {'condition': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', default_series) | self.strategy.atomic_states.get('RISK_VPA_VOLUME_ACCELERATING', default_series), 'score': 25},
+            {'condition': atomic.get('RISK_VPA_STAGNATION', default_series) | atomic.get('RISK_VPA_VOLUME_ACCELERATING', default_series), 'score': 25},
             # 维度 6: 波动率扩张
-            {'condition': self.strategy.atomic_states.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25},
+            {'condition': atomic.get('VOL_STATE_EXPANDING_SHARPLY', default_series), 'score': 25},
             # 维度 7: 价格筹码顶背离
-            {'condition': self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series), 'score': 25},
+            {'condition': atomic.get('RISK_CHIP_PRICE_DIVERGENCE', default_series), 'score': 25},
             # 维度 8: 获利盘恐慌加速出逃
-            {'condition': self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series), 'score': 25},
+            {'condition': atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series), 'score': 25},
             # 维度 9: 筹码派发动能
-            {'condition': self.strategy.atomic_states.get('MECHANICS_CHIP_DISTRIBUTION_MOMENTUM', default_series), 'score': 25},
+            {'condition': atomic.get('MECHANICS_CHIP_DISTRIBUTION_MOMENTUM', default_series), 'score': 25},
             # 维度 10: 筹码健康度恶化
-            {'condition': self.strategy.atomic_states.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25},
+            {'condition': atomic.get('CHIP_DYN_HEALTH_DETERIORATING', default_series), 'score': 25},
             # 维度 11: 主峰高位派发嫌疑
-            {'condition': self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series), 'score': 30},
+            {'condition': atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series), 'score': 30},
             # 维度 12: 顶层结构性风险
-            {'condition': self.strategy.atomic_states.get('STRUCTURE_TOPPING_DANGER_S', default_series), 'score': 35}
+            {'condition': atomic.get('STRUCTURE_TOPPING_DANGER_S', default_series), 'score': 35},
+            # 维度 13: 利润安全垫收缩 (趋势弱化的早期预警)
+            {'condition': atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series), 'score': 25},
+            # 维度 14: 市场引擎失速 (上涨性价比降低)
+            {'condition': atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series), 'score': 25},
+            # 维度 15: RSI看跌背离 (经典技术背离信号)
+            {'condition': atomic.get('OSC_DYN_RSI_BEARISH_DIVERGENCE', default_series), 'score': 20},
+            # 维度 16: 长期派发背景下的诱多拉升 (S级战略风险)
+            {'condition': atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series), 'score': 35},
+            # 维度 17: 共振式派发 (A级风险)，短中长周期都在出货，信号明确。
+            {'condition': atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series), 'score': 30},
+            # 维度 18: 高位派发陷阱 (S级风险)，获利丰厚+共振派发+利润收缩，极度危险。
+            {'condition': atomic.get('SCENARIO_HIGH_ALTITUDE_DISTRIBUTION_TRAP_S', default_series), 'score': 35},
+            # 维度 19: 高位狂欢亢奋陷阱 (S级风险)，市场最乐观时主力加速派发。
+            {'condition': atomic.get('RISK_CHIP_EUPHORIA_TRAP_S', default_series), 'score': 35},
+            # 维度 20: 结构性衰竭反弹 (S级风险)，价格上涨但根基瓦解，典型的诱多。
+            {'condition': atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series), 'score': 35},
+            # 维度 21: 市场引擎失速 (S级风险)，上涨效率崩溃，是趋势即将终结的强烈信号。
+            {'condition': atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', default_series), 'score': 35},
+            # 维度 22: MACD死叉 (B级风险)，经典的短期动能转弱信号。
+            {'condition': atomic.get('RISK_TRIGGER_MACD_DEATH_CROSS_B', default_series), 'score': 20},
+            # 维度 23: 放量杀跌 (A级风险)，恐慌或主力出货的直接体现，是强烈的顶部风险信号。
+            {'condition': atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series), 'score': 30},
+            # 维度 24: 散户狂热风险 (B级风险)，由散户情绪驱动的上涨根基不稳，是潜在的顶部信号。
+            {'condition': atomic.get('RISK_FUND_FLOW_RETAIL_FOMO_B', default_series), 'score': 25},
+            # 维度 25: 结构性长期超涨 (S级风险)，股价长期严重偏离均线，回归压力巨大。
+            {'condition': atomic.get('RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S', default_series), 'score': 30},
+            # 维度 26: 多维共振超涨 (S级风险)，日线和周线同时严重超涨，是极度危险的顶部共振。
+            {'condition': atomic.get('RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S', default_series), 'score': 35},
         ]
         
         # 步骤 2.2: 循环遍历风险维度，累加分数
@@ -178,8 +236,8 @@ class CognitiveIntelligence:
         
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         
-        # 风险维度增加到10个，因此阈值也需要相应调整，例如从100分（4/8）调整到150分（5/10）
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 150
+        # 风险维度增加到10个，因此阈值也需要相应调整，从150分（约5-6个信号）调整到200分（约7-8个信号）。
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 320
 
         return states
 
@@ -193,37 +251,48 @@ class CognitiveIntelligence:
         # print("        -> [联合作战司令部 V278.0 力量分析版] 启动，正在分析战场核心结构...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
+        atomic = self.strategy.atomic_states
 
         # --- 步骤1：情报总览 ---
-        is_ma_bullish = self.strategy.atomic_states.get('MA_STATE_STABLE_BULLISH', default_series)
-        is_ma_bearish = self.strategy.atomic_states.get('MA_STATE_STABLE_BEARISH', default_series)
-        is_price_above_long_ma = self.strategy.atomic_states.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
-        is_recent_reversal = self.strategy.atomic_states.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
-        is_ma_short_slope_positive = self.strategy.atomic_states.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
-        is_dyn_trend_healthy = self.strategy.atomic_states.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
-        is_dyn_trend_weakening = self.strategy.atomic_states.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
-        is_chip_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
-        is_chip_diverging = self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series)
+        is_ma_bullish = atomic.get('MA_STATE_STABLE_BULLISH', default_series)
+        is_dyn_trend_healthy = atomic.get('DYN_TREND_HEALTHY_ACCELERATING', default_series)
+        is_chip_concentrating = atomic.get('CHIP_DYN_CONCENTRATING', default_series)
+        is_price_above_long_ma = atomic.get('MA_STATE_PRICE_ABOVE_LONG_MA', default_series)
+        is_recent_reversal = atomic.get('CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
+        is_ma_short_slope_positive = atomic.get('MA_STATE_SHORT_SLOPE_POSITIVE', default_series)
+        is_ma_bearish = atomic.get('MA_STATE_STABLE_BEARISH', default_series)
+        is_dyn_trend_weakening = atomic.get('DYN_TREND_WEAKENING_DECELERATING', default_series)
+        is_chip_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
         
-        risk_1_chip_failure = self.strategy.atomic_states.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
-        risk_2_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', default_series)
-        risk_3_confirmed_dist = self.strategy.atomic_states.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series)
-        risk_4_deceptive_churn = self.strategy.atomic_states.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
+        risk_1_chip_failure = atomic.get('RISK_CHIP_STRUCTURE_CRITICAL_FAILURE', default_series)
+        risk_2_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
+        risk_3_confirmed_dist = atomic.get('RISK_S_PLUS_CONFIRMED_DISTRIBUTION', default_series)
+        risk_4_deceptive_churn = atomic.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series)
+        risk_5_retail_fomo = atomic.get('RISK_FUND_FLOW_RETAIL_FOMO_B', default_series) # 散户狂热风险
+        risk_6_overextended = atomic.get('RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S', default_series) # 结构性长期超涨
+        risk_7_mtf_overextended = atomic.get('RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S', default_series) # 多维共振超涨
+        # S级堡垒是否建成
+        is_fortress_built = atomic.get('CHIP_STRUCTURE_FORTRESS_S', default_series)
 
         # --- 步骤2：联合裁定 ---
-        # 【战局1: S级主升浪·黄金航道】
-        structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = (
-            is_ma_bullish & is_dyn_trend_healthy & is_chip_concentrating & is_price_above_long_ma
-        )
+        # 【战局1.1: S+级堡垒式主升浪】(最高质量)
+        # 解读: 不仅处于主升浪，而且主力已构筑S级堡垒，控盘度极高，上涨确定性最强。
+        base_uptrend_condition = is_ma_bullish & is_dyn_trend_healthy & is_chip_concentrating & is_price_above_long_ma
+        structure_states['STRUCTURE_FORTRESS_UPTREND_S_PLUS'] = base_uptrend_condition & is_fortress_built
+        
+        # 【战局1.2: S级常规主升浪】
+        # 解读: 各项指标健康，但尚未形成最强的堡垒结构，仍是高质量的主升浪。
+        # 关键逻辑：必须排除掉更高等级的S+信号，保证信号的互斥性。
+        structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = base_uptrend_condition & ~is_fortress_built
         
         # 废除基于形态的、胜率仅6%的旧“突破前夜”信号，引入基于三大力量支柱共振的全新S级信号。
         # 【战局2: S级战备·黄金阵地构筑】
         # 支柱1: 结构力量 - 必须具备S级的黄金筹码结构
-        is_prime_chip_structure = self.strategy.atomic_states.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
+        is_prime_chip_structure = atomic.get('CHIP_STRUCTURE_PRIME_OPPORTUNITY_S', default_series)
         # 支柱2: 势能储备 - 波动率必须被极致压缩
-        is_extreme_squeeze = self.strategy.atomic_states.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
+        is_extreme_squeeze = atomic.get('VOL_STATE_EXTREME_SQUEEZE', default_series)
         # 支柱3: 动能优势 - 底层力学必须向多头倾斜
-        has_energy_advantage = self.strategy.atomic_states.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
+        has_energy_advantage = atomic.get('MECHANICS_ENERGY_ADVANTAGE', default_series)
         
         # 最终裁定：三大力量支柱必须同时存在
         structure_states['SETUP_PRIME_STRUCTURE_S'] = (
@@ -236,7 +305,7 @@ class CognitiveIntelligence:
         )
         # 【战局4: S级风险·顶部危险】
         structure_states['STRUCTURE_TOPPING_DANGER_S'] = (
-            risk_1_chip_failure | risk_2_late_stage | risk_3_confirmed_dist | risk_4_deceptive_churn
+            risk_1_chip_failure | risk_2_late_stage | risk_3_confirmed_dist | risk_4_deceptive_churn | risk_5_retail_fomo | risk_6_overextended | risk_7_mtf_overextended
         )
         # 【战局5: F级禁区·下跌通道】
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = (
@@ -263,13 +332,16 @@ class CognitiveIntelligence:
         cognitive_states['COGNITIVE_RISK_BREAKOUT_DISTRIBUTION'] = is_strong_rally & is_chip_diverging
 
         # --- 认知链 2/2: 汇总“近期派发压力”上下文 ---
-        # [修改] 重新定义“派发事件”，使用更可靠的筹码和行为信号
+       # 重新定义“派发事件”，融入更多行为层面的风险信号
         distribution_event = (
-            self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) | # 主峰高位派发
-            self.strategy.atomic_states.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) | # 获利盘长期出逃
-            self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', default_series) |              # 筹码结构发散
-            self.strategy.atomic_states.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |      # 价格筹码顶背离
-            self.strategy.atomic_states.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series)     # S+级获利盘加速出逃，修正信号名称
+            atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', default_series) |          # 主峰高位派发
+            atomic.get('RISK_BEHAVIOR_WINNERS_FLEEING_A', default_series) |          # 获利盘长期出逃
+            atomic.get('CHIP_DYN_DIVERGING', default_series) |                       # 筹码结构发散
+            atomic.get('RISK_CHIP_PRICE_DIVERGENCE', default_series) |               # 价格筹码顶背离
+            atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series) |            # S+级获利盘加速出逃
+            atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series) | # 利润安全垫收缩
+            atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)| # 长期派发下的诱多拉升
+            atomic.get('VOL_BEHAVIOR_DISTRIBUTION_DROP', default_series)             # 价跌量增的经典派发
         )
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
@@ -291,17 +363,42 @@ class CognitiveIntelligence:
         # print("    --- [战略推演单元 V304.1 信号源修复版] 启动，正在生成主力行为序列... ---")
         
         # 步骤1: 将所有用到的Series一次性转换为NumPy数组，避免在循环中反复索引pandas对象
+        # 步骤1: 扩充情报源，引入新的筹码结构信号
+        atomic = self.strategy.atomic_states
         conditions = {
-            'is_concentrating': self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_fund_inflow_confirmed': self.strategy.atomic_states.get('CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool), # [修改代码] 增加新的协同信号作为推演证据
-            'is_sharp_drop': self.strategy.atomic_states.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 基础信号
+            'is_concentrating': atomic.get('CHIP_DYN_CONCENTRATING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_sharp_drop': atomic.get('KLINE_SHARP_DROP', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_sideways': (df.get('SLOPE_5_close_D', pd.Series(0, index=df.index)).abs() < 0.01).to_numpy(dtype=bool),
-            'is_markup_breakout': self.strategy.atomic_states.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_markup_breakout': atomic.get('OPP_CHIP_LOCKED_BREAKOUT_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_chip_fault': df.get('is_chip_fault_formed_D', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_distributing': self.strategy.atomic_states.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_diverging': self.strategy.atomic_states.get('CHIP_DYN_DIVERGING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
-            'is_stagnation': self.strategy.atomic_states.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_distributing': atomic.get('RISK_PEAK_BATTLE_DISTRIBUTION_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_diverging': atomic.get('CHIP_DYN_DIVERGING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_stagnation': atomic.get('RISK_VPA_STAGNATION', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
             'is_below_long_ma': (df['close_D'] < df['EMA_55_D']).to_numpy(dtype=bool),
+            # 高确定性筹码信号
+            'is_concentrating_resonance': atomic.get('CHIP_DYN_CONCENTRATING_RESONANCE_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_reversal_gathering': atomic.get('OPP_CHIP_REVERSAL_GATHERING_B', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_diverging_resonance': atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 高确定性力学信号
+            'is_engine_ignition': atomic.get('OPP_DYN_MARKET_ENGINE_IGNITION_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_internal_external_resonance': atomic.get('OPP_DYN_INTERNAL_EXTERNAL_RESONANCE_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_engine_stalling': atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 经典技术指标信号
+            'is_macd_golden_cross': atomic.get('OSC_TRIGGER_MACD_GOLDEN_CROSS_B', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_volume_spike_up': atomic.get('VOL_PRICE_SPIKE_UP_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_macd_death_cross': atomic.get('RISK_TRIGGER_MACD_DEATH_CROSS_B', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_volume_spike_down': atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 根本性筹码结构信号
+            'is_intense_absorption': atomic.get('OPP_CHIP_INTENSE_ABSORPTION_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_fortress_built': atomic.get('CHIP_STRUCTURE_FORTRESS_S', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 高质量资金流信号
+            'is_sustained_inflow': atomic.get('FUND_FLOW_SUSTAINED_INFLOW_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_high_intensity_inflow': atomic.get('FUND_FLOW_HIGH_INTENSITY_INFLOW_A', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            # 宏观市场状态与结构风险信号
+            'is_trending_regime': atomic.get('STRUCTURE_REGIME_TRENDING', pd.Series(False, index=df.index)).to_numpy(dtype=bool),
+            'is_overextended_risk': (atomic.get('RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S', pd.Series(False, index=df.index)) |
+                                     atomic.get('RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S', pd.Series(False, index=df.index))).to_numpy(dtype=bool),
         }
         
         # 步骤2: 初始化一个NumPy数组用于存储状态结果
@@ -313,24 +410,36 @@ class CognitiveIntelligence:
             prev_state = MainForceState(main_force_state_arr[i-1])
             current_state = prev_state
 
+            # 使用新的宏观状态信号驱动状态转换
             if prev_state == MainForceState.IDLE:
-                if conditions['is_concentrating'][i]: current_state = MainForceState.ACCUMULATING
+                if conditions['is_concentrating_resonance'][i] or conditions['is_reversal_gathering'][i] or conditions['is_intense_absorption'][i] or conditions['is_sustained_inflow'][i]: 
+                    current_state = MainForceState.ACCUMULATING
             elif prev_state == MainForceState.ACCUMULATING:
-                if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
-                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
-                elif conditions['is_distributing'][i] or conditions['is_diverging'][i]: current_state = MainForceState.DISTRIBUTING
+                # 增加“趋势市状态”作为进入拉升期的强力确认
+                if conditions['is_fortress_built'][i] or conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i] or conditions['is_engine_ignition'][i] or conditions['is_internal_external_resonance'][i] or conditions['is_macd_golden_cross'][i] or conditions['is_volume_spike_up'][i] or conditions['is_high_intensity_inflow'][i] or conditions['is_trending_regime'][i]: 
+                    current_state = MainForceState.MARKUP
+                elif conditions['is_diverging_resonance'][i]:
+                    current_state = MainForceState.DISTRIBUTING
+                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: 
+                    current_state = MainForceState.WASHING
             elif prev_state == MainForceState.WASHING:
-                if conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i]: current_state = MainForceState.MARKUP
-                elif not conditions['is_concentrating'][i]: current_state = MainForceState.DISTRIBUTING
-                elif conditions['is_sideways'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.ACCUMULATING
+                # 洗盘后，同样增加“趋势市状态”作为确认信号
+                if conditions['is_fortress_built'][i] or conditions['is_markup_breakout'][i] or conditions['is_chip_fault'][i] or conditions['is_engine_ignition'][i] or conditions['is_internal_external_resonance'][i] or conditions['is_macd_golden_cross'][i] or conditions['is_volume_spike_up'][i] or conditions['is_high_intensity_inflow'][i] or conditions['is_trending_regime'][i]: 
+                    current_state = MainForceState.MARKUP
+                elif not conditions['is_concentrating'][i] and not conditions['is_concentrating_resonance'][i]: 
+                    current_state = MainForceState.DISTRIBUTING
+                elif conditions['is_sideways'][i] and conditions['is_concentrating'][i]: 
+                    current_state = MainForceState.ACCUMULATING
             elif prev_state == MainForceState.MARKUP:
-                if conditions['is_distributing'][i] or conditions['is_diverging'][i] or conditions['is_stagnation'][i]: current_state = MainForceState.DISTRIBUTING
-                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: current_state = MainForceState.WASHING
+                # 增加“结构性超涨风险”作为进入派发期的强力预警
+                if conditions['is_distributing'][i] or conditions['is_diverging_resonance'][i] or conditions['is_stagnation'][i] or conditions['is_engine_stalling'][i] or conditions['is_macd_death_cross'][i] or conditions['is_volume_spike_down'][i] or conditions['is_overextended_risk'][i]: 
+                    current_state = MainForceState.DISTRIBUTING
+                elif conditions['is_sharp_drop'][i] and conditions['is_concentrating'][i]: 
+                    current_state = MainForceState.WASHING
             elif prev_state == MainForceState.DISTRIBUTING:
                 if conditions['is_below_long_ma'][i]: current_state = MainForceState.COLLAPSE
             elif prev_state == MainForceState.COLLAPSE:
                 if conditions['is_sideways'][i] and not conditions['is_below_long_ma'][i]: current_state = MainForceState.IDLE
-            
             main_force_state_arr[i] = current_state.value
             
         # 步骤4: 将最终的NumPy结果数组一次性赋值给DataFrame的新列
@@ -358,6 +467,8 @@ class CognitiveIntelligence:
         is_ts_net_inflow = atomic.get('FUND_FLOW_TS_NET_INFLOW', default_series)
         is_ths_net_inflow = atomic.get('FUND_FLOW_THS_NET_INFLOW', default_series)
         is_dc_net_inflow = atomic.get('FUND_FLOW_DC_NET_INFLOW', default_series)
+         # 持续净流入
+        is_sustained_inflow = atomic.get('FUND_FLOW_SUSTAINED_INFLOW_A', default_series)
 
         # --- 3. 交叉验证：筹码集中 + 资金净流入 ---
         # A级信号: 筹码集中度增加 AND 至少两种资金流显示净流入
@@ -367,16 +478,22 @@ class CognitiveIntelligence:
              (is_ts_net_inflow & is_dc_net_inflow) | 
              (is_ths_net_inflow & is_dc_net_inflow))
         )
-        if states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].any():
-            print(f"          -> [A级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].sum()} 次“筹码资金协同吸筹”！")
+        # if states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].any():
+        #     print(f"          -> [A级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'].sum()} 次“筹码资金协同吸筹”！")
 
         # S级信号: 筹码加速集中 或 筹码锁定稳定 AND 三种资金流均显示净流入
         states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'] = (
             (is_chip_accel_concentrating | is_chip_locked_stable) & 
             is_ts_net_inflow & is_ths_net_inflow & is_dc_net_inflow
         )
-        if states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].any():
-            print(f"          -> [S级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].sum()} 次“筹码资金强力吸筹”！")
+        # if states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].any():
+        #     print(f"          -> [S级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'].sum()} 次“筹码资金强力吸筹”！")
+        # S+级信号: 筹码锁定稳定 AND 资金持续净流入 (最高质量的建仓信号)
+        states['CHIP_FUND_FLOW_ACCUMULATION_STRATEGIC_S_PLUS'] = (
+            is_chip_locked_stable & is_sustained_inflow
+        )
+        # if states['CHIP_FUND_FLOW_ACCUMULATION_STRATEGIC_S_PLUS'].any():
+        #     print(f"          -> [S+级情报] 侦测到 {states['CHIP_FUND_FLOW_ACCUMULATION_STRATEGIC_S_PLUS'].sum()} 次“战略性协同建仓”！")
 
         # --- 4. 交叉验证：筹码发散 + 资金净流出 (风险信号) ---
         is_chip_diverging = atomic.get('CHIP_DYN_DIVERGING', default_series)
@@ -408,7 +525,10 @@ class CognitiveIntelligence:
         default_series = pd.Series(False, index=df.index)
 
         # --- 1. 军备检查 ---
-        required_states = ['CHIP_DYN_DIVERGING', 'CHIP_DYN_CONCENTRATING', 'CONTEXT_RISK_HIGH_LEVEL_ZONE']
+        required_states = [
+            'CHIP_DYN_DIVERGING', 'CHIP_DYN_CONCENTRATING', 'CONTEXT_RISK_HIGH_LEVEL_ZONE',
+            'CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'
+        ]
         if any(s not in self.strategy.atomic_states for s in required_states):
             print("          -> [警告] 缺少合成“顶部行为”所需情报，模块跳过。")
             return {}
@@ -429,6 +549,14 @@ class CognitiveIntelligence:
         is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
         is_distributing_action = states.get('ACTION_RISK_RALLY_WITH_DIVERGENCE', default_series)
         states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = is_in_danger_zone & is_distributing_action
+        
+        # --- 3.5 【S级战略风险融合】：在战略派发背景下出现的任何拉升都是陷阱 ---
+        # 这是最高级别的风险判断：如果宏观天气预报是“乌云密布”（战略派发），
+        # 那么任何看起来像“晴天”的拉升（is_rallying），都极可能是诱多陷阱。
+        is_strategic_distribution = self.strategy.atomic_states.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
+        states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'] = is_rallying & is_strategic_distribution
+        if states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].any():
+            print(f"          -> [S级战略风险] 侦测到 {states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].sum()} 次“战略派发背景下的诱多陷阱”！")
         
         # --- 4. 重新定义“健康锁筹拉升” (增加保险丝) ---
         is_concentrating = self.strategy.atomic_states.get('CHIP_DYN_CONCENTRATING', default_series)
@@ -575,6 +703,12 @@ class CognitiveIntelligence:
         is_chip_health_improving = atomic.get('CHIP_DYN_HEALTH_IMPROVING', default_series)
         # 获利盘利润垫抬升
         is_winner_profit_margin_rising = atomic.get('CHIP_DYN_WINNER_PROFIT_MARGIN_RISING', default_series)
+        # 上方压力被快速清除
+        is_pressure_clearing = atomic.get('CHIP_DYN_PRESSURE_RAPIDLY_DECREASING_A', default_series)
+        # 高强度净流入
+        is_high_intensity_inflow = atomic.get('FUND_FLOW_HIGH_INTENSITY_INFLOW_A', default_series)
+        # 趋势市状态
+        is_trending_regime = atomic.get('STRUCTURE_REGIME_TRENDING', default_series)
 
         # 2. 计算当天有多少个动能信号被触发 (协同原则)
         # 将布尔序列转换为整数 (True=1, False=0) 并按行求和
@@ -586,11 +720,14 @@ class CognitiveIntelligence:
             is_inertia_decreasing.astype(int) +
             is_chip_accumulation_momentum.astype(int) +
             is_chip_health_improving.astype(int) +
-            is_winner_profit_margin_rising.astype(int)
+            is_winner_profit_margin_rising.astype(int) +
+            is_pressure_clearing.astype(int) +
+            is_high_intensity_inflow.astype(int) +
+            is_trending_regime.astype(int) # 宏观战场顺风
         )
         
         # 定义协同进攻的原始触发条件：至少2个动能信号同时激活
-        is_synergistic_offense = (num_active_signals >= 4)
+        is_synergistic_offense = (num_active_signals >= 6)
 
         # 3. 获取战略过滤器：是否处于上涨末期
         late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))

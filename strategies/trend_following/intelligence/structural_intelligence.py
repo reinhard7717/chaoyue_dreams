@@ -543,5 +543,47 @@ class StructuralIntelligence:
         print("        -> [静态-动态融合引擎 V400.0] 分析完毕。") # [新增代码行]
         return states
 
+    def diagnose_structural_risks_and_regimes(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】结构性风险与市场状态诊断模块
+        - 核心职责: 引入BIAS和Hurst指数，从结构稳定性和市场根本属性上进行诊断。
+        - 新增信号:
+          1. 结构性超涨风险: 基于动态阈值的BIAS指标，识别价格偏离均线过远的风险。
+          2. 市场状态识别: 基于Hurst指数，判断当前市场是趋势市还是均值回归市。
+          3. 多维共振超涨风险: 结合日线与周线BIAS，识别最高级别的顶部风险。
+        """
+        print("        -> [结构风险与状态诊断模块 V1.0] 启动...") # [新增代码行]
+        states = {}
+        p = get_params_block(self.strategy, 'structural_risk_params')
+        if not get_param_value(p.get('enabled'), True): return states
+        # --- 1. 军备检查 (Prerequisite Check) ---
+        required_cols = ['BIAS_21_D', 'BIAS_55_D', 'hurst_120d_D', 'BIAS_20_W']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [警告] 结构风险诊断缺少关键数据列: {missing_cols}，部分信号可能无法生成。")
+        # --- 2. 结构性超涨风险 (Structural Overextension Risk) ---
+        # 使用动态分位数作为阈值，比固定值更具适应性
+        if 'BIAS_21_D' in df.columns:
+            short_term_threshold = df['BIAS_21_D'].rolling(250).quantile(0.95)
+            states['RISK_STRUCTURE_OVEREXTENDED_SHORT_TERM_A'] = df['BIAS_21_D'] > short_term_threshold
+        if 'BIAS_55_D' in df.columns:
+            long_term_threshold = df['BIAS_55_D'].rolling(250).quantile(0.95)
+            states['RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S'] = df['BIAS_55_D'] > long_term_threshold
+        # --- 3. 市场状态识别 (Market Regime Identification) ---
+        if 'hurst_120d_D' in df.columns:
+            hurst_trending_threshold = get_param_value(p.get('hurst_trending_threshold'), 0.55)
+            hurst_reverting_threshold = get_param_value(p.get('hurst_reverting_threshold'), 0.45)
+            states['STRUCTURE_REGIME_TRENDING'] = df['hurst_120d_D'] > hurst_trending_threshold
+            states['STRUCTURE_REGIME_MEAN_REVERTING'] = df['hurst_120d_D'] < hurst_reverting_threshold
+        # --- 4. 多时间维度共振超涨风险 (MTF Overextended Resonance Risk) ---
+        if all(c in df.columns for c in ['BIAS_21_D', 'BIAS_20_W']):
+            is_daily_overextended = states.get('RISK_STRUCTURE_OVEREXTENDED_SHORT_TERM_A', pd.Series(False, index=df.index))
+            # 周线BIAS也使用动态阈值
+            weekly_threshold = df['BIAS_20_W'].rolling(52).quantile(0.95) # 周线看过去一年(52周)
+            is_weekly_overextended = df['BIAS_20_W'] > weekly_threshold
+            states['RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S'] = is_daily_overextended & is_weekly_overextended
+        print("        -> [结构风险与状态诊断模块 V1.0] 诊断完毕。") # [新增代码行]
+        return states
+
 
 

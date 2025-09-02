@@ -107,6 +107,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_trend_dynamics(df))
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_risks_and_regimes(df))
         # 1.4 筹码层基础情报 (静态, 行为, 动态)
         self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_dynamics(df))
         self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
