@@ -714,7 +714,7 @@ class ChipIntelligence:
         # 条件2: 主峰绝对强势 (主峰强度是次峰的2倍以上)
         is_dominant_peak = df['peak_strength_ratio_D'] > 2.0
         # 条件3: 单峰结构 (最关键的结构健康度指标)
-        is_single_peak = ~df['is_multi_peak_D']
+        is_single_peak = ~df['is_multi_peak_D'].fillna(False).astype(bool)
         # 最终裁定: 三大条件必须同时满足
         states['CHIP_STRUCTURE_FORTRESS_S'] = is_high_control & is_dominant_peak & is_single_peak
 
