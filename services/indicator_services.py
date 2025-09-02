@@ -673,7 +673,7 @@ class IndicatorService:
         cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
         
         # 避免除以零
-        synthetic_indicators['CMF_21'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
+        synthetic_indicators['CMF_21_W'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
         
         # --- 2. 未来可在此处添加更多复杂周线指标的合成逻辑 (如KDJ, RSI等) ---
         # 例如，合成周线RSI也应先计算每日的涨跌额，再按周聚合，最后计算RSI，以获得更平滑的结果。

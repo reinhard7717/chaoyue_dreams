@@ -35,8 +35,7 @@
       "rsi": {
         "enabled": true,
         "configs": [
-          { "apply_on": ["D"], "periods": [13] },
-          { "apply_on": ["W"], "periods": [13] }
+          { "apply_on": ["D", "W"], "periods": [13] }
         ]
       },
       "macd": {
