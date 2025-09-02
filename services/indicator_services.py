@@ -577,6 +577,14 @@ class IndicatorService:
                         if 'rate' in col.lower():
                             if col not in aggregation_rules:
                                 aggregation_rules[col] = 'last'
+                    # 为所有高级筹码指标（通常以 _D 结尾且不是OHLCV）自动添加 'last' 聚合规则
+                    # 这样可以确保它们在生成周线数据时被保留下来，其值为每周最后一天的值
+                    chip_related_keywords = ['chip_', 'concentration', 'peak_', 'winner', 'pressure', 'support', 'turnover_from']
+                    for col in df_daily.columns:
+                        # 如果列名包含筹码关键字，并且尚未被其他规则覆盖，则设为 'last'
+                        if any(keyword in col.lower() for keyword in chip_related_keywords):
+                            if col not in aggregation_rules:
+                                aggregation_rules[col] = 'last'
                     # 特殊处理换手率，周换手率用平均值可能更合理
                     if 'turnover_rate' in aggregation_rules:
                         aggregation_rules['turnover_rate'] = 'mean'

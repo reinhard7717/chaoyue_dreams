@@ -253,7 +253,7 @@ class WeeklyContextEngine:
         检测价格与RSI指标的背离，提供极具价值的前瞻性信号。
         实现方式采用滚动窗口对比，避免了寻找精确波峰/波谷的数学陷阱，更贴近实战。
         """
-        rsi_col = 'RSI_12_W'
+        rsi_col = 'RSI_13_W'
         if rsi_col not in df.columns:
             logger.warning("    - [背离检测-警告] 缺少RSI列，无法进行背离检测。")
             return df

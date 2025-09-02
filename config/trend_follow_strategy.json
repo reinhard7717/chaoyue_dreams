@@ -167,6 +167,12 @@
         "EMA_13_D": [13],
         "EMA_55_D": [55],
         "peak_cost_D": [5],
+        "说明_CHIP_DYNAMICS": "--- 筹码动态分析所需加速度 ---",
+        "concentration_90pct_D": [5, 21],
+        "total_winner_rate_D": [5, 21],
+        "chip_health_score_D": [5],
+        "turnover_from_winners_ratio_D": [5, 21, 55],
+        "turnover_from_losers_ratio_D": [5],
         "说明_STRATEGIC": "--- 战略协同加速度分析 (周线) ---",
         "EMA_21_W": [5]
       }
