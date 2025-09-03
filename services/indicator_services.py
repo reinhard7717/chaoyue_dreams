@@ -561,6 +561,9 @@ class IndicatorService:
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
                 # 对新合并的列进行前向填充（ffill），处理因节假日等原因造成的缺失值
                 df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
+        # --- 步骤 8.5: 【资金流升维】计算多日聚合资金流指标 ---
+        # 在所有数据合并后，调用新函数来生成5日、21日、55日的聚合资金流数据
+        df_daily_master = self._calculate_multi_day_fund_flow_features(df_daily_master)
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
         # print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
@@ -647,6 +650,40 @@ class IndicatorService:
         # 综合打分
         score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
         return score
+
+    def _calculate_multi_day_fund_flow_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【新增】多日聚合资金流指标计算模块
+        - 核心职责: 基于合并后的日线数据，计算来自不同数据源的核心资金流指标在
+                    多个时间周期（5, 21, 55日）上的滚动累加值。
+        - 输入: 包含所有日级别补充数据的DataFrame。
+        - 输出: 增加了多日聚合资金流指标列的DataFrame。
+        """
+        print("    - [资金流聚合引擎] 正在计算多日聚合资金流指标...")
+        # 定义需要进行多日聚合的核心资金流指标列
+        # 这些是来自Tushare, 同花顺, 东方财富的最具代表性的净流入指标
+        fund_flow_cols = [
+            'net_mf_amount_fund_flow_tushare_D', # Tushare 主力净流入
+            'net_amount_fund_flow_ths_D',        # 同花顺 整体净流入
+            'net_amount_fund_flow_dc_D',         # 东方财富 主力净流入
+        ]
+        # 定义聚合周期：5日(周), 21日(月), 55日(季)
+        periods = [5, 21, 55]
+        df_copy = df.copy()
+        for col in fund_flow_cols:
+            # 检查源数据列是否存在
+            if col in df_copy.columns:
+                # 确保数据为数值类型，并将NaN填充为0，以便进行滚动计算
+                source_series = pd.to_numeric(df_copy[col], errors='coerce').fillna(0)
+                for p in periods:
+                    # 构建新列名，格式为 net_d{周期}_{原始列名}
+                    new_col_name = f"net_d{p}_{col.replace('_D', '')}_D"
+                    # 计算滚动窗口内的和
+                    df_copy[new_col_name] = source_series.rolling(window=p, min_periods=1).sum()
+                    print(f"      -> 已生成聚合资金流指标: {new_col_name}")
+            else:
+                print(f"      -> 警告: 聚合计算跳过，源资金流列 '{col}' 不存在。")
+        return df_copy
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """

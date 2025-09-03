@@ -50,6 +50,11 @@ class ChipIntelligence:
         strategic_score = df['CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING']
         states['CONTEXT_CHIP_STRATEGIC_GATHERING'] = strategic_score > strategic_score.rolling(120).quantile(0.60)
         states['CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'] = strategic_score < strategic_score.rolling(120).quantile(0.40)
+        # 获利盘亢奋环境预警信号
+        if 'CHIP_SCORE_CONTEXT_EUPHORIC_RALLY' in df.columns:
+            euphoria_score = df['CHIP_SCORE_CONTEXT_EUPHORIC_RALLY']
+            # 当亢奋指数超过过去90%的时间时，发出预警
+            states['CONTEXT_EUPHORIC_RALLY_WARNING'] = euphoria_score > euphoria_score.rolling(120).quantile(0.90)
         # C/B/B+ 级动态过程
         gathering_score = df['CHIP_SCORE_GATHERING_INTENSITY']
         b_plus_threshold = gathering_score.rolling(120).quantile(0.95)
@@ -203,33 +208,34 @@ class ChipIntelligence:
             missing = [s for s in required_scores if s not in df.columns]
             print(f"          -> [警告] 缺少风险与行为诊断所需得分，模块跳过。缺失: {missing}")
             return {}
-            
         high_zone_score = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', pd.Series(0, index=df.index)).astype(float)
-
         # --- 2. 基于量化得分定义风险与机会 ---
         profit_taking_score = df['CHIP_SCORE_BEHAVIOR_PROFIT_TAKING']
         exhaustion_score = df['CHIP_SCORE_BEHAVIOR_SELLING_EXHAUSTION']
         capitulation_score = df['CHIP_SCORE_BEHAVIOR_PANIC_CAPITULATION']
         safe_context_score = df['CHIP_SCORE_CONTEXT_SAFE']
         panic_fleeing_score = df['CHIP_SCORE_RISK_PANIC_FLEEING']
-
         # 2.1 定义风险等级 (基于得分 * 上下文)
         fleeing_score_in_high_zone = profit_taking_score * high_zone_score
         states['RISK_BEHAVIOR_WINNERS_FLEEING_C'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.60)
         states['RISK_BEHAVIOR_WINNERS_FLEEING_B'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.75)
         states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = fleeing_score_in_high_zone > fleeing_score_in_high_zone.rolling(120).quantile(0.90)
-
         # 2.2 定义S级风险 - 恐慌加速 (基于专属得分)
         states['RISK_BEHAVIOR_PANIC_FLEEING_S'] = panic_fleeing_score > panic_fleeing_score.rolling(120).quantile(0.95)
-        
         # 2.3 定义机会信号 (基于得分 * 上下文)
         # A级机会 - 卖盘衰竭
         selling_exhaustion_opp_score = exhaustion_score * safe_context_score
         states['OPP_BEHAVIOR_SELLING_EXHAUSTION_A'] = selling_exhaustion_opp_score > selling_exhaustion_opp_score.rolling(120).quantile(0.90)
-
         # A级机会 - 恐慌盘割肉
         panic_capitulation_opp_score = capitulation_score * safe_context_score
         states['OPP_BEHAVIOR_PANIC_CAPITULATION_A'] = panic_capitulation_opp_score > panic_capitulation_opp_score.rolling(120).quantile(0.90)
+        # --- 3. 新增战术信号 ---
+        # 3.1 A级机会 - 主力强力吸筹下的换手
+        absorbing_pressure_score = df['CHIP_SCORE_BEHAVIOR_ABSORBING_PRESSURE']
+        states['BEHAVIOR_ABSORBING_PRESSURE_A'] = absorbing_pressure_score > absorbing_pressure_score.rolling(120).quantile(0.90)
+        # 3.2 S级风险 - 多维背离下的结构性衰竭
+        multi_divergence_score = df['CHIP_SCORE_RISK_MULTI_DIVERGENCE_WEAKNESS']
+        states['RISK_MULTI_DIVERGENCE_WEAKNESS_S'] = multi_divergence_score > multi_divergence_score.rolling(120).quantile(0.95)
         return states
 
     def diagnose_peak_formation_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -856,6 +862,43 @@ class ChipIntelligence:
             vacuum_clearance_score * 
             df.get('CHIP_SCORE_CONTEXT_UPTREND', 0.5)
         )
+        # --- 19. 新增战术信号量化 (V-Next) ---
+        print("            -> [评分中心 V-Next] 正在生成新增战术信号得分...")
+        # 19.1 【机会】主力强力吸筹下的换手得分 (Wyckoffian Absorption Score)
+        # 逻辑: 市场存在高强度的获利盘抛压，但股价表现出极强的韧性（未下跌或小幅上涨），表明有强大买方在吸收卖盘。
+        if 'turnover_from_winners_ratio_D' in df.columns and 'pct_change_D' in df.columns:
+            # a. 量化抛压强度 (抛压越大，得分越高)
+            pressure_score = self._calculate_normalized_score(df['turnover_from_winners_ratio_D'], window=120, ascending=True)
+            # b. 量化价格韧性 (将小幅下跌视为韧性，因此将跌幅限制在-2%以内再评分)
+            #    这样，-2%到+10%的价格变动都会得到较高的韧性分。
+            price_resilience_series = df['pct_change_D'].clip(lower=-0.02)
+            resilience_score = self._calculate_normalized_score(price_resilience_series, window=60, ascending=True)
+            # c. 最终得分为“抛压强度”和“价格韧性”的乘积
+            df['CHIP_SCORE_BEHAVIOR_ABSORBING_PRESSURE'] = pressure_score * resilience_score
+            print("               - 已生成'主力强力吸筹'得分: CHIP_SCORE_BEHAVIOR_ABSORBING_PRESSURE")
+        # 19.2 【风险】多维背离下的结构性衰竭得分 (Multi-Divergence Weakness Score)
+        # 逻辑: 股价创阶段性新高，但内部核心指标（筹码集中度、健康度）的中期趋势却在持续恶化。
+        required_cols_divergence = ['close_D', 'SLOPE_21_concentration_90pct_D', 'SLOPE_21_chip_health_score_D']
+        if all(c in df.columns for c in required_cols_divergence):
+            # a. 量化价格新高程度 (价格在近期越高，得分越高)
+            new_high_score = self._calculate_normalized_score(df['close_D'], window=120, ascending=True)
+            # b. 量化集中度恶化程度 (21日斜率越负，风险得分越高)
+            conc_worsening_score = self._calculate_normalized_score(df['SLOPE_21_concentration_90pct_D'], window=120, ascending=False)
+            # c. 量化健康度恶化程度 (21日斜率越负，风险得分越高)
+            health_worsening_score = self._calculate_normalized_score(df['SLOPE_21_chip_health_score_D'], window=120, ascending=False)
+            # d. 最终风险得分为三者乘积，只有三者同时满足时，风险才最高
+            df['CHIP_SCORE_RISK_MULTI_DIVERGENCE_WEAKNESS'] = new_high_score * conc_worsening_score * health_worsening_score
+            print("               - 已生成'多维背离衰竭'风险得分: CHIP_SCORE_RISK_MULTI_DIVERGENCE_WEAKNESS")
+        # 19.3 【环境】获利盘亢奋状态得分 (Winner Euphoria Score)
+        # 逻辑: 市场中获利盘比例和平均利润均达到极高水平，表明情绪过热，潜在回调风险剧增。
+        if 'total_winner_rate_D' in df.columns and 'winner_profit_margin_D' in df.columns:
+            # a. 量化高获利盘比例
+            high_winner_rate_score = self._calculate_normalized_score(df['total_winner_rate_D'], window=120, ascending=True)
+            # b. 量化高利润垫
+            high_profit_margin_score = self._calculate_normalized_score(df['winner_profit_margin_D'], window=120, ascending=True)
+            # c. 亢奋指数为两者乘积
+            df['CHIP_SCORE_CONTEXT_EUPHORIC_RALLY'] = high_winner_rate_score * high_profit_margin_score
+            print("               - 已生成'获利盘亢奋'环境得分: CHIP_SCORE_CONTEXT_EUPHORIC_RALLY")
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
