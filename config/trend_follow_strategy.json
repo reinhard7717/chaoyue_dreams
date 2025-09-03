@@ -117,7 +117,7 @@
         "EMA_5_D": [5],
         "EMA_13_D": [5, 13],
         "EMA_21_D": [5, 21],
-        "EMA_55_D": [21, 55],
+        "EMA_55_D": [5, 21, 55],
         "EMA_89_D": [10],
         "EMA_105_D": [25],
         "EMA_21_W": [5, 13],
@@ -186,7 +186,7 @@
         "EMA_5_D": [5],
         "EMA_13_D": [13],
         "EMA_21_D": [5, 21],
-        "EMA_55_D": [55],
+        "EMA_55_D": [5, 55],
         "peak_cost_D": [5],
         "close_D": [5, 21],
         "volume_D": [5],
@@ -364,6 +364,12 @@
           "value": 25,
           "description": "【A级动能进攻风控】协同进攻信号能容忍的最高“上涨末期分数”。30分意味着最多只能有一个风险子信号激活，要求更严格。"
         }
+      },
+      "multi_dim_trend_params": {
+        "enabled": true,
+        "description": "【V500.0 新增】数值化多维趋势引擎参数",
+        "ma_periods": [5, 13, 21, 55],
+        "norm_window": 120
       },
       "fund_flow_params": {
         "enabled": true,

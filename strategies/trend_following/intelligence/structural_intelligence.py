@@ -252,14 +252,15 @@ class StructuralIntelligence:
           - SCORE_TREND_INFLECTION_OPP: 趋势拐点机会分。长跌短涨时得分高。
         - 收益: 提供了对趋势“强度”和“质量”的量化评估，为下游评分系统提供更精细的输入。
         """
-        print("        -> [诊断模块 V500.0 数值化多维引擎] 启动...") # [修改] 更新打印信息
+        print("        -> [诊断模块 V500.0 数值化多维引擎] 启动...") # 更新打印信息
         states = {}
-        p = get_params_block(self.strategy, 'multi_dim_trend_params') # [新增] 使用新的参数块
-        if not get_param_value(p.get('enabled'), True): return {} # [新增] 增加模块开关
+        p = get_params_block(self.strategy, 'multi_dim_trend_params') # 使用新的参数块
+        if not get_param_value(p.get('enabled'), True): return {} # 增加模块开关
         # --- 1. 定义多维分析周期并构建所需列名 ---
-        ma_periods = get_param_value(p.get('ma_periods'), [5, 13, 21, 55]) # [新增] 从配置读取周期
-        slope_cols = {p: f'SLOPE_5_EMA_{p}_D' for p in ma_periods} # [修改] 动态构建列名
-        accel_cols = {p: f'ACCEL_5_EMA_{p}_D' for p in ma_periods} # [修改] 动态构建列名
+        ma_periods = get_param_value(p.get('ma_periods'), [5, 13, 21, 55]) # 从配置读取周期
+        # 动态构建列名，统一使用5周期的斜率和加速度进行比较
+        slope_cols = {p: f'SLOPE_5_EMA_{p}_D' for p in ma_periods}
+        accel_cols = {p: f'ACCEL_5_EMA_{p}_D' for p in ma_periods}
         required_cols = list(slope_cols.values()) + list(accel_cols.values())
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -267,7 +268,7 @@ class StructuralIntelligence:
             return {}
         # --- 2. 核心步骤: 将所有斜率和加速度进行数值化/归一化 ---
         normalized_scores = {}
-        norm_window = get_param_value(p.get('norm_window'), 120) # [新增] 归一化窗口可配置
+        norm_window = get_param_value(p.get('norm_window'), 120) # 归一化窗口可配置
         min_periods = max(1, norm_window // 5)
         for period in ma_periods:
             # 归一化斜率 (值越大，上涨动能越强)
@@ -295,9 +296,10 @@ class StructuralIntelligence:
         long_term_bottoming = 1 - normalized_scores[f'slope_{ma_periods[-1]}']
         short_term_reversal = normalized_scores[f'slope_{ma_periods[0]}']
         states['SCORE_TREND_INFLECTION_OPP'] = (long_term_bottoming * short_term_reversal).fillna(0.5)
-        print("        -> [诊断模块 V500.0 数值化多维引擎] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [诊断模块 V500.0 数值化多维引擎] 分析完毕。") # 更新打印信息
         return states
 
+    # 融合静态战备信号与多维动态数值信号
     def diagnose_fusion_breakout_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.0 新增】静态-动态融合评分引擎
@@ -310,7 +312,7 @@ class StructuralIntelligence:
         """
         print("        -> [静态-动态融合评分引擎 V1.0] 启动...")
         states = {}
-        default_series = pd.Series(0.0, index=df.index) # [修改] 默认值改为0.0以适配数值计算
+        default_series = pd.Series(0.0, index=df.index) # 默认值改为0.0以适配数值计算
         atomic = self.strategy.atomic_states
         # --- 1. 定义并检查所需的核心信号 ---
         # 核心静态战备信号 (高势能状态)
