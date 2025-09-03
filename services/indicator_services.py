@@ -1141,7 +1141,6 @@ class IndicatorService:
         all_dfs[timeframe] = df
         return all_dfs
 
-
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
         【V2.0 结构分析版】计算指定交易日所有行业的强度分及排名。

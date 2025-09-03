@@ -166,7 +166,7 @@
         "EMA_13_D": [13],
         "EMA_55_D": [55],
         "peak_cost_D": [5],
-        "close_D": [5],
+        "close_D": [5, 21],
         "volume_D": [5],
         "BBW_21_2.0_D": [5],
         "VPA_EFFICIENCY_D": [5],
