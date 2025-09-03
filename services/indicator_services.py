@@ -539,7 +539,7 @@ class IndicatorService:
                 # 这是为了确保所有斜率都由后续的 _calculate_all_slopes 方法统一、规范地生成。
                 redundant_slope_cols = [col for col in df_supp_std.columns if '_slope_' in col]
                 if redundant_slope_cols:
-                    print(f"    - [数据清洗] 在 '{tag}' 数据中发现并移除冗余的预计算斜率列: {redundant_slope_cols}")
+                    # print(f"    - [数据清洗] 在 '{tag}' 数据中发现并移除冗余的预计算斜率列: {redundant_slope_cols}")
                     df_supp_std = df_supp_std.drop(columns=redundant_slope_cols)
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
@@ -940,6 +940,104 @@ class IndicatorService:
         }
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
+    
+    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V2.0 跨周期生产线版】
+        - 职责: 作为数据工程的一部分，为所有指定的时间周期计算斜率和加速度。
+        """
+        # print("    - [斜率中心 V2.0 跨周期生产线版 @ IndicatorService] 启动...")
+        # 注意：这里的参数路径可能需要根据IndicatorService的上下文调整
+        # 假设config就是完整的策略配置
+        slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
+        if not slope_params.get('enabled', False):
+            print("      -> 斜率计算被禁用，跳过。")
+            return all_dfs
+
+        series_to_slope = slope_params.get('series_to_slope', {})
+        if not series_to_slope:
+            print("      -> [信息] 未在配置中指定任何需要计算斜率的序列，跳过。")
+            return all_dfs
+
+        # (这里是之前改造好的、完整的跨周期斜率计算逻辑)
+        for col_pattern, lookbacks in series_to_slope.items():
+            try:
+                timeframe = col_pattern.split('_')[-1]
+                if timeframe.upper() not in ['D', 'W', 'M', 'Q', 'Y'] and not timeframe.isdigit():
+                    timeframe = 'D'
+            except IndexError:
+                continue
+
+            if timeframe not in all_dfs:
+                continue
+            
+            df = all_dfs[timeframe]
+            
+            if col_pattern not in df.columns:
+                continue
+
+            # print(f"      -> 正在为周期 '{timeframe}' 的指标 '{col_pattern}' 计算斜率...")
+            source_series = df[col_pattern].astype(float)
+            
+            newly_created_slope_cols = []
+
+            for lookback in lookbacks:
+                slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
+                if slope_col_name in df.columns: continue
+                min_p = max(2, lookback // 2)
+                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
+                slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
+                df[slope_col_name] = slope_series.fillna(0)
+            all_dfs[timeframe] = df
+
+        # print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
+        return all_dfs
+
+    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】加速度计算引擎
+        - 核心职责: 读取 accel_params 配置，计算指定指标的“斜率的斜率”，即加速度。
+        - 前置条件: 必须在 _calculate_all_slopes 执行完毕后调用。
+        """
+        accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
+        if not accel_params.get('enabled', False):
+            return all_dfs
+
+        series_to_accel = accel_params.get('series_to_accel', {})
+        if not series_to_accel:
+            return all_dfs
+
+        print("    - [加速度引擎] 开始计算核心指标的加速度...")
+        for base_col_name, periods in series_to_accel.items():
+            if "说明" in base_col_name:
+                continue
+            # 从基础列名中解析出时间周期 (e.g., 'EMA_21_W' -> 'W')
+            timeframe = base_col_name.split('_')[-1]
+            if timeframe not in all_dfs or all_dfs[timeframe] is None:
+                print(f"      -> 警告: 加速度计算跳过，因为找不到周期 '{timeframe}' 的DataFrame。")
+                continue
+            df = all_dfs[timeframe]
+            # 遍历该指标需要计算加速度的所有周期
+            for period in periods:
+                # 加速度是“斜率的斜率”，所以我们先定位对应的斜率列
+                # 例如，要计算 EMA_21_W 的 5 周期加速度，我们需要找到 SLOPE_5_EMA_21_W
+                slope_col_name = f'SLOPE_{period}_{base_col_name}'
+                if slope_col_name not in df.columns:
+                    print(f"      -> 警告: 无法计算加速度，因为找不到源斜率列 '{slope_col_name}'。")
+                    continue
+                # 计算斜率列自身的斜率，即加速度
+                source_series = df[slope_col_name]
+                # 使用与斜率相同的计算方法：线性回归的系数
+                min_p = max(2, period // 2)
+                accel_linreg_result = df.ta.linreg(close=source_series, length=period, min_periods=min_p, slope=True, intercept=False, r=False)
+                accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
+                # 定义加速度列的名称
+                accel_col_name = f'ACCEL_{period}_{base_col_name}'
+                df[accel_col_name] = accel_series.fillna(0)
+                # print(f"      -> 已在周期 '{timeframe}' 中生成加速度列: {accel_col_name}")
+
+        print("    - [加速度引擎] 计算完成。")
+        return all_dfs
 
     async def _calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
@@ -1042,125 +1140,7 @@ class IndicatorService:
 
         all_dfs[timeframe] = df
         return all_dfs
-    
-    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V2.0 跨周期生产线版】
-        - 职责: 作为数据工程的一部分，为所有指定的时间周期计算斜率和加速度。
-        """
-        # print("    - [斜率中心 V2.0 跨周期生产线版 @ IndicatorService] 启动...")
-        # 注意：这里的参数路径可能需要根据IndicatorService的上下文调整
-        # 假设config就是完整的策略配置
-        slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
-        if not slope_params.get('enabled', False):
-            print("      -> 斜率计算被禁用，跳过。")
-            return all_dfs
 
-        series_to_slope = slope_params.get('series_to_slope', {})
-        if not series_to_slope:
-            print("      -> [信息] 未在配置中指定任何需要计算斜率的序列，跳过。")
-            return all_dfs
-
-        # (这里是之前改造好的、完整的跨周期斜率计算逻辑)
-        for col_pattern, lookbacks in series_to_slope.items():
-            try:
-                timeframe = col_pattern.split('_')[-1]
-                if timeframe.upper() not in ['D', 'W', 'M', 'Q', 'Y'] and not timeframe.isdigit():
-                    timeframe = 'D'
-            except IndexError:
-                continue
-
-            if timeframe not in all_dfs:
-                continue
-            
-            df = all_dfs[timeframe]
-            
-            if col_pattern not in df.columns:
-                continue
-
-            # print(f"      -> 正在为周期 '{timeframe}' 的指标 '{col_pattern}' 计算斜率...")
-            source_series = df[col_pattern].astype(float)
-            
-            newly_created_slope_cols = []
-
-            for lookback in lookbacks:
-                slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
-                if slope_col_name in df.columns: continue
-                min_p = max(2, lookback // 2)
-                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
-                df[slope_col_name] = slope_series.fillna(0)
-                newly_created_slope_cols.append((slope_col_name, lookback, col_pattern))
-
-            for slope_col_name, lookback, original_col_name in newly_created_slope_cols:
-                accel_col_name = f'ACCEL_{lookback}_{original_col_name}'
-                if accel_col_name in df.columns: continue
-                if not df[slope_col_name].dropna().empty:
-                    min_p = max(2, lookback // 2)
-                    accel_linreg_result = df.ta.linreg(close=df[slope_col_name], length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                    accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
-                    df[accel_col_name] = accel_series.fillna(0)
-                else:
-                    df[accel_col_name] = np.nan
-            
-            all_dfs[timeframe] = df
-
-        # print("    - [斜率中心 V2.0 @ IndicatorService] 所有斜率相关计算完成。")
-        return all_dfs
-
-    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V1.0 新增】加速度计算引擎
-        - 核心职责: 读取 accel_params 配置，计算指定指标的“斜率的斜率”，即加速度。
-        - 前置条件: 必须在 _calculate_all_slopes 执行完毕后调用。
-        """
-        accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
-        if not accel_params.get('enabled', False):
-            return all_dfs
-
-        series_to_accel = accel_params.get('series_to_accel', {})
-        if not series_to_accel:
-            return all_dfs
-
-        print("    - [加速度引擎] 开始计算核心指标的加速度...")
-        for base_col_name, periods in series_to_accel.items():
-            if "说明" in base_col_name:
-                continue
-            
-            # 从基础列名中解析出时间周期 (e.g., 'EMA_21_W' -> 'W')
-            timeframe = base_col_name.split('_')[-1]
-            if timeframe not in all_dfs or all_dfs[timeframe] is None:
-                print(f"      -> 警告: 加速度计算跳过，因为找不到周期 '{timeframe}' 的DataFrame。")
-                continue
-
-            df = all_dfs[timeframe]
-            
-            # 遍历该指标需要计算加速度的所有周期
-            for period in periods:
-                # 加速度是“斜率的斜率”，所以我们先定位对应的斜率列
-                # 例如，要计算 EMA_21_W 的 5 周期加速度，我们需要找到 SLOPE_5_EMA_21_W
-                slope_col_name = f'SLOPE_{period}_{base_col_name}'
-                
-                if slope_col_name not in df.columns:
-                    print(f"      -> 警告: 无法计算加速度，因为找不到源斜率列 '{slope_col_name}'。")
-                    continue
-                
-                # 计算斜率列自身的斜率，即加速度
-                source_series = df[slope_col_name]
-                # 使用与斜率相同的计算方法：线性回归的系数
-                x = np.arange(len(source_series))
-                accel_series = source_series.rolling(window=period).apply(
-                    lambda y: np.polyfit(x[:len(y)], y, 1)[0] if len(y) >= 2 else np.nan,
-                    raw=False
-                )
-                
-                # 定义加速度列的名称
-                accel_col_name = f'ACCEL_{period}_{base_col_name}'
-                df[accel_col_name] = accel_series
-                print(f"      -> 已在周期 '{timeframe}' 中生成加速度列: {accel_col_name}")
-
-        print("    - [加速度引擎] 计算完成。")
-        return all_dfs
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
