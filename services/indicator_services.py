@@ -663,9 +663,9 @@ class IndicatorService:
         # 定义需要进行多日聚合的核心资金流指标列
         # 这些是来自Tushare, 同花顺, 东方财富的最具代表性的净流入指标
         fund_flow_cols = [
-            'net_mf_amount_fund_flow_tushare_D', # Tushare 主力净流入
-            'net_amount_fund_flow_ths_D',        # 同花顺 整体净流入
-            'net_amount_fund_flow_dc_D',         # 东方财富 主力净流入
+            'net_mf_amount_fund_flow_tushare', # Tushare 主力净流入
+            'net_amount_fund_flow_ths',        # 同花顺 整体净流入
+            'net_amount_fund_flow_dc',         # 东方财富 主力净流入
         ]
         # 定义聚合周期：5日(周), 21日(月), 55日(季)
         periods = [5, 21, 55]
@@ -677,7 +677,7 @@ class IndicatorService:
                 source_series = pd.to_numeric(df_copy[col], errors='coerce').fillna(0)
                 for p in periods:
                     # 构建新列名，格式为 net_d{周期}_{原始列名}
-                    new_col_name = f"net_d{p}_{col.replace('_D', '')}_D"
+                    new_col_name = f"net_d{p}_{col}"
                     # 计算滚动窗口内的和
                     df_copy[new_col_name] = source_series.rolling(window=p, min_periods=1).sum()
                     print(f"      -> 已生成聚合资金流指标: {new_col_name}")
