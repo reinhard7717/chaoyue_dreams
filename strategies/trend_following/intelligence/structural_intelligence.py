@@ -242,75 +242,101 @@ class StructuralIntelligence:
 
     def diagnose_trend_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V174.0 动态惯性引擎】
-        - 核心职责: 基于趋势的“斜率”和“加速度”，生成高维度的动态原子状态。
-        - 产出: 返回一个包含 DYN_... 信号的字典，供评分引擎使用。
+        【V500.0 数值化多维引擎】
+        - 核心重构: 从布尔信号引擎全面升级为数值化(0-1)评分引擎。
+        - 核心扩展: 趋势分析维度从(13, 55)扩展至(5, 13, 21, 55)，构建全景动态视图。
+        - 新增信号 (数值型):
+          - SCORE_TREND_RESONANCE: 趋势共振分。所有周期同向看涨时得分高。
+          - SCORE_TREND_ACCEL_RESONANCE: 加速度共振分。所有周期同向加速时得分高。
+          - SCORE_TREND_DIVERGENCE_RISK: 趋势背离风险分。长涨短跌时得分高。
+          - SCORE_TREND_INFLECTION_OPP: 趋势拐点机会分。长跌短涨时得分高。
+        - 收益: 提供了对趋势“强度”和“质量”的量化评估，为下游评分系统提供更精细的输入。
         """
-        # print("        -> [诊断模块 V174.0] 正在执行动态惯性诊断...")
-        dynamics_states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 获取核心的斜率和加速度数据 ---
-        # 长期趋势的速度和加速度
-        long_slope_col = 'SLOPE_55_EMA_55_D'
-        long_accel_col = 'ACCEL_55_EMA_55_D'
-        # 短期趋势的速度
-        short_slope_col = 'SLOPE_13_EMA_13_D'
-        short_accel_col = 'ACCEL_13_EMA_13_D'
-
-        required_cols = [long_slope_col, long_accel_col, short_slope_col, short_accel_col]
-        if not all(c in df.columns for c in required_cols):
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            print(f"          -> [错误] 动态惯性诊断缺少必要的斜率/加速度列: {missing_cols}，跳过。")
+        print("        -> [诊断模块 V500.0 数值化多维引擎] 启动...") # [修改] 更新打印信息
+        states = {}
+        p = get_params_block(self.strategy, 'multi_dim_trend_params') # [新增] 使用新的参数块
+        if not get_param_value(p.get('enabled'), True): return {} # [新增] 增加模块开关
+        # --- 1. 定义多维分析周期并构建所需列名 ---
+        ma_periods = get_param_value(p.get('ma_periods'), [5, 13, 21, 55]) # [新增] 从配置读取周期
+        slope_cols = {p: f'SLOPE_5_EMA_{p}_D' for p in ma_periods} # [修改] 动态构建列名
+        accel_cols = {p: f'ACCEL_5_EMA_{p}_D' for p in ma_periods} # [修改] 动态构建列名
+        required_cols = list(slope_cols.values()) + list(accel_cols.values())
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [错误] 数值化多维引擎缺少必要列: {missing_cols}，跳过。")
             return {}
+        # --- 2. 核心步骤: 将所有斜率和加速度进行数值化/归一化 ---
+        normalized_scores = {}
+        norm_window = get_param_value(p.get('norm_window'), 120) # [新增] 归一化窗口可配置
+        min_periods = max(1, norm_window // 5)
+        for period in ma_periods:
+            # 归一化斜率 (值越大，上涨动能越强)
+            slope_series = df[slope_cols[period]]
+            normalized_scores[f'slope_{period}'] = slope_series.rolling(
+                window=norm_window, min_periods=min_periods
+            ).rank(pct=True).fillna(0.5)
+            # 归一化加速度 (值越大，加速越猛)
+            accel_series = df[accel_cols[period]]
+            normalized_scores[f'accel_{period}'] = accel_series.rolling(
+                window=norm_window, min_periods=min_periods
+            ).rank(pct=True).fillna(0.5)
+        # --- 3. 交叉验证与合成高级数值信号 ---
+        # 信号1: 趋势共振分 (所有周期同向看涨的强度)
+        slope_series_list = [normalized_scores[f'slope_{p}'] for p in ma_periods]
+        states['SCORE_TREND_RESONANCE'] = pd.concat(slope_series_list, axis=1).mean(axis=1)
+        # 信号2: 加速度共振分 (所有周期同向加速的强度)
+        accel_series_list = [normalized_scores[f'accel_{p}'] for p in ma_periods]
+        states['SCORE_TREND_ACCEL_RESONANCE'] = pd.concat(accel_series_list, axis=1).mean(axis=1)
+        # 信号3: 趋势背离风险分 (长周期向上，但短周期开始掉头)
+        long_term_strength = normalized_scores[f'slope_{ma_periods[-1]}'] # 最长周期
+        short_term_weakness = 1 - normalized_scores[f'slope_{ma_periods[0]}'] # 最短周期
+        states['SCORE_TREND_DIVERGENCE_RISK'] = (long_term_strength * short_term_weakness).fillna(0.5)
+        # 信号4: 趋势拐点机会分 (长周期见底，短周期开始抬头)
+        long_term_bottoming = 1 - normalized_scores[f'slope_{ma_periods[-1]}']
+        short_term_reversal = normalized_scores[f'slope_{ma_periods[0]}']
+        states['SCORE_TREND_INFLECTION_OPP'] = (long_term_bottoming * short_term_reversal).fillna(0.5)
+        print("        -> [诊断模块 V500.0 数值化多维引擎] 分析完毕。") # [修改] 更新打印信息
+        return states
 
-        long_slope = df[long_slope_col]
-        long_accel = df[long_accel_col]
-        short_slope = df[short_slope_col]
-        short_accel = df[short_accel_col]
-
-        # --- 2. 定义基础布尔条件 ---
-        is_long_slope_positive = long_slope > 0
-        is_long_slope_negative = long_slope < 0
-        is_long_accel_positive = long_accel > 0
-        is_long_accel_negative = long_accel < 0
-        
-        is_short_slope_positive = short_slope > 0
-        is_short_slope_negative = short_slope < 0
-        is_short_accel_positive = short_accel > 0
-        
-        # --- 3. 组合生成高维度动态状态 ---
-        # 【S级进攻】健康加速: 长短期趋势同向看涨，且长期趋势在加速
-        dynamics_states['DYN_TREND_HEALTHY_ACCELERATING'] = is_long_slope_positive & is_short_slope_positive & is_long_accel_positive
-        
-        # 【A级进攻】成熟稳定: 长短期趋势同向看涨，但长期趋势已不再加速（减速或匀速）
-        dynamics_states['DYN_TREND_MATURE_STABLE'] = is_long_slope_positive & is_short_slope_positive & ~is_long_accel_positive
-
-        # 【S级风险】动能衰减: 长期趋势虽向上，但已开始减速，且短期趋势已逆转
-        dynamics_states['DYN_TREND_WEAKENING_DECELERATING'] = is_long_slope_positive & is_long_accel_negative & is_short_slope_negative
-
-        # 【A级风险】下跌加速: 长短期趋势同向看跌，且下跌在加速
-        dynamics_states['DYN_TREND_BEARISH_ACCELERATING'] = is_long_slope_negative & is_short_slope_negative & is_long_accel_negative
-
-        # 【B级风险】顶部背离: 价格创近期新高，但长短期斜率均在下降
-        is_price_rising = df['pct_change_D'] > 0
-        is_short_slope_falling = short_slope < short_slope.shift(1)
-        # 定义：价格在上涨，但短期上涨动能（斜率）在减弱，这是顶背离的微观表现
-        dynamics_states['DYN_MOMENTUM_PRICE_SLOPE_DIVERGENCE'] = is_price_rising & is_short_slope_falling
-
-        # 基于加速度的原子信号
-        # 【中性状态】上涨趋势稳定期 (主升浪中段): 长期趋势向上，但加速度为负，表明从爆发式增长进入稳定增长
-        dynamics_states['DYN_ACCEL_STATE_UPTREND_STABILIZING'] = is_long_slope_positive & is_long_accel_negative
-        # 【中性状态】下跌趋势减速期 (潜在底部区): 长期趋势向下，但加速度为正，表明下跌动能正在衰竭
-        dynamics_states['DYN_ACCEL_STATE_DOWNTREND_WEAKENING'] = is_long_slope_negative & is_long_accel_positive
-        # 【中性状态】短期动能爆发: 短期趋势的加速度为正，表明短期内有资金在快速入场
-        dynamics_states['DYN_ACCEL_STATE_SHORT_TERM_BURST'] = is_short_accel_positive
-
-        # --- 4. 打印调试信息 ---
-        # for name, series in dynamics_states.items():
-        #     print(f"          -> “{name}” 已定义，激活 {series.sum()} 天。")
-            
-        return dynamics_states
+    def diagnose_fusion_breakout_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】静态-动态融合评分引擎
+        - 核心职责: 将一个高质量的“静态战备”信号与多个“多维动态”数值信号进行交叉相乘，
+                    生成具备因果逻辑的、最高置信度的S++级数值化信号。
+        - 核心逻辑:
+          - S++机会(“引爆点”): 最终得分 = (突破前夜状态) * (加速度共振分)。
+                           只有在战备就绪(值为1)时，动态分才能通过，否则为0。
+          - S++风险(“陷阱”): 最终得分 = (突破前夜状态) * (趋势背离风险分)。
+        """
+        print("        -> [静态-动态融合评分引擎 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(0.0, index=df.index) # [修改] 默认值改为0.0以适配数值计算
+        atomic = self.strategy.atomic_states
+        # --- 1. 定义并检查所需的核心信号 ---
+        # 核心静态战备信号 (高势能状态)
+        static_setup_signal = 'STRUCTURE_BREAKOUT_EVE_S'
+        # 核心多维动态机会信号 (最强动能确认)
+        dynamic_opportunity_score = 'SCORE_TREND_ACCEL_RESONANCE'
+        # 核心多维动态风险信号 (最强背离确认)
+        dynamic_risk_score = 'SCORE_TREND_DIVERGENCE_RISK'
+        required_signals = [static_setup_signal, dynamic_opportunity_score, dynamic_risk_score]
+        missing_signals = [s for s in required_signals if s not in atomic]
+        if missing_signals:
+            print(f"          -> [严重警告] 静态-动态融合引擎缺少核心原子信号: {missing_signals}，模块已跳过！")
+            return {}
+        # --- 2. 获取核心信号序列 ---
+        is_static_setup_ready = atomic.get(static_setup_signal, default_series).astype(float)
+        dynamic_ignition_score = atomic.get(dynamic_opportunity_score, default_series)
+        dynamic_trap_score = atomic.get(dynamic_risk_score, default_series)
+        # --- 3. 组合生成S++级融合数值化信号 ---
+        # S++级机会: “静态-动态融合·引爆点”
+        # 解读: 在“突破前夜”的静态高势能状态下，观测到“全周期加速共振”的动态点火信号。
+        states['SCORE_FUSION_IGNITION_POINT_S_PLUS'] = is_static_setup_ready * dynamic_ignition_score
+        # S++级风险: “静态-动态融合·陷阱”
+        # 解读: 在“突破前夜”的静态高势能状态下，观测到“长短周期趋势背离”的风险信号。
+        states['SCORE_FUSION_BULL_TRAP_S_PLUS'] = is_static_setup_ready * dynamic_trap_score
+        print("        -> [静态-动态融合评分引擎 V1.0] 分析完毕。")
+        return states
 
     def diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -594,6 +620,73 @@ class StructuralIntelligence:
             is_weekly_overextended = df['BIAS_20_W'] > weekly_threshold
             states['RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S'] = is_daily_overextended & is_weekly_overextended
         print("        -> [结构风险与状态诊断模块 V1.0] 诊断完毕。")
+        return states
+
+    def diagnose_advanced_structural_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】先进结构模式诊断模块
+        - 核心职责: 引入波动率、趋势质量、价格行为和多维静态对齐等新的维度，生成更丰富的结构性原子信号。
+        - 新增信号:
+          1. ATR 压缩: 利用ATR的绝对水平识别市场能量积蓄状态。
+          2. 高品质趋势: 利用价格变异系数(CV)量化趋势的平稳性和健康度。
+          3. 日线孕线形态: 捕捉经典的、代表短期整理的K线模式。
+          4. 多维静态对齐: 交叉验证日线和周线的静态趋势结构，提供强大的趋势确认。
+        """
+        print("        -> [先进结构模式诊断模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        p = get_params_block(self.strategy, 'advanced_structural_params')
+        if not get_param_value(p.get('enabled'), True):
+            return states
+        # --- 1. 军备检查 (Prerequisite Check) ---
+        required_cols = [
+            'ATR_14_D', 'price_cv_60d_D', 'SLOPE_21_EMA_55_D',
+            'high_D', 'low_D', 'close_D', 'EMA_55_D',
+            'close_W', 'EMA_21_W'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [警告] 先进结构诊断缺少关键数据列: {missing_cols}，部分信号可能无法生成。")
+        # --- 2. ATR 压缩诊断 (ATR Compression) ---
+        if 'ATR_14_D' in df.columns:
+            window = get_param_value(p.get('atr_compression_window'), 120)
+            quantile = get_param_value(p.get('atr_compression_quantile'), 0.10)
+            # 计算ATR的滚动分位数阈值
+            atr_threshold = df['ATR_14_D'].rolling(window=window).quantile(quantile)
+            # 当ATR低于这个动态阈值时，认为波动率被极度压缩
+            states['STRUCTURE_ATR_COMPRESSION_A'] = df['ATR_14_D'] < atr_threshold
+        # --- 3. 高品质趋势诊断 (High-Quality Trend) ---
+        if all(c in df.columns for c in ['price_cv_60d_D', 'SLOPE_21_EMA_55_D']):
+            cv_window = get_param_value(p.get('quality_trend_cv_window'), 120)
+            cv_quantile = get_param_value(p.get('quality_trend_cv_quantile'), 0.20)
+            # 价格变异系数(CV)越小，代表价格走势越平稳，趋势质量越高
+            cv_threshold = df['price_cv_60d_D'].rolling(window=cv_window).quantile(cv_quantile)
+            is_trend_smooth = df['price_cv_60d_D'] < cv_threshold
+            # 必须在长期趋势向上的背景下，平稳才有意义
+            is_long_trend_up = df['SLOPE_21_EMA_55_D'] > 0
+            states['STRUCTURE_HIGH_QUALITY_TREND_A'] = is_trend_smooth & is_long_trend_up
+        # --- 4. 日线孕线形态诊断 (Inside Day Pattern) ---
+        if all(c in df.columns for c in ['high_D', 'low_D']):
+            # 当天的最高价低于昨天，最低价高于昨天
+            is_inside_day = (df['high_D'] < df['high_D'].shift(1)) & (df['low_D'] > df['low_D'].shift(1))
+            states['STRUCTURE_INSIDE_DAY_CANDLE_N'] = is_inside_day.fillna(False)
+        # --- 5. 多时间框架静态对齐诊断 (MTF Static Alignment) ---
+        if all(c in df.columns for c in ['close_D', 'EMA_55_D', 'close_W', 'EMA_21_W']):
+            # 战术层面（日线）确认多头结构
+            is_daily_structurally_bullish = df['close_D'] > df['EMA_55_D']
+            # 战略层面（周线）确认多头结构
+            is_weekly_structurally_bullish = df['close_W'] > df['EMA_21_W']
+            # 两者必须同时满足，形成最强共振
+            states['STRUCTURE_MTF_STATIC_ALIGNMENT_S'] = is_daily_structurally_bullish & is_weekly_structurally_bullish
+        # --- 6. 填充可能缺失的信号，确保返回结果的完整性 ---
+        all_signal_keys = [
+            'STRUCTURE_ATR_COMPRESSION_A', 'STRUCTURE_HIGH_QUALITY_TREND_A',
+            'STRUCTURE_INSIDE_DAY_CANDLE_N', 'STRUCTURE_MTF_STATIC_ALIGNMENT_S'
+        ]
+        for key in all_signal_keys:
+            if key not in states:
+                states[key] = default_series
+        print("        -> [先进结构模式诊断模块 V1.0] 诊断完毕。")
         return states
 
 
