@@ -535,6 +535,12 @@ class IndicatorService:
             if df_supp_std is not None and not df_supp_std.empty:
                 # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
                 df_supp_std.index = df_supp_std.index.normalize()
+                # 识别并移除所有预计算的、命名不规范的斜率列（特征是列名中包含 '_slope_'）
+                # 这是为了确保所有斜率都由后续的 _calculate_all_slopes 方法统一、规范地生成。
+                redundant_slope_cols = [col for col in df_supp_std.columns if '_slope_' in col]
+                if redundant_slope_cols:
+                    print(f"    - [数据清洗] 在 '{tag}' 数据中发现并移除冗余的预计算斜率列: {redundant_slope_cols}")
+                    df_supp_std = df_supp_std.drop(columns=redundant_slope_cols)
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     suffix = f"_{tag}"

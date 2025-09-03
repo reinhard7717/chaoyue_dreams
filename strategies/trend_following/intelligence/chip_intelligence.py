@@ -168,8 +168,10 @@ class ChipIntelligence:
             return {}
         # --- 机会1: S级 - 筹码断层新生 (基于内生得分) ---
         rebirth_score = df['CHIP_SCORE_OPP_FAULT_REBIRTH']
-        # 这是一个事件信号，我们捕捉得分显著的时刻
-        states['OPP_CHIP_FAULT_REBIRTH_S'] = rebirth_score > rebirth_score[rebirth_score > 0].rolling(60).quantile(0.95)
+        # 修正逻辑：在完整的序列上计算分位数，而不是在 >0 的子集上
+        rebirth_threshold = rebirth_score.rolling(60).quantile(0.95)
+        # 这是一个事件信号，我们捕捉得分显著且大于0的时刻
+        states['OPP_CHIP_FAULT_REBIRTH_S'] = (rebirth_score > rebirth_threshold) & (rebirth_score > 0)
         # --- 机会2: A级 - 高利润安全垫 (基于得分) ---
         profit_cushion_score = df['CHIP_SCORE_OPP_PROFIT_CUSHION']
         high_cushion_threshold = profit_cushion_score.rolling(120).quantile(0.90)
@@ -252,8 +254,10 @@ class ChipIntelligence:
         # 定义一个辅助函数，用于识别得分序列中的高置信度事件
         def get_event_state(score_name: str, quantile: float):
             score = df[score_name]
-            # 仅在得分大于0时进行判断，因为这些是事件驱动的得分
-            return (score > 0) & (score > score[score > 0].rolling(60, min_periods=5).quantile(quantile))
+            # 修正逻辑：在完整的序列上计算分位数，以获得更稳健的阈值
+            threshold = score.rolling(60, min_periods=5).quantile(quantile)
+            # 信号必须同时大于动态阈值且大于0（因为分位数可能为0）
+            return (score > threshold) & (score > 0)
         # S级机会: 堡垒支撑
         states['PEAK_DYN_FORTRESS_SUPPORT'] = get_event_state('PEAK_SCORE_OPP_FORTRESS_SUPPORT', 0.90)
         # S级风险: 衰竭顶
