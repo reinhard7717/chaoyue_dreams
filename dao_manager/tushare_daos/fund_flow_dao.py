@@ -15,9 +15,8 @@ from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS, FundFlowDailyBJ, FundFlowDailyCY, FundFlowDailyDC, FundFlowDailyKC, FundFlowDailySH, FundFlowDailySZ, FundFlowDailyTHS, FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
-from stock_models.fund_flow import FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ
-from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ
+from utils.model_helpers import get_advanced_fund_flow_metrics_model_by_code, get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
+from stock_models.fund_flow import FundFlowCntDC, FundFlowCntTHS,FundFlowIndustryTHS, FundFlowMarketDc, TopInst, TopList
 from stock_models.market import HmDetail, HmList, LimitListThs
 from utils.data_format_process import FundFlowFormatProcess
 
@@ -39,24 +38,6 @@ class FundFlowDao(BaseDAO):
         self.user_cache_get = UserCacheGet(self.cache_manager)
 
     # ============== 日级资金流向数据 ==============
-    def get_fund_flow_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的【日级资金流向】数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return FundFlowDailyCY
-        elif stock_code.endswith('.SZ'):
-            return FundFlowDailySZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return FundFlowDailyKC
-        elif stock_code.endswith('.SH'):
-            return FundFlowDailySH
-        elif stock_code.endswith('.BJ'):
-            return FundFlowDailyBJ
-        else:
-            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
-            return FundFlowDailySZ  # 默认返回深市主板
-
     async def get_fund_flow_daily_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
         【新增】获取单个股票的历史日级资金流向数据 (Tushare moneyflow 接口)
@@ -66,7 +47,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的常规日级资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        model_class = self.get_fund_flow_model_by_code(stock_code)
+        model_class = get_fund_flow_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定常规资金流向数据模型。")
             return pd.DataFrame()
@@ -190,7 +171,7 @@ class FundFlowDao(BaseDAO):
             return
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_model_by_code)
+        combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_model_by_code)
 
         total_rows = 0
         for model, group_df in combined_df.groupby('target_model', sort=False):
@@ -211,23 +192,6 @@ class FundFlowDao(BaseDAO):
         return
 
     # ============== 个股日级资金流向数据 - 同花顺 ==============
-    def get_fund_flow_ths_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的【日级资金流向】数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return FundFlowDailyTHS_CY
-        elif stock_code.endswith('.SZ'):
-            return FundFlowDailyTHS_SZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return FundFlowDailyTHS_KC
-        elif stock_code.endswith('.SH'):
-            return FundFlowDailyTHS_SH
-        elif stock_code.endswith('.BJ'):
-            return FundFlowDailyTHS_BJ
-        else:
-            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
-            return FundFlowDailyTHS_SZ  # 默认返回深市主板
 
     async def get_fund_flow_ths_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
@@ -238,7 +202,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的同花顺资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        model_class = self.get_fund_flow_ths_model_by_code(stock_code)
+        model_class = get_fund_flow_ths_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定同花顺资金流向数据模型。")
             return pd.DataFrame()
@@ -360,7 +324,7 @@ class FundFlowDao(BaseDAO):
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 调用 get_fund_flow_ths_model_by_code 进行动态分表模型匹配
-        combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_ths_model_by_code)
+        combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_ths_model_by_code)
 
         total_rows = 0
         # 按目标模型（即目标数据表）进行分组并批量保存
@@ -383,23 +347,6 @@ class FundFlowDao(BaseDAO):
         return
 
     # ============== 日级资金流向数据 - 东方财富 ==============
-    def get_fund_flow_dc_model_by_code(self, stock_code: str):
-        """
-        根据股票代码返回对应的【日级资金流向】数据表Model
-        """
-        if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-            return FundFlowDailyDC_CY
-        elif stock_code.endswith('.SZ'):
-            return FundFlowDailyDC_SZ
-        elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-            return FundFlowDailyDC_KC
-        elif stock_code.endswith('.SH'):
-            return FundFlowDailyDC_SH
-        elif stock_code.endswith('.BJ'):
-            return FundFlowDailyDC_BJ
-        else:
-            logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
-            return FundFlowDailyDC_SZ  # 默认返回深市主板
 
     async def get_fund_flow_dc_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
@@ -410,7 +357,7 @@ class FundFlowDao(BaseDAO):
         :return: 包含资金流向数据的DataFrame，以trade_time为索引
         """
         # print(f"DAO: 正在获取 {stock_code} 的东方财富资金流数据，截止日期 {trade_date}，数量 {limit}...") # 调试信息
-        model_class = self.get_fund_flow_dc_model_by_code(stock_code)
+        model_class = get_fund_flow_dc_model_by_code(stock_code)
         if not model_class:
             logger.warning(f"无法为股票 {stock_code} 确定东方财富资金流向数据模型。")
             return pd.DataFrame()
@@ -532,7 +479,7 @@ class FundFlowDao(BaseDAO):
 
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 调用 get_fund_flow_dc_model_by_code 进行动态分表模型匹配
-        combined_df['target_model'] = combined_df['ts_code'].apply(self.get_fund_flow_dc_model_by_code)
+        combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_dc_model_by_code)
 
         total_rows = 0
         # 按目标模型（即目标数据表）进行分组并批量保存

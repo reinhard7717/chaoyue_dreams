@@ -14,6 +14,8 @@ from stock_models.time_trade import (
     StockMinuteData_1_KC, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
     StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
 )
+
+from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
 from stock_models.fund_flow import AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone
@@ -129,6 +131,61 @@ def get_daily_basic_data_model_by_code(stock_code: str):
         return StockDailyBasic_BJ
     # 提供一个默认返回值，以防有未覆盖到的情况
     return StockDailyBasic_SZ
+
+def get_fund_flow_dc_model_by_code(self, stock_code: str):
+    """
+    根据股票代码返回对应的【日级资金流向】数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return FundFlowDailyDC_CY
+    elif stock_code.endswith('.SZ'):
+        return FundFlowDailyDC_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return FundFlowDailyDC_KC
+    elif stock_code.endswith('.SH'):
+        return FundFlowDailyDC_SH
+    elif stock_code.endswith('.BJ'):
+        return FundFlowDailyDC_BJ
+    else:
+        logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
+        return FundFlowDailyDC_SZ  # 默认返回深市主板
+
+def get_fund_flow_ths_model_by_code(self, stock_code: str):
+    """
+    根据股票代码返回对应的【日级资金流向】数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return FundFlowDailyTHS_CY
+    elif stock_code.endswith('.SZ'):
+        return FundFlowDailyTHS_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return FundFlowDailyTHS_KC
+    elif stock_code.endswith('.SH'):
+        return FundFlowDailyTHS_SH
+    elif stock_code.endswith('.BJ'):
+        return FundFlowDailyTHS_BJ
+    else:
+        logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
+        return FundFlowDailyTHS_SZ  # 默认返回深市主板
+
+def get_fund_flow_model_by_code(self, stock_code: str):
+    """
+    根据股票代码返回对应的【日级资金流向】数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return FundFlowDailyCY
+    elif stock_code.endswith('.SZ'):
+        return FundFlowDailySZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return FundFlowDailyKC
+    elif stock_code.endswith('.SH'):
+        return FundFlowDailySH
+    elif stock_code.endswith('.BJ'):
+        return FundFlowDailyBJ
+    else:
+        logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
+        return FundFlowDailySZ  # 默认返回深市主板
+
 
 def get_advanced_fund_flow_metrics_model_by_code(stock_code: str):
     """
