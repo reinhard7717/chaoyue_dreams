@@ -913,22 +913,36 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         results = await asyncio.gather(*data_tasks.values())
         data_dfs = dict(zip(data_tasks.keys(), results))
         # --- 3. 数据预处理与共识指标计算 ---
+        def standardize_numeric_cols(df: pd.DataFrame) -> pd.DataFrame:
+            if df.empty:
+                return df
+            # 找出所有包含'amount'或'net'的列，这些都是金额列
+            for col in df.columns:
+                if 'amount' in col or 'net' in col:
+                    # 使用pd.to_numeric进行转换，它比astype更健壮
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            return df
         # Tushare 数据处理
         df_tushare = data_dfs['tushare']
         if not df_tushare.empty:
-            df_tushare['main_force_net_flow_tushare'] = df_tushare['buy_lg_amount'].astype(float) + df_tushare['buy_elg_amount'].astype(float) - df_tushare['sell_lg_amount'].astype(float) - df_tushare['sell_elg_amount'].astype(float)
-            df_tushare['retail_net_flow_tushare'] = df_tushare['buy_sm_amount'].astype(float) + df_tushare['buy_md_amount'].astype(float) - df_tushare['sell_sm_amount'].astype(float) - df_tushare['sell_md_amount'].astype(float)
+            df_tushare = standardize_numeric_cols(df_tushare) 
+            df_tushare['main_force_net_flow_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount'] - df_tushare['sell_lg_amount'] - df_tushare['sell_elg_amount']
+            df_tushare['retail_net_flow_tushare'] = df_tushare['buy_sm_amount'] + df_tushare['buy_md_amount'] - df_tushare['sell_sm_amount'] - df_tushare['sell_md_amount']
             df_tushare = df_tushare[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
+        
         # THS 数据处理
         df_ths = data_dfs['ths']
         if not df_ths.empty:
-            df_ths['retail_net_flow_ths'] = df_ths['buy_sm_amount'].astype(float) + df_ths['buy_md_amount'].astype(float)
+            df_ths = standardize_numeric_cols(df_ths) 
+            df_ths['retail_net_flow_ths'] = df_ths['buy_sm_amount'] + df_ths['buy_md_amount']
             df_ths = df_ths[['trade_time', 'net_amount', 'buy_lg_amount', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths'})
+        
         # DC 数据处理
         df_dc = data_dfs['dc']
         if not df_dc.empty:
-            df_dc['main_force_net_flow_dc'] = df_dc['buy_elg_amount'].astype(float) + df_dc['buy_lg_amount'].astype(float)
-            df_dc['retail_net_flow_dc'] = df_dc['buy_sm_amount'].astype(float) + df_dc['buy_md_amount'].astype(float)
+            df_dc = standardize_numeric_cols(df_dc) 
+            df_dc['main_force_net_flow_dc'] = df_dc['buy_elg_amount'] + df_dc['buy_lg_amount']
+            df_dc['retail_net_flow_dc'] = df_dc['buy_sm_amount'] + df_dc['buy_md_amount']
             df_dc = df_dc[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc']].rename(columns={'net_amount': 'net_flow_dc'})
         # 合并所有数据源
         dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
