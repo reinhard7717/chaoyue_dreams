@@ -928,8 +928,12 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             df_tushare = standardize_numeric_cols(df_tushare) 
             df_tushare['main_force_net_flow_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount'] - df_tushare['sell_lg_amount'] - df_tushare['sell_elg_amount']
             df_tushare['retail_net_flow_tushare'] = df_tushare['buy_sm_amount'] + df_tushare['buy_md_amount'] - df_tushare['sell_sm_amount'] - df_tushare['sell_md_amount']
-            df_tushare = df_tushare[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
-        
+            df_tushare['net_xl_amount_tushare'] = df_tushare['buy_elg_amount'] - df_tushare['sell_elg_amount']
+            df_tushare['main_force_active_buy_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount']
+            df_tushare['main_force_active_sell_tushare'] = df_tushare['sell_lg_amount'] + df_tushare['sell_elg_amount']
+            # [修改] 选取更多列用于后续计算
+            df_tushare = df_tushare[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
+
         # THS 数据处理
         df_ths = data_dfs['ths']
         if not df_ths.empty:
@@ -943,7 +947,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             df_dc = standardize_numeric_cols(df_dc) 
             df_dc['main_force_net_flow_dc'] = df_dc['buy_elg_amount'] + df_dc['buy_lg_amount']
             df_dc['retail_net_flow_dc'] = df_dc['buy_sm_amount'] + df_dc['buy_md_amount']
-            df_dc = df_dc[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc']].rename(columns={'net_amount': 'net_flow_dc'})
+            df_dc = df_dc[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'buy_elg_amount']].rename(columns={'net_amount': 'net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc'})
         # 合并所有数据源
         dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
         if not dfs_to_merge:
@@ -959,6 +963,11 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         merged_df['main_force_net_flow_consensus'] = merged_df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
         merged_df['retail_net_flow_consensus'] = merged_df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
         merged_df['flow_divergence_mf_vs_retail'] = merged_df['main_force_net_flow_consensus'] - merged_df['retail_net_flow_consensus']
+        # 计算新增的共识指标
+        merged_df['net_xl_amount_consensus'] = merged_df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
+        total_active_flow = merged_df['main_force_active_buy_tushare'] + merged_df['main_force_active_sell_tushare']
+        # 计算强度比率，并处理分母为0的情况
+        merged_df['main_force_flow_intensity_ratio'] = (merged_df['main_force_active_buy_tushare'] / total_active_flow.replace(0, np.nan)).fillna(0.5)
         # 计算主力买入率 (需要日成交额)
         df_daily = data_dfs['daily']
         if not df_daily.empty:
@@ -974,18 +983,24 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         for p in periods:
             final_metrics_df[f'net_flow_consensus_sum_{p}d'] = final_metrics_df['net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
             final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d'] = final_metrics_df['main_force_net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
+            # 计算新增聚合指标
+            final_metrics_df[f'retail_net_flow_consensus_sum_{p}d'] = final_metrics_df['retail_net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
+            final_metrics_df[f'net_xl_amount_consensus_sum_{p}d'] = final_metrics_df['net_xl_amount_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
         # 计算斜率
         slope_periods = [5, 13, 21, 55]
-        cols_to_slope = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail']
+        cols_to_slope = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail', 'retail_net_flow_consensus', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio']
         for col in cols_to_slope:
             for p in slope_periods:
                 final_metrics_df[f'{col}_slope_{p}d'] = _calculate_slope(final_metrics_df[col], p)
         for p in slope_periods:
              final_metrics_df[f'net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'net_flow_consensus_sum_{p}d'], p)
              final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d'], p)
+             # 计算新增聚合指标的斜率
+             final_metrics_df[f'retail_net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'retail_net_flow_consensus_sum_{p}d'], p)
+             final_metrics_df[f'net_xl_amount_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'net_xl_amount_consensus_sum_{p}d'], p)
         # 计算加速度
         accel_periods = [5, 13, 21]
-        cols_to_accel = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail']
+        cols_to_accel = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail', 'retail_net_flow_consensus', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio']
         for col in cols_to_accel:
             for p in accel_periods:
                 source_slope_col = f'{col}_slope_{p}d'
