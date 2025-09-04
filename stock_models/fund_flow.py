@@ -778,11 +778,23 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         vars()[f'net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-资金净流入{p}日加速度', null=True, blank=True)
         vars()[f'main_force_net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-主力净流入{p}日加速度', null=True, blank=True)
 
+    # --- 6. 主力与散户分歧度加速度指标 ---
+    accel_5d_flow_divergence_mf_vs_retail = models.DecimalField(
+        max_digits=20, decimal_places=4, null=True, blank=True,
+        verbose_name="主力散户分歧度5日加速度"
+    )
+    accel_13d_flow_divergence_mf_vs_retail = models.DecimalField(
+        max_digits=20, decimal_places=4, null=True, blank=True,
+        verbose_name="主力散户分歧度13日加速度"
+    )
+    accel_21d_flow_divergence_mf_vs_retail = models.DecimalField(
+        max_digits=20, decimal_places=4, null=True, blank=True,
+        verbose_name="主力散户分歧度21日加速度"
+    )
+
     class Meta:
         abstract = True
         ordering = ['-trade_time']
-
-# --- 为每个市场板块创建具体的模型 ---
 
 class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(

@@ -888,7 +888,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
 
     async def main(incremental_flag: bool):
         mode = "增量更新" if incremental_flag else "全量刷新"
-        print(f"[{stock_code}] 启动高级资金指标预计算，模式: {mode}")
+        # print(f"[{stock_code}] 启动高级资金指标预计算，模式: {mode}")
         # --- 1. 初始化和确定数据加载范围 ---
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
         MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
@@ -985,12 +985,20 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
              final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d'], p)
         # 计算加速度
         accel_periods = [5, 13, 21]
-        cols_to_accel = ['net_flow_consensus', 'main_force_net_flow_consensus']
+        cols_to_accel = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail']
         for col in cols_to_accel:
             for p in accel_periods:
                 source_slope_col = f'{col}_slope_{p}d'
                 if source_slope_col in final_metrics_df.columns:
                     final_metrics_df[f'{col}_accel_{p}d'] = _calculate_slope(final_metrics_df[source_slope_col], p)
+        rename_dict = {}
+        for p in accel_periods:
+            original_name = f'flow_divergence_mf_vs_retail_accel_{p}d'
+            new_name = f'accel_{p}d_flow_divergence_mf_vs_retail'
+            if original_name in final_metrics_df.columns:
+                rename_dict[original_name] = new_name
+        if rename_dict:
+            final_metrics_df.rename(columns=rename_dict, inplace=True)
         # --- 5. 数据保存 ---
         if incremental_flag and last_metric_date:
             records_to_save_df = final_metrics_df[final_metrics_df.index.date > last_metric_date]
