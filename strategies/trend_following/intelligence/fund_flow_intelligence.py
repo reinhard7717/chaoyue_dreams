@@ -18,7 +18,7 @@ class FundFlowIntelligence:
         【V12.0 性能优化版】计算一个系列在滚动窗口内的归一化得分 (0-1)。
         """
         if series is None or series.isnull().all():
-            return pd.Series(0.5, index=self.strategy.df.index if series is None else series.index)
+            return pd.Series(0.5, index=self.strategy.df.index)
         return series.rolling(
             window=window, 
             min_periods=int(window * 0.2)
@@ -27,23 +27,7 @@ class FundFlowIntelligence:
             ascending=ascending
         ).fillna(0.5)
 
-    def _get_consensus_metric(self, df: pd.DataFrame, available_cols: set, base_name: str) -> pd.Series: # [新增] 辅助函数
-        """
-        【新增 V12.0】获取三方数据源的共识指标。
-        - 核心: 动态查找 'ths', 'dc', 'tushare' 三个来源的指标列，并计算其均值。
-                能优雅地处理部分数据源缺失的情况。
-        :param df: 主DataFrame。
-        :param available_cols: 可用列的集合，用于高效查找。
-        :param base_name: 指标的基础名称模板，用 '{source}' 作为占位符。
-        :return: 共识指标的Series，如果所有来源都缺失则返回None。
-        """
-        sources = ['ths', 'dc', 'tushare']
-        found_cols = [base_name.format(source=source) for source in sources if base_name.format(source=source) in available_cols]
-        if not found_cols:
-            return None
-        return df[found_cols].mean(axis=1)
-
-    def _diagnose_fund_flow_dynamics(self, df: pd.DataFrame) -> pd.DataFrame: # [新增] 核心诊断引擎
+    def _diagnose_fund_flow_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【新增 V12.0 - 动态共振与反转引擎】
         - 核心: 基于多时间维度(5, 13, 21, 55日)的静态、斜率、加速度指标，进行深度交叉验证。
@@ -57,17 +41,10 @@ class FundFlowIntelligence:
         # --- 步骤 1: 预计算所有周期的共识指标得分 ---
         metrics = {}
         for p in periods:
-            # 静态存量 (Static Value)
-            static_base = f"net_d{p}_net_amount_fund_flow_{{source}}_D"
-            metrics[f'static_{p}'] = self._get_consensus_metric(df, available_cols, static_base)
-            
-            # 动态斜率 (Slope)
-            slope_base = f"SLOPE_{p}_net_d{p}_net_amount_fund_flow_{{source}}_D"
-            metrics[f'slope_{p}'] = self._get_consensus_metric(df, available_cols, slope_base)
-            
-            # 动态加速度 (Acceleration)
-            accel_base = f"ACCEL_{p}_net_d{p}_net_amount_fund_flow_{{source}}_D"
-            metrics[f'accel_{p}'] = self._get_consensus_metric(df, available_cols, accel_base)
+            metrics[f'static_{p}'] = df.get(f"net_flow_consensus_sum_{p}d_D")
+            metrics[f'slope_{p}'] = df.get(f"SLOPE_{p}_net_flow_consensus_sum_{p}d_D")
+            if p in [5, 13, 21]: # 仅计算模型中存在的加速度周期
+                 metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_net_flow_consensus_D")
 
         # --- 步骤 2: 生成上升共振信号 (Upward Resonance) ---
         # 上升共振: 资金存量、趋势、加速度均呈现健康的多头状态。
@@ -141,18 +118,15 @@ class FundFlowIntelligence:
         - 产出: 生成多置信度的主力资金上升共振与下跌共振（主力撤退）信号。
         """
         print("            -> [资金结构引擎 V15.0] 启动交叉验证...")
-        available_cols = set(df.columns)
         norm_window = 120
-        periods = [5, 13, 21]
-        metrics = {}
 
         # --- 步骤 1: 预计算主力资金（超大单+大单）共识指标 ---
         main_force_metrics = {
-            'static': (df.get('buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
-            'slope_5': (df.get('SLOPE_5_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_5_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
-            'slope_13': (df.get('SLOPE_13_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_13_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
-            'slope_21': (df.get('SLOPE_21_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_21_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
-            'accel_5': (df.get('ACCEL_5_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('ACCEL_5_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+            'static': df.get('main_force_net_flow_consensus_D'),
+            'slope_5': df.get('SLOPE_5_main_force_net_flow_consensus_D'),
+            'slope_13': df.get('SLOPE_13_main_force_net_flow_consensus_D'),
+            'slope_21': df.get('SLOPE_21_main_force_net_flow_consensus_D'),
+            'accel_5': df.get('ACCEL_5_main_force_net_flow_consensus_D'),
         }
 
         # --- 步骤 2: 生成主力资金上升共振信号 ---
@@ -189,38 +163,43 @@ class FundFlowIntelligence:
 
         return df
 
-    def _diagnose_synergy_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _diagnose_capital_conflict_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【新增 V14.0 - 协同诊断引擎】
-        - 核心: 将聚合流分析与结构流分析的结果进行交叉验证，生成更高置信度的协同信号。
-        - 产出: 强化共振、强化反转、诱多风险、聪明钱抄底等高阶信号。
+        【升级 V17.0 - 主力散户分歧引擎】
+        - 核心升级: 使用预计算的 `flow_divergence_mf_vs_retail` (主力与散户资金流分歧度) 指标，
+                    替代旧的、复杂的、基于多源数据的冲突分析。逻辑更清晰，信号更可靠。
+        - 字段适配:
+            - 旧: 复杂的多列比较
+            - 新: flow_divergence_mf_vs_retail_D 及其 SLOPE 版本
         """
-        print("            -> [协同诊断引擎 V14.0] 启动...")
-        available_cols = set(df.columns)
+        print("            -> [资金冲突引擎 V17.0] 启动...") # [修改] 更新版本号
+        norm_window = 120
 
-        # --- 协同信号1: 强化上升共振 (高置信度聚合流共振 + 结构共振) ---
-        if {'FF_SCORE_RESONANCE_UP_HIGH', 'FF_SCORE_STRUCTURE_RESONANCE_UP'}.issubset(available_cols):
-            df['FF_SCORE_SYNERGY_REINFORCED_UP'] = df['FF_SCORE_RESONANCE_UP_HIGH'] * df['FF_SCORE_STRUCTURE_RESONANCE_UP']
-            print("               - [协同]强化上升共振信号已生成")
+        # --- 步骤 1: 获取核心分歧指标 ---
+        divergence = df.get('flow_divergence_mf_vs_retail_D')
+        divergence_slope_5 = df.get('SLOPE_5_flow_divergence_mf_vs_retail_D')
 
-        # --- 协同信号2: 强化顶部反转风险 (高置信度聚合流反转 + 结构背离) ---
-        if {'FF_SCORE_REVERSAL_TOP_HIGH', 'FF_SCORE_STRUCTURE_DIVERGENCE_RISK'}.issubset(available_cols):
-            df['FF_SCORE_SYNERGY_REINFORCED_TOP_RISK'] = df['FF_SCORE_REVERSAL_TOP_HIGH'] * df['FF_SCORE_STRUCTURE_DIVERGENCE_RISK']
-            print("               - [协同]强化顶部反转风险信号已生成")
+        # --- 信号 1: 主力吸筹，散户派发 (高分歧度) ---
+        # 逻辑: 分歧度指标本身的值很高，代表主力净流入远大于散户净流入。
+        score_divergence_high = self._calculate_normalized_score(divergence, norm_window)
+        df['FF_SCORE_CONFLICT_MF_BUYS_RETAIL_SELLS'] = score_divergence_high
+        print("               - [冲突]主力吸筹&散户派发信号已生成")
 
-        # --- 协同信号3: 诱多拉升风险 (中置信度聚合流上升 + 结构背离) ---
-        if {'FF_SCORE_RESONANCE_UP_MID', 'FF_SCORE_STRUCTURE_DIVERGENCE_RISK'}.issubset(available_cols):
-            df['FF_SCORE_SYNERGY_DECEPTIVE_RALLY_RISK'] = df['FF_SCORE_RESONANCE_UP_MID'] * df['FF_SCORE_STRUCTURE_DIVERGENCE_RISK']
-            print("               - [协同]诱多拉升风险信号已生成")
+        # --- 信号 2: 主力派发，散户接盘 (低分歧度) ---
+        # 逻辑: 分歧度指标本身的值很低（负值），代表主力净流出，而散户在净流入。
+        score_divergence_low = self._calculate_normalized_score(divergence, norm_window, ascending=False)
+        df['FF_SCORE_CONFLICT_MF_SELLS_RETAIL_BUYS'] = score_divergence_low
+        print("               - [冲突]主力派发&散户接盘信号已生成")
 
-        # --- 协同信号4: 聪明钱抄底 (高置信度聚合流反转 + 结构共振) ---
-        if {'FF_SCORE_REVERSAL_BOTTOM_HIGH', 'FF_SCORE_STRUCTURE_RESONANCE_UP'}.issubset(available_cols):
-            df['FF_SCORE_SYNERGY_SMART_BOTTOM_FISHING'] = df['FF_SCORE_REVERSAL_BOTTOM_HIGH'] * df['FF_SCORE_STRUCTURE_RESONANCE_UP']
-            print("               - [协同]聪明钱抄底信号已生成")
-            
+        # --- 信号 3: 分歧加剧 (趋势向上) ---
+        # 逻辑: 分歧度的5日斜率为正且在近期处于高位，表明主力买、散户卖的趋势在加强。
+        score_divergence_slope_up = self._calculate_normalized_score(divergence_slope_5, norm_window)
+        df['FF_SCORE_CONFLICT_DIVERGENCE_WIDENING'] = score_divergence_slope_up
+        print("               - [冲突]主力&散户分歧加剧信号已生成")
+
         return df
 
-    def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # [修改] 全面重构
+    def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V12.0 - 动态共振与反转引擎】
         - 核心升级:
@@ -229,19 +208,15 @@ class FundFlowIntelligence:
           3.  【数据驱动】: 假设所有需要的衍生指标（静态、斜率、加速度）均由数据层提供，符合最新架构原则。
         """
         print("        -> [资金流情报模块 V12.0] 启动...")
-        states = {}
-        p = get_params_block(self.strategy, 'fund_flow_params')
-        if not get_param_value(p.get('enabled'), False):
-            return states
-        
+        states = {}       
         # --- 步骤一: 调用新的核心诊断引擎 ---
         df = self._diagnose_fund_flow_dynamics(df)
 
         # --- 步骤二: 调用资金结构诊断引擎 ---
         df = self._diagnose_capital_structure_dynamics(self, df)
 
-        # --- 步骤三: 调用协同诊断引擎 ---
-        df = self._diagnose_synergy_dynamics(df)
+        # --- 步骤三: 调用资金冲突诊断引擎 ---
+        df = self._diagnose_capital_conflict_dynamics(df)
 
         # --- 步骤四: 收集所有生成的数值化评分 ---
         for col in df.columns:

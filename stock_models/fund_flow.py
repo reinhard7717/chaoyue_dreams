@@ -733,6 +733,166 @@ class FundFlowDailyDC_BJ(models.Model):
     def __code__(self):
         return self.stock.stock_code if self.stock else ''
 
+class BaseAdvancedFundFlowMetrics(models.Model):
+    """
+    【V1.0 高级资金指标抽象基类】
+    - 核心设计: 借鉴高级筹码指标模型，将多源资金流数据进行融合、聚合与衍生，
+                形成一个预计算的、高性能的资金动态特征库。
+    - 数据处理:
+        1. 共识化: 将Tushare, THS, DC等多源数据融合成统一的共识指标。
+        2. 聚合化: 计算5, 13, 21, 34, 55, 89, 144日等多周期的累积资金流。
+        3. 衍生化: 预计算关键指标的斜率（趋势）和加速度（趋势变化），固化为数据字段。
+    """
+    # --- 1. 核心关联键 ---
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+
+    # --- 2. 每日资金流共识指标 (静态) ---
+    net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-资金净流入(万元)', null=True, blank=True, help_text="综合Tushare,THS,DC三方数据的当日资金净流入均值")
+    main_force_net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-主力净流入(万元)', null=True, blank=True, help_text="综合三方数据的主力(大单+超大单)资金净流入")
+    retail_net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-散户净流入(万元)', null=True, blank=True, help_text="综合三方数据的散户(小单+中单)资金净流入")
+    main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True, help_text="主力买入金额占总成交额的比例")
+    flow_divergence_mf_vs_retail = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='资金分歧度(主力-散户)', null=True, blank=True, help_text="主力净流入与散户净流入的差值，正值表示主力买散户卖")
+
+    # --- 3. 多日资金聚合指标 (累计) ---
+    periods = [5, 13, 21, 34, 55, 89, 144]
+    for p in periods:
+        # 累计净流入
+        vars()[f'net_flow_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-资金净流入{p}日累计', null=True, blank=True)
+        # 累计主力净流入
+        vars()[f'main_force_net_flow_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-主力净流入{p}日累计', null=True, blank=True)
+
+    # --- 4. 资金动态衍生指标 (斜率) ---
+    slope_periods = [5, 13, 21, 55]
+    for p in slope_periods:
+        # 每日指标的斜率
+        vars()[f'net_flow_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-资金净流入{p}日斜率', null=True, blank=True)
+        vars()[f'main_force_net_flow_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-主力净流入{p}日斜率', null=True, blank=True)
+        vars()[f'flow_divergence_mf_vs_retail_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'资金分歧度{p}日斜率', null=True, blank=True)
+        # 聚合指标的斜率
+        vars()[f'net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-资金净流入{p}日累计之{p}日斜率', null=True, blank=True)
+        vars()[f'main_force_net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-主力净流入{p}日累计之{p}日斜率', null=True, blank=True)
+
+    # --- 5. 资金动态衍生指标 (加速度) ---
+    accel_periods = [5, 13, 21]
+    for p in accel_periods:
+        vars()[f'net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-资金净流入{p}日加速度', null=True, blank=True)
+        vars()[f'main_force_net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-主力净流入{p}日加速度', null=True, blank=True)
+
+    class Meta:
+        abstract = True
+        ordering = ['-trade_time']
+
+# --- 为每个市场板块创建具体的模型 ---
+
+class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_sz',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-深圳'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_sz'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_sh',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-上海'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_sh'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_sz',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-深圳'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_sz'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+class AdvancedFundFlowMetrics_CY(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_cy',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-创业板'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_cy'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+class AdvancedFundFlowMetrics_KC(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_kc',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-科创板'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_kc'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_fund_flow_metrics_bj',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedFundFlowMetrics.Meta):
+        abstract = False
+        verbose_name = '高级资金指标-北京'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_fund_flow_metrics_bj'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+        ]
+
+
 # 板块资金流向统计数据 - 同花顺（moneyflow_cnt_ths接口）
 class FundFlowCntTHS(models.Model):
     """

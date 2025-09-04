@@ -510,26 +510,27 @@ class IndicatorService:
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
-        # 检查是否需要各类资金流数据
-        fund_flow_params = self._find_params_recursively(config, 'fund_flow_params')
-        needs_fund_flow_data = fund_flow_params.get('enabled', False) if fund_flow_params else False
-        if needs_fund_flow_data:
-            trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
-            # 同花顺资金流
-            async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)
-                return ('fund_flow_ths', df)
-            tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-            # 东方财富资金流
-            async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit)
-                return ('fund_flow_dc', df)
-            tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-            # Tushare资金流
-            async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
-                df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
-                return ('fund_flow_tushare', df)
-            tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+        trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
+        # 同花顺资金流
+        async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
+            df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)
+            return ('fund_flow_ths', df)
+        tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+        # 东方财富资金流
+        async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
+            df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit)
+            return ('fund_flow_dc', df)
+        tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+        # Tushare资金流
+        async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
+            df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
+            return ('fund_flow_tushare', df)
+        tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
+        # 增加获取高级资金指标的任务
+        async def _fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, limit):
+            df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, limit)
+            return ('advanced_fund_flow', df)
+        tasks.append(_fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, base_needed_bars))
         # --- 步骤 5: 准备基础OHLCV数据的异步获取任务 ---
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
@@ -554,7 +555,7 @@ class IndicatorService:
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
                 # 根据tag将数据分类存入不同的字典
-                if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
+                if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare', 'advanced_fund_flow']:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
@@ -575,7 +576,7 @@ class IndicatorService:
                 # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
                 df_supp_std.index = df_supp_std.index.normalize()
                 # 当处理高级筹码数据时，调用列名适配器
-                if tag == 'advanced_chips':
+                if tag == 'advanced_chips' or tag == 'advanced_fund_flow':
                     df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
 
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
@@ -598,9 +599,6 @@ class IndicatorService:
                 df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
                 # 对新合并的列进行前向填充（ffill），处理因节假日等原因造成的缺失值
                 df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
-        # --- 步骤 8.5: 【资金流升维】计算多日聚合资金流指标 ---
-        # 在所有数据合并后，调用新函数来生成5日、21日、55日的聚合资金流数据
-        df_daily_master = self._calculate_multi_day_fund_flow_features(df_daily_master)
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
         # print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
@@ -626,12 +624,11 @@ class IndicatorService:
                     # 为所有高级筹码指标（通常以 _D 结尾且不是OHLCV）自动添加 'last' 聚合规则
                     # 这样可以确保它们在生成周线数据时被保留下来，其值为每周最后一天的值
                     chip_related_keywords = ['chip_', 'concentration', 'peak_', 'winner', 'pressure', 'support', 'turnover_from']
+                    fund_flow_keywords = ['fund_flow', 'consensus', 'divergence', 'main_force', 'retail']
                     for col in df_daily.columns:
-                        # 如果列名包含筹码关键字，并且尚未被其他规则覆盖，则设为 'last'
-                        if any(keyword in col.lower() for keyword in chip_related_keywords):
+                        if any(keyword in col.lower() for keyword in chip_related_keywords + fund_flow_keywords):
                             if col not in aggregation_rules:
                                 aggregation_rules[col] = 'last'
-                    # 特殊处理换手率，周换手率用平均值可能更合理
                     if 'turnover_rate' in aggregation_rules:
                         aggregation_rules['turnover_rate'] = 'mean'
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
@@ -687,40 +684,6 @@ class IndicatorService:
         # 综合打分
         score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
         return score
-
-    def _calculate_multi_day_fund_flow_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【新增】多日聚合资金流指标计算模块
-        - 核心职责: 基于合并后的日线数据，计算来自不同数据源的核心资金流指标在
-                    多个时间周期（5, 21, 55日）上的滚动累加值。
-        - 输入: 包含所有日级别补充数据的DataFrame。
-        - 输出: 增加了多日聚合资金流指标列的DataFrame。
-        """
-        print("    - [资金流聚合引擎] 正在计算多日聚合资金流指标...")
-        # 定义需要进行多日聚合的核心资金流指标列
-        # 这些是来自Tushare, 同花顺, 东方财富的最具代表性的净流入指标
-        fund_flow_cols = [
-            'net_mf_amount_fund_flow_tushare', # Tushare 主力净流入
-            'net_amount_fund_flow_ths',        # 同花顺 整体净流入
-            'net_amount_fund_flow_dc',         # 东方财富 主力净流入
-        ]
-        # 定义聚合周期：5日(周), 21日(月), 55日(季)
-        periods = [5, 21, 55]
-        df_copy = df.copy()
-        for col in fund_flow_cols:
-            # 检查源数据列是否存在
-            if col in df_copy.columns:
-                # 确保数据为数值类型，并将NaN填充为0，以便进行滚动计算
-                source_series = pd.to_numeric(df_copy[col], errors='coerce').fillna(0)
-                for p in periods:
-                    # 构建新列名，格式为 net_d{周期}_{原始列名}
-                    new_col_name = f"net_d{p}_{col}"
-                    # 计算滚动窗口内的和
-                    df_copy[new_col_name] = source_series.rolling(window=p, min_periods=1).sum()
-                    print(f"      -> 已生成聚合资金流指标: {new_col_name}")
-            else:
-                print(f"      -> 警告: 聚合计算跳过，源资金流列 '{col}' 不存在。")
-        return df_copy
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """

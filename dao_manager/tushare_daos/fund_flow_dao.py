@@ -554,6 +554,30 @@ class FundFlowDao(BaseDAO):
         print(f"所有历史日级资金流向数据(东方财富)处理完成，共保存 {total_rows} 条记录。")
         return
 
+    # ============== 资金流向高级指标 ==============
+    async def get_advanced_fund_flow_metrics_data(self, stock_code: str, trade_date: datetime.date, limit: int) -> pd.DataFrame:
+        """
+        【新增】从 AdvancedFundFlowMetrics 模型获取预计算的高级资金指标。
+        """
+        # 动态获取对应市场的模型
+        model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
+        if not model:
+            return pd.DataFrame()
+
+        # 构建查询
+        end_date = trade_date or datetime.date.today()
+        qs = model.objects.filter(
+            stock__stock_code=stock_code,
+            trade_time__lte=end_date
+        ).order_by('-trade_time')[:limit]
+
+        # 异步执行查询并返回DataFrame
+        df = await sync_to_async(lambda: pd.DataFrame.from_records(qs.values()))()
+        if not df.empty:
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df = df.set_index('trade_time')
+        return df
+
     # ============== 板块资金流向数据 - 同花顺 ==============
     async def save_history_fund_flow_cnt_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> Dict:
         """
