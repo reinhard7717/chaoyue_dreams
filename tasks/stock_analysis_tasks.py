@@ -527,18 +527,40 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================== 2. 高级筹码特征任务 ==================
 # =================================================================
 
+def _polyfit_slope(series: pd.Series) -> float:
+    """
+    【新增 V2.0 - 健壮版】一个稳健的辅助函数，用于计算Series的斜率，能正确处理NaN值。
+    - 核心修复: 确保传递给 np.polyfit 的 x 和 y 数组长度一致。
+    """
+    # 1. 移除NaN值，得到干净的数据序列
+    cleaned_series = series.dropna()
+    
+    # 2. 检查是否有足够的数据点进行线性回归（至少需要2个点）
+    if len(cleaned_series) < 2:
+        return np.nan
+        
+    # 3. 为有效数据点创建对应的x轴坐标（从0开始的整数序列）
+    #    这是修复错误的关键：x轴的长度现在与清理后的y轴数据长度完全匹配。
+    x_coords = np.arange(len(cleaned_series))
+    
+    # 4. 执行线性回归并返回斜率（polyfit返回的第一个系数）
+    #    使用 .values 将Pandas Series转换为NumPy数组以获得最佳性能
+    slope = np.polyfit(x_coords, cleaned_series.values, 1)[0]
+    return slope
+
 def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
-    """使用线性回归计算斜率的辅助函数"""
+    """
+    【修改 V2.0】使用线性回归计算斜率的通用辅助函数
+    - 核心修改: 调用新的、更健壮的 _polyfit_slope 辅助函数，从根本上解决NaN导致的问题。
+    """
     # min_periods 设为 window 的一半或至少2，增加稳健性
     min_p = max(2, window // 2)
     if len(series.dropna()) < min_p:
         return pd.Series(np.nan, index=series.index)
     
-    # 使用 np.polyfit 计算线性回归的斜率
-    slopes = series.rolling(window=window, min_periods=min_p).apply(
-        lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan,
-        raw=False
-    )
+    # 使用 rolling().apply() 并调用我们新的健壮的辅助函数
+    # raw=False 确保传递给 _polyfit_slope 的是Pandas Series对象
+    slopes = series.rolling(window=window, min_periods=min_p).apply(_polyfit_slope, raw=False)
     return slopes
 
 def _load_strategy_config(): # 辅助函数，用于加载策略配置
@@ -759,7 +781,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         for p in periods:
                             # 目标字段名与模型字段名完全对应 (例如: peak_cost_slope_5d)
                             target_col_name = f"{base_col_name}_slope_{p}d"
-                            print(f"    -> 正在计算斜率: {target_col_name}")
+                            # print(f"    -> 正在计算斜率: {target_col_name}")
                             final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[base_col_name], p)
             # 2. 计算所有加速度 (斜率的斜率)
             accel_params = feature_params.get('accel_params', {})
