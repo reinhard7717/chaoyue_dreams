@@ -138,6 +138,13 @@
         "chip_health_score_D": [5, 21],
         "winner_profit_margin_D": [5, 21],
         "price_to_peak_ratio_D": [5],
+        "peak_control_ratio_D": [5, 21, 55],
+        "peak_strength_ratio_D": [5, 21],
+        "concentration_70pct_D": [5, 21, 55],
+        "support_below_D": [5, 21],
+        "cost_divergence_D": [5, 21, 55],
+        "winner_turnover_long_term_D": [5, 21],
+        "loser_rate_long_term_D": [5, 21],
 
         "说明_FUND_FLOW": "--- 核心资金流动态分析 ---",
         "net_mf_amount_fund_flow_tushare_D": [5],
@@ -205,6 +212,11 @@
         "chip_health_score_D": [5],
         "turnover_from_winners_ratio_D": [5, 21, 55],
         "turnover_from_losers_ratio_D": [5],
+        "peak_control_ratio_D": [5, 21],
+        "winner_profit_margin_D": [5, 21],
+        "cost_divergence_D": [5, 21],
+        "winner_turnover_long_term_D": [5],
+        "loser_rate_long_term_D": [5, 21],
         "说明_STRATEGIC": "--- 战略协同加速度分析 (周线) ---",
         "EMA_21_W": [5]
       }

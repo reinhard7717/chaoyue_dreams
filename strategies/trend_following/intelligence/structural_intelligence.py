@@ -26,7 +26,7 @@ class StructuralIntelligence:
           - [数值化保留] 保留并优化了V600版的优秀数值化评分体系，作为趋势健康度的量化指标。
           - [数据驱动] 严格基于军械库清单进行诊断，确保逻辑的健壮性。
         """
-        print("        -> [诊断模块 V7.0 双核诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [诊断模块 V7.0 双核诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'multi_dim_ma_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -159,7 +159,7 @@ class StructuralIntelligence:
             states['SCORE_MA_ACCEL_RESONANCE']
         ).astype(np.float32)
         
-        print("        -> [诊断模块 V7.0 双核诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [诊断模块 V7.0 双核诊断版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_box_states_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -178,7 +178,7 @@ class StructuralIntelligence:
           - SCORE_BOX_BREAKOUT_S/A/B: S/A/B三级箱体向上突破质量分。
           - SCORE_BOX_BREAKDOWN_S/A/B: S/A/B三级箱体向下突破强度分。
         """
-        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'box_state_params')
         if not get_param_value(p.get('enabled'), True) or df.empty:
@@ -261,7 +261,7 @@ class StructuralIntelligence:
         states['BOX_EVENT_BREAKOUT'] = is_breakout.fillna(False)
         states['BOX_EVENT_BREAKDOWN'] = is_breakdown.fillna(False)
         
-        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 诊断完毕。") # [修改] 更新打印信息
+        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 诊断完毕。") # 更新打印信息
         return states
 
     def diagnose_platform_states_scores(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
@@ -275,7 +275,7 @@ class StructuralIntelligence:
           - SCORE_PLATFORM_QUALITY_B/A/S: B/A/S三级平台总质量分。
         - 风险升级: 破位风险分融合了“平台质量”与“破位强度”，评估更精准。
         """
-        print("        -> [诊断模块 V3.0 动态力学诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [诊断模块 V3.0 动态力学诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'platform_state_params')
         if not get_param_value(p.get('enabled'), True): return df, {}
@@ -363,7 +363,7 @@ class StructuralIntelligence:
             platform_quality_yesterday * breakdown_intensity_score
         ).where(platform_failure_series, 0.0).astype(np.float32)
 
-        print("        -> [诊断模块 V3.0 动态力学诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [诊断模块 V3.0 动态力学诊断版] 分析完毕。") # 更新打印信息
         return df, states
 
     def diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -377,7 +377,7 @@ class StructuralIntelligence:
         - 新增信号 (数值型):
           - SCORE_FIB_REBOUND_S/A/B: S/A/B三级反弹机会分，对应不同重要性的斐波那契水平。
         """
-        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'fibonacci_support_params')
         if not get_param_value(p.get('enabled'), True):
@@ -451,7 +451,7 @@ class StructuralIntelligence:
         states['SCORE_FIB_SUPPORT_GOLDEN_POCKET_S'] = states['SCORE_FIB_REBOUND_S']
         states['SCORE_FIB_SUPPORT_STANDARD_A'] = np.maximum(states['SCORE_FIB_REBOUND_A'], states['SCORE_FIB_REBOUND_B']).astype(np.float32)
 
-        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_structural_mechanics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -467,7 +467,7 @@ class StructuralIntelligence:
           - SCORE_MECHANICS_BOTTOM_REVERSAL_S/A/B: 底部反转机会分。
           - SCORE_MECHANICS_TOP_REVERSAL_S/A/B: 顶部反转风险分。
         """
-        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'structural_mechanics_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -541,7 +541,7 @@ class StructuralIntelligence:
         states['SCORE_MECHANICS_TOP_REVERSAL_A'] = ((1 - vol_compression_score) * top_reversal_trigger_score).astype(np.float32)
         states['SCORE_MECHANICS_TOP_REVERSAL_S'] = (top_reversal_setup_score * top_reversal_trigger_score).astype(np.float32)
 
-        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_mtf_trend_synergy_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -557,7 +557,7 @@ class StructuralIntelligence:
           - SCORE_MTF_BOTTOM_REVERSAL_S/A/B: MTF底部反转机会分。
           - SCORE_MTF_TOP_REVERSAL_S/A/B: MTF顶部反转风险分。
         """
-        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'mtf_trend_synergy_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -625,7 +625,7 @@ class StructuralIntelligence:
         states['SCORE_MTF_TOP_REVERSAL_A'] = top_reversal_base.astype(np.float32) # A级: 结合周线环境
         states['SCORE_MTF_TOP_REVERSAL_S'] = (top_reversal_base * weekly_accel_score).astype(np.float32) # S级: 周线上涨也在减速
 
-        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_fusion_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -639,14 +639,14 @@ class StructuralIntelligence:
           - SCORE_FUSION_BOTTOM_REVERSAL_S: 底部反转的“联合作战”总分。
           - SCORE_FUSION_TOP_REVERSAL_S: 顶部反转的“联合作战”总分。
         """
-        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'fusion_scores_params')
         if not get_param_value(p.get('enabled'), True): return {}
         atomic = self.strategy.atomic_states
 
         # --- 1. 军备检查 (Arsenal Check): 检查所有依赖的上游S级信号 ---
-        # [修改] 定义四个象限所需的所有上游S级信号源
+        # 定义四个象限所需的所有上游S级信号源
         signal_sources = {
             'bullish_resonance': [
                 'SCORE_MA_BULLISH_RESONANCE_S',
@@ -686,7 +686,7 @@ class StructuralIntelligence:
             fused_values = np.prod(np.array([s.values for s in scores_to_fuse]), axis=0)
             return pd.Series(fused_values, index=df.index, dtype=np.float32)
 
-        # [修改] 按照新的对称结构生成融合信号
+        # 按照新的对称结构生成融合信号
         # 2.1 上升共振融合
         states['SCORE_FUSION_BULLISH_RESONANCE_S'] = fuse_scores(signal_sources['bullish_resonance'])
         
@@ -699,7 +699,7 @@ class StructuralIntelligence:
         # 2.4 顶部反转融合
         states['SCORE_FUSION_TOP_REVERSAL_S'] = fuse_scores(signal_sources['top_reversal'])
         
-        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_structural_risks_and_regimes_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -713,7 +713,7 @@ class StructuralIntelligence:
           - SCORE_RISK_..._S/A/B: 价格乖离、获利盘兑现、结构破损三大风险分。
           - SCORE_REGIME_..._S/A/B: 波动压缩、波动扩张两大市场状态分。
         """
-        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'structural_risks_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -789,7 +789,7 @@ class StructuralIntelligence:
         states['SCORE_REGIME_VOL_EXPANSION_A'] = (vol_expansion_static * vol_expansion_dynamic).astype(np.float32)
         states['SCORE_REGIME_VOL_EXPANSION_S'] = (states['SCORE_REGIME_VOL_EXPANSION_A'] * vol_expansion_accel).astype(np.float32)
 
-        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_advanced_structural_patterns_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -804,7 +804,7 @@ class StructuralIntelligence:
           - SCORE_PATTERN_TOP_REVERSAL_S/A/B: 顶部模式(派发等)的确认分。
           - SCORE_PATTERN_CONSOLIDATION_S/A/B: 盘整中继模式的确认分。
         """
-        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'advanced_patterns_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -878,7 +878,7 @@ class StructuralIntelligence:
         states['SCORE_PATTERN_CONSOLIDATION_A'] = (consolidation_base * vol_compression_score).astype(np.float32)
         states['SCORE_PATTERN_CONSOLIDATION_S'] = (states['SCORE_PATTERN_CONSOLIDATION_A'] * momentum_neutrality).astype(np.float32)
 
-        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 分析完毕。") # [修改] 更新打印信息
+        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_ultimate_confirmation_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -892,7 +892,7 @@ class StructuralIntelligence:
           - SCORE_ULTIMATE_BOTTOM_CONFIRMATION_S: 终极底部确认分 (反转+吸筹)。
           - SCORE_ULTIMATE_TOP_CONFIRMATION_S: 终极顶部确认分 (反转+派发)。
         """
-        print("        -> [终极确认引擎 V1.0 完美风暴版] 启动...") # [新增] 新模块的打印信息
+        print("        -> [终极确认引擎 V1.0 完美风暴版] 启动...") # 新模块的打印信息
         states = {}
         p = get_params_block(self.strategy, 'ultimate_confirmation_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -944,7 +944,7 @@ class StructuralIntelligence:
         # 3.4 终极顶部确认 (顶部反转 + 派发模式)
         states['SCORE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
         
-        print("        -> [终极确认引擎 V1.0 完美风暴版] 分析完毕。") # [新增] 新模块的打印信息
+        print("        -> [终极确认引擎 V1.0 完美风暴版] 分析完毕。") # 新模块的打印信息
         return states
 
 

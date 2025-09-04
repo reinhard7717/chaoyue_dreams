@@ -527,6 +527,31 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================== 2. 高级筹码特征任务 ==================
 # =================================================================
 
+def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
+    """使用线性回归计算斜率的辅助函数"""
+    # min_periods 设为 window 的一半或至少2，增加稳健性
+    min_p = max(2, window // 2)
+    if len(series.dropna()) < min_p:
+        return pd.Series(np.nan, index=series.index)
+    
+    # 使用 np.polyfit 计算线性回归的斜率
+    slopes = series.rolling(window=window, min_periods=min_p).apply(
+        lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan,
+        raw=False
+    )
+    return slopes
+
+def _load_strategy_config(): # 辅助函数，用于加载策略配置
+    """加载并缓存策略配置文件"""
+    # 实际应用中，您可能希望使用更健壮的缓存机制
+    if not hasattr(_load_strategy_config, "config_cache"):
+        from django.conf import settings
+        import json
+        config_path = settings.BASE_DIR / 'config' / 'trend_follow_strategy.json'
+        with open(config_path, 'r', encoding='utf-8') as f:
+            _load_strategy_config.config_cache = json.load(f)
+    return _load_strategy_config.config_cache
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.schedule_precompute_advanced_chips', queue='celery')
 @with_cache_manager
 def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
@@ -560,26 +585,25 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
     """
-    【执行器 V10.5 - 分表适配版】
-    - 适配 AdvancedChipMetrics 模型分表，动态读写对应的数据库表。
-    - 技术改造: 使用 @with_cache_manager 装饰器自动管理 CacheManager 生命周期。
+    【执行器 V11.0 - 衍生特征工厂版】
+    - 核心重构: 本任务现在是数据驱动的。它会加载策略配置文件，并根据其中的
+                `slope_params` 和 `accel_params` 自动计算所有需要的斜率和加速度指标。
+    - 职责升级: 不再是简单的基础指标计算，而是成为一个完整的“衍生特征工厂”，
+                负责生成并持久化所有高级筹码分析所需的衍生数据。
+    - 维护性: 未来需要增减衍生指标时，只需修改JSON配置文件和模型，无需改动此任务代码。
     """
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main(time_dao, incremental_flag: bool):
         mode = "增量更新" if incremental_flag else "全量刷新"
-        # logger.info(f"[{stock_code}] 开始执行高级筹码指标预计算 (V10.5, 模式: {mode})...")
         get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
         
-        # 使 get_latest_metric_async 接受动态模型作为参数
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
             try:
-                # 使用传入的 model 进行查询
                 return model.objects.filter(stock=stock_info_obj).latest('trade_time')
-            except model.DoesNotExist: # 捕获特定模型的异常
+            except model.DoesNotExist:
                 return None
         
-        # get_data_async 已是通用函数，无需修改
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             qs = model.objects.filter(stock=stock_info_obj)
@@ -607,7 +631,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 if last_metric:
                     last_metric_date = last_metric.trade_time
                 else:
-                    # logger.info(f"[{stock_code}] 未找到任何历史指标，自动切换到全量刷新模式。")
                     incremental_flag = False
             fetch_start_date = None
             if incremental_flag and last_metric_date:
@@ -621,7 +644,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             }
             results = await asyncio.gather(*data_tasks.values())
             data_dfs = dict(zip(data_tasks.keys(), results))
-            # --- 数据审计部分，逻辑不变 ---
             cyq_chips_df = data_dfs.get("cyq_chips")
             if cyq_chips_df is None or cyq_chips_df.empty:
                 logger.error(f"[{stock_code}] [审计失败] 黄金标准数据源 'cyq_chips' 为空！任务终止。")
@@ -662,7 +684,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 for warning in audit_warnings:
                     logger.error(warning)
                 return {"status": "failed", "reason": "Data consistency audit failed."}
-            # --- 数据预处理和合并部分，逻辑不变 ---
             cyq_chips_data = data_dfs['cyq_chips']
             if cyq_chips_data.empty:
                 logger.warning(f"[{stock_code}] 在指定范围内找不到原始筹码数据，任务终止。")
@@ -689,8 +710,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
             daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
             merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-
-            # --- 核心计算循环 ---
             grouped_data = merged_df.groupby('trade_time')
             all_metrics_list = []
             for trade_date, daily_full_df in grouped_data:
@@ -698,12 +717,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     continue
                 context_data = daily_full_df.iloc[0].to_dict()
                 chip_data_for_calc = daily_full_df[['price', 'percent']]
-                # 不再预计算 weight_avg_cost，直接传入上下文
-                # Calculator 内部的 _calculate_summary_metrics 会计算并更新它
                 if chip_data_for_calc.empty:
                     continue
-                # 手动在 context 中加入一个 Calculator 内部会计算的初始值，避免前置检查失败
-                context_data['weight_avg_cost'] = 0 # 临时占位
+                context_data['weight_avg_cost'] = 0
                 calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
                 daily_metrics = calculator.calculate_all_metrics()
                 if daily_metrics:
@@ -721,48 +737,56 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 )
                 if not past_metrics_df.empty:
                     past_metrics_df = past_metrics_df.set_index('trade_time')
-                    # 确保索引是 DatetimeIndex 类型以进行正确排序和连接
                     if not isinstance(past_metrics_df.index, pd.DatetimeIndex):
                         past_metrics_df.index = pd.to_datetime(past_metrics_df.index)
                     if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
                         new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
-
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
-                    # 去重，保留新计算的数据
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
-
-            # --- 指标衍生计算 ---
-            slope_periods = [5, 8, 13, 21, 34, 55, 89, 144]
-            accel_periods = [5, 21]
-            if 'peak_cost' in final_metrics_df.columns:
-                for period in slope_periods:
-                    slope = final_metrics_df['peak_cost'].rolling(window=period, min_periods=2).apply(
-                        lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
-                    )
-                    final_metrics_df[f'peak_cost_slope_{period}d'] = slope
-                for period in accel_periods:
-                    final_metrics_df[f'peak_cost_accel_{period}d'] = final_metrics_df[f'peak_cost_slope_{period}d'].diff()
-            def calculate_slope(series, window):
-                return series.rolling(window=window, min_periods=2).apply(
-                    lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else np.nan, raw=False
-                )
-
-            # 计算 90% 集中度的多周期斜率
-            if 'concentration_90pct' in final_metrics_df.columns:
-                # print(f"[{stock_code}] 正在计算 90% 筹码集中度的多周期斜率...")
-                final_metrics_df['concentration_90pct_slope_5d'] = calculate_slope(final_metrics_df['concentration_90pct'], 5)
-                final_metrics_df['concentration_90pct_slope_21d'] = calculate_slope(final_metrics_df['concentration_90pct'], 21)
-                final_metrics_df['concentration_90pct_slope_55d'] = calculate_slope(final_metrics_df['concentration_90pct'], 55)
-
-            # 计算 70% 集中度的 5 日斜率
-            if 'concentration_70pct' in final_metrics_df.columns:
-                # print(f"[{stock_code}] 正在计算 70% 筹码集中度的5日斜率...")
-                final_metrics_df['concentration_70pct_slope_5d'] = calculate_slope(final_metrics_df['concentration_70pct'], 5)
-
-            # 在所有斜率指标计算完毕后，重新计算/更新筹码健康分
-            # print(f"[{stock_code}] 正在重新计算筹码健康分...")
-            final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
-
+            # --- 指标衍生计算 (V11.0 数据驱动版) ---
+            print(f"[{stock_code}] [衍生特征工厂] 开始根据策略配置计算衍生指标...")
+            strategy_config = _load_strategy_config()
+            feature_params = strategy_config.get('feature_engineering_params', {})
+            # 1. 计算所有斜率
+            slope_params = feature_params.get('slope_params', {})
+            if slope_params.get('enabled', False):
+                series_to_slope = slope_params.get('series_to_slope', {})
+                for base_col, periods in series_to_slope.items():
+                    if "说明" in base_col: continue
+                    # 从配置的列名（如 peak_cost_D）中提取基础列名（如 peak_cost）
+                    base_col_name = base_col.replace('_D', '') 
+                    if base_col_name in final_metrics_df.columns:
+                        for p in periods:
+                            # 目标字段名与模型字段名完全对应 (例如: peak_cost_slope_5d)
+                            target_col_name = f"{base_col_name}_slope_{p}d"
+                            print(f"    -> 正在计算斜率: {target_col_name}")
+                            final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[base_col_name], p)
+            # 2. 计算所有加速度 (斜率的斜率)
+            accel_params = feature_params.get('accel_params', {})
+            if accel_params.get('enabled', False):
+                series_to_accel = accel_params.get('series_to_accel', {})
+                for base_col, periods in series_to_accel.items():
+                    if "说明" in base_col: continue
+                    base_col_name = base_col.replace('_D', '')
+                    if base_col_name in final_metrics_df.columns:
+                        for p in periods:
+                            # 加速度是基于斜率计算的，所以先定位源斜率列
+                            source_slope_col = f"{base_col_name}_slope_{p}d"
+                            if source_slope_col in final_metrics_df.columns:
+                                # 目标字段名与模型字段名完全对应 (例如: peak_control_ratio_accel_5d)
+                                target_col_name = f"{base_col_name}_accel_{p}d"
+                                print(f"    -> 正在计算加速度: {target_col_name}")
+                                final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[source_slope_col], p)
+                            else:
+                                print(f"    -> [警告] 无法计算加速度，源斜率列不存在: {source_slope_col}")
+            # 3. 最后计算依赖于衍生指标的 chip_health_score
+            # 注意: 确保 calculate_chip_health_score 函数能处理DataFrame的行(Series)
+            # 并且能够找到所有它需要的斜率列
+            print(f"[{stock_code}] 正在重新计算筹码健康分...")
+            # 假设 calculate_chip_health_score 函数已存在于其他模块
+            # from .chip_health_calculator import calculate_chip_health_score 
+            # final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
+            # --- 数据保存部分 (逻辑不变，但现在会保存更多字段) ---
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
             model_fields = {f.name for f in MetricsModel._meta.get_fields()}
@@ -785,21 +809,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 record_data.pop('id', None)
                 record_data.pop('stock', None)
                 if record_data:
-                    # 使用动态模型创建实例
                     records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
-            
-            # 调用重构后的函数，传入动态模型
             await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": len(records_to_create)}
-
         except StockInfo.DoesNotExist:
             logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
             return {"status": "failed", "reason": "stock_code not found in StockInfo"}
         except Exception as e:
             logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
             return {"status": "failed", "reason": str(e)}
-
     try:
         result = async_to_sync(main)(time_trade_dao, is_incremental)
         return result

@@ -23,7 +23,7 @@ class FoundationIntelligence:
                     diagnose_synergy_intelligence (协同情报中心)。
           - 优化了整个分析流程，使其更符合“先原子，后协同”的逻辑。
         """
-        print("        -> [基础情报分析总指挥 V2.5] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [基础情报分析总指挥 V2.5] 启动...") # 更新版本号和打印信息
         states = {}
         df = self.strategy.df_indicators
 
@@ -44,13 +44,13 @@ class FoundationIntelligence:
 
         # === 第二阶段: 运行协同情报中心，生成高级复合信号 ===
         # 步骤6: [重构] 运行统一的协同情报中心
-        synergy_intelligence = self.diagnose_synergy_intelligence(df) # [修改] 调用全新的统一协同方法
+        synergy_intelligence = self.diagnose_synergy_intelligence(df) # 调用全新的统一协同方法
         states.update(synergy_intelligence)
 
         # 最终更新，确保协同信号也被添加
         self.strategy.atomic_states.update(synergy_intelligence)
         
-        print("          -> [基础情报分析总指挥 V2.5] 所有情报已生成。") # [修改] 更新打印信息
+        print("          -> [基础情报分析总指挥 V2.5] 所有情报已生成。") # 更新打印信息
         return states
 
     def diagnose_synergy_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -105,19 +105,19 @@ class FoundationIntelligence:
         is_daily_overbought = df['RSI_13_D'] > 75
         states['RISK_MTF_RSI_BEARISH_DIVERGENCE_S'] = is_weekly_diverging & is_daily_overbought
 
-        # === Part 3: [修改] 置信度分级的共振突破 (Breakout) 与崩溃 (Breakdown) ===
+        # === Part 3: 置信度分级的共振突破 (Breakout) 与崩溃 (Breakdown) ===
         # --- 3.1 通用计算: 趋势与加速度的共振分数 ---
         slope_cols = ['SLOPE_5_EMA_5_D', 'SLOPE_13_EMA_13_D', 'SLOPE_21_EMA_21_D', 'SLOPE_55_EMA_55_D']
         score_trend_confluence_bullish = sum([(df[col] > 0).astype(int) for col in slope_cols]) / len(slope_cols)
-        score_trend_confluence_bearish = sum([(df[col] < 0).astype(int) for col in slope_cols]) / len(slope_cols) # [新增] 下跌趋势共振分
+        score_trend_confluence_bearish = sum([(df[col] < 0).astype(int) for col in slope_cols]) / len(slope_cols) # 下跌趋势共振分
         states['SCORE_TREND_CONFLUENCE_BULLISH'] = score_trend_confluence_bullish
-        states['SCORE_TREND_CONFLUENCE_BEARISH'] = score_trend_confluence_bearish # [新增]
+        states['SCORE_TREND_CONFLUENCE_BEARISH'] = score_trend_confluence_bearish 
         
         accel_cols = ['ACCEL_5_EMA_5_D', 'ACCEL_13_EMA_13_D', 'ACCEL_21_EMA_21_D', 'ACCEL_55_EMA_55_D']
         score_accel_confluence_bullish = sum([(df[col] > 0).astype(int) for col in accel_cols]) / len(accel_cols)
-        score_accel_confluence_bearish = sum([(df[col] < 0).astype(int) for col in accel_cols]) / len(accel_cols) # [新增] 下跌加速共振分
+        score_accel_confluence_bearish = sum([(df[col] < 0).astype(int) for col in accel_cols]) / len(accel_cols) # 下跌加速共振分
         states['SCORE_ACCEL_CONFLUENCE_BULLISH'] = score_accel_confluence_bullish
-        states['SCORE_ACCEL_CONFLUENCE_BEARISH'] = score_accel_confluence_bearish # [新增]
+        states['SCORE_ACCEL_CONFLUENCE_BEARISH'] = score_accel_confluence_bearish 
 
         # --- 3.2 上升共振机会 (Squeeze Breakout Opportunity) ---
         is_breakout_setup = is_squeezing
@@ -187,7 +187,7 @@ class FoundationIntelligence:
         # --- 军备检查 (统一) ---
         required_cols = [
             'RSI_13_D', 'SLOPE_5_RSI_13_D', 'ACCEL_5_RSI_13_D', 'MACDh_13_34_8_D',
-            'MACD_HIST_ZSCORE_D', 'BIAS_55_D', 'close_D', 'open_D', 'high_D', 'low_D', # [修改] 增加了 high_D, low_D 用于背离计算
+            'MACD_HIST_ZSCORE_D', 'BIAS_55_D', 'close_D', 'open_D', 'high_D', 'low_D', # 增加了 high_D, low_D 用于背离计算
             'SLOPE_5_EMA_13_D', 'SLOPE_21_EMA_21_D', 'SLOPE_55_EMA_55_D'
         ]
         required_states = ['VOL_REGIME_TRENDING']
@@ -211,7 +211,7 @@ class FoundationIntelligence:
 
         # 1.2 MACD 方向状态
         states['OSC_STATE_MACD_BULLISH'] = df['MACDh_13_34_8_D'] > 0
-        states['OSC_STATE_MACD_BEARISH'] = df['MACDh_13_34_8_D'] < 0 # [新增] 对称的空头状态
+        states['OSC_STATE_MACD_BEARISH'] = df['MACDh_13_34_8_D'] < 0 # 对称的空头状态
 
         # 1.3 BIAS 乖离机会与风险
         p_bias = p.get('bias_dynamic_threshold', {})
@@ -222,7 +222,7 @@ class FoundationIntelligence:
         is_oversold_bias = df[bias_col] < dynamic_oversold_threshold
         is_rebound_attempt = df['close_D'] > df['open_D']
         states['OPP_STATE_NEGATIVE_DEVIATION'] = is_oversold_bias & is_rebound_attempt
-        # [新增] 风险: 动态正乖离 (超买)
+        # 风险: 动态正乖离 (超买)
         dynamic_overbought_threshold = df[bias_col].rolling(window=window).quantile(1 - quantile)
         is_overbought_bias = df[bias_col] > dynamic_overbought_threshold
         is_pullback_attempt = df['close_D'] < df['open_D']
@@ -231,16 +231,16 @@ class FoundationIntelligence:
         # === Part 2: 动态与持续性诊断 (Dynamic & Persistent States) ===
         # 2.1 RSI 动态 (加速/减速)
         states['OSC_DYN_RSI_ACCELERATING_BULLISH'] = (df[rsi_col] > 50) & (df['ACCEL_5_RSI_13_D'] > 0)
-        states['OSC_DYN_RSI_ACCELERATING_BEARISH'] = (df[rsi_col] < 50) & (df['ACCEL_5_RSI_13_D'] < 0) # [新增] 对称的空头加速
-        states['RISK_RSI_TOP_DECELERATION_B'] = (df[rsi_col] > 70) & (df['ACCEL_5_RSI_13_D'] < 0) # [修改] 命名规范化
-        states['OPP_RSI_BOTTOM_ACCELERATION_B'] = (df[rsi_col] < 30) & (df['ACCEL_5_RSI_13_D'] > 0) # [新增] 对称的底部加速机会
+        states['OSC_DYN_RSI_ACCELERATING_BEARISH'] = (df[rsi_col] < 50) & (df['ACCEL_5_RSI_13_D'] < 0) # 对称的空头加速
+        states['RISK_RSI_TOP_DECELERATION_B'] = (df[rsi_col] > 70) & (df['ACCEL_5_RSI_13_D'] < 0) # 命名规范化
+        states['OPP_RSI_BOTTOM_ACCELERATION_B'] = (df[rsi_col] < 30) & (df['ACCEL_5_RSI_13_D'] > 0) # 对称的底部加速机会
 
         # 2.2 MACD 背离
         # 风险: 看跌顶背离 (价格新高, MACD未新高)
         is_price_higher = df['high_D'] > df['high_D'].rolling(10).max().shift(1)
         is_macd_z_lower = df['MACD_HIST_ZSCORE_D'] < df['MACD_HIST_ZSCORE_D'].rolling(10).max().shift(1)
-        states['RISK_MACD_BEARISH_DIVERGENCE_A'] = is_price_higher & is_macd_z_lower # [修改] 命名规范化
-        # [新增] 机会: 看涨底背离 (价格新低, MACD未新低)
+        states['RISK_MACD_BEARISH_DIVERGENCE_A'] = is_price_higher & is_macd_z_lower # 命名规范化
+        # 机会: 看涨底背离 (价格新低, MACD未新低)
         is_price_lower = df['low_D'] < df['low_D'].rolling(10).min().shift(1)
         is_macd_z_higher = df['MACD_HIST_ZSCORE_D'] > df['MACD_HIST_ZSCORE_D'].rolling(10).min().shift(1)
         states['OPP_MACD_BULLISH_DIVERGENCE_A'] = is_price_lower & is_macd_z_higher
@@ -253,7 +253,7 @@ class FoundationIntelligence:
         bullish_persistence_count = (df[rsi_col] > overbought_level).rolling(window=window_peg, min_periods=threshold_days).sum()
         states['OSC_STATE_RSI_PEGGED_BULLISH'] = bullish_persistence_count >= threshold_days
         states['SCORE_OSC_BULLISH_PERSISTENCE'] = (bullish_persistence_count / window_peg).fillna(0).astype(np.float32)
-        # [新增] 空头钉住: 持续处于超卖区
+        # 空头钉住: 持续处于超卖区
         oversold_level = get_param_value(p.get('rsi_oversold'), 25)
         bearish_persistence_count = (df[rsi_col] < oversold_level).rolling(window=window_peg, min_periods=threshold_days).sum()
         states['OSC_STATE_RSI_PEGGED_BEARISH'] = bearish_persistence_count >= threshold_days
@@ -268,7 +268,7 @@ class FoundationIntelligence:
         is_bullish_confluence = is_short_bullish & is_mid_bullish & is_long_bullish
         states['OSC_STATE_MTF_MOMENTUM_BULLISH_CONFLUENCE'] = is_bullish_confluence
         states['SCORE_OSC_BULLISH_CONFLUENCE'] = ((is_short_bullish.astype(int) + is_mid_bullish.astype(int) + is_long_bullish.astype(int)) / 3).astype(np.float32)
-        # [新增] 空头共振
+        # 空头共振
         is_short_bearish = df['SLOPE_5_EMA_13_D'] < 0
         is_mid_bearish = df['SLOPE_21_EMA_21_D'] < 0
         is_long_bearish = df['SLOPE_55_EMA_55_D'] < 0
@@ -281,7 +281,7 @@ class FoundationIntelligence:
         # S级机会: 趋势政权 + 多头共振 + RSI加速点火
         is_rsi_accelerating_bullish = df['ACCEL_5_RSI_13_D'] > 0
         states['OPP_REGIME_CONFLUENCE_IGNITION_S'] = is_trending_regime & is_bullish_confluence & is_rsi_accelerating_bullish
-        # [新增] S级风险: 趋势政权 + 空头共振 + RSI加速崩溃
+        # S级风险: 趋势政权 + 空头共振 + RSI加速崩溃
         is_rsi_accelerating_bearish = df['ACCEL_5_RSI_13_D'] < 0
         states['RISK_REGIME_CONFLUENCE_BREAKDOWN_S'] = is_trending_regime & is_bearish_confluence & is_rsi_accelerating_bearish
 

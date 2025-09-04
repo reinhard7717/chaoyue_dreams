@@ -46,6 +46,7 @@ class ChipFeatureCalculator:
         peaks_info = self._calculate_peaks()
         concentration_info = self._calculate_concentration()
         winner_structure_info = self._calculate_winner_structure()
+        holder_costs_info = self._calculate_holder_costs()
         pressure_support_info = self._calculate_pressure_support()
         turnover_info = self._calculate_effective_turnover()
         turnover_structure_info = self._calculate_turnover_structure()
@@ -57,6 +58,7 @@ class ChipFeatureCalculator:
             **peaks_info, 
             **concentration_info, 
             **winner_structure_info,
+            **holder_costs_info,
         }
 
         # --- 3. 升维指标计算 ---
@@ -68,6 +70,7 @@ class ChipFeatureCalculator:
             **peaks_info,
             **concentration_info,
             **winner_structure_info,
+            **holder_costs_info,
             **pressure_support_info,
             **turnover_info,
             **turnover_structure_info,
@@ -77,6 +80,8 @@ class ChipFeatureCalculator:
         }
         if 'total_winner_rate' in summary_info:
             all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
+        if 'total_loser_rate' in winner_structure_info:
+            all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
 
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
@@ -227,19 +232,64 @@ class ChipFeatureCalculator:
         """
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
+        total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
+        
+        total_loser_rate = 100.0 - total_winner_rate
 
         if not close_price or pd.isna(prev_20d_close):
-            return {'winner_rate_short_term': None, 'winner_rate_long_term': None}
+            return {
+                'winner_rate_short_term': None, 'winner_rate_long_term': None,
+                'loser_rate_short_term': None, 'loser_rate_long_term': None,
+                'total_loser_rate': total_loser_rate if total_winner_rate is not None else None
+            }
 
         long_term_winners_df = self.df[self.df['price'] < prev_20d_close]
         long_term_winner_rate = long_term_winners_df['percent'].sum()
-
         short_term_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= prev_20d_close)]
         short_term_winner_rate = short_term_winners_df['percent'].sum()
+        
+        # 短期套牢盘：成本高于当前收盘价，且是在近20日内形成的筹码
+        short_term_losers_df = self.df[(self.df['price'] > close_price) & (self.df['price'] >= prev_20d_close)]
+        short_term_loser_rate = short_term_losers_df['percent'].sum()
+        # 长期套牢盘：成本高于当前收盘价，且是在20日前形成的筹码
+        long_term_losers_df = self.df[(self.df['price'] > close_price) & (self.df['price'] < prev_20d_close)]
+        long_term_loser_rate = long_term_losers_df['percent'].sum()
         
         return {
             'winner_rate_short_term': short_term_winner_rate,
             'winner_rate_long_term': long_term_winner_rate,
+            'loser_rate_short_term': short_term_loser_rate, 
+            'loser_rate_long_term': long_term_loser_rate,   
+            'total_loser_rate': total_loser_rate,           
+        }
+    
+    def _calculate_holder_costs(self) -> dict: # 整个方法
+        """
+        【V1.0 新增】计算长/短期持仓者平均成本
+        - 核心逻辑: 以20日前收盘价为界，划分长期与短期持仓者，并分别计算其加权平均成本。
+                   这是一种常用的、基于价格行为的持仓周期划分代理方法。
+        """
+        prev_20d_close = self.ctx.get('prev_20d_close')
+
+        if pd.isna(prev_20d_close):
+            return {'avg_cost_short_term': None, 'avg_cost_long_term': None}
+
+        # 长期持仓者：成本低于20日前收盘价的筹码
+        long_term_chips_df = self.df[self.df['price'] < prev_20d_close]
+        # 短期持仓者：成本高于等于20日前收盘价的筹码
+        short_term_chips_df = self.df[self.df['price'] >= prev_20d_close]
+
+        avg_cost_long = None
+        if not long_term_chips_df.empty and long_term_chips_df['percent'].sum() > 0:
+            avg_cost_long = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
+
+        avg_cost_short = None
+        if not short_term_chips_df.empty and short_term_chips_df['percent'].sum() > 0:
+            avg_cost_short = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
+
+        return {
+            'avg_cost_short_term': avg_cost_short,
+            'avg_cost_long_term': avg_cost_long,
         }
 
     def _calculate_pressure_support(self) -> dict:

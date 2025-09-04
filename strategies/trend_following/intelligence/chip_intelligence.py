@@ -23,7 +23,7 @@ class ChipIntelligence:
         - 架构优化: 确保所有新生成的数值型评分都被更新到 self.strategy.atomic_states，
           使其可供其他上层模块消费。
         """
-        print("        -> [筹码情报最高司令部 V325.3 最终版] 启动...") # [修改] 更新版本号和打印信息，反映功能升级
+        print("        -> [筹码情报最高司令部 V325.3 最终版] 启动...") # 更新版本号和打印信息，反映功能升级
         states = {}
         triggers = {}
         # --- 步骤 1: 调用四级评分中心，生成所有数值型评分 ---
@@ -35,7 +35,7 @@ class ChipIntelligence:
         df = self.diagnose_advanced_chip_dynamics_scores(df)
         # 1.3 调用内部结构诊断模块
         df = self.diagnose_chip_internal_structure_scores(df)
-        # 1.4 [修改] 调用新增的持仓者行为诊断模块
+        # 1.4 调用新增的持仓者行为诊断模块
         df = self.diagnose_chip_holder_behavior_scores(df)
         # --- 步骤 1.5: 将所有新生成的数值评分更新到原子状态库 ---
         # 这是关键一步，确保下游模块可以访问到这些数值信号
@@ -150,7 +150,7 @@ class ChipIntelligence:
           - SCORE_CHIP_BOTTOM_REVERSAL_S/A/B: 底部反转机会分 (下跌衰竭后吸筹)。
           - SCORE_CHIP_TOP_REVERSAL_S/A/B: 顶部反转风险分 (上涨衰竭后派发)。
         """
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), True):
@@ -170,7 +170,7 @@ class ChipIntelligence:
                 f'ACCEL_{p if p > 5 else 5}_turnover_from_winners_ratio_D'
             ])
         # --- 2. 检查必需列 ---
-        # [修改] 将 ACCEL_21_peak_cost_D 替换为军械库中的实际名称 peak_cost_accel_21d_D
+        # 将 ACCEL_21_peak_cost_D 替换为军械库中的实际名称 peak_cost_accel_21d_D
         required_cols_mapping = {
             'ACCEL_21_peak_cost_D': 'peak_cost_accel_21d_D'
         }
@@ -235,7 +235,7 @@ class ChipIntelligence:
 
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") # [修改] 更新打印信息
+        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") # 更新打印信息
         return df
 
     def diagnose_advanced_chip_dynamics_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -252,7 +252,7 @@ class ChipIntelligence:
           - SCORE_CHIP_CAPITULATION_ABSORPTION_S/A/B: 恐慌盘出尽后的承接机会分。
           - SCORE_RISK_CHIP_FAULT_BREAKDOWN_S/A/B: 筹码断层破位风险分。
         """
-        print("        -> [高级筹码动态评分模块 V1.0] 启动...") # [新增] 新模块的打印信息
+        print("        -> [高级筹码动态评分模块 V1.0] 启动...") # 新模块的打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
@@ -318,7 +318,7 @@ class ChipIntelligence:
 
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [高级筹码动态评分模块 V1.0] 计算完毕。") # [新增] 新模块的打印信息
+        print("        -> [高级筹码动态评分模块 V1.0] 计算完毕。") # 新模块的打印信息
         return df
 
     def diagnose_chip_internal_structure_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -336,7 +336,7 @@ class ChipIntelligence:
           - SCORE_RISK_PROFIT_TAKING_PRESSURE_A/B: 获利盘兑现压力风险分。
           - SCORE_CHIP_PATH_OF_LEAST_RESISTANCE: 最小阻力路径机会分。
         """
-        print("        -> [筹码内部结构评分模块 V1.0] 启动...") # [新增] 新模块的打印信息
+        print("        -> [筹码内部结构评分模块 V1.0] 启动...") # 新模块的打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_internal_structure_params')
         if not get_param_value(p.get('enabled'), True):
@@ -394,7 +394,7 @@ class ChipIntelligence:
 
         # --- 7. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [筹码内部结构评分模块 V1.0] 计算完毕。") # [新增] 新模块的打印信息
+        print("        -> [筹码内部结构评分模块 V1.0] 计算完毕。") # 新模块的打印信息
         return df
 
     def diagnose_chip_holder_behavior_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -410,7 +410,7 @@ class ChipIntelligence:
           - SCORE_RISK_LONG_TERM_HOLDER_INSTABILITY: 长线持有者不稳定风险分。
           - SCORE_OPP_LONG_TERM_CAPITULATION: 长线持有者投降机会分。
         """
-        print("        -> [持仓者行为评分模块 V1.0] 启动...") # [新增] 新模块的打印信息
+        print("        -> [持仓者行为评分模块 V1.0] 启动...") # 新模块的打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
@@ -457,7 +457,7 @@ class ChipIntelligence:
 
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [持仓者行为评分模块 V1.0] 计算完毕。") # [新增] 新模块的打印信息
+        print("        -> [持仓者行为评分模块 V1.0] 计算完毕。") # 新模块的打印信息
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:

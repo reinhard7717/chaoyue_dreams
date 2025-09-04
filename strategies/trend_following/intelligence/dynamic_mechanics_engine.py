@@ -37,7 +37,7 @@ class DynamicMechanicsEngine:
           - 优化静态信号的获取逻辑：当信号不存在时，直接创建NumPy数组作为默认值，
             避免了通过 `pd.Series(...)` 创建临时对象，大幅减少了内存分配和计算开销。
         """
-        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") # [修改] 更新版本号
+        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") # 更新版本号
         states = {}
         df = self.strategy.df_indicators
         # --- 1. 军备检查 ---
@@ -81,7 +81,7 @@ class DynamicMechanicsEngine:
             'SCORE_FV_CONFIRMED_IGNITION_S_PLUS': pd.Series(confirmed_ignition_arr, index=df.index),
         }
         self.strategy.atomic_states.update(states)
-        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") # [修改] 更新版本号
+        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") # 更新版本号
         return states
 
     def diagnose_multi_timeframe_micro_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -91,7 +91,7 @@ class DynamicMechanicsEngine:
         - 性能优化 (本次修改):
           - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
         """
-        print("        -> [多时间维度微观力学评分引擎 V2.3] 启动...") # [修改] 更新版本号
+        print("        -> [多时间维度微观力学评分引擎 V2.3] 启动...") # 更新版本号
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -123,7 +123,7 @@ class DynamicMechanicsEngine:
         price_accel_resonance_arr = np.mean(np.array([price_accel_5d_arr, price_accel_21d_arr]), axis=0)
         chip_conc_resonance_arr = np.mean(np.array([chip_conc_5d_arr, chip_conc_21d_arr, chip_conc_55d_arr]), axis=0)
         # --- 4. 静态-动态交叉验证 (纯NumPy数组运算) ---
-        # [修改] 优化静态信号的获取方式，避免在信号缺失时创建完整的Pandas Series
+        # 优化静态信号的获取方式，避免在信号缺失时创建完整的Pandas Series
         key = 'VOL_STATE_EXTREME_SQUEEZE'
         if key in self.strategy.atomic_states:
             # 原始信号是布尔型，直接转换为float32 (True->1.0, False->0.0)
@@ -148,7 +148,7 @@ class DynamicMechanicsEngine:
             'SCORE_DYN_DIVERGENCE_RISK_A': pd.Series(divergence_risk_arr, index=df.index),
             'SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S': pd.Series(exhaustion_divergence_risk_arr, index=df.index),
         }
-        print("        -> [多时间维度微观力学评分引擎 V2.3] 分析完毕。") # [修改] 更新版本号
+        print("        -> [多时间维度微观力学评分引擎 V2.3] 分析完毕。") # 更新版本号
         return states
 
     def diagnose_multi_timeframe_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -159,7 +159,7 @@ class DynamicMechanicsEngine:
           - 关键优化：使用纯NumPy切片实现shift操作，消除了`NumPy->Pandas->NumPy`的昂贵转换开销。
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
         """
-        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") # [修改] 更新版本号
+        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") # 更新版本号
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -193,7 +193,7 @@ class DynamicMechanicsEngine:
         # --- 3. 交叉验证信号生成 (纯NumPy数组运算) ---
         trend_resonance_arr = price_rising_short_arr * price_rising_long_arr * chip_conc_short_arr
         structural_weakness_risk_arr = price_rising_short_arr * chip_diverging_long_arr * profit_margin_shrinking_long_arr
-        # [修改] 关键性能优化：使用纯NumPy实现shift(1).fillna(0.5)，避免了昂贵的 `np->pd->np` 转换
+        # 关键性能优化：使用纯NumPy实现shift(1).fillna(0.5)，避免了昂贵的 `np->pd->np` 转换
         n = len(price_rising_long_arr)
         shifted_price_rising_long_arr = np.empty(n, dtype=np.float32)
         shifted_price_rising_long_arr[0] = 0.5  # 模拟fillna(0.5)
@@ -218,7 +218,7 @@ class DynamicMechanicsEngine:
             'SCORE_MTF_STEALTH_ACCUMULATION_OPP_A': pd.Series(stealth_accumulation_arr, index=df.index),
             'SCORE_MTF_PLATFORM_IGNITION_S_PLUS': pd.Series(platform_ignition_arr, index=df.index),
         }
-        print("        -> [多时间维度力学评分引擎 V2.4] 分析完毕。") # [修改] 更新版本号
+        print("        -> [多时间维度力学评分引擎 V2.4] 分析完毕。") # 更新版本号
         return states
 
     def diagnose_behavioral_mechanics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -229,7 +229,7 @@ class DynamicMechanicsEngine:
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
           - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
         """
-        print("        -> [行为力学评分引擎 V2.3] 启动...") # [修改] 更新版本号
+        print("        -> [行为力学评分引擎 V2.3] 启动...") # 更新版本号
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -287,7 +287,7 @@ class DynamicMechanicsEngine:
             'SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A': pd.Series(capitulation_exhaustion_arr, index=df.index),
             'SCORE_BEHAVIOR_TOP_DIVERGENCE_RISK_S_PLUS': pd.Series(top_divergence_risk_arr, index=df.index),
         }
-        print("        -> [行为力学评分引擎 V2.3] 分析完毕。") # [修改] 更新版本号
+        print("        -> [行为力学评分引擎 V2.3] 分析完毕。") # 更新版本号
         return states
 
 
