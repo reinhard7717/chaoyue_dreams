@@ -210,7 +210,7 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
     """
     logger.info(f"任务启动: save_stocks_minute_data_latest_days_task - 获取最近 {num_days} 天数据, 批次大小: {batch_size}")
 
-    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    # 使用 TradeCalendar 获取最近 num_days 个交易日
     trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
     if not trade_dates:
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
@@ -308,7 +308,7 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
     # 更新启动日志
     logger.info(f"任务启动: save_stocks_daily_basic_data_latest_days_task - 获取最近 {num_days} 个交易日的基本面指标。")
 
-    # [新增] 使用 TradeCalendar 获取最近 num_days 个交易日
+    # 使用 TradeCalendar 获取最近 num_days 个交易日
     trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
     if not trade_dates:
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
@@ -319,7 +319,7 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
     print(f"调试: 将为以下交易日获取基本面指标: {trade_dates}")
 
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    # [新增] 用于存储每个交易日处理结果的字典
+    # 用于存储每个交易日处理结果的字典
     results_summary = {}
 
     # 循环处理获取到的每一个交易日
@@ -333,7 +333,7 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
             return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=trade_date)
         
         result = async_to_sync(main)()
-        # [新增] 将当天的处理结果存入汇总字典
+        # 将当天的处理结果存入汇总字典
         results_summary[trade_date_str] = result
         
         print(f"保存交易日 {trade_date_str} 的股票基本面指标完成。result: {result}")

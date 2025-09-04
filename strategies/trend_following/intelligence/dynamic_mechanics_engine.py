@@ -13,228 +13,282 @@ class DynamicMechanicsEngine:
         """
         self.strategy = strategy_instance
 
-    def run_force_vector_analysis(self) -> Dict[str, pd.Series]:
+    def _normalize_series(self, series: pd.Series, norm_window: int, min_periods: int, ascending: bool = True) -> np.ndarray:
         """
-        【V317.3 宏观专属版】宏观动态力学分析引擎
-        - 核心职责: (本次修改) 专门负责计算进攻分和风险分的“加速度”，捕捉双向动能的剧烈变化。
-                    此方法被设计为在 entry_score 和 risk_score 计算完成之后调用。
-        - 收益:     这是判断趋势强化或转折的关键“势能”情报。
+        辅助函数：将Pandas Series进行滚动窗口排名归一化，并返回NumPy数组。
+        - 提升为类的私有方法，以供所有诊断引擎复用，避免重复定义。
+        :param series: 原始数据Series。
+        :param norm_window: 归一化的滚动窗口大小。
+        :param min_periods: 滚动窗口的最小观测期。
+        :param ascending: 归一化方向，True表示值越大分数越高。
+        :return: 归一化后的0-1分数（np.float32类型的NumPy数组）。
         """
-        # print("        -> [宏观力学分析引擎 V317.3] 启动，正在计算分数势能...")
+        # 使用滚动窗口计算百分比排名，空值用0.5填充，代表中位数水平
+        rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        # 根据ascending参数决定排名方向，并直接返回NumPy数组以提升后续计算效率
+        return (rank if ascending else 1 - rank).values.astype(np.float32)
+
+    def run_force_vector_analysis_scores(self) -> Dict[str, pd.Series]:
+        """
+        【V4.3 终极优化版】宏观力矢量评分引擎
+        - 核心逻辑: (业务逻辑不变)
+        - 性能优化 (本次修改):
+          - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
+          - 优化静态信号的获取逻辑：当信号不存在时，直接创建NumPy数组作为默认值，
+            避免了通过 `pd.Series(...)` 创建临时对象，大幅减少了内存分配和计算开销。
+        """
+        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") # [修改] 更新版本号
         states = {}
         df = self.strategy.df_indicators
+        # --- 1. 军备检查 ---
         if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
-            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力学分析跳过。")
+            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力矢量分析跳过。")
             return states
-        window = 5
-        # 1. 计算“进攻”和“风险”的趋势（斜率）
+        norm_window = 120
+        min_periods = max(1, norm_window // 5)
+        # --- 2. 计算斜率和加速度 (Pandas时序操作) ---
+        # 集中提取所需Series，提高代码清晰度和执行效率
         entry_score_series = df['entry_score']
         risk_score_series = df['risk_score']
         entry_score_slope = (-2 * entry_score_series.shift(4) - entry_score_series.shift(3) + entry_score_series.shift(1) + 2 * entry_score_series) / 10
         risk_score_slope = (-2 * risk_score_series.shift(4) - risk_score_series.shift(3) + risk_score_series.shift(1) + 2 * risk_score_series) / 10
-        # 2. 计算“进攻”和“风险”的加速度（斜率的差分）
         entry_score_accel = entry_score_slope.diff()
         risk_score_accel = risk_score_slope.diff()
-        # 3. 定义加速度阈值，过滤掉无意义的波动
-        accel_threshold = 1.0
-        # 4. 生成四种核心的“力学”原子状态
-        states['FORCE_VECTOR_OFFENSE_ACCELERATING'] = entry_score_accel > accel_threshold
-        states['FORCE_VECTOR_OFFENSE_DECELERATING'] = entry_score_accel < -accel_threshold
-        states['FORCE_VECTOR_RISK_ACCELERATING'] = risk_score_accel > accel_threshold
-        states['FORCE_VECTOR_RISK_DECELERATING'] = risk_score_accel < -accel_threshold
-        # 5. 生成两种复合的“力学”中性状态
-        states['FORCE_VECTOR_PURE_OFFENSIVE_MOMENTUM'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_DECELERATING']
-        states['FORCE_VECTOR_CHAOTIC_EXPANSION'] = states['FORCE_VECTOR_OFFENSE_ACCELERATING'] & states['FORCE_VECTOR_RISK_ACCELERATING']
+        # --- 3. 核心动态分数计算 (NumPy高性能计算) ---
+        offense_momentum_arr = self._normalize_series(entry_score_slope, norm_window, min_periods)
+        offense_accel_arr = self._normalize_series(entry_score_accel, norm_window, min_periods)
+        risk_momentum_arr = self._normalize_series(risk_score_slope, norm_window, min_periods)
+        risk_accel_arr = self._normalize_series(risk_score_accel, norm_window, min_periods)
+        risk_decel_arr = 1.0 - risk_accel_arr
+        # --- 4. 交叉验证与信号生成 (纯NumPy数组运算) ---
+        pure_offensive_momentum_arr = offense_accel_arr * risk_decel_arr
+        chaotic_expansion_arr = offense_accel_arr * risk_accel_arr
+        # --- 5. 静态-动态融合 (纯NumPy数组运算) ---
+        key = 'SCORE_PLATFORM_OVERALL_QUALITY'
+        if key in self.strategy.atomic_states:
+            static_platform_quality_arr = self.strategy.atomic_states[key].values.astype(np.float32)
+        else:
+            static_platform_quality_arr = np.zeros(len(df), dtype=np.float32)
+        confirmed_ignition_arr = static_platform_quality_arr * pure_offensive_momentum_arr
+        # --- 6. 结果封装 (批量转换为Pandas Series) ---
+        states = {
+            'SCORE_FV_OFFENSE_MOMENTUM': pd.Series(offense_momentum_arr, index=df.index),
+            'SCORE_FV_OFFENSE_ACCEL': pd.Series(offense_accel_arr, index=df.index),
+            'SCORE_FV_RISK_MOMENTUM': pd.Series(risk_momentum_arr, index=df.index),
+            'SCORE_FV_RISK_ACCEL': pd.Series(risk_accel_arr, index=df.index),
+            'SCORE_FV_PURE_OFFENSIVE_MOMENTUM': pd.Series(pure_offensive_momentum_arr, index=df.index),
+            'SCORE_FV_CHAOTIC_EXPANSION_RISK': pd.Series(chaotic_expansion_arr, index=df.index),
+            'SCORE_FV_CONFIRMED_IGNITION_S_PLUS': pd.Series(confirmed_ignition_arr, index=df.index),
+        }
         self.strategy.atomic_states.update(states)
-        # print("          -> [宏观力学分析引擎] 进攻/风险的加速度情报已生成。")
+        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") # [修改] 更新版本号
         return states
 
-    def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
+    def diagnose_multi_timeframe_micro_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V317.4 微观协同版】微观及协同力学分析总指挥
-        - 核心职责: 统一调度微观、多时间维度及终极的“静态-动态”交叉验证分析。
-        - 核心修正 (本次修改): 移除了依赖后期分数的“宏观力学分析”部分，解决了在情报层
-                          前期调用时因缺少 `entry_score` 而产生警告的问题。
-                          现在此方法专注于处理基础指标衍生的动态力学。
+        【V2.3 终极优化版】多时间维度微观力学评分引擎
+        - 核心逻辑: (业务逻辑不变)
+        - 性能优化 (本次修改):
+          - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
         """
-        # print("        -> [微观及协同力学分析总指挥 V317.4] 启动...")
+        print("        -> [多时间维度微观力学评分引擎 V2.3] 启动...") # [修改] 更新版本号
         states = {}
-        df = self.strategy.df_indicators
-        # --- 移除了原有的宏观力学分析部分 ---
-        # --- 步骤1: 执行微观力学分析 (基于基础指标) ---
-        micro_dynamic_states = self.diagnose_micro_dynamics(df)
-        states.update(micro_dynamic_states)
-        # --- 步骤2: 执行多时间维度力学分析 (交叉验证) ---
-        multi_timeframe_states = self.diagnose_multi_timeframe_dynamics(df)
-        states.update(multi_timeframe_states)
-        # --- 步骤3: 执行行为力学分析 (基于情绪与效率指标) ---
-        behavioral_states = self.diagnose_behavioral_mechanics(df)
-        states.update(behavioral_states)
-        self.strategy.atomic_states.update(states)
-        # print("          -> [微观及协同力学分析总指挥] 微观/多周期/终极交叉验证情报已全部生成。")
-        return states
-
-    def diagnose_micro_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】微观力学诊断模块
-        - 核心职责: 直接利用数据层预计算的基础指标（价格、成交量、波动率、筹码）的
-                      斜率和加速度，生成描述市场微观力学状态的原子信号。
-        - 收益: 捕捉比宏观分数更具体、更底层的市场动态，如“量价共振”、“缩量上涨”等。
-        """
-        # print("        -> [微观力学诊断模块 V1.0] 启动...")
-        states = {}
-        # default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 军备检查：确保所有必需的斜率和加速度列都存在 ---
-        required_cols = [
-            'ACCEL_5_close_D', 'ACCEL_5_volume_D',
-            'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D',
-            'ACCEL_5_concentration_90pct_D', 'ACCEL_5_peak_cost_D'
-        ]
-        if any(c not in df.columns for c in required_cols):
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            print(f"          -> [警告] 微观力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
-            return states
-
-        # --- 2. 生成微观力学信号 ---
-        # 信号1 (S级机会): “内外共振·主升确认”
-        # 解读: 内部结构（筹码加速集中 & 成本加速抬升）与外部表现（价格加速上涨）完美共振，
-        #      是主升浪最强烈的确认信号。
-        is_internal_accelerating = (df['ACCEL_5_concentration_90pct_D'] < 0) & (df['ACCEL_5_peak_cost_D'] > 0)
-        is_external_accelerating = df['ACCEL_5_close_D'] > 0
-        states['OPP_DYN_INTERNAL_EXTERNAL_RESONANCE_S'] = is_internal_accelerating & is_external_accelerating
-
-        # 信号2 (A级机会): “波动率点火”
-        # 解读: 波动率经过收缩后（斜率 < 0），开始加速扩张（加速度 > 0），且价格同步加速上涨。
-        #      这是经典的“Squeeze”形态突破，能量由静转动，极具爆发力。
-        is_volatility_squeezing = df['SLOPE_5_BBW_21_2.0_D'] < 0
-        is_volatility_igniting = df['ACCEL_5_BBW_21_2.0_D'] > 0
-        states['DYN_VOLATILITY_BREAKOUT_A'] = is_volatility_squeezing.shift(1) & is_volatility_igniting & is_external_accelerating
-
-        # 信号3 (B级中性/机会): “量价共振”
-        # 解读: 价格和成交量同步加速上涨，代表上涨趋势健康、能量充沛。
-        is_volume_accelerating = df['ACCEL_5_volume_D'] > 0
-        states['DYN_PRICE_VOLUME_RESONANCE_B'] = is_external_accelerating & is_volume_accelerating
-
-        # 信号4 (B级风险): “力竭上涨”
-        # 解读: 价格仍在加速上涨，但成交量的加速度却为负（能量在衰减），是典型的量价背离，
-        #      预示上涨动能即将衰竭，是潜在的顶部风险信号。
-        is_volume_decelerating = df['ACCEL_5_volume_D'] < 0
-        states['RISK_DYN_EXHAUSTION_RALLY_B'] = is_external_accelerating & is_volume_decelerating
-
-        return states
-
-    def diagnose_multi_timeframe_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】多时间维度力学诊断模块
-        - 核心职责: 交叉验证短期（5日）与长期（21日）的动态指标（斜率/加速度），
-                      以识别趋势的“共振”与“背离”，生成更高置信度的信号。
-        - 收益: 区分健康的趋势与虚假的突破/反弹，精准捕捉趋势的确认、衰竭与反转点。
-        """
-        # print("        -> [多时间维度力学诊断模块 V1.0] 启动...")
-        states = {}
-        # default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 军备检查：确保所有必需的多周期斜率/加速度列都存在 ---
-        required_cols = [
-            'SLOPE_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
-            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D'
-        ]
-        if any(c not in df.columns for c in required_cols):
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            print(f"          -> [警告] 多时间维度力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
-            return states
-
-        # --- 2. 定义各周期的基本动态 ---
-        # 短期动态
-        is_price_rising_short = df['SLOPE_5_close_D'] > 0
-        is_chip_concentrating_short = df['SLOPE_5_concentration_90pct_D'] < 0
-
-        # 长期动态
-        is_price_rising_long = df['SLOPE_21_close_D'] > 0
-        is_price_falling_long = df['SLOPE_21_close_D'] < 0
-        is_price_fall_decelerating_long = df['ACCEL_21_close_D'] > 0 # 长期下跌趋势在减速
-        is_chip_diverging_long = df['SLOPE_21_concentration_90pct_D'] > 0
-
-        # --- 3. 生成多周期交叉验证信号 ---
-        # 信号1 (S级机会): “全周期趋势共振”
-        # 解读: 短期和长期的价格趋势均为上涨，且短期筹码仍在持续集中。
-        #      这是最健康、最强劲的上涨形态，表明多周期力量形成合力。
-        states['OPP_DYN_TREND_RESONANCE_S'] = (
-            is_price_rising_short &
-            is_price_rising_long &
-            is_chip_concentrating_short
-        )
-
-        # 信号2 (S级风险): “结构性衰竭反弹”
-        # 解读: 价格短期看似在上涨，但其赖以生存的长期筹码结构却在持续瓦解（发散）。
-        #      这是典型的“拉高出货”或“无根反弹”，是极度危险的顶部背离信号。
-        states['RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S'] = (
-            is_price_rising_short &
-            is_chip_diverging_long
-        )
-
-        # 信号3 (A级机会): “长周期底部拐点”
-        # 解读: 长期下跌趋势已出现明显的减速信号，同时短期价格趋势已率先反转向上。
-        #      这表明下跌动能衰竭，新的上涨周期可能正在酝酿，是左侧交易的理想信号。
-        states['OPP_DYN_LONG_CYCLE_INFLECTION_A'] = (
-            is_price_falling_long.shift(1) & # 确保前一天还是长期下跌趋势
-            is_price_fall_decelerating_long &
-            is_price_rising_short
-        )
-
-        return states
-
-    def diagnose_behavioral_mechanics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】行为力学诊断模块
-        - 核心职责: 分析资金效率、获利盘/亏损盘行为的动态变化（加速度），
-                      以洞察市场情绪的真实状态和趋势的内在健康度。
-        - 收益: 提供了超越传统量价分析的视角，能更早地识别趋势的“质变”。
-        """
-        # print("        -> [行为力学诊断模块 V1.0] 启动...")
-        states = {}
-        # default_series = pd.Series(False, index=df.index)
-
         # --- 1. 军备检查 ---
-        required_cols = [
-            'SLOPE_5_close_D', 'ACCEL_5_close_D',
-            'ACCEL_5_VPA_EFFICIENCY_D',
-            'ACCEL_5_turnover_from_winners_ratio_D',
-            'ACCEL_5_turnover_from_losers_ratio_D'
-        ]
-        if any(c not in df.columns for c in required_cols):
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            print(f"          -> [警告] 行为力学诊断模块缺少关键数据: {missing_cols}，模块已跳过！")
+        norm_window = 120
+        min_periods = max(1, norm_window // 5)
+        required_cols = {
+            'SLOPE_5_close_D', 'SLOPE_21_close_D', 'ACCEL_5_close_D', 'ACCEL_21_close_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D', 'SLOPE_55_concentration_90pct_D',
+            'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D', 'ACCEL_5_volume_D'
+        }
+        if not required_cols.issubset(df.columns):
+            missing = list(required_cols - set(df.columns))
+            print(f"          -> [警告] 多维微观力学引擎缺少关键数据: {missing}，模块已跳过！")
             return states
-
-        # --- 2. 资金效率力学 ---
-        # 机会信号 (A级): “市场引擎点火”
-        # 解读: 价格加速上涨的同时，资金效率也在加速提升，表明上涨健康且高效。
-        is_price_accelerating = df['ACCEL_5_close_D'] > 0
-        is_efficiency_accelerating = df['ACCEL_5_VPA_EFFICIENCY_D'] > 0
-        states['OPP_DYN_MARKET_ENGINE_IGNITION_A'] = is_price_accelerating & is_efficiency_accelerating
-
-        # 风险信号 (S级): “市场引擎失速”
-        # 解读: 价格仍在上涨，但资金效率却在加速下滑，是严重的顶背离信号。
-        is_price_rising = df['SLOPE_5_close_D'] > 0
-        is_efficiency_collapsing = df['ACCEL_5_VPA_EFFICIENCY_D'] < 0
-        states['RISK_DYN_MARKET_ENGINE_STALLING_S'] = is_price_rising & is_efficiency_collapsing
-
-        # --- 3. 交易情绪力学 ---
-        # 风险信号 (S级): “获利盘恐慌加速”
-        # 解读: 股价下跌的同时，获利盘卖出行为在“加速”，是踩踏式下跌的预警。
-        is_price_falling = df['SLOPE_5_close_D'] < 0
-        is_winner_selling_accelerating = df['ACCEL_5_turnover_from_winners_ratio_D'] > 0
-        states['RISK_DYN_PANIC_SELLING_ACCELERATING_S'] = is_price_falling & is_winner_selling_accelerating
-
-        # 机会信号 (A级): “恐慌盘投降衰竭”
-        # 解读: 股价下跌的同时，亏损盘卖出行为在“减速”，表明卖压衰竭，是潜在的底部信号。
-        is_loser_selling_decelerating = df['ACCEL_5_turnover_from_losers_ratio_D'] < 0
-        states['OPP_DYN_CAPITULATION_EXHAUSTION_A'] = is_price_falling & is_loser_selling_decelerating
-
+        # --- 2. 核心动态分数计算 (NumPy高性能计算) ---
+        price_momentum_5d_arr = self._normalize_series(df['SLOPE_5_close_D'], norm_window, min_periods)
+        price_momentum_21d_arr = self._normalize_series(df['SLOPE_21_close_D'], norm_window, min_periods)
+        price_accel_5d_arr = self._normalize_series(df['ACCEL_5_close_D'], norm_window, min_periods)
+        price_accel_21d_arr = self._normalize_series(df['ACCEL_21_close_D'], norm_window, min_periods)
+        price_decel_5d_arr = 1.0 - price_accel_5d_arr
+        chip_conc_5d_arr = self._normalize_series(df['SLOPE_5_concentration_90pct_D'], norm_window, min_periods, ascending=False)
+        chip_conc_21d_arr = self._normalize_series(df['SLOPE_21_concentration_90pct_D'], norm_window, min_periods, ascending=False)
+        chip_conc_55d_arr = self._normalize_series(df['SLOPE_55_concentration_90pct_D'], norm_window, min_periods, ascending=False)
+        vol_squeeze_arr = self._normalize_series(df['SLOPE_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=False)
+        vol_ignition_arr = self._normalize_series(df['ACCEL_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=True)
+        volatility_ignition_arr = vol_squeeze_arr * vol_ignition_arr
+        volume_accel_arr = self._normalize_series(df['ACCEL_5_volume_D'], norm_window, min_periods, ascending=True)
+        # --- 3. 计算多周期“共振分” (纯NumPy数组运算) ---
+        price_momentum_resonance_arr = np.mean(np.array([price_momentum_5d_arr, price_momentum_21d_arr]), axis=0)
+        price_accel_resonance_arr = np.mean(np.array([price_accel_5d_arr, price_accel_21d_arr]), axis=0)
+        chip_conc_resonance_arr = np.mean(np.array([chip_conc_5d_arr, chip_conc_21d_arr, chip_conc_55d_arr]), axis=0)
+        # --- 4. 静态-动态交叉验证 (纯NumPy数组运算) ---
+        # [修改] 优化静态信号的获取方式，避免在信号缺失时创建完整的Pandas Series
+        key = 'VOL_STATE_EXTREME_SQUEEZE'
+        if key in self.strategy.atomic_states:
+            # 原始信号是布尔型，直接转换为float32 (True->1.0, False->0.0)
+            static_squeeze_arr = self.strategy.atomic_states[key].values.astype(np.float32)
+        else:
+            # 默认值是False，对应为0.0
+            static_squeeze_arr = np.zeros(len(df), dtype=np.float32)
+        bullish_resonance_arr = (
+            price_momentum_resonance_arr * price_accel_resonance_arr * chip_conc_resonance_arr *
+            volatility_ignition_arr * volume_accel_arr * (static_squeeze_arr + 0.5)
+        )
+        short_term_weakness_arr = 1.0 - price_momentum_5d_arr
+        divergence_risk_arr = price_momentum_21d_arr * short_term_weakness_arr
+        exhaustion_divergence_risk_arr = volume_accel_arr * price_decel_5d_arr
+        # --- 5. 结果封装 (批量转换为Pandas Series) ---
+        states = {
+            'SCORE_DYN_VOLATILITY_IGNITION': pd.Series(volatility_ignition_arr, index=df.index),
+            'SCORE_DYN_PRICE_MOMENTUM_RESONANCE': pd.Series(price_momentum_resonance_arr, index=df.index),
+            'SCORE_DYN_PRICE_ACCEL_RESONANCE': pd.Series(price_accel_resonance_arr, index=df.index),
+            'SCORE_DYN_CHIP_CONCENTRATION_RESONANCE': pd.Series(chip_conc_resonance_arr, index=df.index),
+            'SCORE_DYN_BULLISH_RESONANCE_S': pd.Series(bullish_resonance_arr, index=df.index),
+            'SCORE_DYN_DIVERGENCE_RISK_A': pd.Series(divergence_risk_arr, index=df.index),
+            'SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S': pd.Series(exhaustion_divergence_risk_arr, index=df.index),
+        }
+        print("        -> [多时间维度微观力学评分引擎 V2.3] 分析完毕。") # [修改] 更新版本号
         return states
 
+    def diagnose_multi_timeframe_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.4 终极优化版】多时间维度力学评分引擎
+        - 核心逻辑: (业务逻辑不变)
+        - 性能优化 (本次修改):
+          - 关键优化：使用纯NumPy切片实现shift操作，消除了`NumPy->Pandas->NumPy`的昂贵转换开销。
+          - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
+        """
+        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") # [修改] 更新版本号
+        states = {}
+        # --- 1. 军备检查 ---
+        norm_window = 120
+        min_periods = max(1, norm_window // 5)
+        required_cols = {
+            'SLOPE_5_close_D', 'SLOPE_21_close_D', 'ACCEL_21_close_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D',
+            'SLOPE_21_winner_profit_margin_D'
+        }
+        if not required_cols.issubset(df.columns):
+            missing = list(required_cols - set(df.columns))
+            print(f"          -> [警告] 多维力学引擎缺少关键数据: {missing}，模块已跳过！")
+            return states
+        # --- 2. 核心动态分数计算 (NumPy高性能计算) ---
+        # 集中提取所需Series，提高代码清晰度和执行效率
+        slope_5_close = df['SLOPE_5_close_D']
+        slope_21_close = df['SLOPE_21_close_D']
+        accel_21_close = df['ACCEL_21_close_D']
+        slope_5_conc = df['SLOPE_5_concentration_90pct_D']
+        slope_21_conc = df['SLOPE_21_concentration_90pct_D']
+        slope_21_profit = df['SLOPE_21_winner_profit_margin_D']
+        price_rising_short_arr = self._normalize_series(slope_5_close, norm_window, min_periods)
+        price_stable_or_down_short_arr = 1.0 - price_rising_short_arr
+        price_rising_long_arr = self._normalize_series(slope_21_close, norm_window, min_periods)
+        price_fall_decel_long_arr = self._normalize_series(accel_21_close, norm_window, min_periods)
+        chip_conc_short_arr = self._normalize_series(slope_5_conc, norm_window, min_periods, ascending=False)
+        chip_conc_long_arr = self._normalize_series(slope_21_conc, norm_window, min_periods, ascending=False)
+        chip_diverging_long_arr = 1.0 - chip_conc_long_arr
+        profit_margin_rising_long_arr = self._normalize_series(slope_21_profit, norm_window, min_periods)
+        profit_margin_shrinking_long_arr = 1.0 - profit_margin_rising_long_arr
+        # --- 3. 交叉验证信号生成 (纯NumPy数组运算) ---
+        trend_resonance_arr = price_rising_short_arr * price_rising_long_arr * chip_conc_short_arr
+        structural_weakness_risk_arr = price_rising_short_arr * chip_diverging_long_arr * profit_margin_shrinking_long_arr
+        # [修改] 关键性能优化：使用纯NumPy实现shift(1).fillna(0.5)，避免了昂贵的 `np->pd->np` 转换
+        n = len(price_rising_long_arr)
+        shifted_price_rising_long_arr = np.empty(n, dtype=np.float32)
+        shifted_price_rising_long_arr[0] = 0.5  # 模拟fillna(0.5)
+        shifted_price_rising_long_arr[1:] = price_rising_long_arr[:-1] # 执行shift
+        prev_price_falling_long_arr = 1.0 - shifted_price_rising_long_arr
+        bottom_inflection_arr = prev_price_falling_long_arr * price_fall_decel_long_arr * price_rising_short_arr
+        profit_erosion_risk_arr = price_rising_short_arr * profit_margin_shrinking_long_arr
+        stealth_accumulation_arr = price_stable_or_down_short_arr * chip_conc_long_arr
+        # --- 4. 静态-动态融合 (纯NumPy数组运算) ---
+        key = 'SCORE_PLATFORM_OVERALL_QUALITY'
+        if key in self.strategy.atomic_states:
+            static_platform_quality_arr = self.strategy.atomic_states[key].values.astype(np.float32)
+        else:
+            static_platform_quality_arr = np.zeros(len(df), dtype=np.float32)
+        platform_ignition_arr = static_platform_quality_arr * trend_resonance_arr
+        # --- 5. 结果封装 (批量转换为Pandas Series) ---
+        states = {
+            'SCORE_MTF_TREND_RESONANCE_A': pd.Series(trend_resonance_arr, index=df.index),
+            'SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S': pd.Series(structural_weakness_risk_arr, index=df.index),
+            'SCORE_MTF_BOTTOM_INFLECTION_OPP_A': pd.Series(bottom_inflection_arr, index=df.index),
+            'SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S': pd.Series(profit_erosion_risk_arr, index=df.index),
+            'SCORE_MTF_STEALTH_ACCUMULATION_OPP_A': pd.Series(stealth_accumulation_arr, index=df.index),
+            'SCORE_MTF_PLATFORM_IGNITION_S_PLUS': pd.Series(platform_ignition_arr, index=df.index),
+        }
+        print("        -> [多时间维度力学评分引擎 V2.4] 分析完毕。") # [修改] 更新版本号
+        return states
+
+    def diagnose_behavioral_mechanics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.3 终极优化版】行为力学评分引擎
+        - 核心逻辑: (业务逻辑不变)
+        - 性能优化 (本次修改):
+          - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
+          - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
+        """
+        print("        -> [行为力学评分引擎 V2.3] 启动...") # [修改] 更新版本号
+        states = {}
+        # --- 1. 军备检查 ---
+        norm_window = 120
+        min_periods = max(1, norm_window // 5)
+        required_cols = {
+            'SLOPE_5_close_D', 'ACCEL_5_close_D',
+            'ACCEL_5_VPA_EFFICIENCY_D', 'ACCEL_21_VPA_EFFICIENCY_D',
+            'ACCEL_5_turnover_from_winners_ratio_D', 'ACCEL_21_turnover_from_winners_ratio_D',
+            'ACCEL_5_turnover_from_losers_ratio_D', 'ACCEL_21_turnover_from_losers_ratio_D'
+        }
+        if not required_cols.issubset(df.columns):
+            missing = list(required_cols - set(df.columns))
+            print(f"          -> [警告] 行为力学引擎缺少关键数据: {missing}，模块已跳过！")
+            return states
+        # --- 2. 核心动态分数计算 (NumPy高性能计算) ---
+        # 集中提取所需Series，提高代码清晰度和执行效率
+        slope_5_close = df['SLOPE_5_close_D']
+        accel_5_close = df['ACCEL_5_close_D']
+        accel_5_vpa = df['ACCEL_5_VPA_EFFICIENCY_D']
+        accel_21_vpa = df['ACCEL_21_VPA_EFFICIENCY_D']
+        accel_5_winner = df['ACCEL_5_turnover_from_winners_ratio_D']
+        accel_21_winner = df['ACCEL_21_turnover_from_winners_ratio_D']
+        accel_5_loser = df['ACCEL_5_turnover_from_losers_ratio_D']
+        accel_21_loser = df['ACCEL_21_turnover_from_losers_ratio_D']
+        price_rising_arr = self._normalize_series(slope_5_close, norm_window, min_periods)
+        price_falling_arr = 1.0 - price_rising_arr
+        price_accel_arr = self._normalize_series(accel_5_close, norm_window, min_periods)
+        efficiency_accel_5d_arr = self._normalize_series(accel_5_vpa, norm_window, min_periods)
+        efficiency_accel_21d_arr = self._normalize_series(accel_21_vpa, norm_window, min_periods)
+        winner_selling_accel_5d_arr = self._normalize_series(accel_5_winner, norm_window, min_periods)
+        winner_selling_accel_21d_arr = self._normalize_series(accel_21_winner, norm_window, min_periods)
+        loser_selling_decel_5d_arr = self._normalize_series(accel_5_loser, norm_window, min_periods, ascending=False)
+        loser_selling_decel_21d_arr = self._normalize_series(accel_21_loser, norm_window, min_periods, ascending=False)
+        # --- 3. 共振分与交叉验证信号生成 (纯NumPy数组运算) ---
+        efficiency_accel_resonance_arr = (efficiency_accel_5d_arr + efficiency_accel_21d_arr) / 2
+        efficiency_decel_resonance_arr = 1.0 - efficiency_accel_resonance_arr
+        winner_selling_accel_resonance_arr = (winner_selling_accel_5d_arr + winner_selling_accel_21d_arr) / 2
+        loser_selling_decel_resonance_arr = (loser_selling_decel_5d_arr + loser_selling_decel_21d_arr) / 2
+        engine_ignition_arr = price_accel_arr * efficiency_accel_resonance_arr
+        engine_stalling_risk_arr = price_rising_arr * efficiency_decel_resonance_arr
+        panic_selling_risk_arr = price_falling_arr * winner_selling_accel_resonance_arr
+        capitulation_exhaustion_arr = price_falling_arr * loser_selling_decel_resonance_arr
+        # --- 4. 静态-动态融合 (纯NumPy数组运算) ---
+        key = 'PRICE_STATE_ZONE_SCORE'
+        if key in self.strategy.atomic_states:
+            static_price_zone_arr = self.strategy.atomic_states[key].values.astype(np.float32)
+        else:
+            static_price_zone_arr = np.zeros(len(df), dtype=np.float32)
+        top_divergence_risk_arr = static_price_zone_arr * engine_stalling_risk_arr
+        # --- 5. 结果封装 (批量转换为Pandas Series) ---
+        states = {
+            'SCORE_BEHAVIOR_ENGINE_IGNITION_A': pd.Series(engine_ignition_arr, index=df.index),
+            'SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S': pd.Series(engine_stalling_risk_arr, index=df.index),
+            'SCORE_BEHAVIOR_PANIC_SELLING_RISK_S': pd.Series(panic_selling_risk_arr, index=df.index),
+            'SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A': pd.Series(capitulation_exhaustion_arr, index=df.index),
+            'SCORE_BEHAVIOR_TOP_DIVERGENCE_RISK_S_PLUS': pd.Series(top_divergence_risk_arr, index=df.index),
+        }
+        print("        -> [行为力学评分引擎 V2.3] 分析完毕。") # [修改] 更新版本号
+        return states
 
 
 

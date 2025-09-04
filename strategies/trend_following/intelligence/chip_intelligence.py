@@ -151,7 +151,7 @@ class ChipIntelligence:
                     df[new_col] = source_series.diff(period)
         def _get_atomic_score(name: str, default: float = 0.5) -> pd.Series:
             return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
-        # --- [新增] 阶段 1.1: 缓存原子得分 ---
+        # --- 阶段 1.1: 缓存原子得分 ---
         atomic_score_keys = [
             'COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', 'BEHAVIOR_SCORE_OPP_WASHOUT_ABSORPTION',
             'SCORE_MA_STATE_BOTTOM_PASSIVATION', 'SCORE_STRUCTURE_EARLY_REVERSAL',

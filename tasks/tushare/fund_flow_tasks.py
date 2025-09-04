@@ -51,7 +51,7 @@ def get_last_monday_and_friday():
     return last_monday, last_friday
 
 #  ================ （当日）个股日级资金流向数据 （三种渠道） ================
-# [新增] 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
+# 创建一个通用的、原子化的子任务，用于执行DAO中的异步保存方法
 @celery_app.task(queue='SaveHistoryData_TimeTrade', acks_late=True)
 @with_cache_manager
 def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.date, cache_manager=None):
@@ -178,7 +178,7 @@ def save_fund_flow_daily_data_yesterday():
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
 #  ================ （本周）日级资金流向数据（三种渠道） ================
-# [新增] 创建一个通用的、原子化的子任务，用于执行具体的数据保存操作
+# 创建一个通用的、原子化的子任务，用于执行具体的数据保存操作
 @celery_app.task(queue='SaveData_TimeTrade', acks_late=True)
 @with_cache_manager
 def execute_save_fund_flow_method(method_name: str, start_date: str, end_date: str, cache_manager=None):

@@ -1596,8 +1596,8 @@ class StockTimeTradeDAO(BaseDAO):
     async def save_all_cyq_chips_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
         保存全市场股票的每日筹码分布数据 (终极优化版)
-        1. [新增] 引入分表逻辑，将数据按板块存入不同数据表。
-        2. [新增] 引入10万行追溯逻辑，确保获取全量历史数据。
+        1. 引入分表逻辑，将数据按板块存入不同数据表。
+        2. 引入10万行追溯逻辑，确保获取全量历史数据。
         3. [优化] 使用异步 asyncio.sleep 替代同步 time.sleep，防止阻塞事件循环。
         4. [重构] 重构批处理机制，以适应分表场景。
         5. 引入 aiolimiter 进行专业、高效的API限流，替换固定的 asyncio.sleep。
@@ -1615,7 +1615,7 @@ class StockTimeTradeDAO(BaseDAO):
         total_stocks = len(all_stocks)
         for i, stock in enumerate(all_stocks):
             print(f"【cyq_chips每日筹码分布】开始处理第 {i+1}/{total_stocks} 只股票: {stock.stock_code} - {stock.stock_name}")
-            # [新增] 移植10万行追溯逻辑
+            # 移植10万行追溯逻辑
             current_end_date_str = initial_end_date_str
             all_dfs_for_one_stock = [] # 用于收集单只股票的所有追溯轮次数据
             # 外层追溯循环

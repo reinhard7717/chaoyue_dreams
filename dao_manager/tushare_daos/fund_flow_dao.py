@@ -98,7 +98,7 @@ class FundFlowDao(BaseDAO):
         """
         保存历史日级资金流向数据 (终极优化版 V3 - 客户端分块策略)
         1. [重构] 废弃低效的“10万行追溯”逻辑。
-        2. [新增] 采用客户端分块策略，将大日期范围切分为多个小块（如90天/块）进行处理。
+        2. 采用客户端分块策略，将大日期范围切分为多个小块（如90天/块）进行处理。
         3. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
         4. [保留] 保留了向量化处理和分表存储的核心优势。
         """
@@ -119,7 +119,7 @@ class FundFlowDao(BaseDAO):
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
-        # --- 2. [新增] 客户端日期分块逻辑 ---
+        # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10  # 每个分块的大小（天数），90天是一个比较安全且高效的选择
         current_chunk_end = end_date
@@ -269,7 +269,7 @@ class FundFlowDao(BaseDAO):
     async def save_history_fund_flow_daily_ths_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 - 同花顺 (参照save_history_fund_flow_daily_data重构)
-        1. [新增] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
+        1. 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
         2. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
         3. [重构] 使用向量化处理替代逐行循环，一次性获取所有股票信息，避免N+1查询。
         4. [重构] 实现动态分表存储，根据股票代码自动存入对应的板块数据表。
@@ -290,7 +290,7 @@ class FundFlowDao(BaseDAO):
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
-        # --- 2. [新增] 客户端日期分块逻辑 ---
+        # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10  # 每个分块的大小（天数）
         current_chunk_end = end_date
@@ -441,7 +441,7 @@ class FundFlowDao(BaseDAO):
     async def save_history_fund_flow_daily_dc_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
         保存历史日级资金流向数据 - 东方财富 (参照save_history_fund_flow_daily_data重构)
-        1. [新增] 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
+        1. 采用客户端分块策略，将大日期范围切分为多个小块进行处理。
         2. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
         3. [重构] 使用向量化处理替代逐行循环，一次性获取所有股票信息，避免N+1查询。
         4. [重构] 实现动态分表存储，根据股票代码自动存入对应的板块数据表。
@@ -462,7 +462,7 @@ class FundFlowDao(BaseDAO):
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
-        # --- 2. [新增] 客户端日期分块逻辑 ---
+        # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10  # 每个分块的大小（天数）
         current_chunk_end = end_date
@@ -1191,7 +1191,7 @@ class FundFlowDao(BaseDAO):
         2. 在每次分页循环（即每次API调用）前，检查并增加计数器。
         3. 如果超出限制，则立即停止获取数据，并处理已获取的数据。
         """
-        # --- 1. [新增] 初始化API调用限制相关的变量 ---
+        # --- 1. 初始化API调用限制相关的变量 ---
         # 确保可以访问到在 BaseDAO.__init__ 中创建的 cache_manager
         if not hasattr(self, 'cache_manager'):
             logger.error("DAO实例中未找到 cache_manager，无法执行API调用限制。")

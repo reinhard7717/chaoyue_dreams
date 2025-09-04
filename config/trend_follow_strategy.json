@@ -124,6 +124,9 @@
         "BBW_21_2.0_D": [5],
         "RSI_13_D": [5],
         "RSI_13_W": [5],
+        "CMF_21_D": [5, 21],
+        "ATR_14_D": [5, 21],
+        "MACDh_13_34_8_D": [5, 21],
 
         "说明_CHIP": "--- 高级筹码指标动态分析 ---",
         "peak_cost_D": [5, 8, 21, 55],
@@ -193,6 +196,9 @@
         "BBW_21_2.0_D": [5],
         "VPA_EFFICIENCY_D": [5],
         "RSI_13_D": [5],
+        "CMF_21_D": [5, 21],
+        "ATR_14_D": [5, 21],
+        "MACDh_13_34_8_D": [5, 21],
         "说明_CHIP_DYNAMICS": "--- 筹码动态分析所需加速度 ---",
         "concentration_90pct_D": [5, 21],
         "total_winner_rate_D": [5, 21],
@@ -335,11 +341,10 @@
       },
       "fibonacci_support_params": {
         "enabled": true,
-        "description": "斐波那契支撑诊断模块参数",
-        "proximity_ratio": {
-          "value": 0.01,
-          "description": "价格触及斐波那契水平时允许的误差范围。例如0.01代表上下1%。"
-        }
+        "description": "【V3.0 新增】数值化斐波那契诊断引擎参数",
+        "proximity_ratio": 0.01,
+        "trend_health_score_source": "SCORE_MA_HEALTH",
+        "description_detail": "trend_health_score_source 定义了用于评估趋势背景质量的数值化信号源"
       },
       "lock_chip_rally_params": {
         "enabled": true,
@@ -365,11 +370,81 @@
           "description": "【A级动能进攻风控】协同进攻信号能容忍的最高“上涨末期分数”。30分意味着最多只能有一个风险子信号激活，要求更严格。"
         }
       },
+      "box_state_params": {
+        "enabled": true,
+        "description": "【V3.0 新增】数值化箱体突破质量评分引擎参数",
+        "lookback_window": 8,
+        "max_amplitude_ratio": 0.05,
+        "norm_window": 60,
+        "trend_health_source": "SCORE_MA_HEALTH"
+      },
       "multi_dim_trend_params": {
         "enabled": true,
         "description": "【V500.0 新增】数值化多维趋势引擎参数",
         "ma_periods": [5, 13, 21, 55],
         "norm_window": 120
+      },
+      "multi_dim_ma_params": {
+        "enabled": true,
+        "description": "【V600.0 新增】数值化多维均线诊断引擎参数",
+        "ma_periods": [5, 13, 21, 55],
+        "norm_window": 120,
+        "slope_lookback": 5,
+        "accel_lookback": 5
+      },
+      "structural_mechanics_params": {
+        "enabled": true,
+        "description": "【V500.0 新增】数值化结构力学诊断引擎参数",
+        "dynamic_periods": [5, 13, 21],
+        "slope_lookback": 5,
+        "accel_lookback": 5,
+        "norm_window": 120,
+        "energy_advantage_threshold": 1.5
+      },
+      "mtf_trend_synergy_params": {
+        "enabled": true,
+        "description": "【V4.0 新增】数值化多维趋势协同诊断引擎参数",
+        "weekly_periods": [5, 13, 21],
+        "slope_lookback": 5,
+        "accel_lookback": 5,
+        "norm_window": 120,
+        "daily_momentum_source": "SCORE_MA_DYN_RESONANCE",
+        "daily_accel_source": "SCORE_MA_ACCEL_RESONANCE"
+      },
+      "fusion_scores_params": {
+        "enabled": true,
+        "description": "【V5.0 新增】质量加权融合评分引擎参数",
+        "signal_sources": {
+          "static_platform_setup": "SCORE_BREAKOUT_EVE_S",
+          "static_mechanics_setup": "SCORE_MECHANICS_BULLISH_SETUP_S",
+          "dynamic_ignition": "SCORE_MTF_IGNITION_SYNERGY_S_PLUS",
+          "dynamic_exhaustion_risk": "SCORE_MTF_EXHAUSTION_RISK_S_PLUS"
+        }
+      },
+      "structural_risk_params": {
+        "enabled": true,
+        "description": "【V2.0 新增】数值化结构性风险与市场状态诊断引擎参数",
+        "bias_periods_D": [21, 55],
+        "bias_period_W": 20,
+        "norm_window": 250,
+        "hurst_trending_threshold": 0.55,
+        "hurst_reverting_threshold": 0.45
+      },
+      "advanced_structural_params": {
+        "enabled": true,
+        "description": "【V2.0 新增】数值化先进结构模式诊断引擎参数",
+        "norm_window": 120,
+        "trend_health_source": "SCORE_MA_HEALTH",
+        "daily_alignment_bias_period": 55,
+        "weekly_alignment_bias_period": 21
+      },
+      "platform_state_params": {
+        "enabled": true,
+        "description": "【V200.0 新增】数值化平台诊断引擎参数",
+        "cost_cv_lookback": 5,
+        "stability_cv_window": 120,
+        "final_score_threshold_for_bool": 0.7,
+        "description_detail": "final_score_threshold_for_bool 用于生成兼容旧版的布尔信号"
       },
       "fund_flow_params": {
         "enabled": true,
