@@ -967,7 +967,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             merged_df = merged_df.join(df_daily['amount'])
             merged_df['main_force_buy_rate_consensus'] = (merged_df['main_force_net_flow_consensus'] / merged_df['amount'].astype(float)) * 100
         # --- 4. 衍生特征工厂 ---
-        print(f"[{stock_code}] [衍生特征工厂] 开始计算聚合与动态指标...")
+        # print(f"[{stock_code}] [衍生特征工厂] 开始计算聚合与动态指标...")
         final_metrics_df = merged_df.copy()
         # 计算多日聚合指标
         periods = [5, 13, 21, 34, 55, 89, 144]
@@ -1018,7 +1018,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             if record_data:
                 records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date.date(), **record_data))
         await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
-        print(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级资金指标。")
+        logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级资金指标。")
         return {"status": "success", "processed_days": len(records_to_create)}
     try:
         # 使用 async_to_sync 运行异步主函数
