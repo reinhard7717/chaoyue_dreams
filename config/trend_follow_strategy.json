@@ -145,14 +145,12 @@
         "cost_divergence_D": [5, 21, 55],
         "winner_turnover_long_term_D": [5, 21],
         "loser_rate_long_term_D": [5, 21],
-
         "说明_FUND_FLOW": "--- 核心资金流动态分析 ---",
-        "net_mf_amount_fund_flow_tushare_D": [5],
-        "net_amount_fund_flow_ths_D": [5],
-        "buy_lg_amount_rate_fund_flow_ths_D": [5],
-        "buy_elg_amount_rate_fund_flow_dc_D": [5],
+        "net_mf_amount_fund_flow_tushare_D": [5, 13, 21],
+        "net_amount_fund_flow_ths_D": [5, 13, 21],
+        "buy_lg_amount_rate_fund_flow_ths_D": [5, 13, 21],
+        "buy_elg_amount_rate_fund_flow_dc_D": [5, 13, 21],
         "CMF_21_W": [5],
-
         "说明_FUND_FLOW_AGG": "--- 多日聚合资金流动态分析 ---",
         "net_d5_net_mf_amount_fund_flow_tushare_D": [5, 13, 21, 55],
         "net_d21_net_mf_amount_fund_flow_tushare_D": [5, 13, 21, 55],
@@ -163,16 +161,13 @@
         "net_d5_net_amount_fund_flow_dc_D": [5, 13, 21, 55],
         "net_d21_net_amount_fund_flow_dc_D": [5, 13, 21, 55],
         "net_d55_net_amount_fund_flow_dc_D": [5, 13, 21, 55],
-
         "说明_TURNOVER": "--- 成交量微观结构动态分析 ---",
         "turnover_at_peak_ratio_D": [5],
         "turnover_from_winners_ratio_D": [5, 21, 55],
         "turnover_from_losers_ratio_D": [5, 21],
-
         "说明_VPA": "--- 量价动态分析所需指标 ---",
         "volume_D": [5],
         "VPA_EFFICIENCY_D": [5],
-
         "说明_FRACTAL": "--- 分形与力学指标 ---",
         "hurst_120d_D": [5],
         "price_cv_60d_D": [5],
@@ -184,7 +179,10 @@
       "说明": "【V238.3 战略协同版】新增加速度计算，用于捕捉核心指标的动能变化率，支持多时间维度协同分析。",
       "series_to_accel": {
         "说明_FUND_FLOW": "--- 核心资金流加速度分析 ---",
-        "net_amount_fund_flow_ths_D": [5],
+        "net_amount_fund_flow_ths_D": [5, 13, 21],
+        "net_mf_amount_fund_flow_tushare_D": [5, 13, 21],
+        "buy_lg_amount_rate_fund_flow_ths_D": [5, 13, 21],
+        "buy_elg_amount_rate_fund_flow_dc_D": [5, 13, 21],
         "说明_FUND_FLOW_AGG": "--- 多日聚合资金流加速度分析 ---",
         "net_d5_net_mf_amount_fund_flow_tushare_D": [5, 13, 21, 55],
         "net_d21_net_mf_amount_fund_flow_tushare_D": [5, 13, 21, 55],

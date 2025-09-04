@@ -305,7 +305,7 @@ class IndicatorService:
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
 
-    def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame: # [新增] 整个方法
+    def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame: # 整个方法
         """
         【新增 V1.0】预计算衍生指标列名适配器
         - 核心职责: 将从数据库加载的、已持久化的衍生指标列名（如 'peak_cost_slope_5d'）
@@ -1022,15 +1022,13 @@ class IndicatorService:
                     如果列已存在（意味着它是由预计算任务加载并适配的），则跳过计算。
                     这使得本方法能无缝处理“预计算的筹码斜率”和“即时计算的其他指标斜率”。
         """
-        print("    - [斜率中心 V3.0 混合计算版] 启动...")
+        # print("    - [斜率中心 V3.0 混合计算版] 启动...")
         slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
         if not slope_params.get('enabled', False):
             return all_dfs
-
         series_to_slope = slope_params.get('series_to_slope', {})
         if not series_to_slope:
             return all_dfs
-
         for col_pattern, lookbacks in series_to_slope.items():
             if "说明" in col_pattern: continue
             try:
@@ -1039,34 +1037,27 @@ class IndicatorService:
                     timeframe = 'D' # 默认日线
             except IndexError:
                 continue
-
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
-            
             df = all_dfs[timeframe]
-            
             if col_pattern not in df.columns:
                 # print(f"      -> [跳过] 基础指标 '{col_pattern}' 在周期 '{timeframe}' 的DataFrame中不存在。")
                 continue
-
             source_series = df[col_pattern].astype(float)
-            
             for lookback in lookbacks:
                 slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
-                
-                # [新增] 智能检查逻辑：如果斜率列已存在，则跳过计算
+                # 智能检查逻辑：如果斜率列已存在，则跳过计算
                 if slope_col_name in df.columns:
-                    print(f"      -> [跳过] 斜率 '{slope_col_name}' 已存在 (来自预计算).")
+                    # print(f"      -> [跳过] 斜率 '{slope_col_name}' 已存在 (来自预计算).")
                     continue
-
-                print(f"      -> [即时计算] 正在生成斜率: '{slope_col_name}'...")
+                # print(f"      -> [即时计算] 正在生成斜率: '{slope_col_name}'...")
                 min_p = max(2, lookback // 2)
                 linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
                 slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
                 df[slope_col_name] = slope_series.fillna(0)
             all_dfs[timeframe] = df
 
-        print("    - [斜率中心 V3.0] 所有斜率计算完成。")
+        # print("    - [斜率中心 V3.0] 所有斜率计算完成。")
         return all_dfs
 
     async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]: # [修改] 恢复并升级此方法
@@ -1078,42 +1069,33 @@ class IndicatorService:
         accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
         if not accel_params.get('enabled', False):
             return all_dfs
-
         series_to_accel = accel_params.get('series_to_accel', {})
         if not series_to_accel:
             return all_dfs
-
-        print("    - [加速度引擎 V2.0 混合计算版] 启动...")
+        # print("    - [加速度引擎 V2.0 混合计算版] 启动...")
         for base_col_name, periods in series_to_accel.items():
             if "说明" in base_col_name: continue
-            
             timeframe = base_col_name.split('_')[-1]
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
-            
             df = all_dfs[timeframe]
-            
             for period in periods:
                 slope_col_name = f'SLOPE_{period}_{base_col_name}'
                 if slope_col_name not in df.columns:
                     # print(f"      -> [跳过] 无法计算加速度，源斜率列 '{slope_col_name}' 不存在。")
                     continue
-
                 accel_col_name = f'ACCEL_{period}_{base_col_name}'
-                
-                # [新增] 智能检查逻辑：如果加速度列已存在，则跳过计算
+                # 智能检查逻辑：如果加速度列已存在，则跳过计算
                 if accel_col_name in df.columns:
-                    print(f"      -> [跳过] 加速度 '{accel_col_name}' 已存在 (来自预计算).")
+                    # print(f"      -> [跳过] 加速度 '{accel_col_name}' 已存在 (来自预计算).")
                     continue
-
-                print(f"      -> [即时计算] 正在生成加速度: '{accel_col_name}'...")
+                # print(f"      -> [即时计算] 正在生成加速度: '{accel_col_name}'...")
                 source_series = df[slope_col_name]
                 min_p = max(2, period // 2)
                 accel_linreg_result = df.ta.linreg(close=source_series, length=period, min_periods=min_p, slope=True, intercept=False, r=False)
                 accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
                 df[accel_col_name] = accel_series.fillna(0)
-
-        print("    - [加速度引擎 V2.0] 计算完成。")
+        # print("    - [加速度引擎 V2.0] 计算完成。")
         return all_dfs
 
     async def _calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:

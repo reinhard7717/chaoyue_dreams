@@ -18,7 +18,7 @@ class FundFlowIntelligence:
         【V12.0 性能优化版】计算一个系列在滚动窗口内的归一化得分 (0-1)。
         """
         if series is None or series.isnull().all():
-            return pd.Series(0.5, index=series.index)
+            return pd.Series(0.5, index=self.strategy.df.index if series is None else series.index)
         return series.rolling(
             window=window, 
             min_periods=int(window * 0.2)
@@ -134,6 +134,92 @@ class FundFlowIntelligence:
         
         return df
 
+    def _diagnose_capital_structure_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【升级 V15.0 - 资金结构动态共振引擎】
+        - 核心: 模仿聚合流引擎，对主力资金（超大单+大单）的买入行为进行多时间维度(5, 13, 21日)的静态、斜率、加速度交叉验证。
+        - 产出: 生成多置信度的主力资金上升共振与下跌共振（主力撤退）信号。
+        """
+        print("            -> [资金结构引擎 V15.0] 启动交叉验证...")
+        available_cols = set(df.columns)
+        norm_window = 120
+        periods = [5, 13, 21]
+        metrics = {}
+
+        # --- 步骤 1: 预计算主力资金（超大单+大单）共识指标 ---
+        main_force_metrics = {
+            'static': (df.get('buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+            'slope_5': (df.get('SLOPE_5_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_5_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+            'slope_13': (df.get('SLOPE_13_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_13_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+            'slope_21': (df.get('SLOPE_21_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('SLOPE_21_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+            'accel_5': (df.get('ACCEL_5_buy_elg_amount_rate_fund_flow_dc_D', 0) + df.get('ACCEL_5_buy_lg_amount_rate_fund_flow_ths_D', 0)) / 2,
+        }
+
+        # --- 步骤 2: 生成主力资金上升共振信号 ---
+        mf_s5 = self._calculate_normalized_score(main_force_metrics['static'], norm_window)
+        mf_sl5 = self._calculate_normalized_score(main_force_metrics['slope_5'], norm_window)
+        mf_a5 = self._calculate_normalized_score(main_force_metrics['accel_5'], norm_window)
+        
+        mf_s13 = self._calculate_normalized_score(main_force_metrics['static'], norm_window) # 静态值共用
+        mf_sl13 = self._calculate_normalized_score(main_force_metrics['slope_13'], norm_window)
+        
+        mf_s21 = self._calculate_normalized_score(main_force_metrics['static'], norm_window) # 静态值共用
+        mf_sl21 = self._calculate_normalized_score(main_force_metrics['slope_21'], norm_window)
+
+        df['FF_SCORE_STRUCTURE_RESONANCE_UP_LOW'] = mf_s5 * mf_sl5 * mf_a5
+        df['FF_SCORE_STRUCTURE_RESONANCE_UP_MID'] = df['FF_SCORE_STRUCTURE_RESONANCE_UP_LOW'] * mf_s13 * mf_sl13
+        df['FF_SCORE_STRUCTURE_RESONANCE_UP_HIGH'] = df['FF_SCORE_STRUCTURE_RESONANCE_UP_MID'] * mf_s21 * mf_sl21
+        print("               - [结构]上升共振信号已生成 (低/中/高置信度)")
+
+        # --- 步骤 3: 生成主力资金下跌共振信号 (主力撤退) ---
+        mf_s5_neg = self._calculate_normalized_score(main_force_metrics['static'], norm_window, ascending=False)
+        mf_sl5_neg = self._calculate_normalized_score(main_force_metrics['slope_5'], norm_window, ascending=False)
+        mf_a5_neg = self._calculate_normalized_score(main_force_metrics['accel_5'], norm_window, ascending=False)
+
+        mf_s13_neg = self._calculate_normalized_score(main_force_metrics['static'], norm_window, ascending=False)
+        mf_sl13_neg = self._calculate_normalized_score(main_force_metrics['slope_13'], norm_window, ascending=False)
+
+        mf_s21_neg = self._calculate_normalized_score(main_force_metrics['static'], norm_window, ascending=False)
+        mf_sl21_neg = self._calculate_normalized_score(main_force_metrics['slope_21'], norm_window, ascending=False)
+
+        df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_LOW'] = mf_s5_neg * mf_sl5_neg * mf_a5_neg
+        df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_MID'] = df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_LOW'] * mf_s13_neg * mf_sl13_neg
+        df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_MID'] * mf_s21_neg * mf_sl21_neg
+        print("               - [结构]下跌共振(主力撤退)信号已生成 (低/中/高置信度)")
+
+        return df
+
+    def _diagnose_synergy_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【新增 V14.0 - 协同诊断引擎】
+        - 核心: 将聚合流分析与结构流分析的结果进行交叉验证，生成更高置信度的协同信号。
+        - 产出: 强化共振、强化反转、诱多风险、聪明钱抄底等高阶信号。
+        """
+        print("            -> [协同诊断引擎 V14.0] 启动...")
+        available_cols = set(df.columns)
+
+        # --- 协同信号1: 强化上升共振 (高置信度聚合流共振 + 结构共振) ---
+        if {'FF_SCORE_RESONANCE_UP_HIGH', 'FF_SCORE_STRUCTURE_RESONANCE_UP'}.issubset(available_cols):
+            df['FF_SCORE_SYNERGY_REINFORCED_UP'] = df['FF_SCORE_RESONANCE_UP_HIGH'] * df['FF_SCORE_STRUCTURE_RESONANCE_UP']
+            print("               - [协同]强化上升共振信号已生成")
+
+        # --- 协同信号2: 强化顶部反转风险 (高置信度聚合流反转 + 结构背离) ---
+        if {'FF_SCORE_REVERSAL_TOP_HIGH', 'FF_SCORE_STRUCTURE_DIVERGENCE_RISK'}.issubset(available_cols):
+            df['FF_SCORE_SYNERGY_REINFORCED_TOP_RISK'] = df['FF_SCORE_REVERSAL_TOP_HIGH'] * df['FF_SCORE_STRUCTURE_DIVERGENCE_RISK']
+            print("               - [协同]强化顶部反转风险信号已生成")
+
+        # --- 协同信号3: 诱多拉升风险 (中置信度聚合流上升 + 结构背离) ---
+        if {'FF_SCORE_RESONANCE_UP_MID', 'FF_SCORE_STRUCTURE_DIVERGENCE_RISK'}.issubset(available_cols):
+            df['FF_SCORE_SYNERGY_DECEPTIVE_RALLY_RISK'] = df['FF_SCORE_RESONANCE_UP_MID'] * df['FF_SCORE_STRUCTURE_DIVERGENCE_RISK']
+            print("               - [协同]诱多拉升风险信号已生成")
+
+        # --- 协同信号4: 聪明钱抄底 (高置信度聚合流反转 + 结构共振) ---
+        if {'FF_SCORE_REVERSAL_BOTTOM_HIGH', 'FF_SCORE_STRUCTURE_RESONANCE_UP'}.issubset(available_cols):
+            df['FF_SCORE_SYNERGY_SMART_BOTTOM_FISHING'] = df['FF_SCORE_REVERSAL_BOTTOM_HIGH'] * df['FF_SCORE_STRUCTURE_RESONANCE_UP']
+            print("               - [协同]聪明钱抄底信号已生成")
+            
+        return df
+
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # [修改] 全面重构
         """
         【V12.0 - 动态共振与反转引擎】
@@ -151,7 +237,13 @@ class FundFlowIntelligence:
         # --- 步骤一: 调用新的核心诊断引擎 ---
         df = self._diagnose_fund_flow_dynamics(df)
 
-        # --- 步骤二: 收集所有生成的数值化评分 ---
+        # --- 步骤二: 调用资金结构诊断引擎 ---
+        df = self._diagnose_capital_structure_dynamics(self, df)
+
+        # --- 步骤三: 调用协同诊断引擎 ---
+        df = self._diagnose_synergy_dynamics(df)
+
+        # --- 步骤四: 收集所有生成的数值化评分 ---
         for col in df.columns:
             if col.startswith('FF_SCORE_'):
                 states[col] = df[col]
