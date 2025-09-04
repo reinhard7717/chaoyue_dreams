@@ -766,7 +766,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
             # --- 指标衍生计算 (V11.0 数据驱动版) ---
-            print(f"[{stock_code}] [衍生特征工厂] 开始根据策略配置计算衍生指标...")
+            # print(f"[{stock_code}] [衍生特征工厂] 开始根据策略配置计算衍生指标...")
             strategy_config = _load_strategy_config()
             feature_params = strategy_config.get('feature_engineering_params', {})
             # 1. 计算所有斜率
@@ -797,17 +797,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             if source_slope_col in final_metrics_df.columns:
                                 # 目标字段名与模型字段名完全对应 (例如: peak_control_ratio_accel_5d)
                                 target_col_name = f"{base_col_name}_accel_{p}d"
-                                print(f"    -> 正在计算加速度: {target_col_name}")
+                                # print(f"    -> 正在计算加速度: {target_col_name}")
                                 final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[source_slope_col], p)
                             else:
                                 print(f"    -> [警告] 无法计算加速度，源斜率列不存在: {source_slope_col}")
             # 3. 最后计算依赖于衍生指标的 chip_health_score
             # 注意: 确保 calculate_chip_health_score 函数能处理DataFrame的行(Series)
             # 并且能够找到所有它需要的斜率列
-            print(f"[{stock_code}] 正在重新计算筹码健康分...")
+            # print(f"[{stock_code}] 正在重新计算筹码健康分...")
             # 假设 calculate_chip_health_score 函数已存在于其他模块
             # from .chip_health_calculator import calculate_chip_health_score 
-            # final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
+            final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
             # --- 数据保存部分 (逻辑不变，但现在会保存更多字段) ---
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
