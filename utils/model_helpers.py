@@ -14,6 +14,7 @@ from stock_models.time_trade import (
     StockMinuteData_1_KC, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
     StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
 )
+from stock_models.fund_flow import AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone
 from django.db import models
@@ -129,6 +130,23 @@ def get_daily_basic_data_model_by_code(stock_code: str):
     # 提供一个默认返回值，以防有未覆盖到的情况
     return StockDailyBasic_SZ
 
+def get_advanced_fund_flow_metrics_model_by_code(stock_code: str):
+    """
+    根据股票代码返回对应的高级资金流指标数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return AdvancedFundFlowMetrics_CY
+    elif stock_code.endswith('.SZ'):
+        return AdvancedFundFlowMetrics_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return AdvancedFundFlowMetrics_KC
+    elif stock_code.endswith('.SH'):
+        return AdvancedFundFlowMetrics_SH
+    elif stock_code.endswith('.BJ'):
+        return AdvancedFundFlowMetrics_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
+        return AdvancedFundFlowMetrics_SZ  # 默认返回深市主板
 
 
 
