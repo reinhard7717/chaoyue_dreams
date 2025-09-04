@@ -128,10 +128,10 @@ class FundFlowIntelligence:
         # 采用 累计值(静态) + 累计值斜率(趋势) + 每日值加速度(动能) 的黄金组合
         metrics = {}
         for p in periods:
-            metrics[f'static_{p}'] = df.get(f"main_force_net_flow_consensus_sum_{p}d_D")
-            metrics[f'slope_{p}'] = df.get(f"SLOPE_{p}_main_force_net_flow_consensus_sum_{p}d_D")
+            metrics[f'static_{p}'] = df.get(f"net_xl_amount_consensus_sum_{p}d_D")
+            metrics[f'slope_{p}'] = df.get(f"SLOPE_{p}_net_xl_amount_consensus_sum_{p}d_D")
             if p in [5, 13, 21]: # 仅计算模型中存在的加速度周期
-                 metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_main_force_net_flow_consensus_D")
+                 metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_net_xl_amount_consensus_D")
 
         # --- 步骤 2: 生成主力资金上升共振信号 ---
         # 逻辑与聚合流引擎的上升共振完全对齐

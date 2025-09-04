@@ -963,7 +963,6 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         merged_df['main_force_net_flow_consensus'] = merged_df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
         merged_df['retail_net_flow_consensus'] = merged_df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
         merged_df['flow_divergence_mf_vs_retail'] = merged_df['main_force_net_flow_consensus'] - merged_df['retail_net_flow_consensus']
-        # 计算新增的共识指标
         merged_df['net_xl_amount_consensus'] = merged_df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
         total_active_flow = merged_df['main_force_active_buy_tushare'] + merged_df['main_force_active_sell_tushare']
         # 计算强度比率，并处理分母为0的情况

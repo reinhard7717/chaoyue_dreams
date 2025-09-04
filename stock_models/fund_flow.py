@@ -783,6 +783,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         #  聚合指标的斜率
         vars()[f'retail_net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-散户净流入{p}日累计之{p}日斜率', null=True, blank=True)
         vars()[f'net_xl_amount_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-超大单净流入{p}日累计之{p}日斜率', null=True, blank=True)
+    intensity_slope_periods = [5, 13, 21] # 5, 13为策略直接使用, 21为计算加速度所需
+    for p in intensity_slope_periods:
+        vars()[f'main_force_flow_intensity_ratio_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'主力资金流强度比率{p}日斜率', null=True, blank=True)
 
     # --- 5. 资金动态衍生指标 (加速度) ---
     accel_periods = [5, 13, 21]
