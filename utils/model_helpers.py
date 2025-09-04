@@ -132,7 +132,7 @@ def get_daily_basic_data_model_by_code(stock_code: str):
     # 提供一个默认返回值，以防有未覆盖到的情况
     return StockDailyBasic_SZ
 
-def get_fund_flow_dc_model_by_code(self, stock_code: str):
+def get_fund_flow_dc_model_by_code(stock_code: str):
     """
     根据股票代码返回对应的【日级资金流向】数据表Model
     """
@@ -150,7 +150,7 @@ def get_fund_flow_dc_model_by_code(self, stock_code: str):
         logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
         return FundFlowDailyDC_SZ  # 默认返回深市主板
 
-def get_fund_flow_ths_model_by_code(self, stock_code: str):
+def get_fund_flow_ths_model_by_code(stock_code: str):
     """
     根据股票代码返回对应的【日级资金流向】数据表Model
     """
@@ -168,7 +168,7 @@ def get_fund_flow_ths_model_by_code(self, stock_code: str):
         logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
         return FundFlowDailyTHS_SZ  # 默认返回深市主板
 
-def get_fund_flow_model_by_code(self, stock_code: str):
+def get_fund_flow_model_by_code(stock_code: str):
     """
     根据股票代码返回对应的【日级资金流向】数据表Model
     """
@@ -185,7 +185,6 @@ def get_fund_flow_model_by_code(self, stock_code: str):
     else:
         logger.warning(f"未识别的股票代码: {stock_code}，资金流向默认使用SZ主板表")
         return FundFlowDailySZ  # 默认返回深市主板
-
 
 def get_advanced_fund_flow_metrics_model_by_code(stock_code: str):
     """
