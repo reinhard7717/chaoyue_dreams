@@ -1619,6 +1619,9 @@ class BaseAdvancedChipMetrics(models.Model):
     turnover_from_winners_ratio_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='获利盘抛压占比55日斜率')
     turnover_from_losers_ratio_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='套牢盘割肉占比5日斜率')
     turnover_from_losers_ratio_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='套牢盘割肉占比21日斜率')
+    cost_divergence_slope_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度5日斜率')
+    cost_divergence_slope_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度21日斜率')
+    cost_divergence_slope_55d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度55日斜率')
 
     # --- 14. 【衍生】核心动态-加速度 ---
     peak_control_ratio_accel_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰控盘比5日加速度')
@@ -1635,6 +1638,9 @@ class BaseAdvancedChipMetrics(models.Model):
     turnover_from_losers_ratio_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='套牢盘割肉占比21日加速度')
     loser_rate_long_term_accel_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='长期套牢盘5日加速度')
     loser_rate_long_term_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='长期套牢盘21日加速度')
+    cost_divergence_accel_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度5日加速度')
+    cost_divergence_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度21日加速度')
+    cost_divergence_accel_55d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度55日加速度')
 
     class Meta:
         abstract = True # 关键：将此模型标记为抽象模型，Django不会为它创建数据库表

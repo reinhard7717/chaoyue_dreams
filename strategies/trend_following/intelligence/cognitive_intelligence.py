@@ -40,7 +40,6 @@ def _create_decaying_influence_series(event_series: pd.Series, window_days: int)
     influence = 1.0 - (days_since_event / window_days)
     return influence.clip(lower=0, upper=1)
 
-
 class CognitiveIntelligence:
     def __init__(self, strategy_instance):
         """
@@ -59,6 +58,20 @@ class CognitiveIntelligence:
         # print("        -> [认知综合引擎 V337.1 筹码核心版] 启动，正在合成顶层风险上下文...")
         df = self.synthesize_contextual_zone_scores(df)
         df = self.synthesize_cognitive_scores(df)
+        df = self.synthesize_opportunity_risk_scores(df)
+        df = self.synthesize_trend_quality_score(df)
+        df = self.synthesize_pullback_states(df) # 调用新的回踩状态合成模块
+        df = self.synthesize_holding_risks(df) # 调用新的持仓风险合成模块
+        df = self.synthesize_behavioral_risks(df) # 调用新增的行为风险融合模块
+        df = self.synthesize_market_engine_states(df) # 调用新增的市场引擎状态融合模块
+        df = self.synthesize_divergence_risks(df) # 调用新增的多维背离风险融合模块
+        df = self.synthesize_washout_intelligence(df) # 调用新的洗盘情报融合模块
+        df = self.synthesize_breakdown_risk(df) # 调用新的结构性破位风险融合模块
+        df = self.synthesize_accumulation_breakout_opportunity(df) # 调用新的蓄势突破机会融合模块
+        df = self.synthesize_trend_regime_signals(df)
+        df = self.synthesize_volatility_breakout_signals(df)
+        df = self.synthesize_structural_fusion_scores(df)
+        df = self.synthesize_ultimate_confirmation_scores(df)
         cognitive_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
@@ -79,13 +92,390 @@ class CognitiveIntelligence:
             atomic.get('RISK_BEHAVIOR_PANIC_FLEEING_S', default_series) |            # S+级获利盘加速出逃
             atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series) | # 利润安全垫收缩
             atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)| # 长期派发下的诱多拉升
-            atomic.get('VOL_BEHAVIOR_DISTRIBUTION_DROP', default_series)             # 价跌量增的经典派发
+            atomic.get('VOL_PRICE_SPIKE_DOWN_A', default_series)             # 价跌量增的经典派发
         )
         p_dist = get_params_block(self.strategy, 'distribution_context_params', {})
         lookback = get_param_value(p_dist.get('lookback_days'), 10)
         cognitive_states['CONTEXT_RECENT_DISTRIBUTION_PRESSURE'] = distribution_event.rolling(window=lookback, min_periods=1).max().astype(bool)
         # print("        -> [认知综合引擎 V337.1 筹码核心版] 顶层风险上下文合成完毕。")
         return cognitive_states
+
+    def synthesize_trend_regime_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
+        """
+        【V1.0 新增】趋势政权融合模块
+        - 核心职责: 承接原 FoundationIntelligence 中的S级信号逻辑，融合“趋势政权”状态与
+                      “均线共振”信号，生成更高质量的认知层趋势信号。
+        - 收益: 实现了跨领域（波动率+结构）的交叉验证，提升了信号的可靠性。
+        """
+        print("        -> [趋势政权融合模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取核心原子信号 ---
+        is_trending_regime = atomic.get('VOL_REGIME_TRENDING', default_series)
+        # 使用来自 StructuralIntelligence 的权威均线共振信号
+        is_bullish_confluence = atomic.get('OPP_MA_BULLISH_RESONANCE_A', default_series)
+        is_bearish_confluence = atomic.get('RISK_MA_BEARISH_RESONANCE_A', default_series)
+        # 使用来自 FoundationIntelligence 的 RSI 加速信号作为“点火”确认
+        is_rsi_accelerating_bullish = atomic.get('OSC_DYN_RSI_ACCELERATING_BULLISH', default_series)
+        is_rsi_accelerating_bearish = atomic.get('OSC_DYN_RSI_ACCELERATING_BEARISH', default_series)
+        # --- 2. 融合生成S级认知信号 ---
+        # S级机会: 趋势政权 + 多头共振 + RSI加速点火
+        states['COGNITIVE_OPP_TREND_REGIME_IGNITION_S'] = is_trending_regime & is_bullish_confluence & is_rsi_accelerating_bullish
+        # S级风险: 趋势政权 + 空头共振 + RSI加速崩溃
+        states['COGNITIVE_RISK_TREND_REGIME_BREAKDOWN_S'] = is_trending_regime & is_bearish_confluence & is_rsi_accelerating_bearish
+        # --- 3. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [趋势政权融合模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_volatility_breakout_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
+        """
+        【V1.0 新增】波动率突破融合模块
+        - 核心职责: 承接原 FoundationIntelligence 中的战术融合逻辑，消费纯粹的波动率原子状态，
+                      并结合价格、成交量动态，生成经过交叉验证的认知层“突破”与“崩溃”信号。
+        - 收益: 实现了职责分离，使认知层能进行更灵活、更复杂的跨领域融合。
+        """
+        print("        -> [波动率突破融合模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取核心原子信号 ---
+        # 环境信号 (Setup)
+        is_compression_setup_S = atomic.get('VOL_SETUP_COMPRESSION_MTF_S', default_series)
+        is_expansion_setup_S = atomic.get('VOL_SETUP_EXPANSION_MTF_S', default_series)
+        # 动态信号 (Trigger)
+        is_vol_expanding = df.get('SLOPE_5_BBW_21_2.0_D', default_series) > 0
+        is_vol_accelerating = df.get('ACCEL_5_BBW_21_2.0_D', default_series) > 0
+        is_price_trending_up = df.get('SLOPE_5_close_D', default_series) > 0
+        is_price_accelerating_up = df.get('ACCEL_5_close_D', default_series) > 0
+        is_price_trending_down = df.get('SLOPE_5_close_D', default_series) < 0
+        is_price_accelerating_down = df.get('ACCEL_5_close_D', default_series) < 0
+        # 确认信号 (Confirmation)
+        is_volume_confirming = atomic.get('VOL_PRICE_IGNITION_UP_A', default_series) | atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
+        # --- 2. 上升共振 (Breakout) 信号合成 ---
+        trigger_b_bullish = is_vol_expanding & is_price_trending_up
+        states['COGNITIVE_OPP_VOL_BREAKOUT_B'] = is_compression_setup_S & trigger_b_bullish
+        trigger_a_bullish = trigger_b_bullish & is_volume_confirming
+        states['COGNITIVE_OPP_VOL_BREAKOUT_A'] = is_compression_setup_S & trigger_a_bullish
+        trigger_s_bullish = trigger_a_bullish & is_vol_accelerating & is_price_accelerating_up
+        states['COGNITIVE_OPP_VOL_BREAKOUT_S'] = is_compression_setup_S & trigger_s_bullish
+        # --- 3. 下跌共振 (Breakdown) 信号合成 ---
+        trigger_b_bearish = is_vol_expanding & is_price_trending_down
+        states['COGNITIVE_RISK_VOL_BREAKDOWN_B'] = is_expansion_setup_S & trigger_b_bearish
+        trigger_a_bearish = trigger_b_bearish & is_volume_confirming
+        states['COGNITIVE_RISK_VOL_BREAKDOWN_A'] = is_expansion_setup_S & trigger_a_bearish
+        trigger_s_bearish = trigger_a_bearish & is_vol_accelerating & is_price_accelerating_down
+        states['COGNITIVE_RISK_VOL_BREAKDOWN_S'] = is_expansion_setup_S & trigger_s_bearish
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [波动率突破融合模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
+        """
+        【V1.0 新增 & 逻辑迁移】结构化元信号融合模块
+        - 核心职责: 承接原 StructuralIntelligence 中的 `diagnose_fusion_scores` 逻辑。
+                      融合来自均线、力学、MTF三大领域的S级信号，生成顶层的“联合作战”元信号。
+        - 收益: 遵循分层架构，将顶层融合统一收归认知层。
+        """
+        print("        -> [结构化元信号融合模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        signal_sources = {
+            'bullish_resonance': ['SCORE_MA_BULLISH_RESONANCE_S', 'SCORE_MECHANICS_BULLISH_RESONANCE_S', 'SCORE_MTF_BULLISH_RESONANCE_S'],
+            'bearish_resonance': ['SCORE_MA_BEARISH_RESONANCE_S', 'SCORE_MECHANICS_BEARISH_RESONANCE_S', 'SCORE_MTF_BEARISH_RESONANCE_S'],
+            'bottom_reversal': ['SCORE_MA_BOTTOM_REVERSAL_S', 'SCORE_MECHANICS_BOTTOM_REVERSAL_S', 'SCORE_MTF_BOTTOM_REVERSAL_S'],
+            'top_reversal': ['SCORE_MA_TOP_REVERSAL_S', 'SCORE_MECHANICS_TOP_REVERSAL_S', 'SCORE_MTF_TOP_REVERSAL_S']
+        }
+        all_required_signals = [sig for group in signal_sources.values() for sig in group]
+        if any(s not in atomic for s in all_required_signals):
+            print("          -> [警告] 结构化元信号融合缺少核心上游S级分数，模块已跳过！")
+            return df
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        def fuse_scores(source_keys: list) -> pd.Series:
+            scores_to_fuse = [atomic.get(key, default_series) for key in source_keys]
+            fused_values = np.prod(np.array([s.values for s in scores_to_fuse]), axis=0)
+            return pd.Series(fused_values, index=df.index, dtype=np.float32)
+        states['COGNITIVE_FUSION_BULLISH_RESONANCE_S'] = fuse_scores(signal_sources['bullish_resonance'])
+        states['COGNITIVE_FUSION_BEARISH_RESONANCE_S'] = fuse_scores(signal_sources['bearish_resonance'])
+        states['COGNITIVE_FUSION_BOTTOM_REVERSAL_S'] = fuse_scores(signal_sources['bottom_reversal'])
+        states['COGNITIVE_FUSION_TOP_REVERSAL_S'] = fuse_scores(signal_sources['top_reversal'])
+        self.strategy.atomic_states.update(states)
+        print("        -> [结构化元信号融合模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
+        """
+        【V1.0 新增 & 逻辑迁移】终极确认融合模块
+        - 核心职责: 承接原 StructuralIntelligence 中的 `diagnose_ultimate_confirmation_scores` 逻辑。
+                      寻找“连续性共振元信号”与“离散性模式信号”同时发生的最高置信度信号。
+        - 收益: 在认知层完成最高级别的“完美风暴”信号融合。
+        """
+        print("        -> [终极确认融合模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        required_fusion_signals = [
+            'COGNITIVE_FUSION_BULLISH_RESONANCE_S', 'COGNITIVE_FUSION_BEARISH_RESONANCE_S',
+            'COGNITIVE_FUSION_BOTTOM_REVERSAL_S', 'COGNITIVE_FUSION_TOP_REVERSAL_S'
+        ]
+        required_pattern_signals = [
+            'SCORE_PATTERN_BULLISH_RESONANCE_S', 'SCORE_PATTERN_BEARISH_RESONANCE_S',
+            'SCORE_PATTERN_BOTTOM_REVERSAL_S', 'SCORE_PATTERN_TOP_REVERSAL_S'
+        ]
+        all_required_signals = required_fusion_signals + required_pattern_signals
+        if any(s not in atomic for s in all_required_signals):
+            print("          -> [警告] 终极确认融合缺少核心上游S级分数，模块已跳过！")
+            return df
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE_S', default_series)
+        fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE_S', default_series)
+        fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL_S', default_series)
+        fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL_S', default_series)
+        pattern_bullish = atomic.get('SCORE_PATTERN_BULLISH_RESONANCE_S', default_series)
+        pattern_bearish = atomic.get('SCORE_PATTERN_BEARISH_RESONANCE_S', default_series)
+        pattern_bottom = atomic.get('SCORE_PATTERN_BOTTOM_REVERSAL_S', default_series)
+        pattern_top = atomic.get('SCORE_PATTERN_TOP_REVERSAL_S', default_series)
+        states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
+        self.strategy.atomic_states.update(states)
+        print("        -> [终极确认融合模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_accumulation_breakout_opportunity(self, df: pd.DataFrame) -> pd.DataFrame: 
+        """
+        【V1.0 新增】蓄势突破机会融合模块
+        - 核心职责: 遵循分层架构，融合来自结构层(箱体、平台)的多个突破信号，
+                      生成一个统一的、更高质量的“蓄势突破”认知机会。
+        - 收益: 取代了原 BehavioralIntelligence 中职责不清的 post_accumulation_phase 信号，
+                通过交叉验证提升了突破信号的可靠性。
+        """
+        print("        -> [蓄势突破机会融合模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 提取来自结构层的多个突破源信号 ---
+        # 源1: 箱体突破 (取最高分)
+        box_breakout_s = atomic.get('SCORE_BOX_BREAKOUT_S', default_series)
+        box_breakout_a = atomic.get('SCORE_BOX_BREAKOUT_A', default_series)
+        box_breakout_b = atomic.get('SCORE_BOX_BREAKOUT_B', default_series)
+        box_breakout_score = np.maximum.reduce([box_breakout_s.values, box_breakout_a.values, box_breakout_b.values])
+        # 源2: 平台突破
+        platform_breakout_score = atomic.get('SCORE_OPP_PLATFORM_BREAKOUT_S', default_series).values
+        # --- 2. 融合生成认知层“蓄势突破”分数与信号 ---
+        # 逻辑: 取所有突破源中的最高分作为最终的认知分数
+        final_score_arr = np.maximum(box_breakout_score, platform_breakout_score)
+        final_score_series = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
+        states['COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S'] = final_score_series
+        # 生成布尔信号，用于替代旧的 POST_ACCUMULATION_ASCENT_C
+        p = get_params_block(self.strategy, 'cognitive_fusion_params', {})
+        breakout_threshold = get_param_value(p.get('accumulation_breakout_threshold'), 0.3)
+        final_signal = final_score_series > breakout_threshold
+        states['COGNITIVE_OPP_ACCUMULATION_BREAKOUT_S'] = final_signal
+        # --- 3. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [蓄势突破机会融合模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_breakdown_risk(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】结构性破位风险融合模块
+        - 核心职责: 遵循分层架构，将原 BehavioralIntelligence 中的战术判断逻辑上移至此。
+                      融合来自不同情报源的原子信号，生成高置信度的“结构性破位”认知风险。
+        - 收益: 消除原子层的逻辑冗余，通过交叉验证（位置+量价+行为）提升了风险识别的准确性。
+        """
+        print("        -> [结构性破位风险融合模块 V1.0] 启动...") # [新增] 新增方法的打印信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取来自不同情报源的原子信号 ---
+        # 情报源1 (行为层-位置): 是否跌破关键均线
+        is_ma_broken = atomic.get('BEHAVIOR_MA_BREAKDOWN_A', default_series)
+        # 情报源2 (基础层-量价): 是否出现动态的放量杀跌
+        is_volume_spike_down = atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
+        # 情报源3 (行为层-价格): 是否是恐慌性大跌
+        is_sharp_drop = atomic.get('KLINE_SHARP_DROP', default_series)
+        # --- 2. 融合生成认知层“结构性破位”风险 ---
+        # 逻辑: 必须同时满足“跌破关键支撑”和“动态放量下跌”两个核心条件，
+        #       “恐慌大跌”作为可选的加强条件。
+        core_condition = is_ma_broken & is_volume_spike_down
+        final_signal = core_condition | (is_ma_broken & is_sharp_drop) # 满足核心条件，或 破位+恐慌大跌
+        states['COGNITIVE_RISK_STRUCTURE_BREAKDOWN_S'] = final_signal
+        # --- 3. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [结构性破位风险融合模块 V1.0] 计算完毕。") # [新增] 新增方法的打印信息
+        return df
+
+    def synthesize_washout_intelligence(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】洗盘情报融合模块
+        - 核心职责: 严格遵守分层架构，融合来自不同平级情报模块的“洗盘”相关信号，
+                      生成一个更高质量、经过交叉验证的认知层信号。
+        - 收益: 将基于静态行为模式的信号与基于动态量价的风险信号相结合，
+                提升了对“巨阴洗盘”这一关键行为识别的准确性和鲁棒性。
+        """
+        print("        -> [洗盘情报融合模块 V1.0] 启动...") # [新增] 新增方法的打印信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 1. 提取来自不同情报源的原子信号 ---
+        # 情报源1 (行为层): 基于K线形态和静态阈值的洗盘事件
+        behavioral_washout = atomic.get('BEHAVIOR_EVENT_WASHOUT', default_series)
+        
+        # 情报源2 (基础层): 基于成交量动态(斜率/加速度)的放量杀跌风险信号
+        foundation_washout = atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
+
+        # --- 2. 融合生成认知层“洗盘事件” ---
+        # 逻辑: 只要任何一个高质量的信号源识别到洗盘/杀跌，就认为是认知层面的洗盘事件
+        cognitive_washout_event = behavioral_washout | foundation_washout
+        
+        # --- 3. 生成认知层“洗盘机会窗口”持续状态 ---
+        # 逻辑: 在认知层洗盘事件发生后的3天内，都标记为机会窗口
+        washout_window = cognitive_washout_event.rolling(window=3, min_periods=1).max().astype(bool)
+        states['COGNITIVE_STATE_WASHOUT_WINDOW'] = washout_window
+        
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [洗盘情报融合模块 V1.0] 计算完毕。") # [新增] 新增方法的打印信息
+        return df
+
+    def synthesize_divergence_risks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】多维背离风险融合模块
+        - 核心职责: 融合来自基础层(震荡指标)和力学层(动能、效率)的多种顶背离信号，
+                      生成一个统一的、更高维度的认知层风险。
+        - 收益: 将单一维度的背离观察，升级为系统性的风险评估，显著提升了顶部风险识别的准确性。
+        """
+        print("        -> [多维背离风险融合模块 V1.0] 启动...") # [新增] 新增方法的打印信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取各维度的背离信号 ---
+        # 维度1 (基础层-震荡指标): RSI多周期背离 或 MACD经典背离
+        is_oscillator_divergence = (
+            atomic.get('RISK_MTF_RSI_BEARISH_DIVERGENCE_S', default_series) |
+            atomic.get('RISK_MACD_BEARISH_DIVERGENCE_A', default_series)
+        )
+        # 维度2 (力学层-价格动能): 长短期价格动能背离
+        is_price_momentum_divergence = self._get_atomic_score('SCORE_DYN_DIVERGENCE_RISK_A') > 0.8
+        # 维度3 (力学层-量价关系): 成交量与价格减速的衰竭背离
+        is_exhaustion_divergence = self._get_atomic_score('SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S') > 0.8
+        # 维度4 (力学层-引擎效率): 价格位置与市场引擎效率的顶背离
+        is_engine_divergence = self._get_atomic_score('SCORE_BEHAVIOR_TOP_DIVERGENCE_RISK_S_PLUS') > 0.8
+        # --- 2. 定义触发的战场环境 ---
+        # 背离在高位危险区才构成S级风险
+        is_in_danger_zone = atomic.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        # --- 3. 最终裁定 ---
+        # 逻辑: 在危险区域内，只要出现任何一个强烈的多维背离症状，就发出警报。
+        has_any_divergence = (
+            is_oscillator_divergence |
+            is_price_momentum_divergence |
+            is_exhaustion_divergence |
+            is_engine_divergence
+        )
+        states['COGNITIVE_RISK_MULTI_DIMENSIONAL_DIVERGENCE_S'] = is_in_danger_zone & has_any_divergence
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [多维背离风险融合模块 V1.0] 计算完毕。") # [新增] 新增方法的打印信息
+        return df
+
+    def synthesize_market_engine_states(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】市场引擎状态融合模块
+        - 核心职责: 融合来自不同情报域的、与“市场引擎效率”相关的原子信号，
+                      生成一个顶层的、高质量的“引擎失效”认知风险。
+        - 收益: 移除了底层模块中重复的、零散的“引擎失速”信号，通过顶层融合
+                提升了判断的准确性和鲁棒性。
+        """
+        print("        -> [市场引擎状态融合模块 V1.0] 启动...") # [新增] 新增方法的打印信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取引擎失效的多个症状 ---
+        # 症状1 (力学): 引擎失速风险分 (来自DynamicMechanicsEngine)
+        engine_stalling_score = self._get_atomic_score('SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S')
+        is_mechanics_stalling = engine_stalling_score > 0.8 # 风险分很高
+        # 症状2 (行为): 天量滞涨 (来自BehavioralIntelligence)
+        is_vpa_stagnation = atomic.get('RISK_VPA_STAGNATION', default_series)
+        # 症状3 (基础): 顶背离风险 (来自FoundationIntelligence)
+        is_bearish_divergence = atomic.get('RISK_MTF_RSI_BEARISH_DIVERGENCE_S', default_series)
+        # --- 2. 定义触发的战场环境 ---
+        # 引擎失效在高位危险区才构成S级风险
+        is_in_danger_zone = atomic.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
+        # --- 3. 最终裁定 ---
+        # 逻辑: 在危险区域内，只要出现任何一个强烈的引擎失效症状，就发出警报。
+        has_any_symptom = is_mechanics_stalling | is_vpa_stagnation | is_bearish_divergence
+        states['COGNITIVE_RISK_ENGINE_FAILURE_S'] = is_in_danger_zone & has_any_symptom
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [市场引擎状态融合模块 V1.0] 计算完毕。") # [新增] 新增方法的打印信息
+        return df
+
+    def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】认知层回踩状态合成模块
+        - 核心职责: 融合行为层（价格、成交量）与筹码层（持仓者行为）的情报，
+                      生成高质量的、可直接用于战术决策的“回踩性质”认知判断。
+        - 收益: 取代了原 BehavioralIntelligence 中职责不清的同名方法，实现了真正的跨领域融合。
+        """
+        print("        -> [认知层回踩状态合成模块 V1.0] 启动...")
+        states = {}
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 定义通用回踩条件 ---
+        is_pullback_day = df['pct_change_D'] < 0
+        is_in_constructive_context = self.strategy.atomic_states.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
+        # --- 2. 合成“健康回踩”状态 (Healthy Pullback) ---
+        # 行为特征: 温和缩量下跌
+        is_gentle_drop = df['pct_change_D'] > -0.05
+        is_shrinking_volume = self.strategy.atomic_states.get('VOL_BEHAVIOR_WEAKENING_DROP', default_series)
+        # 筹码特征: 获利盘惜售 + 筹码结构稳定
+        is_winner_holding_tight = self._get_atomic_score('SCORE_PROFIT_TAKING_TOP_REVERSAL_S') < 0.5
+        is_chip_stable = self._get_atomic_score('SCORE_CHIP_BEARISH_RESONANCE_S') < 0.5
+        # 最终裁定
+        is_healthy_pullback = (
+            is_pullback_day & is_in_constructive_context &
+            is_gentle_drop & is_shrinking_volume &
+            is_winner_holding_tight & is_chip_stable
+        )
+        states['COGNITIVE_PULLBACK_HEALTHY_S'] = is_healthy_pullback
+        # --- 3. 合成“打压式回踩”状态 (Suppressive Pullback / Shakeout) ---
+        # 行为特征: 显著下跌
+        is_significant_drop = df['pct_change_D'] < -0.03
+        # 筹码特征: 恐慌盘割肉 + 获利盘坚定
+        is_panic_selling = self._get_atomic_score('SCORE_CAPITULATION_BOTTOM_REVERSAL_A') > 0.7
+        # 最终裁定
+        is_suppressive_pullback = (
+            is_pullback_day & is_in_constructive_context &
+            is_significant_drop & is_panic_selling & is_winner_holding_tight
+        )
+        states['COGNITIVE_PULLBACK_SUPPRESSIVE_S'] = is_suppressive_pullback
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [认知层回踩状态合成模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_holding_risks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】认知层持仓风险合成模块
+        - 核心职责: 基于顶层融合的“趋势质量分”的动态变化，诊断持仓健康度是否出现“失速”风险。
+        - 收益: 提供一个更宏观、更可靠的早期预警信号，取代了原先基于单一筹码指标的判断。
+        """
+        print("        -> [认知层持仓风险合成模块 V1.0] 启动...")
+        states = {}
+        # 使用更高维度的“趋势质量分”来判断健康度
+        trend_quality_score = self._get_atomic_score('COGNITIVE_SCORE_TREND_QUALITY')
+        # 定义“改善”为质量分高于前一日
+        is_improving = trend_quality_score > trend_quality_score.shift(1)
+        was_improving = is_improving.shift(1).fillna(False)
+        is_not_improving_now = ~is_improving
+        # “失速”定义为：昨日仍在改善，今日不再改善
+        states['COGNITIVE_HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now
+        self.strategy.atomic_states.update(states)
+        print("        -> [认知层持仓风险合成模块 V1.0] 计算完毕。")
+        return df
 
     def synthesize_contextual_zone_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -115,84 +505,146 @@ class CognitiveIntelligence:
         
         return df
 
+    def synthesize_opportunity_risk_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V2.0 职责净化版】顶层机会与风险评分模块
+        - 核心重构: 移除了所有本地计算逻辑，使其职责回归纯粹的“元融合”。
+                      现在直接消费由 ChipIntelligence 生成的高质量“行为-筹码”融合分数。
+        - 收益: 严格遵循了分层架构原则，认知层只负责顶层融合，不再执行底层计算。
+        """
+        print("        -> [顶层机会风险评分模块 V2.0 职责净化版] 启动...") # [修改] 更新版本号和描述
+        atomic = self.strategy.atomic_states
+        # --- 1. 合成“认知层·底部反转机会”得分 ---
+        # 直接消费来自 ChipIntelligence 的高质量融合分
+        washout_absorption_score = atomic.get('CHIP_SCORE_FUSED_WASHOUT_ABSORPTION', pd.Series(0.5, index=df.index))
+        # 将其与行为层的“反转K线”信号进行最终融合
+        reversal_candle_score = atomic.get('TRIGGER_DOMINANT_REVERSAL', pd.Series(False, index=df.index)).astype(float)
+        # 最终认知分 = 融合分 * (1 + K线确认带来的额外加成)
+        cognitive_bottom_reversal_score = (washout_absorption_score * (1 + reversal_candle_score * 0.2)).clip(0, 1)
+        df['COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL'] = cognitive_bottom_reversal_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL'] = df['COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL']
+        # --- 2. 合成“认知层·顶部派发风险”得分 ---
+        # 直接消费来自 ChipIntelligence 的高质量融合分
+        deceptive_rally_score = atomic.get('CHIP_SCORE_FUSED_DECEPTIVE_RALLY', pd.Series(0.5, index=df.index))
+        # 将其与认知层的“高位危险区”上下文进行最终融合
+        high_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', pd.Series(0.5, index=df.index))
+        # 最终认知分 = 诱多派发分 * 危险区上下文分
+        cognitive_top_distribution_score = deceptive_rally_score * high_zone_score
+        df['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION'] = cognitive_top_distribution_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION'] = df['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION']
+        print("        -> [顶层机会风险评分模块 V2.0 职责净化版] 计算完毕。") # [修改] 更新版本号和描述
+        return df
+
+    def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】趋势质量融合评分模块
+        - 核心职责: 融合行为、筹码、资金流三大情报源的核心健康度指标，生成一个顶层的、
+                      量化的“趋势质量”评分 (0-1)，用于评估当前趋势的健康状况和可持续性。
+        - 收益: 提供一个单一、全面的指标来判断趋势的“成色”，避免被低质量的、脆弱的趋势所误导。
+        """
+        print("        -> [趋势质量融合评分模块 V1.0] 启动...")
+        # --- 1. 提取各领域的核心健康度评分 ---
+        # 行为健康度: 基于市场引擎效率。效率高(失速风险低)则健康。
+        # 我们使用“市场引擎失速风险”的逆向作为行为健康度。
+        behavior_risk_signal = self._get_atomic_score('RISK_MARKET_ENGINE_STALLING_ACCEL_C', default=False)
+        behavior_health_score = 1.0 - behavior_risk_signal.astype(float)
+        # 筹码健康度: 基于筹码的看涨共振信号。共振越强，健康度越高。
+        chip_health_score = self._get_atomic_score('SCORE_CHIP_BULLISH_RESONANCE_S')
+        # 资金流健康度: 基于“七位一体”的看涨共振信号。共振越强，健康度越高。
+        fund_flow_health_score = self._get_atomic_score('FF_SCORE_SEPTAFECTA_RESONANCE_UP_HIGH')
+        # --- 2. 定义各维度权重 ---
+        p = get_params_block(self.strategy, 'trend_quality_params', {})
+        weights = {
+            'behavior': get_param_value(p.get('behavior_weight'), 0.2),
+            'chip': get_param_value(p.get('chip_weight'), 0.5),
+            'fund_flow': get_param_value(p.get('fund_flow_weight'), 0.3)
+        }
+        # --- 3. 加权融合生成最终的趋势质量分 ---
+        trend_quality_score = (
+            behavior_health_score * weights['behavior'] +
+            chip_health_score * weights['chip'] +
+            fund_flow_health_score * weights['fund_flow']
+        )
+        df['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
+        print("        -> [趋势质量融合评分模块 V1.0] 计算完毕。")
+        return df
+
+    def synthesize_behavioral_risks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】行为风险融合模块
+        - 核心职责: 将来自不同领域的纯粹原子信号进行交叉验证，生成更高维度的、
+                      经过情景过滤的认知层风险信号。
+        - 收益: 实现了将“获利盘兑现”这一筹码现象与“价格高位”这一市场行为相结合的
+                逻辑，生成了高质量的“高位获利盘出逃”风险预警。
+        """
+        print("        -> [行为风险融合模块 V1.0] 启动...") # [新增] 新增方法的打印信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(False, index=df.index)
+
+        # --- 融合信号1: 高位获利盘出逃风险 (A级) ---
+        # 情报1 (筹码): 获利盘兑现意愿强烈
+        is_profit_taking_intense = atomic.get('CHIP_PROFIT_TAKING_INTENSE_A', default_series)
+        # 情报2 (行为): 价格处于近期高位区间
+        is_in_high_zone = atomic.get('PRICE_STATE_NEAR_HIGH_RANGE', default_series)
+        
+        # 最终裁定: 在价格高位区间，出现了强烈的获利盘兑现行为
+        states['RISK_BEHAVIOR_WINNERS_FLEEING_A'] = is_profit_taking_intense & is_in_high_zone
+        
+        # --- 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        print("        -> [行为风险融合模块 V1.0] 计算完毕。") # [新增] 新增方法的打印信息
+        return df
+
     def diagnose_contextual_zones(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V339.0 新增】战场上下文诊断模块
-        - 核心职责: 独立地、优先地定义“战场”状态，如高位危险区。
-                    这是所有后续战术判断的基础。
+        【V339.1 职责净化版】战场上下文诊断模块
+        - 核心重构: 移除了所有本地计算逻辑，回归其作为“元融合”模块的纯粹职责。
+                      现在只消费由底层情报模块生成的、高质量的原子风险信号。
+        - 收益: 严格遵循了分层架构原则，显著提升了系统的清晰度和可维护性。
         """
-        # print("        -> [战场上下文诊断模块 V339.0] 启动...")
+        print("        -> [战场上下文诊断模块 V339.1 职责净化版] 启动...")
         states = {}
-        high_zone_score = df.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', pd.Series(0.5, index=df.index))
-        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = high_zone_score > high_zone_score.rolling(120).quantile(0.80)
         atomic = self.strategy.atomic_states
-        # --- 1. 军备检查 ---
-        required_cols = ['BIAS_21_D', 'close_D', 'high_D', 'SLOPE_5_EMA_13_D']
-        if any(c not in df.columns for c in required_cols):
-            print("          -> [警告] 缺少诊断“战场上下文”所需数据，模块跳过。")
-            return {}
-
-        # --- 2. 评估“地利”：定义静态的“危险战区”上下文 ---
-        # 2.1 乖离维度
-        bias_overbought_threshold = df['BIAS_21_D'].rolling(120).quantile(0.95)
-        states['CONTEXT_RISK_OVEREXTENDED_BIAS'] = df['BIAS_21_D'] > bias_overbought_threshold
-        
-        # 2.2 动能维度
-        # 新定义: 价格处于高位，并且出现显著的行为衰竭信号
-        is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85
-        # 行为衰竭信号1: 获利盘的利润安全垫正在收缩
-        is_profit_cushion_shrinking = atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series)
-        # 行为衰竭信号2: 市场引擎（资金效率）正在失速
-        is_market_engine_stalling = atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series)
-        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & (is_profit_cushion_shrinking | is_market_engine_stalling)
-        
-        # 2.3 筹码维度
-        # 定义：筹码结构出现持续性恶化（短期和中期趋势都在发散）
-        is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
-        is_mid_term_diverging = df['SLOPE_21_concentration_90pct_D'] > 0
-        states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] = is_short_term_diverging & is_mid_term_diverging
-        
-        # 2.4 动态对倒嫌疑 (S级风险)
-        # 逻辑：成交量放大 (SLOPE_5_volume_D > 0) 但资金效率下降 (SLOPE_5_VPA_EFFICIENCY_D < 0) 且筹码发散 (SLOPE_5_concentration_90pct_D > 0)
-        is_volume_increasing = df['SLOPE_5_volume_D'] > 0
-        is_vpa_efficiency_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
-        is_chip_diverging_for_churn = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
-        # if states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].any():
-            # print(f"          -> [S级风险] 侦测到 {states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'].sum()} 次“动态对倒嫌疑”！")
-            
-        # 2.5 S级战略风险：长期派发背景下的诱多拉升
-        is_deceptive_rally_long_term = atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series)
-        
-        # 2.6 筹码层战略级风险
-        # 风险维度A: 股票处于长达一个季度的“战略派发期”，这是最危险的宏观背景。
-        is_strategic_distribution = atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
-        # 风险维度B: 筹码出现“共振式派发”，短中长周期都在出货，信号强度极高。
-        is_resonant_distribution = atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series)
-        states['CONTEXT_RISK_CHIP_STRATEGIC_DECAY'] = is_strategic_distribution | is_resonant_distribution
-
-        # 2.7 力学层S级结构性风险
-        # 风险维度A: 结构性衰竭反弹，短期上涨但长期筹码结构瓦解，是典型的诱多。
-        is_structural_weakness_rally = atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series)
-        # 风险维度B: 市场引擎失速，价格上涨但资金效率崩溃，上涨已是强弩之末。
-        is_market_engine_stalling_S = atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', default_series)
-
-        # 2.8 基础层经典风险
-        # 风险维度: 放量杀跌，是恐慌或主力出货的直接体现。
-        is_volume_spike_down = atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
-
-        # 2.9 融合生成“危险战区”状态
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 军备检查：检查所有依赖的、由底层模块生成的原子风险信号 ---
+        required_atomic_risks = [
+            'CONTEXT_RISK_OVEREXTENDED_BIAS',
+            'CONTEXT_RISK_MOMENTUM_EXHAUSTION',
+            'CONTEXT_RISK_CHIP_STRUCTURE_DECAY',
+            'COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN',
+            'RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S',
+            'CONTEXT_CHIP_STRATEGIC_DISTRIBUTION',
+            'RISK_CHIP_DIVERGING_RESONANCE_A',
+            'RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S',
+            'RISK_DYN_MARKET_ENGINE_STALLING_S',
+            'RISK_VOL_PRICE_SPIKE_DOWN_A'
+        ]
+        missing_risks = [r for r in required_atomic_risks if r not in atomic]
+        if missing_risks:
+            print(f"          -> [警告] 战场上下文诊断缺少上游原子风险信号: {missing_risks}，模块跳过。")
+            states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = default_series
+            return states
+        # --- 2. [元融合] 将所有高质量原子风险信号进行逻辑“或”融合 ---
+        # 此处不再进行任何计算，只做顶层融合
         states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = (
-            states['CONTEXT_RISK_OVEREXTENDED_BIAS'] | 
-            states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] |
-            states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] |
-            states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] |
-            is_deceptive_rally_long_term |
-            states['CONTEXT_RISK_CHIP_STRATEGIC_DECAY'] |
-            is_structural_weakness_rally | # 纳入结构性衰竭反弹风险
-            is_market_engine_stalling_S |   # 纳入市场引擎失速风险
-            is_volume_spike_down # 纳入放量杀跌风险
+            atomic.get('CONTEXT_RISK_OVEREXTENDED_BIAS', default_series) |
+            atomic.get('CONTEXT_RISK_MOMENTUM_EXHAUSTION', default_series) |
+            atomic.get('CONTEXT_RISK_CHIP_STRUCTURE_DECAY', default_series) |
+            atomic.get('COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN', default_series) |
+            atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series) |
+            atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series) |
+            atomic.get('RISK_CHIP_DIVERGING_RESONANCE_A', default_series) |
+            atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series) |
+            atomic.get('RISK_DYN_MARKET_ENGINE_STALLING_S', default_series) |
+            atomic.get('RISK_VOL_PRICE_SPIKE_DOWN_A', default_series)
         )
+        # 原有的高位区评分逻辑，因为它也是一种融合
+        high_zone_score = df.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', pd.Series(0.5, index=df.index))
+        # 将布尔信号与评分信号结合，任何一个成立都认为处于高风险区
+        states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] |= high_zone_score > high_zone_score.rolling(120).quantile(0.80)
+        print("        -> [战场上下文诊断模块 V339.1 职责净化版] 融合完毕。") # [修改] 更新版本号和描述
         return states
 
     def diagnose_recent_reversal_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -263,13 +715,13 @@ class CognitiveIntelligence:
             # 维度 12: 顶层结构性风险
             {'condition': atomic.get('STRUCTURE_TOPPING_DANGER_S', default_series), 'score': 35},
             # 维度 13: 利润安全垫收缩 (趋势弱化的早期预警)
-            {'condition': atomic.get('RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A', default_series), 'score': 25},
+            {'condition': self._get_atomic_score('SCORE_PROFIT_TAKING_TOP_REVERSAL_S') > 0.8, 'score': 25},
             # 维度 14: 市场引擎失速 (上涨性价比降低)
             {'condition': atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series), 'score': 25},
             # 维度 15: RSI看跌背离 (经典技术背离信号)
             {'condition': atomic.get('OSC_DYN_RSI_BEARISH_DIVERGENCE', default_series), 'score': 20},
             # 维度 16: 长期派发背景下的诱多拉升 (S级战略风险)
-            {'condition': atomic.get('RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S', default_series), 'score': 35},
+            {'condition': self._get_atomic_score('CHIP_SCORE_FUSED_DECEPTIVE_RALLY') > 0.8, 'score': 35},
             # 维度 20: 结构性衰竭反弹 (S级风险)，价格上涨但根基瓦解，典型的诱多。
             {'condition': atomic.get('RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S', default_series), 'score': 35},
             # 维度 21: 市场引擎失速 (S级风险)，上涨效率崩溃，是趋势即将终结的强烈信号。
@@ -644,7 +1096,7 @@ class CognitiveIntelligence:
         is_diverging = atomic.get('CHIP_DYN_OBJECTIVE_DIVERGING', default_series) # 使用客观发散信号
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
         is_ma_broken = ~atomic.get('MA_STATE_STABLE_BULLISH', default_series)
-        is_health_stalling = atomic.get('HOLD_RISK_HEALTH_STALLING', default_series)
+        is_health_stalling = atomic.get('COGNITIVE_HOLD_RISK_HEALTH_STALLING', default_series)
         hard_termination_condition = is_diverging | is_late_stage | is_ma_broken
         if terminate_on_stalling:
             hard_termination_condition |= is_health_stalling
@@ -846,13 +1298,13 @@ class CognitiveIntelligence:
         # --- 1. 提取核心情报 ---
         # 战场环境
         lookback_window = 15
-        ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
+        ascent_start_event = atomic.get('COGNITIVE_OPP_ACCUMULATION_BREAKOUT_S', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         # 回踩性质 (昨日)
-        was_healthy_pullback = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series).shift(1).fillna(False)
-        was_suppressive_pullback = atomic.get('PULLBACK_STATE_SUPPRESSIVE_S', default_series).shift(1).fillna(False)
+        was_healthy_pullback = atomic.get('COGNITIVE_PULLBACK_HEALTHY_S', default_series).shift(1).fillna(False)
+        was_suppressive_pullback = atomic.get('COGNITIVE_PULLBACK_SUPPRESSIVE_S', default_series).shift(1).fillna(False)
         # 统一确认信号 (今日)
         is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
         #：获取“上涨末期”上下文状态
@@ -921,7 +1373,7 @@ class CognitiveIntelligence:
         # --- 1. 记录所有输入条件 ---
         log_data['is_healthy_pullback'] = atomic.get('PULLBACK_STATE_HEALTHY_S', default_series)
         lookback_window = 15
-        ascent_start_event = atomic.get('POST_ACCUMULATION_ASCENT_C', default_series)
+        ascent_start_event = atomic.get('COGNITIVE_OPP_ACCUMULATION_BREAKOUT_S', default_series)
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         log_data['is_in_ascent_window'] = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         log_data['is_in_cruise_window'] = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)

@@ -77,7 +77,7 @@ class StructuralIntelligence:
         is_accel_up = {p: df[accel_cols[p]] > 0 for p in ma_periods}
         is_accel_down = {p: df[accel_cols[p]] < 0 for p in ma_periods}
 
-        # === Part 2: [新增] 共振信号合成 (多时间周期交叉验证) ===
+        # === Part 2: 共振信号合成 (多时间周期交叉验证) ===
         # 2.1 上升共振 (Bullish Resonance)
         bullish_slope_count = sum(is_slope_up.values())
         bullish_accel_count = sum(is_accel_up.values())
@@ -98,7 +98,7 @@ class StructuralIntelligence:
         # S级: A级基础上，超过半数均线在加速下跌
         states['RISK_MA_BEARISH_RESONANCE_S'] = states['RISK_MA_BEARISH_RESONANCE_A'] & (bearish_accel_count >= len(ma_periods) * 0.75)
 
-        # === Part 3: [新增] 反转信号合成 (同周期多维度交叉验证) ===
+        # === Part 3: 反转信号合成 (同周期多维度交叉验证) ===
         # 3.1 底部反转 (Bottom Reversal)
         setup_bottom = is_slope_down[55] # 环境：长期趋势向下
         # B级(试探性): 环境成立 + 短期趋势(5日)下跌减速
@@ -218,7 +218,7 @@ class StructuralIntelligence:
         is_breakout = is_valid_box & (close_d > box_top.shift(1)) & (close_d.shift(1) <= box_top.shift(1))
         is_breakdown = is_valid_box & (close_d < box_bottom.shift(1)) & (close_d.shift(1) >= box_bottom.shift(1))
 
-        # --- 3. [新增] 战备质量评分 (Setup Score) ---
+        # --- 3. 战备质量评分 (Setup Score) ---
         # 3.1 波动率压缩分 (越低越好)
         vol_compression_score = 1 - df['BBW_21_2.0_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         # 3.2 箱体内资金流入趋势分 (越高越好)
@@ -227,7 +227,7 @@ class StructuralIntelligence:
         setup_quality_score = (vol_compression_score * capital_inflow_score).where(is_valid_box, 0.0)
         states['SCORE_BOX_SETUP_QUALITY'] = setup_quality_score.astype(np.float32)
 
-        # --- 4. [升级] 点火质量评分 (Trigger Score) ---
+        # --- 4. 点火质量评分 (Trigger Score) ---
         # 4.1 动态成交量爆发分
         vol_slope_score = df['SLOPE_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         vol_accel_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
@@ -275,7 +275,7 @@ class StructuralIntelligence:
           - SCORE_PLATFORM_QUALITY_B/A/S: B/A/S三级平台总质量分。
         - 风险升级: 破位风险分融合了“平台质量”与“破位强度”，评估更精准。
         """
-        print("        -> [诊断模块 V3.0 动态力学诊断版] 启动...") # 更新版本号和打印信息
+        # print("        -> [诊断模块 V3.0 动态力学诊断版] 启动...") # 更新版本号和打印信息
         states = {}
         p = get_params_block(self.strategy, 'platform_state_params')
         if not get_param_value(p.get('enabled'), True): return df, {}
@@ -313,21 +313,21 @@ class StructuralIntelligence:
         cv_rank = coeff_of_variation.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         cost_stability_score = (1 - cv_rank)
 
-        # 2.2 成本动能分 (Momentum Score) - [新增]
+        # 2.2 成本动能分 (Momentum Score) 
         cost_slope_series = [
             df[f'SLOPE_{p}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_momentum_score = pd.Series(np.mean(np.array([s.values for s in cost_slope_series]), axis=0), index=df.index)
 
-        # 2.3 成本加速分 (Acceleration Score) - [新增]
+        # 2.3 成本加速分 (Acceleration Score) 
         cost_accel_series = [
             df[f'ACCEL_{p if p > 5 else 5}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_accel_score = pd.Series(np.mean(np.array([s.values for s in cost_accel_series]), axis=0), index=df.index)
 
-        # 2.4 宏观环境分 (Context Score) - [升级]
+        # 2.4 宏观环境分 (Context Score) 
         context_health_score = atomic.get('SCORE_MA_HEALTH', pd.Series(0.5, index=df.index))
 
         # --- 3. 融合生成B/A/S三级平台质量分 ---
@@ -345,7 +345,7 @@ class StructuralIntelligence:
         states['STRUCTURE_BOX_ACCUMULATION_A'] = stable_formed_series # 兼容信号
         df['PLATFORM_PRICE_STABLE'] = peak_cost.where(stable_formed_series)
 
-        # --- 5. [升级] 平台破位风险评分 ---
+        # --- 5. 平台破位风险评分 ---
         was_on_platform = stable_formed_series.shift(1, fill_value=False)
         is_breaking_down = df['close_D'] < df['PLATFORM_PRICE_STABLE'].ffill().shift(1)
         platform_failure_series = was_on_platform & is_breaking_down
@@ -362,8 +362,20 @@ class StructuralIntelligence:
         states['SCORE_RISK_PLATFORM_BROKEN_S'] = (
             platform_quality_yesterday * breakdown_intensity_score
         ).where(platform_failure_series, 0.0).astype(np.float32)
+        
+        # --- 6. 平台向上突破机会评分 ---
+        is_breaking_up = df['close_D'] > df['PLATFORM_PRICE_STABLE'].ffill().shift(1) # 定义向上突破事件
+        platform_breakout_series = was_on_platform & is_breaking_up # 必须是昨日在平台上，今日突破
+        states['STRUCTURE_PLATFORM_BREAKOUT'] = platform_breakout_series # 生成布尔事件信号
+        # 计算突破强度分
+        breakout_candle_score = ((df['close_D'] - df['open_D']) / candle_range).clip(0, 1).fillna(0.0)
+        breakout_intensity_score = breakout_candle_score * volume_score
+        # 融合生成最终机会分 (结合昨日平台质量、今日突破强度、今日宏观环境)
+        states['SCORE_OPP_PLATFORM_BREAKOUT_S'] = (
+            platform_quality_yesterday * breakout_intensity_score * context_health_score
+        ).where(platform_breakout_series, 0.0).astype(np.float32)
 
-        print("        -> [诊断模块 V3.0 动态力学诊断版] 分析完毕。") # 更新打印信息
+        # print("        -> [诊断模块 V3.0 动态力学诊断版] 分析完毕。") # 更新打印信息
         return df, states
 
     def diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -404,7 +416,7 @@ class StructuralIntelligence:
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
 
-        # --- 3. [新增] 计算“战备质量分” (Setup Score) ---
+        # --- 3. 计算“战备质量分” (Setup Score) ---
         # 3.1 下跌速度分 (越快，势能越大，反弹潜力越高)
         approach_velocity_score = (1 - df['SLOPE_5_close_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
         
@@ -505,7 +517,7 @@ class StructuralIntelligence:
         energy_advantage_score = normalize(df['energy_ratio_D'])
         vol_compression_score = 1 - normalize(df['BBW_21_2.0_D']) # BBW越小，压缩度越高
 
-        # --- 3. [新增] 共振信号合成 (多时间周期交叉验证) ---
+        # --- 3. 共振信号合成 (多时间周期交叉验证) ---
         avg_cost_momentum = pd.Series(np.mean(np.array([s.values for s in cost_momentum_scores.values()]), axis=0), index=df.index)
         avg_supply_lock = pd.Series(np.mean(np.array([s.values for s in supply_lock_scores.values()]), axis=0), index=df.index)
 
@@ -522,7 +534,7 @@ class StructuralIntelligence:
         states['SCORE_MECHANICS_BEARISH_RESONANCE_A'] = (avg_cost_decline * avg_supply_disperse).astype(np.float32)
         states['SCORE_MECHANICS_BEARISH_RESONANCE_S'] = (avg_cost_decline * avg_supply_disperse * energy_disadvantage_score).astype(np.float32)
 
-        # --- 4. [新增] 反转信号合成 (同周期多维度交叉验证) ---
+        # --- 4. 反转信号合成 (同周期多维度交叉验证) ---
         avg_cost_accel = pd.Series(np.mean(np.array([s.values for s in cost_accel_scores.values()]), axis=0), index=df.index)
 
         # 4.1 底部反转 (Bottom Reversal) = 战备分 * 点火分
@@ -593,7 +605,7 @@ class StructuralIntelligence:
         weekly_momentum_score = get_weekly_score(weekly_slope_cols)
         weekly_accel_score = get_weekly_score(weekly_accel_cols)
 
-        # --- 3. [新增] 共振信号合成 (多时间周期交叉验证) ---
+        # --- 3. 共振信号合成 (多时间周期交叉验证) ---
         # 3.1 上升共振 (Bullish Resonance)
         bullish_momentum_resonance = daily_momentum_score * weekly_momentum_score
         states['SCORE_MTF_BULLISH_RESONANCE_B'] = bullish_momentum_resonance.astype(np.float32)
@@ -606,7 +618,7 @@ class StructuralIntelligence:
         states['SCORE_MTF_BEARISH_RESONANCE_A'] = (bearish_momentum_resonance * (1 - daily_accel_score)).astype(np.float32)
         states['SCORE_MTF_BEARISH_RESONANCE_S'] = (bearish_momentum_resonance * (1 - daily_accel_score) * (1 - weekly_accel_score)).astype(np.float32)
 
-        # --- 4. [新增] 反转信号合成 (环境 x 拐点) ---
+        # --- 4. 反转信号合成 (环境 x 拐点) ---
         # 4.1 底部反转 (Bottom Reversal) = 周线看跌环境 x 日线看涨拐点
         weekly_downtrend_setup = 1 - weekly_momentum_score
         daily_bullish_trigger = daily_accel_score
@@ -626,80 +638,6 @@ class StructuralIntelligence:
         states['SCORE_MTF_TOP_REVERSAL_S'] = (top_reversal_base * weekly_accel_score).astype(np.float32) # S级: 周线上涨也在减速
 
         print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 分析完毕。") # 更新打印信息
-        return states
-
-    def diagnose_fusion_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V6.0 联合作战司令部版】元信号融合引擎
-        - 核心重构: 遵循“共振/反转”对称原则，升级为融合多个上游S级信号的顶层“元信号”引擎。
-        - 核心逻辑: 最终融合分 = f(均线信号, 力学信号, MTF信号)。只有当所有维度都达成共识时，才产生最高置信度的信号。
-        - 新增信号 (数值型, 对称设计):
-          - SCORE_FUSION_BULLISH_RESONANCE_S: 上升共振的“联合作战”总分。
-          - SCORE_FUSION_BEARISH_RESONANCE_S: 下跌共振的“联合作战”总分。
-          - SCORE_FUSION_BOTTOM_REVERSAL_S: 底部反转的“联合作战”总分。
-          - SCORE_FUSION_TOP_REVERSAL_S: 顶部反转的“联合作战”总分。
-        """
-        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 启动...") # 更新版本号和打印信息
-        states = {}
-        p = get_params_block(self.strategy, 'fusion_scores_params')
-        if not get_param_value(p.get('enabled'), True): return {}
-        atomic = self.strategy.atomic_states
-
-        # --- 1. 军备检查 (Arsenal Check): 检查所有依赖的上游S级信号 ---
-        # 定义四个象限所需的所有上游S级信号源
-        signal_sources = {
-            'bullish_resonance': [
-                'SCORE_MA_BULLISH_RESONANCE_S',
-                'SCORE_MECHANICS_BULLISH_RESONANCE_S',
-                'SCORE_MTF_BULLISH_RESONANCE_S'
-            ],
-            'bearish_resonance': [
-                'SCORE_MA_BEARISH_RESONANCE_S',
-                'SCORE_MECHANICS_BEARISH_RESONANCE_S',
-                'SCORE_MTF_BEARISH_RESONANCE_S'
-            ],
-            'bottom_reversal': [
-                'SCORE_MA_BOTTOM_REVERSAL_S',
-                'SCORE_MECHANICS_BOTTOM_REVERSAL_S',
-                'SCORE_MTF_BOTTOM_REVERSAL_S'
-            ],
-            'top_reversal': [
-                'SCORE_MA_TOP_REVERSAL_S',
-                'SCORE_MECHANICS_TOP_REVERSAL_S',
-                'SCORE_MTF_TOP_REVERSAL_S'
-            ]
-        }
-
-        all_required_signals = [sig for group in signal_sources.values() for sig in group]
-        missing_signals = [s for s in all_required_signals if s not in atomic]
-        if missing_signals:
-            print(f"          -> [严重警告] 元信号融合引擎缺少核心上游S级分数: {missing_signals}，模块已跳过！")
-            return {}
-
-        # --- 2. 融合生成四个象限的“联合作战”元信号 ---
-        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-
-        def fuse_scores(source_keys: list) -> pd.Series:
-            """辅助函数，用于获取并融合多个分数。"""
-            scores_to_fuse = [atomic.get(key, default_series) for key in source_keys]
-            # 使用np.prod进行高效的元素级乘法，沿axis=0操作
-            fused_values = np.prod(np.array([s.values for s in scores_to_fuse]), axis=0)
-            return pd.Series(fused_values, index=df.index, dtype=np.float32)
-
-        # 按照新的对称结构生成融合信号
-        # 2.1 上升共振融合
-        states['SCORE_FUSION_BULLISH_RESONANCE_S'] = fuse_scores(signal_sources['bullish_resonance'])
-        
-        # 2.2 下跌共振融合
-        states['SCORE_FUSION_BEARISH_RESONANCE_S'] = fuse_scores(signal_sources['bearish_resonance'])
-
-        # 2.3 底部反转融合
-        states['SCORE_FUSION_BOTTOM_REVERSAL_S'] = fuse_scores(signal_sources['bottom_reversal'])
-
-        # 2.4 顶部反转融合
-        states['SCORE_FUSION_TOP_REVERSAL_S'] = fuse_scores(signal_sources['top_reversal'])
-        
-        print("        -> [元信号融合引擎 V6.0 联合作战司令部版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_structural_risks_and_regimes_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -723,7 +661,8 @@ class StructuralIntelligence:
             'price_to_peak_ratio_D', 'SLOPE_5_price_to_peak_ratio_D',
             'winner_profit_margin_D', 'SLOPE_5_winner_profit_margin_D',
             'chip_health_score_D', 'SLOPE_5_chip_health_score_D', 'is_chip_fault_formed_D',
-            'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D'
+            'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D',
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D',
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -754,7 +693,7 @@ class StructuralIntelligence:
         vol_dynamic = normalize(df['SLOPE_5_BBW_21_2.0_D'])
         vol_accel = normalize(df['ACCEL_5_BBW_21_2.0_D'])
 
-        # --- 3. [新增] 风险信号合成 (多维度风险共振) ---
+        # --- 3. 风险信号合成 (多维度风险共振) ---
         # 3.1 价格乖离风险
         states['SCORE_RISK_PRICE_DEVIATION_B'] = price_deviation_static.astype(np.float32)
         states['SCORE_RISK_PRICE_DEVIATION_A'] = (price_deviation_static * price_deviation_dynamic).astype(np.float32)
@@ -771,8 +710,12 @@ class StructuralIntelligence:
         states['SCORE_RISK_STRUCTURAL_FAULT_B'] = structural_unhealth.astype(np.float32)
         states['SCORE_RISK_STRUCTURAL_FAULT_A'] = (structural_unhealth * structural_deterioration).astype(np.float32)
         states['SCORE_RISK_STRUCTURAL_FAULT_S'] = (states['SCORE_RISK_STRUCTURAL_FAULT_A'] * is_fault_formed).astype(np.float32)
+        # --- 筹码结构衰退风险 ---
+        is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
+        is_mid_term_diverging = df['SLOPE_21_concentration_90pct_D'] > 0
+        states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] = is_short_term_diverging & is_mid_term_diverging
 
-        # --- 4. [新增] 状态信号合成 (市场环境分类) ---
+        # --- 4. 状态信号合成 (市场环境分类) ---
         # 4.1 波动压缩状态
         vol_compression_static = 1 - vol_static
         vol_compression_dynamic = 1 - vol_dynamic
@@ -845,7 +788,7 @@ class StructuralIntelligence:
         vol_compression_score = atomic['SCORE_REGIME_VOL_COMPRESSION_S']
         vol_expansion_score = atomic['SCORE_REGIME_VOL_EXPANSION_S']
 
-        # --- 3. [新增] 模式信号交叉验证与评分 ---
+        # --- 3. 模式信号交叉验证与评分 ---
         # 3.1 上升共振模式 (突破)
         bullish_pattern_base = is_breakthrough # 未来可扩展: max(is_breakthrough, is_uptrend_channel)
         states['SCORE_PATTERN_BULLISH_RESONANCE_B'] = bullish_pattern_base.astype(np.float32)
@@ -881,70 +824,50 @@ class StructuralIntelligence:
         print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 分析完毕。") # 更新打印信息
         return states
 
-    def diagnose_ultimate_confirmation_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_fused_behavioral_structure_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 终极确认版】元信号与模式的最终融合引擎
-        - 核心职责: 寻找“连续性共振”与“离散性模式”同时发生的最高置信度信号，即“完美风暴”。
-        - 核心逻辑: 终极确认分 = f(联合作战信号, 高级模式信号)。
-        - 新增信号 (数值型, 对称设计):
-          - SCORE_ULTIMATE_BULLISH_CONFIRMATION_S: 终极看涨确认分 (共振+突破)。
-          - SCORE_ULTIMATE_BEARISH_CONFIRMATION_S: 终极看跌确认分 (共振+跌破)。
-          - SCORE_ULTIMATE_BOTTOM_CONFIRMATION_S: 终极底部确认分 (反转+吸筹)。
-          - SCORE_ULTIMATE_TOP_CONFIRMATION_S: 终极顶部确认分 (反转+派发)。
+        【V1.0】行为与结构融合风险诊断模块
+        - 核心职责: 承接原 CognitiveIntelligence 中的复杂风险计算逻辑，融合行为、价格、
+                      筹码等多维度信息，生成高质量的原子风险信号。
+        - 收益: 净化了认知层的职责，确保复杂的原子信号在正确的情报层生成。
         """
-        print("        -> [终极确认引擎 V1.0 完美风暴版] 启动...") # 新模块的打印信息
+        print("        -> [行为-结构融合风险模块 V1.0] 启动...")
         states = {}
-        p = get_params_block(self.strategy, 'ultimate_confirmation_params')
-        if not get_param_value(p.get('enabled'), True): return {}
         atomic = self.strategy.atomic_states
-
-        # --- 1. 军备检查 (Arsenal Check): 检查所有依赖的顶层S级信号 ---
-        required_fusion_signals = [
-            'SCORE_FUSION_BULLISH_RESONANCE_S', 'SCORE_FUSION_BEARISH_RESONANCE_S',
-            'SCORE_FUSION_BOTTOM_REVERSAL_S', 'SCORE_FUSION_TOP_REVERSAL_S'
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'close_D', 'high_D', 'SLOPE_5_volume_D',
+            'SLOPE_5_VPA_EFFICIENCY_D', 'SLOPE_5_concentration_90pct_D'
         ]
-        required_pattern_signals = [
-            'SCORE_PATTERN_BULLISH_RESONANCE_S', 'SCORE_PATTERN_BEARISH_RESONANCE_S',
-            'SCORE_PATTERN_BOTTOM_REVERSAL_S', 'SCORE_PATTERN_TOP_REVERSAL_S'
+        required_scores = [
+            'SCORE_PROFIT_TAKING_TOP_REVERSAL_S',
         ]
-        
-        all_required_signals = required_fusion_signals + required_pattern_signals
-        missing_signals = [s for s in all_required_signals if s not in atomic]
-        if missing_signals:
-            print(f"          -> [严重警告] 终极确认引擎缺少核心上游S级分数: {missing_signals}，模块已跳过！")
-            return {}
-
-        # --- 2. 获取核心信号 ---
-        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
-        # 联合作战信号
-        fusion_bullish = atomic.get('SCORE_FUSION_BULLISH_RESONANCE_S', default_series)
-        fusion_bearish = atomic.get('SCORE_FUSION_BEARISH_RESONANCE_S', default_series)
-        fusion_bottom = atomic.get('SCORE_FUSION_BOTTOM_REVERSAL_S', default_series)
-        fusion_top = atomic.get('SCORE_FUSION_TOP_REVERSAL_S', default_series)
-
-        # 高级模式信号
-        pattern_bullish = atomic.get('SCORE_PATTERN_BULLISH_RESONANCE_S', default_series)
-        pattern_bearish = atomic.get('SCORE_PATTERN_BEARISH_RESONANCE_S', default_series)
-        pattern_bottom = atomic.get('SCORE_PATTERN_BOTTOM_REVERSAL_S', default_series)
-        pattern_top = atomic.get('SCORE_PATTERN_TOP_REVERSAL_S', default_series)
-
-        # --- 3. 融合生成四个象限的“终极确认”信号 ---
-        # 核心逻辑: 只有当两个维度的信号都非常强时，才产生最终信号。使用乘法可以完美体现这一点。
-        
-        # 3.1 终极看涨确认 (上升共振 + 突破模式)
-        states['SCORE_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
-        
-        # 3.2 终极看跌确认 (下跌共振 + 跌破模式)
-        states['SCORE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
-
-        # 3.3 终极底部确认 (底部反转 + 吸筹模式)
-        states['SCORE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
-
-        # 3.4 终极顶部确认 (顶部反转 + 派发模式)
-        states['SCORE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
-        
-        print("        -> [终极确认引擎 V1.0 完美风暴版] 分析完毕。") # 新模块的打印信息
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        missing_scores = [s for s in required_scores if s not in atomic]
+        if missing_cols or missing_scores:
+            print(f"          -> [警告] 行为-结构融合风险模块缺少关键数据: 列{missing_cols}, 分数{missing_scores}。模块已跳过。")
+            return states
+        # --- 2. 计算“动能衰竭”风险 (CONTEXT_RISK_MOMENTUM_EXHAUSTION) ---
+        is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85
+        is_profit_cushion_shrinking = atomic.get('SCORE_PROFIT_TAKING_TOP_REVERSAL_S', default_series) > 0.8
+        is_market_engine_stalling = atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series)
+        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & (is_profit_cushion_shrinking | is_market_engine_stalling)
+        # --- 3. 计算“动态对倒嫌疑”风险 (COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN) ---
+        is_volume_increasing = df['SLOPE_5_volume_D'] > 0
+        is_vpa_efficiency_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
+        is_chip_diverging_for_churn = df['SLOPE_5_concentration_90pct_D'] > 0
+        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
+        print("        -> [行为-结构融合风险模块 V1.0] 分析完毕。")
         return states
+
+
+
+
+
+
+
+
+
 
 

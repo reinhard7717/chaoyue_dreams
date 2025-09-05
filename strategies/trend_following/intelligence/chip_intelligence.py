@@ -27,7 +27,7 @@ class ChipIntelligence:
         states = {}
         triggers = {}
         # --- 步骤 1: 调用四级评分中心，生成所有数值型评分 ---
-        # 记录调用前的列名，用于后续识别新增的评分列
+        # 记录调用前的列名，用于后续识别 的评分列
         initial_cols = set(df.columns)
         # 1.1 调用宏观共振/反转诊断模块
         df = self.diagnose_quantitative_chip_scores(df)
@@ -35,8 +35,15 @@ class ChipIntelligence:
         df = self.diagnose_advanced_chip_dynamics_scores(df)
         # 1.3 调用内部结构诊断模块
         df = self.diagnose_chip_internal_structure_scores(df)
-        # 1.4 调用新增的持仓者行为诊断模块
+        # 1.4 调用 的持仓者行为诊断模块
         df = self.diagnose_chip_holder_behavior_scores(df)
+        # 1.5 调用行为-筹码融合评分模块
+        df = self.diagnose_fused_behavioral_chip_scores(df)
+        # 1.6: 调用 V2.0 版本的元融合模块
+        prime_opp_states, prime_opp_scores = self.synthesize_prime_chip_opportunity(df)
+        states.update(prime_opp_states)
+        if prime_opp_scores:
+            df = df.assign(**prime_opp_scores)
         # --- 步骤 1.5: 将所有新生成的数值评分更新到原子状态库 ---
         # 这是关键一步，确保下游模块可以访问到这些数值信号
         final_cols = set(df.columns)
@@ -68,11 +75,7 @@ class ChipIntelligence:
                 'CHIP_CONC_ACCELERATED_GATHERING_B': 0.85,
                 'CHIP_CONC_INTENSIFYING_B_PLUS': 0.95
             }, 120, 'bucket_upper'),
-            'BUCKET_RISK_BEHAVIOR_WINNERS_FLEEING': ('CHIP_SCORE_RISK_FLEEING_IN_HIGH_ZONE', {
-                'RISK_BEHAVIOR_WINNERS_FLEEING_C': 0.60,
-                'RISK_BEHAVIOR_WINNERS_FLEEING_B': 0.75,
-                'RISK_BEHAVIOR_WINNERS_FLEEING_A': 0.90
-            }, 120, 'bucket_upper'),
+            'CHIP_PROFIT_TAKING_INTENSE_A': ('SCORE_CHIP_PROFIT_TAKING_INTENSITY', 0.90, 120, 'state'),
         }
         available_cols = set(df.columns)
         all_generated_states = {}
@@ -137,6 +140,63 @@ class ChipIntelligence:
         self.strategy.atomic_states.update(all_generated_states)
         return states, triggers
 
+    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]: # [修改] 重写整个方法
+        """
+        【V2.0 分层加权融合版】黄金筹码机会元融合模块
+        - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
+                      “维度内置信度加权”和“维度间重要性加权”两步，融合成一个顶层的、
+                      能精细度量机会“成色”的元分数。
+        - 收益: 实现了从“信号有无”到“机会质量”的升维，为决策提供了更平滑、更鲁棒的依据。
+        """
+        print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 启动...")
+        states = {}
+        new_scores = {}
+        atomic = self.strategy.atomic_states
+        p_module = get_params_block(self.strategy, 'prime_chip_opportunity_params_v2', {})
+        if not get_param_value(p_module.get('enabled'), True):
+            return states, new_scores
+        # --- 1. 加载参数：维度权重与置信度权重 ---
+        dim_weights = get_param_value(p_module.get('dimension_weights'), {
+            'structure_health': 0.35, 'core_holder': 0.30, 'net_support': 0.20, 'cost_structure': 0.15
+        })
+        conf_weights = get_param_value(p_module.get('confidence_weights'), {
+            'S': 1.0, 'A': 0.6, 'B': 0.3
+        })
+        total_conf_weight = sum(conf_weights.values())
+        # --- 2. 军备检查：获取所有S/A/B三级评分 ---
+        score_map = {
+            'structure_health': ['SCORE_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_STRUCTURE_BULLISH_RESONANCE_B'],
+            'core_holder': ['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_A', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_B'],
+            'net_support': [None, 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_A', 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_B'], # Net Support 没有S级
+            'cost_structure': ['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_B']
+        }
+        all_required_scores = [s for group in score_map.values() for s in group if s]
+        missing_scores = [s for s in all_required_scores if s not in atomic]
+        if missing_scores:
+            print(f"          -> [警告] synthesize_prime_chip_opportunity黄金机会融合模块缺少上游分数: {missing_scores}，模块已跳过。")
+            return states, new_scores
+        # --- 3. 维度内融合：计算每个维度的综合强度分 ---
+        fused_dimension_scores = {}
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        for dim_name, (s_score_name, a_score_name, b_score_name) in score_map.items():
+            s_score = atomic.get(s_score_name, default_series) if s_score_name else default_series
+            a_score = atomic.get(a_score_name, default_series) if a_score_name else default_series
+            b_score = atomic.get(b_score_name, default_series) if b_score_name else default_series
+            # 置信度加权求和，并归一化
+            fused_score = (s_score * conf_weights['S'] + a_score * conf_weights['A'] + b_score * conf_weights['B']) / total_conf_weight
+            fused_dimension_scores[dim_name] = fused_score
+        # --- 4. 维度间融合：计算最终的“黄金机会”元分数 ---
+        final_prime_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        for dim_name, weight in dim_weights.items():
+            final_prime_score += fused_dimension_scores[dim_name] * weight
+        new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] = final_prime_score.clip(0, 1)
+        # --- 5. 基于元分数，生成兼容性的布尔信号 ---
+        threshold = get_param_value(p_module.get('prime_score_threshold_for_bool'), 0.7)
+        prime_opportunity_signal = new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] > threshold
+        states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = prime_opportunity_signal
+        # print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 计算完毕。")
+        return states, new_scores
+
     def diagnose_quantitative_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.0 共振-反转对称诊断版】筹码信号量化评分诊断模块
@@ -144,7 +204,7 @@ class ChipIntelligence:
         - 核心逻辑:
           - 共振信号 (多周期交叉): 评估筹码集中度、成本重心在多时间周期上的一致性。
           - 反转信号 (同周期交叉): 评估“静态战备(Setup)”与“动态点火(Trigger)”的结合。
-        - 新增信号 (数值型, 对称设计):
+        -  信号 (数值型, 对称设计):
           - SCORE_CHIP_BULLISH_RESONANCE_S/A/B: 上升共振机会分 (多周期筹码集中)。
           - SCORE_CHIP_BEARISH_RESONANCE_S/A/B: 下跌共振风险分 (多周期筹码发散)。
           - SCORE_CHIP_BOTTOM_REVERSAL_S/A/B: 底部反转机会分 (下跌衰竭后吸筹)。
@@ -170,17 +230,6 @@ class ChipIntelligence:
                 f'ACCEL_{p if p > 5 else 5}_turnover_from_winners_ratio_D'
             ])
         # --- 2. 检查必需列 ---
-        # 将 ACCEL_21_peak_cost_D 替换为军械库中的实际名称 peak_cost_accel_21d_D
-        required_cols_mapping = {
-            'ACCEL_21_peak_cost_D': 'peak_cost_accel_21d_D'
-        }
-        # 动态替换列名以匹配军械库
-        for i, col in enumerate(required_cols):
-            if col in required_cols_mapping:
-                required_cols[i] = required_cols_mapping[col]
-                # 同时，为了后续逻辑兼容，将df中的列名也统一过来
-                if required_cols_mapping[col] in df.columns:
-                    df[col] = df[required_cols_mapping[col]]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [严重警告] 筹码评分引擎缺少关键数据列: {missing_cols}，模块已跳过！")
@@ -201,7 +250,7 @@ class ChipIntelligence:
         static_health = normalize(df['chip_health_score_D'])
         static_price_deviation = normalize(df['price_to_peak_ratio_D'])
         static_high_winner_rate = normalize(df['total_winner_rate_D'])
-        # --- 4. [新增] 共振信号合成 (多时间周期交叉验证) ---
+        # --- 4. 共振信号合成 (多时间周期交叉验证) ---
         avg_conc_momentum = pd.Series(np.mean(np.array([s.values for s in conc_momentum_scores.values()]), axis=0), index=df.index)
         avg_cost_momentum = pd.Series(np.mean(np.array([s.values for s in cost_momentum_scores.values()]), axis=0), index=df.index)
 
@@ -218,13 +267,13 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] = (avg_conc_divergence * avg_cost_decline).astype(np.float32)
         new_scores['SCORE_CHIP_BEARISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] * static_unhealth).astype(np.float32)
 
-        # --- 5. [新增] 反转信号合成 (静态战备 x 动态点火) ---
+        # --- 5. 反转信号合成 (静态战备 x 动态点火) ---
         # 5.1 底部反转 (环境恶劣 -> 动态改善)
         bottom_setup_score = (1 - static_concentration) * (1 - static_price_deviation) # 战备: 筹码曾发散 + 价格处于低位
         bottom_trigger_score = conc_momentum_scores[5] * cost_accel_scores[5] # 点火: 短期开始集中 + 成本加速抬升
         new_scores['SCORE_CHIP_BOTTOM_REVERSAL_B'] = bottom_trigger_score.astype(np.float32)
         new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (bottom_setup_score * bottom_trigger_score).astype(np.float32)
-        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CHIP_BOTTOM_REversal_A'] * conc_accel_scores[5]).astype(np.float32)
+        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] * conc_accel_scores[5]).astype(np.float32)
 
         # 5.2 顶部反转 (环境良好 -> 动态恶化) - 对称逻辑
         top_setup_score = static_concentration * static_price_deviation * static_high_winner_rate # 战备: 筹码集中 + 价格高位 + 获利盘丰厚
@@ -233,7 +282,11 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_TOP_REVERSAL_A'] = (top_setup_score * top_trigger_score).astype(np.float32)
         new_scores['SCORE_CHIP_TOP_REVERSAL_S'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_A'] * (1 - conc_accel_scores[5])).astype(np.float32)
 
-        # --- 6. 一次性将所有新得分合并到DataFrame ---
+        # --- 6.  纯筹码评分: 获利盘兑现强度 ---
+        # 逻辑: 获利盘换手率越高，且获利盘比例也高时，兑现强度越大。
+        profit_taking_turnover_score = normalize(df['turnover_from_winners_ratio_D'])
+        new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate).astype(np.float32)
+
         df = df.assign(**new_scores)
         print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") # 更新打印信息
         return df
@@ -246,7 +299,7 @@ class ChipIntelligence:
           - 结构健康度 -> 上升/下跌共振: 融合“控盘度”、“纯粹度”、“稳定性”的静态分与多周期动态分。
           - 恐慌与承接 -> 底部反转: 捕捉“亏损盘割肉”从加速到衰竭的完整过程。
           - 断层风险 -> 顶部反转/下跌共振: 将断层存在性(布尔)升级为基于强度和真空度的数值风险。
-        - 新增信号 (数值型, 对称设计):
+        -  信号 (数值型, 对称设计):
           - SCORE_STRUCTURE_BULLISH_RESONANCE_S/A/B: 结构健康度上升共振分。
           - SCORE_STRUCTURE_BEARISH_RESONANCE_S/A/B: 结构健康度下跌共振分。
           - SCORE_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 恐慌盘投降底部反转分。
@@ -351,7 +404,7 @@ class ChipIntelligence:
           - 核心持仓者动态 -> 上升共振: 验证核心筹码(70%)是否比外围(90%)集中更快。
           - 利润兑现压力 -> 顶部反转: 结合静态利润厚度与动态利润增速，评估抛压。
           - 结构支撑压力 -> 上升共振: 结合静态净支撑与动态净支撑变化趋势。
-        - 新增信号 (数值型, 对称设计):
+        -  信号 (数值型, 对称设计):
           - SCORE_CORE_HOLDER_BULLISH_RESONANCE_S/A/B: 核心持仓者上升共振分。
           - SCORE_PROFIT_TAKING_TOP_REVERSAL_S/A/B: 获利盘兑现顶部反转风险分。
           - SCORE_NET_SUPPORT_BULLISH_RESONANCE_A/B: 净支撑上升共振分。
@@ -441,7 +494,7 @@ class ChipIntelligence:
           - 成本结构背离 -> 上升共振: 验证短期成本是否在持续拉开与长期成本的差距。
           - 长线筹码稳定性 -> 顶部反转: 监控长线获利盘的抛售意愿是否在加速。
           - 长线筹码投降 -> 底部反转: 捕捉深度套牢的长线资金从开始割肉到割肉衰竭的全过程。
-        - 新增信号 (数值型, 对称设计):
+        -  信号 (数值型, 对称设计):
           - SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S/A/B: 成本结构看涨共振分。
           - SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A/B: 长线筹码不稳定顶部反转风险分。
           - SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 长线筹码投降底部反转机会分。
@@ -456,13 +509,13 @@ class ChipIntelligence:
         # [修改] 扩展所需列，并引入 cost_divergence_D
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
-            'winner_turnover_long_term_D', 'loser_rate_long_term_D'
+            'turnover_from_winners_ratio_D', 'loser_rate_long_term_D'
         ]
         # 动态添加斜率和加速度列
         for period in periods:
             required_cols.extend([f'SLOPE_{period}_cost_divergence_D'])
         required_cols.extend([
-            'ACCEL_5_cost_divergence_D', 'SLOPE_5_winner_turnover_long_term_D',
+            'ACCEL_5_cost_divergence_D', 'SLOPE_5_turnover_from_winners_ratio_D',
             'SLOPE_5_loser_rate_long_term_D', 'ACCEL_5_loser_rate_long_term_D'
         ])
         # 假设 cost_divergence_D 在数据层已计算
@@ -498,9 +551,9 @@ class ChipIntelligence:
 
         # --- 4. [重构] 维度二: 长线筹码不稳定顶部反转风险 ---
         # 4.1 静态风险 (Setup): 长线获利盘换手率高
-        static_instability = normalize(df['winner_turnover_long_term_D'])
+        static_instability = normalize(df['turnover_from_winners_ratio_D'])
         # 4.2 动态风险 (Trigger): 换手率仍在上升
-        dynamic_instability = normalize(df['SLOPE_5_winner_turnover_long_term_D'])
+        dynamic_instability = normalize(df['SLOPE_5_turnover_from_winners_ratio_D'])
 
         # 4.3 融合生成A/B两级顶部反转风险信号
         new_scores['SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_B'] = static_instability.astype(np.float32)
@@ -522,6 +575,60 @@ class ChipIntelligence:
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
         print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 计算完毕。") # [修改] 更新打印信息
+        return df
+
+    def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0   & 逻辑迁移】行为与筹码融合评分模块
+        - 核心职责: 承接原 CognitiveIntelligence 中的部分计算逻辑，遵循分层架构原则。
+                      融合基础的价格行为信号与筹码动态信号，生成更高质量的、描述特定
+                      战术场景（如“洗盘吸筹”、“诱多派发”）的原子分数。
+        - 收益: 净化了认知层的职责，使其专注于纯粹的“元融合”。
+        """
+        print("        -> [行为-筹码融合评分模块 V1.0] 启动...")
+        new_scores = {}
+        p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return df
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'pct_change_D', 'turnover_from_losers_ratio_D',
+            'turnover_from_winners_ratio_D', 'SLOPE_5_concentration_90pct_D'
+        ]
+        required_scores = ['SCORE_CHIP_TOP_REVERSAL_A']
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        missing_scores = [s for s in required_scores if s not in self.strategy.atomic_states]
+        if missing_cols or missing_scores:
+            print(f"          -> [警告] 行为-筹码融合模块缺少关键数据: 列{missing_cols}, 分数{missing_scores}。模块已跳过。")
+            return df
+        # --- 2. 定义归一化辅助函数 ---
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        def normalize(series, ascending=True):
+            return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
+        # --- 3. 计算“洗盘吸筹”融合分 (Washout Absorption Score) ---
+        # 条件1: 价格下跌得分 (跌幅在-2%到-7%之间得分最高)
+        drop_score = (1 - (df['pct_change_D'] - (-0.045)).abs() / 0.025).clip(0, 1)
+        # 条件2: 套牢盘割肉得分
+        losers_capitulating_score = normalize(df['turnover_from_losers_ratio_D'], ascending=True)
+        # 条件3: 获利盘锁仓得分
+        winners_holding_score = normalize(df['turnover_from_winners_ratio_D'], ascending=False)
+        # 条件4: 筹码结构改善得分 (斜率为负代表集中，所以ascending=False)
+        chip_improving_score = normalize(df['SLOPE_5_concentration_90pct_D'], ascending=False)
+        washout_absorption_score = (
+            drop_score * losers_capitulating_score * winners_holding_score * chip_improving_score
+        )
+        new_scores['CHIP_SCORE_FUSED_WASHOUT_ABSORPTION'] = washout_absorption_score.astype(np.float32)
+        # --- 4. 计算“诱多派发”融合分 (Deceptive Rally Score) ---
+        # 条件1: 价格拉升得分
+        rally_score = normalize(df['pct_change_D'], ascending=True)
+        # 条件2: 筹码顶部反转风险分 (消费纯筹码信号)
+        chip_top_reversal_score = self.strategy.atomic_states.get('SCORE_CHIP_TOP_REVERSAL_A', pd.Series(0.5, index=df.index))
+        deceptive_rally_score = rally_score * chip_top_reversal_score
+        new_scores['CHIP_SCORE_FUSED_DECEPTIVE_RALLY'] = deceptive_rally_score.astype(np.float32)
+        # --- 5. 更新DataFrame ---
+        df = df.assign(**new_scores)
+        print("        -> [行为-筹码融合评分模块 V1.0] 计算完毕。")
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:

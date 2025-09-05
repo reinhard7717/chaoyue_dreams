@@ -13,6 +13,54 @@ class DynamicMechanicsEngine:
         """
         self.strategy = strategy_instance
 
+    def run_dynamic_analysis_command(self) -> None:
+        """
+        【V1.0 新增】动态力学分析总指挥官
+        - 核心职责:
+          1. 作为动态力学引擎的唯一入口，统一调度所有底层的力学诊断模块。
+          2. 在所有原子力学分数生成后，执行“元融合”，将各维度最关键的看涨分数
+             融合成一个顶层的“市场整体力学健康度”元分数。
+        - 收益: 简化了上层调用，并创造了一个更高维度的、概括性的力学数值信号。
+        """
+        print("    -> [动态力学分析总指挥官 V1.0] 启动...")
+        all_states = {}
+        df = self.strategy.df_indicators
+        # --- 步骤 1: 依次调用所有底层诊断模块，并收集其产出的原子分数 ---
+        all_states.update(self.run_force_vector_analysis_scores())
+        all_states.update(self.diagnose_multi_timeframe_micro_dynamics_scores(df))
+        all_states.update(self.diagnose_multi_timeframe_dynamics_scores(df))
+        all_states.update(self.diagnose_behavioral_mechanics_scores(df))
+        # --- 步骤 2: 执行元融合，生成“整体力学健康度”元分数 ---
+        p_module = self.strategy.params.get('dynamic_mechanics_meta_fusion_params', {})
+        if p_module.get('enabled', True):
+            print("        -> [力学元融合模块] 启动...")
+            # 定义各维度权重
+            weights = p_module.get('weights', {
+                'force_vector': 0.35,
+                'micro_dynamics': 0.25,
+                'mtf_dynamics': 0.20,
+                'behavioral': 0.20
+            })
+            # 提取各维度最关键的看涨分数
+            default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+            fv_score = all_states.get('SCORE_FV_CONFIRMED_IGNITION_S_PLUS', default_series)
+            micro_score = all_states.get('SCORE_DYN_BULLISH_RESONANCE_S', default_series)
+            mtf_score = all_states.get('SCORE_MTF_PLATFORM_IGNITION_S_PLUS', default_series)
+            behavioral_score = all_states.get('SCORE_BEHAVIOR_ENGINE_IGNITION_A', default_series)
+            # 加权平均
+            meta_score = (
+                fv_score * weights['force_vector'] +
+                micro_score * weights['micro_dynamics'] +
+                mtf_score * weights['mtf_dynamics'] +
+                behavioral_score * weights['behavioral']
+            ).clip(0, 1)
+            all_states['SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S'] = meta_score
+            print("        -> [力学元融合模块] “整体力学健康度”元分数计算完毕。")
+        # --- 步骤 3: 将所有生成的原子分数和元分数一次性更新到原子状态库 ---
+        if all_states:
+            self.strategy.atomic_states.update(all_states)
+            print(f"    -> [动态力学分析总指挥官 V1.0] 分析完毕，共更新 {len(all_states)} 个力学信号。")
+
     def _normalize_series(self, series: pd.Series, norm_window: int, min_periods: int, ascending: bool = True) -> np.ndarray:
         """
         辅助函数：将Pandas Series进行滚动窗口排名归一化，并返回NumPy数组。
@@ -37,7 +85,7 @@ class DynamicMechanicsEngine:
           - 优化静态信号的获取逻辑：当信号不存在时，直接创建NumPy数组作为默认值，
             避免了通过 `pd.Series(...)` 创建临时对象，大幅减少了内存分配和计算开销。
         """
-        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") # 更新版本号
+        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") 
         states = {}
         df = self.strategy.df_indicators
         # --- 1. 军备检查 ---
@@ -81,17 +129,17 @@ class DynamicMechanicsEngine:
             'SCORE_FV_CONFIRMED_IGNITION_S_PLUS': pd.Series(confirmed_ignition_arr, index=df.index),
         }
         self.strategy.atomic_states.update(states)
-        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") # 更新版本号
+        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") 
         return states
 
     def diagnose_multi_timeframe_micro_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 终极优化版】多时间维度微观力学评分引擎
+        【V2.5 数值化升级版】多时间维度微观力学评分引擎
         - 核心逻辑: (业务逻辑不变)
-        - 性能优化 (本次修改):
-          - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
+        - 核心升级 (本次修改): 消费端同步升级，使用新的数值化分级评分 'SCORE_VOL_COMPRESSION_LEVEL'
+                          替代旧的布尔信号。分数越高，对看涨共振的加成越大。
         """
-        print("        -> [多时间维度微观力学评分引擎 V2.3] 启动...") # 更新版本号
+        print("        -> [多时间维度微观力学评分引擎 V2.5] 启动...")
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -123,17 +171,18 @@ class DynamicMechanicsEngine:
         price_accel_resonance_arr = np.mean(np.array([price_accel_5d_arr, price_accel_21d_arr]), axis=0)
         chip_conc_resonance_arr = np.mean(np.array([chip_conc_5d_arr, chip_conc_21d_arr, chip_conc_55d_arr]), axis=0)
         # --- 4. 静态-动态交叉验证 (纯NumPy数组运算) ---
-        # 优化静态信号的获取方式，避免在信号缺失时创建完整的Pandas Series
-        key = 'VOL_STATE_EXTREME_SQUEEZE'
+        # 消费新的数值化评分 'SCORE_VOL_COMPRESSION_LEVEL'
+        key = 'SCORE_VOL_COMPRESSION_LEVEL'
         if key in self.strategy.atomic_states:
-            # 原始信号是布尔型，直接转换为float32 (True->1.0, False->0.0)
-            static_squeeze_arr = self.strategy.atomic_states[key].values.astype(np.float32)
+            # 直接获取分数值 (0.0 to 1.0)
+            static_squeeze_score_arr = self.strategy.atomic_states[key].values
         else:
-            # 默认值是False，对应为0.0
-            static_squeeze_arr = np.zeros(len(df), dtype=np.float32)
+            # 默认值是0.0
+            static_squeeze_score_arr = np.full(len(df), 0.0, dtype=np.float32)
+        # 将分级评分作为加权因子。乘数范围从 0.5 (无压缩) 到 1.5 (S级压缩)
         bullish_resonance_arr = (
             price_momentum_resonance_arr * price_accel_resonance_arr * chip_conc_resonance_arr *
-            volatility_ignition_arr * volume_accel_arr * (static_squeeze_arr + 0.5)
+            volatility_ignition_arr * volume_accel_arr * (static_squeeze_score_arr + 0.5)
         )
         short_term_weakness_arr = 1.0 - price_momentum_5d_arr
         divergence_risk_arr = price_momentum_21d_arr * short_term_weakness_arr
@@ -148,7 +197,7 @@ class DynamicMechanicsEngine:
             'SCORE_DYN_DIVERGENCE_RISK_A': pd.Series(divergence_risk_arr, index=df.index),
             'SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S': pd.Series(exhaustion_divergence_risk_arr, index=df.index),
         }
-        print("        -> [多时间维度微观力学评分引擎 V2.3] 分析完毕。") # 更新版本号
+        print("        -> [多时间维度微观力学评分引擎 V2.5] 分析完毕。") 
         return states
 
     def diagnose_multi_timeframe_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -159,7 +208,7 @@ class DynamicMechanicsEngine:
           - 关键优化：使用纯NumPy切片实现shift操作，消除了`NumPy->Pandas->NumPy`的昂贵转换开销。
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
         """
-        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") # 更新版本号
+        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") 
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -218,7 +267,7 @@ class DynamicMechanicsEngine:
             'SCORE_MTF_STEALTH_ACCUMULATION_OPP_A': pd.Series(stealth_accumulation_arr, index=df.index),
             'SCORE_MTF_PLATFORM_IGNITION_S_PLUS': pd.Series(platform_ignition_arr, index=df.index),
         }
-        print("        -> [多时间维度力学评分引擎 V2.4] 分析完毕。") # 更新版本号
+        print("        -> [多时间维度力学评分引擎 V2.4] 分析完毕。") 
         return states
 
     def diagnose_behavioral_mechanics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -229,7 +278,7 @@ class DynamicMechanicsEngine:
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
           - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
         """
-        print("        -> [行为力学评分引擎 V2.3] 启动...") # 更新版本号
+        print("        -> [行为力学评分引擎 V2.3] 启动...") 
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -287,7 +336,7 @@ class DynamicMechanicsEngine:
             'SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A': pd.Series(capitulation_exhaustion_arr, index=df.index),
             'SCORE_BEHAVIOR_TOP_DIVERGENCE_RISK_S_PLUS': pd.Series(top_divergence_risk_arr, index=df.index),
         }
-        print("        -> [行为力学评分引擎 V2.3] 分析完毕。") # 更新版本号
+        print("        -> [行为力学评分引擎 V2.3] 分析完毕。") 
         return states
 
 

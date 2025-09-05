@@ -142,7 +142,6 @@
         "concentration_70pct_D": [5, 21, 55],
         "support_below_D": [5, 21],
         "cost_divergence_D": [5, 21, 55],
-        "winner_turnover_long_term_D": [5, 21],
         "loser_rate_long_term_D": [5, 21],
         "说明_FUND_FLOW": "--- 核心资金流动态分析 (已升级为共识指标) ---",
         "net_flow_consensus_D": [5, 13, 21, 55],
@@ -199,8 +198,7 @@
         "turnover_from_losers_ratio_D": [5, 21],
         "peak_control_ratio_D": [5, 21],
         "winner_profit_margin_D": [5, 21, 55],
-        "cost_divergence_D": [5, 21],
-        "winner_turnover_long_term_D": [5],
+        "cost_divergence_D": [5, 21, 55],
         "loser_rate_long_term_D": [5, 21],
         "说明_STRATEGIC": "--- 战略协同加速度分析 (周线) ---",
         "EMA_21_W": [5]

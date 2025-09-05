@@ -105,62 +105,36 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
         # 1.3 结构层基础情报 (均线, 箱体, 趋势动态)
         self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_trend_dynamics(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_risks_and_regimes(df))
-        # 1.4 筹码层基础情报 (静态, 行为, 动态)
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_dynamics(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_dynamic_chip_states(df))
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states_scores(df))
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_risks_and_regimes_scores(df))
+        # 1.4 调用新增的融合风险诊断模块，确保其在认知层之前运行
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_fused_behavioral_structure_risks(df))
 
         # --- 阶段二: 一级情报合成与上下文诊断 (依赖基础原子) ---
         # 此阶段基于第一阶段的原子信号，生成更复杂的上下文状态和复合信号。
         # print("    - [阶段 2/6] 正在进行一级情报合成与上下文诊断...")
-        # 2.1 诊断战场上下文区域 (如高位风险区)
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_contextual_zones(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_recent_reversal_context(df))
-        # 2.2 诊断筹码平台、结构力学等
-        df, platform_states = self.structural_intel.diagnose_platform_states(df)
+        df, platform_states = self.structural_intel.diagnose_platform_states_scores(df)
         self.strategy.atomic_states.update(platform_states)
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics(df))
-        # 2.3 运行动态力学引擎
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics_scores(df))
         self.mechanics_engine.run_dynamic_analysis_command()
-        # 2.4 运行高级筹码诊断 (依赖上下文和基础筹码信号)
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_risks_and_behaviors(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_opportunities(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_formation_dynamics(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_peak_battle_dynamics(df))
-        self.strategy.atomic_states.update(self.chip_intel.diagnose_chip_price_divergence(df))
-        # 2.5 运行高级行为诊断
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_behavioral_patterns(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_post_accumulation_phase(df))
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_holding_risks(df))
-        
+
         # --- 阶段三: 高级认知与结构合成 (依赖一级合成情报) ---
         # 此阶段进行最高层级的认知判断，定义市场结构、趋势阶段等。
         # print("    - [阶段 3/6] 正在进行高级认知与结构合成...")
-        # 3.1 合成筹码与资金流的协同信号
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
-        # 3.2 合成多时间维度趋势协同信号
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_mtf_trend_synergy(df))
-        # 3.3 合成顶部行为
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_mtf_trend_synergy_scores(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
-        # 3.4 评分趋势阶段
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
-        # 3.5 合成黄金筹码机会
-        self.strategy.atomic_states.update(self.chip_intel.synthesize_prime_chip_opportunity(df))
-        # 3.6 诊断市场核心结构 (生成 STRUCTURE_MAIN_UPTREND_WAVE_S 等关键状态)
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
-        # 3.7 合成复合结构
-        self.strategy.atomic_states.update(self.structural_intel.synthesize_composite_structures(df))
-        # 3.8 静态-动态融合
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_static_dynamic_fusion(df))
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_advanced_structural_patterns_scores(df))
 
         # --- 阶段四: 战术场景诊断 (依赖高层认知状态) ---
         # 此阶段诊断具体的战术场景，如回踩，它们的定性依赖于市场结构等高层状态。
         # print("    - [阶段 4/6] 正在诊断具体战术场景...")
-        self.strategy.atomic_states.update(self.behavioral_intel.diagnose_pullback_character(df))
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
 
         # --- 阶段五: 最终认知合成与主力行为推演 ---

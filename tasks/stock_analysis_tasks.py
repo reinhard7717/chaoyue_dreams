@@ -768,6 +768,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
             # --- 指标衍生计算 (V11.0 数据驱动版) ---
             # print(f"[{stock_code}] [衍生特征工厂] 开始根据策略配置计算衍生指标...")
+            # 首先计算 cost_divergence，作为后续衍生计算的基础
+            if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
+                final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
             strategy_config = _load_strategy_config()
             feature_params = strategy_config.get('feature_engineering_params', {})
             # 1. 计算所有斜率
