@@ -17,269 +17,184 @@ class StructuralIntelligence:
 
     def diagnose_ma_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 双核诊断版】均线状态诊断引擎
-        - 核心职责: 构建一个同时输出“分级布尔信号”和“连续数值评分”的双核诊断系统。
-        - 核心升级 (本次重构):
-          - [信号体系] 新增基于多维交叉验证的、对称的B/A/S三级信号：
-            1. 上升/下跌共振 (多时间周期斜率/加速度交叉验证)
-            2. 底部/顶部反转 (同周期静态/斜率/加速度交叉验证)
-          - [数值化保留] 保留并优化了V600版的优秀数值化评分体系，作为趋势健康度的量化指标。
-          - [数据驱动] 严格基于军械库清单进行诊断，确保逻辑的健壮性。
+        【V8.0 最终数值化版】均线状态诊断引擎
+        - 核心职责: 构建一个完全基于连续数值评分的诊断系统。
+        - 核心升级 (本次修改):
+          - [最终数值化] 废除了所有基于布尔逻辑和计数的信号（如OPP_MA_BULLISH_RESONANCE_B/A/S），
+                        将其全面升级为基于归一化强度分的加权评分体系。
+          - 新信号体系: 生成`SCORE_MA_BULLISH_RESONANCE`等数值分，更精确地量化共振与反转的强度。
         """
-        print("        -> [诊断模块 V7.0 双核诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [诊断模块 V8.0 最终数值化版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'multi_dim_ma_params')
         if not get_param_value(p.get('enabled'), True): return {}
-
         # --- 军备检查 (Arsenal Check) ---
         ma_periods = get_param_value(p.get('ma_periods'), [5, 13, 21, 55])
-        # 为了逻辑清晰，我们选取与均线周期匹配的斜率和加速度周期进行分析
-        ema_cols = {p: f'EMA_{p}_D' for p in ma_periods}
-        slope_cols = {p: f'SLOPE_{p}_EMA_{p}_D' if p > 5 else f'SLOPE_5_EMA_{p}_D' for p in ma_periods}
-        accel_cols = {p: f'ACCEL_{p}_EMA_{p}_D' if p > 5 else f'ACCEL_5_EMA_{p}_D' for p in ma_periods}
-        
-        # 动态构建所需列清单
-        required_cols = list(ema_cols.values())
-        # 确保配置文件中的斜率和加速度列存在
-        slope_params = get_params_block(self.strategy, 'slope_params')
-        accel_params = get_params_block(self.strategy, 'accel_params')
-        
-        # 智能检查列是否存在，而不是写死
-        for p in ma_periods:
-            # 检查斜率列
-            found_slope = False
-            for lookback in [p, 21, 13, 5]: # 优先匹配同周期，再匹配常用周期
-                col_name = f'SLOPE_{lookback}_EMA_{p}_D'
-                if col_name in df.columns:
-                    slope_cols[p] = col_name
-                    required_cols.append(col_name)
-                    found_slope = True
-                    break
-            # 检查加速度列
-            found_accel = False
-            for lookback in [p, 21, 13, 5]: # 优先匹配同周期，再匹配常用周期
-                col_name = f'ACCEL_{lookback}_EMA_{p}_D'
-                if col_name in df.columns:
-                    accel_cols[p] = col_name
-                    required_cols.append(col_name)
-                    found_accel = True
-                    break
-
+        ema_cols = {period: f'EMA_{period}_D' for period in ma_periods}
+        slope_cols = {period: f'SLOPE_{period}_EMA_{period}_D' if period > 5 else f'SLOPE_5_EMA_{period}_D' for period in ma_periods}
+        accel_cols = {period: f'ACCEL_{period}_EMA_{period}_D' if period > 5 else f'ACCEL_5_EMA_{period}_D' for period in ma_periods}
+        required_cols = list(ema_cols.values()) + list(slope_cols.values()) + list(accel_cols.values())
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [错误] 均线诊断引擎缺少必要列: {missing_cols}，跳过。")
             return {}
-
-        # === Part 1: 基础条件定义 (Fundamental Conditions) ===
-        # 将核心指标的各个维度状态布尔化，作为信号合成的积木
-        is_slope_up = {p: df[slope_cols[p]] > 0 for p in ma_periods}
-        is_slope_down = {p: df[slope_cols[p]] < 0 for p in ma_periods}
-        is_accel_up = {p: df[accel_cols[p]] > 0 for p in ma_periods}
-        is_accel_down = {p: df[accel_cols[p]] < 0 for p in ma_periods}
-
-        # === Part 2: 共振信号合成 (多时间周期交叉验证) ===
+        # --- Part 1: 核心要素数值化 (Fundamental Conditions Scoring) --- 
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        def normalize(series, ascending=True):
+            if series is None: return pd.Series(0.5, index=df.index)
+            rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+            return rank if ascending else 1 - rank
+        # 为每个周期的斜率和加速度创建归一化评分
+        score_slope_up = {period: normalize(df[slope_cols[period]].clip(lower=0)) for period in ma_periods}
+        score_slope_down = {period: normalize(df[slope_cols[period]].clip(upper=0), ascending=False) for period in ma_periods}
+        score_accel_up = {period: normalize(df[accel_cols[period]].clip(lower=0)) for period in ma_periods}
+        score_accel_down = {period: normalize(df[accel_cols[period]].clip(upper=0), ascending=False) for period in ma_periods}
+        # --- Part 2: 共振信号数值化 (Resonance Scoring) --- # 重构共振信号
         # 2.1 上升共振 (Bullish Resonance)
-        bullish_slope_count = sum(is_slope_up.values())
-        bullish_accel_count = sum(is_accel_up.values())
-        # B级: 超过半数均线趋势向上 (战术性看多)
-        states['OPP_MA_BULLISH_RESONANCE_B'] = (bullish_slope_count >= len(ma_periods) * 0.75)
-        # A级: 所有均线趋势一致向上 (战略性看多)
-        states['OPP_MA_BULLISH_RESONANCE_A'] = (bullish_slope_count == len(ma_periods))
-        # S级: A级基础上，超过半数均线在加速上涨 (全局性主升浪)
-        states['OPP_MA_BULLISH_RESONANCE_S'] = states['OPP_MA_BULLISH_RESONANCE_A'] & (bullish_accel_count >= len(ma_periods) * 0.75)
-
+        avg_bullish_slope = pd.Series(np.mean([s.values for s in score_slope_up.values()], axis=0), index=df.index)
+        avg_bullish_accel = pd.Series(np.mean([s.values for s in score_accel_up.values()], axis=0), index=df.index)
+        states['SCORE_MA_BULLISH_RESONANCE_B'] = avg_bullish_slope.astype(np.float32)
+        states['SCORE_MA_BULLISH_RESONANCE_A'] = (avg_bullish_slope * avg_bullish_accel).astype(np.float32)
         # 2.2 下跌共振 (Bearish Resonance)
-        bearish_slope_count = sum(is_slope_down.values())
-        bearish_accel_count = sum(is_accel_down.values())
-        # B级: 超过半数均线趋势向下
-        states['RISK_MA_BEARISH_RESONANCE_B'] = (bearish_slope_count >= len(ma_periods) * 0.75)
-        # A级: 所有均线趋势一致向下
-        states['RISK_MA_BEARISH_RESONANCE_A'] = (bearish_slope_count == len(ma_periods))
-        # S级: A级基础上，超过半数均线在加速下跌
-        states['RISK_MA_BEARISH_RESONANCE_S'] = states['RISK_MA_BEARISH_RESONANCE_A'] & (bearish_accel_count >= len(ma_periods) * 0.75)
-
-        # === Part 3: 反转信号合成 (同周期多维度交叉验证) ===
+        avg_bearish_slope = pd.Series(np.mean([s.values for s in score_slope_down.values()], axis=0), index=df.index)
+        avg_bearish_accel = pd.Series(np.mean([s.values for s in score_accel_down.values()], axis=0), index=df.index)
+        states['SCORE_MA_BEARISH_RESONANCE_B'] = avg_bearish_slope.astype(np.float32)
+        states['SCORE_MA_BEARISH_RESONANCE_A'] = (avg_bearish_slope * avg_bearish_accel).astype(np.float32)
+        # --- Part 3: 反转信号数值化 (Reversal Scoring) --- # 重构反转信号
         # 3.1 底部反转 (Bottom Reversal)
-        setup_bottom = is_slope_down[55] # 环境：长期趋势向下
-        # B级(试探性): 环境成立 + 短期趋势(5日)下跌减速
-        trigger_b_bottom = is_accel_up[5]
-        states['OPP_MA_BOTTOM_REVERSAL_B'] = setup_bottom & trigger_b_bottom
-        # A级(确认级): B级基础上 + 短期趋势(5日)已确认反转(斜率转正)
-        trigger_a_bottom = trigger_b_bottom & is_slope_up[5]
-        states['OPP_MA_BOTTOM_REVERSAL_A'] = setup_bottom & trigger_a_bottom
-        # S级(强力级): A级基础上 + 中期趋势(13日或21日)也开始减速或反转
-        trigger_s_bottom = trigger_a_bottom & (is_accel_up[13] | is_slope_up[13])
-        states['OPP_MA_BOTTOM_REVERSAL_S'] = setup_bottom & trigger_s_bottom
-
+        setup_bottom = score_slope_down[55] # 环境分: 长期趋势向下
+        trigger_b_bottom = score_accel_up[5] # B级触发: 短期加速
+        trigger_a_bottom = trigger_b_bottom * score_slope_up[5] # A级触发: 短期加速且斜率转正
+        trigger_s_bottom = trigger_a_bottom * np.maximum(score_accel_up[13], score_slope_up[13]) # S级触发: 中期也出现拐点
+        states['SCORE_MA_BOTTOM_REVERSAL_B'] = (setup_bottom * trigger_b_bottom).astype(np.float32)
+        states['SCORE_MA_BOTTOM_REVERSAL_A'] = (setup_bottom * trigger_a_bottom).astype(np.float32)
+        states['SCORE_MA_BOTTOM_REVERSAL_S'] = (setup_bottom * trigger_s_bottom).astype(np.float32)
         # 3.2 顶部反转 (Top Reversal)
-        setup_top = is_slope_up[55] # 环境：长期趋势向上
-        # B级(预警性): 环境成立 + 短期趋势(5日)上涨减速
-        trigger_b_top = is_accel_down[5]
-        states['RISK_MA_TOP_REVERSAL_B'] = setup_top & trigger_b_top
-        # A级(确认级): B级基础上 + 短期趋势(5日)已确认反转(斜率转负)
-        trigger_a_top = trigger_b_top & is_slope_down[5]
-        states['RISK_MA_TOP_REVERSAL_A'] = setup_top & trigger_a_top
-        # S级(强力级): A级基础上 + 中期趋势(13日或21日)也开始减速或反转
-        trigger_s_top = trigger_a_top & (is_accel_down[13] | is_slope_down[13])
-        states['RISK_MA_TOP_REVERSAL_S'] = setup_top & trigger_s_top
-
-        # === Part 4: [保留并优化] 数值化评分体系 ===
-        # 4.1 静态排列评分 (向量化优化)
-        short_ma_cols_list = [ema_cols[p] for p in ma_periods[:-1]]
-        long_ma_cols_list = [ema_cols[p] for p in ma_periods[1:]]
+        setup_top = score_slope_up[55] # 环境分: 长期趋势向上
+        trigger_b_top = score_accel_down[5] # B级触发: 短期减速
+        trigger_a_top = trigger_b_top * score_slope_down[5] # A级触发: 短期减速且斜率转负
+        trigger_s_top = trigger_a_top * np.maximum(score_accel_down[13], score_slope_down[13]) # S级触发: 中期也出现拐点
+        states['SCORE_MA_TOP_REVERSAL_B'] = (setup_top * trigger_b_top).astype(np.float32)
+        states['SCORE_MA_TOP_REVERSAL_A'] = (setup_top * trigger_a_top).astype(np.float32)
+        states['SCORE_MA_TOP_REVERSAL_S'] = (setup_top * trigger_s_top).astype(np.float32)
+        # --- Part 4: [保留并优化] 高级数值化评分体系 --- # S级共振分与总分
+        short_ma_cols_list = [ema_cols[period] for period in ma_periods[:-1]]
+        long_ma_cols_list = [ema_cols[period] for period in ma_periods[1:]]
         alignment_sum = np.sum(df[short_ma_cols_list].values > df[long_ma_cols_list].values, axis=1)
         static_alignment_score = alignment_sum / (len(ma_periods) - 1)
         states['SCORE_MA_STATIC_ALIGNMENT'] = pd.Series(static_alignment_score, index=df.index, dtype=np.float32)
-
-        # 4.2 动态斜率与加速度评分 (归一化处理)
-        norm_window = get_param_value(p.get('norm_window'), 120)
-        min_periods = max(1, norm_window // 5)
-        slope_series_list = [
-            df[slope_cols[p]].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-            for p in ma_periods
-        ]
-        accel_series_list = [
-            df[accel_cols[p]].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-            for p in ma_periods
-        ]
-
-        # 4.3 合成高级数值信号 (NumPy优化)
-        slope_values = np.mean(np.array([s.values for s in slope_series_list]), axis=0)
-        states['SCORE_MA_DYN_RESONANCE'] = pd.Series(slope_values, index=df.index, dtype=np.float32)
-        accel_values = np.mean(np.array([s.values for s in accel_series_list]), axis=0)
-        states['SCORE_MA_ACCEL_RESONANCE'] = pd.Series(accel_values, index=df.index, dtype=np.float32)
-        long_term_strength = slope_series_list[-1] # 使用最后一个周期的斜率代表长期强度
-        short_term_weakness = 1 - slope_series_list[0] # 使用第一个周期的斜率代表短期弱势
+        # 复用Part 2计算的均值
+        states['SCORE_MA_DYN_RESONANCE'] = avg_bullish_slope.astype(np.float32)
+        states['SCORE_MA_ACCEL_RESONANCE'] = avg_bullish_accel.astype(np.float32)
+        # 定义S级共振分，作为最高质量的共振信号
+        states['SCORE_MA_BULLISH_RESONANCE_S'] = (states['SCORE_MA_BULLISH_RESONANCE_A'] * states['SCORE_MA_STATIC_ALIGNMENT']).astype(np.float32)
+        states['SCORE_MA_BEARISH_RESONANCE_S'] = (states['SCORE_MA_BEARISH_RESONANCE_A'] * (1 - states['SCORE_MA_STATIC_ALIGNMENT'])).astype(np.float32)
+        long_term_strength = score_slope_up[ma_periods[-1]]
+        short_term_weakness = score_slope_down[ma_periods[0]]
         states['SCORE_MA_DIVERGENCE_RISK'] = (long_term_strength * short_term_weakness).fillna(0.5).astype(np.float32)
-
-        # 4.4 融合生成最终的均线健康总分
         states['SCORE_MA_HEALTH'] = (
             states['SCORE_MA_STATIC_ALIGNMENT'] *
             states['SCORE_MA_DYN_RESONANCE'] *
             states['SCORE_MA_ACCEL_RESONANCE']
         ).astype(np.float32)
-        
-        print("        -> [诊断模块 V7.0 双核诊断版] 分析完毕。") # 更新打印信息
+        print("        -> [诊断模块 V8.0 最终数值化版] 分析完毕。") 
         return states
 
     def diagnose_box_states_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 战备-点火分离式诊断版】箱体突破质量评分引擎
+        【V4.1 数值化消费升级版】箱体突破质量评分引擎
         - 核心重构: 引入“战备质量(Setup)”与“点火质量(Trigger)”分离式评估体系。
         - 核心逻辑: 最终突破分 = (战备质量分) * (点火质量分)，实现优中选优。
-        - 战备质量分 (Setup Score):
-          - 评估箱体形成过程的“微观环境”。
-          - 融合了“波动率压缩程度”与“箱体内资金流向”两个维度。
-        - 点火质量分 (Trigger Score):
-          - 评估突破瞬间的“宏观确认强度”。
-          - 融合了“动态成交量爆发”、“K线实体强度”与“上游多维共振信号”。
-        - 新增信号 (数值型):
-          - SCORE_BOX_SETUP_QUALITY: 箱体战备质量分 (0-1)。
-          - SCORE_BOX_BREAKOUT_S/A/B: S/A/B三级箱体向上突破质量分。
-          - SCORE_BOX_BREAKDOWN_S/A/B: S/A/B三级箱体向下突破强度分。
+        - 核心升级 (本次修改):
+          - [消费端升级] 将对上游均线共振信号的依赖从布尔型(OPP_MA_...)升级为数值型(SCORE_MA_...)，
+                        使突破质量评估的连续性与精度更高。
         """
-        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [箱体诊断模块 V4.1 数值化消费升级版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'box_state_params')
         if not get_param_value(p.get('enabled'), True) or df.empty:
             return states
-
         # --- 1. 军备检查与参数获取 ---
         atomic = self.strategy.atomic_states
         required_cols = [
             'high_D', 'low_D', 'close_D', 'open_D', 'volume_D',
             'BBW_21_2.0_D', 'SLOPE_5_CMF_21_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D'
         ]
-        # 依赖上游S/A/B级共振信号
+        # 依赖上游S/A/B级数值化共振评分
         required_signals = [
-            'OPP_MA_BULLISH_RESONANCE_S', 'OPP_MA_BULLISH_RESONANCE_A', 'OPP_MA_BULLISH_RESONANCE_B',
-            'RISK_MA_BEARISH_RESONANCE_S', 'RISK_MA_BEARISH_RESONANCE_A', 'RISK_MA_BEARISH_RESONANCE_B'
+            'SCORE_MA_BULLISH_RESONANCE_S', 'SCORE_MA_BULLISH_RESONANCE_A', 'SCORE_MA_BULLISH_RESONANCE_B',
+            'SCORE_MA_BEARISH_RESONANCE_S', 'SCORE_MA_BEARISH_RESONANCE_A', 'SCORE_MA_BEARISH_RESONANCE_B'
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         missing_signals = [s for s in required_signals if s not in atomic]
         if missing_cols or missing_signals:
             print(f"          -> [警告] 箱体诊断缺少关键数据: 列{missing_cols}, 信号{missing_signals}。模块已跳过。")
             return {}
-        
         high_d, low_d, close_d, open_d, volume_d = df['high_D'], df['low_D'], df['close_D'], df['open_D'], df['volume_D']
         lookback_window = get_param_value(p.get('lookback_window'), 8)
         norm_window = get_param_value(p.get('norm_window'), 60)
         min_periods = max(1, norm_window // 5)
-
         # --- 2. 计算基础箱体和布尔突破/跌破事件 ---
         box_top = high_d.rolling(window=lookback_window).max()
         box_bottom = low_d.rolling(window=lookback_window).min()
         amplitude_ratio = (box_top - box_bottom) / box_bottom.replace(0, np.nan)
         is_valid_box = (amplitude_ratio < get_param_value(p.get('max_amplitude_ratio'), 0.05)).fillna(False)
-        
         df['box_top_D'] = box_top # 兼容下游模块
         df['box_bottom_D'] = box_bottom # 兼容下游模块
-
         is_breakout = is_valid_box & (close_d > box_top.shift(1)) & (close_d.shift(1) <= box_top.shift(1))
         is_breakdown = is_valid_box & (close_d < box_bottom.shift(1)) & (close_d.shift(1) >= box_bottom.shift(1))
-
         # --- 3. 战备质量评分 (Setup Score) ---
-        # 3.1 波动率压缩分 (越低越好)
         vol_compression_score = 1 - df['BBW_21_2.0_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        # 3.2 箱体内资金流入趋势分 (越高越好)
         capital_inflow_score = df['SLOPE_5_CMF_21_D'].rolling(window=lookback_window).mean().rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        # 3.3 融合为战备总分
         setup_quality_score = (vol_compression_score * capital_inflow_score).where(is_valid_box, 0.0)
         states['SCORE_BOX_SETUP_QUALITY'] = setup_quality_score.astype(np.float32)
-
         # --- 4. 点火质量评分 (Trigger Score) ---
-        # 4.1 动态成交量爆发分
         vol_slope_score = df['SLOPE_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         vol_accel_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         volume_thrust_score = vol_slope_score * vol_accel_score
-        # 4.2 K线实体强度分
         candle_range = (high_d - low_d).replace(0, np.nan)
         breakout_candle_score = ((close_d - open_d) / candle_range).clip(0, 1).fillna(0.0)
         breakdown_candle_score = ((open_d - close_d) / candle_range).clip(0, 1).fillna(0.0)
-        # 4.3 宏观共振确认分
-        bullish_resonance_s = atomic.get('OPP_MA_BULLISH_RESONANCE_S', pd.Series(False, index=df.index)).astype(float)
-        bullish_resonance_a = atomic.get('OPP_MA_BULLISH_RESONANCE_A', pd.Series(False, index=df.index)).astype(float)
-        bullish_resonance_b = atomic.get('OPP_MA_BULLISH_RESONANCE_B', pd.Series(False, index=df.index)).astype(float)
-        bearish_resonance_s = atomic.get('RISK_MA_BEARISH_RESONANCE_S', pd.Series(False, index=df.index)).astype(float)
-        bearish_resonance_a = atomic.get('RISK_MA_BEARISH_RESONANCE_A', pd.Series(False, index=df.index)).astype(float)
-        bearish_resonance_b = atomic.get('RISK_MA_BEARISH_RESONANCE_B', pd.Series(False, index=df.index)).astype(float)
-
+        # 获取数值化评分，并提供默认值
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        bullish_resonance_s = atomic.get('SCORE_MA_BULLISH_RESONANCE_S', default_score)
+        bullish_resonance_a = atomic.get('SCORE_MA_BULLISH_RESONANCE_A', default_score)
+        bullish_resonance_b = atomic.get('SCORE_MA_BULLISH_RESONANCE_B', default_score)
+        bearish_resonance_s = atomic.get('SCORE_MA_BEARISH_RESONANCE_S', default_score)
+        bearish_resonance_a = atomic.get('SCORE_MA_BEARISH_RESONANCE_A', default_score)
+        bearish_resonance_b = atomic.get('SCORE_MA_BEARISH_RESONANCE_B', default_score)
         # --- 5. 融合生成最终质量分与兼容性信号 ---
         # 5.1 向上突破
         breakout_trigger_base_score = volume_thrust_score * breakout_candle_score
+        # 直接与数值化评分相乘，不再需要astype(float)
         states['SCORE_BOX_BREAKOUT_S'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_s).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKOUT_A'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_a).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKOUT_B'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_b).fillna(0.0).astype(np.float32)
-
         # 5.2 向下突破
         breakdown_trigger_base_score = volume_thrust_score * breakdown_candle_score
+        # 直接与数值化评分相乘
         states['SCORE_BOX_BREAKDOWN_S'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_s).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKDOWN_A'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_a).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKDOWN_B'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_b).fillna(0.0).astype(np.float32)
-
         # 5.3 兼容旧版信号
         states['BOX_EVENT_BREAKOUT'] = is_breakout.fillna(False)
         states['BOX_EVENT_BREAKDOWN'] = is_breakdown.fillna(False)
-        
-        print("        -> [箱体诊断模块 V4.0 战备-点火分离式诊断版] 诊断完毕。") # 更新打印信息
+        print("        -> [箱体诊断模块 V4.1 数值化消费升级版] 诊断完毕。") 
         return states
 
     def diagnose_platform_states_scores(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
         """
-        【V3.0 动态力学诊断版】平台诊断与风险评分引擎
-        - 核心重构: 从评估“静态稳定性”升级为诊断“动态蓄势状态”。
-        - 核心逻辑: 平台总质量分 = f(稳定性, 成本动能, 成本加速度, 宏观环境)。
-        - 新增信号 (数值型):
-          - SCORE_PLATFORM_COST_MOMENTUM: 成本动能分，量化平台重心的上移趋势。
-          - SCORE_PLATFORM_COST_ACCEL: 成本加速分，捕捉平台启动的早期信号。
-          - SCORE_PLATFORM_QUALITY_B/A/S: B/A/S三级平台总质量分。
-        - 风险升级: 破位风险分融合了“平台质量”与“破位强度”，评估更精准。
+        【V3.1 信号输出修正版】平台诊断与风险评分引擎
+        - 核心重构: (V3.0) 从评估“静态稳定性”升级为诊断“动态蓄势状态”。
+        - 核心逻辑: (V3.0) 平台总质量分 = f(稳定性, 成本动能, 成本加速度, 宏观环境)。
+        - 本次升级: 【修正】将内部计算的“成本动能分”与“成本加速分”正确输出到 states 字典，
+                    使其可供下游模块（如认知层的战术诊断）消费。
         """
-        # print("        -> [诊断模块 V3.0 动态力学诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [诊断模块 V3.1 信号输出修正版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'platform_state_params')
         if not get_param_value(p.get('enabled'), True): return df, {}
-        
         # --- 1. 军备检查 (Arsenal Check) ---
         atomic = self.strategy.atomic_states
         cost_periods = get_param_value(p.get('cost_dynamic_periods'), [5, 21, 55])
@@ -290,7 +205,6 @@ class StructuralIntelligence:
                 f'ACCEL_{period if period > 5 else 5}_peak_cost_D' # 确保有对应的加速度列
             ])
         required_signals = ['SCORE_MA_HEALTH'] # 依赖上游均线健康分
-        
         missing_cols = [col for col in required_cols if col not in df.columns]
         missing_signals = [s for s in required_signals if s not in atomic]
         if missing_cols or missing_signals:
@@ -300,11 +214,9 @@ class StructuralIntelligence:
             states['PLATFORM_STATE_STABLE_FORMED'] = pd.Series(False, index=df.index)
             states['SCORE_RISK_PLATFORM_BROKEN_S'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return df, states
-
         # --- 2. 计算四维核心评分组件 ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        
         # 2.1 成本稳定性分 (Stability Score)
         peak_cost = df['peak_cost_D']
         rolling_cost = peak_cost.rolling(get_param_value(p.get('cost_cv_lookback'), 5))
@@ -312,31 +224,28 @@ class StructuralIntelligence:
             coeff_of_variation = (rolling_cost.std() / rolling_cost.mean()).fillna(1.0)
         cv_rank = coeff_of_variation.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         cost_stability_score = (1 - cv_rank)
-
         # 2.2 成本动能分 (Momentum Score) 
         cost_slope_series = [
             df[f'SLOPE_{p}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_momentum_score = pd.Series(np.mean(np.array([s.values for s in cost_slope_series]), axis=0), index=df.index)
-
+        states['SCORE_PLATFORM_COST_MOMENTUM'] = cost_momentum_score.astype(np.float32) # 将成本动能分添加到输出
         # 2.3 成本加速分 (Acceleration Score) 
         cost_accel_series = [
             df[f'ACCEL_{p if p > 5 else 5}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_accel_score = pd.Series(np.mean(np.array([s.values for s in cost_accel_series]), axis=0), index=df.index)
-
+        states['SCORE_PLATFORM_COST_ACCEL'] = cost_accel_score.astype(np.float32) # 将成本加速分添加到输出
         # 2.4 宏观环境分 (Context Score) 
         context_health_score = atomic.get('SCORE_MA_HEALTH', pd.Series(0.5, index=df.index))
-
         # --- 3. 融合生成B/A/S三级平台质量分 ---
         states['SCORE_PLATFORM_QUALITY_B'] = cost_stability_score.astype(np.float32)
         states['SCORE_PLATFORM_QUALITY_A'] = (cost_stability_score * cost_momentum_score).astype(np.float32)
         states['SCORE_PLATFORM_QUALITY_S'] = (
             cost_stability_score * cost_momentum_score * cost_accel_score * context_health_score
         ).fillna(0.0).astype(np.float32)
-        
         # --- 4. 生成兼容旧版的布尔信号与平台价格 ---
         threshold = get_param_value(p.get('final_score_threshold_for_bool'), 0.7)
         # 使用最高质量的S级分数来定义最可靠的平台
@@ -344,25 +253,21 @@ class StructuralIntelligence:
         states['PLATFORM_STATE_STABLE_FORMED'] = stable_formed_series
         states['STRUCTURE_BOX_ACCUMULATION_A'] = stable_formed_series # 兼容信号
         df['PLATFORM_PRICE_STABLE'] = peak_cost.where(stable_formed_series)
-
         # --- 5. 平台破位风险评分 ---
         was_on_platform = stable_formed_series.shift(1, fill_value=False)
         is_breaking_down = df['close_D'] < df['PLATFORM_PRICE_STABLE'].ffill().shift(1)
         platform_failure_series = was_on_platform & is_breaking_down
         states['STRUCTURE_PLATFORM_BROKEN'] = platform_failure_series
-        
         # 5.1 计算破位强度分
         candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         breakdown_candle_score = ((df['open_D'] - df['close_D']) / candle_range).clip(0, 1).fillna(0.0)
         volume_score = df['volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         breakdown_intensity_score = breakdown_candle_score * volume_score
-        
         # 5.2 融合生成最终风险分
         platform_quality_yesterday = states['SCORE_PLATFORM_QUALITY_S'].shift(1).fillna(0.0)
         states['SCORE_RISK_PLATFORM_BROKEN_S'] = (
             platform_quality_yesterday * breakdown_intensity_score
         ).where(platform_failure_series, 0.0).astype(np.float32)
-        
         # --- 6. 平台向上突破机会评分 ---
         is_breaking_up = df['close_D'] > df['PLATFORM_PRICE_STABLE'].ffill().shift(1) # 定义向上突破事件
         platform_breakout_series = was_on_platform & is_breaking_up # 必须是昨日在平台上，今日突破
@@ -374,8 +279,7 @@ class StructuralIntelligence:
         states['SCORE_OPP_PLATFORM_BREAKOUT_S'] = (
             platform_quality_yesterday * breakout_intensity_score * context_health_score
         ).where(platform_breakout_series, 0.0).astype(np.float32)
-
-        # print("        -> [诊断模块 V3.0 动态力学诊断版] 分析完毕。") # 更新打印信息
+        print("        -> [诊断模块 V3.1 信号输出修正版] 分析完毕。")
         return df, states
 
     def diagnose_fibonacci_support(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -642,20 +546,15 @@ class StructuralIntelligence:
 
     def diagnose_structural_risks_and_regimes_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 风险共振-状态诊断版】结构风险与市场状态诊断引擎
+        【V4.1 数值化升级版】结构风险与市场状态诊断引擎
         - 核心重构: 遵循“风险共振”与“状态分类”原则，升级为多维交叉验证的数值化评分体系。
-        - 核心逻辑:
-          - 风险信号: 融合“静态风险”与“动态风险加剧”的程度，形成风险共振分。
-          - 状态信号: 对市场的波动环境进行分类，识别“压缩”与“扩张”状态。
-        - 新增信号 (数值型, 对称设计):
-          - SCORE_RISK_..._S/A/B: 价格乖离、获利盘兑现、结构破损三大风险分。
-          - SCORE_REGIME_..._S/A/B: 波动压缩、波动扩张两大市场状态分。
+        - 核心升级 (本次修改):
+          - [最终数值化] 将`CONTEXT_RISK_CHIP_STRUCTURE_DECAY`信号从布尔逻辑升级为数值评分。
         """
-        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [结构风险与状态引擎 V4.1 数值化升级版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'structural_risks_params')
         if not get_param_value(p.get('enabled'), True): return {}
-
         # --- 1. 军备检查 (Arsenal Check) ---
         required_cols = [
             'price_to_peak_ratio_D', 'SLOPE_5_price_to_peak_ratio_D',
@@ -668,18 +567,11 @@ class StructuralIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 结构风险引擎缺少关键数据列: {missing_cols}，模块已跳过！")
             return states
-
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-
         def normalize(series):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        
-        def normalize_inverse(series):
-            return 1 - normalize(series)
-
-        # 风险要素
         price_deviation_static = normalize(df['price_to_peak_ratio_D'])
         price_deviation_dynamic = normalize(df['SLOPE_5_price_to_peak_ratio_D'])
         profit_exhaustion_static = normalize(df['winner_profit_margin_D'])
@@ -687,52 +579,40 @@ class StructuralIntelligence:
         structural_health_static = normalize(df['chip_health_score_D'])
         structural_health_dynamic = normalize(df['SLOPE_5_chip_health_score_D'])
         is_fault_formed = df['is_chip_fault_formed_D'].astype(float)
-
-        # 状态要素
         vol_static = normalize(df['BBW_21_2.0_D'])
         vol_dynamic = normalize(df['SLOPE_5_BBW_21_2.0_D'])
         vol_accel = normalize(df['ACCEL_5_BBW_21_2.0_D'])
-
         # --- 3. 风险信号合成 (多维度风险共振) ---
-        # 3.1 价格乖离风险
         states['SCORE_RISK_PRICE_DEVIATION_B'] = price_deviation_static.astype(np.float32)
         states['SCORE_RISK_PRICE_DEVIATION_A'] = (price_deviation_static * price_deviation_dynamic).astype(np.float32)
         states['SCORE_RISK_PRICE_DEVIATION_S'] = (states['SCORE_RISK_PRICE_DEVIATION_A'] * vol_static * vol_dynamic).astype(np.float32)
-
-        # 3.2 获利盘兑现风险
         structural_deterioration = 1 - structural_health_dynamic
         states['SCORE_RISK_PROFIT_EXHAUSTION_B'] = profit_exhaustion_static.astype(np.float32)
         states['SCORE_RISK_PROFIT_EXHAUSTION_A'] = (profit_exhaustion_static * profit_exhaustion_dynamic).astype(np.float32)
         states['SCORE_RISK_PROFIT_EXHAUSTION_S'] = (states['SCORE_RISK_PROFIT_EXHAUSTION_A'] * structural_deterioration).astype(np.float32)
-
-        # 3.3 结构破损风险
         structural_unhealth = 1 - structural_health_static
         states['SCORE_RISK_STRUCTURAL_FAULT_B'] = structural_unhealth.astype(np.float32)
         states['SCORE_RISK_STRUCTURAL_FAULT_A'] = (structural_unhealth * structural_deterioration).astype(np.float32)
         states['SCORE_RISK_STRUCTURAL_FAULT_S'] = (states['SCORE_RISK_STRUCTURAL_FAULT_A'] * is_fault_formed).astype(np.float32)
-        # --- 筹码结构衰退风险 ---
-        is_short_term_diverging = df['SLOPE_5_concentration_90pct_D'] > 0
-        is_mid_term_diverging = df['SLOPE_21_concentration_90pct_D'] > 0
-        states['CONTEXT_RISK_CHIP_STRUCTURE_DECAY'] = is_short_term_diverging & is_mid_term_diverging
-
+        # --- 筹码结构衰退风险 --- # 从布尔升级为数值
+        # 假设筹码集中度斜率为正代表风险（例如主力派发给散户导致短期集中度上升）
+        score_short_term_diverging = normalize(df['SLOPE_5_concentration_90pct_D'].clip(lower=0))
+        score_mid_term_diverging = normalize(df['SLOPE_21_concentration_90pct_D'].clip(lower=0))
+        states['SCORE_RISK_CHIP_STRUCTURE_DECAY'] = (score_short_term_diverging * score_mid_term_diverging).astype(np.float32)
         # --- 4. 状态信号合成 (市场环境分类) ---
-        # 4.1 波动压缩状态
         vol_compression_static = 1 - vol_static
         vol_compression_dynamic = 1 - vol_dynamic
         vol_compression_accel = 1 - vol_accel
         states['SCORE_REGIME_VOL_COMPRESSION_B'] = vol_compression_static.astype(np.float32)
         states['SCORE_REGIME_VOL_COMPRESSION_A'] = (vol_compression_static * vol_compression_dynamic).astype(np.float32)
         states['SCORE_REGIME_VOL_COMPRESSION_S'] = (states['SCORE_REGIME_VOL_COMPRESSION_A'] * vol_compression_accel).astype(np.float32)
-
-        # 4.2 波动扩张状态 - 对称逻辑
         vol_expansion_static = vol_static
         vol_expansion_dynamic = vol_dynamic
         vol_expansion_accel = vol_accel
         states['SCORE_REGIME_VOL_EXPANSION_B'] = vol_expansion_static.astype(np.float32)
         states['SCORE_REGIME_VOL_EXPANSION_A'] = (vol_expansion_static * vol_expansion_dynamic).astype(np.float32)
         states['SCORE_REGIME_VOL_EXPANSION_S'] = (states['SCORE_REGIME_VOL_EXPANSION_A'] * vol_expansion_accel).astype(np.float32)
-
-        print("        -> [结构风险与状态引擎 V4.0 风险共振-状态诊断版] 分析完毕。") # 更新打印信息
+        print("        -> [结构风险与状态引擎 V4.1 数值化升级版] 分析完毕。") 
         return states
 
     def diagnose_advanced_structural_patterns_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -826,39 +706,55 @@ class StructuralIntelligence:
 
     def diagnose_fused_behavioral_structure_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0】行为与结构融合风险诊断模块
-        - 核心职责: 承接原 CognitiveIntelligence 中的复杂风险计算逻辑，融合行为、价格、
-                      筹码等多维度信息，生成高质量的原子风险信号。
-        - 收益: 净化了认知层的职责，确保复杂的原子信号在正确的情报层生成。
+        【V2.0 最终数值化版】行为与结构融合风险诊断模块
+        - 核心职责: 融合行为、价格、筹码等多维度信息，生成高质量的原子风险信号。
+        - 核心升级 (本次修改):
+          - [最终数值化] 将内部所有布尔风险判断（动能衰竭、动态对倒）升级为基于归一化
+                        评分的连续数值信号，提升风险评估的精度。
         """
-        print("        -> [行为-结构融合风险模块 V1.0] 启动...")
+        print("        -> [行为-结构融合风险模块 V2.0 最终数值化版] 启动...") 
         states = {}
         atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
+        default_series_float = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 军备检查 ---
         required_cols = [
-            'close_D', 'high_D', 'SLOPE_5_volume_D',
+            'close_D', 'high_D', 'low_D', 'SLOPE_5_volume_D',
             'SLOPE_5_VPA_EFFICIENCY_D', 'SLOPE_5_concentration_90pct_D'
         ]
         required_scores = [
-            'SCORE_PROFIT_TAKING_TOP_REVERSAL_S',
+            'SCORE_RISK_PROFIT_EXHAUSTION_S',
+            'SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S',
         ]
         missing_cols = [c for c in required_cols if c not in df.columns]
         missing_scores = [s for s in required_scores if s not in atomic]
         if missing_cols or missing_scores:
             print(f"          -> [警告] 行为-结构融合风险模块缺少关键数据: 列{missing_cols}, 分数{missing_scores}。模块已跳过。")
             return states
-        # --- 2. 计算“动能衰竭”风险 (CONTEXT_RISK_MOMENTUM_EXHAUSTION) ---
-        is_at_high_price = df['close_D'] > df['high_D'].rolling(60).max() * 0.85
-        is_profit_cushion_shrinking = atomic.get('SCORE_PROFIT_TAKING_TOP_REVERSAL_S', default_series) > 0.8
-        is_market_engine_stalling = atomic.get('RISK_BEHAVIOR_MARKET_ENGINE_STALLING_B', default_series)
-        states['CONTEXT_RISK_MOMENTUM_EXHAUSTION'] = is_at_high_price & (is_profit_cushion_shrinking | is_market_engine_stalling)
-        # --- 3. 计算“动态对倒嫌疑”风险 (COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN) ---
-        is_volume_increasing = df['SLOPE_5_volume_D'] > 0
-        is_vpa_efficiency_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
-        is_chip_diverging_for_churn = df['SLOPE_5_concentration_90pct_D'] > 0
-        states['COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = is_volume_increasing & is_vpa_efficiency_declining & is_chip_diverging_for_churn
-        print("        -> [行为-结构融合风险模块 V1.0] 分析完毕。")
+        # --- 2. 计算“动能衰竭”风险 (Momentum Exhaustion) --- 
+        # 2.1 价格位置分: 价格在近期（60日）高低点范围内的位置
+        rolling_high = df['high_D'].rolling(60).max()
+        rolling_low = df['low_D'].rolling(60).min()
+        price_range = (rolling_high - rolling_low).replace(0, np.nan)
+        score_at_high_price = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
+        # 2.2 获取上游风险分
+        score_profit_cushion_shrinking = atomic.get('SCORE_RISK_PROFIT_EXHAUSTION_S', default_series_float)
+        score_market_engine_stalling = atomic.get('SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S', default_series_float)
+        # 2.3 融合评分: 价格处于高位 * (获利盘收缩风险 或 引擎失速风险)
+        combined_risk_score = np.maximum(score_profit_cushion_shrinking, score_market_engine_stalling)
+        states['SCORE_RISK_MOMENTUM_EXHAUSTION'] = (score_at_high_price * combined_risk_score).astype(np.float32)
+        # --- 3. 计算“动态对倒嫌疑”风险 (Dynamic Deceptive Churn) --- 
+        norm_window = 120
+        min_periods = max(1, norm_window // 5)
+        def normalize(series, ascending=True):
+            rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+            return rank if ascending else 1 - rank
+        score_volume_increasing = normalize(df['SLOPE_5_volume_D'].clip(lower=0))
+        score_vpa_efficiency_declining = normalize(df['SLOPE_5_VPA_EFFICIENCY_D'].clip(upper=0), ascending=False)
+        score_chip_diverging_for_churn = normalize(df['SLOPE_5_concentration_90pct_D'].clip(lower=0))
+        states['SCORE_RISK_DYNAMIC_DECEPTIVE_CHURN'] = (
+            score_volume_increasing * score_vpa_efficiency_declining * score_chip_diverging_for_churn
+        ).astype(np.float32)
+        print("        -> [行为-结构融合风险模块 V2.0 最终数值化版] 分析完毕。") 
         return states
 
 

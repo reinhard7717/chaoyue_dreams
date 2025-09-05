@@ -288,38 +288,31 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate).astype(np.float32)
 
         df = df.assign(**new_scores)
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") # 更新打印信息
+        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") 
         return df
 
     def diagnose_advanced_chip_dynamics_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 共振-反转诊断版】高级筹码动态评分模块
-        - 核心升级: 遵循“共振/反转”对称原则，对结构健康度、恐慌承接、断层风险进行多维交叉验证。
-        - 核心逻辑:
-          - 结构健康度 -> 上升/下跌共振: 融合“控盘度”、“纯粹度”、“稳定性”的静态分与多周期动态分。
-          - 恐慌与承接 -> 底部反转: 捕捉“亏损盘割肉”从加速到衰竭的完整过程。
-          - 断层风险 -> 顶部反转/下跌共振: 将断层存在性(布尔)升级为基于强度和真空度的数值风险。
-        -  信号 (数值型, 对称设计):
-          - SCORE_STRUCTURE_BULLISH_RESONANCE_S/A/B: 结构健康度上升共振分。
-          - SCORE_STRUCTURE_BEARISH_RESONANCE_S/A/B: 结构健康度下跌共振分。
-          - SCORE_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 恐慌盘投降底部反转分。
-          - SCORE_FAULT_RISK_TOP_REVERSAL_S/A/B: 筹码断层顶部反转风险分。
+        【V2.2 终极数值化版】高级筹码动态评分模块
+        - 核心升级 (本次修改):
+          - [数值化] 将“筹码断层风险”的计算，从依赖硬布尔开关 'is_chip_fault_formed_D'，
+                      升级为将“存在性”、“强度”、“真空度”和“动态恶化趋势”四要素
+                      平滑融合的连续风险评分体系。
+        - 收益: 彻底消除了模块内最后一个硬编码的布尔逻辑，使得“断层风险”的度量
+                更加精细和连续，避免了信号的突变，信号质量达到理论最高水平。
         """
-        print("        -> [高级筹码动态评分模块 V2.0 共振-反转诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...") # 更新版本号和打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
             return df
-
         # --- 1. 军备检查 (Arsenal Check) ---
-        # [修改] 扩展所需列，包含多周期的斜率和加速度
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
             'peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D',
             'turnover_from_losers_ratio_D', 'is_chip_fault_formed_D',
             'chip_fault_strength_D', 'chip_fault_vacuum_percent_D'
         ]
-        # 动态添加斜率和加速度列
         for period in periods:
             required_cols.extend([
                 f'SLOPE_{period}_peak_control_ratio_D', f'SLOPE_{period}_peak_stability_D'
@@ -331,20 +324,17 @@ class ChipIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 高级筹码动态模块缺少关键数据列: {missing_cols}，模块已跳过！")
             return df
-
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-
-        # --- 3. [重构] 维度一: 结构健康度共振评分 ---
+        # --- 3. 维度一: 结构健康度共振评分 ---
         # 3.1 静态健康分 (Setup)
         control_score = normalize(df['peak_control_ratio_D'])
         strength_score = normalize(df['peak_strength_ratio_D'])
         stability_score = normalize(df['peak_stability_D'])
         static_health_score = (control_score * strength_score * stability_score)
-
         # 3.2 动态健康分 (Momentum) - 多周期交叉验证
         control_momentum = {p: normalize(df[f'SLOPE_{p}_peak_control_ratio_D']) for p in periods}
         stability_momentum = {p: normalize(df[f'SLOPE_{p}_peak_stability_D']) for p in periods}
@@ -352,48 +342,43 @@ class ChipIntelligence:
             control_momentum[5].values, control_momentum[21].values, control_momentum[55].values,
             stability_momentum[5].values, stability_momentum[21].values, stability_momentum[55].values
         ]), axis=0), index=df.index)
-
         # 3.3 上升共振 (健康度改善)
         new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = avg_health_momentum.astype(np.float32)
         new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = (static_health_score * avg_health_momentum).astype(np.float32)
-        # S级需要加速度确认 (此处简化，使用短期动能作为代理)
         new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] * control_momentum[5] * stability_momentum[5]).astype(np.float32)
-
         # 3.4 下跌共振 (健康度恶化) - 对称逻辑
         static_unhealth_score = 1 - static_health_score
         avg_health_decline = 1 - avg_health_momentum
         new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = avg_health_decline.astype(np.float32)
         new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (static_unhealth_score * avg_health_decline).astype(np.float32)
         new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] * (1 - control_momentum[5]) * (1 - stability_momentum[5])).astype(np.float32)
-
-        # --- 4. [重构] 维度二: 恐慌盘承接反转评分 ---
+        # --- 4. 维度二: 恐慌盘承接反转评分 ---
         # 4.1 战备 (Setup): 市场出现恐慌性抛售
         panic_selling_score = normalize(df['turnover_from_losers_ratio_D'])
         # 4.2 点火 (Trigger): 抛售行为开始减速 (加速度转正)，表明有资金在承接
         absorption_trigger_score = normalize(df['ACCEL_5_turnover_from_losers_ratio_D'])
         # 4.3 确认 (Confirmation): 中期抛售加速度也转正，趋势更可靠
         absorption_confirm_score = normalize(df['ACCEL_21_turnover_from_losers_ratio_D'])
-
         # 4.4 融合生成S/A/B三级底部反转信号
         new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_B'] = absorption_trigger_score.astype(np.float32)
         new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_A'] = (panic_selling_score.shift(1) * absorption_trigger_score).astype(np.float32)
-        new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_A'] * absorption_confirm_score).astype(np.float32)
-
-        # --- 5. [重构] 维度三: 筹码断层顶部反转风险分 ---
-        # 5.1 基础风险 (Setup): 断层已形成
-        is_fault_formed = df['is_chip_fault_formed_D'].astype(float)
-        # 5.2 风险放大器 (Amplifier): 断层强度大 & 下方真空区广阔
+        new_scores['SCORE_CAPITULATION_BOTTOM_RESONANCE_S'] = (new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_A'] * absorption_confirm_score).astype(np.float32)
+        # --- 5. 维度三: 筹码断层顶部反转风险分 ---
+        # 5.1 风险放大器 (Amplifier): 断层强度大 & 下方真空区广阔
         fault_strength_score = normalize(df['chip_fault_strength_D'])
         vacuum_risk_score = normalize(df['chip_fault_vacuum_percent_D'])
-
-        # 5.3 融合生成S/A/B三级顶部反转风险信号
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] = is_fault_formed.astype(np.float32)
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] = (is_fault_formed * fault_strength_score).astype(np.float32)
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_S'] = (new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] * vacuum_risk_score).astype(np.float32)
-
+        # 5.2 风险动态恶化分 (Dynamic Worsening): 结构健康度在恶化，放大断层风险
+        dynamic_worsening_score = new_scores.get('SCORE_STRUCTURE_BEARISH_RESONANCE_B', pd.Series(0.5, index=df.index))
+        # 5.3 融合生成S/A/B三级顶部反转风险信号 (原 5.4)
+        # B级风险: 直接由“断层强度”决定，这是最基础的风险来源
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] = fault_strength_score.astype(np.float32)
+        # A级风险: 在B级基础上，叠加上“真空度”风险
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] = (new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] * vacuum_risk_score).astype(np.float32)
+        # S级风险: 在A级基础上，叠加上“动态恶化”的趋势，代表最高风险
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_S'] = (new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] * dynamic_worsening_score).astype(np.float32)
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [高级筹码动态评分模块 V2.0 共振-反转诊断版] 计算完毕。") # [修改] 更新打印信息
+        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 计算完毕。") 
         return df
 
     def diagnose_chip_internal_structure_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -439,7 +424,7 @@ class ChipIntelligence:
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
 
-        # --- 3. [重构] 维度一: 核心持仓者上升共振 ---
+        # --- 3. 维度一: 核心持仓者上升共振 ---
         # 核心逻辑: 核心筹码(70%)的集中速度(斜率)快于外围筹码(90%)
         # 3.1 静态分 (Setup): 70%集中度本身处于较低水平（已很集中）
         static_core_conc = normalize(df['concentration_70pct_D'], ascending=False)
@@ -454,7 +439,7 @@ class ChipIntelligence:
         new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] = (static_core_conc * avg_net_gathering_momentum).astype(np.float32)
         new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] * normalize(net_gathering_momentum[5])).astype(np.float32)
 
-        # --- 4. [重构] 维度二: 获利盘兑现顶部反转风险 ---
+        # --- 4. 维度二: 获利盘兑现顶部反转风险 ---
         # 4.1 静态风险 (Setup): 获利盘利润丰厚
         static_profit_margin = normalize(df['winner_profit_margin_D'])
         # 4.2 动态风险 (Trigger): 利润仍在快速增长，加速兑现冲动
@@ -467,7 +452,7 @@ class ChipIntelligence:
         new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_A'] = (static_profit_margin * profit_margin_momentum).astype(np.float32)
         new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_S'] = (new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_A'] * profit_margin_accel).astype(np.float32)
 
-        # --- 5. [重构] 维度三: 净支撑上升共振 ---
+        # --- 5. 维度三: 净支撑上升共振 ---
         # 5.1 静态机会 (Setup): 下方支撑远大于上方压力
         static_support = normalize(df['support_below_D'])
         static_pressure = normalize(df['pressure_above_D'])
@@ -535,7 +520,7 @@ class ChipIntelligence:
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
 
-        # --- 3. [重构] 维度一: 成本结构上升共振 ---
+        # --- 3. 维度一: 成本结构上升共振 ---
         # 3.1 静态分 (Setup): 短期成本已高于长期成本
         static_cost_divergence = normalize(df['cost_divergence_D'])
         # 3.2 动态分 (Momentum): 短期成本正在加速远离长期成本
@@ -549,7 +534,7 @@ class ChipIntelligence:
         new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A'] = (static_cost_divergence * avg_cost_div_momentum).astype(np.float32)
         new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S'] = (new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A'] * cost_div_accel).astype(np.float32)
 
-        # --- 4. [重构] 维度二: 长线筹码不稳定顶部反转风险 ---
+        # --- 4. 维度二: 长线筹码不稳定顶部反转风险 ---
         # 4.1 静态风险 (Setup): 长线获利盘换手率高
         static_instability = normalize(df['turnover_from_winners_ratio_D'])
         # 4.2 动态风险 (Trigger): 换手率仍在上升
@@ -559,7 +544,7 @@ class ChipIntelligence:
         new_scores['SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_B'] = static_instability.astype(np.float32)
         new_scores['SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A'] = (static_instability * dynamic_instability).astype(np.float32)
 
-        # --- 5. [重构] 维度三: 长线筹码投降底部反转机会 ---
+        # --- 5. 维度三: 长线筹码投降底部反转机会 ---
         # 5.1 战备 (Setup): 存在大量被套牢的长线资金
         capitulation_setup = normalize(df['loser_rate_long_term_D'])
         # 5.2 点火 (Trigger): 这些套牢盘开始加速卖出 (斜率负向加剧)

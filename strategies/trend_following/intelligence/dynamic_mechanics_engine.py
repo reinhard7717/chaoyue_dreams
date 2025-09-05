@@ -78,26 +78,28 @@ class DynamicMechanicsEngine:
 
     def run_force_vector_analysis_scores(self) -> Dict[str, pd.Series]:
         """
-        【V4.3 终极优化版】宏观力矢量评分引擎
-        - 核心逻辑: (业务逻辑不变)
-        - 性能优化 (本次修改):
-          - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
-          - 优化静态信号的获取逻辑：当信号不存在时，直接创建NumPy数组作为默认值，
-            避免了通过 `pd.Series(...)` 创建临时对象，大幅减少了内存分配和计算开销。
+        【V4.4 依赖修复版】宏观力矢量评分引擎
+        - 核心修复 (本次修改):
+          - 修复了原代码依赖的 `entry_score` 和 `risk_score` 在数据层不存在的问题。
+          - 使用 `chip_health_score_D` (筹码健康分) 作为 `entry_score` 的代理，代表机会。
+          - 使用 `turnover_from_winners_ratio_D` (获利盘换手率) 作为 `risk_score` 的代理，代表风险。
+        - 性能优化: (保留V4.3的优化)
         """
-        print("        -> [宏观力矢量评分引擎 V4.3] 启动...") 
+        # print("        -> [宏观力矢量评分引擎 V4.4 依赖修复版] 启动...") 
         states = {}
         df = self.strategy.df_indicators
         # --- 1. 军备检查 ---
-        if 'entry_score' not in df.columns or 'risk_score' not in df.columns:
-            print("          -> [警告] 缺少 entry_score 或 risk_score，宏观力矢量分析跳过。")
+        # 检查修复后的依赖列
+        required_cols = ['chip_health_score_D', 'turnover_from_winners_ratio_D']
+        if not all(col in df.columns for col in required_cols):
+            print(f"          -> [警告] 缺少 {required_cols}，宏观力矢量分析跳过。")
             return states
         norm_window = 120
         min_periods = max(1, norm_window // 5)
         # --- 2. 计算斜率和加速度 (Pandas时序操作) ---
-        # 集中提取所需Series，提高代码清晰度和执行效率
-        entry_score_series = df['entry_score']
-        risk_score_series = df['risk_score']
+        # 使用新的代理列进行计算
+        entry_score_series = df['chip_health_score_D']
+        risk_score_series = df['turnover_from_winners_ratio_D']
         entry_score_slope = (-2 * entry_score_series.shift(4) - entry_score_series.shift(3) + entry_score_series.shift(1) + 2 * entry_score_series) / 10
         risk_score_slope = (-2 * risk_score_series.shift(4) - risk_score_series.shift(3) + risk_score_series.shift(1) + 2 * risk_score_series) / 10
         entry_score_accel = entry_score_slope.diff()
@@ -129,7 +131,7 @@ class DynamicMechanicsEngine:
             'SCORE_FV_CONFIRMED_IGNITION_S_PLUS': pd.Series(confirmed_ignition_arr, index=df.index),
         }
         self.strategy.atomic_states.update(states)
-        print("        -> [宏观力矢量评分引擎 V4.3] 分析完毕。") 
+        print("        -> [宏观力矢量评分引擎 V4.4 依赖修复版] 分析完毕。") # 更新打印信息
         return states
 
     def diagnose_multi_timeframe_micro_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

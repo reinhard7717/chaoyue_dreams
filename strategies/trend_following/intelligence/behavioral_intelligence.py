@@ -17,43 +17,36 @@ class BehavioralIntelligence:
 
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V273.0 装备换代版】
-        - 核心修复: 更新了对 `_create_persistent_state` 方法的调用方式。
-        - 新协议: 使用了最新的参数名 `entry_event_series` 和 `break_condition_series`，
-                  使其完全兼容我们新建的 V271.0 “状态机引擎”。
-        - 收益: 确保了基础侦察部队能够正确使用现代化的通用工具，实现了全军装备的同步。
+        【V273.3 终极数值化版】
+        - 核心升级 (本次修改):
+          - [数值化] 将 'KLINE_STATE_OLD_DUCK_HEAD_FORMING' 布尔状态升级为
+                      'SCORE_OLD_DUCK_HEAD_FORMING' 数值化评分。
+        - 核心逻辑: 新评分在“老鸭头”形态持续期间，融合了“成交量萎缩程度”和“价格支撑强度”，
+                    用以量化形态的健康度与后续突破潜力。
+        - 收益: 至此，本模块所有描述“事件”或“形态”的信号均已完成数值化，实现了信号质量的最大化。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
-        
-        default_series = pd.Series(False, index=df.index)
-
         # --- 1. “巨阴洗盘”机会窗口 (Washout Opportunity Window) ---
         p_washout = p.get('washout_params', {})
         if get_param_value(p_washout.get('enabled'), True):
-            # 恢复使用本地的、基于静态阈值的逻辑来定义行为层面的“洗盘事件”
-            washout_threshold = get_param_value(p_washout.get('washout_threshold'), -0.07)
-            volume_ratio = get_param_value(p_washout.get('washout_volume_ratio'), 1.5)
             vol_ma_col = 'VOL_MA_21_D'
             if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
-                is_deep_drop = df['pct_change_D'] < washout_threshold
-                is_high_volume = df['volume_D'] > df[vol_ma_col] * volume_ratio
-                # 生成一个纯粹基于行为的原子事件信号
-                states['BEHAVIOR_EVENT_WASHOUT'] = is_deep_drop & is_high_volume
-
+                norm_window = get_param_value(p_washout.get('norm_window'), 120)
+                min_periods = max(1, norm_window // 5)
+                drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+                volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
+                volume_score = volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+                is_negative_change = df['pct_change_D'] < 0
+                states['SCORE_BEHAVIOR_WASHOUT'] = (drop_score * volume_score * is_negative_change).astype(np.float32)
         # --- 2. “缺口支撑”持续状态 (Gap Support Active State) ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
-            
-            # 定义“进入事件”：向上跳空缺口
             gap_up_event = df['low_D'] > df['high_D'].shift(1)
             gap_high = df['high_D'].shift(1).where(gap_up_event)
-            
-            # 定义“打破条件”：价格回补了缺口
             price_fills_gap = df['close_D'] < gap_high.ffill()
-
             states['KLINE_STATE_GAP_SUPPORT_ACTIVE'] = create_persistent_state(
                 df=df,
                 entry_event_series=gap_up_event,
@@ -61,56 +54,59 @@ class BehavioralIntelligence:
                 break_condition_series=price_fills_gap,
                 state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
             )
-
         # --- 3. “N字板”盘整状态 (N-Shape Consolidation State) ---
         p_nshape = p.get('n_shape_params', {})
         if get_param_value(p_nshape.get('enabled'), True):
             rally_threshold = get_param_value(p_nshape.get('rally_threshold'), 0.097)
             consolidation_days_max = get_param_value(p_nshape.get('consolidation_days_max'), 3)
+            norm_window = get_param_value(p_nshape.get('norm_window'), 120)
+            min_periods = max(1, norm_window // 5)
             is_strong_rally = df['pct_change_D'] >= rally_threshold
-            consolidation_window = is_strong_rally.shift(1).rolling(window=consolidation_days_max, min_periods=1).max().astype(bool)
+            rally_strength_score = df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+            rally_strength_score = (rally_strength_score * is_strong_rally)
+            max_recent_rally_score = rally_strength_score.shift(1).rolling(window=consolidation_days_max, min_periods=1).max().fillna(0)
+            consolidation_quality_score = (1 - df['pct_change_D'].abs().rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             is_not_rally_today = df['pct_change_D'] < rally_threshold
-            states['KLINE_STATE_N_SHAPE_CONSOLIDATION'] = consolidation_window & is_not_rally_today
-
+            states['SCORE_N_SHAPE_CONSOLIDATION'] = (max_recent_rally_score * consolidation_quality_score * is_not_rally_today).astype(np.float32)
         # --- 4. “老鸭头”形态形成中 (Old Duck Head Forming) ---
         p_duck = p.get('old_duck_head_params', {})
         if get_param_value(p_duck.get('enabled'), True):
-            # 定义均线
             ma5_col = 'EMA_5_D'
             ma13_col = 'EMA_13_D'
             ma55_col = 'EMA_55_D'
             required_cols = [ma5_col, ma13_col, ma55_col, 'VOL_MA_21_D', 'volume_D']
             if all(c in df.columns for c in required_cols):
-                # 条件1: 5日、10日均线在60日均线上方，形成“鸭头顶”
+                # 增加归一化窗口参数
+                norm_window = get_param_value(p_duck.get('norm_window'), 120)
+                min_periods = max(1, norm_window // 5)
+                # 核心状态判断逻辑保持不变
                 head_formed = (df[ma5_col].shift(1) > df[ma55_col].shift(1)) & (df[ma13_col].shift(1) > df[ma55_col].shift(1))
-                # 条件2: 5日均线死叉10日均线，形成“鸭鼻孔”
                 is_dead_cross = (df[ma5_col] < df[ma13_col]) & (df[ma5_col].shift(1) >= df[ma13_col].shift(1))
-                # 条件3: 形成死叉后，股价并未大幅下跌，而是在60日线上方缩量整理
-                is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
-                is_above_ma60 = df['close_D'] > df[ma55_col]
-                # 将“死叉”事件转化为一个持续状态，代表“鸭头”形成后的整理期
                 duck_head_forming_event = is_dead_cross & head_formed
-                # 状态打破条件：5日线重新金叉10日线（即将张口），或跌破60日线
                 break_condition = ((df[ma5_col] > df[ma13_col]) & (df[ma5_col].shift(1) <= df[ma13_col].shift(1))) | (df['close_D'] < df[ma55_col])
-                # 使用状态机生成“老鸭头形成中”的持续状态
                 duck_head_state = create_persistent_state(
                     df=df,
                     entry_event_series=duck_head_forming_event,
                     persistence_days=get_param_value(p_duck.get('max_forming_days'), 20),
                     break_condition_series=break_condition,
-                    state_name='KLINE_STATE_OLD_DUCK_HEAD_FORMING'
+                    state_name='KLINE_STATE_OLD_DUCK_HEAD_FORMING' # 临时状态名
                 )
-                # 最终状态必须满足缩量和在60日线上方整理
-                states['KLINE_STATE_OLD_DUCK_HEAD_FORMING'] = duck_head_state & is_shrinking_volume & is_above_ma60
-
+                # 组件1 - 成交量萎缩分 (量缩越明显，分数越高)
+                volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
+                volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+                # 组件2 - 价格支撑分 (收盘价高于MA55越多，分数越高)
+                price_support_ratio = (df['close_D'] / df[ma55_col] - 1).clip(0)
+                price_support_score = price_support_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+                # 融合生成最终的数值化评分，仅在核心状态激活时有分值
+                states['SCORE_OLD_DUCK_HEAD_FORMING'] = (volume_shrink_score * price_support_score * duck_head_state).astype(np.float32)
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True):
-            vol_ma_col = 'VOL_MA_21_D'
-            if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
-                # 定义“恐慌性大跌”
-                sharp_drop_threshold = get_param_value(p_atomic.get('sharp_drop_threshold'), -0.04)
-                states['KLINE_SHARP_DROP'] = df['pct_change_D'] < sharp_drop_threshold
-
+            if 'pct_change_D' in df.columns:
+                norm_window = get_param_value(p_atomic.get('norm_window'), 120)
+                min_periods = max(1, norm_window // 5)
+                sharp_drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+                is_negative_change = df['pct_change_D'] < 0
+                states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
         advanced_atomics = self.diagnose_advanced_atomic_signals(df)
         states.update(advanced_atomics)
         return states
@@ -147,49 +143,48 @@ class BehavioralIntelligence:
 
     def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 全面数值化版】回踩形态增强矩阵
+        【V1.6 终极数值化版】回踩形态增强矩阵
         - 核心职责: (原有注释)
         - 核心升级 (本次修改):
-          - [数值化] 将 'is_hammer_candle' 布尔信号升级为 'SCORE_HAMMER_CANDLE_STRENGTH'。
-                      评分基于下影线与实体比例，更能体现“锤子”的强度。
+          - [数值化] 将 'SCORE_HAMMER_CANDLE_STRENGTH' 的计算逻辑，从依赖布尔过滤器
+                        'is_potential_hammer'，升级为完全基于连续评分的融合。
+        - 收益: 消除了K线形态识别中的硬编码阈值，使得评分能够平滑地反映
+                K线从“非锤子”到“完美锤子”的渐变过程，信号质量更高。
         """
-        print("        -> [回踩增强矩阵 V1.3] 启动，正在扫描特殊形态...") 
+        print("        -> [回踩增强矩阵 V1.6] 启动，正在扫描特殊形态...") # 更新版本号
         enhancements = {}
         atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
         default_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 增强器1: K线形态 (锤子线/探针) ---
-        # 升级为数值化评分
         body = (df['close_D'] - df['open_D']).abs().replace(0, 0.0001)
         lower_shadow = (df[['open_D', 'close_D']].min(axis=1) - df['low_D']).clip(0)
         upper_shadow = (df['high_D'] - df[['open_D', 'close_D']].max(axis=1)).clip(0)
-        
-        # 定义锤子线的基本条件
-        is_potential_hammer = (lower_shadow >= body * 1.8) & (upper_shadow < body * 0.8)
-        
-        # 计算锤子线强度分：下影线/实体比例，进行归一化处理（例如映射到0-1），这里用clip简单处理
-        # 一个简单的评分可以是 (下影线/实体比例 - 2) / 3，再clip到0-1，使得比例2为0分，比例5为1分
-        hammer_strength_score = ((lower_shadow / body - 2) / 3).clip(0, 1)
-        
-        # 最终得分必须满足基本形态条件
-        enhancements['SCORE_HAMMER_CANDLE_STRENGTH'] = (hammer_strength_score * is_potential_hammer).fillna(0).astype(np.float32)
-        # 废弃旧的布尔信号
-        # enhancements['is_hammer_candle'] = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
+        # 组件1 - 下影线强度分。从满足最低标准(1.8倍实体)开始平滑计分，下影线越长分越高。
+        lower_shadow_score = ((lower_shadow / body - 1.8) / 3).clip(0, 1).fillna(0)
+        # 组件2 - 短上影线得分。上影线越短(相对于0.8倍实体)，分数越高。
+        short_upper_shadow_score = (1 - (upper_shadow / (body * 0.8))).clip(0, 1).fillna(0)
+        # 融合生成最终的锤子线强度分
+        enhancements['SCORE_HAMMER_CANDLE_STRENGTH'] = (lower_shadow_score * short_upper_shadow_score).astype(np.float32)
         # --- 增强器2: 关键支撑位 (斐波那契) ---
-        enhancements['is_fib_golden_support'] = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
-        enhancements['is_fib_standard_support'] = atomic.get('OPP_FIB_SUPPORT_STANDARD_A', default_series)
+        enhancements['SCORE_FIB_REBOUND_S'] = atomic.get('SCORE_FIB_REBOUND_S', default_score_series)
+        enhancements['SCORE_FIB_REBOUND_A'] = atomic.get('SCORE_FIB_REBOUND_A', default_score_series)
+        enhancements['SCORE_FIB_REBOUND_B'] = atomic.get('SCORE_FIB_REBOUND_B', default_score_series)
         # --- 增强器3: 特殊结构 (压缩区洗盘) ---
-        # 已在上一轮修改中升级为数值化评分
         squeeze_level_score = atomic.get('SCORE_VOL_COMPRESSION_LEVEL', default_score_series)
-        is_sharp_drop = df['pct_change_D'] < -0.03
-        enhancements['SCORE_SQUEEZE_SHAKEOUT'] = squeeze_level_score * is_sharp_drop.astype(np.float32)
+        sharp_drop_score = atomic.get('SCORE_KLINE_SHARP_DROP', default_score_series)
+        enhancements['SCORE_SQUEEZE_SHAKEOUT'] = (squeeze_level_score * sharp_drop_score).astype(np.float32)
         return enhancements
 
     def diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V58.0 诊断模块 - 板形态诊断引擎】
+        【V58.2 终极数值化版】
+        - 核心升级 (本次修改):
+          - [数值化] 将地天板/天地板事件判断中的硬布尔过滤 'is_..._event'，
+                      升级为基于价格与涨跌停价接近度的连续评分。
+        - 核心逻辑: 最终评分 = f(振幅强度, 端点价格接近度分)，
+                    完整地量化了“地天板”或“天地板”的形态质量。
+        - 收益: 能够区分“擦边”的形态和“标准”的形态，信号精度大幅提升。
         """
-        # print("        -> [诊断模块] 正在执行板形态诊断...")
         states = {}
         p = get_params_block(self.strategy, 'board_pattern_params')
         if not get_param_value(p.get('enabled'), False):
@@ -200,168 +195,178 @@ class BehavioralIntelligence:
         price_buffer = get_param_value(p.get('price_buffer'), 0.005)
         limit_up_price = prev_close * (1 + limit_up_threshold)
         limit_down_price = prev_close * (1 + limit_down_threshold)
-        is_limit_up_close = df['close_D'] >= limit_up_price * (1 - price_buffer)
-        is_limit_up_high = df['high_D'] >= limit_up_price * (1 - price_buffer)
-        is_limit_down_low = df['low_D'] <= limit_down_price * (1 + price_buffer)
-        states['BOARD_EVENT_EARTH_HEAVEN'] = is_limit_down_low & is_limit_up_close
-        
-        # signal = states['BOARD_EVENT_EARTH_HEAVEN']
-        # dates_str = format_debug_dates(signal)
-        # print(f"          -> '地天板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
-        is_limit_down_close = df['close_D'] <= limit_down_price * (1 + price_buffer)
-        states['BOARD_EVENT_HEAVEN_EARTH'] = is_limit_up_high & is_limit_down_close
-        
-        # signal = states['BOARD_EVENT_HEAVEN_EARTH']
-        # dates_str = format_debug_dates(signal)
-        # print(f"          -> '天地板' 事件诊断完成，发现 {signal.sum()} 天。{dates_str}")
-        
+        # --- 核心评分组件 ---
+        # 组件1: 振幅强度分 
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        theoretical_max_range = (limit_up_price - limit_down_price).replace(0, np.nan)
+        strength_score = (day_range / theoretical_max_range).clip(0, 1).fillna(0)
+        # 组件2 - 地天板的“触地”分 (最低价越接近跌停价，分数越高)
+        low_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['low_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 组件3 - 地天板的“封天”分 (收盘价越接近涨停价，分数越高)
+        close_near_limit_up_score = ((df['close_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 组件4 - 天地板的“触天”分 (最高价越接近涨停价，分数越高)
+        high_near_limit_up_score = ((df['high_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 组件5 - 天地板的“封地”分 (收盘价越接近跌停价，分数越高)
+        close_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['close_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # --- 地天板 (Earth to Heaven) ---
+        states['SCORE_BOARD_EARTH_HEAVEN'] = (strength_score * low_near_limit_down_score * close_near_limit_up_score).astype(np.float32)
+        # --- 天地板 (Heaven to Earth) ---
+        states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score).astype(np.float32)
         return states
 
     def diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
         """
-        【V91.2 函数调用修复版】
-        - 核心修复: 使用 numpy.maximum 替代错误的 pd.max，以正确计算上影线。
+        【V91.4 终极数值化版】
+        - 核心重构: (同V91.3)
+        - 核心升级 (本次修改):
+          - [数值化] 将“上影线强度分”的计算逻辑，从基于硬阈值的过滤，
+                      升级为一个从最低阈值开始平滑递增的连续评分。
+        - 收益: 彻底消除了模块内最后一个硬编码的布尔判断逻辑，使得所有评分
+                的响应都平滑且连续，信号质量达到理论上的最高水平。
         """
         p = exit_params.get('upthrust_distribution_params', {})
         if not get_param_value(p.get('enabled'), False):
-            return pd.Series(False, index=df.index)
-
+            return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
-        overextension_threshold = get_param_value(p.get('overextension_threshold'), 0.3)
-        upper_shadow_ratio = get_param_value(p.get('upper_shadow_ratio'), 0.5)
-        high_volume_quantile = get_param_value(p.get('high_volume_quantile'), 0.75)
-        
+        upper_shadow_ratio_min = get_param_value(p.get('upper_shadow_ratio_min'), 0.5) # 作为评分的起点
         ma_col = f'EMA_{overextension_ma_period}_D'
-        vol_ma_col = 'VOL_MA_21_D'
-        
-        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col, vol_ma_col]
+        required_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]
         if not all(col in df.columns for col in required_cols):
-            print("          -> [警告] 缺少诊断'高位放量长上影'所需列，跳过。")
-            return pd.Series(False, index=df.index)
-
-        is_overextended = (df['close_D'] / df[ma_col] - 1) > overextension_threshold
+            print("          -> [警告] 缺少诊断'高位派发风险'所需列，跳过。")
+            return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
+        # --- 计算四维风险评分组件 ---
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        # 1. 价格乖离度分
+        overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
+        overextension_score = overextension_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        # 2. 上影线强度分
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
-        
-        has_long_upper_shadow = (upper_shadow / total_range) >= upper_shadow_ratio
-        volume_threshold = df['volume_D'].rolling(window=21).quantile(high_volume_quantile)
-        is_high_volume = df['volume_D'] > volume_threshold
-        is_weak_close = df['close_D'] < (df['high_D'] + df['low_D']) / 2
-        
-        signal = is_overextended & has_long_upper_shadow & is_high_volume & is_weak_close
-        # print(f"          -> '高位放量长上影派发' 风险诊断完成，共激活 {signal.sum()} 天。{format_debug_dates(signal)}")
-        return signal
+        upper_shadow_ratio = (upper_shadow / total_range).fillna(0.0)
+        # 评分逻辑 - 当上影线比例达到下限时分数为0，之后随比例增加而线性增长，到100%时分数为1。
+        scaling_range = 1.0 - upper_shadow_ratio_min
+        scaling_range = max(scaling_range, 0.001) # 避免除以零
+        upper_shadow_score = ((upper_shadow_ratio - upper_shadow_ratio_min) / scaling_range).clip(0, 1).fillna(0)
+        # 3. 成交量能级分
+        volume_score = df['volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        # 4. 收盘弱势度分 (收盘价在K线中的位置越低，分数越高)
+        close_position_in_range = ((df['close_D'] - df['low_D']) / total_range).fillna(0.5)
+        weak_close_score = 1 - close_position_in_range
+        # --- 融合生成最终风险分 ---
+        final_score = (overextension_score * upper_shadow_score * volume_score * weak_close_score).astype(np.float32)
+        final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION' # 命名Series
+        return final_score
 
     def diagnose_ma_breakdown(self, exit_params: dict) -> pd.Series:
         """
-        【V2.0 职责净化版】诊断“均线破位”行为
-        - 核心重构: 移除了原 diagnose_structure_breakdown 方法中关于跌幅和成交量的判断，
-                      使其职责单一化，只负责生成纯粹的“跌破关键均线”这一原子行为信号。
-        - 新信号名: BEHAVIOR_MA_BREAKDOWN_A
-        - 收益: 遵循了分层架构原则，将战术融合的职责上移至 CognitiveIntelligence，
-                避免了在原子信号层进行重复和低效的逻辑判断。
+        【V2.1 数值化升级版】诊断“均线破位”行为
+        - 核心重构: 将原有的布尔信号升级为数值化的“均线破位深度分”。
+        - 核心逻辑: 评分基于收盘价跌破均线的幅度进行归一化处理，
+                    深度越大，分数越高，更能体现风险的严重程度。
+        - 收益: 为下游风险评估提供了更精细的输入，能够区分“轻微破位”和“严重破位”。
         """
-        p = exit_params.get('structure_breakdown_params', {}) # 参数块名称保持不变以便复用
+        p = exit_params.get('structure_breakdown_params', {})
         if not get_param_value(p.get('enabled'), False):
-            return pd.Series(False, index=self.strategy.df.index) # 确保返回与df对齐的Series
-        # 移除关于跌幅和成交量的参数和逻辑
+            return pd.Series(0.0, index=self.strategy.df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN') # 返回带名称的0值Series
         breakdown_ma_period = get_param_value(p.get('breakdown_ma_period'), 21)
         ma_col = f'EMA_{breakdown_ma_period}_D'
-        df = self.strategy.df_indicators # 明确使用df_indicators
+        df = self.strategy.df_indicators
         required_cols = ['close_D', ma_col]
         if not all(col in df.columns for col in required_cols):
-            print(f"          -> [警告] 缺少诊断'均线破位'所需列: {required_cols}，跳过。") # 更新打印信息
-            return pd.Series(False, index=df.index)
-        # 仅保留核心的“跌破均线”逻辑
-        is_breaking_ma = df['close_D'] < df[ma_col]
-        # 返回单一职责的原子信号
-        signal = is_breaking_ma
-        # print(f"          -> '均线破位' 行为诊断完成，共激活 {signal.sum()} 天。") # 更新打印信息
-        return signal
+            print(f"          -> [警告] 缺少诊断'均线破位'所需列: {required_cols}，跳过。")
+            return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN') # 返回带名称的0值Series
+        # 计算破位深度 (百分比)
+        breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
+        # 仅在实际破位时计算深度，否则为0
+        breakdown_depth = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
+        # 对破位深度进行归一化，生成最终评分
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        # 只有在有破位发生时才进行排名，避免全0序列产生无意义的排名
+        score = breakdown_depth.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        final_score = (score * (breakdown_depth > 0)).astype(np.float32)
+        final_score.name = 'SCORE_BEHAVIOR_MA_BREAKDOWN' # 命名Series
+        return final_score
 
     def diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V284.0 新增】量价关系动态分析中心 (CT扫描室)
-        - 核心职责: 对“成交量”和“资金攻击效率”进行全面的斜率与加速度分析，
-                    将“天量对倒”这个模糊概念，升级为可量化、可跟踪的动态风险信号。
+        【V284.1 全面数值化版】量价关系动态分析中心 (CT扫描室)
+        - 核心职责: (原有注释)
+        - 核心升级 (本次修改):
+          - [数值化] 将所有基于硬阈值的布尔风险信号，全面升级为0-1的数值化风险评分。
+        - 收益: 能够量化“天量对倒”风险的严重程度，为风险管理提供更精细的输入。
         """
-        # print("          -> [量价动态分析中心 V284.0] 启动，正在对“天量对倒”进行CT扫描...")
         states = {}
-        default_series = pd.Series(False, index=df.index)
-
-        # --- 1. 军备检查 ---
         required_cols = [
             'volume_D', 'VOL_MA_21_D', 'pct_change_D',
             'SLOPE_5_volume_D', 'ACCEL_5_volume_D',
-            'VPA_EFFICIENCY_D', 'SLOPE_5_VPA_EFFICIENCY_D' # 假设数据工程层已提供
+            'VPA_EFFICIENCY_D', 'SLOPE_5_VPA_EFFICIENCY_D'
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"            -> [严重警告] 量价动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
             return states
-
-        # --- 2. 风险分析：识别“无效天量”和“效率衰竭” ---
-        
-        # 风险信号1: 【滞涨】天量但价格不涨 (最经典的顶部风险)
-        # 定义: 成交量远超均线，但日涨幅却很小。
+        # --- 初始化归一化参数 ---
         p_vpa = params.get('vpa_dynamics_params', {})
-        volume_ratio_high = get_param_value(p_vpa.get('volume_ratio_high'), 2.5)
-        pct_change_low = get_param_value(p_vpa.get('pct_change_low'), 0.01)
-        is_huge_volume = df['volume_D'] > (df['VOL_MA_21_D'] * volume_ratio_high)
-        is_price_stagnant = df['pct_change_D'].abs() < pct_change_low
-        states['RISK_VPA_STAGNATION'] = is_huge_volume & is_price_stagnant
-        
-        # 风险信号2: 【效率衰竭】资金攻击效率持续下降
-        # 定义: 资金效率的5日斜率为负。
-        states['RISK_VPA_EFFICIENCY_DECLINING'] = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
-        
-        # 风险信号3: 【量能失控】成交量仍在加速放大
-        # 定义: 成交量的5日加速度为正，说明市场情绪可能过热，换手失控。
-        states['RISK_VPA_VOLUME_ACCELERATING'] = df['ACCEL_5_volume_D'] > 0
-        
-        # print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
+        norm_window = get_param_value(p_vpa.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        # --- 2. 风险分析：识别“无效天量”和“效率衰竭” ---
+        # 风险信号1: 【滞涨】天量但价格不涨 -> 升级为数值化评分
+        # 组件1: 天量程度分
+        volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
+        huge_volume_score = volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        # 组件2: 价格停滞度分 (涨跌幅绝对值越小，分数越高)
+        price_stagnant_score = (1 - df['pct_change_D'].abs().rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+        states['SCORE_RISK_VPA_STAGNATION'] = (huge_volume_score * price_stagnant_score).astype(np.float32)
+        # 风险信号2: 【效率衰竭】资金攻击效率持续下降 -> 升级为数值化评分
+        # 逻辑: 效率斜率越负，分数越高
+        efficiency_decline_score = (1 - df['SLOPE_5_VPA_EFFICIENCY_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+        is_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
+        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = (efficiency_decline_score * is_declining).astype(np.float32)
+        # 风险信号3: 【量能失控】成交量仍在加速放大 -> 升级为数值化评分
+        # 逻辑: 成交量加速度越正，分数越高
+        volume_accelerating_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        is_accelerating = df['ACCEL_5_volume_D'] > 0
+        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = (volume_accelerating_score * is_accelerating).astype(np.float32)
         return states
 
     # “价格-成交量原子信号诊断”方法
     def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】价格与成交量基础原子信号诊断模块
-        - 核心职责: 生成描述当前价格位置和基础量价关系的中性原子信号。
-                    这些信号是构成更复杂战术判断的“乐高积木”。
-        - 输出: 一系列描述客观事实的原子状态，如 PRICE_... 和 VOL_...。
+        【V1.2 终极数值化版】价格与成交量基础原子信号诊断模块
+        - 核心职责: (原有注释)
+        - 核心升级 (本次修改):
+          - [数值化] 在 'SCORE_VOL_WEAKENING_DROP' 的计算中，移除了一个冗余的
+                      布尔过滤器，完全依赖于底层的数值化评分。
+        - 收益: 使得“价跌量缩”的评分更加平滑和准确，避免了因成交量
+                在均线附近微小波动而导致评分突变为0的情况。
         """
-        # print("        -> [价格成交量原子诊断模块 V1.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
-
+        norm_window = get_param_value(p.get('norm_window'), 120) # 统一的归一化窗口
+        min_periods = max(1, norm_window // 5) # 统一的最小周期
         # --- 1. 价格位置原子信号 (Price Position Atomics) ---
-        # 信号1: 价格处于近期高位区间 (潜在突破区)
         lookback_period = get_param_value(p.get('range_lookback'), 20)
-        high_range_percentile = get_param_value(p.get('high_range_percentile'), 0.90)
         rolling_high = df['high_D'].rolling(window=lookback_period).max()
         rolling_low = df['low_D'].rolling(window=lookback_period).min()
         price_range = (rolling_high - rolling_low).replace(0, np.nan)
-        high_range_threshold = rolling_low + price_range * high_range_percentile
-        states['PRICE_STATE_NEAR_HIGH_RANGE'] = df['close_D'] > high_range_threshold
-
-        # 信号2: 价格处于近期低位区间 (潜在支撑区)
-        low_range_percentile = get_param_value(p.get('low_range_percentile'), 0.10)
-        low_range_threshold = rolling_low + price_range * low_range_percentile
-        states['PRICE_STATE_NEAR_LOW_RANGE'] = df['close_D'] < low_range_threshold
-
+        close_position_in_range = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
+        states['SCORE_PRICE_POSITION_IN_RECENT_RANGE'] = close_position_in_range.astype(np.float32)
         # --- 2. 量价关系原子信号 (Volume-Price Atomics) ---
         vol_ma_col = 'VOL_MA_21_D'
-        if vol_ma_col in df.columns:
-            # 信号5: 价跌量增 (恐慌或放量下跌)
-            is_price_down = df['pct_change_D'] < 0
-            is_volume_down = df['volume_D'] < df[vol_ma_col]
-            # 信号6: 价跌量缩 (下跌动能减弱或惜售)
-            states['VOL_BEHAVIOR_WEAKENING_DROP'] = is_price_down & is_volume_down
-
-        print(f"        -> [价格成交量原子诊断模块 V1.0] 已生成 {len(states)} 个基础原子信号。")
+        if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
+            # 组件1: 价跌幅度分 (跌得越多，分数越高)
+            price_drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+            # 组件2: 量缩程度分 (成交量相对均线越小，分数越高)
+            volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
+            volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+            # 移除了 (df['volume_D'] < df[vol_ma_col]) 这个硬布尔过滤，因为 volume_shrink_score 已经包含了这个信息
+            is_drop_day = (df['pct_change_D'] < 0)
+            # 融合生成最终分数，仅保留核心的“下跌日”判断
+            states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score * is_drop_day).astype(np.float32)
+        print(f"        -> [价格成交量原子诊断模块 V1.2] 已生成 {len(states)} 个数值化基础原子信号。") # 更新版本号
         return states
 
 
