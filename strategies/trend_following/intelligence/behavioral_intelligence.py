@@ -77,21 +77,21 @@ class BehavioralIntelligence:
         if get_param_value(p_duck.get('enabled'), True):
             # 定义均线
             ma5_col = 'EMA_5_D'
-            ma10_col = 'EMA_10_D'
-            ma60_col = 'EMA_60_D'
-            required_cols = [ma5_col, ma10_col, ma60_col, 'VOL_MA_21_D', 'volume_D']
+            ma13_col = 'EMA_13_D'
+            ma55_col = 'EMA_55_D'
+            required_cols = [ma5_col, ma13_col, ma55_col, 'VOL_MA_21_D', 'volume_D']
             if all(c in df.columns for c in required_cols):
                 # 条件1: 5日、10日均线在60日均线上方，形成“鸭头顶”
-                head_formed = (df[ma5_col].shift(1) > df[ma60_col].shift(1)) & (df[ma10_col].shift(1) > df[ma60_col].shift(1))
+                head_formed = (df[ma5_col].shift(1) > df[ma55_col].shift(1)) & (df[ma13_col].shift(1) > df[ma55_col].shift(1))
                 # 条件2: 5日均线死叉10日均线，形成“鸭鼻孔”
-                is_dead_cross = (df[ma5_col] < df[ma10_col]) & (df[ma5_col].shift(1) >= df[ma10_col].shift(1))
+                is_dead_cross = (df[ma5_col] < df[ma13_col]) & (df[ma5_col].shift(1) >= df[ma13_col].shift(1))
                 # 条件3: 形成死叉后，股价并未大幅下跌，而是在60日线上方缩量整理
                 is_shrinking_volume = df['volume_D'] < df['VOL_MA_21_D']
-                is_above_ma60 = df['close_D'] > df[ma60_col]
+                is_above_ma60 = df['close_D'] > df[ma55_col]
                 # 将“死叉”事件转化为一个持续状态，代表“鸭头”形成后的整理期
                 duck_head_forming_event = is_dead_cross & head_formed
                 # 状态打破条件：5日线重新金叉10日线（即将张口），或跌破60日线
-                break_condition = ((df[ma5_col] > df[ma10_col]) & (df[ma5_col].shift(1) <= df[ma10_col].shift(1))) | (df['close_D'] < df[ma60_col])
+                break_condition = ((df[ma5_col] > df[ma13_col]) & (df[ma5_col].shift(1) <= df[ma13_col].shift(1))) | (df['close_D'] < df[ma55_col])
                 # 使用状态机生成“老鸭头形成中”的持续状态
                 duck_head_state = create_persistent_state(
                     df=df,
@@ -324,36 +324,6 @@ class BehavioralIntelligence:
         # print("          -> [量价动态分析中心 V284.0] CT扫描完成。")
         return states
 
-    def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.2 数值化升级版】回踩形态增强矩阵
-        - 核心职责: (原有注释)
-        - 核心升级 (本次修改):
-          - 消费新的数值化评分 'SCORE_VOL_COMPRESSION_LEVEL'。
-          - 将输出 'is_squeeze_shakeout' 从布尔信号升级为数值评分 'SCORE_SQUEEZE_SHAKEOUT'。
-            其分值 = 压缩等级分 * 急跌行为(1或0)，完美量化信号强度。
-        """
-        print("        -> [回踩增强矩阵 V1.2] 启动，正在扫描特殊形态...") 
-        enhancements = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-        default_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 增强器1: K线形态 (锤子线/探针) ---
-        body = (df['close_D'] - df['open_D']).abs().replace(0, 0.0001)
-        lower_shadow = df[['open_D', 'close_D']].min(axis=1) - df['low_D']
-        upper_shadow = df['high_D'] - df[['open_D', 'close_D']].max(axis=1)
-        enhancements['is_hammer_candle'] = (lower_shadow >= body * 2.0) & (upper_shadow < body * 0.8)
-        # --- 增强器2: 关键支撑位 (斐波那契) ---
-        enhancements['is_fib_golden_support'] = atomic.get('OPP_FIB_SUPPORT_GOLDEN_POCKET_S', default_series)
-        enhancements['is_fib_standard_support'] = atomic.get('OPP_FIB_SUPPORT_STANDARD_A', default_series)
-        # --- 增强器3: 特殊结构 (压缩区洗盘) ---
-        # 消费新的数值化评分，并输出数值化评分
-        squeeze_level_score = atomic.get('SCORE_VOL_COMPRESSION_LEVEL', default_score_series)
-        is_sharp_drop = df['pct_change_D'] < -0.03
-        # 新的评分 = 压缩等级分 * 急跌行为(True/False -> 1.0/0.0)
-        enhancements['SCORE_SQUEEZE_SHAKEOUT'] = squeeze_level_score * is_sharp_drop.astype(np.float32)
-        return enhancements
-
     # “价格-成交量原子信号诊断”方法
     def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -387,7 +357,7 @@ class BehavioralIntelligence:
         if vol_ma_col in df.columns:
             # 信号5: 价跌量增 (恐慌或放量下跌)
             is_price_down = df['pct_change_D'] < 0
-
+            is_volume_down = df['volume_D'] < df[vol_ma_col]
             # 信号6: 价跌量缩 (下跌动能减弱或惜售)
             states['VOL_BEHAVIOR_WEAKENING_DROP'] = is_price_down & is_volume_down
 
