@@ -15,6 +15,28 @@ class StructuralIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
+    def _fuse_multi_level_scores(self, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+        """
+        【新增 V1.0 & 逻辑迁移】融合S/A/B等多层置信度分数的辅助函数。
+        - 核心职责: 从 CognitiveIntelligence 迁移而来，用于在模块内部融合多级信号。
+        """
+        if weights is None:
+            weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
+        total_score = pd.Series(0.0, index=self.strategy.df.index)
+        total_weight = 0.0
+        for level, weight in weights.items():
+            score_name = f"SCORE_{base_name}_{level}"
+            if score_name in self.strategy.atomic_states:
+                score_series = self.strategy.atomic_states[score_name]
+                total_score += score_series * weight
+                total_weight += weight
+        if total_weight == 0:
+            single_score_name = f"SCORE_{base_name}"
+            if single_score_name in self.strategy.atomic_states:
+                return self.strategy.atomic_states[single_score_name]
+            return pd.Series(0.5, index=self.strategy.df.index)
+        return (total_score / total_weight).clip(0, 1)
+
     def diagnose_ma_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.0 最终数值化版】均线状态诊断引擎
@@ -757,6 +779,71 @@ class StructuralIntelligence:
         print("        -> [行为-结构融合风险模块 V2.0 最终数值化版] 分析完毕。") 
         return states
 
+    def synthesize_consolidation_breakout_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增 V1.0 & 逻辑迁移】盘整突破机会合成模块
+        - 核心职责: 消费本模块识别出的“盘整中继模式”数值化评分，并结合
+                      “放量”或“强阳线”等点火信号，生成一个经过确认的、
+                      更高质量的结构性突破机会分数。
+        - 核心逻辑: 最终分数 = 昨日高质量盘整得分 * 今日点火信号强度
+        - 收益: 将底层盘整信号转化为更高维的战术情报，遵循分层架构原则。
+        """
+        print("        -> [盘整突破机会合成模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        default_series = pd.Series(False, index=df.index)
+        # --- 1. 提取并融合“盘整”战备(Setup)信号 ---
+        # 使用辅助函数融合S/A/B三级盘整模式分数，得到综合的“战备质量分”
+        consolidation_setup_score = self._fuse_multi_level_scores('PATTERN_CONSOLIDATION')
+        # --- 2. 提取并融合“点火”(Trigger)信号 ---
+        # 点火源1: 放量突破 (来自 behavioral_intelligence)
+        volume_ignition_score = atomic.get('SCORE_VOL_PRICE_IGNITION_UP', default_score)
+        # 点火源2: 显性反转K线 (如大阳线)
+        reversal_candle_trigger = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series).astype(float)
+        # 取最强的点火信号作为当日的点火强度
+        trigger_score = np.maximum(volume_ignition_score.values, reversal_candle_trigger.values)
+        trigger_series = pd.Series(trigger_score, index=df.index)
+        # --- 3. 融合生成结构层“盘整突破机会”分数 ---
+        # 逻辑: 昨日战备就绪(高质量盘整) * 今日点火 = 突破机会
+        final_score_series = consolidation_setup_score.shift(1).fillna(0.0) * trigger_series
+        # 重命名信号以反映其来源
+        states['SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A'] = final_score_series.astype(np.float32)
+        print("        -> [盘整突破机会合成模块 V1.0] 计算完毕。")
+        return states
+
+    def synthesize_structural_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 盘整突破增强版】结构性机会合成模块
+        - 核心职责: 融合来自本模块的多个突破信号（箱体、平台、盘整），生成统一的“蓄势突破”机会分数。
+        - 本次升级: 新增了对 `synthesize_consolidation_breakout_signals` 产出的盘整突破信号的融合。
+        """
+        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 启动...") # 修改: 更新版本号和注释
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 提取来自本模块的多个突破源信号 ---
+        # 源1: 箱体突破 (使用加权融合S/A/B三级分数)
+        box_breakout_score = self._fuse_multi_level_scores('BOX_BREAKOUT').values
+        # 源2: 平台突破
+        platform_breakout_score = atomic.get('SCORE_OPP_PLATFORM_BREAKOUT_S', default_series).values
+        # 源3: 盘整突破 (调用新增的合成方法) # 新增代码行
+        consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df) # 新增代码行
+        consolidation_breakout_score = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series).values # 新增代码行
+        states.update(consolidation_breakout_states) # 新增代码行
+        # --- 2. 融合生成“蓄势突破”分数与信号 ---
+        # 逻辑: 取所有结构性突破信号中的最大值
+        final_score_arr = np.maximum.reduce([box_breakout_score, platform_breakout_score, consolidation_breakout_score]) # 修改: 融合三种信号
+        final_score_series = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
+        states['SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S'] = final_score_series
+        # 生成布尔信号，用于兼容
+        p = get_params_block(self.strategy, 'cognitive_fusion_params', {}) # 参数块名称保持不变以便复用
+        breakout_threshold = get_param_value(p.get('accumulation_breakout_threshold'), 0.3)
+        final_signal = final_score_series > breakout_threshold
+        states['STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S'] = final_signal
+        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 计算完毕。") # 修改: 更新版本号
+        return states
 
 
 

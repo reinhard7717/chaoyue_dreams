@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from decimal import Decimal
-from typing import Any
+from typing import Any, Dict
 import gc
 
 # 这个文件包含所有层级都可能用到的通用辅助函数
@@ -40,6 +40,50 @@ def get_params_block(strategy_instance, block_name: str, default_return: Any = N
     if params is not None:
         return params
     return default_return
+
+def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
+    converted_cols = []
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            first_valid_item = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+            if isinstance(first_valid_item, Decimal):
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                converted_cols.append(col)
+    if not converted_cols:
+        print("      -> 所有数值列类型正常，无需转换。")
+    return df
+
+def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+    """
+    【新增辅助函数】融合S/A/B等多层置信度分数。
+    - 逻辑: 根据给定的权重，将 'SCORE_..._S', 'SCORE_..._A', 'SCORE_..._B' 等分数
+            加权融合成一个单一的综合分数。
+    - :param atomic_states: 包含所有原子状态的字典。
+    - :param df_index: DataFrame的索引，用于创建Series。
+    - :param base_name: 分数的基础名称 (例如 'MA_BULLISH_RESONANCE').
+    - :param weights: 一个字典，定义了 'S', 'A', 'B' 等级的权重。
+    - :return: 融合后的分数 (pd.Series).
+    """
+    if weights is None:
+        weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
+    total_score = pd.Series(0.0, index=df_index)
+    total_weight = 0.0
+    # 动态地获取并加权S/A/B等级的分数
+    for level, weight in weights.items():
+        score_name = f"SCORE_{base_name}_{level}"
+        if score_name in atomic_states:
+            score_series = atomic_states[score_name]
+            total_score += score_series * weight
+            total_weight += weight
+    # 如果没有找到任何等级的分数，返回一个中性分数
+    if total_weight == 0:
+        # 尝试获取没有等级的单一分数
+        single_score_name = f"SCORE_{base_name}"
+        if single_score_name in atomic_states:
+            return atomic_states[single_score_name]
+        return pd.Series(0.5, index=df_index)
+    # 归一化处理
+    return (total_score / total_weight).clip(0, 1)
 
 def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
     converted_cols = []

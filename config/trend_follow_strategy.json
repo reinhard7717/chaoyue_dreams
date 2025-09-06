@@ -444,44 +444,47 @@
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
-        "positional_scoring": {
-          "说明": "【阵地分】A股实战版。作为开仓地基，分数权重最高。",
+        "contextual_setup_scoring": {
+          "说明": "【第一层：环境与战备分】对高质量的元融合信号和战备状态进行独立计分，构筑开仓的'地基'。",
           "positive_signals": {
-            "说明": "【阵地分-净化版】作为开仓地基，分数权重最高。已移除所有纯上下文/前置信号的独立计分。",
-            "说明_联合作战": "--- 联合作战回踩战法 (三位一体，互斥) ---",
-            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 1300,
-            "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 850,
-            "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 700,
-            "说明_筹码体系": "--- 分级筹码信号 (含加速度) ---",
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 1500,
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 1200,
-            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 1350,
-            "SCENARIO_FORTRESS_REINFORCED_A": 500,
-            "SCENARIO_STEALTH_GARRISONING_B": 250,
-            "说明_多时间维度机会": "--- 多时间维度机会信号 ---",
-            "OPP_CHIP_ACCEL_CONCENTRATION_CONFIRMED_A": 480,
-            "OPP_BEHAVIOR_PROFIT_CUSHION_REVERSAL_B": 300,
-            "OPP_BEHAVIOR_WASH_OUT_ACCUMULATION_A": 450,
-            "说明_静态动态交叉机会": "--- 静态-多动态交叉验证机会 ---",
-            "OPP_SQUEEZE_MULTI_CONFIRMED_BREAKOUT_S": 1800,
-            "OPP_STATIC_DYN_BREAKTHROUGH_S": 1600,
-            "OPP_STATIC_DYN_INFLECTION_A": 900,
-            "OPP_STATIC_LONG_TERM_BOTTOM_REVERSAL_S": 1400,
-            "OPP_STATIC_EXTREME_SQUEEZE_ACCUMULATION_A": 460,
-            "说明_经典与资金流机会": "--- 经典与资金流机会信号 ---",
-            "VOL_PRICE_SPIKE_UP_A": 480,
-            "OSC_TRIGGER_MACD_GOLDEN_CROSS_B": 250,
-            "FUND_FLOW_SUSTAINED_INFLOW_A": 480,
-            "FUND_FLOW_HIGH_INTENSITY_INFLOW_A": 510,
-            "STRUCTURE_REGIME_TRENDING": 450,
-            "说明_原有信号": "--- 原有阵地信号 ---",
-            "OPP_PEAK_BATTLE_BREAKOUT_A": 450,
-            "OPP_CONSTRUCTIVE_WASHOUT_ABSORPTION_A": 450,
-            "OPP_BEHAVIOR_PANIC_CAPITULATION_A": 400,
-            "CHIP_CONC_LOCKED_AND_STABLE_A": 350,
-            "KLINE_STATE_N_SHAPE_CONSOLIDATION": 300,
-            "CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A": 150,
-            "CHIP_FUND_FLOW_ACCUMULATION_STRONG_S": 250
+            "说明_王牌战备": "--- S++级战备状态 ---",
+            "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS": 800,
+            "说明_黄金筹码": "--- S级元融合环境信号 ---",
+            "CONTEXT_PRIME_CHIP_OPPORTUNITY_HIGH": 700,
+            "CONTEXT_TREND_QUALITY_HIGH": 500,
+            "CONTEXT_CORE_HOLDER_ACCUMULATING": 450,
+            "CONTEXT_BEARISH_EXHAUSTION_HIGH": 400,
+            "说明_普通战备": "--- A级战备与环境信号 ---",
+            "CONTEXT_WASHOUT_ABSORPTION_SETUP": 350,
+            "CONTEXT_TREND_QUALITY_MID_TO_HIGH": 300
+          }
+        },
+        "trigger_event_scoring": {
+          "说明": "【第二层：独立触发器加分】对强力触发事件本身进行加分，作为点火的催化剂。",
+          "positive_signals": {
+            "TRIGGER_SUSTAINED_IGNITION_S_PLUS": 400,
+            "TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS": 350,
+            "TRIGGER_BOTTOM_REVERSAL_RESONANCE_S": 300,
+            "TRIGGER_DOMINANT_REVERSAL": 150,
+            "TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S": 150,
+            "TRIGGER_CLASSIC_PATTERN_BREAKOUT_S": 100,
+            "TRIGGER_SHAKEOUT_REVERSAL_A": 100,
+            "TRIGGER_CONSOLIDATION_BREAKOUT_A": 100
+          }
+        },
+        "playbook_synergy_scoring": {
+          "说明": "【第三层：剧本协同奖励分】当'战备'与'触发'完美结合时，给予额外的协同奖励分。",
+          "positive_signals": {
+            "PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS": 500,
+            "PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS": 500,
+            "PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS": 450,
+            "PLAYBOOK_IGNITION_RESONANCE_S": 400,
+            "PLAYBOOK_BOTTOM_REVERSAL_S": 400,
+            "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": 300,
+            "PLAYBOOK_HEALTHY_PULLBACK_A": 250,
+            "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": 200,
+            "PLAYBOOK_SHAKEOUT_REVERSAL_A": 200,
+            "PLAYBOOK_CONSOLIDATION_BREAKOUT_A": 200
           }
         },
         "positional_momentum_params": {
@@ -498,10 +501,10 @@
           "winner_inactive_threshold": 60.0
         },
         "dynamic_scoring": {
-          "说明": "【动能分】作为催化剂和加分项，分数权重次之。",
+          "说明": "【动能分】作为催化剂和加分项，分数权重次之。此部分保持不变，作为独立的加分模块。",
           "min_positional_score_for_dynamic": {
             "value": 300,
-            "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'阵地分'。这确保了动能信号只作为'催化剂'而非'主力'。"
+            "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
           },
           "positive_signals": {
             "DYN_AGGRESSIVE_OFFENSE_A": 250,
@@ -530,7 +533,7 @@
           }
         },
         "composite_scoring": {
-          "说明": "【战法分】作为锦上添花的强力共振信号。已移除所有与回踩相关的、可能重叠的规则。",
+          "说明": "【战法分】作为锦上添花的强力共振信号。此部分保持不变，作为独立的复合规则计分。",
           "rules": [
             { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
             { "name": "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS", "score": 800, "all_of": ["BOARD_EVENT_EARTH_HEAVEN", "CHIP_DYN_CONCENTRATING"], "none_of": [] }
@@ -615,13 +618,6 @@
             "CRITICAL_RISK_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": 2000
           }
         },
-        "trigger_enhancement_params": {
-          "enabled": { "value": true, "description": "是否启用触发器增强逻辑的总开关。" },
-          "min_positional_score_for_trigger": {
-            "value": 350,
-            "description": "【核心参数】要求当日的'阵地分'必须达到此阈值，'触发器'分数才会被计入。这确保了触发器只在基础稳固时才起作用。"
-          }
-        },
         "trigger_events": {
           "说明": "触发器计分部分。",
           "scoring": {
@@ -631,26 +627,6 @@
             "FRACTAL_EVENT_TREND_FORMING": 100,
             "KLINE_SHARP_DROP": 30
           }
-        },
-        "playbook_scoring": {
-            "说明": "【V2.1 剧本核心版】剧本计分部分。分数已重新校准，集中奖励高质量的、经过确认的战术剧本。",
-            "说明_修改": "完全重构计分体系，以匹配V2.1版playbook_engine.py中的新剧本。",
-            "PLAYBOOK_PRIME_BREAKOUT_S_PLUS_PLUS": 1500,
-            "PLAYBOOK_RESONANCE_IGNITION_S": 1200,
-            "PLAYBOOK_SQUEEZE_BREAKOUT_S": 1100,
-            "PLAYBOOK_BOTTOM_REVERSAL_S": 1000,
-            "PLAYBOOK_PRIME_BREAKOUT_S_ANY_REGIME": 900,
-            "PLAYBOOK_REGIME_MEAN_REVERSION_A_PLUS": 600,
-            "PLAYBOOK_SQUEEZE_BREAKOUT_A_ANY_REGIME": 550,
-            "PLAYBOOK_RESONANCE_IGNITION_A_ANY_REGIME": 500,
-            "PLAYBOOK_GOLDEN_PIT_A_PLUS": 480,
-            "PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS": 400,
-            "PLAYBOOK_PULLBACK_REBOUND_A": 300,
-            "PLAYBOOK_MEAN_REVERSION_A": 350,
-            "PLAYBOOK_GOLDEN_PIT_B_PLUS_ANY_REGIME": 280,
-            "PLAYBOOK_STABLE_PLATFORM_REBOUND_B_PLUS_ANY_REGIME": 250,
-            "PLAYBOOK_PULLBACK_REBOUND_B_ANY_REGIME": 200,
-            "PLAYBOOK_BOX_REVERSAL_B": 180
         },
         "strategic_context_scoring": {
           "enabled": true,
@@ -745,7 +721,7 @@
             }
         },
         "score_type_map": {
-          "说明": "【信号字典-V2.4 全覆盖增强版】定义所有信号的中文名和类型。已补全所有情报层生成的原子状态。",
+          "说明": "【信号字典-V3.3 全覆盖增强版】定义所有信号的中文名和类型。已适配所有最新的剧本和触发器。",
           "说明_COMPOSITE": "--- 战法分 (Composite) ---",
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": { "cn_name": "【战法S++】王牌结构突破(终极)", "type": "positional" },
           "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": { "cn_name": "【战法S+】王牌结构突破(次级)", "type": "positional" },
@@ -838,25 +814,16 @@
           "CONTEXT_TREND_STAGE_EARLY": { "cn_name": "【环境】上涨初期", "type": "context" },
           "CONTEXT_RECENT_REVERSAL_SIGNAL": { "cn_name": "【环境】近期有反转信号", "type": "context" },
           "说明_PLAYBOOK": "--- 剧本分 (Playbook) ---",
-          "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": { "cn_name": "【剧本S+】极致压缩·暴力突破", "type": "playbook" },
-          "PLAYBOOK_BREAKOUT_EVE_S": { "cn_name": "【剧本S】突破前夜·决战冲锋", "type": "playbook" },
-          "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": { "cn_name": "【剧本A】常规压缩·确认突破", "type": "playbook" },
-          "PLAYBOOK_PULLBACK_REBOUND_A": { "cn_name": "【剧本A】趋势回踩反弹", "type": "playbook" },
-          "PLAYBOOK_STABLE_PLATFORM_REBOUND_A_PLUS": { "cn_name": "【剧本A+】稳固平台回踩", "type": "playbook" },
-          "PLAYBOOK_GOLDEN_PIT_A_PLUS": { "cn_name": "【剧本A+】黄金坑吸筹", "type": "playbook" },
-          "PLAYBOOK_MEAN_REVERSION_A": { "cn_name": "【剧本A】均值回归反弹", "type": "playbook" },
-          "PLAYBOOK_BOX_REVERSAL_B": { "cn_name": "【剧本B】箱体底部反转", "type": "playbook" },
-          "PLAYBOOK_PULLBACK_REBOUND_B_ANY_REGIME": { "cn_name": "【剧本B】任意市-趋势回踩", "type": "playbook" },
-          "PLAYBOOK_STABLE_PLATFORM_REBOUND_B_PLUS_ANY_REGIME": { "cn_name": "【剧本B+】任意市-平台回踩", "type": "playbook" },
-          "PLAYBOOK_GOLDEN_PIT_B_PLUS_ANY_REGIME": { "cn_name": "【剧本B+】任意市-黄金坑", "type": "playbook" },
-          "PLAYBOOK_REGIME_MEAN_REVERSION_A_PLUS": { "cn_name": "【剧本A+】回归市-超卖反转", "type": "playbook" },
-          "PLAYBOOK_SQUEEZE_BREAKOUT_S": { "cn_name": "【剧本S】趋势市-压缩突破", "type": "playbook" },
-          "PLAYBOOK_SQUEEZE_BREAKOUT_A_ANY_REGIME": { "cn_name": "【剧本A】任意市-压缩突破", "type": "playbook" },
-          "PLAYBOOK_PRIME_BREAKOUT_S_PLUS_PLUS": { "cn_name": "【剧本S++】趋势市-王牌突破", "type": "playbook" },
-          "PLAYBOOK_PRIME_BREAKOUT_S_ANY_REGIME": { "cn_name": "【剧本S】任意市-王牌突破", "type": "playbook" },
-          "PLAYBOOK_BOTTOM_REVERSAL_S": { "cn_name": "【剧本S】回归市-长期底部反转", "type": "playbook" },
-          "PLAYBOOK_RESONANCE_IGNITION_S": { "cn_name": "【剧本S】趋势市-共振点火", "type": "playbook" },
-          "PLAYBOOK_RESONANCE_IGNITION_A_ANY_REGIME": { "cn_name": "【剧本A】任意市-共振点火", "type": "playbook" },
+          "PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS": { "cn_name": "【剧本S++】持续点火确认(王牌)", "type": "playbook" },
+          "PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS": { "cn_name": "【剧本S++】黄金筹码·持续点火", "type": "playbook" },
+          "PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS": { "cn_name": "【剧本S+】核心庄家·持续点火", "type": "playbook" },
+          "PLAYBOOK_IGNITION_RESONANCE_S": { "cn_name": "【剧本S】主升浪·持续点火", "type": "playbook" },
+          "PLAYBOOK_BOTTOM_REVERSAL_S": { "cn_name": "【剧本S】底部反转共振", "type": "playbook" },
+          "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": { "cn_name": "【剧本A+】洗盘吸筹后反转", "type": "playbook" },
+          "PLAYBOOK_HEALTHY_PULLBACK_A": { "cn_name": "【剧本A】健康回踩确认", "type": "playbook" },
+          "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": { "cn_name": "【剧本A】经典形态突破", "type": "playbook" },
+          "PLAYBOOK_SHAKEOUT_REVERSAL_A": { "cn_name": "【剧本A】压缩区洗盘反转", "type": "playbook" },
+          "PLAYBOOK_CONSOLIDATION_BREAKOUT_A": { "cn_name": "【剧本A】盘整中继突破", "type": "playbook" },
           "说明_SCENARIO": "--- 战略情景信号 ---",
           "SCENARIO_FORTRESS_REINFORCED_A": { "cn_name": "【情景A】固若金汤·援军已至", "type": "positional" },
           "SCENARIO_STEALTH_GARRISONING_B": { "cn_name": "【情景B】阵前潜兵", "type": "positional" },
@@ -985,6 +952,15 @@
           "MECHANICS_CHIP_DISTRIBUTION_MOMENTUM": { "cn_name": "【力学】筹码派发动能", "type": "risk" },
           "CHIP_DYN_WINNER_PROFIT_MARGIN_SHRINKING": { "cn_name": "【筹码】利润垫收缩", "type": "risk" },
           "说明_TRIGGER": "--- 触发器 (Trigger) ---",
+          "TRIGGER_SUSTAINED_IGNITION_S_PLUS": { "cn_name": "【触发S++】持续点火确认", "type": "trigger" },
+          "TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS": { "cn_name": "【触发S+】持续筹码点火确认", "type": "trigger" },
+          "TRIGGER_IGNITION_RESONANCE_S": { "cn_name": "【触发S】多域点火共振(瞬时)", "type": "trigger" },
+          "TRIGGER_BOTTOM_REVERSAL_RESONANCE_S": { "cn_name": "【触发S】底部反转共振", "type": "trigger" },
+          "TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S": { "cn_name": "【触发S】健康回踩确认", "type": "trigger" },
+          "TRIGGER_CLASSIC_PATTERN_BREAKOUT_S": { "cn_name": "【触发S】经典形态突破", "type": "trigger" },
+          "TRIGGER_SHAKEOUT_REVERSAL_A": { "cn_name": "【触发A】压缩区洗盘反转", "type": "trigger" },
+          "TRIGGER_CONSOLIDATION_BREAKOUT_A": { "cn_name": "【触发A】盘整中继突破", "type": "trigger" },
+          "TRIGGER_CHIP_IGNITION_CONFIRMED": { "cn_name": "【触发S】筹码点火确认(瞬时)", "type": "trigger" },
           "TRIGGER_CHIP_IGNITION": { "cn_name": "【触发】筹码点火", "type": "context" },
           "VOL_BREAKOUT_FROM_SQUEEZE": { "cn_name": "【触发】波动压缩后突破", "type": "context" },
           "TRIGGER_DOMINANT_REVERSAL": { "cn_name": "【触发】显性反转阳线", "type": "trigger" },

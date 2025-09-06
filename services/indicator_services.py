@@ -1811,7 +1811,7 @@ class IndicatorService:
                 target_series = df[amount_col]
                 # 直接调用 ta.roc 函数，传入 Series
                 return ta.roc(close=target_series, length=period, append=False)
-                # --- 代码修改结束 ---
+                
             aroc_series = await asyncio.to_thread(_sync_aroc)
             if aroc_series is None or aroc_series.empty:
                 logger.warning(f"AROC_{period} 计算结果为空。")

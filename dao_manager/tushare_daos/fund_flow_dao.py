@@ -780,7 +780,7 @@ class FundFlowDao(BaseDAO):
         3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-        # --- 代码修改开始 ---
+        
 
         # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
@@ -880,7 +880,7 @@ class FundFlowDao(BaseDAO):
             unique_fields=['ths_index', 'trade_time']
         )
         
-        # --- 代码修改结束 ---
+        
         
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         # 【修正打印信息】将“板块”修正为“行业”

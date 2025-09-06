@@ -231,7 +231,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         
         workflow = group(analysis_tasks)
         workflow.apply_async()
-        # --- 代码修改结束 ---
+        
         
         logger.info(f"[公共数据库] 已成功为 {stock_count} 只股票启动【全历史】分数计算任务。")
         
@@ -1720,7 +1720,7 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                     avg_exit_days=row['avg_exit_days'],
                 ))
         
-        # --- 代码修改开始 ---
+        
         # 在同步任务中，直接调用同步的ORM方法。
         #           之前的 sync_to_async(...) 调用只创建了协程但未执行。
         if records_to_create:
@@ -1736,7 +1736,7 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                  'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
             )
             logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
-        # --- 代码修改结束 ---
+        
 
         logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务完成 ======")
         return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}

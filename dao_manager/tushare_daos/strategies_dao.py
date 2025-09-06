@@ -243,7 +243,7 @@ class StrategiesDAO(BaseDAO):
         """
         # 调试信息：打印传入的股票代码列表
         # print(f"DAO层接收到待查询的股票代码: {stock_codes}")
-        # --- 代码修改开始 ---
+        
         # 增加对空列表的判断，如果列表为空，则直接返回一个空的QuerySet，避免数据库空查
         if not stock_codes:
             print("股票代码列表为空，直接返回空QuerySet。")
@@ -261,7 +261,7 @@ class StrategiesDAO(BaseDAO):
                 'signal_continuation_entry',
                 'signal_take_profit'
             )
-        # --- 代码修改结束 ---
+        
         # 1. 定义窗口函数 
         #    - PARTITION BY stock_id: 将数据按股票ID分组
         #    - ORDER BY trade_time DESC: 在每个分组内，按交易时间倒序排列
@@ -271,7 +271,7 @@ class StrategiesDAO(BaseDAO):
             partition_by=[F('stock_id')],
             order_by=F('trade_time').desc()
         )
-        # --- 代码修改开始 ---
+        
         # 2. 使用 annotate 创建一个包含行号的子查询
         #    【关键修改】在应用窗口函数前，先用传入的 stock_codes 列表进行过滤
         #    这会极大地减少窗口函数需要处理的数据量，是本次性能优化的核心。
@@ -280,7 +280,7 @@ class StrategiesDAO(BaseDAO):
         ranked_reports = base_queryset.annotate(
             row_number=window
         )
-        # --- 代码修改结束 ---
+        
         # 3. 从子查询中筛选出我们想要的行 (rn=1) 
         #    注意: Django ORM 要求对窗口函数的结果进行筛选时，必须通过 .filter() 作用于 annotate() 之后
         #    为了让数据库能直接处理，我们把它包装成一个子查询

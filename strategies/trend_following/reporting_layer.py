@@ -56,9 +56,12 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V508.0 精细化交易动作版】
-        - 核心升级: 将模拟层生成的精细化交易动作保存到 StrategyDailyScore 的 trade_action 字段。
-        """ # 修改代码行
+        【V509.0 三位一体计分适配版】
+        - 核心升级: 重构计分逻辑以适配“三位一体”计分体系。
+          - positional_score: 现在对应【战备分】(SCORE_SETUP)。
+          - dynamic_score: 现在对应【触发器分】(SCORE_TRIGGER)。
+          - composite_score: 现在对应【协同奖励分】(SCORE_PLAYBOOK_SYNERGY)。
+        """ # [修改] 更新版本号和注释
         await self._ensure_playbooks_cached()
         
         signals_to_create = []
@@ -96,9 +99,12 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
             if trade_time in score_details_df.index:
+                # [修改] 过滤条件更新，以匹配新的计分详情列名
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
-                    playbook_obj = self.playbooks_cache.get(name)
+                    # 从列名中提取原始的剧本/触发器名称
+                    original_name = name.replace('PLAYBOOK_', '').replace('TRIGGER_', '').replace('SETUP_', '')
+                    playbook_obj = self.playbooks_cache.get(original_name)
                     if playbook_obj:
                         signal_details_to_create.append(SignalPlaybookDetail(
                             signal=signal_obj,
@@ -111,11 +117,15 @@ class ReportingLayer:
 
         for trade_time, row in result_df.iterrows():
             # --- Part 2: 生成 StrategyDailyScore ---
-            # 确保 trade_action 字段的值在 StrategyDailyScore.TradeActionType 的 choices 中
             trade_action_value = row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value)
             if trade_action_value not in StrategyDailyScore.TradeActionType.values:
                 print(f"    -> [报告层-警告] 日期 {trade_time.date()} 的 trade_action '{trade_action_value}' 不在有效选项中，将使用默认值 'NO_SIGNAL'。")
                 trade_action_value = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
+
+            # [修改] 从 score_details_df 中提取三位一体的分数
+            setup_score = score_details_df.loc[trade_time].get('SCORE_SETUP', 0)
+            trigger_score = score_details_df.loc[trade_time].get('SCORE_TRIGGER', 0)
+            playbook_synergy_score = score_details_df.loc[trade_time].get('SCORE_PLAYBOOK_SYNERGY', 0)
 
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
@@ -124,31 +134,41 @@ class ReportingLayer:
                 offensive_score=int(row.get('entry_score', 0)),
                 risk_score=int(row.get('risk_score', 0)),
                 final_score=row.get('final_score', 0.0),
-                positional_score=0,
-                dynamic_score=0,
-                composite_score=0,
+                positional_score=int(setup_score), # [修改] positional_score 对应战备分
+                dynamic_score=int(trigger_score), # [修改] dynamic_score 对应触发器分
+                composite_score=int(playbook_synergy_score), # [修改] composite_score 对应协同奖励分
                 signal_type=row.get('signal_type', '无信号'),
                 score_details_json={},
-                trade_action=trade_action_value # 使用经过验证的 trade_action_value
+                trade_action=trade_action_value
             )
-            # 只有在需要保存的日子，才将其加入待创建列表
             if save_all_days or (row['signal_type'] != '无信号'):
                 daily_scores_to_create.append(daily_score_obj)
-            daily_score_map[trade_time] = daily_score_obj # 关键：为所有日期建立映射
+            daily_score_map[trade_time] = daily_score_obj
 
-            # --- Part 2.1: 生成 StrategyScoreComponent (逻辑不变) ---
+            # --- Part 2.1: 生成 StrategyScoreComponent (逻辑不变，但消费的数据源已更新) ---
             all_details_for_json = {}
-            positional_total, dynamic_total, composite_total = 0, 0, 0
             if trade_time in score_details_df.index and trade_time in risk_details_df.index:
                 combined_details = pd.concat([
                     score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
                     risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
                 ])
                 for signal_name, score_value in combined_details.items():
-                    signal_meta = score_type_map.get(signal_name, {})
-                    cn_name = signal_meta.get('cn_name', signal_name)
-                    score_type = signal_meta.get('type', 'unknown')
-                    # 只有在需要保存的日子，才创建关联的组件
+                    # [修改] 更新 score_type 的确定逻辑，以匹配新的计分详情列名
+                    score_type = 'unknown'
+                    if signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
+                        score_type = 'positional'
+                    elif signal_name.startswith('TRIGGER_') or signal_name == 'SCORE_TRIGGER':
+                        score_type = 'dynamic'
+                    elif signal_name.startswith('PLAYBOOK_') or signal_name == 'SCORE_PLAYBOOK_SYNERGY':
+                        score_type = 'composite'
+                    elif signal_name.startswith('DYN_'):
+                        score_type = 'dynamic' # 保留对旧式动能分的支持
+                    else:
+                        # 对于风险信号等，从 score_type_map 获取
+                        score_type = score_type_map.get(signal_name, {}).get('type', 'unknown')
+                    
+                    cn_name = score_type_map.get(signal_name, {}).get('cn_name', signal_name)
+                    
                     if save_all_days or (row['signal_type'] != '无信号'):
                         score_components_to_create.append(StrategyScoreComponent(
                             daily_score=daily_score_obj,
@@ -157,24 +177,16 @@ class ReportingLayer:
                             score_type=score_type,
                             score_value=int(score_value)
                         ))
-                    if score_type == 'positional': positional_total += int(score_value)
-                    elif score_type == 'dynamic': dynamic_total += int(score_value)
-                    elif score_type == 'composite': composite_total += int(score_value)
                     if score_type not in all_details_for_json: all_details_for_json[score_type] = []
                     all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
-            daily_score_obj.positional_score = positional_total
-            daily_score_obj.dynamic_score = dynamic_total
-            daily_score_obj.composite_score = composite_total
+            
             daily_score_obj.score_details_json = all_details_for_json
 
-        # --- Part 3: 生成 StrategyDailyState (全景沙盘数据) ---
-        # 这个循环现在独立于 save_all_days，它会遍历所有计算过的日期
+        # --- Part 3: 生成 StrategyDailyState (逻辑不变) ---
         for trade_time, daily_score_obj in daily_score_map.items():
-            # 确保只有在需要保存的日子，才创建关联的每日状态记录。
             should_save_this_day = save_all_days or (result_df.loc[trade_time, 'signal_type'] != '无信号')
             if not should_save_this_day:
-                continue # 如果今天不需要保存，则跳过，不生成任何状态记录
-            # 遍历所有原子状态
+                continue
             for state_name, state_series in self.strategy.atomic_states.items():
                 if state_series.get(trade_time, False):
                     daily_states_to_create.append(StrategyDailyState(
@@ -183,7 +195,6 @@ class ReportingLayer:
                         signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
                         signal_type=StrategyDailyState.SignalType.STATE
                     ))
-            # 遍历所有触发器
             for trigger_name, trigger_series in self.strategy.trigger_events.items():
                 if trigger_series.get(trade_time, False):
                     daily_states_to_create.append(StrategyDailyState(
@@ -199,6 +210,7 @@ class ReportingLayer:
             f"{len(daily_states_to_create)} 条每日状态。")
         
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
+
 
 
 

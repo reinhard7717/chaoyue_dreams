@@ -9,10 +9,10 @@ from collections import defaultdict
 import numpy as np
 
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
-# --- 代码修改开始 ---
+
 # 导入新的数据源模型 StrategyDailyState，这是我们分析的基础。
 from stock_models.stock_analytics import StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
-# --- 代码修改结束 ---
+
 from strategies.trend_following.utils import get_param_value, get_params_block
 from utils.cache_manager import CacheManager
 from utils.config_loader import load_strategy_config
