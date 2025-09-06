@@ -50,7 +50,7 @@ class TrendFollowStrategy:
         - 核心重组: 调整了指挥链，以适配风险计算的统一流程。
         - 新增功能: 如果提供了 start_date_str，则在执行复杂策略计算前，先对数据进行切片，以提升性能。
         """
-
+        self.params = params # [代码修改] 将本次运行的动态参数保存到实例属性，以供所有子模块访问
         if df is None or df.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         # 这个步骤发生在所有复杂计算之前，但在基础指标（如均线）计算之后
@@ -90,8 +90,6 @@ class TrendFollowStrategy:
         self.df_indicators['risk_score'] = risk_score
         self.df_indicators['risk_change_summary'] = risk_change_summary
         self.risk_score = risk_score
-        # --- 指挥链 5/8: 力学分析层 ---
-        self.mechanics_engine.run_force_vector_analysis()
         # --- 指挥链 6/8: 统合判断层 ---
         # JudgmentLayer 现在接收合并后的完整风险详情
         self.judgment_layer.make_final_decisions(score_details_df, combined_risk_details_df)
