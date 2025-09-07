@@ -934,16 +934,13 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             df_tushare['net_xl_amount_tushare'] = df_tushare['buy_elg_amount'] - df_tushare['sell_elg_amount']
             df_tushare['main_force_active_buy_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount']
             df_tushare['main_force_active_sell_tushare'] = df_tushare['sell_lg_amount'] + df_tushare['sell_elg_amount']
-            # [修改] 选取更多列用于后续计算
             df_tushare = df_tushare[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
-
         # THS 数据处理
         df_ths = data_dfs['ths']
         if not df_ths.empty:
             df_ths = standardize_numeric_cols(df_ths) 
             df_ths['retail_net_flow_ths'] = df_ths['buy_sm_amount'] + df_ths['buy_md_amount']
             df_ths = df_ths[['trade_time', 'net_amount', 'buy_lg_amount', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths'})
-        
         # DC 数据处理
         df_dc = data_dfs['dc']
         if not df_dc.empty:

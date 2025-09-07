@@ -114,9 +114,6 @@ class ChipIntelligence:
             thresholds_df = None
             if group_key in ['standard', 'bucket_upper']:
                 if not score.isnull().all():
-                    # [修改] 修复 'TypeError: must be real number, not list'
-                    # 将一次性计算多个分位数，改为循环计算单个分位数，然后合并结果
-                    # 这样可以避免将列表传递给可能不支持此操作的底层pandas函数
                     thresholds_list = []
                     for q_val in quantiles_needed:
                         s = score.rolling(window).quantile(q_val)
@@ -127,7 +124,6 @@ class ChipIntelligence:
             elif group_key == 'gt_zero':
                 positive_scores = score[score > 0]
                 if not positive_scores.empty:
-                    # [修改] 对 gt_zero 分组也应用同样的修复逻辑
                     thresholds_list = []
                     for q_val in quantiles_needed:
                         s = positive_scores.rolling(window).quantile(q_val)
@@ -526,7 +522,6 @@ class ChipIntelligence:
             return df
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
-        # [修改] 简化军备检查，直接要求 cost_divergence_D 及其衍生列存在
         required_cols = [
             'turnover_from_winners_ratio_D', 'loser_rate_long_term_D', 'cost_divergence_D'
         ]

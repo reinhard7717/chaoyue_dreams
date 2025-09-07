@@ -33,21 +33,21 @@ class PlaybookEngine:
             {
                 'name': 'PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS',
                 'setup': ['CONTEXT_PRIME_CHIP_OPPORTUNITY_HIGH', 'CONTEXT_TREND_QUALITY_HIGH', 'CONTEXT_NOT_LATE_STAGE'],
-                'trigger': ['TRIGGER_SUSTAINED_IGNITION_S_PLUS'], # [修改] 升级为持续点火触发器，避免假突破
+                'trigger': ['TRIGGER_SUSTAINED_IGNITION_S_PLUS'],
                 'comment': 'S++级(王牌) - [黄金筹码] 在“黄金筹码结构”形成后，由【经过确认的】“多域点火共振”确认总攻，规避回踩。'
             },
             # --- S+级 核心剧本 (S+ Class Core Playbooks) ---
             {
                 'name': 'PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS',
                 'setup': ['CONTEXT_CORE_HOLDER_ACCUMULATING', 'CONTEXT_TREND_QUALITY_MID_TO_HIGH'],
-                'trigger': ['TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS'], # [修改] 升级为新增的持续筹码点火触发器
+                'trigger': ['TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS'],
                 'comment': 'S+级 - [核心庄家] 在核心持仓者完成隐蔽吸筹后，由【经过确认的】“筹码点火”信号确认启动，规避洗盘。'
             },
             # --- S级王牌剧本 (S-Class Ace Playbooks) ---
             {
                 'name': 'PLAYBOOK_IGNITION_RESONANCE_S',
                 'setup': ['CONTEXT_TREND_QUALITY_HIGH', 'CONTEXT_NOT_LATE_STAGE'],
-                'trigger': ['TRIGGER_SUSTAINED_IGNITION_S_PLUS'], # [修改] 升级为持续点火触发器，避免假突破
+                'trigger': ['TRIGGER_SUSTAINED_IGNITION_S_PLUS'],
                 'comment': 'S级 - [主升浪] 在趋势健康且非末期的主升浪中，由【经过确认的】“多域点火共振”确认总攻，规避回踩。'
             },
             {
@@ -98,7 +98,7 @@ class PlaybookEngine:
                       且没有出现重大的顶部或崩溃风险信号，以此确认趋势的可持续性。
         """
         # 修改: 整个方法被重写以定义基于元融合分数的触发器
-        print("        -> [触发事件中心 V3.3 突破确认增强版] 启动...") # [修改] 更新版本号
+        print("        -> [触发事件中心 V3.3 突破确认增强版] 启动...")
         triggers = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -195,7 +195,7 @@ class PlaybookEngine:
         # --- 9. 最终安全检查 ---
         for key in list(triggers.keys()):
             triggers[key] = triggers[key].fillna(False)
-        print(f"        -> [触发事件中心 V3.3] 分析完毕，生成 {len(triggers)} 个元融合触发器。") # [修改] 更新版本号
+        print(f"        -> [触发事件中心 V3.3] 分析完毕，生成 {len(triggers)} 个元融合触发器。")
         return triggers
 
     def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:

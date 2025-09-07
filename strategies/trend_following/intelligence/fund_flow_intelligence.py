@@ -397,7 +397,7 @@ class FundFlowIntelligence:
              - 终极看涨: 六大聪明钱引擎看涨 + 散户恐慌杀跌
              - 终极看跌: 六大聪明钱引擎看跌 + 散户买入狂热
         """
-        print("        -> [资金流情报模块 V18.0] 启动...") # [修改] 更新版本号
+        print("        -> [资金流情报模块 V18.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'fund_flow_params')
         if not get_param_value(p.get('enabled'), False):
@@ -411,7 +411,7 @@ class FundFlowIntelligence:
         df = self._diagnose_retail_flow_dynamics(df)
         df = self._diagnose_flow_intensity_dynamics(df) # 调用资金流强度诊断引擎
         # --- [终极升级] 生成资金流七位一体智能融合信号 (Septafecta Smart Resonance) ---
-        print("            -> [七位一体引擎 V1.0] 启动智能信号融合...") # [修改] 升级为七位一体
+        print("            -> [七位一体引擎 V1.0] 启动智能信号融合...")
         # 组合六大“聪明钱”引擎的看涨信号
         smart_money_up_low = (
             df.get('FF_SCORE_RESONANCE_UP_LOW', 0.5) *
@@ -458,5 +458,5 @@ class FundFlowIntelligence:
         for col in df.columns:
             if col.startswith('FF_SCORE_'):
                 states[col] = df[col]
-        print(f"        -> [资金流情报模块 V18.0] 诊断完毕，生成了 {len(states)} 个数值化动态信号。") # [修改] 更新版本号
+        print(f"        -> [资金流情报模块 V18.0] 诊断完毕，生成了 {len(states)} 个数值化动态信号。")
         return states

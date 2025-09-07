@@ -1061,7 +1061,7 @@ class IndicatorService:
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
 
-    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]: # [修改] 恢复并升级此方法
+    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.0 混合计算版】
         - 核心升级: 实现智能跳过逻辑。在计算斜率前，会检查目标列是否已存在。
@@ -1106,7 +1106,7 @@ class IndicatorService:
         # print("    - [斜率中心 V3.0] 所有斜率计算完成。")
         return all_dfs
 
-    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]: # [修改] 恢复并升级此方法
+    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.0 混合计算版】
         - 核心升级: 与斜率计算类似，增加了智能跳过逻辑。

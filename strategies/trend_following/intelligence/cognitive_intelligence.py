@@ -666,29 +666,26 @@ class CognitiveIntelligence:
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 1. 提取引擎失效的多个症状分数 ---
         # 直接使用分数，不再转换为布尔值
         engine_stalling_score = self._get_atomic_score('SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S', 0.0)
         vpa_stagnation_score = self._get_atomic_score('SCORE_RISK_VPA_STAGNATION', 0.0)
         bearish_divergence_score = self._get_atomic_score('SCORE_RISK_MTF_RSI_DIVERGENCE_S', 0.0)
-
         # --- 2. 定义触发的战场环境分数 ---
         # 使用数值化的危险区上下文分数
         danger_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
-
         # --- 3. 最终裁定 ---
         # 逻辑从布尔运算升级为数值融合
         # 将所有症状分数取最大值，代表最主要的引擎失效风险
-        max_symptom_score = np.maximum.reduce([
-            engine_stalling_score.values,
-            vpa_stagnation_score.values,
-            bearish_divergence_score.values
-        ])
+        # 这种方法可以自动对齐数据，避免因数组长度不同而导致的 "setting an array element with a sequence" 错误。
+        max_symptom_score_series = pd.concat([
+            engine_stalling_score,
+            vpa_stagnation_score,
+            bearish_divergence_score
+        ], axis=1).max(axis=1).fillna(0.0)
         # 最终风险分 = 危险区上下文 * 最强引擎失效症状
-        final_risk_score = danger_zone_score * pd.Series(max_symptom_score, index=df.index)
+        final_risk_score = danger_zone_score * max_symptom_score_series
         states['COGNITIVE_SCORE_ENGINE_FAILURE_S'] = final_risk_score.astype(np.float32)
-
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
         print("        -> [市场引擎状态融合模块 V2.0] 计算完毕。") 
@@ -960,7 +957,6 @@ class CognitiveIntelligence:
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         # 重新定义风险维度，并全面数值化，移除硬编码阈值判断
-        # [修改] 将通过 np.maximum 计算出的 numpy 数组立即封装回 pandas Series，以保证列表内数据类型统一
         vpa_risk_score_arr = np.maximum(
             self._get_atomic_score('SCORE_RISK_VPA_STAGNATION', 0.0).values,
             self._get_atomic_score('SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0).values
@@ -970,7 +966,7 @@ class CognitiveIntelligence:
             self._get_atomic_score('SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0) * 25,
             self._get_atomic_score('SCORE_RISK_MOMENTUM_EXHAUSTION', 0.0) * 25,
             self._get_atomic_score('SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE', 0.0) * 25,
-            vpa_risk_score_series * 25, # [修改] 使用封装好的 Series，而不是裸的 numpy 数组
+            vpa_risk_score_series * 25,
             self._get_atomic_score('SCORE_VOL_EXPANSION_LEVEL', 0.0) * 25,
             self._get_atomic_score('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', 0.0) * 40,
             self._get_atomic_score('SCORE_BEHAVIOR_PANIC_SELLING_RISK_S', 0.0) * 25,

@@ -20,13 +20,13 @@ class OffensiveLayer:
           4.  【总分合成】: 最终进攻分 = 战备分 + 触发器分 + 协同奖励分 + 其他加成项。
         - 收益: 评分体系更透明、可解释，且能更早地发现“万事俱备，只欠东风”的潜在机会。
         """
-        print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...") # [修改] 更新版本号和注释
+        print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
         
         # --- 1. 加载三位一体计分模型参数 ---
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params') # [修改] 指向新的总参数块
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
             
@@ -106,14 +106,14 @@ class OffensiveLayer:
           2.  基于核心维度(现在是'SCORE_SETUP')的分数变化，与总分变化进行交叉验证，识别“结构性背离”风险
               (例如，核心战备分下降，但次要的触发器或协同分上升导致总分虚高)。
         """
-        print("          -> [进攻动能诊断大脑 V401.0 三位一体适配版] 启动，正在诊断分数动态...") # [修改] 更新版本号和注释
+        print("          -> [进攻动能诊断大脑 V401.0 三位一体适配版] 启动，正在诊断分数动态...")
         # --- 步骤 1: 诊断总分(entry_score)的动态，用于风险控制（机会衰退）---
         score_change = entry_score.diff(1).fillna(0)
         score_accel = score_change.diff(1).fillna(0)
         # 状态: 【机会衰退】(否决票来源) - 当总分增长停滞或减速时触发
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params') # [修改] 指向新的总参数块
-        momentum_params = scoring_params.get('momentum_diagnostics_params', {}) # [修改] 此参数块可能需要重新审视或删除
-        fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 800) # [修改] 根据新的分数范围调整阈值
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        momentum_params = scoring_params.get('momentum_diagnostics_params', {})
+        fading_score_threshold = get_param_value(momentum_params.get('fading_score_threshold'), 800)
         is_opportunity_fading = ((score_change > 0) & (score_accel < 0)) | (score_change <= 0)
         self.strategy.atomic_states['SCORE_DYN_OPPORTUNITY_FADING'] = is_opportunity_fading & (entry_score.shift(1) > fading_score_threshold)
         # 状态: 【风险抬头】(否决票来源) - 逻辑不变
@@ -125,7 +125,6 @@ class OffensiveLayer:
         # --- 步骤 2: 生成用于调试的详细诊断报告 ---
         diagnostics = pd.Series([{} for _ in range(len(entry_score))], index=entry_score.index)
         # 诊断核心维度分数的变化，以识别结构性问题
-        # [修改] 核心维度现在是 'SCORE_SETUP'
         core_score = score_details_df.get('SCORE_SETUP', pd.Series(0.0, index=entry_score.index))
         core_score_change = core_score.diff(1).fillna(0)
         # 定义各种诊断条件

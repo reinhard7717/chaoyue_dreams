@@ -195,7 +195,7 @@ class FoundationIntelligence:
         # 空头钉住：对超卖“程度分”进行滚动求和
         bearish_persistence_sum = states['SCORE_RSI_OVERSOLD_EXTENT'].rolling(window=window_peg).sum()
         states['SCORE_OSC_BEARISH_PERSISTENCE'] = (bearish_persistence_sum / window_peg).fillna(0).astype(np.float32)
-        print("        -> [震荡情报中心] 已将RSI钉住状态升级为基于程度分的滚动求和。")
+        # print("        -> [震荡情报中心] 已将RSI钉住状态升级为基于程度分的滚动求和。")
         return states
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -223,14 +223,14 @@ class FoundationIntelligence:
         # 1.1 压缩环境 (Compression Environment)
         score_squeeze_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=False)
         score_squeeze_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=False)
-        # [新增] 使用加权平均（周线权重更高）生成平滑的最终分
+        # 使用加权平均（周线权重更高）生成平滑的最终分
         states['SCORE_VOL_COMPRESSION_LEVEL'] = (score_squeeze_daily * 0.4 + score_squeeze_weekly * 0.6).astype(np.float32)
         # 1.2 高波/扩张环境 (High-Volatility / Expansion Environment)
         score_expansion_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=True)
         score_expansion_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=True)
-        # [新增] 对称的扩张评分逻辑
+        # 对称的扩张评分逻辑
         states['SCORE_VOL_EXPANSION_LEVEL'] = (score_expansion_daily * 0.4 + score_expansion_weekly * 0.6).astype(np.float32)
-        print("        -> [波动率情报中心] 已将压缩/扩张等级分升级为平滑连续评分。")
+        # print("        -> [波动率情报中心] 已将压缩/扩张等级分升级为平滑连续评分。")
         # === Part 5: 波动率反转临界点 (逻辑不变，但消费了新的平滑分) ===
         is_tipping_point_bottom = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = states['SCORE_VOL_COMPRESSION_LEVEL'] * is_tipping_point_bottom.astype(np.float32)
@@ -426,7 +426,7 @@ class FoundationIntelligence:
         # 使用新的价格强度分计算最终得分
         states['SCORE_VOL_PRICE_IGNITION_UP'] = score_price_up_strength * score_volume_igniting
         states['SCORE_VOL_PRICE_PANIC_DOWN_RISK'] = score_price_down_strength * score_volume_igniting
-        print("        -> [经典指标情报中心] 已将量价点火信号中的价格部分数值化。")
+        # print("        -> [经典指标情报中心] 已将量价点火信号中的价格部分数值化。")
         return states
 
 

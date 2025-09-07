@@ -61,7 +61,7 @@ class ReportingLayer:
           - positional_score: 现在对应【战备分】(SCORE_SETUP)。
           - dynamic_score: 现在对应【触发器分】(SCORE_TRIGGER)。
           - composite_score: 现在对应【协同奖励分】(SCORE_PLAYBOOK_SYNERGY)。
-        """ # [修改] 更新版本号和注释
+        """
         await self._ensure_playbooks_cached()
         
         signals_to_create = []
@@ -99,7 +99,6 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
             if trade_time in score_details_df.index:
-                # [修改] 过滤条件更新，以匹配新的计分详情列名
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
                     # 从列名中提取原始的剧本/触发器名称
@@ -121,8 +120,6 @@ class ReportingLayer:
             if trade_action_value not in StrategyDailyScore.TradeActionType.values:
                 print(f"    -> [报告层-警告] 日期 {trade_time.date()} 的 trade_action '{trade_action_value}' 不在有效选项中，将使用默认值 'NO_SIGNAL'。")
                 trade_action_value = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
-
-            # [修改] 从 score_details_df 中提取三位一体的分数
             setup_score = score_details_df.loc[trade_time].get('SCORE_SETUP', 0)
             trigger_score = score_details_df.loc[trade_time].get('SCORE_TRIGGER', 0)
             playbook_synergy_score = score_details_df.loc[trade_time].get('SCORE_PLAYBOOK_SYNERGY', 0)
@@ -134,9 +131,9 @@ class ReportingLayer:
                 offensive_score=int(row.get('entry_score', 0)),
                 risk_score=int(row.get('risk_score', 0)),
                 final_score=row.get('final_score', 0.0),
-                positional_score=int(setup_score), # [修改] positional_score 对应战备分
-                dynamic_score=int(trigger_score), # [修改] dynamic_score 对应触发器分
-                composite_score=int(playbook_synergy_score), # [修改] composite_score 对应协同奖励分
+                positional_score=int(setup_score),
+                dynamic_score=int(trigger_score),
+                composite_score=int(playbook_synergy_score),
                 signal_type=row.get('signal_type', '无信号'),
                 score_details_json={},
                 trade_action=trade_action_value
@@ -153,7 +150,6 @@ class ReportingLayer:
                     risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
                 ])
                 for signal_name, score_value in combined_details.items():
-                    # [修改] 更新 score_type 的确定逻辑，以匹配新的计分详情列名
                     score_type = 'unknown'
                     if signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
                         score_type = 'positional'
