@@ -111,6 +111,10 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_price_volume_atomics(df))
+        # VPA风险信号的调用
+        behavioral_params = get_params_block(self.strategy, 'behavioral_params')
+        vpa_risk_scores = self.behavioral_intel.diagnose_volume_price_dynamics(df, behavioral_params)
+        self.strategy.atomic_states.update(vpa_risk_scores)
         # 在合成行为模式之前，必须先生成其依赖的 "冲高回落风险" 信号
         exit_params = get_params_block(self.strategy, 'exit_strategy_params')
         upthrust_risk_score = self.behavioral_intel.diagnose_upthrust_distribution(df, exit_params)
