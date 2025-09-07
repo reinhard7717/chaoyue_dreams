@@ -134,7 +134,7 @@ class StructuralIntelligence:
                         使其从一个稀疏的“事件”信号转变为更连续、更具前瞻性的“机会”信号，
                         与其他突破信号的计算范式保持一致。
         """
-        print("        -> [箱体诊断模块 V4.2 机会逻辑修正版] 启动...")
+        # print("        -> [箱体诊断模块 V4.2 机会逻辑修正版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'box_state_params')
         if not get_param_value(p.get('enabled'), True) or df.empty:

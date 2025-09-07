@@ -399,6 +399,10 @@
         "norm_window": 60,
         "trend_health_source": "SCORE_MA_HEALTH"
       },
+      "fund_flow_params": {
+        "enabled": true,
+        "description": "【V18.0 新增】资金流七位一体智能融合引擎的开关。"
+      },
       "multi_dim_trend_params": {
         "enabled": true,
         "description": "【V500.0 新增】数值化多维趋势引擎参数",

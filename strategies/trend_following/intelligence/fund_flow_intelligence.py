@@ -531,44 +531,16 @@ class FundFlowIntelligence:
              - 终极看涨: 六大聪明钱引擎看涨 + 散户恐慌杀跌
              - 终极看跌: 六大聪明钱引擎看跌 + 散户买入狂热
         """
-        print("        -> [资金流情报模块 V18.0] 启动...")
-        # --- 修改开始: 增强输入探针 ---
-        print(f"[探针] fund_flow_intelligence: 输入的df的shape: {df.shape}")
-        required_cols_sample = [
-            'net_flow_consensus_sum_5d_D', 'SLOPE_5_net_flow_consensus_sum_5d_D', 'ACCEL_5_net_flow_consensus_D',
-            'main_force_net_flow_consensus_sum_5d_D', 'flow_divergence_mf_vs_retail_D', 'CMF_21_D',
-            'net_xl_amount_consensus_sum_5d_D', 'retail_net_flow_consensus_sum_5d_D', 'main_force_flow_intensity_ratio_D'
-        ]
-        print("[探针] 检查关键输入列的数据质量:")
-        all_inputs_ok = True
-        for col in required_cols_sample:
-            if col in df.columns:
-                series = df[col]
-                valid_count = series.count() # 非NaN值的数量
-                total_count = len(series)
-                valid_ratio = valid_count / total_count if total_count > 0 else 0
-                is_all_zero = (series.dropna() == 0).all() if valid_count > 0 else False
-                
-                status_msg = f"存在 (有效值: {valid_count}/{total_count}, {valid_ratio:.1%})"
-                if valid_count == 0:
-                    status_msg += " [警告: 全是NaN]"
-                    all_inputs_ok = False
-                elif is_all_zero:
-                    status_msg += " [警告: 全是0]"
-                    all_inputs_ok = False
-
-                print(f"[探针]   -> 列 '{col}': {status_msg}")
-            else:
-                print(f"[探针]   -> 列 '{col}': [严重警告: 不存在]")
-                all_inputs_ok = False
-        
-        if not all_inputs_ok:
-            print("[探针][严重警告] 核心资金流输入数据存在缺失或质量问题，模块可能无法正常计算！")
-        # --- 修改结束: 增强输入探针 ---
-
+        # print("        -> [资金流情报模块 V18.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'fund_flow_params')
-        if not get_param_value(p.get('enabled'), False):
+        
+        # 增加核心入口探针，检查模块是否被配置启用
+        is_enabled = get_param_value(p.get('enabled') if p else None, False)
+        print(f"        -> [资金流情报模块 V18.0] 启动检查...")
+        print(f"           [探针] 检查 fund_flow_params.enabled 配置: {'已启用' if is_enabled else '未启用 (模块将跳过所有计算)'}")
+        
+        if not is_enabled:
             return states
         # --- 依次调用七大诊断引擎 ---
         df = self._diagnose_fund_flow_dynamics(df)
