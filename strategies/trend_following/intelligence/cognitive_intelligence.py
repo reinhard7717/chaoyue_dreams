@@ -1183,48 +1183,6 @@ class CognitiveIntelligence:
           - [修复] 移除了本地的“天量滞涨”计算逻辑，改为直接消费来自`behavioral_intelligence`
                     中更鲁棒的`SCORE_RISK_VPA_STAGNATION`原子信号，遵循分层架构原则。
         """
-        # print("        -> [顶部行为合成模块 V331.7 职责净化版] 启动...") 
-        states = {}
-        default_series = pd.Series(False, index=df.index)
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        required_states = [
-            'COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE',
-            'CONTEXT_CHIP_STRATEGIC_DISTRIBUTION'
-        ]
-        if any(s not in self.strategy.atomic_states for s in required_states):
-            print("          -> [警告] 缺少合成“顶部行为”所需情报，模块跳过。")
-            return {}
-        # 更新对辅助函数的调用
-        is_rallying_score = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RECENT_RANGE', 0.0)
-        diverging_score = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
-        states['SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE'] = (is_rallying_score * diverging_score).astype(np.float32)
-        states['ACTION_RISK_RALLY_WITH_DIVERGENCE'] = states['SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE'] > 0.6
-        stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
-        states['SCORE_ACTION_RISK_RALLY_STAGNATION'] = stagnation_score.astype(np.float32)
-        states['ACTION_RISK_RALLY_STAGNATION'] = stagnation_score > 0.7
-        danger_zone_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
-        distributing_action_score = states.get('SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE', default_score)
-        states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] = (danger_zone_score * distributing_action_score).astype(np.float32)
-        states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] > 0.5
-        is_rallying = df['pct_change_D'] > 0.02
-        is_strategic_distribution = self.strategy.atomic_states.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
-        states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'] = is_rallying & is_strategic_distribution
-        if states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].any():
-            print(f"          -> [S级战略风险] 侦测到 {states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].sum()} 次“战略派发背景下的诱多陷阱”！")
-        concentrating_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
-        is_concentrating = concentrating_score > 0.6
-        is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
-        states['RALLY_STATE_HEALTHY_LOCKED'] = is_rallying & is_concentrating & ~is_in_danger_zone
-        return states
-
-    def synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V331.7 职责净化版】顶部行为合成模块
-        - 核心重构: 职责简化为“行为合成”。
-        - 本次升级: 
-          - [修复] 移除了本地的“天量滞涨”计算逻辑，改为直接消费来自`behavioral_intelligence`
-                    中更鲁棒的`SCORE_RISK_VPA_STAGNATION`原子信号，遵循分层架构原则。
-        """
         print("        -> [顶部行为合成模块 V331.7 职责净化版] 启动...") 
         states = {}
         default_series = pd.Series(False, index=df.index)
@@ -1239,7 +1197,22 @@ class CognitiveIntelligence:
         # 更新对辅助函数的调用
         is_rallying_score = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RECENT_RANGE', 0.0)
         diverging_score = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
+        
+        # --- 新增开始: 探针 ---
+        print("        -> [探针] 正在检查 'SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE' 的构成...")
+        print("           - is_rallying_score (价格位置分) stats:")
+        print(is_rallying_score.describe().to_string().replace('\n', '\n             '))
+        print("           - diverging_score (筹码发散分) stats:")
+        print(diverging_score.describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+
         states['SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE'] = (is_rallying_score * diverging_score).astype(np.float32)
+        
+        # --- 新增开始: 探针 ---
+        print("           - FINAL SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE stats:")
+        print(states['SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE'].describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+
         states['ACTION_RISK_RALLY_WITH_DIVERGENCE'] = states['SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE'] > 0.6
         stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         states['SCORE_ACTION_RISK_RALLY_STAGNATION'] = stagnation_score.astype(np.float32)
