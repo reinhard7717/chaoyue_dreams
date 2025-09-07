@@ -78,7 +78,15 @@
           }
         ]
       },
-      "dmi": { "enabled": false },
+      "dmi": {
+        "enabled": true,
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [14]
+          }
+        ]
+      },
       "vwap": { "enabled": true, "apply_on": ["5", "30"] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
       "bias": {

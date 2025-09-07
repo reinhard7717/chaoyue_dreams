@@ -362,7 +362,7 @@ class IndicatorService:
         stock_code: str,
         config: dict,
         trade_time: Optional[str] = None,
-        latest_only: bool = False  # <--- 安装新的“电报机”
+        latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
         【V8.0 情报锻造中心版】为策略准备数据的统一入口。
@@ -372,26 +372,21 @@ class IndicatorService:
 
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
-        
         if not all_dfs:
             return {}
-        
         # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
         all_dfs = await self._calculate_meta_features(all_dfs, config)
-        # 步骤 2.5: 【新增工序】计算高级模式识别信号
-        all_dfs = await self._calculate_pattern_recognition_signals(all_dfs, config)
-
-        # --- 步骤 3: 【原步骤2】计算VPA效率指标 ---
+        # --- 步骤 3: 【VPA效率指标计算】 - 修正顺序，提前计算 ---
+        # 解释：高级模式识别依赖VPA效率指标，因此必须先计算VPA。
         all_dfs = await self._calculate_vpa_features(all_dfs, config)
-
-        # --- 步骤 4: 【原步骤3】【第三道工序】统一计算所有斜率 ---
+        # --- 步骤 4: 【高级模式识别】 - 移至VPA计算之后 ---
+        all_dfs = await self._calculate_pattern_recognition_signals(all_dfs, config)
+        # --- 步骤 5: 【斜率计算】 - 修正步骤编号 ---
         # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
         all_dfs = await self._calculate_all_slopes(all_dfs, config)
-        
-        # --- 步骤 4.5: 【第四道工序】统一计算所有加速度 (斜率的斜率) ---
+        # --- 步骤 6: 【加速度计算】 - 修正步骤编号 ---
         all_dfs = await self._calculate_all_accelerations(all_dfs, config)
-        
-        # --- 步骤 5: 【原步骤4】注入其他上下文信息  ---
+        # --- 步骤 7: 【上下文信息注入】 - 修正步骤编号 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         
