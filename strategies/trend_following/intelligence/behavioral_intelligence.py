@@ -336,6 +336,32 @@ class BehavioralIntelligence:
         volume_accelerating_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         is_accelerating = df['ACCEL_5_volume_D'] > 0
         states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = (volume_accelerating_score * is_accelerating).astype(np.float32)
+
+        # --- 新增开始: 探针 ---
+        print("        -> [探针] 正在检查 VPA 风险信号 (vpa_risk_score_series 的上游) 的构成...")
+        print("           --- [探针] 检查 'SCORE_RISK_VPA_STAGNATION' (滞涨风险) ---")
+        print("           - huge_volume_score (天量程度分) stats:")
+        print(huge_volume_score.describe().to_string().replace('\n', '\n             '))
+        print("           - price_stagnant_score (价格停滞度分) stats:")
+        print(price_stagnant_score.describe().to_string().replace('\n', '\n             '))
+        print("           - FINAL SCORE_RISK_VPA_STAGNATION stats:")
+        print(states['SCORE_RISK_VPA_STAGNATION'].describe().to_string().replace('\n', '\n             '))
+        
+        print("           --- [探针] 检查 'SCORE_RISK_VPA_EFFICIENCY_DECLINING' (效率衰竭风险) ---")
+        print("           - efficiency_decline_score (效率下降度分) stats:")
+        print(efficiency_decline_score.describe().to_string().replace('\n', '\n             '))
+        print("           - is_declining (效率斜率为负) stats: True count =", is_declining.sum())
+        print("           - FINAL SCORE_RISK_VPA_EFFICIENCY_DECLINING stats:")
+        print(states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'].describe().to_string().replace('\n', '\n             '))
+
+        print("           --- [探针] 检查 'SCORE_RISK_VPA_VOLUME_ACCELERATING' (量能失控风险) ---")
+        print("           - volume_accelerating_score (成交量加速分) stats:")
+        print(volume_accelerating_score.describe().to_string().replace('\n', '\n             '))
+        print("           - is_accelerating (成交量在加速) stats: True count =", is_accelerating.sum())
+        print("           - FINAL SCORE_RISK_VPA_VOLUME_ACCELERATING stats:")
+        print(states['SCORE_RISK_VPA_VOLUME_ACCELERATING'].describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+
         return states
 
     # “价格-成交量原子信号诊断”方法
