@@ -179,7 +179,6 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
-        self.strategy.df_indicators = self.cognitive_intel.determine_main_force_behavior_sequence(df)
         # 5.5 生成触发器、战法与交易剧本
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
