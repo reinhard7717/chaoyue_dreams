@@ -212,7 +212,7 @@ class FoundationIntelligence:
         if not get_param_value(p.get('enabled'), False): return states
         # --- 军备检查 (Arsenal Check) ---
         required_cols = [
-            'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'BBW_20_2.0_W', 'hurst_120d_D'
+            'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'BBW_21_2.0_W', 'hurst_120d_D'
         ]
         if not all(c in df.columns for c in required_cols):
             missing = [c for c in required_cols if c not in df.columns]
@@ -222,12 +222,12 @@ class FoundationIntelligence:
         # 将分级的压缩/扩张评分，升级为完全平滑的连续评分
         # 1.1 压缩环境 (Compression Environment)
         score_squeeze_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=False)
-        score_squeeze_weekly = self._normalize_score(df['BBW_20_2.0_W'], ascending=False)
+        score_squeeze_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=False)
         # [新增] 使用加权平均（周线权重更高）生成平滑的最终分
         states['SCORE_VOL_COMPRESSION_LEVEL'] = (score_squeeze_daily * 0.4 + score_squeeze_weekly * 0.6).astype(np.float32)
         # 1.2 高波/扩张环境 (High-Volatility / Expansion Environment)
         score_expansion_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=True)
-        score_expansion_weekly = self._normalize_score(df['BBW_20_2.0_W'], ascending=True)
+        score_expansion_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=True)
         # [新增] 对称的扩张评分逻辑
         states['SCORE_VOL_EXPANSION_LEVEL'] = (score_expansion_daily * 0.4 + score_expansion_weekly * 0.6).astype(np.float32)
         print("        -> [波动率情报中心] 已将压缩/扩张等级分升级为平滑连续评分。")

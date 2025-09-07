@@ -188,7 +188,7 @@ class WeeklyContextEngine:
         使用滚动分位数作为阈值，自适应不同股票的波动特性，避免了固定阈值的陷阱。
         """
         slope_col = 'SLOPE_5_EMA_21_W'
-        bbw_col = 'BBW_20_2.0_W'
+        bbw_col = 'BBW_21_2.0_W'
         if not all(c in df.columns for c in [slope_col, bbw_col]):
             logger.warning("    - [状态机-警告] 缺少斜率或BBW列，无法构建市场状态机。")
             return df
