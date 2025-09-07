@@ -114,8 +114,8 @@ class BehavioralIntelligence:
                 states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
         advanced_atomics = self.diagnose_advanced_atomic_signals(df)
         states.update(advanced_atomics)
-        synthesized_behaviors = self.synthesize_behavioral_patterns(df)
-        states.update(synthesized_behaviors)
+        # synthesized_behaviors = self.synthesize_behavioral_patterns(df)
+        # states.update(synthesized_behaviors)
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -262,7 +262,22 @@ class BehavioralIntelligence:
         weak_close_score = 1 - close_position_in_range
         # --- 融合生成最终风险分 ---
         final_score = (overextension_score * upper_shadow_score * volume_score * weak_close_score).astype(np.float32)
-        final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION' # 命名Series
+        final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
+
+        # --- 新增开始: 探针 ---
+        print("        -> [探针] 正在检查 'diagnose_upthrust_distribution' 的构成...")
+        print("           - overextension_score (价格乖离度分) stats:")
+        print(overextension_score.describe().to_string().replace('\n', '\n             '))
+        print("           - upper_shadow_score (上影线强度分) stats:")
+        print(upper_shadow_score.describe().to_string().replace('\n', '\n             '))
+        print("           - volume_score (成交量能级分) stats:")
+        print(volume_score.describe().to_string().replace('\n', '\n             '))
+        print("           - weak_close_score (收盘弱势度分) stats:")
+        print(weak_close_score.describe().to_string().replace('\n', '\n             '))
+        print("           - FINAL upthrust_risk_score stats:")
+        print(final_score.describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+
         return final_score
 
     def diagnose_ma_breakdown(self, exit_params: dict) -> pd.Series:
