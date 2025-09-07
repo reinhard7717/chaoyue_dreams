@@ -895,8 +895,8 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
-    
-    async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict, suffix: str) -> Optional[pd.DataFrame]:
+
+    async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict) -> Optional[pd.DataFrame]:
         """
         【V2.2 NaN根除版】根据多因子共振识别盘整期。
         - 核心修复1: 保持对 dynamic_bbw_threshold 的 bfill()，解决动态阈值NaN问题。
@@ -911,28 +911,24 @@ class IndicatorCalculator:
         roc_threshold = params.get('roc_threshold', 5.0)
         vol_ma_period = params.get('vol_ma_period', 55)
         min_expanding_periods = boll_period * 2
-
         # 2. 依赖列名 (无变化)
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}"
         roc_col = f"ROC_{roc_period}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}"
-        
         # 3. 依赖检查 (无变化)
         required_cols = [bbw_col, roc_col, vol_ma_col, 'high', 'low', 'volume']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [依赖错误] V2.2箱体计算跳过，依赖的列 '{', '.join(missing)}{suffix}' 不存在。")
+            print(f"    - [依赖错误] V2.2箱体计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
             return None
-
         # 4. 初始化结果DataFrame (无变化)
         result_df = pd.DataFrame(index=df.index)
         output_cols = [
-            'is_consolidating', 'dynamic_bbw_threshold', 'dynamic_consolidation_high', 
+            'is_consolidating', 'dynamic_bbw_threshold', 'dynamic_consolidation_high',
             'dynamic_consolidation_low', 'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
         ]
         for col in output_cols:
             result_df[col] = np.nan if col not in ['is_consolidating'] else False
-
         # 5. 核心逻辑 (无变化)
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
         dynamic_bbw_threshold.bfill(inplace=True)
@@ -942,7 +938,6 @@ class IndicatorCalculator:
         cond_volume = df['volume'] < df[vol_ma_col]
         is_consolidating = cond_volatility & cond_trend & cond_volume
         result_df['is_consolidating'] = is_consolidating
-
         if is_consolidating.any():
             # 6. 计算箱体指标 (无变化)
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
@@ -952,19 +947,16 @@ class IndicatorCalculator:
             consolidation_low = grouped['low'].transform('min')
             consolidation_avg_vol = grouped['volume'].transform('mean')
             consolidation_duration = grouped['high'].transform('size')
-
             # 7. 填充结果 (无变化)
             result_df['dynamic_consolidation_high'].update(consolidation_high)
             result_df['dynamic_consolidation_low'].update(consolidation_low)
             result_df['dynamic_consolidation_avg_vol'].update(consolidation_avg_vol)
             result_df['dynamic_consolidation_duration'].update(consolidation_duration)
-
             fill_cols = [
-                'dynamic_consolidation_high', 'dynamic_consolidation_low', 
+                'dynamic_consolidation_high', 'dynamic_consolidation_low',
                 'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
             ]
             result_df[fill_cols] = result_df[fill_cols].ffill()
-
         # 解释: 对于序列开头从未形成过箱体的部分，其 high/low 值为 NaN。
         # 我们用当期自己的 high/low 来填充，确保下游策略总能获得有效的数值进行比较。
         result_df['dynamic_consolidation_high'].fillna(df['high'], inplace=True)
@@ -972,7 +964,6 @@ class IndicatorCalculator:
         # 对于成交量和持续时间，用0填充是合理的默认值
         result_df['dynamic_consolidation_avg_vol'].fillna(0, inplace=True)
         result_df['dynamic_consolidation_duration'].fillna(0, inplace=True)
-        
         return result_df
 
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
