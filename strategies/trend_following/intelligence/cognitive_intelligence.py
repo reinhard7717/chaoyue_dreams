@@ -959,12 +959,14 @@ class CognitiveIntelligence:
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V401.9 健壮性修复版】趋势阶段评分模块
+        【V401.10 健壮性修复版】趋势阶段评分模块
         - 核心修正: 修复了因辅助函数 _get_atomic_score 和 _fuse_multi_level_scores 依赖
                       外部状态 self.strategy.df.index 导致的系列计算错误。
                       现已将这些辅助函数重构为接收 df 参数，确保使用正确的索引。
+        - 本次升级 (V401.10): [修复] 增加了对非有限值(NaN, inf)的处理，修复了
+                             在转换为整数类型时可能发生的 IntCastingNaNError 错误。
         """
-        print("        -> [趋势阶段评分模块 V401.9 健壮性修复版] 启动...")
+        print("        -> [趋势阶段评分模块 V401.10 健壮性修复版] 启动...") # 修改: 更新版本号
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32) # 为数值化评分提供默认值
@@ -982,7 +984,6 @@ class CognitiveIntelligence:
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         # 重新定义风险维度，并全面数值化，移除硬编码阈值判断
-        # [修改开始] 更新对辅助函数的调用，并增加探针
         vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
         print(f"[探针] diagnose_trend_stage_score: vpa_stagnation_score length = {len(vpa_stagnation_score)}")
@@ -1025,14 +1026,16 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S', 0.0) * 30,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING', 0.0) * 25,
         ]
-        # [修改结束]
         # 使用列表推导式和np.add.reduce进行向量化求和
         score_components = [s.to_numpy(dtype=np.float32) if isinstance(s, pd.Series) else s.astype(np.float32) for s in risk_dimension_scores]
         late_stage_score_arr = np.add.reduce(score_components)
+        # 增加对非有限值(NaN, inf)的处理，防止整数转换失败
+        # 将 NaN 和 inf 替换为 0，确保数据可以安全地转换为整数类型
+        late_stage_score_arr = np.nan_to_num(late_stage_score_arr, nan=0.0, posinf=0.0, neginf=0.0)
         late_stage_score = pd.Series(late_stage_score_arr, index=df.index, dtype=int)
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 320
-        print("        -> [趋势阶段评分模块 V401.9 健壮性修复版] 计算完毕。")
+        print("        -> [趋势阶段评分模块 V401.10 健壮性修复版] 计算完毕。") # 修改: 更新版本号
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
