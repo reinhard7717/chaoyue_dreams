@@ -46,7 +46,7 @@ class StructuralIntelligence:
                         将其全面升级为基于归一化强度分的加权评分体系。
           - 新信号体系: 生成`SCORE_MA_BULLISH_RESONANCE`等数值分，更精确地量化共振与反转的强度。
         """
-        print("        -> [诊断模块 V8.0 最终数值化版] 启动...") 
+        # print("        -> [诊断模块 V8.0 最终数值化版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'multi_dim_ma_params')
         if not get_param_value(p.get('enabled'), True): return {}

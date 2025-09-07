@@ -13,12 +13,16 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
-    def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
+    def _calculate_normalized_score(self, series: pd.Series, window: int, target_index: pd.Index, ascending: bool = True) -> pd.Series:
         """
-        【V12.0 性能优化版】计算一个系列在滚动窗口内的归一化得分 (0-1)。
+        【V12.1 健壮性修复版】计算一个系列在滚动窗口内的归一化得分 (0-1)。
+        - 核心修复: 移除对 self.strategy.df.index 的依赖，改为接收一个 target_index 参数，
+                      确保在创建默认Series时使用正确的索引，避免因状态不同步导致返回空Series。
         """
+        # 使用传入的 target_index 代替 self.strategy.df.index
         if series is None or series.isnull().all():
-            return pd.Series(0.5, index=self.strategy.df.index)
+            return pd.Series(0.5, index=target_index)
+
         return series.rolling(
             window=window, 
             min_periods=int(window * 0.2)
@@ -45,48 +49,55 @@ class FundFlowIntelligence:
             if p in [5, 13, 21]: # 仅计算模型中存在的加速度周期
                  metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_net_flow_consensus_D")
         # --- 步骤 2: 生成上升共振信号 (Upward Resonance) ---
-        s5 = self._calculate_normalized_score(metrics['static_5'], norm_window)
-        sl5 = self._calculate_normalized_score(metrics['slope_5'], norm_window)
-        a5 = self._calculate_normalized_score(metrics['accel_5'], norm_window)
-        s21 = self._calculate_normalized_score(metrics['static_21'], norm_window)
-        sl21 = self._calculate_normalized_score(metrics['slope_21'], norm_window)
-        s55 = self._calculate_normalized_score(metrics['static_55'], norm_window)
-        sl55 = self._calculate_normalized_score(metrics['slope_55'], norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5 = self._calculate_normalized_score(metrics['static_5'], norm_window, df.index)
+        sl5 = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index)
+        a5 = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index)
+        s21 = self._calculate_normalized_score(metrics['static_21'], norm_window, df.index)
+        sl21 = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index)
+        s55 = self._calculate_normalized_score(metrics['static_55'], norm_window, df.index)
+        sl55 = self._calculate_normalized_score(metrics['slope_55'], norm_window, df.index)
+
         df['FF_SCORE_RESONANCE_UP_LOW'] = s5 * sl5 * a5
         df['FF_SCORE_RESONANCE_UP_MID'] = df['FF_SCORE_RESONANCE_UP_LOW'] * s21 * sl21
         df['FF_SCORE_RESONANCE_UP_HIGH'] = df['FF_SCORE_RESONANCE_UP_MID'] * s55 * sl55
         print("               - 上升共振信号已生成 (低/中/高置信度)")
         # --- 步骤 3: 生成下跌共振信号 (Downward Resonance) ---
-        s5_neg = self._calculate_normalized_score(metrics['static_5'], norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics['slope_5'], norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics['accel_5'], norm_window, ascending=False)
-        s21_neg = self._calculate_normalized_score(metrics['static_21'], norm_window, ascending=False)
-        sl21_neg = self._calculate_normalized_score(metrics['slope_21'], norm_window, ascending=False)
-        s55_neg = self._calculate_normalized_score(metrics['static_55'], norm_window, ascending=False)
-        sl55_neg = self._calculate_normalized_score(metrics['slope_55'], norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5_neg = self._calculate_normalized_score(metrics['static_5'], norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index, ascending=False)
+        s21_neg = self._calculate_normalized_score(metrics['static_21'], norm_window, df.index, ascending=False)
+        sl21_neg = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index, ascending=False)
+        s55_neg = self._calculate_normalized_score(metrics['static_55'], norm_window, df.index, ascending=False)
+        sl55_neg = self._calculate_normalized_score(metrics['slope_55'], norm_window, df.index, ascending=False)
+
         df['FF_SCORE_RESONANCE_DOWN_LOW'] = s5_neg * sl5_neg * a5_neg
         df['FF_SCORE_RESONANCE_DOWN_MID'] = df['FF_SCORE_RESONANCE_DOWN_LOW'] * s21_neg * sl21_neg
         df['FF_SCORE_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_RESONANCE_DOWN_MID'] * s55_neg * sl55_neg
         print("               - 下跌共振信号已生成 (低/中/高置信度)")
         # --- 步骤 4: 生成底部反转信号 (Bottom Reversal) ---
-        long_term_bottoming = self._calculate_normalized_score(metrics['slope_55'], norm_window, ascending=False)
-        mid_term_stabilizing = self._calculate_normalized_score(metrics['slope_21'], norm_window)
-        short_term_reversing = self._calculate_normalized_score(metrics['slope_5'], norm_window)
-        short_term_accelerating = self._calculate_normalized_score(metrics['accel_5'], norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_bottoming = self._calculate_normalized_score(metrics['slope_55'], norm_window, df.index, ascending=False)
+        mid_term_stabilizing = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index)
+        short_term_reversing = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index)
+        short_term_accelerating = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index)
+
         df['FF_SCORE_REVERSAL_BOTTOM_MID'] = mid_term_stabilizing * short_term_reversing
         df['FF_SCORE_REVERSAL_BOTTOM_HIGH'] = long_term_bottoming * mid_term_stabilizing * short_term_reversing * short_term_accelerating
         print("               - 底部反转信号已生成 (中/高置信度)")
         # --- 步骤 5: 生成顶部反转信号 (Top Reversal) ---
-        long_term_topping = self._calculate_normalized_score(metrics['slope_55'], norm_window)
-        mid_term_stalling = self._calculate_normalized_score(metrics['slope_21'], norm_window, ascending=False)
-        short_term_diverging = self._calculate_normalized_score(metrics['slope_5'], norm_window, ascending=False)
-        short_term_decelerating = self._calculate_normalized_score(metrics['accel_5'], norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_topping = self._calculate_normalized_score(metrics['slope_55'], norm_window, df.index)
+        mid_term_stalling = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index, ascending=False)
+        short_term_diverging = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index, ascending=False)
+        short_term_decelerating = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index, ascending=False)
+
         df['FF_SCORE_REVERSAL_TOP_MID'] = mid_term_stalling * short_term_diverging
         df['FF_SCORE_REVERSAL_TOP_HIGH'] = long_term_topping * mid_term_stalling * short_term_diverging * short_term_decelerating
         print("               - 顶部反转信号已生成 (中/高置信度)")
         return df
 
-    # 整个 _diagnose_capital_structure_dynamics 方法块
     def _diagnose_capital_structure_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【升级 V16.0 - 主力资金共振与反转引擎】
@@ -108,42 +119,50 @@ class FundFlowIntelligence:
             if p in [5, 13, 21]: # 仅计算模型中存在的加速度周期
                  metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_main_force_net_flow_consensus_D")
         # --- 步骤 2: 生成主力资金上升共振信号 ---
-        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window)
-        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
-        s21 = self._calculate_normalized_score(metrics.get('static_21'), norm_window)
-        sl21 = self._calculate_normalized_score(metrics.get('slope_21'), norm_window)
-        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window)
-        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index)
+        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+        s21 = self._calculate_normalized_score(metrics.get('static_21'), norm_window, df.index)
+        sl21 = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index)
+        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index)
+        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+
         df['FF_SCORE_STRUCTURE_RESONANCE_UP_LOW'] = s5 * sl5 * a5
         df['FF_SCORE_STRUCTURE_RESONANCE_UP_MID'] = df['FF_SCORE_STRUCTURE_RESONANCE_UP_LOW'] * s21 * sl21
         df['FF_SCORE_STRUCTURE_RESONANCE_UP_HIGH'] = df['FF_SCORE_STRUCTURE_RESONANCE_UP_MID'] * s55 * sl55
         print("               - [结构]上升共振信号已生成 (低/中/高置信度)")
         # --- 步骤 3: 生成主力资金下跌共振信号 (主力撤退) ---
-        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
-        s21_neg = self._calculate_normalized_score(metrics.get('static_21'), norm_window, ascending=False)
-        sl21_neg = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, ascending=False)
-        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, ascending=False)
-        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+        s21_neg = self._calculate_normalized_score(metrics.get('static_21'), norm_window, df.index, ascending=False)
+        sl21_neg = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index, ascending=False)
+        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index, ascending=False)
+        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_LOW'] = s5_neg * sl5_neg * a5_neg
         df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_MID'] = df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_LOW'] * s21_neg * sl21_neg
         df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_STRUCTURE_RESONANCE_DOWN_MID'] * s55_neg * sl55_neg
         print("               - [结构]下跌共振(主力撤退)信号已生成 (低/中/高置信度)")
         # --- 步骤 4: 生成主力资金底部反转信号 ---
-        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
-        mid_term_stabilizing = self._calculate_normalized_score(metrics.get('slope_21'), norm_window)
-        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+        mid_term_stabilizing = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index)
+        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+
         df['FF_SCORE_STRUCTURE_REVERSAL_BOTTOM_MID'] = mid_term_stabilizing * short_term_reversing
         df['FF_SCORE_STRUCTURE_REVERSAL_BOTTOM_HIGH'] = long_term_selling * mid_term_stabilizing * short_term_reversing * short_term_accelerating
         print("               - [结构]底部反转信号已生成 (中/高置信度)")
         # --- 步骤 5: 生成主力资金顶部反转信号 ---
-        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
-        mid_term_stalling = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, ascending=False)
-        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+        mid_term_stalling = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index, ascending=False)
+        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_STRUCTURE_REVERSAL_TOP_MID'] = mid_term_stalling * short_term_diverging
         df['FF_SCORE_STRUCTURE_REVERSAL_TOP_HIGH'] = long_term_buying * mid_term_stalling * short_term_diverging * short_term_decelerating
         print("               - [结构]顶部反转信号已生成 (中/高置信度)")
@@ -168,38 +187,44 @@ class FundFlowIntelligence:
             'slope_5': df.get('SLOPE_5_flow_divergence_mf_vs_retail_D'),
             'slope_13': df.get('SLOPE_13_flow_divergence_mf_vs_retail_D'),
             'slope_21': df.get('SLOPE_21_flow_divergence_mf_vs_retail_D'),
-            # [修改开始] 修复加速度指标列名的拼写错误，原为 'accel_5d_...'，应为 'ACCEL_5_...'
-            'accel_5': df.get('ACCEL_5_flow_divergence_mf_vs_retail_D'),
-            'accel_13': df.get('ACCEL_13_flow_divergence_mf_vs_retail_D'),
-            'accel_21': df.get('ACCEL_21_flow_divergence_mf_vs_retail_D'),
-            # [修改结束]
+            'accel_5': df.get('accel_5d_flow_divergence_mf_vs_retail_D'),
+            'accel_13': df.get('accel_13d_flow_divergence_mf_vs_retail_D'),
+            'accel_21': df.get('accel_21d_flow_divergence_mf_vs_retail_D'),
         }
         # --- 步骤 2: [保留并优化] 计算基础分歧信号 (当前状态) ---
-        df['FF_SCORE_CONFLICT_MF_BUYS_RETAIL_SELLS'] = self._calculate_normalized_score(metrics['static'], norm_window)
-        df['FF_SCORE_CONFLICT_MF_SELLS_RETAIL_BUYS'] = self._calculate_normalized_score(metrics['static'], norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        df['FF_SCORE_CONFLICT_MF_BUYS_RETAIL_SELLS'] = self._calculate_normalized_score(metrics['static'], norm_window, df.index)
+        df['FF_SCORE_CONFLICT_MF_SELLS_RETAIL_BUYS'] = self._calculate_normalized_score(metrics['static'], norm_window, df.index, ascending=False)
+
         print("               - [冲突]基础分歧信号已生成 (当前状态)")
         # --- 步骤 3: 生成分歧共振信号 (趋势确认) ---
-        sl5_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        sl13_pos = self._calculate_normalized_score(metrics.get('slope_13'), norm_window)
-        sl21_pos = self._calculate_normalized_score(metrics.get('slope_21'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        sl5_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        sl13_pos = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, df.index)
+        sl21_pos = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index)
+        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        sl13_neg = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, df.index, ascending=False)
+        sl21_neg = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_CONFLICT_RESONANCE_UP_LOW'] = sl5_pos
         df['FF_SCORE_CONFLICT_RESONANCE_UP_MID'] = sl5_pos * sl13_pos
         df['FF_SCORE_CONFLICT_RESONANCE_UP_HIGH'] = sl5_pos * sl13_pos * sl21_pos
-        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        sl13_neg = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, ascending=False)
-        sl21_neg = self._calculate_normalized_score(metrics.get('slope_21'), norm_window, ascending=False)
         df['FF_SCORE_CONFLICT_RESONANCE_DOWN_LOW'] = sl5_neg
         df['FF_SCORE_CONFLICT_RESONANCE_DOWN_MID'] = sl5_neg * sl13_neg
         df['FF_SCORE_CONFLICT_RESONANCE_DOWN_HIGH'] = sl5_neg * sl13_neg * sl21_neg
         print("               - [冲突]分歧共振信号已生成 (上升/下跌趋势确认)")
         # --- 步骤 4: 生成分歧反转信号 (顶部/底部预警) ---
         static_high_score = df['FF_SCORE_CONFLICT_MF_BUYS_RETAIL_SELLS'] # 复用基础分歧信号
-        slope_reversing_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        accel_reversing_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        slope_reversing_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        accel_reversing_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH'] = static_high_score * slope_reversing_neg * accel_reversing_neg
         static_low_score = df['FF_SCORE_CONFLICT_MF_SELLS_RETAIL_BUYS'] # 复用基础分歧信号
-        slope_reversing_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        accel_reversing_pos = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        slope_reversing_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        accel_reversing_pos = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+
         df['FF_SCORE_CONFLICT_REVERSAL_BOTTOM_HIGH'] = static_low_score * slope_reversing_pos * accel_reversing_pos
         print("               - [冲突]分歧反转信号已生成 (高置信度顶部/底部预警)")
         return df
@@ -222,18 +247,22 @@ class FundFlowIntelligence:
             'accel_21': df.get('ACCEL_21_CMF_21_D'),
         }
         # --- 步骤 2: 生成买压共振信号 (Upward Resonance) ---
-        s_pos = self._calculate_normalized_score(metrics['static'], norm_window)
-        sl5_pos = self._calculate_normalized_score(metrics['slope_5'], norm_window)
-        sl21_pos = self._calculate_normalized_score(metrics['slope_21'], norm_window)
-        a5_pos = self._calculate_normalized_score(metrics['accel_5'], norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s_pos = self._calculate_normalized_score(metrics['static'], norm_window, df.index)
+        sl5_pos = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index)
+        sl21_pos = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index)
+        a5_pos = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index)
+
         df['FF_SCORE_CMF_RESONANCE_UP_LOW'] = s_pos * sl5_pos * a5_pos
         df['FF_SCORE_CMF_RESONANCE_UP_HIGH'] = df['FF_SCORE_CMF_RESONANCE_UP_LOW'] * sl21_pos
         print("               - [CMF]买压共振信号已生成 (低/高置信度)")
         # --- 步骤 3: 生成卖压共振信号 (Downward Resonance) ---
-        s_neg = self._calculate_normalized_score(metrics['static'], norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics['slope_5'], norm_window, ascending=False)
-        sl21_neg = self._calculate_normalized_score(metrics['slope_21'], norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics['accel_5'], norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s_neg = self._calculate_normalized_score(metrics['static'], norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics['slope_5'], norm_window, df.index, ascending=False)
+        sl21_neg = self._calculate_normalized_score(metrics['slope_21'], norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics['accel_5'], norm_window, df.index, ascending=False)
+
         df['FF_SCORE_CMF_RESONANCE_DOWN_LOW'] = s_neg * sl5_neg * a5_neg
         df['FF_SCORE_CMF_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_CMF_RESONANCE_DOWN_LOW'] * sl21_neg
         print("               - [CMF]卖压共振信号已生成 (低/高置信度)")
@@ -245,7 +274,6 @@ class FundFlowIntelligence:
         print("               - [CMF]顶部反转信号已生成")
         return df
 
-    # 整个 _diagnose_xl_order_dynamics 方法块
     def _diagnose_xl_order_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【新增 V16.0 - 超大单动态诊断引擎】
@@ -267,33 +295,41 @@ class FundFlowIntelligence:
                  # 在所有列名中添加 "_consensus" 后缀以匹配军械库清单
                  metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_net_xl_amount_consensus_D")
         # --- 步骤 2: 生成超大单吸筹共振信号 ---
-        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window)
-        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
-        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window)
-        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index)
+        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index)
+        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+
         df['FF_SCORE_XL_RESONANCE_UP_LOW'] = s5 * sl5 * a5
         df['FF_SCORE_XL_RESONANCE_UP_HIGH'] = df['FF_SCORE_XL_RESONANCE_UP_LOW'] * s55 * sl55
         print("               - [超大单]吸筹共振信号已生成 (低/高置信度)")
         # --- 步骤 3: 生成超大单派发共振信号 ---
-        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
-        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, ascending=False)
-        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index, ascending=False)
+        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_XL_RESONANCE_DOWN_LOW'] = s5_neg * sl5_neg * a5_neg
         df['FF_SCORE_XL_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_XL_RESONANCE_DOWN_LOW'] * s55_neg * sl55_neg
         print("               - [超大单]派发共振信号已生成 (低/高置信度)")
         # --- 步骤 4: 生成超大单底部反转信号 ---
-        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
-        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+
         df['FF_SCORE_XL_REVERSAL_BOTTOM_HIGH'] = long_term_selling * short_term_reversing * short_term_accelerating
         print("               - [超大单]底部反转信号已生成")
         # --- 步骤 5: 生成超大单顶部反转信号 ---
-        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
-        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_XL_REVERSAL_TOP_HIGH'] = long_term_buying * short_term_diverging * short_term_decelerating
         print("               - [超大单]顶部反转信号已生成")
         return df
@@ -317,33 +353,41 @@ class FundFlowIntelligence:
             if p in [5, 21]:
                  metrics[f'accel_{p}'] = df.get(f"ACCEL_{p}_retail_net_flow_consensus_D")
         # --- 步骤 2: 生成散户买入狂热共振信号 (Buying Frenzy) ---
-        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window)
-        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
-        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window)
-        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5 = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index)
+        sl5 = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        a5 = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+        s55 = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index)
+        sl55 = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+
         df['FF_SCORE_RETAIL_RESONANCE_FRENZY_LOW'] = s5 * sl5 * a5
         df['FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH'] = df['FF_SCORE_RETAIL_RESONANCE_FRENZY_LOW'] * s55 * sl55
         print("               - [散户]买入狂热共振信号已生成")
         # --- 步骤 3: 生成散户恐慌杀跌共振信号 (Capitulation) ---
-        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
-        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, ascending=False)
-        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s5_neg = self._calculate_normalized_score(metrics.get('static_5'), norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+        s55_neg = self._calculate_normalized_score(metrics.get('static_55'), norm_window, df.index, ascending=False)
+        sl55_neg = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_RETAIL_RESONANCE_CAPITULATION_LOW'] = s5_neg * sl5_neg * a5_neg
         df['FF_SCORE_RETAIL_RESONANCE_CAPITULATION_HIGH'] = df['FF_SCORE_RETAIL_RESONANCE_CAPITULATION_LOW'] * s55_neg * sl55_neg
         print("               - [散户]恐慌杀跌共振信号已生成")
         # --- 步骤 4: 生成散户抄底反转信号 ---
-        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, ascending=False)
-        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_selling = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index, ascending=False)
+        short_term_reversing = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        short_term_accelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+
         df['FF_SCORE_RETAIL_REVERSAL_BOTTOM_FISHING'] = long_term_selling * short_term_reversing * short_term_accelerating
         print("               - [散户]抄底反转信号已生成")
         # --- 步骤 5: 生成散户顶部派发反转信号 ---
-        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window)
-        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        long_term_buying = self._calculate_normalized_score(metrics.get('slope_55'), norm_window, df.index)
+        short_term_diverging = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        short_term_decelerating = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_RETAIL_REVERSAL_TOP_SELLING'] = long_term_buying * short_term_diverging * short_term_decelerating
         print("               - [散户]顶部派发反转信号已生成")
         return df
@@ -367,18 +411,22 @@ class FundFlowIntelligence:
             'accel_5': df.get('ACCEL_5_main_force_flow_intensity_ratio_D'),
         }
         # --- 步骤 2: 生成信念买入共振信号 (Conviction Buying) ---
-        s_pos = self._calculate_normalized_score(metrics.get('static'), norm_window)
-        sl5_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window)
-        sl13_pos = self._calculate_normalized_score(metrics.get('slope_13'), norm_window)
-        a5_pos = self._calculate_normalized_score(metrics.get('accel_5'), norm_window)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s_pos = self._calculate_normalized_score(metrics.get('static'), norm_window, df.index)
+        sl5_pos = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index)
+        sl13_pos = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, df.index)
+        a5_pos = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index)
+
         df['FF_SCORE_INTENSITY_RESONANCE_UP_LOW'] = s_pos * sl5_pos * a5_pos
         df['FF_SCORE_INTENSITY_RESONANCE_UP_HIGH'] = df['FF_SCORE_INTENSITY_RESONANCE_UP_LOW'] * sl13_pos
         print("               - [强度]信念买入共振信号已生成")
         # --- 步骤 3: 生成信念卖出共振信号 (Conviction Selling) ---
-        s_neg = self._calculate_normalized_score(metrics.get('static'), norm_window, ascending=False)
-        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, ascending=False)
-        sl13_neg = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, ascending=False)
-        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, ascending=False)
+        # 在所有 _calculate_normalized_score 调用中传入 df.index
+        s_neg = self._calculate_normalized_score(metrics.get('static'), norm_window, df.index, ascending=False)
+        sl5_neg = self._calculate_normalized_score(metrics.get('slope_5'), norm_window, df.index, ascending=False)
+        sl13_neg = self._calculate_normalized_score(metrics.get('slope_13'), norm_window, df.index, ascending=False)
+        a5_neg = self._calculate_normalized_score(metrics.get('accel_5'), norm_window, df.index, ascending=False)
+
         df['FF_SCORE_INTENSITY_RESONANCE_DOWN_LOW'] = s_neg * sl5_neg * a5_neg
         df['FF_SCORE_INTENSITY_RESONANCE_DOWN_HIGH'] = df['FF_SCORE_INTENSITY_RESONANCE_DOWN_LOW'] * sl13_neg
         print("               - [强度]信念卖出共振信号已生成")
@@ -400,7 +448,7 @@ class FundFlowIntelligence:
              - 终极看跌: 六大聪明钱引擎看跌 + 散户买入狂热
         """
         print("        -> [资金流情报模块 V18.0] 启动...")
-        # [新增开始] 增加输入探针，检查核心数据列是否存在
+        #增加输入探针，检查核心数据列是否存在
         print(f"[探针] fund_flow_intelligence: 输入的df的shape: {df.shape}")
         required_cols_sample = [
             'net_flow_consensus_sum_5d_D', 'SLOPE_5_net_flow_consensus_sum_5d_D', 'ACCEL_5_net_flow_consensus_D',
@@ -416,7 +464,7 @@ class FundFlowIntelligence:
                 all_inputs_present = False
         if not all_inputs_present:
             print("[探针][严重警告] 核心资金流输入数据列缺失，模块可能无法正常计算！")
-        # [新增结束]
+
         states = {}
         p = get_params_block(self.strategy, 'fund_flow_params')
         if not get_param_value(p.get('enabled'), False):
@@ -477,7 +525,7 @@ class FundFlowIntelligence:
         for col in df.columns:
             if col.startswith('FF_SCORE_'):
                 states[col] = df[col]
-        # [新增开始] 增加输出探针，检查关键输出信号的长度
+        #增加输出探针，检查关键输出信号的长度
         print("[探针] fund_flow_intelligence: 检查输出信号的长度...")
         output_signals_to_check = [
             'FF_SCORE_REVERSAL_BOTTOM_HIGH',
@@ -493,6 +541,6 @@ class FundFlowIntelligence:
                     print(f"[探针][严重警告] 信号 '{sig}' 长度 ({series_len}) 与DataFrame长度 ({df.shape[0]}) 不匹配！")
             else:
                 print(f"[探针]   -> 信号 '{sig}': 未生成")
-        # [新增结束]
+
         print(f"        -> [资金流情报模块 V18.0] 诊断完毕，生成了 {len(states)} 个数值化动态信号。")
         return states
