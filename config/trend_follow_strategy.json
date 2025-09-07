@@ -21,8 +21,8 @@
       "vol_ma": {
         "enabled": true,
         "configs": [
-          { "apply_on": ["D", "5"], "periods": [21] },
-          { "apply_on": ["W"], "periods": [5, 20, 55] }
+          { "apply_on": ["D", "5"], "periods": [21, 55] },
+          { "apply_on": ["W"], "periods": [5, 21, 55] }
         ]
       },
       "boll_bands_and_width": {
@@ -48,6 +48,12 @@
       "kdj": {
         "enabled": true,
         "configs": [{ "apply_on": ["W"], "periods": [9, 3, 3] }]
+      },
+      "roc": {
+        "enabled": true,
+        "configs": [
+          { "apply_on": ["D"], "periods": [12] }
+        ]
       },
       "obv": {
         "enabled": true,
