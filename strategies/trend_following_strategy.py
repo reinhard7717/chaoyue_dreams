@@ -27,13 +27,13 @@ class TrendFollowStrategy:
     def __init__(self, config: dict):
         self.unified_config = config
         self.strategy_info = get_params_block(self, 'strategy_info')
-
+        self.params = {}
         self.atomic_states = {}
         self.playbook_states = {}
         self.setup_scores = {}
         self.trigger_events = {}
         self.df_indicators = pd.DataFrame()
-
+        self.df = pd.DataFrame()
         # 初始化所有分层模块，并将主策略实例(self)传递给它们，以便共享配置和状态
         self.intelligence_layer = IntelligenceLayer(self)
         self.offensive_layer = OffensiveLayer(self)

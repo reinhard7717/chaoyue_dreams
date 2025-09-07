@@ -1,0 +1,1074 @@
+# services/indicator_calculate_services.py
+import asyncio
+import logging
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+import pandas_ta as ta
+from scipy.signal import find_peaks, peak_prominences
+
+logger = logging.getLogger("services")
+
+class IndicatorCalculator:
+    """
+    【V1.0 指标计算中心】
+    - 核心职责: 封装所有独立的、纯粹的技术指标计算函数。
+    - 设计原则: 本类不处理业务流程、数据获取或配置解析，仅专注于接收一个DataFrame并返回计算结果。
+               这使得指标计算逻辑可以被独立测试和复用。
+    """
+
+    def __init__(self):
+        """
+        初始化指标计算器。
+        目前不需要任何特定状态，但保留构造函数以便未来扩展。
+        """
+        pass
+
+    # --- 所有指标计算函数 async def calculate_* ---
+    async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算 ATR (平均真实波幅)"""
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(col in df.columns for col in required_cols):
+            logger.warning(f"计算 ATR 缺少必要列: {required_cols}。可用列: {df.columns.tolist() if df is not None else 'None'}")
+            return None
+        if len(df) < period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 ATR。")
+            return None
+        try:
+            def _sync_atr():
+                return ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
+            atr_series = await asyncio.to_thread(_sync_atr)
+            if atr_series is None or atr_series.empty:
+                logger.warning(f"ATR_{period} 计算结果为空。")
+                return None
+            df_results = pd.DataFrame({f'ATR_{period}': atr_series}, index=df.index)
+            return df_results
+        except Exception as e:
+            logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_atrr(self, df: pd.DataFrame, period: int = 14, high_col: str = 'high', low_col: str = 'low', close_col: str = 'close') -> Optional[pd.DataFrame]:
+        """
+        计算 ATRR (Average True Range Ratio)。
+        ATRR = ATR / Close
+        """
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        if len(df) < period:
+            return None
+        
+        try:
+            # 1. 计算 ATR
+            atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+            if atr_series is None or atr_series.empty:
+                return None
+            
+            # 2. 计算 ATRR
+            close_prices = df[close_col].replace(0, np.nan) # 避免除以零
+            atrr_series = atr_series / close_prices
+            
+            # 3. 返回DataFrame
+            return pd.DataFrame({f'ATRr_{period}': atrr_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 ATRR (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_atrn(self, df: pd.DataFrame, period: int = 14, high_col: str = 'high', low_col: str = 'low', close_col: str = 'close') -> Optional[pd.DataFrame]:
+        """
+        计算 ATRN (归一化平均真实波幅)。
+        此方法先计算ATR，然后手动进行归一化处理 (ATR / Close)。
+        """
+        # 步骤1: 输入验证。ATRN需要高、低、收三列数据。
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(col in df.columns for col in required_cols):
+            logger.warning(f"计算 ATRN 失败：DataFrame 中缺少必需的列。需要 {required_cols}。")
+            return None
+        
+        # 步骤2: 数据长度验证。
+        if len(df) < period:
+            logger.warning(f"计算 ATRN 失败：数据行数 {len(df)} 小于周期 {period}。")
+            return None
+            
+        try:
+            # 步骤3: 定义一个内部同步函数来执行计算。
+            def _sync_atrn():
+                # pandas_ta 没有 atrn，我们先计算 atr
+                atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+                
+                if atr_series is None or atr_series.empty:
+                    logger.warning(f"ATRN 计算失败：基础 ATR 计算返回了空结果。")
+                    return None
+
+                # 获取收盘价序列，并处理收盘价为0的情况，避免除零错误
+                close_prices = df[close_col].replace(0, np.nan)
+                
+                # 手动进行归一化计算： (ATR / Close) * 100
+                atrn_series = (atr_series / close_prices) * 100
+                
+                # 将计算结果包装成一个DataFrame，并使用标准命名
+                return pd.DataFrame({f'ATRN_{period}': atrn_series})
+            
+            # 步骤4: 异步执行同步函数。
+            atrn_df = await asyncio.to_thread(_sync_atrn)
+            
+            # 步骤5: 检查计算结果是否有效。
+            if atrn_df is None or atrn_df.empty:
+                logger.warning(f"ATRN 计算返回了空结果。")
+                return None
+                
+            # 步骤6: 返回计算成功的DataFrame。
+            return atrn_df
+            
+        except Exception as e:
+            # 步骤7: 捕获并记录异常。
+            logger.error(f"计算 ATRN (period={period}) 时出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """
+        【V1.1 标准化版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)
+        - 核心修正: 对 pandas-ta 返回的 BBB% (带宽百分比) 列进行标准化，将其除以 100，转换为标准比率。
+        """
+        if df is None or df.empty or close_col not in df.columns:
+            logger.warning(f"计算布林带缺少必要列: {close_col}。")
+            return None
+        if len(df) < period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的布林带。")
+            return None
+        try:
+            def _sync_bbands():
+                # 使用 ta.bbands() 直接调用，返回一个新的DataFrame
+                return ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
+
+            bbands_df = await asyncio.to_thread(lambda: ta.bbands(close=df[close_col], length=period, std=std_dev, append=False))
+            if bbands_df is None or bbands_df.empty: return None
+
+            bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
+            if bbw_source_col in bbands_df.columns:
+                bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
+            rename_map = {
+                f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
+                f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}{suffix}',
+                f'BBU_{period}_{std_dev:.1f}': f'BBU_{period}_{std_dev:.1f}{suffix}',
+                bbw_source_col: f'BBW_{period}_{std_dev:.1f}{suffix}',
+                f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
+            }
+            
+            result_df = bbands_df.rename(columns=rename_map)
+            
+            # 筛选出我们需要的列
+            final_columns = list(rename_map.values())
+            result_df = result_df[[col for col in final_columns if col in result_df.columns]]
+            
+            return result_df if not result_df.empty else None
+        except Exception as e:
+            logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_historical_volatility(self, df: pd.DataFrame, period: int = 20, window_type: Optional[str] = None, close_col='close', annual_factor: int = 252) -> Optional[pd.DataFrame]:
+        """计算历史波动率 (HV)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_hv():
+                log_returns = np.log(df[close_col] / df[close_col].shift(1))
+                hv_series = log_returns.rolling(window=period, min_periods=max(1, int(period * 0.5))).std() * np.sqrt(annual_factor)
+                return pd.DataFrame({f'HV_{period}': hv_series}, index=df.index)
+            return await asyncio.to_thread(_sync_hv)
+        except Exception as e:
+            logger.error(f"计算历史波动率 (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_keltner_channels(self, df: pd.DataFrame, ema_period: int = 20, atr_period: int = 10, atr_multiplier: float = 2.0, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算肯特纳通道 (KC)"""
+        if df is None or df.empty or not all(col in df.columns for col in [high_col, low_col, close_col]):
+            logger.warning(f"计算肯特纳通道缺少必要列。")
+            return None
+        if len(df) < max(ema_period, atr_period):
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算肯特纳通道。")
+            return None
+        try:
+            def _sync_kc():
+                # --- 代码修改: 统一使用 ta.kc() 直接调用，其行为更可预测 ---
+                return ta.kc(high=df[high_col], low=df[low_col], close=df[close_col], length=ema_period, atr_length=atr_period, scalar=atr_multiplier, mamode="ema", append=False)
+            
+            kc_df = await asyncio.to_thread(_sync_kc)
+            
+            if kc_df is None or kc_df.empty:
+                logger.warning(f"肯特纳通道 (EMA周期 {ema_period}) 计算结果为空。")
+                return None
+            # 检查返回的列数是否符合预期
+            if kc_df.shape[1] != 3:
+                logger.error(f"肯特纳通道计算返回的列数不为3，实际为 {kc_df.shape[1]}。列名: {kc_df.columns.tolist()}")
+                return None
+            # 构建我们期望的、与原始代码意图完全一致的列名
+            target_lower_col = f'KCL_{ema_period}_{atr_period}'
+            target_middle_col = f'KCM_{ema_period}_{atr_period}'
+            target_upper_col = f'KCU_{ema_period}_{atr_period}'
+            # 创建一个新的 DataFrame，使用原始索引和我们期望的列名
+            result_df = pd.DataFrame({
+                target_lower_col: kc_df.iloc[:, 0], # 第1列是下轨
+                target_middle_col: kc_df.iloc[:, 1], # 第2列是中轨
+                target_upper_col: kc_df.iloc[:, 2]  # 第3列是上轨
+            }, index=df.index)
+            return result_df
+        except Exception as e:
+            logger.error(f"计算肯特纳通道 (EMA周期 {ema_period}, ATR周期 {atr_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_cci(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算 CCI (商品渠道指数)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
+        if len(df) < period: return None
+        try:
+            def _sync_cci():
+                return ta.cci(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+            cci_series = await asyncio.to_thread(_sync_cci)
+            if cci_series is None or cci_series.empty: return None
+            return pd.DataFrame({f'CCI_{period}': cci_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 CCI (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
+        """
+        【V2 修正版】计算 CMF (蔡金货币流量)。
+        - 修正了列名问题，确保与上层合并逻辑兼容。
+        - 简化了异步实现，使其更直接、更健壮。
+        """
+        required_cols = [high_col, low_col, close_col, volume_col]
+        if df is None or df.empty or not all(col in df.columns for col in required_cols):
+            logger.warning(f"计算 CMF (周期 {period}) 失败：输入DataFrame为空或缺少必需列 {required_cols}。")
+            return None
+        
+        if len(df) < period:
+            logger.warning(f"计算 CMF (周期 {period}) 失败：数据长度 {len(df)} 小于周期 {period}。")
+            return None
+            
+        try:
+            # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
+            # 我们不需要手动创建 DataFrame 或重命名列
+            # print(f"调试信息: [IndicatorService] 正在为周期 {period} 计算 CMF...")
+            cmf_series = ta.cmf(
+                high=df[high_col], 
+                low=df[low_col], 
+                close=df[close_col], 
+                volume=df[volume_col], 
+                length=period, 
+                append=False # 确保不修改原始df
+            )
+            
+            if cmf_series is None or cmf_series.empty:
+                logger.warning(f"计算 CMF (周期 {period}) 返回了空结果。")
+                return None
+            
+            # print(f"调试信息: [IndicatorService] CMF (周期 {period}) 计算完成，结果类型: {type(cmf_series)}，列名: {cmf_series.name}")
+            # 将返回的 Series 转换为 DataFrame，后续的合并逻辑会处理它
+            return cmf_series.to_frame()
+
+        except Exception as e:
+            logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
+            return None
+
+    async def calculate_kdj(self, df: pd.DataFrame, period: int = 9, signal_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算KDJ指标"""
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        min_length = period + signal_period + smooth_k_period
+        if len(df) < min_length:
+            print(f"调试信息: 数据长度 {len(df)} 小于计算KDJ所需的最小长度 {min_length}，跳过计算。")
+            return None
+
+        try:
+            def _sync_stoch():
+                # pandas-ta的stoch函数计算的就是KDJ
+                return ta.stoch(high=df[high_col], low=df[low_col], close=df[close_col], k=period, d=signal_period, smooth_k=smooth_k_period, append=False)
+            
+            stoch_df = await asyncio.to_thread(_sync_stoch)
+
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
+            if stoch_df is None or stoch_df.empty:
+                logger.warning(f"KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 计算结果为空，可能数据量不足。")
+                return None
+            # ▲▲▲ 修改结束 ▲▲▲
+
+            # 重命名列以符合KDJ的习惯
+            # STOCHk_9_3_3 -> K_9_3_3, STOCHd_9_3_3 -> D_9_3_3
+            stoch_df.rename(columns=lambda x: x.replace('STOCHk', 'K').replace('STOCHd', 'D'), inplace=True)
+            
+            # 计算J值: J = 3*K - 2*D
+            k_col = f'K_{period}_{signal_period}_{smooth_k_period}'
+            d_col = f'D_{period}_{signal_period}_{smooth_k_period}'
+            j_col = f'J_{period}_{signal_period}_{smooth_k_period}'
+            
+            if k_col in stoch_df and d_col in stoch_df:
+                stoch_df[j_col] = 3 * stoch_df[k_col] - 2 * stoch_df[d_col]
+            
+            return stoch_df
+
+        except Exception as e:
+            logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
+        """计算 EMA (指数移动平均线)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_ema():
+                return ta.ema(close=df[close_col], length=period, append=False)
+            ema_series = await asyncio.to_thread(_sync_ema)
+            if ema_series is None or not isinstance(ema_series, pd.Series) or ema_series.empty: return None
+            return pd.DataFrame({f'EMA_{period}': ema_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 EMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
+            return None
+
+    async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
+        if len(df) < period: return None
+        try:
+            def _sync_dmi():
+                return ta.adx(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
+            dmi_df = await asyncio.to_thread(_sync_dmi)
+            if dmi_df is None or dmi_df.empty: return None
+            rename_map = {
+                f'DMP_{period}': f'PDI_{period}',
+                f'DMN_{period}': f'NDI_{period}',
+                f'ADX_{period}': f'ADX_{period}'
+            }
+            result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
+            return result_df
+        except Exception as e:
+            logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_ichimoku(self, df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_period: int = 52, name_suffix: Optional[str] = None, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """
+        计算一目均衡表 (Ichimoku Cloud) 的时间对齐特征。
+        Args:
+            df (pd.DataFrame): 输入的K线数据。
+            tenkan_period (int): 转换线周期。
+            kijun_period (int): 基准线周期。
+            senkou_period (int): 先行带B周期。
+            name_suffix (Optional[str]): 可选的名称后缀，用于附加到所有列名后 (例如 '15', 'D')。
+            ...
+        Returns:
+            Optional[pd.DataFrame]: 包含一目均衡表指标的DataFrame。
+        """
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
+        if len(df) < max(tenkan_period, kijun_period, senkou_period): return None
+        try:
+            def _sync_ichimoku():
+                # 使用 ta.ichimoku() 直接调用，获取时间对齐的特征
+                # 返回的第一个元素是包含 ITS, IKS, ISA, ISB, ICS 的 DataFrame
+                ichimoku_data, _ = ta.ichimoku(high=df[high_col], low=df[low_col], close=df[close_col],
+                                           tenkan=tenkan_period, kijun=kijun_period, senkou=senkou_period,
+                                           append=False)
+                return ichimoku_data
+            ichi_df = await asyncio.to_thread(_sync_ichimoku)
+            if ichi_df is None or ichi_df.empty: return None
+            # 源列名 (由 pandas-ta 生成)
+            source_tenkan = f'ITS_{tenkan_period}'
+            source_kijun = f'IKS_{kijun_period}'
+            source_senkou_a = f'ISA_{tenkan_period}'
+            source_senkou_b = f'ISB_{kijun_period}' # 注意: pandas-ta 使用 kijun 周期命名
+            source_chikou = f'ICS_{kijun_period}'   # 注意: pandas-ta 使用 kijun 周期命名
+            # 目标列名 (基础部分，与原始代码意图一致)
+            target_tenkan = f'TENKAN_{tenkan_period}'
+            target_kijun = f'KIJUN_{kijun_period}'
+            target_senkou_a = f'SENKOU_A_{tenkan_period}'
+            target_senkou_b = f'SENKOU_B_{senkou_period}' # 目标名使用 senkou 周期，更符合逻辑
+            target_chikou = f'CHIKOU_{kijun_period}'
+            rename_map = {
+                source_tenkan: target_tenkan,
+                source_kijun: target_kijun,
+                source_senkou_a: target_senkou_a,
+                source_senkou_b: target_senkou_b,
+                source_chikou: target_chikou,
+            }
+            
+            result_df = ichi_df.rename(columns=rename_map)
+            # 筛选出我们成功重命名的列，避免携带非预期的列
+            final_columns = list(rename_map.values())
+            result_df = result_df[[col for col in final_columns if col in result_df.columns]]
+            # 如果提供了后缀，则附加到所有列名上
+            if name_suffix:
+                result_df.columns = [f'{col}_{name_suffix}' for col in result_df.columns]
+            return result_df if not result_df.empty else None
+        except Exception as e:
+            logger.error(f"计算 Ichimoku (t={tenkan_period}, k={kijun_period}, s={senkou_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_sma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
+        """计算 SMA (简单移动平均线)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_sma():
+                return ta.sma(close=df[close_col], length=period, append=False)
+            sma_series = await asyncio.to_thread(_sync_sma)
+            if sma_series is None or not isinstance(sma_series, pd.Series) or sma_series.empty: return None
+            return pd.DataFrame({f'SMA_{period}': sma_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 SMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
+            return None
+
+    async def calculate_amount_ma(self, df: pd.DataFrame, period: int = 20, amount_col='amount') -> Optional[pd.DataFrame]:
+        """计算成交额的移动平均线 (AMT_MA)"""
+        if df is None or df.empty or amount_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_amount_ma():
+                return df[amount_col].rolling(window=period, min_periods=max(1, int(period*0.5))).mean()
+            amt_ma_series = await asyncio.to_thread(_sync_amount_ma)
+            return pd.DataFrame({f'AMT_MA_{period}': amt_ma_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 AMT_MA (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_macd(self, df: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9, close_col='close') -> Optional[pd.DataFrame]:
+        """计算移动平均收敛散度 (MACD)"""
+        if df is None or df.empty or close_col not in df.columns:
+            return None
+        if len(df) < period_slow + signal_period:
+            return None
+
+        try:
+            def _sync_macd():
+                return ta.macd(close=df[close_col], fast=period_fast, slow=period_slow, signal=signal_period, append=False)
+            
+            macd_df = await asyncio.to_thread(_sync_macd)
+
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
+            if macd_df is None or macd_df.empty:
+                logger.warning(f"MACD (f={period_fast},s={period_slow},sig={signal_period}) 计算结果为空，可能数据量不足。")
+                return None
+            # ▲▲▲ 修改结束 ▲▲▲
+            
+            return macd_df
+
+        except Exception as e:
+            logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_mfi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
+        """计算 MFI (资金流量指标)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]): return None
+        if len(df) < period: return None
+        try:
+            def _sync_mfi():
+                return ta.mfi(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], length=period, append=False)
+            mfi_series = await asyncio.to_thread(_sync_mfi)
+            if mfi_series is None or mfi_series.empty: return None
+            return pd.DataFrame({f'MFI_{period}': mfi_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 MFI (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_mom(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
+        """计算 MOM (动量指标)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_mom():
+                return ta.mom(close=df[close_col], length=period)
+            mom_series = await asyncio.to_thread(_sync_mom)
+            if mom_series is None or mom_series.empty: return None
+            return pd.DataFrame({f'MOM_{period}': mom_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 MOM (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_obv(self, df: pd.DataFrame, close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
+        """计算 OBV (能量潮指标)"""
+        if df is None or df.empty or not all(c in df.columns for c in [close_col, volume_col]): return None
+        try:
+            def _sync_obv():
+                return ta.obv(close=df[close_col], volume=df[volume_col], append=False)
+            obv_series = await asyncio.to_thread(_sync_obv)
+            if obv_series is None or obv_series.empty: return None
+            return pd.DataFrame({'OBV': obv_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 OBV 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_roc(self, df: pd.DataFrame, period: int = 12, close_col='close') -> Optional[pd.DataFrame]:
+        """计算 ROC (价格变化率)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) <= period: return None
+        try:
+            def _sync_roc():
+                return ta.roc(close=df[close_col], length=period, append=False)
+            roc_series = await asyncio.to_thread(_sync_roc)
+            if roc_series is None or roc_series.empty: return None
+            return pd.DataFrame({f'ROC_{period}': roc_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 ROC (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_amount_roc(self, df: pd.DataFrame, period: int, amount_col='amount') -> Optional[pd.DataFrame]:
+        """计算成交额的 ROC (AROC)"""
+        if df is None or df.empty or amount_col not in df.columns:
+            logger.warning(f"输入 DataFrame 为空或缺少 '{amount_col}' 列，无法计算 AROC。")
+            return None
+        # --- 调试信息：打印输入DataFrame的形状和列名 ---
+        # print(f"调试信息: [AROC_{period}] 输入 df 的形状: {df.shape}, 列: {df.columns.tolist()}")
+        if len(df) <= period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 AROC。")
+            return None
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_aroc():
+                target_series = df[amount_col]
+                # 直接调用 ta.roc 函数，传入 Series
+                return ta.roc(close=target_series, length=period, append=False)
+                
+            aroc_series = await asyncio.to_thread(_sync_aroc)
+            if aroc_series is None or aroc_series.empty:
+                logger.warning(f"AROC_{period} 计算结果为空。")
+                return None
+            # 将结果构建为 DataFrame，列名格式化
+            df_results = pd.DataFrame({f'AROC_{period}': aroc_series})
+            # 将无穷大值替换为NaN，便于后续处理
+            df_results.replace([np.inf, -np.inf], np.nan, inplace=True)
+            return df_results
+        except Exception as e:
+            # 记录详细的错误信息，包括堆栈跟踪
+            logger.error(f"计算 Amount ROC (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_volume_roc(self, df: pd.DataFrame, period: int, volume_col='volume') -> Optional[pd.DataFrame]:
+        """计算成交量的 ROC (VROC)"""
+        if df is None or df.empty or volume_col not in df.columns:
+            logger.warning(f"输入 DataFrame 为空或缺少 '{volume_col}' 列，无法计算 VROC。")
+            return None
+        if len(df) <= period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 VROC。")
+            return None
+            
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_vroc():
+                target_series = df[volume_col]
+                # 直接调用 ta.roc 函数，传入 Series。注意：pandas_ta 的 roc 函数使用 'close' 作为通用输入参数名。
+                return ta.roc(close=target_series, length=period)
+            vroc_series = await asyncio.to_thread(_sync_vroc)
+            if vroc_series is None or vroc_series.empty:
+                logger.warning(f"VROC_{period} 计算结果为空。")
+                return None
+            df_results = pd.DataFrame({f'VROC_{period}': vroc_series}, index=df.index)
+            # 将无穷大值替换为NaN，便于后续处理
+            df_results.replace([np.inf, -np.inf], np.nan, inplace=True)
+            return df_results
+        except Exception as e:
+            logger.error(f"计算 Volume ROC (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_rsi(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
+        """计算相对强弱指数 (RSI)"""
+        if df is None or df.empty or close_col not in df.columns:
+            return None
+        if len(df) < period:
+            return None
+        
+        try:
+            # 异步执行 pandas_ta 计算
+            def _sync_rsi():
+                return ta.rsi(close=df[close_col], length=period, append=False)
+            rsi_series = await asyncio.to_thread(_sync_rsi)
+
+            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
+            if rsi_series is None or not isinstance(rsi_series, pd.Series) or rsi_series.empty:
+                logger.warning(f"RSI (周期 {period}) 计算结果为空或无效，可能数据量不足。")
+                return None
+            
+            #  在创建DataFrame时显式传入索引，更加安全
+            return pd.DataFrame({f'RSI_{period}': rsi_series}, index=df.index)
+            # ▲▲▲ 修改结束 ▲▲▲
+
+        except Exception as e:
+            logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_sar(self, df: pd.DataFrame, af_step: float = 0.02, max_af: float = 0.2, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
+        """计算 SAR (抛物线转向指标)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col]): return None
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_psar():
+                return df.ta.psar(high=df[high_col], low=df[low_col], af0=af_step, af=af_step, max_af=max_af, append=False)
+            psar_df = await asyncio.to_thread(_sync_psar)
+            if psar_df is None or psar_df.empty: return None
+            long_sar_col = next((col for col in psar_df.columns if col.startswith('PSARl')), None)
+            short_sar_col = next((col for col in psar_df.columns if col.startswith('PSARs')), None)
+            if long_sar_col and short_sar_col:
+                sar_values = psar_df[long_sar_col].fillna(psar_df[short_sar_col])
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': sar_values})
+            elif long_sar_col:
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': psar_df[long_sar_col]})
+            elif short_sar_col:
+                return pd.DataFrame({f'SAR_{af_step:.2f}_{max_af:.2f}': psar_df[short_sar_col]})
+            else:
+                logger.warning(f"计算 SAR 未找到 PSARl 或 PSARs 列。返回列: {psar_df.columns.tolist()}")
+                return None
+        except Exception as e:
+            logger.error(f"计算 SAR (af={af_step:.2f}, max_af={max_af:.2f}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_stoch(self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算 STOCH (随机指标)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_stoch():
+                return df.ta.stoch(high=df[high_col], low=df[low_col], close=df[close_col], k=k_period, d=d_period, smooth_k=smooth_k_period, append=False)
+            stoch_df = await asyncio.to_thread(_sync_stoch)
+            if stoch_df is None or stoch_df.empty: return None
+            return stoch_df
+        except Exception as e:
+            logger.error(f"计算 STOCH (k={k_period},d={d_period},s={smooth_k_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_adl(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
+        """计算 ADL (累积/派发线)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
+            return None
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_adl():
+                return df.ta.ad(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], append=False)
+            adl_series = await asyncio.to_thread(_sync_adl)
+            if adl_series is None or adl_series.empty: return None
+            return pd.DataFrame({'ADL': adl_series})
+        except Exception as e:
+            logger.error(f"计算 ADL 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_pivot_points(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算经典枢轴点和斐波那契枢轴点 (基于前一周期数据)"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]):
+            return None
+        try:
+            # --- 将同步的计算逻辑移至线程中执行 ---
+            def _sync_pivot():
+                results = pd.DataFrame(index=df.index)
+                prev_high = df[high_col].shift(1)
+                prev_low = df[low_col].shift(1)
+                prev_close = df[close_col].shift(1)
+                PP = (prev_high + prev_low + prev_close) / 3
+                results['PP'] = PP
+                results['S1'] = (2 * PP) - prev_high
+                results['S2'] = PP - (prev_high - prev_low)
+                results['S3'] = results['S1'] - (prev_high - prev_low)
+                results['S4'] = results['S2'] - (prev_high - prev_low)
+                results['R1'] = (2 * PP) - prev_low
+                results['R2'] = PP + (prev_high - prev_low)
+                results['R3'] = results['R1'] + (prev_high - prev_low)
+                results['R4'] = results['R2'] + (prev_high - prev_low)
+                diff = prev_high - prev_low
+                results['F_R1'] = PP + 0.382 * diff
+                results['F_R2'] = PP + 0.618 * diff
+                results['F_R3'] = PP + 1.000 * diff
+                results['F_S1'] = PP - 0.382 * diff
+                results['F_S2'] = PP - 0.618 * diff
+                results['F_S3'] = PP - 1.000 * diff
+                return results.iloc[1:]
+            return await asyncio.to_thread(_sync_pivot)
+        except Exception as e:
+            logger.error(f"计算 Pivot Points 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_vol_ma(self, df: pd.DataFrame, period: int = 20, volume_col='volume') -> Optional[pd.DataFrame]:
+        """计算成交量的移动平均线 (VOL_MA)"""
+        if df is None or df.empty or volume_col not in df.columns: return None
+        try:
+            # --- 将同步的 rolling 计算移至线程中执行 ---
+            def _sync_vol_ma():
+                return df[volume_col].rolling(window=period, min_periods=max(1, int(period*0.5))).mean()
+            vol_ma_series = await asyncio.to_thread(_sync_vol_ma)
+            return pd.DataFrame({f'VOL_MA_{period}': vol_ma_series})
+        except Exception as e:
+            logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None, suffix: str = '') -> Optional[pd.DataFrame]:
+        """
+        【V1.1 锚点修正版】计算 VWAP (成交量加权平均价)。
+        - 修正了对分钟级别锚点（如 '30', '60'）的处理，将其转换为 pandas 可识别的频率字符串（如 '30T'）。
+        """
+        # pandas-ta 需要标准的列名
+        high_col, low_col, close_col, volume_col = 'high', 'low', 'close', 'volume'
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
+            logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
+            return None
+        
+        # ▼▼▼ 转换分钟级别锚点为pandas兼容格式 ▼▼▼
+        # 解释: pandas-ta的vwap函数要求锚点(anchor)是pandas的频率字符串。
+        # 对于分钟级别，'30' 是无效的，必须是 '30T' 或 '30min'。
+        # 此处对纯数字的锚点进行转换，而 'D', 'W' 等则保持不变。
+        processed_anchor = anchor
+        if anchor and str(anchor).isdigit():
+            processed_anchor = f"{anchor}T"
+            # print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
+        try:
+            def _sync_vwap():
+                return df.ta.vwap(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], anchor=processed_anchor, append=False)
+            
+            vwap_series = await asyncio.to_thread(_sync_vwap)
+            if vwap_series is None or vwap_series.empty: return None
+
+            # pandas-ta的vwap列名比较特殊，我们手动重命名以确保一致性
+            # 原始列名可能是 VWAP_D, VWAP_W, VWAP_30T 等
+            original_name = vwap_series.name
+            # 我们统一将其命名为 VWAP_{suffix}
+            new_name = f'VWAP{suffix}'
+            vwap_series.name = new_name
+            
+            return pd.DataFrame(vwap_series)
+        except Exception as e:
+            logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """计算威廉姆斯 %R (WILLR)"""
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            logger.warning(f"输入 DataFrame 为空或缺少必要的列 {required_cols}，无法计算 WILLR。")
+            return None
+        if len(df) < period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 WILLR。")
+            return None
+            
+        try:
+            # --- 将同步的 pandas-ta 调用移至线程中执行 ---
+            def _sync_willr():
+                return ta.willr(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
+            willr_series = await asyncio.to_thread(_sync_willr)
+            if willr_series is None or willr_series.empty:
+                logger.warning(f"WILLR_{period} 计算结果为空。")
+                return None
+            df_results = pd.DataFrame({f'WILLR_{period}': willr_series})            
+            return df_results
+        except Exception as e:
+            logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_trix(self, df: pd.DataFrame, period: int = 14, signal_period: int = 9, close_col='close') -> Optional[pd.DataFrame]:
+        """
+        计算 TRIX (三重指数平滑移动平均线) 及其信号线。
+        Args:
+            df (pd.DataFrame): 输入数据。
+            period (int): TRIX 计算周期。
+            signal_period (int): 信号线计算周期。
+            close_col (str): 收盘价列名。
+        Returns:
+            Optional[pd.DataFrame]: 包含 TRIX 和 TRIX_signal 列的 DataFrame。
+        """
+        if df is None or df.empty or close_col not in df.columns:
+            return None
+        if len(df) < period * 3: # TRIX 需要更长的启动数据
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 TRIX。")
+            return None
+        try:
+            def _sync_trix():
+                # 使用 pandas-ta 直接计算 TRIX 和其信号线
+                return ta.trix(close=df[close_col], length=period, signal=signal_period, append=False)
+            trix_df = await asyncio.to_thread(_sync_trix)
+            if trix_df is None or trix_df.empty:
+                return None
+            # pandas-ta 默认返回的列名是 'TRIX_14_9' 和 'TRIXs_14_9'，这已经很清晰，直接返回即可
+            return trix_df
+        except Exception as e:
+            logger.error(f"计算 TRIX (period={period}, signal={signal_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10) -> Optional[pd.DataFrame]:
+        """
+        【V1.3 健壮性修复版】计算 Coppock Curve (COPP) 指标。
+        - 核心修复: 解决了 'Series' object has no attribute 'columns' 的崩溃问题。
+                    通过检查返回值类型，并在其为 Series 时使用 .to_frame() 将其统一转换为
+                    DataFrame，使后续的重命名逻辑对两种返回类型都能兼容。
+        """
+        if df is None or df.empty or 'close' not in df.columns:
+            return None
+        try:
+            copp_df = df.ta.coppock(
+                close=df['close'],
+                length=wma_period,
+                fast=short_roc_period,
+                slow=long_roc_period,
+                append=False
+            )
+            if copp_df is not None and not copp_df.empty:
+                # ▼▼▼: 核心修复，兼容Series和DataFrame返回值 ▼▼▼
+                # 检查返回的是否是Series，如果是，则转换为DataFrame，以统一处理
+                if isinstance(copp_df, pd.Series):
+                    copp_df = copp_df.to_frame()
+
+                # 现在 copp_df 肯定是DataFrame，可以安全地访问 .columns
+                if not copp_df.columns[0].startswith('COPP'):
+                    expected_name = f"COPP_{long_roc_period}_{short_roc_period}_{wma_period}"
+                    actual_name = copp_df.columns[0]
+                    copp_df.rename(columns={actual_name: expected_name}, inplace=True)
+                    # print(f"    - [指标重命名] 已将列 '{actual_name}' 重命名为 '{expected_name}'")
+                # ▲▲▲: 修改结束 ▲▲▲
+                return copp_df
+        except Exception as e:
+            # 增加数据量不足的特定警告
+            if "data length" in str(e).lower() or "inputs are all nan" in str(e).lower():
+                logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve(long={long_roc_period}, short={short_roc_period}, wma={wma_period})。")
+            else:
+                # 在日志中包含异常类型，方便调试
+                logger.error(f"计算 Coppock Curve 时发生未知错误: {type(e).__name__}: {e}", exc_info=False) # exc_info=False 避免打印完整堆栈
+        
+        return None
+
+    async def calculate_uo(self, df: pd.DataFrame, short_period: int = 7, medium_period: int = 14, long_period: int = 28, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
+        """
+        计算 Ultimate Oscillator (终极波动指标)。
+        Args:
+            df (pd.DataFrame): 输入数据。
+            short_period (int): 短周期。
+            medium_period (int): 中周期。
+            long_period (int): 长周期。
+            ...
+        Returns:
+            Optional[pd.DataFrame]: 包含 UO 指标的 DataFrame。
+        """
+        required_cols = [high_col, low_col, close_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        if len(df) < long_period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {long_period} 的 UO。")
+            return None
+        try:
+            def _sync_uo():
+                # 使用 pandas-ta 直接计算
+                return ta.uo(high=df[high_col], low=df[low_col], close=df[close_col], fast=short_period, medium=medium_period, slow=long_period, append=False)
+            uo_series = await asyncio.to_thread(_sync_uo)
+            if uo_series is None or uo_series.empty:
+                return None
+            # 返回一个标准的 DataFrame
+            col_name = f'UO_{short_period}_{medium_period}_{long_period}'
+            return pd.DataFrame({col_name: uo_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 Ultimate Oscillator 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_bias(self, df: pd.DataFrame, period: int = 20, close_col='close') -> Optional[pd.DataFrame]:
+        """
+        【V1.3 最终修正版】计算 BIAS，并强制重命名列以符合系统标准。
+        """
+        # (此函数前面的调试代码和检查代码保持不变)
+        if df is None or df.empty or close_col not in df.columns:
+            logger.warning(f"BIAS计算失败：输入的DataFrame为空或缺少'{close_col}'列。")
+            return None
+        
+        if len(df) < period:
+            logger.warning(f"BIAS计算失败：数据长度 {len(df)} 小于所需周期 {period}。")
+            return None
+
+        try:
+            def _sync_bias() -> Optional[pd.Series]:
+                # pandas_ta.bias 会生成一个名为 'BIAS_SMA_{period}' 的列
+                return df.ta.bias(close=df[close_col], length=period, append=False)
+
+            bias_series = await asyncio.to_thread(_sync_bias)
+
+            if bias_series is None or bias_series.empty:
+                logger.warning(f"pandas_ta.bias 未能为周期 {period} 生成有效结果。")
+                return None
+
+            # 这是解决问题的核心：将 pandas_ta 生成的列名 'BIAS_SMA_20' 重命名为我们需要的标准格式 'BIAS_20'
+            target_col_name = f"BIAS_{period}"
+            bias_series.name = target_col_name
+
+            # 将重命名后的 Series 转换为 DataFrame
+            result_df = pd.DataFrame(bias_series)
+            return result_df
+
+        except Exception as e:
+            logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
+            return None
+    
+    async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict, suffix: str) -> Optional[pd.DataFrame]:
+        """
+        【V2.2 NaN根除版】根据多因子共振识别盘整期。
+        - 核心修复1: 保持对 dynamic_bbw_threshold 的 bfill()，解决动态阈值NaN问题。
+        - 核心修复2: 在所有计算和ffill之后，对箱体高低点列中残余的NaN（通常在数据开头）
+                    用当期的high/low进行填充，从根源上消除NaN，确保下游策略总能获得有效数值。
+        """
+        # 1. 参数获取 (无变化)
+        boll_period = params.get('boll_period', 20)
+        boll_std = params.get('boll_std', 2.0)
+        bbw_quantile = params.get('bbw_quantile', 0.25)
+        roc_period = params.get('roc_period', 12)
+        roc_threshold = params.get('roc_threshold', 5.0)
+        vol_ma_period = params.get('vol_ma_period', 55)
+        min_expanding_periods = boll_period * 2
+
+        # 2. 依赖列名 (无变化)
+        bbw_col = f"BBW_{boll_period}_{float(boll_std)}"
+        roc_col = f"ROC_{roc_period}"
+        vol_ma_col = f"VOL_MA_{vol_ma_period}"
+        
+        # 3. 依赖检查 (无变化)
+        required_cols = [bbw_col, roc_col, vol_ma_col, 'high', 'low', 'volume']
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"    - [依赖错误] V2.2箱体计算跳过，依赖的列 '{', '.join(missing)}{suffix}' 不存在。")
+            return None
+
+        # 4. 初始化结果DataFrame (无变化)
+        result_df = pd.DataFrame(index=df.index)
+        output_cols = [
+            'is_consolidating', 'dynamic_bbw_threshold', 'dynamic_consolidation_high', 
+            'dynamic_consolidation_low', 'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
+        ]
+        for col in output_cols:
+            result_df[col] = np.nan if col not in ['is_consolidating'] else False
+
+        # 5. 核心逻辑 (无变化)
+        dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
+        dynamic_bbw_threshold.bfill(inplace=True)
+        result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold
+        cond_volatility = df[bbw_col] < result_df['dynamic_bbw_threshold']
+        cond_trend = df[roc_col].abs() < roc_threshold
+        cond_volume = df['volume'] < df[vol_ma_col]
+        is_consolidating = cond_volatility & cond_trend & cond_volume
+        result_df['is_consolidating'] = is_consolidating
+
+        if is_consolidating.any():
+            # 6. 计算箱体指标 (无变化)
+            consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
+            consolidating_df = df[is_consolidating].copy()
+            grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
+            consolidation_high = grouped['high'].transform('max')
+            consolidation_low = grouped['low'].transform('min')
+            consolidation_avg_vol = grouped['volume'].transform('mean')
+            consolidation_duration = grouped['high'].transform('size')
+
+            # 7. 填充结果 (无变化)
+            result_df['dynamic_consolidation_high'].update(consolidation_high)
+            result_df['dynamic_consolidation_low'].update(consolidation_low)
+            result_df['dynamic_consolidation_avg_vol'].update(consolidation_avg_vol)
+            result_df['dynamic_consolidation_duration'].update(consolidation_duration)
+
+            fill_cols = [
+                'dynamic_consolidation_high', 'dynamic_consolidation_low', 
+                'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
+            ]
+            result_df[fill_cols] = result_df[fill_cols].ffill()
+
+        # 解释: 对于序列开头从未形成过箱体的部分，其 high/low 值为 NaN。
+        # 我们用当期自己的 high/low 来填充，确保下游策略总能获得有效的数值进行比较。
+        result_df['dynamic_consolidation_high'].fillna(df['high'], inplace=True)
+        result_df['dynamic_consolidation_low'].fillna(df['low'], inplace=True)
+        # 对于成交量和持续时间，用0填充是合理的默认值
+        result_df['dynamic_consolidation_avg_vol'].fillna(0, inplace=True)
+        result_df['dynamic_consolidation_duration'].fillna(0, inplace=True)
+        
+        return result_df
+
+    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+        """
+        【V3.0 双引擎健壮版】计算斐波那契回撤水平。
+        - 核心升级: 引入“优雅降级”机制。优先使用精密的find_peaks动态引擎，
+                    如果动态引擎无法找到有效波段，则自动切换到基于滚动窗口的
+                    备用引擎，确保永远能产出有效的斐波那契水平。
+        """
+        fib_params = params.get('params', {})
+        if not params.get('enabled', False):
+            return None
+
+        # print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
+        
+        try:
+            from scipy.signal import find_peaks, peak_prominences
+        except ImportError:
+            logger.error("缺少 'scipy' 库，无法计算动态斐波那契水平。请运行 'pip install scipy'。")
+            return None
+
+        # --- 主引擎：动态波段识别 ---
+        distance = fib_params.get('peak_distance', 13)
+        prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05)
+        
+        if 'close' not in df.columns:
+            logger.error("斐波那契计算失败：DataFrame中缺少 'close' 列。")
+            return None
+
+        def _find_peaks_sync(data, prominence_series):
+            candidate_indices, _ = find_peaks(data, distance=distance)
+            if len(candidate_indices) == 0:
+                return []
+            actual_prominences, _, _ = peak_prominences(data, candidate_indices)
+            custom_thresholds = prominence_series.iloc[candidate_indices]
+            valid_mask = actual_prominences >= custom_thresholds.values
+            return candidate_indices[valid_mask]
+
+        peak_prominence_series = df['close'] * prominence_ratio
+        peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'].values, peak_prominence_series)
+        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, peak_prominence_series)
+
+        # --- 检查主引擎是否成功 ---
+        if len(peak_indices) > 0 and len(trough_indices) > 0:
+            # print("      -> [主引擎] 动态波段识别成功，正在计算...")
+            
+            temp_df = pd.DataFrame(index=df.index)
+            temp_df['swing_high_price'] = np.nan
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
+            temp_df['swing_high_price'].ffill(inplace=True)
+
+            temp_df['swing_low_price'] = np.nan
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
+            temp_df['swing_low_price'].ffill(inplace=True)
+            
+            temp_df['swing_high_date'] = pd.NaT
+            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
+            temp_df['swing_high_date'].ffill(inplace=True)
+            
+            temp_df['swing_low_date'] = pd.NaT
+            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
+            temp_df['swing_low_date'].ffill(inplace=True)
+
+            is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
+            swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
+
+            result_df = pd.DataFrame(index=df.index)
+            
+            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
+            for level in levels:
+                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
+                retr_price = temp_df['swing_high_price'] - swing_range * level
+                result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
+
+            # print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
+            return result_df
+        
+        # --- 如果主引擎失败，则启动备用引擎 ---
+        else:
+            print("      -> [备用引擎] 动态波段识别失败，切换至滚动窗口模式。")
+            result_df = pd.DataFrame(index=df.index)
+            lookback = fib_params.get('lookback_period', 120)
+            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
+
+            if not all(c in df.columns for c in ['high', 'low']):
+                logger.error("斐波那契备用引擎计算失败：DataFrame中缺少 'high' 或 'low' 列。")
+                return None
+
+            rolling_high = df['high'].rolling(window=lookback).max()
+            rolling_low = df['low'].rolling(window=lookback).min()
+            price_range = rolling_high - rolling_low
+
+            for level in levels:
+                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
+                result_df[col_name] = rolling_high - (price_range * level)
+            
+            # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
+            return result_df
+
