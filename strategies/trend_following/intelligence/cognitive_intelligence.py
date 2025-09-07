@@ -969,7 +969,7 @@ class CognitiveIntelligence:
         """
         print("        -> [趋势阶段评分模块 V401.11 深度探针调试版] 启动...") # 修改: 更新版本号
 
-        # [新增开始] 定义一个内部探针函数用于深度调试
+        # 定义一个内部探针函数用于深度调试
         def _debug_probe(series: pd.Series, name: str, df_index: pd.Index):
             """一个用于调试的内部探针，检查Series的健康状况"""
             print(f"\n--- [探针] 正在检查信号: {name} ---")
@@ -1012,7 +1012,6 @@ class CognitiveIntelligence:
             
             print(f"--- [探针] 信号 {name} 检查完毕 ---")
             return series
-        # [新增结束]
 
         states = {}
         atomic = self.strategy.atomic_states
@@ -1031,10 +1030,15 @@ class CognitiveIntelligence:
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
-        vpa_risk_score_arr = np.maximum(
+        # [新增] 获取被遗漏的“效率衰竭”风险分
+        vpa_efficiency_decline_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_EFFICIENCY_DECLINING', 0.0)
+        
+        # [修改] 使用 np.maximum.reduce 融合所有三个VPA风险信号
+        vpa_risk_score_arr = np.maximum.reduce([
             vpa_stagnation_score.values,
-            vpa_volume_accelerating_score.values
-        )
+            vpa_volume_accelerating_score.values,
+            vpa_efficiency_decline_score.values
+        ])
         vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
         
         # 重构 risk_dimension_scores 的构建过程，以便插入探针
