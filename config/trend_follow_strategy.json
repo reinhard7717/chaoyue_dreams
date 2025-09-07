@@ -160,7 +160,7 @@
         "peak_stability_D": [5, 21, 55],
         "peak_percent_D": [5],
         "pressure_above_D": [5, 21],
-        "chip_health_score_D": [5, 21],
+        "chip_health_score_D": [5, 21, 55],
         "winner_profit_margin_D": [5, 21, 55],
         "price_to_peak_ratio_D": [5],
         "peak_control_ratio_D": [5, 21, 55],
