@@ -29,7 +29,7 @@
         "enabled": true,
         "configs": [
           { "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
-          { "apply_on": ["W"], "periods": [20], "std_dev": 2.0 }
+          { "apply_on": ["W"], "periods": [21], "std_dev": 2.0 }
         ]
       },
       "rsi": {
@@ -107,6 +107,18 @@
             "output_column_name": "MA_CONV_CV_LONG_D"
           }
         ]
+      },
+      "consolidation_period": {
+        "enabled": true,
+        "apply_on": ["D"],
+        "params": {
+          "boll_period": 21,
+          "boll_std": 2.0,
+          "bbw_quantile": 0.25,
+          "roc_period": 12,
+          "roc_threshold": 5.0,
+          "vol_ma_period": 55
+        }
       }
     },
     "slope_params": {
@@ -1416,7 +1428,7 @@
           "boll_bands_and_width": {
             "enabled": true,
             "configs": [
-              { "apply_on": ["5min", "30min"], "periods": [20], "std_dev": 2.0 }
+              { "apply_on": ["5min", "30min"], "periods": [21], "std_dev": 2.0 }
             ]
           },
           "vwap": { "enabled": true, "apply_on": ["5min"] },
