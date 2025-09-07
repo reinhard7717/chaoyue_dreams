@@ -904,7 +904,7 @@ class IndicatorCalculator:
                     用当期的high/low进行填充，从根源上消除NaN，确保下游策略总能获得有效数值。
         """
         # 1. 参数获取 (无变化)
-        boll_period = params.get('boll_period', 20)
+        boll_period = params.get('boll_period', 21)
         boll_std = params.get('boll_std', 2.0)
         bbw_quantile = params.get('bbw_quantile', 0.25)
         roc_period = params.get('roc_period', 12)
