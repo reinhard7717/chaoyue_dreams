@@ -125,14 +125,16 @@ class StructuralIntelligence:
 
     def diagnose_box_states_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 数值化消费升级版】箱体突破质量评分引擎
+        【V4.2 机会逻辑修正版】箱体突破质量评分引擎
         - 核心重构: 引入“战备质量(Setup)”与“点火质量(Trigger)”分离式评估体系。
         - 核心逻辑: 最终突破分 = (战备质量分) * (点火质量分)，实现优中选优。
         - 核心升级 (本次修改):
-          - [消费端升级] 将对上游均线共振信号的依赖从布尔型(OPP_MA_...)升级为数值型(SCORE_MA_...)，
-                        使突破质量评估的连续性与精度更高。
+          - [逻辑修正] 移除了对 `is_breakout` 单日事件布尔信号的硬性依赖。
+                        现在，突破机会分数直接由“昨日战备质量”与“今日点火强度”决定，
+                        使其从一个稀疏的“事件”信号转变为更连续、更具前瞻性的“机会”信号，
+                        与其他突破信号的计算范式保持一致。
         """
-        print("        -> [箱体诊断模块 V4.1 数值化消费升级版] 启动...") 
+        print("        -> [箱体诊断模块 V4.2 机会逻辑修正版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'box_state_params')
         if not get_param_value(p.get('enabled'), True) or df.empty:
@@ -143,7 +145,6 @@ class StructuralIntelligence:
             'high_D', 'low_D', 'close_D', 'open_D', 'volume_D',
             'BBW_21_2.0_D', 'SLOPE_5_CMF_21_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D'
         ]
-        # 依赖上游S/A/B级数值化共振评分
         required_signals = [
             'SCORE_MA_BULLISH_RESONANCE_S', 'SCORE_MA_BULLISH_RESONANCE_A', 'SCORE_MA_BULLISH_RESONANCE_B',
             'SCORE_MA_BEARISH_RESONANCE_S', 'SCORE_MA_BEARISH_RESONANCE_A', 'SCORE_MA_BEARISH_RESONANCE_B'
@@ -162,8 +163,8 @@ class StructuralIntelligence:
         box_bottom = low_d.rolling(window=lookback_window).min()
         amplitude_ratio = (box_top - box_bottom) / box_bottom.replace(0, np.nan)
         is_valid_box = (amplitude_ratio < get_param_value(p.get('max_amplitude_ratio'), 0.05)).fillna(False)
-        df['box_top_D'] = box_top # 兼容下游模块
-        df['box_bottom_D'] = box_bottom # 兼容下游模块
+        df['box_top_D'] = box_top
+        df['box_bottom_D'] = box_bottom
         is_breakout = is_valid_box & (close_d > box_top.shift(1)) & (close_d.shift(1) <= box_top.shift(1))
         is_breakdown = is_valid_box & (close_d < box_bottom.shift(1)) & (close_d.shift(1) >= box_bottom.shift(1))
         # --- 3. 战备质量评分 (Setup Score) ---
@@ -178,7 +179,6 @@ class StructuralIntelligence:
         candle_range = (high_d - low_d).replace(0, np.nan)
         breakout_candle_score = ((close_d - open_d) / candle_range).clip(0, 1).fillna(0.0)
         breakdown_candle_score = ((open_d - close_d) / candle_range).clip(0, 1).fillna(0.0)
-        # 获取数值化评分，并提供默认值
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         bullish_resonance_s = atomic.get('SCORE_MA_BULLISH_RESONANCE_S', default_score)
         bullish_resonance_a = atomic.get('SCORE_MA_BULLISH_RESONANCE_A', default_score)
@@ -189,20 +189,21 @@ class StructuralIntelligence:
         # --- 5. 融合生成最终质量分与兼容性信号 ---
         # 5.1 向上突破
         breakout_trigger_base_score = volume_thrust_score * breakout_candle_score
-        # 直接与数值化评分相乘，不再需要astype(float)
-        states['SCORE_BOX_BREAKOUT_S'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_s).fillna(0.0).astype(np.float32)
-        states['SCORE_BOX_BREAKOUT_A'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_a).fillna(0.0).astype(np.float32)
-        states['SCORE_BOX_BREAKOUT_B'] = (is_breakout * setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_b).fillna(0.0).astype(np.float32)
-        # 5.2 向下突破
+        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
+        states['SCORE_BOX_BREAKOUT_S'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_s).fillna(0.0).astype(np.float32)
+        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
+        states['SCORE_BOX_BREAKOUT_A'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_a).fillna(0.0).astype(np.float32)
+        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
+        states['SCORE_BOX_BREAKOUT_B'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_b).fillna(0.0).astype(np.float32)
+        # 5.2 向下突破 (保持事件驱动逻辑，因为风险信号需要更精确)
         breakdown_trigger_base_score = volume_thrust_score * breakdown_candle_score
-        # 直接与数值化评分相乘
         states['SCORE_BOX_BREAKDOWN_S'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_s).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKDOWN_A'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_a).fillna(0.0).astype(np.float32)
         states['SCORE_BOX_BREAKDOWN_B'] = (is_breakdown * setup_quality_score.shift(1) * breakdown_trigger_base_score * bearish_resonance_b).fillna(0.0).astype(np.float32)
-        # 5.3 兼容旧版信号
+        # 5.3 兼容旧版信号 (保持不变)
         states['BOX_EVENT_BREAKOUT'] = is_breakout.fillna(False)
         states['BOX_EVENT_BREAKDOWN'] = is_breakdown.fillna(False)
-        print("        -> [箱体诊断模块 V4.1 数值化消费升级版] 诊断完毕。") 
+        print("        -> [箱体诊断模块 V4.2 机会逻辑修正版] 诊断完毕。")
         return states
 
     def diagnose_platform_states_scores(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, pd.Series]]:
@@ -815,42 +816,68 @@ class StructuralIntelligence:
 
     def synthesize_structural_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 盘整突破增强版】结构性机会合成模块
+        【V1.3 范式统一版】结构性机会合成模块
         - 核心职责: 融合来自本模块的多个突破信号（箱体、平台、盘整），生成统一的“蓄势突破”机会分数。
-        - 本次升级: 新增了对 `synthesize_consolidation_breakout_signals` 产出的盘整突破信号的融合。
+        - 本次升级: [范式统一] 为了适配 V4.2 版箱体诊断模块输出的连续性“机会”信号，
+                      本模块现在对所有上游突破信号统一使用 `_fuse_multi_level_scores` 进行预处理，
+                      确保所有输入信号在融合前都经过了标准化的多级分数融合，增强了逻辑一致性和扩展性。
         """
-        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 启动...")
+        print("        -> [结构性机会合成模块 V1.3 范式统一版] 启动...") # 修改: 更新版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取来自本模块的多个突破源信号 ---
-        # 源1: 箱体突破 (使用加权融合S/A/B三级分数)
-        box_breakout_score = self._fuse_multi_level_scores('BOX_BREAKOUT').values
-        # 源2: 平台突破
-        platform_breakout_score = atomic.get('SCORE_OPP_PLATFORM_BREAKOUT_S', default_series).values
-        # 源3: 盘整突破 (调用新增的合成方法)
+        
+        # --- 1. 提取并融合来自本模块的多个突破源信号 ---
+        # 修改: 对所有适用的信号源统一使用融合函数，以正确处理S/A/B等级
+        # 源1: 箱体突破 (现在会正确处理新的连续性机会分数)
+        box_breakout_score_series = self._fuse_multi_level_scores('BOX_BREAKOUT')
+        
+        # 源2: 平台突破 (同样使用融合函数，即使目前只有S级，逻辑也更健壮)
+        platform_breakout_score_series = self._fuse_multi_level_scores('OPP_PLATFORM_BREAKOUT')
+        
+        # 源3: 盘整突破 (此信号逻辑特殊，维持原调用方式)
         consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df)
-        consolidation_breakout_score = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series).values
+        consolidation_breakout_score_series = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series.copy())
         states.update(consolidation_breakout_states)
         
-        # --- 调试信息：检查所有输入数组的类型和形状 ---
-        print(f"    [调试] box_breakout_score 类型: {type(box_breakout_score)}, 形状: {getattr(box_breakout_score, 'shape', 'N/A')}")
-        print(f"    [调试] platform_breakout_score 类型: {type(platform_breakout_score)}, 形状: {getattr(platform_breakout_score, 'shape', 'N/A')}")
-        print(f"    [调试] consolidation_breakout_score 类型: {type(consolidation_breakout_score)}, 形状: {getattr(consolidation_breakout_score, 'shape', 'N/A')}")
+        # --- 调试信息：检查所有输入Series的值范围 ---
+        print(f"    [调试] box_breakout_score_series max: {box_breakout_score_series.max():.4f}")
+        print(f"    [调试] platform_breakout_score_series max: {platform_breakout_score_series.max():.4f}")
+        print(f"    [调试] consolidation_breakout_score_series max: {consolidation_breakout_score_series.max():.4f}")
 
-        # --- 2. 融合生成“蓄势突破”分数与信号 ---
+        # --- 2. 准备用于融合的Numpy数组，并执行健壮性检查 ---
+        scores_to_reduce = []
+        expected_shape = (len(df.index),) # 修改: 期望的形状应为元组
+
+        # 统一处理所有信号源
+        signal_sources = {
+            "box_breakout": box_breakout_score_series,
+            "platform_breakout": platform_breakout_score_series,
+            "consolidation_breakout": consolidation_breakout_score_series
+        }
+
+        for name, series in signal_sources.items():
+            score_arr = series.values
+            if score_arr.shape != expected_shape:
+                print(f"    [警告] {name}_score 形状不匹配 ({score_arr.shape})，期望 {expected_shape}，将使用全零数组代替。")
+                scores_to_reduce.append(np.zeros(expected_shape, dtype=np.float32))
+            else:
+                scores_to_reduce.append(score_arr)
+
+        # --- 3. 融合生成“蓄势突破”分数与信号 ---
         # 逻辑: 取所有结构性突破信号中的最大值
-        final_score_arr = np.maximum.reduce([box_breakout_score, platform_breakout_score, consolidation_breakout_score])
+        final_score_arr = np.maximum.reduce(scores_to_reduce)
         final_score_series = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
         states['SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S'] = final_score_series
+        
         # 生成布尔信号，用于兼容
-        p = get_params_block(self.strategy, 'cognitive_fusion_params', {}) # 参数块名称保持不变以便复用
+        p = get_params_block(self.strategy, 'cognitive_fusion_params', {})
         breakout_threshold = get_param_value(p.get('accumulation_breakout_threshold'), 0.3)
         final_signal = final_score_series > breakout_threshold
         states['STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S'] = final_signal
-        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 计算完毕。")
+        
+        print("        -> [结构性机会合成模块 V1.3 范式统一版] 计算完毕。")
         return states
-
 
 
 
