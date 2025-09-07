@@ -111,7 +111,11 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_kline_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_board_patterns(df))
         self.strategy.atomic_states.update(self.behavioral_intel.diagnose_price_volume_atomics(df))
-        # [核心修改] 调用行为层的合成模块，生成如“反转潜力”、“经典形态机会”等初级合成信号
+        # 在合成行为模式之前，必须先生成其依赖的 "冲高回落风险" 信号
+        exit_params = get_params_block(self.strategy, 'exit_strategy_params')
+        upthrust_risk_score = self.behavioral_intel.diagnose_upthrust_distribution(df, exit_params)
+        self.strategy.atomic_states[upthrust_risk_score.name] = upthrust_risk_score
+        # 调用行为层的合成模块，生成如“反转潜力”、“经典形态机会”等初级合成信号
         self.strategy.atomic_states.update(self.behavioral_intel.synthesize_behavioral_patterns(df))
 
         # --- 阶段三: 结构层情报诊断与合成 ---
@@ -126,7 +130,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics_scores(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_mtf_trend_synergy_scores(df))
         self.strategy.atomic_states.update(self.structural_intel.diagnose_advanced_structural_patterns_scores(df))
-        # [核心修改] 调用结构层的合成模块，生成统一的“蓄势突破”信号
+        # 调用结构层的合成模块，生成统一的“蓄势突破”信号
         self.strategy.atomic_states.update(self.structural_intel.synthesize_structural_opportunities(df))
 
         # --- 阶段四: 筹码层情报诊断与合成 ---
@@ -157,7 +161,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_exhaustion_signals(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_sustainability_signals(df)
-        # [核心修改] 调用重构后的认知层方法，它们现在消费来自下层的合成信号
+        # 调用重构后的认知层方法，它们现在消费来自下层的合成信号
         self.strategy.df_indicators = self.cognitive_intel.synthesize_classic_pattern_opportunity(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_shakeout_opportunities(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_tactical_opportunities(df)
