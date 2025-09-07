@@ -20,7 +20,7 @@ class OffensiveLayer:
           4.  【总分合成】: 最终进攻分 = 战备分 + 触发器分 + 协同奖励分 + 其他加成项。
         - 收益: 评分体系更透明、可解释，且能更早地发现“万事俱备，只欠东风”的潜在机会。
         """
-        print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...")
+        # print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)

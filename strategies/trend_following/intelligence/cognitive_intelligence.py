@@ -69,7 +69,7 @@ class CognitiveIntelligence:
                     升级为消费其数值化版本 `SCORE_GAP_SUPPORT_ACTIVE`，使信号能反映支撑强度。
         - 收益: 扩展了策略的战术库，将更多维度的情报转化为可执行的认知信号。
         """
-        # print("        -> [战术机会与潜在风险合成模块 V1.1 信号升级版] 启动...") # 此处打印信息可根据需要保留或移除，因为上层已有打印
+        # print("        -> [战术机会与潜在风险合成模块 V1.1 信号升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -106,7 +106,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号修复] 更新了对“反转潜力”信号的引用，现在消费来自 BehavioralIntelligence
                     的 `SCORE_BEHAVIOR_..._REVERSAL_POTENTIAL_A` 信号。
         """
-        print("        -> [趋势可持续性诊断模块 V1.1 信号源更新版] 启动...")
+        # print("        -> [趋势可持续性诊断模块 V1.1 信号源更新版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -139,7 +139,7 @@ class CognitiveIntelligence:
         - 核心逻辑: 最终分数 = 昨日高质量盘整得分 * 今日点火信号强度
         - 收益: 将未被利用的底层盘整信号转化为顶层战术情报，丰富了策略的决策依据。
         """
-        print("        -> [盘整突破机会合成模块 V1.0] 启动...")
+        # print("        -> [盘整突破机会合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -173,7 +173,7 @@ class CognitiveIntelligence:
                       “趋势衰竭风险”与“恐慌衰竭机会”认知分数。
         - 收益: 丰富了策略对市场极端情绪和趋势末端行为的捕捉能力。
         """
-        print("        -> [趋势衰竭信号合成模块 V1.0] 启动...")
+        # print("        -> [趋势衰竭信号合成模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -207,7 +207,7 @@ class CognitiveIntelligence:
                       顶层认知机会分数。
         - 收益: 遵循分层架构，将模式的初级合成下沉到行为层，认知层专注于元融合。
         """
-        print("        -> [经典形态机会融合模块 V1.1 逻辑分层版] 启动...") # 修改: 更新版本号和注释
+        # print("        -> [经典形态机会融合模块 V1.1 逻辑分层版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -232,7 +232,7 @@ class CognitiveIntelligence:
                       顶层认知机会分数。
         - 收益: 遵循分层架构，将洗盘模式的初级合成下沉到行为层，认知层专注于元融合。
         """
-        print("        -> [压缩区洗盘机会合成模块 V1.1 逻辑分层版] 启动...") # 修改: 更新版本号和注释
+        # print("        -> [压缩区洗盘机会合成模块 V1.1 逻辑分层版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -257,7 +257,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号修复] 更新了对“结构性破位风险”信号的引用，现在消费来自 BehavioralIntelligence
                     的 `SCORE_BEHAVIOR_STRUCTURE_BREAKDOWN_S` 信号。
         """
-        print("        -> [多域崩溃共振分数合成模块 V1.3 信号源更新版] 启动...")
+        # print("        -> [多域崩溃共振分数合成模块 V1.3 信号源更新版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -296,7 +296,7 @@ class CognitiveIntelligence:
                       生成更高质量的、量化的认知层趋势信号。
         - 本次升级: 【对称修复】为看跌信号增加了对应的资金流最高级别确认信号，实现了看涨与看跌信号的对称交叉验证。
         """
-        print("        -> [趋势政权融合模块 V2.2] 启动...") 
+        # print("        -> [趋势政权融合模块 V2.2] 启动...") 
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -333,7 +333,7 @@ class CognitiveIntelligence:
                       认知层“突破”与“崩溃”分数。
         - 本次升级: 【维度增强】为S级信号增加了筹码维度的交叉验证，看涨突破需结合“黄金筹码机会”，看跌则结合“筹码看跌共振”，显著提升信号质量。
         """
-        print("        -> [波动率突破融合模块 V2.1] 启动...") 
+        # print("        -> [波动率突破融合模块 V2.1] 启动...") 
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -384,7 +384,7 @@ class CognitiveIntelligence:
                       融合来自均线、力学、MTF三大领域的S级信号，生成顶层的“联合作战”元信号。
         - 收益: 遵循分层架构，将顶层融合统一收归认知层。
         """
-        print("        -> [结构化元信号融合模块 V1.0] 启动...")
+        # print("        -> [结构化元信号融合模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         signal_sources = {
@@ -417,7 +417,7 @@ class CognitiveIntelligence:
                       寻找“连续性共振元信号”与“离散性模式信号”同时发生的最高置信度信号。
         - 收益: 在认知层完成最高级别的“完美风暴”信号融合。
         """
-        print("        -> [终极确认融合模块 V1.0] 启动...")
+        # print("        -> [终极确认融合模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         required_fusion_signals = [
@@ -457,7 +457,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号修复] 更新了对“蓄势突破机会”信号的引用，现在消费来自 StructuralIntelligence
                     的 `SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S` 信号。
         """
-        print("        -> [多域点火共振分数合成模块 V1.3 信号源更新版] 启动...")
+        # print("        -> [多域点火共振分数合成模块 V1.3 信号源更新版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -531,7 +531,28 @@ class CognitiveIntelligence:
             self._get_atomic_score('FF_SCORE_RETAIL_REVERSAL_BOTTOM_FISHING', default_score).values,
             self._get_atomic_score('FF_SCORE_INTENSITY_REVERSAL_BOTTOM_HIGH', default_score).values,
         ]
-        fund_flow_trigger = pd.Series(np.maximum.reduce(fund_flow_bottom_triggers), index=df.index)
+        # 增加探针，用于调试 fund_flow_bottom_triggers 的内容
+        print("[探针] 正在检查 'fund_flow_bottom_triggers' 的内容...")
+        print(f"[探针] fund_flow_bottom_triggers 列表中的数组数量: {len(fund_flow_bottom_triggers)}")
+        is_bottom_triggers_valid = True
+        if not fund_flow_bottom_triggers:
+            is_bottom_triggers_valid = False
+        else:
+            for i, arr in enumerate(fund_flow_bottom_triggers):
+                arr_len = len(arr) if hasattr(arr, '__len__') else -1
+                print(f"[探针]   -> 底部触发器数组 {i} 的类型: {type(arr)}, 长度: {arr_len}")
+                if arr_len != len(df.index):
+                    is_bottom_triggers_valid = False
+                    print(f"[探针]   -> [错误] 数组 {i} 长度 ({arr_len}) 与索引长度 ({len(df.index)}) 不匹配!")
+        # 增加对 fund_flow_bottom_triggers 为空或包含空数组的健壮性处理
+        # 原始代码: fund_flow_trigger = pd.Series(np.maximum.reduce(fund_flow_bottom_triggers), index=df.index)
+        # 当上游信号缺失导致 fund_flow_bottom_triggers 内的数组为空时，np.maximum.reduce 会返回一个空数组，
+        # 进而导致 pd.Series 构造函数因长度不匹配 (0 vs N) 而报错。
+        if not is_bottom_triggers_valid:
+            print("[警告] 'fund_flow_bottom_triggers' 为空或包含长度不匹配的数组，将使用默认分数。")
+            fund_flow_trigger = default_score.copy()
+        else:
+            fund_flow_trigger = pd.Series(np.maximum.reduce(fund_flow_bottom_triggers), index=df.index)
         oscillator_trigger = self._get_atomic_score('SCORE_MACD_BULLISH_DIVERGENCE_OPP', default_score)
         behavioral_trigger = self._get_atomic_score('SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A', default_score)
         chip_capitulation_trigger = self._get_atomic_score('SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S', default_score)
@@ -580,7 +601,20 @@ class CognitiveIntelligence:
             self._get_atomic_score('FF_SCORE_RETAIL_REVERSAL_TOP_SELLING', default_score).values,
             self._get_atomic_score('FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH', default_score).values,
         ]
-        fund_flow_top_trigger = pd.Series(np.maximum.reduce(fund_flow_top_triggers), index=df.index)
+        # 对称地增加对 fund_flow_top_triggers 的健壮性处理
+        is_top_triggers_valid = True
+        if not fund_flow_top_triggers:
+            is_top_triggers_valid = False
+        else:
+            # 仅检查第一个数组的长度作为快速判断
+            first_arr_len = len(fund_flow_top_triggers[0]) if hasattr(fund_flow_top_triggers[0], '__len__') else -1
+            if first_arr_len != len(df.index):
+                is_top_triggers_valid = False
+        if not is_top_triggers_valid:
+            print("[警告] 'fund_flow_top_triggers' 为空或包含长度不匹配的数组，将使用默认分数。")
+            fund_flow_top_trigger = default_score.copy()
+        else:
+            fund_flow_top_trigger = pd.Series(np.maximum.reduce(fund_flow_top_triggers), index=df.index)
         oscillator_top_trigger = self._get_atomic_score('SCORE_MACD_BEARISH_DIVERGENCE_RISK', default_score)
         behavioral_top_trigger = self._get_atomic_score('SCORE_BEHAVIOR_PANIC_SELLING_RISK_S', default_score)
         chip_instability_trigger = self._fuse_multi_level_scores('LONG_TERM_INSTABILITY_TOP_REVERSAL')
@@ -699,7 +733,7 @@ class CognitiveIntelligence:
         - 本次升级: 增强了对“健康回踩”中筹码稳定性的评估，从消费单一S级信号升级为
                     融合S/A/B三级置信度分数，评估更鲁棒。
         """
-        print("        -> [认知层回踩状态合成模块 V2.2] 启动...") 
+        # print("        -> [认知层回踩状态合成模块 V2.2] 启动...") 
         states = {}
         # --- 1. 定义通用回踩条件和环境分数 ---
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
@@ -777,7 +811,7 @@ class CognitiveIntelligence:
         - 本次升级: 【维度增强】新增了对“多域崩溃共振”、“终极看跌确认”、“价格偏离”、“结构断层”
                     等多个顶级风险信号的融合，确保危险区评分能捕捉到最致命的风险。
         """
-        print("        -> [战场上下文评分模块 V2.5 终极风险增强版] 启动...") # 修改: 更新版本号和描述
+        print("        -> [战场上下文评分模块 V2.5 终极风险增强版] 启动...")
         # --- 1. 量化“高位危险区”得分 ---
         # 修复并扩展了用于融合的风险信号源
         risk_scores = {

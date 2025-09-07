@@ -179,7 +179,7 @@ class PlaybookEngine:
         quality_sustained = min_quality_in_window >= quality_at_ignition.shift(confirmation_window - 1).fillna(0.0) * 0.9
         is_confirmation_day = had_recent_ignition & ~had_recent_ignition.shift(1).fillna(False)
         triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS'] = is_confirmation_day & risk_remained_low & quality_sustained
-        # --- 8. S+级 筹码趋势确认触发器 (Chip Trend Confirmation Trigger) --- # [新增] 新增的持续确认触发器逻辑
+        # --- 8. S+级 筹码趋势确认触发器 (Chip Trend Confirmation Trigger) --- # 新增的持续确认触发器逻辑
         # 8.1 基于“筹码点火”的持续确认
         initial_chip_ignition = triggers['TRIGGER_CHIP_IGNITION_CONFIRMED']
         had_recent_chip_ignition = initial_chip_ignition.rolling(window=confirmation_window, min_periods=1).max().astype(bool)

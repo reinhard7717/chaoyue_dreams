@@ -92,7 +92,7 @@ class IntelligenceLayer:
                     确保了所有信号在被消费前都已被正确生成，严格遵循依赖关系。
         - 收益: 信号生成链路完全扁平化、透明化，代码结构更清晰，易于维护和扩展。
         """
-        print("--- [情报层总指挥官 V402.1 架构优化版] 开始执行所有诊断模块... ---") # 修改: 更新版本号和注释
+        print("--- [情报层总指挥官 V402.1 架构优化版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}

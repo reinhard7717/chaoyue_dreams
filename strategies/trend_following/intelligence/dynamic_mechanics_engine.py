@@ -22,7 +22,7 @@ class DynamicMechanicsEngine:
              融合成一个顶层的“市场整体力学健康度”元分数。
         - 收益: 简化了上层调用，并创造了一个更高维度的、概括性的力学数值信号。
         """
-        print("    -> [动态力学分析总指挥官 V1.0] 启动...")
+        # print("    -> [动态力学分析总指挥官 V1.0] 启动...")
         all_states = {}
         df = self.strategy.df_indicators
         # --- 步骤 1: 依次调用所有底层诊断模块，并收集其产出的原子分数 ---
@@ -33,7 +33,7 @@ class DynamicMechanicsEngine:
         # --- 步骤 2: 执行元融合，生成“整体力学健康度”元分数 ---
         p_module = self.strategy.params.get('dynamic_mechanics_meta_fusion_params', {})
         if p_module.get('enabled', True):
-            print("        -> [力学元融合模块] 启动...")
+            # print("        -> [力学元融合模块] 启动...")
             # 定义各维度权重
             weights = p_module.get('weights', {
                 'force_vector': 0.35,
@@ -141,7 +141,7 @@ class DynamicMechanicsEngine:
         - 核心升级 (本次修改): 消费端同步升级，使用新的数值化分级评分 'SCORE_VOL_COMPRESSION_LEVEL'
                           替代旧的布尔信号。分数越高，对看涨共振的加成越大。
         """
-        print("        -> [多时间维度微观力学评分引擎 V2.5] 启动...")
+        # print("        -> [多时间维度微观力学评分引擎 V2.5] 启动...")
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -210,7 +210,7 @@ class DynamicMechanicsEngine:
           - 关键优化：使用纯NumPy切片实现shift操作，消除了`NumPy->Pandas->NumPy`的昂贵转换开销。
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
         """
-        print("        -> [多时间维度力学评分引擎 V2.4] 启动...") 
+        # print("        -> [多时间维度力学评分引擎 V2.4] 启动...") 
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120
@@ -280,7 +280,7 @@ class DynamicMechanicsEngine:
           - 集中化数据提取：在方法开始时一次性提取所需Series，避免重复访问DataFrame。
           - 优化静态信号的获取逻辑，避免创建不必要的临时Pandas Series对象。
         """
-        print("        -> [行为力学评分引擎 V2.3] 启动...") 
+        # print("        -> [行为力学评分引擎 V2.3] 启动...") 
         states = {}
         # --- 1. 军备检查 ---
         norm_window = 120

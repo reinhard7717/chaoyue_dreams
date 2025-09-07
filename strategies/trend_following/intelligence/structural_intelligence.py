@@ -822,7 +822,7 @@ class StructuralIntelligence:
                       本模块现在对所有上游突破信号统一使用 `_fuse_multi_level_scores` 进行预处理，
                       确保所有输入信号在融合前都经过了标准化的多级分数融合，增强了逻辑一致性和扩展性。
         """
-        print("        -> [结构性机会合成模块 V1.3 范式统一版] 启动...") # 修改: 更新版本号和描述
+        print("        -> [结构性机会合成模块 V1.3 范式统一版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)

@@ -27,10 +27,10 @@ class ChipIntelligence:
         - 逻辑优化: 将 'cost_divergence_D' 的计算前置到本函数开头，确保该衍生指标在所有
                       诊断模块运行前就已准备就绪，理顺了数据流。
         """
-        print("        -> [筹码情报最高司令部 V325.5 底层兼容修正版] 启动...")
+        # print("        -> [筹码情报最高司令部 V325.5 底层兼容修正版] 启动...")
         states = {}
         triggers = {}
-        # [新增] 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
+        # 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
         initial_cols = set(df.columns)
         def _update_atomic_states(df_to_update: pd.DataFrame, last_cols: set) -> set:
             """根据df的变化，增量更新atomic_states"""
@@ -41,7 +41,7 @@ class ChipIntelligence:
                 self.strategy.atomic_states.update(new_scores_dict)
                 # print(f"          -> [情报更新] {len(new_score_cols)}个新评分已更新至原子状态库。")
             return current_cols
-        # [新增] 步骤 0: 预处理衍生指标，解决计算依赖问题
+        # 步骤 0: 预处理衍生指标，解决计算依赖问题
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
             initial_cols.add('cost_divergence_D') # 将新列也加入初始列集合
@@ -177,7 +177,7 @@ class ChipIntelligence:
                       能精细度量机会“成色”的元分数。
         - 收益: 实现了从“信号有无”到“机会质量”的升维，为决策提供了更平滑、更鲁棒的依据。
         """
-        print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 启动...")
+        # print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 启动...")
         states = {}
         new_scores = {}
         atomic = self.strategy.atomic_states
@@ -239,7 +239,7 @@ class ChipIntelligence:
           - SCORE_CHIP_BOTTOM_REVERSAL_S/A/B: 底部反转机会分 (下跌衰竭后吸筹)。
           - SCORE_CHIP_TOP_REVERSAL_S/A/B: 顶部反转风险分 (上涨衰竭后派发)。
         """
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...")
+        # print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), True):
@@ -329,7 +329,7 @@ class ChipIntelligence:
         - 收益: 彻底消除了模块内最后一个硬编码的布尔逻辑，使得“断层风险”的度量
                 更加精细和连续，避免了信号的突变，信号质量达到理论最高水平。
         """
-        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...")
+        # print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
@@ -422,7 +422,7 @@ class ChipIntelligence:
           - SCORE_PROFIT_TAKING_TOP_REVERSAL_S/A/B: 获利盘兑现顶部反转风险分。
           - SCORE_NET_SUPPORT_BULLISH_RESONANCE_A/B: 净支撑上升共振分。
         """
-        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 启动...") #更新版本号和打印信息
+        # print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_internal_structure_params')
         if not get_param_value(p.get('enabled'), True):
@@ -515,7 +515,7 @@ class ChipIntelligence:
           - SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A/B: 长线筹码不稳定顶部反转风险分。
           - SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 长线筹码投降底部反转机会分。
         """
-        print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 启动...")
+        # print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
@@ -586,7 +586,7 @@ class ChipIntelligence:
                       战术场景（如“洗盘吸筹”、“诱多派发”）的原子分数。
         - 收益: 净化了认知层的职责，使其专注于纯粹的“元融合”。
         """
-        print("        -> [行为-筹码融合评分模块 V1.0] 启动...")
+        # print("        -> [行为-筹码融合评分模块 V1.0] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
         if not get_param_value(p.get('enabled'), True):

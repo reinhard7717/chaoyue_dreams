@@ -384,7 +384,7 @@ class BehavioralIntelligence:
         - 本次升级: 新增了对“经典形态”和“压缩区洗盘反转”机会的初级合成，为认知层提供更纯净的输入。
         - 收益: 净化了认知层的职责，使其专注于纯粹的“元融合”，同时将行为相关的合成逻辑内聚于此。
         """
-        print("        -> [高级行为模式合成模块 V1.1 职责增强版] 启动...") # 修改: 更新版本号和注释
+        # print("        -> [高级行为模式合成模块 V1.1 职责增强版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)

@@ -826,7 +826,7 @@ class IndicatorService:
           - is_accumulation_D: 核心是识别“价平量增”和“主力买、散户卖”的资金流背离特征。
           - is_distribution_D: 识别“高位滞涨派发”和“盘整期阴跌派发”两种典型场景。
         """
-        print("    - [高级模式识别生产线 V2.0] 启动...")
+        # print("    - [高级模式识别生产线 V2.0] 启动...")
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
