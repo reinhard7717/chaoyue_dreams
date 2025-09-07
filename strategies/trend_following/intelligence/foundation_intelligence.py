@@ -36,7 +36,7 @@ class FoundationIntelligence:
                     diagnose_synergy_intelligence (协同情报中心)。
           - 优化了整个分析流程，使其更符合“先原子，后协同”的逻辑。
         """
-        print("        -> [基础情报分析总指挥 V2.5] 启动...") # 更新版本号和打印信息
+        print("        -> [基础情报分析总指挥 V2.5] 启动...")
         states = {}
         df = self.strategy.df_indicators
 

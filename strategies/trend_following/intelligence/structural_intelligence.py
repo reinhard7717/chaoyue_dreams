@@ -316,7 +316,7 @@ class StructuralIntelligence:
         - 新增信号 (数值型):
           - SCORE_FIB_REBOUND_S/A/B: S/A/B三级反弹机会分，对应不同重要性的斐波那契水平。
         """
-        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'fibonacci_support_params')
         if not get_param_value(p.get('enabled'), True):
@@ -406,7 +406,7 @@ class StructuralIntelligence:
           - SCORE_MECHANICS_BOTTOM_REVERSAL_S/A/B: 底部反转机会分。
           - SCORE_MECHANICS_TOP_REVERSAL_S/A/B: 顶部反转风险分。
         """
-        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [结构力学诊断引擎 V6.0 共振-反转对称诊断版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'structural_mechanics_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -496,7 +496,7 @@ class StructuralIntelligence:
           - SCORE_MTF_BOTTOM_REVERSAL_S/A/B: MTF底部反转机会分。
           - SCORE_MTF_TOP_REVERSAL_S/A/B: MTF顶部反转风险分。
         """
-        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [战略协同引擎 V5.0 共振-反转对称诊断版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'mtf_trend_synergy_params')
         if not get_param_value(p.get('enabled'), True): return {}
@@ -650,7 +650,7 @@ class StructuralIntelligence:
           - SCORE_PATTERN_TOP_REVERSAL_S/A/B: 顶部模式(派发等)的确认分。
           - SCORE_PATTERN_CONSOLIDATION_S/A/B: 盘整中继模式的确认分。
         """
-        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 启动...") # 更新版本号和打印信息
+        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'advanced_patterns_params')
         if not get_param_value(p.get('enabled'), True): return {}

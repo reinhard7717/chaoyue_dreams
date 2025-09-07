@@ -140,7 +140,7 @@ class ChipIntelligence:
         self.strategy.atomic_states.update(all_generated_states)
         return states, triggers
 
-    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]: # [修改] 重写整个方法
+    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]: #重写整个方法
         """
         【V2.0 分层加权融合版】黄金筹码机会元融合模块
         - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
@@ -210,24 +210,28 @@ class ChipIntelligence:
           - SCORE_CHIP_BOTTOM_REVERSAL_S/A/B: 底部反转机会分 (下跌衰竭后吸筹)。
           - SCORE_CHIP_TOP_REVERSAL_S/A/B: 顶部反转风险分 (上涨衰竭后派发)。
         """
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...") # 更新版本号和打印信息
+        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), True):
             return df
-
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
             'concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D',
             'turnover_from_winners_ratio_D', 'price_to_peak_ratio_D', 'chip_health_score_D'
         ]
-        for p in periods:
+        #将循环变量从 p 修改为 period，以避免覆盖参数字典 p
+        for period in periods:
             required_cols.extend([
-                f'SLOPE_{p}_concentration_90pct_D', f'SLOPE_{p}_peak_cost_D',
-                f'ACCEL_{p if p > 5 else 5}_concentration_90pct_D',
-                f'ACCEL_{p if p > 5 else 5}_peak_cost_D',
-                f'ACCEL_{p if p > 5 else 5}_turnover_from_winners_ratio_D'
+                #使用新的循环变量 period
+                f'SLOPE_{period}_concentration_90pct_D', f'SLOPE_{period}_peak_cost_D',
+                #使用新的循环变量 period
+                f'ACCEL_{period if period > 5 else 5}_concentration_90pct_D',
+                #使用新的循环变量 period
+                f'ACCEL_{period if period > 5 else 5}_peak_cost_D',
+                #使用新的循环变量 period
+                f'ACCEL_{period if period > 5 else 5}_turnover_from_winners_ratio_D'
             ])
         # --- 2. 检查必需列 ---
         missing_cols = [col for col in required_cols if col not in df.columns]
@@ -235,6 +239,7 @@ class ChipIntelligence:
             print(f"          -> [严重警告] 筹码评分引擎缺少关键数据列: {missing_cols}，模块已跳过！")
             return df
         # --- 3. 核心要素数值化 (归一化处理) ---
+        #此处的 p 现在是正确的参数字典，因为没有被循环覆盖
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
@@ -253,12 +258,10 @@ class ChipIntelligence:
         # --- 4. 共振信号合成 (多时间周期交叉验证) ---
         avg_conc_momentum = pd.Series(np.mean(np.array([s.values for s in conc_momentum_scores.values()]), axis=0), index=df.index)
         avg_cost_momentum = pd.Series(np.mean(np.array([s.values for s in cost_momentum_scores.values()]), axis=0), index=df.index)
-
         # 4.1 上升共振 (筹码集中 + 成本抬高)
         new_scores['SCORE_CHIP_BULLISH_RESONANCE_B'] = avg_conc_momentum.astype(np.float32)
         new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] = (avg_conc_momentum * avg_cost_momentum).astype(np.float32)
         new_scores['SCORE_CHIP_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] * static_health).astype(np.float32)
-
         # 4.2 下跌共振 (筹码发散 + 成本降低) - 对称逻辑
         avg_conc_divergence = 1 - avg_conc_momentum
         avg_cost_decline = 1 - avg_cost_momentum
@@ -266,7 +269,6 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_BEARISH_RESONANCE_B'] = avg_conc_divergence.astype(np.float32)
         new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] = (avg_conc_divergence * avg_cost_decline).astype(np.float32)
         new_scores['SCORE_CHIP_BEARISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] * static_unhealth).astype(np.float32)
-
         # --- 5. 反转信号合成 (静态战备 x 动态点火) ---
         # 5.1 底部反转 (环境恶劣 -> 动态改善)
         bottom_setup_score = (1 - static_concentration) * (1 - static_price_deviation) # 战备: 筹码曾发散 + 价格处于低位
@@ -274,19 +276,16 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_BOTTOM_REVERSAL_B'] = bottom_trigger_score.astype(np.float32)
         new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (bottom_setup_score * bottom_trigger_score).astype(np.float32)
         new_scores['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] * conc_accel_scores[5]).astype(np.float32)
-
         # 5.2 顶部反转 (环境良好 -> 动态恶化) - 对称逻辑
         top_setup_score = static_concentration * static_price_deviation * static_high_winner_rate # 战备: 筹码集中 + 价格高位 + 获利盘丰厚
         top_trigger_score = (1 - conc_momentum_scores[5]) * profit_taking_accel_score # 点火: 短期开始发散 + 获利盘兑现加速
         new_scores['SCORE_CHIP_TOP_REVERSAL_B'] = top_trigger_score.astype(np.float32)
         new_scores['SCORE_CHIP_TOP_REVERSAL_A'] = (top_setup_score * top_trigger_score).astype(np.float32)
         new_scores['SCORE_CHIP_TOP_REVERSAL_S'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_A'] * (1 - conc_accel_scores[5])).astype(np.float32)
-
         # --- 6.  纯筹码评分: 获利盘兑现强度 ---
         # 逻辑: 获利盘换手率越高，且获利盘比例也高时，兑现强度越大。
         profit_taking_turnover_score = normalize(df['turnover_from_winners_ratio_D'])
         new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate).astype(np.float32)
-
         df = df.assign(**new_scores)
         print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") 
         return df
@@ -301,7 +300,7 @@ class ChipIntelligence:
         - 收益: 彻底消除了模块内最后一个硬编码的布尔逻辑，使得“断层风险”的度量
                 更加精细和连续，避免了信号的突变，信号质量达到理论最高水平。
         """
-        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...") # 更新版本号和打印信息
+        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
@@ -394,14 +393,14 @@ class ChipIntelligence:
           - SCORE_PROFIT_TAKING_TOP_REVERSAL_S/A/B: 获利盘兑现顶部反转风险分。
           - SCORE_NET_SUPPORT_BULLISH_RESONANCE_A/B: 净支撑上升共振分。
         """
-        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 启动...") #更新版本号和打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_internal_structure_params')
         if not get_param_value(p.get('enabled'), True):
             return df
 
         # --- 1. 军备检查 (Arsenal Check) ---
-        # [修改] 扩展所需列
+        #扩展所需列
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
             'concentration_70pct_D', 'concentration_90pct_D', 'winner_profit_margin_D',
@@ -468,7 +467,7 @@ class ChipIntelligence:
 
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 计算完毕。") # [修改] 更新打印信息
+        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 计算完毕。") #更新打印信息
         return df
 
     def diagnose_chip_holder_behavior_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -484,14 +483,14 @@ class ChipIntelligence:
           - SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A/B: 长线筹码不稳定顶部反转风险分。
           - SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 长线筹码投降底部反转机会分。
         """
-        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 启动...") # [修改] 更新版本号和打印信息
+        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 启动...") #更新版本号和打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
             return df
 
         # --- 1. 军备检查 (Arsenal Check) ---
-        # [修改] 扩展所需列，并引入 cost_divergence_D
+        #扩展所需列，并引入 cost_divergence_D
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
             'turnover_from_winners_ratio_D', 'loser_rate_long_term_D'
@@ -559,7 +558,7 @@ class ChipIntelligence:
 
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 计算完毕。") # [修改] 更新打印信息
+        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 计算完毕。") #更新打印信息
         return df
 
     def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
