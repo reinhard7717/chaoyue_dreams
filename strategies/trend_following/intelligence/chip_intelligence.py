@@ -17,41 +17,67 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V325.3 最终版】筹码情报最高司令部
-        - 核心升级: 引入了 diagnose_chip_holder_behavior_scores 模块，增加了对长短期持仓者
-          行为差异的诊断，完成了筹码分析的最后一块拼图。
-        - 架构优化: 确保所有新生成的数值型评分都被更新到 self.strategy.atomic_states，
-          使其可供其他上层模块消费。
+        【V325.4 状态传递修正版】筹码情报最高司令部
+        - 核心修正: 彻底重构了评分模块的调用和状态更新流程。现在，每当一个诊断模块（diagnose_*）
+                      运行完毕后，其产出的新分数会立即被更新到 self.strategy.atomic_states 中。
+                      这解决了下游模块因无法及时获取上游分数而跳过的严重依赖问题。
+        - 逻辑优化: 将 'cost_divergence_D' 的计算前置到本函数开头，确保该衍生指标在所有
+                      诊断模块运行前就已准备就绪，理顺了数据流。
         """
-        print("        -> [筹码情报最高司令部 V325.3 最终版] 启动...") # 更新版本号和打印信息，反映功能升级
+        print("        -> [筹码情报最高司令部 V325.4 状态传递修正版] 启动...")
         states = {}
         triggers = {}
-        # --- 步骤 1: 调用四级评分中心，生成所有数值型评分 ---
-        # 记录调用前的列名，用于后续识别 的评分列
+        
+        # [新增] 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
         initial_cols = set(df.columns)
+        def _update_atomic_states(df_to_update: pd.DataFrame, last_cols: set) -> set:
+            """根据df的变化，增量更新atomic_states"""
+            current_cols = set(df_to_update.columns)
+            new_score_cols = current_cols - last_cols
+            if new_score_cols:
+                new_scores_dict = {col: df_to_update[col] for col in new_score_cols}
+                self.strategy.atomic_states.update(new_scores_dict)
+                # print(f"          -> [情报更新] {len(new_score_cols)}个新评分已更新至原子状态库。")
+            return current_cols
+
+        # [新增] 步骤 0: 预处理衍生指标，解决计算依赖问题
+        if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
+            df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
+            initial_cols.add('cost_divergence_D') # 将新列也加入初始列集合
+            print("          -> [预处理] 已成功计算衍生指标 'cost_divergence_D'。")
+
+        # --- [修改] 步骤 1: 链式调用四级评分中心，并确保状态实时传递 ---
+        # 记录调用前的列名，用于后续识别新的评分列
+        cols_before_run = initial_cols
+        
         # 1.1 调用宏观共振/反转诊断模块
         df = self.diagnose_quantitative_chip_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
+        
         # 1.2 调用高级动态诊断模块 (微观结构与极端行为)
         df = self.diagnose_advanced_chip_dynamics_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
+        
         # 1.3 调用内部结构诊断模块
         df = self.diagnose_chip_internal_structure_scores(df)
-        # 1.4 调用 的持仓者行为诊断模块
+        cols_before_run = _update_atomic_states(df, cols_before_run)
+        
+        # 1.4 调用持仓者行为诊断模块
         df = self.diagnose_chip_holder_behavior_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
+        
         # 1.5 调用行为-筹码融合评分模块
         df = self.diagnose_fused_behavioral_chip_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
+        
         # 1.6: 调用 V2.0 版本的元融合模块
         prime_opp_states, prime_opp_scores = self.synthesize_prime_chip_opportunity(df)
         states.update(prime_opp_states)
         if prime_opp_scores:
             df = df.assign(**prime_opp_scores)
-        # --- 步骤 1.5: 将所有新生成的数值评分更新到原子状态库 ---
-        # 这是关键一步，确保下游模块可以访问到这些数值信号
-        final_cols = set(df.columns)
-        new_score_cols = final_cols - initial_cols
-        if new_score_cols:
-            new_scores_dict = {col: df[col] for col in new_score_cols}
-            self.strategy.atomic_states.update(new_scores_dict)
-            print(f"          -> [情报更新] {len(new_score_cols)}个新的数值型筹码评分已更新至原子状态库。")
+        
+        # [删除] 原本集中更新 atomic_states 的代码块已被分解到每次调用之后，此处不再需要
+        
         # 获取模块参数，检查是否启用
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
@@ -472,7 +498,10 @@ class ChipIntelligence:
 
     def diagnose_chip_holder_behavior_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 共振-反转诊断版】筹码持仓者行为评分模块
+        【V2.1 依赖修正版】筹码持仓者行为评分模块
+        - 核心修正: 移除了对 'cost_divergence_D' 的内部计算逻辑，因为它已被前置到
+                      主控函数 `run_chip_intelligence_command` 中进行预处理。
+                      这使得本模块的职责更纯粹，只负责评分计算。
         - 核心升级: 遵循“共振/反转”对称原则，对成本结构、长线资金稳定性与投降行为进行多维交叉验证。
         - 核心逻辑:
           - 成本结构背离 -> 上升共振: 验证短期成本是否在持续拉开与长期成本的差距。
@@ -483,17 +512,16 @@ class ChipIntelligence:
           - SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A/B: 长线筹码不稳定顶部反转风险分。
           - SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 长线筹码投降底部反转机会分。
         """
-        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 启动...") #更新版本号和打印信息
+        print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
             return df
-
         # --- 1. 军备检查 (Arsenal Check) ---
-        #扩展所需列，并引入 cost_divergence_D
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
+        # [修改] 简化军备检查，直接要求 cost_divergence_D 及其衍生列存在
         required_cols = [
-            'turnover_from_winners_ratio_D', 'loser_rate_long_term_D'
+            'turnover_from_winners_ratio_D', 'loser_rate_long_term_D', 'cost_divergence_D'
         ]
         # 动态添加斜率和加速度列
         for period in periods:
@@ -502,23 +530,16 @@ class ChipIntelligence:
             'ACCEL_5_cost_divergence_D', 'SLOPE_5_turnover_from_winners_ratio_D',
             'SLOPE_5_loser_rate_long_term_D', 'ACCEL_5_loser_rate_long_term_D'
         ])
-        # 假设 cost_divergence_D 在数据层已计算
-        if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
-             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
-        else:
-             required_cols.append('cost_divergence_D')
-
+        # [删除] 删除了原有的 'cost_divergence_D' 内部计算逻辑
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [严重警告] 持仓者行为模块缺少关键数据列: {missing_cols}，模块已跳过！")
             return df
-
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-
         # --- 3. 维度一: 成本结构上升共振 ---
         # 3.1 静态分 (Setup): 短期成本已高于长期成本
         static_cost_divergence = normalize(df['cost_divergence_D'])
@@ -527,22 +548,18 @@ class ChipIntelligence:
         avg_cost_div_momentum = pd.Series(np.mean(np.array([s.values for s in cost_div_momentum.values()]), axis=0), index=df.index)
         # 3.3 加速度 (Confirmation)
         cost_div_accel = normalize(df['ACCEL_5_cost_divergence_D'])
-
         # 3.4 融合生成S/A/B三级上升共振信号
         new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_B'] = avg_cost_div_momentum.astype(np.float32)
         new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A'] = (static_cost_divergence * avg_cost_div_momentum).astype(np.float32)
         new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S'] = (new_scores['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A'] * cost_div_accel).astype(np.float32)
-
         # --- 4. 维度二: 长线筹码不稳定顶部反转风险 ---
         # 4.1 静态风险 (Setup): 长线获利盘换手率高
         static_instability = normalize(df['turnover_from_winners_ratio_D'])
         # 4.2 动态风险 (Trigger): 换手率仍在上升
         dynamic_instability = normalize(df['SLOPE_5_turnover_from_winners_ratio_D'])
-
         # 4.3 融合生成A/B两级顶部反转风险信号
         new_scores['SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_B'] = static_instability.astype(np.float32)
         new_scores['SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A'] = (static_instability * dynamic_instability).astype(np.float32)
-
         # --- 5. 维度三: 长线筹码投降底部反转机会 ---
         # 5.1 战备 (Setup): 存在大量被套牢的长线资金
         capitulation_setup = normalize(df['loser_rate_long_term_D'])
@@ -550,15 +567,13 @@ class ChipIntelligence:
         capitulation_trigger = normalize(df['SLOPE_5_loser_rate_long_term_D'], ascending=False) # 斜率为负且越小（下降越快），得分越高
         # 5.3 确认 (Confirmation): 卖出开始减速 (加速度转正)，即投降衰竭
         capitulation_confirm = normalize(df['ACCEL_5_loser_rate_long_term_D'])
-
         # 5.4 融合生成S/A/B三级底部反转机会信号
         new_scores['SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_B'] = capitulation_confirm.astype(np.float32)
         new_scores['SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_A'] = (capitulation_setup * capitulation_trigger).astype(np.float32)
         new_scores['SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_A'] * capitulation_confirm).astype(np.float32)
-
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [持仓者行为评分模块 V2.0 共振-反转诊断版] 计算完毕。") #更新打印信息
+        print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 计算完毕。")
         return df
 
     def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
