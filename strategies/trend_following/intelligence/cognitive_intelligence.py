@@ -930,7 +930,11 @@ class CognitiveIntelligence:
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V401.7 信号升级版】趋势阶段评分模块
+        【V401.8 结构稳定版】趋势阶段评分模块
+        - 核心修正: 修复了在构建 `risk_dimension_scores` 列表时，因混用 pandas Series 和 NumPy 数组
+                      导致的下游 `ValueError: setting an array element with a sequence` 错误。
+                      通过将计算出的 NumPy 数组立即封装回带索引的 pandas Series，确保了数据结构的
+                      同质性和计算的稳定性。
         - 核心升级:
           1. (V401.6) 全面修复了所有失效的原子信号引用，使其与现代化情报层对齐。
           2. (V401.6) 将所有风险维度的判断从布尔型升级为基于0-1的数值化评分。
@@ -938,7 +942,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号升级] 将“上涨初期”分数的计算，从消费布尔信号 `COGNITIVE_OPP_ACCUMULATION_BREAKOUT_S`
                     升级为消费其数值化版本 `COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S`，使评分更平滑。
         """
-        print("        -> [趋势阶段评分模块 V401.7 信号升级版] 启动...") # 修改: 更新版本号和描述
+        print("        -> [趋势阶段评分模块 V401.8 结构稳定版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32) # 为数值化评分提供默认值
@@ -956,14 +960,17 @@ class CognitiveIntelligence:
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         # 重新定义风险维度，并全面数值化，移除硬编码阈值判断
+        # [修改] 将通过 np.maximum 计算出的 numpy 数组立即封装回 pandas Series，以保证列表内数据类型统一
+        vpa_risk_score_arr = np.maximum(
+            self._get_atomic_score('SCORE_RISK_VPA_STAGNATION', 0.0).values,
+            self._get_atomic_score('SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0).values
+        )
+        vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
         risk_dimension_scores = [
             self._get_atomic_score('SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0) * 25,
             self._get_atomic_score('SCORE_RISK_MOMENTUM_EXHAUSTION', 0.0) * 25,
             self._get_atomic_score('SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE', 0.0) * 25,
-            np.maximum(
-                self._get_atomic_score('SCORE_RISK_VPA_STAGNATION', 0.0).values,
-                self._get_atomic_score('SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0).values
-            ) * 25,
+            vpa_risk_score_series * 25, # [修改] 使用封装好的 Series，而不是裸的 numpy 数组
             self._get_atomic_score('SCORE_VOL_EXPANSION_LEVEL', 0.0) * 25,
             self._get_atomic_score('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', 0.0) * 40,
             self._get_atomic_score('SCORE_BEHAVIOR_PANIC_SELLING_RISK_S', 0.0) * 25,
@@ -998,7 +1005,7 @@ class CognitiveIntelligence:
         late_stage_score = pd.Series(late_stage_score_arr, index=df.index, dtype=int)
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 320
-        print("        -> [趋势阶段评分模块 V401.7 信号升级版] 计算完毕。") # 修改: 更新版本号
+        print("        -> [趋势阶段评分模块 V401.8 结构稳定版] 计算完毕。")
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
