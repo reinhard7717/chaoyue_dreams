@@ -830,9 +830,7 @@ class IndicatorService:
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
-        
         df = all_dfs[timeframe]
-        
         # --- 1. 军备检查 (升级版) ---
         # 检查计算所需的依赖列是否都存在
         required_cols = [
@@ -849,25 +847,20 @@ class IndicatorService:
             required_cols.append(adx_col)
         else:
             print("      -> [警告] 未找到 ADX 列，盘整识别的准确性会受影响。")
-
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"      -> [严重警告] 高级模式识别生产线缺少关键数据: {missing}，模块已跳过！")
             return all_dfs
-
         # --- 2. 计算 is_consolidation_D (盘整期) ---
         # 条件1: 波动率收缩 (布林带宽度或ATR处于近期低位)
         bbw_quantile = df['BBW_21_2.0_D'].rolling(window=60, min_periods=20).quantile(0.20)
         atr_quantile = df['ATR_14_D'].rolling(window=60, min_periods=20).quantile(0.20)
         cond_low_volatility = (df['BBW_21_2.0_D'] < bbw_quantile) | (df['ATR_14_D'] < atr_quantile)
-        
         # 条件2: 趋势不明朗 (ADX低于25 或 均线高度粘合)
         cond_no_trend = (df[adx_col] < 25) if adx_col else pd.Series(True, index=df.index) # 如果没有ADX，则放宽条件
         cond_ma_converged = df['MA_CONV_CV_SHORT_D'] < 0.01 # 均线离散度小于1%
-        
         is_consolidation = cond_low_volatility & (cond_no_trend | cond_ma_converged)
         df['is_consolidation_D'] = is_consolidation
-
         # --- 3. 计算 is_breakthrough_D (向上突破) & is_breakdown_D (向下跌破) ---
         # 突破条件
         was_consolidating = df['is_consolidation_D'].shift(1).fillna(False)
@@ -875,42 +868,34 @@ class IndicatorService:
         volume_confirms = df['volume_D'] > df['VOL_MA_21_D'] * 1.2 # 成交量放大20%
         vpa_confirms = df['VPA_EFFICIENCY_D'] > 0.5 # 资金攻击效率较高
         money_flow_confirms = (df['CMF_21_D'] > 0.05) & (df['main_force_net_flow_consensus_D'] > 0)
-        
         is_breakthrough = was_consolidating & price_break_box & volume_confirms & vpa_confirms & money_flow_confirms
         df['is_breakthrough_D'] = is_breakthrough
-
         # 跌破条件
         price_breakdown_box = df['close_D'] < df['dynamic_consolidation_low_D'].shift(1)
         is_breakdown = was_consolidating & price_breakdown_box & volume_confirms
         df['is_breakdown_D'] = is_breakdown
-
         # --- 4. 计算 is_accumulation_D (吸筹期) & is_distribution_D (派发期) ---
         # 吸筹 = 盘整期 + 主力买散户卖 + 筹码集中度上升
-        cond_accumulation_flow = (df['flow_divergence_mf_vs_retail_D'] > 0.1).rolling(window=3).all()
+        cond_accumulation_flow = (df['flow_divergence_mf_vs_retail_D'] > 0.1).rolling(window=3).sum() == 3
         concentration_slope = df['concentration_90pct_D'].diff()
         cond_concentration_increase = (concentration_slope > 0).rolling(window=5).sum() >= 3 # 近5天有3天以上筹码在集中
         df['is_accumulation_D'] = is_consolidation & (cond_accumulation_flow | cond_concentration_increase)
-
         # 派发场景1: 高位滞涨派发 (天量不涨或微涨)
         high_volume = df['volume_D'] > df['VOL_MA_21_D'] * 2.0 # 成交量超过2倍均量
         stagnant_price = df['pct_change_D'].abs() < 0.01 # 涨跌幅小于1%
         high_winner_margin = df['winner_profit_margin_D'] > 30 # 获利盘丰厚
         low_vpa_efficiency = df['VPA_EFFICIENCY_D'] < 0.1
         dist_at_top = high_volume & (stagnant_price | low_vpa_efficiency) & high_winner_margin
-
         # 派发场景2: 盘整期派发 (主力卖散户买)
-        cond_distribution_flow = (df['flow_divergence_mf_vs_retail_D'] < -0.1).rolling(window=3).all()
+        cond_distribution_flow = (df['flow_divergence_mf_vs_retail_D'] < -0.1).rolling(window=3).sum() == 3
         dist_in_consolidation = is_consolidation & cond_distribution_flow
-        
         df['is_distribution_D'] = dist_at_top | dist_in_consolidation
-
         # --- 5. 确保所有列都为布尔型 ---
         pattern_cols = ['is_consolidation_D', 'is_breakthrough_D', 'is_breakdown_D', 'is_accumulation_D', 'is_distribution_D']
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
                 print(f"      -> 信号 '{col}' 已生成，共激活 {df[col].sum()} 天。")
-
         all_dfs[timeframe] = df
         print("    - [高级模式识别生产线 V2.0] 所有模式信号生产完成。")
         return all_dfs
