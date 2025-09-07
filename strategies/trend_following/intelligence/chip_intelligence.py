@@ -250,16 +250,11 @@ class ChipIntelligence:
             'concentration_90pct_D', 'peak_cost_D', 'total_winner_rate_D',
             'turnover_from_winners_ratio_D', 'price_to_peak_ratio_D', 'chip_health_score_D'
         ]
-        #将循环变量从 p 修改为 period，以避免覆盖参数字典 p
         for period in periods:
             required_cols.extend([
-                #使用新的循环变量 period
                 f'SLOPE_{period}_concentration_90pct_D', f'SLOPE_{period}_peak_cost_D',
-                #使用新的循环变量 period
                 f'ACCEL_{period if period > 5 else 5}_concentration_90pct_D',
-                #使用新的循环变量 period
                 f'ACCEL_{period if period > 5 else 5}_peak_cost_D',
-                #使用新的循环变量 period
                 f'ACCEL_{period if period > 5 else 5}_turnover_from_winners_ratio_D'
             ])
         # --- 2. 检查必需列 ---
@@ -311,6 +306,19 @@ class ChipIntelligence:
         new_scores['SCORE_CHIP_TOP_REVERSAL_B'] = top_trigger_score.astype(np.float32)
         new_scores['SCORE_CHIP_TOP_REVERSAL_A'] = (top_setup_score * top_trigger_score).astype(np.float32)
         new_scores['SCORE_CHIP_TOP_REVERSAL_S'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_A'] * (1 - conc_accel_scores[5])).astype(np.float32)
+        
+        # --- 新增开始: 探针 ---
+        print("        -> [探针] 正在检查 'CHIP_TOP_REVERSAL' 的构成...")
+        print("           - top_setup_score (静态战备) stats:")
+        print(top_setup_score.describe().to_string().replace('\n', '\n             '))
+        print("           - top_trigger_score (动态点火) stats:")
+        print(top_trigger_score.describe().to_string().replace('\n', '\n             '))
+        print("           - FINAL SCORE_CHIP_TOP_REVERSAL_A stats:")
+        print(new_scores['SCORE_CHIP_TOP_REVERSAL_A'].describe().to_string().replace('\n', '\n             '))
+        print("           - FINAL SCORE_CHIP_TOP_REVERSAL_S stats:")
+        print(new_scores['SCORE_CHIP_TOP_REVERSAL_S'].describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+        
         # --- 6.  纯筹码评分: 获利盘兑现强度 ---
         # 逻辑: 获利盘换手率越高，且获利盘比例也高时，兑现强度越大。
         profit_taking_turnover_score = normalize(df['turnover_from_winners_ratio_D'])

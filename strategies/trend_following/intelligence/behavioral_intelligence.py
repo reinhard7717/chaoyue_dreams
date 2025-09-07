@@ -399,6 +399,19 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A'] = top_reversal_potential.astype(np.float32)
         bottom_reversal_potential = down_streak_score * close_position_score * hammer_strength_score
         states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_POTENTIAL_A'] = bottom_reversal_potential.astype(np.float32)
+        
+        # --- 新增开始: 探针 ---
+        print("        -> [探针] 正在检查 'BEHAVIOR_TOP_REVERSAL_POTENTIAL_A' 的构成...")
+        print("           - up_streak_score (连续上涨) stats:")
+        print(up_streak_score.describe().to_string().replace('\n', '\n             '))
+        print("           - (1 - close_position_score) (收盘弱势) stats:")
+        print((1 - close_position_score).describe().to_string().replace('\n', '\n             '))
+        print("           - upthrust_risk_score (冲高回落风险) stats:")
+        print(upthrust_risk_score.describe().to_string().replace('\n', '\n             '))
+        print("           - FINAL SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A stats:")
+        print(states['SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A'].describe().to_string().replace('\n', '\n             '))
+        # --- 新增结束: 探针 ---
+
         # --- 2. 合成“结构性破位”风险 (原 synthesize_breakdown_risk) ---
         ma_broken_score = atomic.get('SCORE_BEHAVIOR_MA_BREAKDOWN', default_score)
         volume_spike_down_score = atomic.get('SCORE_VOL_PRICE_PANIC_DOWN_RISK', default_score)
