@@ -1694,7 +1694,8 @@
       "说明": "【V103 关系版】“冲高回落”结构信号的计算参数",
       "overextension_ma_period": 55,
       "overextension_threshold": 0.15,
-      "upthrust_lookback_days": 5
+      "upthrust_lookback_days": 5,
+      "upper_shadow_ratio_min": 0.35
     },
     "true_breakdown_params": {
       "enabled": true,
