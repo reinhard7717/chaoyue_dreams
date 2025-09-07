@@ -168,9 +168,11 @@ class FundFlowIntelligence:
             'slope_5': df.get('SLOPE_5_flow_divergence_mf_vs_retail_D'),
             'slope_13': df.get('SLOPE_13_flow_divergence_mf_vs_retail_D'),
             'slope_21': df.get('SLOPE_21_flow_divergence_mf_vs_retail_D'),
-            'accel_5': df.get('accel_5d_flow_divergence_mf_vs_retail_D'),
-            'accel_13': df.get('accel_13d_flow_divergence_mf_vs_retail_D'),
-            'accel_21': df.get('accel_21d_flow_divergence_mf_vs_retail_D'),
+            # [修改开始] 修复加速度指标列名的拼写错误，原为 'accel_5d_...'，应为 'ACCEL_5_...'
+            'accel_5': df.get('ACCEL_5_flow_divergence_mf_vs_retail_D'),
+            'accel_13': df.get('ACCEL_13_flow_divergence_mf_vs_retail_D'),
+            'accel_21': df.get('ACCEL_21_flow_divergence_mf_vs_retail_D'),
+            # [修改结束]
         }
         # --- 步骤 2: [保留并优化] 计算基础分歧信号 (当前状态) ---
         df['FF_SCORE_CONFLICT_MF_BUYS_RETAIL_SELLS'] = self._calculate_normalized_score(metrics['static'], norm_window)
@@ -398,6 +400,23 @@ class FundFlowIntelligence:
              - 终极看跌: 六大聪明钱引擎看跌 + 散户买入狂热
         """
         print("        -> [资金流情报模块 V18.0] 启动...")
+        # [新增开始] 增加输入探针，检查核心数据列是否存在
+        print(f"[探针] fund_flow_intelligence: 输入的df的shape: {df.shape}")
+        required_cols_sample = [
+            'net_flow_consensus_sum_5d_D', 'SLOPE_5_net_flow_consensus_sum_5d_D', 'ACCEL_5_net_flow_consensus_D',
+            'main_force_net_flow_consensus_sum_5d_D', 'flow_divergence_mf_vs_retail_D', 'CMF_21_D',
+            'net_xl_amount_consensus_sum_5d_D', 'retail_net_flow_consensus_sum_5d_D', 'main_force_flow_intensity_ratio_D'
+        ]
+        print("[探针] 检查关键输入列是否存在:")
+        all_inputs_present = True
+        for col in required_cols_sample:
+            is_present = col in df.columns
+            print(f"[探针]   -> 列 '{col}': {'存在' if is_present else '不存在'}")
+            if not is_present:
+                all_inputs_present = False
+        if not all_inputs_present:
+            print("[探针][严重警告] 核心资金流输入数据列缺失，模块可能无法正常计算！")
+        # [新增结束]
         states = {}
         p = get_params_block(self.strategy, 'fund_flow_params')
         if not get_param_value(p.get('enabled'), False):
@@ -458,5 +477,22 @@ class FundFlowIntelligence:
         for col in df.columns:
             if col.startswith('FF_SCORE_'):
                 states[col] = df[col]
+        # [新增开始] 增加输出探针，检查关键输出信号的长度
+        print("[探针] fund_flow_intelligence: 检查输出信号的长度...")
+        output_signals_to_check = [
+            'FF_SCORE_REVERSAL_BOTTOM_HIGH',
+            'FF_SCORE_STRUCTURE_REVERSAL_BOTTOM_HIGH',
+            'FF_SCORE_CONFLICT_REVERSAL_BOTTOM_HIGH',
+            'FF_SCORE_SEPTAFECTA_RESONANCE_UP_HIGH'
+        ]
+        for sig in output_signals_to_check:
+            if sig in states:
+                series_len = len(states[sig]) if hasattr(states[sig], '__len__') else -1
+                print(f"[探针]   -> 信号 '{sig}' 的长度: {series_len}")
+                if series_len != df.shape[0]:
+                    print(f"[探针][严重警告] 信号 '{sig}' 长度 ({series_len}) 与DataFrame长度 ({df.shape[0]}) 不匹配！")
+            else:
+                print(f"[探针]   -> 信号 '{sig}': 未生成")
+        # [新增结束]
         print(f"        -> [资金流情报模块 V18.0] 诊断完毕，生成了 {len(states)} 个数值化动态信号。")
         return states
