@@ -227,6 +227,32 @@ class FundFlowIntelligence:
 
         df['FF_SCORE_CONFLICT_REVERSAL_BOTTOM_HIGH'] = static_low_score * slope_reversing_pos * accel_reversing_pos
         print("               - [冲突]分歧反转信号已生成 (高置信度顶部/底部预警)")
+
+        # --- 新增开始: 探针 ---
+        print("               - [探针] 正在检查 'CONFLICT_REVERSAL_TOP_HIGH' 的上游和中间数据...")
+        top_reversal_inputs = {
+            'static (for static_high_score)': metrics.get('static'),
+            'slope_5 (for slope_reversing_neg)': metrics.get('slope_5'),
+            'accel_5 (for accel_reversing_neg)': metrics.get('accel_5'),
+        }
+        for name, series in top_reversal_inputs.items():
+            if series is None:
+                print(f"               - [探针][警告] 上游数据 '{name}' (conflict) 未找到 (is None)。")
+            else:
+                print(f"               - [探针] 上游数据 '{name}' (conflict) 统计信息:")
+                print(series.describe().to_string().replace('\n', '\n                 '))
+        
+        print("               - [探针] 检查 'CONFLICT_REVERSAL_TOP_HIGH' 的中间和最终分数:")
+        print("                 - static_high_score stats:")
+        print(static_high_score.describe().to_string().replace('\n', '\n                   '))
+        print("                 - slope_reversing_neg stats:")
+        print(slope_reversing_neg.describe().to_string().replace('\n', '\n                   '))
+        print("                 - accel_reversing_neg stats:")
+        print(accel_reversing_neg.describe().to_string().replace('\n', '\n                   '))
+        print("                 - FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH final stats:")
+        print(df['FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH'].describe().to_string().replace('\n', '\n                   '))
+        # --- 新增结束: 探针 ---
+        
         return df
 
     def _diagnose_cmf_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -390,6 +416,38 @@ class FundFlowIntelligence:
 
         df['FF_SCORE_RETAIL_REVERSAL_TOP_SELLING'] = long_term_buying * short_term_diverging * short_term_decelerating
         print("               - [散户]顶部派发反转信号已生成")
+
+        # --- 新增开始: 探针 ---
+        print("               - [探针] 正在检查 'RETAIL_RESONANCE_FRENZY_HIGH' 的上游和中间数据...")
+        frenzy_inputs = {
+            'static_5': metrics.get('static_5'),
+            'slope_5': metrics.get('slope_5'),
+            'accel_5': metrics.get('accel_5'),
+            'static_55': metrics.get('static_55'),
+            'slope_55': metrics.get('slope_55'),
+        }
+        for name, series in frenzy_inputs.items():
+            if series is None:
+                print(f"               - [探针][警告] 上游数据 '{name}' (retail) 未找到 (is None)。")
+            else:
+                print(f"               - [探针] 上游数据 '{name}' (retail) 统计信息:")
+                print(series.describe().to_string().replace('\n', '\n                 '))
+        
+        print("               - [探针] 检查 'FRENZY_HIGH' 的中间和最终分数:")
+        print("                 - s5 (static_5 score) stats:")
+        print(s5.describe().to_string().replace('\n', '\n                   '))
+        print("                 - sl5 (slope_5 score) stats:")
+        print(sl5.describe().to_string().replace('\n', '\n                   '))
+        print("                 - a5 (accel_5 score) stats:")
+        print(a5.describe().to_string().replace('\n', '\n                   '))
+        print("                 - s55 (static_55 score) stats:")
+        print(s55.describe().to_string().replace('\n', '\n                   '))
+        print("                 - sl55 (slope_55 score) stats:")
+        print(sl55.describe().to_string().replace('\n', '\n                   '))
+        print("                 - FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH final stats:")
+        print(df['FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH'].describe().to_string().replace('\n', '\n                   '))
+        # --- 新增结束: 探针 ---
+
         return df
 
     def _diagnose_flow_intensity_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -436,6 +494,32 @@ class FundFlowIntelligence:
         # --- 步骤 5: 生成卖出意愿拐点信号 (Top Reversal) ---
         df['FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH'] = s_pos * sl5_neg * a5_neg
         print("               - [强度]卖出意愿拐点信号已生成")
+
+        # --- 新增开始: 探针 ---
+        print("               - [探针] 正在检查 'INTENSITY_REVERSAL_TOP_HIGH' 的上游和中间数据...")
+        top_reversal_inputs = {
+            'static (for s_pos)': metrics.get('static'),
+            'slope_5 (for sl5_neg)': metrics.get('slope_5'),
+            'accel_5 (for a5_neg)': metrics.get('accel_5'),
+        }
+        for name, series in top_reversal_inputs.items():
+            if series is None:
+                print(f"               - [探针][警告] 上游数据 '{name}' (intensity) 未找到 (is None)。")
+            else:
+                print(f"               - [探针] 上游数据 '{name}' (intensity) 统计信息:")
+                print(series.describe().to_string().replace('\n', '\n                 '))
+
+        print("               - [探针] 检查 'INTENSITY_REVERSAL_TOP_HIGH' 的中间和最终分数:")
+        print("                 - s_pos stats:")
+        print(s_pos.describe().to_string().replace('\n', '\n                   '))
+        print("                 - sl5_neg stats:")
+        print(sl5_neg.describe().to_string().replace('\n', '\n                   '))
+        print("                 - a5_neg stats:")
+        print(a5_neg.describe().to_string().replace('\n', '\n                   '))
+        print("                 - FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH final stats:")
+        print(df['FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH'].describe().to_string().replace('\n', '\n                   '))
+        # --- 新增结束: 探针 ---
+
         return df
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -448,22 +532,39 @@ class FundFlowIntelligence:
              - 终极看跌: 六大聪明钱引擎看跌 + 散户买入狂热
         """
         print("        -> [资金流情报模块 V18.0] 启动...")
-        #增加输入探针，检查核心数据列是否存在
+        # --- 修改开始: 增强输入探针 ---
         print(f"[探针] fund_flow_intelligence: 输入的df的shape: {df.shape}")
         required_cols_sample = [
             'net_flow_consensus_sum_5d_D', 'SLOPE_5_net_flow_consensus_sum_5d_D', 'ACCEL_5_net_flow_consensus_D',
             'main_force_net_flow_consensus_sum_5d_D', 'flow_divergence_mf_vs_retail_D', 'CMF_21_D',
             'net_xl_amount_consensus_sum_5d_D', 'retail_net_flow_consensus_sum_5d_D', 'main_force_flow_intensity_ratio_D'
         ]
-        print("[探针] 检查关键输入列是否存在:")
-        all_inputs_present = True
+        print("[探针] 检查关键输入列的数据质量:")
+        all_inputs_ok = True
         for col in required_cols_sample:
-            is_present = col in df.columns
-            print(f"[探针]   -> 列 '{col}': {'存在' if is_present else '不存在'}")
-            if not is_present:
-                all_inputs_present = False
-        if not all_inputs_present:
-            print("[探针][严重警告] 核心资金流输入数据列缺失，模块可能无法正常计算！")
+            if col in df.columns:
+                series = df[col]
+                valid_count = series.count() # 非NaN值的数量
+                total_count = len(series)
+                valid_ratio = valid_count / total_count if total_count > 0 else 0
+                is_all_zero = (series.dropna() == 0).all() if valid_count > 0 else False
+                
+                status_msg = f"存在 (有效值: {valid_count}/{total_count}, {valid_ratio:.1%})"
+                if valid_count == 0:
+                    status_msg += " [警告: 全是NaN]"
+                    all_inputs_ok = False
+                elif is_all_zero:
+                    status_msg += " [警告: 全是0]"
+                    all_inputs_ok = False
+
+                print(f"[探针]   -> 列 '{col}': {status_msg}")
+            else:
+                print(f"[探针]   -> 列 '{col}': [严重警告: 不存在]")
+                all_inputs_ok = False
+        
+        if not all_inputs_ok:
+            print("[探针][严重警告] 核心资金流输入数据存在缺失或质量问题，模块可能无法正常计算！")
+        # --- 修改结束: 增强输入探针 ---
 
         states = {}
         p = get_params_block(self.strategy, 'fund_flow_params')
@@ -544,3 +645,13 @@ class FundFlowIntelligence:
 
         print(f"        -> [资金流情报模块 V18.0] 诊断完毕，生成了 {len(states)} 个数值化动态信号。")
         return states
+
+
+
+
+
+
+
+
+
+

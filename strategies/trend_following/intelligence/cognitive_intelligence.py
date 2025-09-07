@@ -1002,7 +1002,6 @@ class CognitiveIntelligence:
                     print(f"  - Inf 数据行 (最多显示5行):\n{series[np.isinf(series.values)].head().to_string()}")
             else:
                 print(f"  - 数据检查: 值均有效 (无 NaN 或 Inf)")
-
             # 打印统计信息
             try:
                 # 使用 to_string() 和 replace() 格式化输出，使其更易读
@@ -1038,7 +1037,7 @@ class CognitiveIntelligence:
         )
         vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
         
-        # [修改开始] 重构 risk_dimension_scores 的构建过程，以便插入探针
+        # 重构 risk_dimension_scores 的构建过程，以便插入探针
         risk_dimension_scores = []
         signal_definitions = {
             "SCORE_BIAS_OVERBOUGHT_EXTENT": 25,
@@ -1089,7 +1088,6 @@ class CognitiveIntelligence:
             probed_signal = _debug_probe(weighted_signal, f"{name} * {weight}", df.index)
             risk_dimension_scores.append(probed_signal)
         print("\n[探针] 所有构成信号检查完毕。")
-        # [修改结束]
 
         score_components = [s.to_numpy(dtype=np.float32) if isinstance(s, pd.Series) else s.astype(np.float32) for s in risk_dimension_scores]
         late_stage_score_arr = np.add.reduce(score_components)
