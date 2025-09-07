@@ -819,7 +819,7 @@ class StructuralIntelligence:
         - 核心职责: 融合来自本模块的多个突破信号（箱体、平台、盘整），生成统一的“蓄势突破”机会分数。
         - 本次升级: 新增了对 `synthesize_consolidation_breakout_signals` 产出的盘整突破信号的融合。
         """
-        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 启动...") # 修改: 更新版本号和注释
+        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -828,13 +828,19 @@ class StructuralIntelligence:
         box_breakout_score = self._fuse_multi_level_scores('BOX_BREAKOUT').values
         # 源2: 平台突破
         platform_breakout_score = atomic.get('SCORE_OPP_PLATFORM_BREAKOUT_S', default_series).values
-        # 源3: 盘整突破 (调用新增的合成方法) # 新增代码行
-        consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df) # 新增代码行
-        consolidation_breakout_score = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series).values # 新增代码行
-        states.update(consolidation_breakout_states) # 新增代码行
+        # 源3: 盘整突破 (调用新增的合成方法)
+        consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df)
+        consolidation_breakout_score = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series).values
+        states.update(consolidation_breakout_states)
+        
+        # --- 调试信息：检查所有输入数组的类型和形状 ---
+        print(f"    [调试] box_breakout_score 类型: {type(box_breakout_score)}, 形状: {getattr(box_breakout_score, 'shape', 'N/A')}")
+        print(f"    [调试] platform_breakout_score 类型: {type(platform_breakout_score)}, 形状: {getattr(platform_breakout_score, 'shape', 'N/A')}")
+        print(f"    [调试] consolidation_breakout_score 类型: {type(consolidation_breakout_score)}, 形状: {getattr(consolidation_breakout_score, 'shape', 'N/A')}")
+
         # --- 2. 融合生成“蓄势突破”分数与信号 ---
         # 逻辑: 取所有结构性突破信号中的最大值
-        final_score_arr = np.maximum.reduce([box_breakout_score, platform_breakout_score, consolidation_breakout_score]) # 修改: 融合三种信号
+        final_score_arr = np.maximum.reduce([box_breakout_score, platform_breakout_score, consolidation_breakout_score])
         final_score_series = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
         states['SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S'] = final_score_series
         # 生成布尔信号，用于兼容
@@ -842,9 +848,8 @@ class StructuralIntelligence:
         breakout_threshold = get_param_value(p.get('accumulation_breakout_threshold'), 0.3)
         final_signal = final_score_series > breakout_threshold
         states['STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S'] = final_signal
-        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 计算完毕。") # 修改: 更新版本号
+        print("        -> [结构性机会合成模块 V1.1 盘整突破增强版] 计算完毕。")
         return states
-
 
 
 
