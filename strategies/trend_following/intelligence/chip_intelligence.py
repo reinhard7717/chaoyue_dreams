@@ -17,17 +17,19 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V325.4 状态传递修正版】筹码情报最高司令部
+        【V325.5 底层兼容修正版】筹码情报最高司令部
+        - 核心修正: 修复了 `score.rolling().quantile()` 在接收分位数列表时可能引发 `TypeError` 的底层兼容性问题。
+                      通过将批量计算分位数的逻辑修改为循环单次计算并合并结果，确保了代码在不同
+                      pandas 版本下的健壮性，同时保持了原始业务逻辑不变。
         - 核心修正: 彻底重构了评分模块的调用和状态更新流程。现在，每当一个诊断模块（diagnose_*）
                       运行完毕后，其产出的新分数会立即被更新到 self.strategy.atomic_states 中。
                       这解决了下游模块因无法及时获取上游分数而跳过的严重依赖问题。
         - 逻辑优化: 将 'cost_divergence_D' 的计算前置到本函数开头，确保该衍生指标在所有
                       诊断模块运行前就已准备就绪，理顺了数据流。
         """
-        print("        -> [筹码情报最高司令部 V325.4 状态传递修正版] 启动...")
+        print("        -> [筹码情报最高司令部 V325.5 底层兼容修正版] 启动...")
         states = {}
         triggers = {}
-        
         # [新增] 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
         initial_cols = set(df.columns)
         def _update_atomic_states(df_to_update: pd.DataFrame, last_cols: set) -> set:
@@ -39,45 +41,34 @@ class ChipIntelligence:
                 self.strategy.atomic_states.update(new_scores_dict)
                 # print(f"          -> [情报更新] {len(new_score_cols)}个新评分已更新至原子状态库。")
             return current_cols
-
         # [新增] 步骤 0: 预处理衍生指标，解决计算依赖问题
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
             initial_cols.add('cost_divergence_D') # 将新列也加入初始列集合
             print("          -> [预处理] 已成功计算衍生指标 'cost_divergence_D'。")
-
         # --- [修改] 步骤 1: 链式调用四级评分中心，并确保状态实时传递 ---
         # 记录调用前的列名，用于后续识别新的评分列
         cols_before_run = initial_cols
-        
         # 1.1 调用宏观共振/反转诊断模块
         df = self.diagnose_quantitative_chip_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        
         # 1.2 调用高级动态诊断模块 (微观结构与极端行为)
         df = self.diagnose_advanced_chip_dynamics_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        
         # 1.3 调用内部结构诊断模块
         df = self.diagnose_chip_internal_structure_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        
         # 1.4 调用持仓者行为诊断模块
         df = self.diagnose_chip_holder_behavior_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        
         # 1.5 调用行为-筹码融合评分模块
         df = self.diagnose_fused_behavioral_chip_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        
         # 1.6: 调用 V2.0 版本的元融合模块
         prime_opp_states, prime_opp_scores = self.synthesize_prime_chip_opportunity(df)
         states.update(prime_opp_states)
         if prime_opp_scores:
             df = df.assign(**prime_opp_scores)
-        
-        # [删除] 原本集中更新 atomic_states 的代码块已被分解到每次调用之后，此处不再需要
-        
         # 获取模块参数，检查是否启用
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
@@ -108,7 +99,8 @@ class ChipIntelligence:
         # --- 步骤 3: 按 (评分列, 窗口, 信号大类) 对信号配置进行分组，以优化计算 ---
         from collections import defaultdict
         grouped_signals = defaultdict(list)
-        for signal_name, (score_col, quantile_or_dict, window, signal_type) in MASTER_SIGNAL_CONFIG.items():
+        for signal_name, config_tuple in MASTER_SIGNAL_CONFIG.items():
+            score_col, quantile_or_dict, window, signal_type = config_tuple
             if score_col in available_cols:
                 group_key = 'gt_zero' if 'gt_zero' in signal_type else 'bucket_upper' if signal_type == 'bucket_upper' else 'standard'
                 grouped_signals[(score_col, window, group_key)].append((signal_name, quantile_or_dict, signal_type))
@@ -122,14 +114,29 @@ class ChipIntelligence:
             thresholds_df = None
             if group_key in ['standard', 'bucket_upper']:
                 if not score.isnull().all():
-                    thresholds_df = score.rolling(window).quantile(quantiles_needed)
+                    # [修改] 修复 'TypeError: must be real number, not list'
+                    # 将一次性计算多个分位数，改为循环计算单个分位数，然后合并结果
+                    # 这样可以避免将列表传递给可能不支持此操作的底层pandas函数
+                    thresholds_list = []
+                    for q_val in quantiles_needed:
+                        s = score.rolling(window).quantile(q_val)
+                        s.name = q_val  # 为Series命名，以便后续合并
+                        thresholds_list.append(s)
+                    if thresholds_list:
+                        thresholds_df = pd.concat(thresholds_list, axis=1)
             elif group_key == 'gt_zero':
                 positive_scores = score[score > 0]
                 if not positive_scores.empty:
-                    thresholds_df = positive_scores.rolling(window).quantile(quantiles_needed).reindex(score.index).ffill()
+                    # [修改] 对 gt_zero 分组也应用同样的修复逻辑
+                    thresholds_list = []
+                    for q_val in quantiles_needed:
+                        s = positive_scores.rolling(window).quantile(q_val)
+                        s.name = q_val
+                        thresholds_list.append(s)
+                    if thresholds_list:
+                        thresholds_df = pd.concat(thresholds_list, axis=1).reindex(score.index).ffill()
             if thresholds_df is None: continue
-            if isinstance(thresholds_df, pd.Series):
-                thresholds_df = thresholds_df.to_frame(name=quantiles_needed[0])
+            # [删除] 原本的 to_frame 逻辑不再需要，因为 concat 已经生成了 DataFrame
             # 根据信号类型进行逻辑分发
             if group_key == 'bucket_upper':
                 _, quantile_dict, _ = tasks[0] # 一个分组只有一个 bucket_upper 任务
@@ -166,7 +173,7 @@ class ChipIntelligence:
         self.strategy.atomic_states.update(all_generated_states)
         return states, triggers
 
-    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]: #重写整个方法
+    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V2.0 分层加权融合版】黄金筹码机会元融合模块
         - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
