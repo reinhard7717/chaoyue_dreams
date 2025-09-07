@@ -261,7 +261,7 @@
         "box_period": 26,
         "volume_multiplier": 1.5,
         "vol_ma_period": 5,
-        "boll_period": 20,
+        "boll_period": 21,
         "bbw_quantile": 0.3
       },
       "oversold_rebound_bias_playbook": {
