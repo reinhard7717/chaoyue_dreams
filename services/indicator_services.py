@@ -826,7 +826,7 @@ class IndicatorService:
           - is_accumulation_D: 核心是识别“价平量增”和“主力买、散户卖”的资金流背离特征。
           - is_distribution_D: 识别“高位滞涨派发”和“盘整期阴跌派发”两种典型场景。
         """
-        print("    - [高级模式识别生产线 V2.0] 启动...") # MODIFIED: 更新日志信息
+        print("    - [高级模式识别生产线 V2.0] 启动...")
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -835,7 +835,6 @@ class IndicatorService:
         
         # --- 1. 军备检查 (升级版) ---
         # 检查计算所需的依赖列是否都存在
-        # MODIFIED: 扩展了依赖列清单，以支持更复杂的逻辑
         required_cols = [
             'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
             'BBW_21_2.0_D', 'ATR_14_D', 'MA_CONV_CV_SHORT_D', 'CMF_21_D',
@@ -857,7 +856,6 @@ class IndicatorService:
             return all_dfs
 
         # --- 2. 计算 is_consolidation_D (盘整期) ---
-        # MODIFIED: 使用多因子共振逻辑
         # 条件1: 波动率收缩 (布林带宽度或ATR处于近期低位)
         bbw_quantile = df['BBW_21_2.0_D'].rolling(window=60, min_periods=20).quantile(0.20)
         atr_quantile = df['ATR_14_D'].rolling(window=60, min_periods=20).quantile(0.20)
@@ -871,7 +869,6 @@ class IndicatorService:
         df['is_consolidation_D'] = is_consolidation
 
         # --- 3. 计算 is_breakthrough_D (向上突破) & is_breakdown_D (向下跌破) ---
-        # MODIFIED: 引入更多确认信号
         # 突破条件
         was_consolidating = df['is_consolidation_D'].shift(1).fillna(False)
         price_break_box = df['close_D'] > df['dynamic_consolidation_high_D'].shift(1)
@@ -888,9 +885,8 @@ class IndicatorService:
         df['is_breakdown_D'] = is_breakdown
 
         # --- 4. 计算 is_accumulation_D (吸筹期) & is_distribution_D (派发期) ---
-        # MODIFIED: 聚焦于资金流背离和筹码变化
         # 吸筹 = 盘整期 + 主力买散户卖 + 筹码集中度上升
-        cond_accumulation_flow = (df['flow_divergence_mf_vs_retail_D'] > 0.1).rolling(window=3).every(True)
+        cond_accumulation_flow = (df['flow_divergence_mf_vs_retail_D'] > 0.1).rolling(window=3).all()
         concentration_slope = df['concentration_90pct_D'].diff()
         cond_concentration_increase = (concentration_slope > 0).rolling(window=5).sum() >= 3 # 近5天有3天以上筹码在集中
         df['is_accumulation_D'] = is_consolidation & (cond_accumulation_flow | cond_concentration_increase)
@@ -903,7 +899,7 @@ class IndicatorService:
         dist_at_top = high_volume & (stagnant_price | low_vpa_efficiency) & high_winner_margin
 
         # 派发场景2: 盘整期派发 (主力卖散户买)
-        cond_distribution_flow = (df['flow_divergence_mf_vs_retail_D'] < -0.1).rolling(window=3).every(True)
+        cond_distribution_flow = (df['flow_divergence_mf_vs_retail_D'] < -0.1).rolling(window=3).all()
         dist_in_consolidation = is_consolidation & cond_distribution_flow
         
         df['is_distribution_D'] = dist_at_top | dist_in_consolidation
@@ -911,7 +907,7 @@ class IndicatorService:
         # --- 5. 确保所有列都为布尔型 ---
         pattern_cols = ['is_consolidation_D', 'is_breakthrough_D', 'is_breakdown_D', 'is_accumulation_D', 'is_distribution_D']
         for col in pattern_cols:
-            if col in df.columns: # MODIFIED: 增加列存在检查
+            if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
                 print(f"      -> 信号 '{col}' 已生成，共激活 {df[col].sum()} 天。")
 
