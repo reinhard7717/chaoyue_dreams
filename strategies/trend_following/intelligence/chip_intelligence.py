@@ -46,9 +46,12 @@ class ChipIntelligence:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
             initial_cols.add('cost_divergence_D') # 将新列也加入初始列集合
             print("          -> [预处理] 已成功计算衍生指标 'cost_divergence_D'。")
-        # --- [修改] 步骤 1: 链式调用四级评分中心，并确保状态实时传递 ---
+        # --- 步骤 1: 链式调用四级评分中心，并确保状态实时传递 ---
         # 记录调用前的列名，用于后续识别新的评分列
         cols_before_run = initial_cols
+        # ---  步骤 1.0: 首先调用战略上下文评分模块 ---
+        df = self.diagnose_strategic_context_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
         # 1.1 调用宏观共振/反转诊断模块
         df = self.diagnose_quantitative_chip_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
@@ -168,6 +171,55 @@ class ChipIntelligence:
         states.update(all_generated_states)
         self.strategy.atomic_states.update(all_generated_states)
         return states, triggers
+
+    def diagnose_strategic_context_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】战略级筹码上下文评分模块
+        - 核心职责: 融合最长周期的筹码指标，生成描述宏观“战略吸筹”与“战略派发”的
+                      顶层上下文分数。这是整个筹码情报模块的基石。
+        - 收益: 为下游所有模块提供了最关键的宏观背景判断。
+        """
+        print("        -> [战略级筹码上下文评分模块 V1.0] 启动...") # [新增] 打印启动信息
+        new_scores = {}
+        p = get_params_block(self.strategy, 'chip_strategic_context_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return df
+
+        # --- 1. 军备检查 ---
+        long_period = get_param_value(p.get('long_period'), 55)
+        required_cols = [
+            f'SLOPE_{long_period}_concentration_90pct_D',
+            f'SLOPE_{long_period}_peak_cost_D',
+            f'SLOPE_{long_period}_chip_health_score_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 战略级筹码上下文模块缺少关键数据列: {missing_cols}，模块已跳过！")
+            return df
+
+        # --- 2. 核心要素数值化 (归一化) ---
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        def normalize(series, ascending=True):
+            return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
+
+        # --- 3. 计算“战略吸筹”分数 ---
+        # 逻辑: 长期筹码在集中(斜率<0) + 长期成本在抬高(斜率>0) + 长期健康度在改善(斜率>0)
+        long_term_concentration_score = normalize(df[f'SLOPE_{long_period}_concentration_90pct_D'], ascending=False)
+        long_term_cost_increase_score = normalize(df[f'SLOPE_{long_period}_peak_cost_D'], ascending=True)
+        long_term_health_improve_score = normalize(df[f'SLOPE_{long_period}_chip_health_score_D'], ascending=True)
+
+        strategic_gathering_score = (
+            long_term_concentration_score *
+            long_term_cost_increase_score *
+            long_term_health_improve_score
+        )
+        new_scores['CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING'] = strategic_gathering_score.astype(np.float32)
+        
+        # --- 4. 更新DataFrame ---
+        df = df.assign(**new_scores)
+        print("        -> [战略级筹码上下文评分模块 V1.0] 计算完毕。") # [新增] 打印完成信息
+        return df
 
     def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
