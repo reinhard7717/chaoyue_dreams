@@ -959,19 +959,66 @@ class CognitiveIntelligence:
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V401.10 健壮性修复版】趋势阶段评分模块
+        【V401.11 深度探针调试版】趋势阶段评分模块
         - 核心修正: 修复了因辅助函数 _get_atomic_score 和 _fuse_multi_level_scores 依赖
                       外部状态 self.strategy.df.index 导致的系列计算错误。
                       现已将这些辅助函数重构为接收 df 参数，确保使用正确的索引。
-        - 本次升级 (V401.10): [修复] 增加了对非有限值(NaN, inf)的处理，修复了
-                             在转换为整数类型时可能发生的 IntCastingNaNError 错误。
+        - 本次升级 (V401.11): [调试] 新增内部探针函数，在计算上涨末期分数时，
+                             逐一检查每个上游信号的数据类型、长度和是否存在非有限值(NaN/inf)，
+                             以便精确定位导致错误的具体信号源。
         """
-        print("        -> [趋势阶段评分模块 V401.10 健壮性修复版] 启动...") # 修改: 更新版本号
+        print("        -> [趋势阶段评分模块 V401.11 深度探针调试版] 启动...") # 修改: 更新版本号
+
+        # [新增开始] 定义一个内部探针函数用于深度调试
+        def _debug_probe(series: pd.Series, name: str, df_index: pd.Index):
+            """一个用于调试的内部探针，检查Series的健康状况"""
+            print(f"\n--- [探针] 正在检查信号: {name} ---")
+            if not isinstance(series, pd.Series):
+                print(f"  - [警告] 信号不是 pandas Series, 而是 {type(series)}")
+                try:
+                    series = pd.Series(series, index=df_index)
+                    print("  - [信息] 已成功转换为 pandas Series 进行检查。")
+                except Exception as e:
+                    print(f"  - [严重错误] 无法将信号转换为 Series: {e}")
+                    return series
+            
+            print(f"  - 类型: {type(series)}")
+            print(f"  - 长度: {len(series)} (DataFrame 长度: {len(df_index)})")
+
+            # 检查非有限值
+            has_nan = series.isnull().any()
+            # np.isinf 对 pandas Series 操作时需要先获取其 numpy array
+            has_inf = np.isinf(series.values).any()
+
+            if has_nan or has_inf:
+                print(f"  - [!!! 警告 !!!] 发现非有限值！")
+                if has_nan:
+                    nan_count = series.isnull().sum()
+                    print(f"  - 包含 NaN: 是 (共 {nan_count} 个)")
+                    print(f"  - NaN 数据行 (最多显示5行):\n{series[series.isnull()].head().to_string()}")
+                if has_inf:
+                    inf_count = np.isinf(series.values).sum()
+                    print(f"  - 包含 Inf: 是 (共 {inf_count} 个)")
+                    print(f"  - Inf 数据行 (最多显示5行):\n{series[np.isinf(series.values)].head().to_string()}")
+            else:
+                print(f"  - 数据检查: 值均有效 (无 NaN 或 Inf)")
+
+            # 打印统计信息
+            try:
+                # 使用 to_string() 和 replace() 格式化输出，使其更易读
+                stats_str = series.describe().to_string().replace('\n', '\n  ')
+                print(f"  - 统计信息:\n  {stats_str}")
+            except Exception as e:
+                print(f"  - [警告] 计算统计信息时出错: {e}")
+            
+            print(f"--- [探针] 信号 {name} 检查完毕 ---")
+            return series
+        # [新增结束]
+
         states = {}
         atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32) # 为数值化评分提供默认值
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 计算“上涨初期”的量化分数 (Early Stage Score) ---
-        # 从消费布尔信号升级为消费数值化评分
         ascent_structure_score = atomic.get('COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S', default_score)
         yearly_high = df['high_D'].rolling(250, min_periods=60).max()
         yearly_low = df['low_D'].rolling(250, min_periods=60).min()
@@ -983,59 +1030,81 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
-        # 重新定义风险维度，并全面数值化，移除硬编码阈值判断
         vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
-        print(f"[探针] diagnose_trend_stage_score: vpa_stagnation_score length = {len(vpa_stagnation_score)}")
-        print(f"[探针] diagnose_trend_stage_score: vpa_volume_accelerating_score length = {len(vpa_volume_accelerating_score)}")
         vpa_risk_score_arr = np.maximum(
             vpa_stagnation_score.values,
             vpa_volume_accelerating_score.values
         )
         vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
-        risk_dimension_scores = [
-            self._get_atomic_score(df, 'SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0) * 25,
-            self._get_atomic_score(df, 'SCORE_RISK_MOMENTUM_EXHAUSTION', 0.0) * 25,
-            self._get_atomic_score(df, 'SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE', 0.0) * 25,
-            vpa_risk_score_series * 25,
-            self._get_atomic_score(df, 'SCORE_VOL_EXPANSION_LEVEL', 0.0) * 25,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', 0.0) * 40,
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_PANIC_SELLING_RISK_S', 0.0) * 25,
-            self._fuse_multi_level_scores(df, 'CHIP_TOP_REVERSAL') * 30,
-            self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE') * 35,
-            self._get_atomic_score(df, 'SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S', 0.0) * 25,
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S', 0.0) * 25,
-            self._get_atomic_score(df, 'CHIP_SCORE_FUSED_DECEPTIVE_RALLY', 0.0) * 35,
-            self._get_atomic_score(df, 'SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S', 0.0) * 35,
-            self._get_atomic_score(df, 'SCORE_MACD_BEARISH_CONFLUENCE_RISK', 0.0) * 20,
-            self._get_atomic_score(df, 'SCORE_VOL_PRICE_PANIC_DOWN_RISK', 0.0) * 30,
-            self._get_atomic_score(df, 'FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH', 0.0) * 25,
-            self._fuse_multi_level_scores(df, 'MTF_BEARISH_RESONANCE') * 35,
-            self._get_atomic_score(df, 'FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH', 0.0) * 30,
-            self._get_atomic_score(df, 'FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH', 0.0) * 30,
-            self._fuse_multi_level_scores(df, 'MECHANICS_TOP_REVERSAL') * 35,
-            self._fuse_multi_level_scores(df, 'PATTERN_TOP_REVERSAL') * 35,
-            self._get_atomic_score(df, 'SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S', 0.0) * 30,
-            self._get_atomic_score(df, 'SCORE_FV_CHAOTIC_EXPANSION_RISK', 0.0) * 30,
-            self._get_atomic_score(df, 'COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S', 0.0) * 50,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S', 0.0) * 45,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', 0.0) * 45,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_FATIGUE_RISK', 0.0) * 30,
-            self._get_atomic_score(df, 'SCORE_RISK_PRICE_DEVIATION_S', 0.0) * 30,
-            self._get_atomic_score(df, 'SCORE_RISK_STRUCTURAL_FAULT_S', 0.0) * 40,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S', 0.0) * 30,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING', 0.0) * 25,
-        ]
-        # 使用列表推导式和np.add.reduce进行向量化求和
+        
+        # [修改开始] 重构 risk_dimension_scores 的构建过程，以便插入探针
+        risk_dimension_scores = []
+        signal_definitions = {
+            "SCORE_BIAS_OVERBOUGHT_EXTENT": 25,
+            "SCORE_RISK_MOMENTUM_EXHAUSTION": 25,
+            "SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE": 25,
+            "vpa_risk_score_series": 25, # 特殊处理
+            "SCORE_VOL_EXPANSION_LEVEL": 25,
+            "COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION": 40,
+            "SCORE_BEHAVIOR_PANIC_SELLING_RISK_S": 25,
+            "CHIP_TOP_REVERSAL": 30, # fuse
+            "STRUCTURE_BEARISH_RESONANCE": 35, # fuse
+            "SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S": 25,
+            "SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S": 25,
+            "CHIP_SCORE_FUSED_DECEPTIVE_RALLY": 35,
+            "SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S": 35,
+            "SCORE_MACD_BEARISH_CONFLUENCE_RISK": 20,
+            "SCORE_VOL_PRICE_PANIC_DOWN_RISK": 30,
+            "FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH": 25,
+            "MTF_BEARISH_RESONANCE": 35, # fuse
+            "FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH": 30,
+            "FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH": 30,
+            "MECHANICS_TOP_REVERSAL": 35, # fuse
+            "PATTERN_TOP_REVERSAL": 35, # fuse
+            "SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S": 30,
+            "SCORE_FV_CHAOTIC_EXPANSION_RISK": 30,
+            "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S": 50,
+            "COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S": 45,
+            "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S": 45,
+            "COGNITIVE_SCORE_TREND_FATIGUE_RISK": 30,
+            "SCORE_RISK_PRICE_DEVIATION_S": 30,
+            "SCORE_RISK_STRUCTURAL_FAULT_S": 40,
+            "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 30,
+            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 25,
+        }
+
+        print("\n[探针] 开始逐一检查上涨末期分数的构成信号...")
+        for name, weight in signal_definitions.items():
+            signal_series = None
+            if name == "vpa_risk_score_series":
+                signal_series = vpa_risk_score_series
+            elif "fuse" in name or name in ["CHIP_TOP_REVERSAL", "STRUCTURE_BEARISH_RESONANCE", "MTF_BEARISH_RESONANCE", "MECHANICS_TOP_REVERSAL", "PATTERN_TOP_REVERSAL"]:
+                base_name = name.replace(" # fuse", "")
+                signal_series = self._fuse_multi_level_scores(df, base_name)
+            else:
+                signal_series = self._get_atomic_score(df, name, 0.0)
+            
+            weighted_signal = signal_series * weight
+            probed_signal = _debug_probe(weighted_signal, f"{name} * {weight}", df.index)
+            risk_dimension_scores.append(probed_signal)
+        print("\n[探针] 所有构成信号检查完毕。")
+        # [修改结束]
+
         score_components = [s.to_numpy(dtype=np.float32) if isinstance(s, pd.Series) else s.astype(np.float32) for s in risk_dimension_scores]
         late_stage_score_arr = np.add.reduce(score_components)
-        # 增加对非有限值(NaN, inf)的处理，防止整数转换失败
-        # 将 NaN 和 inf 替换为 0，确保数据可以安全地转换为整数类型
+        
+        # 增加对最终结果的探针，以防万一
+        print("\n[探针] 检查求和后的最终数组 `late_stage_score_arr`...")
+        _debug_probe(pd.Series(late_stage_score_arr, index=df.index), "Final Sum Array", df.index)
+
+        # 修复措施：将 NaN 和 inf 替换为 0，确保数据可以安全地转换为整数类型
         late_stage_score_arr = np.nan_to_num(late_stage_score_arr, nan=0.0, posinf=0.0, neginf=0.0)
+        
         late_stage_score = pd.Series(late_stage_score_arr, index=df.index, dtype=int)
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
         states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 320
-        print("        -> [趋势阶段评分模块 V401.10 健壮性修复版] 计算完毕。") # 修改: 更新版本号
+        print("        -> [趋势阶段评分模块 V401.11 深度探针调试版] 计算完毕。")
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
