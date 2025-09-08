@@ -83,8 +83,6 @@ class IntelligenceLayer:
         print("        -> [动态阈值校准中心 V335.2] 校准完成。")
         return thresholds
 
-# 文件: strategies/trend_following/intelligence_layer.py
-
     def run_all_diagnostics(self) -> Dict:
         """
         【V402.1 架构优化版】情报层总入口。
@@ -100,6 +98,10 @@ class IntelligenceLayer:
         # --- 阶段一: 基础层与原子情报诊断 ---
         # 此阶段生成所有仅依赖于数据工程层指标的原子信号。
         print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
+        # 调用周线战略情报转化器，生成战略级原子状态
+        self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
+        # 调用日线长周期筹码战略诊断模块，生成宏观筹码原子状态
+        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         self.foundation_intel.run_foundation_analysis_command()
         self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
         self.mechanics_engine.run_dynamic_analysis_command()

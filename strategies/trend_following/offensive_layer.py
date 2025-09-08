@@ -29,15 +29,13 @@ class OffensiveLayer:
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
-        
-        context_params = scoring_params.get('contextual_setup_scoring', {})
-        trigger_params = scoring_params.get('trigger_event_scoring', {})
-        playbook_params = scoring_params.get('playbook_synergy_scoring', {})
             
         # --- 2. 计算【第一层：环境与战备分】(Contextual & Setup Score) ---
+        context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
-        if get_param_value(context_params.get('enabled'), True):
+        if get_param_value(context_params.get('enabled'), True): # 默认启用
             for signal_name, score in context_params.get('positive_signals', {}).items():
+                # 战备信号通常是布尔型
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
                     bonus_amount = signal_series.astype(float) * score
@@ -47,8 +45,9 @@ class OffensiveLayer:
         print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
 
         # --- 3. 计算【第二层：独立触发器加分】(Trigger Event Score) ---
+        trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
-        if get_param_value(trigger_params.get('enabled'), True):
+        if get_param_value(trigger_params.get('enabled'), True): # 默认启用
             for trigger_name, score in trigger_params.get('positive_signals', {}).items():
                 trigger_series = trigger_events.get(trigger_name, pd.Series(False, index=df.index))
                 if trigger_series.any():
@@ -59,8 +58,9 @@ class OffensiveLayer:
         print(f"          -> [第二层] 独立触发器分计算完毕，加分峰值: {trigger_score.max():.0f}")
 
         # --- 4. 计算【第三层：剧本协同奖励分】(Playbook Synergy Score) ---
+        playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
-        if get_param_value(playbook_params.get('enabled'), True):
+        if get_param_value(playbook_params.get('enabled'), True): # 默认启用
             for playbook_name, score in playbook_params.get('positive_signals', {}).items():
                 playbook_series = self.strategy.playbook_states.get(playbook_name, pd.Series(False, index=df.index))
                 if playbook_series.any():
