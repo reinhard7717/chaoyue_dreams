@@ -157,7 +157,17 @@ class ReportingLayer:
                         score_type = 'dynamic'
                     else:
                         score_type = score_type_map.get(signal_name, {}).get('type', 'unknown')
-                    cn_name = score_type_map.get(signal_name, {}).get('cn_name', signal_name)
+                    # 默认使用原始信号名作为基础名
+                    base_signal_name = signal_name
+                    # 定义所有可能的计分前缀
+                    prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_']
+                    # 循环查找并剥离前缀
+                    for prefix in prefixes_to_strip:
+                        if signal_name.startswith(prefix):
+                            base_signal_name = signal_name[len(prefix):]
+                            break # 找到第一个匹配的前缀后就停止
+                    # 使用剥离后的基础信号名去查找中文名，如果找不到则使用剥离后的基础名作为备用
+                    cn_name = score_type_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
                     if save_all_days or (row['signal_type'] != '无信号'):
                         score_components_to_create.append(StrategyScoreComponent(
                             daily_score=daily_score_obj,
