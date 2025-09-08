@@ -677,7 +677,6 @@ class MultiTimeframeTrendStrategy:
             df_copy[health_col].fillna(False, inplace=True)
 
         return df_copy
-
     
     # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
@@ -723,29 +722,26 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V319.2 探针专属修复版 - 调试报告增强】
-        - 增强了调试报告，现在会输出每天的进攻总分、风险总分，以及激活的详细进攻和风险项。
-        - 修复: 修正了对 run_for_stock 返回的五元组的解包，确保所有返回值都被正确接收。
-        - 核心重构: 将“探针”的部署逻辑完全移入此方法，与生产流程解耦。
-        - 新流程:
-          1. 正常执行 `run_for_stock` 以生成所有分析结果。
-          2. 从 `tactical_engine` 中获取最后一次运行的详细分析数据。
-          3. 检查配置文件，如果设置了 `probe_date`，则启动探针进行深度解剖。
-          4. 最后，展示全流程的信号透视报告。
+        【V319.3 决策透视版 - 调试报告增强】
+        - 核心升级: 彻底重构调试报告，新增“决策摘要”模块，清晰展示净得分、否决票和触发的离场防线，完美解释“为何在有进攻信号时依然卖出”。
+        - 修复 #1: 激活的进攻项和风险项现在显示中文名，解决了报告可读性问题。
+        - 修复 #2: 报告中不再展示贡献分数为0的激活项。
+        - 修复 #3 & #4: 通过“决策摘要”和清晰的命名，明确了进攻分数、风险分数与最终信号之间的关系。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.2 探针专属修复版 - 调试报告增强)] ---")
+        print(f"--- [历史回溯调试启动 (V319.3 决策透视版)] ---") # [代码修改] 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            # 修正了返回值解包。run_for_stock 返回五元组，需用五个变量接收。
-            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date)
-            if not all_signals and not all_daily_scores:
-                print("[信息] 核心策略未生成任何信号或每日分数记录。")
+            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date) # [代码修改] 传入start_date_str以优化性能
+            if not all_daily_scores: # [代码修改] 改为检查all_daily_scores，因为它包含每一天的数据
+                print("[信息] 核心策略未生成任何每日分数记录。")
                 return
-            
+            # [代码新增] 获取决策过程中的关键数据
+            daily_analysis_df = self.daily_analysis_df
+            exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
             # 步骤 1.1: 在内存中构建信号到详情的映射
             signal_to_details_map = {}
             for detail in all_details:
@@ -753,16 +749,15 @@ class MultiTimeframeTrendStrategy:
                 if signal_key not in signal_to_details_map:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
-
             # 步骤 1.2: 构建日期到每日分数和分数组件的映射
             daily_score_map = {score.trade_date: score for score in all_daily_scores}
             daily_components_map = {}
             for comp in all_score_components:
-                if comp.daily_score.trade_date not in daily_components_map:
-                    daily_components_map[comp.daily_score.trade_date] = []
-                daily_components_map[comp.daily_score.trade_date].append(comp)
-
-            # 步骤 2: 检查是否需要部署探针
+                trade_date = comp.daily_score.trade_date
+                if trade_date not in daily_components_map:
+                    daily_components_map[trade_date] = []
+                daily_components_map[trade_date].append(comp)
+            # 步骤 2: 检查是否需要部署探针 (逻辑不变)
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
@@ -779,66 +774,56 @@ class MultiTimeframeTrendStrategy:
                     )
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
-            
             # 步骤 3: 展示全流程信号透视报告
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
-            start_dt = pd.to_datetime(start_date).tz_localize('UTC')
-            end_dt = pd.to_datetime(end_date).tz_localize('UTC').replace(hour=23, minute=59, second=59)
-            
-            # 筛选出在指定时间段内的所有每日分数记录，因为它们包含了所有日期的得分信息
+            start_dt_date = pd.to_datetime(start_date).date()
+            end_dt_date = pd.to_datetime(end_date).date()
             debug_period_daily_scores = [
                 ds for ds in all_daily_scores
-                if start_dt.date() <= ds.trade_date <= end_dt.date()
+                if start_dt_date <= ds.trade_date <= end_dt_date
             ]
             if not debug_period_daily_scores:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
-
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
-                
-                # 获取对应的信号对象（如果有的话）
-                signal_obj = next((s for s in all_signals if s.trade_time.date() == trade_date), None)
-                
-                # 获取与当前日期关联的详情和组件
-                related_details = signal_to_details_map.get(id(signal_obj), []) if signal_obj else []
                 related_components = daily_components_map.get(trade_date, [])
-
-                playbooks_str = ", ".join(
-                    [d.playbook.cn_name for d in related_details if d.playbook and hasattr(d.playbook, 'cn_name')]
-                ) if related_details else "无剧本信息"
-                
                 # 打印每日总分
-                print(f"\n{time_str} [周期:  D] [进攻总分: {daily_score_obj.offensive_score:<7.0f}] [风险总分: {daily_score_obj.risk_score:<7.0f}] [信号类型: {daily_score_obj.signal_type}]")
-                
-                # 打印激活的进攻项
-                offensive_components = [c for c in related_components if c.score_type in ['positional', 'dynamic', 'composite', 'strategic_context', 'trigger']]
+                print(f"\n{time_str} [周期: D] [进攻总分: {daily_score_obj.offensive_score:<7}] [风险总分: {daily_score_obj.risk_score:<7}] [最终信号: {daily_score_obj.signal_type}]")
+                # [代码新增] 决策摘要模块
+                print("  --- 决策摘要 ---")
+                day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
+                if not day_analysis_row.empty:
+                    day_analysis_row = day_analysis_row.iloc[0]
+                    net_score = day_analysis_row.get('net_score', 'N/A')
+                    veto_votes = day_analysis_row.get('veto_votes', 'N/A')
+                    print(f"    - 净得分 (进攻-风险): {net_score:.0f}")
+                    print(f"    - 否决票数: {veto_votes:.0f}")
+                    day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
+                    if not day_exit_triggers.empty:
+                        triggered_defenses = day_exit_triggers.iloc[0]
+                        active_triggers = [col.replace('EXIT_', '') for col, is_triggered in triggered_defenses.items() if is_triggered]
+                        if active_triggers:
+                            print(f"    - 触发的离场防线: {', '.join(active_triggers)}")
+                        else:
+                            print("    - 触发的离场防线: 无")
+                else:
+                    print("    - 未找到当日的详细分析数据。")
+                # [代码修改] 打印激活的进攻项，使用中文名并过滤0值
+                offensive_components = [c for c in related_components if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook'] and c.score_value > 0]
                 if offensive_components:
-                    print("  激活进攻项:")
+                    print("  --- 激活进攻项 ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-                
-                # 打印激活的风险项
-                risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk']]
+                # [代码修改] 打印激活的风险项，使用中文名并过滤0值
+                risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
-                    print("  激活风险项:")
+                    print("  --- 激活风险项 ---")
                     for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-                
-                # 如果有具体的交易信号，也打印出来
-                if signal_obj:
-                    signal_type_display = signal_obj.get_signal_type_display()
-                    details = ""
-                    if signal_obj.signal_type == 'BUY':
-                        details = f"得分: {signal_obj.entry_score:<7.2f} | 剧本: {playbooks_str}"
-                    elif signal_obj.signal_type in ['SELL', 'WARN']:
-                        details = f"风险分: {signal_obj.risk_score:<7.2f} | 剧本: {playbooks_str}"
-                    print(f"  [交易信号]: [类型:{signal_type_display:<6s}] | {details}")
-
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")

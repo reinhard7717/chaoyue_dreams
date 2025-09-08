@@ -316,7 +316,7 @@ class StructuralIntelligence:
         - 新增信号 (数值型):
           - SCORE_FIB_REBOUND_S/A/B: S/A/B三级反弹机会分，对应不同重要性的斐波那契水平。
         """
-        print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...")
+        # print("        -> [斐波那契反攻诊断模块 V4.0 动态过程诊断版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'fibonacci_support_params')
         if not get_param_value(p.get('enabled'), True):

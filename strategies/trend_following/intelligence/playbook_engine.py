@@ -97,8 +97,7 @@ class PlaybookEngine:
         - 核心逻辑: 要求“筹码点火”信号触发后，在3天观察期内，趋势质量不恶化，
                       且没有出现重大的顶部或崩溃风险信号，以此确认趋势的可持续性。
         """
-        # 修改: 整个方法被重写以定义基于元融合分数的触发器
-        print("        -> [触发事件中心 V3.3 突破确认增强版] 启动...")
+        # print("        -> [触发事件中心 V3.3 突破确认增强版] 启动...")
         triggers = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)

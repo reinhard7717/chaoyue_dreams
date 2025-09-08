@@ -519,7 +519,7 @@ class CognitiveIntelligence:
                     并为“信号分(Trigger)”新增了对市场情绪、资金流(CMF)、基础层(MA/Synergy)等
                     多个高质量反转信号的融合，实现了信号维度的终极扩展。
         """
-        print("        -> [多域反转共振分数合成模块 V1.7 终极维度增强版] 启动...") # 修改: 更新版本号和描述
+        # print("        -> [多域反转共振分数合成模块 V1.7 终极维度增强版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -962,7 +962,7 @@ class CognitiveIntelligence:
         【V401.12 清理版】趋势阶段评分模块
         - 核心修正: 修复了VPA风险融合逻辑，确保所有相关风险信号都被正确消费。
         """
-        print("        -> [趋势阶段评分模块 V401.12 清理版] 启动...")
+        # print("        -> [趋势阶段评分模块 V401.12 清理版] 启动...")
 
         states = {}
         atomic = self.strategy.atomic_states
@@ -1036,7 +1036,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号修复] 更新了对“近期反转”信号的引用，现在消费来自 BehavioralIntelligence
                     的 `BEHAVIOR_CONTEXT_RECENT_REVERSAL_SIGNAL` 信号。
         """
-        print("        -> [联合作战司令部 V278.7 信号源更新版] 启动，正在分析战场核心结构...")
+        # print("        -> [联合作战司令部 V278.7 信号源更新版] 启动，正在分析战场核心结构...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
@@ -1178,7 +1178,7 @@ class CognitiveIntelligence:
           - COGNITIVE_SCORE_PERFECT_STORM_TOP_S_PLUS: 完美风暴顶部风险分 (S++级)。
           - COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS: 完美风暴底部机会分 (S++级)。
         """
-        print("        -> [完美风暴信号合成模块 V1.1 数值化升级版] 启动...") 
+        # print("        -> [完美风暴信号合成模块 V1.1 数值化升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -1382,7 +1382,7 @@ class CognitiveIntelligence:
           - [修复] 修复了对 TRIGGER_PRIME_BREAKOUT_S 失效信号的引用，替换为消费“多域点火共振”分数。
           - [升级] 将对 CHIP_STRUCTURE_PRIME_OPPORTUNITY_S 布尔信号的依赖，升级为消费其数值化版本。
         """
-        print("        -> [终极战法合成模块 V2.2 信号修复与数值化升级版] 启动...")
+        # print("        -> [终极战法合成模块 V2.2 信号修复与数值化升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -1431,7 +1431,7 @@ class CognitiveIntelligence:
         - 本次升级: [信号修复] 更新了对“蓄势突破”信号的引用，现在消费来自 StructuralIntelligence
                     的 `STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S` 信号。
         """
-        print("        -> [回踩战术矩阵 V7.3 信号源更新版] 启动...")
+        # print("        -> [回踩战术矩阵 V7.3 信号源更新版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -1557,7 +1557,7 @@ class CognitiveIntelligence:
         - 本次升级: [修复] 新增对 `_diagnose_lock_chip_rally_tactic` 的调用，
                     修复了“锁筹拉升”战法从未被执行的逻辑缺陷。
         """
-        print("        -> [高级战法合成模块 V1.4 逻辑修复版] 启动...") 
+        # print("        -> [高级战法合成模块 V1.4 逻辑修复版] 启动...") 
         states = {}
         # --- 战法1: 【战法S+】断层新生·主升浪 ---
         states.update(self._diagnose_lock_chip_reconcentration_tactic(df))
@@ -1644,7 +1644,7 @@ class CognitiveIntelligence:
         - 本次升级: [修复] 将对“完美风暴”信号的引用从布尔型升级为数值化评分，
                     确保最终总分能正确反映其强度。
         """
-        print("        -> [顶层认知总分合成模块 V1.1 数值化升级版] 启动...")
+        # print("        -> [顶层认知总分合成模块 V1.1 数值化升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
