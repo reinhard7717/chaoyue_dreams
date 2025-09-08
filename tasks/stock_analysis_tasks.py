@@ -771,6 +771,25 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             # 首先计算 cost_divergence，作为后续衍生计算的基础
             if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
                 final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
+            required_derivatives_config = {
+                'peak_stability': [5, 21, 55],
+                'peak_control_ratio': [55], # 5, 21周期已有
+                'concentration_70pct': [5, 21, 55],
+            }
+            for base_col, periods in required_derivatives_config.items():
+                if base_col in final_metrics_df.columns:
+                    for p in periods:
+                        # 确保斜率被计算
+                        slope_col = f"{base_col}_slope_{p}d"
+                        if slope_col not in final_metrics_df.columns:
+                            print(f"    -> 补算斜率: {slope_col}")
+                            final_metrics_df[slope_col] = _calculate_slope(final_metrics_df[base_col], p)
+                        
+                        # 确保加速度被计算
+                        accel_col = f"{base_col}_accel_{p}d"
+                        if accel_col not in final_metrics_df.columns:
+                            print(f"    -> 补算加速度: {accel_col}")
+                            final_metrics_df[accel_col] = _calculate_slope(final_metrics_df[slope_col], p)
             strategy_config = _load_strategy_config()
             feature_params = strategy_config.get('feature_engineering_params', {})
             # 1. 计算所有斜率
@@ -811,7 +830,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 'peak_cost', 'concentration_70pct', 'concentration_90pct', 'peak_stability',
                 'peak_control_ratio', 'peak_strength_ratio', 'winner_profit_margin',
                 'support_below', 'pressure_above', 'turnover_from_winners_ratio',
-                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term'
+                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term',
+                'chip_health_score'
             ]
             for base_col_name in signals_for_1d_derivatives:
                 if base_col_name in final_metrics_df.columns:
