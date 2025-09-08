@@ -818,12 +818,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 if base_col_name in final_metrics_df.columns:
                     # 计算1日斜率 (窗口为2，即今天和昨天)
                     slope_col_1d = f"{base_col_name}_slope_1d"
-                    print(f"    -> 正在计算1日斜率: {slope_col_1d}")
                     final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
                     
                     # 基于1日斜率计算1日加速度 (窗口为2)
                     accel_col_1d = f"{base_col_name}_accel_1d"
-                    print(f"    -> 正在计算1日加速度: {accel_col_1d}")
                     final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
             # --- 1日衍生指标计算结束 ---
             # 3. 最后计算依赖于衍生指标的 chip_health_score
@@ -1037,12 +1035,10 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             if base_col_name in final_metrics_df.columns:
                 # 计算1日斜率 (窗口为2，即今天和昨天)
                 slope_col_1d = f"{base_col_name}_slope_1d"
-                print(f"    -> 正在计算1日斜率: {slope_col_1d}")
                 final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
                 
                 # 基于1日斜率计算1日加速度 (窗口为2)
                 accel_col_1d = f"{base_col_name}_accel_1d"
-                print(f"    -> 正在计算1日加速度: {accel_col_1d}")
                 final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
         # --- 1日衍生指标计算结束 ---
         rename_dict = {}
