@@ -11,17 +11,16 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V401.0 三位一体版】【健壮性修复】
+        【V401.1 逻辑修复版】【健壮性修复】
         - 核心重构: 废除旧的混合计分模型，全面升级为“三位一体”计分体系，将“战备”、“触发”和“协同”分离。
         - 核心逻辑:
           1.  【战备分】: 对高质量的元融合信号和战备状态进行独立计分，构筑开仓的“地基”。
           2.  【触发器分】: 对强力的、独立的触发事件本身进行加分，作为点火的“催化剂”。
           3.  【协同奖励分】: 当“战备”与“触发”完美结合（即剧本成功执行）时，给予额外的“协同奖励”。
           4.  【总分合成】: 最终进攻分 = 战备分 + 触发器分 + 协同奖励分 + 其他加成项。
-        - 收益: 评分体系更透明、可解释，且能更早地发现“万事俱备，只欠东风”的潜在机会。
-        - 健壮性修复: 在所有计分环节增加了 .fillna(0) 处理，防止因上游指标计算初期的NaN值导致entry_score整体为NaN。
+        - 健壮性修复: 修复了总分计算逻辑，将所有分数组件分别计算后一次性求和，避免中间过程的覆盖错误。
         """
-        # print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...")
+        # print("        -> [进攻方案评估中心 V401.1 逻辑修复版] 启动...") # 代码修改: 更新版本号和描述
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -29,20 +28,24 @@ class OffensiveLayer:
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
+        
+        # --- 代码修改: 将所有分数组件分开计算，避免覆盖错误 ---
+        all_scores_components = []
+
         # --- 2. 计算【第一层：环境与战备分】(Contextual & Setup Score) ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
         if get_param_value(context_params.get('enabled'), True): # 默认启用
             for signal_name, score in context_params.get('positive_signals', {}).items():
-                # 战备信号通常是布尔型
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
-                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
                     bonus_amount = signal_series.fillna(0).astype(float) * score
                     context_score += bonus_amount
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
         score_details_df['SCORE_SETUP'] = context_score
+        all_scores_components.append(context_score) # 添加到组件列表
         print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
+
         # --- 3. 计算【第二层：独立触发器加分】(Trigger Event Score) ---
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
@@ -50,12 +53,13 @@ class OffensiveLayer:
             for trigger_name, score in trigger_params.get('positive_signals', {}).items():
                 trigger_series = trigger_events.get(trigger_name, pd.Series(False, index=df.index))
                 if trigger_series.any():
-                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
                     bonus_amount = trigger_series.fillna(0).astype(float) * score
                     trigger_score += bonus_amount
                     score_details_df[f"TRIGGER_{trigger_name}"] = bonus_amount
         score_details_df['SCORE_TRIGGER'] = trigger_score
+        all_scores_components.append(trigger_score) # 添加到组件列表
         print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
+
         # --- 4. 计算【第三层：剧本协同奖励分】(Playbook Synergy Score) ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
@@ -63,57 +67,55 @@ class OffensiveLayer:
             for playbook_name, score in playbook_params.get('positive_signals', {}).items():
                 playbook_series = self.strategy.playbook_states.get(playbook_name, pd.Series(False, index=df.index))
                 if playbook_series.any():
-                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
                     bonus_amount = playbook_series.fillna(0).astype(float) * score
                     playbook_score += bonus_amount
                     score_details_df[f"PLAYBOOK_{playbook_name}"] = bonus_amount
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
+        all_scores_components.append(playbook_score) # 添加到组件列表
         print(f"          -> [第三层] 剧本协同奖励分计算完毕，奖励峰值: {playbook_score.max():.0f}")
-        # --- 5. 合成总进攻分 (Total Entry Score) ---
-        # 总分 = 战备分 + 触发器分 + 协同奖励分
-        entry_score = context_score + trigger_score + playbook_score
-        # --- 6. 应用其他独立的加分模块 (如动能分、环境加成等) ---
-        # 6.0 应用“战略背景”奖励分 (调用新增的奖励模块)
-        entry_score, score_details_df = self._apply_strategic_context_bonuses(entry_score, score_details_df)
-        # 6.1 应用“上下文环境”奖励分 (调用独立的奖励模块)
-        entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
-        # 6.2 应用“动态动能”加分
+
+        # --- 5. 计算其他独立的加分模块 (如动能分、环境加成等) ---
+        # 5.1 应用“战略背景”奖励分
+        strategic_bonus_score, score_details_df = self._apply_strategic_context_bonuses(score_details_df)
+        all_scores_components.append(strategic_bonus_score)
+
+        # 5.2 应用“上下文环境”奖励分
+        contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
+        all_scores_components.append(contextual_bonus_score)
+
+        # 5.3 应用“动态动能”加分
+        dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         if get_param_value(dynamic_params.get('enabled'), True):
-            min_setup_score = get_param_value(dynamic_params.get('min_positional_score_for_dynamic'), 300)
-            # 只有在地基分（战备分）达标时，才激活后续的动能加分
+            min_setup_score = get_param_value(dynamic_params.get('min_positional_score_for_dynamic'), 150) # 使用上次修改后的150
             can_add_dynamic_score = context_score >= min_setup_score
             for signal_name, score in dynamic_params.get('positive_signals', {}).items():
-                # 现在信号可能是0-1的浮点数分数，也可能是布尔值
                 signal_series = atomic_states.get(signal_name, pd.Series(0.0, index=df.index))
-                # 检查信号是否存在（分数>0或为True）
                 if (signal_series > 0).any():
-                    # 将布尔与运算(&)修改为乘法，以正确处理数值化分数。
-                    # 当can_add_dynamic_score为False(0.0)时，奖金自动为0；为True(1.0)时，则为 signal_series * score。
-                    # 这种方式同时兼容布尔型和浮点型signal_series。
-                    # 对 signal_series 增加 .fillna(0.0) 处理
                     bonus_amount = signal_series.fillna(0.0) * can_add_dynamic_score.astype(float) * score
-                    entry_score += bonus_amount
+                    dynamic_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
-        # [代码新增] 增加一个最终的fillna确保万无一失，并将entry_score转换为整数类型，符合数据库模型要求
-        entry_score = entry_score.fillna(0).astype(int)
+        all_scores_components.append(dynamic_score)
+
+        # --- 6. 合成总进攻分 (Total Entry Score) ---
+        # 将所有分数组件一次性求和，确保逻辑正确
+        entry_score = sum(all_scores_components).fillna(0).astype(int)
+        
         print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
         return entry_score, score_details_df
 
-    def _apply_strategic_context_bonuses(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+    def _apply_strategic_context_bonuses(self, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V401.1 新增】【健壮性修复】战略背景奖励模块
-        - 核心职责: 读取并应用配置文件中定义的、基于周线和日线长周期宏观背景的奖励分和惩罚项。
-                    这是连接战略层与战术层的关键计分环节。
-        - 健壮性修复: 增加 .fillna(0) 处理，防止因上游指标计算初期的NaN值导致entry_score为NaN。
+        【V401.2 逻辑修复版】战略背景奖励模块
+        - 核心修复: 修改函数签名，不再接收并修改 entry_score，而是返回一个独立的 bonus_score Series。
         """
+        bonus_score = pd.Series(0.0, index=score_details_df.index) # 代码修改: 初始化独立的奖励分Series
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         atomic_states = self.strategy.atomic_states
-        default_series = pd.Series(False, index=entry_score.index)
+        default_series = pd.Series(False, index=bonus_score.index)
         # 1. 处理周线战略背景加分 (strategic_context_scoring)
         strategic_params = scoring_params.get('strategic_context_scoring', {})
         if get_param_value(strategic_params.get('enabled'), False):
-            # 定义周线战略信号与配置项的映射关系
             strategic_map = {
                 'CONTEXT_STRATEGIC_BULLISH_W': 'bullish_bonus',
                 'CONTEXT_STRATEGIC_IGNITION_W': 'ignition_bonus',
@@ -131,9 +133,8 @@ class OffensiveLayer:
                 if signal_series.any():
                     score_value = get_param_value(strategic_params.get(config_key), 0)
                     if score_value != 0:
-                        # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
                         bonus_amount = signal_series.fillna(0).astype(float) * score_value
-                        entry_score += bonus_amount
+                        bonus_score += bonus_amount # 代码修改: 累加到独立的 bonus_score
                         score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
         # 2. 处理日线长周期筹码战略背景加分 (chip_context_scoring)
         chip_context_params = scoring_params.get('chip_context_scoring', {})
@@ -143,11 +144,47 @@ class OffensiveLayer:
             if signal_series.any():
                 score_value = get_param_value(chip_context_params.get('strategic_gathering_bonus'), 0)
                 if score_value != 0:
-                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
                     bonus_amount = signal_series.fillna(0).astype(float) * score_value
-                    entry_score += bonus_amount
+                    bonus_score += bonus_amount # 代码修改: 累加到独立的 bonus_score
                     score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
-        return entry_score, score_details_df
+        return bonus_score, score_details_df # 代码修改: 返回独立的 bonus_score
+
+    def _apply_contextual_bonus_score(self, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V4.2 逻辑修复版】战术环境奖励模块
+        - 核心修复: 修改函数签名，不再接收并修改 entry_score，而是返回一个独立的 bonus_score Series。
+        """
+        bonus_score = pd.Series(0.0, index=score_details_df.index) # 代码修改: 初始化独立的奖励分Series
+        bonus_params = get_params_block(self.strategy, 'contextual_bonus_params')
+        if not get_param_value(bonus_params.get('enabled'), False):
+            return bonus_score, score_details_df
+        bonus_rules = bonus_params.get('bonuses', [])
+        for rule in bonus_rules:
+            state_name = rule.get('if_state')
+            bonus_signal_name = rule.get('signal_name')
+            if not (state_name and bonus_signal_name) or rule.get('deprecated', False):
+                continue
+            condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=bonus_score.index)).shift(1).fillna(False)
+            if not condition.any():
+                continue
+            if rule.get('decay_model', False):
+                max_bonus = rule.get('max_bonus_score', 0)
+                decay_days = rule.get('decay_days', 1)
+                if max_bonus <= 0 or decay_days <= 0 or not condition.any():
+                    continue
+                influence_series = self.strategy.cognitive_intel._create_decaying_influence_series(condition, decay_days)
+                bonus_amount = influence_series * max_bonus
+                bonus_score += bonus_amount # 代码修改: 累加到独立的 bonus_score
+                if bonus_signal_name not in score_details_df.columns:
+                    score_details_df[bonus_signal_name] = 0.0
+                score_details_df[bonus_signal_name] += bonus_amount
+            else:
+                bonus_value = rule.get('add_score', 0)
+                if condition.any() and bonus_value != 0:
+                    bonus_amount = condition.astype(float) * bonus_value
+                    bonus_score += bonus_amount # 代码修改: 累加到独立的 bonus_score
+                    score_details_df[bonus_signal_name] = bonus_amount
+        return bonus_score, score_details_df # 代码修改: 返回独立的 bonus_score
 
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:
         """
@@ -194,62 +231,6 @@ class OffensiveLayer:
             if divergence_condition.at[idx]: report['divergence'] = "结构性背离(总分虚高)"
             if report: diagnostics.at[idx] = report
         return diagnostics
-
-    def _apply_contextual_bonus_score(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        【V4.1 接力战法版】战术环境奖励模块
-        - 核心改造: 引入“衰减式奖励”模型，奖励在触发日达到峰值，随后线性递减。
-                    同时保留了对简单“固定加分”模型的支持，并通过'deprecated'标志位来禁用过时规则。
-        """
-        # 从配置文件获取上下文奖励的参数块
-        bonus_params = get_params_block(self.strategy, 'contextual_bonus_params')
-        # 检查该模块是否启用，若未启用则直接返回，不进行任何操作
-        if not get_param_value(bonus_params.get('enabled'), False):
-            return entry_score, score_details_df
-        # 获取所有奖励规则的列表
-        bonus_rules = bonus_params.get('bonuses', [])
-        # 遍历每一条奖励规则
-        for rule in bonus_rules:
-            # 从规则中获取核心参数
-            state_name = rule.get('if_state')
-            bonus_signal_name = rule.get('signal_name')
-            # 增加健壮性检查。如果规则中缺少必要的键，则跳过此规则，防止程序因配置错误而崩溃。
-            if not (state_name and bonus_signal_name) or rule.get('deprecated', False):
-                continue
-            condition = self.strategy.atomic_states.get(state_name, pd.Series(False, index=entry_score.index)).shift(1).fillna(False)
-            if not condition.any():
-                continue
-            # 判断此规则是“衰减模型”还是“固定加分模型”
-            if rule.get('decay_model', False):
-                max_bonus = rule.get('max_bonus_score', 0)
-                decay_days = rule.get('decay_days', 1)
-                if max_bonus <= 0 or decay_days <= 0 or not condition.any():
-                    continue
-                # 步骤1: 创建一个临时的Series来存储此规则产生的奖励分
-                bonus_series = pd.Series(0.0, index=entry_score.index)
-                # 步骤2: 使用辅助函数生成一个0-1的、带衰减效果的影响力序列
-                # 这个函数已经内置了处理窗口重叠的逻辑（取最大影响力）
-                influence_series = self.strategy.cognitive_intel._create_decaying_influence_series(condition, decay_days)
-                # 步骤3: 将影响力序列乘以最大奖励分，得到最终的奖励分数序列
-                bonus_series = influence_series * max_bonus
-                # 步骤4: 将计算好的奖励分数序列一次性地应用到总分和详情中
-                entry_score += bonus_series
-                if bonus_signal_name not in score_details_df.columns:
-                    score_details_df[bonus_signal_name] = 0.0
-                score_details_df[bonus_signal_name] += bonus_series
-                # print(f"          -> [衰减奖励] 已为 “{state_name}” 事件应用了峰值为 {max_bonus}，持续 {decay_days} 天的衰减奖励。")
-            else:
-                # --- 固定加分模型逻辑 ---
-                bonus_value = rule.get('add_score', 0)
-                # 只有在条件触发且奖励分大于0时才执行
-                if condition.any() and bonus_value != 0:
-                    # 将固定的奖励分加到总分上
-                    entry_score.loc[condition] += bonus_value
-                    # 在详情中记录这个加分项
-                    score_details_df[bonus_signal_name] = condition * bonus_value
-                    # print(f"          -> [环境奖励] 已为 {condition.sum()} 天的“{state_name}”期间应用 {bonus_value} 分固定奖励。")
-        return entry_score, score_details_df
-
 
 
 

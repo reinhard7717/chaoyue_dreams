@@ -82,13 +82,48 @@ class JudgmentLayer:
 
         return triggers_df
 
+    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
+        """
+        【新增】生成人类可读的信号摘要。
+        - 核心职责: 遍历每日激活的进攻和风险信号，查询配置文件中的中文名，并格式化为字符串。
+        """
+        # 加载信号与中文名的映射字典
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        
+        summaries = []
+        # 迭代每一天的数据
+        for idx in score_details_df.index:
+            day_summary = {'offense': [], 'risk': []}
+            
+            # 处理进攻项
+            active_offense_signals = score_details_df.loc[idx]
+            active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
+            for signal, score in active_offense_signals.items():
+                # 从信号名中提取基础名称 (例如从 DYN_SCORE_... 提取 SCORE_...)
+                base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
+                cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
+                day_summary['offense'].append(f"{cn_name} ({int(score)})")
+
+            # 处理风险项
+            active_risk_signals = risk_details_df.loc[idx]
+            active_risk_signals = active_risk_signals[active_risk_signals > 0].sort_values(ascending=False)
+            for signal, score in active_risk_signals.items():
+                base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
+                cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
+                day_summary['risk'].append(f"{cn_name} ({int(score)})")
+            
+            summaries.append(day_summary)
+            
+        return pd.Series(summaries, index=score_details_df.index)
+
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V501.0 纯粹决策版】
+        【V501.1 中文日志版】
         - 核心变化: 移除了对特定“加速状态”的硬性过滤。由于“阵地优势加速”已作为
                     核心奖励分融入 entry_score，本层只需根据最终的净得分进行决策即可。
+        - 新增功能: 调用辅助函数生成人类可读的信号详情，并存入 'signal_details_cn' 列。
         """
-        # print("    --- [最高作战指挥部 V501.0 纯粹决策版] 启动... ---")
+        # print("    --- [最高作战指挥部 V501.1 中文日志版] 启动... ---") # 代码修改: 更新版本号
         df = self.strategy.df_indicators
         
         df['final_score'] = 0.0
@@ -121,6 +156,11 @@ class JudgmentLayer:
         )
 
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
+        
+        # --- 代码新增: 生成并存储中文信号详情 ---
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
+        # --- 代码新增结束 ---
+
         self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:
