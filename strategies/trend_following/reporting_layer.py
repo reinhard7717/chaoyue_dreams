@@ -56,26 +56,21 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V509.0 三位一体计分适配版】
+        【V509.1 计分逻辑修复版】
         - 核心升级: 重构计分逻辑以适配“三位一体”计分体系。
-          - positional_score: 现在对应【战备分】(SCORE_SETUP)。
-          - dynamic_score: 现在对应【触发器分】(SCORE_TRIGGER)。
-          - composite_score: 现在对应【协同奖励分】(SCORE_PLAYBOOK_SYNERGY)。
+        - 核心修复: 修正了分数组件的生成逻辑，确保进攻分数中的负分（惩罚项）能被正确统计和报告。
         """
         await self._ensure_playbooks_cached()
-        
         signals_to_create = []
         signal_details_to_create = []
         daily_scores_to_create = []
         score_components_to_create = []
         daily_states_to_create = []
-        
         strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
-
         # --- Part 1: 生成 TradingSignal (逻辑不变) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
         for trade_time, row in signal_days_df.iterrows():
@@ -101,7 +96,6 @@ class ReportingLayer:
             if trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
-                    # 从列名中提取原始的剧本/触发器名称
                     original_name = name.replace('PLAYBOOK_', '').replace('TRIGGER_', '').replace('SETUP_', '')
                     playbook_obj = self.playbooks_cache.get(original_name)
                     if playbook_obj:
@@ -110,10 +104,8 @@ class ReportingLayer:
                             playbook=playbook_obj,
                             contributed_score=score
                         ))
-
         # --- Part 2 & 3: 生成 StrategyDailyScore 和 StrategyDailyState ---
         daily_score_map = {}
-
         for trade_time, row in result_df.iterrows():
             # --- Part 2: 生成 StrategyDailyScore ---
             trade_action_value = row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value)
@@ -123,7 +115,6 @@ class ReportingLayer:
             setup_score = score_details_df.loc[trade_time].get('SCORE_SETUP', 0)
             trigger_score = score_details_df.loc[trade_time].get('SCORE_TRIGGER', 0)
             playbook_synergy_score = score_details_df.loc[trade_time].get('SCORE_PLAYBOOK_SYNERGY', 0)
-
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
                 trade_date=trade_time.date(),
@@ -141,30 +132,32 @@ class ReportingLayer:
             if save_all_days or (row['signal_type'] != '无信号'):
                 daily_scores_to_create.append(daily_score_obj)
             daily_score_map[trade_time] = daily_score_obj
-
-            # --- Part 2.1: 生成 StrategyScoreComponent (逻辑不变，但消费的数据源已更新) ---
+            # --- Part 2.1: 生成 StrategyScoreComponent ---
             all_details_for_json = {}
             if trade_time in score_details_df.index and trade_time in risk_details_df.index:
-                combined_details = pd.concat([
-                    score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0],
-                    risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
-                ])
+                # 修正过滤逻辑，确保进攻分数中的惩罚项（负分）能被正确包含
+                # 进攻项：包含所有非零分数（正分和负分）
+                offensive_components = score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0]
+                # 风险项：只包含正分
+                risk_components = risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
+                # 合并进攻项和风险项
+                combined_details = pd.concat([offensive_components, risk_components])
                 for signal_name, score_value in combined_details.items():
                     score_type = 'unknown'
-                    if signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
+                    # 增加对负分的判断，确保惩罚项也能被正确分类
+                    if score_value < 0:
+                        score_type = 'penalty' # 将所有负分归类为惩罚项
+                    elif signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
                         score_type = 'positional'
                     elif signal_name.startswith('TRIGGER_') or signal_name == 'SCORE_TRIGGER':
                         score_type = 'dynamic'
                     elif signal_name.startswith('PLAYBOOK_') or signal_name == 'SCORE_PLAYBOOK_SYNERGY':
                         score_type = 'composite'
                     elif signal_name.startswith('DYN_'):
-                        score_type = 'dynamic' # 保留对旧式动能分的支持
+                        score_type = 'dynamic'
                     else:
-                        # 对于风险信号等，从 score_type_map 获取
                         score_type = score_type_map.get(signal_name, {}).get('type', 'unknown')
-                    
                     cn_name = score_type_map.get(signal_name, {}).get('cn_name', signal_name)
-                    
                     if save_all_days or (row['signal_type'] != '无信号'):
                         score_components_to_create.append(StrategyScoreComponent(
                             daily_score=daily_score_obj,
@@ -175,9 +168,7 @@ class ReportingLayer:
                         ))
                     if score_type not in all_details_for_json: all_details_for_json[score_type] = []
                     all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
-            
             daily_score_obj.score_details_json = all_details_for_json
-
         # --- Part 3: 生成 StrategyDailyState (逻辑不变) ---
         for trade_time, daily_score_obj in daily_score_map.items():
             should_save_this_day = save_all_days or (result_df.loc[trade_time, 'signal_type'] != '无信号')
@@ -199,12 +190,10 @@ class ReportingLayer:
                         signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
                         signal_type=StrategyDailyState.SignalType.TRIGGER
                     ))
-
         print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
             f"{len(daily_scores_to_create)} 条每日分数, "
             f"{len(score_components_to_create)} 条分数组件, "
             f"{len(daily_states_to_create)} 条每日状态。")
-        
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
 
 

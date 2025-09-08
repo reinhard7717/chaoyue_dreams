@@ -127,84 +127,36 @@ class WarningLayer:
 
     def calculate_risk_score(self, critical_risk_details: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
         """
-        【V503.1 风险融合版】
+        【V503.2 配置驱动版】
+        - 核心修改: 移除了硬编码的 `elite_atomic_risks` 字典，现在所有常规风险信号
+                    均从配置文件的 `holding_warning_params` 中加载。
         """
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
-        
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         warning_params = scoring_params.get('holding_warning_params', {})
         warning_rules = warning_params.get('signals', {})
-        
         risk_details_df = pd.DataFrame(index=df.index)
         default_series = pd.Series(False, index=df.index)
+        # 循环遍历从配置中加载的预警规则
         for rule_name, score in warning_rules.items():
+            # 增加对 "说明_" 前缀的过滤，确保只处理真正的信号规则
+            if rule_name.startswith("说明_"):
+                continue
             signal_series = atomic_states.get(rule_name, default_series)
             if signal_series.any():
                 risk_details_df[rule_name] = signal_series * score
-        
-        # --- 精英原子风险计分 (Elite Atomic Risk Scoring) ---
-        # 目的: 硬编码计入最关键的S级风险信号，防止因配置疏忽而遗漏。
-        elite_atomic_risks = {
-            'RISK_STATIC_DYN_COLLAPSE_S': 500,          # 静态-动态融合崩塌
-            'RISK_HIGH_VOL_DIVERGENT_RALLY_S': 450,     # 高波动区的背离诱多
-            'RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S': 400,# 结构性衰竭反弹
-            'RISK_MTF_RSI_BEARISH_DIVERGENCE_S': 350,   # 周线与日线RSI顶背离
-            'RISK_MA_DEATH_CROSS_CONFIRMED_S': 300,     # 均线死亡交叉确认
-            # A级风险: 获利盘的平均利润在减少，是趋势弱化的重要早期预警。
-            'RISK_BEHAVIOR_PROFIT_CUSHION_SHRINKING_A': 350,
-            # B级风险: 上方套牢盘越来越多，形成阻力，表明上涨乏力。
-            'RISK_BEHAVIOR_BUILDING_OVERHEAD_PRESSURE_B': 300,
-            # A级风险: 短中长周期都在派发，是系统性出货的明确信号。
-            'RISK_CHIP_DIVERGING_RESONANCE_A': 400,
-            # A级风险: 主力堡垒看似稳固，但内部已开始瓦解，是危险的背离信号。
-            'SCENARIO_FORTRESS_INTERNAL_COLLAPSE_A': 420,
-            # S级风险: 战略派发背景下的任何拉升都应被视为高风险事件。
-            'RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S': 550,
-            # S级风险: 市场引擎失速，上涨效率崩溃，是趋势即将终结的强烈信号。
-            'RISK_DYN_MARKET_ENGINE_STALLING_S': 600,
-            # S级风险: 获利盘恐慌加速，是市场情绪崩溃、踩踏式下跌的预警。
-            'RISK_DYN_PANIC_SELLING_ACCELERATING_S': 580,
-            # S级风险: 认知层合成的顶部危险结构信号，代表多重风险共振。
-            'STRUCTURE_TOPPING_DANGER_S': 520,
-            # A级风险: 放量杀跌，是恐慌或主力出货的直接体现，是强烈的风险预警。
-            'RISK_VOL_PRICE_SPIKE_DOWN_A': 480,
-            # F级风险: 认知层判定的下跌通道，是绝对的逆风环境，风险极高。
-            'STRUCTURE_BEARISH_CHANNEL_F': 450,
-            # B级风险: MACD死叉，经典的短期动能转弱信号。
-            'RISK_TRIGGER_MACD_DEATH_CROSS_B': 250,
-            # A级风险: 主峰高位派发嫌疑，在高位区域发生激烈换手但价格滞涨，是典型的派发行为。
-            'RISK_PEAK_BATTLE_DISTRIBUTION_A': 460,
-            # B级风险: 散户狂热风险，股价大涨但主要由散户买盘驱动，是情绪过热的危险信号。
-            'RISK_FUND_FLOW_RETAIL_FOMO_B': 310,
-            # S级风险: 结构性长期超涨，股价长期严重偏离均线，回归压力巨大，结构不稳定。
-            'RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S': 470,
-            # S级风险: 多维共振超涨，日线和周线同时严重超涨，是极度危险的顶部共振信号。
-            'RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S': 530,
-            # B级风险: 市场处于均值回归状态，追涨策略的风险显著增加，突破很可能是陷阱。
-            'STRUCTURE_REGIME_MEAN_REVERTING': 280,
-        }
-        for risk_name, score in elite_atomic_risks.items():
-            signal_series = atomic_states.get(risk_name, default_series)
-            if signal_series.any():
-                current_score = risk_details_df.get(risk_name, pd.Series(0.0, index=df.index))
-                risk_details_df[risk_name] = current_score.add(signal_series * score, fill_value=0)
-                # print(f"          -> [精英原子风险] 侦测到高危信号 “{risk_name}”，增加 {score} 风险分！")
-
+        # 删除了整个硬编码的 elite_atomic_risks 字典及其处理逻辑
         combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
-        
         risk_multiplier = pd.Series(1.0, index=df.index)
         is_mean_reversion = atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', default_series)
         is_random_walk = atomic_states.get('FRACTAL_STATE_RANDOM_WALK', default_series)
         is_unstable_market = is_mean_reversion | is_random_walk
-        
         if is_unstable_market.any():
             instability_multiplier = 1.3
             risk_multiplier.loc[is_unstable_market] *= instability_multiplier
-
         is_strong_trend = atomic_states.get('FRACTAL_STATE_STRONG_TREND', default_series)
         if is_strong_trend.any():
-            # 在强趋势中，我们只关心最核心的、不可被趋势消化的风险
             core_risks = {
                 "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
                 "STRUCTURE_TOPPING_DANGER_S",
@@ -216,18 +168,14 @@ class WarningLayer:
             for col in combined_risk_details_df.columns:
                 if col not in core_risks:
                     combined_risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
-
         adjusted_total_risk_score = combined_risk_details_df.sum(axis=1)
         adjusted_total_risk_score *= risk_multiplier
-        
         has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
         if has_strategic_opportunity.any():
             strategic_coverage_factor = get_param_value(warning_params.get('strategic_coverage_factor'), 0.3)
             adjusted_total_risk_score = adjusted_total_risk_score.where(~has_strategic_opportunity, adjusted_total_risk_score * strategic_coverage_factor)
-
         momentum_summary = self._diagnose_risk_momentum(adjusted_total_risk_score)
         composition_summary = self._diagnose_risk_dynamics(combined_risk_details_df)
-
         final_health_summary = pd.Series([{} for _ in range(len(df))], index=df.index)
         for idx in df.index:
             final_report = composition_summary.at[idx]
@@ -235,7 +183,6 @@ class WarningLayer:
             if momentum_report:
                 final_report['momentum'] = momentum_report
             final_health_summary.at[idx] = final_report
-
         return adjusted_total_risk_score, combined_risk_details_df, final_health_summary
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:

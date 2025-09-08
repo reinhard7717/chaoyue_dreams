@@ -722,7 +722,7 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V319.4 计分透明版 - 调试报告增强】
+        【V319.5 中文报告修复版】
         - 核心升级: 新增“计分详情”和“进攻项惩罚”模块，完美解决“总分与分项之和不符”的报告问题，使分数计算过程完全透明。
         - 修复 #1: “激活进攻项”列表已净化，不再包含 SCORE_SETUP 等小计项，只展示原始贡献分。
         - 修复 #2: 激活的进攻项和风险项现在显示中文名，解决了报告可读性问题。
@@ -730,7 +730,7 @@ class MultiTimeframeTrendStrategy:
         - 修复 #4: 通过“决策摘要”和清晰的命名，明确了进攻分数、风险分数与最终信号之间的关系。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.4 计分透明版)] ---") # [代码修改] 更新版本号
+        print(f"--- [历史回溯调试启动 (V319.5 中文报告修复版)] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -800,10 +800,7 @@ class MultiTimeframeTrendStrategy:
                     veto_votes = day_analysis_row.get('veto_votes', 'N/A')
                     print(f"    - 净得分 (进攻-风险): {net_score:.0f}")
                     print(f"    - 否决票数: {veto_votes:.0f}")
-                    # [代码新增] 新增计分详情模块
-                    setup_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_SETUP'), 0)
-                    trigger_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_TRIGGER'), 0)
-                    playbook_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_PLAYBOOK_SYNERGY'), 0)
+                    # 修正计分详情的计算逻辑，确保能正确显示惩罚项
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 计分详情: (所有加分项 {all_positive_scores}) + (所有惩罚项 {all_penalties}) = {daily_score_obj.offensive_score}")
@@ -817,7 +814,6 @@ class MultiTimeframeTrendStrategy:
                             print("    - 触发的离场防线: 无")
                 else:
                     print("    - 未找到当日的详细分析数据。")
-                # [代码修改] 净化进攻项列表，排除小计项
                 offensive_components = [
                     c for c in related_components 
                     if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic'] 
@@ -827,17 +823,19 @@ class MultiTimeframeTrendStrategy:
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
+                        # 使用 comp.signal_cn_name 替代 comp.signal_name 以显示中文
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-                # [代码新增] 新增进攻项惩罚模块
                 penalty_components = [c for c in related_components if c.score_value < 0]
                 if penalty_components:
                     print("  --- 进攻项惩罚 (扣分项) ---")
                     for comp in sorted(penalty_components, key=lambda x: x.score_value):
+                        # 使用 comp.signal_cn_name 替代 comp.signal_name 以显示中文
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 ---")
                     for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
+                        # 使用 comp.signal_cn_name 替代 comp.signal_name 以显示中文
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:

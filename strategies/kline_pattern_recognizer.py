@@ -65,7 +65,7 @@ class KlinePatternRecognizer:
         - 统一并优化了“三白兵”和“三只乌鸦”的识别逻辑，使其更清晰、健壮。
         """
         # --- 0. 基础数据和衍生变量预计算 ---
-        # [代码修改] 使用传入的suffix动态构建列名
+        # 使用传入的suffix动态构建列名
         op, hi, lo, cl = df[f'open{suffix}'], df[f'high{suffix}'], df[f'low{suffix}'], df[f'close{suffix}']
         kline_range = (hi - lo).replace(0, 0.0001)
         body_size = abs(cl - op)
@@ -93,7 +93,7 @@ class KlinePatternRecognizer:
                   'is_long_body_decent': is_long_body_decent.shift(2), 'is_long_body_perfect': is_long_body_perfect.shift(2) }
         
         # --- 1. 十字星 (Doji) ---
-        # [代码修改] 所有输出列名都动态添加suffix
+        # 所有输出列名都动态添加suffix
         df[f'kline_s_doji_decent{suffix}'] = is_doji_body_decent
         df[f'kline_s_doji_perfect{suffix}'] = is_doji_body_perfect
 
