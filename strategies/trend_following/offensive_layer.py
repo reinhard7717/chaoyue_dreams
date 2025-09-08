@@ -11,7 +11,7 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V401.0 三位一体版】进攻方案评估中心
+        【V401.0 三位一体版】【健壮性修复】
         - 核心重构: 废除旧的混合计分模型，全面升级为“三位一体”计分体系，将“战备”、“触发”和“协同”分离。
         - 核心逻辑:
           1.  【战备分】: 对高质量的元融合信号和战备状态进行独立计分，构筑开仓的“地基”。
@@ -19,17 +19,16 @@ class OffensiveLayer:
           3.  【协同奖励分】: 当“战备”与“触发”完美结合（即剧本成功执行）时，给予额外的“协同奖励”。
           4.  【总分合成】: 最终进攻分 = 战备分 + 触发器分 + 协同奖励分 + 其他加成项。
         - 收益: 评分体系更透明、可解释，且能更早地发现“万事俱备，只欠东风”的潜在机会。
+        - 健壮性修复: 在所有计分环节增加了 .fillna(0) 处理，防止因上游指标计算初期的NaN值导致entry_score整体为NaN。
         """
         # print("        -> [进攻方案评估中心 V401.0 三位一体版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
-        
         # --- 1. 加载三位一体计分模型参数 ---
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
-            
         # --- 2. 计算【第一层：环境与战备分】(Contextual & Setup Score) ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
@@ -38,12 +37,12 @@ class OffensiveLayer:
                 # 战备信号通常是布尔型
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
-                    bonus_amount = signal_series.astype(float) * score
+                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
+                    bonus_amount = signal_series.fillna(0).astype(float) * score
                     context_score += bonus_amount
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
         score_details_df['SCORE_SETUP'] = context_score
         print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
-
         # --- 3. 计算【第二层：独立触发器加分】(Trigger Event Score) ---
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
@@ -51,12 +50,12 @@ class OffensiveLayer:
             for trigger_name, score in trigger_params.get('positive_signals', {}).items():
                 trigger_series = trigger_events.get(trigger_name, pd.Series(False, index=df.index))
                 if trigger_series.any():
-                    bonus_amount = trigger_series.astype(float) * score
+                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
+                    bonus_amount = trigger_series.fillna(0).astype(float) * score
                     trigger_score += bonus_amount
                     score_details_df[f"TRIGGER_{trigger_name}"] = bonus_amount
         score_details_df['SCORE_TRIGGER'] = trigger_score
-        print(f"          -> [第二层] 独立触发器分计算完毕，加分峰值: {trigger_score.max():.0f}")
-
+        print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
         # --- 4. 计算【第三层：剧本协同奖励分】(Playbook Synergy Score) ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
@@ -64,22 +63,20 @@ class OffensiveLayer:
             for playbook_name, score in playbook_params.get('positive_signals', {}).items():
                 playbook_series = self.strategy.playbook_states.get(playbook_name, pd.Series(False, index=df.index))
                 if playbook_series.any():
-                    bonus_amount = playbook_series.astype(float) * score
+                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
+                    bonus_amount = playbook_series.fillna(0).astype(float) * score
                     playbook_score += bonus_amount
                     score_details_df[f"PLAYBOOK_{playbook_name}"] = bonus_amount
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
         print(f"          -> [第三层] 剧本协同奖励分计算完毕，奖励峰值: {playbook_score.max():.0f}")
-
         # --- 5. 合成总进攻分 (Total Entry Score) ---
         # 总分 = 战备分 + 触发器分 + 协同奖励分
         entry_score = context_score + trigger_score + playbook_score
-        
         # --- 6. 应用其他独立的加分模块 (如动能分、环境加成等) ---
         # 6.0 应用“战略背景”奖励分 (调用新增的奖励模块)
         entry_score, score_details_df = self._apply_strategic_context_bonuses(entry_score, score_details_df)
         # 6.1 应用“上下文环境”奖励分 (调用独立的奖励模块)
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
-        
         # 6.2 应用“动态动能”加分
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         if get_param_value(dynamic_params.get('enabled'), True):
@@ -94,18 +91,21 @@ class OffensiveLayer:
                     # 将布尔与运算(&)修改为乘法，以正确处理数值化分数。
                     # 当can_add_dynamic_score为False(0.0)时，奖金自动为0；为True(1.0)时，则为 signal_series * score。
                     # 这种方式同时兼容布尔型和浮点型signal_series。
-                    bonus_amount = signal_series * can_add_dynamic_score.astype(float) * score
+                    # 对 signal_series 增加 .fillna(0.0) 处理
+                    bonus_amount = signal_series.fillna(0.0) * can_add_dynamic_score.astype(float) * score
                     entry_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
-
+        # [代码新增] 增加一个最终的fillna确保万无一失，并将entry_score转换为整数类型，符合数据库模型要求
+        entry_score = entry_score.fillna(0).astype(int)
         print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
         return entry_score, score_details_df
 
     def _apply_strategic_context_bonuses(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V401.1 新增】战略背景奖励模块
+        【V401.1 新增】【健壮性修复】战略背景奖励模块
         - 核心职责: 读取并应用配置文件中定义的、基于周线和日线长周期宏观背景的奖励分和惩罚项。
                     这是连接战略层与战术层的关键计分环节。
+        - 健壮性修复: 增加 .fillna(0) 处理，防止因上游指标计算初期的NaN值导致entry_score为NaN。
         """
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         atomic_states = self.strategy.atomic_states
@@ -131,7 +131,8 @@ class OffensiveLayer:
                 if signal_series.any():
                     score_value = get_param_value(strategic_params.get(config_key), 0)
                     if score_value != 0:
-                        bonus_amount = signal_series.astype(float) * score_value
+                        # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
+                        bonus_amount = signal_series.fillna(0).astype(float) * score_value
                         entry_score += bonus_amount
                         score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
         # 2. 处理日线长周期筹码战略背景加分 (chip_context_scoring)
@@ -142,7 +143,8 @@ class OffensiveLayer:
             if signal_series.any():
                 score_value = get_param_value(chip_context_params.get('strategic_gathering_bonus'), 0)
                 if score_value != 0:
-                    bonus_amount = signal_series.astype(float) * score_value
+                    # 增加 .fillna(0) 来处理上游指标计算初期的NaN值
+                    bonus_amount = signal_series.fillna(0).astype(float) * score_value
                     entry_score += bonus_amount
                     score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
         return entry_score, score_details_df
