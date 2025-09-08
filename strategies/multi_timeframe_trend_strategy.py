@@ -722,24 +722,24 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V319.3 决策透视版 - 调试报告增强】
-        - 核心升级: 彻底重构调试报告，新增“决策摘要”模块，清晰展示净得分、否决票和触发的离场防线，完美解释“为何在有进攻信号时依然卖出”。
-        - 修复 #1: 激活的进攻项和风险项现在显示中文名，解决了报告可读性问题。
-        - 修复 #2: 报告中不再展示贡献分数为0的激活项。
-        - 修复 #3 & #4: 通过“决策摘要”和清晰的命名，明确了进攻分数、风险分数与最终信号之间的关系。
+        【V319.4 计分透明版 - 调试报告增强】
+        - 核心升级: 新增“计分详情”和“进攻项惩罚”模块，完美解决“总分与分项之和不符”的报告问题，使分数计算过程完全透明。
+        - 修复 #1: “激活进攻项”列表已净化，不再包含 SCORE_SETUP 等小计项，只展示原始贡献分。
+        - 修复 #2: 激活的进攻项和风险项现在显示中文名，解决了报告可读性问题。
+        - 修复 #3: 报告中不再展示贡献分数为0的激活项。
+        - 修复 #4: 通过“决策摘要”和清晰的命名，明确了进攻分数、风险分数与最终信号之间的关系。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V319.3 决策透视版)] ---") # [代码修改] 更新版本号
+        print(f"--- [历史回溯调试启动 (V319.4 计分透明版)] ---") # [代码修改] 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
-            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date) # [代码修改] 传入start_date_str以优化性能
-            if not all_daily_scores: # [代码修改] 改为检查all_daily_scores，因为它包含每一天的数据
+            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
+            if not all_daily_scores:
                 print("[信息] 核心策略未生成任何每日分数记录。")
                 return
-            # [代码新增] 获取决策过程中的关键数据
             daily_analysis_df = self.daily_analysis_df
             exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
             # 步骤 1.1: 在内存中构建信号到详情的映射
@@ -791,9 +791,7 @@ class MultiTimeframeTrendStrategy:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
                 related_components = daily_components_map.get(trade_date, [])
-                # 打印每日总分
                 print(f"\n{time_str} [周期: D] [进攻总分: {daily_score_obj.offensive_score:<7}] [风险总分: {daily_score_obj.risk_score:<7}] [最终信号: {daily_score_obj.signal_type}]")
-                # [代码新增] 决策摘要模块
                 print("  --- 决策摘要 ---")
                 day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
                 if not day_analysis_row.empty:
@@ -802,6 +800,13 @@ class MultiTimeframeTrendStrategy:
                     veto_votes = day_analysis_row.get('veto_votes', 'N/A')
                     print(f"    - 净得分 (进攻-风险): {net_score:.0f}")
                     print(f"    - 否决票数: {veto_votes:.0f}")
+                    # [代码新增] 新增计分详情模块
+                    setup_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_SETUP'), 0)
+                    trigger_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_TRIGGER'), 0)
+                    playbook_score = next((c.score_value for c in related_components if c.signal_name == 'SCORE_PLAYBOOK_SYNERGY'), 0)
+                    all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
+                    all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
+                    print(f"    - 计分详情: (所有加分项 {all_positive_scores}) + (所有惩罚项 {all_penalties}) = {daily_score_obj.offensive_score}")
                     day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
                     if not day_exit_triggers.empty:
                         triggered_defenses = day_exit_triggers.iloc[0]
@@ -812,13 +817,23 @@ class MultiTimeframeTrendStrategy:
                             print("    - 触发的离场防线: 无")
                 else:
                     print("    - 未找到当日的详细分析数据。")
-                # [代码修改] 打印激活的进攻项，使用中文名并过滤0值
-                offensive_components = [c for c in related_components if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook'] and c.score_value > 0]
+                # [代码修改] 净化进攻项列表，排除小计项
+                offensive_components = [
+                    c for c in related_components 
+                    if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic'] 
+                    and c.score_value > 0 
+                    and not c.signal_name.startswith('SCORE_')
+                ]
                 if offensive_components:
-                    print("  --- 激活进攻项 ---")
+                    print("  --- 激活进攻项 (加分项) ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-                # [代码修改] 打印激活的风险项，使用中文名并过滤0值
+                # [代码新增] 新增进攻项惩罚模块
+                penalty_components = [c for c in related_components if c.score_value < 0]
+                if penalty_components:
+                    print("  --- 进攻项惩罚 (扣分项) ---")
+                    for comp in sorted(penalty_components, key=lambda x: x.score_value):
+                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 ---")
