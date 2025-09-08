@@ -74,9 +74,9 @@ class OffensiveLayer:
         # 总分 = 战备分 + 触发器分 + 协同奖励分
         entry_score = context_score + trigger_score + playbook_score
         
-        # --- 6. [保留逻辑] 应用其他独立的加分模块 (如动能分、环境加成等) ---
-        # 注意：这些模块现在是在三位一体总分的基础上进行加成
-        
+        # --- 6. 应用其他独立的加分模块 (如动能分、环境加成等) ---
+        # 6.0 应用“战略背景”奖励分 (调用新增的奖励模块)
+        entry_score, score_details_df = self._apply_strategic_context_bonuses(entry_score, score_details_df)
         # 6.1 应用“上下文环境”奖励分 (调用独立的奖励模块)
         entry_score, score_details_df = self._apply_contextual_bonus_score(entry_score, score_details_df)
         
@@ -94,6 +94,52 @@ class OffensiveLayer:
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
 
         print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
+        return entry_score, score_details_df
+
+    def _apply_strategic_context_bonuses(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        【V401.1 新增】战略背景奖励模块
+        - 核心职责: 读取并应用配置文件中定义的、基于周线和日线长周期宏观背景的奖励分和惩罚项。
+                    这是连接战略层与战术层的关键计分环节。
+        """
+        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        atomic_states = self.strategy.atomic_states
+        default_series = pd.Series(False, index=entry_score.index)
+        # 1. 处理周线战略背景加分 (strategic_context_scoring)
+        strategic_params = scoring_params.get('strategic_context_scoring', {})
+        if get_param_value(strategic_params.get('enabled'), False):
+            # 定义周线战略信号与配置项的映射关系
+            strategic_map = {
+                'CONTEXT_STRATEGIC_BULLISH_W': 'bullish_bonus',
+                'CONTEXT_STRATEGIC_IGNITION_W': 'ignition_bonus',
+                'CONTEXT_TREND_HEALTH_STRONG_W': 'trend_health_bonus',
+                'CONTEXT_NEAR_52W_HIGH_W': 'breakout_eve_bonus',
+                'CONTEXT_PSYCH_REVERSAL_BULLISH_W': 'reversal_confirm_bonus',
+                'CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D': 'long_term_chip_accumulation_bonus',
+                'CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D': 'long_term_chip_accel_accumulation_bonus',
+                'CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D': 'long_term_chip_health_improving_bonus',
+                'CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D': 'long_term_chip_divergence_penalty',
+                'CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D': 'long_term_chip_accel_divergence_penalty',
+            }
+            for signal_name, config_key in strategic_map.items():
+                signal_series = atomic_states.get(signal_name, default_series)
+                if signal_series.any():
+                    score_value = get_param_value(strategic_params.get(config_key), 0)
+                    if score_value != 0:
+                        bonus_amount = signal_series.astype(float) * score_value
+                        entry_score += bonus_amount
+                        score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
+        # 2. 处理日线长周期筹码战略背景加分 (chip_context_scoring)
+        chip_context_params = scoring_params.get('chip_context_scoring', {})
+        if get_param_value(chip_context_params.get('enabled'), False):
+            signal_name = 'CONTEXT_CHIP_STRATEGIC_GATHERING'
+            signal_series = atomic_states.get(signal_name, default_series)
+            if signal_series.any():
+                score_value = get_param_value(chip_context_params.get('strategic_gathering_bonus'), 0)
+                if score_value != 0:
+                    bonus_amount = signal_series.astype(float) * score_value
+                    entry_score += bonus_amount
+                    score_details_df[f"STRATEGIC_{signal_name}"] = bonus_amount
         return entry_score, score_details_df
 
     def _diagnose_offensive_momentum(self, entry_score: pd.Series, score_details_df: pd.DataFrame) -> pd.Series:

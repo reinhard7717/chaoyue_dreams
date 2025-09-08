@@ -792,7 +792,7 @@ class CognitiveIntelligence:
         # 使用滚动85%分位数作为动态阈值，避免硬编码
         stalling_threshold = stalling_risk_score.rolling(120).quantile(0.85)
         is_significant_stalling = stalling_risk_score > stalling_threshold
-        states['COGNITIVE_HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now & is_significant_stalling
+        states['HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now & is_significant_stalling
         self.strategy.atomic_states.update(states)
         print("        -> [认知层持仓风险合成模块 V1.1 数值化升级版] 计算完毕。") 
         return df

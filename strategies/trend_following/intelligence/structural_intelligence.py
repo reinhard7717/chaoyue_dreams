@@ -214,7 +214,7 @@ class StructuralIntelligence:
         - 本次升级: 【修正】将内部计算的“成本动能分”与“成本加速分”正确输出到 states 字典，
                     使其可供下游模块（如认知层的战术诊断）消费。
         """
-        print("        -> [诊断模块 V3.1 信号输出修正版] 启动...") 
+        # print("        -> [诊断模块 V3.1 信号输出修正版] 启动...") 
         states = {}
         p = get_params_block(self.strategy, 'platform_state_params')
         if not get_param_value(p.get('enabled'), True): return df, {}
@@ -253,14 +253,14 @@ class StructuralIntelligence:
             for p in cost_periods
         ]
         cost_momentum_score = pd.Series(np.mean(np.array([s.values for s in cost_slope_series]), axis=0), index=df.index)
-        states['SCORE_PLATFORM_COST_MOMENTUM'] = cost_momentum_score.astype(np.float32) # 将成本动能分添加到输出
+        states['SCORE_PLATFORM_COST_MOMENTUM'] = cost_momentum_score.astype(np.float32) # 修改: 将成本动能分添加到输出
         # 2.3 成本加速分 (Acceleration Score) 
         cost_accel_series = [
             df[f'ACCEL_{p if p > 5 else 5}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_accel_score = pd.Series(np.mean(np.array([s.values for s in cost_accel_series]), axis=0), index=df.index)
-        states['SCORE_PLATFORM_COST_ACCEL'] = cost_accel_score.astype(np.float32) # 将成本加速分添加到输出
+        states['SCORE_PLATFORM_COST_ACCEL'] = cost_accel_score.astype(np.float32) # 修改: 将成本加速分添加到输出
         # 2.4 宏观环境分 (Context Score) 
         context_health_score = atomic.get('SCORE_MA_HEALTH', pd.Series(0.5, index=df.index))
         # --- 3. 融合生成B/A/S三级平台质量分 ---
