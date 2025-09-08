@@ -782,13 +782,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         # 确保斜率被计算
                         slope_col = f"{base_col}_slope_{p}d"
                         if slope_col not in final_metrics_df.columns:
-                            print(f"    -> 补算斜率: {slope_col}")
                             final_metrics_df[slope_col] = _calculate_slope(final_metrics_df[base_col], p)
                         
                         # 确保加速度被计算
                         accel_col = f"{base_col}_accel_{p}d"
                         if accel_col not in final_metrics_df.columns:
-                            print(f"    -> 补算加速度: {accel_col}")
                             final_metrics_df[accel_col] = _calculate_slope(final_metrics_df[slope_col], p)
             strategy_config = _load_strategy_config()
             feature_params = strategy_config.get('feature_engineering_params', {})
