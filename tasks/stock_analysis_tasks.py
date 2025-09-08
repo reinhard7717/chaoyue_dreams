@@ -608,12 +608,10 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
     """
-    【执行器 V11.0 - 衍生特征工厂版】
-    - 核心重构: 本任务现在是数据驱动的。它会加载策略配置文件，并根据其中的
-                `slope_params` 和 `accel_params` 自动计算所有需要的斜率和加速度指标。
-    - 职责升级: 不再是简单的基础指标计算，而是成为一个完整的“衍生特征工厂”，
-                负责生成并持久化所有高级筹码分析所需的衍生数据。
-    - 维护性: 未来需要增减衍生指标时，只需修改JSON配置文件和模型，无需改动此任务代码。
+    【执行器 V13.0 - 时序修正版】
+    - 核心修正 (V13.0): 彻底重构衍生指标的计算时序，解决`chip_health_score`与其自身
+                      斜率/加速度之间的“鸡生蛋”依赖问题。确保所有指标的计算都基于其
+                      前置依赖项的最终值。
     """
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     async def main(time_dao, incremental_flag: bool):
@@ -766,89 +764,82 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
-            # --- 指标衍生计算 (V11.0 数据驱动版) ---
-            # print(f"[{stock_code}] [衍生特征工厂] 开始根据策略配置计算衍生指标...")
-            # 首先计算 cost_divergence，作为后续衍生计算的基础
+            
+            # --- 指标衍生计算 (V13.0 三阶段时序修正版) ---
+            print(f"[{stock_code}] [衍生特征工厂 V13.0] 启动三阶段衍生计算...")
+            # 阶段一：计算所有非健康分的基础及衍生指标
+            print("    -> 阶段 1/3: 计算所有基础衍生指标...")
             if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
                 final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
-            required_derivatives_config = {
-                'peak_stability': [5, 21, 55],
-                'peak_control_ratio': [55], # 5, 21周期已有
-                'concentration_70pct': [5, 21, 55],
-            }
+            
+            # 1.1 硬编码保障 + 数据驱动计算 (斜率)
+            required_derivatives_config = { 'peak_stability': [5, 21, 55], 'peak_control_ratio': [55], 'concentration_70pct': [5, 21, 55] }
             for base_col, periods in required_derivatives_config.items():
                 if base_col in final_metrics_df.columns:
                     for p in periods:
-                        # 确保斜率被计算
                         slope_col = f"{base_col}_slope_{p}d"
-                        if slope_col not in final_metrics_df.columns:
-                            final_metrics_df[slope_col] = _calculate_slope(final_metrics_df[base_col], p)
-                        
-                        # 确保加速度被计算
-                        accel_col = f"{base_col}_accel_{p}d"
-                        if accel_col not in final_metrics_df.columns:
-                            final_metrics_df[accel_col] = _calculate_slope(final_metrics_df[slope_col], p)
+                        if slope_col not in final_metrics_df.columns: final_metrics_df[slope_col] = _calculate_slope(final_metrics_df[base_col], p)
             strategy_config = _load_strategy_config()
             feature_params = strategy_config.get('feature_engineering_params', {})
-            # 1. 计算所有斜率
             slope_params = feature_params.get('slope_params', {})
             if slope_params.get('enabled', False):
-                series_to_slope = slope_params.get('series_to_slope', {})
-                for base_col, periods in series_to_slope.items():
+                for base_col, periods in slope_params.get('series_to_slope', {}).items():
                     if "说明" in base_col: continue
-                    # 从配置的列名（如 peak_cost_D）中提取基础列名（如 peak_cost）
                     base_col_name = base_col.replace('_D', '') 
                     if base_col_name in final_metrics_df.columns:
                         for p in periods:
-                            # 目标字段名与模型字段名完全对应 (例如: peak_cost_slope_5d)
                             target_col_name = f"{base_col_name}_slope_{p}d"
-                            # print(f"    -> 正在计算斜率: {target_col_name}")
                             final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[base_col_name], p)
-            # 2. 计算所有加速度 (斜率的斜率)
+            
+            # 1.2 硬编码保障 + 数据驱动计算 (加速度)
+            for base_col, periods in required_derivatives_config.items():
+                if base_col in final_metrics_df.columns:
+                    for p in periods:
+                        slope_col = f"{base_col}_slope_{p}d"
+                        accel_col = f"{base_col}_accel_{p}d"
+                        if accel_col not in final_metrics_df.columns: final_metrics_df[accel_col] = _calculate_slope(final_metrics_df[slope_col], p)
             accel_params = feature_params.get('accel_params', {})
             if accel_params.get('enabled', False):
-                series_to_accel = accel_params.get('series_to_accel', {})
-                for base_col, periods in series_to_accel.items():
+                for base_col, periods in accel_params.get('series_to_accel', {}).items():
                     if "说明" in base_col: continue
                     base_col_name = base_col.replace('_D', '')
                     if base_col_name in final_metrics_df.columns:
                         for p in periods:
-                            # 加速度是基于斜率计算的，所以先定位源斜率列
                             source_slope_col = f"{base_col_name}_slope_{p}d"
                             if source_slope_col in final_metrics_df.columns:
-                                # 目标字段名与模型字段名完全对应 (例如: peak_control_ratio_accel_5d)
                                 target_col_name = f"{base_col_name}_accel_{p}d"
-                                # print(f"    -> 正在计算加速度: {target_col_name}")
                                 final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[source_slope_col], p)
-                            else:
-                                print(f"    -> [警告] 无法计算加速度，源斜率列不存在: {source_slope_col}")
-            # --- 新增：计算所有核心信号的1日斜率与1日加速度 ---
-            # 定义需要计算1日衍生指标的基础信号列表
-            signals_for_1d_derivatives = [
+            
+            # 1.3 计算除健康分外的1日衍生指标
+            signals_for_1d_derivatives_base = [
                 'peak_cost', 'concentration_70pct', 'concentration_90pct', 'peak_stability',
                 'peak_control_ratio', 'peak_strength_ratio', 'winner_profit_margin',
                 'support_below', 'pressure_above', 'turnover_from_winners_ratio',
-                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term',
-                'chip_health_score'
+                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term'
             ]
-            for base_col_name in signals_for_1d_derivatives:
+            for base_col_name in signals_for_1d_derivatives_base:
                 if base_col_name in final_metrics_df.columns:
-                    # 计算1日斜率 (窗口为2，即今天和昨天)
                     slope_col_1d = f"{base_col_name}_slope_1d"
                     final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
-                    
-                    # 基于1日斜率计算1日加速度 (窗口为2)
                     accel_col_1d = f"{base_col_name}_accel_1d"
                     final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-            # --- 1日衍生指标计算结束 ---
-            # 3. 最后计算依赖于衍生指标的 chip_health_score
-            # 注意: 确保 calculate_chip_health_score 函数能处理DataFrame的行(Series)
-            # 并且能够找到所有它需要的斜率列
-            # print(f"[{stock_code}] 正在重新计算筹码健康分...")
-            # 假设 calculate_chip_health_score 函数已存在于其他模块
-            # from .chip_health_calculator import calculate_chip_health_score 
+
+            # 阶段二：计算最终版的筹码健康分
+            print("    -> 阶段 2/3: 计算最终版筹码健康分...")
             final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
-            # --- 数据保存部分 (逻辑不变，但现在会保存更多字段) ---
+
+            # 阶段三：基于最终版的健康分，计算其1日斜率和加速度
+            print("    -> 阶段 3/3: 计算健康分的1日斜率与加速度...")
+            if 'chip_health_score' in final_metrics_df.columns:
+                slope_col_1d = "chip_health_score_slope_1d"
+                final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df['chip_health_score'], 2)
+                print(f"        -> [调试] {slope_col_1d} 最后5值: {final_metrics_df[slope_col_1d].tail(5).to_list()}")
+                
+                accel_col_1d = "chip_health_score_accel_1d"
+                final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
+                print(f"        -> [调试] {accel_col_1d} 最后5值: {final_metrics_df[accel_col_1d].tail(5).to_list()}")
+
+            # --- 数据保存部分 ---
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
             model_fields = {f.name for f in MetricsModel._meta.get_fields()}
