@@ -806,7 +806,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             else:
                                 print(f"    -> [警告] 无法计算加速度，源斜率列不存在: {source_slope_col}")
             # --- 新增：计算所有核心信号的1日斜率与1日加速度 ---
-            print(f"[{stock_code}] [衍生特征工厂] 开始计算1日斜率与加速度...")
             # 定义需要计算1日衍生指标的基础信号列表
             signals_for_1d_derivatives = [
                 'peak_cost', 'concentration_70pct', 'concentration_90pct', 'peak_stability',
@@ -1025,7 +1024,6 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
                 if source_slope_col in final_metrics_df.columns:
                     final_metrics_df[f'{col}_accel_{p}d'] = _calculate_slope(final_metrics_df[source_slope_col], p)
         # --- 新增：计算核心信号的1日斜率与1日加速度 ---
-        print(f"[{stock_code}] [衍生特征工厂] 开始计算1日资金流斜率与加速度...")
         # 定义需要计算1日衍生指标的基础信号列表
         signals_for_1d_derivatives_fund = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
