@@ -297,7 +297,9 @@ class JudgmentLayer:
         df.loc[has_structural_weakness_rally, 'veto_votes'] += 3
 
         # 13.3 认知层合成的顶部危险结构信号，代表多重风险共振，给予3票强否决。
-        has_topping_danger = atomic.get('STRUCTURE_TOPPING_DANGER_S', default_series)
+        default_score = pd.Series(0.0, index=df.index) # 新增一个默认分数Series
+        topping_danger_score = atomic.get('SCORE_STRUCTURE_TOPPING_DANGER_S', default_score)
+        has_topping_danger = topping_danger_score > 0.6 # 使用与原布尔信号相同的阈值
         df.loc[has_topping_danger, 'veto_votes'] += 3
         
         # --- 风险14: 新增基础层与结构层风险否决票 ---

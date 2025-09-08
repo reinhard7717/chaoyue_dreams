@@ -815,10 +815,10 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("    - 未找到当日的详细分析数据。")
                 offensive_components = [
-                    c for c in related_components 
-                    if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic'] 
-                    and c.score_value > 0 
-                    and not c.signal_name.startswith('SCORE_')
+                    c for c in related_components
+                    if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic']
+                    and c.score_value > 0
+                    and c.signal_name not in subtotal_signal_names
                 ]
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")

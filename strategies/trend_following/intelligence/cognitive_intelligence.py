@@ -1070,8 +1070,6 @@ class CognitiveIntelligence:
             pattern_top_reversal_score.values,
         ])
         structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] = pd.Series(topping_danger_score, index=df.index, dtype=np.float32)
-        # 兼容旧版布尔信号
-        structure_states['STRUCTURE_TOPPING_DANGER_S'] = structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] > 0.6
         # 下跌通道评分
         bearish_channel_score = ma_bearish_score * dyn_trend_weakening_score * chip_diverging_score
         structure_states['SCORE_STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score.astype(np.float32)

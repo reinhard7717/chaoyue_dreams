@@ -159,7 +159,7 @@ class WarningLayer:
         if is_strong_trend.any():
             core_risks = {
                 "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
-                "STRUCTURE_TOPPING_DANGER_S",
+                "SCORE_STRUCTURE_TOPPING_DANGER_S",
                 "CONTEXT_RECENT_DISTRIBUTION_PRESSURE", 
                 "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
                 "FRACTAL_RISK_TOP_DIVERGENCE",

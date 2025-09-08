@@ -839,7 +839,7 @@
             "RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S": 970,
             "说明_新增": "--- 【V83.0 新增】将原硬编码的致命风险统一纳入配置 ---",
             "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE": 600, "说明_新增1": "S级系统性风险，筹码结构严重失效，必须离场。",
-            "STRUCTURE_TOPPING_DANGER_S": 500, "说明_新增2": "S级顶部危险结构形成，大概率是阶段性顶部。",
+            "SCORE_STRUCTURE_TOPPING_DANGER_S": 500, "说明_新增2": "S级顶部危险结构形成，大概率是阶段性顶部。",
             "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
             "FRACTAL_RISK_TOP_DIVERGENCE": 400,
             "FRACTAL_EVENT_TREND_EXHAUSTION": 250,
@@ -1035,7 +1035,7 @@
           "SCORE_RISK_PROFIT_EXHAUSTION_S": { "cn_name": "【结构风险S】利润衰竭", "category": "结构层-风险", "type": "risk", "description": "获利盘比例和利润空间同时收缩，且筹码健康度恶化。" },
           "SCORE_RISK_STRUCTURAL_FAULT_S": { "cn_name": "【结构风险S】结构断层", "category": "结构层-风险", "type": "risk", "description": "筹码结构不健康，且出现断层。" },
           "STRUCTURE_BEARISH_CHANNEL_F": { "cn_name": "【结构F风险】下跌通道", "category": "结构层-风险", "type": "risk", "description": "均线、力学、筹码三方面均确认处于下跌通道中。" },
-          "STRUCTURE_TOPPING_DANGER_S": { "cn_name": "【结构S风险】顶部危险", "category": "结构层-风险", "type": "risk", "description": "融合多种顶部风险信号（筹码失效、上涨末期、派发行为等）的综合风险。" },
+          "SCORE_STRUCTURE_TOPPING_DANGER_S": { "cn_name": "【结构S风险】顶部危险", "category": "结构层-风险", "type": "risk", "description": "融合多种顶部风险信号（筹码失效、上涨末期、派发行为等）的综合风险。" },
           "STRUCTURE_BOX_ACCUMULATION_A": { "cn_name": "【结构A】健康吸筹箱体", "category": "结构层-环境", "type": "context", "description": "识别出处于稳定吸筹状态的箱体。" },
           "STRUCTURE_BREAKOUT_EVE_S": { "cn_name": "【结构S】突破前夜", "category": "结构层-环境", "type": "context", "description": "平台质量和力学优势均达到高水平，突破一触即发。" },
           "STRUCTURE_MAIN_UPTREND_WAVE_S": { "cn_name": "【结构S】主升浪黄金航道", "category": "结构层-环境", "type": "positional", "description": "均线、力学、筹码三方面均确认处于主升浪中。" },
@@ -1412,7 +1412,7 @@
               "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
               "RISK_BEHAVIOR_WINNERS_FLEEING",
               "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
-              "STRUCTURE_TOPPING_DANGER_S",
+              "SCORE_STRUCTURE_TOPPING_DANGER_S",
               "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN"
             ],
             "description": "【硬性否决】S级红线风险列表。只要触发其中任何一个，无论分数多高，都禁止开仓。"
@@ -1883,7 +1883,7 @@
       "FRACTAL_RISK_TOP_DIVERGENCE",
       "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN",
       "CONTEXT_RECENT_DISTRIBUTION_PRESSURE",
-      "STRUCTURE_TOPPING_DANGER_S",
+      "SCORE_STRUCTURE_TOPPING_DANGER_S",
       "CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D",
       "CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D",
       "CONTEXT_CHIP_STRATEGIC_DISTRIBUTION",
@@ -1898,7 +1898,7 @@
         ],
         "description": "如果只是'近期派发压力'，但同时处于'锁筹拉升'或'S级主升浪'的认知模式下，则此风险可被豁免。"
       },
-      "STRUCTURE_TOPPING_DANGER_S": {
+      "SCORE_STRUCTURE_TOPPING_DANGER_S": {
         "mitigated_by": ["CONTEXT_EXPLOSIVE_RALLY"],
         "description": "如果出现'S级顶部危险'结构，但当日K线是'爆炸性拉升阳线'，则可能是最后的疯狂或洗盘，暂时豁免，交由风险分处理。"
       }
