@@ -87,9 +87,14 @@ class OffensiveLayer:
             # 只有在地基分（战备分）达标时，才激活后续的动能加分
             can_add_dynamic_score = context_score >= min_setup_score
             for signal_name, score in dynamic_params.get('positive_signals', {}).items():
-                signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
-                if signal_series.any():
-                    bonus_amount = (signal_series & can_add_dynamic_score).astype(float) * score
+                # 现在信号可能是0-1的浮点数分数，也可能是布尔值
+                signal_series = atomic_states.get(signal_name, pd.Series(0.0, index=df.index))
+                # 检查信号是否存在（分数>0或为True）
+                if (signal_series > 0).any():
+                    # 将布尔与运算(&)修改为乘法，以正确处理数值化分数。
+                    # 当can_add_dynamic_score为False(0.0)时，奖金自动为0；为True(1.0)时，则为 signal_series * score。
+                    # 这种方式同时兼容布尔型和浮点型signal_series。
+                    bonus_amount = signal_series * can_add_dynamic_score.astype(float) * score
                     entry_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
 
