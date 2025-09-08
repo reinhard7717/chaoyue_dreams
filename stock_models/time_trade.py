@@ -1641,6 +1641,38 @@ class BaseAdvancedChipMetrics(models.Model):
     cost_divergence_accel_5d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度5日加速度')
     cost_divergence_accel_21d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度21日加速度')
     cost_divergence_accel_55d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度55日加速度')
+    
+    # --- 15. 【衍生】核心动态-1日斜率 ---
+    # 备注：1日斜率用于捕捉指标最即时的日度变化，是高频交易和精确择时的重要参考。
+    peak_cost_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本1日斜率')
+    concentration_70pct_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='70%集中度1日斜率')
+    concentration_90pct_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='90%集中度1日斜率')
+    peak_stability_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰稳定性1日斜率')
+    peak_control_ratio_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰控盘比1日斜率')
+    peak_strength_ratio_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='主次峰强度比1日斜率')
+    winner_profit_margin_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='获利盘安全垫1日斜率')
+    support_below_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='下方支撑盘1日斜率')
+    pressure_above_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='上方套牢盘1日斜率')
+    turnover_from_winners_ratio_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='获利盘抛压占比1日斜率')
+    turnover_from_losers_ratio_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='套牢盘割肉占比1日斜率')
+    cost_divergence_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度1日斜率')
+    loser_rate_long_term_slope_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='长期套牢盘1日斜率')
+
+    # --- 16. 【衍生】核心动态-1日加速度 ---
+    # 备注：1日加速度衡量日度变化趋势的加速或减速，可用于预判趋势的拐点。
+    peak_cost_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰成本1日加速度')
+    concentration_70pct_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='70%集中度1日加速度')
+    concentration_90pct_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='90%集中度1日加速度')
+    peak_stability_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰稳定性1日加速度')
+    peak_control_ratio_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='筹码峰控盘比1日加速度')
+    peak_strength_ratio_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='主次峰强度比1日加速度')
+    winner_profit_margin_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='获利盘安全垫1日加速度')
+    support_below_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='下方支撑盘1日加速度')
+    pressure_above_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='上方套牢盘1日加速度')
+    turnover_from_winners_ratio_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='获利盘抛压占比1日加速度')
+    turnover_from_losers_ratio_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='套牢盘割肉占比1日加速度')
+    cost_divergence_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='成本发散度1日加速度')
+    loser_rate_long_term_accel_1d = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True, verbose_name='长期套牢盘1日加速度')
 
     class Meta:
         abstract = True # 关键：将此模型标记为抽象模型，Django不会为它创建数据库表

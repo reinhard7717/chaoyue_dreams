@@ -17,17 +17,18 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V325.5 底层兼容修正版】筹码情报最高司令部
-        - 核心修正: 修复了 `score.rolling().quantile()` 在接收分位数列表时可能引发 `TypeError` 的底层兼容性问题。
-                      通过将批量计算分位数的逻辑修改为循环单次计算并合并结果，确保了代码在不同
-                      pandas 版本下的健壮性，同时保持了原始业务逻辑不变。
-        - 核心修正: 彻底重构了评分模块的调用和状态更新流程。现在，每当一个诊断模块（diagnose_*）
-                      运行完毕后，其产出的新分数会立即被更新到 self.strategy.atomic_states 中。
-                      这解决了下游模块因无法及时获取上游分数而跳过的严重依赖问题。
-        - 逻辑优化: 将 'cost_divergence_D' 的计算前置到本函数开头，确保该衍生指标在所有
-                      诊断模块运行前就已准备就绪，理顺了数据流。
+        【V327.0 信号补全版】筹码情报最高司令部
+        - 核心升级: 全面数值化改造。将原先生成布尔型(True/False)的 state 和 trigger 信号，
+                      升级为生成浮点型的数值信号。新信号的值代表了分数(score)与动态阈值(threshold)的差值，
+                      正值表示信号成立，负值表示不成立，其大小则代表了信号的强度。
+        - 核心升级: 对分桶信号(bucket)进行数值化。将原先为每个桶生成一个布尔信号的逻辑，
+                      改为生成一个单一的“等级”信号(0, 1, 2, 3...)，数值大小代表当前分数所处的强度等级。
+        - 核心升级 (V327.0): 新增 `diagnose_composite_scores` 模块调用，补全了 MASTER_SIGNAL_CONFIG 中
+                             所有依赖的原子评分计算，确保所有顶层信号均可生成。
+        - 收益: 提供了信息量更丰富、更平滑的连续信号，消除了布尔信号在阈值附近的突变，
+                为下游的量化模型和决策系统提供了更高质量的输入。
         """
-        # print("        -> [筹码情报最高司令部 V325.5 底层兼容修正版] 启动...")
+        print("        -> [筹码情报最高司令部 V327.0 信号补全版] 启动...") # 更新版本号和描述
         states = {}
         triggers = {}
         # 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
@@ -72,30 +73,31 @@ class ChipIntelligence:
         states.update(prime_opp_states)
         if prime_opp_scores:
             df = df.assign(**prime_opp_scores)
+            cols_before_run = _update_atomic_states(df, cols_before_run) # 确保黄金机会分数也被更新
+        # 1.7: 调用复合评分模块，计算顶层信号依赖的原子分
+        df = self.diagnose_composite_scores(df)
+        cols_before_run = _update_atomic_states(df, cols_before_run)
         # 获取模块参数，检查是否启用
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), False):
             return states, triggers
-        # --- 步骤 2: 定义主信号配置字典 (将数值评分转化为布尔信号) ---
-        # 此处配置保持不变，它负责将特定的数值评分，根据动态阈值，转化为最终的布尔型 state 或 trigger
+        # --- 步骤 2: 定义主信号配置字典 (将数值评分转化为新的数值化信号)
+        # 全面更新信号配置，将布尔信号名改为数值信号名(SIGNAL_*)，并调整分桶信号的配置结构
         MASTER_SIGNAL_CONFIG = {
-            # --- 司令部顶层信号 ---
-            'CONTEXT_CHIP_STRATEGIC_GATHERING': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.60, 120, 'state'),
-            'CONTEXT_CHIP_STRATEGIC_DISTRIBUTION': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.40, 120, 'state_lt'),
-            'CONTEXT_EUPHORIC_RALLY_WARNING': ('CHIP_SCORE_CONTEXT_EUPHORIC_RALLY', 0.90, 120, 'state'),
-            'TRIGGER_CHIP_IGNITION': ('CHIP_SCORE_TRIGGER_IGNITION', 0.98, 120, 'trigger'),
-            'RISK_CONTEXT_LONG_TERM_DISTRIBUTION': ('CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION', 0.90, 120, 'state'),
-            'RISK_CHIP_CONC_ACCEL_WORSENING': ('CHIP_SCORE_RISK_WORSENING_TURN', 0.80, 60, 'state_gt_zero'),
-            'OPP_STATIC_DYN_BREAKTHROUGH_S': ('CHIP_SCORE_OPP_BREAKTHROUGH', 0.95, 120, 'state'),
-            'RISK_STATIC_DYN_COLLAPSE_S': ('CHIP_SCORE_RISK_COLLAPSE', 0.95, 120, 'state'),
-            'OPP_STATIC_DYN_INFLECTION_A': ('CHIP_SCORE_OPP_INFLECTION', 0.90, 120, 'state'),
-            # --- 分级信号 (Bucket Signals) ---
-            'BUCKET_CHIP_CONC_GATHERING': ('CHIP_SCORE_GATHERING_INTENSITY', {
-                'CHIP_CONC_STEADY_GATHERING_C': 0.70,
-                'CHIP_CONC_ACCELERATED_GATHERING_B': 0.85,
-                'CHIP_CONC_INTENSIFYING_B_PLUS': 0.95
-            }, 120, 'bucket_upper'),
-            'CHIP_PROFIT_TAKING_INTENSE_A': ('SCORE_CHIP_PROFIT_TAKING_INTENSITY', 0.90, 120, 'state'),
+            # --- 司令部顶层信号 (数值化) ---
+            'SIGNAL_CONTEXT_STRATEGIC_GATHERING': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.60, 120, 'state'),
+            'SIGNAL_CONTEXT_STRATEGIC_DISTRIBUTION': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.40, 120, 'state_lt'),
+            'SIGNAL_CONTEXT_EUPHORIC_RALLY_WARNING': ('CHIP_SCORE_CONTEXT_EUPHORIC_RALLY', 0.90, 120, 'state'),
+            'SIGNAL_TRIGGER_CHIP_IGNITION': ('CHIP_SCORE_TRIGGER_IGNITION', 0.98, 120, 'trigger'),
+            'SIGNAL_RISK_LONG_TERM_DISTRIBUTION': ('CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION', 0.90, 120, 'state'),
+            'SIGNAL_RISK_CONC_ACCEL_WORSENING': ('CHIP_SCORE_RISK_WORSENING_TURN', 0.80, 60, 'state_gt_zero'),
+            'SIGNAL_OPP_BREAKTHROUGH': ('CHIP_SCORE_OPP_BREAKTHROUGH', 0.95, 120, 'state'),
+            'SIGNAL_RISK_COLLAPSE': ('CHIP_SCORE_RISK_COLLAPSE', 0.95, 120, 'state'),
+            'SIGNAL_OPP_INFLECTION': ('CHIP_SCORE_OPP_INFLECTION', 0.90, 120, 'state'),
+            # --- 分级信号 (数值化) ---
+            # 将原有的分桶布尔信号合并为一个数值等级信号
+            'SIGNAL_CHIP_CONC_GATHERING_LEVEL': ('CHIP_SCORE_GATHERING_INTENSITY', [0.70, 0.85, 0.95], 120, 'bucket_level'),
+            'SIGNAL_CHIP_PROFIT_TAKING_INTENSITY': ('SCORE_CHIP_PROFIT_TAKING_INTENSITY', 0.90, 120, 'state'),
         }
         available_cols = set(df.columns)
         all_generated_states = {}
@@ -103,24 +105,28 @@ class ChipIntelligence:
         from collections import defaultdict
         grouped_signals = defaultdict(list)
         for signal_name, config_tuple in MASTER_SIGNAL_CONFIG.items():
-            score_col, quantile_or_dict, window, signal_type = config_tuple
+            score_col, quantile_or_list, window, signal_type = config_tuple
             if score_col in available_cols:
-                group_key = 'gt_zero' if 'gt_zero' in signal_type else 'bucket_upper' if signal_type == 'bucket_upper' else 'standard'
-                grouped_signals[(score_col, window, group_key)].append((signal_name, quantile_or_dict, signal_type))
-        # --- 步骤 4: 批处理所有信号，高效生成布尔状态 ---
+                # 调整分组逻辑以适应新的 'bucket_level' 类型
+                group_key = 'gt_zero' if 'gt_zero' in signal_type else 'bucket_level' if signal_type == 'bucket_level' else 'standard'
+                grouped_signals[(score_col, window, group_key)].append((signal_name, quantile_or_list, signal_type))
+            else: # 增加对缺失评分的警告
+                print(f"          -> [配置警告] 信号 '{signal_name}' 依赖的评分 '{score_col}' 未计算，该信号将被跳过。")
+        # --- 步骤 4: 批处理所有信号，高效生成数值化信号 ---
         for (score_col, window, group_key), tasks in grouped_signals.items():
             score = df[score_col]
-            if group_key == 'bucket_upper':
-                quantiles_needed = sorted(list(set(tasks[0][1].values())))
+            # 调整分位数提取逻辑以兼容列表和数值
+            if group_key == 'bucket_level':
+                quantiles_needed = sorted(list(set(tasks[0][1])))
             else:
                 quantiles_needed = sorted(list(set(q for _, q, _ in tasks)))
             thresholds_df = None
-            if group_key in ['standard', 'bucket_upper']:
+            if group_key in ['standard', 'bucket_level']: # 包含 bucket_level
                 if not score.isnull().all():
                     thresholds_list = []
                     for q_val in quantiles_needed:
                         s = score.rolling(window).quantile(q_val)
-                        s.name = q_val  # 为Series命名，以便后续合并
+                        s.name = q_val
                         thresholds_list.append(s)
                     if thresholds_list:
                         thresholds_df = pd.concat(thresholds_list, axis=1)
@@ -135,101 +141,183 @@ class ChipIntelligence:
                     if thresholds_list:
                         thresholds_df = pd.concat(thresholds_list, axis=1).reindex(score.index).ffill()
             if thresholds_df is None: continue
-            # [删除] 原本的 to_frame 逻辑不再需要，因为 concat 已经生成了 DataFrame
-            # 根据信号类型进行逻辑分发
-            if group_key == 'bucket_upper':
-                _, quantile_dict, _ = tasks[0] # 一个分组只有一个 bucket_upper 任务
-                sorted_levels = sorted(quantile_dict.items(), key=lambda item: item[1])
-                for i, (final_signal_name, q_lower) in enumerate(sorted_levels):
-                    lower_thresh = thresholds_df[q_lower]
-                    if i == len(sorted_levels) - 1:
-                        signal = score > lower_thresh
-                    else:
-                        _, q_upper = sorted_levels[i+1]
-                        upper_thresh = thresholds_df[q_upper]
-                        signal = (score > lower_thresh) & (score <= upper_thresh)
-                    all_generated_states[final_signal_name] = signal
+            # 核心逻辑重构：从生成布尔信号改为生成数值信号
+            if group_key == 'bucket_level':
+                signal_name, quantiles, signal_type = tasks[0] # 一个分组只有一个 bucket_level 任务
+                # 计算等级信号：每超过一个分位阈值，等级+1
+                numerical_signal = pd.Series(0.0, index=df.index)
+                for q_val in sorted(quantiles):
+                    threshold = thresholds_df[q_val]
+                    # 当分数超过阈值时，增加1.0
+                    numerical_signal += (score > threshold).astype(float)
+                all_generated_states[signal_name] = numerical_signal.fillna(0.0)
             else: # 处理 standard 和 gt_zero
                 for signal_name, quantile, signal_type in tasks:
                     threshold = thresholds_df[quantile]
-                    signal = pd.Series(False, index=df.index)
-                    if threshold.notna().any():
-                        if signal_type in ['state', 'trigger', 'state_gt_zero']:
-                            signal = score > threshold
-                        elif signal_type == 'state_le':
-                            signal = score <= threshold
-                        elif signal_type == 'state_lt':
-                            signal = score < threshold
-                        elif signal_type == 'state_gt_zero_event':
-                            signal = (score > threshold) & (score > 0)
-                    if signal_type == 'trigger':
-                        triggers[signal_name] = signal
+                    numerical_signal = pd.Series(0.0, index=df.index) # 默认值为0.0
+                    # 计算分数与阈值的差值作为信号强度
+                    if signal_type in ['state', 'trigger', 'state_gt_zero', 'state_gt_zero_event']:
+                        numerical_signal = score - threshold
+                    elif signal_type in ['state_le', 'state_lt']:
+                        numerical_signal = threshold - score
+                    
+                    # 将NaN值填充为0，表示中性状态（恰好在阈值上）
+                    numerical_signal = numerical_signal.fillna(0.0)
+                    if 'trigger' in signal_type:
+                        triggers[signal_name] = numerical_signal
                     else:
-                        all_generated_states[signal_name] = signal
+                        all_generated_states[signal_name] = numerical_signal
         # --- 步骤 5: 最终状态更新 ---
-        # 将本模块生成的布尔信号更新到主状态字典和原子状态库中
+        # 将本模块生成的数值信号更新到主状态字典和原子状态库中
         states.update(all_generated_states)
         self.strategy.atomic_states.update(all_generated_states)
+        # 将 trigger 信号也更新到原子状态库，确保所有生成物可被下游访问
+        self.strategy.atomic_states.update(triggers)
+        print("        -> [筹码情报最高司令部 V327.0] 数值化信号生成完毕。") # 更新版本号
         return states, triggers
+
+    def diagnose_composite_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.1 逻辑增强版】复合筹码评分模块
+        - 核心职责: 融合来自多个基础诊断模块的原子评分，生成更高维度的、用于最终信号决策的复合评分。
+                      此模块专门计算 MASTER_SIGNAL_CONFIG 中定义的、但未在其他模块中计算的原子评分。
+        - A股实战考量:
+          - “点火”与“崩溃”等关键行为在A股中往往是多因素共振的结果，而非单一指标触发。
+            因此，本模块的评分设计广泛采用“乘法”融合（代表“与”逻辑，要求多条件共存）
+            和“取最大值”融合（代表“或”逻辑，捕捉多种可能性），避免理想化的单一模型，
+            更贴近A股复杂多变的实战环境。
+        - 核心升级 (V1.1): 优化 `CHIP_SCORE_RISK_WORSENING_TURN` 评分逻辑，增加“短期趋势已向下”
+                             的前置条件，使信号判断更严格，更能捕捉真实的加速恶化风险。
+        """
+        print("        -> [复合筹码评分模块 V1.1 逻辑增强版] 启动，正在合成顶层原子评分...") # 更新版本号和描述
+        new_scores = {}
+        atomic = self.strategy.atomic_states
+        # 将默认值从0.5改为0.0，因为在乘法融合中，缺失信号应视为中性(不贡献分数)，而非平均水平。
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 定义归一化辅助函数 ---
+        p = get_params_block(self.strategy, 'chip_feature_params')
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        def normalize(series, ascending=True):
+            # 增加对空Series的健壮性处理
+            if series.empty:
+                return pd.Series(0.0, index=df.index, dtype=np.float32)
+            return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
+        # --- 2. 计算 CHIP_SCORE_GATHERING_INTENSITY (筹码集中强度分) ---
+        # 逻辑: 短期内，筹码集中速度越快、成本抬升越快、健康度改善越快，则集中强度越高。
+        conc_slope_score = normalize(df.get('SLOPE_5_concentration_90pct_D', default_score), ascending=False)
+        cost_slope_score = normalize(df.get('SLOPE_5_peak_cost_D', default_score), ascending=True)
+        health_slope_score = normalize(df.get('SLOPE_5_chip_health_score_D', default_score), ascending=True)
+        new_scores['CHIP_SCORE_GATHERING_INTENSITY'] = (conc_slope_score * cost_slope_score * health_slope_score).astype(np.float32)
+        # --- 3. 计算 CHIP_SCORE_TRIGGER_IGNITION (筹码点火触发分) ---
+        # 逻辑: 结构健康(黄金机会) 与 上升共振(趋势确认) 同时发生，构成最强点火信号。
+        prime_opp_score = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score)
+        bullish_resonance_score = atomic.get('SCORE_CHIP_BULLISH_RESONANCE_S', default_score)
+        new_scores['CHIP_SCORE_TRIGGER_IGNITION'] = (prime_opp_score * bullish_resonance_score).astype(np.float32)
+        # --- 4. 计算 CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION (长线派发风险分) ---
+        # 逻辑: 市场处于下跌共振状态，同时获利盘不稳定且有强烈的兑现意愿。
+        bearish_resonance_score = atomic.get('SCORE_CHIP_BEARISH_RESONANCE_S', default_score)
+        profit_taking_score = atomic.get('SCORE_PROFIT_TAKING_TOP_REVERSAL_S', default_score)
+        instability_score = atomic.get('SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A', default_score)
+        new_scores['CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION'] = (bearish_resonance_score * self._max_of_series(profit_taking_score, instability_score)).astype(np.float32)
+        # --- 5. 计算 CHIP_SCORE_RISK_WORSENING_TURN (集中度加速恶化拐点风险分) ---
+        # 逻辑增强：要求短期趋势已向下(斜率为负)，且短期和中期加速度同时为负。
+        # 条件1: 短期趋势已向下
+        conc_slope_5_negative_score = normalize(df.get('SLOPE_5_concentration_90pct_D', default_score), ascending=False)
+        # 条件2 & 3: 短期和中期加速度为负
+        conc_accel_5 = normalize(df.get('ACCEL_5_concentration_90pct_D', default_score), ascending=False)
+        conc_accel_21 = normalize(df.get('ACCEL_21_concentration_90pct_D', default_score), ascending=False)
+        # 融合三个条件，形成更严格的风险评分
+        new_scores['CHIP_SCORE_RISK_WORSENING_TURN'] = (conc_slope_5_negative_score * conc_accel_5 * conc_accel_21).astype(np.float32)
+        print(f"          -> [调试] CHIP_SCORE_RISK_WORSENING_TURN (恶化拐点分) 最后5值: {new_scores['CHIP_SCORE_RISK_WORSENING_TURN'].tail(5).to_list()}")
+        # --- 6. 计算 CHIP_SCORE_OPP_BREAKTHROUGH (突破机会分) ---
+        # 逻辑: 具备黄金机会的结构基础，同时价格开始向上突破关键成本区。
+        price_deviation_score = normalize(df.get('price_to_peak_ratio_D', default_score), ascending=True)
+        new_scores['CHIP_SCORE_OPP_BREAKTHROUGH'] = (prime_opp_score * price_deviation_score).astype(np.float32)
+        # --- 7. 计算 CHIP_SCORE_RISK_COLLAPSE (崩溃风险分) ---
+        # 逻辑: 多个S级顶部/看跌风险信号共振，形成完美风暴。
+        top_reversal_score = atomic.get('SCORE_CHIP_TOP_REVERSAL_S', default_score)
+        fault_risk_score = atomic.get('SCORE_FAULT_RISK_TOP_REVERSAL_S', default_score)
+        new_scores['CHIP_SCORE_RISK_COLLAPSE'] = (self._max_of_series(bearish_resonance_score, top_reversal_score, fault_risk_score)).astype(np.float32)
+        # --- 8. 计算 CHIP_SCORE_OPP_INFLECTION (拐点机会分) ---
+        # 逻辑: 多个S级底部反转信号共振，形成抄底机会。
+        bottom_reversal_score = atomic.get('SCORE_CHIP_BOTTOM_REVERSAL_S', default_score)
+        capitulation_score = atomic.get('SCORE_CAPITULATION_BOTTOM_RESONANCE_S', default_score) # 修正笔误，使用S级信号
+        long_term_capitulation_score = atomic.get('SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S', default_score)
+        new_scores['CHIP_SCORE_OPP_INFLECTION'] = (self._max_of_series(bottom_reversal_score, capitulation_score, long_term_capitulation_score)).astype(np.float32)
+        # --- 9. 更新DataFrame ---
+        df = df.assign(**new_scores)
+        print(f"        -> [复合筹码评分模块 V1.1] 计算完毕，新增 {len(new_scores)} 个顶层原子评分。") # 更新版本号
+        return df
 
     def diagnose_strategic_context_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 新增】战略级筹码上下文评分模块
+        【V1.1 评分扩展版】战略级筹码上下文评分模块
         - 核心职责: 融合最长周期的筹码指标，生成描述宏观“战略吸筹”与“战略派发”的
                       顶层上下文分数。这是整个筹码情报模块的基石。
+        - 核心升级(V1.1): 新增“亢奋上涨预警”评分，用于识别市场过热的宏观状态。
         - 收益: 为下游所有模块提供了最关键的宏观背景判断。
         """
-        print("        -> [战略级筹码上下文评分模块 V1.0] 启动...") # [新增] 打印启动信息
+        print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 启动...") # 修改: 更新打印信息
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_strategic_context_params', {})
         if not get_param_value(p.get('enabled'), True):
             return df
-
         # --- 1. 军备检查 ---
         long_period = get_param_value(p.get('long_period'), 55)
         required_cols = [
             f'SLOPE_{long_period}_concentration_90pct_D',
             f'SLOPE_{long_period}_peak_cost_D',
-            f'SLOPE_{long_period}_chip_health_score_D'
+            f'SLOPE_{long_period}_chip_health_score_D',
+            'total_winner_rate_D',
+            'price_to_peak_ratio_D'
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [严重警告] 战略级筹码上下文模块缺少关键数据列: {missing_cols}，模块已跳过！")
             return df
-
         # --- 2. 核心要素数值化 (归一化) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-
         # --- 3. 计算“战略吸筹”分数 ---
         # 逻辑: 长期筹码在集中(斜率<0) + 长期成本在抬高(斜率>0) + 长期健康度在改善(斜率>0)
         long_term_concentration_score = normalize(df[f'SLOPE_{long_period}_concentration_90pct_D'], ascending=False)
         long_term_cost_increase_score = normalize(df[f'SLOPE_{long_period}_peak_cost_D'], ascending=True)
         long_term_health_improve_score = normalize(df[f'SLOPE_{long_period}_chip_health_score_D'], ascending=True)
-
         strategic_gathering_score = (
             long_term_concentration_score *
             long_term_cost_increase_score *
             long_term_health_improve_score
         )
         new_scores['CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING'] = strategic_gathering_score.astype(np.float32)
-        
-        # --- 4. 更新DataFrame ---
+        # --- 4. 计算“亢奋上涨预警”分数 ---
+        # 逻辑: 市场极度乐观，获利盘丰厚，且价格远高于筹码峰成本。这是一个顶部的上下文风险状态。
+        high_winner_rate_score = normalize(df['total_winner_rate_D'], ascending=True)
+        high_price_deviation_score = normalize(df['price_to_peak_ratio_D'], ascending=True)
+        euphoric_rally_score = (
+            high_winner_rate_score *
+            high_price_deviation_score
+        )
+        new_scores['CHIP_SCORE_CONTEXT_EUPHORIC_RALLY'] = euphoric_rally_score.astype(np.float32)
+        # --- 5. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [战略级筹码上下文评分模块 V1.0] 计算完毕。") # [新增] 打印完成信息
+        print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 计算完毕。")
         return df
 
     def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V2.0 分层加权融合版】黄金筹码机会元融合模块
+        【V2.1 数值化信号升级版】黄金筹码机会元融合模块
         - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
                       “维度内置信度加权”和“维度间重要性加权”两步，融合成一个顶层的、
                       能精细度量机会“成色”的元分数。
+        - 核心升级: 将原先生成的布尔型机会信号 'CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'，
+                      升级为数值型信号 'SIGNAL_PRIME_CHIP_OPPORTUNITY_S'。
+                      新信号的值为“元分数”与一个固定阈值的差值，直接反映机会的强度。
         - 收益: 实现了从“信号有无”到“机会质量”的升维，为决策提供了更平滑、更鲁棒的依据。
         """
-        # print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 启动...")
+        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 启动...")
         states = {}
         new_scores = {}
         atomic = self.strategy.atomic_states
@@ -271,27 +359,32 @@ class ChipIntelligence:
         for dim_name, weight in dim_weights.items():
             final_prime_score += fused_dimension_scores[dim_name] * weight
         new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] = final_prime_score.clip(0, 1)
-        # --- 5. 基于元分数，生成兼容性的布尔信号 ---
-        threshold = get_param_value(p_module.get('prime_score_threshold_for_bool'), 0.7)
-        prime_opportunity_signal = new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] > threshold
-        states['CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'] = prime_opportunity_signal
-        # print("        -> [黄金筹码机会元融合模块 V2.0 分层加权融合版] 计算完毕。")
+        # --- 5. 基于元分数，生成数值化机会信号 ---
+        # 获取用于生成信号的阈值参数，原参数名 'prime_score_threshold_for_bool' 已优化
+        threshold = get_param_value(p_module.get('prime_score_threshold'), 0.7)
+        # 计算数值化信号：元分数 - 阈值。正值代表机会，值越大机会越强
+        prime_opportunity_numerical_signal = new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] - threshold
+        # 使用新的命名规范 SIGNAL_...，并将其添加到 states 字典中，替换原布尔信号
+        states['SIGNAL_PRIME_CHIP_OPPORTUNITY_S'] = prime_opportunity_numerical_signal.astype(np.float32)
+        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 计算完毕。")
         return states, new_scores
 
     def diagnose_quantitative_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V4.0 共振-反转对称诊断版】筹码信号量化评分诊断模块
-        - 核心重构: 遵循“共振/反转”对称原则，将旧版零散的评分体系，全面升级为基于多维交叉验证的、结构化的四象限信号矩阵。
+        【V5.0 交叉验证增强版】筹码信号量化评分诊断模块
+        - 核心重构 (V5.0): 全面升级S/A/B三级评分体系，严格遵循“静态(Setup) -> 动态(Momentum) -> 加速(Acceleration)”的
+                          交叉验证范式，使信号逻辑更严谨，更贴合A股实战。
         - 核心逻辑:
-          - 共振信号 (多周期交叉): 评估筹码集中度、成本重心在多时间周期上的一致性。
-          - 反转信号 (同周期交叉): 评估“静态战备(Setup)”与“动态点火(Trigger)”的结合。
+          - B级 (势): 融合多周期斜率，判断趋势的平均“方向”。
+          - A级 (质): 在B级“势”的基础上，融合静态指标，判断趋势是否发生在“健康结构”之上。
+          - S级 (核): 在A级“质”的基础上，融合短期加速度，判断趋势是否正在“自我强化”，作为最高置信度信号。
         -  信号 (数值型, 对称设计):
           - SCORE_CHIP_BULLISH_RESONANCE_S/A/B: 上升共振机会分 (多周期筹码集中)。
           - SCORE_CHIP_BEARISH_RESONANCE_S/A/B: 下跌共振风险分 (多周期筹码发散)。
           - SCORE_CHIP_BOTTOM_REVERSAL_S/A/B: 底部反转机会分 (下跌衰竭后吸筹)。
           - SCORE_CHIP_TOP_REVERSAL_S/A/B: 顶部反转风险分 (上涨衰竭后派发)。
         """
-        # print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 启动...")
+        print("        -> [筹码信号量化评分模块 V5.0 交叉验证增强版] 启动...") # 更新版本号和描述
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), True):
@@ -307,76 +400,78 @@ class ChipIntelligence:
                 f'SLOPE_{period}_concentration_90pct_D', f'SLOPE_{period}_peak_cost_D',
                 f'ACCEL_{period if period > 5 else 5}_concentration_90pct_D',
                 f'ACCEL_{period if period > 5 else 5}_peak_cost_D',
-                f'ACCEL_{period if period > 5 else 5}_turnover_from_winners_ratio_D'
             ])
+        # 简化军备检查，因为 ACCEL_5_turnover_from_winners_ratio_D 已经包含在下面
+        required_cols.append('ACCEL_5_turnover_from_winners_ratio_D')
         # --- 2. 检查必需列 ---
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [严重警告] 筹码评分引擎缺少关键数据列: {missing_cols}，模块已跳过！")
             return df
         # --- 3. 核心要素数值化 (归一化处理) ---
-        #此处的 p 现在是正确的参数字典，因为没有被循环覆盖
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-        # 动态要素 (动能与加速度)
-        conc_momentum_scores = {p: normalize(df[f'SLOPE_{p}_concentration_90pct_D']) for p in periods}
-        cost_momentum_scores = {p: normalize(df[f'SLOPE_{p}_peak_cost_D']) for p in periods}
-        conc_accel_scores = {p: normalize(df[f'ACCEL_{p if p > 5 else 5}_concentration_90pct_D']) for p in periods}
-        cost_accel_scores = {p: normalize(df[f'ACCEL_{p if p > 5 else 5}_peak_cost_D']) for p in periods}
-        profit_taking_accel_score = normalize(df[f'ACCEL_5_turnover_from_winners_ratio_D'])
-        # 静态要素 (当前状态)
-        static_concentration = normalize(df['concentration_90pct_D'])
-        static_health = normalize(df['chip_health_score_D'])
-        static_price_deviation = normalize(df['price_to_peak_ratio_D'])
-        static_high_winner_rate = normalize(df['total_winner_rate_D'])
-        # --- 4. 共振信号合成 (多时间周期交叉验证) ---
+        # 静态要素 (Setup)
+        static_concentration_score = normalize(df['concentration_90pct_D'], ascending=False) # 越集中越好
+        static_health_score = normalize(df['chip_health_score_D'], ascending=True)
+        static_price_deviation_score = normalize(df['price_to_peak_ratio_D'], ascending=True)
+        static_high_winner_rate_score = normalize(df['total_winner_rate_D'], ascending=True)
+        # 动态要素 (Momentum)
+        conc_momentum_scores = {p: normalize(df[f'SLOPE_{p}_concentration_90pct_D'], ascending=False) for p in periods} # 斜率越小(负)越好
+        cost_momentum_scores = {p: normalize(df[f'SLOPE_{p}_peak_cost_D'], ascending=True) for p in periods}
         avg_conc_momentum = pd.Series(np.mean(np.array([s.values for s in conc_momentum_scores.values()]), axis=0), index=df.index)
         avg_cost_momentum = pd.Series(np.mean(np.array([s.values for s in cost_momentum_scores.values()]), axis=0), index=df.index)
-        # 4.1 上升共振 (筹码集中 + 成本抬高)
-        new_scores['SCORE_CHIP_BULLISH_RESONANCE_B'] = avg_conc_momentum.astype(np.float32)
-        new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] = (avg_conc_momentum * avg_cost_momentum).astype(np.float32)
-        new_scores['SCORE_CHIP_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] * static_health).astype(np.float32)
-        # 4.2 下跌共振 (筹码发散 + 成本降低) - 对称逻辑
-        avg_conc_divergence = 1 - avg_conc_momentum
-        avg_cost_decline = 1 - avg_cost_momentum
-        static_unhealth = 1 - static_health
-        new_scores['SCORE_CHIP_BEARISH_RESONANCE_B'] = avg_conc_divergence.astype(np.float32)
-        new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] = (avg_conc_divergence * avg_cost_decline).astype(np.float32)
-        new_scores['SCORE_CHIP_BEARISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] * static_unhealth).astype(np.float32)
+        # 加速要素 (Acceleration)
+        conc_accel_score = normalize(df['ACCEL_5_concentration_90pct_D'], ascending=False) # 加速度为负(加速集中)
+        cost_accel_score = normalize(df['ACCEL_5_peak_cost_D'], ascending=True)
+        profit_taking_accel_score = normalize(df['ACCEL_5_turnover_from_winners_ratio_D'], ascending=True)
+        # --- 4. 共振信号合成 (多时间周期交叉验证) ---
+        # 4.1 上升共振 (筹码持续集中 + 成本持续抬高)
+        bullish_momentum_score = avg_conc_momentum * avg_cost_momentum
+        new_scores['SCORE_CHIP_BULLISH_RESONANCE_B'] = bullish_momentum_score.astype(np.float32)
+        new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] = (bullish_momentum_score * static_health_score).astype(np.float32)
+        new_scores['SCORE_CHIP_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BULLISH_RESONANCE_A'] * conc_accel_score * cost_accel_score).astype(np.float32)
+        # 4.2 下跌共振 (筹码持续发散 + 成本持续降低) - 对称逻辑
+        bearish_momentum_score = (1 - avg_conc_momentum) * (1 - avg_cost_momentum)
+        new_scores['SCORE_CHIP_BEARISH_RESONANCE_B'] = bearish_momentum_score.astype(np.float32)
+        new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] = (bearish_momentum_score * (1 - static_health_score)).astype(np.float32)
+        new_scores['SCORE_CHIP_BEARISH_RESONANCE_S'] = (new_scores['SCORE_CHIP_BEARISH_RESONANCE_A'] * (1 - conc_accel_score) * (1 - cost_accel_score)).astype(np.float32)
         # --- 5. 反转信号合成 (静态战备 x 动态点火) ---
         # 5.1 底部反转 (环境恶劣 -> 动态改善)
-        bottom_setup_score = (1 - static_concentration) * (1 - static_price_deviation) # 战备: 筹码曾发散 + 价格处于低位
-        bottom_trigger_score = conc_momentum_scores[5] * cost_accel_scores[5] # 点火: 短期开始集中 + 成本加速抬升
-        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_B'] = bottom_trigger_score.astype(np.float32)
-        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (bottom_setup_score * bottom_trigger_score).astype(np.float32)
-        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] * conc_accel_scores[5]).astype(np.float32)
+        bottom_setup_score = (1 - static_concentration_score) * (1 - static_price_deviation_score) # 战备: 筹码曾发散 + 价格处于低位
+        bottom_trigger_momentum = conc_momentum_scores[5] * cost_momentum_scores[5] # 点火(动能): 短期开始集中+成本抬高
+        bottom_trigger_accel = conc_accel_score * cost_accel_score # 点火(加速): 集中和成本抬高在加速
+        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_B'] = (bottom_setup_score * bottom_trigger_momentum).astype(np.float32)
+        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (new_scores['SCORE_CHIP_BOTTOM_REVERSAL_B'] * static_health_score).astype(np.float32)
+        new_scores['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (new_scores['SCORE_CHIP_BOTTOM_REVERSAL_A'] * bottom_trigger_accel).astype(np.float32)
         # 5.2 顶部反转 (环境良好 -> 动态恶化) - 对称逻辑
-        top_setup_score = static_concentration * static_price_deviation * static_high_winner_rate # 战备: 筹码集中 + 价格高位 + 获利盘丰厚
-        top_trigger_score = (1 - conc_momentum_scores[5]) * profit_taking_accel_score # 点火: 短期开始发散 + 获利盘兑现加速
-        new_scores['SCORE_CHIP_TOP_REVERSAL_B'] = top_trigger_score.astype(np.float32)
-        new_scores['SCORE_CHIP_TOP_REVERSAL_A'] = (top_setup_score * top_trigger_score).astype(np.float32)
-        new_scores['SCORE_CHIP_TOP_REVERSAL_S'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_A'] * (1 - conc_accel_scores[5])).astype(np.float32)
+        top_setup_score = static_concentration_score * static_price_deviation_score * static_high_winner_rate_score # 战备: 筹码集中 + 价格高位 + 获利盘丰厚
+        top_trigger_momentum = (1 - conc_momentum_scores[5]) # 点火(动能): 短期开始发散
+        top_trigger_accel = (1 - conc_accel_score) * profit_taking_accel_score # 点火(加速): 发散在加速 + 获利盘兑现加速
+        new_scores['SCORE_CHIP_TOP_REVERSAL_B'] = (top_setup_score * top_trigger_momentum).astype(np.float32)
+        new_scores['SCORE_CHIP_TOP_REVERSAL_A'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_B'] * (1 - static_health_score)).astype(np.float32)
+        new_scores['SCORE_CHIP_TOP_REVERSAL_S'] = (new_scores['SCORE_CHIP_TOP_REVERSAL_A'] * top_trigger_accel).astype(np.float32)
         # --- 6.  纯筹码评分: 获利盘兑现强度 ---
         # 逻辑: 获利盘换手率越高，且获利盘比例也高时，兑现强度越大。
         profit_taking_turnover_score = normalize(df['turnover_from_winners_ratio_D'])
-        new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate).astype(np.float32)
+        new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate_score).astype(np.float32)
         df = df.assign(**new_scores)
-        print("        -> [筹码信号量化评分模块 V4.0 共振-反转对称诊断版] 计算完毕。") 
+        print("        -> [筹码信号量化评分模块 V5.0 交叉验证增强版] 计算完毕。") # 更新版本号
         return df
 
     def diagnose_advanced_chip_dynamics_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.2 终极数值化版】高级筹码动态评分模块
-        - 核心升级 (本次修改):
-          - [数值化] 将“筹码断层风险”的计算，从依赖硬布尔开关 'is_chip_fault_formed_D'，
-                      升级为将“存在性”、“强度”、“真空度”和“动态恶化趋势”四要素
-                      平滑融合的连续风险评分体系。
-        - 收益: 彻底消除了模块内最后一个硬编码的布尔逻辑，使得“断层风险”的度量
-                更加精细和连续，避免了信号的突变，信号质量达到理论最高水平。
+        【V3.0 交叉验证增强版】高级筹码动态评分模块
+        - 核心重构 (V3.0): 全面升级“结构健康度共振”评分体系，严格遵循“静态(Setup) -> 动态(Momentum) -> 加速(Acceleration)”的
+                          交叉验证范式，使信号逻辑更严谨，更贴合A股实战。
+        - 核心逻辑:
+          - B级 (势): 融合多周期斜率，判断结构健康度的平均“改善方向”。
+          - A级 (质): 在B级“势”的基础上，融合静态健康度，判断改善是否发生在“本身就健康”的结构上。
+          - S级 (核): 在A级“质”的基础上，融合短期加速度，判断改善趋势是否正在“自我强化”，作为最高置信度信号。
         """
-        # print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 启动...")
+        print("        -> [高级筹码动态评分模块 V3.0 交叉验证增强版] 启动...") # 更新版本号和描述
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
@@ -390,21 +485,25 @@ class ChipIntelligence:
         ]
         for period in periods:
             required_cols.extend([
-                f'SLOPE_{period}_peak_control_ratio_D', f'SLOPE_{period}_peak_stability_D'
+                f'SLOPE_{period}_peak_control_ratio_D', f'SLOPE_{period}_peak_stability_D',
+                # 增加对加速度数据的依赖，以实现S级信号
+                f'ACCEL_{period if period > 5 else 5}_peak_control_ratio_D',
+                f'ACCEL_{period if period > 5 else 5}_peak_stability_D',
             ])
         required_cols.extend([
             'ACCEL_5_turnover_from_losers_ratio_D', 'ACCEL_21_turnover_from_losers_ratio_D'
         ])
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            print(f"          -> [严重警告] 高级筹码动态模块缺少关键数据列: {missing_cols}，模块已跳过！")
+            # 提示信息更具体，指出可能需要数据层提供
+            print(f"          -> [严重警告] 高级筹码动态模块缺少关键数据列: {missing_cols}，模块已跳过！(提示: 部分ACCEL列可能需由数据层提供)")
             return df
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-        # --- 3. 维度一: 结构健康度共振评分 ---
+        # --- 3. 维度一: 结构健康度共振评分 (逻辑重构) ---
         # 3.1 静态健康分 (Setup)
         control_score = normalize(df['peak_control_ratio_D'])
         strength_score = normalize(df['peak_strength_ratio_D'])
@@ -414,69 +513,65 @@ class ChipIntelligence:
         control_momentum = {p: normalize(df[f'SLOPE_{p}_peak_control_ratio_D']) for p in periods}
         stability_momentum = {p: normalize(df[f'SLOPE_{p}_peak_stability_D']) for p in periods}
         avg_health_momentum = pd.Series(np.mean(np.array([
-            control_momentum[5].values, control_momentum[21].values, control_momentum[55].values,
-            stability_momentum[5].values, stability_momentum[21].values, stability_momentum[55].values
+            *list(control_momentum.values()),
+            *list(stability_momentum.values())
         ]), axis=0), index=df.index)
-        # 3.3 上升共振 (健康度改善)
+        # 3.3 加速健康分 (Acceleration)
+        control_accel = normalize(df['ACCEL_5_peak_control_ratio_D'])
+        stability_accel = normalize(df['ACCEL_5_peak_stability_D'])
+        health_accel_score = control_accel * stability_accel
+        # 3.4 上升共振 (健康度改善) - 遵循 B->A->S 逻辑重构
         new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = avg_health_momentum.astype(np.float32)
-        new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = (static_health_score * avg_health_momentum).astype(np.float32)
-        new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] * control_momentum[5] * stability_momentum[5]).astype(np.float32)
-        # 3.4 下跌共振 (健康度恶化) - 对称逻辑
-        static_unhealth_score = 1 - static_health_score
+        new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = (new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] * static_health_score).astype(np.float32)
+        new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] * health_accel_score).astype(np.float32)
+        # 3.5 下跌共振 (健康度恶化) - 对称逻辑重构
         avg_health_decline = 1 - avg_health_momentum
+        health_decel_score = (1 - control_accel) * (1 - stability_accel)
         new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = avg_health_decline.astype(np.float32)
-        new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (static_unhealth_score * avg_health_decline).astype(np.float32)
-        new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] * (1 - control_momentum[5]) * (1 - stability_momentum[5])).astype(np.float32)
-        # --- 4. 维度二: 恐慌盘承接反转评分 ---
-        # 4.1 战备 (Setup): 市场出现恐慌性抛售
+        new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] * (1 - static_health_score)).astype(np.float32)
+        new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (new_scores['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] * health_decel_score).astype(np.float32)
+        # --- 4. 维度二: 恐慌盘承接反转评分  ---
         panic_selling_score = normalize(df['turnover_from_losers_ratio_D'])
-        # 4.2 点火 (Trigger): 抛售行为开始减速 (加速度转正)，表明有资金在承接
         absorption_trigger_score = normalize(df['ACCEL_5_turnover_from_losers_ratio_D'])
-        # 4.3 确认 (Confirmation): 中期抛售加速度也转正，趋势更可靠
         absorption_confirm_score = normalize(df['ACCEL_21_turnover_from_losers_ratio_D'])
-        # 4.4 融合生成S/A/B三级底部反转信号
         new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_B'] = absorption_trigger_score.astype(np.float32)
         new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_A'] = (panic_selling_score.shift(1) * absorption_trigger_score).astype(np.float32)
         new_scores['SCORE_CAPITULATION_BOTTOM_RESONANCE_S'] = (new_scores['SCORE_CAPITULATION_BOTTOM_REVERSAL_A'] * absorption_confirm_score).astype(np.float32)
-        # --- 5. 维度三: 筹码断层顶部反转风险分 ---
-        # 5.1 风险放大器 (Amplifier): 断层强度大 & 下方真空区广阔
+        # --- 5. 维度三: 筹码断层顶部反转风险分  ---
+        if 'is_chip_fault_formed_D' in df.columns:
+            fault_existence_gate = df['is_chip_fault_formed_D'].astype(float)
+        else:
+            fault_existence_gate = pd.Series(1.0, index=df.index)
         fault_strength_score = normalize(df['chip_fault_strength_D'])
         vacuum_risk_score = normalize(df['chip_fault_vacuum_percent_D'])
-        # 5.2 风险动态恶化分 (Dynamic Worsening): 结构健康度在恶化，放大断层风险
         dynamic_worsening_score = new_scores.get('SCORE_STRUCTURE_BEARISH_RESONANCE_B', pd.Series(0.5, index=df.index))
-        # 5.3 融合生成S/A/B三级顶部反转风险信号 (原 5.4)
-        # B级风险: 直接由“断层强度”决定，这是最基础的风险来源
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] = fault_strength_score.astype(np.float32)
-        # A级风险: 在B级基础上，叠加上“真空度”风险
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] = (new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] * vacuum_risk_score).astype(np.float32)
-        # S级风险: 在A级基础上，叠加上“动态恶化”的趋势，代表最高风险
-        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_S'] = (new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] * dynamic_worsening_score).astype(np.float32)
+        base_risk_b = fault_strength_score
+        base_risk_a = base_risk_b * vacuum_risk_score
+        base_risk_s = base_risk_a * dynamic_worsening_score
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_B'] = (base_risk_b * fault_existence_gate).astype(np.float32)
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_A'] = (base_risk_a * fault_existence_gate).astype(np.float32)
+        new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_S'] = (base_risk_s * fault_existence_gate).astype(np.float32)
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [高级筹码动态评分模块 V2.2 终极数值化版] 计算完毕。") 
+        print("        -> [高级筹码动态评分模块 V3.0 交叉验证增强版] 计算完毕。") 
         return df
 
     def diagnose_chip_internal_structure_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 共振-反转诊断版】筹码内部结构评分模块
-        - 核心升级: 遵循“共振/反转”对称原则，对核心持仓者、兑现压力、支撑压力进行多维交叉验证。
+        【V3.0 交叉验证增强版】筹码内部结构评分模块
+        - 核心重构 (V3.0): 全面升级“核心持仓者上升共振”评分体系，严格遵循“静态(Setup) -> 动态(Momentum) -> 加速(Acceleration)”的
+                          交叉验证范式，使信号逻辑更严谨，更贴合A股实战。
         - 核心逻辑:
-          - 核心持仓者动态 -> 上升共振: 验证核心筹码(70%)是否比外围(90%)集中更快。
-          - 利润兑现压力 -> 顶部反转: 结合静态利润厚度与动态利润增速，评估抛压。
-          - 结构支撑压力 -> 上升共振: 结合静态净支撑与动态净支撑变化趋势。
-        -  信号 (数值型, 对称设计):
-          - SCORE_CORE_HOLDER_BULLISH_RESONANCE_S/A/B: 核心持仓者上升共振分。
-          - SCORE_PROFIT_TAKING_TOP_REVERSAL_S/A/B: 获利盘兑现顶部反转风险分。
-          - SCORE_NET_SUPPORT_BULLISH_RESONANCE_A/B: 净支撑上升共振分。
+          - B级 (势): 融合多周期斜率，判断核心持仓者相对外围持仓者的“净集中趋势”。
+          - A级 (质): 在B级“势”的基础上，融合静态集中度，判断净集中是否发生在“本身已很集中”的结构上。
+          - S级 (核): 在A级“质”的基础上，融合短期净加速度，判断净集中趋势是否正在“自我强化”，作为最高置信度信号。
         """
-        # print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 启动...")
+        print("        -> [筹码内部结构评分模块 V3.0 交叉验证增强版] 启动...") # 更新版本号和描述
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_internal_structure_params')
         if not get_param_value(p.get('enabled'), True):
             return df
-
         # --- 1. 军备检查 (Arsenal Check) ---
-        #扩展所需列
         periods = get_param_value(p.get('dynamic_periods'), [5, 21, 55])
         required_cols = [
             'concentration_70pct_D', 'concentration_90pct_D', 'winner_profit_margin_D',
@@ -485,65 +580,57 @@ class ChipIntelligence:
         for period in periods:
             required_cols.extend([
                 f'SLOPE_{period}_concentration_70pct_D', f'SLOPE_{period}_concentration_90pct_D',
-                f'SLOPE_{period}_winner_profit_margin_D'
+                f'SLOPE_{period}_winner_profit_margin_D',
+                # 增加对加速度数据的依赖，以实现S级信号
+                f'ACCEL_{period if period > 5 else 5}_concentration_70pct_D',
+                f'ACCEL_{period if period > 5 else 5}_concentration_90pct_D',
             ])
         required_cols.extend(['ACCEL_5_winner_profit_margin_D', 'SLOPE_5_support_below_D', 'SLOPE_5_pressure_above_D'])
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            print(f"          -> [严重警告] 筹码内部结构模块缺少关键数据列: {missing_cols}，模块已跳过！")
+            # 提示信息更具体
+            print(f"          -> [严重警告] 筹码内部结构模块缺少关键数据列: {missing_cols}，模块已跳过！(提示: 部分ACCEL列可能需由数据层提供)")
             return df
-
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-
-        # --- 3. 维度一: 核心持仓者上升共振 ---
-        # 核心逻辑: 核心筹码(70%)的集中速度(斜率)快于外围筹码(90%)
-        # 3.1 静态分 (Setup): 70%集中度本身处于较低水平（已很集中）
-        static_core_conc = normalize(df['concentration_70pct_D'], ascending=False)
-        # 3.2 动态分 (Momentum): 核心集中动能 - 外围集中动能
+        # --- 3. 维度一: 核心持仓者上升共振 (逻辑重构) ---
+        # 3.1 静态分 (Setup)
+        static_core_conc_score = normalize(df['concentration_70pct_D'], ascending=False)
+        # 3.2 动态分 (Momentum)
         core_momentum = {p: normalize(df[f'SLOPE_{p}_concentration_70pct_D'], ascending=False) for p in periods}
         peripheral_momentum = {p: normalize(df[f'SLOPE_{p}_concentration_90pct_D'], ascending=False) for p in periods}
-        net_gathering_momentum = {p: (core_momentum[p] - peripheral_momentum[p]) for p in periods}
+        net_gathering_momentum = {p: (core_momentum[p] - peripheral_momentum[p]).clip(0) for p in periods} # 净动能不能为负
         avg_net_gathering_momentum = normalize(pd.Series(np.mean(np.array([s.values for s in net_gathering_momentum.values()]), axis=0), index=df.index))
-
-        # 3.3 融合生成S/A/B三级上升共振信号
+        # 3.3 加速分 (Acceleration)
+        core_accel = normalize(df['ACCEL_5_concentration_70pct_D'], ascending=False)
+        peripheral_accel = normalize(df['ACCEL_5_concentration_90pct_D'], ascending=False)
+        net_gathering_accel_score = (core_accel - peripheral_accel).clip(0) # 净加速度不能为负
+        # 3.4 融合生成S/A/B三级上升共振信号 - 遵循 B->A->S 逻辑重构
         new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_B'] = avg_net_gathering_momentum.astype(np.float32)
-        new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] = (static_core_conc * avg_net_gathering_momentum).astype(np.float32)
-        new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] * normalize(net_gathering_momentum[5])).astype(np.float32)
-
-        # --- 4. 维度二: 获利盘兑现顶部反转风险 ---
-        # 4.1 静态风险 (Setup): 获利盘利润丰厚
+        new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] = (new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_B'] * static_core_conc_score).astype(np.float32)
+        new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S'] = (new_scores['SCORE_CORE_HOLDER_BULLISH_RESONANCE_A'] * normalize(net_gathering_accel_score)).astype(np.float32)
+        # --- 4. 维度二: 获利盘兑现顶部反转风险  ---
         static_profit_margin = normalize(df['winner_profit_margin_D'])
-        # 4.2 动态风险 (Trigger): 利润仍在快速增长，加速兑现冲动
         profit_margin_momentum = normalize(df['SLOPE_5_winner_profit_margin_D'])
-        # 4.3 风险加速度 (Confirmation): 利润增长在加速
         profit_margin_accel = normalize(df['ACCEL_5_winner_profit_margin_D'])
-
-        # 4.4 融合生成S/A/B三级顶部反转风险信号
         new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_B'] = static_profit_margin.astype(np.float32)
         new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_A'] = (static_profit_margin * profit_margin_momentum).astype(np.float32)
         new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_S'] = (new_scores['SCORE_PROFIT_TAKING_TOP_REVERSAL_A'] * profit_margin_accel).astype(np.float32)
-
-        # --- 5. 维度三: 净支撑上升共振 ---
-        # 5.1 静态机会 (Setup): 下方支撑远大于上方压力
+        # --- 5. 维度三: 净支撑上升共振  ---
         static_support = normalize(df['support_below_D'])
         static_pressure = normalize(df['pressure_above_D'])
         static_net_support = normalize(static_support - static_pressure)
-        # 5.2 动态机会 (Momentum): 支撑在增强，压力在减弱
         support_momentum = normalize(df['SLOPE_5_support_below_D'])
-        pressure_momentum = normalize(df['SLOPE_5_pressure_above_D'], ascending=False) # 压力斜率越小越好
+        pressure_momentum = normalize(df['SLOPE_5_pressure_above_D'], ascending=False)
         dynamic_net_support = (support_momentum * pressure_momentum)
-
-        # 5.3 融合生成A/B两级上升共振信号 (S级需要更复杂数据，暂不生成)
         new_scores['SCORE_NET_SUPPORT_BULLISH_RESONANCE_B'] = dynamic_net_support.astype(np.float32)
         new_scores['SCORE_NET_SUPPORT_BULLISH_RESONANCE_A'] = (static_net_support * dynamic_net_support).astype(np.float32)
-
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [筹码内部结构评分模块 V2.0 共振-反转诊断版] 计算完毕。") #更新打印信息
+        print("        -> [筹码内部结构评分模块 V3.0 交叉验证增强版] 计算完毕。")
         return df
 
     def diagnose_chip_holder_behavior_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -562,7 +649,7 @@ class ChipIntelligence:
           - SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A/B: 长线筹码不稳定顶部反转风险分。
           - SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S/A/B: 长线筹码投降底部反转机会分。
         """
-        # print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 启动...")
+        print("        -> [持仓者行为评分模块 V2.1 依赖修正版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
@@ -633,7 +720,7 @@ class ChipIntelligence:
                       战术场景（如“洗盘吸筹”、“诱多派发”）的原子分数。
         - 收益: 净化了认知层的职责，使其专注于纯粹的“元融合”。
         """
-        # print("        -> [行为-筹码融合评分模块 V1.0] 启动...")
+        print("        -> [行为-筹码融合评分模块 V1.0] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
         if not get_param_value(p.get('enabled'), True):

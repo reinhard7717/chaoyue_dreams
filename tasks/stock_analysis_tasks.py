@@ -805,6 +805,27 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                                 final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[source_slope_col], p)
                             else:
                                 print(f"    -> [警告] 无法计算加速度，源斜率列不存在: {source_slope_col}")
+            # --- 新增：计算所有核心信号的1日斜率与1日加速度 ---
+            print(f"[{stock_code}] [衍生特征工厂] 开始计算1日斜率与加速度...")
+            # 定义需要计算1日衍生指标的基础信号列表
+            signals_for_1d_derivatives = [
+                'peak_cost', 'concentration_70pct', 'concentration_90pct', 'peak_stability',
+                'peak_control_ratio', 'peak_strength_ratio', 'winner_profit_margin',
+                'support_below', 'pressure_above', 'turnover_from_winners_ratio',
+                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term'
+            ]
+            for base_col_name in signals_for_1d_derivatives:
+                if base_col_name in final_metrics_df.columns:
+                    # 计算1日斜率 (窗口为2，即今天和昨天)
+                    slope_col_1d = f"{base_col_name}_slope_1d"
+                    print(f"    -> 正在计算1日斜率: {slope_col_1d}")
+                    final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
+                    
+                    # 基于1日斜率计算1日加速度 (窗口为2)
+                    accel_col_1d = f"{base_col_name}_accel_1d"
+                    print(f"    -> 正在计算1日加速度: {accel_col_1d}")
+                    final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
+            # --- 1日衍生指标计算结束 ---
             # 3. 最后计算依赖于衍生指标的 chip_health_score
             # 注意: 确保 calculate_chip_health_score 函数能处理DataFrame的行(Series)
             # 并且能够找到所有它需要的斜率列
@@ -1005,6 +1026,25 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
                 source_slope_col = f'{col}_slope_{p}d'
                 if source_slope_col in final_metrics_df.columns:
                     final_metrics_df[f'{col}_accel_{p}d'] = _calculate_slope(final_metrics_df[source_slope_col], p)
+        # --- 新增：计算核心信号的1日斜率与1日加速度 ---
+        print(f"[{stock_code}] [衍生特征工厂] 开始计算1日资金流斜率与加速度...")
+        # 定义需要计算1日衍生指标的基础信号列表
+        signals_for_1d_derivatives_fund = [
+            'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
+            'flow_divergence_mf_vs_retail', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio'
+        ]
+        for base_col_name in signals_for_1d_derivatives_fund:
+            if base_col_name in final_metrics_df.columns:
+                # 计算1日斜率 (窗口为2，即今天和昨天)
+                slope_col_1d = f"{base_col_name}_slope_1d"
+                print(f"    -> 正在计算1日斜率: {slope_col_1d}")
+                final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
+                
+                # 基于1日斜率计算1日加速度 (窗口为2)
+                accel_col_1d = f"{base_col_name}_accel_1d"
+                print(f"    -> 正在计算1日加速度: {accel_col_1d}")
+                final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
+        # --- 1日衍生指标计算结束 ---
         rename_dict = {}
         for p in accel_periods:
             original_name = f'flow_divergence_mf_vs_retail_accel_{p}d'

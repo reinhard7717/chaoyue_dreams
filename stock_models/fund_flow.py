@@ -796,6 +796,21 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         vars()[f'net_xl_amount_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-超大单净流入{p}日加速度', null=True, blank=True)
         vars()[f'main_force_flow_intensity_ratio_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'主力资金流强度比率{p}日加速度', null=True, blank=True)
 
+    # --- 5A. 资金动态衍生指标 (1日) ---
+    # 备注：1日斜率和加速度用于捕捉资金流向最即时的日度变化和趋势拐点。
+    vars()['net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-资金净流入1日斜率', null=True, blank=True)
+    vars()['net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-资金净流入1日加速度', null=True, blank=True)
+    vars()['main_force_net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-主力净流入1日斜率', null=True, blank=True)
+    vars()['main_force_net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-主力净流入1日加速度', null=True, blank=True)
+    vars()['retail_net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-散户净流入1日斜率', null=True, blank=True)
+    vars()['retail_net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-散户净流入1日加速度', null=True, blank=True)
+    vars()['flow_divergence_mf_vs_retail_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='资金分歧度1日斜率', null=True, blank=True)
+    vars()['flow_divergence_mf_vs_retail_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='资金分歧度1日加速度', null=True, blank=True)
+    vars()['net_xl_amount_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-超大单净流入1日斜率', null=True, blank=True)
+    vars()['net_xl_amount_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-超大单净流入1日加速度', null=True, blank=True)
+    vars()['main_force_flow_intensity_ratio_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='主力资金流强度比率1日斜率', null=True, blank=True)
+    vars()['main_force_flow_intensity_ratio_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='主力资金流强度比率1日加速度', null=True, blank=True)
+
 
     # --- 6. 主力与散户分歧度加速度指标 ---
     accel_5d_flow_divergence_mf_vs_retail = models.DecimalField(
