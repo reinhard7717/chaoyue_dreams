@@ -959,14 +959,22 @@ class CognitiveIntelligence:
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V401.12 清理版】趋势阶段评分模块
+        【V401.13 配置化改造版】趋势阶段评分模块
         - 核心修正: 修复了VPA风险融合逻辑，确保所有相关风险信号都被正确消费。
+        - 核心改造: 移除了硬编码的风险权重，改为从JSON配置文件中动态加载，并增加了模块开关。
         """
-        # print("        -> [趋势阶段评分模块 V401.12 清理版] 启动...")
-
+        # print("        -> [趋势阶段评分模块 V401.13 配置化改造版] 启动...") # 代码修改: 更新版本号和描述
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        p_trend_stage_scoring = get_params_block(self.strategy, 'trend_stage_scoring_params')
+        if not get_param_value(p_trend_stage_scoring.get('enabled'), True):
+            # 如果模块被禁用，则返回0分，避免影响下游逻辑
+            states['CONTEXT_TREND_LATE_STAGE_SCORE'] = pd.Series(0, index=df.index, dtype=int)
+            states['CONTEXT_TREND_STAGE_LATE'] = pd.Series(False, index=df.index)
+            print("        -> [趋势阶段评分模块] 已在配置中禁用，跳过计算。")
+            return states
+        signal_definitions = get_param_value(p_trend_stage_scoring.get('weights'), {})
         # --- 1. 计算“上涨初期”的量化分数 (Early Stage Score) ---
         ascent_structure_score = atomic.get('COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S', default_score)
         yearly_high = df['high_D'].rolling(250, min_periods=60).max()
@@ -978,7 +986,6 @@ class CognitiveIntelligence:
         df['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = early_stage_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
-        
         # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
         vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
@@ -989,27 +996,7 @@ class CognitiveIntelligence:
             vpa_efficiency_decline_score.values
         ])
         vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
-
         risk_dimension_scores = []
-        signal_definitions = {
-            "SCORE_BIAS_OVERBOUGHT_EXTENT": 25, "SCORE_RISK_MOMENTUM_EXHAUSTION": 25,
-            "SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE": 25, "vpa_risk_score_series": 25,
-            "SCORE_VOL_EXPANSION_LEVEL": 25, "COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION": 40,
-            "SCORE_BEHAVIOR_PANIC_SELLING_RISK_S": 25, "CHIP_TOP_REVERSAL": 30,
-            "STRUCTURE_BEARISH_RESONANCE": 35, "SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S": 25,
-            "SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S": 25, "CHIP_SCORE_FUSED_DECEPTIVE_RALLY": 35,
-            "SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S": 35, "SCORE_MACD_BEARISH_CONFLUENCE_RISK": 20,
-            "SCORE_VOL_PRICE_PANIC_DOWN_RISK": 30, "FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH": 25,
-            "MTF_BEARISH_RESONANCE": 35, "FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH": 30,
-            "FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH": 30, "MECHANICS_TOP_REVERSAL": 35,
-            "PATTERN_TOP_REVERSAL": 35, "SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S": 30,
-            "SCORE_FV_CHAOTIC_EXPANSION_RISK": 30, "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S": 50,
-            "COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S": 45, "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S": 45,
-            "COGNITIVE_SCORE_TREND_FATIGUE_RISK": 30, "SCORE_RISK_PRICE_DEVIATION_S": 30,
-            "SCORE_RISK_STRUCTURAL_FAULT_S": 40, "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 30,
-            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 25,
-        }
-
         for name, weight in signal_definitions.items():
             if name == "vpa_risk_score_series":
                 risk_dimension_scores.append(vpa_risk_score_series * weight)
@@ -1017,16 +1004,14 @@ class CognitiveIntelligence:
                 risk_dimension_scores.append(self._fuse_multi_level_scores(df, name) * weight)
             else:
                 risk_dimension_scores.append(self._get_atomic_score(df, name, 0.0) * weight)
-
         score_components = [s.to_numpy(dtype=np.float32) for s in risk_dimension_scores]
         late_stage_score_arr = np.add.reduce(score_components)
         late_stage_score_arr = np.nan_to_num(late_stage_score_arr, nan=0.0, posinf=0.0, neginf=0.0)
-        
         late_stage_score_arr_int = late_stage_score_arr.astype(int)
         late_stage_score = pd.Series(late_stage_score_arr_int, index=df.index, dtype=int)
         states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 320
-        print("        -> [趋势阶段评分模块 V401.12 清理版] 计算完毕。")
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 160
+        print("        -> [趋势阶段评分模块 V401.13 配置化改造版] 计算完毕。")
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

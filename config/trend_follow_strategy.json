@@ -605,8 +605,7 @@
         "dynamic_scoring": {
           "说明": "【动能分】作为催化剂和加分项，分数权重次之。此部分保持不变，作为独立的加分模块。",
           "min_positional_score_for_dynamic": {
-            "value": 300,
-            "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
+            "value": 150, "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
           },
           "positive_signals": {
             "DYN_AGGRESSIVE_OFFENSE_A": 250,
@@ -632,7 +631,43 @@
             "SCORE_BEHAVIOR_ENGINE_IGNITION_A": 180,
             "说明_基础动能": "--- A级基础情报动能 ---",
             "SCORE_VOL_PRICE_IGNITION_UP": 150
-
+          }
+        },
+        "trend_stage_scoring_params": {
+          "enabled": true,
+          "description": "【V401.12 新增】上涨末期风险评分权重。从代码中迁移至此，并已完成风险再平衡（数值/2）。",
+          "weights": {
+            "SCORE_BIAS_OVERBOUGHT_EXTENT": 13,
+            "SCORE_RISK_MOMENTUM_EXHAUSTION": 13,
+            "SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE": 13,
+            "vpa_risk_score_series": 13,
+            "SCORE_VOL_EXPANSION_LEVEL": 13,
+            "COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION": 20,
+            "SCORE_BEHAVIOR_PANIC_SELLING_RISK_S": 13,
+            "CHIP_TOP_REVERSAL": 15,
+            "STRUCTURE_BEARISH_RESONANCE": 18,
+            "SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S": 13,
+            "SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S": 13,
+            "CHIP_SCORE_FUSED_DECEPTIVE_RALLY": 18,
+            "SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S": 18,
+            "SCORE_MACD_BEARISH_CONFLUENCE_RISK": 10,
+            "SCORE_VOL_PRICE_PANIC_DOWN_RISK": 15,
+            "FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH": 13,
+            "MTF_BEARISH_RESONANCE": 18,
+            "FF_SCORE_CONFLICT_REVERSAL_TOP_HIGH": 15,
+            "FF_SCORE_INTENSITY_REVERSAL_TOP_HIGH": 15,
+            "MECHANICS_TOP_REVERSAL": 18,
+            "PATTERN_TOP_REVERSAL": 18,
+            "SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S": 15,
+            "SCORE_FV_CHAOTIC_EXPANSION_RISK": 15,
+            "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S": 25,
+            "COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S": 23,
+            "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S": 23,
+            "COGNITIVE_SCORE_TREND_FATIGUE_RISK": 15,
+            "SCORE_RISK_PRICE_DEVIATION_S": 15,
+            "SCORE_RISK_STRUCTURAL_FAULT_S": 20,
+            "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 15,
+            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13
           }
         },
         "positional_acceleration_scoring": {
