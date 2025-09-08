@@ -764,14 +764,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
-            
             # --- 指标衍生计算 (V13.0 三阶段时序修正版) ---
-            print(f"[{stock_code}] [衍生特征工厂 V13.0] 启动三阶段衍生计算...")
             # 阶段一：计算所有非健康分的基础及衍生指标
-            print("    -> 阶段 1/3: 计算所有基础衍生指标...")
             if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
                 final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
-            
             # 1.1 硬编码保障 + 数据驱动计算 (斜率)
             required_derivatives_config = { 'peak_stability': [5, 21, 55], 'peak_control_ratio': [55], 'concentration_70pct': [5, 21, 55] }
             for base_col, periods in required_derivatives_config.items():
@@ -823,22 +819,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
                     accel_col_1d = f"{base_col_name}_accel_1d"
                     final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-
             # 阶段二：计算最终版的筹码健康分
-            print("    -> 阶段 2/3: 计算最终版筹码健康分...")
             final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
-
             # 阶段三：基于最终版的健康分，计算其1日斜率和加速度
-            print("    -> 阶段 3/3: 计算健康分的1日斜率与加速度...")
             if 'chip_health_score' in final_metrics_df.columns:
                 slope_col_1d = "chip_health_score_slope_1d"
                 final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df['chip_health_score'], 2)
-                print(f"        -> [调试] {slope_col_1d} 最后5值: {final_metrics_df[slope_col_1d].tail(5).to_list()}")
-                
                 accel_col_1d = "chip_health_score_accel_1d"
                 final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-                print(f"        -> [调试] {accel_col_1d} 最后5值: {final_metrics_df[accel_col_1d].tail(5).to_list()}")
-
             # --- 数据保存部分 ---
             records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
             records_to_create = []
