@@ -368,13 +368,11 @@ class BehavioralIntelligence:
 
     def diagnose_multi_dimensional_resonance(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】多维共振与反转诊断模块
-        - 核心职责: 基于数据层提供的多周期（如5日、21日）指标的静态值、
-                    斜率、加速度，进行交叉验证，生成高置信度的共振与反转信号。
-        - 核心逻辑:
-          1. 上升/下跌共振: 当一个指标的静态值、斜率和加速度同向（同为正或同为负）时，形成共振。
-          2. 顶部/底部反转: 当指标的静态值与斜率/加速度出现背离时（如静态值创新高，但斜率已转负），形成反转信号。
-        - 收益: 提供了超越单一指标判断的、更立体和可靠的市场状态评估。
+        【V1.2 逻辑修正版】多维共振与反转诊断模块
+        - 核心职责: (同V1.0)
+        - 核心升级 (本次修改):
+          - [修复] 移除了上一版中一行多余的代码，该代码错误地覆盖了对 'flow_divergence_mf_vs_retail_D' 特殊命名规则的处理逻辑。
+        - 收益: 彻底解决了因列名不匹配导致部分指标共振分析被跳过的问题。
         """
         states = {}
         p = get_params_block(self.strategy, 'resonance_params', {})
@@ -397,15 +395,15 @@ class BehavioralIntelligence:
                 # 构造列名
                 static_col = base_name
                 slope_col = f'SLOPE_{period}_{base_name}'
+                # 针对 'flow_divergence_mf_vs_retail_D' 指标的特殊命名规则进行适配
                 if 'flow_divergence_mf_vs_retail' in base_name:
-                    accel_col = f'accel_{period}d_{base_name}'
+                    accel_col = f'accel_{period}d_{base_name}' # 使用 'accel_5d_...' 格式
                 else:
-                    accel_col = f'ACCEL_{period}_{base_name}'
-                accel_col = f'ACCEL_{period}_{base_name}'
+                    accel_col = f'ACCEL_{period}_{base_name}' # 使用标准的 'ACCEL_5_...' 格式
+                # accel_col = f'ACCEL_{period}_{base_name}' # 修改：删除此行多余的错误代码
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
                     print(f"        -> [多维共振诊断] 警告: 缺少分析 '{base_name}' 所需列: {required_cols}，跳过周期 {period}。")
-                    print(f"accel_5d_flow_divergence_mf_vs_retail_D: {accel_5d_flow_divergence_mf_vs_retail_D}")
                     continue
                 # --- 1. 信号数值化与归一化 (0-1分) ---
                 static_score = df[static_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
@@ -432,7 +430,7 @@ class BehavioralIntelligence:
             states['SCORE_RESONANCE_UP_OVERALL'] = pd.concat(all_up_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
         if all_down_resonance_scores:
             states['SCORE_RESONANCE_DOWN_OVERALL'] = pd.concat(all_down_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
-        print(f"        -> [多维共振诊断模块 V1.0] 已生成 {len(states)} 个共振与反转信号。")
+        print(f"        -> [多维共振诊断模块 V1.2] 已生成 {len(states)} 个共振与反转信号。") # 修改: 更新版本号
         return states
 
     # “价格-成交量原子信号诊断”方法
