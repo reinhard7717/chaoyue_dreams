@@ -36,36 +36,42 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【新增】生成人类可读的信号摘要。
-        - 核心职责: 遍历每日激活的进攻和风险信号，查询配置文件中的中文名，并格式化为字符串。
+        【V2.0 健壮性修复版】生成人类可读的信号摘要。
+        - 核心修复: 修复了因 score_details_df 和 risk_details_df 索引不一致导致的 KeyError。
+        - 修复逻辑:
+        1. 不再依赖任何一个详情DataFrame的索引进行迭代。
+        2. 改为迭代主数据帧 `self.strategy.df_indicators.index`，这是一个包含所有日期的“全集”索引。
+        3. 在循环内部，使用 `if idx in df.index:` 的安全检查，确保只在详情DataFrame中存在该日期时才尝试访问，
+            从而彻底避免了 KeyError。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        
         summaries = []
-        # 迭代每一天的数据
-        for idx in score_details_df.index:
+        # 使用主DataFrame的索引进行迭代，确保覆盖所有日期
+        for idx in self.strategy.df_indicators.index:
             day_summary = {'offense': [], 'risk': []}
-            
-            # 处理进攻项
-            active_offense_signals = score_details_df.loc[idx]
-            active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
-            for signal, score in active_offense_signals.items():
-                # 从信号名中提取基础名称 (例如从 DYN_SCORE_... 提取 SCORE_...)
-                base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
-                cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
-                day_summary['offense'].append(f"{cn_name} ({int(score)})")
-
-            # 处理风险项
-            active_risk_signals = risk_details_df.loc[idx]
-            active_risk_signals = active_risk_signals[active_risk_signals > 0].sort_values(ascending=False)
-            for signal, score in active_risk_signals.items():
-                base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
-                cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
-                day_summary['risk'].append(f"{cn_name} ({int(score)})")
+            # 安全地处理进攻项
+            if idx in score_details_df.index:
+                active_offense_signals = score_details_df.loc[idx]
+                active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
+                for signal, score in active_offense_signals.items():
+                    # 从信号名中提取基础名称 (例如从 DYN_SCORE_... 提取 SCORE_...)
+                    base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
+                    cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
+                    day_summary['offense'].append(f"{cn_name} ({int(score)})")
+            # 安全地处理风险项
+            if idx in risk_details_df.index:
+                active_risk_signals = risk_details_df.loc[idx]
+                active_risk_signals = active_risk_signals[active_risk_signals > 0].sort_values(ascending=False)
+                for signal, score in active_risk_signals.items():
+                    # 风险信号的名称已经是 FUSED_RISK_SCORE_...，不需要提取base_name
+                    # 或者说，我们需要在score_map中定义这些融合后的风险信号
+                    # 为了兼容，我们先假设score_map里有这些键
+                    cn_name = score_map.get(signal, {}).get('cn_name', signal)
+                    day_summary['risk'].append(f"{cn_name} ({int(score)})")
             summaries.append(day_summary)
-        return pd.Series(summaries, index=score_details_df.index)
-    
+        return pd.Series(summaries, index=self.strategy.df_indicators.index)
+
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
         【V502.1 职责净化版】

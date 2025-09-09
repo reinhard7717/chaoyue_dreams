@@ -965,7 +965,13 @@
         "score_type_map": {
           "说明": "【V5.0 信号字典重构版】定义所有信号的中文名、分类和描述。已消除所有重复项，并按“情报层-信号类型”进行分类，结构清晰，易于维护。",
           "说明_CATEGORY": "分类规则: '层级-类型'。层级=[认知, 结构, 行为, 筹码, 力学, 资金流, 基础, 战法]。类型=[机会, 风险, 触发器, 环境]",
-          
+          "说明_fused_risk": "--- 认知层·融合风险信号 (Fused Risk) ---",
+          "FUSED_RISK_SCORE_STRUCTURAL_RISK": { "cn_name": "【维度】结构风险", "category": "认知层-风险", "type": "risk", "description": "融合了市场趋势、均线、平台等宏观结构风险的综合评分。" },
+          "FUSED_RISK_SCORE_BEHAVIORAL_RISK": { "cn_name": "【维度】行为风险", "category": "认知层-风险", "type": "risk", "description": "融合了量价关系、K线形态、关键交易行为等风险的综合评分。" },
+          "FUSED_RISK_SCORE_CHIP_RISK": { "cn_name": "【维度】筹码风险", "category": "认知层-风险", "type": "risk", "description": "融合了筹码分布、流向和健康度等风险的综合评分。" },
+          "FUSED_RISK_SCORE_FUND_FLOW_RISK": { "cn_name": "【维度】资金流风险", "category": "认知层-风险", "type": "risk", "description": "融合了主力、散户等各类资金动向风险的综合评分。" },
+          "FUSED_RISK_SCORE_EXHAUSTION_DIVERGENCE_RISK": { "cn_name": "【维度】衰竭背离风险", "category": "认知层-风险", "type": "risk", "description": "融合了跨领域的趋势末端衰竭与背离风险的综合评分。" },
+          "FUSED_RISK_RESONANCE_PENALTY_ACTIVE": { "cn_name": "【状态】风险共振激活", "category": "认知层-风险", "type": "risk", "description": "表示多个核心风险维度同时出现高风险，总风险分已被惩罚性放大。" },
           "说明_playbook": "--- 战法与剧本 (Tactic & Playbook) ---",
           "PLAYBOOK_BOTTOM_REVERSAL_S": { "cn_name": "【剧本S】底部反转共振", "category": "战法剧本-机会", "type": "playbook", "description": "在熊市衰竭的环境下，由“多域底部反转共振”确认战略拐点。" },
           "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": { "cn_name": "【剧本A】经典形态突破", "category": "战法剧本-机会", "type": "playbook", "description": "在趋势质量尚可的环境中，执行对经典看涨形态（老鸭头/N字板）的突破。" },
