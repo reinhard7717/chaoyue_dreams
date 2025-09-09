@@ -405,6 +405,7 @@ class BehavioralIntelligence:
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
                     print(f"        -> [多维共振诊断] 警告: 缺少分析 '{base_name}' 所需列: {required_cols}，跳过周期 {period}。")
+                    print(f"accel_5d_flow_divergence_mf_vs_retail_D: {accel_5d_flow_divergence_mf_vs_retail_D}")
                     continue
                 # --- 1. 信号数值化与归一化 (0-1分) ---
                 static_score = df[static_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
