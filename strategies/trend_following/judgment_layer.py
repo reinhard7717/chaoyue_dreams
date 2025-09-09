@@ -19,7 +19,6 @@ class JudgmentLayer:
         df = self.strategy.df_indicators
         offensive_summary = df.get('offensive_momentum_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
         risk_summary = df.get('risk_change_summary', pd.Series([{} for _ in range(len(df))], index=df.index))
-        
         # 使用列表推导式替代 for 循环，实现向量化操作
         def create_summary(offense_report, risk_report):
             # 定义一个内部辅助函数来构建单个报告字典
@@ -33,54 +32,7 @@ class JudgmentLayer:
             return final_summary
         # 使用列表推导式和zip并行处理两个Series，并调用辅助函数
         final_summaries = [create_summary(o, r) for o, r in zip(offensive_summary, risk_summary)]
-            
         df['health_change_summary'] = final_summaries
-
-    def _generate_exit_triggers(self) -> pd.DataFrame:
-        """
-        【V504.0 新增】离场触发器生成器
-        - 核心职责: 根据“三道防线”原则，生成一个包含所有离场原因的布尔型DataFrame。
-        """
-        df = self.strategy.df_indicators
-        triggers_df = pd.DataFrame(index=df.index)
-        
-        # --- 防线一: 致命一击 (Critical Hit) ---
-        critical_risk_details = self.strategy.critical_risk_details
-        triggers_df['EXIT_CRITICAL_HIT'] = critical_risk_details.sum(axis=1) > 0
-
-        # --- 防线二: 风险溢出 (Risk Overflow) ---
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        overflow_threshold = get_param_value(p_judge.get('risk_overflow_threshold'), 1000)
-        triggers_df['EXIT_RISK_OVERFLOW'] = self.strategy.risk_score > overflow_threshold
-
-        # --- 防线三: 趋势破位 (Trend Broken) ---
-        #  实现“第三道防线”，即基于移动平均线的技术性移动止盈/止损。
-        #           这是保护利润和控制回撤的关键纪律。
-        p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
-        p_trailing = p_pos_mgmt.get('trailing_stop', {})
-        triggers_df['EXIT_TREND_BROKEN'] = pd.Series(False, index=df.index) # 默认不触发
-        if get_param_value(p_trailing.get('enabled'), False):
-            model = get_param_value(p_trailing.get('trailing_model'))
-            if model == 'MOVING_AVERAGE':
-                ma_type = get_param_value(p_trailing.get('ma_type'), 'EMA').upper()
-                ma_period = get_param_value(p_trailing.get('ma_period'), 20)
-                ma_col = f'{ma_type}_{ma_period}_D'
-                if ma_col in df.columns:
-                    # 当日收盘价低于移动平均线，则触发趋势破位信号
-                    triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[ma_col]
-                    # print(f"    -> [第三道防线] 已激活：趋势破位监控 (基于 {ma_col})。")
-                else:
-                    print(f"    -> [第三道防线-警告] 无法找到移动平均线列: {ma_col}，趋势破位监控未激活。")
-
-        # --- 防线四: 利润保护 (Profit Protector - 暂未完全实现) ---
-        p_protector = p_judge.get('profit_protector', {})
-        if get_param_value(p_protector.get('enabled'), False):
-            max_drawdown_pct = get_param_value(p_protector.get('max_drawdown_pct'), 0.15)
-            triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
-        else:
-            triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
-
-        return triggers_df
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
@@ -111,44 +63,35 @@ class JudgmentLayer:
                 base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
                 cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
                 day_summary['risk'].append(f"{cn_name} ({int(score)})")
-            
             summaries.append(day_summary)
-            
         return pd.Series(summaries, index=score_details_df.index)
-
+    
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V502.0 纯数值化决策版】
+        【V502.1 职责净化版】
         - 核心架构升级: 废除“否决票”机制，采用“风险惩罚分”模型。
         - 决策逻辑简化: 最终决策逻辑简化为 `最终得分 = 进攻分 - 风险惩罚分`。
-                        如果最终得分高于入场阈值，则产生买入信号。
-                        这使得决策过程更平滑、更稳健，并从根本上解决了类型不匹配问题。
+        - 职责净化: 移除了对 `_generate_exit_triggers` 的调用，硬性离场决策完全交由上层模块处理。
         """
-        print("    --- [最高作战指挥部 V502.0 纯数值化决策版] 启动... ---")
+        print("    --- [最高作战指挥部 V502.1 职责净化版] 启动... ---")
         df = self.strategy.df_indicators
-        # 初始化新的风险惩罚分列，并调用新的计算函数
+        
         df['risk_penalty_score'] = 0.0
         self._calculate_risk_penalty_score()
+
         df['signal_type'] = '无信号'
         df['dynamic_action'] = 'HOLD'
         self._evaluate_holding_health(score_details_df, risk_details_df)
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        exit_triggers = self._generate_exit_triggers()
-        is_sell_signal = exit_triggers.any(axis=1)
-        self.strategy.exit_triggers = exit_triggers
-        df.loc[is_sell_signal, 'signal_type'] = '卖出信号'
         # --- 买入决策核心逻辑 (纯数值化) ---
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        # 使用单一的最终得分阈值
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
         df['final_score'] = df['entry_score'] - df['risk_penalty_score']
         is_score_sufficient = df['final_score'] > final_score_threshold
         not_avoid = df['dynamic_action'] != 'AVOID'
-        is_not_sell_day = ~is_sell_signal
         final_buy_condition = (
             is_score_sufficient &
-            not_avoid &
-            is_not_sell_day
+            not_avoid
         )
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
