@@ -902,13 +902,14 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.2 合成指标优先版】根据配置为指定时间周期计算所有技术指标，并为所有列统一添加后缀。
-        - 核心修正 (本次修改): 新增一道“安检门”，在计算周线指标时，主动跳过那些已知由 `_calculate_synthetic_weekly_indicators` 
-                          函数合成的指标（如CMF, RSI）。这确保了更高保真度的合成指标不会被常规的、
-                          基于重采样数据的计算所覆盖，保证了周线级情报的准确性。
-        - 核心修正: 移除了对 ma_convergence 指标的重复计算，只保留唯一的、在方法内部的直接实现。
+        【V110.5 终极时序修复版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修正 (本次修改):
+          - [流程重构] 将所有指标（无论简单还是复合）的计算都放在添加后缀之前完成。
+                        确保所有计算器函数都工作在无后缀的统一命名空间下。
+        - 收益: 彻底解决了因命名时机不一致导致的“列找不到”的错误，逻辑清晰健壮。
         """
-        # print(f"  [指标计算V110.1] 开始为周期 '{timeframe_key}' 计算指标...")
+        # -> [修改] 更新打印信息
+        print(f"  [指标计算V110.5] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -939,24 +940,30 @@ class IndicatorService:
                     target_df[col] = result_data[col]
             else:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # --- 阶段一: 常规指标计算循环 ---
+        
+        # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
+        # -> [修改] 将所有指标计算合并到一个循环中，在添加后缀前全部完成
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
-            # 如果是周线('W')，并且指标是已知由合成模块处理的(cmf, rsi)，则跳过此处的常规计算
-            if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']:
-                continue
-            # 修正跳过逻辑，确保 ma_convergence 不会在此处被查找
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore', 'ma_convergence', 'price_volume_ma_comparison'] or not params.get('enabled', False): continue
+            if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore'] or not params.get('enabled', False): continue
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
-            if indicator_name in ['consolidation_period', 'fibonacci_levels']:
-                continue
+            
+            # 统一处理所有指标
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
+                    # 复合指标有自己的参数结构
+                    if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison']:
+                        result_df = await method_to_call(df=df_for_calc, params=params)
+                        merge_results(result_df, df_for_calc)
+                        continue # 处理完一个复合指标就跳到下一个
+                    
+                    # 处理常规指标
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
@@ -987,22 +994,9 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
-        # --- 阶段二: 复合指标计算循环 ---
-        # 修正复合指标列表，移除 ma_convergence
-        composite_indicator_keys = ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison']
-        for indicator_key in composite_indicator_keys:
-            params = config.get(indicator_key)
-            if not params or not params.get('enabled', False): continue
-            indicator_name = indicator_key.lower()
-            if timeframe_key in params.get("apply_on", []):
-                try:
-                    method_to_call = indicator_method_map[indicator_name]
-                    # 标准化调用方式，不再传递 suffix
-                    result_df = await method_to_call(df=df_for_calc, params=params)
-                    merge_results(result_df, df_for_calc)
-                except Exception as e:
-                    logger.error(f"    - 复合指标 {indicator_name.upper()} (周期: {timeframe_key}) 计算时出错: {e}", exc_info=True)
-        # --- 阶段三: 后处理指标计算（如Z-Score） ---
+
+        # --- 阶段二: 计算依赖于其他指标的后处理指标 (Z-Score, MA Convergence) ---
+        # Z-Score
         zscore_params = config.get('zscore')
         if zscore_params and zscore_params.get('enabled', False):
             for z_config in zscore_params.get('configs', []):
@@ -1016,10 +1010,8 @@ class IndicatorService:
                         macd_cfg = config.get('macd', {})
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
                         if macd_periods:
-                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2], _D=f"_{timeframe_key}") # MODIFIED: 确保后缀正确
+                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
                         else: continue
-                    source_col_name = source_col_name.removesuffix(f"_{timeframe_key}")
-                    output_col_name = output_col_name.removesuffix(f"_{timeframe_key}")
                     if source_col_name in df_for_calc.columns:
                         source_series = df_for_calc[source_col_name]
                         rolling_mean = source_series.rolling(window=window).mean()
@@ -1030,7 +1022,7 @@ class IndicatorService:
                         logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                 except Exception as e:
                     logger.error(f"计算Z-score时出错: {e}", exc_info=True)
-        # --- 阶段三点五: 计算均线粘合度指标 (唯一实现) ---
+        # MA Convergence
         ma_convergence_params = config.get('ma_convergence')
         if ma_convergence_params and ma_convergence_params.get('enabled', False):
             for conv_config in ma_convergence_params.get('configs', []):
@@ -1038,21 +1030,20 @@ class IndicatorService:
                     try:
                         periods = conv_config.get('periods', [])
                         output_col = conv_config.get('output_column_name')
-                        # 移除可能的后缀，因为此时还没有加后缀
-                        output_col_clean = output_col.removesuffix(f"_{timeframe_key}")
                         ma_cols = [f"EMA_{p}" for p in periods]
                         if all(col in df_for_calc.columns for col in ma_cols):
                             ma_df = df_for_calc[ma_cols]
                             ma_std = ma_df.std(axis=1)
                             ma_mean = ma_df.mean(axis=1)
                             convergence_cv = ma_std / (ma_mean + 1e-9)
-                            df_for_calc[output_col_clean] = convergence_cv
+                            df_for_calc[output_col] = convergence_cv
                         else:
                             missing = [col for col in ma_cols if col not in df_for_calc.columns]
                             logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
                     except Exception as e:
                         logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
-        # --- 阶段四: 统一添加后缀并返回 ---
+
+        # --- 阶段三: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
         rename_map = {
             col: f"{col}{suffix}"
