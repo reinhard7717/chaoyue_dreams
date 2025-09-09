@@ -49,8 +49,8 @@ def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
             if isinstance(first_valid_item, Decimal):
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 converted_cols.append(col)
-    if not converted_cols:
-        print("      -> 所有数值列类型正常，无需转换。")
+    # if not converted_cols:
+        # print("      -> 所有数值列类型正常，无需转换。")
     return df
 
 def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
@@ -84,18 +84,6 @@ def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.In
         return pd.Series(0.5, index=df_index)
     # 归一化处理
     return (total_score / total_weight).clip(0, 1)
-
-def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
-    converted_cols = []
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            first_valid_item = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
-            if isinstance(first_valid_item, Decimal):
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-                converted_cols.append(col)
-    if not converted_cols:
-        print("      -> 所有数值列类型正常，无需转换。")
-    return df
 
 def format_debug_dates(signal_series: pd.Series, display_limit: int = 10) -> str:
     if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:

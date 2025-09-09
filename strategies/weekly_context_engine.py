@@ -636,8 +636,8 @@ class WeeklyContextEngine:
         washout_score += washout_drift.astype(int)
         washout_score += washout_bull_trap.astype(int)
         washout_score += washout_volume_contraction.astype(int)
-        last_support = support_level.iloc[-1]
-        print(f"    - 使用的支撑位: {last_support:.2f}")
+        # last_support = support_level.iloc[-1]
+        # print(f"    - 使用的支撑位: {last_support:.2f}")
         # print(f"    - 模式1 (日内洗盘): {'[+1分]' if washout_intraday.iloc[-1] else '[+0分]'}")
         # print(f"    - 模式2 (日间洗盘): {'[+1分]' if washout_interday.iloc[-1] else '[+0分]'}")
         # print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
@@ -882,7 +882,7 @@ class WeeklyContextEngine:
 
     def _check_resistance_rejection(self, df: pd.DataFrame, resistance_col: str, params: dict, source_name: str) -> pd.Series:
         """辅助函数: 检查在给定压力列上的拒绝信号"""
-        print(f"  - 检查子项: [{source_name}]")
+        # print(f"  - 检查子项: [{source_name}]")
         volume_multiplier = params.get('volume_multiplier', 1.5)
         vol_ma_period = self.indicator_cfg.get('vol_ma', {}).get('periods', [5, 20, 55])[-1]
         vol_ma_col = f'VOL_MA_{vol_ma_period}_W'

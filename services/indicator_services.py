@@ -316,7 +316,7 @@ class IndicatorService:
         - 输入: 包含数据库原始列名的DataFrame (来自 advanced_chips)。
         - 输出: 列名已转换为策略层格式的DataFrame。
         """
-        print("    - [数据适配层] 正在转换预计算的衍生指标列名...")
+        # print("    - [数据适配层] 正在转换预计算的衍生指标列名...")
         import re # 导入正则表达式模块
         rename_map = {}
         for col in df.columns:
@@ -340,7 +340,7 @@ class IndicatorService:
                 rename_map[col] = new_name
         
         if rename_map:
-            print(f"      -> 发现并转换 {len(rename_map)} 个衍生指标列。")
+            # print(f"      -> 发现并转换 {len(rename_map)} 个衍生指标列。")
             return df.rename(columns=rename_map)
         else:
             print("      -> 未发现需要转换的衍生指标列。")
@@ -895,7 +895,7 @@ class IndicatorService:
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
-                print(f"      -> 信号 '{col}' 已生成，共激活 {df[col].sum()} 天。")
+                # print(f"      -> 信号 '{col}' 已生成，共激活 {df[col].sum()} 天。")
         all_dfs[timeframe] = df
         print("    - [高级模式识别生产线 V2.0] 所有模式信号生产完成。")
         return all_dfs

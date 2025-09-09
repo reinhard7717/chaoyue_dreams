@@ -27,7 +27,7 @@ class DynamicMechanicsEngine:
         df = self.strategy.df_indicators
         # --- 步骤 1: 依次调用所有底层诊断模块，并收集其产出的原子分数 ---
         all_states.update(self.run_force_vector_analysis_scores())
-        all_states.update(self.diagnose_multi_timeframe_micro_dynamics_scores(df))
+        all_states.update(self.diagnose_core_mechanics_scores(df))
         all_states.update(self.diagnose_multi_timeframe_dynamics_scores(df))
         all_states.update(self.diagnose_behavioral_mechanics_scores(df))
         # --- 步骤 2: 执行元融合，生成“整体力学健康度”元分数 ---
@@ -134,72 +134,78 @@ class DynamicMechanicsEngine:
         print("        -> [宏观力矢量评分引擎 V4.4 依赖修复版] 分析完毕。") # 更新打印信息
         return states
 
-    def diagnose_multi_timeframe_micro_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_core_mechanics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.5 数值化升级版】多时间维度微观力学评分引擎
-        - 核心逻辑: (业务逻辑不变)
-        - 核心升级 (本次修改): 消费端同步升级，使用新的数值化分级评分 'SCORE_VOL_COMPRESSION_LEVEL'
-                          替代旧的布尔信号。分数越高，对看涨共振的加成越大。
+        【V3.0 新增 & 重构】核心力学诊断引擎 (原diagnose_multi_timeframe_micro_dynamics_scores)
+        - 核心重构: 遵循“共振/反转”和“S/A/B三级置信度”设计范式，对原方法进行彻底重构。
+        - 核心逻辑:
+          - 共振信号: 评估价格、筹码在多时间维度上的一致性，并由波动率和成交量确认。
+          - 反转信号: 评估长周期趋势(环境)与短周期拐点(触发)的结合，并由筹码动态确认。
+        - 收益: 信号结构更清晰，逻辑更严谨，评分更精确，完全符合A股市场的多维博弈特征。
         """
-        # print("        -> [多时间维度微观力学评分引擎 V2.5] 启动...")
+        print("        -> [核心力学诊断引擎 V3.0] 启动...") # 新增: 打印启动信息
         states = {}
-        # --- 1. 军备检查 ---
+        # --- 1. 军备检查 (Arsenal Check) ---
         norm_window = 120
         min_periods = max(1, norm_window // 5)
-        required_cols = {
-            'SLOPE_5_close_D', 'SLOPE_21_close_D', 'ACCEL_5_close_D', 'ACCEL_21_close_D',
-            'SLOPE_5_concentration_90pct_D', 'SLOPE_21_concentration_90pct_D', 'SLOPE_55_concentration_90pct_D',
-            'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D', 'ACCEL_5_volume_D'
-        }
-        if not required_cols.issubset(df.columns):
-            missing = list(required_cols - set(df.columns))
-            print(f"          -> [警告] 多维微观力学引擎缺少关键数据: {missing}，模块已跳过！")
+        periods = [5, 21, 55] # 定义需要检查的时间周期
+        required_cols = set()
+        for p in periods:
+            required_cols.add(f'SLOPE_{p}_close_D')
+            required_cols.add(f'ACCEL_{p if p > 5 else 5}_close_D')
+            required_cols.add(f'SLOPE_{p}_concentration_90pct_D')
+        required_cols.update(['SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D', 'ACCEL_5_volume_D'])
+
+        missing = list(required_cols - set(df.columns))
+        if missing:
+            print(f"          -> [警告] 核心力学引擎缺少关键数据: {sorted(missing)}，模块已跳过！")
             return states
-        # --- 2. 核心动态分数计算 (NumPy高性能计算) ---
-        price_momentum_5d_arr = self._normalize_series(df['SLOPE_5_close_D'], norm_window, min_periods)
-        price_momentum_21d_arr = self._normalize_series(df['SLOPE_21_close_D'], norm_window, min_periods)
-        price_accel_5d_arr = self._normalize_series(df['ACCEL_5_close_D'], norm_window, min_periods)
-        price_accel_21d_arr = self._normalize_series(df['ACCEL_21_close_D'], norm_window, min_periods)
-        price_decel_5d_arr = 1.0 - price_accel_5d_arr
-        chip_conc_5d_arr = self._normalize_series(df['SLOPE_5_concentration_90pct_D'], norm_window, min_periods, ascending=False)
-        chip_conc_21d_arr = self._normalize_series(df['SLOPE_21_concentration_90pct_D'], norm_window, min_periods, ascending=False)
-        chip_conc_55d_arr = self._normalize_series(df['SLOPE_55_concentration_90pct_D'], norm_window, min_periods, ascending=False)
-        vol_squeeze_arr = self._normalize_series(df['SLOPE_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=False)
-        vol_ignition_arr = self._normalize_series(df['ACCEL_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=True)
-        volatility_ignition_arr = vol_squeeze_arr * vol_ignition_arr
-        volume_accel_arr = self._normalize_series(df['ACCEL_5_volume_D'], norm_window, min_periods, ascending=True)
-        # --- 3. 计算多周期“共振分” (纯NumPy数组运算) ---
-        price_momentum_resonance_arr = np.mean(np.array([price_momentum_5d_arr, price_momentum_21d_arr]), axis=0)
-        price_accel_resonance_arr = np.mean(np.array([price_accel_5d_arr, price_accel_21d_arr]), axis=0)
-        chip_conc_resonance_arr = np.mean(np.array([chip_conc_5d_arr, chip_conc_21d_arr, chip_conc_55d_arr]), axis=0)
-        # --- 4. 静态-动态交叉验证 (纯NumPy数组运算) ---
-        # 消费新的数值化评分 'SCORE_VOL_COMPRESSION_LEVEL'
-        key = 'SCORE_VOL_COMPRESSION_LEVEL'
-        if key in self.strategy.atomic_states:
-            # 直接获取分数值 (0.0 to 1.0)
-            static_squeeze_score_arr = self.strategy.atomic_states[key].values
-        else:
-            # 默认值是0.0
-            static_squeeze_score_arr = np.full(len(df), 0.0, dtype=np.float32)
-        # 将分级评分作为加权因子。乘数范围从 0.5 (无压缩) 到 1.5 (S级压缩)
-        bullish_resonance_arr = (
-            price_momentum_resonance_arr * price_accel_resonance_arr * chip_conc_resonance_arr *
-            volatility_ignition_arr * volume_accel_arr * (static_squeeze_score_arr + 0.5)
-        )
-        short_term_weakness_arr = 1.0 - price_momentum_5d_arr
-        divergence_risk_arr = price_momentum_21d_arr * short_term_weakness_arr
-        exhaustion_divergence_risk_arr = volume_accel_arr * price_decel_5d_arr
-        # --- 5. 结果封装 (批量转换为Pandas Series) ---
-        states = {
-            'SCORE_DYN_VOLATILITY_IGNITION': pd.Series(volatility_ignition_arr, index=df.index),
-            'SCORE_DYN_PRICE_MOMENTUM_RESONANCE': pd.Series(price_momentum_resonance_arr, index=df.index),
-            'SCORE_DYN_PRICE_ACCEL_RESONANCE': pd.Series(price_accel_resonance_arr, index=df.index),
-            'SCORE_DYN_CHIP_CONCENTRATION_RESONANCE': pd.Series(chip_conc_resonance_arr, index=df.index),
-            'SCORE_DYN_BULLISH_RESONANCE_S': pd.Series(bullish_resonance_arr, index=df.index),
-            'SCORE_DYN_DIVERGENCE_RISK_A': pd.Series(divergence_risk_arr, index=df.index),
-            'SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S': pd.Series(exhaustion_divergence_risk_arr, index=df.index),
-        }
-        print("        -> [多时间维度微观力学评分引擎 V2.5] 分析完毕。") 
+
+        # --- 2. 核心力学要素数值化 (归一化处理) ---
+        # 价格动能与势能
+        price_momentum_scores = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
+        price_accel_scores = {p: self._normalize_series(df[f'ACCEL_{p if p > 5 else 5}_close_D'], norm_window, min_periods) for p in periods}
+        # 筹码动能 (斜率<0为集中，故ascending=False)
+        chip_conc_scores = {p: self._normalize_series(df[f'SLOPE_{p}_concentration_90pct_D'], norm_window, min_periods, ascending=False) for p in periods}
+        # 波动率与成交量动能
+        vol_squeeze_score = self._normalize_series(df['SLOPE_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=False)
+        vol_expansion_score = 1.0 - vol_squeeze_score
+        vol_ignition_score = self._normalize_series(df['ACCEL_5_BBW_21_2.0_D'], norm_window, min_periods, ascending=True)
+        volume_accel_score = self._normalize_series(df['ACCEL_5_volume_D'], norm_window, min_periods, ascending=True)
+
+        # --- 3. 共振信号合成 (多时间周期交叉验证) ---
+        # 3.1 上升共振 (Bullish Resonance)
+        avg_price_momentum_bullish = np.mean(np.array([price_momentum_scores[5], price_momentum_scores[21]]), axis=0)
+        avg_chip_conc_bullish = np.mean(np.array([chip_conc_scores[5], chip_conc_scores[21], chip_conc_scores[55]]), axis=0)
+        states['SCORE_DYN_BULLISH_RESONANCE_B'] = pd.Series(avg_price_momentum_bullish, index=df.index)
+        states['SCORE_DYN_BULLISH_RESONANCE_A'] = pd.Series(avg_price_momentum_bullish * avg_chip_conc_bullish, index=df.index)
+        states['SCORE_DYN_BULLISH_RESONANCE_S'] = pd.Series(states['SCORE_DYN_BULLISH_RESONANCE_A'] * vol_ignition_score * volume_accel_score, index=df.index)
+
+        # 3.2 下跌共振 (Bearish Resonance) - 对称逻辑
+        avg_price_momentum_bearish = 1.0 - avg_price_momentum_bullish
+        avg_chip_conc_bearish = 1.0 - avg_chip_conc_bullish
+        states['SCORE_DYN_BEARISH_RESONANCE_B'] = pd.Series(avg_price_momentum_bearish, index=df.index)
+        states['SCORE_DYN_BEARISH_RESONANCE_A'] = pd.Series(avg_price_momentum_bearish * avg_chip_conc_bearish, index=df.index)
+        states['SCORE_DYN_BEARISH_RESONANCE_S'] = pd.Series(states['SCORE_DYN_BEARISH_RESONANCE_A'] * vol_expansion_score * volume_accel_score, index=df.index)
+
+        # --- 4. 反转信号合成 (环境 x 拐点) ---
+        # 4.1 底部反转 (Bottom Reversal)
+        setup_bottom_score = (1.0 - price_momentum_scores[21]) * vol_squeeze_score # 环境: 长期下跌 + 波动压缩
+        trigger_bottom_score = price_accel_scores[5] # 触发: 短期价格加速
+        confirm_bottom_score = chip_conc_scores[5] # 确认: 短期筹码集中
+        states['SCORE_DYN_BOTTOM_REVERSAL_B'] = pd.Series(trigger_bottom_score, index=df.index)
+        states['SCORE_DYN_BOTTOM_REVERSAL_A'] = pd.Series(setup_bottom_score * trigger_bottom_score, index=df.index)
+        states['SCORE_DYN_BOTTOM_REVERSAL_S'] = pd.Series(states['SCORE_DYN_BOTTOM_REVERSAL_A'] * confirm_bottom_score, index=df.index)
+
+        # 4.2 顶部反转 (Top Reversal) - 对称逻辑
+        setup_top_score = price_momentum_scores[21] * vol_expansion_score # 环境: 长期上涨 + 波动放大
+        trigger_top_score = 1.0 - price_accel_scores[5] # 触发: 短期价格减速
+        confirm_top_score = 1.0 - chip_conc_scores[5] # 确认: 短期筹码发散
+        states['SCORE_DYN_TOP_REVERSAL_B'] = pd.Series(trigger_top_score, index=df.index)
+        states['SCORE_DYN_TOP_REVERSAL_A'] = pd.Series(setup_top_score * trigger_top_score, index=df.index)
+        states['SCORE_DYN_TOP_REVERSAL_S'] = pd.Series(states['SCORE_DYN_TOP_REVERSAL_A'] * confirm_top_score, index=df.index)
+
+        print("        -> [核心力学诊断引擎 V3.0] 分析完毕。") # 新增: 打印结束信息
         return states
 
     def diagnose_multi_timeframe_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -106,7 +106,7 @@ class MultiTimeframeTrendStrategy:
         # 终极情报融合：将所有周线指标注入日线数据
         df_weekly_full = all_dfs.get('W')
         if df_weekly_full is not None and not df_weekly_full.empty:
-            print(f"  - [情报融合] 正在将 {len(df_weekly_full.columns)} 个周线指标注入日线数据...")
+            # print(f"  - [情报融合] 正在将 {len(df_weekly_full.columns)} 个周线指标注入日线数据...")
             # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别，并用 'ffill' 向前填充
             df_weekly_aligned = df_weekly_full.reindex(df_daily_with_context.index, method='ffill')
             # 步骤2: 使用 merge 合并，将所有周线列添加到日线DataFrame中
