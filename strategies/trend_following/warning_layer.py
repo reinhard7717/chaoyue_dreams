@@ -125,89 +125,42 @@ class WarningLayer:
         # 确保所有日期都有记录，即使是空字典
         return final_summary.reindex(combined_risk_details_df.index, fill_value={})
 
-    def calculate_risk_score(self) -> Tuple[pd.Series, pd.DataFrame]:
+    def run_all_warnings(self) -> Tuple[pd.Series, pd.DataFrame, pd.Series, pd.Series]:
         """
-        【V600.0 统一风险计分中心版】
-        - 核心重构: 本函数现在是唯一的风险计分中心。它不再区分“致命”和“常规”风险。
-        - 统一配置驱动: 从配置中加载所有风险信号（包括原致命风险和常规风险）及其权重。
-        - 数值化计分: 采用 `风险贡献分 = 信号强度 * 权重` 的方式计算，完美适配纯数值化系统。
-        - 简化输出: 返回一个总的 risk_score Series 和一个包含所有风险项详情的 DataFrame。
+        【V2.0 统一分析中心版】预警层总指挥
+        - 核心职责:
+          1. 从 atomic_states 获取由认知层计算好的、融合后的风险分数。
+          2. 基于高质量的风险分数，调用内部的二次分析引擎（动量、动态）。
+          3. 返回所有分析结果，供决策层使用。
+        - 收益: 实现了职责分离，本模块专注于“风险分析”，而非“风险计算”。
         """
-        df = self.strategy.df_indicators
+        print("        -> [预警层分析中心 V2.0] 启动...")
         atomic_states = self.strategy.atomic_states
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        
-        # 1. 从配置中加载所有风险信号及其权重
-        critical_params = scoring_params.get('critical_exit_params', {})
-        warning_params = scoring_params.get('holding_warning_params', {})
-        
-        # 合并致命风险和常规风险的配置
-        all_risk_rules = {}
-        all_risk_rules.update(critical_params.get('signals', {}))
-        all_risk_rules.update(warning_params.get('signals', {}))
+        default_series = pd.Series(0.0, index=self.strategy.df_indicators.index)
 
-        risk_details_df = pd.DataFrame(index=df.index)
-        default_series = pd.Series(0.0, index=df.index)
+        # --- 1. 获取认知层计算的融合风险总分 ---
+        # 这是我们新的、唯一的风险数据源
+        total_risk_score = atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', default_series).copy()
+        print(f"          -> 已获取融合风险总分，最大值: {total_risk_score.max():.2f}")
 
-        def get_clipped_score(signal_name):
-            """辅助函数：获取信号分并确保其非负"""
-            return atomic_states.get(signal_name, default_series).clip(lower=0)
+        # --- 2. 获取各维度的风险分，用于动态诊断 ---
+        # 从 atomic_states 中筛选出所有 FUSED_RISK_SCORE_ 开头的维度风险分
+        risk_details_cols = {
+            key: atomic_states[key]
+            for key in atomic_states
+            if key.startswith('FUSED_RISK_SCORE_')
+        }
+        risk_details_df = pd.DataFrame(risk_details_cols)
+        print(f"          -> 已获取 {len(risk_details_cols)} 个维度的风险分，用于动态分析。")
 
-        # 2. 循环遍历所有风险规则，计算风险贡献分
-        for rule_name, weight in all_risk_rules.items():
-            if rule_name.startswith("说明_"):
-                continue
-            
-            # 获取数值化的信号强度 (0-1)
-            signal_strength = get_clipped_score(rule_name)
-            
-            if signal_strength.any():
-                # 计算该风险项的最终贡献分
-                risk_contribution = signal_strength * weight
-                risk_details_df[rule_name] = risk_contribution
+        # --- 3. 调用二次分析引擎 ---
+        # 诊断风险总分的动量和加速度
+        risk_momentum_summary = self._diagnose_risk_momentum(total_risk_score)
+        # 诊断各维度风险分的变化动态
+        risk_dynamics_summary = self._diagnose_risk_dynamics(risk_details_df)
 
-        # 3. 计算总风险分，并应用市场状态乘数
-        total_risk_score = risk_details_df.sum(axis=1)
-        
-        risk_multiplier = pd.Series(1.0, index=df.index)
-        
-        # 市场不稳定时，放大风险
-        is_mean_reversion = get_clipped_score('FRACTAL_STATE_MEAN_REVERSION') > 0
-        is_random_walk = get_clipped_score('FRACTAL_STATE_RANDOM_WALK') > 0
-        is_unstable_market = is_mean_reversion | is_random_walk
-        if is_unstable_market.any():
-            instability_multiplier = get_param_value(warning_params.get('instability_multiplier'), 1.3)
-            risk_multiplier.loc[is_unstable_market] *= instability_multiplier
-            
-        # 强趋势市场中，对非核心风险进行折减
-        is_strong_trend = get_clipped_score('FRACTAL_STATE_STRONG_TREND') > 0
-        if is_strong_trend.any():
-            core_risks = set(get_param_value(warning_params.get('core_risks_in_trend'), []))
-            trend_reduction_factor = get_param_value(warning_params.get('trend_reduction_factor'), 0.7)
-            for col in risk_details_df.columns:
-                if col not in core_risks:
-                    # 直接在详情DF上修改，这样总分计算时会自动体现
-                    risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
-        
-        # 重新计算应用了趋势折减后的总分
-        adjusted_total_risk_score = risk_details_df.sum(axis=1)
-        
-        # 应用最终的乘数
-        adjusted_total_risk_score *= risk_multiplier
-
-        # 战略机会覆盖，最终折减风险
-        has_strategic_opportunity = get_clipped_score('COGNITIVE_PATTERN_LOCK_CHIP_RALLY') > 0
-        if has_strategic_opportunity.any():
-            strategic_coverage_factor = get_param_value(warning_params.get('strategic_coverage_factor'), 0.3)
-            adjusted_total_risk_score = adjusted_total_risk_score.where(
-                ~has_strategic_opportunity, 
-                adjusted_total_risk_score * strategic_coverage_factor
-            )
-        
-        # 4. 返回总风险分和风险详情
-        # 注意：原有的健康度诊断逻辑 (_diagnose_risk_momentum, _diagnose_risk_dynamics) 已被解耦
-        # 主流程现在只关心总风险分和其构成。
-        return adjusted_total_risk_score, risk_details_df
+        print("        -> [预警层分析中心 V2.0] 所有风险分析完成。")
+        return total_risk_score, risk_details_df, risk_momentum_summary, risk_dynamics_summary
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """
