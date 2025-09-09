@@ -406,13 +406,13 @@
       "multi_dim_trend_params": {
         "enabled": true,
         "description": "【V500.0 新增】数值化多维趋势引擎参数",
-        "ma_periods": [5, 13, 21, 55],
+        "ma_periods": [1, 5, 13, 21, 55],
         "norm_window": 120
       },
       "multi_dim_ma_params": {
         "enabled": true,
         "description": "【V600.0 新增】数值化多维均线诊断引擎参数",
-        "ma_periods": [5, 13, 21, 55],
+        "ma_periods": [1, 5, 13, 21, 55],
         "norm_window": 120,
         "slope_lookback": 5,
         "accel_lookback": 5
@@ -420,7 +420,7 @@
       "structural_mechanics_params": {
         "enabled": true,
         "description": "【V500.0 新增】数值化结构力学诊断引擎参数",
-        "dynamic_periods": [5, 13, 21],
+        "dynamic_periods": [1, 5, 13, 21, 55],
         "slope_lookback": 5,
         "accel_lookback": 5,
         "norm_window": 120,
@@ -429,7 +429,7 @@
       "mtf_trend_synergy_params": {
         "enabled": true,
         "description": "【V4.0 新增】数值化多维趋势协同诊断引擎参数",
-        "weekly_periods": [5, 13, 21],
+        "weekly_periods": [1, 5, 13, 21, 55],
         "slope_lookback": 5,
         "accel_lookback": 5,
         "norm_window": 120,
@@ -449,7 +449,7 @@
       "structural_risk_params": {
         "enabled": true,
         "description": "【V2.0 新增】数值化结构性风险与市场状态诊断引擎参数",
-        "bias_periods_D": [21, 55],
+        "bias_periods_D": [1, 5, 13, 21, 55],
         "bias_period_W": 20,
         "norm_window": 250,
         "hurst_trending_threshold": 0.55,
