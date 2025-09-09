@@ -1063,3 +1063,52 @@ class IndicatorCalculator:
             # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
             return result_df
 
+    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 新增】计算价格/成交量与各自均线的比率。
+        这是为 BehavioralIntelligence V4.0 引擎专门提供的静态输入。
+        """
+        if not params.get('enabled', False):
+            return None
+        periods = params.get('periods', [])
+        price_source_col = params.get('price_source')
+        volume_source_col = params.get('volume_source')
+        if not all([periods, price_source_col, volume_source_col]):
+            logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
+            return None
+        result_df = pd.DataFrame(index=df.index)
+        for p in periods:
+            # --- 计算价格与均线比 ---
+            # 1日EMA就是收盘价本身，比率为1
+            if p == 1:
+                price_ma_col = price_source_col
+            else:
+                price_ma_col = f'EMA_{p}'
+            if price_source_col in df.columns and price_ma_col in df.columns:
+                price_ma_series = df[price_ma_col].replace(0, np.nan)
+                ratio = df[price_source_col] / price_ma_series
+                result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0) # 如果均线为0，比率无意义，填充为1
+            else:
+                logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
+            # --- 计算成交量与均量比 ---
+            # 1日均量就是成交量本身，比率为1
+            if p == 1:
+                vol_ma_col = volume_source_col
+            else:
+                vol_ma_col = f'VOL_MA_{p}'
+            if volume_source_col in df.columns and vol_ma_col in df.columns:
+                vol_ma_series = df[vol_ma_col].replace(0, np.nan)
+                ratio = df[volume_source_col] / vol_ma_series
+                result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0) # 如果均量为0，比率无意义，填充为1
+            else:
+                logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
+        return result_df if not result_df.empty else None
+
+
+
+
+
+
+
+
+

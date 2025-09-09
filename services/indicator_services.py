@@ -928,6 +928,7 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'consolidation_period': self.calculator.calculate_consolidation_period,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
+            'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
@@ -945,7 +946,7 @@ class IndicatorService:
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']:
                 continue
             # 修正跳过逻辑，确保 ma_convergence 不会在此处被查找
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore', 'ma_convergence'] or not params.get('enabled', False): continue
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore', 'ma_convergence', 'price_volume_ma_comparison'] or not params.get('enabled', False): continue
             if indicator_name not in indicator_method_map:
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
@@ -988,7 +989,7 @@ class IndicatorService:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
         # --- 阶段二: 复合指标计算循环 ---
         # 修正复合指标列表，移除 ma_convergence
-        composite_indicator_keys = ['consolidation_period', 'fibonacci_levels']
+        composite_indicator_keys = ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison']
         for indicator_key in composite_indicator_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
