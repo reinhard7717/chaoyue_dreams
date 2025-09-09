@@ -28,7 +28,7 @@ class ChipIntelligence:
         - 收益: 提供了信息量更丰富、更平滑的连续信号，消除了布尔信号在阈值附近的突变，
                 为下游的量化模型和决策系统提供了更高质量的输入。
         """
-        print("        -> [筹码情报最高司令部 V328.0 交叉验证版] 启动...") # // 修改：更新版本号和描述
+        print("        -> [筹码情报最高司令部 V328.0 交叉验证版] 启动...")
         states = {}
         triggers = {}
         # 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
@@ -187,7 +187,24 @@ class ChipIntelligence:
         self.strategy.atomic_states.update(all_generated_states)
         # 将 trigger 信号也更新到原子状态库，确保所有生成物可被下游访问
         self.strategy.atomic_states.update(triggers)
-        print("        -> [筹码情报最高司令部 V328.0] 数值化信号生成完毕。") # // 修改：更新版本号
+        print("        -> [筹码情报最高司令部 V328.0] 数值化信号生成完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: run_chip_intelligence_command] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = [config[0] for config in MASTER_SIGNAL_CONFIG.values() if config[0] in df.columns]
+        raw_df_subset = df[list(set(raw_material_cols))]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        output_signals = {**states, **triggers}
+        if not output_signals:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(output_signals)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states, triggers
 
     def diagnose_cross_validation_signals(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -306,6 +323,28 @@ class ChipIntelligence:
         # --- 6. 更新DataFrame ---
         df = df.assign(**new_scores)
         print(f"        -> [交叉验证诊断模块 V1.0] 计算完毕，新增 {len(new_scores)} 个终极信号。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_cross_validation_signals] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = set()
+        for group in SIGNAL_GROUPS.values():
+            for factor in group.keys():
+                for period in periods:
+                    raw_material_cols.add(f'SLOPE_{period}_{factor}')
+                raw_material_cols.add(f'ACCEL_1_{factor}')
+        final_raw_cols = [col for col in sorted(list(raw_material_cols)) if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_composite_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -379,7 +418,39 @@ class ChipIntelligence:
         new_scores['CHIP_SCORE_OPP_INFLECTION'] = (self._max_of_series(bottom_reversal_score, capitulation_score, long_term_capitulation_score)).astype(np.float32)
         # --- 9. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print(f"        -> [复合筹码评分模块 V1.1] 计算完毕，新增 {len(new_scores)} 个顶层原子评分。") 
+        print(f"        -> [复合筹码评分模块 V1.1] 计算完毕，新增 {len(new_scores)} 个顶层原子评分。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_composite_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = [
+            'SLOPE_5_concentration_90pct_D', 'SLOPE_5_peak_cost_D', 'SLOPE_5_chip_health_score_D',
+            'CHIP_SCORE_PRIME_OPPORTUNITY_S', 'SCORE_CHIP_BULLISH_RESONANCE_S',
+            'SCORE_CHIP_BEARISH_RESONANCE_S', 'SCORE_PROFIT_TAKING_TOP_REVERSAL_S',
+            'SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A', 'ACCEL_5_concentration_90pct_D',
+            'ACCEL_21_concentration_90pct_D', 'price_to_peak_ratio_D',
+            'SCORE_CHIP_TOP_REVERSAL_S', 'SCORE_FAULT_RISK_TOP_REVERSAL_S',
+            'SCORE_CHIP_BOTTOM_REVERSAL_S', 'SCORE_CAPITULATION_BOTTOM_RESONANCE_S',
+            'SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S'
+        ]
+        # 从atomic_states获取数据，如果不存在则从df获取
+        raw_signals_dict = {}
+        for col in raw_material_cols:
+            if col in atomic:
+                raw_signals_dict[col] = atomic[col]
+            elif col in df.columns:
+                raw_signals_dict[col] = df[col]
+        if raw_signals_dict:
+            raw_df_subset = pd.DataFrame(raw_signals_dict)
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_strategic_context_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -436,6 +507,22 @@ class ChipIntelligence:
         # --- 5. 更新DataFrame ---
         df = df.assign(**new_scores)
         print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 计算完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_strategic_context_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
@@ -499,6 +586,26 @@ class ChipIntelligence:
         # 使用新的命名规范 SIGNAL_...，并将其添加到 states 字典中，替换原布尔信号
         states['SIGNAL_PRIME_CHIP_OPPORTUNITY_S'] = prime_opportunity_numerical_signal.astype(np.float32)
         print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 计算完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: synthesize_prime_chip_opportunity] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_signals_dict = {}
+        for s_name in all_required_scores:
+            if s_name in atomic:
+                raw_signals_dict[s_name] = atomic[s_name]
+        if raw_signals_dict:
+            raw_df_subset = pd.DataFrame(raw_signals_dict)
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        output_signals = {**states, **new_scores}
+        if not output_signals:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(output_signals)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states, new_scores
 
     def diagnose_quantitative_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -591,7 +698,23 @@ class ChipIntelligence:
         profit_taking_turnover_score = normalize(df['turnover_from_winners_ratio_D'])
         new_scores['SCORE_CHIP_PROFIT_TAKING_INTENSITY'] = (profit_taking_turnover_score * static_high_winner_rate_score).astype(np.float32)
         df = df.assign(**new_scores)
-        print("        -> [筹码信号量化评分模块 V6.0 终极共振版] 计算完毕。") 
+        print("        -> [筹码信号量化评分模块 V6.0 终极共振版] 计算完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_quantitative_chip_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_advanced_chip_dynamics_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -687,7 +810,23 @@ class ChipIntelligence:
         new_scores['SCORE_FAULT_RISK_TOP_REVERSAL_S'] = (base_risk_s * fault_existence_gate).astype(np.float32)
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [高级筹码动态评分模块 V4.0 终极共振统一版] 计算完毕。") 
+        print("        -> [高级筹码动态评分模块 V4.0 终极共振统一版] 计算完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_advanced_chip_dynamics_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_chip_internal_structure_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -767,6 +906,22 @@ class ChipIntelligence:
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
         print("        -> [筹码内部结构评分模块 V4.0 终极共振统一版] 计算完毕。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_chip_internal_structure_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_chip_holder_behavior_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -836,6 +991,22 @@ class ChipIntelligence:
         # --- 6. 一次性将所有新得分合并到DataFrame ---
         df = df.assign(**new_scores)
         print("        -> [持仓者行为评分模块 V4.0 终极共振统一版] 计算完毕。") 
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_chip_holder_behavior_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -903,6 +1074,22 @@ class ChipIntelligence:
         # --- 6. 更新DataFrame ---
         df = df.assign(**new_scores)
         print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 计算完毕。") 
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_fused_behavioral_chip_scores] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        final_raw_cols = [col for col in required_cols if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not new_scores:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(new_scores)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
