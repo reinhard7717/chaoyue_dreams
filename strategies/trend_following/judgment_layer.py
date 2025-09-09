@@ -105,25 +105,37 @@ class JudgmentLayer:
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
-        【V317.0 核心】动态力学战术矩阵
+        【V318.0 力学信号适配版】动态力学战术矩阵
+        - 核心重构 (本次修改):
+          - [信号适配] 废除了对旧版、布尔型力学信号的依赖。
+          - 全面升级为消费由 DynamicMechanicsEngine V5.0+ 生成的、经过深度交叉验证的S级数值化信号。
+          - `FORCE_ATTACK` (强攻): 由 `SCORE_FV_OFFENSIVE_RESONANCE_S` (进攻共振) 驱动。
+          - `AVOID` (规避): 由 `SCORE_FV_RISK_EXPANSION_S` (风险扩张) 驱动。
+        - 收益: 战术决策的依据更可靠，能更精确地识别“健康上涨”与“风险上涨”的本质区别。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        offense_accel = atomic.get('FORCE_VECTOR_OFFENSE_ACCELERATING', default_series)
-        offense_decel = atomic.get('FORCE_VECTOR_OFFENSE_DECELERATING', default_series)
-        risk_accel = atomic.get('FORCE_VECTOR_RISK_ACCELERATING', default_series)
-        risk_decel = atomic.get('FORCE_VECTOR_RISK_DECELERATING', default_series)
+        # --- 全面使用新版S级数值化信号 ---
+        # 获取进攻共振S级分数，代表“纯粹的进攻”
+        offensive_resonance_score = atomic.get('SCORE_FV_OFFENSIVE_RESONANCE_S', default_score)
+        # 获取风险扩张S级分数，代表“高位滞涨/出货”风险
+        risk_expansion_score = atomic.get('SCORE_FV_RISK_EXPANSION_S', default_score)
 
-        is_force_attack = offense_accel & risk_decel
-        is_avoid = offense_decel & risk_accel
-        is_caution = (offense_accel & risk_accel) | (offense_decel & risk_decel)
+        # 定义基于数值化分数的战术状态
+        # 当进攻共振分数很高时，采取强攻姿态
+        is_force_attack = offensive_resonance_score > 0.6
+        # 当风险扩张分数很高时，采取规避姿态
+        is_avoid = risk_expansion_score > 0.6
+        # 当两者分数都高时，代表多空激战，应谨慎；两者都低则代表方向不明，也应谨慎
+        is_caution = (offensive_resonance_score > 0.4) & (risk_expansion_score > 0.4)
 
         actions = pd.Series('HOLD', index=df.index)
+        # 注意赋值顺序，AVOID的优先级最高
+        actions.loc[is_caution] = 'PROCEED_WITH_CAUTION'
         actions.loc[is_force_attack] = 'FORCE_ATTACK'
         actions.loc[is_avoid] = 'AVOID'
-        actions.loc[is_caution] = 'PROCEED_WITH_CAUTION'
         
         return actions
 

@@ -139,7 +139,7 @@
       "enabled": true,
       "说明": "【V238.1 筹码升维版】已全面整合 AdvancedChipMetrics 的核心指标，用于计算其动态斜率，从而洞察筹码结构的演化趋势。",
       "series_to_slope": {
-        "close_D": [5, 21],
+        "close_D": [5, 13, 21],
         "EMA_5_D": [5],
         "EMA_13_D": [5, 13],
         "EMA_21_D": [5, 21],
@@ -161,7 +161,7 @@
         "peak_percent_D": [5],
         "pressure_above_D": [5, 21],
         "chip_health_score_D": [5, 21, 55],
-        "winner_profit_margin_D": [5, 21, 55],
+        "winner_profit_margin_D": [5, 13, 21, 55],
         "price_to_peak_ratio_D": [5],
         "peak_control_ratio_D": [5, 21, 55],
         "peak_strength_ratio_D": [5, 21],
@@ -208,7 +208,7 @@
         "EMA_21_D": [5, 21],
         "EMA_55_D": [5, 55],
         "peak_cost_D": [5, 13, 21, 55],
-        "close_D": [5, 21],
+        "close_D": [5, 13, 21],
         "volume_D": [5],
         "BBW_21_2.0_D": [5],
         "VPA_EFFICIENCY_D": [5, 21],
@@ -223,7 +223,7 @@
         "turnover_from_winners_ratio_D": [5, 21, 55],
         "turnover_from_losers_ratio_D": [5, 21],
         "peak_control_ratio_D": [5, 21],
-        "winner_profit_margin_D": [5, 21, 55],
+        "winner_profit_margin_D": [5, 13, 21, 55],
         "cost_divergence_D": [5, 21, 55],
         "loser_rate_long_term_D": [5, 21],
         "说明_STRATEGIC": "--- 战略协同加速度分析 (周线) ---",
@@ -482,6 +482,7 @@
             "说明_黄金筹码": "--- S级元融合环境信号 ---",
             "CONTEXT_PRIME_CHIP_OPPORTUNITY_HIGH": 700,
             "CONTEXT_TREND_QUALITY_HIGH": 500,
+            "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": 480,
             "CONTEXT_CORE_HOLDER_ACCUMULATING": 450,
             "CONTEXT_BEARISH_EXHAUSTION_HIGH": 400,
             "说明_普通战备": "--- A级战备与环境信号 ---",
@@ -511,6 +512,9 @@
             "SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A": 260,
             "SCORE_VOL_TIPPING_POINT_BOTTOM_OPP": 190,
             "SCORE_ATR_EXPANSION_IGNITION_OPP": 190,
+            "SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_S": 260,
+            "SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_A": 180,
+            "SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_B": 100,
             "说明_筹码机会": "--- S/A/B级筹码机会与状态 ---",
             "CHIP_STRUCTURE_PRIME_OPPORTUNITY_S": 500,
             "SCORE_CAPITULATION_BOTTOM_RESONANCE_S": 450,
@@ -683,6 +687,8 @@
             "说明_力学动能": "--- S/A级力学动能 ---",
             "SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S": 250,
             "SCORE_FV_CONFIRMED_IGNITION_S_PLUS": 200,
+            "SCORE_BEHAVIOR_ENGINE_IGNITION_S": 250,
+            "SCORE_BEHAVIOR_ENGINE_IGNITION_B": 100,
             "SCORE_BEHAVIOR_ENGINE_IGNITION_A": 180,
             "SCORE_DYN_BULLISH_RESONANCE_S": 260,
             "SCORE_DYN_BULLISH_RESONANCE_A": 180,
@@ -735,7 +741,9 @@
             "SCORE_RISK_PRICE_DEVIATION_S": 15,
             "SCORE_RISK_STRUCTURAL_FAULT_S": 20,
             "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 15,
-            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13
+            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13,
+            "SCORE_BEHAVIOR_PANIC_SELLING_S": 13,
+            "SCORE_BEHAVIOR_ENGINE_STALLING_S": 13
           }
         },
         "positional_acceleration_scoring": {
@@ -872,6 +880,7 @@
               "SCORE_DYN_TOP_REVERSAL_S": 240,
               "SCORE_DYN_TOP_REVERSAL_A": 160,
               "SCORE_DYN_TOP_REVERSAL_B": 80,
+              "COGNITIVE_SCORE_TREND_FATIGUE_RISK": 220,
               "说明_新增结构与协同风险": "--- 结构与协同反转风险 (S/A/B三级) ---",
               "SCORE_MA_TOP_REVERSAL_S": 240,
               "SCORE_MA_TOP_REVERSAL_A": 160,
@@ -884,7 +893,14 @@
               "SCORE_MTF_TOP_REVERSAL_B": 80,
               "SCORE_PATTERN_TOP_REVERSAL_S": 240,
               "SCORE_PATTERN_TOP_REVERSAL_A": 160,
-              "SCORE_PATTERN_TOP_REVERSAL_B": 80
+              "SCORE_PATTERN_TOP_REVERSAL_B": 80,
+              "SCORE_BEHAVIOR_ENGINE_STALLING_S": 160,
+              "SCORE_BEHAVIOR_ENGINE_STALLING_A": 110,
+              "SCORE_BEHAVIOR_ENGINE_STALLING_B": 60,
+              "SCORE_BEHAVIOR_PANIC_SELLING_S": 150,
+              "SCORE_BEHAVIOR_PANIC_SELLING_A": 100,
+              "SCORE_BEHAVIOR_PANIC_SELLING_B": 50,
+              "SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A": 160
             }
           },
           "dynamic_weighting_params": {
