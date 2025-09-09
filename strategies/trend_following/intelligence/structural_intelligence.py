@@ -754,7 +754,7 @@ class StructuralIntelligence:
         ]
         required_scores = [
             'SCORE_RISK_PROFIT_EXHAUSTION_S',
-            'SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S',
+            'SCORE_RISK_VPA_STAGNATION',
         ]
         missing_cols = [c for c in required_cols if c not in df.columns]
         missing_scores = [s for s in required_scores if s not in atomic]
@@ -769,7 +769,7 @@ class StructuralIntelligence:
         score_at_high_price = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
         # 2.2 获取上游风险分
         score_profit_cushion_shrinking = atomic.get('SCORE_RISK_PROFIT_EXHAUSTION_S', default_series_float)
-        score_market_engine_stalling = atomic.get('SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S', default_series_float)
+        score_market_engine_stalling = atomic.get('SCORE_RISK_VPA_STAGNATION', default_series_float)
         # 2.3 融合评分: 价格处于高位 * (获利盘收缩风险 或 引擎失速风险)
         combined_risk_score = np.maximum(score_profit_cushion_shrinking, score_market_engine_stalling)
         states['SCORE_RISK_MOMENTUM_EXHAUSTION'] = (score_at_high_price * combined_risk_score).astype(np.float32)
