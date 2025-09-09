@@ -397,6 +397,10 @@ class BehavioralIntelligence:
                 # 构造列名
                 static_col = base_name
                 slope_col = f'SLOPE_{period}_{base_name}'
+                if 'flow_divergence_mf_vs_retail' in base_name:
+                    accel_col = f'accel_{period}d_{base_name}'
+                else:
+                    accel_col = f'ACCEL_{period}_{base_name}'
                 accel_col = f'ACCEL_{period}_{base_name}'
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
