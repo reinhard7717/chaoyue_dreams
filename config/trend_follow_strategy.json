@@ -219,7 +219,7 @@
         "说明_CHIP_DYNAMICS": "--- 筹码动态分析所需加速度 ---",
         "concentration_90pct_D": [5, 13, 21, 55],
         "total_winner_rate_D": [5, 21],
-        "chip_health_score_D": [5],
+        "chip_health_score_D": [5, 21],
         "turnover_from_winners_ratio_D": [5, 21, 55],
         "turnover_from_losers_ratio_D": [5, 21],
         "peak_control_ratio_D": [5, 21],
