@@ -203,7 +203,7 @@ class JudgmentLayer:
         
         # 风险9: 高级S级风险信号 (权重: 200 for divergence, 300 for fleeing)
         df['risk_penalty_score'] += get_clipped_score('RISK_MTF_RSI_BEARISH_DIVERGENCE_S') * 200
-        df['risk_penalty_score'] += get_clipped_score('RISK_BEHAVIOR_PANIC_FLEEING_S') * 300
+        df['risk_penalty_score'] += get_clipped_score('SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS') * 300
         
         # 风险10: 更多S级陷阱信号 (权重: 300)
         df['risk_penalty_score'] += get_clipped_score('RISK_STATIC_DYN_COLLAPSE_S') * 300

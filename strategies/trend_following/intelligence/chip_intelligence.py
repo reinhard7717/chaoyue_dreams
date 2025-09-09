@@ -17,177 +17,56 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V328.0 交叉验证版】筹码情报最高司令部
-        - 核心升级: 全面数值化改造。将原先生成布尔型(True/False)的 state 和 trigger 信号，
-                      升级为生成浮点型的数值信号。新信号的值代表了分数(score)与动态阈值(threshold)的差值，
-                      正值表示信号成立，负值表示不成立，其大小则代表了信号的强度。
-        - 核心升级: 对分桶信号(bucket)进行数值化。将原先为每个桶生成一个布尔信号的逻辑，
-                      改为生成一个单一的“等级”信号(0, 1, 2, 3...)，数值大小代表当前分数所处的强度等级。
-        - 核心升级 (V328.0): 新增 `diagnose_cross_validation_signals` 模块，基于“因子共振”和“时间共振”
-                             双重交叉验证，生成最高置信度的上升/下跌共振与顶部/底部反转信号。
-        - 收益: 提供了信息量更丰富、更平滑的连续信号，消除了布尔信号在阈值附近的突变，
-                为下游的量化模型和决策系统提供了更高质量的输入。
+        【V329.0 架构净化版】筹码情报最高司令部
+        - 核心重构 (本次修改):
+          - [架构净化] 彻底废除陈旧的 MASTER_SIGNAL_CONFIG 及其相关的动态分位数信号生成逻辑。
+          - [信号提升] 将 `diagnose_cross_validation_signals` 生成的B/A/S三级信号，确立为本模块的最终核心输出。
+        - 收益: 极大简化了模块的顶层逻辑，消除了冗余和信息降维，使得输出的信号质量更高、逻辑更清晰。
         """
-        print("        -> [筹码情报最高司令部 V328.0 交叉验证版] 启动...")
+        print("        -> [筹码情报最高司令部 V329.0 架构净化版] 启动...")
         states = {}
         triggers = {}
-        # 定义一个辅助函数，用于在每个诊断模块后增量更新原子状态库
+        
         initial_cols = set(df.columns)
         def _update_atomic_states(df_to_update: pd.DataFrame, last_cols: set) -> set:
-            """根据df的变化，增量更新atomic_states"""
             current_cols = set(df_to_update.columns)
             new_score_cols = current_cols - last_cols
             if new_score_cols:
                 new_scores_dict = {col: df_to_update[col] for col in new_score_cols}
                 self.strategy.atomic_states.update(new_scores_dict)
-                # print(f"          -> [情报更新] {len(new_score_cols)}个新评分已更新至原子状态库。")
             return current_cols
-        # 步骤 0: 预处理衍生指标，解决计算依赖问题
+
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
-            initial_cols.add('cost_divergence_D') # 将新列也加入初始列集合
+            initial_cols.add('cost_divergence_D')
             print("          -> [预处理] 已成功计算衍生指标 'cost_divergence_D'。")
-        # --- 步骤 1: 链式调用四级评分中心，并确保状态实时传递 ---
-        # 记录调用前的列名，用于后续识别新的评分列
+        
         cols_before_run = initial_cols
-        # ---  步骤 1.0: 首先调用战略上下文评分模块 ---
+        
+        # --- 步骤 1: 链式调用所有诊断模块，生成所有原子和复合评分 ---
         df = self.diagnose_strategic_context_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 1.1 调用宏观共振/反转诊断模块
         df = self.diagnose_quantitative_chip_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 1.2 调用高级动态诊断模块 (微观结构与极端行为)
         df = self.diagnose_advanced_chip_dynamics_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 1.3 调用内部结构诊断模块
         df = self.diagnose_chip_internal_structure_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 1.4 调用持仓者行为诊断模块
         df = self.diagnose_chip_holder_behavior_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 1.5 调用行为-筹码融合评分模块
         df = self.diagnose_fused_behavioral_chip_scores(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
         
-        # // 修改开始：插入对新增的交叉验证模块的调用
-        # 1.6 调用【新增】的交叉验证诊断模块，生成终极信号
+        # 调用交叉验证模块，生成终极信号
         df = self.diagnose_cross_validation_signals(df)
         cols_before_run = _update_atomic_states(df, cols_before_run)
-        # // 修改结束
 
-        # 1.7: 调用 V2.0 版本的元融合模块
-        prime_opp_states, prime_opp_scores = self.synthesize_prime_chip_opportunity(df)
-        states.update(prime_opp_states)
-        if prime_opp_scores:
-            df = df.assign(**prime_opp_scores)
-            cols_before_run = _update_atomic_states(df, cols_before_run) # 确保黄金机会分数也被更新
-        # 1.8: 调用复合评分模块，计算顶层信号依赖的原子分
-        df = self.diagnose_composite_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        # 获取模块参数，检查是否启用
-        p = get_params_block(self.strategy, 'chip_feature_params')
-        if not get_param_value(p.get('enabled'), False):
-            return states, triggers
-        # --- 步骤 2: 定义主信号配置字典 (将数值评分转化为新的数值化信号)
-        # 全面更新信号配置，将布尔信号名改为数值信号名(SIGNAL_*)，并调整分桶信号的配置结构
-        # // 修改开始：更新MASTER_SIGNAL_CONFIG以使用新的交叉验证信号
-        MASTER_SIGNAL_CONFIG = {
-            # --- 司令部顶层信号 (基于交叉验证，置信度最高) ---
-            'SIGNAL_RISING_RESONANCE': ('SCORE_RISING_RESONANCE_S', 0.85, 120, 'state'),
-            'SIGNAL_FALLING_RESONANCE': ('SCORE_FALLING_RESONANCE_S', 0.85, 120, 'state'),
-            'SIGNAL_TRIGGER_BOTTOM_REVERSAL': ('SCORE_BOTTOM_REVERSAL_S', 0.90, 120, 'trigger'),
-            'SIGNAL_TRIGGER_TOP_REVERSAL': ('SCORE_TOP_REVERSAL_S', 0.90, 120, 'trigger'),
-
-            # --- 战术级信号 (基于单一诊断模块，用于辅助判断) ---
-            'SIGNAL_CONTEXT_STRATEGIC_GATHERING': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.60, 120, 'state'),
-            'SIGNAL_CONTEXT_STRATEGIC_DISTRIBUTION': ('CHIP_SCORE_CONTEXT_STRATEGIC_GATHERING', 0.40, 120, 'state_lt'),
-            'SIGNAL_CONTEXT_EUPHORIC_RALLY_WARNING': ('CHIP_SCORE_CONTEXT_EUPHORIC_RALLY', 0.90, 120, 'state'),
-            'SIGNAL_RISK_LONG_TERM_DISTRIBUTION': ('CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION', 0.90, 120, 'state'),
-            'SIGNAL_RISK_CONC_ACCEL_WORSENING': ('CHIP_SCORE_RISK_WORSENING_TURN', 0.80, 60, 'state_gt_zero'),
-            'SIGNAL_OPP_BREAKTHROUGH': ('CHIP_SCORE_OPP_BREAKTHROUGH', 0.95, 120, 'state'),
-            'SIGNAL_RISK_COLLAPSE': ('CHIP_SCORE_RISK_COLLAPSE', 0.95, 120, 'state'),
-            'SIGNAL_OPP_INFLECTION': ('CHIP_SCORE_OPP_INFLECTION', 0.90, 120, 'state'),
-            
-            # --- 分级信号 (数值化) ---
-            'SIGNAL_CHIP_CONC_GATHERING_LEVEL': ('CHIP_SCORE_GATHERING_INTENSITY', [0.70, 0.85, 0.95], 120, 'bucket_level'),
-            'SIGNAL_CHIP_PROFIT_TAKING_INTENSITY': ('SCORE_CHIP_PROFIT_TAKING_INTENSITY', 0.90, 120, 'state'),
-        }
-        # // 修改结束
-        available_cols = set(df.columns)
-        all_generated_states = {}
-        # --- 步骤 3: 按 (评分列, 窗口, 信号大类) 对信号配置进行分组，以优化计算 ---
-        from collections import defaultdict
-        grouped_signals = defaultdict(list)
-        for signal_name, config_tuple in MASTER_SIGNAL_CONFIG.items():
-            score_col, quantile_or_list, window, signal_type = config_tuple
-            if score_col in available_cols:
-                # 调整分组逻辑以适应新的 'bucket_level' 类型
-                group_key = 'gt_zero' if 'gt_zero' in signal_type else 'bucket_level' if signal_type == 'bucket_level' else 'standard'
-                grouped_signals[(score_col, window, group_key)].append((signal_name, quantile_or_list, signal_type))
-            else: # 增加对缺失评分的警告
-                print(f"          -> [配置警告] 信号 '{signal_name}' 依赖的评分 '{score_col}' 未计算，该信号将被跳过。")
-        # --- 步骤 4: 批处理所有信号，高效生成数值化信号 ---
-        for (score_col, window, group_key), tasks in grouped_signals.items():
-            score = df[score_col]
-            # 调整分位数提取逻辑以兼容列表和数值
-            if group_key == 'bucket_level':
-                quantiles_needed = sorted(list(set(tasks[0][1])))
-            else:
-                quantiles_needed = sorted(list(set(q for _, q, _ in tasks)))
-            thresholds_df = None
-            if group_key in ['standard', 'bucket_level']: # 包含 bucket_level
-                if not score.isnull().all():
-                    thresholds_list = []
-                    for q_val in quantiles_needed:
-                        s = score.rolling(window).quantile(q_val)
-                        s.name = q_val
-                        thresholds_list.append(s)
-                    if thresholds_list:
-                        thresholds_df = pd.concat(thresholds_list, axis=1)
-            elif group_key == 'gt_zero':
-                positive_scores = score[score > 0]
-                if not positive_scores.empty:
-                    thresholds_list = []
-                    for q_val in quantiles_needed:
-                        s = positive_scores.rolling(window).quantile(q_val)
-                        s.name = q_val
-                        thresholds_list.append(s)
-                    if thresholds_list:
-                        thresholds_df = pd.concat(thresholds_list, axis=1).reindex(score.index).ffill()
-            if thresholds_df is None: continue
-            # 核心逻辑重构：从生成布尔信号改为生成数值信号
-            if group_key == 'bucket_level':
-                signal_name, quantiles, signal_type = tasks[0] # 一个分组只有一个 bucket_level 任务
-                # 计算等级信号：每超过一个分位阈值，等级+1
-                numerical_signal = pd.Series(0.0, index=df.index)
-                for q_val in sorted(quantiles):
-                    threshold = thresholds_df[q_val]
-                    # 当分数超过阈值时，增加1.0
-                    numerical_signal += (score > threshold).astype(float)
-                all_generated_states[signal_name] = numerical_signal.fillna(0.0)
-            else: # 处理 standard 和 gt_zero
-                for signal_name, quantile, signal_type in tasks:
-                    threshold = thresholds_df[quantile]
-                    numerical_signal = pd.Series(0.0, index=df.index) # 默认值为0.0
-                    # 计算分数与阈值的差值作为信号强度
-                    if signal_type in ['state', 'trigger', 'state_gt_zero', 'state_gt_zero_event']:
-                        numerical_signal = score - threshold
-                    elif signal_type in ['state_le', 'state_lt']:
-                        numerical_signal = threshold - score
-                    
-                    # 将NaN值填充为0，表示中性状态（恰好在阈值上）
-                    numerical_signal = numerical_signal.fillna(0.0)
-                    if 'trigger' in signal_type:
-                        triggers[signal_name] = numerical_signal
-                    else:
-                        all_generated_states[signal_name] = numerical_signal
-        # --- 步骤 5: 最终状态更新 ---
-        # 将本模块生成的数值信号更新到主状态字典和原子状态库中
-        states.update(all_generated_states)
-        self.strategy.atomic_states.update(all_generated_states)
-        # 将 trigger 信号也更新到原子状态库，确保所有生成物可被下游访问
-        self.strategy.atomic_states.update(triggers)
-        print("        -> [筹码情报最高司令部 V328.0] 数值化信号生成完毕。")
+        # --- 步骤 3: 收集所有新生成的信号 ---
+        # 直接从原子状态库中收集所有新生成的信号
+        all_generated_scores = {col: df[col] for col in cols_before_run - initial_cols}
+        states.update(all_generated_scores)
+        
+        print("        -> [筹码情报最高司令部 V329.0] 架构净化完毕。")
         return states, triggers
 
     def diagnose_cross_validation_signals(self, df: pd.DataFrame) -> pd.DataFrame:

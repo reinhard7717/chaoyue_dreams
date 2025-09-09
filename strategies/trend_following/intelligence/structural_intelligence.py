@@ -648,24 +648,22 @@ class StructuralIntelligence:
 
     def diagnose_advanced_structural_patterns_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 模式交叉验证版】高级结构模式诊断引擎
-        - 核心重构: 遵循“共振/反转”对称原则，将离散的模式信号，通过与连续的动能/环境信号交叉验证，升级为数值化的置信度评分。
-        - 核心逻辑: 模式置信度分 = f(模式识别信号, 趋势动能信号, 市场环境信号)。
-        - 新增信号 (数值型, 对称设计):
-          - SCORE_PATTERN_BULLISH_RESONANCE_S/A/B: 看涨模式(突破等)的确认分。
-          - SCORE_PATTERN_BEARISH_RESONANCE_S/A/B: 看跌模式(跌破等)的确认分。
-          - SCORE_PATTERN_BOTTOM_REVERSAL_S/A/B: 底部模式(吸筹等)的确认分。
-          - SCORE_PATTERN_TOP_REVERSAL_S/A/B: 顶部模式(派发等)的确认分。
-          - SCORE_PATTERN_CONSOLIDATION_S/A/B: 盘整中继模式的确认分。
+        【V4.0 模式交叉验证版】高级结构模式诊断引擎
+        - 核心重构 (本次修改):
+          - [交叉验证] 废除旧的布尔模式信号，升级为与趋势、波动率等环境信号交叉验证的B/A/S三级置信度评分。
+        - 核心逻辑:
+          - B级: 基础模式识别 (如突破、吸筹)。
+          - A级: B级信号得到核心环境确认 (如突破+趋势向上，吸筹+波动率压缩)。
+          - S级: A级信号得到次级环境确认 (如突破+趋势向上+波动率放大)。
+        - 收益: 极大提升了模式信号的实战价值，有效过滤了在不利环境下的假信号。
         """
-        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 启动...")
+        print("        -> [高级结构模式引擎 V4.0 模式交叉验证版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'advanced_patterns_params')
         if not get_param_value(p.get('enabled'), True): return {}
         atomic = self.strategy.atomic_states
 
         # --- 1. 军备检查 (Arsenal Check) ---
-        # 1.1 检查数据层的模式信号
         required_pattern_cols = [
             'is_breakthrough_D', 'is_breakdown_D', 'is_accumulation_D',
             'is_distribution_D', 'is_consolidation_D'
@@ -675,7 +673,6 @@ class StructuralIntelligence:
             print(f"          -> [严重警告] 高级模式引擎缺少关键数据列: {missing_cols}，模块已跳过！")
             return states
         
-        # 1.2 检查上游模块的确认信号
         required_atomic_scores = [
             'SCORE_MA_DYN_RESONANCE', 'SCORE_MA_ACCEL_RESONANCE',
             'SCORE_REGIME_VOL_COMPRESSION_S', 'SCORE_REGIME_VOL_EXPANSION_S'
@@ -686,14 +683,12 @@ class StructuralIntelligence:
             return states
 
         # --- 2. 获取核心信号并数值化 ---
-        # 2.1 模式信号 (布尔 -> 浮点)
         is_breakthrough = df.get('is_breakthrough_D', 0).astype(float)
         is_breakdown = df.get('is_breakdown_D', 0).astype(float)
         is_accumulation = df.get('is_accumulation_D', 0).astype(float)
         is_distribution = df.get('is_distribution_D', 0).astype(float)
         is_consolidation = df.get('is_consolidation_D', 0).astype(float)
         
-        # 2.2 确认信号
         daily_momentum_score = atomic['SCORE_MA_DYN_RESONANCE']
         daily_accel_score = atomic['SCORE_MA_ACCEL_RESONANCE']
         vol_compression_score = atomic['SCORE_REGIME_VOL_COMPRESSION_S']
@@ -701,38 +696,32 @@ class StructuralIntelligence:
 
         # --- 3. 模式信号交叉验证与评分 ---
         # 3.1 上升共振模式 (突破)
-        bullish_pattern_base = is_breakthrough # 未来可扩展: max(is_breakthrough, is_uptrend_channel)
-        states['SCORE_PATTERN_BULLISH_RESONANCE_B'] = bullish_pattern_base.astype(np.float32)
-        states['SCORE_PATTERN_BULLISH_RESONANCE_A'] = (bullish_pattern_base * daily_momentum_score).astype(np.float32)
+        states['SCORE_PATTERN_BULLISH_RESONANCE_B'] = is_breakthrough.astype(np.float32)
+        states['SCORE_PATTERN_BULLISH_RESONANCE_A'] = (is_breakthrough * daily_momentum_score).astype(np.float32)
         states['SCORE_PATTERN_BULLISH_RESONANCE_S'] = (states['SCORE_PATTERN_BULLISH_RESONANCE_A'] * vol_expansion_score).astype(np.float32)
 
         # 3.2 下跌共振模式 (跌破) - 对称逻辑
-        bearish_pattern_base = is_breakdown
-        states['SCORE_PATTERN_BEARISH_RESONANCE_B'] = bearish_pattern_base.astype(np.float32)
-        states['SCORE_PATTERN_BEARISH_RESONANCE_A'] = (bearish_pattern_base * (1 - daily_momentum_score)).astype(np.float32)
+        states['SCORE_PATTERN_BEARISH_RESONANCE_B'] = is_breakdown.astype(np.float32)
+        states['SCORE_PATTERN_BEARISH_RESONANCE_A'] = (is_breakdown * (1 - daily_momentum_score)).astype(np.float32)
         states['SCORE_PATTERN_BEARISH_RESONANCE_S'] = (states['SCORE_PATTERN_BEARISH_RESONANCE_A'] * vol_expansion_score).astype(np.float32)
 
         # 3.3 底部反转模式 (吸筹)
-        bottom_reversal_base = is_accumulation
-        states['SCORE_PATTERN_BOTTOM_REVERSAL_B'] = bottom_reversal_base.astype(np.float32)
-        states['SCORE_PATTERN_BOTTOM_REVERSAL_A'] = (bottom_reversal_base * vol_compression_score).astype(np.float32)
+        states['SCORE_PATTERN_BOTTOM_REVERSAL_B'] = is_accumulation.astype(np.float32)
+        states['SCORE_PATTERN_BOTTOM_REVERSAL_A'] = (is_accumulation * vol_compression_score).astype(np.float32)
         states['SCORE_PATTERN_BOTTOM_REVERSAL_S'] = (states['SCORE_PATTERN_BOTTOM_REVERSAL_A'] * daily_accel_score).astype(np.float32)
 
         # 3.4 顶部反转模式 (派发) - 对称逻辑
-        top_reversal_base = is_distribution
-        states['SCORE_PATTERN_TOP_REVERSAL_B'] = top_reversal_base.astype(np.float32)
-        states['SCORE_PATTERN_TOP_REVERSAL_A'] = (top_reversal_base * vol_compression_score).astype(np.float32)
+        states['SCORE_PATTERN_TOP_REVERSAL_B'] = is_distribution.astype(np.float32)
+        states['SCORE_PATTERN_TOP_REVERSAL_A'] = (is_distribution * vol_compression_score).astype(np.float32)
         states['SCORE_PATTERN_TOP_REVERSAL_S'] = (states['SCORE_PATTERN_TOP_REVERSAL_A'] * (1 - daily_accel_score)).astype(np.float32)
 
         # 3.5 盘整中继模式 (独立)
-        consolidation_base = is_consolidation
-        # 动能中性分: 越接近0.5分越高, 用 1 - 2 * abs(score - 0.5) 计算
         momentum_neutrality = 1 - 2 * abs(daily_momentum_score - 0.5)
-        states['SCORE_PATTERN_CONSOLIDATION_B'] = consolidation_base.astype(np.float32)
-        states['SCORE_PATTERN_CONSOLIDATION_A'] = (consolidation_base * vol_compression_score).astype(np.float32)
+        states['SCORE_PATTERN_CONSOLIDATION_B'] = is_consolidation.astype(np.float32)
+        states['SCORE_PATTERN_CONSOLIDATION_A'] = (is_consolidation * vol_compression_score).astype(np.float32)
         states['SCORE_PATTERN_CONSOLIDATION_S'] = (states['SCORE_PATTERN_CONSOLIDATION_A'] * momentum_neutrality).astype(np.float32)
 
-        print("        -> [高级结构模式引擎 V3.0 模式交叉验证版] 分析完毕。") # 更新打印信息
+        print("        -> [高级结构模式引擎 V4.0 模式交叉验证版] 分析完毕。")
         return states
 
     def diagnose_fused_behavioral_structure_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

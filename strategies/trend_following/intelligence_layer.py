@@ -121,8 +121,6 @@ class IntelligenceLayer:
         exit_params = get_params_block(self.strategy, 'exit_strategy_params')
         upthrust_risk_score = self.behavioral_intel.diagnose_upthrust_distribution(df, exit_params)
         self.strategy.atomic_states[upthrust_risk_score.name] = upthrust_risk_score
-        # 调用行为层的合成模块，生成如“反转潜力”、“经典形态机会”等初级合成信号
-        self.strategy.atomic_states.update(self.behavioral_intel.synthesize_behavioral_patterns(df))
 
         # --- 阶段三: 结构层情报诊断与合成 ---
         # 此阶段消费基础指标和部分行为信号，生成所有结构相关的原子信号和初级合成信号。

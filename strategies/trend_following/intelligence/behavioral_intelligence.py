@@ -15,95 +15,143 @@ class BehavioralIntelligence:
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
+    def _normalize_series(self, series: pd.Series, norm_window: int, min_periods: int, ascending: bool = True) -> pd.Series:
+        """
+        辅助函数：将Pandas Series进行滚动窗口排名归一化。
+        - 新增：提升为类的私有方法，以供所有诊断引擎复用。
+        """
+        rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        return rank if ascending else 1 - rank
+
+    def diagnose_behavioral_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V4.0 完美健康度版】行为动态诊断核心引擎
+        - 核心重构 (本次修改):
+          - [范式升级] 引入“周期内完美健康度”范式，对每个周期的6个维度(价/量 x 静/动/加)进行完整交叉验证。
+          - [信号升级] 新增S+级信号，定义为“全周期健康共振(S) * 全周期加速共振”，用于捕捉最强的主升浪“完美风暴”。
+        - 收益: 信号体系的逻辑严谨性达到顶峰，S+信号能以极高置信度识别市场合力最强的爆发点。
+        - 数据需求说明: 本方法假设数据层已提供以下列:
+          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D` (p in [1, 5, 13, 21, 55])
+          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D` (p in [1, 5, 13, 21, 55])
+          - `SLOPE_{p}_volume_D`, `ACCEL_{p}_volume_D` (p in [1, 5, 13, 21, 55])
+        """
+        print("        -> [行为动态诊断核心引擎 V4.0 完美健康度版] 启动...")
+        states = {}
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            return states
+
+        # --- 1. 军备检查 (Arsenal Check) ---
+        periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
+        required_cols = set()
+        for p in periods:
+            required_cols.update([
+                f'price_vs_ma_{p}_D', f'volume_vs_ma_{p}_D',
+                f'SLOPE_{p}_close_D', f'ACCEL_{p}_close_D',
+                f'SLOPE_{p}_volume_D', f'ACCEL_{p}_volume_D'
+            ])
+        missing_cols = list(required_cols - set(df.columns))
+        if missing_cols:
+            print(f"          -> [严重警告] 行为动态引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
+
+        # --- 2. 核心要素数值化 (归一化处理) ---
+        norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        
+        # 对每个周期的所有6个维度数据进行归一化
+        price_static = {p: self._normalize_series(df[f'price_vs_ma_{p}_D'], norm_window, min_periods) for p in periods}
+        price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
+        price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
+        vol_static = {p: self._normalize_series(df[f'volume_vs_ma_{p}_D'], norm_window, min_periods, ascending=False) for p in periods} # 量缩为佳，故反向
+        vol_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
+        vol_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
+
+        # --- 3. 计算每个周期的“完美健康度” ---
+        bullish_health = {}
+        bearish_health = {}
+        for p in periods:
+            # 看涨完美健康度 = 价位合理 * 价升 * 价加速 * 量缩 * 量增趋势 * 量加速
+            bullish_health[p] = price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p]
+            # 看跌完美健康度 = 价位危险 * 价跌 * 价减速 * 放量 * 量增趋势 * 量加速
+            bearish_health[p] = (1 - price_static[p]) * (1 - price_mom[p]) * (1 - price_accel[p]) * (1 - vol_static[p]) * vol_mom[p] * vol_accel[p]
+
+        # --- 4. 共振信号合成 (跨周期融合) ---
+        # 4.1 看涨行为共振 (多周期健康度共振)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = (bullish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] * bullish_health[55]).astype(np.float32)
+        s_score_bullish = pd.Series(np.prod(np.array([s.values for s in bullish_health.values()]), axis=0), index=df.index)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] = s_score_bullish.astype(np.float32)
+        
+        # S+级信号: 完美风暴 (全周期健康 * 全周期加速)
+        acceleration_resonance = pd.Series(np.prod(np.array([price_accel[p].values for p in periods]), axis=0), index=df.index)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'] = (s_score_bullish * acceleration_resonance).astype(np.float32)
+
+        # 4.2 看跌行为共振 (多周期不健康度共振)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] = (bearish_health[5] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] * bearish_health[55]).astype(np.float32)
+        s_score_bearish = pd.Series(np.prod(np.array([s.values for s in bearish_health.values()]), axis=0), index=df.index)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = s_score_bearish.astype(np.float32)
+        
+        # S+级信号: 完美崩溃 (全周期不健康 * 全周期减速)
+        deceleration_resonance = pd.Series(np.prod(np.array([(1-price_accel[p].values) for p in periods]), axis=0), index=df.index)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (s_score_bearish * deceleration_resonance).astype(np.float32)
+
+        # --- 5. 反转信号合成 (趋势 x 反向加速度) ---
+        # 5.1 底部反转 (下跌趋势中出现看涨加速度)
+        avg_bearish_health = pd.Series(np.mean([s.values for s in bearish_health.values()], axis=0), index=df.index)
+        avg_price_accel_bull = pd.Series(np.mean([price_accel[p].values for p in periods], axis=0), index=df.index)
+        
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = avg_price_accel_bull.astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (avg_bearish_health * avg_price_accel_bull).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] * bullish_health[1]).astype(np.float32)
+
+        # 5.2 顶部反转 (上涨趋势中出现看跌加速度)
+        avg_bullish_health = pd.Series(np.mean([s.values for s in bullish_health.values()], axis=0), index=df.index)
+        avg_price_accel_bear = 1 - avg_price_accel_bull
+
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = avg_price_accel_bear.astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (avg_bullish_health * avg_price_accel_bear).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] * bearish_health[1]).astype(np.float32)
+
+        print(f"        -> [行为动态诊断核心引擎 V4.0] 分析完毕，生成 {len(states)} 个B/A/S/S+信号。")
+        return states
+
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V273.4 数值化增强版】
-        - 核心升级 (本次修改):
-          - [数值化] 将 'KLINE_STATE_GAP_SUPPORT_ACTIVE' 布尔状态，增强为包含
-                      支撑强度的 'SCORE_GAP_SUPPORT_ACTIVE' 数值化评分。
-        - 核心逻辑: 新评分在缺口支撑状态激活期间，基于当前价格与缺口上沿的距离
-                    进行量化，距离越远，支撑强度越高，分数越高。
-        - 收益: 为下游认知层提供了更精细的输入，能够区分“弱支撑”和“强支撑”。
+        【V274.0 职责重构版】
+        - 核心重构 (本次修改):
+          - [废除旧逻辑] 彻底废除了“巨阴洗盘”、“N字板”、“老鸭头”等基于硬编码规则的旧模式识别。
+          - [调用新引擎] 新增对 `diagnose_behavioral_dynamics_scores` 核心引擎的调用，
+                        其产出的高质量B/A/S信号将取代旧的模式信号。
+        - 核心逻辑: 保留了“缺口支撑”等无法被动态分析取代的、独特的静态模式识别。
+        - 收益: 遵循了“动态分析为主，静态模式为辅”的现代量化原则，信号体系更可靠、更贴近实战。
         """
+        print("    -> [K线模式诊断模块 V274.0 职责重构版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
-        # --- 1. “巨阴洗盘”机会窗口 (Washout Opportunity Window) ---
-        p_washout = p.get('washout_params', {})
-        if get_param_value(p_washout.get('enabled'), True):
-            vol_ma_col = 'VOL_MA_21_D'
-            if 'pct_change_D' in df.columns and vol_ma_col in df.columns:
-                norm_window = get_param_value(p_washout.get('norm_window'), 120)
-                min_periods = max(1, norm_window // 5)
-                drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-                volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
-                volume_score = volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-                is_negative_change = df['pct_change_D'] < 0
-                states['SCORE_BEHAVIOR_WASHOUT'] = (drop_score * volume_score * is_negative_change).astype(np.float32)
-        # --- 2. “缺口支撑”持续状态 (Gap Support Active State) ---
+        
+        # --- 2. “缺口支撑”持续状态 (Gap Support Active State) - ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
             gap_up_event = df['low_D'] > df['high_D'].shift(1)
-            gap_high = df['high_D'].shift(1).where(gap_up_event).ffill() # 使用ffill填充缺口支撑线
+            gap_high = df['high_D'].shift(1).where(gap_up_event).ffill()
             price_fills_gap = df['close_D'] < gap_high
-            # 步骤1: 创建定义“缺口支撑有效”的布尔状态窗口
             gap_support_state = create_persistent_state(
                 df=df,
                 entry_event_series=gap_up_event,
                 persistence_days=persistence_days,
                 break_condition_series=price_fills_gap,
-                state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE' # 临时状态名
+                state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
             )
-            states['KLINE_STATE_GAP_SUPPORT_ACTIVE'] = gap_support_state # 保留布尔信号以兼容旧逻辑
-            # 步骤2: [数值化升级] 在状态激活期间，计算支撑强度分
-            # 逻辑: 当前最低价距离缺口上沿越远，支撑越强，分数越高。
-            # 使用当日收盘价的10%作为归一化基准，避免绝对值问题
             support_distance = (df['low_D'] - gap_high).clip(lower=0)
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
-            # 最终得分仅在缺口支撑状态激活时有效
-            states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32) # 新增代码行
-        # --- 3. “N字板”盘整状态 (N-Shape Consolidation State) ---
-        p_nshape = p.get('n_shape_params', {})
-        if get_param_value(p_nshape.get('enabled'), True):
-            rally_threshold = get_param_value(p_nshape.get('rally_threshold'), 0.097)
-            consolidation_days_max = get_param_value(p_nshape.get('consolidation_days_max'), 3)
-            norm_window = get_param_value(p_nshape.get('norm_window'), 120)
-            min_periods = max(1, norm_window // 5)
-            is_strong_rally = df['pct_change_D'] >= rally_threshold
-            rally_strength_score = df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-            rally_strength_score = (rally_strength_score * is_strong_rally)
-            max_recent_rally_score = rally_strength_score.shift(1).rolling(window=consolidation_days_max, min_periods=1).max().fillna(0)
-            consolidation_quality_score = (1 - df['pct_change_D'].abs().rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-            is_not_rally_today = df['pct_change_D'] < rally_threshold
-            states['SCORE_N_SHAPE_CONSOLIDATION'] = (max_recent_rally_score * consolidation_quality_score * is_not_rally_today).astype(np.float32)
-        # --- 4. “老鸭头”形态形成中 (Old Duck Head Forming) ---
-        p_duck = p.get('old_duck_head_params', {})
-        if get_param_value(p_duck.get('enabled'), True):
-            ma5_col = 'EMA_5_D'
-            ma13_col = 'EMA_13_D'
-            ma55_col = 'EMA_55_D'
-            required_cols = [ma5_col, ma13_col, ma55_col, 'VOL_MA_21_D', 'volume_D']
-            if all(c in df.columns for c in required_cols):
-                norm_window = get_param_value(p_duck.get('norm_window'), 120)
-                min_periods = max(1, norm_window // 5)
-                head_formed = (df[ma5_col].shift(1) > df[ma55_col].shift(1)) & (df[ma13_col].shift(1) > df[ma55_col].shift(1))
-                is_dead_cross = (df[ma5_col] < df[ma13_col]) & (df[ma5_col].shift(1) >= df[ma13_col].shift(1))
-                duck_head_forming_event = is_dead_cross & head_formed
-                break_condition = ((df[ma5_col] > df[ma13_col]) & (df[ma5_col].shift(1) <= df[ma13_col].shift(1))) | (df['close_D'] < df[ma55_col])
-                duck_head_state = create_persistent_state(
-                    df=df,
-                    entry_event_series=duck_head_forming_event,
-                    persistence_days=get_param_value(p_duck.get('max_forming_days'), 20),
-                    break_condition_series=break_condition,
-                    state_name='KLINE_STATE_OLD_DUCK_HEAD_FORMING'
-                )
-                volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
-                volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-                price_support_ratio = (df['close_D'] / df[ma55_col] - 1).clip(0)
-                price_support_score = price_support_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-                states['SCORE_OLD_DUCK_HEAD_FORMING'] = (volume_shrink_score * price_support_score * duck_head_state).astype(np.float32)
+            states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
+
+        # --- 4. 基础原子行为，如“急速下跌” ---
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True):
             if 'pct_change_D' in df.columns:
@@ -112,11 +160,18 @@ class BehavioralIntelligence:
                 sharp_drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
                 is_negative_change = df['pct_change_D'] < 0
                 states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
+        
+        # --- 5. 调用新的核心诊断引擎 ---
+        behavioral_dynamics_scores = self.diagnose_behavioral_dynamics_scores(df)
+        states.update(behavioral_dynamics_scores)
+
+        # --- 6. 调用其他现有模块 ---
         advanced_atomics = self.diagnose_advanced_atomic_signals(df)
         states.update(advanced_atomics)
-        # 调用多维共振诊断模块，整合其产出的高级信号
         resonance_signals = self.diagnose_multi_dimensional_resonance(df)
         states.update(resonance_signals)
+        
+        print(f"    -> [K线模式诊断模块 V274.0] 分析完毕，共生成 {len(states)} 个行为信号。")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -151,15 +206,10 @@ class BehavioralIntelligence:
 
     def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.6 终极数值化版】回踩形态增强矩阵
-        - 核心职责: (原有注释)
-        - 核心升级 (本次修改):
-          - [数值化] 将 'SCORE_HAMMER_CANDLE_STRENGTH' 的计算逻辑，从依赖布尔过滤器
-                        'is_potential_hammer'，升级为完全基于连续评分的融合。
-        - 收益: 消除了K线形态识别中的硬编码阈值，使得评分能够平滑地反映
-                K线从“非锤子”到“完美锤子”的渐变过程，信号质量更高。
+        【V1.7 信号源升级版】回踩形态增强矩阵
+        - 收益: 使得对“压缩区洗盘”这一关键战术场景的判断，基于更可靠、经过交叉验证的信号源。
         """
-        print("        -> [回踩增强矩阵 V1.6] 启动，正在扫描特殊形态...")
+        print("        -> [回踩增强矩阵 V1.7 信号源升级版] 启动，正在扫描特殊形态...")
         enhancements = {}
         atomic = self.strategy.atomic_states
         default_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -167,18 +217,16 @@ class BehavioralIntelligence:
         body = (df['close_D'] - df['open_D']).abs().replace(0, 0.0001)
         lower_shadow = (df[['open_D', 'close_D']].min(axis=1) - df['low_D']).clip(0)
         upper_shadow = (df['high_D'] - df[['open_D', 'close_D']].max(axis=1)).clip(0)
-        # 组件1 - 下影线强度分。从满足最低标准(1.8倍实体)开始平滑计分，下影线越长分越高。
         lower_shadow_score = ((lower_shadow / body - 1.8) / 3).clip(0, 1).fillna(0)
-        # 组件2 - 短上影线得分。上影线越短(相对于0.8倍实体)，分数越高。
         short_upper_shadow_score = (1 - (upper_shadow / (body * 0.8))).clip(0, 1).fillna(0)
-        # 融合生成最终的锤子线强度分
         enhancements['SCORE_HAMMER_CANDLE_STRENGTH'] = (lower_shadow_score * short_upper_shadow_score).astype(np.float32)
         # --- 增强器2: 关键支撑位 (斐波那契) ---
         enhancements['SCORE_FIB_REBOUND_S'] = atomic.get('SCORE_FIB_REBOUND_S', default_score_series)
         enhancements['SCORE_FIB_REBOUND_A'] = atomic.get('SCORE_FIB_REBOUND_A', default_score_series)
         enhancements['SCORE_FIB_REBOUND_B'] = atomic.get('SCORE_FIB_REBOUND_B', default_score_series)
         # --- 增强器3: 特殊结构 (压缩区洗盘) ---
-        squeeze_level_score = atomic.get('SCORE_VOL_COMPRESSION_LEVEL', default_score_series)
+        # 将对已废弃信号的引用，升级为消费S级波动率压缩信号
+        squeeze_level_score = atomic.get('SCORE_VOL_COMPRESSION_S', default_score_series)
         sharp_drop_score = atomic.get('SCORE_KLINE_SHARP_DROP', default_score_series)
         enhancements['SCORE_SQUEEZE_SHAKEOUT'] = (squeeze_level_score * sharp_drop_score).astype(np.float32)
         return enhancements
@@ -442,64 +490,6 @@ class BehavioralIntelligence:
             # 融合生成最终分数，仅保留核心的“下跌日”判断
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score * is_drop_day).astype(np.float32)
         print(f"        -> [价格成交量原子诊断模块 V1.2] 已生成 {len(states)} 个数值化基础原子信号。")
-        return states
-
-    def synthesize_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.1 职责增强版】高级行为模式合成模块
-        - 核心职责: 承接原 CognitiveIntelligence 中的部分行为合成逻辑，遵循分层架构原则。
-                      融合基础的行为原子信号，生成更高维度的、描述特定战术场景的认知分数。
-        - 本次升级: 新增了对“经典形态”和“压缩区洗盘反转”机会的初级合成，为认知层提供更纯净的输入。
-        - 收益: 净化了认知层的职责，使其专注于纯粹的“元融合”，同时将行为相关的合成逻辑内聚于此。
-        """
-        # print("        -> [高级行为模式合成模块 V1.1 职责增强版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        default_series = pd.Series(False, index=df.index)
-        # --- 1. 合成“反转潜力”信号 (原 synthesize_reversal_potential_signals) ---
-        up_streak_score = (atomic.get('COUNT_CONSECUTIVE_UP_STREAK', default_score) / 5.0).clip(0, 1)
-        down_streak_score = (atomic.get('COUNT_CONSECUTIVE_DOWN_STREAK', default_score) / 5.0).clip(0, 1)
-        close_position_score = atomic.get('SCORE_PRICE_POSITION_IN_RANGE', default_score)
-        upthrust_risk_score = atomic.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', default_score)
-        hammer_strength_score = atomic.get('SCORE_HAMMER_CANDLE_STRENGTH', default_score)
-        top_reversal_potential = up_streak_score * (1 - close_position_score) * upthrust_risk_score
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A'] = top_reversal_potential.astype(np.float32)
-        bottom_reversal_potential = down_streak_score * close_position_score * hammer_strength_score
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_POTENTIAL_A'] = bottom_reversal_potential.astype(np.float32)
-        # --- 2. 合成“结构性破位”风险 (原 synthesize_breakdown_risk) ---
-        ma_broken_score = atomic.get('SCORE_BEHAVIOR_MA_BREAKDOWN', default_score)
-        volume_spike_down_score = atomic.get('SCORE_VOL_PRICE_PANIC_DOWN_RISK', default_score)
-        sharp_drop_score = atomic.get('SCORE_KLINE_SHARP_DROP', default_score)
-        core_risk = ma_broken_score * volume_spike_down_score
-        panic_risk = ma_broken_score * sharp_drop_score
-        final_breakdown_score = np.maximum(core_risk, panic_risk)
-        states['SCORE_BEHAVIOR_STRUCTURE_BREAKDOWN_S'] = final_breakdown_score.astype(np.float32)
-        # --- 3. 合成“洗盘”情报 (原 synthesize_washout_intelligence) ---
-        behavioral_washout_score = atomic.get('SCORE_BEHAVIOR_WASHOUT', default_score)
-        foundation_washout_score = atomic.get('SCORE_VOL_PRICE_PANIC_DOWN_RISK', default_score)
-        cognitive_washout_score = np.maximum(behavioral_washout_score, foundation_washout_score)
-        states['SCORE_BEHAVIOR_WASHOUT_INTENSITY'] = cognitive_washout_score.astype(np.float32)
-        washout_event_threshold = 0.7
-        cognitive_washout_event = cognitive_washout_score > washout_event_threshold
-        washout_window = cognitive_washout_event.rolling(window=3, min_periods=1).max().astype(bool)
-        states['BEHAVIOR_STATE_WASHOUT_WINDOW'] = washout_window
-        # --- 4. 诊断“近期反转”上下文 (原 diagnose_recent_reversal_context) ---
-        is_reversal_trigger = self.strategy.trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-        had_recent_reversal = is_reversal_trigger.rolling(window=3, min_periods=1).max().astype(bool)
-        states['BEHAVIOR_CONTEXT_RECENT_REVERSAL_SIGNAL'] = had_recent_reversal
-        # --- 5. 合成“经典形态”机会 (原 cognitive.synthesize_classic_pattern_opportunity) ---
-        old_duck_head_score = atomic.get('SCORE_OLD_DUCK_HEAD_FORMING', default_score)
-        n_shape_score = atomic.get('SCORE_N_SHAPE_CONSOLIDATION', default_score)
-        base_pattern_score = np.maximum(old_duck_head_score.values, n_shape_score.values)
-        states['SCORE_BEHAVIOR_CLASSIC_PATTERN_OPP'] = pd.Series(base_pattern_score, index=df.index, dtype=np.float32)
-        # --- 6. 合成“压缩区洗盘反转”机会 (原 cognitive.synthesize_shakeout_opportunities) ---
-        shakeout_setup_score = atomic.get('SCORE_SQUEEZE_SHAKEOUT', default_score)
-        reversal_trigger_score = self.strategy.trigger_events.get('TRIGGER_DOMINANT_REVERSAL', default_series).astype(float)
-        # 逻辑: 昨日战备就绪(高质量洗盘) * 今日反转确认
-        shakeout_reversal_score = shakeout_setup_score.shift(1).fillna(0.0) * reversal_trigger_score
-        states['SCORE_BEHAVIOR_SHAKEOUT_REVERSAL_OPP'] = shakeout_reversal_score.astype(np.float32)
-        print(f"        -> [高级行为模式合成模块 V1.1 职责增强版] 计算完毕，新增 {len(states)} 个合成信号。")
         return states
 
 
