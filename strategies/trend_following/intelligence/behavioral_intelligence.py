@@ -117,22 +117,52 @@ class BehavioralIntelligence:
         print(f"        -> [行为动态诊断核心引擎 V4.0] 分析完毕，生成 {len(states)} 个B/A/S/S+信号。")
         return states
 
+    def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】行为情报模块总指挥
+        - 核心职责: 作为本模块唯一的公共入口，负责编排和调用所有内部的诊断与合成方法。
+        - 收益: 实现了高度的封装，上层模块无需关心内部实现细节，只需调用此方法即可获取所有行为信号。
+        """
+        # -> [新增] 此为全新的模块总指挥方法
+        print("      -> [行为情报模块总指挥] 启动...")
+        all_behavioral_states = {}
+
+        # 1. 调用核心动态引擎 (V4.0)
+        all_behavioral_states.update(self.diagnose_behavioral_dynamics_scores(df))
+        
+        # 2. 调用所有独立的原子/模式诊断模块
+        all_behavioral_states.update(self.diagnose_kline_patterns(df))
+        all_behavioral_states.update(self.diagnose_board_patterns(df))
+        all_behavioral_states.update(self.diagnose_price_volume_atomics(df))
+        all_behavioral_states.update(self.diagnose_advanced_atomic_signals(df))
+        all_behavioral_states.update(self.diagnose_multi_dimensional_resonance(df))
+
+        # 3. 调用需要特定参数的风险诊断模块
+        behavioral_params = get_params_block(self.strategy, 'behavioral_params', {})
+        all_behavioral_states.update(self.diagnose_volume_price_dynamics(df, behavioral_params))
+        
+        exit_params = get_params_block(self.strategy, 'exit_strategy_params', {})
+        upthrust_risk_score = self.diagnose_upthrust_distribution(df, exit_params)
+        all_behavioral_states[upthrust_risk_score.name] = upthrust_risk_score
+
+        print(f"      -> [行为情报模块总指挥] 分析完毕，共生成 {len(all_behavioral_states)} 个行为信号。")
+        return all_behavioral_states
+
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V274.0 职责重构版】
+        【V275.0 职责净化版】
         - 核心重构 (本次修改):
-          - [废除旧逻辑] 彻底废除了“巨阴洗盘”、“N字板”、“老鸭头”等基于硬编码规则的旧模式识别。
-          - [调用新引擎] 新增对 `diagnose_behavioral_dynamics_scores` 核心引擎的调用，
-                        其产出的高质量B/A/S信号将取代旧的模式信号。
-        - 核心逻辑: 保留了“缺口支撑”等无法被动态分析取代的、独特的静态模式识别。
-        - 收益: 遵循了“动态分析为主，静态模式为辅”的现代量化原则，信号体系更可靠、更贴近实战。
+          - [职责净化] 移除了对 `diagnose_behavioral_dynamics_scores` 等其他引擎的调用。
+                        本方法现在只专注于其核心职责：诊断静态的、无法被动态分析取代的K线模式。
+        - 收益: 模块职责单一、清晰，符合高内聚原则。
         """
-        print("    -> [K线模式诊断模块 V274.0 职责重构版] 启动...")
+        # -> [修改] 更新打印信息
+        print("        -> [K线模式诊断模块 V275.0 职责净化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
         
-        # --- 2. “缺口支撑”持续状态 (Gap Support Active State) - ---
+        # --- “缺口支撑”持续状态 (Gap Support Active State) ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
@@ -151,7 +181,7 @@ class BehavioralIntelligence:
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
 
-        # --- 4. 基础原子行为，如“急速下跌” ---
+        # --- 基础原子行为，如“急速下跌” ---
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True):
             if 'pct_change_D' in df.columns:
@@ -161,17 +191,8 @@ class BehavioralIntelligence:
                 is_negative_change = df['pct_change_D'] < 0
                 states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
         
-        # --- 5. 调用新的核心诊断引擎 ---
-        behavioral_dynamics_scores = self.diagnose_behavioral_dynamics_scores(df)
-        states.update(behavioral_dynamics_scores)
-
-        # --- 6. 调用其他现有模块 ---
-        advanced_atomics = self.diagnose_advanced_atomic_signals(df)
-        states.update(advanced_atomics)
-        resonance_signals = self.diagnose_multi_dimensional_resonance(df)
-        states.update(resonance_signals)
-        
-        print(f"    -> [K线模式诊断模块 V274.0] 分析完毕，共生成 {len(states)} 个行为信号。")
+        # -> [修改] 更新打印信息
+        print(f"        -> [K线模式诊断模块 V275.0] 分析完毕，共生成 {len(states)} 个静态模式信号。")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
