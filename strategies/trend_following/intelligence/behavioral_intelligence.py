@@ -156,7 +156,6 @@ class BehavioralIntelligence:
                         本方法现在只专注于其核心职责：诊断静态的、无法被动态分析取代的K线模式。
         - 收益: 模块职责单一、清晰，符合高内聚原则。
         """
-        # -> [修改] 更新打印信息
         print("        -> [K线模式诊断模块 V275.0 职责净化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -191,7 +190,6 @@ class BehavioralIntelligence:
                 is_negative_change = df['pct_change_D'] < 0
                 states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
         
-        # -> [修改] 更新打印信息
         print(f"        -> [K线模式诊断模块 V275.0] 分析完毕，共生成 {len(states)} 个静态模式信号。")
         return states
 

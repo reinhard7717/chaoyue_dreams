@@ -254,23 +254,21 @@ class CognitiveIntelligence:
 
     def synthesize_trend_sustainability_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 DynamicMechanics适配版】趋势可持续性与衰竭诊断模块
+        【V1.3 行为信号升级版】趋势可持续性与衰竭诊断模块
         - 核心重构 (本次修改):
-          - [信号适配] 将对旧版、模糊的“反转潜力”信号的引用，升级为消费由本模块 `synthesize_reversal_resonance_scores`
-                        生成的、经过多域融合的、更高质量的S级反转共振信号。
-          - `SCORE_BEHAVIOR_TOP_REVERSAL_POTENTIAL_A` -> `COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S`
-          - `SCORE_BEHAVIOR_BOTTOM_REVERSAL_POTENTIAL_A` -> `COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S`
-        - 收益: 显著提升了趋势可持续性判断的准确性和可靠性。
+          - [信号适配] 将对旧的、间接的认知层反转信号的引用，升级为直接消费由 `BehavioralIntelligence`
+                        V4.0 生成的、更基础、更可靠的多层次行为反转信号。
+        - 收益: 显著提升了趋势可持续性判断的准确性和信号源的纯净度。
         """
-        print("        -> [趋势可持续性诊断模块 V1.2 DynamicMechanics适配版] 启动...")
+        print("        -> [趋势可持续性诊断模块 V1.3 行为信号升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 提取核心上游信号 ---
         trend_quality = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', default_score)
-        # --- 消费更高质量的、认知层融合后的S级反转共振信号 ---
-        top_reversal_potential = atomic.get('COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S', default_score)
-        bottom_reversal_potential = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score)
+        # 直接消费来自行为层的、经过多级融合的、更高质量的反转信号
+        top_reversal_potential = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        bottom_reversal_potential = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
         high_level_zone_context = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
         oversold_context = atomic.get('SCORE_RSI_OVERSOLD_EXTENT', default_score)
         # --- 2. 计算“上升趋势可持续性”评分 (逻辑不变) ---
@@ -281,7 +279,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TREND_FATIGUE_OPP'] = (bottom_reversal_potential * oversold_context).astype(np.float32)
         # --- 5. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [趋势可持续性诊断模块 V1.2] 计算完毕。")
+        print("        -> [趋势可持续性诊断模块 V1.3] 计算完毕。")
         return df
 
     def synthesize_consolidation_breakout_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -318,90 +316,6 @@ class CognitiveIntelligence:
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
         print("        -> [盘整突破机会合成模块 V1.0] 计算完毕。")
-        return df
-
-    def synthesize_trend_exhaustion_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
-        """
-        【V1.0 新增】趋势衰竭信号合成模块
-        - 核心职责: 消费此前未被利用的“连涨/连跌天数”原子信号，并结合
-                      高位风险、超卖环境等顶层上下文，生成更高维度的
-                      “趋势衰竭风险”与“恐慌衰竭机会”认知分数。
-        - 收益: 丰富了策略对市场极端情绪和趋势末端行为的捕捉能力。
-        """
-        # print("        -> [趋势衰竭信号合成模块 V1.0] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取并归一化连涨/连跌天数 ---
-        # 假设连涨/跌超过10天为极限，进行归一化处理
-        up_streak_score = (atomic.get('COUNT_CONSECUTIVE_UP_STREAK', default_score) / 10.0).clip(0, 1)
-        down_streak_score = (atomic.get('COUNT_CONSECUTIVE_DOWN_STREAK', default_score) / 10.0).clip(0, 1)
-        # --- 2. 提取相关的风险与机会上下文分数 ---
-        high_level_risk_context = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
-        divergence_risk_context = atomic.get('COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S', default_score)
-        oversold_opp_context = atomic.get('SCORE_RSI_OVERSOLD_EXTENT', default_score)
-        capitulation_opp_context = atomic.get('SCORE_BEHAVIOR_CAPITULATION_EXHAUSTION_OPP_A', default_score)
-        # --- 3. 融合生成“看涨衰竭风险”分数 ---
-        # 逻辑: 连涨天数越多 * 高位风险越大 * 背离风险越大 = 衰竭风险越高
-        bullish_exhaustion_score = up_streak_score * high_level_risk_context * divergence_risk_context
-        states['COGNITIVE_SCORE_BULLISH_EXHAUSTION_RISK_S'] = bullish_exhaustion_score.astype(np.float32)
-        # --- 4. 融合生成“看跌衰竭(恐慌底)机会”分数 ---
-        # 逻辑: 连跌天数越多 * 超卖程度越深 * 恐慌盘涌出迹象越明显 = 衰竭机会越大
-        bearish_exhaustion_score = down_streak_score * oversold_opp_context * capitulation_opp_context
-        states['COGNITIVE_SCORE_BEARISH_EXHAUSTION_OPP_S'] = bearish_exhaustion_score.astype(np.float32)
-        # --- 5. 更新原子状态库 ---
-        self.strategy.atomic_states.update(states)
-        print("        -> [趋势衰竭信号合成模块 V1.0] 计算完毕。")
-        return df
-
-    def synthesize_classic_pattern_opportunity(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V1.1 逻辑分层版】经典形态机会融合模块
-        - 核心职责: 消费由 BehavioralIntelligence 合成的`SCORE_BEHAVIOR_CLASSIC_PATTERN_OPP`，
-                      并结合当前市场的趋势质量，生成一个经过环境过滤的、更高质量的
-                      顶层认知机会分数。
-        - 收益: 遵循分层架构，将模式的初级合成下沉到行为层，认知层专注于元融合。
-        """
-        # print("        -> [经典形态机会融合模块 V1.1 逻辑分层版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取来自行为层的“经典形态机会”合成信号 --- # 消费新的合成信号
-        classic_pattern_score = atomic.get('SCORE_BEHAVIOR_CLASSIC_PATTERN_OPP', default_score)
-        # --- 2. 提取宏观环境过滤器 ---
-        trend_quality_context = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', default_score)
-        # --- 3. 融合生成认知层“经典形态机会”分数 ---
-        # 逻辑: 基础形态分 * 趋势健康度 = 最终机会分
-        final_score_series = classic_pattern_score * trend_quality_context # 简化融合逻辑
-        states['COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S'] = final_score_series.astype(np.float32)
-        # --- 4. 更新原子状态库 ---
-        self.strategy.atomic_states.update(states)
-        print("        -> [经典形态机会融合模块 V1.1 逻辑分层版] 计算完毕。")
-        return df
-
-    def synthesize_shakeout_opportunities(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V1.1 逻辑分层版】压缩区洗盘机会合成模块
-        - 核心职责: 消费由 BehavioralIntelligence 合成的`SCORE_BEHAVIOR_SHAKEOUT_REVERSAL_OPP`，
-                      并结合当前市场的趋势质量，生成一个经过环境过滤的、更高质量的
-                      顶层认知机会分数。
-        - 收益: 遵循分层架构，将洗盘模式的初级合成下沉到行为层，认知层专注于元融合。
-        """
-        # print("        -> [压缩区洗盘机会合成模块 V1.1 逻辑分层版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取来自行为层的“洗盘反转”合成信号 --- # 消费新的合成信号
-        shakeout_reversal_score = atomic.get('SCORE_BEHAVIOR_SHAKEOUT_REVERSAL_OPP', default_score)
-        # --- 2. 提取宏观环境过滤器 ---
-        trend_quality_context = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', default_score)
-        # --- 3. 融合生成认知层“压缩区洗盘反转机会”分数 ---
-        # 逻辑: (昨日洗盘 * 今日反转) * 趋势健康度 = 最终机会分
-        final_score_series = shakeout_reversal_score * trend_quality_context # 简化融合逻辑
-        states['COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A'] = final_score_series.astype(np.float32)
-        # --- 4. 更新原子状态库 ---
-        self.strategy.atomic_states.update(states)
-        print("        -> [压缩区洗盘机会合成模块 V1.1 逻辑分层版] 计算完毕。")
         return df
 
     def synthesize_breakdown_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -992,32 +906,6 @@ class CognitiveIntelligence:
         df['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
         print("        -> [趋势质量融合评分模块 V1.5 行为信号升级版] 计算完毕。") 
-        return df
-
-    def synthesize_behavioral_risks(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V2.1 命名规范化版】行为风险融合模块
-        - 核心职责: 将来自不同领域的纯粹原子信号进行交叉验证，生成更高维度的、
-                      经过情景过滤的认知层风险信号。
-        - 核心升级: 将原有的布尔逻辑升级为数值化评分，能够更精确地量化风险程度。
-        - 本次升级: 将输出信号重命名为'SCORE_...'前缀，以符合数值化评分的命名规范。
-        """
-        # print("        -> [行为风险融合模块 V2.1 命名规范化版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        # --- 融合信号1: 高位获利盘出逃风险 (A级) ---
-        # 全面升级为数值化评分，信号更平滑
-        # 更新对辅助函数的调用
-        # 情报1 (筹码): 获利盘兑现意愿强烈 (消费数值分)
-        profit_taking_score = self._get_atomic_score(df, 'SCORE_CHIP_PROFIT_TAKING_INTENSITY', 0.0)
-        # 情报2 (行为): 价格处于近期高位区间 (消费数值分，替代失效的 PRICE_STATE_NEAR_HIGH_RANGE)
-        price_position_score = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RECENT_RANGE', 0.0)
-        # 最终裁定: 风险分 = 获利盘兑现分 * 价格位置分
-        # 重命名信号以符合数值化评分的规范
-        states['SCORE_BEHAVIOR_WINNERS_FLEEING_A'] = (profit_taking_score * price_position_score).astype(np.float32)
-        # --- 更新原子状态库 ---
-        self.strategy.atomic_states.update(states)
-        print("        -> [行为风险融合模块 V2.1 命名规范化版] 计算完毕。") 
         return df
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
