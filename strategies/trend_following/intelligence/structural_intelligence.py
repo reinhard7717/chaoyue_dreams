@@ -15,26 +15,37 @@ class StructuralIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def _fuse_multi_level_scores(self, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+    def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
         """
-        【新增 V1.0 & 逻辑迁移】融合S/A/B等多层置信度分数的辅助函数。
+        【V1.1 健壮性修复版】融合S/A/B等多层置信度分数的辅助函数。
         - 核心职责: 从 CognitiveIntelligence 迁移而来，用于在模块内部融合多级信号。
+        - 核心修复: 增加了对 df 参数的接收，并使用 df.index 来初始化和对齐Series，
+                      确保在处理数据切片时索引正确，避免因索引不匹配导致的NaN或空Series问题。
         """
+        # 传入df参数，保证索引正确
         if weights is None:
             weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
-        total_score = pd.Series(0.0, index=self.strategy.df.index)
+        
+        # 使用传入的df.index确保索引长度正确，这是修复问题的关键
+        total_score = pd.Series(0.0, index=df.index)
         total_weight = 0.0
+        
         for level, weight in weights.items():
             score_name = f"SCORE_{base_name}_{level}"
             if score_name in self.strategy.atomic_states:
                 score_series = self.strategy.atomic_states[score_name]
-                total_score += score_series * weight
+                # 使用reindex安全地对齐和相加
+                total_score += score_series.reindex(df.index).fillna(0.0) * weight
                 total_weight += weight
+        
         if total_weight == 0:
             single_score_name = f"SCORE_{base_name}"
             if single_score_name in self.strategy.atomic_states:
-                return self.strategy.atomic_states[single_score_name]
-            return pd.Series(0.5, index=self.strategy.df.index)
+                # 同样使用reindex保证安全
+                return self.strategy.atomic_states[single_score_name].reindex(df.index).fillna(0.5)
+            # 使用传入的df.index确保索引长度正确
+            return pd.Series(0.5, index=df.index)
+            
         return (total_score / total_weight).clip(0, 1)
 
     def diagnose_ma_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -189,11 +200,8 @@ class StructuralIntelligence:
         # --- 5. 融合生成最终质量分与兼容性信号 ---
         # 5.1 向上突破
         breakout_trigger_base_score = volume_thrust_score * breakout_candle_score
-        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
         states['SCORE_BOX_BREAKOUT_S'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_s).fillna(0.0).astype(np.float32)
-        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
         states['SCORE_BOX_BREAKOUT_A'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_a).fillna(0.0).astype(np.float32)
-        # 修改: 移除了 is_breakout 的乘法，将信号从“事件”升级为“机会”
         states['SCORE_BOX_BREAKOUT_B'] = (setup_quality_score.shift(1) * breakout_trigger_base_score * bullish_resonance_b).fillna(0.0).astype(np.float32)
         # 5.2 向下突破 (保持事件驱动逻辑，因为风险信号需要更精确)
         breakdown_trigger_base_score = volume_thrust_score * breakdown_candle_score
@@ -253,14 +261,14 @@ class StructuralIntelligence:
             for p in cost_periods
         ]
         cost_momentum_score = pd.Series(np.mean(np.array([s.values for s in cost_slope_series]), axis=0), index=df.index)
-        states['SCORE_PLATFORM_COST_MOMENTUM'] = cost_momentum_score.astype(np.float32) # 修改: 将成本动能分添加到输出
+        states['SCORE_PLATFORM_COST_MOMENTUM'] = cost_momentum_score.astype(np.float32) # 将成本动能分添加到输出
         # 2.3 成本加速分 (Acceleration Score) 
         cost_accel_series = [
             df[f'ACCEL_{p if p > 5 else 5}_peak_cost_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
             for p in cost_periods
         ]
         cost_accel_score = pd.Series(np.mean(np.array([s.values for s in cost_accel_series]), axis=0), index=df.index)
-        states['SCORE_PLATFORM_COST_ACCEL'] = cost_accel_score.astype(np.float32) # 修改: 将成本加速分添加到输出
+        states['SCORE_PLATFORM_COST_ACCEL'] = cost_accel_score.astype(np.float32) # 将成本加速分添加到输出
         # 2.4 宏观环境分 (Context Score) 
         context_health_score = atomic.get('SCORE_MA_HEALTH', pd.Series(0.5, index=df.index))
         # --- 3. 融合生成B/A/S三级平台质量分 ---
@@ -797,7 +805,8 @@ class StructuralIntelligence:
         default_series = pd.Series(False, index=df.index)
         # --- 1. 提取并融合“盘整”战备(Setup)信号 ---
         # 使用辅助函数融合S/A/B三级盘整模式分数，得到综合的“战备质量分”
-        consolidation_setup_score = self._fuse_multi_level_scores('PATTERN_CONSOLIDATION')
+        # 传入df参数以保证索引正确
+        consolidation_setup_score = self._fuse_multi_level_scores(df, 'PATTERN_CONSOLIDATION')
         # --- 2. 提取并融合“点火”(Trigger)信号 ---
         # 点火源1: 放量突破 (来自 behavioral_intelligence)
         volume_ignition_score = atomic.get('SCORE_VOL_PRICE_IGNITION_UP', default_score)
@@ -816,24 +825,27 @@ class StructuralIntelligence:
 
     def synthesize_structural_opportunities(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 范式统一版】结构性机会合成模块
+        【V1.4 范式统一与健壮性修复版】结构性机会合成模块
         - 核心职责: 融合来自本模块的多个突破信号（箱体、平台、盘整），生成统一的“蓄势突破”机会分数。
         - 本次升级: [范式统一] 为了适配 V4.2 版箱体诊断模块输出的连续性“机会”信号，
                       本模块现在对所有上游突破信号统一使用 `_fuse_multi_level_scores` 进行预处理，
                       确保所有输入信号在融合前都经过了标准化的多级分数融合，增强了逻辑一致性和扩展性。
+        - 核心修复: 修复了因索引不匹配导致上游信号Series为空或充满NaN的问题。
         """
-        print("        -> [结构性机会合成模块 V1.3 范式统一版] 启动...")
+        print("        -> [结构性机会合成模块 V1.4 范式统一与健壮性修复版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         
         # --- 1. 提取并融合来自本模块的多个突破源信号 ---
-        # 修改: 对所有适用的信号源统一使用融合函数，以正确处理S/A/B等级
+        # 对所有适用的信号源统一使用融合函数，以正确处理S/A/B等级
         # 源1: 箱体突破 (现在会正确处理新的连续性机会分数)
-        box_breakout_score_series = self._fuse_multi_level_scores('BOX_BREAKOUT')
+        # 传入df参数以保证索引正确
+        box_breakout_score_series = self._fuse_multi_level_scores(df, 'BOX_BREAKOUT')
         
         # 源2: 平台突破 (同样使用融合函数，即使目前只有S级，逻辑也更健壮)
-        platform_breakout_score_series = self._fuse_multi_level_scores('OPP_PLATFORM_BREAKOUT')
+        # 传入df参数以保证索引正确
+        platform_breakout_score_series = self._fuse_multi_level_scores(df, 'OPP_PLATFORM_BREAKOUT')
         
         # 源3: 盘整突破 (此信号逻辑特殊，维持原调用方式)
         consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df)
@@ -841,13 +853,14 @@ class StructuralIntelligence:
         states.update(consolidation_breakout_states)
         
         # --- 调试信息：检查所有输入Series的值范围 ---
-        print(f"    [调试] box_breakout_score_series max: {box_breakout_score_series.max():.4f}")
-        print(f"    [调试] platform_breakout_score_series max: {platform_breakout_score_series.max():.4f}")
-        print(f"    [调试] consolidation_breakout_score_series max: {consolidation_breakout_score_series.max():.4f}")
+        # 使用.fillna(0)处理潜在的NaN值，使max()能正常工作
+        print(f"    [调试] box_breakout_score_series max: {box_breakout_score_series.fillna(0).max():.4f}")
+        print(f"    [调试] platform_breakout_score_series max: {platform_breakout_score_series.fillna(0).max():.4f}")
+        print(f"    [调试] consolidation_breakout_score_series max: {consolidation_breakout_score_series.fillna(0).max():.4f}")
 
         # --- 2. 准备用于融合的Numpy数组，并执行健壮性检查 ---
         scores_to_reduce = []
-        expected_shape = (len(df.index),) # 修改: 期望的形状应为元组
+        expected_shape = (len(df.index),)
 
         # 统一处理所有信号源
         signal_sources = {
@@ -857,7 +870,9 @@ class StructuralIntelligence:
         }
 
         for name, series in signal_sources.items():
-            score_arr = series.values
+            # 在转换为numpy数组前，先用reindex和fillna确保Series的形状和内容是正确的
+            safe_series = series.reindex(df.index).fillna(0.0)
+            score_arr = safe_series.values
             if score_arr.shape != expected_shape:
                 print(f"    [警告] {name}_score 形状不匹配 ({score_arr.shape})，期望 {expected_shape}，将使用全零数组代替。")
                 scores_to_reduce.append(np.zeros(expected_shape, dtype=np.float32))
@@ -866,7 +881,10 @@ class StructuralIntelligence:
 
         # --- 3. 融合生成“蓄势突破”分数与信号 ---
         # 逻辑: 取所有结构性突破信号中的最大值
-        final_score_arr = np.maximum.reduce(scores_to_reduce)
+        if not scores_to_reduce: # 增加一个空列表的检查
+            final_score_arr = np.zeros(expected_shape, dtype=np.float32)
+        else:
+            final_score_arr = np.maximum.reduce(scores_to_reduce)
         final_score_series = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
         states['SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S'] = final_score_series
         
@@ -876,7 +894,7 @@ class StructuralIntelligence:
         final_signal = final_score_series > breakout_threshold
         states['STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S'] = final_signal
         
-        print("        -> [结构性机会合成模块 V1.3 范式统一版] 计算完毕。")
+        print("        -> [结构性机会合成模块 V1.4 范式统一与健壮性修复版] 计算完毕。")
         return states
 
 

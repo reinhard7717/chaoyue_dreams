@@ -152,8 +152,8 @@ class CognitiveIntelligence:
 
     def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
         """
-        【健壮性修复版】融合S/A/B等多层置信度分数。
-        - 核心修复: 移除对 self.strategy.df.index 的依赖，改为使用传入的 df.index。
+        【V1.1 健壮性修复版】融合S/A/B等多层置信度分数。
+        - 核心修复: 修复了当只找到无等级的单一信号时，未进行reindex就返回的潜在bug，确保所有返回路径的索引都与输入df对齐。
         - :param df: 当前正在处理的数据帧，用于获取正确的索引。
         - :param base_name: 分数的基础名称 (例如 'MA_BULLISH_RESONANCE').
         - :param weights: 一个字典，定义了 'S', 'A', 'B' 等级的权重。
@@ -162,30 +162,25 @@ class CognitiveIntelligence:
         if weights is None:
             weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
         
-        # 使用传入的df.index确保索引长度正确
         total_score = pd.Series(0.0, index=df.index)
         total_weight = 0.0
         
-        # 动态地获取并加权S/A/B等级的分数
         for level, weight in weights.items():
             score_name = f"SCORE_{base_name}_{level}"
             if score_name in self.strategy.atomic_states:
                 score_series = self.strategy.atomic_states[score_name]
-                # [新增] 增加一个检查，防止不同长度的Series相加
-                if len(score_series) == len(df.index):
+                if len(score_series) > 0:
+                    # 使用reindex安全地对齐和相加
                     total_score += score_series.reindex(df.index).fillna(0.0) * weight
                     total_weight += weight
         
-        # 如果没有找到任何等级的分数，返回一个中性分数
         if total_weight == 0:
-            # 尝试获取没有等级的单一分数
             single_score_name = f"SCORE_{base_name}"
             if single_score_name in self.strategy.atomic_states:
-                return self.strategy.atomic_states[single_score_name]
-            # 使用传入的df.index确保索引长度正确
+                # 对单一信号也使用reindex和fillna，保证返回的Series索引正确且无NaN，这是修复的关键
+                return self.strategy.atomic_states[single_score_name].reindex(df.index).fillna(0.5)
             return pd.Series(0.5, index=df.index)
             
-        # 归一化处理
         return (total_score / total_weight).clip(0, 1)
 
     def synthesize_tactical_opportunities(self, df: pd.DataFrame) -> pd.DataFrame:
