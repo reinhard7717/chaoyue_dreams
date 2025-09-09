@@ -114,8 +114,36 @@ class BehavioralIntelligence:
                 states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
         advanced_atomics = self.diagnose_advanced_atomic_signals(df)
         states.update(advanced_atomics)
-        # synthesized_behaviors = self.synthesize_behavioral_patterns(df)
-        # states.update(synthesized_behaviors)
+        # 调用多维共振诊断模块，整合其产出的高级信号
+        resonance_signals = self.diagnose_multi_dimensional_resonance(df)
+        states.update(resonance_signals)
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_kline_patterns] ====================")
+        # 1. 打印关键原料信号
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        # 选取一些核心计算中直接使用的代表性列作为“原料”
+        raw_material_cols = [
+            'close_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'low_D', 'high_D',
+            'EMA_5_D', 'EMA_13_D', 'EMA_55_D', 'main_force_net_flow_consensus_D',
+            'SLOPE_5_main_force_net_flow_consensus_D', 'ACCEL_5_main_force_net_flow_consensus_D'
+        ]
+        # 创建一个只包含原料列的DataFrame用于打印，并检查列是否存在
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        # 2. 打印所有产出信号
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            # 将所有产出的Series合并为一个DataFrame以便于对齐查看
+            output_df = pd.DataFrame(states)
+            # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -336,6 +364,70 @@ class BehavioralIntelligence:
         volume_accelerating_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         is_accelerating = df['ACCEL_5_volume_D'] > 0
         states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = (volume_accelerating_score * is_accelerating).astype(np.float32)
+        return states
+
+    def diagnose_multi_dimensional_resonance(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】多维共振与反转诊断模块
+        - 核心职责: 基于数据层提供的多周期（如5日、21日）指标的静态值、
+                    斜率、加速度，进行交叉验证，生成高置信度的共振与反转信号。
+        - 核心逻辑:
+          1. 上升/下跌共振: 当一个指标的静态值、斜率和加速度同向（同为正或同为负）时，形成共振。
+          2. 顶部/底部反转: 当指标的静态值与斜率/加速度出现背离时（如静态值创新高，但斜率已转负），形成反转信号。
+        - 收益: 提供了超越单一指标判断的、更立体和可靠的市场状态评估。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'resonance_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
+        # 定义需要进行共振分析的核心指标
+        # 格式: (指标基础名, [周期列表], 是否为正向指标)
+        metrics_to_analyze = [
+            ('main_force_net_flow_consensus_D', [5, 21], True), # 主力资金共识, 正向
+            ('chip_health_score_D', [5, 21], True),             # 筹码健康度, 正向
+            ('concentration_90pct_D', [5, 21], True),           # 筹码集中度, 正向
+            ('flow_divergence_mf_vs_retail_D', [5, 21], True),  # 主力散户流向背离, 正向
+        ]
+        all_up_resonance_scores = []
+        all_down_resonance_scores = []
+        for base_name, periods, is_positive_metric in metrics_to_analyze:
+            for period in periods:
+                # 构造列名
+                static_col = base_name
+                slope_col = f'SLOPE_{period}_{base_name}'
+                accel_col = f'ACCEL_{period}_{base_name}'
+                required_cols = [static_col, slope_col, accel_col]
+                if not all(c in df.columns for c in required_cols):
+                    print(f"        -> [多维共振诊断] 警告: 缺少分析 '{base_name}' 所需列: {required_cols}，跳过周期 {period}。")
+                    continue
+                # --- 1. 信号数值化与归一化 (0-1分) ---
+                static_score = df[static_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+                slope_score = df[slope_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+                accel_score = df[accel_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+                if not is_positive_metric: # 如果是负向指标（值越小越好），则反转评分
+                    static_score = 1 - static_score
+                    slope_score = 1 - slope_score
+                    accel_score = 1 - accel_score
+                # --- 2. 生成共振信号 ---
+                up_resonance = static_score * slope_score * accel_score
+                states[f'SCORE_RESONANCE_UP_{base_name.replace("_D", "")}_{period}D'] = up_resonance.astype(np.float32)
+                all_up_resonance_scores.append(up_resonance)
+                down_resonance = (1 - static_score) * (1 - slope_score) * (1 - accel_score)
+                states[f'SCORE_RESONANCE_DOWN_{base_name.replace("_D", "")}_{period}D'] = down_resonance.astype(np.float32)
+                all_down_resonance_scores.append(down_resonance)
+                # --- 3. 生成反转信号 (基于静态与斜率背离) ---
+                top_reversal = static_score * (1 - slope_score) # 顶部反转 = 静态值高 * 斜率低 (高位滞涨或转向)
+                states[f'SCORE_REVERSAL_TOP_{base_name.replace("_D", "")}_{period}D'] = top_reversal.astype(np.float32)
+                bottom_reversal = (1 - static_score) * slope_score # 底部反转 = 静态值低 * 斜率高 (低位企稳或转向)
+                states[f'SCORE_REVERSAL_BOTTOM_{base_name.replace("_D", "")}_{period}D'] = bottom_reversal.astype(np.float32)
+        # --- 4. 合成总共振信号 ---
+        if all_up_resonance_scores:
+            states['SCORE_RESONANCE_UP_OVERALL'] = pd.concat(all_up_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
+        if all_down_resonance_scores:
+            states['SCORE_RESONANCE_DOWN_OVERALL'] = pd.concat(all_down_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
+        print(f"        -> [多维共振诊断模块 V1.0] 已生成 {len(states)} 个共振与反转信号。")
         return states
 
     # “价格-成交量原子信号诊断”方法
