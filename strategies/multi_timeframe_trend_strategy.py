@@ -722,15 +722,12 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.0 纯数值化适配版】
-        - 核心适配: 完全重构报告生成逻辑，以适配 JudgmentLayer 的“风险惩罚分”模型。
-        - 报告更新:
-          - 移除“否决票”展示，引入“风险惩罚分”作为核心风险度量。
-          - “决策摘要”更新为 `进攻分 - 风险惩罚分 = 最终得分` 的清晰逻辑。
-          - “计分详情”现在能正确区分进攻加分项、进攻惩罚项和独立的风险项。
+        【V320.1 类型修复版】
+        - 核心修复: 修复了在筛选调试时段的每日分数时，未将 end_date 字符串转换为日期对象，
+                      导致 'datetime.date' 与 'str' 比较而引发 TypeError 的问题。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.0 纯数值化适配版)] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 (V320.1 类型修复版)] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -780,7 +777,7 @@ class MultiTimeframeTrendStrategy:
             end_dt_date = pd.to_datetime(end_date).date()
             debug_period_daily_scores = [
                 ds for ds in all_daily_scores
-                if start_dt_date <= ds.trade_date <= end_date
+                if start_dt_date <= ds.trade_date <= end_dt_date
             ]
             if not debug_period_daily_scores:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
@@ -788,38 +785,30 @@ class MultiTimeframeTrendStrategy:
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             
-            # // 修改开始：从配置文件中获取子总分信号名，用于后续过滤
             subtotal_signal_names = list(get_params_block(self.tactical_engine, 'offensive_score_composition', {}).keys())
-            # // 修改结束
 
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
                 related_components = daily_components_map.get(trade_date, [])
                 
-                # // 修改开始：更新报告头，展示新的核心分数
                 day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
                 final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
                 risk_penalty_score_val = day_analysis_row.iloc[0].get('risk_penalty_score', 'N/A') if not day_analysis_row.empty else 'N/A'
                 
                 print(f"\n{time_str} [周期: D] [进攻分: {daily_score_obj.offensive_score:<7.0f}] [风险惩罚分: {risk_penalty_score_val:<7.0f}] [最终得分: {final_score_val:<7.0f}] [最终信号: {daily_score_obj.signal_type}]")
                 print("  --- 决策摘要 ---")
-                # // 修改结束
 
                 if not day_analysis_row.empty:
-                    # // 修改开始：更新决策摘要的展示逻辑
                     print(f"    - 决策公式: (进攻分 {daily_score_obj.offensive_score:.0f}) - (风险惩罚分 {risk_penalty_score_val:.0f}) = (最终得分 {final_score_val:.0f})")
                     
-                    # 从配置中获取阈值以增加报告的上下文
                     p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
                     final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
                     print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
                     
-                    # 计分详情展示
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
-                    # // 修改结束
 
                     day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
                     if not day_exit_triggers.empty:
@@ -832,7 +821,6 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("    - 未找到当日的详细分析数据。")
                 
-                # --- 分项展示逻辑保持不变，但现在更清晰地分为三类 ---
                 offensive_components = [
                     c for c in related_components
                     if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic']
@@ -861,7 +849,7 @@ class MultiTimeframeTrendStrategy:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
             traceback.print_exc()
-
+            
     # NEW: 新增的性能分析专属方法
     async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
