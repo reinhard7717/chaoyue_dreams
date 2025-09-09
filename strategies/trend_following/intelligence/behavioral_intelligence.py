@@ -117,33 +117,33 @@ class BehavioralIntelligence:
         # 调用多维共振诊断模块，整合其产出的高级信号
         resonance_signals = self.diagnose_multi_dimensional_resonance(df)
         states.update(resonance_signals)
-        # --- 调试探针: 打印输入与输出的最后5条数据 ---
-        print("\n==================== [探针: diagnose_kline_patterns] ====================")
-        # 1. 打印关键原料信号
-        print("\n--- [原料信号探针] (最后5条数据) ---")
-        # 选取一些核心计算中直接使用的代表性列作为“原料”
-        raw_material_cols = [
-            'close_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'low_D', 'high_D',
-            'EMA_5_D', 'EMA_13_D', 'EMA_55_D', 'main_force_net_flow_consensus_D',
-            'SLOPE_5_main_force_net_flow_consensus_D', 'ACCEL_5_main_force_net_flow_consensus_D'
-        ]
-        # 创建一个只包含原料列的DataFrame用于打印，并检查列是否存在
-        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
-        if not raw_df_subset.empty:
-            # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
-            print(raw_df_subset.tail(5).to_string())
-        else:
-            print("  - (无关键原料信号可供显示)")
-        # 2. 打印所有产出信号
-        print("\n--- [产出信号探针] (最后5条数据) ---")
-        if not states:
-            print("  - (无产出信号)")
-        else:
-            # 将所有产出的Series合并为一个DataFrame以便于对齐查看
-            output_df = pd.DataFrame(states)
-            # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
-            print(output_df.tail(5).to_string())
-        print("==================== [探针结束] ====================\n")
+        # # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        # print("\n==================== [探针: diagnose_kline_patterns] ====================")
+        # # 1. 打印关键原料信号
+        # print("\n--- [原料信号探针] (最后5条数据) ---")
+        # # 选取一些核心计算中直接使用的代表性列作为“原料”
+        # raw_material_cols = [
+        #     'close_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D', 'low_D', 'high_D',
+        #     'EMA_5_D', 'EMA_13_D', 'EMA_55_D', 'main_force_net_flow_consensus_D',
+        #     'SLOPE_5_main_force_net_flow_consensus_D', 'ACCEL_5_main_force_net_flow_consensus_D'
+        # ]
+        # # 创建一个只包含原料列的DataFrame用于打印，并检查列是否存在
+        # raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        # if not raw_df_subset.empty:
+        #     # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
+        #     print(raw_df_subset.tail(5).to_string())
+        # else:
+        #     print("  - (无关键原料信号可供显示)")
+        # # 2. 打印所有产出信号
+        # print("\n--- [产出信号探针] (最后5条数据) ---")
+        # if not states:
+        #     print("  - (无产出信号)")
+        # else:
+        #     # 将所有产出的Series合并为一个DataFrame以便于对齐查看
+        #     output_df = pd.DataFrame(states)
+        #     # 使用 to_string() 保证在列数多时也能完整显示，不会被省略
+        #     print(output_df.tail(5).to_string())
+        # print("==================== [探针结束] ====================\n")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -174,6 +174,22 @@ class BehavioralIntelligence:
         states['COUNT_CONSECUTIVE_UP_STREAK'] = up_streak.astype(np.int16)
         states['COUNT_CONSECUTIVE_DOWN_STREAK'] = down_streak.astype(np.int16)
         print(f"        -> [高级原子诊断模块 V1.1] 已生成 {len(states)} 个深层动态信号。") 
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_advanced_atomic_signals] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['high_D', 'low_D', 'close_D', 'pct_change_D']
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -186,7 +202,7 @@ class BehavioralIntelligence:
         - 收益: 消除了K线形态识别中的硬编码阈值，使得评分能够平滑地反映
                 K线从“非锤子”到“完美锤子”的渐变过程，信号质量更高。
         """
-        print("        -> [回踩增强矩阵 V1.6] 启动，正在扫描特殊形态...") # 更新版本号
+        print("        -> [回踩增强矩阵 V1.6] 启动，正在扫描特殊形态...")
         enhancements = {}
         atomic = self.strategy.atomic_states
         default_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -208,6 +224,26 @@ class BehavioralIntelligence:
         squeeze_level_score = atomic.get('SCORE_VOL_COMPRESSION_LEVEL', default_score_series)
         sharp_drop_score = atomic.get('SCORE_KLINE_SHARP_DROP', default_score_series)
         enhancements['SCORE_SQUEEZE_SHAKEOUT'] = (squeeze_level_score * sharp_drop_score).astype(np.float32)
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: _diagnose_pullback_enhancement_matrix] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['open_D', 'high_D', 'low_D', 'close_D']
+        atomic_cols_used = ['SCORE_FIB_REBOUND_S', 'SCORE_FIB_REBOUND_A', 'SCORE_FIB_REBOUND_B', 'SCORE_VOL_COMPRESSION_LEVEL', 'SCORE_KLINE_SHARP_DROP']
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]].copy()
+        for col in atomic_cols_used:
+            if col in atomic:
+                raw_df_subset[col] = atomic[col]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not enhancements:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(enhancements)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return enhancements
 
     def diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -247,6 +283,23 @@ class BehavioralIntelligence:
         states['SCORE_BOARD_EARTH_HEAVEN'] = (strength_score * low_near_limit_down_score * close_near_limit_up_score).astype(np.float32)
         # --- 天地板 (Heaven to Earth) ---
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score).astype(np.float32)
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_board_patterns] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['close_D', 'high_D', 'low_D']
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]].copy()
+        raw_df_subset['prev_close_D'] = df['close_D'].shift(1) # 手动加入shift后的数据以便观察
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     def diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
@@ -291,6 +344,22 @@ class BehavioralIntelligence:
         # --- 融合生成最终风险分 ---
         final_score = (overextension_score * upper_shadow_score * volume_score * weak_close_score).astype(np.float32)
         final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_upthrust_distribution] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if final_score.empty:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame({final_score.name: final_score})
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return final_score
 
     def diagnose_ma_breakdown(self, exit_params: dict) -> pd.Series:
@@ -321,7 +390,23 @@ class BehavioralIntelligence:
         # 只有在有破位发生时才进行排名，避免全0序列产生无意义的排名
         score = breakdown_depth.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         final_score = (score * (breakdown_depth > 0)).astype(np.float32)
-        final_score.name = 'SCORE_BEHAVIOR_MA_BREAKDOWN' # 命名Series
+        final_score.name = 'SCORE_BEHAVIOR_MA_BREAKDOWN'
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_ma_breakdown] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['close_D', ma_col]
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if final_score.empty:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame({final_score.name: final_score})
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return final_score
 
     def diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
@@ -364,6 +449,21 @@ class BehavioralIntelligence:
         volume_accelerating_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         is_accelerating = df['ACCEL_5_volume_D'] > 0
         states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = (volume_accelerating_score * is_accelerating).astype(np.float32)
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_volume_price_dynamics] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_df_subset = df[[col for col in required_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     def diagnose_multi_dimensional_resonance(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -430,7 +530,32 @@ class BehavioralIntelligence:
             states['SCORE_RESONANCE_UP_OVERALL'] = pd.concat(all_up_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
         if all_down_resonance_scores:
             states['SCORE_RESONANCE_DOWN_OVERALL'] = pd.concat(all_down_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
-        print(f"        -> [多维共振诊断模块 V1.2] 已生成 {len(states)} 个共振与反转信号。") # 修改: 更新版本号
+        print(f"        -> [多维共振诊断模块 V1.2] 已生成 {len(states)} 个共振与反转信号。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_multi_dimensional_resonance] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = set()
+        for base_name, periods, _ in metrics_to_analyze:
+            raw_material_cols.add(base_name)
+            for period in periods:
+                raw_material_cols.add(f'SLOPE_{period}_{base_name}')
+                if 'flow_divergence_mf_vs_retail' in base_name:
+                    raw_material_cols.add(f'accel_{period}d_{base_name}')
+                else:
+                    raw_material_cols.add(f'ACCEL_{period}_{base_name}')
+        final_raw_cols = [col for col in sorted(list(raw_material_cols)) if col in df.columns]
+        raw_df_subset = df[final_raw_cols]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     # “价格-成交量原子信号诊断”方法
@@ -468,7 +593,23 @@ class BehavioralIntelligence:
             is_drop_day = (df['pct_change_D'] < 0)
             # 融合生成最终分数，仅保留核心的“下跌日”判断
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score * is_drop_day).astype(np.float32)
-        print(f"        -> [价格成交量原子诊断模块 V1.2] 已生成 {len(states)} 个数值化基础原子信号。") # 更新版本号
+        print(f"        -> [价格成交量原子诊断模块 V1.2] 已生成 {len(states)} 个数值化基础原子信号。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: diagnose_price_volume_atomics] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        raw_material_cols = ['high_D', 'low_D', 'close_D', 'pct_change_D', 'volume_D', 'VOL_MA_21_D']
+        raw_df_subset = df[[col for col in raw_material_cols if col in df.columns]]
+        if not raw_df_subset.empty:
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
     def synthesize_behavioral_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -526,7 +667,36 @@ class BehavioralIntelligence:
         # 逻辑: 昨日战备就绪(高质量洗盘) * 今日反转确认
         shakeout_reversal_score = shakeout_setup_score.shift(1).fillna(0.0) * reversal_trigger_score
         states['SCORE_BEHAVIOR_SHAKEOUT_REVERSAL_OPP'] = shakeout_reversal_score.astype(np.float32)
-        print(f"        -> [高级行为模式合成模块 V1.1 职责增强版] 计算完毕，新增 {len(states)} 个合成信号。") # 修改: 更新版本号
+        print(f"        -> [高级行为模式合成模块 V1.1 职责增强版] 计算完毕，新增 {len(states)} 个合成信号。")
+        # --- 调试探针: 打印输入与输出的最后5条数据 ---
+        print("\n==================== [探针: synthesize_behavioral_patterns] ====================")
+        print("\n--- [原料信号探针] (最后5条数据) ---")
+        atomic_keys_used = [
+            'COUNT_CONSECUTIVE_UP_STREAK', 'COUNT_CONSECUTIVE_DOWN_STREAK', 'SCORE_PRICE_POSITION_IN_RANGE',
+            'SCORE_RISK_UPTHRUST_DISTRIBUTION', 'SCORE_HAMMER_CANDLE_STRENGTH', 'SCORE_BEHAVIOR_MA_BREAKDOWN',
+            'SCORE_VOL_PRICE_PANIC_DOWN_RISK', 'SCORE_KLINE_SHARP_DROP', 'SCORE_BEHAVIOR_WASHOUT',
+            'SCORE_OLD_DUCK_HEAD_FORMING', 'SCORE_N_SHAPE_CONSOLIDATION', 'SCORE_SQUEEZE_SHAKEOUT'
+        ]
+        trigger_keys_used = ['TRIGGER_DOMINANT_REVERSAL']
+        raw_signals_dict = {}
+        for key in atomic_keys_used:
+            if key in atomic:
+                raw_signals_dict[key] = atomic.get(key, default_score)
+        for key in trigger_keys_used:
+            if key in self.strategy.trigger_events:
+                raw_signals_dict[key] = self.strategy.trigger_events.get(key, default_series)
+        if raw_signals_dict:
+            raw_df_subset = pd.DataFrame(raw_signals_dict)
+            print(raw_df_subset.tail(5).to_string())
+        else:
+            print("  - (无关键原料信号可供显示)")
+        print("\n--- [产出信号探针] (最后5条数据) ---")
+        if not states:
+            print("  - (无产出信号)")
+        else:
+            output_df = pd.DataFrame(states)
+            print(output_df.tail(5).to_string())
+        print("==================== [探针结束] ====================\n")
         return states
 
 
