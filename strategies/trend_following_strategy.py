@@ -46,68 +46,58 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V400.2 新增起始日期计算支持】
-        - 核心重组: 调整了指挥链，以适配风险计算的统一流程。
-        - 新增功能: 如果提供了 start_date_str，则在执行复杂策略计算前，先对数据进行切片，以提升性能。
+        【V401.0 指挥链重构版】
+        - 核心重构: 重构了内部指挥链，以适配 ExitLayer 和 WarningLayer 的新职责。
+        - 风险评估统一化: 现在由 WarningLayer 统一计算所有风险，不再区分“致命”和“常规”。
+        - 硬性离场分离: ExitLayer 现在独立生成技术性离场信号，并在决策流程最后进行合并，确保其最高优先级。
         """
-        self.params = params # 将本次运行的动态参数保存到实例属性，以供所有子模块访问
+        self.params = params
         if df is None or df.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-        # 这个步骤发生在所有复杂计算之前，但在基础指标（如均线）计算之后
+        
         df_for_calculation = df
         if start_date_str:
             try:
-                # 将日期字符串转换为pandas可比较的日期对象
                 start_date = pd.to_datetime(start_date_str).date()
-                # 筛选出索引日期大于等于起始日期的数据
-                # 使用 .copy() 避免后续操作出现 SettingWithCopyWarning
                 df_filtered = df[df.index.date >= start_date].copy()
-                # print(f"调试信息: 已应用起始日期 {start_date_str}。策略计算的数据从 {len(df)} 行过滤至 {len(df_filtered)} 行。")
                 if df_filtered.empty:
-                    print(f"调试信息: 应用起始日期过滤后，没有数据可供计算。")
                     return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
                 df_for_calculation = df_filtered
             except (ValueError, TypeError) as e:
-                # 如果日期格式错误，则记录错误并继续处理全部数据
                 logger.error(f"无效的起始日期格式: '{start_date_str}'。错误: {e}。将处理全部历史记录。")
-                # print(f"调试信息: 起始日期 '{start_date_str}' 格式无效，将计算全部历史数据。")
-        # 后续所有计算都使用可能被过滤后的 df_for_calculation
         self.df_indicators = ensure_numeric_types(df_for_calculation)
-        # --- 指挥链 1/8: 基础情报层 ---
+
+        # --- 指挥链 1/7: 基础情报层 ---
         self.trigger_events = self.intelligence_layer.run_all_diagnostics()
-        # --- 指挥链 2/8: 进攻层 ---
+        # --- 指挥链 2/7: 进攻层 ---
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(self.trigger_events)
         self.df_indicators['entry_score'] = entry_score
-        # --- 指挥链 3/8: 离场层 (仅计算致命风险) ---
-        # ExitLayer 现在只返回一个包含致命风险详情的DataFrame
-        critical_risk_details_df = self.exit_layer.calculate_critical_risks()
-        self.critical_risk_details = critical_risk_details_df
-        # --- 指挥链 4/8: 预警层 (合并所有风险) ---
-        # WarningLayer 接收致命风险详情，并与常规风险合并，计算最终的总 risk_score
-        risk_score, combined_risk_details_df, risk_change_summary = self.warning_layer.calculate_risk_score(
-            critical_risk_details=critical_risk_details_df
-        )
+        # --- 指挥链 3/7: 预警层 (统一风险计分中心) ---
+        # WarningLayer 现在统一计算所有风险，不再需要接收 critical_risk_details
+        risk_score, combined_risk_details_df = self.warning_layer.calculate_risk_score()
         self.df_indicators['risk_score'] = risk_score
-        self.df_indicators['risk_change_summary'] = risk_change_summary
-        self.risk_score = risk_score
-        # --- 指挥链 6/8: 统合判断层 ---
-        # JudgmentLayer 现在接收合并后的完整风险详情
+        self.risk_score = risk_score # 兼容旧的属性访问
+        # --- 指挥链 4/7: 统合判断层 ---
+        # JudgmentLayer 接收进攻详情和统一后的风险详情，进行纯数值化决策
         self.judgment_layer.make_final_decisions(score_details_df, combined_risk_details_df)
-        # --- 指挥链 7/8 & 8/8: 模拟层与报告层 ---
+        # --- 指挥链 5/7: 离场层 (生成独立的硬性离场信号) ---
+        # ExitLayer 现在只生成技术性离场信号，不参与计分
+        hard_exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
+        # 将硬性离场信号合并到主DataFrame中，确保其最终执行力
+        is_hard_exit_triggered = hard_exit_triggers_df.any(axis=1)
+        self.df_indicators.loc[is_hard_exit_triggered, 'signal_type'] = '卖出信号'
+        # 将硬性离场详情也保存起来，用于调试和记录
+        self.exit_triggers = hard_exit_triggers_df 
+        # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
-        # print(f"    ====== 【ORM适配引擎 V400.1】执行完毕 ======")
-        # 1. 对主DataFrame进行内存压缩
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
-        # 2. 只删除那些确定不再需要的、过程中的大型变量
         try:
-            del entry_score
-            del critical_risk_details_df, risk_score, risk_change_summary
+            del entry_score, risk_score
             gc.collect()
         except NameError:
-            pass # 忽略可能已删除的变量
-        # 返回进攻详情和合并后的完整风险详情
+            pass
+            
         return self.df_indicators, score_details_df, combined_risk_details_df
-
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
         【V507.0 全景沙盘版】对外暴露的报告生成接口。
