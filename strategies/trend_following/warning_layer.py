@@ -125,65 +125,89 @@ class WarningLayer:
         # 确保所有日期都有记录，即使是空字典
         return final_summary.reindex(combined_risk_details_df.index, fill_value={})
 
-    def calculate_risk_score(self, critical_risk_details: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, pd.Series]:
+    def calculate_risk_score(self) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V503.2 配置驱动版】
-        - 核心修改: 移除了硬编码的 `elite_atomic_risks` 字典，现在所有常规风险信号
-                    均从配置文件的 `holding_warning_params` 中加载。
+        【V600.0 统一风险计分中心版】
+        - 核心重构: 本函数现在是唯一的风险计分中心。它不再区分“致命”和“常规”风险。
+        - 统一配置驱动: 从配置中加载所有风险信号（包括原致命风险和常规风险）及其权重。
+        - 数值化计分: 采用 `风险贡献分 = 信号强度 * 权重` 的方式计算，完美适配纯数值化系统。
+        - 简化输出: 返回一个总的 risk_score Series 和一个包含所有风险项详情的 DataFrame。
         """
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
+        
+        # 1. 从配置中加载所有风险信号及其权重
+        critical_params = scoring_params.get('critical_exit_params', {})
         warning_params = scoring_params.get('holding_warning_params', {})
-        warning_rules = warning_params.get('signals', {})
+        
+        # 合并致命风险和常规风险的配置
+        all_risk_rules = {}
+        all_risk_rules.update(critical_params.get('signals', {}))
+        all_risk_rules.update(warning_params.get('signals', {}))
+
         risk_details_df = pd.DataFrame(index=df.index)
-        default_series = pd.Series(False, index=df.index)
-        # 循环遍历从配置中加载的预警规则
-        for rule_name, score in warning_rules.items():
-            # 增加对 "说明_" 前缀的过滤，确保只处理真正的信号规则
+        default_series = pd.Series(0.0, index=df.index)
+
+        def get_clipped_score(signal_name):
+            """辅助函数：获取信号分并确保其非负"""
+            return atomic_states.get(signal_name, default_series).clip(lower=0)
+
+        # 2. 循环遍历所有风险规则，计算风险贡献分
+        for rule_name, weight in all_risk_rules.items():
             if rule_name.startswith("说明_"):
                 continue
-            signal_series = atomic_states.get(rule_name, default_series)
-            if signal_series.any():
-                risk_details_df[rule_name] = signal_series * score
-        # 删除了整个硬编码的 elite_atomic_risks 字典及其处理逻辑
-        combined_risk_details_df = risk_details_df.add(critical_risk_details, fill_value=0)
+            
+            # 获取数值化的信号强度 (0-1)
+            signal_strength = get_clipped_score(rule_name)
+            
+            if signal_strength.any():
+                # 计算该风险项的最终贡献分
+                risk_contribution = signal_strength * weight
+                risk_details_df[rule_name] = risk_contribution
+
+        # 3. 计算总风险分，并应用市场状态乘数
+        total_risk_score = risk_details_df.sum(axis=1)
+        
         risk_multiplier = pd.Series(1.0, index=df.index)
-        is_mean_reversion = atomic_states.get('FRACTAL_STATE_MEAN_REVERSION', default_series)
-        is_random_walk = atomic_states.get('FRACTAL_STATE_RANDOM_WALK', default_series)
+        
+        # 市场不稳定时，放大风险
+        is_mean_reversion = get_clipped_score('FRACTAL_STATE_MEAN_REVERSION') > 0
+        is_random_walk = get_clipped_score('FRACTAL_STATE_RANDOM_WALK') > 0
         is_unstable_market = is_mean_reversion | is_random_walk
         if is_unstable_market.any():
-            instability_multiplier = 1.3
+            instability_multiplier = get_param_value(warning_params.get('instability_multiplier'), 1.3)
             risk_multiplier.loc[is_unstable_market] *= instability_multiplier
-        is_strong_trend = atomic_states.get('FRACTAL_STATE_STRONG_TREND', default_series)
+            
+        # 强趋势市场中，对非核心风险进行折减
+        is_strong_trend = get_clipped_score('FRACTAL_STATE_STRONG_TREND') > 0
         if is_strong_trend.any():
-            core_risks = {
-                "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
-                "SCORE_STRUCTURE_TOPPING_DANGER_S",
-                "CONTEXT_RECENT_DISTRIBUTION_PRESSURE", 
-                "COGNITIVE_RISK_BREAKOUT_DISTRIBUTION",
-                "FRACTAL_RISK_TOP_DIVERGENCE",
-            }
-            trend_reduction_factor = 0.7
-            for col in combined_risk_details_df.columns:
+            core_risks = set(get_param_value(warning_params.get('core_risks_in_trend'), []))
+            trend_reduction_factor = get_param_value(warning_params.get('trend_reduction_factor'), 0.7)
+            for col in risk_details_df.columns:
                 if col not in core_risks:
-                    combined_risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
-        adjusted_total_risk_score = combined_risk_details_df.sum(axis=1)
+                    # 直接在详情DF上修改，这样总分计算时会自动体现
+                    risk_details_df.loc[is_strong_trend, col] *= trend_reduction_factor
+        
+        # 重新计算应用了趋势折减后的总分
+        adjusted_total_risk_score = risk_details_df.sum(axis=1)
+        
+        # 应用最终的乘数
         adjusted_total_risk_score *= risk_multiplier
-        has_strategic_opportunity = atomic_states.get('COGNITIVE_PATTERN_LOCK_CHIP_RALLY', default_series)
+
+        # 战略机会覆盖，最终折减风险
+        has_strategic_opportunity = get_clipped_score('COGNITIVE_PATTERN_LOCK_CHIP_RALLY') > 0
         if has_strategic_opportunity.any():
             strategic_coverage_factor = get_param_value(warning_params.get('strategic_coverage_factor'), 0.3)
-            adjusted_total_risk_score = adjusted_total_risk_score.where(~has_strategic_opportunity, adjusted_total_risk_score * strategic_coverage_factor)
-        momentum_summary = self._diagnose_risk_momentum(adjusted_total_risk_score)
-        composition_summary = self._diagnose_risk_dynamics(combined_risk_details_df)
-        final_health_summary = pd.Series([{} for _ in range(len(df))], index=df.index)
-        for idx in df.index:
-            final_report = composition_summary.at[idx]
-            momentum_report = momentum_summary.at[idx]
-            if momentum_report:
-                final_report['momentum'] = momentum_report
-            final_health_summary.at[idx] = final_report
-        return adjusted_total_risk_score, combined_risk_details_df, final_health_summary
+            adjusted_total_risk_score = adjusted_total_risk_score.where(
+                ~has_strategic_opportunity, 
+                adjusted_total_risk_score * strategic_coverage_factor
+            )
+        
+        # 4. 返回总风险分和风险详情
+        # 注意：原有的健康度诊断逻辑 (_diagnose_risk_momentum, _diagnose_risk_dynamics) 已被解耦
+        # 主流程现在只关心总风险分和其构成。
+        return adjusted_total_risk_score, risk_details_df
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:
         """
