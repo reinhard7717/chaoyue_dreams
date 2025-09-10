@@ -4,7 +4,8 @@ import re
 from datetime import datetime, time
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
-
+import json
+import os
 import pandas as pd
 import numpy as np
 
@@ -41,30 +42,57 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self, cache_manager_instance: CacheManager):
         """
-        【V203.2 依赖注入版】初始化总指挥部。
-        - 接收 CacheManager 实例，并将其注入所有下属服务和引擎。
+        【V203.3 配置融合版】初始化总指挥部。
+        - 核心升级: 重构了配置加载逻辑，现在会自动加载并融合独立的信号字典文件。
         """
-        # print("--- [总指挥部] 正在初始化 (V203.2)... ---")
-        
+        print("--- [总指挥部] 正在初始化 (V203.3 配置融合版)... ---")
         unified_config_path = 'config/trend_follow_strategy.json'
-        self.unified_config = load_strategy_config(unified_config_path)
-        
+        # 调用新的配置加载与融合方法
+        self.unified_config = self._load_and_merge_configs(unified_config_path)
         self.indicator_service = IndicatorService(cache_manager_instance)
-        
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        # print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。")
-        
+        print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。") # 调整日志输出顺序
         # 2. 初始化一线作战部队 (日线战术引擎)
         self.tactical_engine = TrendFollowStrategy(config=self.unified_config)
-        # print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。")
-        
+        print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。") # 调整日志输出顺序
         # 内部状态变量
         self.daily_analysis_df = None # 存储日线战术引擎的详细分析结果
-        
         # 从统一配置中自动发现所有需要的K线数据周期
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-        # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---")
+        print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---") # 调整日志输出顺序
+
+    # 封装了配置加载与融合逻辑的私有方法
+    def _load_and_merge_configs(self, main_config_path: str) -> dict:
+        """
+        【V1.0 新增】加载主策略配置文件，并自动合并信号字典。
+        - 核心职责: 实现配置文件的物理分离和逻辑统一，对下游模块透明。
+        """
+        print(f"  -> [配置加载器] 正在加载主配置文件: {main_config_path}")
+        main_config = load_strategy_config(main_config_path)
+        # 自动查找并加载同目录下的信号字典文件
+        config_dir = os.path.dirname(main_config_path)
+        dict_path = os.path.join(config_dir, 'signal_dictionary.json')
+        if os.path.exists(dict_path):
+            print(f"  -> [配置加载器] 发现并加载信号字典: {dict_path}")
+            try:
+                with open(dict_path, 'r', encoding='utf-8') as f:
+                    signal_dict_data = json.load(f)
+                # 将信号字典内容合并回主配置
+                if 'score_type_map' in signal_dict_data:
+                    # 定位到主配置中正确的位置并赋值
+                    main_config['strategy_params']['trend_follow']['score_type_map'] = signal_dict_data['score_type_map']
+                    print("  -> [配置加载器] 信号字典已成功合并到主配置中。")
+                else:
+                    logger.warning(f"信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
+                    print(f"  -> [配置加载器] 警告: 信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
+            except json.JSONDecodeError as e:
+                logger.error(f"解析信号字典文件 {dict_path} 失败: {e}")
+                print(f"  -> [配置加载器] 错误: 解析信号字典文件 {dict_path} 失败，请检查JSON格式。")
+        else:
+            logger.warning(f"未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
+            print(f"  -> [配置加载器] 警告: 未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
+        return main_config
 
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
@@ -96,7 +124,6 @@ class MultiTimeframeTrendStrategy:
             return ([], [], [], [], [])
         else:
             print(f"  - [前置检查] 成功！关键筹码数据完整。")
-
         # 2. 战略引擎
         df_weekly_context = self.strategic_engine.generate_context(all_dfs.get('W'))
         if df_weekly_context is None or df_weekly_context.empty:
@@ -106,7 +133,6 @@ class MultiTimeframeTrendStrategy:
         # 终极情报融合：将所有周线指标注入日线数据
         df_weekly_full = all_dfs.get('W')
         if df_weekly_full is not None and not df_weekly_full.empty:
-            # print(f"  - [情报融合] 正在将 {len(df_weekly_full.columns)} 个周线指标注入日线数据...")
             # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别，并用 'ffill' 向前填充
             df_weekly_aligned = df_weekly_full.reindex(df_daily_with_context.index, method='ffill')
             # 步骤2: 使用 merge 合并，将所有周线列添加到日线DataFrame中
@@ -115,7 +141,7 @@ class MultiTimeframeTrendStrategy:
                 left_index=True, 
                 right_index=True, 
                 how='left', 
-                suffixes=('', '_dup_W') # 如果有重名列，给周线列加上后缀
+                suffixes=('', '_dup_W')
             )
             print("  - [情报融合] 周线指标注入完成。")
         else:
@@ -123,33 +149,23 @@ class MultiTimeframeTrendStrategy:
             print("  - [情报融合] 未发现周线数据，跳过周线指标注入。")
         # 使用完全融合后的DataFrame进行后续所有操作
         all_dfs['D_CONTEXT'] = df_fully_merged
-
         # 4. 战术引擎：现在返回四元组
         # 将 start_date_str 传递给战术引擎
         records_tuple = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
-        # print(f"  - [战术引擎] 生成 {len(records_tuple[0])} 条日线级信号和 {len(records_tuple[2])} 条每日分数。")
-
         # 5. 盘中入场引擎 (只生成 TradingSignal，后三项为空)
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
-        # print(f"  - [盘中入场引擎] 生成 {len(intraday_entry_signals)} 条盘中确认信号。")
-
         # 6. 盘中风险预警引擎 (只生成 TradingSignal，后三项为空)
         risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
-        # print(f"  - [盘中风险预警引擎] 生成 {len(risk_alert_signals)} 条风险预警信号。")
-
         # 7. 信号汇总
         all_signals = records_tuple[0] + intraday_entry_signals + risk_alert_signals
         all_details = records_tuple[1] + intraday_entry_details + risk_alert_details
         all_daily_scores = records_tuple[2]
         all_score_components = records_tuple[3]
         all_daily_states = records_tuple[4] #
-        
         # 8. 结果排序
         if all_signals:
             all_signals.sort(key=lambda x: x.trade_time)
-        
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
-        
         return (all_signals, all_details, all_daily_scores, all_score_components, all_daily_states)
 
     async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List, List, List, List]:
@@ -158,33 +174,26 @@ class MultiTimeframeTrendStrategy:
         - 返回值变更: 现在返回一个包含四类对象的元组。
         """
         print(f"\n⚡️ [总指挥层] 接到“闪电突袭”指令，正在以高效模式处理: {stock_code}")
-        
         # run_for_stock 现在返回一个四元组
         all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time, latest_only=True)
-        
         if not all_signals and not all_daily_scores:
             print(f"  - [闪电突袭] 未发现任何信号或分数，任务完成。")
             return ([], [], [], [], [])
-            
         # 筛选最新的 TradingSignal
         latest_signals = []
         if all_signals:
             latest_date = max(rec.trade_time.date() for rec in all_signals)
             latest_signals = [rec for rec in all_signals if rec.trade_time.date() == latest_date]
-        
         # 筛选最新的 SignalPlaybookDetail
         latest_details = [d for d in all_details if d.signal in latest_signals]
-
         # 筛选最新的 StrategyDailyScore
         latest_daily_scores = []
         if all_daily_scores:
             latest_date = max(score.trade_date for score in all_daily_scores)
             latest_daily_scores = [score for score in all_daily_scores if score.trade_date == latest_date]
-        
         # 筛选最新的 StrategyScoreComponent
         latest_score_components = [comp for comp in all_score_components if comp.daily_score in latest_daily_scores]
         latest_daily_states = [state for state in all_daily_states if state.daily_score in latest_daily_scores]
-
         print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_signals)} 条最新信号和 {len(latest_daily_scores)} 条最新分数。")
         return (latest_signals, latest_details, latest_daily_scores, latest_score_components, latest_daily_states)
 
@@ -198,16 +207,11 @@ class MultiTimeframeTrendStrategy:
         if df_weekly_context is None or df_weekly_context.empty:
             print("    - [情报融合] 周线引擎未返回任何战略信号，跳过注入。")
             return df_daily
-        
-        # print(f"    - [情报融合] 准备将 {len(df_weekly_context.columns)} 个周线信号注入日线数据...")
-        
         # 步骤1: 使用 reindex 将周线信号的索引扩展到日线级别，并用 'ffill' 向前填充
         # 这能完美地将周一的信号值广播到周二、三、四、五
         df_weekly_aligned = df_weekly_context.reindex(df_daily.index, method='ffill')
-        
         # 步骤2: 使用 merge 合并，它比 join 更安全，可以优雅地处理潜在的列名冲突
         df_merged = df_daily.merge(df_weekly_aligned, left_index=True, right_index=True, how='left', suffixes=('', '_weekly_dup'))
-        
         # 步骤3: 对合并过来的列进行类型标准化，确保数据一致性
         for col in df_weekly_context.columns:
             if col not in df_merged.columns: continue
@@ -219,7 +223,6 @@ class MultiTimeframeTrendStrategy:
                 df_merged[col] = df_merged[col].fillna(False).astype(bool)
             elif col.startswith(('washout_score_', 'rejection_signal_')):
                 df_merged[col] = df_merged[col].fillna(0).astype(int)
-
         # print("    - [情报融合] 注入完成。日线数据已获得周线战略指令加持。")
         return df_merged
 
@@ -727,7 +730,7 @@ class MultiTimeframeTrendStrategy:
                       导致 'datetime.date' 与 'str' 比较而引发 TypeError 的问题。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.1 类型修复版)] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 (V320.1 类型修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -784,32 +787,24 @@ class MultiTimeframeTrendStrategy:
                 return
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            
             subtotal_signal_names = list(get_params_block(self.tactical_engine, 'offensive_score_composition', {}).keys())
-
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
                 related_components = daily_components_map.get(trade_date, [])
-                
                 day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
                 final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
                 risk_penalty_score_val = day_analysis_row.iloc[0].get('risk_penalty_score', 'N/A') if not day_analysis_row.empty else 'N/A'
-                
                 print(f"\n{time_str} [周期: D] [进攻分: {daily_score_obj.offensive_score:<7.0f}] [风险惩罚分: {risk_penalty_score_val:<7.0f}] [最终得分: {final_score_val:<7.0f}] [最终信号: {daily_score_obj.signal_type}]")
                 print("  --- 决策摘要 ---")
-
                 if not day_analysis_row.empty:
                     print(f"    - 决策公式: (进攻分 {daily_score_obj.offensive_score:.0f}) - (风险惩罚分 {risk_penalty_score_val:.0f}) = (最终得分 {final_score_val:.0f})")
-                    
                     p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
                     final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
                     print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
-                    
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
-
                     day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
                     if not day_exit_triggers.empty:
                         triggered_defenses = day_exit_triggers.iloc[0]
@@ -820,7 +815,6 @@ class MultiTimeframeTrendStrategy:
                             print("    - 触发的离场防线: 无")
                 else:
                     print("    - 未找到当日的详细分析数据。")
-                
                 offensive_components = [
                     c for c in related_components
                     if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic']
@@ -837,13 +831,11 @@ class MultiTimeframeTrendStrategy:
                     print("  --- 进攻项惩罚 (扣分项) ---")
                     for comp in sorted(penalty_components, key=lambda x: x.score_value):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 (贡献至风险惩罚分) ---")
                     for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")

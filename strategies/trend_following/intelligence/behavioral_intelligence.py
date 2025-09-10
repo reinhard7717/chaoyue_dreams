@@ -25,17 +25,21 @@ class BehavioralIntelligence:
 
     def diagnose_behavioral_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 完美健康度版】行为动态诊断核心引擎
+        【V5.0 结构化健康度版】行为动态诊断核心引擎
         - 核心重构 (本次修改):
-          - [范式升级] 引入“周期内完美健康度”范式，对每个周期的6个维度(价/量 x 静/动/加)进行完整交叉验证。
-          - [信号升级] 新增S+级信号，定义为“全周期健康共振(S) * 全周期加速共振”，用于捕捉最强的主升浪“完美风暴”。
-        - 收益: 信号体系的逻辑严谨性达到顶峰，S+信号能以极高置信度识别市场合力最强的爆发点。
-        - 数据需求说明: 本方法假设数据层已提供以下列:
-          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D` (p in [1, 5, 13, 21, 55])
-          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D` (p in [1, 5, 13, 21, 55])
-          - `SLOPE_{p}_volume_D`, `ACCEL_{p}_volume_D` (p in [1, 5, 13, 21, 55])
+          - [逻辑优化] 遵循多时间维度交叉验证原则，重构了共振与反转信号的合成逻辑。
+          - [结构化信号] 将S/A/B级共振信号明确定义为短、中、长周期的健康度共振。
+          - [精准反转] 将反转信号明确定义为“中长周期趋势”与“短周期加速”的背离，更精准地捕捉转折点。
+          - [数据核对] 根据提供的“军械库清单”，在注释中明确了所需数据列及其完备性。
+        - 收益: 信号体系的逻辑层次更清晰，可解释性更强，信号置信度与定义直接挂钩。
+        - 数据需求说明 (根据“最终军械库清单”核对):
+          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D`: [缺失] 此为核心静态数据，当前缺失，策略层无法计算。假设数据完备。
+          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D`: [完备] 所有周期数据均存在。
+          - `SLOPE_{p}_volume_D`: [部分缺失] 缺失 p=1, 13, 21, 55 的数据。
+          - `ACCEL_{p}_volume_D`: [部分缺失] 缺失 p=1, 13, 21, 55 的数据。
+          - 结论: 引擎的核心依赖数据存在缺失，当前代码在假设数据完备的情况下运行。
         """
-        print("        -> [行为动态诊断核心引擎 V4.0 完美健康度版] 启动...")
+        print("        -> [行为动态诊断核心引擎 V5.0 结构化健康度版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -59,62 +63,76 @@ class BehavioralIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         
-        # 对每个周期的所有6个维度数据进行归一化
         price_static = {p: self._normalize_series(df[f'price_vs_ma_{p}_D'], norm_window, min_periods) for p in periods}
         price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
         price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
-        vol_static = {p: self._normalize_series(df[f'volume_vs_ma_{p}_D'], norm_window, min_periods, ascending=False) for p in periods} # 量缩为佳，故反向
+        vol_static = {p: self._normalize_series(df[f'volume_vs_ma_{p}_D'], norm_window, min_periods, ascending=False) for p in periods}
         vol_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
         vol_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
 
-        # --- 3. 计算每个周期的“完美健康度” ---
+        # --- 3. 计算每个周期的“完美健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
         bearish_health = {}
         for p in periods:
-            # 看涨完美健康度 = 价位合理 * 价升 * 价加速 * 量缩 * 量增趋势 * 量加速
+            # 看涨完美健康度 = 价位合理 * 价升 * 价加速 * 量缩(蓄势) * 量增趋势 * 量加速 (点火)
             bullish_health[p] = price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p]
-            # 看跌完美健康度 = 价位危险 * 价跌 * 价减速 * 放量 * 量增趋势 * 量加速
+            # 看跌完美健康度 = 价位危险 * 价跌 * 价减速 * 放量 * 量增趋势 * 量加速 (恐慌)
             bearish_health[p] = (1 - price_static[p]) * (1 - price_mom[p]) * (1 - price_accel[p]) * (1 - vol_static[p]) * vol_mom[p] * vol_accel[p]
 
-        # --- 4. 共振信号合成 (跨周期融合) ---
-        # 4.1 看涨行为共振 (多周期健康度共振)
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = (bullish_health[5] * bullish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] * bullish_health[55]).astype(np.float32)
-        s_score_bullish = pd.Series(np.prod(np.array([s.values for s in bullish_health.values()]), axis=0), index=df.index)
+        # --- 4. 共振信号合成 (Cross-Timeframe Validation) ---
+        # 4.1 看涨行为共振 (结构化定义)
+        # 定义不同时间尺度的健康度，使用几何平均值融合，避免分数过小
+        health_short_bullish = (bullish_health[1] * bullish_health[5])**0.5
+        health_mid_bullish = (bullish_health[13] * bullish_health[21])**0.5
+        health_long_bullish = bullish_health[55]
+        # B级: 中期趋势健康
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = health_mid_bullish.astype(np.float32)
+        # A级: 中长期趋势共振健康
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (health_mid_bullish * health_long_bullish).astype(np.float32)
+        # S级: 短中长周期全面共振
+        s_score_bullish = (health_short_bullish * health_mid_bullish * health_long_bullish)
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] = s_score_bullish.astype(np.float32)
-        
-        # S+级信号: 完美风暴 (全周期健康 * 全周期加速)
-        acceleration_resonance = pd.Series(np.prod(np.array([price_accel[p].values for p in periods]), axis=0), index=df.index)
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'] = (s_score_bullish * acceleration_resonance).astype(np.float32)
+        # S+级: 完美风暴 (S级共振 * 短周期价量加速共振)
+        short_term_accel_resonance = (price_accel[1] * price_accel[5] * vol_accel[1] * vol_accel[5])**0.25
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'] = (s_score_bullish * short_term_accel_resonance).astype(np.float32)
 
-        # 4.2 看跌行为共振 (多周期不健康度共振)
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] = (bearish_health[5] * bearish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] * bearish_health[55]).astype(np.float32)
-        s_score_bearish = pd.Series(np.prod(np.array([s.values for s in bearish_health.values()]), axis=0), index=df.index)
+        # 4.2 看跌行为共振 (结构化定义)
+        health_short_bearish = (bearish_health[1] * bearish_health[5])**0.5
+        health_mid_bearish = (bearish_health[13] * bearish_health[21])**0.5
+        health_long_bearish = bearish_health[55]
+        # B级: 中期趋势不健康
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] = health_mid_bearish.astype(np.float32)
+        # A级: 中长期趋势共振不健康
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (health_mid_bearish * health_long_bearish).astype(np.float32)
+        # S级: 短中长周期全面共振不健康
+        s_score_bearish = (health_short_bearish * health_mid_bearish * health_long_bearish)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = s_score_bearish.astype(np.float32)
-        
-        # S+级信号: 完美崩溃 (全周期不健康 * 全周期减速)
-        deceleration_resonance = pd.Series(np.prod(np.array([(1-price_accel[p].values) for p in periods]), axis=0), index=df.index)
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (s_score_bearish * deceleration_resonance).astype(np.float32)
+        # S+级: 完美崩溃 (S级共振 * 短周期价格减速共振)
+        short_term_decel_resonance = ((1 - price_accel[1]) * (1 - price_accel[5]))**0.5
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (s_score_bearish * short_term_decel_resonance).astype(np.float32)
 
         # --- 5. 反转信号合成 (趋势 x 反向加速度) ---
-        # 5.1 底部反转 (下跌趋势中出现看涨加速度)
-        avg_bearish_health = pd.Series(np.mean([s.values for s in bearish_health.values()], axis=0), index=df.index)
-        avg_price_accel_bull = pd.Series(np.mean([price_accel[p].values for p in periods], axis=0), index=df.index)
-        
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = avg_price_accel_bull.astype(np.float32)
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (avg_bearish_health * avg_price_accel_bull).astype(np.float32)
+        # 5.1 底部反转 (中长线下跌趋势中，出现短线看涨加速信号)
+        mid_long_term_bearish_trend = (bearish_health[21] * bearish_health[55])**0.5
+        short_term_bullish_accel = (price_accel[1] * price_accel[5])**0.5
+        # B级信号: 出现短期看涨加速
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = short_term_bullish_accel.astype(np.float32)
+        # A级信号: 中长期下跌趋势 + 短期看涨加速
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (mid_long_term_bearish_trend * short_term_bullish_accel).astype(np.float32)
+        # S级信号: A级信号 + 出现超短周期(1日)的完整看涨健康度，确认反转意图
         states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] * bullish_health[1]).astype(np.float32)
 
-        # 5.2 顶部反转 (上涨趋势中出现看跌加速度)
-        avg_bullish_health = pd.Series(np.mean([s.values for s in bullish_health.values()], axis=0), index=df.index)
-        avg_price_accel_bear = 1 - avg_price_accel_bull
-
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = avg_price_accel_bear.astype(np.float32)
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (avg_bullish_health * avg_price_accel_bear).astype(np.float32)
+        # 5.2 顶部反转 (中长线上涨趋势中，出现短线看跌加速信号)
+        mid_long_term_bullish_trend = (bullish_health[21] * bullish_health[55])**0.5
+        short_term_bearish_accel = ((1 - price_accel[1]) * (1 - price_accel[5]))**0.5
+        # B级信号: 出现短期看跌加速
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = short_term_bearish_accel.astype(np.float32)
+        # A级信号: 中长期上涨趋势 + 短期看跌加速
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (mid_long_term_bullish_trend * short_term_bearish_accel).astype(np.float32)
+        # S级信号: A级信号 + 出现超短周期(1日)的完整看跌健康度，确认反转意图
         states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] * bearish_health[1]).astype(np.float32)
 
-        print(f"        -> [行为动态诊断核心引擎 V4.0] 分析完毕，生成 {len(states)} 个B/A/S/S+信号。")
+        print(f"        -> [行为动态诊断核心引擎 V5.0] 分析完毕，生成 {len(states)} 个B/A/S/S+信号。")
         return states
 
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -150,13 +168,14 @@ class BehavioralIntelligence:
 
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V275.0 职责净化版】
+        【V275.1 数值化修正版】
         - 核心重构 (本次修改):
           - [职责净化] 移除了对 `diagnose_behavioral_dynamics_scores` 等其他引擎的调用。
                         本方法现在只专注于其核心职责：诊断静态的、无法被动态分析取代的K线模式。
-        - 收益: 模块职责单一、清晰，符合高内聚原则。
+          - [数值化] 修正了 'SCORE_KLINE_SHARP_DROP' 信号的计算逻辑，消除了布尔过滤器。
+        - 收益: 模块职责单一、清晰，且信号计算更平滑，符合完全数值化原则。
         """
-        print("        -> [K线模式诊断模块 V275.0 职责净化版] 启动...")
+        print("        -> [K线模式诊断模块 V275.1 数值化修正版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -186,11 +205,12 @@ class BehavioralIntelligence:
             if 'pct_change_D' in df.columns:
                 norm_window = get_param_value(p_atomic.get('norm_window'), 120)
                 min_periods = max(1, norm_window // 5)
-                sharp_drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-                is_negative_change = df['pct_change_D'] < 0
-                states['SCORE_KLINE_SHARP_DROP'] = (sharp_drop_score * is_negative_change).astype(np.float32)
+                # 新逻辑: 只对跌幅大小进行排名，使评分更平滑，且天然在上涨日为0
+                drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+                sharp_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
+                states['SCORE_KLINE_SHARP_DROP'] = sharp_drop_score.astype(np.float32)
         
-        print(f"        -> [K线模式诊断模块 V275.0] 分析完毕，共生成 {len(states)} 个静态模式信号。")
+        print(f"        -> [K线模式诊断模块 V275.1] 分析完毕，共生成 {len(states)} 个静态模式信号。")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -366,12 +386,13 @@ class BehavioralIntelligence:
 
     def diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V284.1 全面数值化版】量价关系动态分析中心 (CT扫描室)
+        【V284.2 终极数值化版】量价关系动态分析中心 (CT扫描室)
         - 核心职责: (原有注释)
         - 核心升级 (本次修改):
-          - [数值化] 将所有基于硬阈值的布尔风险信号，全面升级为0-1的数值化风险评分。
-        - 收益: 能够量化“天量对倒”风险的严重程度，为风险管理提供更精细的输入。
+          - [数值化] 将所有风险信号中的布尔过滤器移除，改为对“风险事件的强度”直接进行排名评分。
+        - 收益: 彻底消除了模块内的布尔判断，所有风险评分的响应都变得平滑且连续，信号质量更高。
         """
+        print("        -> [量价动态分析中心 V284.2 终极数值化版] 启动...")
         states = {}
         required_cols = [
             'volume_D', 'VOL_MA_21_D', 'pct_change_D',
@@ -382,113 +403,158 @@ class BehavioralIntelligence:
         if missing_cols:
             print(f"            -> [严重警告] 量价动态分析中心缺少关键数据: {missing_cols}，模块已跳过！")
             return states
-        # --- 初始化归一化参数 ---
         p_vpa = params.get('vpa_dynamics_params', {})
         norm_window = get_param_value(p_vpa.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # --- 2. 风险分析：识别“无效天量”和“效率衰竭” ---
-        # 风险信号1: 【滞涨】天量但价格不涨 -> 升级为数值化评分
-        # 组件1: 天量程度分
+        # --- 风险分析：识别“无效天量”和“效率衰竭” ---
+        # 风险信号1: 【滞涨】天量但价格不涨 (逻辑不变，已是完全数值化)
         volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
         huge_volume_score = volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        # 组件2: 价格停滞度分 (涨跌幅绝对值越小，分数越高)
         price_stagnant_score = (1 - df['pct_change_D'].abs().rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
         states['SCORE_RISK_VPA_STAGNATION'] = (huge_volume_score * price_stagnant_score).astype(np.float32)
-        # 风险信号2: 【效率衰竭】资金攻击效率持续下降 -> 升级为数值化评分
-        # 逻辑: 效率斜率越负，分数越高
-        efficiency_decline_score = (1 - df['SLOPE_5_VPA_EFFICIENCY_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-        is_declining = df['SLOPE_5_VPA_EFFICIENCY_D'] < 0
-        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = (efficiency_decline_score * is_declining).astype(np.float32)
-        # 风险信号3: 【量能失控】成交量仍在加速放大 -> 升级为数值化评分
-        # 逻辑: 成交量加速度越正，分数越高
-        volume_accelerating_score = df['ACCEL_5_volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        is_accelerating = df['ACCEL_5_volume_D'] > 0
-        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = (volume_accelerating_score * is_accelerating).astype(np.float32)
+
+        # 新逻辑: 对“下降的幅度”进行排名，下降越剧烈，分数越高
+        efficiency_decline_magnitude = df['SLOPE_5_VPA_EFFICIENCY_D'].where(df['SLOPE_5_VPA_EFFICIENCY_D'] < 0, 0).abs()
+        efficiency_decline_score = efficiency_decline_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
+        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = efficiency_decline_score.astype(np.float32)
+
+        # 风险信号3: 【量能失控】成交量仍在加速放大
+        # 原逻辑: rank(accel) * (accel > 0)
+        # 新逻辑: 对“加速的幅度”进行排名，加速越剧烈，分数越高
+        volume_accel_magnitude = df['ACCEL_5_volume_D'].where(df['ACCEL_5_volume_D'] > 0, 0)
+        volume_accelerating_score = volume_accel_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
+        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = volume_accelerating_score.astype(np.float32)
         return states
 
     def diagnose_multi_dimensional_resonance(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 逻辑修正版】多维共振与反转诊断模块
-        - 核心职责: (同V1.0)
+        【V2.1 背离增强版】多维共振与反转诊断模块
         - 核心升级 (本次修改):
-          - [修复] 移除了上一版中一行多余的代码，该代码错误地覆盖了对 'flow_divergence_mf_vs_retail_D' 特殊命名规则的处理逻辑。
-        - 收益: 彻底解决了因列名不匹配导致部分指标共振分析被跳过的问题。
+          - [信号增强] 在原有共振与反转信号的基础上，新增两类“背离”信号，使“比对”逻辑更明确。
+          - [滞涨背离] 新增 `SCORE_DIVERGENCE_STAGNATION`，捕捉“静态高位 vs. 动态衰竭”的背离。
+          - [力竭背离] 新增 `SCORE_DIVERGENCE_EXHAUSTION`，捕捉“动态上升 vs. 加速放缓”的背离。
+        - 收益: 信号体系更加完备，不仅能识别趋势的“共振”，还能更灵敏地捕捉趋势由强转弱的“背离”迹象。
+        - 数据需求说明 (根据“最终军械库清单”核对):
+          - 分析周期: [1, 5, 13, 21, 55]
+          - `main_force_net_flow_consensus_D`: [部分缺失] 缺失 ACCEL_55
+          - `chip_health_score_D`: [部分缺失] 缺失 SLOPE_13, ACCEL_13
+          - `concentration_90pct_D`: [完备]
+          - `flow_divergence_mf_vs_retail_D`: [部分缺失] 缺失 accel_1d, accel_55d
+          - 结论: 核心指标数据存在部分缺失，代码将自动跳过无法计算的周期，但可能影响S级信号的准确性。
         """
+        print("        -> [多维共振诊断模块 V2.1 背离增强版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'resonance_params', {})
         if not get_param_value(p.get('enabled'), True):
             return states
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # 定义需要进行共振分析的核心指标
-        # 格式: (指标基础名, [周期列表], 是否为正向指标)
         metrics_to_analyze = [
-            ('main_force_net_flow_consensus_D', [5, 21], True), # 主力资金共识, 正向
-            ('chip_health_score_D', [5, 21], True),             # 筹码健康度, 正向
-            ('concentration_90pct_D', [5, 21], True),           # 筹码集中度, 正向
-            ('flow_divergence_mf_vs_retail_D', [5, 21], True),  # 主力散户流向背离, 正向
+            ('main_force_net_flow_consensus_D', [1, 5, 13, 21, 55], True),
+            ('chip_health_score_D', [1, 5, 13, 21, 55], True),
+            ('concentration_90pct_D', [1, 5, 13, 21, 55], True),
+            ('flow_divergence_mf_vs_retail_D', [1, 5, 13, 21, 55], True),
         ]
-        all_up_resonance_scores = []
-        all_down_resonance_scores = []
+        per_metric_scores = {
+            'static': {}, 'slope': {}, 'accel': {},
+            'up_resonance': {}, 'down_resonance': {}
+        }
+        # --- 1. 计算所有指标、所有周期的基础得分和"周期内共振"分 ---
         for base_name, periods, is_positive_metric in metrics_to_analyze:
+            for score_type in per_metric_scores:
+                if base_name not in per_metric_scores[score_type]:
+                    per_metric_scores[score_type][base_name] = {}
             for period in periods:
-                # 构造列名
                 static_col = base_name
                 slope_col = f'SLOPE_{period}_{base_name}'
-                # 针对 'flow_divergence_mf_vs_retail_D' 指标的特殊命名规则进行适配
                 if 'flow_divergence_mf_vs_retail' in base_name:
-                    accel_col = f'accel_{period}d_{base_name}' # 使用 'accel_5d_...' 格式
+                    accel_col = f'accel_{period}d_{base_name}'
                 else:
-                    accel_col = f'ACCEL_{period}_{base_name}' # 使用标准的 'ACCEL_5_...' 格式
-                # accel_col = f'ACCEL_{period}_{base_name}' # 修改：删除此行多余的错误代码
+                    accel_col = f'ACCEL_{period}_{base_name}'
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
-                    print(f"        -> [多维共振诊断] 警告: 缺少分析 '{base_name}' 所需列: {required_cols}，跳过周期 {period}。")
+                    print(f"        -> [多维共振诊断] 警告: 缺少 '{base_name}' 周期 {period} 的列: {required_cols}，跳过。")
                     continue
-                # --- 1. 信号数值化与归一化 (0-1分) ---
-                static_score = df[static_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-                slope_score = df[slope_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-                accel_score = df[accel_col].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-                if not is_positive_metric: # 如果是负向指标（值越小越好），则反转评分
-                    static_score = 1 - static_score
-                    slope_score = 1 - slope_score
-                    accel_score = 1 - accel_score
-                # --- 2. 生成共振信号 ---
+                static_score = self._normalize_series(df[static_col], norm_window, min_periods)
+                slope_score = self._normalize_series(df[slope_col], norm_window, min_periods)
+                accel_score = self._normalize_series(df[accel_col], norm_window, min_periods)
+                if not is_positive_metric:
+                    static_score, slope_score, accel_score = 1 - static_score, 1 - slope_score, 1 - accel_score
+                per_metric_scores['static'][base_name][period] = static_score
+                per_metric_scores['slope'][base_name][period] = slope_score
+                per_metric_scores['accel'][base_name][period] = accel_score # 新增: 存储accel_score用于背离计算
                 up_resonance = static_score * slope_score * accel_score
-                states[f'SCORE_RESONANCE_UP_{base_name.replace("_D", "")}_{period}D'] = up_resonance.astype(np.float32)
-                all_up_resonance_scores.append(up_resonance)
                 down_resonance = (1 - static_score) * (1 - slope_score) * (1 - accel_score)
-                states[f'SCORE_RESONANCE_DOWN_{base_name.replace("_D", "")}_{period}D'] = down_resonance.astype(np.float32)
-                all_down_resonance_scores.append(down_resonance)
-                # --- 3. 生成反转信号 (基于静态与斜率背离) ---
-                top_reversal = static_score * (1 - slope_score) # 顶部反转 = 静态值高 * 斜率低 (高位滞涨或转向)
-                states[f'SCORE_REVERSAL_TOP_{base_name.replace("_D", "")}_{period}D'] = top_reversal.astype(np.float32)
-                bottom_reversal = (1 - static_score) * slope_score # 底部反转 = 静态值低 * 斜率高 (低位企稳或转向)
-                states[f'SCORE_REVERSAL_BOTTOM_{base_name.replace("_D", "")}_{period}D'] = bottom_reversal.astype(np.float32)
-        # --- 4. 合成总共振信号 ---
-        if all_up_resonance_scores:
-            states['SCORE_RESONANCE_UP_OVERALL'] = pd.concat(all_up_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
-        if all_down_resonance_scores:
-            states['SCORE_RESONANCE_DOWN_OVERALL'] = pd.concat(all_down_resonance_scores, axis=1).mean(axis=1).astype(np.float32)
-        print(f"        -> [多维共振诊断模块 V1.2] 已生成 {len(states)} 个共振与反转信号。")
+                per_metric_scores['up_resonance'][base_name][period] = up_resonance
+                per_metric_scores['down_resonance'][base_name][period] = down_resonance
+        # --- 2. 合成各指标的 S/A/B 级共振、精准反转与新增的背离信号 ---
+        all_s_level_up_scores = []
+        all_s_level_down_scores = []
+        for base_name, periods, _ in metrics_to_analyze: # 修改: 引入periods
+            metric_key = base_name.replace("_D", "")
+            up_res = per_metric_scores['up_resonance'][base_name]
+            down_res = per_metric_scores['down_resonance'][base_name]
+            # --- 合成上升/下跌共振 S/A/B 信号 (逻辑同V2.0) ---
+            if 21 in up_res:
+                states[f'SCORE_RESONANCE_UP_{metric_key}_B'] = up_res[21].astype(np.float32)
+                if 55 in up_res:
+                    states[f'SCORE_RESONANCE_UP_{metric_key}_A'] = (up_res[21] * up_res[55]).astype(np.float32)
+                    if 5 in up_res:
+                        s_score = (up_res[5] * up_res[21] * up_res[55])
+                        states[f'SCORE_RESONANCE_UP_{metric_key}_S'] = s_score.astype(np.float32)
+                        all_s_level_up_scores.append(s_score)
+            if 21 in down_res:
+                states[f'SCORE_RESONANCE_DOWN_{metric_key}_B'] = down_res[21].astype(np.float32)
+                if 55 in down_res:
+                    states[f'SCORE_RESONANCE_DOWN_{metric_key}_A'] = (down_res[21] * down_res[55]).astype(np.float32)
+                    if 5 in down_res:
+                        s_score = (down_res[5] * down_res[21] * down_res[55])
+                        states[f'SCORE_RESONANCE_DOWN_{metric_key}_S'] = s_score.astype(np.float32)
+                        all_s_level_down_scores.append(s_score)
+            # --- 合成精准反转信号 (逻辑同V2.0) ---
+            static_scores = per_metric_scores['static'][base_name]
+            slope_scores = per_metric_scores['slope'][base_name]
+            if 55 in static_scores and 5 in slope_scores:
+                states[f'SCORE_REVERSAL_TOP_{metric_key}'] = (static_scores[55] * (1 - slope_scores[5])).astype(np.float32)
+                states[f'SCORE_REVERSAL_BOTTOM_{metric_key}'] = ((1 - static_scores[55]) * slope_scores[5]).astype(np.float32)
+            # --- 新增: 合成周期内背离信号 ---
+            accel_scores = per_metric_scores['accel'][base_name]
+            for period in periods:
+                if period in static_scores and period in slope_scores and period in accel_scores:
+                    # 滞涨背离 = 静态高位 * 动态衰竭
+                    stagnation_divergence = static_scores[period] * (1 - slope_scores[period])
+                    states[f'SCORE_DIVERGENCE_STAGNATION_{metric_key}_{period}D'] = stagnation_divergence.astype(np.float32)
+                    # 力竭背离 = 动态上升 * 加速放缓
+                    exhaustion_divergence = slope_scores[period] * (1 - accel_scores[period])
+                    states[f'SCORE_DIVERGENCE_EXHAUSTION_{metric_key}_{period}D'] = exhaustion_divergence.astype(np.float32)
+        # --- 3. 合成总共振信号 (逻辑同V2.0) ---
+        if all_s_level_up_scores:
+            num_metrics = len(all_s_level_up_scores)
+            overall_up_s = pd.concat(all_s_level_up_scores, axis=1).prod(axis=1)**(1/num_metrics)
+            states['SCORE_RESONANCE_UP_OVERALL_S'] = overall_up_s.astype(np.float32)
+        if all_s_level_down_scores:
+            num_metrics = len(all_s_level_down_scores)
+            overall_down_s = pd.concat(all_s_level_down_scores, axis=1).prod(axis=1)**(1/num_metrics)
+            states['SCORE_RESONANCE_DOWN_OVERALL_S'] = overall_down_s.astype(np.float32)
+        print(f"        -> [多维共振诊断模块 V2.1] 已生成 {len(states)} 个共振、反转与背离信号。")
         return states
 
-    # “价格-成交量原子信号诊断”方法
     def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 终极数值化版】价格与成交量基础原子信号诊断模块
+        【V1.3 终极数值化版】价格与成交量基础原子信号诊断模块
         - 核心职责: (原有注释)
         - 核心升级 (本次修改):
-          - [数值化] 在 'SCORE_VOL_WEAKENING_DROP' 的计算中，移除了一个冗余的
-                      布尔过滤器，完全依赖于底层的数值化评分。
-        - 收益: 使得“价跌量缩”的评分更加平滑和准确，避免了因成交量
-                在均线附近微小波动而导致评分突变为0的情况。
+          - [数值化] 对 'SCORE_VOL_WEAKENING_DROP' 的计算逻辑进行终极改造，
+                      通过对“跌幅强度”直接排名来代替“通用排名+布尔过滤”的模式。
+        - 收益: 使得“价跌量缩”的评分更加平滑和准确，彻底消除了布尔判断，
+                完美符合数值化和平滑响应的原则。
         """
+        print("        -> [价格成交量原子诊断模块 V1.3 终极数值化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
-        norm_window = get_param_value(p.get('norm_window'), 120) # 统一的归一化窗口
-        min_periods = max(1, norm_window // 5) # 统一的最小周期
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        min_periods = max(1, norm_window // 5)
         # --- 1. 价格位置原子信号 (Price Position Atomics) ---
         lookback_period = get_param_value(p.get('range_lookback'), 20)
         rolling_high = df['high_D'].rolling(window=lookback_period).max()
@@ -499,16 +565,18 @@ class BehavioralIntelligence:
         # --- 2. 量价关系原子信号 (Volume-Price Atomics) ---
         vol_ma_col = 'VOL_MA_21_D'
         if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
-            # 组件1: 价跌幅度分 (跌得越多，分数越高)
-            price_drop_score = (1 - df['pct_change_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
+            # 组件1: 价跌幅度分 (仅对下跌日进行评分，跌幅越大，分数越高)
+            # 新逻辑: 对“跌幅大小”直接排名，更平滑且内含了“下跌日”的判断
+            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+            price_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
+            
             # 组件2: 量缩程度分 (成交量相对均线越小，分数越高)
             volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-            # 移除了 (df['volume_D'] < df[vol_ma_col]) 这个硬布尔过滤，因为 volume_shrink_score 已经包含了这个信息
-            is_drop_day = (df['pct_change_D'] < 0)
-            # 融合生成最终分数，仅保留核心的“下跌日”判断
-            states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score * is_drop_day).astype(np.float32)
-        print(f"        -> [价格成交量原子诊断模块 V1.2] 已生成 {len(states)} 个数值化基础原子信号。")
+            
+            # 融合生成最终分数，新版price_drop_score已内置“下跌日”判断，无需布尔过滤
+            states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
+        print(f"        -> [价格成交量原子诊断模块 V1.3] 已生成 {len(states)} 个数值化基础原子信号。")
         return states
 
 

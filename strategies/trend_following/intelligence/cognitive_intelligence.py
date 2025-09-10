@@ -451,40 +451,66 @@ class CognitiveIntelligence:
 
     def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.0 四域融合版】结构化元信号融合模块
+        【V2.1 融合逻辑升级版】结构化元信号融合模块
         - 核心升级 (本次修改):
-          - [维度增强] 将“行为(Behavior)”作为第四个核心领域，与“均线(MA)”、“力学(Mechanics)”、“多时间框架(MTF)”
-                        进行融合，形成真正的“四域联合作战”元信号。
-        - 收益: 融合了市场的“行为表象”与底层的“结构支撑”，元信号的可靠性与实战价值大幅提升。
+          - [逻辑升级] 将“行为(Behavior)”维度的信号消费方式，从硬编码引用S+/S级信号，升级为使用`_fuse_multi_level_scores`辅助函数。
+        - 收益: 融合逻辑更统一、更健壮。现在能自动消费行为层提供的S+/S/A/B全系列信号，当最高级信号缺失时，能平滑降级使用次级信号，避免了因信号缺失导致该维度评分为0的问题。
         """
-        print("        -> [结构化元信号融合模块 V2.0 四域融合版] 启动...")
+        print("        -> [结构化元信号融合模块 V2.1 融合逻辑升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
-        # 在信号源中全面加入 'BEHAVIOR' 维度的最高置信度信号
-        signal_sources = {
-            'bullish_resonance': ['SCORE_MA_BULLISH_RESONANCE_S', 'SCORE_MECHANICS_BULLISH_RESONANCE_S', 'SCORE_MTF_BULLISH_RESONANCE_S', 'SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'],
-            'bearish_resonance': ['SCORE_MA_BEARISH_RESONANCE_S', 'SCORE_MECHANICS_BEARISH_RESONANCE_S', 'SCORE_MTF_BEARISH_RESONANCE_S', 'SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'],
-            'bottom_reversal': ['SCORE_MA_BOTTOM_REVERSAL_S', 'SCORE_MECHANICS_BOTTOM_REVERSAL_S', 'SCORE_MTF_BOTTOM_REVERSAL_S', 'SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'],
-            'top_reversal': ['SCORE_MA_TOP_REVERSAL_S', 'SCORE_MECHANICS_TOP_REVERSAL_S', 'SCORE_MTF_TOP_REVERSAL_S', 'SCORE_BEHAVIOR_TOP_REVERSAL_S']
-        }
-        all_required_signals = [sig for group in signal_sources.values() for sig in group]
-        # 检查时，允许S+信号不存在，增加兼容性
-        signals_to_check = [s for s in all_required_signals if '_S_PLUS' not in s]
-        if any(s not in atomic for s in signals_to_check):
-            print("          -> [警告] 结构化元信号融合缺少核心上游S级分数，模块已跳过！")
-            return df
-        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        def fuse_scores(source_keys: list) -> pd.Series:
-            # 使用 _get_atomic_score 保证即使信号不存在也不会报错
-            scores_to_fuse = [self._get_atomic_score(df, key, 0.0) for key in source_keys]
-            fused_values = np.prod(np.array([s.values for s in scores_to_fuse]), axis=0)
-            return pd.Series(fused_values, index=df.index, dtype=np.float32)
-        states['COGNITIVE_FUSION_BULLISH_RESONANCE_S'] = fuse_scores(signal_sources['bullish_resonance'])
-        states['COGNITIVE_FUSION_BEARISH_RESONANCE_S'] = fuse_scores(signal_sources['bearish_resonance'])
-        states['COGNITIVE_FUSION_BOTTOM_REVERSAL_S'] = fuse_scores(signal_sources['bottom_reversal'])
-        states['COGNITIVE_FUSION_TOP_REVERSAL_S'] = fuse_scores(signal_sources['top_reversal'])
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # --- 1. 获取各领域最高置信度的S级信号或融合分数 ---
+        # 领域1/2/3 (MA, Mechanics, MTF) - 获取S级信号
+        ma_bullish = self._get_atomic_score(df, 'SCORE_MA_BULLISH_RESONANCE_S', 0.0)
+        ma_bearish = self._get_atomic_score(df, 'SCORE_MA_BEARISH_RESONANCE_S', 0.0)
+        ma_bottom = self._get_atomic_score(df, 'SCORE_MA_BOTTOM_REVERSAL_S', 0.0)
+        ma_top = self._get_atomic_score(df, 'SCORE_MA_TOP_REVERSAL_S', 0.0)
+
+        mechanics_bullish = self._get_atomic_score(df, 'SCORE_MECHANICS_BULLISH_RESONANCE_S', 0.0)
+        mechanics_bearish = self._get_atomic_score(df, 'SCORE_MECHANICS_BEARISH_RESONANCE_S', 0.0)
+        mechanics_bottom = self._get_atomic_score(df, 'SCORE_MECHANICS_BOTTOM_REVERSAL_S', 0.0)
+        mechanics_top = self._get_atomic_score(df, 'SCORE_MECHANICS_TOP_REVERSAL_S', 0.0)
+
+        mtf_bullish = self._get_atomic_score(df, 'SCORE_MTF_BULLISH_RESONANCE_S', 0.0)
+        mtf_bearish = self._get_atomic_score(df, 'SCORE_MTF_BEARISH_RESONANCE_S', 0.0)
+        mtf_bottom = self._get_atomic_score(df, 'SCORE_MTF_BOTTOM_REVERSAL_S', 0.0)
+        mtf_top = self._get_atomic_score(df, 'SCORE_MTF_TOP_REVERSAL_S', 0.0)
+
+        # 领域4 (Behavior) - 使用融合函数消费S+/S/A/B全系列信号
+        behavior_bullish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
+        behavior_bearish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
+        behavior_bottom = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
+        behavior_top = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+
+        # --- 2. 四域联合作战：融合生成元信号 ---
+        # 确保所有Series都有相同的索引，以防上游信号缺失
+        all_scores = [
+            ma_bullish, ma_bearish, ma_bottom, ma_top,
+            mechanics_bullish, mechanics_bearish, mechanics_bottom, mechanics_top,
+            mtf_bullish, mtf_bearish, mtf_bottom, mtf_top,
+            behavior_bullish, behavior_bearish, behavior_bottom, behavior_top
+        ]
+        for i, score in enumerate(all_scores):
+            if not isinstance(score, pd.Series) or score.index.empty:
+                all_scores[i] = default_score
+            else:
+                all_scores[i] = score.reindex(df.index).fillna(0.0)
+        
+        # 重新解包以确保安全
+        (ma_bullish, ma_bearish, ma_bottom, ma_top,
+         mechanics_bullish, mechanics_bearish, mechanics_bottom, mechanics_top,
+         mtf_bullish, mtf_bearish, mtf_bottom, mtf_top,
+         behavior_bullish, behavior_bearish, behavior_bottom, behavior_top) = all_scores
+
+        states['COGNITIVE_FUSION_BULLISH_RESONANCE_S'] = (ma_bullish * mechanics_bullish * mtf_bullish * behavior_bullish).astype(np.float32)
+        states['COGNITIVE_FUSION_BEARISH_RESONANCE_S'] = (ma_bearish * mechanics_bearish * mtf_bearish * behavior_bearish).astype(np.float32)
+        states['COGNITIVE_FUSION_BOTTOM_REVERSAL_S'] = (ma_bottom * mechanics_bottom * mtf_bottom * behavior_bottom).astype(np.float32)
+        states['COGNITIVE_FUSION_TOP_REVERSAL_S'] = (ma_top * mechanics_top * mtf_top * behavior_top).astype(np.float32)
+        
         self.strategy.atomic_states.update(states)
-        print("        -> [结构化元信号融合模块 V2.0 四域融合版] 计算完毕。")
+        print("        -> [结构化元信号融合模块 V2.1 融合逻辑升级版] 计算完毕。")
         return df
 
     def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -910,19 +936,18 @@ class CognitiveIntelligence:
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V401.13 配置化改造版】趋势阶段评分模块
-        - 核心修正: 修复了VPA风险融合逻辑，确保所有相关风险信号都被正确消费。
-        - 核心改造: 移除了硬编码的风险权重，改为从JSON配置文件中动态加载，并增加了模块开关。
+        【V401.14 终极数值化版】趋势阶段评分模块
+        - 核心改造: 将“上涨末期”的判断从基于硬阈值的布尔信号，升级为平滑的、0-1区间的数值化概率评分。
+        - 收益: 彻底消除了模块内最后一个硬编码的布尔状态判断，使得对市场阶段的评估更加连续和精细。
         """
-        # print("        -> [趋势阶段评分模块 V401.13 配置化改造版] 启动...") # 代码更新版本号和描述
+        print("        -> [趋势阶段评分模块 V401.14 终极数值化版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p_trend_stage_scoring = get_params_block(self.strategy, 'trend_stage_scoring_params')
         if not get_param_value(p_trend_stage_scoring.get('enabled'), True):
-            # 如果模块被禁用，则返回0分，避免影响下游逻辑
-            states['CONTEXT_TREND_LATE_STAGE_SCORE'] = pd.Series(0, index=df.index, dtype=int)
-            states['CONTEXT_TREND_STAGE_LATE'] = pd.Series(False, index=df.index)
+            states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = pd.Series(0.0, index=df.index, dtype=np.float32) # 修改: 返回数值化信号
+            states['CONTEXT_TREND_STAGE_EARLY'] = pd.Series(False, index=df.index)
             print("        -> [趋势阶段评分模块] 已在配置中禁用，跳过计算。")
             return states
         signal_definitions = get_param_value(p_trend_stage_scoring.get('weights'), {})
@@ -937,7 +962,7 @@ class CognitiveIntelligence:
         df['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = early_stage_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
         states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
-        # --- 2. 计算“上涨末期”的量化分数 (Late Stage Score) ---
+        # --- 2. 计算“上涨末期”的原始风险累积分 ---
         vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
         vpa_efficiency_decline_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_EFFICIENCY_DECLINING', 0.0)
@@ -956,13 +981,20 @@ class CognitiveIntelligence:
             else:
                 risk_dimension_scores.append(self._get_atomic_score(df, name, 0.0) * weight)
         score_components = [s.to_numpy(dtype=np.float32) for s in risk_dimension_scores]
-        late_stage_score_arr = np.add.reduce(score_components)
-        late_stage_score_arr = np.nan_to_num(late_stage_score_arr, nan=0.0, posinf=0.0, neginf=0.0)
-        late_stage_score_arr_int = late_stage_score_arr.astype(int)
-        late_stage_score = pd.Series(late_stage_score_arr_int, index=df.index, dtype=int)
-        states['CONTEXT_TREND_LATE_STAGE_SCORE'] = late_stage_score
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_score >= 160
-        print("        -> [趋势阶段评分模块 V401.13 配置化改造版] 计算完毕。")
+        late_stage_raw_score = pd.Series(np.add.reduce(score_components), index=df.index, dtype=np.float32)
+        late_stage_raw_score = late_stage_raw_score.fillna(0.0)
+        
+        start_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_start_threshold'), 160)
+        full_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_full_threshold'), 300)
+        scaling_range = full_threshold - start_threshold
+        scaling_range = max(scaling_range, 1) # 避免除以零
+        # 计算0-1的平滑概率分
+        late_stage_prob_score = ((late_stage_raw_score - start_threshold) / scaling_range).clip(0, 1)
+        states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = late_stage_prob_score.astype(np.float32)
+        # 为了兼容旧的布尔状态，可以基于新的概率分生成
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_prob_score > 0.5 
+
+        print("        -> [趋势阶段评分模块 V401.14 终极数值化版] 计算完毕。")
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

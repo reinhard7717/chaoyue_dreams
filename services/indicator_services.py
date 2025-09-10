@@ -908,7 +908,6 @@ class IndicatorService:
           - [Z-Score修复] 修正了Z-Score源列名的拼接逻辑，确保它在无后缀环境中正确查找。
         - 收益: 彻底解决了所有指标的计算顺序和依赖问题，流程完全理顺。
         """
-        print(f"  [指标计算V110.8] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             return df
         max_required_period = self._get_max_period_for_timeframe(config, timeframe_key)
