@@ -1069,12 +1069,12 @@ class IndicatorCalculator:
         - 核心修正: 移除后缀处理逻辑，使其成为一个纯粹的计算函数，
                     只处理不带时间后缀的基础列名（如 'close', 'EMA_5'）。
         """
-        # -> [修改] 移除 suffix 参数，简化函数签名
+        # 移除 suffix 参数，简化函数签名
         if not params.get('enabled', False):
             return None
 
         periods = params.get('periods', [])
-        # -> [修改] 直接使用基础列名，不再关心后缀
+        # 直接使用基础列名，不再关心后缀
         price_source_col = 'close'
         volume_source_col = 'volume'
 

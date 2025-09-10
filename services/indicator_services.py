@@ -908,7 +908,6 @@ class IndicatorService:
                         确保所有计算器函数都工作在无后缀的统一命名空间下。
         - 收益: 彻底解决了因命名时机不一致导致的“列找不到”的错误，逻辑清晰健壮。
         """
-        # -> [修改] 更新打印信息
         print(f"  [指标计算V110.5] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
@@ -942,7 +941,7 @@ class IndicatorService:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
         
         # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        # -> [修改] 将所有指标计算合并到一个循环中，在添加后缀前全部完成
+        # 将所有指标计算合并到一个循环中，在添加后缀前全部完成
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
