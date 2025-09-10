@@ -9,13 +9,14 @@ from stock_models.stock_analytics import Playbook
 from utils.config_loader import load_strategy_config
 
 class Command(BaseCommand):
-    help = '【V3.0 配置文件驱动版】解析策略配置文件和信号字典，填充或更新Playbook模型。'
+    # 修改: 更新版本号和描述
+    help = '【V3.1 Bugfix】解析策略配置文件和信号字典，填充或更新Playbook模型。'
 
     def _load_signal_dictionary(self):
         """
-        【新增】独立加载信号字典文件。
+        【V3.0 逻辑不变】独立加载信号字典文件。
         """
-        # 修改: 从独立的 signal_dictionary.json 文件加载信号元数据
+        # 从独立的 signal_dictionary.json 文件加载信号元数据
         file_path = Path(settings.BASE_DIR) / 'config' / 'signal_dictionary.json'
         self.stdout.write(f"  -> 正在从 '{file_path}' 加载信号字典...")
         try:
@@ -32,8 +33,7 @@ class Command(BaseCommand):
 
     def _process_playbook(self, name, score, playbook_type, score_type_map, existing_map, to_create, to_update, processed_signals):
         """
-        【V3.0 逻辑不变，增加注释】处理单个playbook的创建或更新逻辑。
-        - 新增: 记录已处理的信号名，为后续的“查漏补缺”做准备。
+        【V3.0 逻辑不变】处理单个playbook的创建或更新逻辑。
         """
         if not name:
             return
@@ -75,12 +75,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """
-        【V3.0 配置文件驱动版】
+        【V3.1 Bugfix】
+        - 核心修复: 在最终检查循环中，增加了对值类型的判断 `isinstance(meta, dict)`，
+                    以确保只处理值为字典的有效信号条目，从而修复了 `AttributeError`。
         - 核心升级: 适配了 `signal_dictionary.json` 和 `trend_follow_strategy.json` 的分离。
         - 核心升级: 重构了解析逻辑，以匹配 `trend_follow_strategy.json` 中新的 `four_layer_scoring_params` 和 `fused_risk_scoring` 结构。
-        - 核心升级: 保留并强化了“定义驱动”的最终检查，确保 `signal_dictionary.json` 中定义的所有信号都被同步。
         """
-        self.stdout.write(self.style.SUCCESS('🚀 启动Playbook填充/更新流程 (V3.0 配置文件驱动版)...'))
+        self.stdout.write(self.style.SUCCESS('🚀 启动Playbook填充/更新流程 (V3.1 Bugfix)...'))
 
         # --- 步骤1: 读取和解析数据 (在事务之外执行) ---
         strategy_config = load_strategy_config('config/trend_follow_strategy.json')
@@ -88,7 +89,7 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR("错误: 无法加载 'config/trend_follow_strategy.json'。进程终止。"))
             return
 
-        # 修改: 从独立的JSON文件加载信号字典
+        # 从独立的JSON文件加载信号字典
         score_type_map = self._load_signal_dictionary()
         if not score_type_map:
             self.stderr.write(self.style.ERROR("错误: 无法加载信号字典。进程终止。"))
@@ -125,7 +126,7 @@ class Command(BaseCommand):
         trend_follow_params = strategy_config.get('strategy_params', {}).get('trend_follow', {})
         scoring_params = trend_follow_params.get('four_layer_scoring_params', {})
 
-        # 修改: 解析新的四层计分结构中的字典部分
+        # 解析新的四层计分结构中的字典部分
         self.stdout.write('  -> 正在解析进攻与触发器信号...')
         dict_based_sections = {
             'contextual_setup_scoring': 'positive_signals',
@@ -145,7 +146,7 @@ class Command(BaseCommand):
                         to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
                     )
 
-        # 修改: 单独解析 composite_scoring (列表结构)
+        # 单独解析 composite_scoring (列表结构)
         composite_data = scoring_params.get('composite_scoring', {})
         rules = composite_data.get('rules', [])
         if isinstance(rules, list):
@@ -158,7 +159,7 @@ class Command(BaseCommand):
                     to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
                 )
 
-        # 修改: 解析新的 fused_risk_scoring 结构
+        # 解析新的 fused_risk_scoring 结构
         self.stdout.write('  -> 正在解析融合风险信号...')
         fused_risk_data = scoring_params.get('fused_risk_scoring', {})
         risk_categories = fused_risk_data.get('risk_categories', {})
@@ -173,7 +174,7 @@ class Command(BaseCommand):
                         to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
                     )
 
-        # 修改: 解析 critical_exit_params (致命离场信号)
+        # 解析 critical_exit_params (致命离场信号)
         self.stdout.write('  -> 正在解析致命离场信号...')
         exit_rules = trend_follow_params.get('critical_exit_params', {}).get('signals', {})
         for name, score in exit_rules.items():
@@ -189,7 +190,9 @@ class Command(BaseCommand):
         self.stdout.write('  -> 最终检查: 确保所有已定义的信号都存在于数据库中...')
         unprocessed_count = 0
         for name, meta in score_type_map.items():
-            if name.startswith('说明_'): continue
+            # 修改: 增加对值类型的检查，确保只处理值为字典的条目，过滤掉所有说明性/注释性条目。
+            if name.startswith('说明_') or not isinstance(meta, dict):
+                continue
             
             # 如果信号在计分模块中未被处理过，则在此处补上
             if name not in processed_signals:
@@ -217,4 +220,3 @@ class Command(BaseCommand):
 
         if not playbooks_to_create and not playbooks_to_update:
             self.stdout.write(self.style.WARNING('ℹ️ 未发现新的或需要更新的playbooks。数据库已是最新状态。'))
-

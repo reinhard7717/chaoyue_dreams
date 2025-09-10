@@ -85,12 +85,12 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V402.1 架构优化版】情报层总入口。
-        - 核心重构: 遵循“原子->合成->元融合”的原则，将诊断流程重构为五个逻辑清晰的阶段。
-                    确保了所有信号在被消费前都已被正确生成，严格遵循依赖关系。
-        - 收益: 信号生成链路完全扁平化、透明化，代码结构更清晰，易于维护和扩展。
+        【V403.0 终极结构层适配版】情报层总入口。
+        - 核心重构: 遵循“终极信号”范式，将对 StructuralIntelligence 的调用从一长串
+                    独立的诊断方法，简化为对 `diagnose_structural_states` 的唯一调用。
+        - 收益: 信号生成链路进一步扁平化，代码结构更清晰，完全适配了新一代的结构层情报引擎。
         """
-        print("--- [情报层总指挥官 V402.1 架构优化版] 开始执行所有诊断模块... ---")
+        print("--- [情报层总指挥官 V403.0 终极结构层适配版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -98,34 +98,22 @@ class IntelligenceLayer:
         # --- 阶段一: 基础层与原子情报诊断 ---
         # 此阶段生成所有仅依赖于数据工程层指标的原子信号。
         print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
-        # 调用周线战略情报转化器，生成战略级原子状态
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
-        # 调用日线长周期筹码战略诊断模块，生成宏观筹码原子状态
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         self.foundation_intel.run_foundation_analysis_command()
-        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
+        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_ultimate_fund_flow_signals(df)) # 修改: 确保调用的是终极信号引擎
         self.mechanics_engine.run_dynamic_analysis_command()
-        df = self.pattern_recognizer.identify_all(df) # K线形态识别
+        df = self.pattern_recognizer.identify_all(df)
 
-        # --- 阶段二: 行为层情报诊断与合成 ---
+        # --- 阶段二: 结构层情报诊断与合成 ---
+        # 此阶段消费基础指标，生成所有结构相关的终极信号。
+        print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...") # 修改: 调整阶段顺序和描述
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df)) # 修改: 简化为唯一调用
+
+        # --- 阶段三: 行为层情报诊断与合成 ---
         # 此阶段消费基础指标，生成所有行为相关的原子信号和初级合成信号。
-        print("    - [阶段 2/5] 正在执行行为层情报诊断与合成...")
+        print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...") # 修改: 调整阶段顺序和描述
         self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
-
-        # --- 阶段三: 结构层情报诊断与合成 ---
-        # 此阶段消费基础指标和部分行为信号，生成所有结构相关的原子信号和初级合成信号。
-        print("    - [阶段 3/5] 正在执行结构层情报诊断与合成...")
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_ma_states(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_box_states_scores(df))
-        df, platform_states = self.structural_intel.diagnose_platform_states_scores(df)
-        self.strategy.atomic_states.update(platform_states)
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_risks_and_regimes_scores(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_fused_behavioral_structure_risks(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_mechanics_scores(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_mtf_trend_synergy_scores(df))
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_advanced_structural_patterns_scores(df))
-        # 调用结构层的合成模块，生成统一的“蓄势突破”信号
-        self.strategy.atomic_states.update(self.structural_intel.synthesize_structural_opportunities(df))
 
         # --- 阶段四: 筹码层情报诊断与合成 ---
         # 筹码层依赖部分结构和行为信号，因此在此阶段运行。
@@ -153,7 +141,6 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.synthesize_opportunity_risk_scores(df)
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_sustainability_signals(df)
-        # 调用重构后的认知层方法，它们现在消费来自下层的合成信号
         self.strategy.df_indicators = self.cognitive_intel.synthesize_tactical_opportunities(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_consolidation_breakout_signals(df)
         # 5.4 最终认知合成与主力行为推演
@@ -169,7 +156,6 @@ class IntelligenceLayer:
         # 5.5 生成触发器、战法与交易剧本
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_fibonacci_support(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_prime_tactic(df))
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
@@ -190,7 +176,7 @@ class IntelligenceLayer:
                 print("--- [探针结束] ---\n")
         
         # --- 最终报告 ---
-        print("--- [情报层总指挥官 V402.1] 所有诊断模块执行完毕。 ---") # 修改: 更新版本号
+        print("--- [情报层总指挥官 V403.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -18,25 +18,45 @@ class BehavioralIntelligence:
     def _normalize_series(self, series: pd.Series, norm_window: int, min_periods: int, ascending: bool = True) -> pd.Series:
         """
         辅助函数：将Pandas Series进行滚动窗口排名归一化。
-        - 新增：提升为类的私有方法，以供所有诊断引擎复用。
+        - 提升为类的私有方法，以供所有诊断引擎复用。
         """
         rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         return rank if ascending else 1 - rank
 
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 终极信号版】行为情报模块总指挥
-        - 核心重构: 遵循分层架构原则，本模块不再返回一堆零散的原子信号。
-                      现在只调用唯一的终极信号引擎 `diagnose_ultimate_behavioral_signals`，
-                      并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
-        - 收益: 极大提升了信号质量和架构清晰度。上层模块只需消费这16个经过深度验证的终极行为信号。
+        【V2.1 职责修复版】行为情报模块总指挥
+        - 核心重构 (本次修改):
+          - [职责修复] 修复了V2.0版本中，本方法只调用终极信号引擎，导致其他关键行为诊断
+                        （如量价、K线、原子信号等）被跳过，从而引发下游模块（如结构层）
+                        缺少依赖数据（例如 SCORE_RISK_VPA_STAGNATION）的严重问题。
+          - [恢复职责] 本方法恢复其“总指挥”职责，按逻辑顺序调用本模块内所有公开的诊断引擎，
+                       并汇总其产出的所有信号。
+        - 收益: 确保了行为情报模块能够完整地生成所有必需的原子和合成信号，保障了整个情报系统的正常运行。
         """
-        print("      -> [行为情报模块总指挥 V2.0 终极信号版] 启动...")        
-        # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
-        ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df)
-
-        print(f"      -> [行为情报模块总指挥 V2.0] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。") # 修改: 更新打印信息
-        return ultimate_behavioral_states
+        print("      -> [行为情报模块总指挥 V2.1 职责修复版] 启动...") # 修改：更新版本号和描述
+        all_states = {} # 初始化一个空字典用于汇总所有信号
+        params = self.strategy.params # 一次性获取策略参数，供各诊断引擎使用
+        # 按照逻辑重要性调用所有诊断引擎
+        # 1. 终极六维健康度信号 (最高层抽象)
+        all_states.update(self.diagnose_ultimate_behavioral_signals(df)) # 保留：调用终极信号引擎
+        # 2. 量价关系动态 (关键风险信号源)
+        all_states.update(self.diagnose_volume_price_dynamics(df, params)) # 调用量价动态分析，解决 SCORE_RISK_VPA_STAGNATION 缺失问题
+        # 3. 多维共振与反转 (筹码、资金流等跨维度行为)
+        all_states.update(self.diagnose_multi_dimensional_resonance(df)) # 调用多维共振诊断
+        # 4. 基础原子信号 (最底层的行为模式)
+        all_states.update(self.diagnose_price_volume_atomics(df)) # 调用价格成交量原子诊断
+        all_states.update(self.diagnose_advanced_atomic_signals(df)) # 调用高级原子信号诊断
+        # 5. 静态K线与板块模式 (特定形态识别)
+        all_states.update(self.diagnose_kline_patterns(df)) # 调用K线模式诊断
+        all_states.update(self.diagnose_board_patterns(df)) # 调用板块模式诊断
+        # 6. 特定离场风险行为诊断
+        upthrust_score = self.diagnose_upthrust_distribution(df, params) # 调用高位派发诊断
+        all_states[upthrust_score.name] = upthrust_score # 将其返回的Series结果添加到字典
+        ma_breakdown_score = self.diagnose_ma_breakdown(params) # 调用均线破位诊断
+        all_states[ma_breakdown_score.name] = ma_breakdown_score # 将其返回的Series结果添加到字典
+        print(f"      -> [行为情报模块总指挥 V2.1] 分析完毕，共生成 {len(all_states)} 个行为信号。") # 修改: 更新打印信息和版本号
+        return all_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
