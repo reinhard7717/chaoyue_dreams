@@ -1063,54 +1063,74 @@ class IndicatorCalculator:
             # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
             return result_df
 
-    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+    async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.2 纯净计算版】计算价格/成交量与各自均线的比率。
-        - 核心修正: 移除后缀处理逻辑，使其成为一个纯粹的计算函数，
-                    只处理不带时间后缀的基础列名（如 'close', 'EMA_5'）。
+        【V1.0 新增】计算均线粘合度 (MA Convergence)。
+        使用变异系数 (Coefficient of Variation) 来量化。
         """
-        # 移除 suffix 参数，简化函数签名
+        # 此为全新的指标计算函数，将逻辑从IndicatorService中迁移至此。
         if not params.get('enabled', False):
             return None
+        result_df = pd.DataFrame(index=df.index)
+        for conv_config in params.get('configs', []):
+            try:
+                periods = conv_config.get('periods', [])
+                output_col = conv_config.get('output_column_name')
+                # 计算器工作在无后缀的命名空间
+                ma_cols = [f"EMA_{p}" for p in periods]
+                if all(col in df.columns for col in ma_cols):
+                    ma_df = df[ma_cols]
+                    ma_std = ma_df.std(axis=1)
+                    ma_mean = ma_df.mean(axis=1)
+                    convergence_cv = ma_std / (ma_mean + 1e-9)
+                    # 输出的列名也应该是无后缀的
+                    result_df[output_col.removesuffix('_D')] = convergence_cv
+                else:
+                    missing = [col for col in ma_cols if col not in df.columns]
+                    logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
+            except Exception as e:
+                logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
+        return result_df if not result_df.empty else None
 
+    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+        """
+        【V1.3 原材料修复版】计算价格/成交量与各自均线的比率。
+        - 核心修正: 不再从params中读取源列名，而是硬编码使用标准的 'close' 和 'volume'，
+                    确保总能从纯净的DataFrame中获取正确的原材料。
+        """
+        if not params.get('enabled', False):
+            return None
         periods = params.get('periods', [])
-        # 直接使用基础列名，不再关心后缀
+        #硬编码使用标准的基础列名，不再依赖外部传入
         price_source_col = 'close'
         volume_source_col = 'volume'
-
         if not all([periods, price_source_col, volume_source_col]):
-            logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
+            logger.warning("计算价比/量比缺少关键参数 (periods)。")
             return None
-
         result_df = pd.DataFrame(index=df.index)
-
         for p in periods:
             # --- 计算价格与均线比 ---
             if p == 1:
                 price_ma_col = price_source_col
             else:
                 price_ma_col = f'EMA_{p}'
-            
             if price_source_col in df.columns and price_ma_col in df.columns:
                 price_ma_series = df[price_ma_col].replace(0, np.nan)
                 ratio = df[price_source_col] / price_ma_series
                 result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
                 logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
-
             # --- 计算成交量与均量比 ---
             if p == 1:
                 vol_ma_col = volume_source_col
             else:
                 vol_ma_col = f'VOL_MA_{p}'
-
             if volume_source_col in df.columns and vol_ma_col in df.columns:
                 vol_ma_series = df[vol_ma_col].replace(0, np.nan)
                 ratio = df[volume_source_col] / vol_ma_series
                 result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
                 logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
-
         return result_df if not result_df.empty else None
 
 

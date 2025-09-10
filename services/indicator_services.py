@@ -902,13 +902,14 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.5 终极时序修复版】根据配置为指定时间周期计算所有技术指标。
+        【V110.6 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
         - 核心修正 (本次修改):
-          - [流程重构] 将所有指标（无论简单还是复合）的计算都放在添加后缀之前完成。
-                        确保所有计算器函数都工作在无后缀的统一命名空间下。
-        - 收益: 彻底解决了因命名时机不一致导致的“列找不到”的错误，逻辑清晰健壮。
+          - [流程重构] 将 ma_convergence 和 zscore 的计算逻辑移至主计算循环中，
+                        并确保它们在所有依赖项计算完毕后执行。
+          - [映射修复] 将 ma_convergence 重新添加回 indicator_method_map。
+        - 收益: 彻底解决了所有指标的计算顺序和依赖问题，流程完全理顺。
         """
-        print(f"  [指标计算V110.5] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V110.6] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -929,6 +930,8 @@ class IndicatorService:
             'consolidation_period': self.calculator.calculate_consolidation_period,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
+            # 将 ma_convergence 重新添加回映射
+            'ma_convergence': self.calculator.calculate_ma_convergence,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
@@ -941,28 +944,53 @@ class IndicatorService:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
         
         # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        # 将所有指标计算合并到一个循环中，在添加后缀前全部完成
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf', 'zscore'] or not params.get('enabled', False): continue
-            if indicator_name not in indicator_method_map:
+            #简化跳过逻辑
+            if indicator_name in ['说明', 'index_sync', 'cyq_perf'] or not params.get('enabled', False): continue
+            if indicator_name not in indicator_method_map and indicator_name != 'zscore': # zscore 特殊处理
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
             
-            # 统一处理所有指标
+            #将 Z-Score 的计算逻辑移到这里，确保它在依赖项之后执行
+            if indicator_name == 'zscore':
+                for z_config in params.get('configs', []):
+                    if timeframe_key not in z_config.get("apply_on", []): continue
+                    try:
+                        source_pattern = z_config.get("source_column_pattern")
+                        output_col_name = z_config.get("output_column_name")
+                        window = z_config.get("window", 60)
+                        source_col_name = source_pattern
+                        if "{fast}" in source_pattern:
+                            macd_cfg = config.get('macd', {})
+                            macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
+                            if macd_periods:
+                                source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                            else: continue
+                        if source_col_name in df_for_calc.columns:
+                            source_series = df_for_calc[source_col_name]
+                            rolling_mean = source_series.rolling(window=window).mean()
+                            rolling_std = source_series.rolling(window=window).std()
+                            zscore_result = np.divide((source_series - rolling_mean), rolling_std, out=np.full_like(source_series, np.nan), where=rolling_std!=0)
+                            df_for_calc[output_col_name] = zscore_result
+                        else:
+                            logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
+                    except Exception as e:
+                        logger.error(f"计算Z-score时出错: {e}", exc_info=True)
+                continue # 处理完Z-score后继续下一个指标
+
+            # 统一处理所有其他指标
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    # 复合指标有自己的参数结构
-                    if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison']:
+                    if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison', 'ma_convergence']:
                         result_df = await method_to_call(df=df_for_calc, params=params)
                         merge_results(result_df, df_for_calc)
-                        continue # 处理完一个复合指标就跳到下一个
+                        break # 复合指标只计算一次
                     
-                    # 处理常规指标
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
@@ -994,55 +1022,7 @@ class IndicatorService:
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
-        # --- 阶段二: 计算依赖于其他指标的后处理指标 (Z-Score, MA Convergence) ---
-        # Z-Score
-        zscore_params = config.get('zscore')
-        if zscore_params and zscore_params.get('enabled', False):
-            for z_config in zscore_params.get('configs', []):
-                if timeframe_key not in z_config.get("apply_on", []): continue
-                try:
-                    source_pattern = z_config.get("source_column_pattern")
-                    output_col_name = z_config.get("output_column_name")
-                    window = z_config.get("window", 60)
-                    source_col_name = source_pattern
-                    if "{fast}" in source_pattern:
-                        macd_cfg = config.get('macd', {})
-                        macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
-                        if macd_periods:
-                            source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
-                        else: continue
-                    if source_col_name in df_for_calc.columns:
-                        source_series = df_for_calc[source_col_name]
-                        rolling_mean = source_series.rolling(window=window).mean()
-                        rolling_std = source_series.rolling(window=window).std()
-                        zscore_result = np.divide((source_series - rolling_mean), rolling_std, out=np.full_like(source_series, np.nan), where=rolling_std!=0)
-                        df_for_calc[output_col_name] = zscore_result
-                    else:
-                        logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
-                except Exception as e:
-                    logger.error(f"计算Z-score时出错: {e}", exc_info=True)
-        # MA Convergence
-        ma_convergence_params = config.get('ma_convergence')
-        if ma_convergence_params and ma_convergence_params.get('enabled', False):
-            for conv_config in ma_convergence_params.get('configs', []):
-                if timeframe_key in conv_config.get("apply_on", []):
-                    try:
-                        periods = conv_config.get('periods', [])
-                        output_col = conv_config.get('output_column_name')
-                        ma_cols = [f"EMA_{p}" for p in periods]
-                        if all(col in df_for_calc.columns for col in ma_cols):
-                            ma_df = df_for_calc[ma_cols]
-                            ma_std = ma_df.std(axis=1)
-                            ma_mean = ma_df.mean(axis=1)
-                            convergence_cv = ma_std / (ma_mean + 1e-9)
-                            df_for_calc[output_col] = convergence_cv
-                        else:
-                            missing = [col for col in ma_cols if col not in df_for_calc.columns]
-                            logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
-                    except Exception as e:
-                        logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
-
-        # --- 阶段三: 统一添加后缀并返回 ---
+        # --- 阶段二: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
         rename_map = {
             col: f"{col}{suffix}"
