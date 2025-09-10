@@ -902,31 +902,20 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.7 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
+        【V110.8 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
         - 核心修正 (本次修改):
-          - [源数据标准化] 在计算开始前，强制将 'close' 和 'volume' 复制并重命名为带后缀的列，
-                          确保所有下游计算都能找到标准的源数据。
-          - [Z-Score修复] 修正了Z-Score源列名的拼接逻辑，确保能正确找到无后缀的MACD列。
+          - [流程重构] 严格遵循“先计算，后命名”原则。所有指标计算都在无后缀的DataFrame上完成。
+          - [Z-Score修复] 修正了Z-Score源列名的拼接逻辑，确保它在无后缀环境中正确查找。
         - 收益: 彻底解决了所有指标的计算顺序和依赖问题，流程完全理顺。
         """
-        print(f"  [指标计算V110.7] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V110.8] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
-            print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
         max_required_period = self._get_max_period_for_timeframe(config, timeframe_key)
         if len(df) < max_required_period:
-            logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
+            logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
             return df
         df_for_calc = df.copy()
-        
-        # 步骤 0: 标准化核心源数据列名
-        # 确保后续所有计算都能找到带后缀的 'close_D', 'volume_D' 等列
-        suffix = f"_{timeframe_key}"
-        if 'close' in df_for_calc.columns and f'close{suffix}' not in df_for_calc.columns:
-            df_for_calc[f'close{suffix}'] = df_for_calc['close']
-        if 'volume' in df_for_calc.columns and f'volume{suffix}' not in df_for_calc.columns:
-            df_for_calc[f'volume{suffix}'] = df_for_calc['volume']
-
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
         
@@ -944,22 +933,24 @@ class IndicatorService:
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
-            if isinstance(result_data, pd.Series):
-                result_data = result_data.to_frame()
+            if isinstance(result_data, pd.Series): result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
-                for col in result_data.columns:
-                    target_df[col] = result_data[col]
-            else:
-                logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        
+                for col in result_data.columns: target_df[col] = result_data[col]
+            else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
+
         # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        for indicator_key, params in config.items():
+        # 采用有序的计算列表，确保依赖项先被计算
+        ordered_calc_keys = [
+            'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo', # 基础指标
+            'ma_convergence', 'price_volume_ma_comparison', 'zscore', # 依赖性指标
+            'consolidation_period', 'fibonacci_levels' # 复合模式指标
+        ]
+        for indicator_key in ordered_calc_keys:
+            params = config.get(indicator_key)
+            if not params or not params.get('enabled', False): continue
+            
             indicator_name = indicator_key.lower()
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
-            if indicator_name in ['说明', 'index_sync', 'cyq_perf'] or not params.get('enabled', False): continue
-            if indicator_name not in indicator_method_map and indicator_name != 'zscore':
-                logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
-                continue
             
             if indicator_name == 'zscore':
                 for z_config in params.get('configs', []):
@@ -968,20 +959,17 @@ class IndicatorService:
                         source_pattern = z_config.get("source_column_pattern")
                         output_col_name = z_config.get("output_column_name")
                         window = z_config.get("window", 60)
-                        source_col_name = source_pattern
-                        if "{fast}" in source_pattern:
-                            macd_cfg = config.get('macd', {})
-                            macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
-                            if macd_periods:
-                                # 移除画蛇添足的后缀拼接
-                                source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
-                            else: continue
+                        # 从模式中移除后缀，以匹配无后缀的df_for_calc
+                        source_pattern_no_suffix = source_pattern.removesuffix(f"_{timeframe_key}")
+                        macd_cfg = config.get('macd', {})
+                        macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
+                        if macd_periods:
+                            source_col_name = source_pattern_no_suffix.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                        else: continue
                         if source_col_name in df_for_calc.columns:
                             source_series = df_for_calc[source_col_name]
-                            rolling_mean = source_series.rolling(window=window).mean()
-                            rolling_std = source_series.rolling(window=window).std()
-                            zscore_result = np.divide((source_series - rolling_mean), rolling_std, out=np.full_like(source_series, np.nan), where=rolling_std!=0)
-                            df_for_calc[output_col_name] = zscore_result
+                            zscore_result = ((source_series - source_series.rolling(window=window).mean()) / source_series.rolling(window=window).std()).fillna(0)
+                            df_for_calc[output_col_name.removesuffix(f"_{timeframe_key}")] = zscore_result
                         else:
                             logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                     except Exception as e:
@@ -994,10 +982,6 @@ class IndicatorService:
                 try:
                     method_to_call = indicator_method_map[indicator_name]
                     if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison', 'ma_convergence']:
-                        # 对于比率指标，将带有后缀的源列名传入params
-                        if indicator_name == 'price_volume_ma_comparison':
-                            params['price_source'] = f'close{suffix}'
-                            params['volume_source'] = f'volume{suffix}'
                         result_df = await method_to_call(df=df_for_calc, params=params)
                         merge_results(result_df, df_for_calc)
                         break
@@ -1005,8 +989,7 @@ class IndicatorService:
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
-                        anchor = 'D' if timeframe_key.isdigit() else timeframe_key
-                        kwargs['anchor'] = anchor
+                        kwargs['anchor'] = 'D' if timeframe_key.isdigit() else timeframe_key
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
@@ -1024,21 +1007,16 @@ class IndicatorService:
                         elif indicator_name == 'coppock': kwargs_iter.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2]})
                         elif indicator_name == 'kdj': kwargs_iter.update({'period': p_set[0], 'signal_period': p_set[1], 'smooth_k_period': p_set[2]})
                         elif indicator_name == 'uo': kwargs_iter.update({'short_period': p_set[0], 'medium_period': p_set[1], 'long_period': p_set[2]})
-                        elif indicator_name == 'boll_bands_and_width':
-                            kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
-                        else:
-                            kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
+                        elif indicator_name == 'boll_bands_and_width': kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
+                        else: kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
                         result_df = await method_to_call(**kwargs_iter)
                         merge_results(result_df, df_for_calc)
                 except Exception as e:
-                    logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
+                    logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
 
         # --- 阶段二: 统一添加后缀并返回 ---
-        rename_map = {
-            col: f"{col}{suffix}"
-            for col in df_for_calc.columns
-            if not str(col).endswith(suffix)
-        }
+        suffix = f"_{timeframe_key}"
+        rename_map = { col: f"{col}{suffix}" for col in df_for_calc.columns if not str(col).endswith(suffix) }
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
 
@@ -1137,93 +1115,71 @@ class IndicatorService:
         timeframe = 'D' # VPA效率是一个日线级别的概念
         if timeframe not in all_dfs:
             return all_dfs
-        
         df = all_dfs[timeframe]
-        
         # --- 1. 军备检查 ---
         required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             print(f"      -> [严重警告] VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
             return all_dfs
-
         # --- 2. 计算相对成交量倍数 ---
-        # 为防止除以0的错误，将0替换为NaN，后续计算结果也会是NaN，最后统一填充为0
         volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
-
         # --- 3. 计算VPA效率 ---
-        # 再次防止除以0
         vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
-        
-        # 将新指标添加到DataFrame中，并将计算过程中可能产生的NaN和inf填充为0
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-        
         all_dfs[timeframe] = df
         # print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
         return all_dfs
 
     async def _calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 赫斯特指数归位版】元特征计算车间
-        - 核心职责: 在基础指标计算完毕后，专门计算那些依赖原始数据进行复杂
-                    滚窗计算的“元指标”，如赫斯特指数、变异系数等。
-        - 执行时机: 在基础指标计算之后，在斜率计算之前。
-        - 核心修正: 将赫斯特指数的计算逻辑从 IntelligenceLayer 正确迁移至此，确保“计算与诊断分离”。
+        【V2.1 健壮性修复版】元特征计算车间
+        - 核心修正: 强制确保传递给滚窗计算的输入是一个Series，而不是单列DataFrame，
+                    从根源上解决 "Cannot set a DataFrame" 的 ValueError。
         """
-        # print("    - [元特征车间 V2.0] 启动，正在计算赫斯特指数、CV等复杂特征...")
-        
-        # 我们主要关心日线数据
+        # print("    - [元特征车间 V2.1] 启动，正在计算赫斯特指数、CV等复杂特征...")
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
-            
         df = all_dfs[timeframe]
-        
+        suffix = f"_{timeframe}"
         # --- 1. 计算赫斯特指数 (Hurst Exponent) ---
-        # 此处是赫斯特指数计算的正确位置，保证其在斜率计算前完成。
-        hurst_window = 120 # 暂时硬编码，未来可从配置读取
-        hurst_col = f'hurst_{hurst_window}d_D'
-        if 'close_D' in df.columns and hurst_col not in df.columns:
+        hurst_window = 120
+        hurst_col = f'hurst_{hurst_window}d{suffix}'
+        close_col_suffixed = f'close{suffix}'
+        if close_col_suffixed in df.columns and hurst_col not in df.columns:
             try:
-                # 【核心防御代码】确保计算的健壮性
-                # 1. 创建一个没有NaN的副本用于计算，防止因数据空洞导致计算失败
-                close_series_for_hurst = df['close_D'].dropna()
-                
-                # 2. 检查处理后数据是否仍然充足
+                # 强制确保 source_series 是一个 Series
+                source_series = df[close_col_suffixed]
+                if isinstance(source_series, pd.DataFrame):
+                    source_series = source_series.iloc[:, 0]
+                close_series_for_hurst = source_series.dropna()
                 if len(close_series_for_hurst) < hurst_window:
-                    print(f"      -> [警告] 去除NaN后，数据量({len(close_series_for_hurst)})不足以计算{hurst_window}周期的赫斯特指数，跳过。")
-                    df[hurst_col] = np.nan # 将整列设为NaN，保证列存在
+                    print(f"      -> [警告] 数据量不足以计算{hurst_window}周期的赫斯特指数，跳过。")
+                    df[hurst_col] = np.nan
                 else:
-                    # 3. 在干净的数据上进行滚动计算
-                    # math_tools.py 中的 hurst_exponent 函数已经足够健壮
                     hurst_values = close_series_for_hurst.rolling(hurst_window).apply(hurst_exponent, raw=True)
-                    
-                    # 4. 将计算结果对齐回原始的DataFrame索引，这是关键一步
                     df[hurst_col] = hurst_values.reindex(df.index)
-                    # print(f"      -> 赫斯特指数 ({hurst_col}) 计算完成。")
-
             except Exception as e:
                 print(f"      -> [严重警告] 赫斯特指数计算过程中发生未知错误: {e}")
-                df[hurst_col] = np.nan # 确保即使出错，列也存在，防止下游流程报错
-
+                df[hurst_col] = np.nan
         # --- 2. 计算价格变异系数 (Price CV) ---
         cv_window = 60
-        cv_col = f'price_cv_{cv_window}d_D'
-        if 'close_D' in df.columns and cv_col not in df.columns:
-            price_mean = df['close_D'].rolling(cv_window).mean()
-            price_std = df['close_D'].rolling(cv_window).std()
-            # 加上一个极小值防止除以零
-            df[cv_col] = price_std / (price_mean + 1e-6)
-            # print(f"      -> 价格变异系数 ({cv_col}) 计算完成。")
-
+        cv_col = f'price_cv_{cv_window}d{suffix}'
+        if close_col_suffixed in df.columns and cv_col not in df.columns:
+            # 强制确保 source_series 是一个 Series
+            source_series = df[close_col_suffixed]
+            if isinstance(source_series, pd.DataFrame):
+                source_series = source_series.iloc[:, 0]
+            price_mean = source_series.rolling(cv_window).mean()
+            price_std = source_series.rolling(cv_window).std()
+            df[cv_col] = price_std / (price_mean + 1e-9)
         # --- 3. 计算日线结构势能 (Energy Ratio) ---
-        # 注意：这需要筹码数据已经合并到df中
-        energy_col = 'energy_ratio_D'
-        if 'support_below_D' in df.columns and 'pressure_above_D' in df.columns and energy_col not in df.columns:
-            # 加上一个极小值防止除以零
-            df[energy_col] = df['support_below_D'] / (df['pressure_above_D'] + 1e-6)
-            # print(f"      -> 结构势能 ({energy_col}) 计算完成。")
-
+        energy_col = f'energy_ratio{suffix}'
+        support_col = f'support_below{suffix}'
+        pressure_col = f'pressure_above{suffix}'
+        if support_col in df.columns and pressure_col in df.columns and energy_col not in df.columns:
+            df[energy_col] = df[support_col] / (df[pressure_col] + 1e-6)
         all_dfs[timeframe] = df
         return all_dfs
 
