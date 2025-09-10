@@ -57,21 +57,40 @@ class StructuralIntelligence:
                         将其全面升级为基于归一化强度分的加权评分体系。
           - 新信号体系: 生成`SCORE_MA_BULLISH_RESONANCE`等数值分，更精确地量化共振与反转的强度。
         """
-        # print("        -> [诊断模块 V8.0 最终数值化版] 启动...") 
+        # print("        -> [诊断模块 V8.0 最终数值化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'multi_dim_ma_params')
         if not get_param_value(p.get('enabled'), True): return {}
         # --- 军备检查 (Arsenal Check) ---
         ma_periods = get_param_value(p.get('ma_periods'), [5, 13, 21, 55])
-        ema_cols = {period: f'EMA_{period}_D' for period in ma_periods}
-        slope_cols = {period: f'SLOPE_{period}_EMA_{period}_D' if period > 5 else f'SLOPE_5_EMA_{period}_D' for period in ma_periods}
-        accel_cols = {period: f'ACCEL_{period}_EMA_{period}_D' if period > 5 else f'ACCEL_5_EMA_{period}_D' for period in ma_periods}
+        # 初始化列名字典
+        ema_cols = {}
+        slope_cols = {}
+        accel_cols = {}
+        # 动态构建所需列名，并特殊处理 period=1 的情况，以修复因缺少 EMA_1_D 导致的错误
+        for period in ma_periods:
+            if period == 1:
+                # EMA(1) 在概念上等同于收盘价。数据工程层不会生成 EMA_1_D 列，因此直接映射到 close_D。
+                ema_cols[period] = 'close_D'
+                # 相应的斜率和加速度指标也应基于 close_D。根据现有逻辑，短周期使用5日回顾期。
+                # 检查数据清单可知，SLOPE_5_close_D 和 ACCEL_5_close_D 是可用的。
+                slope_cols[period] = 'SLOPE_5_close_D'
+                accel_cols[period] = 'ACCEL_5_close_D'
+            else:
+                # 保持原有的列名生成逻辑
+                ema_cols[period] = f'EMA_{period}_D'
+                slope_lookback = 5 if period <= 5 else period
+                accel_lookback = 5 if period <= 5 else period
+                slope_cols[period] = f'SLOPE_{slope_lookback}_EMA_{period}_D'
+                accel_cols[period] = f'ACCEL_{accel_lookback}_EMA_{period}_D'
+        # 使用新的字典构建所需列列表，并去重以增加健壮性
         required_cols = list(ema_cols.values()) + list(slope_cols.values()) + list(accel_cols.values())
+        required_cols = sorted(list(set(required_cols)))
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"          -> [错误] 均线诊断引擎缺少必要列: {missing_cols}，跳过。")
             return {}
-        # --- Part 1: 核心要素数值化 (Fundamental Conditions Scoring) --- 
+        # --- Part 1: 核心要素数值化 (Fundamental Conditions Scoring) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
@@ -131,7 +150,7 @@ class StructuralIntelligence:
             states['SCORE_MA_DYN_RESONANCE'] *
             states['SCORE_MA_ACCEL_RESONANCE']
         ).astype(np.float32)
-        print("        -> [诊断模块 V8.0 最终数值化版] 分析完毕。") 
+        print("        -> [诊断模块 V8.0 最终数值化版] 分析完毕。")
         return states
 
     def diagnose_box_states_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
