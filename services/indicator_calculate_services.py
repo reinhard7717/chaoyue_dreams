@@ -1094,50 +1094,67 @@ class IndicatorCalculator:
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.4 标准源数据版】计算价格/成交量与各自均线的比率。
-        - 核心修正: 适配上游传入的、已带后缀的标准源列名（如 'close_D', 'volume_D'）。
+        【V1.5 无后缀环境适配版】计算价格/成交量与各自均线的比率。
+        - 核心修正: 适配 V110.8 版的指标计算流程。该流程在无后缀的 DataFrame 上进行计算。
+                    本函数现在会从配置中读取带后缀的源列名（如 'close_D'），并根据 'apply_on'
+                    字段动态移除后缀（如移除 '_D' 得到 'close'），以正确地在无后缀 DataFrame 中查找数据。
         """
         if not params.get('enabled', False):
             return None
-
         periods = params.get('periods', [])
-        # -> [修改] 从配置中读取带后缀的源列名
-        price_source_col = params.get('price_source')
-        volume_source_col = params.get('volume_source')
-
-        if not all([periods, price_source_col, volume_source_col]):
+        # ▼▼▼ 动态移除列名后缀以适配无后缀计算环境 ▼▼▼
+        # 从 'apply_on' 字段推断出当前的时间周期，例如 'D'
+        # 这是因为调用此函数的上层服务 (_calculate_indicators_for_timescale) 会根据 apply_on 来决定是否调用
+        apply_on_list = params.get('apply_on', [])
+        if not apply_on_list:
+            logger.warning("计算价比/量比失败：配置中缺少 'apply_on' 字段。")
+            return None
+        # 我们假设 apply_on 列表中的第一个元素就是当前的时间框架标识
+        timeframe_key = apply_on_list[0]
+        suffix_to_remove = f"_{timeframe_key}"
+        # 从配置中获取带后缀的原始列名
+        price_source_with_suffix = params.get('price_source')
+        volume_source_with_suffix = params.get('volume_source')
+        if not all([periods, price_source_with_suffix, volume_source_with_suffix]):
             logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
             return None
-
+        # 移除后缀，得到在当前计算环境中有效的列名 (e.g., 'close_D' -> 'close')
+        price_source_col = price_source_with_suffix.removesuffix(suffix_to_remove)
+        volume_source_col = volume_source_with_suffix.removesuffix(suffix_to_remove)
         result_df = pd.DataFrame(index=df.index)
-
+        # 打印调试信息，确认列名是否正确处理
+        print(f"调试信息: [price_volume_ma_comparison] 周期: {timeframe_key}, price_source: '{price_source_col}', volume_source: '{volume_source_col}'")
         for p in periods:
             # --- 计算价格与均线比 ---
             if p == 1:
+                # 当周期为1时，均线就是其本身
                 price_ma_col = price_source_col
             else:
-                price_ma_col = f'EMA_{p}' # 均线名不带后缀，因为它们在同一批次被计算
-            
+                # 其他周期，使用预先计算好的EMA均线（无后缀）
+                price_ma_col = f'EMA_{p}'
             if price_source_col in df.columns and price_ma_col in df.columns:
                 price_ma_series = df[price_ma_col].replace(0, np.nan)
                 ratio = df[price_source_col] / price_ma_series
                 result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
+                # ▼▼▼ 修改: 更新日志输出，反映修正后的列名 ▼▼▼
                 logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
-
+                # ▲▲▲ 修改结束 ▲▲▲
             # --- 计算成交量与均量比 ---
             if p == 1:
+                # 当周期为1时，均量就是其本身
                 vol_ma_col = volume_source_col
             else:
-                vol_ma_col = f'VOL_MA_{p}' # 均量名不带后缀
-
+                # 其他周期，使用预先计算好的VOL_MA均量（无后缀）
+                vol_ma_col = f'VOL_MA_{p}'
             if volume_source_col in df.columns and vol_ma_col in df.columns:
                 vol_ma_series = df[vol_ma_col].replace(0, np.nan)
                 ratio = df[volume_source_col] / vol_ma_series
                 result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
+                # ▼▼▼ 修改: 更新日志输出，反映修正后的列名 ▼▼▼
                 logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
-
+                # ▲▲▲ 修改结束 ▲▲▲
         return result_df if not result_df.empty else None
 
 
