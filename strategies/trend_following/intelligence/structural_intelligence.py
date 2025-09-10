@@ -859,12 +859,6 @@ class StructuralIntelligence:
         consolidation_breakout_states = self.synthesize_consolidation_breakout_signals(df)
         consolidation_breakout_score_series = consolidation_breakout_states.get('SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A', default_series.copy())
         states.update(consolidation_breakout_states)
-        
-        # --- 调试信息：检查所有输入Series的值范围 ---
-        # 使用.fillna(0)处理潜在的NaN值，使max()能正常工作
-        print(f"    [调试] box_breakout_score_series max: {box_breakout_score_series.fillna(0).max():.4f}")
-        print(f"    [调试] platform_breakout_score_series max: {platform_breakout_score_series.fillna(0).max():.4f}")
-        print(f"    [调试] consolidation_breakout_score_series max: {consolidation_breakout_score_series.fillna(0).max():.4f}")
 
         # --- 2. 准备用于融合的Numpy数组，并执行健壮性检查 ---
         scores_to_reduce = []

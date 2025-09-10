@@ -141,7 +141,6 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_quality_score(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_contextual_zone_scores(df)
         # 5.2 基础认知分数合成
-        self.strategy.df_indicators = self.cognitive_intel.synthesize_behavioral_risks(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_holding_risks(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_regime_signals(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_volatility_breakout_signals(df)
@@ -153,12 +152,10 @@ class IntelligenceLayer:
         self.strategy.df_indicators = self.cognitive_intel.synthesize_divergence_risks(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_opportunity_risk_scores(df)
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
-        self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_exhaustion_signals(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_sustainability_signals(df)
         # 调用重构后的认知层方法，它们现在消费来自下层的合成信号
-        self.strategy.df_indicators = self.cognitive_intel.synthesize_classic_pattern_opportunity(df)
-        self.strategy.df_indicators = self.cognitive_intel.synthesize_shakeout_opportunities(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_tactical_opportunities(df)
+        self.strategy.df_indicators = self.cognitive_intel.synthesize_consolidation_breakout_signals(df)
         # 5.4 最终认知合成与主力行为推演
         self.strategy.df_indicators = self.cognitive_intel.synthesize_structural_fusion_scores(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_ultimate_confirmation_scores(df)

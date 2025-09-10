@@ -240,7 +240,6 @@ class ChipIntelligence:
         conc_accel_21 = normalize(df.get('ACCEL_21_concentration_90pct_D', default_score), ascending=False)
         # 融合三个条件，形成更严格的风险评分
         new_scores['CHIP_SCORE_RISK_WORSENING_TURN'] = (conc_slope_5_negative_score * conc_accel_5 * conc_accel_21).astype(np.float32)
-        print(f"          -> [调试] CHIP_SCORE_RISK_WORSENING_TURN (恶化拐点分) 最后5值: {new_scores['CHIP_SCORE_RISK_WORSENING_TURN'].tail(5).to_list()}")
         # --- 6. 计算 CHIP_SCORE_OPP_BREAKTHROUGH (突破机会分) ---
         # 逻辑: 具备黄金机会的结构基础，同时价格开始向上突破关键成本区。
         price_deviation_score = normalize(df.get('price_to_peak_ratio_D', default_score), ascending=True)
