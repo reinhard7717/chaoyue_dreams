@@ -21,7 +21,7 @@
       "vol_ma": {
         "enabled": true,
         "configs": [
-          { "apply_on": ["D", "5"], "periods": [21, 55] },
+          { "apply_on": ["D", "5"], "periods": [5, 13, 21, 55] },
           { "apply_on": ["W"], "periods": [5, 21, 55] }
         ]
       },
