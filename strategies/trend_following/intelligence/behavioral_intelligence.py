@@ -23,28 +23,47 @@ class BehavioralIntelligence:
         rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         return rank if ascending else 1 - rank
 
-    def diagnose_behavioral_dynamics_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 结构化健康度版】行为动态诊断核心引擎
-        - 核心重构 (本次修改):
-          - [逻辑优化] 遵循多时间维度交叉验证原则，重构了共振与反转信号的合成逻辑。
-          - [结构化信号] 将S/A/B级共振信号明确定义为短、中、长周期的健康度共振。
-          - [精准反转] 将反转信号明确定义为“中长周期趋势”与“短周期加速”的背离，更精准地捕捉转折点。
-          - [数据核对] 根据提供的“军械库清单”，在注释中明确了所需数据列及其完备性。
-        - 收益: 信号体系的逻辑层次更清晰，可解释性更强，信号置信度与定义直接挂钩。
-        - 数据需求说明 (根据“最终军械库清单”核对):
-          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D`: [缺失] 此为核心静态数据，当前缺失，策略层无法计算。假设数据完备。
-          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D`: [完备] 所有周期数据均存在。
-          - `SLOPE_{p}_volume_D`: [部分缺失] 缺失 p=1, 13, 21, 55 的数据。
-          - `ACCEL_{p}_volume_D`: [部分缺失] 缺失 p=1, 13, 21, 55 的数据。
-          - 结论: 引擎的核心依赖数据存在缺失，当前代码在假设数据完备的情况下运行。
+        【V2.0 终极信号版】行为情报模块总指挥
+        - 核心重构: 遵循分层架构原则，本模块不再返回一堆零散的原子信号。
+                      现在只调用唯一的终极信号引擎 `diagnose_ultimate_behavioral_signals`，
+                      并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
+        - 收益: 极大提升了信号质量和架构清晰度。上层模块只需消费这16个经过深度验证的终极行为信号。
         """
-        print("        -> [行为动态诊断核心引擎 V5.0 结构化健康度版] 启动...")
+        print("      -> [行为情报模块总指挥 V2.0 终极信号版] 启动...")        
+        # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
+        ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df)
+
+        print(f"      -> [行为情报模块总指挥 V2.0] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。") # 修改: 更新打印信息
+        return ultimate_behavioral_states
+
+    def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 终极行为信号诊断模块】
+        - 核心范式:
+          - 1. 深度交叉验证: 对每一时间周期，都计算一个融合了“价位、价动能、价加速、量缩、量动能、量加速”六个维度的“完美健康度”分数。
+          - 2. 信号组件化: 将不同周期的“完美健康度”组合成“短期力量”、“中期趋势”和“长期惯性”，使信号构建过程更透明。
+          - 3. 精炼共振信号 (逻辑与ChipIntelligence V3.2对齐):
+             - B级: 短期(5D)趋势健康。
+             - A级: 短期(5D)与中期(21D)趋势共振健康。
+             - S级: 短期力量(1D*5D)与中期趋势(13D*21D)共振健康。
+             - S+级: S级信号得到长期惯性(55D)的确认，形成全周期共振。
+          - 4. 精炼反转信号 (逻辑与ChipIntelligence V3.2对齐):
+             - B级: 出现1日反转健康度，对抗21日中期不健康趋势。
+             - A级: 形成5日反转健康度，对抗21日中期不健康趋势。
+             - S级: 形成短期看涨合力(1D*5D)，对抗55日长期不健康惯性。
+             - S+级: 形成短期看涨合力(1D*5D)，对抗中长期联合不健康惯性(21D*55D)。
+        - 数据需求:
+          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D`
+          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D`
+          - `SLOPE_{p}_volume_D`, `ACCEL_{p}_volume_D`
+        """
+        print("        -> [终极行为信号诊断模块 V1.0] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         required_cols = set()
@@ -56,115 +75,49 @@ class BehavioralIntelligence:
             ])
         missing_cols = list(required_cols - set(df.columns))
         if missing_cols:
-            print(f"          -> [严重警告] 行为动态引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            print(f"          -> [严重警告] 终极行为引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        
-        price_static = {p: self._normalize_series(df[f'price_vs_ma_{p}_D'], norm_window, min_periods) for p in periods}
-        price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
-        price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
-        vol_static = {p: self._normalize_series(df[f'volume_vs_ma_{p}_D'], norm_window, min_periods, ascending=False) for p in periods}
-        vol_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
-        vol_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
-
+        price_static = {p: self._normalize_series(df.get(f'price_vs_ma_{p}_D'), norm_window, min_periods) for p in periods}
+        price_mom = {p: self._normalize_series(df.get(f'SLOPE_{p}_close_D'), norm_window, min_periods) for p in periods}
+        price_accel = {p: self._normalize_series(df.get(f'ACCEL_{p}_close_D'), norm_window, min_periods) for p in periods}
+        vol_static = {p: self._normalize_series(df.get(f'volume_vs_ma_{p}_D'), norm_window, min_periods, ascending=False) for p in periods}
+        vol_mom = {p: self._normalize_series(df.get(f'SLOPE_{p}_volume_D'), norm_window, min_periods) for p in periods}
+        vol_accel = {p: self._normalize_series(df.get(f'ACCEL_{p}_volume_D'), norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
-        bearish_health = {}
         for p in periods:
-            # 看涨完美健康度 = 价位合理 * 价升 * 价加速 * 量缩(蓄势) * 量增趋势 * 量加速 (点火)
-            bullish_health[p] = price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p]
-            # 看跌完美健康度 = 价位危险 * 价跌 * 价减速 * 放量 * 量增趋势 * 量加速 (恐慌)
-            bearish_health[p] = (1 - price_static[p]) * (1 - price_mom[p]) * (1 - price_accel[p]) * (1 - vol_static[p]) * vol_mom[p] * vol_accel[p]
-
-        # --- 4. 共振信号合成 (Cross-Timeframe Validation) ---
-        # 4.1 看涨行为共振 (结构化定义)
-        # 定义不同时间尺度的健康度，使用几何平均值融合，避免分数过小
-        health_short_bullish = (bullish_health[1] * bullish_health[5])**0.5
-        health_mid_bullish = (bullish_health[13] * bullish_health[21])**0.5
-        health_long_bullish = bullish_health[55]
-        # B级: 中期趋势健康
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = health_mid_bullish.astype(np.float32)
-        # A级: 中长期趋势共振健康
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (health_mid_bullish * health_long_bullish).astype(np.float32)
-        # S级: 短中长周期全面共振
-        s_score_bullish = (health_short_bullish * health_mid_bullish * health_long_bullish)
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] = s_score_bullish.astype(np.float32)
-        # S+级: 完美风暴 (S级共振 * 短周期价量加速共振)
-        short_term_accel_resonance = (price_accel[1] * price_accel[5] * vol_accel[1] * vol_accel[5])**0.25
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'] = (s_score_bullish * short_term_accel_resonance).astype(np.float32)
-
-        # 4.2 看跌行为共振 (结构化定义)
-        health_short_bearish = (bearish_health[1] * bearish_health[5])**0.5
-        health_mid_bearish = (bearish_health[13] * bearish_health[21])**0.5
-        health_long_bearish = bearish_health[55]
-        # B级: 中期趋势不健康
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] = health_mid_bearish.astype(np.float32)
-        # A级: 中长期趋势共振不健康
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (health_mid_bearish * health_long_bearish).astype(np.float32)
-        # S级: 短中长周期全面共振不健康
-        s_score_bearish = (health_short_bearish * health_mid_bearish * health_long_bearish)
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = s_score_bearish.astype(np.float32)
-        # S+级: 完美崩溃 (S级共振 * 短周期价格减速共振)
-        short_term_decel_resonance = ((1 - price_accel[1]) * (1 - price_accel[5]))**0.5
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (s_score_bearish * short_term_decel_resonance).astype(np.float32)
-
-        # --- 5. 反转信号合成 (趋势 x 反向加速度) ---
-        # 5.1 底部反转 (中长线下跌趋势中，出现短线看涨加速信号)
-        mid_long_term_bearish_trend = (bearish_health[21] * bearish_health[55])**0.5
-        short_term_bullish_accel = (price_accel[1] * price_accel[5])**0.5
-        # B级信号: 出现短期看涨加速
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = short_term_bullish_accel.astype(np.float32)
-        # A级信号: 中长期下跌趋势 + 短期看涨加速
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (mid_long_term_bearish_trend * short_term_bullish_accel).astype(np.float32)
-        # S级信号: A级信号 + 出现超短周期(1日)的完整看涨健康度，确认反转意图
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] * bullish_health[1]).astype(np.float32)
-
-        # 5.2 顶部反转 (中长线上涨趋势中，出现短线看跌加速信号)
-        mid_long_term_bullish_trend = (bullish_health[21] * bullish_health[55])**0.5
-        short_term_bearish_accel = ((1 - price_accel[1]) * (1 - price_accel[5]))**0.5
-        # B级信号: 出现短期看跌加速
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = short_term_bearish_accel.astype(np.float32)
-        # A级信号: 中长期上涨趋势 + 短期看跌加速
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (mid_long_term_bullish_trend * short_term_bearish_accel).astype(np.float32)
-        # S级信号: A级信号 + 出现超短周期(1日)的完整看跌健康度，确认反转意图
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] * bearish_health[1]).astype(np.float32)
-
-        print(f"        -> [行为动态诊断核心引擎 V5.0] 分析完毕，生成 {len(states)} 个B/A/S/S+信号。")
+            bullish_health[p] = (price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p])
+        bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
+        # --- 4. 定义信号组件 ---
+        bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
+        bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5
+        bullish_long_inertia = bullish_health[55]
+        bearish_short_force = (bearish_health[1] * bearish_health[5])**0.5
+        bearish_medium_trend = (bearish_health[13] * bearish_health[21])**0.5
+        bearish_long_inertia = bearish_health[55]
+        # --- 5. 共振信号合成 ---
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = bullish_health[5].astype(np.float32)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (bullish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_B'] = bearish_health[5].astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (bearish_health[5] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
+        # --- 6. 反转信号合成 ---
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = (bullish_health[1] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (bullish_health[5] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = (bearish_health[1] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
+        print(f"        -> [终极行为信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
-
-    def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】行为情报模块总指挥
-        - 核心职责: 作为本模块唯一的公共入口，负责编排和调用所有内部的诊断与合成方法。
-        - 收益: 实现了高度的封装，上层模块无需关心内部实现细节，只需调用此方法即可获取所有行为信号。
-        """
-        # -> [新增] 此为全新的模块总指挥方法
-        print("      -> [行为情报模块总指挥] 启动...")
-        all_behavioral_states = {}
-
-        # 1. 调用核心动态引擎 (V4.0)
-        all_behavioral_states.update(self.diagnose_behavioral_dynamics_scores(df))
-        
-        # 2. 调用所有独立的原子/模式诊断模块
-        all_behavioral_states.update(self.diagnose_kline_patterns(df))
-        all_behavioral_states.update(self.diagnose_board_patterns(df))
-        all_behavioral_states.update(self.diagnose_price_volume_atomics(df))
-        all_behavioral_states.update(self.diagnose_advanced_atomic_signals(df))
-        all_behavioral_states.update(self.diagnose_multi_dimensional_resonance(df))
-
-        # 3. 调用需要特定参数的风险诊断模块
-        behavioral_params = get_params_block(self.strategy, 'behavioral_params', {})
-        all_behavioral_states.update(self.diagnose_volume_price_dynamics(df, behavioral_params))
-        
-        exit_params = get_params_block(self.strategy, 'exit_strategy_params', {})
-        upthrust_risk_score = self.diagnose_upthrust_distribution(df, exit_params)
-        all_behavioral_states[upthrust_risk_score.name] = upthrust_risk_score
-
-        print(f"      -> [行为情报模块总指挥] 分析完毕，共生成 {len(all_behavioral_states)} 个行为信号。")
-        return all_behavioral_states
 
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

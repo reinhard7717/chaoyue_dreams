@@ -1,27 +1,52 @@
 # 文件: strategies/management/commands/populate_playbooks.py
 import json
+from pathlib import Path
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from stock_models.stock_analytics import Playbook
+# 保持使用 utils.config_loader 来加载策略配置，因为它可能包含环境特定的逻辑
 from utils.config_loader import load_strategy_config
 
 class Command(BaseCommand):
-    help = 'Parses the strategy config and populates/updates the Playbook model.'
+    help = '【V3.0 配置文件驱动版】解析策略配置文件和信号字典，填充或更新Playbook模型。'
+
+    def _load_signal_dictionary(self):
+        """
+        【新增】独立加载信号字典文件。
+        """
+        # 修改: 从独立的 signal_dictionary.json 文件加载信号元数据
+        file_path = Path(settings.BASE_DIR) / 'config' / 'signal_dictionary.json'
+        self.stdout.write(f"  -> 正在从 '{file_path}' 加载信号字典...")
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # 字典的核心内容在 'score_type_map' 键下
+            return data.get('score_type_map', {})
+        except FileNotFoundError:
+            self.stderr.write(self.style.ERROR(f"错误: 无法在 '{file_path}' 找到信号字典文件。"))
+            return None
+        except json.JSONDecodeError:
+            self.stderr.write(self.style.ERROR(f"错误: 解析 '{file_path}' 文件失败，请检查JSON格式。"))
+            return None
 
     def _process_playbook(self, name, score, playbook_type, score_type_map, existing_map, to_create, to_update, processed_signals):
         """
-        【V2.2 查漏补缺版】处理单个playbook的创建或更新逻辑。
+        【V3.0 逻辑不变，增加注释】处理单个playbook的创建或更新逻辑。
         - 新增: 记录已处理的信号名，为后续的“查漏补缺”做准备。
         """
         if not name:
             return
 
+        # 从权威的信号字典中获取元数据
         signal_meta = score_type_map.get(name, {})
+        # 如果字典中没有中文名，则默认使用信号名本身
         cn_name = signal_meta.get('cn_name', name)
 
         playbook_obj = existing_map.get(name)
 
         if playbook_obj:
+            # 如果对象已存在，检查是否有字段需要更新
             has_changed = False
             if playbook_obj.cn_name != cn_name:
                 playbook_obj.cn_name = cn_name
@@ -37,6 +62,7 @@ class Command(BaseCommand):
             if has_changed:
                 to_update.append(playbook_obj)
         else:
+            # 如果对象不存在，则创建一个新的
             to_create.append(Playbook(
                 name=name,
                 cn_name=cn_name,
@@ -44,111 +70,39 @@ class Command(BaseCommand):
                 default_score=score
             ))
         
-        # 无论创建还是更新，都将此信号标记为已处理。
+        # 无论创建还是更新，都将此信号标记为已处理，防止在最终检查时重复处理
         processed_signals.add(name)
 
     def handle(self, *args, **options):
         """
-        【V2.3 定义驱动版】
-        - 核心升级: 增加了最终的“查漏补缺”循环。在处理完所有计分信号后，
-                    会再次遍历 `score_type_map`，确保那些没有直接分数但有定义的
-                    信号（如上下文、中间状态信号）也能被同步到数据库中。
-                    这确保了 Playbook 表的完整性。
+        【V3.0 配置文件驱动版】
+        - 核心升级: 适配了 `signal_dictionary.json` 和 `trend_follow_strategy.json` 的分离。
+        - 核心升级: 重构了解析逻辑，以匹配 `trend_follow_strategy.json` 中新的 `four_layer_scoring_params` 和 `fused_risk_scoring` 结构。
+        - 核心升级: 保留并强化了“定义驱动”的最终检查，确保 `signal_dictionary.json` 中定义的所有信号都被同步。
         """
-        self.stdout.write(self.style.SUCCESS('🚀 Starting Playbook population process (V2.3 Definition-Driven)...'))
+        self.stdout.write(self.style.SUCCESS('🚀 启动Playbook填充/更新流程 (V3.0 配置文件驱动版)...'))
 
-        try:
-            config = load_strategy_config('config/trend_follow_strategy.json')
-        except FileNotFoundError:
-            self.stderr.write(self.style.ERROR("错误: 无法在 'config/trend_follow_strategy.json' 找到配置文件。请确认文件是否存在。"))
+        # --- 步骤1: 读取和解析数据 (在事务之外执行) ---
+        strategy_config = load_strategy_config('config/trend_follow_strategy.json')
+        if not strategy_config:
+            self.stderr.write(self.style.ERROR("错误: 无法加载 'config/trend_follow_strategy.json'。进程终止。"))
+            return
+
+        # 修改: 从独立的JSON文件加载信号字典
+        score_type_map = self._load_signal_dictionary()
+        if not score_type_map:
+            self.stderr.write(self.style.ERROR("错误: 无法加载信号字典。进程终止。"))
             return
         
-        # --- 步骤1: 读取和解析数据 (在事务之外执行) ---
-        scoring_params = config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
-        score_type_map = scoring_params.get('score_type_map', {})
-
-        self.stdout.write('  -> Fetching existing playbooks from database...')
+        self.stdout.write('  -> 正在从数据库获取现有的playbooks...')
         existing_playbooks_map = {p.name: p for p in Playbook.objects.all()}
-        self.stdout.write(f'     Found {len(existing_playbooks_map)} existing playbooks.')
+        self.stdout.write(f'     已找到 {len(existing_playbooks_map)} 个现有的playbooks。')
 
         playbooks_to_create = []
         playbooks_to_update = []
         # 初始化一个集合，用于存储所有在计分模块中处理过的信号。
         processed_signals = set()
 
-        self.stdout.write('  -> Parsing offensive playbooks...')
-        offensive_sections = {
-            'composite_scoring': 'rules',
-            'positional_scoring': 'positive_signals',
-            'dynamic_scoring': 'positive_signals',
-            'trigger_events': 'scoring'
-        }
-        for section_key, data_key in offensive_sections.items():
-            section_data = scoring_params.get(section_key, {})
-            rules = section_data.get(data_key, [])
-            
-            if isinstance(rules, list):
-                for rule in rules:
-                    name = rule.get('name')
-                    score = rule.get('score', 0)
-                    self._process_playbook(
-                        name=name, score=score, playbook_type=Playbook.PlaybookType.OFFENSIVE,
-                        score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                        to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                    )
-            elif isinstance(rules, dict):
-                for name, score in rules.items():
-                    if name.startswith('说明_'): continue
-                    # 触发器信号在score_type_map中的key不带'trg_'前缀，但在数据库中需要带上以作区分。
-                    #           这里的逻辑保持不变，但在后续的查漏补缺中要注意这一点。
-                    is_trigger = section_key == 'trigger_events'
-                    db_name = name # 默认数据库名与配置文件名一致
-                    playbook_type = Playbook.PlaybookType.OFFENSIVE
-                    
-                    # 从 score_type_map 获取权威类型
-                    signal_type_from_map = score_type_map.get(name, {}).get('type')
-                    if signal_type_from_map == 'trigger':
-                        playbook_type = Playbook.PlaybookType.TRIGGER
-                    
-                    self._process_playbook(
-                        name=db_name, score=score, playbook_type=playbook_type,
-                        score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                        to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                    )
-        
-        self.stdout.write('  -> Parsing playbook-specific scores...')
-        playbook_scores = scoring_params.get('playbook_scoring', {})
-        for name, score in playbook_scores.items():
-            if name.startswith('说明_'): continue
-            self._process_playbook(
-                name=name, score=score, playbook_type=Playbook.PlaybookType.OFFENSIVE,
-                score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-            )
-
-        self.stdout.write('  -> Parsing risk playbooks...')
-        warning_rules = scoring_params.get('holding_warning_params', {}).get('signals', {})
-        for name, score in warning_rules.items():
-            if name and not name.startswith('说明_'):
-                self._process_playbook(
-                    name=name, score=score, playbook_type=Playbook.PlaybookType.RISK,
-                    score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                    to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                )
-
-        self.stdout.write('  -> Parsing exit strategies...')
-        exit_rules = scoring_params.get('critical_exit_params', {}).get('signals', {})
-        for name, score in exit_rules.items():
-            if name and not name.startswith('说明_'):
-                self._process_playbook(
-                    name=name, score=score, playbook_type=Playbook.PlaybookType.EXIT,
-                    score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                    to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                )
-
-        # 这是本次升级的核心。遍历 `score_type_map` 以确保所有已定义的信号都被同步。
-        self.stdout.write('  -> Final check: Ensuring all defined signals exist in database...')
-        unprocessed_count = 0
         # 定义从JSON类型字符串到模型枚举的映射
         TYPE_MAP = {
             "positional": Playbook.PlaybookType.OFFENSIVE,
@@ -160,36 +114,107 @@ class Command(BaseCommand):
             "context": Playbook.PlaybookType.CONTEXT,
             "unknown": Playbook.PlaybookType.UNKNOWN,
         }
+
+        def get_playbook_type(signal_name):
+            """根据信号名字从字典中查找并返回正确的Playbook类型枚举。"""
+            meta = score_type_map.get(signal_name, {})
+            type_str = meta.get('type', 'unknown')
+            return TYPE_MAP.get(type_str, Playbook.PlaybookType.UNKNOWN)
+
+        # --- 步骤2: 解析策略配置文件中的计分项 ---
+        trend_follow_params = strategy_config.get('strategy_params', {}).get('trend_follow', {})
+        scoring_params = trend_follow_params.get('four_layer_scoring_params', {})
+
+        # 修改: 解析新的四层计分结构中的字典部分
+        self.stdout.write('  -> 正在解析进攻与触发器信号...')
+        dict_based_sections = {
+            'contextual_setup_scoring': 'positive_signals',
+            'playbook_synergy_scoring': 'positive_signals',
+            'dynamic_scoring': 'positive_signals',
+            'trigger_event_scoring': 'positive_signals',
+        }
+        for section_key, data_key in dict_based_sections.items():
+            section_data = scoring_params.get(section_key, {})
+            rules = section_data.get(data_key, {})
+            if isinstance(rules, dict):
+                for name, score in rules.items():
+                    if name.startswith('说明_'): continue
+                    self._process_playbook(
+                        name=name, score=score, playbook_type=get_playbook_type(name),
+                        score_type_map=score_type_map, existing_map=existing_playbooks_map,
+                        to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
+                    )
+
+        # 修改: 单独解析 composite_scoring (列表结构)
+        composite_data = scoring_params.get('composite_scoring', {})
+        rules = composite_data.get('rules', [])
+        if isinstance(rules, list):
+            for rule in rules:
+                name = rule.get('name')
+                score = rule.get('score', 0)
+                self._process_playbook(
+                    name=name, score=score, playbook_type=get_playbook_type(name),
+                    score_type_map=score_type_map, existing_map=existing_playbooks_map,
+                    to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
+                )
+
+        # 修改: 解析新的 fused_risk_scoring 结构
+        self.stdout.write('  -> 正在解析融合风险信号...')
+        fused_risk_data = scoring_params.get('fused_risk_scoring', {})
+        risk_categories = fused_risk_data.get('risk_categories', {})
+        for category_name, signals in risk_categories.items():
+            if isinstance(signals, dict):
+                for name, score in signals.items():
+                    if name.startswith('说明_'): continue
+                    # 对于风险信号，我们明确其类型为RISK
+                    self._process_playbook(
+                        name=name, score=score, playbook_type=Playbook.PlaybookType.RISK,
+                        score_type_map=score_type_map, existing_map=existing_playbooks_map,
+                        to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
+                    )
+
+        # 修改: 解析 critical_exit_params (致命离场信号)
+        self.stdout.write('  -> 正在解析致命离场信号...')
+        exit_rules = trend_follow_params.get('critical_exit_params', {}).get('signals', {})
+        for name, score in exit_rules.items():
+            if name and not name.startswith('说明_'):
+                # 对于离场信号，我们明确其类型为EXIT
+                self._process_playbook(
+                    name=name, score=score, playbook_type=Playbook.PlaybookType.EXIT,
+                    score_type_map=score_type_map, existing_map=existing_playbooks_map,
+                    to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
+                )
+
+        # --- 步骤3: 最终检查，确保所有在字典中定义的信号都已同步 ---
+        self.stdout.write('  -> 最终检查: 确保所有已定义的信号都存在于数据库中...')
+        unprocessed_count = 0
         for name, meta in score_type_map.items():
             if name.startswith('说明_'): continue
             
             # 如果信号在计分模块中未被处理过，则在此处补上
             if name not in processed_signals:
                 unprocessed_count += 1
-                signal_type_str = meta.get('type', 'unknown')
-                playbook_type = TYPE_MAP.get(signal_type_str, Playbook.PlaybookType.UNKNOWN)
-                
-                # 这些信号没有直接分数，因此分数为0
+                # 这些信号没有直接分数，因此默认分数为0
                 self._process_playbook(
-                    name=name, score=0, playbook_type=playbook_type,
+                    name=name, score=0, playbook_type=get_playbook_type(name),
                     score_type_map=score_type_map, existing_map=existing_playbooks_map,
                     to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
                 )
         if unprocessed_count > 0:
-            self.stdout.write(f'     Found and processed {unprocessed_count} definition-only signals (without direct scores).')
+            self.stdout.write(f'     发现并处理了 {unprocessed_count} 个仅在字典中定义 (无直接分数) 的信号。')
 
-        # --- 步骤2: 执行数据库写入 (在独立的、短小的事务中执行) ---
+        # --- 步骤4: 执行数据库写入 (在独立的、短小的事务中执行) ---
         if playbooks_to_create:
             with transaction.atomic():
                 Playbook.objects.bulk_create(playbooks_to_create)
-            self.stdout.write(self.style.SUCCESS(f'✅ Successfully CREATED {len(playbooks_to_create)} new playbooks.'))
+            self.stdout.write(self.style.SUCCESS(f'✅ 成功创建 {len(playbooks_to_create)} 个新的playbooks。'))
 
         if playbooks_to_update:
             with transaction.atomic():
                 fields_to_update = ['cn_name', 'default_score', 'playbook_type']
                 Playbook.objects.bulk_update(playbooks_to_update, fields_to_update)
-            self.stdout.write(self.style.SUCCESS(f'✅ Successfully UPDATED {len(playbooks_to_update)} existing playbooks.'))
+            self.stdout.write(self.style.SUCCESS(f'✅ 成功更新 {len(playbooks_to_update)} 个现有的playbooks。'))
 
         if not playbooks_to_create and not playbooks_to_update:
-            self.stdout.write(self.style.WARNING('ℹ️ No new or updated playbooks found. Database is up to date.'))
+            self.stdout.write(self.style.WARNING('ℹ️ 未发现新的或需要更新的playbooks。数据库已是最新状态。'))
 

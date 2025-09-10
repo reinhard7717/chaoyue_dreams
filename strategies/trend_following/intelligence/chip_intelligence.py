@@ -71,17 +71,23 @@ class ChipIntelligence:
 
     def diagnose_cross_validation_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 交叉验证版】终极共振与反转信号诊断模块
-        - 核心范式: 引入“因子共振”与“时间共振”双重交叉验证，生成最高置信度的交易信号。
-          - 1. 因子共振: 在同一时间周期内，对多个逻辑相关的指标（如集中度、成本、健康度）进行乘法融合，
-                        要求所有因子必须同向运动，形成“因子共振”。
-          - 2. 时间共振: 将“因子共振”的结论，在多个关键时间周期（1D, 5D, 21D）上再次进行乘法融合，
-                        要求趋势在日、周、月级别上形成“时间共振”。
-          - 3. 加速验证: 将“时间共振”的信号，与关键因子的“加速度共振”相乘，作为最高S级信号。
-        - A股实战考量: 采用最严格的“乘法”融合，杜绝了“平均主义”的模糊信号，确保了信号的纯粹性和可靠性。
-                        反转信号的定义基于“长短期共振的尖锐对立”，精准捕捉趋势的转折点。
+        【V3.2 信号逻辑精炼版】终极共振与反转信号诊断模块
+        - 核心范式 (V3.2 升级):
+          - 1. 深度交叉验证: 保持对每一因子在每一时间周期上进行“静态-斜率-加速度”三重验证，形成“已验证的周期共振分”，确保信号源的高质量。
+          - 2. 信号组件化定义: 为提升逻辑清晰度和实战意义，将周期共振分显式组合为“短期力量”、“中期趋势”和“长期惯性”，使信号构建过程更透明。
+          - 3. 精炼共振信号分级:
+             - B级: 短期(5D)趋势出现。
+             - A级: 短期(5D)与中期(21D)趋势共振。
+             - S级: 短期力量(1D*5D)与中期趋势(13D*21D)共振。
+             - S+级: S级信号得到长期惯性(55D)的确认，形成全周期共振。
+          - 4. 精炼反转信号分级:
+             - B级: 出现1日反转火花，对抗21日中期趋势。
+             - A级: 形成5日反转力量，对抗21日中期趋势。
+             - S级: 形成短期反转合力(1D*5D)，对抗55日长期惯性。
+             - S+级: 形成短期反转合力(1D*5D)，对抗中长期联合惯性(21D*55D)。
+        - A股实战考量: V3.2的信号体系更贴近交易员的思维模式，清晰地划分了“观察(B) -> 建仓(A) -> 加仓(S) -> 持有(S+)”的决策过程，为不同风险偏好的策略提供了更精细的输入。
         """
-        print("        -> [交叉验证诊断模块 V1.0] 启动，正在生成终极共振与反转信号...")
+        print("        -> [交叉验证诊断模块 V3.2 信号逻辑精炼版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'cross_validation_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -90,101 +96,113 @@ class ChipIntelligence:
         # --- 1. 参数与辅助函数定义 ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        periods = get_param_value(p.get('resonance_periods'), [1, 5, 21]) # 定义用于时间共振的关键周期
+        periods = get_param_value(p.get('resonance_periods'), [1, 5, 13, 21, 55])
 
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
 
         # --- 2. 定义信号因子组 (Signal Factor Groups) ---
-        # 定义哪些因子组合可以构成一个逻辑自洽的“共振”
         SIGNAL_GROUPS = {
             'BULLISH': {
-                'concentration_90pct_D': 'down', # 集中度斜率向下（集中）
-                'peak_cost_D': 'up',             # 成本斜率向上（抬高）
-                'chip_health_score_D': 'up',     # 健康分斜率向上（改善）
-                'peak_control_ratio_D': 'up',    # 控盘度斜率向上（增强）
+                'concentration_90pct_D': 'down', # 集中度
+                'peak_cost_D': 'up',             # 成本
+                'chip_health_score_D': 'up',     # 健康分
+                'peak_control_ratio_D': 'up',    # 控盘度
             },
             'BEARISH': {
-                'concentration_90pct_D': 'up',   # 集中度斜率向上（发散）
-                'peak_cost_D': 'down',           # 成本斜率向下（降低）
-                'chip_health_score_D': 'down',   # 健康分斜率向下（恶化）
-                'winner_profit_margin_D': 'down',# 获利盘安全垫斜率向下（派发）
+                'concentration_90pct_D': 'up',   # 集中度
+                'peak_cost_D': 'down',           # 成本
+                'chip_health_score_D': 'down',   # 健康分
+                'winner_profit_margin_D': 'down',# 获利盘安全垫
             }
         }
 
-        # --- 3. 计算每个周期的“因子共振”分数 ---
-        factor_resonance_scores = {'BULLISH': {}, 'BEARISH': {}}
-        accel_resonance_scores = {'BULLISH': {}, 'BEARISH': {}}
-
+        # --- 3. 深度交叉验证与周期共振分计算 ---
+        period_validated_resonance = {'BULLISH': {}, 'BEARISH': {}}
+        print("        -> 开始计算所有周期的深度交叉验证共振分...") # 修改: 简化打印信息
         for group_name, factors in SIGNAL_GROUPS.items():
-            # 3.1 计算斜率的因子共振
             for period in periods:
-                period_resonance = pd.Series(1.0, index=df.index)
+                current_period_resonance = pd.Series(1.0, index=df.index)
                 for factor, direction in factors.items():
-                    col_name = f'SLOPE_{period}_{factor}'
-                    if col_name in df.columns:
-                        ascending = (direction == 'up')
-                        period_resonance *= normalize(df[col_name], ascending=ascending)
-                    else:
-                        print(f"          -> [交叉验证警告] 缺失斜率数据: {col_name}")
-                        period_resonance *= 0.5 # 缺失数据时给予中性惩罚
-                factor_resonance_scores[group_name][period] = period_resonance
-            
-            # 3.2 计算加速度的因子共振 (仅使用1日周期，捕捉最即时的变化)
-            accel_resonance = pd.Series(1.0, index=df.index)
-            for factor, direction in factors.items():
-                col_name = f'ACCEL_1_{factor}'
-                if col_name in df.columns:
+                    static_col = factor
+                    slope_col = f'SLOPE_{period}_{factor}'
+                    accel_col = f'ACCEL_{period}_{factor}'
                     ascending = (direction == 'up')
-                    accel_resonance *= normalize(df[col_name], ascending=ascending)
-                else:
-                    print(f"          -> [交叉验证警告] 缺失加速度数据: {col_name}")
-                    accel_resonance *= 0.5
-            accel_resonance_scores[group_name] = accel_resonance
+                    
+                    static_score = normalize(df[static_col], ascending=ascending) if static_col in df.columns else pd.Series(0.5, index=df.index)
+                    slope_score = normalize(df[slope_col], ascending=ascending) if slope_col in df.columns else pd.Series(0.5, index=df.index)
+                    accel_score = normalize(df[accel_col], ascending=ascending) if accel_col in df.columns else pd.Series(0.5, index=df.index)
+                    
+                    if static_col not in df.columns: print(f"            -> [交叉验证警告] 缺失静态数据: {static_col}")
+                    if slope_col not in df.columns: print(f"            -> [交叉验证警告] 缺失斜率数据: {slope_col}")
+                    if accel_col not in df.columns: print(f"            -> [交叉验证警告] 缺失加速度数据: {accel_col}")
 
-        # --- 4. 计算“时间共振”分数与最终信号 ---
-        # 4.1 上升共振信号 (Rising Resonance)
-        bullish_scores = factor_resonance_scores['BULLISH']
-        bullish_temporal_resonance = pd.Series(1.0, index=df.index)
-        for period in periods:
-            bullish_temporal_resonance *= bullish_scores[period]
+                    validated_factor_score = static_score * slope_score * accel_score
+                    current_period_resonance *= validated_factor_score
+                
+                period_validated_resonance[group_name][period] = current_period_resonance
+        print("        -> 所有周期的深度交叉验证共振分计算完毕。") # 修改: 简化打印信息
+
+        # --- 4. 基于“周期共振分”构建 B/A/S/S+ 四级信号 ---
+        bullish_scores = period_validated_resonance['BULLISH']
+        bearish_scores = period_validated_resonance['BEARISH']
+
+        # 新增: 显式定义信号组件，提升可读性和逻辑清晰度
+        bullish_short_force = bullish_scores[1] * bullish_scores[5]
+        bullish_medium_trend = bullish_scores[13] * bullish_scores[21]
+        bullish_long_inertia = bullish_scores[55]
         
-        new_scores['SCORE_RISING_RESONANCE_B'] = bullish_scores[5].astype(np.float32) # B级: 短期(5日)因子共振
-        new_scores['SCORE_RISING_RESONANCE_A'] = (bullish_scores[5] * bullish_scores[21]).astype(np.float32) # A级: 短中期因子共振
-        new_scores['SCORE_RISING_RESONANCE_S'] = (bullish_temporal_resonance * accel_resonance_scores['BULLISH']).astype(np.float32) # S级: 全周期+加速度共振
+        bearish_short_force = bearish_scores[1] * bearish_scores[5]
+        bearish_medium_trend = bearish_scores[13] * bearish_scores[21]
+        bearish_long_inertia = bearish_scores[55]
 
-        # 4.2 下跌共振信号 (Falling Resonance)
-        bearish_scores = factor_resonance_scores['BEARISH']
-        bearish_temporal_resonance = pd.Series(1.0, index=df.index)
-        for period in periods:
-            bearish_temporal_resonance *= bearish_scores[period]
-
-        new_scores['SCORE_FALLING_RESONANCE_B'] = bearish_scores[5].astype(np.float32)
-        new_scores['SCORE_FALLING_RESONANCE_A'] = (bearish_scores[5] * bearish_scores[21]).astype(np.float32)
-        new_scores['SCORE_FALLING_RESONANCE_S'] = (bearish_temporal_resonance * accel_resonance_scores['BEARISH']).astype(np.float32)
-
-        # --- 5. 计算“反转”信号 ---
-        # 5.1 底部反转: 长期下跌共振(惯性) + 短期上升共振(边际变化)
-        long_term_bearish_inertia = bearish_scores[21]
-        short_term_bullish_turn = bullish_scores[1] * bullish_scores[5]
-        bottom_reversal_score = short_term_bullish_turn * long_term_bearish_inertia
+        # 4.1 上升共振信号 (Rising Resonance) - # 修改: 使用信号组件重构
+        score_rising_b = bullish_scores[5]
+        score_rising_a = bullish_scores[5] * bullish_scores[21]
+        score_rising_s = bullish_short_force * bullish_medium_trend
+        score_rising_s_plus = score_rising_s * bullish_long_inertia
         
-        new_scores['SCORE_BOTTOM_REVERSAL_B'] = (bullish_scores[1]).astype(np.float32) # B级: 1日因子共振出现
-        new_scores['SCORE_BOTTOM_REVERSAL_A'] = (bullish_scores[1] * bearish_scores[21]).astype(np.float32) # A级: 1日看涨 vs 21日看跌
-        new_scores['SCORE_BOTTOM_REVERSAL_S'] = (bottom_reversal_score * accel_resonance_scores['BULLISH']).astype(np.float32) # S级: A级信号+看涨加速
+        new_scores['SCORE_RISING_RESONANCE_B'] = score_rising_b.astype(np.float32)
+        new_scores['SCORE_RISING_RESONANCE_A'] = score_rising_a.astype(np.float32)
+        new_scores['SCORE_RISING_RESONANCE_S'] = score_rising_s.astype(np.float32)
+        new_scores['SCORE_RISING_RESONANCE_S_PLUS'] = score_rising_s_plus.astype(np.float32)
 
-        # 5.2 顶部反转: 长期上升共振(惯性) + 短期下跌共振(边际变化)
-        long_term_bullish_inertia = bullish_scores[21]
-        short_term_bearish_turn = bearish_scores[1] * bearish_scores[5]
-        top_reversal_score = short_term_bearish_turn * long_term_bullish_inertia
+        # 4.2 下跌共振信号 (Falling Resonance) - # 修改: 使用信号组件重构
+        score_falling_b = bearish_scores[5]
+        score_falling_a = bearish_scores[5] * bearish_scores[21]
+        score_falling_s = bearish_short_force * bearish_medium_trend
+        score_falling_s_plus = score_falling_s * bearish_long_inertia
 
-        new_scores['SCORE_TOP_REVERSAL_B'] = (bearish_scores[1]).astype(np.float32)
-        new_scores['SCORE_TOP_REVERSAL_A'] = (bearish_scores[1] * bullish_scores[21]).astype(np.float32)
-        new_scores['SCORE_TOP_REVERSAL_S'] = (top_reversal_score * accel_resonance_scores['BEARISH']).astype(np.float32)
+        new_scores['SCORE_FALLING_RESONANCE_B'] = score_falling_b.astype(np.float32)
+        new_scores['SCORE_FALLING_RESONANCE_A'] = score_falling_a.astype(np.float32)
+        new_scores['SCORE_FALLING_RESONANCE_S'] = score_falling_s.astype(np.float32)
+        new_scores['SCORE_FALLING_RESONANCE_S_PLUS'] = score_falling_s_plus.astype(np.float32)
 
-        # --- 6. 更新DataFrame ---
+        # 4.3 底部反转信号 (Bottom Reversal) - # 修改: 使用信号组件重构
+        score_bottom_b = bullish_scores[1] * bearish_scores[21]
+        score_bottom_a = bullish_scores[5] * bearish_scores[21]
+        score_bottom_s = bullish_short_force * bearish_long_inertia
+        score_bottom_s_plus = bullish_short_force * bearish_scores[21] * bearish_long_inertia
+
+        new_scores['SCORE_BOTTOM_REVERSAL_B'] = score_bottom_b.astype(np.float32)
+        new_scores['SCORE_BOTTOM_REVERSAL_A'] = score_bottom_a.astype(np.float32)
+        new_scores['SCORE_BOTTOM_REVERSAL_S'] = score_bottom_s.astype(np.float32)
+        new_scores['SCORE_BOTTOM_REVERSAL_S_PLUS'] = score_bottom_s_plus.astype(np.float32)
+
+        # 4.4 顶部反转信号 (Top Reversal) - # 修改: 使用信号组件重构
+        score_top_b = bearish_scores[1] * bullish_scores[21]
+        score_top_a = bearish_scores[5] * bullish_scores[21]
+        score_top_s = bearish_short_force * bullish_long_inertia
+        score_top_s_plus = bearish_short_force * bullish_scores[21] * bullish_long_inertia
+
+        new_scores['SCORE_TOP_REVERSAL_B'] = score_top_b.astype(np.float32)
+        new_scores['SCORE_TOP_REVERSAL_A'] = score_top_a.astype(np.float32)
+        new_scores['SCORE_TOP_REVERSAL_S'] = score_top_s.astype(np.float32)
+        new_scores['SCORE_TOP_REVERSAL_S_PLUS'] = score_top_s_plus.astype(np.float32)
+
+        # --- 5. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print(f"        -> [交叉验证诊断模块 V1.0] 计算完毕，新增 {len(new_scores)} 个终极信号。")
+        print(f"        -> [交叉验证诊断模块 V3.2 信号逻辑精炼版] 计算完毕，新增 {len(new_scores)} 个终极信号。")
         return df
 
     def diagnose_composite_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -268,7 +286,7 @@ class ChipIntelligence:
         - 核心升级(V1.1): 新增“亢奋上涨预警”评分，用于识别市场过热的宏观状态。
         - 收益: 为下游所有模块提供了最关键的宏观背景判断。
         """
-        print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 启动...") # 修改: 更新打印信息
+        print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_strategic_context_params', {})
         if not get_param_value(p.get('enabled'), True):
