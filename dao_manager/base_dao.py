@@ -679,7 +679,6 @@ class BaseDAO(Generic[T]):
                     # 现在: lambda x: getattr(x, field.target_field.name)
                     # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
                     target_field_name = field.target_field.name
-                    # print(f"调试信息: 正在转换外键字段 '{field_name}' (列: '{column_name}')。将使用关联模型的 '{target_field_name}' 字段作为值。")
                     df[column_name] = df[field_name].apply(
                         lambda x: getattr(x, target_field_name) if pd.notna(x) else None
                     )
@@ -710,27 +709,21 @@ class BaseDAO(Generic[T]):
         """
         if df.empty:
             return 0
-
         # 为目标表定义一个唯一的锁键
         lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
-        
         # 通过 CacheManager 获取 Redis 客户端并加锁
         try:
             # 1. 确保 CacheManager 中的 Redis 客户端已初始化
             redis_client = await self.cache_manager._ensure_client()
-
             # 2. 检查客户端是否成功获取
             if not redis_client:
                 logger.error(f"无法从 CacheManager 获取 Redis 客户端，跳过分布式锁。表: {model_class._meta.db_table}")
                 # 在这种关键失败情况下，可以选择抛出异常以停止操作，避免无保护的并发写入
                 raise ConnectionError("无法获取 Redis 客户端，数据库操作被中止以保证数据安全。")
-
-            # print(f"调试信息: 准备为表 {model_class._meta.db_table} 获取分布式锁: {lock_key}")
             # 3. 使用获取到的客户端执行加锁操作
             # blocking_timeout 设置了获取锁的最长等待时间，防止无限等待
             async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
-                # print(f"调试信息: 成功获取锁 {lock_key}，开始处理批次...")
                 for i in range(0, len(df), batch_size):
                     batch_df = df.iloc[i:i + batch_size]
                     try:
@@ -747,8 +740,6 @@ class BaseDAO(Generic[T]):
                         logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}", exc_info=True)
                 
                 logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
-                # print(f"调试信息: 批处理完成，即将释放锁 {lock_key}")
-
         except Exception as lock_error:
             # 处理获取锁时可能发生的错误（例如，等待锁超时或连接失败）
             logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
@@ -795,7 +786,6 @@ class BaseDAO(Generic[T]):
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
-
         # --- 死锁预防：按唯一键排序 ---
         # 创建字段名到列名的映射
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
@@ -803,9 +793,7 @@ class BaseDAO(Generic[T]):
         unique_columns = [field_to_column_map.get(f, f) for f in unique_key_fields]
         # 检查排序列是否存在于DataFrame中，然后排序
         if all(col in df.columns for col in unique_columns):
-            # print(f"调试信息: 正在按唯一键 {unique_columns} 对批次数据进行排序以防止死锁。")
             df.sort_values(by=unique_columns, inplace=True)
-
         # --- SQL构建阶段 (与之前版本相同) ---
         all_columns = list(df.columns)
         cols_sql = ", ".join([f"`{col}`" for col in all_columns])
@@ -845,7 +833,6 @@ class BaseDAO(Generic[T]):
                     # 计算随机等待时间并重试
                     wait_time = (0.1 + random.uniform(0, 0.2)) * (attempt + 1)
                     logger.warning(f"捕获到数据库死锁，将在 {wait_time:.2f} 秒后进行第 {attempt + 1}/{max_retries} 次重试...")
-                    print(f"调试信息: 捕获到数据库死锁，将在 {wait_time:.2f} 秒后进行第 {attempt + 1}/{max_retries} 次重试...")
                     time.sleep(wait_time)
                 else:
                     # 如果是其他数据库错误，则直接抛出
@@ -894,7 +881,6 @@ class BaseDAO(Generic[T]):
         # 关键假设：我们假设您的 StockInfo 模型中，用来唯一标识股票的字段名叫 'stock_code'。
         # 如果字段名是 'code' 或其他名称，请务必修改下面这行。
         lookup_field = 'stock_code'
-        
         try:
             # 使用 Django ORM 的 get_or_create，它会原子性地尝试获取，如果不存在则创建。
             # 它返回一个元组 (instance, created_boolean)。
@@ -903,10 +889,6 @@ class BaseDAO(Generic[T]):
                 # 如果需要创建，可以提供默认值
                 # defaults={'stock_name': '未知', ...} 
             )
-            if created:
-                # 如果是新创建的，打印一条日志，方便调试。
-                # print(f"调试信息: [FK-Sync] 在 '{fk_model.__name__}' 表中新创建了记录: {code_value}")
-                pass
             return instance
         except Exception as e:
             # 捕获可能的数据库错误或其他问题，并记录详细日志。

@@ -57,17 +57,14 @@ class StrategiesDAO(BaseDAO):
         """
         【最终版DAO方法】根据标准化的字典列表，批量创建或更新月线趋势策略报告。
         此方法取代了旧的、基于DataFrame的 save_..._by_trade_date 方法。
-
         Args:
             reports_data (List[Dict[str, Any]]): 
                 一个字典列表，每个字典都由策略的 _prepare_db_record 方法生成，
                 包含了所有需要存入数据库的字段。
-
         Returns:
             int: 成功创建或更新的记录数量。
         """
         if not reports_data:
-            print("调试信息: [DAO] 传入的报告数据列表为空，不执行任何操作。")
             return 0
 
         # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
@@ -79,30 +76,24 @@ class StrategiesDAO(BaseDAO):
             if not stock_code:
                 print(f"调试信息: [DAO] 报告字典缺少 'stock_code'，跳过此条记录: {report_dict}")
                 continue
-            
             # 异步获取StockInfo对象
             stock_instance = await self.stock_basic_dao.get_stock_by_code(stock_code)
             if not stock_instance:
                 print(f"调试信息: [DAO] 在数据库中未找到股票: {stock_code}，跳过此条记录。")
                 continue
-            
             # 构造用于数据库操作的最终字典
             # 核心逻辑：用获取到的 stock_instance 替换掉原来的 stock_code
             db_ready_dict = report_dict.copy()
             db_ready_dict['stock'] = stock_instance
             del db_ready_dict['stock_code'] # 删除临时的stock_code键
-
             # Django ORM 在处理 None 值时比 np.nan 更健壮，这里做一个转换确保万无一失
             for key, value in db_ready_dict.items():
                 if pd.isna(value):
                     db_ready_dict[key] = None
-            
             data_list_for_db.append(db_ready_dict)
-
         if not data_list_for_db:
             print("调试信息: [DAO] 所有记录都因数据问题被跳过，未执行数据库操作。")
             return 0
-
         # 调用底层的批量更新/插入方法
         # 注意：这里的 unique_fields 必须是模型中 unique_together 定义的字段名
         result_stats = await self._save_all_to_db_native_upsert(
@@ -110,7 +101,6 @@ class StrategiesDAO(BaseDAO):
             data_list=data_list_for_db,
             unique_fields=['stock', 'trade_time']
         )
-        
         # 返回成功处理的记录数
         success_count = result_stats.get("创建/更新成功", 0)
         print(f"调试信息: [DAO] 批量保存完成。尝试: {len(reports_data)}, 成功: {success_count}")
@@ -129,7 +119,6 @@ class StrategiesDAO(BaseDAO):
             int: 成功创建或更新的记录数量。
         """
         if not reports_data:
-            # print("调试信息: [DAO-TrendFollow] 传入的报告数据列表为空，不执行任何操作。")
             return 0
 
         # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
@@ -169,7 +158,6 @@ class StrategiesDAO(BaseDAO):
         )
         
         success_count = result_stats.get("创建/更新成功", 0)
-        # print(f"调试信息: [DAO-TrendFollow] 批量保存完成。尝试: {len(reports_data)}, 成功: {success_count}")
         return success_count
 
     # --- 【终极性能优化】使用窗口函数替换所有逻辑 ---
@@ -685,7 +673,6 @@ class StrategiesDAO(BaseDAO):
         """
         # 1. 根据股票代码动态获取对应的分表模型
         MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-        # print(f"调试信息: 正在为股票 {stock_code} 查询分表模型: {MetricsModel.__name__}") # 增加调试信息，清晰展示当前使用的模型
 
         # 2. 使用动态获取的模型构建基础查询集，替换了原有的 AdvancedChipMetrics.objects
         queryset = MetricsModel.objects.filter(stock__stock_code=stock_code)

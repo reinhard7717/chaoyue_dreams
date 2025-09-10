@@ -540,17 +540,14 @@ class FundFlowDao(BaseDAO):
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         # 2. 分页拉取并处理数据
         offset = 0
         limit = 6000
         all_data_to_save = [] # 用于累积所有批次处理好的数据
-
         while True:
             if offset >= 100000:
                 logger.warning(f"板块资金流向数据 - 同花顺 offset已达10万，停止拉取。")
                 break
-
             print(f"调试信息: 正在从Tushare拉取数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_cnt_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
@@ -558,47 +555,36 @@ class FundFlowDao(BaseDAO):
                 "trade_date", "ts_code", "name", "lead_stock", "close_price", "pct_change", "industry_index", "company_num", "pct_change_stock", 
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
-
             if df.empty:
-                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            
             original_count = len(df)
-            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
-
             # 3. 向量化数据清洗与转换
             # 3.1 清洗空值和无效行
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
             if df.empty:
-                print("调试信息: 数据清洗后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
                 offset += limit
                 continue
-
             # 3.2 向量化处理外键关联 (核心性能优化)
             unique_codes = df['ts_code'].unique().tolist()
             # 假设 industry_dao 中有一个批量获取的方法，这是最佳实践
             # 如果没有，您需要添加它。实现示例: return {obj.ts_code: obj for obj in ThsIndex.objects.filter(ts_code__in=codes)}
             ths_index_map = await self.industry_dao.get_ths_indices_by_codes(unique_codes)
             df['ths_index'] = df['ts_code'].map(ths_index_map)
-            
             # 过滤掉数据库中不存在对应ThsIndex的记录
             df.dropna(subset=['ths_index'], inplace=True)
             if df.empty:
                 logger.warning(f"当前批次所有ts_code均未在ThsIndex表中找到对应记录。")
-                print("调试信息: 关联ThsIndex后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
                 offset += limit
                 continue
-
             # 3.3 向量化数据类型转换
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
             # 3.4 将NaN替换为None，以适应数据库存储
             # 选择模型需要的列，并确保顺序和命名正确
             final_columns = [
@@ -607,34 +593,24 @@ class FundFlowDao(BaseDAO):
                 'net_sell_amount', 'net_amount'
             ]
             df_final = df[final_columns]
-            
             # 将Pandas的NaN转换为Python的None
             df_processed = df_final.where(pd.notnull(df_final), None)
-
             # 4. 累积处理好的数据
             all_data_to_save.extend(df_processed.to_dict('records'))
-            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
-
             # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
             offset += limit
-
         # 6. 一次性批量保存到数据库
         if not all_data_to_save:
             logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何有效数据。")
-            print("调试信息: 没有可保存的数据。")
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
-        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
-        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['ths_index', 'trade_time']
         result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntTHS,
             data_list=all_data_to_save,
             unique_fields=['ths_index', 'trade_time']
         )
-        
         # 使用 f-string 格式化输出
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 板块资金流向数据（同花顺），result: {result}")
@@ -660,12 +636,10 @@ class FundFlowDao(BaseDAO):
         offset = 0
         limit = 6000
         all_data_to_save = [] # 用于累积所有批次处理好的数据
-
         while True:
             if offset >= 100000:
                 logger.warning(f"历史板块资金流向数据 - 东方财富 offset已达10万，停止拉取。")
                 break
-
             print(f"调试信息: 正在从Tushare拉取东方财富数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_ind_dc(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
@@ -674,45 +648,34 @@ class FundFlowDao(BaseDAO):
                 "buy_elg_amount_rate", "buy_lg_amount", "buy_lg_amount_rate", "buy_md_amount", "buy_md_amount_rate", "buy_sm_amount", 
                 "buy_sm_amount_rate", "buy_sm_amount_stock", "rank"
             ])
-
             if df.empty:
-                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            
             original_count = len(df)
-            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
-
             # 3. 向量化数据清洗与转换
             # 3.1 清洗空值和无效行
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
             if df.empty:
-                print("调试信息: 数据清洗后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
                 offset += limit
                 continue
-
             # 3.2 向量化处理外键关联 (核心性能优化)
             unique_codes = df['ts_code'].unique().tolist()
             dc_index_map = await self.industry_dao.get_dc_indices_by_codes(unique_codes)
             df['dc_index'] = df['ts_code'].map(dc_index_map)
-            
             # 过滤掉数据库中不存在对应DcIndex的记录
             df.dropna(subset=['dc_index'], inplace=True)
             if df.empty:
                 logger.warning(f"当前批次所有ts_code均未在DcIndex表中找到对应记录。")
-                print("调试信息: 关联DcIndex后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
                 offset += limit
                 continue
-
             # 3.3 向量化数据类型转换
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
             # 3.4 准备用于保存的数据
             # 选择模型需要的列，并确保命名与模型字段一致
             # 注意：模型中没有rank字段，所以我们不选择它
@@ -723,28 +686,20 @@ class FundFlowDao(BaseDAO):
                 'buy_sm_amount_rate', 'buy_sm_amount_stock'
             ]
             df_final = df[final_columns]
-            
             # 将Pandas的NaN转换为Python的None
             df_processed = df_final.where(pd.notnull(df_final), None)
-
             # 4. 累积处理好的数据
             all_data_to_save.extend(df_processed.to_dict('records'))
-            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
-
             # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
             offset += limit
-
         # 6. 一次性批量保存到数据库
         if not all_data_to_save:
             logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何东方财富板块资金流数据。")
-            print("调试信息: 没有可保存的数据。")
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
-        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
-        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['dc_index', 'trade_time']
+        # unique_fields 从 ['stock', 'trade_time'] 修正为 ['dc_index', 'trade_time']
         result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowCntDC,
             data_list=all_data_to_save,
@@ -796,7 +751,6 @@ class FundFlowDao(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"行业资金流向数据 - 同花顺 offset已达10万，停止拉取。")
                 break
-
             print(f"调试信息: 正在从Tushare拉取同花顺行业资金流数据, offset={offset}, limit={limit}")
             df = self.ts_pro.moneyflow_ind_ths(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
@@ -804,20 +758,14 @@ class FundFlowDao(BaseDAO):
                 "trade_date", "ts_code", "industry", "lead_stock", "close", "pct_change", "company_num", "pct_change_stock", "close_price", 
                 "net_buy_amount", "net_sell_amount", "net_amount"
             ])
-
             if df.empty:
-                print("调试信息: Tushare返回数据为空，拉取结束。")
                 break
-            
             original_count = len(df)
-            print(f"调试信息: 成功拉取 {original_count} 条数据，开始进行向量化处理。")
-
             # 3. 向量化数据清洗与转换
             # 3.1 清洗空值和无效行
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
             if df.empty:
-                print("调试信息: 数据清洗后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
@@ -834,7 +782,6 @@ class FundFlowDao(BaseDAO):
             df.dropna(subset=['ths_index'], inplace=True)
             if df.empty:
                 logger.warning(f"当前批次所有ts_code均未在ThsIndex表中找到对应记录。")
-                print("调试信息: 关联ThsIndex后，当前批次无有效数据。")
                 time.sleep(0.2)
                 if original_count < limit:
                     break
@@ -852,36 +799,25 @@ class FundFlowDao(BaseDAO):
                 'net_sell_amount', 'net_amount'
             ]
             df_final = df[final_columns]
-            
             # 将Pandas的NaN转换为Python的None
             df_processed = df_final.where(pd.notnull(df_final), None)
-
             # 4. 累积处理好的数据
             all_data_to_save.extend(df_processed.to_dict('records'))
-            print(f"调试信息: 当前批次处理完成，获得 {len(df_processed)} 条有效数据。累计待保存数据: {len(all_data_to_save)} 条。")
-
             # 5. 分页逻辑 
             time.sleep(0.2)
             if original_count < limit:
                 break
             offset += limit
-
         # 6. 一次性批量保存到数据库
         if not all_data_to_save:
             logger.warning(f"在日期范围 {start_date_str}-{end_date_str} 内没有找到或处理任何同花顺行业资金流数据。")
-            print("调试信息: 没有可保存的数据。")
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
-        print(f"调试信息: 所有数据拉取和处理完成，准备将 {len(all_data_to_save)} 条数据一次性保存到数据库。")
-        # 【逻辑修正】unique_fields 从 ['stock', 'trade_time'] 修正为 ['ths_index', 'trade_time']
+        # unique_fields 从 ['stock', 'trade_time'] 修正为 ['ths_index', 'trade_time']
         result = await self._save_all_to_db_native_upsert(
             model_class=FundFlowIndustryTHS,
             data_list=all_data_to_save,
             unique_fields=['ths_index', 'trade_time']
         )
-        
-        
-        
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         # 【修正打印信息】将“板块”修正为“行业”
         print(f"完成 {date_range_info} 行业资金流向数据（同花顺），result: {result}")
@@ -892,7 +828,7 @@ class FundFlowDao(BaseDAO):
         """
         【V2.0 - 逻辑修正与向量化优化版】保存历史大盘资金流向数据 - 东方财富
         核心优化:
-        1. 【逻辑修正】移除错误的 stock 关联。大盘资金流数据与个股无关，其唯一性由交易日期保证。
+        1. 移除错误的 stock 关联。大盘资金流数据与个股无关，其唯一性由交易日期保证。
         2. 【性能优化】采用向量化处理替代逐行循环，一次性完成数据清洗和类型转换。
         3. 【代码健壮性】保留分页逻辑以支持大数据量拉取，并增强日志信息。
         """
@@ -1198,19 +1134,15 @@ class FundFlowDao(BaseDAO):
 
                 # 检查是否已超出每日限制
                 if current_count > API_DAILY_LIMIT:
-                    # print(f"调试信息: hm_detail 接口今日调用次数已达上限({API_DAILY_LIMIT}次)，停止获取新数据。")
                     logger.warning(f"接口 hm_detail 今日调用次数已达上限({API_DAILY_LIMIT}次)，Key: {api_limit_key}")
                     # 将刚刚多加的1次减回去，保持计数准确
                     await redis_client.decr(api_limit_key)
                     break # 退出循环，不再调用API
-
                 print(f"调试信息: 正在进行今日第 {current_count}/{API_DAILY_LIMIT} 次 hm_detail 接口调用...")
-
             except Exception as e:
                 logger.error(f"执行Redis API调用限制检查时出错: {e}", exc_info=True)
                 # 如果Redis检查失败，为安全起见，直接中断任务
                 break
-
             # --- 原有的API调用逻辑 ---
             try:
                 df = self.ts_pro.hm_detail(**{

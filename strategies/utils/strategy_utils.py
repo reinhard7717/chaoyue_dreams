@@ -1123,41 +1123,25 @@ def calculate_macd_score(macd_series: pd.Series, macd_d: pd.Series, macd_h: pd.S
     # 3. 一般多头动量 (MACDh红柱，且增长或在高位)
     bullish_momentum_cond = not_cross_cond & macd_h_positive & macd_h_growing
     score.loc[bullish_momentum_cond] = np.maximum(score.loc[bullish_momentum_cond], 60.0)
-
     # 4. 一般空头动量 (MACDh绿柱，且增长(绝对值)或在低位)
     bearish_momentum_cond = not_cross_cond & macd_h_negative & macd_h_shrinking
     score.loc[bearish_momentum_cond] = np.minimum(score.loc[bearish_momentum_cond], 40.0)
-
     # 5. 多头动能减弱 (MACDh红柱但缩短)
     bullish_weakening = not_cross_cond & macd_h_positive & macd_h_shrinking & (macd_s > macd_d_s) # 确保仍在金叉状态之上
     score.loc[bullish_weakening] = np.maximum(score.loc[bullish_weakening], 55.0) # 比中性略高，但低于动能增强
     score.loc[bullish_weakening & (score > 60.0)] = np.minimum(score.loc[bullish_weakening & (score > 60.0)], 60.0) # 如果之前分数很高，适当回调
-
     # 6. 空头动能减弱 (MACDh绿柱但缩短，即绝对值减小)
     bearish_weakening = not_cross_cond & macd_h_negative & macd_h_growing & (macd_s < macd_d_s) # 确保仍在死叉状态之下
     score.loc[bearish_weakening] = np.minimum(score.loc[bearish_weakening], 45.0) # 比中性略低，但高于动能增强
     score.loc[bearish_weakening & (score < 40.0)] = np.maximum(score.loc[bearish_weakening & (score < 40.0)], 40.0) # 如果之前分数很低，适当回调
-
     # 7. MACD/DEA 在零轴上方且 MACD > DEA，但动能不显著 (维持多头看法)
     above_zero_hold_bullish = not_cross_cond & (macd_s > macd_d_s) & (macd_d_s > -ZERO_THRESHOLD) & \
                                 ~(bullish_momentum_cond | strong_bullish_momentum | bullish_weakening)
     score.loc[above_zero_hold_bullish] = np.maximum(score.loc[above_zero_hold_bullish], 58.0)
-
     # 8. MACD/DEA 在零轴下方且 MACD < DEA，但动能不显著 (维持空头看法)
     below_zero_hold_bearish = not_cross_cond & (macd_s < macd_d_s) & (macd_d_s < ZERO_THRESHOLD) & \
                                 ~(bearish_momentum_cond | strong_bearish_momentum | bearish_weakening)
     score.loc[below_zero_hold_bearish] = np.minimum(score.loc[below_zero_hold_bearish], 42.0)
-
-    # 调试信息
-    # print(f"调试信息: MACD Series (head):\n{macd_s.head()}")
-    # print(f"调试信息: DEA Series (head):\n{macd_d_s.head()}")
-    # print(f"调试信息: MACDh Series (head):\n{macd_h_s.head()}")
-    # print(f"调试信息: DEA Slope (head):\n{dea_slope.head()}")
-    # print(f"调试信息: Buy Crosses (sum): {buy_cross.sum()}")
-    # print(f"调试信息: Sell Crosses (sum): {sell_cross.sum()}")
-    # temp_df = pd.DataFrame({'macd': macd_s, 'dea': macd_d_s, 'hist': macd_h_s, 'buy_X': buy_cross, 'sell_X': sell_cross, 'dea_slope': dea_slope, 'score_before_clip': score})
-    # print(f"调试信息: Scores before clip (head):\n{temp_df.head().to_string()}")
-
     return score.clip(0, 100)
 
 def calculate_rsi_score(rsi: pd.Series, params: Dict) -> pd.Series:
@@ -1616,29 +1600,16 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     # 使用 _safe_fillna_series 填充，确保CCI序列没有NaN值
     # 确保cci_s被正确填充，如果原始cci全为NaN，则返回中性分数
     cci_s, = _safe_fillna_series([cci], [0.0]) # CCI 中性0
-    # 调试信息
-    # print(f"调试信息: 原始CCI序列头部:\n{cci.head()}")
-    # print(f"调试信息: 填充后CCI序列头部:\n{cci_s.head()}")
-    # print(f"调试信息: 原始CCI序列是否全为NaN: {cci.isnull().all()}")
-    # print(f"调试信息: 填充后CCI序列是否全为NaN: {cci_s.isnull().all()}")
-
     # 如果填充后的CCI序列仍然全部是NaN（这不应该发生，但作为安全检查），则返回中性分数
     if cci_s.isnull().all():
         # 返回一个全为50的Series，并确保索引正确
         print("调试信息: 填充后的CCI序列仍然全部是NaN，返回中性分数。")
         return pd.Series(50.0, index=cci.index).clip(0,100)
-
     # 初始化评分序列，所有值默认为50（中性）
     score = pd.Series(50.0, index=cci_s.index)
-    # 调试信息
-    # print(f"调试信息: 初始评分序列头部:\n{score.head()}")
-
     # 从 params 字典获取参数
     threshold = params.get('threshold', 100)
     ext_threshold = params.get('extreme_threshold', 200)
-    # 调试信息
-    # print(f"调试信息: 阈值: {threshold}, 极端阈值: {ext_threshold}")
-
     # --- 1. 极端超买/超卖区域评分 (0-5, 95-100) ---
     # 这些是最高优先级，直接设置分数，并带有轻微的梯度，使分数在极端情况下更接近0或100。
     # 增加极端区域的梯度评分逻辑
@@ -1648,9 +1619,6 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     score.loc[cond_extreme_bull] = 95.0 + ((-ext_threshold - cci_s.loc[cond_extreme_bull]) / ext_threshold).clip(0, 1) * 5.0
     # CCI远高于ext_threshold时，分数从5向0趋近
     score.loc[cond_extreme_bear] = 5.0 - ((cci_s.loc[cond_extreme_bear] - ext_threshold) / ext_threshold).clip(0, 1) * 5.0
-    # 调试信息
-    # print(f"调试信息: 极端区域评分后:\n{score.head()}")
-
     # --- 2. 强超买/超卖区域评分 (5-15, 85-95) ---
     # 在极端阈值和普通阈值之间，分数呈线性梯度变化，提供更精细的超买超卖程度。
     # 增加强超买/超卖区域的线性梯度评分逻辑
@@ -1660,9 +1628,6 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     score.loc[cond_strong_bull] = 95.0 - ((cci_s.loc[cond_strong_bull] + ext_threshold) / (ext_threshold - threshold)) * 10.0
     # 从threshold到ext_threshold，分数从15线性减少到5
     score.loc[cond_strong_bear] = 15.0 - ((cci_s.loc[cond_strong_bear] - threshold) / (ext_threshold - threshold)) * 10.0
-    # 调试信息
-    # print(f"调试信息: 强区域评分后:\n{score.head()}")
-
     # --- 3. 交叉信号评分 (更强的买卖信号) ---
     # 这些信号表示CCI穿越关键阈值，具有较强的指示意义，使用np.maximum/np.minimum确保分数只朝有利方向调整。
     # 优先处理从极端区域穿越的信号，赋予更高权重。
@@ -1677,9 +1642,6 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     score.loc[sell_signal_from_extreme] = np.minimum(score.loc[sell_signal_from_extreme], 10.0)
     score.loc[buy_signal_from_oversold] = np.maximum(score.loc[buy_signal_from_oversold], 75.0)
     score.loc[sell_signal_from_overbought] = np.minimum(score.loc[sell_signal_from_overbought], 25.0)
-    # 调试信息
-    # print(f"调试信息: 交叉信号评分后:\n{score.head()}")
-
     # --- 4. 中性区域评分 (40-60) ---
     # 在中性区域内，根据CCI的位置和动量进行更精细的评分。
     neutral_zone_cond = (cci_s >= -threshold) & (cci_s <= threshold)
@@ -1701,9 +1663,6 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     # 从0到threshold，分数从50线性减少到45
     score.loc[cond_neutral_bearish_proximity] = np.minimum(score.loc[cond_neutral_bearish_proximity],
                                                            50.0 - (cci_s.loc[cond_neutral_bearish_proximity] / threshold) * 5.0)
-    # 调试信息
-    # print(f"调试信息: 中性区域靠近阈值评分后:\n{score.head()}")
-
     # 4.2. 中性区域内的动量评分 (40-60)
     # CCI在中性区域内上涨或下跌的幅度越大，趋势越明显，分数调整幅度越大。
     # 增加中性区域内的动量评分逻辑
@@ -1715,10 +1674,6 @@ def calculate_cci_score(cci: pd.Series, params: Dict) -> pd.Series:
     # 根据CCI变化幅度，分数在50基础上减少，最低到40
     score.loc[bearish_momentum_neutral] = np.minimum(score.loc[bearish_momentum_neutral],
                                                      50.0 - (abs(cci_diff.loc[bearish_momentum_neutral]) / threshold).clip(0, 1) * 10.0)
-    # 调试信息
-    # print(f"调试信息: 中性区域动量评分后:\n{score.head()}")
-
-    # 确保最终分数在0到100之间
     # 确保最终分数被裁剪到0-100范围
     return score.clip(0, 100)
 
@@ -1752,7 +1707,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     mfi_s_shifted2 = mfi_s.shift(2)
 
     # 1. 极度超卖区 (MFI < ext_os_thresh) - 看涨信号强烈
-    # 修改开始：增强极度超卖区评分逻辑
+    # 增强极度超卖区评分逻辑
     ext_os_cond = mfi_s < ext_os_thresh
     score.loc[ext_os_cond] = np.maximum(score.loc[ext_os_cond], 90.0) # 基础分90
     # 深化：如果MFI在极度超卖区进一步下跌（更超卖），信号更强
@@ -1767,7 +1722,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 2. 极度超买区 (MFI > ext_ob_thresh) - 看跌信号强烈
-    # 修改开始：增强极度超买区评分逻辑
+    # 增强极度超买区评分逻辑
     ext_ob_cond = mfi_s > ext_ob_thresh
     score.loc[ext_ob_cond] = np.minimum(score.loc[ext_ob_cond], 10.0) # 基础分10
     # 深化：如果MFI在极度超买区进一步上涨（更超买），信号更强
@@ -1782,7 +1737,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 3. 超卖区 (ext_os_thresh <= MFI < os_thresh) - 看涨信号较强
-    # 修改开始：细化超卖区评分，使用线性插值
+    # 细化超卖区评分，使用线性插值
     os_zone_cond = (mfi_s >= ext_os_thresh) & (mfi_s < os_thresh)
     if os_thresh > ext_os_thresh: # 避免除以零
         # MFI 越接近 ext_os_thresh，分数越高 (逼近90分)
@@ -1795,7 +1750,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 4. 超买区 (ob_thresh < MFI <= ext_ob_thresh) - 看跌信号较强
-    # 修改开始：细化超买区评分，使用线性插值
+    # 细化超买区评分，使用线性插值
     ob_zone_cond = (mfi_s > ob_thresh) & (mfi_s <= ext_ob_thresh)
     if ext_ob_thresh > ob_thresh: # 避免除以零
         # MFI 越接近 ext_ob_thresh，分数越低 (逼近11分)
@@ -1808,7 +1763,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 5. 买入信号 (MFI 从下方上穿超卖线 os_thresh)
-    # 修改开始：强化交叉信号
+    # 强化交叉信号
     buy_signal_cond = (mfi_s_shifted1 < os_thresh) & (mfi_s >= os_thresh)
     score.loc[buy_signal_cond] = np.maximum(score.loc[buy_signal_cond], 75.0) # 基础交叉分75
     # 如果从极度超卖区上穿，信号更强
@@ -1817,7 +1772,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 6. 卖出信号 (MFI 从上方下穿超买线 ob_thresh)
-    # 修改开始：强化交叉信号
+    # 强化交叉信号
     sell_signal_cond = (mfi_s_shifted1 > ob_thresh) & (mfi_s <= ob_thresh)
     score.loc[sell_signal_cond] = np.minimum(score.loc[sell_signal_cond], 25.0) # 基础交叉分25
     # 如果从极度超买区下穿，信号更强
@@ -1826,7 +1781,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 修改结束
 
     # 7. 中性区域 (os_thresh <= MFI <= ob_thresh 且非上述买卖信号点)
-    # 修改开始：丰富中性区评分逻辑，考虑趋势和加速度
+    # 丰富中性区评分逻辑，考虑趋势和加速度
     not_signal_cond = ~buy_signal_cond & ~sell_signal_cond # 非信号日
     neutral_zone_cond = (mfi_s >= os_thresh) & (mfi_s <= ob_thresh) & not_signal_cond
 
@@ -1868,45 +1823,23 @@ def calculate_roc_score(roc: pd.Series) -> pd.Series:
     """
     # 使用 _safe_fillna_series 填充ROC中的NaN值，中性值为0
     roc_s, = _safe_fillna_series([roc], [0.0])
-    # 调试信息：打印原始roc_s的前几行
-    # print(f"调试信息: 原始roc_s头部:\n{roc_s.head()}")
-
     # 如果所有ROC值都为NaN（经过填充后可能不会出现，但作为安全检查保留）
     if roc_s.isnull().all():
-        # print("调试信息: roc_s全部为NaN，返回默认分数。")
-        # 修改行：返回一个填充了50.0的Series，并确保索引一致
         return pd.Series(50.0, index=roc.index).clip(0, 100)
-
     # 初始化所有分数为中性值50.0
-    # 修改行：明确指定score的数据类型为float
     score = pd.Series(50.0, index=roc_s.index, dtype=float)
-    # 调试信息：打印初始score的前几行
-    # print(f"调试信息: 初始score头部:\n{score.head()}")
-
     # 优化：预计算前一天的ROC值，避免重复计算
-    # 修改行：预计算roc_s的shift(1)值
     roc_s_prev = roc_s.shift(1)
-    # 调试信息：打印roc_s_prev的前几行
-    # print(f"调试信息: roc_s_prev头部:\n{roc_s_prev.head()}")
-
     # 1. 交叉信号 (优先级最高，直接设定分数)
     # 买入交叉：ROC从负值变为非负值
-    # 修改行：使用预计算的roc_s_prev
     buy_cross = (roc_s_prev < 0) & (roc_s >= 0)
     # 卖出交叉：ROC从正值变为非正值
-    # 修改行：使用预计算的roc_s_prev
     sell_cross = (roc_s_prev > 0) & (roc_s <= 0)
-
     # 赋予交叉信号更高的权重和更明确的指示性分数
-    # 修改行：买入交叉分数调整为80.0，更强烈的买入信号
     score.loc[buy_cross] = 80.0
-    # 修改行：卖出交叉分数调整为20.0，更强烈的卖出信号
     score.loc[sell_cross] = 20.0
-    # 调试信息：打印交叉信号后的score
-    # print(f"调试信息: 交叉信号后score头部:\n{score.head()}")
-
     # 优化：预计算非交叉条件，减少后续重复计算
-    # 修改行：预计算非交叉条件
+    # 预计算非交叉条件
     not_cross_cond = ~buy_cross & ~sell_cross
 
     # 2. ROC值幅度贡献 (在非交叉区域，根据ROC的绝对值强度调整分数)
@@ -1923,70 +1856,59 @@ def calculate_roc_score(roc: pd.Series) -> pd.Series:
     roc_neutral = (roc_s >= -1) & (roc_s <= 1)
 
     # 在非交叉区域，根据ROC幅度调整分数，使用np.maximum/minimum确保分数合理叠加
-    # 修改行：强劲上涨，分数上限提高到90.0
+    # 强劲上涨，分数上限提高到90.0
     score.loc[not_cross_cond & roc_positive_strong] = np.maximum(score.loc[not_cross_cond & roc_positive_strong], 90.0)
-    # 修改行：温和上涨，分数上限调整为70.0
+    # 温和上涨，分数上限调整为70.0
     score.loc[not_cross_cond & roc_positive_moderate] = np.maximum(score.loc[not_cross_cond & roc_positive_moderate], 70.0)
-    # 修改行：强劲下跌，分数下限降低到10.0
+    # 强劲下跌，分数下限降低到10.0
     score.loc[not_cross_cond & roc_negative_strong] = np.minimum(score.loc[not_cross_cond & roc_negative_strong], 10.0)
-    # 修改行：温和下跌，分数下限调整为30.0
+    # 温和下跌，分数下限调整为30.0
     score.loc[not_cross_cond & roc_negative_moderate] = np.minimum(score.loc[not_cross_cond & roc_negative_moderate], 30.0)
-    # 修改行：中性区域，明确设置为50.0
+    # 中性区域，明确设置为50.0
     score.loc[not_cross_cond & roc_neutral] = 50.0
-    # 调试信息：打印幅度贡献后的score
-    # print(f"调试信息: 幅度贡献后score头部:\n{score.head()}")
-
     # 3. 趋势强度贡献 (在非交叉区域，根据ROC的变化率调整分数)
     # 优化：计算ROC变化量
-    # 修改行：计算ROC的变化量
+    # 计算ROC的变化量
     roc_change = roc_s - roc_s_prev
-    # 调试信息：打印roc_change的前几行
-    # print(f"调试信息: roc_change头部:\n{roc_change.head()}")
-
     # 强劲上涨趋势：ROC为正且显著增加 (变化量大于1.5)
-    # 修改行：增加变化量阈值，使强劲趋势更难达成
+    # 增加变化量阈值，使强劲趋势更难达成
     strong_bullish_trend = (roc_s > 0) & (roc_change > 1.5) & not_cross_cond
     # 温和上涨趋势：ROC为正且温和增加 (变化量在(0, 1.5]之间)
-    # 修改行：定义温和上涨趋势的条件
+    # 定义温和上涨趋势的条件
     moderate_bullish_trend = (roc_s > 0) & (roc_change > 0) & (roc_change <= 1.5) & not_cross_cond
     # 强劲下跌趋势：ROC为负且显著减少 (变化量小于-1.5)
-    # 修改行：增加变化量阈值，使强劲趋势更难达成
+    # 增加变化量阈值，使强劲趋势更难达成
     strong_bearish_trend = (roc_s < 0) & (roc_change < -1.5) & not_cross_cond
     # 温和下跌趋势：ROC为负且温和减少 (变化量在[-1.5, 0)之间)
-    # 修改行：定义温和下跌趋势的条件
+    # 定义温和下跌趋势的条件
     moderate_bearish_trend = (roc_s < 0) & (roc_change < 0) & (roc_change >= -1.5) & not_cross_cond
 
     # 趋势衰减：ROC方向与趋势相反，但未交叉
     # 牛市衰退：ROC为正但开始下降
-    # 修改行：定义牛市衰退的条件
+    # 定义牛市衰退的条件
     bullish_waning = (roc_s > 0) & (roc_change < 0) & not_cross_cond
     # 熊市衰退：ROC为负但开始上升
-    # 修改行：定义熊市衰退的条件
+    # 定义熊市衰退的条件
     bearish_waning = (roc_s < 0) & (roc_change > 0) & not_cross_cond
 
     # 应用趋势贡献，进一步调整分数，使用np.maximum/minimum进行叠加
-    # 修改行：强劲上涨趋势，分数上限提高到95.0
+    # 强劲上涨趋势，分数上限提高到95.0
     score.loc[strong_bullish_trend] = np.maximum(score.loc[strong_bullish_trend], 95.0)
-    # 修改行：温和上涨趋势，分数上限调整为75.0
+    # 温和上涨趋势，分数上限调整为75.0
     score.loc[moderate_bullish_trend] = np.maximum(score.loc[moderate_bullish_trend], 75.0)
-    # 修改行：强劲下跌趋势，分数下限降低到5.0
+    # 强劲下跌趋势，分数下限降低到5.0
     score.loc[strong_bearish_trend] = np.minimum(score.loc[strong_bearish_trend], 5.0)
-    # 修改行：温和下跌趋势，分数下限调整为25.0
+    # 温和下跌趋势，分数下限调整为25.0
     score.loc[moderate_bearish_trend] = np.minimum(score.loc[moderate_bearish_trend], 25.0)
 
     # 衰退趋势会使分数向中性靠拢
-    # 修改行：牛市衰退，分数下限调整为60.0
+    # 牛市衰退，分数下限调整为60.0
     score.loc[bullish_waning] = np.minimum(score.loc[bullish_waning], 60.0)
-    # 修改行：熊市衰退，分数上限调整为40.0
+    # 熊市衰退，分数上限调整为40.0
     score.loc[bearish_waning] = np.maximum(score.loc[bearish_waning], 40.0)
-    # 调试信息：打印趋势贡献后的score
-    # print(f"调试信息: 趋势贡献后score头部:\n{score.head()}")
-
     # 确保最终分数在0-100之间
-    # 修改行：对最终分数进行裁剪，确保在有效范围内
+    # 对最终分数进行裁剪，确保在有效范围内
     final_score = score.clip(0, 100)
-    # 调试信息：打印最终score的前几行
-    # print(f"调试信息: 最终score头部:\n{final_score.head()}")
     return final_score
 
 def calculate_dmi_score(pdi: pd.Series, ndi: pd.Series, adx: pd.Series, params: Dict) -> pd.Series:
@@ -2170,8 +2092,6 @@ def calculate_dmi_score(pdi: pd.Series, ndi: pd.Series, adx: pd.Series, params: 
 
     # 最终分数裁剪到0-100范围，确保有效性
     final_score = score.clip(0, 100) # 最终分数裁剪
-
-    # print(f"调试信息: DMI评分计算完成，返回Series长度: {len(final_score)}") # 添加调试信息
     return final_score
 
 def calculate_sar_score(close: pd.Series, sar: pd.Series) -> pd.Series:
@@ -2277,21 +2197,17 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
     # K线或D线进入极端超卖区，评分设为95
     extreme_oversold_cond = (k_s < ext_os) | (d_s < ext_os)
     score.loc[extreme_oversold_cond] = 95.0 # 极端超卖区评分
-    # print(f"调试信息: 极端超卖区应用，影响 {extreme_oversold_cond.sum()} 个点。") # 调试信息
     # K线或D线进入极端超买区，评分设为5
     extreme_overbought_cond = (k_s > ext_ob) | (d_s > ext_ob)
     score.loc[extreme_overbought_cond] = 5.0 # 极端超买区评分
-    # print(f"调试信息: 极端超买区应用，影响 {extreme_overbought_cond.sum()} 个点。") # 调试信息
 
     # --- 2. 超买/超卖区评分 (次高优先级，在极端区之上应用最大/最小限制) ---
     # K线或D线进入超卖区 (非极端超卖)，评分至少为85
     oversold_cond = ((k_s >= ext_os) & (k_s < os)) | ((d_s >= ext_os) & (d_s < os))
     score.loc[oversold_cond] = np.maximum(score.loc[oversold_cond], 85.0) # 超卖区评分
-    # print(f"调试信息: 超卖区应用，影响 {oversold_cond.sum()} 个点。") # 调试信息
     # K线或D线进入超买区 (非极端超买)，评分至多为15
     overbought_cond = ((k_s <= ext_ob) & (k_s > ob)) | ((d_s <= ext_ob) & (d_s > ob))
     score.loc[overbought_cond] = np.minimum(score.loc[overbought_cond], 15.0) # 超买区评分
-    # print(f"调试信息: 超买区应用，影响 {overbought_cond.sum()} 个点。") # 调试信息
 
     # --- 3. "钩子"或反转信号 (从极端区反转，强信号) ---
     # K线从极端超卖区向上反转 (前一周期在极端超卖区，当前周期K线向上且回到非极端区)
@@ -2300,36 +2216,30 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
     d_bull_hook = (d_s.shift(1) < ext_os) & (d_s > d_s.shift(1)) & (d_s >= ext_os) # D线向上钩子条件
     any_bull_hook = k_bull_hook | d_bull_hook # 组合K/D线向上钩子条件
     score.loc[any_bull_hook] = np.maximum(score.loc[any_bull_hook], 90.0) # 向上钩子评分
-    # print(f"调试信息: 向上钩子信号应用，影响 {any_bull_hook.sum()} 个点。") # 调试信息
     # K线从极端超买区向下反转
     k_bear_hook = (k_s.shift(1) > ext_ob) & (k_s < k_s.shift(1)) & (k_s <= ext_ob) # K线向下钩子条件
     # D线从极端超买区向下反转
     d_bear_hook = (d_s.shift(1) > ext_ob) & (d_s < d_s.shift(1)) & (d_s <= ext_ob) # D线向下钩子条件
     any_bear_hook = k_bear_hook | d_bear_hook # 组合K/D线向下钩子条件
     score.loc[any_bear_hook] = np.minimum(score.loc[any_bear_hook], 10.0) # 向下钩子评分
-    # print(f"调试信息: 向下钩子信号应用，影响 {any_bear_hook.sum()} 个点。") # 调试信息
 
     # --- 4. 动量/斜率分析 (K线和D线同时强劲上涨/下跌) ---
     # K线和D线同时强劲上涨
     strong_bull_momentum = (k_slope > slope_threshold) & (d_slope > slope_threshold) # 强劲上涨动量条件
     # 在现有评分基础上增加，但不超过100
     score.loc[strong_bull_momentum] = np.clip(score.loc[strong_bull_momentum] + 3, 0, 100) # 强劲上涨动量评分调整
-    # print(f"调试信息: 强劲上涨动量应用，影响 {strong_bull_momentum.sum()} 个点。") # 调试信息
     # K线和D线同时强劲下跌
     strong_bear_momentum = (k_slope < -slope_threshold) & (d_slope < -slope_threshold) # 强劲下跌动量条件
     # 在现有评分基础上减少，但不低于0
     score.loc[strong_bear_momentum] = np.clip(score.loc[strong_bear_momentum] - 3, 0, 100) # 强劲下跌动量评分调整
-    # print(f"调试信息: 强劲下跌动量应用，影响 {strong_bear_momentum.sum()} 个点。") # 调试信息
 
     # --- 5. K-D价差分析 (K线和D线之间距离的变化) ---
     # K线在D线之上且价差扩大 (多头动量增强)
     bullish_spread_strengthening = (k_s > d_s) & (kd_spread.diff() > spread_change_threshold) # 多头价差增强条件
     score.loc[bullish_spread_strengthening] = np.clip(score.loc[bullish_spread_strengthening] + 2, 0, 100) # 多头价差增强评分调整
-    # print(f"调试信息: 多头价差增强应用，影响 {bullish_spread_strengthening.sum()} 个点。") # 调试信息
     # K线在D线之下且价差扩大 (空头动量增强)
     bearish_spread_strengthening = (k_s < d_s) & (kd_spread.diff() < -spread_change_threshold) # 空头价差增强条件
     score.loc[bearish_spread_strengthening] = np.clip(score.loc[bearish_spread_strengthening] - 2, 0, 100) # 空头价差增强评分调整
-    # print(f"调试信息: 空头价差增强应用，影响 {bearish_spread_strengthening.sum()} 个点。") # 调试信息
 
     # --- 6. 金叉/死叉信号 ---
     # 计算金叉和死叉
@@ -2347,12 +2257,10 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
     score.loc[buy_cross_os] = np.maximum(score.loc[buy_cross_os], 80.0) # 超卖区金叉评分
     score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)] = np.maximum(score.loc[buy_cross & (~buy_cross_os) & (~buy_cross_ob)], 75.0) # 中性区金叉评分
     score.loc[buy_cross_ob] = np.maximum(score.loc[buy_cross_ob], 60.0) # 超买区金叉评分
-    # print(f"调试信息: 金叉信号应用，影响 {buy_cross.sum()} 个点。") # 调试信息
     # 应用死叉评分
     score.loc[sell_cross_ob] = np.minimum(score.loc[sell_cross_ob], 20.0) # 超买区死叉评分
     score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)] = np.minimum(score.loc[sell_cross & (~sell_cross_os) & (~sell_cross_ob)], 25.0) # 中性区死叉评分
     score.loc[sell_cross_os] = np.minimum(score.loc[sell_cross_os], 40.0) # 超卖区死叉评分
-    # print(f"调试信息: 死叉信号应用，影响 {sell_cross.sum()} 个点。") # 调试信息
 
     # --- 7. 中性区趋势判断 (无金叉/死叉时) ---
     # 既无金叉也无死叉的条件
@@ -2362,15 +2270,12 @@ def calculate_stoch_score(k: pd.Series, d: pd.Series, params: Dict) -> pd.Series
     # 中性区内K线和D线同时向上 (看涨趋势)
     bullish_trend_neutral = neutral_stoch_zone & (k_s > k_s.shift(1)) & (d_s > d_s.shift(1))
     score.loc[bullish_trend_neutral] = np.maximum(score.loc[bullish_trend_neutral], 55.0) # 中性区看涨趋势评分
-    # print(f"调试信息: 中性区看涨趋势应用，影响 {bullish_trend_neutral.sum()} 个点。") # 调试信息
     # 中性区内K线和D线同时向下 (看跌趋势)
     bearish_trend_neutral = neutral_stoch_zone & (k_s < k_s.shift(1)) & (d_s < d_s.shift(1))
     score.loc[bearish_trend_neutral] = np.minimum(score.loc[bearish_trend_neutral], 45.0) # 中性区看跌趋势评分
-    # print(f"调试信息: 中性区看跌趋势应用，影响 {bearish_trend_neutral.sum()} 个点。") # 调试信息
 
     # 确保最终评分在0到100之间
     final_score = score.clip(0, 100)
-    # print(f"调试信息: 最终评分范围 [{final_score.min():.2f}, {final_score.max():.2f}]。") # 调试信息
     return final_score
 
 def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] = None) -> pd.Series:
@@ -2392,12 +2297,9 @@ def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] =
         [close, ma],
         [None, lambda s: s.rolling(20, min_periods=1).mean()] # ma 填充后，如果全 NaN 使用 close 的滚动平均
     )
-    # print(f"调试信息: close_s head:\n{close_s.head()}") # 调试信息
-    # print(f"调试信息: ma_s head:\n{ma_s.head()}") # 调试信息
 
     # 如果 close 或 MA 全为 NaN，则返回默认分数 50。这是最基础的异常处理。
     if close_s.isnull().all() or ma_s.isnull().all():
-        # print("调试信息: close_s 或 ma_s 全为 NaN，返回默认分数。") # 调试信息
         # 确保返回 Series 的索引是原始 close 的索引
         return pd.Series(50.0, index=close.index).clip(0, 100)
 
@@ -2406,7 +2308,6 @@ def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] =
     # 使用 .replace(0, np.nan) 避免除以零，然后用 .fillna(0) 将这些 NaN 视为无差异。
     diff_ratio = (close_s - ma_s) / ma_s.replace(0, np.nan)
     diff_ratio = diff_ratio.fillna(0)
-    # print(f"调试信息: diff_ratio head:\n{diff_ratio.head()}") # 调试信息
 
     # 2. 计算 MA 的斜率 (趋势因子)
     # 修改点3: 计算 ma_slope，衡量MA的趋势方向。
@@ -2414,20 +2315,17 @@ def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] =
     ma_slope = ma_s.diff().fillna(0)
     # 获取斜率方向 (-1: 下降, 0: 持平, 1: 上升)
     ma_slope_direction = np.sign(ma_slope)
-    # print(f"调试信息: ma_slope_direction head:\n{ma_slope_direction.head()}") # 调试信息
 
     # 3. 初始化分数：基于距离的连续评分
     # 初始分数以 50 为基准，根据 diff_ratio 和 K_DISTANCE_SENSITIVITY 调整。
     # 距离 MA 越远，分数越偏离 50。
     # 修改点4: 初始化 score，结合距离敏感度 K_DISTANCE_SENSITIVITY
     score = 50 + diff_ratio * K_DISTANCE_SENSITIVITY
-    # print(f"调试信息: 初始距离评分 score head:\n{score.head()}") # 调试信息
 
     # 4. 调整分数：基于 MA 趋势的微调
     # 根据 MA 的上升或下降趋势，对分数进行 M_SLOPE_ADJUSTMENT 幅度的微调。
     # 修改点5: 根据 MA 斜率方向 M_SLOPE_ADJUSTMENT 调整 score
     score += ma_slope_direction * M_SLOPE_ADJUSTMENT
-    # print(f"调试信息: 距离+斜率评分 score head:\n{score.head()}") # 调试信息
 
     # 5. 识别买入和卖出交叉点 (事件因子)
     # 交叉点是明确的信号，其分数应具有最高优先级，覆盖之前的连续评分。
@@ -2445,12 +2343,10 @@ def calculate_ma_score(close: pd.Series, ma: pd.Series, params: Optional[Dict] =
     score.loc[buy_cross] = 70.0
     # 修改点8: 应用卖出交叉点分数
     score.loc[sell_cross] = 30.0
-    # print(f"调试信息: 交叉点调整后 score head:\n{score.head()}") # 调试信息
 
     # 6. 确保最终分数在 0-100 范围内
     # 修改点9: 使用 clip 确保分数在有效范围内
     final_score = score.clip(0, 100)
-    # print(f"调试信息: 最终评分 final_score head:\n{final_score.head()}") # 调试信息
 
     return final_score
 
@@ -2460,35 +2356,26 @@ def calculate_atr_score(atr: pd.Series) -> pd.Series:
     深化指标的评分规则，丰富计算规则，增加得分难度，使评分更具层次感，更具洞察力，并对代码做效率优化。
     """
     # 使用 _safe_fillna_series 填充原始 ATR Series
-    # 修改行：使用 _safe_fillna_series 确保 atr_s 有效数据
+    # 使用 _safe_fillna_series 确保 atr_s 有效数据
     atr_s, = _safe_fillna_series([atr], [lambda s: s.mean()]) # atr 填充后，如果全 NaN 使用平均值
-    # 调试信息：打印 atr_s 填充后的状态
-    # print(f"调试信息: atr_s (填充后) 的前5个值:\n{atr_s.head()}")
-    # print(f"调试信息: atr_s 是否全 NaN: {atr_s.isnull().all()}")
-    # print(f"调试信息: atr_s 的平均值: {atr_s.mean()}")
     # 如果填充后仍然全 NaN 或平均值为 0，则返回默认分数 50
     if atr_s.isnull().all() or atr_s.mean() == 0:
         # 确保返回 Series 的索引是原始 atr 的索引
-        # print("调试信息: atr_s 全 NaN 或平均值为 0，返回默认分数 50。")
         return pd.Series(50.0, index=atr.index).clip(0,100)
     # 确保滚动窗口大小不超过 Series 长度
     rolling_window = min(len(atr_s), 20)
     min_periods_rolling = max(1, int(rolling_window * 0.5)) if rolling_window > 0 else 1
     # 计算 ATR 的滚动平均值和标准差
-    # 修改行：优化 rolling().mean() 和 rolling().std() 的 fillna 逻辑
+    # 优化 rolling().mean() 和 rolling().std() 的 fillna 逻辑
     atr_mean = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).mean().fillna(atr_s.mean())
     # 如果 atr_std 计算结果全为 NaN (例如，min_periods 太大或数据不足)，则用 0 填充，否则用其自身的均值填充
     atr_std = atr_s.rolling(window=rolling_window, min_periods=min_periods_rolling).std().fillna(atr_s.std()).fillna(0)
-    # 调试信息：打印滚动统计量
-    # print(f"调试信息: atr_mean 的前5个值:\n{atr_mean.head()}")
-    # print(f"调试信息: atr_std 的前5个值:\n{atr_std.head()}")
     # 如果 atr_std 的平均值为 0，表示波动性极低或无波动，所有分数设为 50
-    # 修改行：增加对 atr_std 为 0 的特殊处理，提高鲁棒性
+    # 增加对 atr_std 为 0 的特殊处理，提高鲁棒性
     if atr_std.mean() == 0:
-        # print("调试信息: atr_std 平均值为 0，波动性极低，所有分数设为 50。")
         return pd.Series(50.0, index=atr.index).clip(0,100)
     # 定义更精细的波动率区间阈值
-    # 修改开始：增加更多波动率区间，使评分更具层次感
+    # 增加更多波动率区间，使评分更具层次感
     threshold_3_upper = atr_mean + 1.5 * atr_std # 极高波动率上限
     threshold_2_upper = atr_mean + 1.0 * atr_std # 较高波动率上限
     threshold_1_upper = atr_mean + 0.5 * atr_std # 中高波动率上限
@@ -2515,24 +2402,18 @@ def calculate_atr_score(atr: pd.Series) -> pd.Series:
     ]
     # 使用 np.select 批量应用分数，默认值为 50.0 (中等波动率)
     score = pd.Series(np.select(conditions, choices, default=50.0), index=atr_s.index)
-    # 修改结束
-    # 调试信息：打印初步评分
-    # print(f"调试信息: atr_momentum 初步评分 (基于波动率区间) 的前5个值:\n{score.head()}")
+
     # 增加 ATR 趋势的洞察力：如果 ATR 正在上升，略微提高分数；如果下降，略微降低分数
-    # 修改开始：引入 ATR 趋势作为评分调整因子
+    # 引入 ATR 趋势作为评分调整因子
     # 计算 ATR 的短期动量 (例如，5周期均值变化)
     atr_momentum = atr_s.diff(periods=1).rolling(window=5, min_periods=1).mean().fillna(0) # 填充 NaN 为 0
-    # 调试信息：打印 ATR 动量
-    # print(f"调试信息: atr_momentum 的前5个值:\n{atr_momentum.head()}")
+
     # 根据动量调整分数
     # 动量为正 (ATR 上升) 增加分数，动量为负 (ATR 下降) 减少分数
     score_adjustment = np.zeros_like(score, dtype=float) # 初始化调整值数组
     score_adjustment = np.where(atr_momentum > 0, 5.0, score_adjustment) # ATR 上升，加 5 分
     score_adjustment = np.where(atr_momentum < 0, -5.0, score_adjustment) # ATR 下降，减 5 分
     score += score_adjustment # 应用调整
-    # 修改结束
-    # 调试信息：打印最终评分（调整后）
-    # print(f"调试信息: atr_momentum 最终评分 (调整后) 的前5个值:\n{score.head()}")
     # 确保分数在 0 到 100 之间
     return score.clip(0, 100)
 
@@ -2575,7 +2456,7 @@ def calculate_adl_score(adl: pd.Series) -> pd.Series:
     # print(f"DEBUG: adl_diff tail:\n{adl_diff.tail()}")
 
     # 2. ADL 变化方向基础评分调整
-    # 修改行：根据adl_diff调整分数
+    # 根据adl_diff调整分数
     score.loc[adl_diff > 0] += 10.0 # ADL 上升，基础分变为60
     score.loc[adl_diff < 0] -= 10.0 # ADL 下降，基础分变为40
     # print(f"DEBUG: Score after basic trend adjustment tail:\n{score.tail()}")
@@ -2589,44 +2470,44 @@ def calculate_adl_score(adl: pd.Series) -> pd.Series:
     # print(f"DEBUG: rolling_std_adl_diff tail:\n{rolling_std_adl_diff.tail()}")
 
     significant_change_multiplier = 1.0 # 定义显著变化的乘数阈值
-    # 修改行：定义显著上升条件
+    # 定义显著上升条件
     is_significant_rise = (adl_diff > 0) & (adl_diff > (significant_change_multiplier * rolling_std_adl_diff))
-    # 修改行：定义显著下降条件
+    # 定义显著下降条件
     is_significant_fall = (adl_diff < 0) & (adl_diff < -(significant_change_multiplier * rolling_std_adl_diff))
 
-    # 修改行：根据显著变化调整分数
+    # 根据显著变化调整分数
     score.loc[is_significant_rise] += 15.0 # 显著上升，再加分
     score.loc[is_significant_fall] -= 15.0 # 显著下降，再减分
     # print(f"DEBUG: Score after magnitude adjustment tail:\n{score.tail()}")
 
     # 4. ADL 趋势确认 (ADL 与其长期均线的关系)
     adl_sma_long_window = 20
-    # 修改行：计算ADL的长期均线，并填充NaN
+    # 计算ADL的长期均线，并填充NaN
     adl_sma_long = adl_s.rolling(window=adl_sma_long_window, min_periods=max(1, adl_sma_long_window // 2)).mean().fillna(method='bfill').fillna(method='ffill')
     # print(f"DEBUG: adl_s tail:\n{adl_s.tail()}")
     # print(f"DEBUG: adl_sma_long tail:\n{adl_sma_long.tail()}")
 
-    # 修改行：定义看涨趋势确认条件
+    # 定义看涨趋势确认条件
     condition_bullish_trend_confirm = (adl_diff > 0) & (adl_s > adl_sma_long)
     score.loc[condition_bullish_trend_confirm] += 10.0
 
-    # 修改行：定义看跌趋势确认条件
+    # 定义看跌趋势确认条件
     condition_bearish_trend_confirm = (adl_diff < 0) & (adl_s < adl_sma_long)
     score.loc[condition_bearish_trend_confirm] -= 10.0
     # print(f"DEBUG: Score after trend confirmation tail:\n{score.tail()}")
 
     # 5. ADL 短期动能 (ADL 的短期均线方向)
     adl_sma_short_window = 5
-    # 修改行：计算ADL的短期均线，并填充NaN
+    # 计算ADL的短期均线，并填充NaN
     adl_sma_short = adl_s.rolling(window=adl_sma_short_window, min_periods=max(1, adl_sma_short_window // 2)).mean().fillna(method='bfill').fillna(method='ffill')
     adl_sma_short_diff = adl_sma_short.diff() # 短期均线的变化
     # print(f"DEBUG: adl_sma_short_diff tail:\n{adl_sma_short_diff.tail()}")
 
-    # 修改行：定义看涨动能条件
+    # 定义看涨动能条件
     condition_bullish_momentum = (adl_diff > 0) & (adl_sma_short_diff > 0)
     score.loc[condition_bullish_momentum] += 5.0
 
-    # 修改行：定义看跌动能条件
+    # 定义看跌动能条件
     condition_bearish_momentum = (adl_diff < 0) & (adl_sma_short_diff < 0)
     score.loc[condition_bearish_momentum] -= 5.0
     # print(f"DEBUG: Score after momentum adjustment tail:\n{score.tail()}")

@@ -242,15 +242,12 @@ class IndicatorCalculator:
         if df is None or df.empty or not all(col in df.columns for col in required_cols):
             logger.warning(f"计算 CMF (周期 {period}) 失败：输入DataFrame为空或缺少必需列 {required_cols}。")
             return None
-        
         if len(df) < period:
             logger.warning(f"计算 CMF (周期 {period}) 失败：数据长度 {len(df)} 小于周期 {period}。")
             return None
-            
         try:
             # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
             # 我们不需要手动创建 DataFrame 或重命名列
-            # print(f"调试信息: [IndicatorService] 正在为周期 {period} 计算 CMF...")
             cmf_series = ta.cmf(
                 high=df[high_col], 
                 low=df[low_col], 
@@ -259,15 +256,11 @@ class IndicatorCalculator:
                 length=period, 
                 append=False # 确保不修改原始df
             )
-            
             if cmf_series is None or cmf_series.empty:
                 logger.warning(f"计算 CMF (周期 {period}) 返回了空结果。")
                 return None
-            
-            # print(f"调试信息: [IndicatorService] CMF (周期 {period}) 计算完成，结果类型: {type(cmf_series)}，列名: {cmf_series.name}")
             # 将返回的 Series 转换为 DataFrame，后续的合并逻辑会处理它
             return cmf_series.to_frame()
-
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
             return None
@@ -281,34 +274,24 @@ class IndicatorCalculator:
         if len(df) < min_length:
             print(f"调试信息: 数据长度 {len(df)} 小于计算KDJ所需的最小长度 {min_length}，跳过计算。")
             return None
-
         try:
             def _sync_stoch():
                 # pandas-ta的stoch函数计算的就是KDJ
                 return ta.stoch(high=df[high_col], low=df[low_col], close=df[close_col], k=period, d=signal_period, smooth_k=smooth_k_period, append=False)
-            
             stoch_df = await asyncio.to_thread(_sync_stoch)
-
-            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if stoch_df is None or stoch_df.empty:
                 logger.warning(f"KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 计算结果为空，可能数据量不足。")
                 return None
-            # ▲▲▲ 修改结束 ▲▲▲
-
             # 重命名列以符合KDJ的习惯
             # STOCHk_9_3_3 -> K_9_3_3, STOCHd_9_3_3 -> D_9_3_3
             stoch_df.rename(columns=lambda x: x.replace('STOCHk', 'K').replace('STOCHd', 'D'), inplace=True)
-            
             # 计算J值: J = 3*K - 2*D
             k_col = f'K_{period}_{signal_period}_{smooth_k_period}'
             d_col = f'D_{period}_{signal_period}_{smooth_k_period}'
             j_col = f'J_{period}_{signal_period}_{smooth_k_period}'
-            
             if k_col in stoch_df and d_col in stoch_df:
                 stoch_df[j_col] = 3 * stoch_df[k_col] - 2 * stoch_df[d_col]
-            
             return stoch_df
-
         except Exception as e:
             logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
@@ -516,8 +499,6 @@ class IndicatorCalculator:
         if df is None or df.empty or amount_col not in df.columns:
             logger.warning(f"输入 DataFrame 为空或缺少 '{amount_col}' 列，无法计算 AROC。")
             return None
-        # --- 调试信息：打印输入DataFrame的形状和列名 ---
-        # print(f"调试信息: [AROC_{period}] 输入 df 的形状: {df.shape}, 列: {df.columns.tolist()}")
         if len(df) <= period:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 AROC。")
             return None
@@ -1122,8 +1103,6 @@ class IndicatorCalculator:
         price_source_col = price_source_with_suffix.removesuffix(suffix_to_remove)
         volume_source_col = volume_source_with_suffix.removesuffix(suffix_to_remove)
         result_df = pd.DataFrame(index=df.index)
-        # 打印调试信息，确认列名是否正确处理
-        print(f"调试信息: [price_volume_ma_comparison] 周期: {timeframe_key}, price_source: '{price_source_col}', volume_source: '{volume_source_col}'")
         for p in periods:
             # --- 计算价格与均线比 ---
             if p == 1:

@@ -576,7 +576,6 @@ class StockTimeTradeDAO(BaseDAO):
                     df = pd.DataFrame()
                     await asyncio.sleep(5) # 如果API出错，多等一会儿
                 original_df_len = len(df)
-                print(f"调试信息: API返回 {original_df_len} 条原始数据。")
                 if original_df_len == 0:
                     # 如果是因为非最后一页（offset > 0）但返回空，可能意味着API临时问题或确实没数据了
                     if offset > 0:
