@@ -902,14 +902,14 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.6 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
+        【V110.7 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
         - 核心修正 (本次修改):
-          - [流程重构] 将 ma_convergence 和 zscore 的计算逻辑移至主计算循环中，
-                        并确保它们在所有依赖项计算完毕后执行。
-          - [映射修复] 将 ma_convergence 重新添加回 indicator_method_map。
+          - [源数据标准化] 在计算开始前，强制将 'close' 和 'volume' 复制并重命名为带后缀的列，
+                          确保所有下游计算都能找到标准的源数据。
+          - [Z-Score修复] 修正了Z-Score源列名的拼接逻辑，确保能正确找到无后缀的MACD列。
         - 收益: 彻底解决了所有指标的计算顺序和依赖问题，流程完全理顺。
         """
-        print(f"  [指标计算V110.6] 开始为周期 '{timeframe_key}' 计算指标...")
+        print(f"  [指标计算V110.7] 开始为周期 '{timeframe_key}' 计算指标...")
         if not config:
             print(f"    - 警告: 周期 '{timeframe_key}' 没有配置任何指标。")
             return df
@@ -918,8 +918,18 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过该周期的所有指标计算。")
             return df
         df_for_calc = df.copy()
+        
+        # 步骤 0: 标准化核心源数据列名
+        # 确保后续所有计算都能找到带后缀的 'close_D', 'volume_D' 等列
+        suffix = f"_{timeframe_key}"
+        if 'close' in df_for_calc.columns and f'close{suffix}' not in df_for_calc.columns:
+            df_for_calc[f'close{suffix}'] = df_for_calc['close']
+        if 'volume' in df_for_calc.columns and f'volume{suffix}' not in df_for_calc.columns:
+            df_for_calc[f'volume{suffix}'] = df_for_calc['volume']
+
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
+        
         indicator_method_map = {
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
             'coppock': self.calculator.calculate_coppock, 'rsi': self.calculator.calculate_rsi, 'macd': self.calculator.calculate_macd,
@@ -930,7 +940,6 @@ class IndicatorService:
             'consolidation_period': self.calculator.calculate_consolidation_period,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
-            # 将 ma_convergence 重新添加回映射
             'ma_convergence': self.calculator.calculate_ma_convergence,
         }
         def merge_results(result_data, target_df):
@@ -947,13 +956,11 @@ class IndicatorService:
         for indicator_key, params in config.items():
             indicator_name = indicator_key.lower()
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
-            #简化跳过逻辑
             if indicator_name in ['说明', 'index_sync', 'cyq_perf'] or not params.get('enabled', False): continue
-            if indicator_name not in indicator_method_map and indicator_name != 'zscore': # zscore 特殊处理
+            if indicator_name not in indicator_method_map and indicator_name != 'zscore':
                 logger.warning(f"    - 警告: 未找到指标 '{indicator_name}' 的计算方法，已跳过。")
                 continue
             
-            #将 Z-Score 的计算逻辑移到这里，确保它在依赖项之后执行
             if indicator_name == 'zscore':
                 for z_config in params.get('configs', []):
                     if timeframe_key not in z_config.get("apply_on", []): continue
@@ -966,6 +973,7 @@ class IndicatorService:
                             macd_cfg = config.get('macd', {})
                             macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
                             if macd_periods:
+                                # 移除画蛇添足的后缀拼接
                                 source_col_name = source_pattern.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
                             else: continue
                         if source_col_name in df_for_calc.columns:
@@ -978,18 +986,21 @@ class IndicatorService:
                             logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                     except Exception as e:
                         logger.error(f"计算Z-score时出错: {e}", exc_info=True)
-                continue # 处理完Z-score后继续下一个指标
+                continue
 
-            # 统一处理所有其他指标
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
                     if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison', 'ma_convergence']:
+                        # 对于比率指标，将带有后缀的源列名传入params
+                        if indicator_name == 'price_volume_ma_comparison':
+                            params['price_source'] = f'close{suffix}'
+                            params['volume_source'] = f'volume{suffix}'
                         result_df = await method_to_call(df=df_for_calc, params=params)
                         merge_results(result_df, df_for_calc)
-                        break # 复合指标只计算一次
+                        break
                     
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
@@ -1023,7 +1034,6 @@ class IndicatorService:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}, 参数: {sub_config.get('periods')}) 时出错: {e}", exc_info=True)
 
         # --- 阶段二: 统一添加后缀并返回 ---
-        suffix = f"_{timeframe_key}"
         rename_map = {
             col: f"{col}{suffix}"
             for col in df_for_calc.columns

@@ -1094,43 +1094,50 @@ class IndicatorCalculator:
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.3 原材料修复版】计算价格/成交量与各自均线的比率。
-        - 核心修正: 不再从params中读取源列名，而是硬编码使用标准的 'close' 和 'volume'，
-                    确保总能从纯净的DataFrame中获取正确的原材料。
+        【V1.4 标准源数据版】计算价格/成交量与各自均线的比率。
+        - 核心修正: 适配上游传入的、已带后缀的标准源列名（如 'close_D', 'volume_D'）。
         """
         if not params.get('enabled', False):
             return None
+
         periods = params.get('periods', [])
-        #硬编码使用标准的基础列名，不再依赖外部传入
-        price_source_col = 'close'
-        volume_source_col = 'volume'
+        # -> [修改] 从配置中读取带后缀的源列名
+        price_source_col = params.get('price_source')
+        volume_source_col = params.get('volume_source')
+
         if not all([periods, price_source_col, volume_source_col]):
-            logger.warning("计算价比/量比缺少关键参数 (periods)。")
+            logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
             return None
+
         result_df = pd.DataFrame(index=df.index)
+
         for p in periods:
             # --- 计算价格与均线比 ---
             if p == 1:
                 price_ma_col = price_source_col
             else:
-                price_ma_col = f'EMA_{p}'
+                price_ma_col = f'EMA_{p}' # 均线名不带后缀，因为它们在同一批次被计算
+            
             if price_source_col in df.columns and price_ma_col in df.columns:
                 price_ma_series = df[price_ma_col].replace(0, np.nan)
                 ratio = df[price_source_col] / price_ma_series
                 result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
                 logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
+
             # --- 计算成交量与均量比 ---
             if p == 1:
                 vol_ma_col = volume_source_col
             else:
-                vol_ma_col = f'VOL_MA_{p}'
+                vol_ma_col = f'VOL_MA_{p}' # 均量名不带后缀
+
             if volume_source_col in df.columns and vol_ma_col in df.columns:
                 vol_ma_series = df[vol_ma_col].replace(0, np.nan)
                 ratio = df[volume_source_col] / vol_ma_series
                 result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
             else:
                 logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
+
         return result_df if not result_df.empty else None
 
 
