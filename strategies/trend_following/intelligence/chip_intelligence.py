@@ -62,18 +62,17 @@ class ChipIntelligence:
         
         # --- 1. 军备检查 (保持不变) ---
         required_cols = set()
+        all_potential_cols = set(df.columns) # 将列名转换为集合以提高查找效率
         for p in periods:
             for pillar_name, factors in pillars.items():
                 for factor_name, _ in factors:
                     required_cols.add(factor_name)
-                    # ▼▼▼ 修改: 对 is_multi_peak_D 不再要求衍生数据 ▼▼▼
                     if factor_name != 'is_multi_peak_D':
                         required_cols.add(f"SLOPE_{p}_{factor_name}")
                         required_cols.add(f"ACCEL_{p}_{factor_name}")
                     factor_name_w = factor_name.replace('_D', '_W')
                     if factor_name_w in all_potential_cols: # 使用 'in' 关键字进行成员检查
                          required_cols.add(factor_name_w)
-                    # ▲▲▲ 修改结束 ▲▲▲
 
         missing_cols = list(required_cols - set(df.columns))
         if missing_cols:
