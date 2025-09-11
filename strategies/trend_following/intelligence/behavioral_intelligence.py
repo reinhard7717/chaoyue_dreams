@@ -425,7 +425,7 @@ class BehavioralIntelligence:
         metrics_to_analyze = [
             ('main_force_net_flow_consensus_D', [1, 5, 13, 21, 55], True),
             ('chip_health_score_D', [1, 5, 13, 21, 55], True),
-            ('concentration_90pct_D', [1, 5, 13, 21, 55], True),
+            ('concentration_90pct_D', [1, 5, 13, 21, 55], False),
             ('flow_divergence_mf_vs_retail_D', [1, 5, 13, 21, 55], True),
         ]
         per_metric_scores = {
@@ -440,10 +440,7 @@ class BehavioralIntelligence:
             for period in periods:
                 static_col = base_name
                 slope_col = f'SLOPE_{period}_{base_name}'
-                if 'flow_divergence_mf_vs_retail' in base_name:
-                    accel_col = f'accel_{period}d_{base_name}'
-                else:
-                    accel_col = f'ACCEL_{period}_{base_name}'
+                accel_col = f'ACCEL_{period}_{base_name}'
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
                     print(f"        -> [多维共振诊断] 警告: 缺少 '{base_name}' 周期 {period} 的列: {required_cols}，跳过。")
@@ -455,7 +452,7 @@ class BehavioralIntelligence:
                     static_score, slope_score, accel_score = 1 - static_score, 1 - slope_score, 1 - accel_score
                 per_metric_scores['static'][base_name][period] = static_score
                 per_metric_scores['slope'][base_name][period] = slope_score
-                per_metric_scores['accel'][base_name][period] = accel_score # 新增: 存储accel_score用于背离计算
+                per_metric_scores['accel'][base_name][period] = accel_score # 存储accel_score用于背离计算
                 up_resonance = static_score * slope_score * accel_score
                 down_resonance = (1 - static_score) * (1 - slope_score) * (1 - accel_score)
                 per_metric_scores['up_resonance'][base_name][period] = up_resonance
@@ -490,7 +487,7 @@ class BehavioralIntelligence:
             if 55 in static_scores and 5 in slope_scores:
                 states[f'SCORE_REVERSAL_TOP_{metric_key}'] = (static_scores[55] * (1 - slope_scores[5])).astype(np.float32)
                 states[f'SCORE_REVERSAL_BOTTOM_{metric_key}'] = ((1 - static_scores[55]) * slope_scores[5]).astype(np.float32)
-            # --- 新增: 合成周期内背离信号 ---
+            # --- 合成周期内背离信号 ---
             accel_scores = per_metric_scores['accel'][base_name]
             for period in periods:
                 if period in static_scores and period in slope_scores and period in accel_scores:

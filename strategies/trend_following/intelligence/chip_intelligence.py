@@ -147,7 +147,7 @@ class ChipIntelligence:
         bullish_scores = period_validated_resonance['BULLISH']
         bearish_scores = period_validated_resonance['BEARISH']
 
-        # 新增: 显式定义信号组件，提升可读性和逻辑清晰度
+        # 显式定义信号组件，提升可读性和逻辑清晰度
         bullish_short_force = bullish_scores[1] * bullish_scores[5]
         bullish_medium_trend = bullish_scores[13] * bullish_scores[21]
         bullish_long_inertia = bullish_scores[55]

@@ -125,7 +125,7 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
         
-        print(f"        -> [终极结构信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。") # 新增: 打印结束信息
+        print(f"        -> [终极结构信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。") # 打印结束信息
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, periods: list, norm_window: int, static_col: str, slope_prefix: str, accel_prefix: str) -> Dict[int, pd.Series]:
@@ -163,12 +163,25 @@ class StructuralIntelligence:
         return health
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
-        """【V1.0 新增】计算力学支柱的健康度"""
+        """
+        【V1.1 逻辑修正版】计算力学支柱的健康度
+        - 核心修复 (本次修改):
+          - [逻辑修正] 修正了对 `concentration_90pct_D` 斜率的评分逻辑。
+                        该斜率为负值才代表筹码集中（看涨），因此在归一化时
+                        必须设置 `ascending=False`，以确保值越小分数越高。
+        """
         health = {}
         for p in periods:
-            cost_slope = self._normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), norm_window, df.index)
-            conc_slope = self._normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), norm_window, df.index)
-            energy = self._normalize_score(df.get('energy_ratio_D'), norm_window, df.index)
+            # 成本斜率：越高越好 (ascending=True, 默认)
+            cost_slope_series = df.get(f'SLOPE_{p}_peak_cost_D')
+            cost_slope = self._normalize_score(cost_slope_series, norm_window, df.index)
+            # 集中度斜率：越低（负值）越好，代表筹码在集中，所以 ascending=False
+            conc_slope_series = df.get(f'SLOPE_{p}_concentration_90pct_D')
+            conc_slope = self._normalize_score(conc_slope_series, norm_window, df.index, ascending=False)
+            # 能量比率：越高越好 (ascending=True, 默认)
+            energy_series = df.get('energy_ratio_D')
+            energy = self._normalize_score(energy_series, norm_window, df.index)
+            # 使用几何平均值融合三个维度
             health[p] = (cost_slope * conc_slope * energy)**(1/3)
         return health
 

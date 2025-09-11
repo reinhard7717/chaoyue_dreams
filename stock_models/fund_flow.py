@@ -813,15 +813,15 @@ class BaseAdvancedFundFlowMetrics(models.Model):
 
 
     # --- 6. 主力与散户分歧度加速度指标 ---
-    accel_5d_flow_divergence_mf_vs_retail = models.DecimalField(
+    flow_divergence_mf_vs_retail_accel_5d = models.DecimalField(
         max_digits=20, decimal_places=4, null=True, blank=True,
         verbose_name="主力散户分歧度5日加速度"
     )
-    accel_13d_flow_divergence_mf_vs_retail = models.DecimalField(
+    flow_divergence_mf_vs_retail_accel_13d = models.DecimalField(
         max_digits=20, decimal_places=4, null=True, blank=True,
         verbose_name="主力散户分歧度13日加速度"
     )
-    accel_21d_flow_divergence_mf_vs_retail = models.DecimalField(
+    flow_divergence_mf_vs_retail_accel_21d = models.DecimalField(
         max_digits=20, decimal_places=4, null=True, blank=True,
         verbose_name="主力散户分歧度21日加速度"
     )

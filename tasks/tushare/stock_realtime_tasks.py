@@ -144,7 +144,7 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
 # =================== 2. 真实逐笔 (Tick) 数据任务 ===================
 # =================================================================
 
-# ▼▼▼ 新增: 处理单只股票真实逐笔数据的工作任务 ▼▼▼
+# ▼▼▼ 处理单只股票真实逐笔数据的工作任务 ▼▼▼
 @celery_app.task(queue="SaveData_RealTime")
 @with_cache_manager
 def save_real_tick_data_single(stock_code: str, cache_manager=None):

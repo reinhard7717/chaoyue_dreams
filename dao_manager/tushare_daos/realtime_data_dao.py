@@ -26,7 +26,7 @@ logger = logging.getLogger("dao")
 class StockRealtimeDAO(BaseDAO):
     """
     【V4.0 - 核心换代版】
-    - 新增: 引入 ts.realtime_tick 接口，获取真实的逐笔成交数据。
+    - 引入 ts.realtime_tick 接口，获取真实的逐笔成交数据。
     - 核心方法: 新增 get_realtime_tick_in_bulk 用于并发获取逐笔数据。
     - 调整: 区分处理 realtime_quote (快照) 和 realtime_tick (逐笔) 的数据。
     """

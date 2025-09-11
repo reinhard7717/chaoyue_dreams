@@ -428,7 +428,7 @@ class CognitiveIntelligence:
         foundation_bottom = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
         foundation_top = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
 
-        # 领域2 (Structure) - 新增: 消费统一的结构层终极信号
+        # 领域2 (Structure) - 消费统一的结构层终极信号
         structure_bullish = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') # 替换 mechanics_bullish
         structure_bearish = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE') # 替换 mechanics_bearish
         structure_bottom = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL') # 替换 mechanics_bottom
