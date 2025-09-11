@@ -19,6 +19,7 @@ from tqdm import tqdm
 from services.performance_analysis_service import PerformanceAnalysisService
 import numpy as np
 import pandas as pd
+import pandas_ta as ta
 from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -550,18 +551,38 @@ def _polyfit_slope(series: pd.Series) -> float:
 
 def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
     """
-    【修改 V2.0】使用线性回归计算斜率的通用辅助函数
-    - 核心修改: 调用新的、更健壮的 _polyfit_slope 辅助函数，从根本上解决NaN导致的问题。
+    【修改 V3.0 - 采用 pandas_ta 库】
+    - 核心修改: 放弃自定义的 rolling().apply() + polyfit 实现，
+                直接调用 pandas_ta.linreg() 函数计算斜率。
+                这与 indicator_services.py 的实现保持一致，更加健壮和高效。
+    - 收益:
+        1. 健壮性: pandas_ta 内部能优雅处理 window < 2 的情况，返回 NaN 而非崩溃。
+        2. 性能: pandas_ta 通常比自定义的 apply 函数性能更好。
+        3. 一致性: 统一了项目中斜率的计算标准。
     """
-    # min_periods 设为 window 的一半或至少2，增加稳健性
-    min_p = max(2, window // 2)
-    if len(series.dropna()) < min_p:
+    # 检查series是否为空或窗口是否有效，pandas_ta本身很健壮，但显式检查是好习惯
+    if series.empty or window < 2:
+        if window < 2:
+            print(f"DEBUG: 调用 _calculate_slope 时接收到无效的窗口大小 window={window}，该值小于2，无法计算斜率，将返回NaN。")
         return pd.Series(np.nan, index=series.index)
+
+    # 定义计算斜率所需的最小周期数
+    min_p = max(2, window // 2)
+
+    # 使用 pandas_ta 的 linreg 函数计算线性回归斜率
+    # close=series: 指定要计算的序列
+    # length=window: 指定滚动窗口大小
+    # min_periods=min_p: 指定最小观测期
+    # slope=True: 明确要求返回斜率序列
+    # intercept=False, r=False: 不需要截距和R²值，提升性能
+    linreg_result = ta.linreg(close=series, length=window, min_periods=min_p, slope=True, intercept=False, r=False)
+
+    # ta.linreg 返回的是一个DataFrame，我们只需要斜率那一列（通常是第一列或唯一一列）
+    # 如果结果是Series，直接使用；如果是DataFrame，取第一列
+    slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
     
-    # 使用 rolling().apply() 并调用我们新的健壮的辅助函数
-    # raw=False 确保传递给 _polyfit_slope 的是Pandas Series对象
-    slopes = series.rolling(window=window, min_periods=min_p).apply(_polyfit_slope, raw=False)
-    return slopes
+    # 返回计算出的斜率序列
+    return slope_series
 
 def _load_strategy_config(): # 辅助函数，用于加载策略配置
     """加载并缓存策略配置文件"""
@@ -604,268 +625,316 @@ def schedule_precompute_advanced_chips(self, *, cache_manager: CacheManager):
         logger.error(f"调度高级筹码预计算任务时出错: {e}", exc_info=True)
         return {"status": "failed", "reason": str(e)}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
-@with_cache_manager
-def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
-    """
-    【执行器 V13.0 - 时序修正版】
-    - 核心修正 (V13.0): 彻底重构衍生指标的计算时序，解决`chip_health_score`与其自身
-                      斜率/加速度之间的“鸡生蛋”依赖问题。确保所有指标的计算都基于其
-                      前置依赖项的最终值。
-    """
-    time_trade_dao = StockTimeTradeDAO(cache_manager)
-    async def main(time_dao, incremental_flag: bool):
-        mode = "增量更新" if incremental_flag else "全量刷新"
-        get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
-        
+async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lookback_days: int):
+    """【辅助函数 V1.0】初始化任务上下文，获取模型、确定数据加载范围。"""
+    print(f"[{stock_code}] [初始化] 正在准备任务上下文...")
+    get_stock_info_async = sync_to_async(StockInfo.objects.get, thread_sensitive=True)
+    stock_info = await get_stock_info_async(stock_code=stock_code)
+    MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+    
+    last_metric_date = None
+    if is_incremental:
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
             try:
                 return model.objects.filter(stock=stock_info_obj).latest('trade_time')
             except model.DoesNotExist:
                 return None
-        
-        @sync_to_async(thread_sensitive=True)
-        def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
-            qs = model.objects.filter(stock=stock_info_obj)
-            if start_date:
-                filter_kwargs = {f'{date_field}__gte': start_date}
-                qs = qs.filter(**filter_kwargs)
-            if fields:
-                return pd.DataFrame.from_records(qs.values(*fields))
-            else:
-                return pd.DataFrame.from_records(qs.values())
+        last_metric = await get_latest_metric_async(MetricsModel, stock_info)
+        if last_metric:
+            last_metric_date = last_metric.trade_time
+        else:
+            is_incremental = False # 如果没有历史数据，则转为全量模式
 
-        @sync_to_async(thread_sensitive=True)
-        def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
-            with transaction.atomic():
-                if do_delete_first:
-                    model.objects.filter(stock=stock_info_obj).delete()
-                model.objects.bulk_create(records_to_create_list, batch_size=5000)
-        try:
-            stock_info = await get_stock_info_async(stock_code=stock_code)
-            MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-            max_lookback_days = 160
-            last_metric_date = None
-            if incremental_flag:
-                last_metric = await get_latest_metric_async(MetricsModel, stock_info)
-                if last_metric:
-                    last_metric_date = last_metric.trade_time
+    fetch_start_date = None
+    if is_incremental and last_metric_date:
+        fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
+    
+    print(f"[{stock_code}] [初始化] 上下文准备完毕。模式: {'增量' if is_incremental else '全量'}, 数据追溯起点: {fetch_start_date}")
+    return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+
+async def _load_and_audit_data_sources(stock_info, fetch_start_date):
+    """【辅助函数 V1.0】异步加载所有原始数据源，并进行严格的数据审计。"""
+    print(f"[{stock_info.stock_code}] [数据加载与审计] 开始加载所有数据源...")
+    @sync_to_async(thread_sensitive=True)
+    def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
+        qs = model.objects.filter(stock=stock_info_obj)
+        if start_date:
+            filter_kwargs = {f'{date_field}__gte': start_date}
+            qs = qs.filter(**filter_kwargs)
+        return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+
+    chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
+    daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
+    
+    data_tasks = {
+        "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
+        "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
+        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
+    }
+    results = await asyncio.gather(*data_tasks.values())
+    data_dfs = dict(zip(data_tasks.keys(), results))
+
+    # --- 数据审计 ---
+    cyq_chips_df = data_dfs.get("cyq_chips")
+    if cyq_chips_df is None or cyq_chips_df.empty:
+        raise ValueError("[审计失败] 黄金标准数据源 'cyq_chips' 为空！")
+    
+    cyq_chips_df['trade_time'] = pd.to_datetime(cyq_chips_df['trade_time'])
+    master_dates = set(cyq_chips_df['trade_time'].dt.date.unique())
+    
+    audit_warnings = []
+    for name, df in data_dfs.items():
+        if name == "cyq_chips": continue
+        if df is None or df.empty:
+            raise ValueError(f"[审计失败] 关键数据源 '{name}' 为空！")
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        source_dates = set(df['trade_time'].dt.date.unique())
+        missing_in_source = sorted(list(master_dates - source_dates))
+        if missing_in_source:
+            warning_msg = (f"数据源 '{name}' 缺失 {len(missing_in_source)} 个交易日的数据。示例: {missing_in_source[:5]}...")
+            audit_warnings.append(warning_msg)
+
+    daily_data_df = data_dfs['daily_data']
+    required_cols_in_daily = ['close_qfq', 'vol', 'high_qfq', 'low_qfq']
+    if daily_data_df[required_cols_in_daily].isnull().values.any():
+        problematic_rows = daily_data_df[daily_data_df[required_cols_in_daily].isnull().any(axis=1)]
+        for _, row in problematic_rows.iterrows():
+            missing_fields = [col for col in required_cols_in_daily if pd.isna(row[col])]
+            warning_msg = f"在日期 {row['trade_time'].date()} 的行情数据中发现NULL值。缺失字段: {missing_fields}"
+            audit_warnings.append(warning_msg)
+
+    if audit_warnings:
+        full_error_message = f"[{stock_info.stock_code}] [审计失败] 数据一致性检查未通过，详情如下：\n" + "\n".join(audit_warnings)
+        logger.error(full_error_message)
+        raise ValueError("Data consistency audit failed.")
+    
+    print(f"[{stock_info.stock_code}] [数据加载与审计] 所有数据源加载并审计通过。")
+    return data_dfs
+
+def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
+    """【辅助函数 V1.0】对加载的数据进行预处理和合并。"""
+    print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...")
+    cyq_chips_data = data_dfs['cyq_chips']
+    cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
+    daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
+    mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
+    if mask_sum_to_one.any():
+        cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
+
+    daily_data = data_dfs['daily_data']
+    daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
+    daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
+    daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
+
+    daily_basic_data = data_dfs['daily_basic']
+    daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
+    daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
+    daily_basic_data = daily_basic_data.drop(columns=['float_share'])
+
+    merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
+    merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
+
+    if merged_df.empty:
+        raise ValueError("数据源内连接(inner join)后结果为空。")
+
+    merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
+    daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
+    daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
+    merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
+    
+    print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。")
+    return merged_df
+
+def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
+    """【辅助函数 V1.0】逐日计算基础筹码指标。"""
+    stock_code = merged_df['stock_code'].iloc[0] if 'stock_code' in merged_df.columns else 'UNKNOWN'
+    print(f"[{stock_code}] [基础指标计算] 开始逐日计算基础筹码指标...")
+    all_metrics_list = []
+    grouped_data = merged_df.groupby('trade_time')
+    
+    for trade_date, daily_full_df in grouped_data:
+        if is_incremental and last_metric_date and trade_date <= last_metric_date:
+            continue
+        
+        context_data = daily_full_df.iloc[0].to_dict()
+        chip_data_for_calc = daily_full_df[['price', 'percent']]
+        if chip_data_for_calc.empty:
+            continue
+            
+        context_data['weight_avg_cost'] = 0
+        calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
+        daily_metrics = calculator.calculate_all_metrics()
+        
+        if daily_metrics:
+            daily_metrics['trade_time'] = trade_date
+            daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
+            all_metrics_list.append(daily_metrics)
+            
+    if not all_metrics_list:
+        print(f"[{stock_code}] [基础指标计算] 无新数据需要计算，或数据已是最新。")
+        return pd.DataFrame()
+        
+    new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
+    print(f"[{stock_code}] [基础指标计算] 完成，共计算了 {len(new_metrics_df)} 个新交易日的基础指标。")
+    return new_metrics_df
+
+async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
+    """【辅助函数 V1.0】自动化计算所有斜率、加速度和健康分等衍生指标。"""
+    stock_code = stock_info.stock_code
+    print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
+    MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+    
+    # 阶段一：计算所有非健康分的基础及衍生指标
+    print(f"[{stock_code}] [阶段一] 计算基础指标和非健康分的衍生指标...")
+    if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
+        final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
+
+    model_fields = {f.name for f in MetricsModel._meta.get_fields()}
+    
+    # 自动化计算斜率
+    for field_name in model_fields:
+        if '_slope_' in field_name and 'chip_health_score' not in field_name:
+            base_col, period_str = field_name.split('_slope_')
+            period = int(period_str.replace('d', ''))
+            if base_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
+                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], period)
+    
+    # 自动化计算加速度
+    for field_name in model_fields:
+        if '_accel_' in field_name and 'chip_health_score' not in field_name:
+            base_col_with_slope, period_str = field_name.split('_accel_')
+            period = int(period_str.replace('d', ''))
+            source_slope_col = f"{base_col_with_slope}_slope_{period}d"
+            if source_slope_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
+                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], period)
+
+    # 阶段二：计算最终版的筹码健康分
+    print(f"[{stock_code}] [阶段二] 计算筹码健康分...")
+    final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
+    
+    # 阶段三：基于最终版的健康分，计算其衍生指标
+    print(f"[{stock_code}] [阶段三] 计算筹码健康分的衍生指标...")
+    if 'chip_health_score' in final_metrics_df.columns:
+        for field_name in model_fields:
+            if 'chip_health_score_' in field_name:
+                if '_slope_' in field_name:
+                    period = int(field_name.split('_slope_')[1].replace('d', ''))
+                    final_metrics_df[field_name] = _calculate_slope(final_metrics_df['chip_health_score'], period)
+                elif '_accel_' in field_name:
+                    period = int(field_name.split('_accel_')[1].replace('d', ''))
+                    source_slope_col = f"chip_health_score_slope_{period}d"
+                    if source_slope_col in final_metrics_df.columns:
+                        final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], period)
+                        
+    print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
+    return final_metrics_df
+
+async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):
+    """【辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
+    stock_code = stock_info.stock_code
+    print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
+    records_to_save_df = final_df.loc[new_df_index]
+    records_to_create = []
+    model_fields = {f.name for f in MetricsModel._meta.get_fields()}
+    
+    for trade_date, row in records_to_save_df.iterrows():
+        record_data = {}
+        for field_name in model_fields:
+            if field_name in row.index:
+                value = row[field_name]
+                if isinstance(value, float) and not np.isfinite(value):
+                    record_data[field_name] = None
+                elif pd.isna(value):
+                    record_data[field_name] = None
+                elif isinstance(value, float):
+                    record_data[field_name] = Decimal(str(round(value, 8))) if abs(value) > 1e-10 else Decimal('0.0')
                 else:
-                    incremental_flag = False
-            fetch_start_date = None
-            if incremental_flag and last_metric_date:
-                fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
-            chip_model = get_cyq_chips_model_by_code(stock_code)
-            daily_data_model = get_daily_data_model_by_code(stock_code)
-            data_tasks = {
-                "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
-                "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
-                "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
-            }
-            results = await asyncio.gather(*data_tasks.values())
-            data_dfs = dict(zip(data_tasks.keys(), results))
-            cyq_chips_df = data_dfs.get("cyq_chips")
-            if cyq_chips_df is None or cyq_chips_df.empty:
-                logger.error(f"[{stock_code}] [审计失败] 黄金标准数据源 'cyq_chips' 为空！任务终止。")
-                return {"status": "failed", "reason": "Master data source 'cyq_chips' is empty"}
-            cyq_chips_df['trade_time'] = pd.to_datetime(cyq_chips_df['trade_time'])
-            master_dates = set(cyq_chips_df['trade_time'].dt.date.unique())
-            is_data_healthy = True
-            audit_warnings = []
-            other_essential_dfs = {
-                "daily_data": data_dfs.get("daily_data"),
-                "daily_basic": data_dfs.get("daily_basic")
-            }
-            for name, df in other_essential_dfs.items():
-                if df is None or df.empty:
-                    logger.error(f"[{stock_code}] [审计失败] 关键数据源 '{name}' 为空！任务终止。")
-                    return {"status": "failed", "reason": f"Essential data source '{name}' is empty"}
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
-                source_dates = set(df['trade_time'].dt.date.unique())
-                missing_in_source = sorted(list(master_dates - source_dates))
-                if missing_in_source:
-                    is_data_healthy = False
-                    warning_msg = (f"[{stock_code}] [审计警告] 数据源 '{name}' "
-                                   f"缺失了 {len(missing_in_source)} 个交易日的数据。 "
-                                   f"缺失日期示例: {missing_in_source[:5]}...")
-                    audit_warnings.append(warning_msg)
-            daily_data_df = other_essential_dfs['daily_data']
-            required_cols_in_daily = ['close_qfq', 'vol', 'high_qfq', 'low_qfq']
-            if daily_data_df[required_cols_in_daily].isnull().values.any():
-                is_data_healthy = False
-                problematic_rows = daily_data_df[daily_data_df[required_cols_in_daily].isnull().any(axis=1)]
-                for trade_date, row in problematic_rows.iterrows():
-                    missing_fields = [col for col in required_cols_in_daily if pd.isna(row[col])]
-                    warning_msg = (f"[{stock_code}] [审计警告] 在日期 {row['trade_time'].date()} 的行情数据中，"
-                                   f"发现 NULL 值。缺失字段: {missing_fields}")
-                    audit_warnings.append(warning_msg)
-            if not is_data_healthy:
-                logger.error(f"[{stock_code}] [审计失败] 数据一致性检查未通过，任务已熔断。详情如下：")
-                for warning in audit_warnings:
-                    logger.error(warning)
-                return {"status": "failed", "reason": "Data consistency audit failed."}
-            cyq_chips_data = data_dfs['cyq_chips']
-            if cyq_chips_data.empty:
-                logger.warning(f"[{stock_code}] 在指定范围内找不到原始筹码数据，任务终止。")
-                return {"status": "skipped", "reason": "no raw chip data in range"}
-            cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
-            daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
-            mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
-            if mask_sum_to_one.any():
-                cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
-            daily_data = data_dfs['daily_data']
-            daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-            daily_basic_data = data_dfs['daily_basic']
-            daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
-            daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
-            daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
-            daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
-            daily_basic_data = daily_basic_data.drop(columns=['float_share'])
-            merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
-            merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
-            if merged_df.empty:
-                logger.warning(f"[{stock_code}] 数据源内连接(inner join)后结果为空，请检查诊断日志中天数最短的数据源。任务终止。")
-                return {"status": "skipped", "reason": "data sources could not be merged"}
-            merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
-            daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
-            daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
-            merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-            grouped_data = merged_df.groupby('trade_time')
-            all_metrics_list = []
-            for trade_date, daily_full_df in grouped_data:
-                if incremental_flag and last_metric_date and trade_date <= last_metric_date:
-                    continue
-                context_data = daily_full_df.iloc[0].to_dict()
-                chip_data_for_calc = daily_full_df[['price', 'percent']]
-                if chip_data_for_calc.empty:
-                    continue
-                context_data['weight_avg_cost'] = 0
-                calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
-                daily_metrics = calculator.calculate_all_metrics()
-                if daily_metrics:
-                    daily_metrics['trade_time'] = trade_date
-                    daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
-                    all_metrics_list.append(daily_metrics)
-            if not all_metrics_list:
-                return {"status": "success", "processed_days": 0, "reason": "already up-to-date"}
-            new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
+                    record_data[field_name] = value
+        record_data.pop('id', None)
+        record_data.pop('stock', None)
+        if record_data:
+            records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
+
+    @sync_to_async(thread_sensitive=True)
+    def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
+        with transaction.atomic():
+            if do_delete_first:
+                model.objects.filter(stock=stock_info_obj).delete()
+            model.objects.bulk_create(records_to_create_list, batch_size=5000)
+
+    await save_metrics_async(MetricsModel, stock_info, records_to_create, is_full_refresh)
+    print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。")
+    return len(records_to_create)
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
+    """
+    【执行器 V15.0 - 职责拆分重构版】
+    - 核心重构 (V15.0): 将原先臃肿的函数拆分为多个职责单一的辅助函数，主任务函数负责流程编排。
+    - 流程:
+        1. _initialize_task_context: 初始化上下文。
+        2. _load_and_audit_data_sources: 加载并审计数据。
+        3. _preprocess_and_merge_data: 预处理并合并数据。
+        4. _calculate_base_chip_metrics: 计算基础筹码指标。
+        5. _calculate_derivative_metrics: 自动化计算所有衍生指标。
+        6. _prepare_and_save_data: 准备并保存数据。
+    """
+    async def main(incremental_flag: bool):
+        try:
+            # 1. 初始化
+            max_lookback_days = 160
+            stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
+                stock_code, incremental_flag, max_lookback_days
+            )
+            # 2. 加载和审计数据
+            data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
+            # 3. 预处理和合并
+            merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
+            # 4. 计算基础指标
+            new_metrics_df = _calculate_base_chip_metrics(merged_df, is_incremental_final, last_metric_date)
+            if new_metrics_df.empty:
+                return {"status": "success", "processed_days": 0, "reason": "already up-to-date or no new data"}
+            # 5. 准备用于衍生计算的完整DataFrame
             final_metrics_df = new_metrics_df
-            if incremental_flag and last_metric_date:
-                past_metrics_df = await get_data_async(
-                    MetricsModel, stock_info, 
-                    start_date=fetch_start_date
-                )
+            if is_incremental_final and last_metric_date:
+                @sync_to_async(thread_sensitive=True)
+                def get_past_data_async(model, s_info, start_date):
+                    qs = model.objects.filter(stock=s_info, trade_time__gte=start_date)
+                    return pd.DataFrame.from_records(qs.values())
+                past_metrics_df = await get_past_data_async(MetricsModel, stock_info, fetch_start_date)
                 if not past_metrics_df.empty:
                     past_metrics_df = past_metrics_df.set_index('trade_time')
                     if not isinstance(past_metrics_df.index, pd.DatetimeIndex):
                         past_metrics_df.index = pd.to_datetime(past_metrics_df.index)
-                    if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
-                        new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
-            # --- 指标衍生计算 (V13.0 三阶段时序修正版) ---
-            # 阶段一：计算所有非健康分的基础及衍生指标
-            if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
-                final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
-            # 1.1 硬编码保障 + 数据驱动计算 (斜率)
-            required_derivatives_config = { 'peak_stability': [5, 21, 55], 'peak_control_ratio': [55], 'concentration_70pct': [5, 21, 55] }
-            for base_col, periods in required_derivatives_config.items():
-                if base_col in final_metrics_df.columns:
-                    for p in periods:
-                        slope_col = f"{base_col}_slope_{p}d"
-                        if slope_col not in final_metrics_df.columns: final_metrics_df[slope_col] = _calculate_slope(final_metrics_df[base_col], p)
-            strategy_config = _load_strategy_config()
-            feature_params = strategy_config.get('feature_engineering_params', {})
-            slope_params = feature_params.get('slope_params', {})
-            if slope_params.get('enabled', False):
-                for base_col, periods in slope_params.get('series_to_slope', {}).items():
-                    if "说明" in base_col: continue
-                    base_col_name = base_col.replace('_D', '') 
-                    if base_col_name in final_metrics_df.columns:
-                        for p in periods:
-                            target_col_name = f"{base_col_name}_slope_{p}d"
-                            final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[base_col_name], p)
-            
-            # 1.2 硬编码保障 + 数据驱动计算 (加速度)
-            for base_col, periods in required_derivatives_config.items():
-                if base_col in final_metrics_df.columns:
-                    for p in periods:
-                        slope_col = f"{base_col}_slope_{p}d"
-                        accel_col = f"{base_col}_accel_{p}d"
-                        if accel_col not in final_metrics_df.columns: final_metrics_df[accel_col] = _calculate_slope(final_metrics_df[slope_col], p)
-            accel_params = feature_params.get('accel_params', {})
-            if accel_params.get('enabled', False):
-                for base_col, periods in accel_params.get('series_to_accel', {}).items():
-                    if "说明" in base_col: continue
-                    base_col_name = base_col.replace('_D', '')
-                    if base_col_name in final_metrics_df.columns:
-                        for p in periods:
-                            source_slope_col = f"{base_col_name}_slope_{p}d"
-                            if source_slope_col in final_metrics_df.columns:
-                                target_col_name = f"{base_col_name}_accel_{p}d"
-                                final_metrics_df[target_col_name] = _calculate_slope(final_metrics_df[source_slope_col], p)
-            
-            # 1.3 计算除健康分外的1日衍生指标
-            signals_for_1d_derivatives_base = [
-                'peak_cost', 'concentration_70pct', 'concentration_90pct', 'peak_stability',
-                'peak_control_ratio', 'peak_strength_ratio', 'winner_profit_margin',
-                'support_below', 'pressure_above', 'turnover_from_winners_ratio',
-                'turnover_from_losers_ratio', 'cost_divergence', 'loser_rate_long_term'
-            ]
-            for base_col_name in signals_for_1d_derivatives_base:
-                if base_col_name in final_metrics_df.columns:
-                    slope_col_1d = f"{base_col_name}_slope_1d"
-                    final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
-                    accel_col_1d = f"{base_col_name}_accel_1d"
-                    final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-            # 阶段二：计算最终版的筹码健康分
-            final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
-            # 阶段三：基于最终版的健康分，计算其1日斜率和加速度
-            if 'chip_health_score' in final_metrics_df.columns:
-                slope_col_1d = "chip_health_score_slope_1d"
-                final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df['chip_health_score'], 2)
-                accel_col_1d = "chip_health_score_accel_1d"
-                final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-            # --- 数据保存部分 ---
-            records_to_save_df = final_metrics_df.loc[new_metrics_df.index]
-            records_to_create = []
-            model_fields = {f.name for f in MetricsModel._meta.get_fields()}
-            for trade_date, row in records_to_save_df.iterrows():
-                record_data = {}
-                for field_name in model_fields:
-                    if field_name in row.index:
-                        value = row[field_name]
-                        if isinstance(value, float) and not np.isfinite(value):
-                            record_data[field_name] = None
-                        elif pd.isna(value):
-                            record_data[field_name] = None
-                        elif isinstance(value, float):
-                            if abs(value) < 1e-10:
-                                record_data[field_name] = Decimal('0.0')
-                            else:
-                                record_data[field_name] = Decimal(str(round(value, 8)))
-                        else:
-                            record_data[field_name] = value
-                record_data.pop('id', None)
-                record_data.pop('stock', None)
-                if record_data:
-                    records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
-            await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
-            logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级筹码指标。")
-            return {"status": "success", "processed_days": len(records_to_create)}
+            # 6. 计算衍生指标
+            final_metrics_df = await _calculate_derivative_metrics(stock_info, final_metrics_df)
+            # 7. 准备并保存数据
+            processed_days = await _prepare_and_save_data(
+                stock_info, MetricsModel, final_metrics_df, new_metrics_df.index, not is_incremental_final
+            )
+            mode = "增量更新" if is_incremental_final else "全量刷新"
+            logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级筹码指标。")
+            return {"status": "success", "processed_days": processed_days}
         except StockInfo.DoesNotExist:
             logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
             return {"status": "failed", "reason": "stock_code not found in StockInfo"}
+        except ValueError as ve:
+            logger.error(f"[{stock_code}] 高级筹码指标预计算失败 (数据问题): {ve}", exc_info=False) # 数据问题不打印完整堆栈
+            return {"status": "failed", "reason": str(ve)}
         except Exception as e:
-            logger.error(f"[{stock_code}] 高级筹码指标预计算失败: {e}", exc_info=True)
+            logger.error(f"[{stock_code}] 高级筹码指标预计算失败 (未知异常): {e}", exc_info=True)
             return {"status": "failed", "reason": str(e)}
     try:
-        result = async_to_sync(main)(time_trade_dao, is_incremental)
+        result = async_to_sync(main)(is_incremental)
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
+
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
