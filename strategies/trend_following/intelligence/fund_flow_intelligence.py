@@ -66,11 +66,9 @@ class FundFlowIntelligence:
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        
         pillars = {
             'fund_flow': 'net_flow_consensus',
             'structure': 'main_force_net_flow_consensus',
@@ -79,78 +77,85 @@ class FundFlowIntelligence:
             'xl_order': 'net_xl_amount_consensus',
             'intensity': 'main_force_flow_intensity_ratio'
         }
-        
+        pillar_types = {
+            'uses_sum': ['fund_flow', 'structure', 'xl_order'], # 这些指标的静态背景使用累计值
+            'uses_daily': ['conflict', 'intensity', 'cmf']      # 这些指标的静态背景直接使用日度值
+        }
         required_cols = set()
         for p in periods:
             for pillar_key, pillar_prefix in pillars.items():
-                # 静态指标使用累计值，其他使用每日值
-                static_prefix = f"{pillar_prefix}_sum_{p}d" if pillar_key in ['fund_flow', 'structure'] else pillar_prefix
-                required_cols.add(f"{static_prefix}_D")
-                required_cols.add(f"SLOPE_{p}_{static_prefix}_D")
-                required_cols.add(f"ACCEL_{p}_{pillar_prefix}_D")
-
+                # 1. 确定静态指标的基础名 (static_base)
+                if p > 1 and pillar_key in pillar_types['uses_sum']:
+                    static_base = f"{pillar_prefix}_sum_{p}d"
+                else:
+                    # 对于p=1，或不使用累计值的指标，静态值就是其日度值本身
+                    static_base = pillar_prefix
+                # 2. 确定斜率指标的基础名 (slope_base) - 斜率是基于静态指标计算的
+                slope_base = f"SLOPE_{p}_{static_base}"
+                # 3. 确定加速度指标的基础名 (accel_base) - 加速度总是基于日度核心指标计算的
+                accel_base = f"ACCEL_{p}_{pillar_prefix}"
+                # 4. 添加带 "_D" 后缀的完整列名到检查列表
+                required_cols.add(f"{static_base}_D")
+                required_cols.add(f"{slope_base}_D")
+                required_cols.add(f"{accel_base}_D")
         missing_cols = list(required_cols - set(df.columns))
         if missing_cols:
             print(f"          -> [严重警告] 终极资金流引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-
         # --- 2. 计算六大支柱在各周期的“完美健康度” ---
         pillar_health = {key: {} for key in pillars}
-        
         for p in periods:
             for pillar_key, pillar_prefix in pillars.items():
-                static_prefix = f"{pillar_prefix}_sum_{p}d" if pillar_key in ['fund_flow', 'structure'] else pillar_prefix
-                
-                static_series = df.get(f"{static_prefix}_D")
-                slope_series = df.get(f"SLOPE_{p}_{static_prefix}_D")
-                accel_series = df.get(f"ACCEL_{p}_{pillar_prefix}_D")
-
+                # 1. 获取静态指标列名
+                if p > 1 and pillar_key in pillar_types['uses_sum']:
+                    static_col = f"{pillar_prefix}_sum_{p}d_D"
+                else:
+                    static_col = f"{pillar_prefix}_D"
+                # 2. 获取斜率指标列名
+                static_base_for_slope = static_col.replace('_D', '')
+                slope_col = f"SLOPE_{p}_{static_base_for_slope}_D"
+                # 3. 获取加速度指标列名
+                accel_col = f"ACCEL_{p}_{pillar_prefix}_D"
+                # 4. 从DataFrame中获取Series
+                static_series = df.get(static_col)
+                slope_series = df.get(slope_col)
+                accel_series = df.get(accel_col)
                 static_score = self._normalize_score(static_series, norm_window, df.index)
                 slope_score = self._normalize_score(slope_series, norm_window, df.index)
                 accel_score = self._normalize_score(accel_series, norm_window, df.index)
-                
                 pillar_health[pillar_key][p] = static_score * slope_score * accel_score
-
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
             health_scores = [pillar_health[key][p] for key in pillars]
             # 使用几何平均值来融合，对0值更敏感，要求所有支柱都不能太差
             overall_bullish_health[p] = pd.concat(health_scores, axis=1).prod(axis=1)**(1/len(pillars))
-        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
-
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-
         # --- 5. 共振信号合成 ---
         states['SCORE_FF_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_FF_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FF_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
         states['SCORE_FF_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_FF_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
-        
         states['SCORE_FF_BEARISH_RESONANCE_B'] = overall_bearish_health[5].astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FF_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-
         # --- 6. 反转信号合成 ---
         states['SCORE_FF_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
         states['SCORE_FF_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FF_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FF_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_FF_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
         print(f"        -> [终极资金流信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
