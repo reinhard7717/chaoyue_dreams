@@ -71,7 +71,7 @@ class ChipIntelligence:
                         required_cols.add(f"SLOPE_{p}_{factor_name}")
                         required_cols.add(f"ACCEL_{p}_{factor_name}")
                     factor_name_w = factor_name.replace('_D', '_W')
-                    if df.columns.contains(factor_name_w): # 只检查存在的周线数据
+                    if factor_name_w in all_potential_cols: # 使用 'in' 关键字进行成员检查
                          required_cols.add(factor_name_w)
                     # ▲▲▲ 修改结束 ▲▲▲
 
