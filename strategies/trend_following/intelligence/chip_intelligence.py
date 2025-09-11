@@ -15,6 +15,30 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
+    def _normalize_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
+        """
+        【新增】将一个 Series 归一化到 0-1 区间。
+        使用滚动窗口的百分位排名 (rank) 来实现。
+        :param series: 输入的 pandas Series。
+        :param window: 滚动窗口大小。
+        :param ascending: 排序方向。True表示值越大分数越高，False反之。
+        :return: 归一化后的 pandas Series。
+        """
+        # 检查输入是否有效
+        if series is None or series.empty:
+            # 如果输入为空，根据情况返回一个填充了中性值0.5的Series
+            return pd.Series(0.5, index=series.index if series is not None else None)
+        # 使用滚动窗口计算百分位排名，min_periods保证在数据初期也能尽快产出分数
+        min_periods = window // 4
+        rank_pct = series.rolling(window, min_periods=min_periods).rank(pct=True)
+        # 根据排序方向调整分数
+        if ascending:
+            score = rank_pct
+        else:
+            score = 1.0 - rank_pct
+        # 用中性值0.5填充因窗口期不足而产生的NaN
+        return score.fillna(0.5)
+
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V332.0 七维交叉协同终极版】筹码情报最高司令部
