@@ -307,43 +307,65 @@ class IndicatorService:
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
 
-    def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame: # 整个方法
+    def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【新增 V1.0】预计算衍生指标列名适配器
-        - 核心职责: 将从数据库加载的、已持久化的衍生指标列名（如 'peak_cost_slope_5d'）
+        【V2.0 终极适配器版】预计算衍生指标列名适配器
+        - 核心职责: 将从数据库加载的、已持久化的衍生指标列名（如 'peak_cost_slope_5d' 或 'net_flow_consensus_sum_5d_slope_5d'）
                     转换为策略层期望的、历史悠久的命名格式（如 'SLOPE_5_peak_cost_D'）。
                     这是适配“衍生指标持久化”重构的关键一步，确保上层策略代码无需修改。
-        - 输入: 包含数据库原始列名的DataFrame (来自 advanced_chips)。
+        - 核心升级 (V2.0): 增加了对资金流复杂命名格式的解析能力，并统一添加 '_D' 后缀。
+        - 输入: 包含数据库原始列名的DataFrame (来自 advanced_chips 或 advanced_fund_flow)。
         - 输出: 列名已转换为策略层格式的DataFrame。
         """
-        # print("    - [数据适配层] 正在转换预计算的衍生指标列名...")
-        import re # 导入正则表达式模块
+        print("    - [数据适配层 V2.0] 正在转换预计算的衍生指标列名...") # 修改: 更新版本号
+        import re
         rename_map = {}
-        for col in df.columns:
-            # 匹配斜率列，例如: peak_cost_slope_5d
-            slope_match = re.match(r'(.+)_slope_(\d+)d$', col)
-            if slope_match:
-                base_name = slope_match.group(1)
-                period = slope_match.group(2)
-                # 转换为: SLOPE_5_peak_cost_D
-                new_name = f"SLOPE_{period}_{base_name}_D"
-                rename_map[col] = new_name
-                continue # 匹配成功后继续下一个循环
-
-            # 匹配加速度列，例如: peak_control_ratio_accel_21d
-            accel_match = re.match(r'(.+)_accel_(\d+)d$', col)
-            if accel_match:
-                base_name = accel_match.group(1)
-                period = accel_match.group(2)
-                # 转换为: ACCEL_21_peak_control_ratio_D
-                new_name = f"ACCEL_{period}_{base_name}_D"
-                rename_map[col] = new_name
         
+        # 遍历DataFrame中的每一列
+        for col in df.columns:
+            new_name = None
+            # 规则1: 匹配资金流的聚合指标斜率，例如 'net_flow_consensus_sum_5d_slope_5d'
+            # 这种格式最复杂，所以优先匹配
+            ff_sum_slope_match = re.match(r'(.+)_sum_(\d+)d_slope_(\d+)d$', col)
+            if ff_sum_slope_match:
+                base_name = ff_sum_slope_match.group(1)
+                sum_period = ff_sum_slope_match.group(2)
+                slope_period = ff_sum_slope_match.group(3)
+                # 转换为: SLOPE_5_net_flow_consensus_sum_5d_D
+                new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d_D"
+            
+            # 规则2: 匹配常规斜率，例如 'peak_cost_slope_5d'
+            elif '_slope_' in col:
+                slope_match = re.match(r'(.+)_slope_(\d+)d$', col)
+                if slope_match:
+                    base_name = slope_match.group(1)
+                    period = slope_match.group(2)
+                    # 转换为: SLOPE_5_peak_cost_D
+                    new_name = f"SLOPE_{period}_{base_name}_D"
+
+            # 规则3: 匹配常规加速度，例如 'peak_cost_accel_5d'
+            elif '_accel_' in col:
+                accel_match = re.match(r'(.+)_accel_(\d+)d$', col)
+                if accel_match:
+                    base_name = accel_match.group(1)
+                    period = accel_match.group(2)
+                    # 转换为: ACCEL_5_peak_cost_D
+                    new_name = f"ACCEL_{period}_{base_name}_D"
+
+            if new_name:
+                rename_map[col] = new_name
+
         if rename_map:
-            # print(f"      -> 发现并转换 {len(rename_map)} 个衍生指标列。")
-            return df.rename(columns=rename_map)
+            print(f"      -> 发现并转换 {len(rename_map)} 个衍生指标列。")
+            # 使用转换映射重命名列
+            df_renamed = df.rename(columns=rename_map)
+            # 将原始列也保留，但添加 '_raw' 后缀，便于调试和追溯
+            # for old_name in rename_map.keys():
+            #     if old_name not in df_renamed.columns:
+            #         df_renamed[f"{old_name}_raw"] = df[old_name]
+            return df_renamed
         else:
-            print("      -> 未发现需要转换的衍生指标列。")
+            # print("      -> 未发现需要转换的衍生指标列。") # 注释掉，减少不必要的日志
             return df
 
     def _get_max_lookback_period(self, config: dict) -> int:
@@ -574,10 +596,10 @@ class IndicatorService:
             if df_supp_std is not None and not df_supp_std.empty:
                 # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
                 df_supp_std.index = df_supp_std.index.normalize()
-                # 当处理高级筹码数据时，调用列名适配器
-                if tag == 'advanced_chips' or tag == 'advanced_fund_flow':
+                # 当处理高级筹码或高级资金流数据时，调用列名适配器
+                if tag in ['advanced_chips', 'advanced_fund_flow']:
+                    print(f"    - [数据适配层] 检测到预计算数据源 '{tag}'，正在启动列名适配器...")
                     df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
-
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                     suffix = f"_{tag}"
