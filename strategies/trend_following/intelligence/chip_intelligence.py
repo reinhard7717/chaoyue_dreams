@@ -158,7 +158,7 @@ class ChipIntelligence:
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
         overall_bullish_health = {}
         for p in periods:
-            health_scores_for_period = [pillar_period_health_d[key] for key in pillars]
+            health_scores_for_period = [pillar_period_health_d[key][p] for key in pillars]
             health_scores_for_period.append(pillar_overall_health_d['mtf_synergy'])
             overall_bullish_health[p] = pd.concat(health_scores_for_period, axis=1).prod(axis=1)**(1/len(health_scores_for_period))
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
