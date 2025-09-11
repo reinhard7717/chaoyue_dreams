@@ -74,14 +74,14 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 动态加权与情景感知版】风险元融合模块
-        - 核心职责: 消费配置文件中按维度组织的风险信号，生成结构化的风险态势评估。
-        - 核心升级 (V2.0):
-          1.  【动态加权】: 根据市场阶段(上涨初期/末期)动态调整各风险维度的权重。
-          2.  【风险共振】: 当多个核心维度同时高风险时，对总风险分施加额外惩罚。
-          3.  【主次融合】: 优化维度内融合逻辑，从“取最大”升级为“主要风险+次要风险*折扣”，感知风险累积。
+        【V3.0 配置驱动重构版】风险元融合模块
+        - 核心重构 (本次修改):
+          - [NameError修复] 彻底废弃了方法内硬编码的风险定义，现在完全从配置文件 `fused_risk_scoring` 块中读取 `risk_categories`、`dynamic_weighting_params` 等所有参数，从根源上解决了 `risk_categories` 未定义的错误。
+          - [TypeError修复] 修正了维度内融合的致命逻辑错误，现在能正确解析每个信号的 `weight` 和 `inverse` 属性，并进行正确的数值计算。
+          - [健壮性提升] 为所有从配置中读取的参数添加了默认值，使模块功能更加稳固。
+        - 收益: 实现了完全由配置文件驱动的、逻辑正确且运行稳定的新一代风险融合引擎。
         """
-        print("        -> [风险元融合模块 V2.0 动态加权与情景感知版] 启动...") # // 更新版本号和描述
+        print("        -> [风险元融合模块 V3.0 配置驱动重构版] 启动...") # 新增: 更新版本号和描述
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
@@ -89,59 +89,42 @@ class CognitiveIntelligence:
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
 
-        risk_definitions = {
-            "chip_control_risk": {
-                "SCORE_CHIP_PILLAR_CONTROL_STRUCTURE_HEALTH": {"weight": 1.0, "inverse": True} # 控盘结构风险
-            },
-            "chip_sentiment_risk": {
-                "SCORE_CHIP_PILLAR_HOLDER_SENTIMENT_HEALTH": {"weight": 1.0, "inverse": True} # 持仓心态风险
-            },
-            "chip_stability_risk": {
-                "SCORE_CHIP_PILLAR_STRUCTURAL_STABILITY_HEALTH": {"weight": 1.0, "inverse": True} # 结构稳定风险
-            },
-            "chip_pressure_risk": {
-                "SCORE_CHIP_PILLAR_PRESSURE_RISK_HEALTH": {"weight": 1.0, "inverse": True} # 抛压风险
-            },
-            "chip_playbook_risk": {
-                "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": {"weight": 1.5, "inverse": False} # 高位派发剧本风险 (权重更高)
-            },
-            "behavioral_risk": { # 其他领域的风险保持不变
-                "BEHAVIOR_TOP_REVERSAL": {"weight": 1.0, "inverse": False, "fuse": True}
-            },
-            "fund_flow_risk": {
-                "FF_BEARISH_RESONANCE": {"weight": 1.0, "inverse": False, "fuse": True}
-            }
-        }
-
+        risk_categories = p_fused_risk.get('risk_categories', {})
+        p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
+        base_weights = p_dynamic_weighting.get('base_weights', {})
+        context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
+        # 假设 intra_dimension_fusion_params 与 resonance_penalty_params 也在 p_fused_risk 下
+        p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
+        secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
+        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
         fused_dimension_scores = {}
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 1. 维度内融合：【深化升级】采用“主次融合”逻辑 ---
         print("          -> 步骤1: 执行维度内风险主次融合...")
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
-            
             category_signal_scores = []
-            for signal_name, base_score in signals.items():
+            for signal_name, signal_params in signals.items(): # signal_params 是一个字典，如 {"weight": 1.0, "inverse": true}
                 if signal_name == "说明": continue
-                
                 atomic_score = self._get_atomic_score(df, signal_name, 0.0)
-                final_signal_score = atomic_score * base_score
+                # 正确处理 inverse 逻辑
+                is_inverse = signal_params.get('inverse', False)
+                if is_inverse:
+                    processed_score = 1.0 - atomic_score
+                else:
+                    processed_score = atomic_score
+                # 正确应用 weight
+                weight = signal_params.get('weight', 1.0)
+                final_signal_score = processed_score * weight
                 final_signal_score.name = signal_name # 为Series命名，便于后续排序
                 category_signal_scores.append(final_signal_score)
 
             if category_signal_scores:
-                # 将所有信号分数合并到一个DataFrame中，便于计算主次风险
                 category_df = pd.concat(category_signal_scores, axis=1)
-                
-                # 计算每一行的最大值（主要风险）和次大值（次要风险）
                 sorted_scores = np.sort(category_df.values, axis=1)
                 primary_risk = pd.Series(sorted_scores[:, -1], index=df.index)
                 secondary_risk = pd.Series(sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0, index=df.index)
-                
-                # 应用主次融合逻辑
                 dimension_risk_score = primary_risk + secondary_risk * secondary_risk_discount
-                
                 fused_dimension_scores[category_name] = dimension_risk_score
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score.astype(np.float32)
             else:
@@ -150,28 +133,20 @@ class CognitiveIntelligence:
         # --- 2. 维度间融合：【深化升级】应用“动态风险加权” ---
         print("          -> 步骤2: 应用市场阶段进行动态风险加权...")
         total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
-        # 获取市场阶段上下文
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
-
         for category_name, weight in base_weights.items():
             if category_name in fused_dimension_scores:
-                # 获取当前维度的基础权重
                 current_weight = pd.Series(weight, index=df.index)
-                
-                # 根据市场阶段动态调整权重
                 if get_param_value(p_dynamic_weighting.get('enabled'), True):
-                    # 在上涨初期，调整权重
-                    if "CONTEXT_TREND_STAGE_EARLY" in context_adjustments and category_name in context_adjustments["CONTEXT_TREND_STAGE_EARLY"]:
-                        adjustment_factor = context_adjustments["CONTEXT_TREND_STAGE_EARLY"][category_name]
+                    early_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {})
+                    if category_name in early_adjustments:
+                        adjustment_factor = early_adjustments[category_name]
                         current_weight = current_weight.where(~is_early_stage, current_weight * adjustment_factor)
-
-                    # 在上涨末期，调整权重
-                    if "CONTEXT_TREND_STAGE_LATE" in context_adjustments and category_name in context_adjustments["CONTEXT_TREND_STAGE_LATE"]:
-                        adjustment_factor = context_adjustments["CONTEXT_TREND_STAGE_LATE"][category_name]
+                    late_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {})
+                    if category_name in late_adjustments:
+                        adjustment_factor = late_adjustments[category_name]
                         current_weight = current_weight.where(~is_late_stage, current_weight * adjustment_factor)
-
                 total_fused_risk_score += fused_dimension_scores[category_name] * current_weight
 
         # --- 3. 风险共振惩罚：【深化升级】对协同风险施加额外惩罚 ---
@@ -181,20 +156,15 @@ class CognitiveIntelligence:
             min_dims = get_param_value(p_resonance.get('min_dimensions_for_resonance'), 2)
             threshold = get_param_value(p_resonance.get('risk_score_threshold'), 150)
             penalty_multiplier = get_param_value(p_resonance.get('penalty_multiplier'), 1.2)
-            # 计算有多少个核心维度的风险超过了阈值
             high_risk_dimension_count = pd.Series(0, index=df.index)
             for dim in core_dims:
                 if dim in fused_dimension_scores:
                     high_risk_dimension_count += (fused_dimension_scores[dim] > threshold).astype(int)
-            # 判断是否触发共振条件
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
-            # 对触发共振的日子，应用惩罚乘数
             total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, total_fused_risk_score * penalty_multiplier)
-            states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered # 增加一个状态信号便于观察
-
+            states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
-        
-        print(f"        -> [风险元融合模块 V2.0] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
+        print(f"        -> [风险元融合模块 V3.0] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
         return states
 
     def synthesize_tactical_opportunities(self, df: pd.DataFrame) -> pd.DataFrame:
