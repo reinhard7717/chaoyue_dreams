@@ -17,57 +17,138 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V329.0 架构净化版】筹码情报最高司令部
+        【V332.0 七维交叉协同终极版】筹码情报最高司令部
         - 核心重构 (本次修改):
-          - [架构净化] 彻底废除陈旧的 MASTER_SIGNAL_CONFIG 及其相关的动态分位数信号生成逻辑。
-          - [信号提升] 将 `diagnose_cross_validation_signals` 生成的B/A/S三级信号，确立为本模块的最终核心输出。
-        - 收益: 极大简化了模块的顶层逻辑，消除了冗余和信息降维，使得输出的信号质量更高、逻辑更清晰。
+          - [认知再升维] 引入“七维交叉协同引擎”，在六维支柱基础上增加“跨周期协同”维度。
+          - [分析新范式] 引入“交叉协同剧本”分析，识别“强庄洗盘”、“真空突破”等高级市场博弈模式。
+        - 收益: 模型从“独立维度评估”进化到“多维互动博弈分析”，实现了对市场复杂叙事的深度解读。
         """
-        print("        -> [筹码情报最高司令部 V329.0 架构净化版] 启动...")
-        states = {}
-        triggers = {}
+        print("        -> [筹码情报最高司令部 V332.0 七维交叉协同终极版] 启动...") # 新增: 更新版本号和描述
         
-        initial_cols = set(df.columns)
-        def _update_atomic_states(df_to_update: pd.DataFrame, last_cols: set) -> set:
-            current_cols = set(df_to_update.columns)
-            new_score_cols = current_cols - last_cols
-            if new_score_cols:
-                new_scores_dict = {col: df_to_update[col] for col in new_score_cols}
-                self.strategy.atomic_states.update(new_scores_dict)
-            return current_cols
-
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
-            initial_cols.add('cost_divergence_D')
-            print("          -> [预处理] 已成功计算衍生指标 'cost_divergence_D'。")
         
-        cols_before_run = initial_cols
-        
-        # --- 步骤 1: 链式调用所有诊断模块，生成所有原子和复合评分 ---
-        df = self.diagnose_strategic_context_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        df = self.diagnose_quantitative_chip_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        df = self.diagnose_advanced_chip_dynamics_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        df = self.diagnose_chip_internal_structure_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        df = self.diagnose_chip_holder_behavior_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        df = self.diagnose_fused_behavioral_chip_scores(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
-        
-        # 调用交叉验证模块，生成终极信号
-        df = self.diagnose_cross_validation_signals(df)
-        cols_before_run = _update_atomic_states(df, cols_before_run)
+        # 直接调用全新的七维交叉协同引擎
+        ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
 
-        # --- 步骤 3: 收集所有新生成的信号 ---
-        # 直接从原子状态库中收集所有新生成的信号
-        all_generated_scores = {col: df[col] for col in cols_before_run - initial_cols}
-        states.update(all_generated_scores)
+        print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。") # 新增: 更新打印信息
+        return ultimate_chip_states, {}
+
+    def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V332.0 新增】七维交叉协同终极筹码信号引擎
+        - 核心范式:
+          - 1. 七维支柱: 在六维基础上，新增“跨周期协同(MTF)”维度。
+          - 2. 交叉协同剧本: 在计算各支柱健康分后，额外计算“强庄洗盘”等特定博弈剧本的匹配分。
+          - 3. 深化输出: 同时输出16个最终裁决信号、7个支柱健康分、以及多个剧本匹配分。
+        """
+        print("        -> [终极筹码信号诊断模块 V332.0 七维交叉协同版] 启动...") # 新增: 打印启动信息
+        states = {}
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        if not get_param_value(p_conf.get('enabled'), True): return states
+        periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
+        norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        pillars = {
+            'cost_structure':   [('peak_cost_D', True), ('cost_divergence_D', True)],
+            'control_structure':  [('concentration_90pct_D', False), ('peak_control_ratio_D', True)],
+            'holder_sentiment':   [('winner_profit_margin_D', True), ('loser_rate_long_term_D', False)],
+            'structural_stability': [('peak_stability_D', True), ('is_multi_peak_D', False)],
+            'pressure_risk':      [('pressure_above_D', False), ('turnover_from_winners_ratio_D', False)],
+            'chip_fault':         [('chip_fault_strength_D', True), ('chip_fault_vacuum_percent_D', False)],
+        }
+        # --- 1. 军备检查 (包含周线数据) ---
+        required_cols = set()
+        for p in periods:
+            for pillar_name, factors in pillars.items():
+                for factor_name, _ in factors:
+                    # 日线数据
+                    required_cols.add(factor_name)
+                    required_cols.add(f"SLOPE_{p}_{factor_name}")
+                    required_cols.add(f"ACCEL_{p}_{factor_name}")
+                    # 周线数据 (仅需静态值)
+                    factor_name_w = factor_name.replace('_D', '_W')
+                    required_cols.add(factor_name_w)
+        missing_cols = list(required_cols - set(df.columns))
+        if missing_cols:
+            print(f"          -> [严重警告] 终极筹码引擎(七维)缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
+        # --- 2. 计算六大支柱的“周期健康度” (日线) ---
+        pillar_period_health_d = {key: {} for key in pillars}
+        for p in periods:
+            for pillar_name, factors in pillars.items():
+                factor_health_scores = []
+                for factor_name, ascending in factors:
+                    static_score = self._normalize_score(df.get(factor_name), norm_window, ascending=ascending)
+                    slope_score = self._normalize_score(df.get(f"SLOPE_{p}_{factor_name}"), norm_window, ascending=ascending)
+                    accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
+                    factor_health = (static_score * slope_score * accel_score)**(1/3)
+                    factor_health_scores.append(factor_health)
+                pillar_period_health_d[pillar_name][p] = pd.concat(factor_health_scores, axis=1).prod(axis=1)**(1/len(factors))
+        # --- 3. 计算各支柱的“全面共识健康度” (日线) ---
+        pillar_overall_health_d = {}
+        for pillar_name in pillars:
+            pillar_overall_health_d[pillar_name] = pd.concat(pillar_period_health_d[pillar_name].values(), axis=1).mean(axis=1)
+        # --- 4. 计算第七支柱: 跨周期协同 (MTF Synergy) ---
+        mtf_synergy_scores = []
+        for pillar_name, factors in pillars.items():
+            factor_synergy_scores = []
+            for factor_name, ascending in factors:
+                factor_name_w = factor_name.replace('_D', '_W')
+                daily_score = self._normalize_score(df.get(factor_name), norm_window, ascending=ascending)
+                weekly_score = self._normalize_score(df.get(factor_name_w), norm_window, ascending=ascending)
+                # 协同分 = 日线分 / 周线分 (处理除零错误)，比值越大代表日线改善越快
+                synergy_score = (daily_score / weekly_score.replace(0, 0.01)).clip(0, 2) / 2 # 归一化到0-1
+                factor_synergy_scores.append(synergy_score)
+            pillar_synergy_score = pd.concat(factor_synergy_scores, axis=1).mean(axis=1)
+            mtf_synergy_scores.append(pillar_synergy_score)
+        pillar_overall_health_d['mtf_synergy'] = pd.concat(mtf_synergy_scores, axis=1).mean(axis=1)
+        # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
+        overall_bullish_health = {}
+        for p in periods:
+            health_scores_for_period = [pillar_period_health_d[key][p] for key in pillars]
+            # 将MTF协同分也加入到每个周期的健康度计算中
+            health_scores_for_period.append(pillar_overall_health_d['mtf_synergy'])
+            overall_bullish_health[p] = pd.concat(health_scores_for_period, axis=1).prod(axis=1)**(1/len(health_scores_for_period))
+        overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
+        # --- 6. 交叉协同剧本诊断 (Cross-Synergy Playbooks) ---
+        ph = pillar_overall_health_d # 使用别名简化代码
+        playbook_scores = {}
+        playbook_scores['SCORE_CHIP_PLAYBOOK_WASHOUT'] = (ph['control_structure'] * ph['pressure_risk'] * ph['structural_stability'] * (1 - ph['holder_sentiment'])).astype(np.float32)
+        playbook_scores['SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT'] = (ph['chip_fault'] * ph['cost_structure'] * (1 - ph['pressure_risk'])).astype(np.float32)
+        playbook_scores['SCORE_CHIP_PLAYBOOK_DISTRIBUTION'] = ((1 - ph['control_structure']) * ph['holder_sentiment'] * ph['pressure_risk']).astype(np.float32)
+        # 底部承接需要动态信息
+        control_slope_score = self._normalize_score(df.get('SLOPE_5_concentration_90pct_D'), norm_window, ascending=False)
+        cost_slope_score = self._normalize_score(df.get('SLOPE_5_peak_cost_D'), norm_window, ascending=True)
+        playbook_scores['SCORE_CHIP_PLAYBOOK_ABSORPTION'] = ((1 - ph['holder_sentiment']) * control_slope_score * cost_slope_score).astype(np.float32)
+        states.update(playbook_scores)
+        print(f"          -> [交叉协同] 已生成 {len(playbook_scores)} 个博弈剧本信号。")
+
+        # --- 7. 终极信号合成 (逻辑不变, 但基于更强大的健康度) ---
+        states['SCORE_CHIP_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
+        states['SCORE_CHIP_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
+        states['SCORE_CHIP_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_CHIP_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE_B'] = overall_bearish_health[5].astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_CHIP_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+
+        # --- 8. 导出七维支柱的最终健康分 ---
+        for pillar_name, health_score in pillar_overall_health_d.items():
+            signal_name = f"SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH"
+            states[signal_name] = health_score.astype(np.float32)
+        print(f"          -> [深化输出] 已生成 {len(pillar_overall_health_d)} 个支柱健康分。")
         
-        print("        -> [筹码情报最高司令部 V329.0] 架构净化完毕。")
-        return states, triggers
+        print(f"        -> [终极筹码信号诊断模块 V332.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        return states
 
     def diagnose_cross_validation_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """

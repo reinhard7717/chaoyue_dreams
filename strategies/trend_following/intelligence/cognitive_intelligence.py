@@ -89,16 +89,29 @@ class CognitiveIntelligence:
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
 
-        risk_categories = get_param_value(p_fused_risk.get('risk_categories'), {})
-        
-        # 加载新的参数块
-        p_dynamic_weighting = get_params_block(p_fused_risk, 'dynamic_weighting_params')
-        p_resonance = get_params_block(p_fused_risk, 'resonance_penalty_params')
-        p_intra_fusion = get_params_block(p_fused_risk, 'intra_dimension_fusion_params')
-
-        base_weights = get_param_value(p_dynamic_weighting.get('base_weights'), {})
-        context_adjustments = get_param_value(p_dynamic_weighting.get('context_adjustments'), {})
-        secondary_risk_discount = get_param_value(p_intra_fusion.get('secondary_risk_discount_factor'), 0.3)
+        risk_definitions = {
+            "chip_control_risk": {
+                "SCORE_CHIP_PILLAR_CONTROL_STRUCTURE_HEALTH": {"weight": 1.0, "inverse": True} # 控盘结构风险
+            },
+            "chip_sentiment_risk": {
+                "SCORE_CHIP_PILLAR_HOLDER_SENTIMENT_HEALTH": {"weight": 1.0, "inverse": True} # 持仓心态风险
+            },
+            "chip_stability_risk": {
+                "SCORE_CHIP_PILLAR_STRUCTURAL_STABILITY_HEALTH": {"weight": 1.0, "inverse": True} # 结构稳定风险
+            },
+            "chip_pressure_risk": {
+                "SCORE_CHIP_PILLAR_PRESSURE_RISK_HEALTH": {"weight": 1.0, "inverse": True} # 抛压风险
+            },
+            "chip_playbook_risk": {
+                "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": {"weight": 1.5, "inverse": False} # 高位派发剧本风险 (权重更高)
+            },
+            "behavioral_risk": { # 其他领域的风险保持不变
+                "BEHAVIOR_TOP_REVERSAL": {"weight": 1.0, "inverse": False, "fuse": True}
+            },
+            "fund_flow_risk": {
+                "FF_BEARISH_RESONANCE": {"weight": 1.0, "inverse": False, "fuse": True}
+            }
+        }
 
         fused_dimension_scores = {}
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -518,32 +531,28 @@ class CognitiveIntelligence:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 提取八大领域的核心“点火”分数 ---
-        # 领域1 (行为): 消费最新的多层次看涨共振信号
+        # 领域1 (筹码剧本 - 最高优先级):
+        chip_playbook_ignition = self._get_atomic_score(df, 'SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT', 0.0)
+        # 领域2 (筹码共识 - 次级优先级):
+        chip_consensus_ignition = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
+        # 其他领域信号
         behavioral_ignition = self._fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
-        # 领域2 (结构): 蓄势突破机会分
-        structural_breakout = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') # 适配新的终极结构看涨共振信号
-        # 领域3 (力学): 整体力学健康度元分数
-        mechanics_ignition = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE') # 适配新的终极动态力学看涨共振信号
-        # 领域4 (筹码): 黄金筹码机会元分数
-        chip_opportunity = self._fuse_multi_level_scores(df, 'RISING_RESONANCE')
-        # 领域5 (资金流): 七位一体看涨共振分
+        structural_breakout = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
+        mechanics_ignition = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
         fund_flow_ignition = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
-        # 领域6 (波动率): S级波动率突破分
         volatility_breakout = self._fuse_multi_level_scores(df, 'VOL_BREAKOUT')
-        # 领域7 (终极结构): 最高级别确认分
-        structural_confirmation = atomic.get('COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S', default_score)
-        # 领域8 (ATR波幅): ATR扩张点火机会分
-        atr_ignition = self._get_atomic_score(df, 'SCORE_ATR_EXPANSION_IGNITION_OPP', default_score)
         # --- 2. 交叉验证：生成“多域点火共振”元分数 ---
-        ignition_resonance_score = (
+        general_ignition_resonance = (
             behavioral_ignition * structural_breakout * mechanics_ignition *
-            chip_opportunity * fund_flow_ignition * volatility_breakout *
-            structural_confirmation * atr_ignition
-        ).astype(np.float32)
+            chip_consensus_ignition * fund_flow_ignition * volatility_breakout
+        )
+        
+        # 使用 np.maximum 确保我们捕捉到最强的信号：要么是特定剧本发生，要么是普遍的共振
+        ignition_resonance_score = np.maximum(chip_playbook_ignition, general_ignition_resonance).astype(np.float32)
+        
         states['COGNITIVE_SCORE_IGNITION_RESONANCE_S'] = ignition_resonance_score
-        # --- 3. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [多域点火共振分数合成模块 V1.7 终极结构层信号适配版] 计算完毕。")
+        print("        -> [多域点火共振分数合成模块 V2.0] 计算完毕。")
         return df
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -816,44 +825,49 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V1.8 终极资金流信号适配版】趋势质量融合评分模块
-        - 核心升级: [信号适配] 将对资金流健康度的评估，从旧的 'FF_SCORE_SEPTAFECTA_RESONANCE_UP_HIGH'
-                    适配为消费由 FundFlowIntelligence V19.0 生成的 'FF_BULLISH_RESONANCE' 终极信号。
+        【V2.0 筹码支柱加权版】趋势质量融合评分模块
+        - 核心升级 (本次修改):
+          - [精细加权] 废除旧的、单一的筹码健康分。现在消费7个独立的“筹码支柱健康分”，并根据不同支柱对趋势质量的重要性赋予不同权重。
+          - [信号适配] 将其他领域的信号消费全面适配为最新的终极信号。
+        - 收益: 对趋势质量的评估更加精细和准确，能区分“控盘驱动的趋势”和“情绪驱动的趋势”。
         """
-        print("        -> [趋势质量融合评分模块 V1.8 终极资金流信号适配版] 启动...")
+        print("        -> [趋势质量融合评分模块 V2.0 筹码支柱加权版] 启动...") # 新增: 更新版本号和描述
+        
         # --- 1. 提取各领域的核心健康度评分 ---
-        behavior_risk_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        behavior_health_score = 1.0 - behavior_risk_score
-        chip_health_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE')
-        fund_flow_health_score = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE') # 适配新的终极资金流看涨共振信号
-        structural_health_score = self._get_atomic_score(df, 'SCORE_MA_HEALTH') 
-        market_health_score = self._get_atomic_score(df, 'SCORE_MKT_HEALTH_S') 
+        behavior_health_score = 1.0 - self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        fund_flow_health_score = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
+        structural_health_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
         regime_health_score = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
+
+        # 消费独立的筹码支柱分，并进行加权
+        p_chip_pillars = get_params_block(self.strategy, 'trend_quality_params', {}).get('chip_pillar_weights', {})
+        chip_health_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        total_chip_weight = 0.0
+        for pillar_name, weight in p_chip_pillars.items():
+            pillar_score = self._get_atomic_score(df, f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH', 0.0)
+            chip_health_score += pillar_score * weight
+            total_chip_weight += weight
+        
+        if total_chip_weight > 0:
+            chip_health_score /= total_chip_weight # 归一化
+
         # --- 2. 定义各维度权重 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
-        weights = {
-            'behavior': get_param_value(p.get('behavior_weight'), 0.20),
-            'chip': get_param_value(p.get('chip_weight'), 0.20),
-            'fund_flow': get_param_value(p.get('fund_flow_weight'), 0.15), 
-            'structural': get_param_value(p.get('structural_weight'), 0.15), 
-            'market': get_param_value(p.get('market_weight'), 0.10), 
-            'mechanics': get_param_value(p.get('mechanics_weight'), 0.10),
-            'regime': get_param_value(p.get('regime_weight'), 0.10)
-        }
+        weights = get_param_value(p, 'domain_weights', {})
+        
         # --- 3. 加权融合生成最终的趋势质量分 ---
         trend_quality_score = (
-            behavior_health_score * weights['behavior'] +
-            chip_health_score * weights['chip'] +
-            fund_flow_health_score * weights['fund_flow'] +
-            structural_health_score * weights['structural'] + 
-            market_health_score * weights['market'] +
-            mechanics_health_score * weights['mechanics'] +
-            regime_health_score * weights['regime']
+            behavior_health_score * weights.get('behavior', 0.20) +
+            chip_health_score * weights.get('chip', 0.30) + # 增加筹码的权重
+            fund_flow_health_score * weights.get('fund_flow', 0.15) +
+            structural_health_score * weights.get('structural', 0.15) + 
+            mechanics_health_score * weights.get('mechanics', 0.10) +
+            regime_health_score * weights.get('regime', 0.10)
         )
         df['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
-        print("        -> [趋势质量融合评分模块 V1.8 终极资金流信号适配版] 计算完毕。")
+        print("        -> [趋势质量融合评分模块 V2.0] 计算完毕。")
         return df
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

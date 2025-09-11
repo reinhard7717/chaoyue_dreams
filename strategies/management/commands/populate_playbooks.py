@@ -10,7 +10,7 @@ from utils.config_loader import load_strategy_config
 
 class Command(BaseCommand):
     # 修改: 更新版本号和描述
-    help = '【V3.1 Bugfix】解析策略配置文件和信号字典，填充或更新Playbook模型。'
+    help = '【V3.3 Bugfix】解析策略配置文件和信号字典，填充或更新Playbook模型。'
 
     def _load_signal_dictionary(self):
         """
@@ -33,10 +33,17 @@ class Command(BaseCommand):
 
     def _process_playbook(self, name, score, playbook_type, score_type_map, existing_map, to_create, to_update, processed_signals):
         """
-        【V3.0 逻辑不变】处理单个playbook的创建或更新逻辑。
+        【V3.2 逻辑不变】处理单个playbook的创建或更新逻辑。
         """
         if not name:
             return
+
+        # 增加健壮性检查，确保传入的score是数字类型。
+        if not isinstance(score, (int, float)):
+            # 使用 print 输出调试信息
+            print(f"调试信息: 信号 '{name}' 的分数不是数字，而是 '{type(score)}' 类型。将使用默认值 0。值为: {score}")
+            self.stdout.write(self.style.WARNING(f"警告: 信号 '{name}' 的分数不是数字，而是 '{type(score)}' 类型。将使用默认值 0。"))
+            score = 0
 
         # 从权威的信号字典中获取元数据
         signal_meta = score_type_map.get(name, {})
@@ -75,13 +82,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """
-        【V3.1 Bugfix】
-        - 核心修复: 在最终检查循环中，增加了对值类型的判断 `isinstance(meta, dict)`，
-                    以确保只处理值为字典的有效信号条目，从而修复了 `AttributeError`。
-        - 核心升级: 适配了 `signal_dictionary.json` 和 `trend_follow_strategy.json` 的分离。
-        - 核心升级: 重构了解析逻辑，以匹配 `trend_follow_strategy.json` 中新的 `four_layer_scoring_params` 和 `fused_risk_scoring` 结构。
+        【V3.3 Bugfix】
+        - 核心修复: 在所有解析循环中，调用 `_process_playbook` 之前，都增加了对 `processed_signals` 集合的检查。
+                    这可以防止因同一信号出现在配置文件不同位置而导致的重复处理，从而解决了 `IntegrityError` (主键冲突) 的问题。
         """
-        self.stdout.write(self.style.SUCCESS('🚀 启动Playbook填充/更新流程 (V3.1 Bugfix)...'))
+        self.stdout.write(self.style.SUCCESS('🚀 启动Playbook填充/更新流程 (V3.3 Bugfix)...'))
 
         # --- 步骤1: 读取和解析数据 (在事务之外执行) ---
         strategy_config = load_strategy_config('config/trend_follow_strategy.json')
@@ -139,7 +144,9 @@ class Command(BaseCommand):
             rules = section_data.get(data_key, {})
             if isinstance(rules, dict):
                 for name, score in rules.items():
-                    if name.startswith('说明_'): continue
+                    # 修改: 增加对 processed_signals 的检查，防止重复处理
+                    if name.startswith('说明_') or name in processed_signals:
+                        continue
                     self._process_playbook(
                         name=name, score=score, playbook_type=get_playbook_type(name),
                         score_type_map=score_type_map, existing_map=existing_playbooks_map,
@@ -152,6 +159,9 @@ class Command(BaseCommand):
         if isinstance(rules, list):
             for rule in rules:
                 name = rule.get('name')
+                # 修改: 增加对 processed_signals 的检查，防止重复处理
+                if not name or name in processed_signals:
+                    continue
                 score = rule.get('score', 0)
                 self._process_playbook(
                     name=name, score=score, playbook_type=get_playbook_type(name),
@@ -163,34 +173,46 @@ class Command(BaseCommand):
         self.stdout.write('  -> 正在解析融合风险信号...')
         fused_risk_data = scoring_params.get('fused_risk_scoring', {})
         risk_categories = fused_risk_data.get('risk_categories', {})
-        for category_name, signals in risk_categories.items():
-            if isinstance(signals, dict):
-                for name, score in signals.items():
-                    if name.startswith('说明_'): continue
-                    # 对于风险信号，我们明确其类型为RISK
-                    self._process_playbook(
-                        name=name, score=score, playbook_type=Playbook.PlaybookType.RISK,
-                        score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                        to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                    )
+        for risk_dimension, signal_config in risk_categories.items():
+            if risk_dimension.startswith('说明_') or not isinstance(signal_config, dict):
+                continue
+            # 遍历风险维度下的信号配置
+            for name, config_value in signal_config.items():
+                # 修改: 增加对 processed_signals 的检查，防止重复处理
+                if name.startswith('说明_') or name in processed_signals:
+                    continue
+                # 此处 config_value 是一个类似 {'weight': 1.0, ...} 的字典，而不是分数。
+                # 我们只需要确保信号名存在于数据库，因此为其分配默认分数 0。
+                self._process_playbook(
+                    name=name,
+                    score=0,  # 关键修复：将分数硬编码为0
+                    playbook_type=Playbook.PlaybookType.RISK,
+                    score_type_map=score_type_map,
+                    existing_map=existing_playbooks_map,
+                    to_create=playbooks_to_create,
+                    to_update=playbooks_to_update,
+                    processed_signals=processed_signals
+                )
 
         # 解析 critical_exit_params (致命离场信号)
         self.stdout.write('  -> 正在解析致命离场信号...')
         exit_rules = trend_follow_params.get('critical_exit_params', {}).get('signals', {})
         for name, score in exit_rules.items():
-            if name and not name.startswith('说明_'):
-                # 对于离场信号，我们明确其类型为EXIT
-                self._process_playbook(
-                    name=name, score=score, playbook_type=Playbook.PlaybookType.EXIT,
-                    score_type_map=score_type_map, existing_map=existing_playbooks_map,
-                    to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
-                )
+            # 修改: 增加对 processed_signals 的检查，防止重复处理
+            if not name or name.startswith('说明_') or name in processed_signals:
+                continue
+            # 对于离场信号，我们明确其类型为EXIT
+            self._process_playbook(
+                name=name, score=score, playbook_type=Playbook.PlaybookType.EXIT,
+                score_type_map=score_type_map, existing_map=existing_playbooks_map,
+                to_create=playbooks_to_create, to_update=playbooks_to_update, processed_signals=processed_signals
+            )
 
         # --- 步骤3: 最终检查，确保所有在字典中定义的信号都已同步 ---
         self.stdout.write('  -> 最终检查: 确保所有已定义的信号都存在于数据库中...')
         unprocessed_count = 0
         for name, meta in score_type_map.items():
-            # 修改: 增加对值类型的检查，确保只处理值为字典的条目，过滤掉所有说明性/注释性条目。
+            # 增加对值类型的检查，确保只处理值为字典的条目，过滤掉所有说明性/注释性条目。
             if name.startswith('说明_') or not isinstance(meta, dict):
                 continue
             
