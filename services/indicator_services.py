@@ -309,63 +309,56 @@ class IndicatorService:
 
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 终极适配器版】预计算衍生指标列名适配器
-        - 核心职责: 将从数据库加载的、已持久化的衍生指标列名（如 'peak_cost_slope_5d' 或 'net_flow_consensus_sum_5d_slope_5d'）
-                    转换为策略层期望的、历史悠久的命名格式（如 'SLOPE_5_peak_cost_D'）。
-                    这是适配“衍生指标持久化”重构的关键一步，确保上层策略代码无需修改。
-        - 核心升级 (V2.0): 增加了对资金流复杂命名格式的解析能力，并统一添加 '_D' 后缀。
-        - 输入: 包含数据库原始列名的DataFrame (来自 advanced_chips 或 advanced_fund_flow)。
-        - 输出: 列名已转换为策略层格式的DataFrame。
+        【V3.0 延迟命名版】预计算衍生指标列名适配器
+        - 核心职责: 将数据库列名转换为一个不带任何时间后缀的、统一的中间格式。
+                    例如：'peak_cost_slope_5d' -> 'SLOPE_5_peak_cost'
+        - 核心修正 (V3.0): 移除了在转换过程中添加 '_D' 后缀的逻辑。
+                          最终的后缀将在各自时间周期处理的最后阶段统一添加。
+                          这从根本上解决了周线数据出现 '_D_W' 双重后缀的问题。
+        - 输入: 包含数据库原始列名的DataFrame。
+        - 输出: 列名已转换为统一中间格式的DataFrame。
         """
-        print("    - [数据适配层 V2.0] 正在转换预计算的衍生指标列名...") # 修改: 更新版本号
+        print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...") # 修改: 更新版本号和描述
         import re
         rename_map = {}
-        
         # 遍历DataFrame中的每一列
         for col in df.columns:
             new_name = None
             # 规则1: 匹配资金流的聚合指标斜率，例如 'net_flow_consensus_sum_5d_slope_5d'
-            # 这种格式最复杂，所以优先匹配
             ff_sum_slope_match = re.match(r'(.+)_sum_(\d+)d_slope_(\d+)d$', col)
             if ff_sum_slope_match:
                 base_name = ff_sum_slope_match.group(1)
                 sum_period = ff_sum_slope_match.group(2)
                 slope_period = ff_sum_slope_match.group(3)
-                # 转换为: SLOPE_5_net_flow_consensus_sum_5d_D
-                new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d_D"
-            
+                # 转换为: SLOPE_5_net_flow_consensus_sum_5d (无后缀)
+                new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d"
             # 规则2: 匹配常规斜率，例如 'peak_cost_slope_5d'
             elif '_slope_' in col:
                 slope_match = re.match(r'(.+)_slope_(\d+)d$', col)
                 if slope_match:
                     base_name = slope_match.group(1)
                     period = slope_match.group(2)
-                    # 转换为: SLOPE_5_peak_cost_D
-                    new_name = f"SLOPE_{period}_{base_name}_D"
-
+                    # 转换为: SLOPE_5_peak_cost (无后缀)
+                    new_name = f"SLOPE_{period}_{base_name}"
             # 规则3: 匹配常规加速度，例如 'peak_cost_accel_5d'
             elif '_accel_' in col:
                 accel_match = re.match(r'(.+)_accel_(\d+)d$', col)
                 if accel_match:
                     base_name = accel_match.group(1)
                     period = accel_match.group(2)
-                    # 转换为: ACCEL_5_peak_cost_D
-                    new_name = f"ACCEL_{period}_{base_name}_D"
-
+                    # 转换为: ACCEL_5_peak_cost (无后缀)
+                    new_name = f"ACCEL_{period}_{base_name}"            
+            # 规则4: 对于非衍生指标，如果带有_D后缀，也先移除，等待后续统一添加
+            # 例如 'chip_health_score_D' -> 'chip_health_score'
+            elif col.endswith('_D'):
+                new_name = col[:-2] # 移除最后的 '_D'
             if new_name:
                 rename_map[col] = new_name
-
         if rename_map:
-            print(f"      -> 发现并转换 {len(rename_map)} 个衍生指标列。")
-            # 使用转换映射重命名列
+            print(f"      -> 发现并转换 {len(rename_map)} 个列到中间格式。")
             df_renamed = df.rename(columns=rename_map)
-            # 将原始列也保留，但添加 '_raw' 后缀，便于调试和追溯
-            # for old_name in rename_map.keys():
-            #     if old_name not in df_renamed.columns:
-            #         df_renamed[f"{old_name}_raw"] = df[old_name]
             return df_renamed
         else:
-            # print("      -> 未发现需要转换的衍生指标列。") # 注释掉，减少不必要的日志
             return df
 
     def _get_max_lookback_period(self, config: dict) -> int:
@@ -1037,7 +1030,12 @@ class IndicatorService:
 
         # --- 阶段二: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
-        rename_map = { col: f"{col}{suffix}" for col in df_for_calc.columns if not str(col).endswith(suffix) }
+        # 核心修复：只为那些还没有正确后缀的列添加后缀
+        rename_map = {
+            col: f"{col}{suffix}" 
+            for col in df_for_calc.columns 
+            if not str(col).endswith(f"_{timeframe_key}")
+        }
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
 
