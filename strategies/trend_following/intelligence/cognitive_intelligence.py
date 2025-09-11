@@ -825,13 +825,15 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.0 筹码支柱加权版】趋势质量融合评分模块
-        - 核心升级 (本次修改):
+        【V2.1 调用修复版】趋势质量融合评分模块
+        - 核心升级 (V2.0):
           - [精细加权] 废除旧的、单一的筹码健康分。现在消费7个独立的“筹码支柱健康分”，并根据不同支柱对趋势质量的重要性赋予不同权重。
           - [信号适配] 将其他领域的信号消费全面适配为最新的终极信号。
+        - 本次修复 (V2.1):
+          - [调用修复] 修正了 `get_param_value` 的错误调用，应使用标准的字典 `.get()` 方法来获取权重配置，解决了 TypeError。
         - 收益: 对趋势质量的评估更加精细和准确，能区分“控盘驱动的趋势”和“情绪驱动的趋势”。
         """
-        print("        -> [趋势质量融合评分模块 V2.0 筹码支柱加权版] 启动...") # 新增: 更新版本号和描述
+        print("        -> [趋势质量融合评分模块 V2.1 调用修复版] 启动...") # 新增: 更新版本号和描述
         
         # --- 1. 提取各领域的核心健康度评分 ---
         behavior_health_score = 1.0 - self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
@@ -854,7 +856,7 @@ class CognitiveIntelligence:
 
         # --- 2. 定义各维度权重 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
-        weights = get_param_value(p, 'domain_weights', {})
+        weights = p.get('domain_weights', {})
         
         # --- 3. 加权融合生成最终的趋势质量分 ---
         trend_quality_score = (
@@ -867,7 +869,7 @@ class CognitiveIntelligence:
         )
         df['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
-        print("        -> [趋势质量融合评分模块 V2.0] 计算完毕。")
+        print("        -> [趋势质量融合评分模块 V2.1] 计算完毕。")
         return df
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
