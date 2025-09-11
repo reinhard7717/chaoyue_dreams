@@ -758,7 +758,7 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
     return new_metrics_df
 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
-    """【辅助函数 V1.0】自动化计算所有斜率、加速度和健康分等衍生指标。"""
+    """【辅助函数 V1.1 - 1日周期修正版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
     stock_code = stock_info.stock_code
     # print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
@@ -772,16 +772,22 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
         if '_slope_' in field_name and 'chip_health_score' not in field_name:
             base_col, period_str = field_name.split('_slope_')
             period = int(period_str.replace('d', ''))
+            # 核心修正：将名为“1d”的斜率计算窗口修正为2，以匹配其数学含义（今天 vs 昨天）
+            calc_window = 2 if period == 1 else period
             if base_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], period)
+                # 使用修正后的 calc_window 进行计算
+                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], calc_window)
     # 自动化计算加速度
     for field_name in model_fields:
         if '_accel_' in field_name and 'chip_health_score' not in field_name:
             base_col_with_slope, period_str = field_name.split('_accel_')
             period = int(period_str.replace('d', ''))
             source_slope_col = f"{base_col_with_slope}_slope_{period}d"
+            # 核心修正：同样，计算1日加速度的窗口也应为2
+            calc_window = 2 if period == 1 else period
             if source_slope_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], period)
+                # 使用修正后的 calc_window 进行计算
+                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # 阶段二：计算最终版的筹码健康分
     # print(f"[{stock_code}] [阶段二] 计算筹码健康分...")
     final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
@@ -792,12 +798,14 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             if 'chip_health_score_' in field_name:
                 if '_slope_' in field_name:
                     period = int(field_name.split('_slope_')[1].replace('d', ''))
-                    final_metrics_df[field_name] = _calculate_slope(final_metrics_df['chip_health_score'], period)
+                    calc_window = 2 if period == 1 else period
+                    final_metrics_df[field_name] = _calculate_slope(final_metrics_df['chip_health_score'], calc_window)
                 elif '_accel_' in field_name:
                     period = int(field_name.split('_accel_')[1].replace('d', ''))
                     source_slope_col = f"chip_health_score_slope_{period}d"
+                    calc_window = 2 if period == 1 else period
                     if source_slope_col in final_metrics_df.columns:
-                        final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], period)
+                        final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
     return final_metrics_df
 
