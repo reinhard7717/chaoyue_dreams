@@ -382,9 +382,6 @@ class ChipFeatureCalculator:
             if weighted_std and weighted_std > 0:
                 results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
 
-        # : 筹码健康分在此处不再计算，返回一个None占位
-        results['chip_health_score'] = None
-
         return results
 
     def _calculate_turnover_structure(self) -> dict:

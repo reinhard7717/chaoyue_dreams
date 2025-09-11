@@ -647,7 +647,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
     fetch_start_date = None
     if is_incremental and last_metric_date:
         fetch_start_date = last_metric_date - timedelta(days=max_lookback_days + 20)
-    print(f"[{stock_code}] [初始化] 上下文准备完毕。模式: {'增量' if is_incremental else '全量'}, 数据追溯起点: {fetch_start_date}")
+    # print(f"[{stock_code}] [初始化] 上下文准备完毕。模式: {'增量' if is_incremental else '全量'}, 数据追溯起点: {fetch_start_date}")
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_audit_data_sources(stock_info, fetch_start_date):
@@ -790,6 +790,18 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # 阶段二：计算最终版的筹码健康分
     # print(f"[{stock_code}] [阶段二] 计算筹码健康分...")
+    health_score_dependencies = [
+        'concentration_90pct', 'concentration_90pct_slope_5d',
+        'winner_profit_margin', 'price_to_peak_ratio'
+    ]
+    print(f"  - [健康分依赖检查] 正在检查并填充依赖列: {health_score_dependencies}")
+    for dep_col in health_score_dependencies:
+        if dep_col not in final_metrics_df.columns:
+            print(f"    - [警告] 健康分依赖列 '{dep_col}' 不存在，将创建并填充为0。")
+            final_metrics_df[dep_col] = 0
+        else:
+            # 使用 fillna(0) 填充可能存在的 NaN 值
+            final_metrics_df[dep_col] = final_metrics_df[dep_col].fillna(0)
     final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
     # 阶段三：基于最终版的健康分，计算其衍生指标
     # print(f"[{stock_code}] [阶段三] 计算筹码健康分的衍生指标...")
