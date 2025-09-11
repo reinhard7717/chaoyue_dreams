@@ -735,96 +735,60 @@ class FundFlowDailyDC_BJ(models.Model):
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V1.0 高级资金指标抽象基类】
-    - 核心设计: 借鉴高级筹码指标模型，将多源资金流数据进行融合、聚合与衍生，
-                形成一个预计算的、高性能的资金动态特征库。
-    - 数据处理:
-        1. 共识化: 将Tushare, THS, DC等多源数据融合成统一的共识指标。
-        2. 聚合化: 计算5, 13, 21, 34, 55, 89, 144日等多周期的累积资金流。
-        3. 衍生化: 预计算关键指标的斜率（趋势）和加速度（趋势变化），固化为数据字段。
+    【V2.0 标准化重构版】
+    - 核心重构: 统一了所有衍生指标的计算周期为 [1, 5, 13, 21, 55]，
+                并确保每个核心指标都拥有完整的斜率和加速度衍生字段。
+    - 收益: 模型定义极度简化，逻辑高度统一，为上层策略提供了规整、
+            可预测的数据结构。
     """
     # --- 1. 核心关联键 ---
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
 
-    # --- 2. 每日资金流共识指标 (静态) ---
-    net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-资金净流入(万元)', null=True, blank=True, help_text="综合Tushare,THS,DC三方数据的当日资金净流入均值")
-    main_force_net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-主力净流入(万元)', null=True, blank=True, help_text="综合三方数据的主力(大单+超大单)资金净流入")
-    retail_net_flow_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-散户净流入(万元)', null=True, blank=True, help_text="综合三方数据的散户(小单+中单)资金净流入")
-    main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True, help_text="主力买入金额占总成交额的比例")
-    flow_divergence_mf_vs_retail = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='资金分歧度(主力-散户)', null=True, blank=True, help_text="主力净流入与散户净流入的差值，正值表示主力买散户卖")
-    net_xl_amount_consensus = models.DecimalField(max_digits=20, decimal_places=4, verbose_name='共识-超大单净流入(万元)', null=True, blank=True, help_text="综合多方数据的超大单净流入")
-    main_force_flow_intensity_ratio = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='主力资金流强度比率', null=True, blank=True, help_text="主力主动买盘 / (主力主动买盘 + 主力主动卖盘)，衡量信念强度")
+    # --- 2. 每日资金流共识指标 (核心基础指标) ---
+    CORE_METRICS = {
+        'net_flow_consensus': '共识-资金净流入(万元)',
+        'main_force_net_flow_consensus': '共识-主力净流入(万元)',
+        'retail_net_flow_consensus': '共识-散户净流入(万元)',
+        'net_xl_amount_consensus': '共识-超大单净流入(万元)',
+        'flow_divergence_mf_vs_retail': '资金分歧度(主力-散户)',
+        'main_force_flow_intensity_ratio': '主力资金流强度比率',
+    }
+    
+    # 动态生成核心基础指标字段
+    for name, verbose in CORE_METRICS.items():
+        if 'ratio' in name:
+            vars()[name] = models.DecimalField(max_digits=10, decimal_places=6, verbose_name=verbose, null=True, blank=True)
+        else:
+            vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
+    
+    # 单独定义一个特殊指标
+    main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
 
-    # --- 3. 多日资金聚合指标 (累计) ---
-    periods = [5, 13, 21, 34, 55, 89, 144]
-    for p in periods:
-        # 累计净流入
-        vars()[f'net_flow_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-资金净流入{p}日累计', null=True, blank=True)
-        # 累计主力净流入
-        vars()[f'main_force_net_flow_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-主力净流入{p}日累计', null=True, blank=True)
-        # 累计散户净流入
-        vars()[f'retail_net_flow_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-散户净流入{p}日累计', null=True, blank=True)
-        # 累计超大单净流入
-        vars()[f'net_xl_amount_consensus_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'共识-超大单净流入{p}日累计', null=True, blank=True)
+    # --- 3. 统一衍生周期 ---
+    UNIFIED_PERIODS = [1, 5, 13, 21, 55]
 
-    # --- 4. 资金动态衍生指标 (斜率) ---
-    slope_periods = [5, 13, 21, 55]
-    for p in slope_periods:
-        # 每日指标的斜率
-        vars()[f'net_flow_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-资金净流入{p}日斜率', null=True, blank=True)
-        vars()[f'main_force_net_flow_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-主力净流入{p}日斜率', null=True, blank=True)
-        vars()[f'flow_divergence_mf_vs_retail_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'资金分歧度{p}日斜率', null=True, blank=True)
-        #  静态指标的斜率
-        vars()[f'retail_net_flow_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-散户净流入{p}日斜率', null=True, blank=True)
-        vars()[f'net_xl_amount_consensus_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-超大单净流入{p}日斜率', null=True, blank=True)
-        # 聚合指标的斜率
-        vars()[f'net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-资金净流入{p}日累计之{p}日斜率', null=True, blank=True)
-        vars()[f'main_force_net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-主力净流入{p}日累计之{p}日斜率', null=True, blank=True)
-        #  聚合指标的斜率
-        vars()[f'retail_net_flow_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-散户净流入{p}日累计之{p}日斜率', null=True, blank=True)
-        vars()[f'net_xl_amount_consensus_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'共识-超大单净流入{p}日累计之{p}日斜率', null=True, blank=True)
-    intensity_slope_periods = [5, 13, 21] # 5, 13为策略直接使用, 21为计算加速度所需
-    for p in intensity_slope_periods:
-        vars()[f'main_force_flow_intensity_ratio_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'主力资金流强度比率{p}日斜率', null=True, blank=True)
+    # --- 4. 动态生成所有衍生指标 (累计、斜率、加速度) ---
+    for p in UNIFIED_PERIODS:
+        # --- 4.1 累计指标 (仅对金额类指标，且周期>1) ---
+        if p > 1:
+            for name, verbose in CORE_METRICS.items():
+                if 'ratio' not in name and 'divergence' not in name: # 强度比率和分歧度通常不计算累计值
+                    vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
 
-    # --- 5. 资金动态衍生指标 (加速度) ---
-    accel_periods = [5, 13, 21]
-    for p in accel_periods:
-        vars()[f'net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-资金净流入{p}日加速度', null=True, blank=True)
-        vars()[f'main_force_net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-主力净流入{p}日加速度', null=True, blank=True)
-        vars()[f'retail_net_flow_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-散户净流入{p}日加速度', null=True, blank=True)
-        vars()[f'net_xl_amount_consensus_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'共识-超大单净流入{p}日加速度', null=True, blank=True)
-        vars()[f'main_force_flow_intensity_ratio_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'主力资金流强度比率{p}日加速度', null=True, blank=True)
+        # --- 4.2 斜率指标 ---
+        # 4.2.1 每日核心指标的斜率
+        for name, verbose in CORE_METRICS.items():
+            vars()[f'{name}_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
+        
+        # 4.2.2 累计指标的斜率 (仅对周期>1)
+        if p > 1:
+            for name, verbose in CORE_METRICS.items():
+                if 'ratio' not in name and 'divergence' not in name:
+                    vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'{verbose}{p}日累计之{p}日斜率', null=True, blank=True)
 
-    # --- 5A. 资金动态衍生指标 (1日) ---
-    # 备注：1日斜率和加速度用于捕捉资金流向最即时的日度变化和趋势拐点。
-    vars()['net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-资金净流入1日斜率', null=True, blank=True)
-    vars()['net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-资金净流入1日加速度', null=True, blank=True)
-    vars()['main_force_net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-主力净流入1日斜率', null=True, blank=True)
-    vars()['main_force_net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-主力净流入1日加速度', null=True, blank=True)
-    vars()['retail_net_flow_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-散户净流入1日斜率', null=True, blank=True)
-    vars()['retail_net_flow_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-散户净流入1日加速度', null=True, blank=True)
-    vars()['flow_divergence_mf_vs_retail_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='资金分歧度1日斜率', null=True, blank=True)
-    vars()['flow_divergence_mf_vs_retail_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='资金分歧度1日加速度', null=True, blank=True)
-    vars()['net_xl_amount_consensus_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-超大单净流入1日斜率', null=True, blank=True)
-    vars()['net_xl_amount_consensus_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='共识-超大单净流入1日加速度', null=True, blank=True)
-    vars()['main_force_flow_intensity_ratio_slope_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='主力资金流强度比率1日斜率', null=True, blank=True)
-    vars()['main_force_flow_intensity_ratio_accel_1d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name='主力资金流强度比率1日加速度', null=True, blank=True)
-
-
-    # --- 6. 主力与散户分歧度加速度指标 ---
-    flow_divergence_mf_vs_retail_accel_5d = models.DecimalField(
-        max_digits=20, decimal_places=4, null=True, blank=True,
-        verbose_name="主力散户分歧度5日加速度"
-    )
-    flow_divergence_mf_vs_retail_accel_13d = models.DecimalField(
-        max_digits=20, decimal_places=4, null=True, blank=True,
-        verbose_name="主力散户分歧度13日加速度"
-    )
-    flow_divergence_mf_vs_retail_accel_21d = models.DecimalField(
-        max_digits=20, decimal_places=4, null=True, blank=True,
-        verbose_name="主力散户分歧度21日加速度"
-    )
+        # --- 4.3 加速度指标 ---
+        for name, verbose in CORE_METRICS.items():
+            vars()[f'{name}_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
 
     class Meta:
         abstract = True

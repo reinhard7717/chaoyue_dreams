@@ -794,7 +794,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
         'concentration_90pct', 'concentration_90pct_slope_5d',
         'winner_profit_margin', 'price_to_peak_ratio'
     ]
-    print(f"  - [健康分依赖检查] 正在检查并填充依赖列: {health_score_dependencies}")
+    # print(f"  - [健康分依赖检查] 正在检查并填充依赖列: {health_score_dependencies}")
     for dep_col in health_score_dependencies:
         if dep_col not in final_metrics_df.columns:
             print(f"    - [警告] 健康分依赖列 '{dep_col}' 不存在，将创建并填充为0。")
@@ -824,7 +824,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
 async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):
     """【辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
     stock_code = stock_info.stock_code
-    print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
+    # print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
     records_to_save_df = final_df.loc[new_df_index]
     records_to_create = []
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
@@ -855,7 +855,7 @@ async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFram
             model.objects.bulk_create(records_to_create_list, batch_size=5000)
 
     await save_metrics_async(MetricsModel, stock_info, records_to_create, is_full_refresh)
-    print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。")
+    # print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。")
     return len(records_to_create)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
@@ -926,224 +926,218 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
+async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
+    """【资金流辅助函数 V1.0】初始化任务上下文。"""
+    # print(f"[{stock_code}] [资金流-初始化] 正在准备任务上下文...")
+    stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+    MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
+    max_lookback_days = 200  # 需要比最长周期144天更长
+    last_metric_date = None
+    if is_incremental:
+        @sync_to_async(thread_sensitive=True)
+        def get_latest_metric_async(model, stock_info_obj):
+            try:
+                return model.objects.filter(stock=stock_info_obj).latest('trade_time')
+            except model.DoesNotExist:
+                return None
+        latest_metric = await get_latest_metric_async(MetricsModel, stock_info)
+        if latest_metric:
+            last_metric_date = latest_metric.trade_time
+        else:
+            is_incremental = False
+    fetch_start_date = None
+    if is_incremental and last_metric_date:
+        fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
+    # print(f"[{stock_code}] [资金流-初始化] 上下文准备完毕。模式: {'增量' if is_incremental else '全量'}, 数据追溯起点: {fetch_start_date}")
+    return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
-def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
-    """
-    【V1.0 高级资金指标预计算执行器】
-    - 职责: 为单只股票计算并存储所有高级资金流指标。
-    - 流程:
-        1. 异步加载Tushare, THS, DC三方原始资金流数据及行情数据。
-        2. 数据审计与对齐，确保数据质量。
-        3. 将多源数据融合成一个包含共识指标的宽表。
-        4. 在完整的时间序列上，批量计算多日聚合、斜率和加速度指标。
-        5. 将最终计算结果（包含所有衍生特征）持久化到数据库。
-    """
-    # --- 异步数据加载与保存的辅助函数 ---
+async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
+    """【资金流辅助函数 V1.0】加载、标准化并合并多源资金流数据。"""
+    # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj)
         if start_date:
             qs = qs.filter(**{f'{date_field}__gte': start_date})
-        if fields:
-            return pd.DataFrame.from_records(qs.values(*fields))
-        return pd.DataFrame.from_records(qs.values())
+        return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+    data_tasks = {
+        "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
+        "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
+        "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
+        "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount'), start_date=fetch_start_date),
+    }
+    results = await asyncio.gather(*data_tasks.values())
+    data_dfs = dict(zip(data_tasks.keys(), results))
+    def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
+        if df.empty: return df
+        for col in df.columns:
+            if 'amount' in col or 'net' in col:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        if source == 'tushare':
+            df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
+            df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
+            df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
+            df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
+            df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
+            return df[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
+        elif source == 'ths':
+            df['retail_net_flow_ths'] = df['buy_sm_amount'] + df['buy_md_amount']
+            return df[['trade_time', 'net_amount', 'buy_lg_amount', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths'})
+        elif source == 'dc':
+            df['main_force_net_flow_dc'] = df['buy_elg_amount'] + df['buy_lg_amount']
+            df['retail_net_flow_dc'] = df['buy_sm_amount'] + df['buy_md_amount']
+            return df[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'buy_elg_amount']].rename(columns={'net_amount': 'net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc'})
+        return df
+    df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
+    df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
+    df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
+    dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
+    if not dfs_to_merge:
+        raise ValueError("所有资金流数据源均为空")
+    merged_df = dfs_to_merge[0]
+    for df_to_merge in dfs_to_merge[1:]:
+        merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='outer')
+    merged_df['trade_time'] = pd.to_datetime(merged_df['trade_time'])
+    merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
+    # 合并日线成交额数据
+    df_daily = data_dfs['daily']
+    if not df_daily.empty:
+        df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
+        merged_df = merged_df.join(df_daily.set_index('trade_time')['amount'])
+    # print(f"[{stock_info.stock_code}] [资金流-数据加载] 多源数据加载与合并完成。")
+    return merged_df
 
+def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
+    """【资金流辅助函数 V1.0】计算共识指标和基础比率。"""
+    # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标...")
+    df = merged_df.copy()
+    df['net_flow_consensus'] = df[['net_flow_tushare', 'net_flow_ths', 'net_flow_dc']].mean(axis=1)
+    df['main_force_net_flow_consensus'] = df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
+    df['retail_net_flow_consensus'] = df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
+    df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
+    df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
+    total_active_flow = df['main_force_active_buy_tushare'] + df['main_force_active_sell_tushare']
+    df['main_force_flow_intensity_ratio'] = (df['main_force_active_buy_tushare'] / total_active_flow.replace(0, np.nan)).fillna(0.5)
+    if 'amount' in df.columns:
+        df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] / df['amount'].astype(float)) * 100
+    # print(f"[{stock_code}] [资金流-共识计算] 共识指标计算完成。")
+    return df
+
+def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
+    """【资金流辅助函数 V1.0】使用标准化周期计算所有衍生指标。"""
+    # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
+    final_df = consensus_df.copy()
+    CORE_METRICS = [
+        'net_flow_consensus', 'main_force_net_flow_consensus', 
+        'retail_net_flow_consensus', 'net_xl_amount_consensus',
+        'flow_divergence_mf_vs_retail', 'main_force_flow_intensity_ratio'
+    ]
+    UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    for p in UNIFIED_PERIODS:
+        calc_window = 2 if p == 1 else p
+        # 计算累计值
+        if p > 1:
+            for col in [c for c in CORE_METRICS if 'ratio' not in c and 'divergence' not in c]:
+                final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p//2)).sum()
+        # 计算斜率
+        for col in CORE_METRICS:
+            final_df[f'{col}_slope_{p}d'] = _calculate_slope(final_df[col], calc_window)
+        if p > 1:
+            for col in [c for c in CORE_METRICS if 'ratio' not in c and 'divergence' not in c]:
+                final_df[f'{col}_sum_{p}d_slope_{p}d'] = _calculate_slope(final_df[f'{col}_sum_{p}d'], p)
+        # 计算加速度
+        for col in CORE_METRICS:
+            source_slope_col = f'{col}_slope_{p}d'
+            if source_slope_col in final_df.columns:
+                final_df[f'{col}_accel_{p}d'] = _calculate_slope(final_df[source_slope_col], calc_window)
+    # print(f"[{stock_code}] [资金流-衍生计算] 标准化衍生计算完成。")
+    return final_df
+
+async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
+    """【资金流辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
+    stock_code = stock_info.stock_code
+    # print(f"[{stock_code}] [资金流-数据保存] 开始准备并保存数据...")
+    if is_incremental and last_metric_date:
+        records_to_save_df = final_df[final_df.index.date > last_metric_date]
+    else:
+        records_to_save_df = final_df
+    if records_to_save_df.empty:
+        print(f"[{stock_code}] 数据已是最新，无需更新。")
+        return 0
+    records_to_create = []
+    model_fields = {f.name for f in MetricsModel._meta.get_fields()}
+    for trade_date, row in records_to_save_df.iterrows():
+        record_data = {}
+        for field_name in model_fields:
+            if field_name in row.index:
+                value = row[field_name]
+                if isinstance(value, float) and not np.isfinite(value):
+                    record_data[field_name] = None
+                elif pd.isna(value):
+                    record_data[field_name] = None
+                else:
+                    record_data[field_name] = value
+        record_data.pop('id', None)
+        record_data.pop('stock', None)
+        if record_data:
+            records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date.date(), **record_data))
     @sync_to_async(thread_sensitive=True)
     def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
         with transaction.atomic():
             if do_delete_first:
                 model.objects.filter(stock=stock_info_obj).delete()
             model.objects.bulk_create(records_to_create_list, batch_size=2000)
+    await save_metrics_async(MetricsModel, stock_info, records_to_create, not is_incremental)
+    # print(f"[{stock_code}] [资金流-数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级资金流指标。")
+    return len(records_to_create)
 
-    @sync_to_async(thread_sensitive=True)
-    def get_latest_metric_async(model, stock_info_obj):
-        try:
-            return model.objects.filter(stock=stock_info_obj).latest('trade_time')
-        except model.DoesNotExist:
-            return None
-
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
+def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
+    """
+    【执行器 V16.0 - 职责拆分重构版】
+    - 核心重构 (V16.0): 将原先臃肿的函数拆分为多个职责单一的辅助函数，主任务函数负责流程编排。
+    - 流程:
+        1. _initialize_ff_task_context: 初始化上下文。
+        2. _load_and_merge_fund_flow_sources: 加载并合并多源数据。
+        3. _calculate_consensus_and_base_metrics: 计算共识指标。
+        4. _calculate_standardized_derivatives: 标准化计算所有衍生指标。
+        5. _prepare_and_save_ff_data: 准备并保存数据。
+    """
     async def main(incremental_flag: bool):
-        mode = "增量更新" if incremental_flag else "全量刷新"
-        # print(f"[{stock_code}] 启动高级资金指标预计算，模式: {mode}")
-        # --- 1. 初始化和确定数据加载范围 ---
-        stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
-        MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
-        max_lookback_days = 200  # 需要比最长周期144天更长，以确保斜率计算准确
-        last_metric_date = None
-        if incremental_flag:
-            latest_metric = await get_latest_metric_async(MetricsModel, stock_info)
-            if latest_metric:
-                last_metric_date = latest_metric.trade_time
-            else:
-                incremental_flag = False # 如果没有数据，则转为全量
-        fetch_start_date = None
-        if incremental_flag and last_metric_date:
-            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
-        # --- 2. 异步加载所有需要的数据源 ---
-        data_tasks = {
-            "tushare": get_data_async(get_fund_flow_model_by_code(stock_code), stock_info, start_date=fetch_start_date),
-            "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_code), stock_info, start_date=fetch_start_date),
-            "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_code), stock_info, start_date=fetch_start_date),
-            "daily": get_data_async(get_daily_data_model_by_code(stock_code), stock_info, fields=('trade_time', 'amount'), start_date=fetch_start_date),
-        }
-        results = await asyncio.gather(*data_tasks.values())
-        data_dfs = dict(zip(data_tasks.keys(), results))
-        # --- 3. 数据预处理与共识指标计算 ---
-        def standardize_numeric_cols(df: pd.DataFrame) -> pd.DataFrame:
-            if df.empty:
-                return df
-            # 找出所有包含'amount'或'net'的列，这些都是金额列
-            for col in df.columns:
-                if 'amount' in col or 'net' in col:
-                    # 使用pd.to_numeric进行转换，它比astype更健壮
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            return df
-        # Tushare 数据处理
-        df_tushare = data_dfs['tushare']
-        if not df_tushare.empty:
-            df_tushare = standardize_numeric_cols(df_tushare) 
-            df_tushare['main_force_net_flow_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount'] - df_tushare['sell_lg_amount'] - df_tushare['sell_elg_amount']
-            df_tushare['retail_net_flow_tushare'] = df_tushare['buy_sm_amount'] + df_tushare['buy_md_amount'] - df_tushare['sell_sm_amount'] - df_tushare['sell_md_amount']
-            df_tushare['net_xl_amount_tushare'] = df_tushare['buy_elg_amount'] - df_tushare['sell_elg_amount']
-            df_tushare['main_force_active_buy_tushare'] = df_tushare['buy_lg_amount'] + df_tushare['buy_elg_amount']
-            df_tushare['main_force_active_sell_tushare'] = df_tushare['sell_lg_amount'] + df_tushare['sell_elg_amount']
-            df_tushare = df_tushare[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
-        # THS 数据处理
-        df_ths = data_dfs['ths']
-        if not df_ths.empty:
-            df_ths = standardize_numeric_cols(df_ths) 
-            df_ths['retail_net_flow_ths'] = df_ths['buy_sm_amount'] + df_ths['buy_md_amount']
-            df_ths = df_ths[['trade_time', 'net_amount', 'buy_lg_amount', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths'})
-        # DC 数据处理
-        df_dc = data_dfs['dc']
-        if not df_dc.empty:
-            df_dc = standardize_numeric_cols(df_dc) 
-            df_dc['main_force_net_flow_dc'] = df_dc['buy_elg_amount'] + df_dc['buy_lg_amount']
-            df_dc['retail_net_flow_dc'] = df_dc['buy_sm_amount'] + df_dc['buy_md_amount']
-            df_dc = df_dc[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'buy_elg_amount']].rename(columns={'net_amount': 'net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc'})
-        # 合并所有数据源
-        dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
-        if not dfs_to_merge:
-            print(f"[{stock_code}] 所有资金流数据源均为空，任务终止。")
-            return {"status": "skipped", "reason": "All fund flow sources are empty"}
-        merged_df = dfs_to_merge[0]
-        for df_to_merge in dfs_to_merge[1:]:
-            merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='outer')
-        merged_df['trade_time'] = pd.to_datetime(merged_df['trade_time'])
-        merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
-        # 计算共识指标
-        merged_df['net_flow_consensus'] = merged_df[['net_flow_tushare', 'net_flow_ths', 'net_flow_dc']].mean(axis=1)
-        merged_df['main_force_net_flow_consensus'] = merged_df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
-        merged_df['retail_net_flow_consensus'] = merged_df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
-        merged_df['flow_divergence_mf_vs_retail'] = merged_df['main_force_net_flow_consensus'] - merged_df['retail_net_flow_consensus']
-        merged_df['net_xl_amount_consensus'] = merged_df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
-        total_active_flow = merged_df['main_force_active_buy_tushare'] + merged_df['main_force_active_sell_tushare']
-        # 计算强度比率，并处理分母为0的情况
-        merged_df['main_force_flow_intensity_ratio'] = (merged_df['main_force_active_buy_tushare'] / total_active_flow.replace(0, np.nan)).fillna(0.5)
-        # 计算主力买入率 (需要日成交额)
-        df_daily = data_dfs['daily']
-        if not df_daily.empty:
-            df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
-            df_daily = df_daily.set_index('trade_time')
-            merged_df = merged_df.join(df_daily['amount'])
-            merged_df['main_force_buy_rate_consensus'] = (merged_df['main_force_net_flow_consensus'] / merged_df['amount'].astype(float)) * 100
-        # --- 4. 衍生特征工厂 ---
-        # print(f"[{stock_code}] [衍生特征工厂] 开始计算聚合与动态指标...")
-        final_metrics_df = merged_df.copy()
-        # 计算多日聚合指标
-        periods = [5, 13, 21, 34, 55, 89, 144]
-        for p in periods:
-            final_metrics_df[f'net_flow_consensus_sum_{p}d'] = final_metrics_df['net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
-            final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d'] = final_metrics_df['main_force_net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
-            # 计算新增聚合指标
-            final_metrics_df[f'retail_net_flow_consensus_sum_{p}d'] = final_metrics_df['retail_net_flow_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
-            final_metrics_df[f'net_xl_amount_consensus_sum_{p}d'] = final_metrics_df['net_xl_amount_consensus'].rolling(window=p, min_periods=max(2, p//2)).sum()
-        # 计算斜率
-        slope_periods = [5, 13, 21, 55]
-        cols_to_slope = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail', 'retail_net_flow_consensus', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio']
-        for col in cols_to_slope:
-            for p in slope_periods:
-                final_metrics_df[f'{col}_slope_{p}d'] = _calculate_slope(final_metrics_df[col], p)
-        for p in slope_periods:
-             final_metrics_df[f'net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'net_flow_consensus_sum_{p}d'], p)
-             final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'main_force_net_flow_consensus_sum_{p}d'], p)
-             # 计算新增聚合指标的斜率
-             final_metrics_df[f'retail_net_flow_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'retail_net_flow_consensus_sum_{p}d'], p)
-             final_metrics_df[f'net_xl_amount_consensus_sum_{p}d_slope_{p}d'] = _calculate_slope(final_metrics_df[f'net_xl_amount_consensus_sum_{p}d'], p)
-        # 计算加速度
-        accel_periods = [5, 13, 21]
-        cols_to_accel = ['net_flow_consensus', 'main_force_net_flow_consensus', 'flow_divergence_mf_vs_retail', 'retail_net_flow_consensus', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio']
-        for col in cols_to_accel:
-            for p in accel_periods:
-                source_slope_col = f'{col}_slope_{p}d'
-                if source_slope_col in final_metrics_df.columns:
-                    final_metrics_df[f'{col}_accel_{p}d'] = _calculate_slope(final_metrics_df[source_slope_col], p)
-        # --- 新增：计算核心信号的1日斜率与1日加速度 ---
-        # 定义需要计算1日衍生指标的基础信号列表
-        signals_for_1d_derivatives_fund = [
-            'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-            'flow_divergence_mf_vs_retail', 'net_xl_amount_consensus', 'main_force_flow_intensity_ratio'
-        ]
-        for base_col_name in signals_for_1d_derivatives_fund:
-            if base_col_name in final_metrics_df.columns:
-                # 计算1日斜率 (窗口为2，即今天和昨天)
-                slope_col_1d = f"{base_col_name}_slope_1d"
-                final_metrics_df[slope_col_1d] = _calculate_slope(final_metrics_df[base_col_name], 2)
-                
-                # 基于1日斜率计算1日加速度 (窗口为2)
-                accel_col_1d = f"{base_col_name}_accel_1d"
-                final_metrics_df[accel_col_1d] = _calculate_slope(final_metrics_df[slope_col_1d], 2)
-        # --- 1日衍生指标计算结束 ---
-        rename_dict = {}
-        for p in accel_periods:
-            original_name = f'flow_divergence_mf_vs_retail_accel_{p}d'
-            new_name = f'accel_{p}d_flow_divergence_mf_vs_retail'
-            if original_name in final_metrics_df.columns:
-                rename_dict[original_name] = new_name
-        if rename_dict:
-            final_metrics_df.rename(columns=rename_dict, inplace=True)
-        # --- 5. 数据保存 ---
-        if incremental_flag and last_metric_date:
-            records_to_save_df = final_metrics_df[final_metrics_df.index.date > last_metric_date]
-        else:
-            records_to_save_df = final_metrics_df
-        if records_to_save_df.empty:
-            print(f"[{stock_code}] 数据已是最新，无需更新。")
-            return {"status": "success", "processed_days": 0}
-        records_to_create = []
-        model_fields = {f.name for f in MetricsModel._meta.get_fields()}
-        for trade_date, row in records_to_save_df.iterrows():
-            record_data = {}
-            for field_name in model_fields:
-                if field_name in row.index:
-                    value = row[field_name]
-                    # 关键的类型和空值处理，确保数据库写入安全
-                    if isinstance(value, float) and not np.isfinite(value):
-                        record_data[field_name] = None
-                    elif pd.isna(value):
-                        record_data[field_name] = None
-                    else:
-                        record_data[field_name] = value
-            record_data.pop('id', None)
-            record_data.pop('stock', None)
-            if record_data:
-                records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date.date(), **record_data))
-        await save_metrics_async(MetricsModel, stock_info, records_to_create, not incremental_flag)
-        logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {len(records_to_create)} 个交易日计算并存储了高级资金指标。")
-        return {"status": "success", "processed_days": len(records_to_create)}
+        try:
+            # 1. 初始化
+            stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_ff_task_context(
+                stock_code, incremental_flag
+            )
+            # 2. 加载和合并数据
+            merged_df = await _load_and_merge_fund_flow_sources(stock_info, fetch_start_date)
+            # 3. 计算共识指标
+            consensus_df = _calculate_consensus_and_base_metrics(stock_code, merged_df)
+            # 4. 计算衍生指标
+            final_metrics_df = _calculate_standardized_derivatives(stock_code, consensus_df)
+            # 5. 准备并保存数据
+            processed_days = await _prepare_and_save_ff_data(
+                stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
+            )
+            mode = "增量更新" if is_incremental_final else "全量刷新"
+            logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级资金流指标。")
+            return {"status": "success", "processed_days": processed_days}
+        except StockInfo.DoesNotExist:
+            logger.error(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
+            return {"status": "failed", "reason": "stock_code not found in StockInfo"}
+        except ValueError as ve:
+            logger.error(f"[{stock_code}] 高级资金流指标预计算失败 (数据问题): {ve}", exc_info=False)
+            return {"status": "failed", "reason": str(ve)}
+        except Exception as e:
+            logger.error(f"[{stock_code}] 高级资金流指标预计算失败 (未知异常): {e}", exc_info=True)
+            return {"status": "failed", "reason": str(e)}
     try:
-        # 使用 async_to_sync 运行异步主函数
         result = async_to_sync(main)(is_incremental)
         return result
-    except StockInfo.DoesNotExist:
-        print(f"[{stock_code}] 在StockInfo中找不到该股票，任务终止。")
-        return {"status": "failed", "reason": "stock_code not found in StockInfo"}
     except Exception as e:
-        print(f"[{stock_code}] 高级资金指标预计算失败: {e}")
-        # 在生产环境中，您可能希望使用 logger.error 并记录 exc_info=True
-        return {"status": "failed", "reason": str(e)}
+        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_fund_flow_for_stock for {stock_code}: {e}", exc_info=True)
+        raise
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.migrate_advanced_chip_metrics_chunk', queue='SaveHistoryData_TimeTrade')
 def migrate_advanced_chip_metrics_chunk(self, start_id: int, end_id: int, dry_run: bool = False):
