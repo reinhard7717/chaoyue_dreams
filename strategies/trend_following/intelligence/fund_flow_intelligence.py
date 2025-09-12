@@ -53,21 +53,21 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 性能优化版】终极资金流信号诊断模块
-        - 核心升级 (本次修改):
-          - [性能优化] 重构了核心计算逻辑。将原先在循环中反复创建Series的模式，优化为“批量预处理 + NumPy原生计算”的新范式。
-          - [批量预处理] 预先计算所有指标的归一化分数，避免在循环中重复归一化相同的指标。
-          - [NumPy原生计算] 使用 `np.stack` 和 `np.prod` 在底层数组上直接进行几何平均计算，完全避免了为融合分数而创建临时DataFrame的巨大开销。
+        【V1.2 逻辑修复版】终极资金流信号诊断模块
+        - 核心修复 (本次修改):
+          - [BUG修复] 修复了在计算看跌信号组件时，因拼写错误（将 `overall_bearish_health` 错写为 `bearish_bearish_health`）而导致的 `NameError`。
+        - 核心升级 (V1.1逻辑保留):
+          - [性能优化] 重构了核心计算逻辑，采用“批量预处理 + NumPy原生计算”范式，避免了在循环中生成大量中间Series，大幅降低了内存峰值和计算开销。
         - 核心范式 (V1.0逻辑保留):
           - 1. 六大支柱: 将资金流情报提炼为聚合流、结构流、冲突流、量能流、核心流、强度流六大支柱。
           - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
           - 3. 多维共识融合: 将六大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
           - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
         - 收益:
-          - 计算效率和内存使用效率得到显著提升，尤其在长周期回测中效果更佳。
-          - 产出经过多指标、多周期、多维度三重交叉验证的、最高质量的资金流信号。
+          - 修复了导致程序崩溃的严重BUG。
+          - 保持了V1.1版本带来的显著性能提升。
         """
-        # print("        -> [终极资金流信号诊断模块 V1.1 性能优化版] 启动...")
+        # print("        -> [终极资金流信号诊断模块 V1.2 逻辑修复版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -103,9 +103,7 @@ class FundFlowIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 终极资金流引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-        # 采用“批量预处理 + NumPy原生计算”的新范式
         # --- 2. 核心要素数值化 (批量预处理) ---
-        # 2.1 收集所有需要归一化的独立指标列名
         all_cols_to_normalize = set()
         for p in periods:
             for pillar_key, pillar_prefix in pillars.items():
@@ -119,7 +117,6 @@ class FundFlowIntelligence:
                 all_cols_to_normalize.add(static_col)
                 all_cols_to_normalize.add(slope_col)
                 all_cols_to_normalize.add(accel_col)
-        # 2.2 一次性计算所有指标的归一化分数，并存储在字典中
         normalized_scores = {
             col_name: self._normalize_score(df[col_name], norm_window, df.index)
             for col_name in all_cols_to_normalize
@@ -129,7 +126,6 @@ class FundFlowIntelligence:
         for p in periods:
             pillar_health_arrays = []
             for pillar_key, pillar_prefix in pillars.items():
-                # 3.1 重新推导列名以从字典中获取预计算好的分数
                 if p > 1 and pillar_key in pillar_types['uses_sum']:
                     static_col = f"{pillar_prefix}_sum_{p}d_D"
                 else:
@@ -137,31 +133,26 @@ class FundFlowIntelligence:
                 static_base_for_slope = static_col.replace('_D', '')
                 slope_col = f"SLOPE_{p}_{static_base_for_slope}_D"
                 accel_col = f"ACCEL_{p}_{pillar_prefix}_D"
-                # 3.2 从字典中获取分数的NumPy数组
                 static_score_arr = normalized_scores[static_col].values
                 slope_score_arr = normalized_scores[slope_col].values
                 accel_score_arr = normalized_scores[accel_col].values
-                # 3.3 直接在NumPy数组上计算支柱健康度
                 pillar_health_arr = static_score_arr * slope_score_arr * accel_score_arr
                 pillar_health_arrays.append(pillar_health_arr)
-            # 3.4 使用NumPy高效融合所有支柱的健康度
-            # 将各支柱的健康度数组堆叠成一个 (支柱数量, 时间序列长度) 的2D数组
             stacked_health_arrays = np.stack(pillar_health_arrays, axis=0)
-            # 沿支柱维度(axis=0)计算乘积，然后开N次方根，即几何平均值
             num_pillars = len(pillars)
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
-            # 3.5 仅在最后将结果包装回Pandas Series
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
-        # --- 4. 定义信号组件 (逻辑不变) ---
+        # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        bearish_short_force = (overall_bearish_health[1] * bearish_bearish_health[5])**0.5
+        # 修改开始: 修复拼写错误，将 `bearish_bearish_health` 改为 `overall_bearish_health`
+        bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
+        # 修改结束
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-        # --- 5. 共振信号合成 (逻辑不变) ---
+        # --- 5. 共振信号合成 ---
         states['SCORE_FF_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_FF_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FF_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
@@ -170,16 +161,16 @@ class FundFlowIntelligence:
         states['SCORE_FF_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FF_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        # --- 6. 反转信号合成 (逻辑不变) ---
+        # --- 6. 反转信号合成 ---
         states['SCORE_FF_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
         states['SCORE_FF_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_B'] = (overall_bearish_health[1] * bullish_health[21]).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_A'] = (overall_bearish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_FF_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FF_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FF_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极资金流信号诊断模块 V1.1] 分析完毕，生成 {len(states)} 个终极信号。")
+        states['SCORE_FF_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        # print(f"        -> [终极资金流信号诊断模块 V1.2] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, target_index: pd.Index, ascending: bool = True) -> pd.Series:
