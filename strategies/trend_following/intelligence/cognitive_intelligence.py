@@ -438,44 +438,39 @@ class CognitiveIntelligence:
 
     def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V1.0 新增 & 逻辑迁移】终极确认融合模块
-        - 核心职责: 承接原 StructuralIntelligence 中的 `diagnose_ultimate_confirmation_scores` 逻辑。
-                      寻找“连续性共振元信号”与“离散性模式信号”同时发生的最高置信度信号。
-        - 收益: 在认知层完成最高级别的“完美风暴”信号融合。
+        【V1.2 架构统一版】终极确认融合模块
+        - 核心职责: 寻找“连续性共振元信号”与“离散性模式信号”同时发生的最高置信度信号。
+        - 本次升级 (V1.2):
+          - [架构统一] 废除了对形态信号的硬编码直接获取方式，改为使用标准的 `_fuse_multi_level_scores` 辅助函数进行融合。
+        - 收益: 极大地提升了模块的鲁棒性，即使只有A/B级形态信号也能正常计算，并与其他模块的调用方式保持架构一致。
         """
-        # print("        -> [终极确认融合模块 V1.0] 启动...")
+        # print("        -> [终极确认融合模块 V1.2 架构统一版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         required_fusion_signals = [
             'COGNITIVE_FUSION_BULLISH_RESONANCE_S', 'COGNITIVE_FUSION_BEARISH_RESONANCE_S',
             'COGNITIVE_FUSION_BOTTOM_REVERSAL_S', 'COGNITIVE_FUSION_TOP_REVERSAL_S'
         ]
-        required_pattern_signals = [
-            'SCORE_PATTERN_BULLISH_RESONANCE_S', 'SCORE_PATTERN_BEARISH_RESONANCE_S',
-            'SCORE_PATTERN_BOTTOM_REVERSAL_S', 'SCORE_PATTERN_TOP_REVERSAL_S'
-        ]
-        all_required_signals = required_fusion_signals + required_pattern_signals
-        missing_signals = [s for s in all_required_signals if s not in atomic]
-        
-        if missing_signals:
-            # 使用 f-string 格式化输出，清晰地列出所有缺失的信号
-            print(f"          -> [警告] 终极确认融合缺少核心上游S级分数: {sorted(missing_signals)}，模块已跳过！")
+        # 检查第一类依赖信号
+        missing_fusion_signals = [s for s in required_fusion_signals if s not in atomic]
+        if missing_fusion_signals:
+            print(f"          -> [警告] 终极确认融合缺少核心[融合元]信号: {sorted(missing_fusion_signals)}，模块已跳过！")
             return df
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE_S', default_series)
         fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE_S', default_series)
         fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL_S', default_series)
         fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL_S', default_series)
-        pattern_bullish = atomic.get('SCORE_PATTERN_BULLISH_RESONANCE_S', default_series)
-        pattern_bearish = atomic.get('SCORE_PATTERN_BEARISH_RESONANCE_S', default_series)
-        pattern_bottom = atomic.get('SCORE_PATTERN_BOTTOM_REVERSAL_S', default_series)
-        pattern_top = atomic.get('SCORE_PATTERN_TOP_REVERSAL_S', default_series)
+        pattern_bullish = self._fuse_multi_level_scores(df, 'PATTERN_BULLISH_RESONANCE')
+        pattern_bearish = self._fuse_multi_level_scores(df, 'PATTERN_BEARISH_RESONANCE')
+        pattern_bottom = self._fuse_multi_level_scores(df, 'PATTERN_BOTTOM_REVERSAL')
+        pattern_top = self._fuse_multi_level_scores(df, 'PATTERN_TOP_REVERSAL')
         states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
         states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
         self.strategy.atomic_states.update(states)
-        print("        -> [终极确认融合模块 V1.0] 计算完毕。")
+        # print("        -> [终极确认融合模块 V1.2] 计算完毕。")
         return df
 
     def synthesize_ignition_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
