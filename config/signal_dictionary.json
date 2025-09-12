@@ -75,6 +75,8 @@
         "SCORE_ACTION_RISK_RALLY_WITH_DIVERGENCE": { "cn_name": "【认知风险】拉升背离", "category": "认知层-风险", "type": "risk", "description": "价格拉升但筹码发散，是典型的诱多信号。" },
         "SCORE_ACTION_RISK_RALLY_STAGNATION": { "cn_name": "【认知风险】拉升停滞", "category": "认知层-风险", "type": "risk", "description": "价格拉升但成交量巨大，可能是滞涨信号。" },
         "SCORE_S_PLUS_CONFIRMED_DISTRIBUTION": { "cn_name": "【认知S+风险】确认派发", "category": "认知层-风险", "type": "risk", "description": "在高位危险区出现拉升背离行为，是强烈的派发确认信号。" },
+        "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": { "cn_name": "【认知】上升趋势可持续性", "category": "认知层-机会", "type": "context", "description": "综合趋势质量和顶部反转风险，评估当前上升趋势的健康度和持续可能性。" },
+        "SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S": { "cn_name": "【认知S】主升浪结构", "category": "认知层-机会", "type": "context", "description": "由认知层融合结构看涨与筹码集中信号，定义的核心主升浪结构状态。" },
 
         "说明_structural_intelligence": "--- 结构层信号 (Structural Intelligence) ---",
         "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": { "cn_name": "【结构终极S+】看涨共振", "category": "结构层-机会", "type": "dynamic", "description": "短、中、长周期的四大结构支柱(均线,力学,MTF,形态)健康度形成全周期共振，是最高置信度的结构层看涨信号。" },
@@ -93,6 +95,7 @@
         "SCORE_STRUCTURE_TOP_REVERSAL_S": { "cn_name": "【结构终极S风险】顶部反转", "category": "结构层-风险", "type": "risk", "description": "短期不健康合力(1*5D)对抗长期健康惯性(55D)，是中期反转风险信号。" },
         "SCORE_STRUCTURE_TOP_REVERSAL_A": { "cn_name": "【结构终极A风险】顶部反转", "category": "结构层-风险", "type": "risk", "description": "形成5日不健康力量，对抗21日中期健康趋势，是短期反转风险确认信号。" },
         "SCORE_STRUCTURE_TOP_REVERSAL_B": { "cn_name": "【结构终极B风险】顶部反转", "category": "结构层-风险", "type": "risk", "description": "出现1日不健康火花，对抗21日中期健康趋势，是试探性反转风险信号。" },
+        "SCORE_GAP_SUPPORT_ACTIVE": { "cn_name": "【结构】缺口支撑激活", "category": "结构层-环境", "type": "context", "description": "价格回落至前期向上跳空缺口的支撑区域内。" },
 
         "说明_behavioral_intelligence": "--- 行为层信号 (Behavioral Intelligence) ---",
         "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": { "cn_name": "【行为终极S+】看涨共振", "category": "行为层-机会", "type": "dynamic", "description": "短、中、长周期的价量完美健康度形成全周期共振，是最高置信度的行为看涨信号。" },
@@ -186,7 +189,7 @@
         "SCORE_RESONANCE_UP_main_force_net_flow_consensus_S": { "cn_name": "【资金流S】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成S级看涨共振。" },
         "SCORE_RESONANCE_UP_main_force_net_flow_consensus_A": { "cn_name": "【资金流A】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成A级看涨共振。" },
         "SCORE_RESONANCE_UP_main_force_net_flow_consensus_B": { "cn_name": "【资金流B】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成B级看涨共振。" },
-
+        "SCORE_REVERSAL_BOTTOM_main_force_net_flow_consensus": { "cn_name": "【资金流】主力净流入底部反转", "category": "资金流-机会", "type": "positional", "description": "主力净流入共识指标在持续流出后，出现底部反转迹象。" },
 
         "说明_foundation_intelligence": "--- 基础层信号 (Foundation Intelligence) ---",
         "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": { "cn_name": "【基础终极S+】看涨共振", "category": "基础层-机会", "type": "dynamic", "description": "短、中、长周期的四大基础支柱(EMA,RSI,MACD,CMF)健康度形成全周期共振，是最高置信度的基础层看涨信号。" },

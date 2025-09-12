@@ -56,9 +56,14 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V509.1 计分逻辑修复版】
-        - 核心升级: 重构计分逻辑以适配“三位一体”计分体系。
-        - 核心修复: 修正了分数组件的生成逻辑，确保进攻分数中的负分（惩罚项）能被正确统计和报告。
+        【V509.2 调试信息修复版】
+        - 核心修复 (本次修改):
+          - [解耦] 移除了对 `score_components_to_create` 和 `daily_states_to_create` 的条件过滤。
+                    现在，无论当天是否有最终信号，都会为所有处理过的日期生成完整的分数组件和状态记录。
+          - `save_all_days` 标志现在仅控制 `daily_scores_to_create` 的数量，这主要影响数据库的存储，
+            但不再影响返回给调试器的数据完整性。
+        - 收益: 确保了调试报告 (`debug_run_for_period`) 能够获取并展示任何一天的完整决策过程，
+                 即使那天的最终信号是“无信号”，从而修复了“进攻分构成”显示为0的BUG。
         """
         await self._ensure_playbooks_cached()
         signals_to_create = []
@@ -129,24 +134,20 @@ class ReportingLayer:
                 score_details_json={},
                 trade_action=trade_action_value
             )
+            # 仅在此处使用 save_all_days 控制是否保存每日分数记录到数据库
             if save_all_days or (row['signal_type'] != '无信号'):
                 daily_scores_to_create.append(daily_score_obj)
             daily_score_map[trade_time] = daily_score_obj
             # --- Part 2.1: 生成 StrategyScoreComponent ---
             all_details_for_json = {}
             if trade_time in score_details_df.index and trade_time in risk_details_df.index:
-                # 修正过滤逻辑，确保进攻分数中的惩罚项（负分）能被正确包含
-                # 进攻项：包含所有非零分数（正分和负分）
                 offensive_components = score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0]
-                # 风险项：只包含正分
                 risk_components = risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
-                # 合并进攻项和风险项
                 combined_details = pd.concat([offensive_components, risk_components])
                 for signal_name, score_value in combined_details.items():
                     score_type = 'unknown'
-                    # 增加对负分的判断，确保惩罚项也能被正确分类
                     if score_value < 0:
-                        score_type = 'penalty' # 将所有负分归类为惩罚项
+                        score_type = 'penalty'
                     elif signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
                         score_type = 'positional'
                     elif signal_name.startswith('TRIGGER_') or signal_name == 'SCORE_TRIGGER':
@@ -157,33 +158,27 @@ class ReportingLayer:
                         score_type = 'dynamic'
                     else:
                         score_type = score_type_map.get(signal_name, {}).get('type', 'unknown')
-                    # 默认使用原始信号名作为基础名
                     base_signal_name = signal_name
-                    # 定义所有可能的计分前缀
                     prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_']
-                    # 循环查找并剥离前缀
                     for prefix in prefixes_to_strip:
                         if signal_name.startswith(prefix):
                             base_signal_name = signal_name[len(prefix):]
-                            break # 找到第一个匹配的前缀后就停止
-                    # 使用剥离后的基础信号名去查找中文名，如果找不到则使用剥离后的基础名作为备用
+                            break
                     cn_name = score_type_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
-                    if save_all_days or (row['signal_type'] != '无信号'):
-                        score_components_to_create.append(StrategyScoreComponent(
-                            daily_score=daily_score_obj,
-                            signal_name=signal_name,
-                            signal_cn_name=cn_name,
-                            score_type=score_type,
-                            score_value=int(score_value)
-                        ))
+                    # 无条件创建分数组件，以供调试报告使用
+                    score_components_to_create.append(StrategyScoreComponent(
+                        daily_score=daily_score_obj,
+                        signal_name=signal_name,
+                        signal_cn_name=cn_name,
+                        score_type=score_type,
+                        score_value=int(score_value)
+                    ))
                     if score_type not in all_details_for_json: all_details_for_json[score_type] = []
                     all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
             daily_score_obj.score_details_json = all_details_for_json
-        # --- Part 3: 生成 StrategyDailyState (逻辑不变) ---
+        # --- Part 3: 生成 StrategyDailyState ---
         for trade_time, daily_score_obj in daily_score_map.items():
-            should_save_this_day = save_all_days or (result_df.loc[trade_time, 'signal_type'] != '无信号')
-            if not should_save_this_day:
-                continue
+            # 无条件创建每日状态，以供调试报告使用
             for state_name, state_series in self.strategy.atomic_states.items():
                 if state_series.get(trade_time, False):
                     daily_states_to_create.append(StrategyDailyState(
