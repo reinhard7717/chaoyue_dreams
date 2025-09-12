@@ -90,7 +90,7 @@ class JudgmentLayer:
         - 决策逻辑简化: 最终决策逻辑简化为 `最终得分 = 进攻分 - 风险惩罚分`。
         - 职责净化: 移除了对 `_generate_exit_triggers` 的调用，硬性离场决策完全交由上层模块处理。
         """
-        print("    --- [最高作战指挥部 V502.1 职责净化版] 启动... ---")
+        # print("    --- [最高作战指挥部 V502.1 职责净化版] 启动... ---")
         df = self.strategy.df_indicators
         
         df['risk_penalty_score'] = 0.0
