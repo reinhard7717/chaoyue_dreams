@@ -439,10 +439,8 @@ class IndicatorService:
                 stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
             all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
             # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
-        
         #  调用军械库清单生成器 ▼▼▼
-        self._log_final_data_columns(all_dfs)
-        
+        # self._log_final_data_columns(all_dfs)
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
