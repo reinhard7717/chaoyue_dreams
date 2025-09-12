@@ -56,14 +56,12 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V509.2 调试信息修复版】
+        【V510.0 · 真实来源修复版】
         - 核心修复 (本次修改):
-          - [解耦] 移除了对 `score_components_to_create` 和 `daily_states_to_create` 的条件过滤。
-                    现在，无论当天是否有最终信号，都会为所有处理过的日期生成完整的分数组件和状态记录。
-          - `save_all_days` 标志现在仅控制 `daily_scores_to_create` 的数量，这主要影响数据库的存储，
-            但不再影响返回给调试器的数据完整性。
-        - 收益: 确保了调试报告 (`debug_run_for_period`) 能够获取并展示任何一天的完整决策过程，
-                 即使那天的最终信号是“无信号”，从而修复了“进攻分构成”显示为0的BUG。
+          - [根除BUG] 重构了 StrategyScoreComponent 的创建逻辑，特别是 score_type 和 cn_name 的分配方式。
+          - [统一来源] 废除了所有基于信号名`startswith`的硬编码 `if/elif` 判断，现在完全依赖 `score_type_map` (即 signal_dictionary.json) 作为元数据的唯一真实来源。
+          - [逻辑简化] 移除了不一致的 `base_signal_name` 处理逻辑，直接使用原始 `signal_name` 作为字典的键。
+        - 收益: 彻底解决了因 `score_type` 被错误分配，导致调试报告中“激活进攻项”无法显示的问题。代码更加简洁、健壮，且易于维护。
         """
         await self._ensure_playbooks_cached()
         signals_to_create = []
@@ -145,27 +143,21 @@ class ReportingLayer:
                 risk_components = risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
                 combined_details = pd.concat([offensive_components, risk_components])
                 for signal_name, score_value in combined_details.items():
-                    score_type = 'unknown'
+                    # --- 新增开始：重构的、基于单一真实来源的元数据分配逻辑 ---
+                    # 1. 将字典(score_type_map)作为元数据的唯一真实来源
+                    signal_info = score_type_map.get(signal_name, {})
+                    
+                    # 2. 从字典中获取类型，如果找不到则默认为 'unknown'
+                    score_type = signal_info.get('type', 'unknown')
+                    
+                    # 3. 从字典中获取中文名，如果找不到则默认为信号自身的名称
+                    cn_name = signal_info.get('cn_name', signal_name)
+
+                    # 4. 应用唯一的覆盖规则：任何负分都属于 'penalty' 类型
                     if score_value < 0:
                         score_type = 'penalty'
-                    elif signal_name.startswith('SETUP_') or signal_name == 'SCORE_SETUP':
-                        score_type = 'positional'
-                    elif signal_name.startswith('TRIGGER_') or signal_name == 'SCORE_TRIGGER':
-                        score_type = 'dynamic'
-                    elif signal_name.startswith('PLAYBOOK_') or signal_name == 'SCORE_PLAYBOOK_SYNERGY':
-                        score_type = 'composite'
-                    elif signal_name.startswith('DYN_'):
-                        score_type = 'dynamic'
-                    else:
-                        score_type = score_type_map.get(signal_name, {}).get('type', 'unknown')
-                    base_signal_name = signal_name
-                    prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_']
-                    for prefix in prefixes_to_strip:
-                        if signal_name.startswith(prefix):
-                            base_signal_name = signal_name[len(prefix):]
-                            break
-                    cn_name = score_type_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
-                    # 无条件创建分数组件，以供调试报告使用
+
+                    # 5. 使用清晰、一致的数据创建分数组件
                     score_components_to_create.append(StrategyScoreComponent(
                         daily_score=daily_score_obj,
                         signal_name=signal_name,
@@ -173,6 +165,8 @@ class ReportingLayer:
                         score_type=score_type,
                         score_value=int(score_value)
                     ))
+                    # --- 新增结束 ---
+                    
                     if score_type not in all_details_for_json: all_details_for_json[score_type] = []
                     all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
             daily_score_obj.score_details_json = all_details_for_json
