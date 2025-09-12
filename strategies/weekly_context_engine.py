@@ -702,7 +702,7 @@ class WeeklyContextEngine:
 
     def _playbook_calculate_washout_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """诊断剧本：量化周线级别的洗盘行为"""
-        print(f"\n--- 诊断检查: [{params.get('说明', '洗盘行为评分')}] ---")
+        # print(f"\n--- 诊断检查: [{params.get('说明', '洗盘行为评分')}] ---")
         washout_score = pd.Series(0, index=df.index)
         support_level = self._get_weekly_support_level(df, params)
         if support_level is None:
@@ -731,7 +731,7 @@ class WeeklyContextEngine:
         # print(f"    - 模式3 (漂移收复): {'[+1分]' if washout_drift.iloc[-1] else '[+0分]'}")
         # print(f"    - 模式4 (诱多陷阱): {'[+1分]' if washout_bull_trap.iloc[-1] else '[+0分]'}")
         # print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
-        print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
+        # print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
         return washout_score.fillna(0)
 
     def _get_weekly_support_level(self, df: pd.DataFrame, params: dict) -> Optional[pd.Series]:
@@ -761,7 +761,7 @@ class WeeklyContextEngine:
 
     def _playbook_check_rejection_filters(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """诊断剧本：识别均线和箱体压力位的拒绝信号"""
-        print(f"\n--- 诊断检查: [{params.get('说明', '压力位拒绝信号')}] ---")
+        # print(f"\n--- 诊断检查: [{params.get('说明', '压力位拒绝信号')}] ---")
         ma_period = params.get('ma_period', 21)
         ma_col = f'EMA_{ma_period}_W'
         ma_rejection = self._check_resistance_rejection(df, ma_col, params, "均线压力")
@@ -772,7 +772,7 @@ class WeeklyContextEngine:
         final_signal = pd.Series(0, index=df.index)
         final_signal[ma_rejection] -= 1
         final_signal[box_rejection] -= 2
-        print(f"    - 结论: 最新一周总得分为 [{final_signal.iloc[-1]}] (均线拒绝-1分, 箱顶拒绝-2分)")
+        # print(f"    - 结论: 最新一周总得分为 [{final_signal.iloc[-1]}] (均线拒绝-1分, 箱顶拒绝-2分)")
         return final_signal
 
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:

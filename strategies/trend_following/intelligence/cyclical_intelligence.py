@@ -19,16 +19,13 @@ class CyclicalIntelligence:
         - 核心职责: 使用快速傅里叶变换(FFT)分析价格序列，提取市场的周期性特征。
         - 产出: 生成描述市场“趋势性”与“周期性”的全新原子信号。
         """
-        print("      -> [周期情报分析总指挥 V1.0] 启动...")
-        
+        # print("      -> [周期情报分析总指挥 V1.0] 启动...")
         p = get_params_block(self.strategy, 'cyclical_analysis_params')
         if not get_param_value(p.get('enabled'), True):
             print("      -> [周期情报分析] 已在配置中禁用，跳过。")
             return {}
-            
         fft_states = self.diagnose_market_cycles_with_fft(df, p)
-
-        print(f"      -> [周期情报分析总指挥 V1.0] 分析完毕，共生成 {len(fft_states)} 个周期信号。")
+        # print(f"      -> [周期情报分析总指挥 V1.0] 分析完毕，共生成 {len(fft_states)} 个周期信号。")
         return fft_states
 
     def diagnose_market_cycles_with_fft(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:

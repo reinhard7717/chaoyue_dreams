@@ -134,15 +134,13 @@ class WarningLayer:
           3. 返回所有分析结果，供决策层使用。
         - 收益: 实现了职责分离，本模块专注于“风险分析”，而非“风险计算”。
         """
-        print("        -> [预警层分析中心 V2.0] 启动...")
+        # print("        -> [预警层分析中心 V2.0] 启动...")
         atomic_states = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=self.strategy.df_indicators.index)
-
         # --- 1. 获取认知层计算的融合风险总分 ---
         # 这是我们新的、唯一的风险数据源
         total_risk_score = atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', default_series).copy()
-        print(f"          -> 已获取融合风险总分，最大值: {total_risk_score.max():.2f}")
-
+        # print(f"          -> 已获取融合风险总分，最大值: {total_risk_score.max():.2f}")
         # --- 2. 获取各维度的风险分，用于动态诊断 ---
         # 从 atomic_states 中筛选出所有 FUSED_RISK_SCORE_ 开头的维度风险分
         risk_details_cols = {
@@ -151,15 +149,13 @@ class WarningLayer:
             if key.startswith('FUSED_RISK_SCORE_')
         }
         risk_details_df = pd.DataFrame(risk_details_cols)
-        print(f"          -> 已获取 {len(risk_details_cols)} 个维度的风险分，用于动态分析。")
-
+        # print(f"          -> 已获取 {len(risk_details_cols)} 个维度的风险分，用于动态分析。")
         # --- 3. 调用二次分析引擎 ---
         # 诊断风险总分的动量和加速度
         risk_momentum_summary = self._diagnose_risk_momentum(total_risk_score)
         # 诊断各维度风险分的变化动态
         risk_dynamics_summary = self._diagnose_risk_dynamics(risk_details_df)
-
-        print("        -> [预警层分析中心 V2.0] 所有风险分析完成。")
+        # print("        -> [预警层分析中心 V2.0] 所有风险分析完成。")
         return total_risk_score, risk_details_df, risk_momentum_summary, risk_dynamics_summary
 
     def _get_risk_playbook_blueprints(self) -> List[Dict]:

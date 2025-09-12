@@ -48,7 +48,7 @@ class ReportingLayer:
             sync_db_call = lambda: {p.name: p for p in Playbook.objects.all()}
             # 异步执行它
             self.playbooks_cache = await sync_to_async(sync_db_call, thread_sensitive=True)()
-            print(f"    -> [报告层] 已成功缓存 {len(self.playbooks_cache)} 个战法定义。")
+            # print(f"    -> [报告层] 已成功缓存 {len(self.playbooks_cache)} 个战法定义。")
         except Exception as e:
             # 如果加载失败，初始化为空字典以保证后续代码不会出错
             self.playbooks_cache = {}

@@ -18,16 +18,14 @@ class OffensiveLayer:
             不再对其下属的子信号进行重复计分。
         - 收益: 计分逻辑更清晰、更合理，消除了因重复计分导致的信号虚高问题。
         """
-        print("        -> [进攻方案评估中心 V402.0 逻辑净化版] 启动...")
+        # print("        -> [进攻方案评估中心 V402.0 逻辑净化版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
-        
         all_scores_components = []
-
         # --- 步骤 2: 计算【第一层：环境与战备分】(逻辑不变) ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
@@ -40,8 +38,7 @@ class OffensiveLayer:
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
         score_details_df['SCORE_SETUP'] = context_score
         all_scores_components.append(context_score)
-        print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
-
+        # print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
         # --- 步骤 3: 计算【第二层：独立触发器加分】(逻辑不变) ---
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
@@ -54,8 +51,7 @@ class OffensiveLayer:
                     score_details_df[f"TRIGGER_{trigger_name}"] = bonus_amount
         score_details_df['SCORE_TRIGGER'] = trigger_score
         all_scores_components.append(trigger_score)
-        print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
-
+        # print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
         # --- 步骤 4: 计算【第三层：剧本协同奖励分】(逻辑不变) ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
@@ -68,14 +64,12 @@ class OffensiveLayer:
                     score_details_df[f"PLAYBOOK_{playbook_name}"] = bonus_amount
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
         all_scores_components.append(playbook_score)
-        print(f"          -> [第三层] 剧本协同奖励分计算完毕，奖励峰值: {playbook_score.max():.0f}")
-
+        # print(f"          -> [第三层] 剧本协同奖励分计算完毕，奖励峰值: {playbook_score.max():.0f}")
         # --- 步骤 5: 计算其他独立的加分模块 ---
         strategic_bonus_score, score_details_df = self._apply_strategic_context_bonuses(score_details_df)
         all_scores_components.append(strategic_bonus_score)
         contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
         all_scores_components.append(contextual_bonus_score)
-
         # --- 应用“动态动能”加分，逻辑已净化 ---
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
@@ -92,11 +86,9 @@ class OffensiveLayer:
                     dynamic_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
         all_scores_components.append(dynamic_score)
-
         # --- 步骤 6: 合成总进攻分 ---
         entry_score = sum(all_scores_components).fillna(0).astype(int)
-        
-        print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
+        # print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
         return entry_score, score_details_df
 
     def _apply_strategic_context_bonuses(self, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:

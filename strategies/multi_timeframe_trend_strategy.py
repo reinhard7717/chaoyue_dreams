@@ -116,8 +116,8 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"[{stock_code}] [前置检查失败] 在最新交易日 {latest_date_str} 缺少关键筹码数据 ('{required_chip_col}')。为保证信号质量，已跳过对该股票的完整策略分析。")
             print(f"  - [前置检查] 失败！最新交易日缺少关键筹码数据，跳过 {stock_code} 的分析。")
             return ([], [], [], [], [])
-        else:
-            print(f"  - [前置检查] 成功！关键筹码数据完整。")
+        # else:
+            # print(f"  - [前置检查] 成功！关键筹码数据完整。")
         # 2. 战略引擎
         df_weekly_context = self.strategic_engine.generate_context(all_dfs.get('W'))
         if df_weekly_context is None or df_weekly_context.empty:
@@ -137,7 +137,7 @@ class MultiTimeframeTrendStrategy:
                 how='left', 
                 suffixes=('', '_dup_W')
             )
-            print("  - [情报融合] 周线指标注入完成。")
+            # print("  - [情报融合] 周线指标注入完成。")
         else:
             df_fully_merged = df_daily_with_context
             print("  - [情报融合] 未发现周线数据，跳过周线指标注入。")

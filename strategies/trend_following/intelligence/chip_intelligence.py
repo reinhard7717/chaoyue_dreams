@@ -52,7 +52,7 @@ class ChipIntelligence:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
         # 直接调用全新的七维交叉协同引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
-        print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
+        # print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
         return ultimate_chip_states, {}
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -197,7 +197,7 @@ class ChipIntelligence:
             signal_name = f"SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH"
             states[signal_name] = health_score.astype(np.float32)
         # print(f"          -> [深化输出] 已生成 {len(pillar_overall_health_d)} 个支柱健康分。")
-        print(f"        -> [终极筹码信号诊断模块 V332.1] 分析完毕，生成 {len(states)} 个终极信号。")
+        # print(f"        -> [终极筹码信号诊断模块 V332.1] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def diagnose_cross_validation_signals(self, df: pd.DataFrame) -> pd.DataFrame:
