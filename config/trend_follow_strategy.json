@@ -192,7 +192,14 @@
     }
   },
   "weekly_context_params": {
+    "enabled": true,
     "说明": "【V83.0 新增】周线战略上下文引擎的专属配置区。所有周线级别的分析逻辑和剧本都集中于此。",
+    "fft_analysis_params": {
+      "enabled": true,
+      "说明": "FFT周期分析参数",
+      "fft_window": 64,
+      "comment_fft_window": "FFT计算窗口，单位：周。建议为2的幂，如32, 64, 128。64周约1.5年。"
+    },
     "trend_analysis_params": {
       "enabled": true,
       "ma_period": 21,
@@ -293,7 +300,11 @@
         "trend_health_strong": 2,
         "psych_reversal_bullish": 3,
         "psych_rejection_bearish": 4,
-        "high_proximity_bonus": 2
+        "high_proximity_bonus": 2,
+        "fft_trending_bonus": 4,
+        "comment_fft_trending_bonus": "FFT识别出的趋势政权强度带来的额外加分权重",
+        "fft_cyclical_penalty": 6,
+        "comment_fft_cyclical_penalty": "FFT识别出的震荡政权强度带来的额外扣分权重"
       },
       "synergy_with_daily": {
         "说明": "周线战略分数对日线策略的影响参数",

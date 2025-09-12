@@ -5,6 +5,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import logging
+from scipy.fft import rfft, rfftfreq
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class WeeklyContextEngine:
         # print("---【步骤6/6: 深度量价与背离分析】---")
         context_df = self._analyze_vpa(context_df)
         context_df = self._detect_divergences(context_df)
+        context_df = self._analyze_fft_regime(context_df)
         # --- 流水线 7/7: 合成战略分数与最终信号 (升级) ---
         # print("---【最终步骤: 合成战略分数与最终信号】---")
         context_df = self._calculate_strategic_score(context_df)
@@ -104,16 +106,71 @@ class WeeklyContextEngine:
             'cmf_distribution_W',
             'risk_bearish_divergence_W', # 添加背离信号
             'opp_bullish_divergence_W',
+            'fft_trending_score_W',
+            'fft_cyclical_score_W',
+            'fft_dominant_period_W',
         ]
         # 合并所有需要输出的列，并去重
         final_output_cols = list(set(core_strategic_cols + all_weekly_signal_cols))
         # 确保所有列都存在于 context_df 中
         final_output_cols = [col for col in final_output_cols if col in context_df.columns]
-
         # print(f"    - [指挥中心] 已生成 {len(final_output_cols)} 个最终周线战略指挥信号。")
         # print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
         return context_df[final_output_cols]
 
+    def _analyze_fft_regime(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 新增】使用FFT分析周线价格序列，识别市场政权。
+        """
+        fft_params = self.params.get('fft_analysis_params', {})
+        if not fft_params.get('enabled', False):
+            # 如果未启用，则填充默认中性值
+            df['fft_trending_score_W'] = 0.5
+            df['fft_cyclical_score_W'] = 0.0
+            df['fft_dominant_period_W'] = np.nan
+            return df
+        fft_window = fft_params.get('fft_window', 64) # FFT窗口，建议为2的幂，64周约一年半
+        price_series = df['close_W']
+        if len(price_series) < fft_window:
+            logger.warning(f"    - [FFT分析-警告] 周线数据长度({len(price_series)})不足FFT窗口({fft_window})，跳过。")
+            df['fft_trending_score_W'] = 0.5
+            df['fft_cyclical_score_W'] = 0.0
+            df['fft_dominant_period_W'] = np.nan
+            return df
+        # 初始化结果列
+        trending_scores = np.full(len(df), 0.5)
+        cyclical_scores = np.full(len(df), 0.0)
+        dominant_periods = np.full(len(df), np.nan)
+        # 滚动执行FFT
+        for i in range(fft_window, len(df)):
+            segment = price_series.iloc[i - fft_window : i].values
+            # 关键步骤: 去趋势并应用窗函数以减少频谱泄露
+            detrended = segment - np.linspace(segment[0], segment[-1], fft_window)
+            windowed = detrended * np.hanning(fft_window)
+            # 执行FFT
+            yf = rfft(windowed)
+            xf = rfftfreq(fft_window, 1) # 频率 (周期/周)
+            power_spectrum = np.abs(yf)**2
+            power_spectrum[0] = 0 # 忽略直流分量
+            total_power = np.sum(power_spectrum)
+            if total_power == 0: continue
+            # 1. 计算趋势分数 (低频能量占比)
+            # 周期 > 1/3窗口长度的视为趋势分量
+            trend_freq_cutoff = 1.0 / (fft_window / 3) 
+            trend_power = np.sum(power_spectrum[xf < trend_freq_cutoff])
+            trending_scores[i] = trend_power / total_power
+            # 2. 计算周期性分数 (主导周期的能量占比)
+            # 寻找周期在4周到fft_window/2周之间的主导周期
+            valid_indices = np.where((xf > 1.0/(fft_window/2)) & (xf < 1.0/4))
+            if len(valid_indices[0]) > 0:
+                peak_idx = valid_indices[0][np.argmax(power_spectrum[valid_indices])]
+                dominant_periods[i] = 1.0 / xf[peak_idx]
+                cyclical_scores[i] = power_spectrum[peak_idx] / total_power
+        df['fft_trending_score_W'] = pd.Series(trending_scores, index=df.index).fillna(0.5)
+        df['fft_cyclical_score_W'] = pd.Series(cyclical_scores, index=df.index).fillna(0.0)
+        df['fft_dominant_period_W'] = pd.Series(dominant_periods, index=df.index)
+        logger.debug("    - [FFT分析] 完成。已生成趋势性与周期性分数。")
+        return df
 
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """定义战场关键参照物"""
@@ -318,6 +375,10 @@ class WeeklyContextEngine:
         # 当股价在52周高点下方5%以内时，认为是即将突破的强势区，加分
         high_proximity_threshold = self.params.get('high_proximity_threshold', 0.05) # 阈值配置化
         score += (dist_from_high.between(-high_proximity_threshold, high_proximity_threshold)) * weights.get('high_proximity_bonus', 2)
+        # 趋势政权确认，强力加分
+        score += df.get('fft_trending_score_W', 0.5) * weights.get('fft_trending_bonus', 4)
+        # 震荡政权确认，强力扣分，因为我们的策略是趋势跟踪
+        score -= df.get('fft_cyclical_score_W', 0.0) * weights.get('fft_cyclical_penalty', 6)
 
         df['strategic_score_W'] = score
         logger.debug("    - [战略计分] 完成。已生成综合战略分数。")
