@@ -46,19 +46,21 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 性能优化版】终极结构信号诊断模块
-        - 核心升级 (本次修改):
-          - [性能优化] 在融合四大支柱健康度时，将原有的 `pd.concat(...).prod()` 逻辑重构为使用 `np.stack` 和 `np.prod`。
+        【V1.2 逻辑修复版】终极结构信号诊断模块
+        - 核心修复 (本次修改):
+          - [BUG修复] 修复了在计算顶部反转信号时，因拼写错误（将 `overall_bullish_health` 错写为 `bullish_health`）而导致的 `NameError`。
+        - 核心升级 (V1.1逻辑保留):
+          - [性能优化] 在融合四大支柱健康度时，将原有的 `pd.concat(...).prod()` 逻辑重构为使用 `np.stack` 和 `np.prod`，显著提升了计算效率和内存使用效率。
         - 核心范式 (V1.0逻辑保留):
           - 1. 四大支柱: 将结构情报提炼为均线、力学、MTF、形态四大支柱。
           - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
           - 3. 多维共识融合: 将四大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
           - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
         - 收益:
-          - 通过避免在循环中为每个周期创建临时DataFrame，显著降低了内存峰值占用并提升了计算速度。
-          - 产出经过多指标、多周期、多维度三重交叉验证的、最高质量的结构信号。
+          - 修复了导致程序崩溃的严重BUG。
+          - 保持了V1.1版本带来的显著性能提升。
         """
-        # print("        -> [终极结构信号诊断模块 V1.1 性能优化版] 启动...")
+        # print("        -> [终极结构信号诊断模块 V1.2 逻辑修复版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -68,28 +70,18 @@ class StructuralIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         # --- 2. 计算四大支柱在各周期的“完美健康度” ---
         pillar_health = {}
-        # 支柱1: 均线 (MA)
         pillar_health['ma'] = self._calculate_ma_health(df, periods, norm_window)
-        # 支柱2: 力学 (Mechanics)
         pillar_health['mechanics'] = self._calculate_mechanics_health(df, periods, norm_window)
-        # 支柱3: 多时间框架 (MTF)
         pillar_health['mtf'] = self._calculate_mtf_health(df, periods, norm_window)
-        # 支柱4: 形态 (Pattern)
         pillar_health['pattern'] = self._calculate_pattern_health(df, periods, norm_window)
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
-            # 使用NumPy高效计算几何平均值，避免创建临时DataFrame
-            # 1. 获取当前周期的所有支柱健康度Series
             health_scores_series = [pillar_health[key][p] for key in pillar_health]
-            # 2. 将Series列表的底层值提取并堆叠成一个 (支柱数量, 时间序列长度) 的2D NumPy数组
             stacked_health_arrays = np.stack([s.values for s in health_scores_series], axis=0)
-            # 3. 沿支柱维度(axis=0)计算乘积，然后开N次方根，得到几何平均值
             num_pillars = len(pillar_health)
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
-            # 4. 仅在最后将结果包装回Pandas Series
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-            
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
@@ -112,11 +104,13 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (overall_bearish_health[1] * bullish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (overall_bearish_health[5] * bullish_health[21]).astype(np.float32)
+        # 修改开始: 修复拼写错误，将 `bullish_health` 改为 `overall_bullish_health`
+        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        # 修改结束
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极结构信号诊断模块 V1.1] 分析完毕，生成 {len(states)} 个终极信号。")
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
+        # print(f"        -> [终极结构信号诊断模块 V1.2] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
