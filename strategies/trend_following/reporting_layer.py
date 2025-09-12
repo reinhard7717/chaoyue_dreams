@@ -62,6 +62,8 @@ class ReportingLayer:
           - 使用这个基础信号名去 `score_type_map` 中查找正确的 `score_type` 和 `cn_name`。
         - 收益: 彻底解决了因前缀不匹配导致 `score_type` 被错误赋为 'unknown'，从而使得调试报告中“激活进攻项”无法显示的核心问题。
         """
+        print(f"  [探针-报告层入口] 股票 {stock_code}: 接收到 score_details_df，非零值数量: {(score_details_df.fillna(0) != 0).values.sum()}。")
+        print(f"  [探针-报告层入口] 股票 {stock_code}: 接收到 risk_details_df，非零值数量: {(risk_details_df.fillna(0) != 0).values.sum()}。")
         await self._ensure_playbooks_cached()
         signals_to_create = []
         signal_details_to_create = []

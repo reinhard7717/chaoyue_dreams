@@ -419,10 +419,11 @@ class MultiTimeframeTrendStrategy:
             # print(f"    -> [战术引擎] 已通过统一接口生成 {len(records_tuple[0])} 条交易信号, {len(records_tuple[2])} 条每日分数, 和 {len(records_tuple[4])} 条每日状态。")
             return records_tuple
         finally:
-            if hasattr(self.tactical_engine, '_last_score_details_df'):
-                del self.tactical_engine._last_score_details_df
-            if hasattr(self.tactical_engine, '_last_risk_details_df'):
-                del self.tactical_engine._last_risk_details_df
+            # if hasattr(self.tactical_engine, '_last_score_details_df'):
+            #     del self.tactical_engine._last_score_details_df
+            # if hasattr(self.tactical_engine, '_last_risk_details_df'):
+            #     del self.tactical_engine._last_risk_details_df
+            pass
 
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
