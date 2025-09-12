@@ -60,6 +60,7 @@ class IntelligenceLayer:
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
+        self.cyclical_intel = CyclicalIntelligence(self.strategy)
 
     def _get_dynamic_thresholds(self, df: pd.DataFrame) -> Dict:
         """

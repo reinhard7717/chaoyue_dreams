@@ -120,47 +120,74 @@ class WeeklyContextEngine:
 
     def _analyze_fft_regime(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 新增】使用FFT分析周线价格序列，识别市场政权。
+        【V1.1 信号处理强化版】使用FFT分析周线价格序列，识别市场政权。
+        - 核心升级 (本次修改):
+          - [去趋势强化] 明确了“线性去趋势”是FFT分析金融时间序列的关键前置步骤，
+                        用于剥离长期趋势，聚焦于周期性成分。
+          - [加窗优化] 明确了使用汉宁窗(Hanning Window)是为了平滑窗口两端的突变，
+                       减少频谱泄露(Spectral Leakage)，使周期识别更纯净。
+          - [配置驱动] 新增 'detrend_method' 配置项，为未来扩展更复杂的去趋势方法
+                       (如移动平均去趋势)预留接口。
         """
         fft_params = self.params.get('fft_analysis_params', {})
         if not fft_params.get('enabled', False):
-            # 如果未启用，则填充默认中性值
             df['fft_trending_score_W'] = 0.5
             df['fft_cyclical_score_W'] = 0.0
             df['fft_dominant_period_W'] = np.nan
             return df
-        fft_window = fft_params.get('fft_window', 64) # FFT窗口，建议为2的幂，64周约一年半
+
+        fft_window = fft_params.get('fft_window', 64)
+        # 新增配置项，默认为 'linear'
+        detrend_method = fft_params.get('detrend_method', 'linear') 
         price_series = df['close_W']
+
         if len(price_series) < fft_window:
             logger.warning(f"    - [FFT分析-警告] 周线数据长度({len(price_series)})不足FFT窗口({fft_window})，跳过。")
             df['fft_trending_score_W'] = 0.5
             df['fft_cyclical_score_W'] = 0.0
             df['fft_dominant_period_W'] = np.nan
             return df
-        # 初始化结果列
+
         trending_scores = np.full(len(df), 0.5)
         cyclical_scores = np.full(len(df), 0.0)
         dominant_periods = np.full(len(df), np.nan)
-        # 滚动执行FFT
         for i in range(fft_window, len(df)):
             segment = price_series.iloc[i - fft_window : i].values
-            # 关键步骤: 去趋势并应用窗函数以减少频谱泄露
-            detrended = segment - np.linspace(segment[0], segment[-1], fft_window)
-            windowed = detrended * np.hanning(fft_window)
+            # --- 关键预处理步骤 1: 去趋势 (Detrending) ---
+            # 目的: 移除窗口内的长期趋势，使FFT能专注于分析波动周期。
+            detrended_segment = None
+            if detrend_method == 'linear':
+                # 方法: 减去从起点到终点的线性趋势线。
+                # 这是最常用且高效的方法，假设窗口内的趋势是线性的。
+                detrended_segment = segment - np.linspace(segment[0], segment[-1], fft_window)
+            # elif detrend_method == 'ma': # 为未来扩展预留接口
+            #     ma = pd.Series(segment).rolling(window=some_period).mean().values
+            #     detrended_segment = segment - ma
+            else: # 默认使用线性去趋势
+                detrended_segment = segment - np.linspace(segment[0], segment[-1], fft_window)
+            # --- 关键预处理步骤 2: 加窗 (Windowing) ---
+            # 目的: 平滑数据窗口两端的边界，防止因数据截断产生的“频谱泄露”，
+            #      这会干扰真实周期的识别。汉宁窗是一种常用的平滑窗。
+            windowed_segment = detrended_segment * np.hanning(fft_window)
             # 执行FFT
-            yf = rfft(windowed)
-            xf = rfftfreq(fft_window, 1) # 频率 (周期/周)
+            yf = rfft(windowed_segment)
+            xf = rfftfreq(fft_window, 1)
             power_spectrum = np.abs(yf)**2
-            power_spectrum[0] = 0 # 忽略直流分量
+            power_spectrum[0] = 0
             total_power = np.sum(power_spectrum)
             if total_power == 0: continue
             # 1. 计算趋势分数 (低频能量占比)
-            # 周期 > 1/3窗口长度的视为趋势分量
+            # 注意：这里的趋势分是基于原始价格的趋势，而去趋势操作是为了让周期分析更准确。
+            # 我们可以通过对比去趋势前的能量和去趋势后的能量来评估趋势强度。
+            # 一个更简单的替代方法是分析原始信号的低频部分。
+            raw_yf = rfft(segment * np.hanning(fft_window)) # 对加窗但未去趋势的信号做FFT
+            raw_power_spectrum = np.abs(raw_yf)**2
+            raw_total_power = np.sum(raw_power_spectrum[1:]) # 忽略直流分量
+            if raw_total_power == 0: continue
             trend_freq_cutoff = 1.0 / (fft_window / 3) 
-            trend_power = np.sum(power_spectrum[xf < trend_freq_cutoff])
-            trending_scores[i] = trend_power / total_power
-            # 2. 计算周期性分数 (主导周期的能量占比)
-            # 寻找周期在4周到fft_window/2周之间的主导周期
+            trend_power = np.sum(raw_power_spectrum[np.where(xf < trend_freq_cutoff)[0][1:]]) # 再次忽略直流
+            trending_scores[i] = trend_power / raw_total_power
+            # 2. 计算周期性分数 (主导周期的能量占比) - 在去趋势后的频谱上计算
             valid_indices = np.where((xf > 1.0/(fft_window/2)) & (xf < 1.0/4))
             if len(valid_indices[0]) > 0:
                 peak_idx = valid_indices[0][np.argmax(power_spectrum[valid_indices])]
@@ -169,7 +196,7 @@ class WeeklyContextEngine:
         df['fft_trending_score_W'] = pd.Series(trending_scores, index=df.index).fillna(0.5)
         df['fft_cyclical_score_W'] = pd.Series(cyclical_scores, index=df.index).fillna(0.0)
         df['fft_dominant_period_W'] = pd.Series(dominant_periods, index=df.index)
-        logger.debug("    - [FFT分析] 完成。已生成趋势性与周期性分数。")
+        logger.debug("    - [FFT分析 V1.1] 完成。已通过去趋势和加窗优化周期识别。")
         return df
 
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:

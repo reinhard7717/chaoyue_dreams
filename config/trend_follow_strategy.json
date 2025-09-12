@@ -198,7 +198,9 @@
       "enabled": true,
       "说明": "FFT周期分析参数",
       "fft_window": 64,
-      "comment_fft_window": "FFT计算窗口，单位：周。建议为2的幂，如32, 64, 128。64周约1.5年。"
+      "comment_fft_window": "FFT计算窗口，单位：周。建议为2的幂，如32, 64, 128。64周约1.5年。",
+      "detrend_method": "linear",
+      "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。"
     },
     "trend_analysis_params": {
       "enabled": true,
