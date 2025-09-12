@@ -412,7 +412,7 @@ class MultiTimeframeTrendStrategy:
             # prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=daily_analysis_df.copy(),
+                result_df=daily_analysis_df,
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
@@ -722,17 +722,14 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.4 · 终极探针植入版】
+        【V320.5 · 诊断逻辑修复版】
         - 核心修改 (本次修改):
-          - [终极诊断] 在每日报告的循环体内，植入了一个“终极诊断探针”。
-          - 该探针会直接检查并打印出当天的 `related_components` 列表的原始、未经过滤的全部内容。
-        - 收益: 无论问题出在哪里，这个探针都将为我们提供决定性的证据：
-          - 如果探针打印出“列表为空”，证明 `all_score_components` 就是空的，问题在上游。
-          - 如果探针打印出组件列表，但 `score_type` 都是 'unknown'，证明是信号字典映射问题。
-          - 如果探针打印出正确的组件，但后续明细仍不显示，证明是最后的过滤逻辑问题。
+          - [逻辑修复] 修正了 `subtotal_signal_names` 的来源。旧代码试图从一个不存在的配置块中读取，现已硬编码为正确的子总分信号名列表 (`['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']`)，确保子总分项被正确过滤。
+          - [诊断增强] 放宽了“激活进攻项”的过滤条件。现在，即使一个分数组件的 `score_type` 因为信号字典不匹配而为 'unknown'，只要它不是风险项，也会被展示出来。这使得调试报告能暴露所有贡献分数的信号，帮助开发者快速定位信号字典缺失的问题。
+        - 收益: 解决了因过滤过严和信号名来源错误，导致调试报告中进攻项、惩罚项、风险项明细全部为空白的问题，恢复了调试功能。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.4 终极探针植入版)] ---") # 修改行：更新版本号
+        print(f"--- [历史回溯调试启动 (V320.5 诊断逻辑修复版)] ---") # 修改行：更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -799,7 +796,12 @@ class MultiTimeframeTrendStrategy:
             
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            subtotal_signal_names = list(get_params_block(self.tactical_engine, 'offensive_score_composition', {}).keys())
+
+            # --- 修改开始：修复 subtotal_signal_names 的来源并放宽过滤条件 ---
+            # 旧代码试图从一个不存在的配置块读取，现在硬编码为正确的名称
+            subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']
+            # --- 修改结束 ---
+
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
@@ -815,7 +817,6 @@ class MultiTimeframeTrendStrategy:
                     final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
                     print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
                     
-                    # 修改行：这里的计算逻辑保持不变，但我们将通过下面的探针来验证其数据源
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
@@ -831,7 +832,6 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("    - 未找到当日的详细分析数据。")
 
-                # --- 新增开始：终极诊断探针 ---
                 print("  --- [终极诊断探针] 正在检查当日的分数组件... ---")
                 if not related_components:
                     print("    - [探针结果] 警告：当日无任何分数组件 (related_components 列表为空)。这是导致明细不显示的核心原因。")
@@ -840,14 +840,18 @@ class MultiTimeframeTrendStrategy:
                     for i, comp in enumerate(related_components):
                         print(f"      {i+1}. 信号名: {comp.signal_name}, 中文名: {comp.signal_cn_name}, 类型: {comp.score_type}, 分数: {comp.score_value}")
                 print("  --- [探针结束] ---")
-                # --- 新增结束 ---
 
+                # --- 修改开始：放宽 offensive_components 的过滤条件 ---
+                # 旧的过滤条件过于严格，会因为 score_type 为 'unknown' 而过滤掉所有未在字典中定义的信号
+                # 新的逻辑是，只要不是明确的风险项，都视为进攻项，这样可以暴露所有加分项，便于调试
                 offensive_components = [
                     c for c in related_components
-                    if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic']
+                    if c.score_type not in ['risk', 'critical_risk']
                     and c.score_value > 0
                     and c.signal_name not in subtotal_signal_names
                 ]
+                # --- 修改结束 ---
+
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
@@ -858,6 +862,7 @@ class MultiTimeframeTrendStrategy:
                     print("  --- 进攻项惩罚 (扣分项) ---")
                     for comp in sorted(penalty_components, key=lambda x: x.score_value):
                         print(f"    - {comp.signal_cn_name} ({comp.score_value})")
+                
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 (贡献至风险惩罚分) ---")
