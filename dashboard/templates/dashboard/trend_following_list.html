@@ -48,11 +48,9 @@
                 {% for playbook in all_playbooks %}
                     {% with playbook_display_name=playbook.cn_name|default:playbook.name %}
                         {% if playbook.pk|stringformat:"s" in selected_playbooks %}
-                            <!-- 移除了对 get_playbook_style_class 过滤器的调用 -->
-                            <a href="{% query_builder remove_playbook=playbook.pk date=selected_date %}" class="filter-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
+                            <a href="{% query_builder remove_playbook=playbook.pk date=selected_date %}" class="filter-tag playbook-tag active">{{ playbook_display_name }} <span class="remove-icon">&times;</span></a>
                         {% else %}
-                            <!-- 移除了对 get_playbook_style_class 过滤器的调用 -->
-                            <a href="{% query_builder add_playbook=playbook.pk date=selected_date %}" class="filter-tag">{{ playbook_display_name }}</a>
+                            <a href="{% query_builder add_playbook=playbook.pk date=selected_date %}" class="filter-tag playbook-tag">{{ playbook_display_name }}</a>
                         {% endif %}
                     {% endwith %}
                 {% empty %}
@@ -90,9 +88,8 @@
                         <td>
                             {% if item.active_playbooks %}
                                 <div class="playbook-container">
-                                    <ul class="playbook-list collapsible">
+                                    <ul class="playbook-list">
                                     {% for playbook in item.active_playbooks %}
-                                        <!-- 移除了对 get_playbook_style_class 过滤器的调用 -->
                                         <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
                                     {% endfor %}
                                     </ul>

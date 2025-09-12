@@ -589,7 +589,6 @@ section h2 .icon {
     position: relative;
 }
 
-/* 修改选择器，使其不再依赖HTML中的.collapsible类，而是直接作用于容器内的列表 */
 /* 默认情况下，playbook-list是折叠的 */
 .playbook-container .playbook-list {
     max-height: 58px;

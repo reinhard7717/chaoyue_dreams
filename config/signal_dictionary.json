@@ -143,7 +143,11 @@
         "SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT": { "cn_name": "【筹码剧本】真空加速突破", "category": "筹码层-机会", "type": "playbook", "description": "识别“断层形成、成本抬升、抛压极小”的趋势加速模式。" },
         "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": { "cn_name": "【筹码剧本】高位派发风险", "category": "筹码层-风险", "type": "playbook", "description": "识别“控盘下降、情绪亢奋、抛压巨大”的经典派发模式。" },
         "SCORE_CHIP_PLAYBOOK_ABSORPTION": { "cn_name": "【筹码剧本】底部承接反转", "category": "筹码层-机会", "type": "playbook", "description": "识别“情绪悲观、控盘改善、成本止跌”的经典底部吸筹模式。" },
-
+        "SCORE_RESONANCE_UP_chip_health_score_S": { "cn_name": "【筹码S】健康度上升共振", "category": "筹码层-机会", "type": "dynamic", "description": "筹码健康度的静态、斜率、加速度在多周期上形成S级看涨共振。" },
+        "SCORE_RESONANCE_UP_chip_health_score_A": { "cn_name": "【筹码A】健康度上升共振", "category": "筹码层-机会", "type": "dynamic", "description": "筹码健康度的静态、斜率、加速度在多周期上形成A级看涨共振。" },
+        "SCORE_RESONANCE_UP_chip_health_score_B": { "cn_name": "【筹码B】健康度上升共振", "category": "筹码层-机会", "type": "dynamic", "description": "筹码健康度的静态、斜率、加速度在多周期上形成B级看涨共振。" },
+        "SCORE_REVERSAL_BOTTOM_chip_health_score": { "cn_name": "【筹码】健康度底部反转", "category": "筹码层-机会", "type": "positional", "description": "筹码健康度指标出现底部反转迹象。" },
+ 
         "说明_dynamic_mechanics": "--- 力学层信号 (Dynamic Mechanics) ---",
         "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": { "cn_name": "【力学终极S+】看涨共振", "category": "力学层-机会", "type": "dynamic", "description": "短、中、长周期的七维力学健康度形成全周期共振，是最高置信度的力学看涨信号。" },
         "SCORE_DYN_BULLISH_RESONANCE_S": { "cn_name": "【力学终极S】看涨共振", "category": "力学层-机会", "type": "dynamic", "description": "短期力量(1*5D)与中期趋势(13*21D)的七维力学健康度形成共振。" },
@@ -179,6 +183,10 @@
         "SCORE_FF_TOP_REVERSAL_S": { "cn_name": "【资金流终极S风险】顶部反转", "category": "资金流-风险", "type": "risk", "description": "短期不健康合力(1*5D)对抗长期健康惯性(55D)，是中期反转风险信号。" },
         "SCORE_FF_TOP_REVERSAL_A": { "cn_name": "【资金流终极A风险】顶部反转", "category": "资金流-风险", "type": "risk", "description": "形成5日不健康力量，对抗21日中期健康趋势，是短期反转风险确认信号。" },
         "SCORE_FF_TOP_REVERSAL_B": { "cn_name": "【资金流终极B风险】顶部反转", "category": "资金流-风险", "type": "risk", "description": "出现1日不健康火花，对抗21日中期健康趋势，是试探性反转风险信号。" },
+        "SCORE_RESONANCE_UP_main_force_net_flow_consensus_S": { "cn_name": "【资金流S】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成S级看涨共振。" },
+        "SCORE_RESONANCE_UP_main_force_net_flow_consensus_A": { "cn_name": "【资金流A】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成A级看涨共振。" },
+        "SCORE_RESONANCE_UP_main_force_net_flow_consensus_B": { "cn_name": "【资金流B】主力净流入共振", "category": "资金流-机会", "type": "dynamic", "description": "主力净流入共识指标的静态、斜率、加速度在多周期上形成B级看涨共振。" },
+
 
         "说明_foundation_intelligence": "--- 基础层信号 (Foundation Intelligence) ---",
         "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": { "cn_name": "【基础终极S+】看涨共振", "category": "基础层-机会", "type": "dynamic", "description": "短、中、长周期的四大基础支柱(EMA,RSI,MACD,CMF)健康度形成全周期共振，是最高置信度的基础层看涨信号。" },
