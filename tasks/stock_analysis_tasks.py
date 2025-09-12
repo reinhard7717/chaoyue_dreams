@@ -773,7 +773,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             # 使用pd.to_numeric强制转换为数值类型，非数值转为NaN
             # 这个函数能正确处理Decimal对象并将其转换为float
             final_metrics_df[col] = pd.to_numeric(final_metrics_df[col], errors='coerce')
-            print(f"[{stock_code}] DEBUG: 列 '{col}' 已从 object 转换为 numeric。")
+            # print(f"[{stock_code}] DEBUG: 列 '{col}' 已从 object 转换为 numeric。")
 
     # 阶段一：计算所有非健康分的基础及衍生指标
     # print(f"[{stock_code}] [阶段一] 计算基础指标和非健康分的衍生指标...")
