@@ -318,7 +318,7 @@ class IndicatorService:
         - 输入: 包含数据库原始列名的DataFrame。
         - 输出: 列名已转换为统一中间格式的DataFrame。
         """
-        print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...")
+        # print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...")
         import re
         rename_map = {}
         # 遍历DataFrame中的每一列
@@ -355,7 +355,7 @@ class IndicatorService:
             if new_name:
                 rename_map[col] = new_name
         if rename_map:
-            print(f"      -> 发现并转换 {len(rename_map)} 个列到中间格式。")
+            # print(f"      -> 发现并转换 {len(rename_map)} 个列到中间格式。")
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
         else:
@@ -369,7 +369,7 @@ class IndicatorService:
         # print("    - [军需官] 正在扫描全军军火库，确定最大回溯需求...")
         # 简化实现：
         calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
-        print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
+        # print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
         return calculated_max
 
     async def prepare_data_for_strategy(
@@ -589,7 +589,7 @@ class IndicatorService:
                 df_supp_std.index = df_supp_std.index.normalize()
                 # 当处理高级筹码或高级资金流数据时，调用列名适配器
                 if tag in ['advanced_chips', 'advanced_fund_flow']:
-                    print(f"    - [数据适配层] 检测到预计算数据源 '{tag}'，正在启动列名适配器...")
+                    # print(f"    - [数据适配层] 检测到预计算数据源 '{tag}'，正在启动列名适配器...")
                     df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
                 # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
                 if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
@@ -651,7 +651,7 @@ class IndicatorService:
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
                         raw_dfs[target_tf] = df_resampled
-                        print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
+                        # print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
         # --- 步骤 10: 并发计算所有时间周期的技术指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []

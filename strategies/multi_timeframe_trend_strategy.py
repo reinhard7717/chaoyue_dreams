@@ -39,22 +39,22 @@ class MultiTimeframeTrendStrategy:
         【V203.3 配置融合版】初始化总指挥部。
         - 核心升级: 重构了配置加载逻辑，现在会自动加载并融合独立的信号字典文件。
         """
-        print("--- [总指挥部] 正在初始化 (V203.3 配置融合版)... ---")
+        # print("--- [总指挥部] 正在初始化 (V203.3 配置融合版)... ---")
         unified_config_path = 'config/trend_follow_strategy.json'
         # 调用新的配置加载与融合方法
         self.unified_config = self._load_and_merge_configs(unified_config_path)
         self.indicator_service = IndicatorService(cache_manager_instance)
         # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。") # 调整日志输出顺序
+        # print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。") # 调整日志输出顺序
         # 2. 初始化一线作战部队 (日线战术引擎)
         self.tactical_engine = TrendFollowStrategy(config=self.unified_config)
-        print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。") # 调整日志输出顺序
+        # print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。") # 调整日志输出顺序
         # 内部状态变量
         self.daily_analysis_df = None # 存储日线战术引擎的详细分析结果
         # 从统一配置中自动发现所有需要的K线数据周期
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-        print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---") # 调整日志输出顺序
+        # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---") # 调整日志输出顺序
 
     # 封装了配置加载与融合逻辑的私有方法
     def _load_and_merge_configs(self, main_config_path: str) -> dict:
@@ -62,13 +62,13 @@ class MultiTimeframeTrendStrategy:
         【V1.0 新增】加载主策略配置文件，并自动合并信号字典。
         - 核心职责: 实现配置文件的物理分离和逻辑统一，对下游模块透明。
         """
-        print(f"  -> [配置加载器] 正在加载主配置文件: {main_config_path}")
+        # print(f"  -> [配置加载器] 正在加载主配置文件: {main_config_path}")
         main_config = load_strategy_config(main_config_path)
         # 自动查找并加载同目录下的信号字典文件
         config_dir = os.path.dirname(main_config_path)
         dict_path = os.path.join(config_dir, 'signal_dictionary.json')
         if os.path.exists(dict_path):
-            print(f"  -> [配置加载器] 发现并加载信号字典: {dict_path}")
+            # print(f"  -> [配置加载器] 发现并加载信号字典: {dict_path}")
             try:
                 with open(dict_path, 'r', encoding='utf-8') as f:
                     signal_dict_data = json.load(f)
@@ -76,7 +76,7 @@ class MultiTimeframeTrendStrategy:
                 if 'score_type_map' in signal_dict_data:
                     # 定位到主配置中正确的位置并赋值
                     main_config['strategy_params']['trend_follow']['score_type_map'] = signal_dict_data['score_type_map']
-                    print("  -> [配置加载器] 信号字典已成功合并到主配置中。")
+                    # print("  -> [配置加载器] 信号字典已成功合并到主配置中。")
                 else:
                     logger.warning(f"信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
                     print(f"  -> [配置加载器] 警告: 信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")

@@ -82,7 +82,7 @@ class IntelligenceLayer:
         if conc_accel_col in df.columns:
             thresholds['conc_accel_significant'] = df[conc_accel_col].rolling(window).quantile(0.05)
             
-        print("        -> [动态阈值校准中心 V335.2] 校准完成。")
+        # print("        -> [动态阈值校准中心 V335.2] 校准完成。")
         return thresholds
 
     def run_all_diagnostics(self) -> Dict:
@@ -92,7 +92,7 @@ class IntelligenceLayer:
                     独立的诊断方法，简化为对 `diagnose_structural_states` 的唯一调用。
         - 收益: 信号生成链路进一步扁平化，代码结构更清晰，完全适配了新一代的结构层情报引擎。
         """
-        print("--- [情报层总指挥官 V403.0 终极结构层适配版] 开始执行所有诊断模块... ---")
+        # print("--- [情报层总指挥官 V403.0 终极结构层适配版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
