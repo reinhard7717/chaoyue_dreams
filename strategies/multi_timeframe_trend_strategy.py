@@ -406,6 +406,8 @@ class MultiTimeframeTrendStrategy:
                 if col in daily_analysis_df.columns:
                     default_value = 0 if 'code' in col or 'level' in col else ''
                     daily_analysis_df.loc[is_buy_signal_day, col] = default_value
+
+            print(f"  [飞行记录仪-中继点 @ _run_tactical_engine] 调用 prepare_db_records 前: score_details_df 非零值数量: {(score_details_df.fillna(0) != 0).values.sum()}")
             
             # prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(

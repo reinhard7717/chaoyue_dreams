@@ -80,6 +80,8 @@ class TrendFollowStrategy:
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
+        
+        print(f"  [飞行记录仪-起飞点 @ apply_strategy] 返回前: score_details_df 非零值数量: {(score_details_df.fillna(0) != 0).values.sum()}")
        
         # 现在这个 return 语句可以安全地返回正确的、未被删除的局部变量
         return self.df_indicators, score_details_df, risk_details_df
