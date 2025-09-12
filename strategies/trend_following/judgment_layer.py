@@ -116,24 +116,25 @@ class JudgmentLayer:
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
-        【V318.0 力学信号适配版】动态力学战术矩阵
+        【V318.1 信号源修复版】动态力学战术矩阵
         - 核心重构 (本次修改):
-          - [信号适配] 废除了对旧版、布尔型力学信号的依赖。
-          - 全面升级为消费由 DynamicMechanicsEngine V5.0+ 生成的、经过深度交叉验证的S级数值化信号。
-          - `FORCE_ATTACK` (强攻): 由 `SCORE_FV_OFFENSIVE_RESONANCE_S` (进攻共振) 驱动。
-          - `AVOID` (规避): 由 `SCORE_FV_RISK_EXPANSION_S` (风险扩张) 驱动。
-        - 收益: 战术决策的依据更可靠，能更精确地识别“健康上涨”与“风险上涨”的本质区别。
+          - [逻辑修正] 修复了对动态力学信号的调用错误。原代码消费已废弃的 `SCORE_FV_*` 信号，
+                        导致该战术矩阵失效。新代码已修正为消费由 `DynamicMechanicsEngine` V3.0+ 
+                        生成的、正确的 `SCORE_DYN_*` 终极信号。
+          - `FORCE_ATTACK` (强攻): 由 `SCORE_DYN_BULLISH_RESONANCE_S` (动态看涨共振) 驱动。
+          - `AVOID` (规避): 由 `SCORE_DYN_BEARISH_RESONANCE_S` (动态看跌共振) 驱动。
+        - 收益: 恢复了动态战术矩阵的核心功能，使其能根据最新的、高质量的力学情报做出正确的战术响应。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         # --- 全面使用新版S级数值化信号 ---
-        # 获取进攻共振S级分数，代表“纯粹的进攻”
-        offensive_resonance_score = atomic.get('SCORE_FV_OFFENSIVE_RESONANCE_S', default_score)
-        # 获取风险扩张S级分数，代表“高位滞涨/出货”风险
-        risk_expansion_score = atomic.get('SCORE_FV_RISK_EXPANSION_S', default_score)
-
+        # 获取动态看涨共振S级分数，代表“纯粹的进攻”
+        # 修改行: 修正了信号名称，从 SCORE_FV_OFFENSIVE_RESONANCE_S 改为 SCORE_DYN_BULLISH_RESONANCE_S
+        offensive_resonance_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S', default_score)
+        # 获取动态看跌共振S级分数，代表“高位滞涨/出货”风险
+        # 修改行: 修正了信号名称，从 SCORE_FV_RISK_EXPANSION_S 改为 SCORE_DYN_BEARISH_RESONANCE_S
+        risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE_S', default_score)
         # 定义基于数值化分数的战术状态
         # 当进攻共振分数很高时，采取强攻姿态
         is_force_attack = offensive_resonance_score > 0.6
@@ -141,13 +142,11 @@ class JudgmentLayer:
         is_avoid = risk_expansion_score > 0.6
         # 当两者分数都高时，代表多空激战，应谨慎；两者都低则代表方向不明，也应谨慎
         is_caution = (offensive_resonance_score > 0.4) & (risk_expansion_score > 0.4)
-
         actions = pd.Series('HOLD', index=df.index)
         # 注意赋值顺序，AVOID的优先级最高
         actions.loc[is_caution] = 'PROCEED_WITH_CAUTION'
         actions.loc[is_force_attack] = 'FORCE_ATTACK'
         actions.loc[is_avoid] = 'AVOID'
-        
         return actions
 
     def _calculate_risk_penalty_score(self):
