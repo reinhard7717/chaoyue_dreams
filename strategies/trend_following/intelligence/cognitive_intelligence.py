@@ -455,8 +455,11 @@ class CognitiveIntelligence:
             'SCORE_PATTERN_BOTTOM_REVERSAL_S', 'SCORE_PATTERN_TOP_REVERSAL_S'
         ]
         all_required_signals = required_fusion_signals + required_pattern_signals
-        if any(s not in atomic for s in all_required_signals):
-            print("          -> [警告] 终极确认融合缺少核心上游S级分数，模块已跳过！")
+        missing_signals = [s for s in all_required_signals if s not in atomic]
+        
+        if missing_signals:
+            # 使用 f-string 格式化输出，清晰地列出所有缺失的信号
+            print(f"          -> [警告] 终极确认融合缺少核心上游S级分数: {sorted(missing_signals)}，模块已跳过！")
             return df
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE_S', default_series)
@@ -693,7 +696,7 @@ class CognitiveIntelligence:
         is_significant_stalling = stalling_risk_score > stalling_threshold
         states['HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now & is_significant_stalling
         self.strategy.atomic_states.update(states)
-        print("        -> [认知层持仓风险合成模块 V1.1 数值化升级版] 计算完毕。") 
+        # print("        -> [认知层持仓风险合成模块 V1.1 数值化升级版] 计算完毕。") 
         return df
 
     def synthesize_contextual_zone_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -764,7 +767,7 @@ class CognitiveIntelligence:
         cognitive_top_distribution_score = deceptive_rally_score * high_zone_score
         df['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION'] = cognitive_top_distribution_score
         self.strategy.atomic_states['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION'] = df['COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION']
-        print("        -> [顶层机会风险评分模块 V2.0 职责净化版] 计算完毕。")
+        # print("        -> [顶层机会风险评分模块 V2.0 职责净化版] 计算完毕。")
         return df
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -1487,7 +1490,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_BEARISH_SCORE'] = cognitive_bearish_score_series
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。")
+        # print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。")
         return df
 
 
