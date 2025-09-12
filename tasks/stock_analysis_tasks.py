@@ -758,10 +758,23 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
     return new_metrics_df
 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
-    """【辅助函数 V1.1 - 1日周期修正版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
+    """【辅助函数 V1.2 - Decimal类型兼容修正版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
     stock_code = stock_info.stock_code
     # print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+
+    # 【新增】解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
+    # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
+    # pandas_ta等数值计算库无法处理Decimal类型，因此在计算前必须将所有数值列统一转换为float64。
+    print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...")
+    for col in final_metrics_df.columns:
+        # 检查列的数据类型是否为 'object'，这通常是混合了float和Decimal的标志
+        if final_metrics_df[col].dtype == 'object':
+            # 使用pd.to_numeric强制转换为数值类型，非数值转为NaN
+            # 这个函数能正确处理Decimal对象并将其转换为float
+            final_metrics_df[col] = pd.to_numeric(final_metrics_df[col], errors='coerce')
+            print(f"[{stock_code}] DEBUG: 列 '{col}' 已从 object 转换为 numeric。")
+
     # 阶段一：计算所有非健康分的基础及衍生指标
     # print(f"[{stock_code}] [阶段一] 计算基础指标和非健康分的衍生指标...")
     if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
