@@ -56,12 +56,11 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V510.0 · 真实来源修复版】
+        【V511.0 · 前缀剥离修复版】
         - 核心修复 (本次修改):
-          - [根除BUG] 重构了 StrategyScoreComponent 的创建逻辑，特别是 score_type 和 cn_name 的分配方式。
-          - [统一来源] 废除了所有基于信号名`startswith`的硬编码 `if/elif` 判断，现在完全依赖 `score_type_map` (即 signal_dictionary.json) 作为元数据的唯一真实来源。
-          - [逻辑简化] 移除了不一致的 `base_signal_name` 处理逻辑，直接使用原始 `signal_name` 作为字典的键。
-        - 收益: 彻底解决了因 `score_type` 被错误分配，导致调试报告中“激活进攻项”无法显示的问题。代码更加简洁、健壮，且易于维护。
+          - [根除BUG] 重新引入并优化了信号名前缀剥离逻辑。现在，在查询信号字典之前，会先从信号名 (如 `SETUP_XXX`) 中剥离前缀 (如 `SETUP_`)，得到基础信号名 (`XXX`)。
+          - 使用这个基础信号名去 `score_type_map` 中查找正确的 `score_type` 和 `cn_name`。
+        - 收益: 彻底解决了因前缀不匹配导致 `score_type` 被错误赋为 'unknown'，从而使得调试报告中“激活进攻项”无法显示的核心问题。
         """
         await self._ensure_playbooks_cached()
         signals_to_create = []
@@ -143,15 +142,22 @@ class ReportingLayer:
                 risk_components = risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
                 combined_details = pd.concat([offensive_components, risk_components])
                 for signal_name, score_value in combined_details.items():
-                    # --- 新增开始：重构的、基于单一真实来源的元数据分配逻辑 ---
-                    # 1. 将字典(score_type_map)作为元数据的唯一真实来源
-                    signal_info = score_type_map.get(signal_name, {})
+                    # --- 新增开始：修复前缀不匹配问题的核心逻辑 ---
+                    # 1. 定义已知的前缀列表
+                    prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
+                    base_signal_name = signal_name
                     
-                    # 2. 从字典中获取类型，如果找不到则默认为 'unknown'
+                    # 2. 循环检查并剥离前缀，以获取基础信号名
+                    for prefix in prefixes_to_strip:
+                        if signal_name.startswith(prefix):
+                            base_signal_name = signal_name[len(prefix):]
+                            break
+                    
+                    # 3. 使用基础信号名去字典中查找元数据
+                    signal_info = score_type_map.get(base_signal_name, {})
                     score_type = signal_info.get('type', 'unknown')
-                    
-                    # 3. 从字典中获取中文名，如果找不到则默认为信号自身的名称
-                    cn_name = signal_info.get('cn_name', signal_name)
+                    cn_name = signal_info.get('cn_name', base_signal_name)
+                    # --- 新增结束 ---
 
                     # 4. 应用唯一的覆盖规则：任何负分都属于 'penalty' 类型
                     if score_value < 0:
@@ -160,12 +166,11 @@ class ReportingLayer:
                     # 5. 使用清晰、一致的数据创建分数组件
                     score_components_to_create.append(StrategyScoreComponent(
                         daily_score=daily_score_obj,
-                        signal_name=signal_name,
+                        signal_name=signal_name, # 保存带前缀的原始信号名，用于追溯
                         signal_cn_name=cn_name,
                         score_type=score_type,
                         score_value=int(score_value)
                     ))
-                    # --- 新增结束 ---
                     
                     if score_type not in all_details_for_json: all_details_for_json[score_type] = []
                     all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
