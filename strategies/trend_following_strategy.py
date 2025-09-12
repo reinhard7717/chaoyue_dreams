@@ -46,13 +46,12 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V401.2 数据截断修复版】策略应用主流程
+        【V401.3 · 最终数据流修复版】策略应用主流程
         - 核心修复 (本次修改):
-          - [数据完整性] 移除了在方法入口处根据 `start_date_str` 截断输入DataFrame的逻辑。
-                        现在，所有情报和决策计算都将在完整的数据集上进行，确保长周期指标
-                        （如FFT、Hurst）有足够的数据进行准确计算。
-          - `start_date_str` 参数的过滤功能将移至下游的报告生成层，遵循“先计算，后筛选”的原则。
-        - 收益: 根除了因数据提前截断导致的长周期指标计算失败（如FFT长度不足）的问题。
+          - [根除BUG] 修复了方法返回错误的 risk_details_df 变量的致命BUG。
+          - 之前返回的是实例属性 `self.risk_details_df`，但整个流程中操作的是局部变量 `risk_details_df`。
+          - 这导致上层模块接收到的 `risk_details_df` 是空的或过时的数据，从而使得 `reporting_layer` 无法生成任何分数组件 (`all_score_components` 为空)，最终导致调试报告中所有明细都无法显示。
+        - 收益: 确保了从本方法返回的数据流是正确且一致的，彻底解决了调试报告为空的问题。
         """
         self.params = params
         if df is None or df.empty:
@@ -90,11 +89,13 @@ class TrendFollowStrategy:
         # print("  [指挥链 7/7] 正在运行报告层...")
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
         try:
-            del entry_score, risk_score, risk_details_df, risk_momentum, risk_dynamics
+            del entry_score, risk_score, risk_momentum, risk_dynamics
             gc.collect()
         except NameError:
             pass
-        return self.df_indicators, score_details_df, self.risk_details_df
+        
+        # 修改行：确保返回的是在函数作用域内最新的、被各层处理过的局部变量，而不是可能未更新的实例属性。
+        return self.df_indicators, score_details_df, risk_details_df
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
