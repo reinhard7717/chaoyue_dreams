@@ -887,6 +887,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             new_metrics_df = _calculate_base_chip_metrics(merged_df, is_incremental_final, last_metric_date)
             if new_metrics_df.empty:
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date or no new data"}
+            # 在拼接(concat)和排序(sort_index)前，必须确保两者类型一致。
+            if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
+                print(f"[{stock_code}] DEBUG: 正在将 new_metrics_df 的索引从 {type(new_metrics_df.index)} 转换为 pd.DatetimeIndex...")
+                new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
             # 5. 准备用于衍生计算的完整DataFrame
             final_metrics_df = new_metrics_df
             if is_incremental_final and last_metric_date:

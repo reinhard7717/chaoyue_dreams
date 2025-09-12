@@ -81,7 +81,7 @@ class CognitiveIntelligence:
           - [健壮性提升] 为所有从配置中读取的参数添加了默认值，使模块功能更加稳固。
         - 收益: 实现了完全由配置文件驱动的、逻辑正确且运行稳定的新一代风险融合引擎。
         """
-        print("        -> [风险元融合模块 V3.0 配置驱动重构版] 启动...") # 新增: 更新版本号和描述
+        # print("        -> [风险元融合模块 V3.0 配置驱动重构版] 启动...")
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
@@ -100,7 +100,7 @@ class CognitiveIntelligence:
         fused_dimension_scores = {}
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 维度内融合：【深化升级】采用“主次融合”逻辑 ---
-        print("          -> 步骤1: 执行维度内风险主次融合...")
+        # print("          -> 步骤1: 执行维度内风险主次融合...")
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
             category_signal_scores = []
@@ -118,7 +118,6 @@ class CognitiveIntelligence:
                 final_signal_score = processed_score * weight
                 final_signal_score.name = signal_name # 为Series命名，便于后续排序
                 category_signal_scores.append(final_signal_score)
-
             if category_signal_scores:
                 category_df = pd.concat(category_signal_scores, axis=1)
                 sorted_scores = np.sort(category_df.values, axis=1)
@@ -129,9 +128,8 @@ class CognitiveIntelligence:
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score.astype(np.float32)
             else:
                 fused_dimension_scores[category_name] = default_series.copy()
-
         # --- 2. 维度间融合：【深化升级】应用“动态风险加权” ---
-        print("          -> 步骤2: 应用市场阶段进行动态风险加权...")
+        # print("          -> 步骤2: 应用市场阶段进行动态风险加权...")
         total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
@@ -148,9 +146,8 @@ class CognitiveIntelligence:
                         adjustment_factor = late_adjustments[category_name]
                         current_weight = current_weight.where(~is_late_stage, current_weight * adjustment_factor)
                 total_fused_risk_score += fused_dimension_scores[category_name] * current_weight
-
         # --- 3. 风险共振惩罚：【深化升级】对协同风险施加额外惩罚 ---
-        print("          -> 步骤3: 检测风险共振并施加惩罚...")
+        # print("          -> 步骤3: 检测风险共振并施加惩罚...")
         if get_param_value(p_resonance.get('enabled'), True):
             core_dims = get_param_value(p_resonance.get('core_risk_dimensions'), [])
             min_dims = get_param_value(p_resonance.get('min_dimensions_for_resonance'), 2)
@@ -164,7 +161,7 @@ class CognitiveIntelligence:
             total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, total_fused_risk_score * penalty_multiplier)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
-        print(f"        -> [风险元融合模块 V3.0] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
+        # print(f"        -> [风险元融合模块 V3.0] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
         return states
 
     def synthesize_tactical_opportunities(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -175,7 +172,7 @@ class CognitiveIntelligence:
                         `DynamicMechanicsEngine` V3.0 产出的终极信号 (`SCORE_DYN_*`)。
         - 收益: 确保战术机会的判断基于最新、最可靠的七维动态力学信号。
         """
-        print("        -> [战术机会与潜在风险合成模块 V1.3 终极力学信号适配版] 启动...")
+        # print("        -> [战术机会与潜在风险合成模块 V1.3 终极力学信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -198,7 +195,7 @@ class CognitiveIntelligence:
         high_level_zone_risk = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
         states['COGNITIVE_SCORE_RISK_CHAOTIC_EXPANSION'] = (chaotic_expansion_risk * high_level_zone_risk).astype(np.float32)
         self.strategy.atomic_states.update(states)
-        print(f"        -> [战术机会与潜在风险合成模块 V1.3] 计算完毕，新增 {len(states)} 个信号。")
+        # print(f"        -> [战术机会与潜在风险合成模块 V1.3] 计算完毕，新增 {len(states)} 个信号。")
         return df
 
     def synthesize_trend_sustainability_signals(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -209,7 +206,7 @@ class CognitiveIntelligence:
                         V4.0 生成的、更基础、更可靠的多层次行为反转信号。
         - 收益: 显著提升了趋势可持续性判断的准确性和信号源的纯净度。
         """
-        print("        -> [趋势可持续性诊断模块 V1.3 行为信号升级版] 启动...")
+        # print("        -> [趋势可持续性诊断模块 V1.3 行为信号升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -228,7 +225,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TREND_FATIGUE_OPP'] = (bottom_reversal_potential * oversold_context).astype(np.float32)
         # --- 5. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [趋势可持续性诊断模块 V1.3] 计算完毕。")
+        # print("        -> [趋势可持续性诊断模块 V1.3] 计算完毕。")
         return df
 
     def synthesize_consolidation_breakout_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -264,7 +261,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A'] = final_score_series.astype(np.float32)
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [盘整突破机会合成模块 V1.0] 计算完毕。")
+        # print("        -> [盘整突破机会合成模块 V1.0] 计算完毕。")
         return df
 
     def synthesize_breakdown_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -273,7 +270,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对资金流维度信号的消费，从旧的 'FF_SCORE_SEPTAFECTA_RESONANCE_DOWN_HIGH'
                     适配为消费由 FundFlowIntelligence V19.0 生成的 'FF_BEARISH_RESONANCE' 终极信号。
         """
-        print("        -> [多域崩溃共振分数合成模块 V1.7 终极资金流信号适配版] 启动...")
+        # print("        -> [多域崩溃共振分数合成模块 V1.7 终极资金流信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -301,7 +298,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S'] = breakdown_resonance_score
         # --- 3. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [多域崩溃共振分数合成模块 V1.7 终极资金流信号适配版] 计算完毕。")
+        # print("        -> [多域崩溃共振分数合成模块 V1.7 终极资金流信号适配版] 计算完毕。")
         return df
 
     def synthesize_trend_regime_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -310,7 +307,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对资金流维度信号的消费，从旧的 'FF_SCORE_SEPTAFECTA_*'
                     适配为消费由 FundFlowIntelligence V19.0 生成的 'FF_*_RESONANCE' 终极信号。
         """
-        print("        -> [趋势政权融合模块 V2.3 终极资金流信号适配版] 启动...")
+        # print("        -> [趋势政权融合模块 V2.3 终极资金流信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -334,7 +331,7 @@ class CognitiveIntelligence:
         ).astype(np.float32)
         # --- 3. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [趋势政权融合模块 V2.3 终极资金流信号适配版] 计算完毕。")
+        # print("        -> [趋势政权融合模块 V2.3 终极资金流信号适配版] 计算完毕。")
         return df
 
     def synthesize_volatility_breakout_signals(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -344,7 +341,7 @@ class CognitiveIntelligence:
                     ChipIntelligence 产出的 'RISING_RESONANCE' 和 'FALLING_RESONANCE' 终极信号。
         - 收益: 确保波动率突破的确认基于最可靠的筹码情报。
         """
-        print("        -> [波动率突破融合模块 V2.5 终极信号适配版] 启动...")
+        # print("        -> [波动率突破融合模块 V2.5 终极信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -352,7 +349,6 @@ class CognitiveIntelligence:
         # 使用新的融合函数来生成环境分
         compression_setup_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         expansion_setup_score = self._fuse_multi_level_scores(df, 'VOL_EXPANSION')
-        
         # 动态信号 (Trigger)
         norm_window = 120
         min_periods = 24
@@ -362,13 +358,11 @@ class CognitiveIntelligence:
         score_price_accelerating_up = df['ACCEL_5_close_D'].rolling(norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         score_price_trending_down = 1 - score_price_trending_up
         score_price_accelerating_down = 1 - score_price_accelerating_up
-        
         # 确认信号 (Confirmation)
         volume_up_confirm_score = atomic.get('SCORE_VOL_PRICE_IGNITION_UP', default_score)
         volume_down_confirm_score = atomic.get('SCORE_VOL_PRICE_PANIC_DOWN_RISK', default_score)
         chip_opportunity_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE') # 适配新的终极上升共振信号
         chip_bearish_score = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE') # 适配新的终极下跌共振信号
-        
         # --- 2. 上升共振 (Breakout) 分数合成 ---
         trigger_b_bullish = score_vol_expanding * score_price_trending_up
         states['COGNITIVE_SCORE_VOL_BREAKOUT_B'] = (compression_setup_score * trigger_b_bullish).astype(np.float32)
@@ -376,7 +370,6 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_VOL_BREAKOUT_A'] = (compression_setup_score * trigger_a_bullish).astype(np.float32)
         trigger_s_bullish = trigger_a_bullish * score_vol_accelerating * score_price_accelerating_up * chip_opportunity_score
         states['COGNITIVE_SCORE_VOL_BREAKOUT_S'] = (compression_setup_score * trigger_s_bullish).astype(np.float32)
-        
         # --- 3. 下跌共振 (Breakdown) 分数合成 ---
         trigger_b_bearish = score_vol_expanding * score_price_trending_down
         states['COGNITIVE_SCORE_VOL_BREAKDOWN_B'] = (expansion_setup_score * trigger_b_bearish).astype(np.float32)
@@ -384,10 +377,9 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_VOL_BREAKDOWN_A'] = (expansion_setup_score * trigger_a_bearish).astype(np.float32)
         trigger_s_bearish = trigger_a_bearish * score_vol_accelerating * score_price_accelerating_down * chip_bearish_score
         states['COGNITIVE_SCORE_VOL_BREAKDOWN_S'] = (expansion_setup_score * trigger_s_bearish).astype(np.float32)
-        
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [波动率突破融合模块 V2.5 终极信号适配版] 计算完毕。")
+        # print("        -> [波动率突破融合模块 V2.5 终极信号适配版] 计算完毕。")
         return df
 
     def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -399,30 +391,26 @@ class CognitiveIntelligence:
           - [逻辑简化] 融合维度从四个（Foundation, Mechanics, Behavior）简化为三个（Foundation, Structure, Behavior）。
         - 收益: 融合逻辑更清晰，信号源质量更高，避免了结构层内部的重复计算和潜在矛盾。
         """
-        print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 启动...")
+        # print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # --- 1. 获取各领域最高置信度的S级信号或融合分数 ---
         # 领域1 (Foundation)
         foundation_bullish = self._fuse_multi_level_scores(df, 'FOUNDATION_BULLISH_RESONANCE')
         foundation_bearish = self._fuse_multi_level_scores(df, 'FOUNDATION_BEARISH_RESONANCE')
         foundation_bottom = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
         foundation_top = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
-
         # 领域2 (Structure) - 消费统一的结构层终极信号
         structure_bullish = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') # 替换 mechanics_bullish
         structure_bearish = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE') # 替换 mechanics_bearish
         structure_bottom = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL') # 替换 mechanics_bottom
         structure_top = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # 替换 mechanics_top
-
         # 领域3 (Behavior)
         behavior_bullish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
         behavior_bearish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
         behavior_bottom = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
         behavior_top = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-
         # --- 2. 三域联合作战：融合生成元信号 ---
         # 确保所有Series都有相同的索引
         all_scores = [
@@ -435,20 +423,17 @@ class CognitiveIntelligence:
                 all_scores[i] = default_score.copy() # 使用copy避免多处引用同一个对象
             else:
                 all_scores[i] = score.reindex(df.index).fillna(0.0)
-        
         # 重新解包以确保安全
         (foundation_bullish, foundation_bearish, foundation_bottom, foundation_top,
          structure_bullish, structure_bearish, structure_bottom, structure_top, # 使用新的 structure_* 信号
          behavior_bullish, behavior_bearish, behavior_bottom, behavior_top) = all_scores
-
         # 更新融合逻辑为三域融合
         states['COGNITIVE_FUSION_BULLISH_RESONANCE_S'] = (foundation_bullish * structure_bullish * behavior_bullish).astype(np.float32) # 使用 structure_bullish
         states['COGNITIVE_FUSION_BEARISH_RESONANCE_S'] = (foundation_bearish * structure_bearish * behavior_bearish).astype(np.float32) # 使用 structure_bearish
         states['COGNITIVE_FUSION_BOTTOM_REVERSAL_S'] = (foundation_bottom * structure_bottom * behavior_bottom).astype(np.float32) # 使用 structure_bottom
         states['COGNITIVE_FUSION_TOP_REVERSAL_S'] = (foundation_top * structure_top * behavior_top).astype(np.float32) # 使用 structure_top
-        
         self.strategy.atomic_states.update(states)
-        print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 计算完毕。")
+        # print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 计算完毕。")
         return df
 
     def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -496,7 +481,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对结构层突破信号的消费，从旧的 'SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S'
                     适配为消费由 StructuralIntelligence V2.0 生成的 'STRUCTURE_BULLISH_RESONANCE' 终极信号。
         """
-        print("        -> [多域点火共振分数合成模块 V1.7 终极结构层信号适配版] 启动...")
+        # print("        -> [多域点火共振分数合成模块 V1.7 终极结构层信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -516,13 +501,11 @@ class CognitiveIntelligence:
             behavioral_ignition * structural_breakout * mechanics_ignition *
             chip_consensus_ignition * fund_flow_ignition * volatility_breakout
         )
-        
         # 使用 np.maximum 确保我们捕捉到最强的信号：要么是特定剧本发生，要么是普遍的共振
         ignition_resonance_score = np.maximum(chip_playbook_ignition, general_ignition_resonance).astype(np.float32)
-        
         states['COGNITIVE_SCORE_IGNITION_RESONANCE_S'] = ignition_resonance_score
         self.strategy.atomic_states.update(states)
-        print("        -> [多域点火共振分数合成模块 V2.0] 计算完毕。")
+        # print("        -> [多域点火共振分数合成模块 V2.0] 计算完毕。")
         return df
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -533,14 +516,13 @@ class CognitiveIntelligence:
                     和 'FOUNDATION_TOP_REVERSAL' 终极信号。
         - 收益: 确保了反转共振的判断基于最可靠、经过四重交叉验证的基础层共识信号。
         """
-        print("        -> [多域反转共振分数合成模块 V2.3 终极基础层信号适配版] 启动...")
+        # print("        -> [多域反转共振分数合成模块 V2.3 终极基础层信号适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
         bottom_weights = get_param_value(p.get('bottom_trigger_weights'), {})
         top_weights = get_param_value(p.get('top_trigger_weights'), {})
-        
         # --- 1. 合成“底部反转共振”分数 ---
         oversold_context = np.maximum(atomic.get('SCORE_RSI_OVERSOLD_EXTENT', default_score).values, atomic.get('SCORE_BIAS_OVERSOLD_EXTENT', default_score).values)
         mechanics_bottom_setup = self._fuse_multi_level_scores(df, 'DYN_BOTTOM_REVERSAL')
@@ -548,12 +530,10 @@ class CognitiveIntelligence:
         # 将旧的 ma_bottom_setup 替换为更可靠的基础层共识信号
         foundation_bottom_setup = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
         reversal_setup_score = (mechanics_bottom_setup * chip_ultimate_bottom_reversal * foundation_bottom_setup) # 使用新的 foundation_bottom_setup
-        
         # 将 pattern_trigger 和 foundation_trigger 统一为 foundation_trigger
         # foundation_trigger 现在代表了基础层和形态层的共同反转信号
         foundation_trigger = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
         behavioral_trigger = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
-        
         # 更新 trigger_scores 字典
         trigger_scores = {'foundation': foundation_trigger, 'behavioral': behavioral_trigger}
         final_trigger_score = pd.Series(0.0, index=df.index)
@@ -562,10 +542,8 @@ class CognitiveIntelligence:
             for key, weight in bottom_weights.items():
                 final_trigger_score += trigger_scores.get(key, default_score) * weight
             final_trigger_score /= total_weight_bottom
-
         bottom_reversal_score = pd.Series(oversold_context, index=df.index) * reversal_setup_score * final_trigger_score
         states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S'] = bottom_reversal_score.astype(np.float32)
-
         # --- 2. 合成“顶部反转共振”分数 (对称逻辑) ---
         overbought_context = np.maximum(atomic.get('SCORE_RSI_OVERBOUGHT_EXTENT', default_score).values, atomic.get('SCORE_BIAS_OVERBOUGHT_EXTENT', default_score).values)
         mechanics_top_setup = self._fuse_multi_level_scores(df, 'DYN_TOP_REVERSAL')
@@ -573,11 +551,9 @@ class CognitiveIntelligence:
         # 将旧的 ma_top_setup 替换为更可靠的基础层共识信号
         foundation_top_setup = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
         top_setup_score = (mechanics_top_setup * chip_ultimate_top_reversal * foundation_top_setup) # 使用新的 foundation_top_setup
-
         # 将 pattern_top_trigger 和 foundation_top_trigger 统一为 foundation_top_trigger
         foundation_top_trigger = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
         behavioral_top_trigger = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-
         # 更新 top_trigger_scores 字典
         top_trigger_scores = {'foundation': foundation_top_trigger, 'behavioral': behavioral_top_trigger}
         final_top_trigger_score = pd.Series(0.0, index=df.index)
@@ -586,12 +562,10 @@ class CognitiveIntelligence:
             for key, weight in top_weights.items():
                 final_top_trigger_score += top_trigger_scores.get(key, default_score) * weight
             final_top_trigger_score /= total_weight_top
-
         top_reversal_score = pd.Series(overbought_context, index=df.index) * top_setup_score * final_top_trigger_score
         states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S'] = top_reversal_score.astype(np.float32)
-        
         self.strategy.atomic_states.update(states)
-        print("        -> [多域反转共振分数合成模块 V2.3 终极基础层信号适配版] 计算完毕。")
+        # print("        -> [多域反转共振分数合成模块 V2.3 终极基础层信号适配版] 计算完毕。")
         return df
 
     def synthesize_divergence_risks(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -602,7 +576,7 @@ class CognitiveIntelligence:
                         `BehavioralIntelligence` V4.0产出的、更通用的“顶部反转”融合分数。
         - 收益: 统一了对顶部风险的判断标准，信号源更可靠。
         """
-        print("        -> [多维背离风险融合模块 V2.2 行为信号升级版] 启动...")
+        # print("        -> [多维背离风险融合模块 V2.2 行为信号升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -620,7 +594,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S'] = final_risk_score.astype(np.float32)
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [多维背离风险融合模块 V2.2] 计算完毕。")
+        # print("        -> [多维背离风险融合模块 V2.2] 计算完毕。")
         return df
 
     def synthesize_market_engine_states(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -631,7 +605,7 @@ class CognitiveIntelligence:
                         `BehavioralIntelligence` V4.0产出的、更通用的“顶部反转”融合分数。
         - 收益: 统一了对引擎失效的判断标准，信号源更可靠。
         """
-        print("        -> [市场引擎状态融合模块 V2.1 行为信号升级版] 启动...") 
+        # print("        -> [市场引擎状态融合模块 V2.1 行为信号升级版] 启动...") 
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -652,7 +626,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_ENGINE_FAILURE_S'] = final_risk_score.astype(np.float32)
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [市场引擎状态融合模块 V2.1] 计算完毕。") 
+        # print("        -> [市场引擎状态融合模块 V2.1] 计算完毕。") 
         return df
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -662,7 +636,7 @@ class CognitiveIntelligence:
                     ChipIntelligence 产出的 'FALLING_RESONANCE' 终极信号。
         - 收益: 对回踩期间筹码稳定性的判断更加精确和可靠。
         """
-        print("        -> [认知层回踩状态合成模块 V2.3 终极信号适配版] 启动...")
+        # print("        -> [认知层回踩状态合成模块 V2.3 终极信号适配版] 启动...")
         states = {}
         # --- 1. 定义通用回踩条件和环境分数 ---
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
@@ -689,7 +663,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE_S'] = suppressive_pullback_score.astype(np.float32)
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [认知层回踩状态合成模块 V2.3 终极信号适配版] 计算完毕。")
+        # print("        -> [认知层回踩状态合成模块 V2.3 终极信号适配版] 计算完毕。")
         return df
 
     def synthesize_holding_risks(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -728,7 +702,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 全面审查并更新了所有筹码和行为维度的风险信号消费，
                     确保其完全基于最新的终极信号。
         """
-        print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 启动...")
+        # print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 启动...")
         risk_scores = {
             'bias': self._get_atomic_score(df, 'SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0),
             'exhaustion': np.maximum(
@@ -760,7 +734,7 @@ class CognitiveIntelligence:
         high_risk_threshold = high_level_zone_score.rolling(120).quantile(0.85)
         is_in_high_level_zone = high_level_zone_score > high_risk_threshold
         self.strategy.atomic_states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = is_in_high_level_zone
-        print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 计算完毕。")
+        # print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 计算完毕。")
         return df
 
     def synthesize_opportunity_risk_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -803,15 +777,13 @@ class CognitiveIntelligence:
           - [调用修复] 修正了 `get_param_value` 的错误调用，应使用标准的字典 `.get()` 方法来获取权重配置，解决了 TypeError。
         - 收益: 对趋势质量的评估更加精细和准确，能区分“控盘驱动的趋势”和“情绪驱动的趋势”。
         """
-        print("        -> [趋势质量融合评分模块 V2.1 调用修复版] 启动...") # 新增: 更新版本号和描述
-        
+        # print("        -> [趋势质量融合评分模块 V2.1 调用修复版] 启动...")
         # --- 1. 提取各领域的核心健康度评分 ---
         behavior_health_score = 1.0 - self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
         structural_health_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
         regime_health_score = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
-
         # 消费独立的筹码支柱分，并进行加权
         p_chip_pillars = get_params_block(self.strategy, 'trend_quality_params', {}).get('chip_pillar_weights', {})
         chip_health_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -820,14 +792,11 @@ class CognitiveIntelligence:
             pillar_score = self._get_atomic_score(df, f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH', 0.0)
             chip_health_score += pillar_score * weight
             total_chip_weight += weight
-        
         if total_chip_weight > 0:
             chip_health_score /= total_chip_weight # 归一化
-
         # --- 2. 定义各维度权重 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
-        
         # --- 3. 加权融合生成最终的趋势质量分 ---
         trend_quality_score = (
             behavior_health_score * weights.get('behavior', 0.20) +
@@ -839,7 +808,7 @@ class CognitiveIntelligence:
         )
         df['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
-        print("        -> [趋势质量融合评分模块 V2.1] 计算完毕。")
+        # print("        -> [趋势质量融合评分模块 V2.1] 计算完毕。")
         return df
 
     def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -849,7 +818,7 @@ class CognitiveIntelligence:
                     'TOP_REVERSAL' 等终极信号。
         - 收益: 确保了对上涨末期风险的评估，能够纳入来自筹码情报模块的最高质量信号。
         """
-        print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 启动...")
+        # print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -905,7 +874,7 @@ class CognitiveIntelligence:
         # 为了兼容旧的布尔状态，可以基于新的概率分生成
         states['CONTEXT_TREND_STAGE_LATE'] = late_stage_prob_score > 0.5 
 
-        print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 计算完毕。")
+        # print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 计算完毕。")
         return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -914,45 +883,37 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对均线、力学等结构维度信号的消费，全面适配为消费由
                     StructuralIntelligence V2.0 生成的 'STRUCTURE_*' 终极信号。
         """
-        print("        -> [联合作战司令部 V280.0 终极结构层信号适配版] 启动，正在分析战场核心结构...")
+        # print("        -> [联合作战司令部 V280.0 终极结构层信号适配版] 启动，正在分析战场核心结构...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
-        
         # --- 1. 提取核心终极信号 ---
         structural_bullish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') # 消费终极结构看涨信号
         structural_bearish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE') # 消费终极结构看跌信号
         structural_top_reversal_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # 消费终极结构顶部反转信号
-        
         chip_concentrating_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE')
         chip_diverging_score = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE')
         behavioral_bearish_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
-        
         risk_late_stage_score_raw = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
         risk_late_stage_score = (risk_late_stage_score_raw / 600).clip(0, 1)
         prime_opportunity_score = self._get_atomic_score(df, 'CHIP_SCORE_PRIME_OPPORTUNITY_S', 0.0)
-        
         # --- 2. 定义核心结构状态 ---
         # 主升浪: 结构看涨 & 筹码集中
         base_uptrend_score = (structural_bullish_score * chip_concentrating_score) # 使用 structural_bullish_score
         structure_states['SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S'] = base_uptrend_score.astype(np.float32)
         structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = base_uptrend_score > 0.4
-        
         # 堡垒主升浪: 主升浪 + 黄金筹码机会
         structure_states['SCORE_STRUCTURE_FORTRESS_UPTREND_S_PLUS'] = (base_uptrend_score * prime_opportunity_score).astype(np.float32)
         structure_states['STRUCTURE_FORTRESS_UPTREND_S_PLUS'] = structure_states['SCORE_STRUCTURE_FORTRESS_UPTREND_S_PLUS'] > 0.5
-        
         # 突破前夜: 黄金筹码机会 & 波动率压缩 & 结构看涨
         fused_squeeze_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         prime_setup_score = prime_opportunity_score * fused_squeeze_score * structural_bullish_score # 使用 structural_bullish_score
         structure_states['SCORE_SETUP_PRIME_STRUCTURE_S'] = prime_setup_score.astype(np.float32)
         structure_states['SETUP_PRIME_STRUCTURE_S'] = prime_setup_score > 0.6
-        
         # 早期反转: 行为反转 & 均线斜率转正 (保留原有逻辑，因为它依赖更底层的EMA斜率)
         is_recent_reversal = atomic.get('BEHAVIOR_CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         is_ma_short_slope_positive = df.get('SLOPE_5_EMA_5_D', pd.Series(0, index=df.index)) > 0
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = is_recent_reversal & is_ma_short_slope_positive
-        
         # 顶部危险: 结构看跌/反转 或 行为看跌 或 上涨末期
         topping_danger_score = np.maximum.reduce([
             structural_bearish_score.values, 
@@ -961,13 +922,11 @@ class CognitiveIntelligence:
             risk_late_stage_score.values
         ]) # 使用新的结构层终极信号
         structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] = pd.Series(topping_danger_score, index=df.index, dtype=np.float32)
-        
         # 下跌通道: 结构看跌 & 筹码发散
         bearish_channel_score = structural_bearish_score * chip_diverging_score # 使用 structural_bearish_score
         structure_states['SCORE_STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score.astype(np.float32)
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score > 0.5
-        
-        print("        -> [联合作战司令部 V280.0] 核心战局定义升级完成。")
+        # print("        -> [联合作战司令部 V280.0] 核心战局定义升级完成。")
         return structure_states
 
     def synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -978,7 +937,7 @@ class CognitiveIntelligence:
                         `BehavioralIntelligence` 产出的“顶部反转”与“看跌共振”融合分数。
         - 收益: 模块职责更清晰，风险归因更准确，信号逻辑与方法名完全匹配。
         """
-        print("        -> [顶部行为合成模块 V332.0 风险归因修正版] 启动...") 
+        # print("        -> [顶部行为合成模块 V332.0 风险归因修正版] 启动...") 
         states = {}
         default_series = pd.Series(False, index=df.index)
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -987,37 +946,31 @@ class CognitiveIntelligence:
         if any(s not in atomic for s in required_states):
             print("          -> [警告] 缺少合成“顶部行为”所需情报，模块跳过。")
             return {}
-        
         # --- 1. 定义顶部风险行为 ---
         # 将判断依据从筹码信号，修正为更纯粹、更可靠的行为信号
         # 融合“顶部反转”和“看跌共振”两大行为风险
         topping_reversal_risk = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
         bearish_resonance_risk = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
         behavioral_topping_risk = np.maximum(topping_reversal_risk, bearish_resonance_risk)
-        
         is_rallying_score = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RECENT_RANGE', 0.0)
         # 重命名信号，使其更准确地反映逻辑
         states['SCORE_ACTION_RISK_DECEPTIVE_RALLY'] = (is_rallying_score * behavioral_topping_risk).astype(np.float32)
         states['ACTION_RISK_DECEPTIVE_RALLY'] = states['SCORE_ACTION_RISK_DECEPTIVE_RALLY'] > 0.6
-
         stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
         states['SCORE_ACTION_RISK_RALLY_STAGNATION'] = stagnation_score.astype(np.float32)
         states['ACTION_RISK_RALLY_STAGNATION'] = stagnation_score > 0.7
-
         # --- 2. 定义S+级确认派发风险 ---
         danger_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
         # 使用新的行为风险分进行融合
         distributing_action_score = states.get('SCORE_ACTION_RISK_DECEPTIVE_RALLY', default_score)
         states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] = (danger_zone_score * distributing_action_score).astype(np.float32)
         states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] > 0.5
-        
         # --- 3. 定义其他行为状态 (逻辑不变) ---
         is_rallying = df['pct_change_D'] > 0.02
         is_strategic_distribution = atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
         states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'] = is_rallying & is_strategic_distribution
         if states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].any():
             print(f"          -> [S级战略风险] 侦测到 {states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'].sum()} 次“战略派发背景下的诱多陷阱”！")
-        
         concentrating_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE') # 适配新的终极上升共振信号
         is_concentrating = concentrating_score > 0.6
         is_in_danger_zone = atomic.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', default_series)
@@ -1030,7 +983,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对资金流维度信号的消费，从旧的 'FF_SCORE_SEPTAFECTA_*'
                     适配为消费由 FundFlowIntelligence V19.0 生成的 'FF_*_RESONANCE' 终极信号。
         """
-        print("        -> [筹码与资金流协同合成模块 V2.2 终极资金流信号适配版] 启动...")
+        # print("        -> [筹码与资金流协同合成模块 V2.2 终极资金流信号适配版] 启动...")
         states = {}
         # --- 1. 获取核心筹码与资金流的数值化融合分数 ---
         chip_bullish_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE')
@@ -1048,7 +1001,7 @@ class CognitiveIntelligence:
         states['CHIP_FUND_FLOW_ACCUMULATION_CONFIRMED_A'] = synergy_accumulation_score > 0.6
         states['CHIP_FUND_FLOW_ACCUMULATION_STRONG_S'] = synergy_accumulation_score > 0.8
         states['RISK_CHIP_FUND_FLOW_DISTRIBUTION_A'] = synergy_distribution_score > 0.7
-        print("        -> [筹码与资金流协同合成模块 V2.2 终极资金流信号适配版] 合成完毕。")
+        # print("        -> [筹码与资金流协同合成模块 V2.2 终极资金流信号适配版] 合成完毕。")
         return states
 
     def synthesize_perfect_storm_signals(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1086,7 +1039,7 @@ class CognitiveIntelligence:
             print(f"          -> [S++级顶级机会] 侦测到 {states['COGNITIVE_OPP_PERFECT_STORM_BOTTOM_S_PLUS'].sum()} 次“完美风暴”底部机会信号！")
         # --- 3. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [完美风暴信号合成模块 V1.1 数值化升级版] 计算完毕。") 
+        # print("        -> [完美风暴信号合成模块 V1.1 数值化升级版] 计算完毕。") 
         return df
 
     def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1099,7 +1052,7 @@ class CognitiveIntelligence:
         - 核心修复 (V2.3): 修复了对 TRIGGER_ENERGY_RELEASE 和 FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED
                         两个失效信号的引用，替换为更高质量的数值化评分。
         """
-        print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.3 王牌重铸数值化增强版)”...") 
+        # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.3 王牌重铸数值化增强版)”...") 
         states = {}
         atomic = self.strategy.atomic_states
         triggers = self.strategy.trigger_events
@@ -1137,7 +1090,7 @@ class CognitiveIntelligence:
         - 核心升级: [信号适配] 将对筹码维度信号的消费，适配为消费由 ChipIntelligence.diagnose_cross_validation_signals
                     生成的、更高质量的 'RISING_RESONANCE' 和 'FALLING_RESONANCE' 终极信号。
         """
-        print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.4 信号源适配版)”...")
+        # print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.4 信号源适配版)”...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -1203,8 +1156,8 @@ class CognitiveIntelligence:
         is_in_rally_state = pd.Series(rally_state_arr, index=df.index)
         final_tactic_signal = is_in_rally_state & ~hard_termination_condition
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
-        if final_tactic_signal.any():
-            print(f"          -> [S级持仓确认] 侦测到 {final_tactic_signal.sum()} 天处于“健康锁筹拉升”巡航状态！")
+        # if final_tactic_signal.any():
+            # print(f"          -> [S级持仓确认] 侦测到 {final_tactic_signal.sum()} 天处于“健康锁筹拉升”巡航状态！")
         return states
 
     def synthesize_dynamic_offense_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1214,38 +1167,33 @@ class CognitiveIntelligence:
                     适配为消费由 ChipIntelligence.diagnose_cross_validation_signals
                     生成的、更高质量的 'RISING_RESONANCE' 终极信号。
         """
-        print("        -> [协同进攻动能合成模块 V2.1 信号源适配版] 启动...")
+        # print("        -> [协同进攻动能合成模块 V2.1 信号源适配版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         # 1. 获取五大领域的核心S级看涨分数
         mechanics_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S', default_score)
         chip_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0, 'A': 0.0, 'B': 0.0}) # 适配新的终极上升共振信号, 且仅使用S/S+级
         structure_score = self._fuse_multi_level_scores(df, 'MA_BULLISH_RESONANCE', {'S': 1.0, 'A': 0.0, 'B': 0.0}) # 仅使用S级
         fund_flow_score = atomic.get('FF_SCORE_SEPTAFECTA_RESONANCE_UP_HIGH', default_score)
         regime_score = atomic.get('SCORE_TRENDING_REGIME', default_score)
-
         # 2. 计算“协同进攻”元分数
         synergistic_offense_score = (
             mechanics_score * chip_score * structure_score * fund_flow_score * regime_score
         ).astype(np.float32)
         states['COGNITIVE_SCORE_SYNERGISTIC_OFFENSE_S'] = synergistic_offense_score
         self.strategy.atomic_states['COGNITIVE_SCORE_SYNERGISTIC_OFFENSE_S'] = synergistic_offense_score
-
         # 3. 获取战略过滤器：是否处于上涨末期
         late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
         p_trend_stage = get_params_block(self.strategy, 'trend_stage_params', {})
         max_score_for_offense = get_param_value(p_trend_stage.get('dynamic_offense_max_late_stage_score'), 30)
         is_in_safe_stage = late_stage_score < max_score_for_offense
-
         # 4. 最终裁定：发动协同进攻，且【处于安全阶段】
         # 基于新的元分数和阈值生成最终信号
         offense_threshold = get_param_value(p_trend_stage.get('synergistic_offense_threshold'), 0.3)
         is_synergistic_offense = synergistic_offense_score > offense_threshold
         final_signal = is_synergistic_offense & is_in_safe_stage
         states['DYN_AGGRESSIVE_OFFENSE_A'] = final_signal
-
         return states
 
     def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1257,7 +1205,7 @@ class CognitiveIntelligence:
                         波动率压缩信号，使得对“极致压缩”的判断更平滑、更鲁棒。
         - 收益: 战法对市场状态的感知更精确，避免了因S级信号的微小波动而错失机会。
         """
-        print("        -> [终极战法合成模块 V2.4 融合函数升级版] 启动...")
+        # print("        -> [终极战法合成模块 V2.4 融合函数升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
@@ -1267,7 +1215,6 @@ class CognitiveIntelligence:
         # 使用新的融合函数来生成“极致压缩”的判断条件
         fused_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         is_extreme_squeeze = fused_compression_score > 0.9
-        
         has_energy_advantage = self._fuse_multi_level_scores(df, 'MECHANICS_BULLISH_RESONANCE') > 0.7
         condition_sum = (
             is_prime_chip_structure.astype(int) +
@@ -1291,10 +1238,10 @@ class CognitiveIntelligence:
         was_setup_s_plus_yesterday = setup_s_plus.shift(1).fillna(False)
         final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today & is_in_early_stage_today & ~final_tactic_s_plus_plus
         states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS'] = final_tactic_s_plus
-        if final_tactic_s_plus_plus.any():
-            print(f"          -> [S++级王牌战法] 侦测到 {final_tactic_s_plus_plus.sum()} 次“终极结构突破”机会！")
-        if final_tactic_s_plus.any():
-            print(f"          -> [S+级王牌战法] 侦测到 {final_tactic_s_plus.sum()} 次“次级结构突破”机会！")
+        # if final_tactic_s_plus_plus.any():
+        #     print(f"          -> [S++级王牌战法] 侦测到 {final_tactic_s_plus_plus.sum()} 次“终极结构突破”机会！")
+        # if final_tactic_s_plus.any():
+        #     print(f"          -> [S+级王牌战法] 侦测到 {final_tactic_s_plus.sum()} 次“次级结构突破”机会！")
         return states
 
     def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
@@ -1469,7 +1416,7 @@ class CognitiveIntelligence:
         【V1.4 融合函数升级版】压缩突破战术剧本合成模块
         - 收益: 剧本的“战备”判断基于更可靠、更平滑的“压缩度”评分，提升了战术的准确性。
         """
-        print("        -> [压缩突破战术剧本合成模块 V1.4 融合函数升级版] 启动...")
+        # print("        -> [压缩突破战术剧本合成模块 V1.4 融合函数升级版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)

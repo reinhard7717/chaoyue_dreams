@@ -47,15 +47,12 @@ class ChipIntelligence:
           - [分析新范式] 引入“交叉协同剧本”分析，识别“强庄洗盘”、“真空突破”等高级市场博弈模式。
         - 收益: 模型从“独立维度评估”进化到“多维互动博弈分析”，实现了对市场复杂叙事的深度解读。
         """
-        print("        -> [筹码情报最高司令部 V332.0 七维交叉协同终极版] 启动...") # 新增: 更新版本号和描述
-        
+        # print("        -> [筹码情报最高司令部 V332.0 七维交叉协同终极版] 启动...")
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
-        
         # 直接调用全新的七维交叉协同引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
-
-        print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。") # 新增: 更新打印信息
+        print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
         return ultimate_chip_states, {}
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -67,7 +64,7 @@ class ChipIntelligence:
           - [健壮性提升] 在计算MTF协同分时，增加对周线数据是否存在的检查，避免因单个周线数据缺失导致整个模块崩溃。
         - 收益: 修复了因数据类型不匹配导致的严重警告和模块跳过问题，使模型逻辑更严谨，运行更稳定。
         """
-        print("        -> [终极筹码信号诊断模块 V332.1 鲁棒性修复版] 启动...") # 新增: 更新版本号和描述
+        # print("        -> [终极筹码信号诊断模块 V332.1 鲁棒性修复版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -109,20 +106,19 @@ class ChipIntelligence:
             for pillar_name, factors in pillars.items():
                 factor_health_scores = []
                 for factor_name, ascending in factors:
-                    # ▼▼▼ 修改: 对 is_multi_peak_D 进行特殊处理 ▼▼▼
+                    # 对 is_multi_peak_D 进行特殊处理
                     if factor_name == 'is_multi_peak_D':
                         # 对于布尔型风险信号，直接转换为健康分 (1-风险)
                         # is_multi_peak_D=1 (是多峰,风险高) -> health=0
                         # is_multi_peak_D=0 (非多峰,风险低) -> health=1
                         factor_health = 1.0 - df.get(factor_name, 0.0).astype(float)
-                        print(f"          -> [特殊处理] 因子 '{factor_name}' 已作为布尔状态处理。")
+                        # print(f"          -> [特殊处理] 因子 '{factor_name}' 已作为布尔状态处理。")
                     else:
                         # 对所有其他连续型因子，使用标准的三维交叉验证
                         static_score = self._normalize_score(df.get(factor_name), norm_window, ascending=ascending)
                         slope_score = self._normalize_score(df.get(f"SLOPE_{p}_{factor_name}"), norm_window, ascending=ascending)
                         accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
                         factor_health = (static_score * slope_score * accel_score)**(1/3)
-                    # ▲▲▲ 修改结束 ▲▲▲
                     factor_health_scores.append(factor_health)
                 pillar_period_health_d[pillar_name][p] = pd.concat(factor_health_scores, axis=1).prod(axis=1)**(1/len(factors))
 
@@ -144,7 +140,7 @@ class ChipIntelligence:
                     factor_synergy_scores.append(synergy_score)
                 else:
                     # 如果周线数据不存在（如 is_multi_peak_W），则不参与该因子的MTF协同计算
-                    print(f"          -> [MTF协同跳过] 因子 '{factor_name}' 缺少周线数据 '{factor_name_w}'，已在MTF协同中跳过。")
+                    # print(f"          -> [MTF协同跳过] 因子 '{factor_name}' 缺少周线数据 '{factor_name_w}'，已在MTF协同中跳过。")
                     pass
             if factor_synergy_scores: # 确保列表不为空
                 pillar_synergy_score = pd.concat(factor_synergy_scores, axis=1).mean(axis=1)
@@ -172,7 +168,7 @@ class ChipIntelligence:
         cost_slope_score = self._normalize_score(df.get('SLOPE_5_peak_cost_D'), norm_window, ascending=True)
         playbook_scores['SCORE_CHIP_PLAYBOOK_ABSORPTION'] = ((1 - ph['holder_sentiment']) * control_slope_score * cost_slope_score).astype(np.float32)
         states.update(playbook_scores)
-        print(f"          -> [交叉协同] 已生成 {len(playbook_scores)} 个博弈剧本信号。")
+        # print(f"          -> [交叉协同] 已生成 {len(playbook_scores)} 个博弈剧本信号。")
         # --- 7. 终极信号合成 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
@@ -200,7 +196,7 @@ class ChipIntelligence:
         for pillar_name, health_score in pillar_overall_health_d.items():
             signal_name = f"SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH"
             states[signal_name] = health_score.astype(np.float32)
-        print(f"          -> [深化输出] 已生成 {len(pillar_overall_health_d)} 个支柱健康分。")
+        # print(f"          -> [深化输出] 已生成 {len(pillar_overall_health_d)} 个支柱健康分。")
         print(f"        -> [终极筹码信号诊断模块 V332.1] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 

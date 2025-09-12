@@ -318,7 +318,7 @@ class IndicatorService:
         - 输入: 包含数据库原始列名的DataFrame。
         - 输出: 列名已转换为统一中间格式的DataFrame。
         """
-        print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...") # 修改: 更新版本号和描述
+        print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...")
         import re
         rename_map = {}
         # 遍历DataFrame中的每一列

@@ -38,12 +38,10 @@ class StructuralIntelligence:
                       并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
         - 收益: 架构与其他情报模块完全统一，极大提升了信号质量和架构清晰度。
         """
-        print("      -> [结构情报分析总指挥 V2.0 终极信号版] 启动...") # 修改: 更新版本号和描述
-        
+        # print("      -> [结构情报分析总指挥 V2.0 终极信号版] 启动...")
         # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
         ultimate_structural_states = self.diagnose_ultimate_structural_signals(df)
-
-        print(f"      -> [结构情报分析总指挥 V2.0] 分析完毕，共生成 {len(ultimate_structural_states)} 个终极结构信号。") # 修改: 更新打印信息
+        # print(f"      -> [结构情报分析总指挥 V2.0] 分析完毕，共生成 {len(ultimate_structural_states)} 个终极结构信号。")
         return ultimate_structural_states
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -56,76 +54,61 @@ class StructuralIntelligence:
           - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
         - 收益: 产出经过多指标、多周期、多维度三重交叉验证的、最高质量的结构信号。
         """
-        print("        -> [终极结构信号诊断模块 V1.0] 启动...")
+        # print("        -> [终极结构信号诊断模块 V1.0] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        
         # --- 2. 计算四大支柱在各周期的“完美健康度” ---
         pillar_health = {}
-        
         # 支柱1: 均线 (MA)
         ma_health = self._calculate_ma_health(df, periods, norm_window)
         pillar_health['ma'] = ma_health
-        
         # 支柱2: 力学 (Mechanics)
         mechanics_health = self._calculate_mechanics_health(df, periods, norm_window)
         pillar_health['mechanics'] = mechanics_health
-
         # 支柱3: 多时间框架 (MTF)
         mtf_health = self._calculate_mtf_health(df, periods, norm_window)
         pillar_health['mtf'] = mtf_health
-
         # 支柱4: 形态 (Pattern)
         pattern_health = self._calculate_pattern_health(df, periods, norm_window)
         pillar_health['pattern'] = pattern_health
-
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
             health_scores = [pillar_health[key][p] for key in pillar_health]
             # 使用几何平均值来融合，对0值更敏感，要求所有支柱都不能太差
             overall_bullish_health[p] = pd.concat(health_scores, axis=1).prod(axis=1)**(1/len(pillar_health))
-        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
-
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-
         # --- 5. 共振信号合成 ---
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
-        
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = overall_bearish_health[5].astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-
         # --- 6. 反转信号合成 ---
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
         states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
-        print(f"        -> [终极结构信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。") # 打印结束信息
+        # print(f"        -> [终极结构信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, periods: list, norm_window: int, static_col: str, slope_prefix: str, accel_prefix: str) -> Dict[int, pd.Series]:

@@ -34,7 +34,7 @@ class BehavioralIntelligence:
                        并汇总其产出的所有信号。
         - 收益: 确保了行为情报模块能够完整地生成所有必需的原子和合成信号，保障了整个情报系统的正常运行。
         """
-        print("      -> [行为情报模块总指挥 V2.1 职责修复版] 启动...") # 修改：更新版本号和描述
+        # print("      -> [行为情报模块总指挥 V2.1 职责修复版] 启动...")
         all_states = {} # 初始化一个空字典用于汇总所有信号
         params = self.strategy.params # 一次性获取策略参数，供各诊断引擎使用
         # 按照逻辑重要性调用所有诊断引擎
@@ -55,7 +55,7 @@ class BehavioralIntelligence:
         all_states[upthrust_score.name] = upthrust_score # 将其返回的Series结果添加到字典
         ma_breakdown_score = self.diagnose_ma_breakdown(params) # 调用均线破位诊断
         all_states[ma_breakdown_score.name] = ma_breakdown_score # 将其返回的Series结果添加到字典
-        print(f"      -> [行为情报模块总指挥 V2.1] 分析完毕，共生成 {len(all_states)} 个行为信号。") # 修改: 更新打印信息和版本号
+        # print(f"      -> [行为情报模块总指挥 V2.1] 分析完毕，共生成 {len(all_states)} 个行为信号。")
         return all_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -79,7 +79,7 @@ class BehavioralIntelligence:
           - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D`
           - `SLOPE_{p}_volume_D`, `ACCEL_{p}_volume_D`
         """
-        print("        -> [终极行为信号诊断模块 V1.0] 启动...")
+        # print("        -> [终极行为信号诊断模块 V1.0] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -136,7 +136,7 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
-        print(f"        -> [终极行为信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        # print(f"        -> [终极行为信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -148,11 +148,10 @@ class BehavioralIntelligence:
           - [数值化] 修正了 'SCORE_KLINE_SHARP_DROP' 信号的计算逻辑，消除了布尔过滤器。
         - 收益: 模块职责单一、清晰，且信号计算更平滑，符合完全数值化原则。
         """
-        print("        -> [K线模式诊断模块 V275.1 数值化修正版] 启动...")
+        # print("        -> [K线模式诊断模块 V275.1 数值化修正版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
-        
         # --- “缺口支撑”持续状态 (Gap Support Active State) ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
@@ -171,7 +170,6 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-
         # --- 基础原子行为，如“急速下跌” ---
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True):
@@ -182,8 +180,7 @@ class BehavioralIntelligence:
                 drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
                 sharp_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
                 states['SCORE_KLINE_SHARP_DROP'] = sharp_drop_score.astype(np.float32)
-        
-        print(f"        -> [K线模式诊断模块 V275.1] 分析完毕，共生成 {len(states)} 个静态模式信号。")
+        # print(f"        -> [K线模式诊断模块 V275.1] 分析完毕，共生成 {len(states)} 个静态模式信号。")
         return states
 
     def diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -213,7 +210,7 @@ class BehavioralIntelligence:
         down_streak = (is_down_day.groupby((is_down_day != is_down_day.shift()).cumsum()).cumcount() + 1) * is_down_day
         states['COUNT_CONSECUTIVE_UP_STREAK'] = up_streak.astype(np.int16)
         states['COUNT_CONSECUTIVE_DOWN_STREAK'] = down_streak.astype(np.int16)
-        print(f"        -> [高级原子诊断模块 V1.1] 已生成 {len(states)} 个深层动态信号。") 
+        # print(f"        -> [高级原子诊断模块 V1.1] 已生成 {len(states)} 个深层动态信号。") 
         return states
 
     def _diagnose_pullback_enhancement_matrix(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -221,7 +218,7 @@ class BehavioralIntelligence:
         【V1.7 信号源升级版】回踩形态增强矩阵
         - 收益: 使得对“压缩区洗盘”这一关键战术场景的判断，基于更可靠、经过交叉验证的信号源。
         """
-        print("        -> [回踩增强矩阵 V1.7 信号源升级版] 启动，正在扫描特殊形态...")
+        # print("        -> [回踩增强矩阵 V1.7 信号源升级版] 启动，正在扫描特殊形态...")
         enhancements = {}
         atomic = self.strategy.atomic_states
         default_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -365,7 +362,7 @@ class BehavioralIntelligence:
           - [数值化] 将所有风险信号中的布尔过滤器移除，改为对“风险事件的强度”直接进行排名评分。
         - 收益: 彻底消除了模块内的布尔判断，所有风险评分的响应都变得平滑且连续，信号质量更高。
         """
-        print("        -> [量价动态分析中心 V284.2 终极数值化版] 启动...")
+        # print("        -> [量价动态分析中心 V284.2 终极数值化版] 启动...")
         states = {}
         required_cols = [
             'volume_D', 'VOL_MA_21_D', 'pct_change_D',
@@ -415,7 +412,7 @@ class BehavioralIntelligence:
           - `flow_divergence_mf_vs_retail_D`: [部分缺失] 缺失 accel_1d, accel_55d
           - 结论: 核心指标数据存在部分缺失，代码将自动跳过无法计算的周期，但可能影响S级信号的准确性。
         """
-        print("        -> [多维共振诊断模块 V2.1 背离增强版] 启动...")
+        # print("        -> [多维共振诊断模块 V2.1 背离增强版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'resonance_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -506,7 +503,7 @@ class BehavioralIntelligence:
             num_metrics = len(all_s_level_down_scores)
             overall_down_s = pd.concat(all_s_level_down_scores, axis=1).prod(axis=1)**(1/num_metrics)
             states['SCORE_RESONANCE_DOWN_OVERALL_S'] = overall_down_s.astype(np.float32)
-        print(f"        -> [多维共振诊断模块 V2.1] 已生成 {len(states)} 个共振、反转与背离信号。")
+        # print(f"        -> [多维共振诊断模块 V2.1] 已生成 {len(states)} 个共振、反转与背离信号。")
         return states
 
     def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -519,7 +516,7 @@ class BehavioralIntelligence:
         - 收益: 使得“价跌量缩”的评分更加平滑和准确，彻底消除了布尔判断，
                 完美符合数值化和平滑响应的原则。
         """
-        print("        -> [价格成交量原子诊断模块 V1.3 终极数值化版] 启动...")
+        # print("        -> [价格成交量原子诊断模块 V1.3 终极数值化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
@@ -539,14 +536,12 @@ class BehavioralIntelligence:
             # 新逻辑: 对“跌幅大小”直接排名，更平滑且内含了“下跌日”的判断
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
             price_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-            
             # 组件2: 量缩程度分 (成交量相对均线越小，分数越高)
             volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-            
             # 融合生成最终分数，新版price_drop_score已内置“下跌日”判断，无需布尔过滤
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
-        print(f"        -> [价格成交量原子诊断模块 V1.3] 已生成 {len(states)} 个数值化基础原子信号。")
+        # print(f"        -> [价格成交量原子诊断模块 V1.3] 已生成 {len(states)} 个数值化基础原子信号。")
         return states
 
 

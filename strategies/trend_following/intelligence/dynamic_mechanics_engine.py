@@ -33,13 +33,13 @@ class DynamicMechanicsEngine:
         - 收益: 架构与行为、筹码等其他情报模块完全统一，极大提升了信号质量和架构清晰度。
                 上层模块只需消费这16个经过深度交叉验证的终极动态力学信号。
         """
-        print("    -> [动态力学引擎总指挥 V3.0 终极信号版] 启动...")
+        # print("    -> [动态力学引擎总指挥 V3.0 终极信号版] 启动...")
         # 直接调用终极信号引擎
         ultimate_dynamic_states = self.diagnose_ultimate_dynamic_mechanics_signals(self.strategy.df_indicators)
         # 将其结果作为本模块的唯一输出，更新到原子状态库
         if ultimate_dynamic_states:
             self.strategy.atomic_states.update(ultimate_dynamic_states)
-            print(f"    -> [动态力学引擎总指挥 V3.0] 分析完毕，共生成 {len(ultimate_dynamic_states)} 个终极动态力学信号。")
+            # print(f"    -> [动态力学引擎总指挥 V3.0] 分析完毕，共生成 {len(ultimate_dynamic_states)} 个终极动态力学信号。")
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -52,7 +52,7 @@ class DynamicMechanicsEngine:
           - 2. 模型升级: 构建了一个七维超完备力学模型，对每个周期的“完美动态力学健康度”进行更深度的交叉验证。
         - 收益: 引擎对市场动态的刻画更全面、更立体。例如，它现在不仅知道趋势在加速（价格），还知道这种加速是由“主力”推动（力的性质），且趋势本身的“惯性”正在增强，极大提升了信号的置信度和可靠性。
         """
-        print("        -> [终极动态力学信号诊断模块 V3.0 七维力学版] 启动...")
+        # print("        -> [终极动态力学信号诊断模块 V3.0 七维力学版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -147,7 +147,7 @@ class DynamicMechanicsEngine:
         states['SCORE_DYN_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        print(f"        -> [终极动态力学信号诊断模块 V3.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        # print(f"        -> [终极动态力学信号诊断模块 V3.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
 

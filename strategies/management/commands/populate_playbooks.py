@@ -9,7 +9,7 @@ from stock_models.stock_analytics import Playbook
 from utils.config_loader import load_strategy_config
 
 class Command(BaseCommand):
-    # 修改: 更新版本号和描述
+   
     help = '【V3.3 Bugfix】解析策略配置文件和信号字典，填充或更新Playbook模型。'
 
     def _load_signal_dictionary(self):

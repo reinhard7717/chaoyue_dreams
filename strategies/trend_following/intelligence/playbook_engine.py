@@ -74,28 +74,24 @@ class PlaybookEngine:
             因此不再需要在此处进行重复的环境检查。
         - 收益: 引擎职责更纯粹，只负责根据蓝图执行“触发”逻辑，代码更简洁、高效。
         """
-        print("        -> [剧本状态生成引擎 V4.0 逻辑简化版] 启动...")
+        # print("        -> [剧本状态生成引擎 V4.0 逻辑简化版] 启动...")
         df = self.strategy.df_indicators
         if df.empty:
             print("          -> [警告] 主数据帧为空，无法生成剧本状态。")
             return {}, {}
         playbook_states = {}
         default_series = pd.Series(False, index=df.index)
-
         # --- 步骤 1: 循环执行剧本蓝图 ---
         for blueprint in self.playbook_blueprints:
             playbook_name = blueprint['name']
-            
             # 组合 Trigger 条件 (OR logic)
             trigger_conditions = pd.Series(False, index=df.index)
             for trigger_name in blueprint.get('trigger', []):
                 trigger_conditions |= trigger_events.get(trigger_name, default_series)
-            
             # 最终裁定: 今日 Trigger 触发
             # 注意：新的剧本逻辑不再需要 .shift(1)，因为触发器本身已经包含了时序逻辑
             playbook_states[playbook_name] = trigger_conditions
-
-        print(f"        -> [剧本状态生成引擎 V4.0] 分析完毕，共生成 {len(playbook_states)} 个元融合剧本状态。")
+        # print(f"        -> [剧本状态生成引擎 V4.0] 分析完毕，共生成 {len(playbook_states)} 个元融合剧本状态。")
         # setup_scores 在这个新架构下不再需要，返回空字典
         return {}, playbook_states
 
@@ -108,11 +104,11 @@ class PlaybookEngine:
           - [新增] 增加了对“持续点火”的定义，用于过滤假突破，这是对A股实战经验的提炼。
         - 收益: 确保所有剧本的“扳机”都连接到了最新、最可靠的信号源。
         """
-        print("        -> [触发事件中心 V4.0 全面适配版] 启动...")
+        # print("        -> [触发事件中心 V4.0 全面适配版] 启动...")
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
+
         # --- 1. 定义动态阈值参数 ---
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
         thresholds = {
@@ -141,16 +137,13 @@ class PlaybookEngine:
         # --- 3. 定义元融合触发器 (基于CognitiveIntelligence的顶层信号) ---
         triggers['TRIGGER_IGNITION_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']
         triggers['TRIGGER_BOTTOM_REVERSAL_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score) > thresholds['bottom_reversal_s']
-        
         # --- 4. 定义特定战术场景触发器 ---
         triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & triggers['TRIGGER_DOMINANT_REVERSAL']
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
         triggers['TRIGGER_SHAKEOUT_REVERSAL_A'] = atomic.get('COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A', default_score) > thresholds['shakeout_reversal_a']
         triggers['TRIGGER_CONSOLIDATION_BREAKOUT_A'] = atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score) > thresholds['consolidation_breakout_a']
-        
         # --- 5. 定义筹码特定触发器 ---
         triggers['TRIGGER_CHIP_IGNITION'] = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > thresholds['chip_ignition_s']
-
         # --- 6. 定义“持续点火”确认触发器 (过滤假突破的核心) ---
         # 6.1 定义失效条件：在观察期内出现重大风险
         invalidation_risk_score = np.maximum.reduce([
@@ -161,7 +154,6 @@ class PlaybookEngine:
         invalidation_risk_series = pd.Series(invalidation_risk_score, index=df.index)
         trend_quality_score = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', default_score)
         confirmation_window = 3
-        
         # 6.2 基于“多域点火”的持续确认
         initial_ignition = triggers['TRIGGER_IGNITION_RESONANCE_S']
         had_recent_ignition = initial_ignition.rolling(window=confirmation_window, min_periods=1).max().astype(bool)
@@ -171,17 +163,15 @@ class PlaybookEngine:
         quality_sustained = trend_quality_score.rolling(window=confirmation_window).min() >= quality_at_ignition.shift(confirmation_window - 1).fillna(0.0) * 0.9
         is_confirmation_day = had_recent_ignition & ~had_recent_ignition.shift(1).fillna(False)
         triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS'] = is_confirmation_day & risk_remained_low & quality_sustained
-
         # 6.3 基于“筹码点火”的持续确认
         initial_chip_ignition = triggers['TRIGGER_CHIP_IGNITION']
         had_recent_chip_ignition = initial_chip_ignition.rolling(window=confirmation_window, min_periods=1).max().astype(bool)
         is_confirmation_day_chip = had_recent_chip_ignition & ~had_recent_chip_ignition.shift(1).fillna(False)
         triggers['TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS'] = is_confirmation_day_chip & risk_remained_low & quality_sustained
-
         # --- 7. 最终安全检查 ---
         for key in list(triggers.keys()):
             triggers[key] = triggers[key].fillna(False)
-        print(f"        -> [触发事件中心 V4.0] 分析完毕，生成 {len(triggers)} 个元融合触发器。")
+        # print(f"        -> [触发事件中心 V4.0] 分析完毕，生成 {len(triggers)} 个元融合触发器。")
         return triggers
 
 

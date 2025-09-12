@@ -34,12 +34,10 @@ class FoundationIntelligence:
                       并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
         - 收益: 架构与其他情报模块完全统一，极大提升了信号质量和架构清晰度。
         """
-        print("      -> [基础情报分析总指挥 V3.0 终极信号版] 启动...") # 修改: 更新版本号和描述
-        
+        # print("      -> [基础情报分析总指挥 V3.0 终极信号版] 启动...")
         # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
         ultimate_foundation_states = self.diagnose_ultimate_foundation_signals(self.strategy.df_indicators)
-
-        print(f"      -> [基础情报分析总指挥 V3.0] 分析完毕，共生成 {len(ultimate_foundation_states)} 个终极基础层信号。") # 修改: 更新打印信息
+        # print(f"      -> [基础情报分析总指挥 V3.0] 分析完毕，共生成 {len(ultimate_foundation_states)} 个终极基础层信号。")
         return ultimate_foundation_states
 
     def diagnose_ultimate_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -52,16 +50,13 @@ class FoundationIntelligence:
           - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
         - 收益: 产出经过多指标、多周期、多维度三重交叉验证的、最高质量的基础层信号。
         """
-        print("        -> [终极基础层信号诊断模块 V1.0] 启动...")
+        # print("        -> [终极基础层信号诊断模块 V1.0] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-        norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        
         required_cols = set()
         for p in periods:
             required_cols.update([
@@ -70,79 +65,64 @@ class FoundationIntelligence:
                 'MACDh_13_34_8_D', f'SLOPE_{p}_MACDh_13_34_8_D', f'ACCEL_{p}_MACDh_13_34_8_D',
                 'CMF_21_D', f'SLOPE_{p}_CMF_21_D', f'ACCEL_{p}_CMF_21_D'
             ])
-        
         missing_cols = list(required_cols - set(df.columns))
         if missing_cols:
             print(f"          -> [严重警告] 终极基础层引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-
         # --- 2. 计算四大支柱在各周期的“完美健康度” ---
         pillar_health = {'EMA': {}, 'RSI': {}, 'MACD': {}, 'CMF': {}}
-        
         for p in periods:
             # 2.1 EMA健康度
             ema_static_score = self._normalize_score(df[f'EMA_{p}_D' if p > 1 else 'close_D'] - df[f'EMA_{max(periods)}_D'])
             ema_slope_score = self._normalize_score(df[f'SLOPE_{p}_EMA_{p}_D' if p > 1 else 'SLOPE_1_close_D'])
             ema_accel_score = self._normalize_score(df[f'ACCEL_{p}_EMA_{p}_D' if p > 1 else 'ACCEL_1_close_D'])
             pillar_health['EMA'][p] = ema_static_score * ema_slope_score * ema_accel_score
-
             # 2.2 RSI健康度
             rsi_static_score = self._normalize_score(df['RSI_13_D'])
             rsi_slope_score = self._normalize_score(df[f'SLOPE_{p}_RSI_13_D'])
             rsi_accel_score = self._normalize_score(df[f'ACCEL_{p}_RSI_13_D'])
             pillar_health['RSI'][p] = rsi_static_score * rsi_slope_score * rsi_accel_score
-
             # 2.3 MACD健康度
             macd_static_score = self._normalize_score(df['MACDh_13_34_8_D'])
             macd_slope_score = self._normalize_score(df[f'SLOPE_{p}_MACDh_13_34_8_D'])
             macd_accel_score = self._normalize_score(df[f'ACCEL_{p}_MACDh_13_34_8_D'])
             pillar_health['MACD'][p] = macd_static_score * macd_slope_score * macd_accel_score
-
             # 2.4 CMF健康度
             cmf_static_score = self._normalize_score(df['CMF_21_D'])
             cmf_slope_score = self._normalize_score(df[f'SLOPE_{p}_CMF_21_D'])
             cmf_accel_score = self._normalize_score(df[f'ACCEL_{p}_CMF_21_D'])
             pillar_health['CMF'][p] = cmf_static_score * cmf_slope_score * cmf_accel_score
-
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
             overall_bullish_health[p] = (pillar_health['EMA'][p] * pillar_health['RSI'][p] * pillar_health['MACD'][p] * pillar_health['CMF'][p])**0.25
-        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
-
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-
         # --- 5. 共振信号合成 ---
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_FOUNDATION_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
-        
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_B'] = overall_bearish_health[5].astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-
         # --- 6. 反转信号合成 ---
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
         states['SCORE_FOUNDATION_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        
-        print(f"        -> [终极基础层信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        # print(f"        -> [终极基础层信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def diagnose_ema_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
