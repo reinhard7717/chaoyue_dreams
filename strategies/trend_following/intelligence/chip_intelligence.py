@@ -111,7 +111,7 @@ class ChipIntelligence:
                         accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
                         factor_health = (static_score * slope_score * accel_score)**(1/3)
                     factor_health_scores.append(factor_health)
-                # 修改开始: 使用NumPy进行高效聚合，避免创建临时DataFrame
+                # 使用NumPy进行高效聚合，避免创建临时DataFrame
                 if factor_health_scores:
                     # 将Series列表转换为NumPy数组，然后计算几何平均值
                     stacked_scores = np.array([s.values for s in factor_health_scores])
@@ -119,11 +119,11 @@ class ChipIntelligence:
                     pillar_period_health_d[pillar_name][p] = pd.Series(geo_mean_values, index=df.index)
                 else:
                     pillar_period_health_d[pillar_name][p] = pd.Series(0.5, index=df.index) # 如果没有因子，则返回中性分
-                # 修改结束
+                
         # --- 3. 计算各支柱的“全面共识健康度” (日线) ---
         pillar_overall_health_d = {}
         for pillar_name in pillars:
-            # 修改开始: 使用NumPy进行高效聚合
+            # 使用NumPy进行高效聚合
             series_list = list(pillar_period_health_d[pillar_name].values())
             if series_list:
                 stacked_scores = np.array([s.values for s in series_list])
@@ -131,7 +131,7 @@ class ChipIntelligence:
                 pillar_overall_health_d[pillar_name] = pd.Series(mean_values, index=df.index)
             else:
                 pillar_overall_health_d[pillar_name] = pd.Series(0.5, index=df.index)
-            # 修改结束
+            
         # --- 4. 计算第七支柱: 跨周期协同 (MTF Synergy) ---
         mtf_synergy_scores = []
         for pillar_name, factors in pillars.items():
@@ -146,18 +146,18 @@ class ChipIntelligence:
                 else:
                     pass
             if factor_synergy_scores:
-                # 修改开始: 使用NumPy进行高效聚合
+                # 使用NumPy进行高效聚合
                 stacked_scores = np.array([s.values for s in factor_synergy_scores])
                 mean_values = np.mean(stacked_scores, axis=0)
                 pillar_synergy_score = pd.Series(mean_values, index=df.index)
-                # 修改结束
+                
                 mtf_synergy_scores.append(pillar_synergy_score)
         if mtf_synergy_scores:
-            # 修改开始: 使用NumPy进行高效聚合
+            # 使用NumPy进行高效聚合
             stacked_scores = np.array([s.values for s in mtf_synergy_scores])
             mean_values = np.mean(stacked_scores, axis=0)
             pillar_overall_health_d['mtf_synergy'] = pd.Series(mean_values, index=df.index)
-            # 修改结束
+            
         else:
             pillar_overall_health_d['mtf_synergy'] = pd.Series(0.5, index=df.index)
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
@@ -165,11 +165,11 @@ class ChipIntelligence:
         for p in periods:
             health_scores_for_period = [pillar_period_health_d[key][p] for key in pillars]
             health_scores_for_period.append(pillar_overall_health_d['mtf_synergy'])
-            # 修改开始: 使用NumPy进行高效聚合
+            # 使用NumPy进行高效聚合
             stacked_scores = np.array([s.values for s in health_scores_for_period])
             geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_scores_for_period))
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
-            # 修改结束
+            
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 6. 交叉协同剧本诊断 (逻辑不变) ---
         ph = pillar_overall_health_d

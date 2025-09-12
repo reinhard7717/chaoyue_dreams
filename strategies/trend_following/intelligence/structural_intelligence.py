@@ -79,7 +79,7 @@ class StructuralIntelligence:
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
-            # 修改开始: 使用NumPy高效计算几何平均值，避免创建临时DataFrame
+            # 使用NumPy高效计算几何平均值，避免创建临时DataFrame
             # 1. 获取当前周期的所有支柱健康度Series
             health_scores_series = [pillar_health[key][p] for key in pillar_health]
             # 2. 将Series列表的底层值提取并堆叠成一个 (支柱数量, 时间序列长度) 的2D NumPy数组
@@ -89,7 +89,7 @@ class StructuralIntelligence:
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
             # 4. 仅在最后将结果包装回Pandas Series
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-            # 修改结束
+            
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
@@ -136,10 +136,10 @@ class StructuralIntelligence:
             static_score = self._normalize_score(df.get(static_col), norm_window, df.index)
             slope_score = self._normalize_score(df.get(slope_col), norm_window, df.index)
             accel_score = self._normalize_score(df.get(accel_col), norm_window, df.index)
-            # 修改开始: 直接在NumPy数组上进行计算，避免创建中间Series
+            # 直接在NumPy数组上进行计算，避免创建中间Series
             health_arr = static_score.values * slope_score.values * accel_score.values
             health[p] = pd.Series(health_arr, index=df.index, dtype=np.float32)
-            # 修改结束
+            
         return health
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
@@ -151,10 +151,10 @@ class StructuralIntelligence:
         - 收益: 避免了在循环中为每个周期创建多个中间Series，并减少了重复计算，提升了计算效率。
         """
         health = {}
-        # 修改开始: 预先计算与周期p无关的能量分，并直接获取其NumPy数组
+        # 预先计算与周期p无关的能量分，并直接获取其NumPy数组
         energy_series = df.get('energy_ratio_D')
         energy_arr = self._normalize_score(energy_series, norm_window, df.index).values
-        # 修改结束
+        
         for p in periods:
             # 成本斜率：越高越好 (ascending=True, 默认)
             cost_slope_series = df.get(f'SLOPE_{p}_peak_cost_D')
@@ -162,11 +162,11 @@ class StructuralIntelligence:
             # 集中度斜率：越低（负值）越好，代表筹码在集中，所以 ascending=False
             conc_slope_series = df.get(f'SLOPE_{p}_concentration_90pct_D')
             conc_slope_arr = self._normalize_score(conc_slope_series, norm_window, df.index, ascending=False).values
-            # 修改开始: 直接在NumPy数组上进行计算
+            # 直接在NumPy数组上进行计算
             # 使用几何平均值融合三个维度
             health_arr = (cost_slope_arr * conc_slope_arr * energy_arr)**(1/3)
             health[p] = pd.Series(health_arr, index=df.index, dtype=np.float32)
-            # 修改结束
+            
         return health
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
@@ -182,7 +182,7 @@ class StructuralIntelligence:
         daily_accel = self.strategy.atomic_states.get('SCORE_MA_ACCEL_RESONANCE', pd.Series(0.5, index=df.index))
         weekly_slope_cols = [col for col in df.columns if 'SLOPE' in col and col.endswith('_W')]
         weekly_accel_cols = [col for col in df.columns if 'ACCEL' in col and col.endswith('_W')]
-        # 修改开始: 使用NumPy高效计算周线分数
+        # 使用NumPy高效计算周线分数
         # 辅助函数，用于将多列Series高效地平均为一个Series
         def get_weekly_avg_score(cols: List[str]) -> pd.Series:
             if not cols:
@@ -197,11 +197,11 @@ class StructuralIntelligence:
             return pd.Series(mean_values, index=df.index, dtype=np.float32)
         weekly_momentum = get_weekly_avg_score(weekly_slope_cols)
         weekly_accel = get_weekly_avg_score(weekly_accel_cols)
-        # 修改结束
-        # 修改开始: 使用NumPy数组进行最终融合
+        
+        # 使用NumPy数组进行最终融合
         health_arr = (daily_momentum.values * daily_accel.values * weekly_momentum.values * weekly_accel.values)**(1/4)
         health_series = pd.Series(health_arr, index=df.index, dtype=np.float32)
-        # 修改结束
+        
         for p in periods: # 尽管MTF不直接依赖periods，但为了结构统一，仍然循环
             health[p] = health_series # 所有周期的MTF健康度都一样
         return health

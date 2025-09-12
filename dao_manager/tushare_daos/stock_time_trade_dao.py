@@ -1087,7 +1087,7 @@ class StockTimeTradeDAO(BaseDAO):
             'vol': 'vol',
             'amount': 'amount'
         }
-        # 修改结束
+        
 
         all_data_to_save = []
         offset = 0
@@ -1111,7 +1111,7 @@ class StockTimeTradeDAO(BaseDAO):
                 # 发生API错误时，可以选择等待后重试或直接中断
                 await asyncio.sleep(5) # 等待5秒后中断本次循环
                 break
-            # 修改结束
+            
 
             if df.empty:
                 logger.info("Tushare未返回更多数据，拉取完成。")
@@ -1171,7 +1171,7 @@ class StockTimeTradeDAO(BaseDAO):
                         record['amount'] = Decimal(str(record['amount'])) * Decimal(1000)
 
                 all_data_to_save.extend(records)
-                # 修改结束
+                
 
             except Exception as e:
                 logger.error(f"处理数据时发生错误 (offset: {offset}): {e}", exc_info=True)

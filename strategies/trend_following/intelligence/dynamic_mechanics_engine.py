@@ -102,7 +102,7 @@ class DynamicMechanicsEngine:
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美动态力学健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
-        # 修改开始: 预先将静态Series转换为NumPy数组，以提高循环内性能
+        # 预先将静态Series转换为NumPy数组，以提高循环内性能
         price_static_arr = price_static.values
         volume_static_arr = volume_static.values
         volatility_static_arr = volatility_static.values
@@ -110,9 +110,9 @@ class DynamicMechanicsEngine:
         force_quality_static_arr = force_quality_static.values
         kinetic_energy_static_arr = kinetic_energy_static.values
         inertia_static_arr = inertia_static.values
-        # 修改结束
+        
         for p in periods:
-            # 修改开始: 直接在NumPy数组上进行计算，避免生成中间Pandas Series
+            # 直接在NumPy数组上进行计算，避免生成中间Pandas Series
             # 为每个维度计算周期健康度数组
             price_health_arr = (price_static_arr * price_mom[p].values * price_accel[p].values)**(1/3)
             volume_health_arr = (volume_static_arr * volume_mom[p].values * volume_accel[p].values)**(1/3)
@@ -138,7 +138,7 @@ class DynamicMechanicsEngine:
             final_health_arr = np.prod(health_components_arr, axis=0)**(1/7)
             # 将最终的NumPy结果数组包装回带索引的Pandas Series
             bullish_health[p] = pd.Series(final_health_arr, index=df.index, dtype=np.float32)
-            # 修改结束
+            
         bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 (此部分逻辑不变) ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5

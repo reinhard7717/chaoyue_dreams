@@ -1719,7 +1719,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 持续且深化：最强信号
     persistent_deepening_ext_os_cond = persistent_ext_os_cond & deepening_ext_os_cond
     score.loc[persistent_deepening_ext_os_cond] = np.maximum(score.loc[persistent_deepening_ext_os_cond], 99.0) # 持续且深化分99
-    # 修改结束
+    
 
     # 2. 极度超买区 (MFI > ext_ob_thresh) - 看跌信号强烈
     # 增强极度超买区评分逻辑
@@ -1734,7 +1734,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 持续且深化：最强信号
     persistent_deepening_ext_ob_cond = persistent_ext_ob_cond & deepening_ext_ob_cond
     score.loc[persistent_deepening_ext_ob_cond] = np.minimum(score.loc[persistent_deepening_ext_ob_cond], 1.0) # 持续且深化分1
-    # 修改结束
+    
 
     # 3. 超卖区 (ext_os_thresh <= MFI < os_thresh) - 看涨信号较强
     # 细化超卖区评分，使用线性插值
@@ -1747,7 +1747,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
         score.loc[os_zone_cond] = np.maximum(score.loc[os_zone_cond], score_in_os_zone.loc[os_zone_cond])
     else: # 如果阈值相同，则按原逻辑或给一个固定值
         score.loc[os_zone_cond] = np.maximum(score.loc[os_zone_cond], 85.0) # fallback to original-like logic
-    # 修改结束
+    
 
     # 4. 超买区 (ob_thresh < MFI <= ext_ob_thresh) - 看跌信号较强
     # 细化超买区评分，使用线性插值
@@ -1760,7 +1760,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
         score.loc[ob_zone_cond] = np.minimum(score.loc[ob_zone_cond], score_in_ob_zone.loc[ob_zone_cond])
     else: # 如果阈值相同
         score.loc[ob_zone_cond] = np.minimum(score.loc[ob_zone_cond], 15.0) # fallback
-    # 修改结束
+    
 
     # 5. 买入信号 (MFI 从下方上穿超卖线 os_thresh)
     # 强化交叉信号
@@ -1769,7 +1769,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 如果从极度超卖区上穿，信号更强
     buy_signal_from_ext_os_cond = buy_signal_cond & (mfi_s_shifted1 < ext_os_thresh)
     score.loc[buy_signal_from_ext_os_cond] = np.maximum(score.loc[buy_signal_from_ext_os_cond], 85.0) # 从极度超卖区交叉分85
-    # 修改结束
+    
 
     # 6. 卖出信号 (MFI 从上方下穿超买线 ob_thresh)
     # 强化交叉信号
@@ -1778,7 +1778,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     # 如果从极度超买区下穿，信号更强
     sell_signal_from_ext_ob_cond = sell_signal_cond & (mfi_s_shifted1 > ext_ob_thresh)
     score.loc[sell_signal_from_ext_ob_cond] = np.minimum(score.loc[sell_signal_from_ext_ob_cond], 15.0) # 从极度超买区交叉分15
-    # 修改结束
+    
 
     # 7. 中性区域 (os_thresh <= MFI <= ob_thresh 且非上述买卖信号点)
     # 丰富中性区评分逻辑，考虑趋势和加速度
@@ -1807,7 +1807,7 @@ def calculate_mfi_score(mfi: pd.Series, params: Dict) -> pd.Series:
     neutral_bearish_accel_cond = neutral_bearish_cond & (mfi_acceleration < 0)
     score_neutral_bearish_accel = score.loc[neutral_bearish_accel_cond] + np.clip(mfi_acceleration * 0.3, -5, -1) # 再减1-5分
     score.loc[neutral_bearish_accel_cond] = np.minimum(score.loc[neutral_bearish_accel_cond], score_neutral_bearish_accel.loc[neutral_bearish_accel_cond])
-    # 修改结束
+    
 
     # 确保所有 MFI 值本身接近50（例如48-52）且变化不大的情况下，分数也接近50
     # 上述逻辑已经通过clip和较小的调整因子来控制中性区得分的摆动幅度

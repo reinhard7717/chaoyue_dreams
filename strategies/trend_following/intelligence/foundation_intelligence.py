@@ -72,7 +72,7 @@ class FoundationIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 终极基础层引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-        # 修改开始: 预先计算所有需要的归一化分数，避免在循环中重复计算
+        # 预先计算所有需要的归一化分数，避免在循环中重复计算
         # --- 2. 核心要素数值化 (批量预处理) ---
         # EMA (特殊，静态分也依赖周期p)
         ema_static_scores = {p: self._normalize_score(df[f'EMA_{p}_D' if p > 1 else 'close_D'] - df[f'EMA_{max(periods)}_D']) for p in periods}
@@ -102,7 +102,7 @@ class FoundationIntelligence:
             overall_health_arr = (ema_health_arr * rsi_health_arr * macd_health_arr * cmf_health_arr)**0.25
             # 仅在最后将结果包装回Pandas Series
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        # 修改结束
+        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
@@ -154,7 +154,7 @@ class FoundationIntelligence:
         if not all(c in df.columns for c in required_cols):
             print(f"          -> [警告] EMA协同模块缺少依赖，模块已跳过。")
             return states
-        # 修改开始: 全面采用NumPy数组进行计算
+        # 全面采用NumPy数组进行计算
         # --- 2. 核心要素数值化 (在NumPy层面操作) ---
         # 2.1 静态排列分 (多头排列程度)
         alignment_score_arrays = []
@@ -205,7 +205,7 @@ class FoundationIntelligence:
         states['SCORE_EMA_TOP_REVERSAL_A'] = pd.Series(top_trigger_a_arr, index=df.index, dtype=np.float32)
         short_term_mom_down_arr = 1 - slope_scores[5].values
         states['SCORE_EMA_TOP_REVERSAL_S'] = pd.Series(top_trigger_a_arr * short_term_mom_down_arr, index=df.index, dtype=np.float32)
-        # 修改结束
+        
         return states
 
     def diagnose_foundation_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -223,7 +223,7 @@ class FoundationIntelligence:
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 修改开始: 重构辅助函数以提升性能
+        # 重构辅助函数以提升性能
         def get_weighted_synergy_score(signal_weights: Dict[str, float]) -> pd.Series:
             """【性能优化版】辅助函数，用于高效计算加权协同分数"""
             # 1. 准备信号Series列表和权重列表
@@ -244,7 +244,7 @@ class FoundationIntelligence:
             weighted_avg_values = np.average(stacked_scores, axis=0, weights=weights_for_average)
             # 4. 将结果包装回Pandas Series
             return pd.Series(weighted_avg_values, index=df.index, dtype=np.float32)
-        # 修改结束
+        
         # --- 1. 上升共振协同 (Bullish Resonance Synergy) ---
         bullish_resonance_sources = {
             'SCORE_EMA_BULLISH_RESONANCE_S': 0.4,

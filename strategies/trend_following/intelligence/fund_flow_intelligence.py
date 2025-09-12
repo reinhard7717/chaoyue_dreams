@@ -103,7 +103,7 @@ class FundFlowIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 终极资金流引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-        # 修改开始: 采用“批量预处理 + NumPy原生计算”的新范式
+        # 采用“批量预处理 + NumPy原生计算”的新范式
         # --- 2. 核心要素数值化 (批量预处理) ---
         # 2.1 收集所有需要归一化的独立指标列名
         all_cols_to_normalize = set()
@@ -152,7 +152,7 @@ class FundFlowIntelligence:
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
             # 3.5 仅在最后将结果包装回Pandas Series
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        # 修改结束
+        
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 (逻辑不变) ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
