@@ -719,21 +719,35 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.1 类型修复版】
-        - 核心修复: 修复了在筛选调试时段的每日分数时，未将 end_date 字符串转换为日期对象，
-                      导致 'datetime.date' 与 'str' 比较而引发 TypeError 的问题。
+        【V320.2 调试数据完整性修复版】
+        - 核心修复: 解决了因 all_daily_scores 和 all_score_components 数据不一致，导致调试报告中
+                      “进攻分构成”和“激活信号”显示不全的问题。
+        - 实现方式: 在调试方法内部，利用完整的 all_score_components 列表，反向重建出一个包含所有
+                      日期的、完整的每日分数对象列表 (all_daily_scores_for_debug)，确保后续报告
+                      生成逻辑能够访问到每一天的完整数据。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.1 类型修复版)] ---")
+        print(f"--- [历史回溯调试启动 (V320.2 调试数据完整性修复版)] ---") # 修改行：更新版本号和描述
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
             all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
-            if not all_daily_scores:
+
+            # 新增开始：修复数据不一致问题的核心逻辑
+            all_daily_scores_for_debug = all_daily_scores
+            if all_score_components:
+                # 从完整的组件列表中，通过其关联的 daily_score 对象，重建一个包含所有日期的、唯一的每日分数对象列表
+                # 使用字典和id来保证获取到的是唯一的 StrategyDailyScore 对象实例
+                unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
+                all_daily_scores_for_debug = list(unique_scores_from_components.values())
+            # 新增结束
+
+            if not all_daily_scores_for_debug: # 修改行：使用修复后的列表进行判断
                 print("[信息] 核心策略未生成任何每日分数记录。")
                 return
+            
             daily_analysis_df = self.daily_analysis_df
             exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
             # 步骤 1.1: 在内存中构建信号到详情的映射
@@ -743,14 +757,16 @@ class MultiTimeframeTrendStrategy:
                 if signal_key not in signal_to_details_map:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
+            
             # 步骤 1.2: 构建日期到每日分数和分数组件的映射
-            daily_score_map = {score.trade_date: score for score in all_daily_scores}
+            daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug} # 修改行：使用修复后的列表构建map
             daily_components_map = {}
             for comp in all_score_components:
                 trade_date = comp.daily_score.trade_date
                 if trade_date not in daily_components_map:
                     daily_components_map[trade_date] = []
                 daily_components_map[trade_date].append(comp)
+            
             # 步骤 2: 检查是否需要部署探针 (逻辑不变)
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
@@ -768,17 +784,21 @@ class MultiTimeframeTrendStrategy:
                     )
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
+            
             # 步骤 3: 展示全流程信号透视报告
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt_date = pd.to_datetime(start_date).date()
             end_dt_date = pd.to_datetime(end_date).date()
+            
             debug_period_daily_scores = [
-                ds for ds in all_daily_scores
+                ds for ds in all_daily_scores_for_debug # 修改行：使用修复后的列表进行筛选
                 if start_dt_date <= ds.trade_date <= end_dt_date
             ]
+            
             if not debug_period_daily_scores:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
+            
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             subtotal_signal_names = list(get_params_block(self.tactical_engine, 'offensive_score_composition', {}).keys())
