@@ -99,35 +99,35 @@ class IntelligenceLayer:
 
         # --- 阶段一: 基础层与原子情报诊断 ---
         # 此阶段生成所有仅依赖于数据工程层指标的原子信号。
-        print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
+        # print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         self.foundation_intel.run_foundation_analysis_command()
-        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_ultimate_fund_flow_signals(df)) # 修改: 确保调用的是终极信号引擎
+        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_ultimate_fund_flow_signals(df))
         self.mechanics_engine.run_dynamic_analysis_command()
         df = self.pattern_recognizer.identify_all(df)
 
         # --- 阶段二: 结构层情报诊断与合成 ---
         # 此阶段消费基础指标，生成所有结构相关的终极信号。
-        print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...") # 修改: 调整阶段顺序和描述
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df)) # 修改: 简化为唯一调用
+        # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
+        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df))
 
         # --- 阶段三: 行为层情报诊断与合成 ---
         # 此阶段消费基础指标，生成所有行为相关的原子信号和初级合成信号。
-        print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...") # 修改: 调整阶段顺序和描述
+        # print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
         self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
         self.strategy.atomic_states.update(self.cyclical_intel.run_cyclical_analysis_command(df))
 
         # --- 阶段四: 筹码层情报诊断与合成 ---
         # 筹码层依赖部分结构和行为信号，因此在此阶段运行。
-        print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
+        # print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         self.strategy.trigger_events.update(chip_triggers)
 
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
         # 认知层消费所有下层模块产出的高质量信号，进行跨领域的“元融合”，并生成最终决策依据。
-        print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
+        # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
         # 5.1 宏观上下文与质量分数合成 (高优先级，被其他认知模块依赖)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_trend_quality_score(df)
         self.strategy.df_indicators = self.cognitive_intel.synthesize_contextual_zone_scores(df)
@@ -179,7 +179,7 @@ class IntelligenceLayer:
                 print("--- [探针结束] ---\n")
         
         # --- 最终报告 ---
-        print("--- [情报层总指挥官 V403.0] 所有诊断模块执行完毕。 ---")
+        # print("--- [情报层总指挥官 V403.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -46,74 +46,54 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, df: pd.DataFrame, params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V401.1 风险接口适配版】策略应用主流程
-        - 核心重构: 重构了内部指挥链，以适配 ExitLayer 和 WarningLayer 的新职责。
-        - 风险评估统一化: 现在由 WarningLayer 统一分析所有风险，不再区分“致命”和“常规”。
-        - 硬性离场分离: ExitLayer 现在独立生成技术性离场信号，并在决策流程最后进行合并，确保其最高优先级。
-        - 本次适配: 调用 WarningLayer 的新方法 `run_all_warnings` 并正确处理其四个返回值。
+        【V401.2 数据截断修复版】策略应用主流程
+        - 核心修复 (本次修改):
+          - [数据完整性] 移除了在方法入口处根据 `start_date_str` 截断输入DataFrame的逻辑。
+                        现在，所有情报和决策计算都将在完整的数据集上进行，确保长周期指标
+                        （如FFT、Hurst）有足够的数据进行准确计算。
+          - `start_date_str` 参数的过滤功能将移至下游的报告生成层，遵循“先计算，后筛选”的原则。
+        - 收益: 根除了因数据提前截断导致的长周期指标计算失败（如FFT长度不足）的问题。
         """
         self.params = params
         if df is None or df.empty:
-            # 如果输入数据为空，直接返回空的DataFrame，避免后续错误
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         df_for_calculation = df
-        if start_date_str:
-            try:
-                # 根据传入的起始日期过滤数据，用于增量计算或调试
-                start_date = pd.to_datetime(start_date_str).date()
-                df_filtered = df[df.index.date >= start_date].copy()
-                if df_filtered.empty:
-                    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-                df_for_calculation = df_filtered
-            except (ValueError, TypeError) as e:
-                logger.error(f"无效的起始日期格式: '{start_date_str}'。错误: {e}。将处理全部历史记录。")
         # 确保数据类型正确，并将其存入实例属性，供所有子模块访问
         self.df_indicators = ensure_numeric_types(df_for_calculation)
         # --- 指挥链 1/7: 基础情报层 ---
-        # 运行所有情报诊断模块，生成所有原子信号和触发器
-        print("  [指挥链 1/7] 正在运行情报层...")
+        # print("  [指挥链 1/7] 正在运行情报层...")
         self.trigger_events = self.intelligence_layer.run_all_diagnostics()
         # --- 指挥链 2/7: 进攻层 ---
-        # 基于情报层的输出，计算总的进攻得分
-        print("  [指挥链 2/7] 正在运行进攻层...")
+        # print("  [指挥链 2/7] 正在运行进攻层...")
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(self.trigger_events)
         self.df_indicators['entry_score'] = entry_score
         # --- 指挥链 3/7: 预警层 (统一风险分析中心) ---
-        # 调用新的 `run_all_warnings` 方法，它不再计算风险，而是分析由认知层计算好的风险
-        print("  [指挥链 3/7] 正在运行预警层...")
+        # print("  [指挥链 3/7] 正在运行预警层...")
         risk_score, risk_details_df, risk_momentum, risk_dynamics = self.warning_layer.run_all_warnings()
-        # 将分析结果存入实例属性，供下游模块使用
-        self.df_indicators['risk_score'] = risk_score # 融合后的风险总分
-        self.risk_score = risk_score # 兼容旧的属性访问
-        self.risk_details_df = risk_details_df # 各维度风险分详情
-        self.risk_momentum = risk_momentum # 风险动量（斜率、加速度）分析结果
-        self.risk_dynamics = risk_dynamics # 风险动态（新增、持续、解决）分析结果
+        self.df_indicators['risk_score'] = risk_score
+        self.risk_score = risk_score
+        self.risk_details_df = risk_details_df
+        self.risk_momentum = risk_momentum
+        self.risk_dynamics = risk_dynamics
         # --- 指挥链 4/7: 统合判断层 ---
-        # JudgmentLayer 接收进攻详情和统一后的风险详情，进行纯数值化决策
-        print("  [指挥链 4/7] 正在运行判断层...")
+        # print("  [指挥链 4/7] 正在运行判断层...")
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
         # --- 指挥链 5/7: 离场层 (生成独立的硬性离场信号) ---
-        # ExitLayer 现在只生成技术性离场信号，不参与计分
-        print("  [指挥链 5/7] 正在运行离场层...")
+        # print("  [指挥链 5/7] 正在运行离场层...")
         hard_exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
-        # 将硬性离场信号合并到主DataFrame中，确保其最终执行力
         is_hard_exit_triggered = hard_exit_triggers_df.any(axis=1)
         self.df_indicators.loc[is_hard_exit_triggered, 'signal_type'] = '卖出信号'
-        # 将硬性离场详情也保存起来，用于调试和记录
         self.exit_triggers = hard_exit_triggers_df 
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
-        print("  [指挥链 6/7] 正在运行模拟层...")
+        # print("  [指挥链 6/7] 正在运行模拟层...")
         self.simulation_layer.run_position_management_simulation()
-        print("  [指挥链 7/7] 正在运行报告层...")
+        # print("  [指挥链 7/7] 正在运行报告层...")
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
-        
-        # 手动进行垃圾回收，清理临时变量，优化内存使用
         try:
             del entry_score, risk_score, risk_details_df, risk_momentum, risk_dynamics
             gc.collect()
         except NameError:
             pass
-        # 返回主分析结果、进攻得分详情、风险得分详情
         return self.df_indicators, score_details_df, self.risk_details_df
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
