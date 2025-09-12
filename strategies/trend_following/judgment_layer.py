@@ -36,40 +36,51 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 健壮性修复版】生成人类可读的信号摘要。
-        - 核心修复: 修复了因 score_details_df 和 risk_details_df 索引不一致导致的 KeyError。
-        - 修复逻辑:
-        1. 不再依赖任何一个详情DataFrame的索引进行迭代。
-        2. 改为迭代主数据帧 `self.strategy.df_indicators.index`，这是一个包含所有日期的“全集”索引。
-        3. 在循环内部，使用 `if idx in df.index:` 的安全检查，确保只在详情DataFrame中存在该日期时才尝试访问，
-            从而彻底避免了 KeyError。
+        【V2.1 · 最终修复版】生成人类可读的信号摘要。
+        - 核心修复 (本次修改):
+          - [根除BUG] 彻底重写了信号名处理逻辑，使其与 reporting_layer 中的健壮逻辑完全一致。
+          - 现在会正确、智能地剥离所有已知前缀（如 `SETUP_`, `TRIGGER_` 等），然后再去信号字典中查找中文名。
+        - 收益: 解决了因错误的信号名处理逻辑可能导致的、隐晦的Pandas数据污染问题，这是导致下游报告层接收到全零数据的最终根源。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         summaries = []
+        
+        # 新增行：定义已知的前缀列表，与 reporting_layer 保持完全一致
+        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
+
         # 使用主DataFrame的索引进行迭代，确保覆盖所有日期
         for idx in self.strategy.df_indicators.index:
             day_summary = {'offense': [], 'risk': []}
+            
             # 安全地处理进攻项
             if idx in score_details_df.index:
                 active_offense_signals = score_details_df.loc[idx]
                 active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
                 for signal, score in active_offense_signals.items():
-                    # 从信号名中提取基础名称 (例如从 DYN_SCORE_... 提取 SCORE_...)
-                    base_signal_name = signal.split('_', 1)[1] if '_' in signal else signal
+                    # --- 新增开始：使用健壮的前缀剥离逻辑 ---
+                    base_signal_name = signal
+                    for prefix in prefixes_to_strip:
+                        if signal.startswith(prefix):
+                            base_signal_name = signal[len(prefix):]
+                            break
+                    # --- 新增结束 ---
+                    
+                    # 修改行：使用正确的基础信号名进行查找
                     cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
                     day_summary['offense'].append(f"{cn_name} ({int(score)})")
+
             # 安全地处理风险项
             if idx in risk_details_df.index:
                 active_risk_signals = risk_details_df.loc[idx]
                 active_risk_signals = active_risk_signals[active_risk_signals > 0].sort_values(ascending=False)
                 for signal, score in active_risk_signals.items():
-                    # 风险信号的名称已经是 FUSED_RISK_SCORE_...，不需要提取base_name
-                    # 或者说，我们需要在score_map中定义这些融合后的风险信号
-                    # 为了兼容，我们先假设score_map里有这些键
+                    # 风险信号通常没有前缀，直接查找即可
                     cn_name = score_map.get(signal, {}).get('cn_name', signal)
                     day_summary['risk'].append(f"{cn_name} ({int(score)})")
+            
             summaries.append(day_summary)
+            
         return pd.Series(summaries, index=self.strategy.df_indicators.index)
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
