@@ -562,8 +562,8 @@ def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
     """
     # 检查series是否为空或窗口是否有效，pandas_ta本身很健壮，但显式检查是好习惯
     if series.empty or window < 2:
-        if window < 2:
-            print(f"DEBUG: 调用 _calculate_slope 时接收到无效的窗口大小 window={window}，该值小于2，无法计算斜率，将返回NaN。")
+        # if window < 2:
+            # print(f"DEBUG: 调用 _calculate_slope 时接收到无效的窗口大小 window={window}，该值小于2，无法计算斜率，将返回NaN。")
         return pd.Series(np.nan, index=series.index)
 
     # 定义计算斜率所需的最小周期数
@@ -766,7 +766,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
     # 【新增】解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
     # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
     # pandas_ta等数值计算库无法处理Decimal类型，因此在计算前必须将所有数值列统一转换为float64。
-    print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...")
+    # print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...")
     for col in final_metrics_df.columns:
         # 检查列的数据类型是否为 'object'，这通常是混合了float和Decimal的标志
         if final_metrics_df[col].dtype == 'object':
@@ -902,7 +902,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date or no new data"}
             # 在拼接(concat)和排序(sort_index)前，必须确保两者类型一致。
             if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
-                print(f"[{stock_code}] DEBUG: 正在将 new_metrics_df 的索引从 {type(new_metrics_df.index)} 转换为 pd.DatetimeIndex...")
+                # print(f"[{stock_code}] DEBUG: 正在将 new_metrics_df 的索引从 {type(new_metrics_df.index)} 转换为 pd.DatetimeIndex...")
                 new_metrics_df.index = pd.to_datetime(new_metrics_df.index)
             # 5. 准备用于衍生计算的完整DataFrame
             final_metrics_df = new_metrics_df
