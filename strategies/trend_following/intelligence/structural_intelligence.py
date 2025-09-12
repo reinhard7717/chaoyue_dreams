@@ -171,20 +171,23 @@ class StructuralIntelligence:
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
         """
-        【V1.1 性能优化版】计算MTF支柱的健康度
-        - 核心升级 (本次修改):
+        【V1.2 逻辑修复版】计算MTF支柱的健康度
+        - 核心修复 (本次修改):
+          - [BUG修复] 修复了因使用未导入的 `List` 类型提示而导致的 `NameError`。已将其修正为 Python 3.9+ 支持的内置 `list` 类型提示。
+        - 核心升级 (V1.1逻辑保留):
           - [性能优化] 将原有的 `pd.concat(...).mean()` 逻辑重构为使用 `np.stack` 和 `np.mean`。
           - [性能优化] 将最终融合的链式乘法也改为在NumPy数组上进行。
-        - 收益: 通过避免创建多个大型临时DataFrame和中间Series，显著降低了内存占用并提升了计算速度。
+        - 收益: 修复了导致程序崩溃的严重BUG，同时保持了V1.1版本带来的显著性能提升。
         """
         health = {}
         daily_momentum = self.strategy.atomic_states.get('SCORE_MA_DYN_RESONANCE', pd.Series(0.5, index=df.index))
         daily_accel = self.strategy.atomic_states.get('SCORE_MA_ACCEL_RESONANCE', pd.Series(0.5, index=df.index))
         weekly_slope_cols = [col for col in df.columns if 'SLOPE' in col and col.endswith('_W')]
         weekly_accel_cols = [col for col in df.columns if 'ACCEL' in col and col.endswith('_W')]
-        # 使用NumPy高效计算周线分数
         # 辅助函数，用于将多列Series高效地平均为一个Series
-        def get_weekly_avg_score(cols: List[str]) -> pd.Series:
+        # 修改开始: 修复类型提示错误，将 `List[str]` 改为 `list[str]`
+        def get_weekly_avg_score(cols: list[str]) -> pd.Series:
+        # 修改结束
             if not cols:
                 return pd.Series(0.5, index=df.index, dtype=np.float32)
             # 1. 获取所有归一化分数的NumPy数组列表
@@ -197,11 +200,9 @@ class StructuralIntelligence:
             return pd.Series(mean_values, index=df.index, dtype=np.float32)
         weekly_momentum = get_weekly_avg_score(weekly_slope_cols)
         weekly_accel = get_weekly_avg_score(weekly_accel_cols)
-        
         # 使用NumPy数组进行最终融合
         health_arr = (daily_momentum.values * daily_accel.values * weekly_momentum.values * weekly_accel.values)**(1/4)
         health_series = pd.Series(health_arr, index=df.index, dtype=np.float32)
-        
         for p in periods: # 尽管MTF不直接依赖periods，但为了结构统一，仍然循环
             health[p] = health_series # 所有周期的MTF健康度都一样
         return health
