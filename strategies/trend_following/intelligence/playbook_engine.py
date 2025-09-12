@@ -126,18 +126,19 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 剧本库扩充版】战术触发事件定义中心
-        - 核心重构 (本次修改):
-          - [触发器扩充] 为所有新剧本定义了对应的触发器，这些触发器基于对多个认知层信号的`AND`逻辑组合。
+        【V5.1 信号源修复版】战术触发事件定义中心
+        - 核心重构 (V5.0):
+          - [触发器扩充] 为所有新剧本定义了对应的触发器。
           - [阈值管理] 为所有新触发器增加了可配置的阈值。
-          - [逻辑增强] 增强了“持续点火”的逻辑，使其更鲁棒。
-        - 收益: 确保所有剧本的“扳机”都连接到了最新、最可靠的信号源，且逻辑严谨。
+        - 核心修复 (本次修改):
+          - [信号修复] 修复了“常规压缩突破”触发器中对 `SCORE_SQUEEZE_BREAKOUT_OPP_S`
+                        这个不存在信号的引用，替换为消费正确的 `COGNITIVE_SCORE_VOL_BREAKOUT_S` 信号。
+        - 收益: 确保了“常规压缩突破”剧本的触发逻辑能够正常工作。
         """
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         default_series = pd.Series(False, index=df.index)
-
         # --- 1. 定义动态阈值参数 ---
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
         thresholds = {
@@ -157,7 +158,6 @@ class PlaybookEngine:
             'prime_chip_ignition_s_plus_plus': get_param_value(p_triggers.get('prime_chip_ignition_s_plus_plus_threshold'), 0.7),
             # ▲▲▲ 新增结束 ▲▲▲
         }
-
         # --- 2. 定义基础触发器 (逻辑不变) ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
         is_green = df['close_D'] > df['open_D']
@@ -168,48 +168,40 @@ class PlaybookEngine:
         recovery_ratio = get_param_value(p_dominant.get('recovery_ratio'), 0.5)
         is_power_recovered = today_body_size >= (yesterday_body_size * recovery_ratio)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = is_green & is_strong_rally & (~was_yesterday_red | is_power_recovered)
-
         # --- 3. 定义元融合与战术场景触发器 (部分保留，部分新增) ---
         triggers['TRIGGER_BOTTOM_REVERSAL_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score) > thresholds['bottom_reversal_s']
         triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & triggers['TRIGGER_DOMINANT_REVERSAL']
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
         triggers['TRIGGER_SHAKEOUT_REVERSAL_A'] = atomic.get('COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A', default_score) > thresholds['shakeout_reversal_a']
         triggers['TRIGGER_CONSOLIDATION_BREAKOUT_A'] = atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score) > thresholds['consolidation_breakout_a']
-        
         # ▼▼▼ 新增: 为新剧本定义触发器 ▼▼▼
         # 剧本: 洗盘吸筹后反转
         triggers['TRIGGER_WASHOUT_ABSORPTION_REVERSAL_A_PLUS'] = atomic.get('COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL', default_score) > thresholds['washout_reversal_a_plus']
-        
         # 剧本: 核心庄家点火
         triggers['TRIGGER_CORE_HOLDER_IGNITION_S_PLUS'] = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-
         # 剧本: 主升浪点火
         is_in_main_uptrend = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
         ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
         triggers['TRIGGER_UPTREND_IGNITION_RESONANCE_S'] = is_in_main_uptrend & (ignition_score > thresholds['ignition_s'])
-
         # 剧本: 压缩突破系列
         vol_compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score)
         platform_quality_score = atomic.get('SCORE_PLATFORM_QUALITY_S', default_score)
-        squeeze_breakout_score = atomic.get('SCORE_SQUEEZE_BREAKOUT_OPP_S', default_score)
+        # 修改开始: 修复对不存在信号的引用，替换为正确的波动率突破信号
+        squeeze_breakout_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_S', default_score)
+        # 修改结束
         vol_breakout_a_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_A', default_score)
-        
         setup_extreme_squeeze = vol_compression_score > 0.9
         triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = setup_extreme_squeeze.shift(1).fillna(False) & (squeeze_breakout_score > thresholds['extreme_squeeze_s_plus'])
-        
         setup_breakout_eve = (platform_quality_score * vol_compression_score) > 0.7
         triggers['TRIGGER_BREAKOUT_EVE_S'] = setup_breakout_eve.shift(1).fillna(False) & (ignition_score > thresholds['breakout_eve_s'])
-
         setup_normal_squeeze = vol_compression_score > 0.5
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
         # ▲▲▲ 新增结束 ▲▲▲
-
         # --- 4. 定义“持续点火”确认触发器 (逻辑增强) ---
         # 4.1 定义基础点火事件
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']
         initial_chip_ignition = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > thresholds['chip_ignition_s']
-        
         # 4.2 定义失效条件：在观察期内出现重大风险
         invalidation_risk_score = np.maximum.reduce([
             atomic.get('COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S', default_score).values,
@@ -218,22 +210,18 @@ class PlaybookEngine:
         ])
         invalidation_risk_series = pd.Series(invalidation_risk_score, index=df.index)
         risk_remained_low = invalidation_risk_series.rolling(window=3, min_periods=1).max() < thresholds['invalidation_risk']
-
         # 4.3 定义“持续点火” - 多域点火
         # 检查过去N天内是否有过点火，并且今天不再是首次点火日
         had_recent_ignition = initial_ignition.rolling(window=3, min_periods=1).max().astype(bool)
         is_sustained_day = had_recent_ignition & ~initial_ignition
         triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS'] = is_sustained_day & risk_remained_low
-
         # 4.4 定义“持续点火” - 黄金筹码点火
         setup_prime_chip = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > 0.7
         triggers['TRIGGER_PRIME_CHIP_IGNITION_S_PLUS_PLUS'] = setup_prime_chip & triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS']
-
         # --- 5. 最终安全检查 ---
         for key in list(triggers.keys()):
             if key in triggers and isinstance(triggers[key], pd.Series):
                  triggers[key] = triggers[key].fillna(False)
-
         return triggers
 
 
