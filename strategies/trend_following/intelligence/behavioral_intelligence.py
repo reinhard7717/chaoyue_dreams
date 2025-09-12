@@ -398,21 +398,18 @@ class BehavioralIntelligence:
 
     def diagnose_multi_dimensional_resonance(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 背离增强版】多维共振与反转诊断模块
+        【V2.2 性能优化版】多维共振与反转诊断模块
         - 核心升级 (本次修改):
-          - [信号增强] 在原有共振与反转信号的基础上，新增两类“背离”信号，使“比对”逻辑更明确。
-          - [滞涨背离] 新增 `SCORE_DIVERGENCE_STAGNATION`，捕捉“静态高位 vs. 动态衰竭”的背离。
-          - [力竭背离] 新增 `SCORE_DIVERGENCE_EXHAUSTION`，捕捉“动态上升 vs. 加速放缓”的背离。
-        - 收益: 信号体系更加完备，不仅能识别趋势的“共振”，还能更灵敏地捕捉趋势由强转弱的“背离”迹象。
-        - 数据需求说明 (根据“最终军械库清单”核对):
-          - 分析周期: [1, 5, 13, 21, 55]
-          - `main_force_net_flow_consensus_D`: [部分缺失] 缺失 ACCEL_55
-          - `chip_health_score_D`: [部分缺失] 缺失 SLOPE_13, ACCEL_13
-          - `concentration_90pct_D`: [完备]
-          - `flow_divergence_mf_vs_retail_D`: [部分缺失] 缺失 accel_1d, accel_55d
-          - 结论: 核心指标数据存在部分缺失，代码将自动跳过无法计算的周期，但可能影响S级信号的准确性。
+          - [性能优化] 在计算总共振信号 (SCORE_RESONANCE_UP_OVERALL_S) 时，
+                      将原有的 `pd.concat().prod()` 方式，重构为使用 `np.array()` 和 `np.prod()`。
+          - [信号增强] (V2.1逻辑保留) 在原有共振与反转信号的基础上，新增两类“背离”信号。
+          - [滞涨背离] (V2.1逻辑保留) 新增 `SCORE_DIVERGENCE_STAGNATION`，捕捉“静态高位 vs. 动态衰竭”的背离。
+          - [力竭背离] (V2.1逻辑保留) 新增 `SCORE_DIVERGENCE_EXHAUSTION`，捕捉“动态上升 vs. 加速放缓”的背离。
+        - 收益:
+          - 通过避免创建大型临时DataFrame，显著降低了内存峰值占用，并提升了计算速度，尤其在长周期回测中效果更佳。
+          - 信号体系更加完备，不仅能识别趋势的“共振”，还能更灵敏地捕捉趋势由强转弱的“背离”迹象。
         """
-        # print("        -> [多维共振诊断模块 V2.1 背离增强版] 启动...")
+        # print("        -> [多维共振诊断模块 V2.2 性能优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'resonance_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -440,7 +437,7 @@ class BehavioralIntelligence:
                 accel_col = f'ACCEL_{period}_{base_name}'
                 required_cols = [static_col, slope_col, accel_col]
                 if not all(c in df.columns for c in required_cols):
-                    print(f"        -> [多维共振诊断] 警告: 缺少 '{base_name}' 周期 {period} 的列: {required_cols}，跳过。")
+                    # print(f"        -> [多维共振诊断] 警告: 缺少 '{base_name}' 周期 {period} 的列: {required_cols}，跳过。")
                     continue
                 static_score = self._normalize_series(df[static_col], norm_window, min_periods)
                 slope_score = self._normalize_series(df[slope_col], norm_window, min_periods)
@@ -449,7 +446,7 @@ class BehavioralIntelligence:
                     static_score, slope_score, accel_score = 1 - static_score, 1 - slope_score, 1 - accel_score
                 per_metric_scores['static'][base_name][period] = static_score
                 per_metric_scores['slope'][base_name][period] = slope_score
-                per_metric_scores['accel'][base_name][period] = accel_score # 存储accel_score用于背离计算
+                per_metric_scores['accel'][base_name][period] = accel_score
                 up_resonance = static_score * slope_score * accel_score
                 down_resonance = (1 - static_score) * (1 - slope_score) * (1 - accel_score)
                 per_metric_scores['up_resonance'][base_name][period] = up_resonance
@@ -457,11 +454,11 @@ class BehavioralIntelligence:
         # --- 2. 合成各指标的 S/A/B 级共振、精准反转与新增的背离信号 ---
         all_s_level_up_scores = []
         all_s_level_down_scores = []
-        for base_name, periods, _ in metrics_to_analyze: # 修改: 引入periods
+        for base_name, periods, _ in metrics_to_analyze:
             metric_key = base_name.replace("_D", "")
             up_res = per_metric_scores['up_resonance'][base_name]
             down_res = per_metric_scores['down_resonance'][base_name]
-            # --- 合成上升/下跌共振 S/A/B 信号 (逻辑同V2.0) ---
+            # --- 合成上升/下跌共振 S/A/B 信号 ---
             if 21 in up_res:
                 states[f'SCORE_RESONANCE_UP_{metric_key}_B'] = up_res[21].astype(np.float32)
                 if 55 in up_res:
@@ -478,7 +475,7 @@ class BehavioralIntelligence:
                         s_score = (down_res[5] * down_res[21] * down_res[55])
                         states[f'SCORE_RESONANCE_DOWN_{metric_key}_S'] = s_score.astype(np.float32)
                         all_s_level_down_scores.append(s_score)
-            # --- 合成精准反转信号 (逻辑同V2.0) ---
+            # --- 合成精准反转信号 ---
             static_scores = per_metric_scores['static'][base_name]
             slope_scores = per_metric_scores['slope'][base_name]
             if 55 in static_scores and 5 in slope_scores:
@@ -488,22 +485,27 @@ class BehavioralIntelligence:
             accel_scores = per_metric_scores['accel'][base_name]
             for period in periods:
                 if period in static_scores and period in slope_scores and period in accel_scores:
-                    # 滞涨背离 = 静态高位 * 动态衰竭
                     stagnation_divergence = static_scores[period] * (1 - slope_scores[period])
                     states[f'SCORE_DIVERGENCE_STAGNATION_{metric_key}_{period}D'] = stagnation_divergence.astype(np.float32)
-                    # 力竭背离 = 动态上升 * 加速放缓
                     exhaustion_divergence = slope_scores[period] * (1 - accel_scores[period])
                     states[f'SCORE_DIVERGENCE_EXHAUSTION_{metric_key}_{period}D'] = exhaustion_divergence.astype(np.float32)
-        # --- 3. 合成总共振信号 (逻辑同V2.0) ---
+        # --- 3. 合成总共振信号 ---
         if all_s_level_up_scores:
             num_metrics = len(all_s_level_up_scores)
-            overall_up_s = pd.concat(all_s_level_up_scores, axis=1).prod(axis=1)**(1/num_metrics)
-            states['SCORE_RESONANCE_UP_OVERALL_S'] = overall_up_s.astype(np.float32)
+            # 1. 将Series列表转换为一个2D NumPy数组，形状为 (指标数量, 时间序列长度)
+            stacked_scores = np.array([s.values for s in all_s_level_up_scores])
+            # 2. 沿第一个轴（指标维度）计算所有分数的乘积
+            prod_scores = np.prod(stacked_scores, axis=0)
+            # 3. 计算几何平均数，并重新构建为带索引的Pandas Series
+            overall_up_s = pd.Series(prod_scores**(1/num_metrics), index=df.index, dtype=np.float32)
+            states['SCORE_RESONANCE_UP_OVERALL_S'] = overall_up_s
         if all_s_level_down_scores:
             num_metrics = len(all_s_level_down_scores)
-            overall_down_s = pd.concat(all_s_level_down_scores, axis=1).prod(axis=1)**(1/num_metrics)
-            states['SCORE_RESONANCE_DOWN_OVERALL_S'] = overall_down_s.astype(np.float32)
-        # print(f"        -> [多维共振诊断模块 V2.1] 已生成 {len(states)} 个共振、反转与背离信号。")
+            stacked_scores = np.array([s.values for s in all_s_level_down_scores])
+            prod_scores = np.prod(stacked_scores, axis=0)
+            overall_down_s = pd.Series(prod_scores**(1/num_metrics), index=df.index, dtype=np.float32)
+            states['SCORE_RESONANCE_DOWN_OVERALL_S'] = overall_down_s
+        # print(f"        -> [多维共振诊断模块 V2.2] 已生成 {len(states)} 个共振、反转与背离信号。")
         return states
 
     def diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -21,7 +21,8 @@ class DynamicMechanicsEngine:
         # 使用滚动窗口计算百分比排名，空值用0.5填充，代表中位数水平
         rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         # 根据ascending参数决定排名方向
-        return rank if ascending else 1 - rank
+        result = rank if ascending else 1 - rank
+        return result.astype(np.float32)
 
     def run_dynamic_analysis_command(self) -> None:
         """
@@ -43,16 +44,17 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 七维力学版】终极动态力学信号诊断模块
-        - 核心重构 (本次修改):
-          - 1. 维度扩展: 在V2.0纯粹力学引擎的四维（价、量、波、效）基础上，新增三大核心力学维度：
-              - 力的性质 (主力资金强度): `main_force_flow_intensity_ratio_D`
-              - 动能 (真实波幅): `ATR_14_D`
-              - 惯性 (趋势强度): `ADX_14_D`
-          - 2. 模型升级: 构建了一个七维超完备力学模型，对每个周期的“完美动态力学健康度”进行更深度的交叉验证。
-        - 收益: 引擎对市场动态的刻画更全面、更立体。例如，它现在不仅知道趋势在加速（价格），还知道这种加速是由“主力”推动（力的性质），且趋势本身的“惯性”正在增强，极大提升了信号的置信度和可靠性。
+        【V3.1 性能优化版】终极动态力学信号诊断模块
+        - 核心升级 (本次修改):
+          - [性能优化] 在计算各周期“完美动态力学健康度”时，重构了计算逻辑。
+          - [新范式] 改为使用 `np.stack` 将各维度健康度得分的NumPy数组堆叠起来，然后使用 `np.prod` 沿轴计算几何平均值。
+        - 核心重构 (V3.0逻辑保留):
+          - [维度扩展] 采用七维（价、量、波、效、力的性质、动能、惯性）超完备力学模型。
+        - 收益:
+          - 通过避免在循环中创建多个大型临时Pandas Series，显著降低了内存流转（churn）并提升了计算速度。
+          - 引擎对市场动态的刻画更全面、更立体，信号置信度和可靠性高。
         """
-        # print("        -> [终极动态力学信号诊断模块 V3.0 七维力学版] 启动...")
+        # print("        -> [终极动态力学信号诊断模块 V3.1 性能优化版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -63,11 +65,10 @@ class DynamicMechanicsEngine:
             'close_D', 'volume_D', 'BBW_21_2.0_D', 'VPA_EFFICIENCY_D',
             'main_force_flow_intensity_ratio_D', 'ATR_14_D', 'ADX_14_D'
         ]
-        required_cols = set(metrics) # 静态值
+        required_cols = set(metrics)
         for p in periods:
             for metric in metrics:
-                # 动态构建所需列名，并处理特殊情况
-                if metric in ['BBW_21_2.0_D'] and p not in [5]: # BBW的斜率/加速度通常只计算短期
+                if metric in ['BBW_21_2.0_D'] and p not in [5]:
                      continue
                 required_cols.add(f'SLOPE_{p}_{metric}')
                 required_cols.add(f'ACCEL_{p}_{metric}')
@@ -78,49 +79,66 @@ class DynamicMechanicsEngine:
         # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # 1. 价格健康度 (越高越好)
         price_static = self._normalize_series(df['close_D'], norm_window, min_periods)
         price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
         price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
-        # 2. 成交量健康度 (放量/增量为优)
         volume_static = self._normalize_series(df['volume_D'], norm_window, min_periods)
         volume_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
         volume_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
-        # 3. 波动率健康度 (压缩蓄势为优静态, 扩张爆发为优动态)
         volatility_static = self._normalize_series(df['BBW_21_2.0_D'], norm_window, min_periods, ascending=False)
         volatility_mom = {p: self._normalize_series(df[f'SLOPE_{p}_BBW_21_2.0_D'], norm_window, min_periods) for p in [5]}
         volatility_accel = {p: self._normalize_series(df[f'ACCEL_{p}_BBW_21_2.0_D'], norm_window, min_periods) for p in [5]}
-        # 4. 效率健康度 (越高越好)
         efficiency_static = self._normalize_series(df['VPA_EFFICIENCY_D'], norm_window, min_periods)
         efficiency_mom = {p: self._normalize_series(df[f'SLOPE_{p}_VPA_EFFICIENCY_D'], norm_window, min_periods) for p in periods}
         efficiency_accel = {p: self._normalize_series(df[f'ACCEL_{p}_VPA_EFFICIENCY_D'], norm_window, min_periods) for p in periods}
-        # 5. 力的性质健康度 (主力强度越高越好)
         force_quality_static = self._normalize_series(df['main_force_flow_intensity_ratio_D'], norm_window, min_periods)
         force_quality_mom = {p: self._normalize_series(df[f'SLOPE_{p}_main_force_flow_intensity_ratio_D'], norm_window, min_periods) for p in periods}
         force_quality_accel = {p: self._normalize_series(df[f'ACCEL_{p}_main_force_flow_intensity_ratio_D'], norm_window, min_periods) for p in periods}
-        # 6. 动能健康度 (波动越大, 动能越强)
         kinetic_energy_static = self._normalize_series(df['ATR_14_D'], norm_window, min_periods)
         kinetic_energy_mom = {p: self._normalize_series(df[f'SLOPE_{p}_ATR_14_D'], norm_window, min_periods) for p in periods}
         kinetic_energy_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ATR_14_D'], norm_window, min_periods) for p in periods}
-        # 7. 惯性健康度 (趋势强度越大越好)
         inertia_static = self._normalize_series(df['ADX_14_D'], norm_window, min_periods)
         inertia_mom = {p: self._normalize_series(df[f'SLOPE_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美动态力学健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
+        # 修改开始: 预先将静态Series转换为NumPy数组，以提高循环内性能
+        price_static_arr = price_static.values
+        volume_static_arr = volume_static.values
+        volatility_static_arr = volatility_static.values
+        efficiency_static_arr = efficiency_static.values
+        force_quality_static_arr = force_quality_static.values
+        kinetic_energy_static_arr = kinetic_energy_static.values
+        inertia_static_arr = inertia_static.values
+        # 修改结束
         for p in periods:
-            price_health = (price_static * price_mom[p] * price_accel[p])**(1/3)
-            volume_health = (volume_static * volume_mom[p] * volume_accel[p])**(1/3)
+            # 修改开始: 直接在NumPy数组上进行计算，避免生成中间Pandas Series
+            # 为每个维度计算周期健康度数组
+            price_health_arr = (price_static_arr * price_mom[p].values * price_accel[p].values)**(1/3)
+            volume_health_arr = (volume_static_arr * volume_mom[p].values * volume_accel[p].values)**(1/3)
             if p in volatility_mom:
-                 volatility_health = (volatility_static * volatility_mom[p] * volatility_accel[p])**(1/3)
+                 volatility_health_arr = (volatility_static_arr * volatility_mom[p].values * volatility_accel[p].values)**(1/3)
             else:
-                 volatility_health = volatility_static
-            efficiency_health = (efficiency_static * efficiency_mom[p] * efficiency_accel[p])**(1/3)
-            force_quality_health = (force_quality_static * force_quality_mom[p] * force_quality_accel[p])**(1/3)
-            kinetic_energy_health = (kinetic_energy_static * kinetic_energy_mom[p] * kinetic_energy_accel[p])**(1/3)
-            inertia_health = (inertia_static * inertia_mom[p] * inertia_accel[p])**(1/3)
-            # 最终的周期健康度是七大模块健康度的几何平均
-            bullish_health[p] = (price_health * volume_health * volatility_health * efficiency_health * force_quality_health * kinetic_energy_health * inertia_health)**(1/7)
+                 volatility_health_arr = volatility_static_arr # 直接使用静态数组
+            efficiency_health_arr = (efficiency_static_arr * efficiency_mom[p].values * efficiency_accel[p].values)**(1/3)
+            force_quality_health_arr = (force_quality_static_arr * force_quality_mom[p].values * force_quality_accel[p].values)**(1/3)
+            kinetic_energy_health_arr = (kinetic_energy_static_arr * kinetic_energy_mom[p].values * kinetic_energy_accel[p].values)**(1/3)
+            inertia_health_arr = (inertia_static_arr * inertia_mom[p].values * inertia_accel[p].values)**(1/3)
+            # 将所有维度的健康度数组堆叠成一个2D NumPy数组
+            health_components_arr = np.stack([
+                price_health_arr,
+                volume_health_arr,
+                volatility_health_arr,
+                efficiency_health_arr,
+                force_quality_health_arr,
+                kinetic_energy_health_arr,
+                inertia_health_arr
+            ], axis=0)
+            # 沿0轴（维度轴）计算所有分数的乘积，然后开7次方根，得到最终的几何平均值
+            final_health_arr = np.prod(health_components_arr, axis=0)**(1/7)
+            # 将最终的NumPy结果数组包装回带索引的Pandas Series
+            bullish_health[p] = pd.Series(final_health_arr, index=df.index, dtype=np.float32)
+            # 修改结束
         bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 (此部分逻辑不变) ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
@@ -142,14 +160,13 @@ class DynamicMechanicsEngine:
         states['SCORE_DYN_BOTTOM_REVERSAL_B'] = (bullish_health[1] * bearish_health[21]).astype(np.float32)
         states['SCORE_DYN_BOTTOM_REVERSAL_A'] = (bullish_health[5] * bearish_health[21]).astype(np.float32)
         states['SCORE_DYN_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
+        states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_B'] = (bearish_health[1] * bullish_health[21]).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极动态力学信号诊断模块 V3.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
+        # print(f"        -> [终极动态力学信号诊断模块 V3.1] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
-
 
 
 

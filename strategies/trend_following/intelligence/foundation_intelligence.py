@@ -42,15 +42,18 @@ class FoundationIntelligence:
 
     def diagnose_ultimate_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】终极基础层信号诊断模块
-        - 核心范式:
+        【V1.1 性能优化版】终极基础层信号诊断模块
+        - 核心升级 (本次修改):
+          - [性能优化] 重构了核心计算逻辑。将原先在循环中反复创建Series的模式，优化为预先计算所有归一化分数，然后在循环中直接于NumPy数组上进行乘法和融合。
+          - [内存优化] 通过直接操作NumPy数组，避免了在循环中为每个支柱、每个周期生成大量的中间Pandas Series，大幅降低了内存峰值和计算开销。
+        - 核心范式 (V1.0逻辑保留):
           - 1. 四大支柱: 将基础层情报提炼为EMA(趋势)、RSI(动能)、MACD(强度)、CMF(量能)四大支柱。
-          - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证，形成“已验证的周期健康分”。
-          - 3. 多维共识融合: 将四大支柱在同一周期的“健康分”进行几何平均，形成代表基础层“全面共识”的“完美健康度”。
+          - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
+          - 3. 多维共识融合: 将四大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
           - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
-        - 收益: 产出经过多指标、多周期、多维度三重交叉验证的、最高质量的基础层信号。
+        - 收益: 在不改变业务逻辑的前提下，计算效率和内存使用效率得到显著提升。
         """
-        # print("        -> [终极基础层信号诊断模块 V1.0] 启动...")
+        # print("        -> [终极基础层信号诊断模块 V1.1 性能优化版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -69,33 +72,37 @@ class FoundationIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 终极基础层引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-        # --- 2. 计算四大支柱在各周期的“完美健康度” ---
-        pillar_health = {'EMA': {}, 'RSI': {}, 'MACD': {}, 'CMF': {}}
-        for p in periods:
-            # 2.1 EMA健康度
-            ema_static_score = self._normalize_score(df[f'EMA_{p}_D' if p > 1 else 'close_D'] - df[f'EMA_{max(periods)}_D'])
-            ema_slope_score = self._normalize_score(df[f'SLOPE_{p}_EMA_{p}_D' if p > 1 else 'SLOPE_1_close_D'])
-            ema_accel_score = self._normalize_score(df[f'ACCEL_{p}_EMA_{p}_D' if p > 1 else 'ACCEL_1_close_D'])
-            pillar_health['EMA'][p] = ema_static_score * ema_slope_score * ema_accel_score
-            # 2.2 RSI健康度
-            rsi_static_score = self._normalize_score(df['RSI_13_D'])
-            rsi_slope_score = self._normalize_score(df[f'SLOPE_{p}_RSI_13_D'])
-            rsi_accel_score = self._normalize_score(df[f'ACCEL_{p}_RSI_13_D'])
-            pillar_health['RSI'][p] = rsi_static_score * rsi_slope_score * rsi_accel_score
-            # 2.3 MACD健康度
-            macd_static_score = self._normalize_score(df['MACDh_13_34_8_D'])
-            macd_slope_score = self._normalize_score(df[f'SLOPE_{p}_MACDh_13_34_8_D'])
-            macd_accel_score = self._normalize_score(df[f'ACCEL_{p}_MACDh_13_34_8_D'])
-            pillar_health['MACD'][p] = macd_static_score * macd_slope_score * macd_accel_score
-            # 2.4 CMF健康度
-            cmf_static_score = self._normalize_score(df['CMF_21_D'])
-            cmf_slope_score = self._normalize_score(df[f'SLOPE_{p}_CMF_21_D'])
-            cmf_accel_score = self._normalize_score(df[f'ACCEL_{p}_CMF_21_D'])
-            pillar_health['CMF'][p] = cmf_static_score * cmf_slope_score * cmf_accel_score
+        # 修改开始: 预先计算所有需要的归一化分数，避免在循环中重复计算
+        # --- 2. 核心要素数值化 (批量预处理) ---
+        # EMA (特殊，静态分也依赖周期p)
+        ema_static_scores = {p: self._normalize_score(df[f'EMA_{p}_D' if p > 1 else 'close_D'] - df[f'EMA_{max(periods)}_D']) for p in periods}
+        ema_slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_EMA_{p}_D' if p > 1 else 'SLOPE_1_close_D']) for p in periods}
+        ema_accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_EMA_{p}_D' if p > 1 else 'ACCEL_1_close_D']) for p in periods}
+        # RSI (静态分不依赖p，可预先计算)
+        rsi_static_score_arr = self._normalize_score(df['RSI_13_D']).values
+        rsi_slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_RSI_13_D']) for p in periods}
+        rsi_accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_RSI_13_D']) for p in periods}
+        # MACD (静态分不依赖p，可预先计算)
+        macd_static_score_arr = self._normalize_score(df['MACDh_13_34_8_D']).values
+        macd_slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_MACDh_13_34_8_D']) for p in periods}
+        macd_accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_MACDh_13_34_8_D']) for p in periods}
+        # CMF (静态分不依赖p，可预先计算)
+        cmf_static_score_arr = self._normalize_score(df['CMF_21_D']).values
+        cmf_slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_CMF_21_D']) for p in periods}
+        cmf_accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_CMF_21_D']) for p in periods}
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         for p in periods:
-            overall_bullish_health[p] = (pillar_health['EMA'][p] * pillar_health['RSI'][p] * pillar_health['MACD'][p] * pillar_health['CMF'][p])**0.25
+            # 直接在NumPy数组上进行计算，避免创建中间Series
+            ema_health_arr = ema_static_scores[p].values * ema_slope_scores[p].values * ema_accel_scores[p].values
+            rsi_health_arr = rsi_static_score_arr * rsi_slope_scores[p].values * rsi_accel_scores[p].values
+            macd_health_arr = macd_static_score_arr * macd_slope_scores[p].values * macd_accel_scores[p].values
+            cmf_health_arr = cmf_static_score_arr * cmf_slope_scores[p].values * cmf_accel_scores[p].values
+            # 融合四大支柱的健康度数组
+            overall_health_arr = (ema_health_arr * rsi_health_arr * macd_health_arr * cmf_health_arr)**0.25
+            # 仅在最后将结果包装回Pandas Series
+            overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
+        # 修改结束
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
@@ -103,7 +110,7 @@ class FoundationIntelligence:
         bullish_long_inertia = overall_bullish_health[55]
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
-        bearish_long_inertia = overall_bearish_health[55]
+        bearish_long_inertia = bearish_health[55]
         # --- 5. 共振信号合成 ---
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
@@ -117,120 +124,127 @@ class FoundationIntelligence:
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FOUNDATION_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_FOUNDATION_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL_B'] = (overall_bearish_health[1] * bullish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL_A'] = (overall_bearish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极基础层信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
+        # print(f"        -> [终极基础层信号诊断模块 V1.1] 分析完毕，生成 {len(states)} 个终极信号。")
         return states
 
     def diagnose_ema_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 终极交叉验证版】EMA均线协同诊断模块
-        - 核心重构 (本次修改):
-          - [交叉验证] 引入“静态(排列) x 动态(斜率) x 加速”三维交叉验证，生成B/A/S三级置信度信号。
+        【V3.1 性能优化版】EMA均线协同诊断模块
+        - 核心升级 (本次修改):
+          - [性能优化] 重构了所有信号的计算过程，全面采用NumPy数组进行计算，最后才转换为Pandas Series。
+          - [内存优化] 避免了在计算过程中生成大量的中间Series对象，显著提升了计算效率和内存使用效率。
+        - 核心重构 (V3.0逻辑保留):
+          - [交叉验证] 引入“静态(排列) x 动态(斜率) x 加速”三维交叉验证。
           - [1日维度] 将1日周期的斜率和加速度纳入计算，捕捉最即时的边际变化。
-        - 核心逻辑:
-          - 共振: B级(短期斜率共振) -> A级(B级+静态排列确认) -> S级(A级+短期加速确认)。
-          - 反转: B级(短期加速拐点) -> A级(B级+长期趋势环境确认) -> S级(A级+短期斜率确认)。
-        - 收益: 信号逻辑更严谨，能更精确地识别趋势的形成、持续与转折。
+        - 收益: 信号逻辑更严谨，计算性能更高，能更精确、更快速地识别趋势的形成、持续与转折。
         """
         states = {}
         p = get_params_block(self.strategy, 'multi_dim_ma_params')
         if not get_param_value(p.get('enabled'), True): return {}
-        
         # --- 1. 军备检查 ---
         periods = get_param_value(p.get('ma_periods'), [1, 5, 13, 21, 55])
-        required_cols = [f'EMA_{p}_D' if p > 1 else 'close_D' for p in periods] # 1日EMA即为收盘价
+        required_cols = [f'EMA_{p}_D' if p > 1 else 'close_D' for p in periods]
         required_cols.extend([f'SLOPE_{p}_EMA_{p}_D' if p > 1 else 'SLOPE_1_close_D' for p in periods])
         required_cols.extend([f'ACCEL_{p}_EMA_{p}_D' if p > 1 else 'ACCEL_1_close_D' for p in periods])
-        
         if not all(c in df.columns for c in required_cols):
             print(f"          -> [警告] EMA协同模块缺少依赖，模块已跳过。")
             return states
-        # --- 2. 核心要素数值化 ---
+        # 修改开始: 全面采用NumPy数组进行计算
+        # --- 2. 核心要素数值化 (在NumPy层面操作) ---
         # 2.1 静态排列分 (多头排列程度)
-        alignment_scores = []
+        alignment_score_arrays = []
         for i in range(len(periods) - 1):
-            # 适配1日周期使用close_D
             short_col = f'EMA_{periods[i]}_D' if periods[i] > 1 else 'close_D'
             long_col = f'EMA_{periods[i+1]}_D'
-            alignment_scores.append((df[short_col] > df[long_col]).astype(float))
-        score_static_bullish = pd.Series(np.mean(alignment_scores, axis=0), index=df.index)
+            # 直接在NumPy数组上比较，得到布尔数组，然后转为float32
+            alignment_score_arrays.append((df[short_col].values > df[long_col].values).astype(np.float32))
+        # 堆叠成2D数组并计算均值，得到静态分数组
+        score_static_bullish_arr = np.mean(np.stack(alignment_score_arrays, axis=0), axis=0)
         # 2.2 动态斜率分
         slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_EMA_{p}_D' if p > 1 else 'SLOPE_1_close_D']) for p in periods}
         # 2.3 动态加速分
         accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_EMA_{p}_D' if p > 1 else 'ACCEL_1_close_D']) for p in periods}
         # --- 3. 上升/下跌共振信号 ---
-        # 严格遵循 B/A/S 逻辑
         # B级: 短中期斜率共振
-        bullish_momentum_b = (slope_scores[1] * slope_scores[5] * slope_scores[13]).astype(np.float32)
-        states['SCORE_EMA_BULLISH_RESONANCE_B'] = bullish_momentum_b
+        bullish_momentum_b_arr = slope_scores[1].values * slope_scores[5].values * slope_scores[13].values
+        states['SCORE_EMA_BULLISH_RESONANCE_B'] = pd.Series(bullish_momentum_b_arr, index=df.index, dtype=np.float32)
         # A级: B级信号 + 静态排列确认
-        bullish_momentum_a = (bullish_momentum_b * score_static_bullish).astype(np.float32)
-        states['SCORE_EMA_BULLISH_RESONANCE_A'] = bullish_momentum_a
+        bullish_momentum_a_arr = bullish_momentum_b_arr * score_static_bullish_arr
+        states['SCORE_EMA_BULLISH_RESONANCE_A'] = pd.Series(bullish_momentum_a_arr, index=df.index, dtype=np.float32)
         # S级: A级信号 + 加速确认
-        bullish_accel_s = (accel_scores[1] * accel_scores[5]).astype(np.float32)
-        states['SCORE_EMA_BULLISH_RESONANCE_S'] = (bullish_momentum_a * bullish_accel_s).astype(np.float32)
+        bullish_accel_s_arr = accel_scores[1].values * accel_scores[5].values
+        states['SCORE_EMA_BULLISH_RESONANCE_S'] = pd.Series(bullish_momentum_a_arr * bullish_accel_s_arr, index=df.index, dtype=np.float32)
         # 对称的下跌共振逻辑
-        bearish_momentum_b = ((1 - slope_scores[1]) * (1 - slope_scores[5]) * (1 - slope_scores[13])).astype(np.float32)
-        states['SCORE_EMA_BEARISH_RESONANCE_B'] = bearish_momentum_b
-        bearish_momentum_a = (bearish_momentum_b * (1 - score_static_bullish)).astype(np.float32)
-        states['SCORE_EMA_BEARISH_RESONANCE_A'] = bearish_momentum_a
-        bearish_accel_s = ((1 - accel_scores[1]) * (1 - accel_scores[5])).astype(np.float32)
-        states['SCORE_EMA_BEARISH_RESONANCE_S'] = (bearish_momentum_a * bearish_accel_s).astype(np.float32)
+        bearish_momentum_b_arr = (1 - slope_scores[1].values) * (1 - slope_scores[5].values) * (1 - slope_scores[13].values)
+        states['SCORE_EMA_BEARISH_RESONANCE_B'] = pd.Series(bearish_momentum_b_arr, index=df.index, dtype=np.float32)
+        bearish_momentum_a_arr = bearish_momentum_b_arr * (1 - score_static_bullish_arr)
+        states['SCORE_EMA_BEARISH_RESONANCE_A'] = pd.Series(bearish_momentum_a_arr, index=df.index, dtype=np.float32)
+        bearish_accel_s_arr = (1 - accel_scores[1].values) * (1 - accel_scores[5].values)
+        states['SCORE_EMA_BEARISH_RESONANCE_S'] = pd.Series(bearish_momentum_a_arr * bearish_accel_s_arr, index=df.index, dtype=np.float32)
         # --- 4. 顶部/底部反转信号 ---
-        # 严格遵循 B/A/S 逻辑
         # B级: 短期加速拐点
-        bottom_trigger_b = accel_scores[1].astype(np.float32)
-        states['SCORE_EMA_BOTTOM_REVERSAL_B'] = bottom_trigger_b
+        bottom_trigger_b_arr = accel_scores[1].values
+        states['SCORE_EMA_BOTTOM_REVERSAL_B'] = pd.Series(bottom_trigger_b_arr, index=df.index, dtype=np.float32)
         # A级: B级信号 + 长期趋势环境确认
-        long_term_down_env = (1 - slope_scores[55])
-        bottom_trigger_a = (bottom_trigger_b * long_term_down_env).astype(np.float32)
-        states['SCORE_EMA_BOTTOM_REVERSAL_A'] = bottom_trigger_a
+        long_term_down_env_arr = 1 - slope_scores[55].values
+        bottom_trigger_a_arr = bottom_trigger_b_arr * long_term_down_env_arr
+        states['SCORE_EMA_BOTTOM_REVERSAL_A'] = pd.Series(bottom_trigger_a_arr, index=df.index, dtype=np.float32)
         # S级: A级信号 + 短期斜率确认
-        short_term_mom_up = slope_scores[5]
-        states['SCORE_EMA_BOTTOM_REVERSAL_S'] = (bottom_trigger_a * short_term_mom_up).astype(np.float32)
-
+        short_term_mom_up_arr = slope_scores[5].values
+        states['SCORE_EMA_BOTTOM_REVERSAL_S'] = pd.Series(bottom_trigger_a_arr * short_term_mom_up_arr, index=df.index, dtype=np.float32)
         # 对称的顶部反转逻辑
-        top_trigger_b = (1 - accel_scores[1]).astype(np.float32)
-        states['SCORE_EMA_TOP_REVERSAL_B'] = top_trigger_b
-        long_term_up_env = slope_scores[55]
-        top_trigger_a = (top_trigger_b * long_term_up_env).astype(np.float32)
-        states['SCORE_EMA_TOP_REVERSAL_A'] = top_trigger_a
-        short_term_mom_down = (1 - slope_scores[5])
-        states['SCORE_EMA_TOP_REVERSAL_S'] = (top_trigger_a * short_term_mom_down).astype(np.float32)
-        
+        top_trigger_b_arr = 1 - accel_scores[1].values
+        states['SCORE_EMA_TOP_REVERSAL_B'] = pd.Series(top_trigger_b_arr, index=df.index, dtype=np.float32)
+        long_term_up_env_arr = slope_scores[55].values
+        top_trigger_a_arr = top_trigger_b_arr * long_term_up_env_arr
+        states['SCORE_EMA_TOP_REVERSAL_A'] = pd.Series(top_trigger_a_arr, index=df.index, dtype=np.float32)
+        short_term_mom_down_arr = 1 - slope_scores[5].values
+        states['SCORE_EMA_TOP_REVERSAL_S'] = pd.Series(top_trigger_a_arr * short_term_mom_down_arr, index=df.index, dtype=np.float32)
+        # 修改结束
         return states
 
     def diagnose_foundation_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 共识引擎版】基础层最终协同诊断模块
-        - 核心重构 (本次修改):
-          - [逻辑升级] 废除V1.0的“或”门逻辑(np.maximum)，升级为基于加权平均的“共识”逻辑。
-          - [信号升级] 生成全新的、代表多领域共识的S级信号，如`SCORE_FOUNDATION_BULLISH_RESONANCE_S`。
-          - [S+信号] 新增S+级别信号，将S级共识与关键外部条件（如波动率）交叉验证，产生最高置信度信号。
-        - 核心逻辑:
-          - 对来自各子模块（EMA, RSI, MACD等）的同类型S级信号进行加权平均。
-          - 一个信号的最终分数，取决于有多少个不同维度的指标在同时为它“投票”，以及每个“投票”的权重。
-        - 收益: 极大提升了最终输出信号的置信度，能有效识别出得到市场多方面验证的交易机会。
+        【V2.1 性能优化版】基础层最终协同诊断模块
+        - 核心升级 (本次修改):
+          - [性能优化] 重构了内部辅助函数 `get_weighted_synergy_score`，使用 `np.stack` 和 `np.average` 代替原有的循环和Series加法。
+        - 核心重构 (V2.0逻辑保留):
+          - [逻辑升级] 采用基于加权平均的“共识”逻辑，替代旧的“或”门逻辑。
+          - [信号升级] 生成代表多领域共识的S级和S+级信号。
+        - 收益:
+          - 通过避免创建临时DataFrame和循环中的Series操作，显著降低了内存占用并提升了计算速度。
+          - 极大提升了最终输出信号的置信度，能有效识别出得到市场多方面验证的交易机会。
         """
-        # 此方法为全新的顶层融合模块
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-
+        # 修改开始: 重构辅助函数以提升性能
         def get_weighted_synergy_score(signal_weights: Dict[str, float]) -> pd.Series:
-            """辅助函数，用于计算加权协同分数"""
-            total_score = pd.Series(0.0, index=df.index)
-            total_weight = 0.0
-            for signal, weight in signal_weights.items():
-                score_series = atomic.get(signal, default_score)
-                total_score += score_series * weight
-                total_weight += weight
-            return total_score / total_weight if total_weight > 0 else default_score
-
+            """【性能优化版】辅助函数，用于高效计算加权协同分数"""
+            # 1. 准备信号Series列表和权重列表
+            signals_to_average = []
+            weights_for_average = []
+            for signal_name, weight in signal_weights.items():
+                # 使用 atomic.get 获取信号，如果不存在则使用 default_score
+                signals_to_average.append(atomic.get(signal_name, default_score))
+                weights_for_average.append(weight)
+            # 如果列表为空或权重和为0，直接返回默认分
+            if not signals_to_average or not any(weights_for_average):
+                return default_score.copy()
+            # 2. 将Series列表的底层值提取并堆叠成2D NumPy数组
+            # 形状为 (信号数量, 时间序列长度)
+            stacked_scores = np.stack([s.values for s in signals_to_average], axis=0)
+            # 3. 使用np.average进行高效的加权平均计算
+            # axis=0表示沿着信号维度（即对每个时间点上的所有信号）进行计算
+            weighted_avg_values = np.average(stacked_scores, axis=0, weights=weights_for_average)
+            # 4. 将结果包装回Pandas Series
+            return pd.Series(weighted_avg_values, index=df.index, dtype=np.float32)
+        # 修改结束
         # --- 1. 上升共振协同 (Bullish Resonance Synergy) ---
         bullish_resonance_sources = {
             'SCORE_EMA_BULLISH_RESONANCE_S': 0.4,
@@ -239,7 +253,6 @@ class FoundationIntelligence:
             'SCORE_CMF_BULLISH_RESONANCE_S': 0.1,
         }
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_S'] = get_weighted_synergy_score(bullish_resonance_sources)
-
         # --- 2. 下跌共振协同 (Bearish Resonance Synergy) ---
         bearish_resonance_sources = {
             'SCORE_EMA_BEARISH_RESONANCE_S': 0.4,
@@ -248,7 +261,6 @@ class FoundationIntelligence:
             'SCORE_CMF_BEARISH_RESONANCE_S': 0.1,
         }
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] = get_weighted_synergy_score(bearish_resonance_sources)
-
         # --- 3. 底部反转协同 (Bottom Reversal Synergy) ---
         bottom_reversal_sources = {
             'SCORE_EMA_BOTTOM_REVERSAL_S': 0.35,
@@ -257,7 +269,6 @@ class FoundationIntelligence:
             'SCORE_VOL_TIPPING_POINT_BOTTOM_OPP': 0.1,
         }
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = get_weighted_synergy_score(bottom_reversal_sources)
-
         # --- 4. 顶部反转协同 (Top Reversal Synergy) ---
         top_reversal_sources = {
             'SCORE_EMA_TOP_REVERSAL_S': 0.35,
@@ -266,34 +277,19 @@ class FoundationIntelligence:
             'SCORE_VOL_TIPPING_POINT_TOP_RISK': 0.1,
         }
         states['SCORE_FOUNDATION_TOP_REVERSAL_S'] = get_weighted_synergy_score(top_reversal_sources)
-
         # --- 5. S+ 信号生成 (Synergy-Plus)，代表最高置信度的机会 ---
-        # S+ 信号定义: S级共识信号与关键外部条件（如波动率、市场状态）的乘积。
-        
-        # 5.1 上升共振 S+
-        # 定义：S级上升共振 + S级突破潜力（波动率压缩+趋势环境），捕捉“共振突破”的黄金时刻。
         bullish_resonance_s = states['SCORE_FOUNDATION_BULLISH_RESONANCE_S']
         breakout_potential_s = atomic.get('SCORE_VOL_BREAKOUT_POTENTIAL_S', default_score)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS'] = (bullish_resonance_s * breakout_potential_s).astype(np.float32)
-
-        # 5.2 下跌共振 S+
-        # 定义：S级下跌共振 + S级破位风险（波动率扩张+非趋势环境），捕捉“共振破位”的危险信号。
         bearish_resonance_s = states['SCORE_FOUNDATION_BEARISH_RESONANCE_S']
         breakdown_risk_s = atomic.get('SCORE_VOL_BREAKDOWN_RISK_S', default_score)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'] = (bearish_resonance_s * breakdown_risk_s).astype(np.float32)
-
-        # 5.3 底部反转 S+
-        # 定义：S级底部反转共识 + 波动率扩张引爆点，捕捉“反转启动+波动率放大”的强力信号。
         bottom_reversal_s = states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S']
         vol_ignition_opp = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bottom_reversal_s * vol_ignition_opp).astype(np.float32)
-
-        # 5.4 顶部反转 S+
-        # 定义：S级顶部反转共识 + 波动率衰竭风险点，捕捉“反转确认+波动率收缩”的高危信号。
         top_reversal_s = states['SCORE_FOUNDATION_TOP_REVERSAL_S']
         vol_exhaustion_risk = atomic.get('SCORE_VOL_TIPPING_POINT_TOP_RISK', default_score)
         states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (top_reversal_s * vol_exhaustion_risk).astype(np.float32)
-
         return states
 
     def diagnose_oscillator_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

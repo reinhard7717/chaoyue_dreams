@@ -74,26 +74,26 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 配置驱动重构版】风险元融合模块
-        - 核心重构 (本次修改):
-          - [NameError修复] 彻底废弃了方法内硬编码的风险定义，现在完全从配置文件 `fused_risk_scoring` 块中读取 `risk_categories`、`dynamic_weighting_params` 等所有参数，从根源上解决了 `risk_categories` 未定义的错误。
-          - [TypeError修复] 修正了维度内融合的致命逻辑错误，现在能正确解析每个信号的 `weight` 和 `inverse` 属性，并进行正确的数值计算。
-          - [健壮性提升] 为所有从配置中读取的参数添加了默认值，使模块功能更加稳固。
-        - 收益: 实现了完全由配置文件驱动的、逻辑正确且运行稳定的新一代风险融合引擎。
+        【V3.1 性能优化版】风险元融合模块
+        - 核心升级 (本次修改):
+          - [性能优化] 在“维度内融合”步骤中，将原有的 `pd.concat().sort()` 逻辑重构为使用 `np.stack()` 和 `np.sort()`。
+        - 核心重构 (V3.0逻辑保留):
+          - [配置驱动] 完全由配置文件驱动，解决了 NameError 和 TypeError。
+        - 收益:
+          - 通过避免为每个风险维度创建临时DataFrame，显著降低了内存峰值占用并提升了计算速度。
+          - 实现了完全由配置文件驱动的、逻辑正确且运行稳定的新一代风险融合引擎。
         """
-        # print("        -> [风险元融合模块 V3.0 配置驱动重构版] 启动...")
+        # print("        -> [风险元融合模块 V3.1 性能优化版] 启动...")
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
-            print("        -> [风险元融合模块] 已在配置中禁用，跳过计算。")
+            # print("        -> [风险元融合模块] 已在配置中禁用，跳过计算。")
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
-
         risk_categories = p_fused_risk.get('risk_categories', {})
         p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
         base_weights = p_dynamic_weighting.get('base_weights', {})
         context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
-        # 假设 intra_dimension_fusion_params 与 resonance_penalty_params 也在 p_fused_risk 下
         p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
         secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
         p_resonance = p_fused_risk.get('resonance_penalty_params', {})
@@ -104,26 +104,26 @@ class CognitiveIntelligence:
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
             category_signal_scores = []
-            for signal_name, signal_params in signals.items(): # signal_params 是一个字典，如 {"weight": 1.0, "inverse": true}
+            for signal_name, signal_params in signals.items():
                 if signal_name == "说明": continue
                 atomic_score = self._get_atomic_score(df, signal_name, 0.0)
-                # 正确处理 inverse 逻辑
                 is_inverse = signal_params.get('inverse', False)
-                if is_inverse:
-                    processed_score = 1.0 - atomic_score
-                else:
-                    processed_score = atomic_score
-                # 正确应用 weight
+                processed_score = 1.0 - atomic_score if is_inverse else atomic_score
                 weight = signal_params.get('weight', 1.0)
                 final_signal_score = processed_score * weight
-                final_signal_score.name = signal_name # 为Series命名，便于后续排序
                 category_signal_scores.append(final_signal_score)
             if category_signal_scores:
-                category_df = pd.concat(category_signal_scores, axis=1)
-                sorted_scores = np.sort(category_df.values, axis=1)
-                primary_risk = pd.Series(sorted_scores[:, -1], index=df.index)
-                secondary_risk = pd.Series(sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0, index=df.index)
-                dimension_risk_score = primary_risk + secondary_risk * secondary_risk_discount
+                # 1. 将Series列表的底层值提取出来，堆叠成一个 (时间序列长度, 信号数量) 的2D NumPy数组
+                stacked_scores = np.stack([s.values for s in category_signal_scores], axis=1)
+                # 2. 沿信号维度（axis=1）对分数进行排序，这在NumPy层面非常快
+                sorted_scores = np.sort(stacked_scores, axis=1)
+                # 3. 提取主要风险（每行的最后一个元素）和次要风险（每行的倒数第二个元素）
+                primary_risk_values = sorted_scores[:, -1]
+                # 如果信号数量大于1，则取次要风险，否则为0，避免索引错误
+                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0
+                # 4. 计算维度风险分并构建回Pandas Series
+                dimension_risk_values = primary_risk_values + secondary_risk_values * secondary_risk_discount
+                dimension_risk_score = pd.Series(dimension_risk_values, index=df.index)
                 fused_dimension_scores[category_name] = dimension_risk_score
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score.astype(np.float32)
             else:
@@ -161,7 +161,164 @@ class CognitiveIntelligence:
             total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, total_fused_risk_score * penalty_multiplier)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
-        # print(f"        -> [风险元融合模块 V3.0] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
+        # print(f"        -> [风险元融合模块 V3.1] 计算完毕，生成了 {len(states)} 个结构化风险信号。")
+        return states
+
+    def synthesize_market_engine_states(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V2.2 性能优化版】市场引擎状态融合模块
+        - 核心升级 (本次修改):
+          - [性能优化] 将原有的 `pd.concat([...]).max(axis=1)` 逻辑，重构为使用 `np.maximum.reduce`。
+        - 核心重构 (V2.1逻辑保留):
+          - [信号适配] 将“引擎失速”的判断依据升级为消费更通用的“顶部反转”融合分数。
+        - 收益:
+          - 通过避免创建临时DataFrame，显著降低了内存占用并提升了计算速度。
+          - 统一了对引擎失效的判断标准，信号源更可靠。
+        """
+        # print("        -> [市场引擎状态融合模块 V2.2 性能优化版] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 提取引擎失效的多个症状分数 ---
+        engine_stalling_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
+        bearish_divergence_score = self._get_atomic_score(df, 'SCORE_RISK_MTF_RSI_DIVERGENCE_S', 0.0)
+        # --- 2. 定义触发的战场环境分数 ---
+        danger_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
+        # --- 3. 最终裁定 ---
+        # 1. 将所有症状分数的底层NumPy数组收集到一个列表中
+        symptom_scores_list = [
+            engine_stalling_score.values,
+            vpa_stagnation_score.values,
+            bearish_divergence_score.values
+        ]
+        # 2. 使用np.maximum.reduce高效计算元素级最大值
+        max_symptom_values = np.maximum.reduce(symptom_scores_list)
+        # 3. 将结果包装回一个Pandas Series
+        max_symptom_score_series = pd.Series(max_symptom_values, index=df.index).fillna(0.0)
+        final_risk_score = danger_zone_score * max_symptom_score_series
+        states['COGNITIVE_SCORE_ENGINE_FAILURE_S'] = final_risk_score.astype(np.float32)
+        # --- 4. 更新原子状态库 ---
+        self.strategy.atomic_states.update(states)
+        # print("        -> [市场引擎状态融合模块 V2.2] 计算完毕。")
+        return df
+
+    def synthesize_contextual_zone_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V2.8 性能优化版】战场上下文评分模块
+        - 核心升级 (本次修改):
+          - [性能优化] 将原有的 `pd.DataFrame(risk_scores).max(axis=1)` 逻辑，重构为使用 `np.maximum.reduce`。
+        - 核心升级 (V2.7逻辑保留):
+          - [信号适配] 全面审查并更新了所有筹码和行为维度的风险信号消费。
+        - 收益:
+          - 通过避免创建大型临时DataFrame，显著降低了内存占用并提升了计算速度。
+          - 确保了评分基于最新的终极信号。
+        """
+        # print("        -> [战场上下文评分模块 V2.8 性能优化版] 启动...")
+        risk_scores = {
+            'bias': self._get_atomic_score(df, 'SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0),
+            'exhaustion': np.maximum(
+                self._get_atomic_score(df, 'SCORE_RISK_MOMENTUM_EXHAUSTION', 0.0).values,
+                self._get_atomic_score(df, 'SCORE_RISK_PROFIT_EXHAUSTION_S', 0.0).values
+            ),
+            'deceptive_rally': self._get_atomic_score(df, 'CHIP_SCORE_FUSED_DECEPTIVE_RALLY', 0.0),
+            'chip_top_reversal': self._fuse_multi_level_scores(df, 'TOP_REVERSAL'),
+            'structural_weakness': self._get_atomic_score(df, 'SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S', 0.0),
+            'engine_stalling': self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL'),
+            'volume_spike_down': self._get_atomic_score(df, 'SCORE_VOL_PRICE_PANIC_DOWN_RISK', 0.0),
+            'chip_divergence': self._fuse_multi_level_scores(df, 'FALLING_RESONANCE'),
+            'chip_fault': self._fuse_multi_level_scores(df, 'FAULT_RISK_TOP_REVERSAL'),
+            'structural_fault': self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE'),
+            'fund_flow_reversal': self._get_atomic_score(df, 'FF_SCORE_REVERSAL_TOP_HIGH', 0.0),
+            'mechanics_reversal': self._fuse_multi_level_scores(df, 'MECHANICS_TOP_REVERSAL'),
+            'retail_frenzy': self._get_atomic_score(df, 'FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH', 0.0),
+            'ultimate_breakdown': self._get_atomic_score(df, 'COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', 0.0),
+            'ultimate_confirmation': self._get_atomic_score(df, 'COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S', 0.0),
+            'price_deviation_risk': self._get_atomic_score(df, 'SCORE_RISK_PRICE_DEVIATION_S', 0.0),
+            'structural_fault_risk': self._get_atomic_score(df, 'SCORE_RISK_STRUCTURAL_FAULT_S', 0.0),
+        }
+        # 将 exhaustion 的 numpy 数组转换为 pandas Series
+        risk_scores['exhaustion'] = pd.Series(risk_scores['exhaustion'], index=df.index)
+        # 1. 将所有风险分数的底层NumPy数组收集到一个列表中
+        risk_values_list = [score.values for score in risk_scores.values()]
+        # 2. 使用np.maximum.reduce计算最大值，这比创建DataFrame快得多
+        max_risk_values = np.maximum.reduce(risk_values_list)
+        # 3. 将结果包装回一个Pandas Series
+        high_level_zone_score = pd.Series(max_risk_values, index=df.index)
+        df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = high_level_zone_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE']
+        high_risk_threshold = high_level_zone_score.rolling(120).quantile(0.85)
+        is_in_high_level_zone = high_level_zone_score > high_risk_threshold
+        self.strategy.atomic_states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = is_in_high_level_zone
+        # print("        -> [战场上下文评分模块 V2.8] 计算完毕。")
+        return df
+
+    def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V401.16 性能优化版】趋势阶段评分模块
+        - 核心升级 (本次修改):
+          - [性能优化] 将 `pd.concat([...]).max(axis=1)` 逻辑重构为使用 `np.maximum`，避免创建临时DataFrame。
+        - 核心升级 (V401.15逻辑保留):
+          - [信号适配] 修正了风险维度解析逻辑，使其能正确消费终极信号。
+        - 收益:
+          - 提升了计算效率并降低了内存占用。
+          - 确保了对上涨末期风险的评估能够纳入最高质量的信号。
+        """
+        # print("        -> [趋势阶段评分模块 V401.16 性能优化版] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        p_trend_stage_scoring = get_params_block(self.strategy, 'trend_stage_scoring_params')
+        if not get_param_value(p_trend_stage_scoring.get('enabled'), True):
+            states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            states['CONTEXT_TREND_STAGE_EARLY'] = pd.Series(False, index=df.index)
+            # print("        -> [趋势阶段评分模块] 已在配置中禁用，跳过计算。")
+            return states
+        signal_definitions = get_param_value(p_trend_stage_scoring.get('weights'), {})
+        # --- 1. 计算“上涨初期”的量化分数 (Early Stage Score) ---
+        ascent_structure_score = atomic.get('COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S', default_score)
+        yearly_high = df['high_D'].rolling(250, min_periods=60).max()
+        yearly_low = df['low_D'].rolling(250, min_periods=60).min()
+        price_range = (yearly_high - yearly_low).replace(0, np.nan)
+        price_position_score = 1 - ((df['close_D'] - yearly_low) / price_range)
+        price_position_score = price_position_score.clip(0, 1).fillna(0.5)
+        early_stage_score = pd.Series(
+            np.maximum(ascent_structure_score.values, price_position_score.values),
+            index=df.index
+        )
+        df['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = early_stage_score
+        self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
+        states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
+        # --- 2. 计算“上涨末期”的原始风险累积分 ---
+        vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
+        vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
+        vpa_efficiency_decline_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_EFFICIENCY_DECLINING', 0.0)
+        vpa_risk_score_arr = np.maximum.reduce([
+            vpa_stagnation_score.values,
+            vpa_volume_accelerating_score.values,
+            vpa_efficiency_decline_score.values
+        ])
+        vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
+        risk_dimension_scores = []
+        fuse_list = ["TOP_REVERSAL", "FALLING_RESONANCE", "STRUCTURE_BEARISH_RESONANCE", "MTF_BEARISH_RESONANCE", "MECHANICS_TOP_REVERSAL", "PATTERN_TOP_REVERSAL"]
+        for name, weight in signal_definitions.items():
+            if name == "vpa_risk_score_series":
+                risk_dimension_scores.append(vpa_risk_score_series * weight)
+            elif name in fuse_list:
+                risk_dimension_scores.append(self._fuse_multi_level_scores(df, name) * weight)
+            else:
+                risk_dimension_scores.append(self._get_atomic_score(df, name, 0.0) * weight)
+        score_components = [s.to_numpy(dtype=np.float32) for s in risk_dimension_scores]
+        late_stage_raw_score = pd.Series(np.add.reduce(score_components), index=df.index, dtype=np.float32)
+        late_stage_raw_score = late_stage_raw_score.fillna(0.0)
+        start_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_start_threshold'), 160)
+        full_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_full_threshold'), 300)
+        scaling_range = full_threshold - start_threshold
+        scaling_range = max(scaling_range, 1)
+        late_stage_prob_score = ((late_stage_raw_score - start_threshold) / scaling_range).clip(0, 1)
+        states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = late_stage_prob_score.astype(np.float32)
+        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_prob_score > 0.5
+        # print("        -> [趋势阶段评分模块 V401.16] 计算完毕。")
         return states
 
     def synthesize_tactical_opportunities(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -595,38 +752,6 @@ class CognitiveIntelligence:
         # print("        -> [多维背离风险融合模块 V2.2] 计算完毕。")
         return df
 
-    def synthesize_market_engine_states(self, df: pd.DataFrame) -> pd.DataFrame: 
-        """
-        【V2.1 行为信号升级版】市场引擎状态融合模块
-        - 核心重构 (本次修改):
-          - [信号适配] 将“引擎失速”的判断依据，从旧的、特定的信号，升级为消费
-                        `BehavioralIntelligence` V4.0产出的、更通用的“顶部反转”融合分数。
-        - 收益: 统一了对引擎失效的判断标准，信号源更可靠。
-        """
-        # print("        -> [市场引擎状态融合模块 V2.1 行为信号升级版] 启动...") 
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取引擎失效的多个症状分数 ---
-        # 将旧的、特定的引擎失速信号，替换为新的、通用的顶部反转融合分
-        engine_stalling_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
-        bearish_divergence_score = self._get_atomic_score(df, 'SCORE_RISK_MTF_RSI_DIVERGENCE_S', 0.0)
-        # --- 2. 定义触发的战场环境分数 ---
-        danger_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
-        # --- 3. 最终裁定 ---
-        max_symptom_score_series = pd.concat([
-            engine_stalling_score,
-            vpa_stagnation_score,
-            bearish_divergence_score
-        ], axis=1).max(axis=1).fillna(0.0)
-        final_risk_score = danger_zone_score * max_symptom_score_series
-        states['COGNITIVE_SCORE_ENGINE_FAILURE_S'] = final_risk_score.astype(np.float32)
-        # --- 4. 更新原子状态库 ---
-        self.strategy.atomic_states.update(states)
-        # print("        -> [市场引擎状态融合模块 V2.1] 计算完毕。") 
-        return df
-
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
         【V2.3 终极信号适配版】认知层回踩状态合成模块
@@ -696,47 +821,6 @@ class CognitiveIntelligence:
         states['HOLD_RISK_HEALTH_STALLING'] = was_improving & is_not_improving_now & is_significant_stalling
         self.strategy.atomic_states.update(states)
         # print("        -> [认知层持仓风险合成模块 V1.1 数值化升级版] 计算完毕。") 
-        return df
-
-    def synthesize_contextual_zone_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
-        """
-        【V2.7 终极信号适配版】战场上下文评分模块
-        - 核心升级: [信号适配] 全面审查并更新了所有筹码和行为维度的风险信号消费，
-                    确保其完全基于最新的终极信号。
-        """
-        # print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 启动...")
-        risk_scores = {
-            'bias': self._get_atomic_score(df, 'SCORE_BIAS_OVERBOUGHT_EXTENT', 0.0),
-            'exhaustion': np.maximum(
-                self._get_atomic_score(df, 'SCORE_RISK_MOMENTUM_EXHAUSTION', 0.0).values,
-                self._get_atomic_score(df, 'SCORE_RISK_PROFIT_EXHAUSTION_S', 0.0).values
-            ),
-            'deceptive_rally': self._get_atomic_score(df, 'CHIP_SCORE_FUSED_DECEPTIVE_RALLY', 0.0),
-            'chip_top_reversal': self._fuse_multi_level_scores(df, 'TOP_REVERSAL'), # 已适配
-            'structural_weakness': self._get_atomic_score(df, 'SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S', 0.0),
-            'engine_stalling': self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL'), # 适配行为层终极信号
-            'volume_spike_down': self._get_atomic_score(df, 'SCORE_VOL_PRICE_PANIC_DOWN_RISK', 0.0),
-            'chip_divergence': self._fuse_multi_level_scores(df, 'FALLING_RESONANCE'), # 已适配
-            'chip_fault': self._fuse_multi_level_scores(df, 'FAULT_RISK_TOP_REVERSAL'), # 保留，此为特定结构风险
-            'structural_fault': self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE'), # 保留，此为特定结构风险
-            'fund_flow_reversal': self._get_atomic_score(df, 'FF_SCORE_REVERSAL_TOP_HIGH', 0.0),
-            'mechanics_reversal': self._fuse_multi_level_scores(df, 'MECHANICS_TOP_REVERSAL'),
-            'retail_frenzy': self._get_atomic_score(df, 'FF_SCORE_RETAIL_RESONANCE_FRENZY_HIGH', 0.0), 
-            'ultimate_breakdown': self._get_atomic_score(df, 'COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', 0.0), 
-            'ultimate_confirmation': self._get_atomic_score(df, 'COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S', 0.0),
-            'price_deviation_risk': self._get_atomic_score(df, 'SCORE_RISK_PRICE_DEVIATION_S', 0.0),
-            'structural_fault_risk': self._get_atomic_score(df, 'SCORE_RISK_STRUCTURAL_FAULT_S', 0.0),
-        }
-        # 将 exhaustion 的 numpy 数组转换为 pandas Series
-        risk_scores['exhaustion'] = pd.Series(risk_scores['exhaustion'], index=df.index)
-        risk_df = pd.DataFrame(risk_scores)
-        high_level_zone_score = risk_df.max(axis=1)
-        df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = high_level_zone_score
-        self.strategy.atomic_states['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE'] = df['COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE']
-        high_risk_threshold = high_level_zone_score.rolling(120).quantile(0.85)
-        is_in_high_level_zone = high_level_zone_score > high_risk_threshold
-        self.strategy.atomic_states['CONTEXT_RISK_HIGH_LEVEL_ZONE'] = is_in_high_level_zone
-        # print("        -> [战场上下文评分模块 V2.7 终极信号适配版] 计算完毕。")
         return df
 
     def synthesize_opportunity_risk_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -817,72 +901,6 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = df['COGNITIVE_SCORE_TREND_QUALITY']
         # print("        -> [趋势质量融合评分模块 V2.1] 计算完毕。")
         return df
-
-    def diagnose_trend_stage_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V401.15 信号源适配版】趋势阶段评分模块
-        - 核心升级: [信号适配] 修正了风险维度解析逻辑，使其能正确识别并消费
-                    'TOP_REVERSAL' 等终极信号。
-        - 收益: 确保了对上涨末期风险的评估，能够纳入来自筹码情报模块的最高质量信号。
-        """
-        # print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        p_trend_stage_scoring = get_params_block(self.strategy, 'trend_stage_scoring_params')
-        if not get_param_value(p_trend_stage_scoring.get('enabled'), True):
-            states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            states['CONTEXT_TREND_STAGE_EARLY'] = pd.Series(False, index=df.index)
-            print("        -> [趋势阶段评分模块] 已在配置中禁用，跳过计算。")
-            return states
-        signal_definitions = get_param_value(p_trend_stage_scoring.get('weights'), {})
-        # --- 1. 计算“上涨初期”的量化分数 (Early Stage Score) ---
-        ascent_structure_score = atomic.get('COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S', default_score)
-        yearly_high = df['high_D'].rolling(250, min_periods=60).max()
-        yearly_low = df['low_D'].rolling(250, min_periods=60).min()
-        price_range = (yearly_high - yearly_low).replace(0, np.nan)
-        price_position_score = 1 - ((df['close_D'] - yearly_low) / price_range)
-        price_position_score = price_position_score.clip(0, 1).fillna(0.5)
-        early_stage_score = pd.concat([ascent_structure_score, price_position_score], axis=1).max(axis=1)
-        df['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = early_stage_score
-        self.strategy.atomic_states['COGNITIVE_SCORE_TREND_STAGE_EARLY'] = df['COGNITIVE_SCORE_TREND_STAGE_EARLY']
-        states['CONTEXT_TREND_STAGE_EARLY'] = early_stage_score > 0.6
-        # --- 2. 计算“上涨末期”的原始风险累积分 ---
-        vpa_stagnation_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_STAGNATION', 0.0)
-        vpa_volume_accelerating_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_VOLUME_ACCELERATING', 0.0)
-        vpa_efficiency_decline_score = self._get_atomic_score(df, 'SCORE_RISK_VPA_EFFICIENCY_DECLINING', 0.0)
-        vpa_risk_score_arr = np.maximum.reduce([
-            vpa_stagnation_score.values,
-            vpa_volume_accelerating_score.values,
-            vpa_efficiency_decline_score.values
-        ])
-        vpa_risk_score_series = pd.Series(vpa_risk_score_arr, index=df.index)
-        risk_dimension_scores = []
-        # 更新此列表以正确识别新的终极信号名
-        fuse_list = ["TOP_REVERSAL", "FALLING_RESONANCE", "STRUCTURE_BEARISH_RESONANCE", "MTF_BEARISH_RESONANCE", "MECHANICS_TOP_REVERSAL", "PATTERN_TOP_REVERSAL"]
-        for name, weight in signal_definitions.items():
-            if name == "vpa_risk_score_series":
-                risk_dimension_scores.append(vpa_risk_score_series * weight)
-            elif name in fuse_list: # 使用新的列表进行判断
-                risk_dimension_scores.append(self._fuse_multi_level_scores(df, name) * weight)
-            else:
-                risk_dimension_scores.append(self._get_atomic_score(df, name, 0.0) * weight)
-        score_components = [s.to_numpy(dtype=np.float32) for s in risk_dimension_scores]
-        late_stage_raw_score = pd.Series(np.add.reduce(score_components), index=df.index, dtype=np.float32)
-        late_stage_raw_score = late_stage_raw_score.fillna(0.0)
-        
-        start_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_start_threshold'), 160)
-        full_threshold = get_param_value(p_trend_stage_scoring.get('late_stage_full_threshold'), 300)
-        scaling_range = full_threshold - start_threshold
-        scaling_range = max(scaling_range, 1) # 避免除以零
-        # 计算0-1的平滑概率分
-        late_stage_prob_score = ((late_stage_raw_score - start_threshold) / scaling_range).clip(0, 1)
-        states['COGNITIVE_SCORE_CONTEXT_LATE_STAGE'] = late_stage_prob_score.astype(np.float32)
-        # 为了兼容旧的布尔状态，可以基于新的概率分生成
-        states['CONTEXT_TREND_STAGE_LATE'] = late_stage_prob_score > 0.5 
-
-        # print("        -> [趋势阶段评分模块 V401.15 信号源适配版] 计算完毕。")
-        return states
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

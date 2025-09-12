@@ -794,24 +794,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         abstract = True
         ordering = ['-trade_time']
 
-class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
-    stock = models.ForeignKey(
-        'StockInfo',
-        on_delete=models.CASCADE,
-        related_name='advanced_fund_flow_metrics_sz',
-        verbose_name='股票',
-        db_index=True
-    )
-    class Meta(BaseAdvancedFundFlowMetrics.Meta):
-        abstract = False
-        verbose_name = '高级资金指标-深圳'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_advanced_fund_flow_metrics_sz'
-        unique_together = ('stock', 'trade_time')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-        ]
-
 class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
         'StockInfo',
