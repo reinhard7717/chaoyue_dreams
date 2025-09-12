@@ -1438,10 +1438,13 @@ class CognitiveIntelligence:
 
     def synthesize_squeeze_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.4 融合函数升级版】压缩突破战术剧本合成模块
-        - 收益: 剧本的“战备”判断基于更可靠、更平滑的“压缩度”评分，提升了战术的准确性。
+        【V1.5 信号发布增强版】压缩突破战术剧本合成模块
+        - 本次升级 (V1.5):
+          - [信号发布] 将内部使用的 `vol_compression_score` 正式发布为
+                        `COGNITIVE_SCORE_VOL_COMPRESSION_FUSED` 原子状态，供其他模块消费。
+        - 收益: 解决了 PlaybookEngine 跨模块调用的架构问题，修复了因此引发的 AttributeError。
         """
-        # print("        -> [压缩突破战术剧本合成模块 V1.4 融合函数升级版] 启动...")
+        # print("        -> [压缩突破战术剧本合成模块 V1.5 信号发布增强版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1449,6 +1452,9 @@ class CognitiveIntelligence:
         # 战备分(昨日):
         # 将对已废弃信号的引用，升级为消费融合后的多层次分数
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        # ▼▼▼ 新增: 将融合后的分数发布为原子状态 ▼▼▼
+        states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = vol_compression_score.astype(np.float32)
+        # ▲▲▲ 新增结束 ▲▲▲
         setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
         # 确认分(今日):
         trigger_explosive_breakout_score = atomic.get('SCORE_SQUEEZE_BREAKOUT_OPP_S', default_score)

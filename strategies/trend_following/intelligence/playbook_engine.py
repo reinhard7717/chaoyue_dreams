@@ -189,7 +189,7 @@ class PlaybookEngine:
         triggers['TRIGGER_UPTREND_IGNITION_RESONANCE_S'] = is_in_main_uptrend & (ignition_score > thresholds['ignition_s'])
 
         # 剧本: 压缩突破系列
-        vol_compression_score = self.strategy.intelligence_layer.cognitive_intelligence._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        vol_compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score)
         platform_quality_score = atomic.get('SCORE_PLATFORM_QUALITY_S', default_score)
         squeeze_breakout_score = atomic.get('SCORE_SQUEEZE_BREAKOUT_OPP_S', default_score)
         vol_breakout_a_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_A', default_score)

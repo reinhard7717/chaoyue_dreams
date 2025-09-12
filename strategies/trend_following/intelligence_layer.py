@@ -164,8 +164,9 @@ class IntelligenceLayer:
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
         self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
-        squeeze_playbooks = self.cognitive_intel.synthesize_squeeze_playbooks(df)
-        self.strategy.playbook_states.update(squeeze_playbooks)
+        squeeze_playbook_states = self.cognitive_intel.synthesize_squeeze_playbooks(df)
+        self.strategy.atomic_states.update(squeeze_playbook_states)
+        self.strategy.playbook_states.update({k: v for k, v in squeeze_playbook_states.items() if k.startswith('PLAYBOOK_')})
         # 5.6 (调试模块)
         debug_params = get_params_block(self.strategy, 'debug_params')
         if get_param_value(debug_params.get('enable_pullback_decision_log'), False):

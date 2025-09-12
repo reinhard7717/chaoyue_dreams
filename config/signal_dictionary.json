@@ -46,6 +46,7 @@
         "COGNITIVE_SCORE_TREND_FATIGUE_OPP": { "cn_name": "【认知机会】下跌趋势衰竭", "category": "认知层-机会", "type": "positional", "description": "底部反转潜力和超卖环境的结合。" },
         "COGNITIVE_SCORE_TREND_REGIME_IGNITION_S": { "cn_name": "【认知S】趋势政权点火", "category": "认知层-机会", "type": "positional", "description": "融合趋势政权、均线共振、RSI动能和资金流共振的看涨信号。" },
         "COGNITIVE_SCORE_VOL_BREAKOUT_S": { "cn_name": "【认知S】波动率突破", "category": "认知层-机会", "type": "positional", "description": "融合波动率、价格、成交量和筹码确认的看涨突破信号。" },
+        "COGNITIVE_SCORE_VOL_COMPRESSION_FUSED": { "cn_name": "【认知】波动率压缩融合分", "category": "认知层-环境", "type": "context", "description": "融合S/A/B三级波动率压缩信号，得到的综合'压缩度'评分。" },
         "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": { "cn_name": "【终极S】看涨确认", "category": "认知层-机会", "type": "context", "description": "连续性共振元信号与离散性模式信号同时发生的最高置信度看涨信号。" },
         "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S": { "cn_name": "【终极S】底部确认", "category": "认知层-机会", "type": "context", "description": "连续性共振元信号与离散性模式信号同时发生的最高置信度底部信号。" },
         "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S": { "cn_name": "【认知S风险】多域崩溃共振", "category": "认知层-风险", "type": "risk", "description": "融合七大领域的顶级崩溃/破位信号。" },
