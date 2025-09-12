@@ -720,38 +720,36 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.2 调试数据完整性修复版】
-        - 核心修复: 解决了因 all_daily_scores 和 all_score_components 数据不一致，导致调试报告中
-                      “进攻分构成”和“激活信号”显示不全的问题。
-        - 实现方式: 在调试方法内部，利用完整的 all_score_components 列表，反向重建出一个包含所有
-                      日期的、完整的每日分数对象列表 (all_daily_scores_for_debug)，确保后续报告
-                      生成逻辑能够访问到每一天的完整数据。
+        【V320.4 · 终极探针植入版】
+        - 核心修改 (本次修改):
+          - [终极诊断] 在每日报告的循环体内，植入了一个“终极诊断探针”。
+          - 该探针会直接检查并打印出当天的 `related_components` 列表的原始、未经过滤的全部内容。
+        - 收益: 无论问题出在哪里，这个探针都将为我们提供决定性的证据：
+          - 如果探针打印出“列表为空”，证明 `all_score_components` 就是空的，问题在上游。
+          - 如果探针打印出组件列表，但 `score_type` 都是 'unknown'，证明是信号字典映射问题。
+          - 如果探针打印出正确的组件，但后续明细仍不显示，证明是最后的过滤逻辑问题。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.2 调试数据完整性修复版)] ---") # 修改行：更新版本号和描述
+        print(f"--- [历史回溯调试启动 (V320.4 终极探针植入版)] ---") # 修改行：更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
             all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
-
-            # 新增开始：修复数据不一致问题的核心逻辑
+            
             all_daily_scores_for_debug = all_daily_scores
             if all_score_components:
-                # 从完整的组件列表中，通过其关联的 daily_score 对象，重建一个包含所有日期的、唯一的每日分数对象列表
-                # 使用字典和id来保证获取到的是唯一的 StrategyDailyScore 对象实例
                 unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
                 all_daily_scores_for_debug = list(unique_scores_from_components.values())
-            # 新增结束
 
-            if not all_daily_scores_for_debug: # 修改行：使用修复后的列表进行判断
+            if not all_daily_scores_for_debug:
                 print("[信息] 核心策略未生成任何每日分数记录。")
                 return
             
             daily_analysis_df = self.daily_analysis_df
             exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
-            # 步骤 1.1: 在内存中构建信号到详情的映射
+            
             signal_to_details_map = {}
             for detail in all_details:
                 signal_key = id(detail.signal)
@@ -759,8 +757,7 @@ class MultiTimeframeTrendStrategy:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
             
-            # 步骤 1.2: 构建日期到每日分数和分数组件的映射
-            daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug} # 修改行：使用修复后的列表构建map
+            daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug}
             daily_components_map = {}
             for comp in all_score_components:
                 trade_date = comp.daily_score.trade_date
@@ -768,7 +765,6 @@ class MultiTimeframeTrendStrategy:
                     daily_components_map[trade_date] = []
                 daily_components_map[trade_date].append(comp)
             
-            # 步骤 2: 检查是否需要部署探针 (逻辑不变)
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
@@ -786,13 +782,12 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
             
-            # 步骤 3: 展示全流程信号透视报告
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt_date = pd.to_datetime(start_date).date()
             end_dt_date = pd.to_datetime(end_date).date()
             
             debug_period_daily_scores = [
-                ds for ds in all_daily_scores_for_debug # 修改行：使用修复后的列表进行筛选
+                ds for ds in all_daily_scores_for_debug
                 if start_dt_date <= ds.trade_date <= end_dt_date
             ]
             
@@ -817,9 +812,12 @@ class MultiTimeframeTrendStrategy:
                     p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
                     final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
                     print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
+                    
+                    # 修改行：这里的计算逻辑保持不变，但我们将通过下面的探针来验证其数据源
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
+                    
                     day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
                     if not day_exit_triggers.empty:
                         triggered_defenses = day_exit_triggers.iloc[0]
@@ -830,6 +828,18 @@ class MultiTimeframeTrendStrategy:
                             print("    - 触发的离场防线: 无")
                 else:
                     print("    - 未找到当日的详细分析数据。")
+
+                # --- 新增开始：终极诊断探针 ---
+                print("  --- [终极诊断探针] 正在检查当日的分数组件... ---")
+                if not related_components:
+                    print("    - [探针结果] 警告：当日无任何分数组件 (related_components 列表为空)。这是导致明细不显示的核心原因。")
+                else:
+                    print(f"    - [探针结果] 发现 {len(related_components)} 个分数组件。原始数据如下:")
+                    for i, comp in enumerate(related_components):
+                        print(f"      {i+1}. 信号名: {comp.signal_name}, 中文名: {comp.signal_cn_name}, 类型: {comp.score_type}, 分数: {comp.score_value}")
+                print("  --- [探针结束] ---")
+                # --- 新增结束 ---
+
                 offensive_components = [
                     c for c in related_components
                     if c.score_type in ['positional', 'dynamic', 'composite', 'context', 'trigger', 'playbook', 'strategic']
@@ -856,7 +866,7 @@ class MultiTimeframeTrendStrategy:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
             import traceback
             traceback.print_exc()
-            
+
     # NEW: 新增的性能分析专属方法
     async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
