@@ -18,6 +18,7 @@ from .intelligence.cognitive_intelligence import CognitiveIntelligence
 from .intelligence.playbook_engine import PlaybookEngine
 from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
+from .intelligence.cyclical_intelligence import CyclicalIntelligence
 
 class MainForceState(Enum):
     """
@@ -114,6 +115,7 @@ class IntelligenceLayer:
         # 此阶段消费基础指标，生成所有行为相关的原子信号和初级合成信号。
         print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...") # 修改: 调整阶段顺序和描述
         self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
+        self.strategy.atomic_states.update(self.cyclical_intel.run_cyclical_analysis_command(df))
 
         # --- 阶段四: 筹码层情报诊断与合成 ---
         # 筹码层依赖部分结构和行为信号，因此在此阶段运行。
