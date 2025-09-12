@@ -412,7 +412,7 @@ class MultiTimeframeTrendStrategy:
             # prepare_db_records 现在返回五元组。
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
-                result_df=daily_analysis_df,
+                result_df=daily_analysis_df.copy(),
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
                 params=self.tactical_engine.unified_config,
