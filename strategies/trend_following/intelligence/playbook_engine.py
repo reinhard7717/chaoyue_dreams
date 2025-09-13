@@ -150,13 +150,11 @@ class PlaybookEngine:
             'consolidation_breakout_a': get_param_value(p_triggers.get('consolidation_breakout_a_threshold'), 0.3),
             'chip_ignition_s': get_param_value(p_triggers.get('chip_ignition_s_threshold'), 0.7),
             'invalidation_risk': get_param_value(p_triggers.get('invalidation_risk_threshold'), 0.5),
-            # ▼▼▼ 新增: 为新剧本添加阈值 ▼▼▼
             'washout_reversal_a_plus': get_param_value(p_triggers.get('washout_reversal_a_plus_threshold'), 0.6),
             'extreme_squeeze_s_plus': get_param_value(p_triggers.get('extreme_squeeze_s_plus_threshold'), 0.7),
             'breakout_eve_s': get_param_value(p_triggers.get('breakout_eve_s_threshold'), 0.6),
             'normal_squeeze_a': get_param_value(p_triggers.get('normal_squeeze_a_threshold'), 0.5),
             'prime_chip_ignition_s_plus_plus': get_param_value(p_triggers.get('prime_chip_ignition_s_plus_plus_threshold'), 0.7),
-            # ▲▲▲ 新增结束 ▲▲▲
         }
         # --- 2. 定义基础触发器 (逻辑不变) ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
@@ -174,7 +172,6 @@ class PlaybookEngine:
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
         triggers['TRIGGER_SHAKEOUT_REVERSAL_A'] = atomic.get('COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A', default_score) > thresholds['shakeout_reversal_a']
         triggers['TRIGGER_CONSOLIDATION_BREAKOUT_A'] = atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score) > thresholds['consolidation_breakout_a']
-        # ▼▼▼ 新增: 为新剧本定义触发器 ▼▼▼
         # 剧本: 洗盘吸筹后反转
         triggers['TRIGGER_WASHOUT_ABSORPTION_REVERSAL_A_PLUS'] = atomic.get('COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL', default_score) > thresholds['washout_reversal_a_plus']
         # 剧本: 核心庄家点火
@@ -186,9 +183,7 @@ class PlaybookEngine:
         # 剧本: 压缩突破系列
         vol_compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score)
         platform_quality_score = atomic.get('SCORE_PLATFORM_QUALITY_S', default_score)
-        # 修改开始: 修复对不存在信号的引用，替换为正确的波动率突破信号
         squeeze_breakout_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_S', default_score)
-        # 修改结束
         vol_breakout_a_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_A', default_score)
         setup_extreme_squeeze = vol_compression_score > 0.9
         triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = setup_extreme_squeeze.shift(1).fillna(False) & (squeeze_breakout_score > thresholds['extreme_squeeze_s_plus'])
@@ -197,7 +192,6 @@ class PlaybookEngine:
         setup_normal_squeeze = vol_compression_score > 0.5
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
-        # ▲▲▲ 新增结束 ▲▲▲
         # --- 4. 定义“持续点火”确认触发器 (逻辑增强) ---
         # 4.1 定义基础点火事件
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']

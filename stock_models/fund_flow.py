@@ -778,17 +778,17 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         # --- 4.2 斜率指标 ---
         # 4.2.1 每日核心指标的斜率
         for name, verbose in CORE_METRICS.items():
-            vars()[f'{name}_slope_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
+            vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
         
         # 4.2.2 累计指标的斜率 (仅对周期>1)
         if p > 1:
             for name, verbose in CORE_METRICS.items():
                 if 'ratio' not in name and 'divergence' not in name:
-                    vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.DecimalField(max_digits=22, decimal_places=8, verbose_name=f'{verbose}{p}日累计之{p}日斜率', null=True, blank=True)
+                    vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日累计之{p}日斜率', null=True, blank=True)
 
         # --- 4.3 加速度指标 ---
         for name, verbose in CORE_METRICS.items():
-            vars()[f'{name}_accel_{p}d'] = models.DecimalField(max_digits=20, decimal_places=8, verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
+            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
 
     class Meta:
         abstract = True

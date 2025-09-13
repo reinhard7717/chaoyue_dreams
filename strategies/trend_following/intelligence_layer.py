@@ -71,17 +71,14 @@ class IntelligenceLayer:
         # print("        -> [动态阈值校准中心 V335.2] 启动...")
         thresholds = {}
         window = 250 # 使用过去一年的数据作为基准
-
         # 1. 成本加速度阈值：只相信最顶尖5%的进攻意图
         cost_accel_col = 'ACCEL_5_peak_cost_D'
         if cost_accel_col in df.columns:
             thresholds['cost_accel_significant'] = df[cost_accel_col].rolling(window).quantile(0.95)
-
         # 2. 筹码集中度加速度阈值：只相信最顶尖5%的吸筹决心
         conc_accel_col = 'ACCEL_5_concentration_90pct_D'
         if conc_accel_col in df.columns:
             thresholds['conc_accel_significant'] = df[conc_accel_col].rolling(window).quantile(0.05)
-            
         # print("        -> [动态阈值校准中心 V335.2] 校准完成。")
         return thresholds
 
@@ -110,8 +107,10 @@ class IntelligenceLayer:
         foundation_states = self.foundation_intel.run_foundation_analysis_command()
         self.strategy.atomic_states.update(foundation_states)
         
-        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_ultimate_fund_flow_signals(df))
+        # 新增开始: 修复了对 fund_flow_intel 和 mechanics_engine 的调用，使其产出能被后续模块消费
+        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
         self.mechanics_engine.run_dynamic_analysis_command()
+        # 新增结束
         df = self.pattern_recognizer.identify_all(df)
         # --- 阶段二: 结构层情报诊断与合成 ---
         # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
@@ -127,7 +126,7 @@ class IntelligenceLayer:
         self.strategy.trigger_events.update(chip_triggers)
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
         # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
-        # 修复调用链，将 self.strategy.df_indicators 的反复赋值改为对局部变量 df 的链式调用
+        # 新增开始: 修复调用链，将 self.strategy.df_indicators 的反复赋值改为对局部变量 df 的链式调用
         # 5.1 宏观上下文与质量分数合成 (高优先级，被其他认知模块依赖)
         df = self.cognitive_intel.synthesize_trend_quality_score(df)
         df = self.cognitive_intel.synthesize_contextual_zone_scores(df)
@@ -154,6 +153,7 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_reversal_resonance_scores(df)
         df = self.cognitive_intel.synthesize_perfect_storm_signals(df)
         df = self.cognitive_intel.synthesize_cognitive_scores(df)
+        # 新增结束
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
         # 5.5 生成触发器、战法与交易剧本

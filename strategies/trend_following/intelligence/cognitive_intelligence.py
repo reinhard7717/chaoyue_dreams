@@ -1069,13 +1069,13 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 王牌重铸信号修复版】锁仓再集中S+战法诊断模块
+        【V2.5 信号源修复版】锁仓再集中S+战法诊断模块
         - 核心重构: (V2.0) 将战法的“准备状态”从有缺陷的A级信号，升级为经过战场环境过滤的
                       S级“筹码结构黄金机会”信号。
         - 本次升级: 【数值化】将原有的布尔逻辑升级为“战备分 * 点火分”的数值化评分体系。
-        - 核心修复 (V2.4): 修复了对 `SCORE_SQUEEZE_BREAKOUT_OPP_S` 这个不存在信号的引用，
-                        替换为消费由 `synthesize_volatility_breakout_signals` 生成的
-                        `COGNITIVE_SCORE_VOL_BREAKOUT_S` 信号，恢复了战法对压缩突破的感知能力。
+        - 核心修复 (V2.5): 修复了对 `SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S` 这个不存在信号的引用，
+                        替换为消费由 `DynamicMechanicsEngine` 生成的、逻辑最相近的
+                        `SCORE_DYN_BULLISH_RESONANCE_S` 终极信号。
         """
         # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.3 王牌重铸数值化增强版)”...") 
         states = {}
@@ -1087,12 +1087,9 @@ class CognitiveIntelligence:
         setup_score = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score)
         # --- 2. 定义“点火事件”评分 (Ignition Score) ---
         trigger_chip_ignition_score = triggers.get('TRIGGER_CHIP_IGNITION', default_series).astype(float)
-        # 修复失效引用: 将 TRIGGER_ENERGY_RELEASE 替换为更高维度的力学元融合分数
-        energy_release_score = atomic.get('SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S', default_score) 
+        energy_release_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S', default_score) 
         cost_accel_score = atomic.get('SCORE_PLATFORM_COST_ACCEL', default_score)
-        # 修改开始: 修复对不存在信号的引用，替换为正确的波动率突破信号
         squeeze_breakout_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_S', default_score) 
-        # 修改结束
         ignition_trigger_score_arr = np.maximum.reduce([
             trigger_chip_ignition_score.values,
             energy_release_score.values, 
@@ -1286,9 +1283,7 @@ class CognitiveIntelligence:
         # --- 1. 提取核心情报  ---
         # 战场环境
         lookback_window = 15
-        # 修改开始: 修复对已失效信号的引用，改用逻辑最相近的“主升浪”信号
         ascent_start_event = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
-        # 修改结束
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
@@ -1364,9 +1359,7 @@ class CognitiveIntelligence:
         # --- 1. 记录所有输入条件 (与主函数同步) ---
         # 1.1 战场环境
         lookback_window = 15
-        # 修改开始: 修复对已失效信号的引用，与主诊断函数保持一致
         ascent_start_event = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
-        # 修改结束
         cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
         log_data['is_in_ascent_window'] = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         log_data['is_in_cruise_window'] = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)

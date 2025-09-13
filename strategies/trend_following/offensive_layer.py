@@ -11,14 +11,15 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V402.0 逻辑净化版】
-        - 核心重构 (本次修改):
-          - [逻辑净化] 修复了“动态动能”加分模块 (`dynamic_scoring`) 的重复计分问题。
-          - 遵循“元融合”的设计原则，该模块现在只消费唯一的顶层元信号 `SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S`，
-            不再对其下属的子信号进行重复计分。
-        - 收益: 计分逻辑更清晰、更合理，消除了因重复计分导致的信号虚高问题。
+        【V402.2 健壮性修复版】
+        - 核心修复 (本次修改):
+          - [健壮性] 在遍历计分项时，增加了对 "说明_" 前缀的判断和跳过逻辑。
+          - 这可以防止因配置文件中的说明性条目（非信号）而被错误地当作信号处理，从而引发潜在的 `KeyError` 或逻辑错误。
+        - 核心重构 (V402.1逻辑保留):
+          - 恢复了对S/A/B多级信号的评分能力，确保所有级别的有效信号都能被正确评估。
+        - 收益: 计分逻辑更完整、更合理，并且对配置文件的格式变化更具鲁棒性。
         """
-        # print("        -> [进攻方案评估中心 V402.0 逻辑净化版] 启动...")
+        # print("        -> [进攻方案评估中心 V402.2 健壮性修复版] 启动...")
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -26,11 +27,13 @@ class OffensiveLayer:
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
         all_scores_components = []
-        # --- 步骤 2: 计算【第一层：环境与战备分】(逻辑不变) ---
+        # --- 步骤 2: 计算【第一层：环境与战备分】 ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
         if get_param_value(context_params.get('enabled'), True):
             for signal_name, score in context_params.get('positive_signals', {}).items():
+                if signal_name.startswith("说明"):
+                    continue
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
                     bonus_amount = signal_series.fillna(0).astype(float) * score
@@ -39,11 +42,13 @@ class OffensiveLayer:
         score_details_df['SCORE_SETUP'] = context_score
         all_scores_components.append(context_score)
         # print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
-        # --- 步骤 3: 计算【第二层：独立触发器加分】(逻辑不变) ---
+        # --- 步骤 3: 计算【第二层：独立触发器加分】 ---
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
         if get_param_value(trigger_params.get('enabled'), True):
             for trigger_name, score in trigger_params.get('positive_signals', {}).items():
+                if trigger_name.startswith("说明"):
+                    continue
                 trigger_series = trigger_events.get(trigger_name, pd.Series(False, index=df.index))
                 if trigger_series.any():
                     bonus_amount = trigger_series.fillna(0).astype(float) * score
@@ -52,11 +57,13 @@ class OffensiveLayer:
         score_details_df['SCORE_TRIGGER'] = trigger_score
         all_scores_components.append(trigger_score)
         # print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
-        # --- 步骤 4: 计算【第三层：剧本协同奖励分】(逻辑不变) ---
+        # --- 步骤 4: 计算【第三层：剧本协同奖励分】 ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
         if get_param_value(playbook_params.get('enabled'), True):
             for playbook_name, score in playbook_params.get('positive_signals', {}).items():
+                if playbook_name.startswith("说明"):
+                    continue
                 playbook_series = self.strategy.playbook_states.get(playbook_name, pd.Series(False, index=df.index))
                 if playbook_series.any():
                     bonus_amount = playbook_series.fillna(0).astype(float) * score
@@ -70,19 +77,18 @@ class OffensiveLayer:
         all_scores_components.append(strategic_bonus_score)
         contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
         all_scores_components.append(contextual_bonus_score)
-        # --- 应用“动态动能”加分，逻辑已净化 ---
+        # --- 应用“动态动能”加分 ---
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         if get_param_value(dynamic_params.get('enabled'), True):
             min_setup_score = get_param_value(dynamic_params.get('min_positional_score_for_dynamic'), 150)
             can_add_dynamic_score = context_score >= min_setup_score
-            # 只消费唯一的顶层元信号
-            signal_name = 'SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S'
-            score = dynamic_params.get('positive_signals', {}).get(signal_name, 0)
-            if score > 0:
+            for signal_name, score in dynamic_params.get('positive_signals', {}).items():
+                if signal_name.startswith("说明"):
+                    continue
                 signal_series = atomic_states.get(signal_name, pd.Series(0.0, index=df.index))
                 if (signal_series > 0).any():
-                    bonus_amount = signal_series.fillna(0.0) * can_add_dynamic_score.astype(float) * score
+                    bonus_amount = signal_series.fillna(0.0) * score * can_add_dynamic_score.astype(float)
                     dynamic_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
         all_scores_components.append(dynamic_score)

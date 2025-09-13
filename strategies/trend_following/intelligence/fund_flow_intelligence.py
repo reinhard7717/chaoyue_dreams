@@ -147,9 +147,7 @@ class FundFlowIntelligence:
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        # 修改开始: 修复拼写错误，将 `bearish_bearish_health` 改为 `overall_bearish_health`
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
-        # 修改结束
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
         # --- 5. 共振信号合成 ---
