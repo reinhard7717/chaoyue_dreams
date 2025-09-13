@@ -775,7 +775,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
     if final_metrics_df.empty:
         print(f"[{stock_code}] [衍生指标计算] 传入的DataFrame为空，跳过衍生指标计算。")
         return final_metrics_df
-    print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
+    # print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     # 【新增】解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
     # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
