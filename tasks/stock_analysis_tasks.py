@@ -645,7 +645,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
 
 async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     """【辅助函数 V1.1 - 审计逻辑优化】异步加载所有原始数据源，并进行严格的数据审计。"""
-    print(f"[{stock_info.stock_code}] [数据加载与审计] 开始加载所有数据源...") # 【代码新增】调试信息
+    # print(f"[{stock_info.stock_code}] [数据加载与审计] 开始加载所有数据源...") # 【代码新增】调试信息
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         qs = model.objects.filter(stock=stock_info_obj)
@@ -705,12 +705,12 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         full_warning_message = f"[{stock_info.stock_code}] [审计警告] 数据一致性检查发现非致命问题，任务将继续执行。详情如下：\n" + "\n".join(audit_warnings)
         logger.warning(full_warning_message) # 使用 warning 级别日志
         print(full_warning_message) # 【代码新增】调试信息
-    print(f"[{stock_info.stock_code}] [数据加载与审计] 所有数据源加载并审计通过。") # 【代码修改】调整了消息文本
+    # print(f"[{stock_info.stock_code}] [数据加载与审计] 所有数据源加载并审计通过。") # 【代码修改】调整了消息文本
     return data_dfs
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     """【辅助函数 V1.0】对加载的数据进行预处理和合并。"""
-    print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...") # 【代码新增】调试信息
+    # print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...") # 【代码新增】调试信息
     cyq_chips_data = data_dfs['cyq_chips']
     cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
     daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
@@ -735,13 +735,13 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
     daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
     merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-    print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。") # 【代码修改】调整了消息文本
     return merged_df
 
 def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
     """【辅助函数 V1.0】逐日计算基础筹码指标。"""
     stock_code = merged_df['stock_code'].iloc[0] if 'stock_code' in merged_df.columns else 'UNKNOWN'
-    print(f"[{stock_code}] [基础指标计算] 开始逐日计算基础筹码指标...") # 【代码新增】调试信息
+    # print(f"[{stock_code}] [基础指标计算] 开始逐日计算基础筹码指标...") # 【代码新增】调试信息
     all_metrics_list = []
     grouped_data = merged_df.groupby('trade_time')
     for trade_date, daily_full_df in grouped_data:
@@ -765,7 +765,7 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
         print(message)
         return pd.DataFrame()
     new_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
-    print(f"[{stock_code}] [基础指标计算] 完成，共计算了 {len(new_metrics_df)} 个新交易日的基础指标。") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [基础指标计算] 完成，共计算了 {len(new_metrics_df)} 个新交易日的基础指标。") # 【代码修改】调整了消息文本
     return new_metrics_df
 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
@@ -780,13 +780,13 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
     # 【新增】解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
     # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
     # pandas_ta等数值计算库无法处理Decimal类型，因此在计算前必须将所有数值列统一转换为float64。
-    print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...") # 【代码修改】调整了消息文本
     for col in final_metrics_df.columns:
         if final_metrics_df[col].dtype == 'object':
             final_metrics_df[col] = pd.to_numeric(final_metrics_df[col], errors='coerce')
             # print(f"[{stock_code}] DEBUG: 列 '{col}' 已从 object 转换为 numeric。")
     # 阶段一：计算所有非健康分的基础及衍生指标
-    print(f"[{stock_code}] [阶段一] 计算基础指标和非健康分的衍生指标...") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [阶段一] 计算基础指标和非健康分的衍生指标...") # 【代码修改】调整了消息文本
     if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
         final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
@@ -796,9 +796,8 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             base_col, period_str = field_name.split('_slope_')
             period = int(period_str.replace('d', ''))
             calc_window = 2 if period == 1 else period
-            # 【代码修改】增强存在性检查和调试信息
             if base_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                print(f"[{stock_code}]   -> 正在计算斜率: {field_name} (基于 {base_col}, 窗口 {calc_window})") # 【代码新增】
+                # print(f"[{stock_code}]   -> 正在计算斜率: {field_name} (基于 {base_col}, 窗口 {calc_window})") # 【代码新增】
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], calc_window)
     # 自动化计算加速度
     for field_name in model_fields:
@@ -807,12 +806,11 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             period = int(period_str.replace('d', ''))
             source_slope_col = f"{base_col_with_slope}_slope_{period}d"
             calc_window = 2 if period == 1 else period
-            # 【代码修改】增强存在性检查和调试信息
             if source_slope_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                print(f"[{stock_code}]   -> 正在计算加速度: {field_name} (基于 {source_slope_col}, 窗口 {calc_window})") # 【代码新增】
+                # print(f"[{stock_code}]   -> 正在计算加速度: {field_name} (基于 {source_slope_col}, 窗口 {calc_window})") # 【代码新增】
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # 阶段二：计算最终版的筹码健康分
-    print(f"[{stock_code}] [阶段二] 计算筹码健康分...") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [阶段二] 计算筹码健康分...") # 【代码修改】调整了消息文本
     health_score_dependencies = [
         'concentration_90pct', 'concentration_90pct_slope_5d',
         'winner_profit_margin', 'price_to_peak_ratio'
@@ -826,7 +824,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             final_metrics_df[dep_col] = final_metrics_df[dep_col].fillna(0)
     final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
     # 阶段三：基于最终版的健康分，计算其衍生指标
-    print(f"[{stock_code}] [阶段三] 计算筹码健康分的衍生指标...") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [阶段三] 计算筹码健康分的衍生指标...") # 【代码修改】调整了消息文本
     if 'chip_health_score' in final_metrics_df.columns:
         for field_name in model_fields:
             if 'chip_health_score_' in field_name:
@@ -840,13 +838,13 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
                     calc_window = 2 if period == 1 else period
                     if source_slope_col in final_metrics_df.columns:
                         final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
-    print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
+    # print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
     return final_metrics_df
 
 async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):
     """【辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
     stock_code = stock_info.stock_code
-    print(f"[{stock_code}] [数据保存] 开始准备并保存数据...") # 【代码新增】调试信息
+    # print(f"[{stock_code}] [数据保存] 开始准备并保存数据...") # 【代码新增】调试信息
     records_to_save_df = final_df.loc[new_df_index]
     records_to_create = []
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
