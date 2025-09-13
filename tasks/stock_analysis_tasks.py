@@ -872,7 +872,7 @@ async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFram
                 model.objects.filter(stock=stock_info_obj).delete()
             model.objects.bulk_create(records_to_create_list, batch_size=5000)
     await save_metrics_async(MetricsModel, stock_info, records_to_create, is_full_refresh)
-    print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。") # 【代码修改】调整了消息文本
+    # print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。") # 【代码修改】调整了消息文本
     return len(records_to_create)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
