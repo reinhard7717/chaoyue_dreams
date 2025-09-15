@@ -129,7 +129,7 @@ def trend_following_list(request):
         
         latest_buy_signals = base_query.select_related('stock').prefetch_related(
             Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        ).order_by('-entry_score')
+        ).order_by('-final_score')
 
     # 5. 数据处理与筛选
     all_logs_in_memory = []
@@ -149,7 +149,7 @@ def trend_following_list(request):
             'log_id': signal.id,
             'stock': signal.stock,
             'latest_trade_time': signal.trade_time,
-            'latest_score': signal.entry_score,
+            'latest_score': signal.final_score,
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
             'close_price': signal.close_price,

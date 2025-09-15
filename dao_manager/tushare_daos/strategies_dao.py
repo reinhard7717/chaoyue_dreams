@@ -553,7 +553,7 @@ class StrategiesDAO(BaseDAO):
                             for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
                         }
                         signals_to_update, signals_to_create = [], []
-                        update_fields = ['signal_type', 'entry_score', 'risk_score', 'veto_votes', 'close_price', 'health_change_summary']
+                        update_fields = ['signal_type', 'entry_score', 'risk_score', 'final_score', 'veto_votes', 'close_price', 'health_change_summary']
                         for signal_obj in cleaned_signals:
                             key = (signal_obj.stock_id, signal_obj.trade_time, signal_obj.timeframe, signal_obj.strategy_name)
                             if key in existing_signals_map:

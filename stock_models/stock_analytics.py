@@ -62,6 +62,7 @@ class TradingSignal(models.Model):
     signal_type = models.CharField(max_length=10, choices=SignalType.choices, default=SignalType.HOLD, db_index=True, help_text="最终信号类型")
     entry_score = models.FloatField(default=0.0, help_text="当日计算出的总进攻分")
     risk_score = models.FloatField(default=0.0, help_text="当日计算出的总风险分")
+    final_score = models.FloatField(default=0.0, help_text="信号日的最终得分")
     veto_votes = models.IntegerField(default=0, help_text="当日收到的总否决票数")
     
     # --- 关联的战法详情 ---

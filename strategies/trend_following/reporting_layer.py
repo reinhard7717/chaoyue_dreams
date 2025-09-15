@@ -94,6 +94,7 @@ class ReportingLayer:
                 signal_type=signal_type_map_enum.get(row['signal_type']),
                 entry_score=row.get('entry_score', 0.0),
                 risk_score=row.get('risk_score', 0.0),
+                final_score=row.get('final_score', 0.0),
                 veto_votes=int(row.get('veto_votes', 0)),
                 close_price=row.get('close_D', 0.0),
                 health_change_summary=clean_health_summary
