@@ -331,6 +331,10 @@
         "save_all_days": {
           "value": true,
           "description": "是否保存所有日期的分析记录。true: 保存所有天；false: 只保存在有信号(买/卖/预警)的日子。"
+        },
+        "save_daily_states": {
+          "value": false,
+          "description": "【新增】是否保存每日的原子状态和触发器记录。true: 保存，用于深度调试，但会产生大量数据；false: 不保存，用于生产环境，节省空间。"
         }
       },
       "fibonacci_support_params": {

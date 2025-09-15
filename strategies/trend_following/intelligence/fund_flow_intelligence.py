@@ -38,7 +38,7 @@ class FundFlowIntelligence:
                       并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
         - 收益: 架构与其他情报模块完全统一，极大提升了信号质量和架构清晰度。
         """
-        print("      -> [资金流情报分析总指挥 V19.0 终极信号版] 启动...")
+        # print("      -> [资金流情报分析总指挥 V19.0 终极信号版] 启动...")
         
         p = get_params_block(self.strategy, 'fund_flow_params')
         is_enabled = get_param_value(p.get('enabled') if p else None, False)
@@ -48,7 +48,7 @@ class FundFlowIntelligence:
         # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
         ultimate_ff_states = self.diagnose_ultimate_fund_flow_signals(df)
 
-        print(f"      -> [资金流情报分析总指挥 V19.0] 分析完毕，共生成 {len(ultimate_ff_states)} 个终极资金流信号。")
+        # print(f"      -> [资金流情报分析总指挥 V19.0] 分析完毕，共生成 {len(ultimate_ff_states)} 个终极资金流信号。")
         return ultimate_ff_states
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

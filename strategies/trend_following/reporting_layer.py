@@ -56,11 +56,11 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V511.0 · 前缀剥离修复版】
+        【V511.2 · 组件创建健壮性修复版】
         - 核心修复 (本次修改):
-          - [根除BUG] 重新引入并优化了信号名前缀剥离逻辑。现在，在查询信号字典之前，会先从信号名 (如 `SETUP_XXX`) 中剥离前缀 (如 `SETUP_`)，得到基础信号名 (`XXX`)。
-          - 使用这个基础信号名去 `score_type_map` 中查找正确的 `score_type` 和 `cn_name`。
-        - 收益: 彻底解决了因前缀不匹配导致 `score_type` 被错误赋为 'unknown'，从而使得调试报告中“激活进攻项”无法显示的核心问题。
+          - [根除BUG] 彻底重构了 StrategyScoreComponent 的创建逻辑，解决了因 `risk_details_df` 为空或索引不匹配导致所有分数组件（包括进攻项）都无法创建的根本问题。
+          - 新逻辑将进攻项和风险项的组件创建过程解耦，分别进行安全检查和处理。即使风险项数据不存在，进攻项组件也能被正确创建和记录。
+        - 收益: 确保了只要有分数，其对应的分数组件就一定会被创建，从而彻底解决了调试报告中有总分但无明细的“幽灵分数”问题。
         """
         await self._ensure_playbooks_cached()
         signals_to_create = []
@@ -70,6 +70,7 @@ class ReportingLayer:
         daily_states_to_create = []
         strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
+        save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
@@ -114,9 +115,11 @@ class ReportingLayer:
             if trade_action_value not in StrategyDailyScore.TradeActionType.values:
                 print(f"    -> [报告层-警告] 日期 {trade_time.date()} 的 trade_action '{trade_action_value}' 不在有效选项中，将使用默认值 'NO_SIGNAL'。")
                 trade_action_value = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
-            setup_score = score_details_df.loc[trade_time].get('SCORE_SETUP', 0)
-            trigger_score = score_details_df.loc[trade_time].get('SCORE_TRIGGER', 0)
-            playbook_synergy_score = score_details_df.loc[trade_time].get('SCORE_PLAYBOOK_SYNERGY', 0)
+
+            setup_score = score_details_df.get('SCORE_SETUP', pd.Series(0, index=result_df.index)).get(trade_time, 0)
+            trigger_score = score_details_df.get('SCORE_TRIGGER', pd.Series(0, index=result_df.index)).get(trade_time, 0)
+            playbook_synergy_score = score_details_df.get('SCORE_PLAYBOOK_SYNERGY', pd.Series(0, index=result_df.index)).get(trade_time, 0)
+
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
                 trade_date=trade_time.date(),
@@ -131,69 +134,75 @@ class ReportingLayer:
                 score_details_json={},
                 trade_action=trade_action_value
             )
-            # 仅在此处使用 save_all_days 控制是否保存每日分数记录到数据库
             if save_all_days or (row['signal_type'] != '无信号'):
                 daily_scores_to_create.append(daily_score_obj)
             daily_score_map[trade_time] = daily_score_obj
-            # --- Part 2.1: 生成 StrategyScoreComponent ---
+
+            # --- Part 2.1: 生成 StrategyScoreComponent (重构后的健壮逻辑) ---
             all_details_for_json = {}
-            if trade_time in score_details_df.index and trade_time in risk_details_df.index:
-                offensive_components = score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0]
-                risk_components = risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0]
-                combined_details = pd.concat([offensive_components, risk_components])
-                for signal_name, score_value in combined_details.items():
-                    # --- 新增开始：修复前缀不匹配问题的核心逻辑 ---
-                    # 1. 定义已知的前缀列表
-                    prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
-                    base_signal_name = signal_name
-                    
-                    # 2. 循环检查并剥离前缀，以获取基础信号名
-                    for prefix in prefixes_to_strip:
-                        if signal_name.startswith(prefix):
-                            base_signal_name = signal_name[len(prefix):]
-                            break
-                    
-                    # 3. 使用基础信号名去字典中查找元数据
-                    signal_info = score_type_map.get(base_signal_name, {})
-                    score_type = signal_info.get('type', 'unknown')
-                    cn_name = signal_info.get('cn_name', base_signal_name)
-                    # --- 新增结束 ---
+            # 辅助函数，用于处理单个信号并创建组件
+            def create_component(signal_name, score_value):
+                prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
+                base_signal_name = signal_name
+                for prefix in prefixes_to_strip:
+                    if signal_name.startswith(prefix):
+                        base_signal_name = signal_name[len(prefix):]
+                        break
+                
+                signal_info = score_type_map.get(base_signal_name, {})
+                score_type = signal_info.get('type', 'unknown')
+                cn_name = signal_info.get('cn_name', base_signal_name)
 
-                    # 4. 应用唯一的覆盖规则：任何负分都属于 'penalty' 类型
-                    if score_value < 0:
-                        score_type = 'penalty'
+                if score_value < 0:
+                    score_type = 'penalty'
 
-                    # 5. 使用清晰、一致的数据创建分数组件
-                    score_components_to_create.append(StrategyScoreComponent(
-                        daily_score=daily_score_obj,
-                        signal_name=signal_name, # 保存带前缀的原始信号名，用于追溯
-                        signal_cn_name=cn_name,
-                        score_type=score_type,
-                        score_value=int(score_value)
-                    ))
-                    
-                    if score_type not in all_details_for_json: all_details_for_json[score_type] = []
-                    all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+                score_components_to_create.append(StrategyScoreComponent(
+                    daily_score=daily_score_obj,
+                    signal_name=signal_name,
+                    signal_cn_name=cn_name,
+                    score_type=score_type,
+                    score_value=int(score_value)
+                ))
+                if score_type not in all_details_for_json:
+                    all_details_for_json[score_type] = []
+                all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
+            # 1. 安全地处理进攻项
+            if not score_details_df.empty and trade_time in score_details_df.index:
+                offensive_components = score_details_df.loc[trade_time]
+                active_offensive = offensive_components[offensive_components != 0]
+                for signal_name, score_value in active_offensive.items():
+                    create_component(signal_name, score_value)
+            # 2. 安全地处理风险项
+            if not risk_details_df.empty and trade_time in risk_details_df.index:
+                risk_components = risk_details_df.loc[trade_time]
+                active_risk = risk_components[risk_components > 0]
+                for signal_name, score_value in active_risk.items():
+                    create_component(signal_name, score_value)
             daily_score_obj.score_details_json = all_details_for_json
+
         # --- Part 3: 生成 StrategyDailyState ---
-        for trade_time, daily_score_obj in daily_score_map.items():
-            # 无条件创建每日状态，以供调试报告使用
-            for state_name, state_series in self.strategy.atomic_states.items():
-                if state_series.get(trade_time, False):
-                    daily_states_to_create.append(StrategyDailyState(
-                        daily_score=daily_score_obj,
-                        signal_name=state_name,
-                        signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
-                        signal_type=StrategyDailyState.SignalType.STATE
-                    ))
-            for trigger_name, trigger_series in self.strategy.trigger_events.items():
-                if trigger_series.get(trade_time, False):
-                    daily_states_to_create.append(StrategyDailyState(
-                        daily_score=daily_score_obj,
-                        signal_name=trigger_name,
-                        signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
-                        signal_type=StrategyDailyState.SignalType.TRIGGER
-                    ))
+        if save_daily_states:
+            print(f"  [探针-报告层] 每日状态保存功能已开启，将为调试生成详细状态记录。")
+            for trade_time, daily_score_obj in daily_score_map.items():
+                for state_name, state_series in self.strategy.atomic_states.items():
+                    if state_series.get(trade_time, False):
+                        daily_states_to_create.append(StrategyDailyState(
+                            daily_score=daily_score_obj,
+                            signal_name=state_name,
+                            signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
+                            signal_type=StrategyDailyState.SignalType.STATE
+                        ))
+                for trigger_name, trigger_series in self.strategy.trigger_events.items():
+                    if trigger_series.get(trade_time, False):
+                        daily_states_to_create.append(StrategyDailyState(
+                            daily_score=daily_score_obj,
+                            signal_name=trigger_name,
+                            signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
+                            signal_type=StrategyDailyState.SignalType.TRIGGER
+                        ))
+        else:
+            print(f"  [探针-报告层] 每日状态保存功能已关闭，跳过生成详细状态记录以节省空间。")
+        
         print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
             f"{len(daily_scores_to_create)} 条每日分数, "
             f"{len(score_components_to_create)} 条分数组件, "
