@@ -736,12 +736,14 @@ class MultiTimeframeTrendStrategy:
                 return
             
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
+            display_days = 10 # 定义要展示的最新天数
+            if len(debug_period_daily_scores) > display_days:
+                print(f"\n[信息] 回测周期内共有 {len(debug_period_daily_scores)} 天数据，将仅展示最新的 {display_days} 天详细报告。")
+                # 对已排序的列表进行切片，只取最后10个元素
+                debug_period_daily_scores = debug_period_daily_scores[-display_days:]
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
 
-            # --- 修改开始：修复 subtotal_signal_names 的来源并放宽过滤条件 ---
-            # 旧代码试图从一个不存在的配置块读取，现在硬编码为正确的名称
             subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']
-            # --- 修改结束 ---
 
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
@@ -773,16 +775,16 @@ class MultiTimeframeTrendStrategy:
                 else:
                     print("    - 未找到当日的详细分析数据。")
 
-                print("  --- [终极诊断探针] 正在检查当日的分数组件... ---")
-                if not related_components:
-                    print("    - [探针结果] 警告：当日无任何分数组件 (related_components 列表为空)。这是导致明细不显示的核心原因。")
-                else:
-                    print(f"    - [探针结果] 发现 {len(related_components)} 个分数组件。原始数据如下:")
-                    for i, comp in enumerate(related_components):
-                        print(f"      {i+1}. 信号名: {comp.signal_name}, 中文名: {comp.signal_cn_name}, 类型: {comp.score_type}, 分数: {comp.score_value}")
-                print("  --- [探针结束] ---")
+                # print("  --- [终极诊断探针] 正在检查当日的分数组件... ---")
+                # if not related_components:
+                #     print("    - [探针结果] 警告：当日无任何分数组件 (related_components 列表为空)。这是导致明细不显示的核心原因。")
+                # else:
+                #     print(f"    - [探针结果] 发现 {len(related_components)} 个分数组件。原始数据如下:")
+                #     for i, comp in enumerate(related_components):
+                #         print(f"      {i+1}. 信号名: {comp.signal_name}, 中文名: {comp.signal_cn_name}, 类型: {comp.score_type}, 分数: {comp.score_value}")
+                # print("  --- [探针结束] ---")
 
-                # --- 修改开始：放宽 offensive_components 的过滤条件 ---
+                # --- 放宽 offensive_components 的过滤条件 ---
                 # 旧的过滤条件过于严格，会因为 score_type 为 'unknown' 而过滤掉所有未在字典中定义的信号
                 # 新的逻辑是，只要不是明确的风险项，都视为进攻项，这样可以暴露所有加分项，便于调试
                 offensive_components = [
@@ -791,7 +793,6 @@ class MultiTimeframeTrendStrategy:
                     and c.score_value > 0
                     and c.signal_name not in subtotal_signal_names
                 ]
-                # --- 修改结束 ---
 
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")
