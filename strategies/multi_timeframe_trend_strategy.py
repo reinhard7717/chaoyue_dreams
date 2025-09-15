@@ -59,12 +59,12 @@ class MultiTimeframeTrendStrategy:
     # 封装了配置加载与融合逻辑的私有方法
     def _load_and_merge_configs(self, main_config_path: str) -> dict:
         """
-        【V1.0 新增】加载主策略配置文件，并自动合并信号字典。
-        - 核心职责: 实现配置文件的物理分离和逻辑统一，对下游模块透明。
+        【V1.1 路径修复版】加载主策略配置文件，并自动合并信号字典。
+        - 核心修复 (本次修改):
+          - [BUG修复] 修正了信号字典的合并路径。现在它会被正确合并到 `four_layer_scoring_params` 内部，解决了下游模块找不到中文名和信号类型的问题。
         """
         # print(f"  -> [配置加载器] 正在加载主配置文件: {main_config_path}")
         main_config = load_strategy_config(main_config_path)
-        # 自动查找并加载同目录下的信号字典文件
         config_dir = os.path.dirname(main_config_path)
         dict_path = os.path.join(config_dir, 'signal_dictionary.json')
         if os.path.exists(dict_path):
@@ -72,11 +72,14 @@ class MultiTimeframeTrendStrategy:
             try:
                 with open(dict_path, 'r', encoding='utf-8') as f:
                     signal_dict_data = json.load(f)
-                # 将信号字典内容合并回主配置
                 if 'score_type_map' in signal_dict_data:
-                    # 定位到主配置中正确的位置并赋值
-                    main_config['strategy_params']['trend_follow']['score_type_map'] = signal_dict_data['score_type_map']
-                    # print("  -> [配置加载器] 信号字典已成功合并到主配置中。")
+                    # 定位到四层计分参数块
+                    scoring_params = main_config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
+                    # 将信号字典合并进去
+                    scoring_params['score_type_map'] = signal_dict_data['score_type_map']
+                    # 再把它放回主配置中
+                    main_config['strategy_params']['trend_follow']['four_layer_scoring_params'] = scoring_params
+                    # print("  -> [配置加载器] 信号字典已成功合并到 'four_layer_scoring_params' 中。")
                 else:
                     logger.warning(f"信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
                     print(f"  -> [配置加载器] 警告: 信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
@@ -87,7 +90,7 @@ class MultiTimeframeTrendStrategy:
             logger.warning(f"未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
             print(f"  -> [配置加载器] 警告: 未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
         return main_config
-
+    
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
         【总指挥层核心 - V506.1 新增起始日期计算支持】
@@ -615,68 +618,6 @@ class MultiTimeframeTrendStrategy:
             
         # 返回元组
         return (final_alerts, [])
-
-    def _calculate_trend_dynamics(self, df: pd.DataFrame, timeframes: List[str], ema_period: int = 34, slope_window: int = 5) -> pd.DataFrame:
-        """
-        【性能核心 - 向量化斜率计算 V203.0】
-        一次性计算多个时间框架下，EMA均线的斜率和加速度。
-        - **重构逻辑**: 废弃 `rolling().apply()`，改用基于 `np.polyfit` 的高效向量化实现。
-                       通过构建一个滑动窗口的视图（view），我们可以对所有窗口并行执行线性回归，
-                       性能远超逐个窗口计算的 `apply` 模式。
-        """
-        df_copy = df.copy()
-        
-        # 创建一个 (0, 1, 2, ..., N-1) 的数组，用于线性回归的 x 轴
-        x = np.arange(slope_window)
-        # 预计算 x 的相关项，用于 polyfit
-        x_matrix = np.vstack([x, np.ones(slope_window)]).T
-
-        for tf in timeframes:
-            ema_col = f'EMA_{ema_period}_{tf}'
-            close_col = f'close_{tf}'
-            slope_col, accel_col, health_col = f'ema_slope_{tf}', f'ema_accel_{tf}', f'trend_health_{tf}'
-
-            if ema_col not in df_copy.columns:
-                df_copy[slope_col], df_copy[accel_col], df_copy[health_col] = np.nan, np.nan, False
-                continue
-
-            y_series = df_copy[ema_col].values
-            
-            # 使用 numpy.lib.stride_tricks 创建滑动窗口的视图，这是向量化的关键
-            # shape: (len(y) - N + 1, N)
-            y_strided = np.lib.stride_tricks.as_strided(
-                y_series,
-                shape=(len(y_series) - slope_window + 1, slope_window),
-                strides=(y_series.strides[0], y_series.strides[0])
-            )
-            
-            # 对所有窗口一次性执行线性回归，`[0]` 表示我们只需要斜率
-            # `np.linalg.lstsq` 是 `polyfit` 的底层实现，更高效
-            slopes = np.linalg.lstsq(x_matrix, y_strided.T, rcond=None)[0][0]
-            
-            # 将计算结果填充回DataFrame，注意要对齐索引
-            df_copy[slope_col] = pd.Series(slopes, index=df_copy.index[slope_window - 1:])
-            
-            # 同样的方法计算斜率的斜率（加速度）
-            slope_series = df_copy[slope_col].dropna().values
-            if len(slope_series) >= slope_window:
-                slope_strided = np.lib.stride_tricks.as_strided(
-                    slope_series,
-                    shape=(len(slope_series) - slope_window + 1, slope_window),
-                    strides=(slope_series.strides[0], slope_series.strides[0])
-                )
-                accelerations = np.linalg.lstsq(x_matrix, slope_strided.T, rcond=None)[0][0]
-                df_copy[accel_col] = pd.Series(accelerations, index=df_copy[slope_col].dropna().index[slope_window - 1:])
-            else:
-                df_copy[accel_col] = np.nan
-
-            # 计算趋势健康度
-            is_above_ema = df_copy[close_col] > df_copy[ema_col]
-            is_slope_positive = df_copy[slope_col] > 0
-            df_copy[health_col] = is_above_ema & is_slope_positive
-            df_copy[health_col].fillna(False, inplace=True)
-
-        return df_copy
     
     # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
