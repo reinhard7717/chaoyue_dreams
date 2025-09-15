@@ -501,11 +501,9 @@ class StrategiesDAO(BaseDAO):
             return 0
         # 解包五元组，增加 daily_states 列表。
         signals, signal_details, daily_scores, score_components, daily_states = records_tuple
-
         if not signals and not daily_scores:
             print("调试信息: [DAO-V507.0] 传入的信号和每日分数均为空，不执行任何操作。")
             return 0
-
         # --- Part A & B: 数据清洗 (逻辑不变) ---
         cleaned_signals = []
         if signals:
@@ -518,7 +516,6 @@ class StrategiesDAO(BaseDAO):
                     if is_nan:
                         setattr(signal_obj, field_name, None)
                 cleaned_signals.append(signal_obj)
-        
         cleaned_daily_scores = []
         if daily_scores:
             numeric_fields = ['offensive_score', 'risk_score', 'final_score']
@@ -530,7 +527,6 @@ class StrategiesDAO(BaseDAO):
                     if is_nan:
                         setattr(score_obj, field_name, None)
                 cleaned_daily_scores.append(score_obj)
-
         def _save_all_sync():
             """这个同步函数将所有数据库操作包裹在一个事务中。"""
             try:
@@ -547,7 +543,6 @@ class StrategiesDAO(BaseDAO):
                         )
                         if existing_signals_pks:
                             SignalPlaybookDetail.objects.filter(signal_id__in=existing_signals_pks).delete()
-                        
                         existing_signals_map = {
                             (s.stock_id, s.trade_time, s.timeframe, s.strategy_name): s
                             for s in TradingSignal.objects.filter(reduce(operator.or_, signal_lookup_keys))
@@ -594,7 +589,6 @@ class StrategiesDAO(BaseDAO):
                             StrategyScoreComponent.objects.filter(daily_score_id__in=existing_scores_pks).delete()
                             # 在删除旧分数成分的同时，也删除旧的每日状态记录，确保数据一致性。
                             StrategyDailyState.objects.filter(daily_score_id__in=existing_scores_pks).delete()
-
                         existing_scores_map = {
                             (s.stock_id, s.trade_date, s.strategy_name): s
                             for s in StrategyDailyScore.objects.filter(reduce(operator.or_, score_lookup_keys))
@@ -628,7 +622,6 @@ class StrategiesDAO(BaseDAO):
                                     valid_components.append(comp)
                             if valid_components:
                                 StrategyScoreComponent.objects.bulk_create(valid_components, ignore_conflicts=True)
-                    
                     # --- Section 3: 处理 StrategyDailyState ---
                     if daily_states:
                         valid_states = []
@@ -638,7 +631,6 @@ class StrategiesDAO(BaseDAO):
                             if key in refreshed_scores_map:
                                 state.daily_score_id = refreshed_scores_map[key]
                                 valid_states.append(state)
-                        
                         if valid_states:
                             StrategyDailyState.objects.bulk_create(valid_states, ignore_conflicts=True)
 

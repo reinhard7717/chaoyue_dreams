@@ -1,5 +1,20 @@
 // static\js\fav_trend_following_list.js
 
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            // 判断这个 cookie 字符串是否以我们想要的名字开头
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 // 将所有代码包裹在 DOMContentLoaded 事件监听器中
 // 这确保了在执行JS代码时，页面上的所有HTML元素（如表格、按钮）都已经加载完毕
 document.addEventListener('DOMContentLoaded', function () {
