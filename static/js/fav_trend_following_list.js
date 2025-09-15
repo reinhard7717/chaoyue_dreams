@@ -224,12 +224,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     showNotification('交易添加成功！快照正在后台更新...', 'success');
                     addTransactionForm.reset();
-                    // 从 modalContainer 的 dataset 中获取可靠的状态来刷新模态框
-                    const currentTrackerId = modalContainer.dataset.trackerId;
-                    const currentStockName = modalContainer.dataset.stockName;
-                    if (currentTrackerId && currentStockName) {
-                        openTransactionModal(currentTrackerId, currentStockName);
-                    }
+
+                    // --- 修改代码开始 ---
+                    // 原来的逻辑是刷新模态框，这会让用户困惑。
+                    // 新逻辑是直接关闭模态框，提供清晰的操作完成反馈。
+                    // const currentTrackerId = modalContainer.dataset.trackerId;
+                    // const currentStockName = modalContainer.dataset.stockName;
+                    // if (currentTrackerId && currentStockName) {
+                    //     openTransactionModal(currentTrackerId, currentStockName);
+                    // }
+                    closeTransactionModal(); // 新增：直接调用关闭模态框函数
+                    // --- 修改代码结束 ---
+
                 } catch (error) {
                     showNotification(error.message, 'error');
                 } finally {
