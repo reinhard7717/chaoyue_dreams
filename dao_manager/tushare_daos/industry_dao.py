@@ -11,14 +11,15 @@ from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
-
+from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.cache_manager import CacheManager
-from utils.data_format_process import IndustryFormatProcess
+from utils.data_format_process import IndustryFormatProcess, MarketFormatProcess
 
 logger = logging.getLogger("dao")
 BATCH_SAVE_SIZE = 100000
@@ -30,6 +31,8 @@ class IndustryDao(BaseDAO):
         self.index_info_dao = IndexBasicDAO(self.cache_manager)
         self.data_format_process = IndustryFormatProcess(cache_manager_instance)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
+        self.stock_basic_info_dao = StockBasicInfoDao(self.cache_manager)
+        self.market_format_process = MarketFormatProcess(self.cache_manager)
 
     # ============== 申万行业分类 ==============
     async def get_swan_industry_list(self) -> List['SwIndustry']:
@@ -415,7 +418,7 @@ class IndustryDao(BaseDAO):
                 # 明确指定需要的字段，减少不必要的数据传输
                 df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,name,weight,in_date,out_date,is_new")
                 if df is None or df.empty:
-                    logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
+                    # logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
                     await asyncio.sleep(API_CALL_DELAY_SECONDS)
                     continue
                 for row in df.itertuples(index=False):
@@ -921,7 +924,7 @@ class IndustryDao(BaseDAO):
         all_leading_stock_codes = df['leading_code'].dropna().unique().tolist()
         # 1. 批量获取已存在的 DcIndex 和 StockInfo
         dc_index_map = await self.get_dc_indices_by_codes(all_index_codes)
-        leading_stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_leading_stock_codes)
+        leading_stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_leading_stock_codes)
         # 2. 识别并创建新的 DcIndex
         new_dc_indices_to_create = []
         for row in df.itertuples(index=False):
@@ -1039,7 +1042,7 @@ class IndustryDao(BaseDAO):
         combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
         # 批量获取股票信息
         all_stock_codes = combined_df['ts_code'].unique().tolist()
-        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         # 组装数据
         items_to_save = [
             self.data_format_process.set_limit_list_ths_data(stock=stock_map.get(row.ts_code), df_data=row)
@@ -1080,7 +1083,7 @@ class IndustryDao(BaseDAO):
         combined_df = pd.concat(all_items_df, ignore_index=True)
         combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
         all_stock_codes = combined_df['ts_code'].unique().tolist()
-        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         items_to_save = [
             self.data_format_process.set_limit_list_d_data(stock=stock_map.get(row.ts_code), df_data=row)
             for row in combined_df.itertuples(index=False) if stock_map.get(row.ts_code)
@@ -1112,7 +1115,7 @@ class IndustryDao(BaseDAO):
             return {}
         df = df.replace([np.nan, 'nan', 'NaN', ''], None)
         all_stock_codes = df['ts_code'].unique().tolist()
-        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         items_to_save = [
             self.data_format_process.set_limit_step_data(stock=stock_map.get(row.ts_code), df_data=row)
             for row in df.itertuples(index=False) if stock_map.get(row.ts_code)
