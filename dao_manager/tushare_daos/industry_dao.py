@@ -831,13 +831,9 @@ class IndustryDao(BaseDAO):
         Returns:
             List[DcIndex]: 东方财富概念板块基本信息列表
         """
-        return_data = []
         # 从数据库获取
-        industry_list = await sync_to_async(lambda: DcIndex.objects.all())()
-        if industry_list:
-            for industry in industry_list:
-                return_data.append(industry)
-        return return_data
+        industry_list = await sync_to_async(list)(DcIndex.objects.all())
+        return industry_list
 
     async def get_dc_indices_by_codes(self, codes: list) -> dict:
         """
@@ -858,7 +854,8 @@ class IndustryDao(BaseDAO):
             DcIndex: 东方财富概念板块基本信息
         """
         # 从数据库获取
-        industry = await sync_to_async(lambda: DcIndex.objects.filter(ts_code=ts_code).first())()
+        industry = await sync_to_async(DcIndex.objects.filter(ts_code=ts_code).first)()
+        return industry
 
     async def save_dc_index_list_by_date(self, trade_date: date) -> Dict:
         """
@@ -1052,7 +1049,7 @@ class IndustryDao(BaseDAO):
             List[DcIndexMember]: 东方财富概念板块成分列表
         """
         # 从数据库获取
-        dc_index_members = await sync_to_async(lambda: DcIndexMember.objects.filter(ts_code=ts_code).all())()
+        dc_index_members = await sync_to_async(list)(DcIndexMember.objects.filter(ts_code=ts_code).all())
         return dc_index_members
 
     async def save_dc_index_member_by_ts_code(self, ts_code: str) -> Dict:
