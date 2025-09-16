@@ -7,7 +7,7 @@ from tasks.stock_analysis_tasks import schedule_precompute_advanced_chips
 from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_today, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_yesterday, save_fund_flow_data_this_week_task, save_hm_detail_data_today
 from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task, save_trade_cal
 from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_cyq_data_today_task, save_day_data_this_week_batch, save_day_data_today_task, save_month_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_week_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
-from tasks.tushare.industry_tasks import save_all_daily_industry_concept_data_task, save_ths_index_yesterday_task
+from tasks.tushare.industry_tasks import save_all_daily_industry_concept_data_task, save_all_historical_data_task
 
 
 logger = logging.getLogger('tasks')
@@ -111,7 +111,7 @@ def run_yesterday_data_ingestion_task(self):
         
         # 每日任务：同花顺板块 & 指数行情
         logger.info("开始执行: （昨日）同花顺板块 & 指数行情")
-        save_ths_index_yesterday_task.delay()
+        save_all_historical_data_task.delay()
         
         # 步骤5：板块、行业资金流向数据 - 同花顺
         logger.info("开始执行: （昨日）板块、行业资金流向数据 - 同花顺...")
