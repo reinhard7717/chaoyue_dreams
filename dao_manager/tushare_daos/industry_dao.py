@@ -15,7 +15,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.industry import DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+from stock_models.industry import KplConcept, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.cache_manager import CacheManager
@@ -839,6 +839,58 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         industry = await sync_to_async(lambda: DcIndex.objects.filter(ts_code=ts_code).first())()
 
+    async def save_dc_index_list_by_date(self, trade_date: date) -> Dict:
+        """
+        【新增】接口：dc_index
+        描述：获取东方财富每日的概念板块列表，并用此数据更新 DcIndex 主表。
+        核心功能：发现并创建新的概念板块。
+        优化：实现了分页逻辑，确保获取所有数据。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"    -> 开始获取 [东方财富板块列表] 数据, 日期: {trade_date_str}...")
+        all_df_rows = []
+        offset = 0
+        limit = 5000
+        max_offset = 100000 # Tushare 限制
+        while offset < max_offset:
+            try:
+                df = self.ts_pro.dc_index(trade_date=trade_date_str, limit=limit, offset=offset)
+                if df is None or df.empty:
+                    print(f"    - 在 offset={offset} 处未获取到更多数据，分页结束。")
+                    break
+                all_df_rows.append(df)
+                if len(df) < limit:
+                    print(f"    - 获取到 {len(df)} 条数据，少于 limit={limit}，认定为最后一页。")
+                    break
+                offset += limit
+                print(f"    - 已获取 {offset} 条数据，继续下一页...")
+                await asyncio.sleep(0.2) # API调用间隔
+            except Exception as e:
+                logger.error(f"调用Tushare接口 dc_index (offset={offset}) 失败: {e}", exc_info=True)
+                break # 出错则终止循环
+        if not all_df_rows:
+            logger.warning(f"Tushare接口 dc_index 未返回 {trade_date_str} 的任何数据。")
+            return {"status": "warning", "message": "API returned no data."}
+        combined_df = pd.concat(all_df_rows, ignore_index=True)
+        combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # 提取板块元数据并去重
+        unique_indices = combined_df[['ts_code', 'name']].drop_duplicates().to_dict('records')
+        if not unique_indices:
+            return {}
+        # 组装用于保存的数据
+        new_dc_indices_to_create = [
+            self.data_format_process.set_dc_index_data(df_data=row)
+            for row in unique_indices
+        ]
+        print(f"    - 发现 {len(new_dc_indices_to_create)} 个不重复的东方财富板块，准备进行更新/创建...")
+        result = await self._save_all_to_db_native_upsert(
+            model_class=DcIndex,
+            data_list=new_dc_indices_to_create,
+            unique_fields=['ts_code']
+        )
+        print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(new_dc_indices_to_create)} 条板块元数据。")
+        return result
+
     # ============== 东方财富板块指数行情 ==============
     async def get_dc_index_daily(self, ts_code: str) -> List['DcIndexDaily']:
         """
@@ -895,68 +947,71 @@ class IndustryDao(BaseDAO):
 
     async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
-        【V2.0 重构修复版】接口：dc_daily (Tushare接口名是dc_index)
-        描述：获取东方财富概念板块指数行情。
+        【V3.0 重构修复版】接口：dc_daily
+        描述：获取东方财富概念板块的日线行情数据。
         修复：
-        1. 修复了因 set_dc_index_data 缺少 stock 参数导致的 TypeError。
-        2. 优化了数据处理流程，采用批量查询，避免循环内DB查询。
-        3. 明确了 DcIndex 和 DcIndexDaily 的创建和关联逻辑。
+        1.  【KeyError修复】完全重写数据处理逻辑，以匹配 `dc_daily` API的实际返回字段（OHLC等）。
+        2.  【分页逻辑】新增了 while 循环和 offset，以完整获取当日所有板块的行情数据。
+        3.  【模型匹配】确保数据格式化与重构后的 `DcIndexDaily` 模型完全对应。
+        4.  (保留) 保留了“按需创建新板块”的健壮性设计。
         """
         if trade_time is None:
             trade_time = datetime.today().date()
         trade_time_str = trade_time.strftime('%Y%m%d')
         print(f"    -> 开始获取 [东方财富板块行情] 数据, 日期: {trade_time_str}...")
-
-        try:
-            df = self.ts_pro.dc_daily(trade_date=trade_time_str, fields=[
-                "ts_code", "trade_date", "name", "leading", "leading_code", "pct_change", "leading_pct", "total_mv", "turnover_rate",
-                "up_num", "down_num"
-            ])
-        except Exception as e:
-            logger.error(f"调用Tushare接口 dc_daily 失败: {e}", exc_info=True)
-            return {"status": "error", "message": f"API call failed: {e}"}
-        if df is None or df.empty:
+        all_dfs = []
+        offset = 0
+        limit = 2000 # dc_daily 的 limit 是 2000
+        max_offset = 100000
+        while offset < max_offset:
+            try:
+                df = self.ts_pro.dc_daily(trade_date=trade_time_str, limit=limit, offset=offset)
+                if df is None or df.empty:
+                    print(f"    - 在 offset={offset} 处未获取到更多行情数据，分页结束。")
+                    break
+                all_dfs.append(df)
+                if len(df) < limit:
+                    print(f"    - 获取到 {len(df)} 条行情，少于 limit={limit}，认定为最后一页。")
+                    break
+                offset += limit
+                print(f"    - 已获取 {offset} 条行情，继续下一页...")
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.error(f"调用Tushare接口 dc_daily (offset={offset}) 失败: {e}", exc_info=True)
+                break
+        if not all_dfs:
             logger.warning(f"Tushare接口 dc_daily 未返回 {trade_time_str} 的数据。")
             return {"status": "warning", "message": "API returned no data."}
-        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
-        # --- 批量获取和创建 ---
-        all_index_codes = df['ts_code'].unique().tolist()
-        all_leading_stock_codes = df['leading_code'].dropna().unique().tolist()
-        # 1. 批量获取已存在的 DcIndex 和 StockInfo
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # --- 批量获取和创建板块主数据 ---
+        all_index_codes = combined_df['ts_code'].unique().tolist()
         dc_index_map = await self.get_dc_indices_by_codes(all_index_codes)
-        leading_stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_leading_stock_codes)
-        # 2. 识别并创建新的 DcIndex
-        new_dc_indices_to_create = []
-        for row in df.itertuples(index=False):
+        new_indices_to_create = []
+        for row in combined_df[['ts_code']].drop_duplicates().itertuples(index=False):
             if row.ts_code not in dc_index_map:
-                # 避免重复添加
-                if not any(d['ts_code'] == row.ts_code for d in new_dc_indices_to_create):
-                    index_dict = self.data_format_process.set_dc_index_data(df_data=row)
-                    new_dc_indices_to_create.append(index_dict)
-        if new_dc_indices_to_create:
-            print(f"    - 发现 {len(new_dc_indices_to_create)} 个新的东方财富板块，正在创建...")
+                # 注意：dc_daily不返回name，所以这里我们只用ts_code创建，name可以后续通过dc_index任务补全
+                new_indices_to_create.append({'ts_code': row.ts_code, 'name': row.ts_code})
+        if new_indices_to_create:
+            print(f"    - 发现 {len(new_indices_to_create)} 个新的东方财富板块，正在创建...")
             await self._save_all_to_db_native_upsert(
                 model_class=DcIndex,
-                data_list=new_dc_indices_to_create,
-                unique_fields=['ts_code']
+                data_list=new_indices_to_create,
+                unique_fields=['ts_code'],
+                update_fields=['name'] # 如果已存在，可以尝试更新name
             )
-            # 重新获取一次，确保 dc_index_map 是最新的
-            dc_index_map.update(await self.get_dc_indices_by_codes([d['ts_code'] for d in new_dc_indices_to_create]))
+            dc_index_map.update(await self.get_dc_indices_by_codes([d['ts_code'] for d in new_indices_to_create]))
             print(f"    - 新板块创建完成。")
         # --- 组装日线数据 ---
         dc_index_daily_dicts = []
-        for row in df.itertuples(index=False):
+        for row in combined_df.itertuples(index=False):
             dc_index = dc_index_map.get(row.ts_code)
-            leading_stock = leading_stock_map.get(row.leading_code)
             if not dc_index:
                 logger.warning(f"创建后仍未找到东方财富板块 {row.ts_code}，跳过此条日线数据。")
                 continue
-            # 即使领涨股不存在，也应保存板块行情，只是领涨股字段为空
-            if not leading_stock:
-                logger.warning(f"未在数据库中找到领涨股 {row.leading_code}，板块 {row.ts_code} 的日线行情将保存，但领涨股信息为空。")
+            # 关键修复：调用新的数据格式化方法，匹配 dc_daily API 和新模型
             daily_dict = self.data_format_process.set_dc_index_daily_data(
                 dc_index=dc_index,
-                leading_stock=leading_stock,
                 df_data=row
             )
             dc_index_daily_dicts.append(daily_dict)
@@ -1012,6 +1067,79 @@ class IndustryDao(BaseDAO):
                 data_list=dc_index_member_dicts,
                 unique_fields=['dc_index', 'stock', 'trade_time']
             )
+        return result
+
+    async def save_dc_index_members_by_date(self, trade_date: date) -> Dict:
+        """
+        【新增】接口：dc_member
+        描述：按天获取所有东方财富板块的成分股。
+        优化：
+        1. 先获取所有板块，再循环调用API，逻辑清晰。
+        2. 对 dc_member 接口调用增加了分页逻辑，确保单个板块成分过多时也能完整获取。
+        3. 采用批量获取、批量保存的策略，提升数据库效率。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"    -> 开始获取 [东方财富板块成分] 数据, 日期: {trade_date_str}...")
+        # 1. 获取所有已知的东方财富板块
+        all_dc_indices = await self.get_dc_index_list()
+        if not all_dc_indices:
+            logger.warning("数据库中未找到任何东方财富板块，无法获取成分股。")
+            return {"status": "warning", "message": "No DcIndex found in DB."}
+        print(f"    - 将为 {len(all_dc_indices)} 个板块获取成分股...")
+        all_raw_members = []
+        all_stock_codes = set()
+        # 2. 循环获取每个板块的成分
+        for i, dc_index in enumerate(all_dc_indices):
+            print(f"      - 进度 {i+1}/{len(all_dc_indices)}: 获取板块 [{dc_index.name or dc_index.ts_code}] 成分...")
+            offset = 0
+            limit = 5000
+            while True:
+                try:
+                    df = self.ts_pro.dc_member(trade_date=trade_date_str, ts_code=dc_index.ts_code, limit=limit, offset=offset)
+                    if df is None or df.empty:
+                        break
+                    
+                    for row in df.itertuples(index=False):
+                        all_raw_members.append((dc_index, row))
+                        all_stock_codes.add(row.con_code)
+
+                    if len(df) < limit:
+                        break
+                    offset += limit
+                    await asyncio.sleep(0.2)
+                except Exception as e:
+                    logger.error(f"获取板块 {dc_index.ts_code} 成分时(offset={offset})失败: {e}", exc_info=True)
+                    break # 单个板块出错，继续下一个
+
+        if not all_raw_members:
+            logger.warning(f"未获取到 {trade_date_str} 的任何板块成分数据。")
+            return {}
+        # 3. 批量获取股票信息
+        print(f"    - 正在批量获取 {len(all_stock_codes)} 个股票的信息...")
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
+        # 4. 组装数据
+        members_to_save = []
+        for dc_index, row_data in all_raw_members:
+            stock = stock_map.get(row_data.con_code)
+            if stock:
+                member_dict = self.data_format_process.set_dc_index_member_data(
+                    dc_index=dc_index,
+                    stock=stock,
+                    df_data=row_data
+                )
+                members_to_save.append(member_dict)
+            else:
+                logger.warning(f"未在DB中找到股票 {row_data.con_code}，板块 {dc_index.ts_code} 的此条成分记录将被忽略。")
+        if not members_to_save:
+            return {}
+        # 5. 批量保存
+        print(f"    - 准备保存 {len(members_to_save)} 条东方财富板块成分数据...")
+        result = await self._save_all_to_db_native_upsert(
+            model_class=DcIndexMember,
+            data_list=members_to_save,
+            unique_fields=['trade_time', 'dc_index', 'stock']
+        )
+        print(f"    -- 完成 [东方财富板块成分] 数据获取，共保存 {len(members_to_save)} 条。")
         return result
 
     # ============== 市场情绪与涨跌停数据 ==============

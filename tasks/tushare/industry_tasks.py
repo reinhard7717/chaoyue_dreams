@@ -111,10 +111,18 @@ def save_all_daily_industry_concept_data_task(cache_manager=None):
         try:
             print("\n--- [任务块 4/5] 开始处理【东方财富】相关数据 ---")
             logger.info("--- [任务块 4/5] 开始处理【东方财富】相关数据 ---")
-            # 4.1 东方财富板块当日行情 (此接口会自动创建不存在的板块)
+            # 4.1 更新东方财富板块列表 (主表)
+            dc_list_res = await industry_dao.save_dc_index_list_by_date(trade_date=today)
+            print(f"  - 保存东方财富板块列表当日({today})完成，结果: {dc_list_res}")
+            logger.info(f"  - 保存东方财富板块列表当日({today})完成，结果: {dc_list_res}")
+            # 4.2 获取东方财富板块当日行情
             dc_daily_res = await industry_dao.save_dc_index_daily_by_trade_time(trade_time=today)
             print(f"  - 保存东方财富板块当日({today})行情完成，结果: {dc_daily_res}")
             logger.info(f"  - 保存东方财富板块当日({today})行情完成，结果: {dc_daily_res}")
+            # 4.3 获取东方财富板块当日成分
+            dc_member_res = await industry_dao.save_dc_index_members_by_date(trade_date=today)
+            print(f"  - 保存东方财富板块当日({today})成分完成，结果: {dc_member_res}")
+            logger.info(f"  - 保存东方财富板块当日({today})成分完成，结果: {dc_member_res}")
         except Exception as e:
             logger.error(f"[{task_name}] 处理【东方财富】数据时发生错误: {e}", exc_info=True)
         # --- 5. 市场情绪数据 (涨跌停等) ---
@@ -200,7 +208,9 @@ def save_all_historical_data_task(cache_manager=None, days_to_fetch: int = 30):
             tasks.append(run_safely(industry_dao.save_kpl_concept_members_by_date, "开盘啦题材成分", trade_date=trade_date))
             tasks.append(run_safely(industry_dao.save_kpl_list_by_date, "开盘啦榜单", trade_date=trade_date))
             # 东方财富
+            tasks.append(run_safely(industry_dao.save_dc_index_list_by_date, "东方财富板块列表", trade_date=trade_date))
             tasks.append(run_safely(industry_dao.save_dc_index_daily_by_trade_time, "东方财富板块行情", trade_time=trade_date))
+            tasks.append(run_safely(industry_dao.save_dc_index_members_by_date, "东方财富板块成分", trade_date=trade_date))
             # 市场情绪
             tasks.append(run_safely(industry_dao.save_limit_list_ths_by_date, "同花顺涨跌停榜单", trade_date=trade_date))
             tasks.append(run_safely(industry_dao.save_limit_list_d_by_date, "Tushare涨跌停列表", trade_date=trade_date))

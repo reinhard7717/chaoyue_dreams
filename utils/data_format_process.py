@@ -822,19 +822,25 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块指数行情
-    def set_dc_index_daily_data(self, dc_index: 'DcIndex', leading_stock: Optional['StockInfo'], df_data: Any) -> Dict:
+    def set_dc_index_daily_data(self, dc_index: 'DcIndex', df_data: Any) -> Dict:
+        """
+        【V2.0 重构版】
+        根据重构后的 DcIndexDaily 模型和 dc_daily API 的实际返回字段进行数据格式化。
+        移除了不再需要的 leading_stock 参数。
+        """
         data_dict = {
             "dc_index": dc_index,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
-            "name": getattr(df_data, "name", None),
-            "leading": getattr(df_data, "leading", None),
-            "stock": leading_stock,
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "open": self._parse_number(getattr(df_data, "open", None)),
+            "high": self._parse_number(getattr(df_data, "high", None)),
+            "low": self._parse_number(getattr(df_data, "low", None)),
+            "change": self._parse_number(getattr(df_data, "change", None)),
             "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
-            "leading_pct": self._parse_number(getattr(df_data, "leading_pct", None)),
-            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "vol": self._parse_number(getattr(df_data, "vol", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "swing": self._parse_number(getattr(df_data, "swing", None)),
             "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
-            "up_num": self._parse_number(getattr(df_data, "up_num", None)),
-            "down_num": self._parse_number(getattr(df_data, "down_num", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 

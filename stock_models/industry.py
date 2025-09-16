@@ -348,43 +348,56 @@ class DcIndex(models.Model):
     def __str__(self):
         return f"{self.ts_code}-{self.name}"
 
-# 东方财富板块指数行情
+# 东方财富板块指数行情 (模型结构完全重写以匹配 dc_daily API)
 class DcIndexDaily(models.Model):
     dc_index = models.ForeignKey(
         'DcIndex',
         on_delete=models.CASCADE,
-        to_field='ts_code',  # 指定外键对应DcIndex的ts_code字段
-        db_column='ts_code', # 数据库字段名
+        to_field='ts_code',
+        db_column='ts_code',
         related_name='daily_data',
-        null=True,  # 允许为空
-        blank=True, # 后台表单也允许为空
         verbose_name="东方财富概念板块"
     )
-    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
-    name = models.CharField(max_length=50, verbose_name="概念名称")
-    leading = models.CharField(max_length=50, verbose_name="领涨股票名称")
-    stock = models.ForeignKey('StockInfo', db_column='leading_code', to_field='stock_code', on_delete=models.CASCADE, related_name="dc_index_daily", verbose_name=_("股票"))
-    pct_change = models.FloatField(verbose_name="涨跌幅")
-    leading_pct = models.FloatField(verbose_name="领涨股票涨跌幅")
-    total_mv = models.FloatField(verbose_name="总市值(万元)")
-    turnover_rate = models.FloatField(verbose_name="换手率")
-    up_num = models.IntegerField(verbose_name="上涨家数")
-    down_num = models.IntegerField(verbose_name="下降家数")
-
+    trade_time = models.DateField(verbose_name="交易日")
+    close = models.FloatField(verbose_name="收盘点位", null=True, blank=True)
+    open = models.FloatField(verbose_name="开盘点位", null=True, blank=True)
+    high = models.FloatField(verbose_name="最高点位", null=True, blank=True)
+    low = models.FloatField(verbose_name="最低点位", null=True, blank=True)
+    change = models.FloatField(verbose_name="涨跌点位", null=True, blank=True)
+    pct_change = models.FloatField(verbose_name="涨跌幅(%)", null=True, blank=True)
+    vol = models.FloatField(verbose_name="成交量(手)", null=True, blank=True)
+    amount = models.FloatField(verbose_name="成交额(千元)", null=True, blank=True)
+    swing = models.FloatField(verbose_name="振幅(%)", null=True, blank=True)
+    turnover_rate = models.FloatField(verbose_name="换手率(%)", null=True, blank=True)
     class Meta:
         db_table = "dc_index_daily"
         verbose_name = "东方财富板块指数行情"
         verbose_name_plural = verbose_name
         unique_together = ('dc_index', 'trade_time')
+        ordering = ['-trade_time']
     
     def __str__(self):
-        return f"{self.dc_index.ts_code}-{self.dc_index.name}"
+        return f"{self.dc_index.ts_code} - {self.trade_time}"
 
-# 东方财富板块成分
+# 东方财富板块成分 (模型结构保持不变，与 dc_member API 匹配)
 class DcIndexMember(models.Model):
-    trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
-    dc_index = models.ForeignKey('DcIndex', db_column='ts_code', null=True, blank=True, on_delete=models.CASCADE, related_name="dc_member", verbose_name=_("指数"))
-    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, db_column='con_code', to_field='stock_code', related_name="dc_member", verbose_name=_("股票"))
+    trade_time = models.DateField(verbose_name="交易日期", db_index=True)
+    dc_index = models.ForeignKey(
+        'DcIndex',
+        db_column='ts_code',
+        to_field='ts_code',
+        on_delete=models.CASCADE,
+        related_name="dc_member",
+        verbose_name="指数"
+    )
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        db_column='con_code',
+        to_field='stock_code',
+        related_name="dc_member",
+        verbose_name="股票"
+    )
     name = models.CharField(max_length=50, null=True, blank=True, verbose_name="股票名称")
     class Meta:
         db_table = "dc_index_member"
@@ -392,4 +405,5 @@ class DcIndexMember(models.Model):
         verbose_name_plural = verbose_name
         unique_together = ('trade_time', 'dc_index', 'stock')
     def __str__(self):
-        return f"{self.dc_index.ts_code} - {self.trade_date} - {self.stock}"
+        return f"{self.dc_index.ts_code} - {self.trade_time} - {self.stock.stock_code}"
+
