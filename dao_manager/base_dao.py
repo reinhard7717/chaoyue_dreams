@@ -896,14 +896,16 @@ class BaseDAO(Generic[T]):
             logger.error(f"在 _get_or_create_fk_sync 中为代码 '{code_value}' (字段: {lookup_field}) 操作 '{fk_model.__name__}' 时出错: {e}", exc_info=True)
             return None # 出错时返回 None，上层会捕获并抛出 ValueError
 
-    async def get_or_create_fk_instance(self, fk_model: Type[models.Model], code_value: str, prepared_data: dict) -> models.Model | None:
+    async def get_or_create_fk_instance(self, fk_model: Type[models.Model], code_field_name: str, code_value: str) -> models.Model | None:
         """
-        【V5 最终修正版 - 健壮版】
+        【V6 动态字段版】
         异步获取或创建外键实例。
         它调用一个被 @sync_to_async 包装的同步方法来安全地与数据库交互。
-        这个版本简化了接口，直接接收 code_value。
+        这个版本接收要查询的字段名(code_field_name)，使其更具通用性。
         """
-        # 调用我们上面定义的、被包装的同步方法
+        # 调试信息：打印即将用于查询的参数
+        print(f"DEBUG: get_or_create_fk_instance: fk_model={fk_model.__name__}, code_field_name='{code_field_name}', code_value='{code_value}'")
+        # 关键修改：方法签名已更新为 (self, fk_model, code_field_name, code_value)，现在可以正确地将参数传递给下一层。
         return await self._get_or_create_fk_sync(fk_model, code_field_name, code_value)
 
     # ==================== 更新和删除操作 ====================
