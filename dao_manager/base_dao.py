@@ -842,7 +842,7 @@ class BaseDAO(Generic[T]):
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
-        【V6 - 终极健壮版】- 此方法保持不变
+        【V7 - 动态外键字段修复版】
         准备单个模型实例的数据字典。
         核心功能：处理外键，将 'stock_code' 这样的字段或 {'stock': {'stock_code': ...}} 这样的结构，统一转换为实际的 'stock' 对象。
         """
@@ -858,11 +858,13 @@ class BaseDAO(Generic[T]):
                     prepared_data[fk_field_name] = None
                     continue
                 fk_model = model_class._meta.get_field(fk_field_name).related_model
-                fk_instance = await self.get_or_create_fk_instance(fk_model, code_value, prepared_data)
+                # 关键修改：调用 get_or_create_fk_instance 时，传入正确的 code_field_name，并移除了不再使用的 prepared_data 参数
+                fk_instance = await self.get_or_create_fk_instance(fk_model, code_field_name, code_value)
                 if fk_instance is None:
+                    # 增强错误信息，明确指出是哪个字段和值出了问题
                     error_msg = (
                         f"为外键字段 '{fk_field_name}' 准备实例失败！"
-                        f"无法为代码 '{code_value}' 找到或创建对应的 '{fk_model.__name__}' 实例。"
+                        f"无法为代码 '{code_value}' (使用字段 '{code_field_name}') 找到或创建对应的 '{fk_model.__name__}' 实例。"
                     )
                     raise ValueError(error_msg)
                 prepared_data[fk_field_name] = fk_instance
@@ -873,26 +875,25 @@ class BaseDAO(Generic[T]):
 
     @staticmethod
     @sync_to_async
-    def _get_or_create_fk_sync(fk_model: Type[models.Model], code_value: str) -> models.Model | None:
+    def _get_or_create_fk_sync(fk_model: Type[models.Model], lookup_field: str, code_value: str) -> models.Model | None:
         """
         同步的辅助方法，用于执行数据库的 get_or_create 操作。
         这是被 sync_to_async 包装的核心，确保数据库调用在同步线程中执行。
         """
-        # 关键假设：我们假设您的 StockInfo 模型中，用来唯一标识股票的字段名叫 'stock_code'。
-        # 如果字段名是 'code' 或其他名称，请务必修改下面这行。
-        lookup_field = 'stock_code'
+        # 关键修复：不再硬编码 'stock_code'，而是使用从上层动态传入的 lookup_field。
         try:
             # 使用 Django ORM 的 get_or_create，它会原子性地尝试获取，如果不存在则创建。
             # 它返回一个元组 (instance, created_boolean)。
+            print(f"DEBUG: _get_or_create_fk_sync: fk_model={fk_model.__name__}, lookup_field='{lookup_field}', code_value='{code_value}'")
             instance, created = fk_model.objects.get_or_create(
                 **{lookup_field: code_value},
-                # 如果需要创建，可以提供默认值
-                # defaults={'stock_name': '未知', ...} 
             )
+            if created:
+                print(f"DEBUG: Created new {fk_model.__name__} instance for {lookup_field}={code_value}")
             return instance
         except Exception as e:
             # 捕获可能的数据库错误或其他问题，并记录详细日志。
-            logger.error(f"在 _get_or_create_fk_sync 中为代码 '{code_value}' 操作 '{fk_model.__name__}' 时出错: {e}", exc_info=True)
+            logger.error(f"在 _get_or_create_fk_sync 中为代码 '{code_value}' (字段: {lookup_field}) 操作 '{fk_model.__name__}' 时出错: {e}", exc_info=True)
             return None # 出错时返回 None，上层会捕获并抛出 ValueError
 
     async def get_or_create_fk_instance(self, fk_model: Type[models.Model], code_value: str, prepared_data: dict) -> models.Model | None:
@@ -903,7 +904,7 @@ class BaseDAO(Generic[T]):
         这个版本简化了接口，直接接收 code_value。
         """
         # 调用我们上面定义的、被包装的同步方法
-        return await self._get_or_create_fk_sync(fk_model, code_value)
+        return await self._get_or_create_fk_sync(fk_model, code_field_name, code_value)
 
     # ==================== 更新和删除操作 ====================
 
