@@ -151,11 +151,11 @@ class JudgmentLayer:
 
     def _calculate_risk_penalty_score(self):
         """
-        【V400.2 终极信号适配版】计算风险惩罚分
-        - 核心转变: 不再计算离散的“否决票”，而是累加连续的“风险惩罚分”。
-        - 核心升级: 全面消费各情报层产出的S/S+/A/B级终极风险信号，替换所有旧的、零散的风险信号。
-        - 计算逻辑: risk_penalty_score += risk_signal_score * weight
-        - 风险缓解: 采用数值化缓解 `risk_score * (1 - mitigator_score)`
+        【V400.3 行业协同版】计算风险惩罚分
+        - 核心升级 (本次修改):
+          - [新增] 引入了对行业生命周期风险的量化惩罚。
+          - 当行业处于“高位滞涨”或“下跌通道”时，会根据其风险置信度分数，按比例增加风险惩罚分。
+        - 收益: 实现了对宏观行业风险的精准量化和主动规避。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -163,55 +163,69 @@ class JudgmentLayer:
         def get_clipped_score(signal_name):
             """辅助函数：获取信号分并确保其非负"""
             return atomic.get(signal_name, default_series).clip(lower=0)
-
         # --- 风险1: 绝对否决信号 (权重: 300) ---
-        # 备注: 绝对否决清单已在配置文件中升级为消费终极信号
         veto_params = get_params_block(self.strategy, 'absolute_veto_params')
         if get_param_value(veto_params.get('enabled'), True):
             mitigation_rules = get_param_value(veto_params.get('mitigation_rules'), {})
             veto_signals = get_param_value(veto_params.get('veto_signals'), [])
             for signal_name in veto_signals:
                 risk_score = get_clipped_score(signal_name)
+                if risk_score.sum() == 0: continue # 优化：如果没有信号，直接跳过
                 # 处理风险缓解
                 if signal_name in mitigation_rules:
                     mitigators = mitigation_rules[signal_name].get('mitigated_by', [])
                     mitigator_score = pd.Series(0.0, index=df.index)
                     if mitigators:
                         mitigator_scores = [get_clipped_score(m_signal) for m_signal in mitigators]
-                        mitigator_score = pd.Series(np.maximum.reduce([s.values for s in mitigator_scores]), index=df.index)
+                        if mitigator_scores:
+                            mitigator_score = pd.Series(np.maximum.reduce([s.values for s in mitigator_scores if not s.empty]), index=df.index)
                     
                     net_risk_score = risk_score * (1 - mitigator_score)
-                    df['risk_penalty_score'] += net_risk_score * 300 # 绝对否决信号给予高权重
+                    df['risk_penalty_score'] += net_risk_score * 300
                 else:
                     df['risk_penalty_score'] += risk_score * 300
-
         # --- 风险2: 风险分高于进攻分 (权重: 100) ---
         risk_overrides_score = (df['risk_score'] > df['entry_score']).astype(float)
         is_in_ascent_phase = get_clipped_score('SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S')
-        # 只有在非主升浪期间，此风险才生效
         net_risk_score = risk_overrides_score * (1 - is_in_ascent_phase)
         df['risk_penalty_score'] += net_risk_score * 100
-
         # --- 风险3: 周线战略顶层风险 (权重: 300 for topping, 100 for bearish) ---
         df['risk_penalty_score'] += get_clipped_score('CONTEXT_STRATEGIC_TOPPING_RISK_W') * 300
         df['risk_penalty_score'] += get_clipped_score('CONTEXT_STRATEGIC_BEARISH_W') * 100
-
         # --- 风险4: 顶层认知风险 (权重: 200-300) ---
-        # 备注: 这些是经过多层融合的最高级别风险信号
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S') * 300
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S') * 300
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S') * 250
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S') * 200
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_TREND_FATIGUE_RISK') * 150
-
         # --- 风险5: 各情报层S级看跌共振风险 (权重: 150) ---
-        # 备注: 这是对系统性风险的全面检查
         df['risk_penalty_score'] += get_clipped_score('SCORE_BEHAVIOR_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_CHIP_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_DYN_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_FF_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_STRUCTURE_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_FOUNDATION_BEARISH_RESONANCE_S') * 150
+        # --- 风险18: 行业生命周期风险 (权重由配置决定) ---
+        industry_params = get_params_block(self.strategy, 'industry_lifecycle_scoring_params', {})
+        if industry_params.get('enabled', False):
+            penalty_multiplier = industry_params.get('penalty_multiplier', 600)
+            # 获取滞涨和下跌阶段的分数
+            score_stagnation = get_clipped_score('SCORE_INDUSTRY_STAGNATION')
+            score_downtrend = get_clipped_score('SCORE_INDUSTRY_DOWNTREND')
+            # 获取惩罚权重
+            stagnation_weight = industry_params.get('stagnation_penalty_weight', 1.2)
+            downtrend_weight = industry_params.get('downtrend_penalty_weight', 1.5)
+            # 计算惩罚分并加入总风险
+            stagnation_penalty = score_stagnation * stagnation_weight * penalty_multiplier
+            downtrend_penalty = score_downtrend * downtrend_weight * penalty_multiplier
+            df['risk_penalty_score'] += stagnation_penalty
+            df['risk_penalty_score'] += downtrend_penalty
+            # 记录到 risk_details_df 以便调试
+            if hasattr(self.strategy, 'risk_details_df'):
+                 if (stagnation_penalty > 0).any():
+                     self.strategy.risk_details_df['RISK_INDUSTRY_STAGNATION'] = stagnation_penalty
+                 if (downtrend_penalty > 0).any():
+                     self.strategy.risk_details_df['RISK_INDUSTRY_DOWNTREND'] = downtrend_penalty
     
     def _finalize_signals(self):
         """

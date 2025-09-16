@@ -154,51 +154,51 @@ class ReportingLayer:
                     if signal_name.startswith(prefix):
                         base_signal_name = signal_name[len(prefix):]
                         break
-                
+                # 从战法缓存中获取 Playbook 对象实例
+                playbook_obj = self.playbooks_cache.get(base_signal_name)
+                # 如果在缓存中找不到对应的战法定义，则跳过此条，避免数据库出错
+                if not playbook_obj:
+                    print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{base_signal_name}' 的定义，跳过创建其分数组件。")
+                    return
                 signal_info = score_type_map.get(base_signal_name, {})
                 score_type = signal_info.get('type', 'unknown')
                 cn_name = signal_info.get('cn_name', base_signal_name)
-
                 if score_value < 0:
                     score_type = 'penalty'
-
                 score_components_to_create.append(StrategyScoreComponent(
                     daily_score=daily_score_obj,
-                    signal_name=signal_name,
-                    signal_cn_name=cn_name,
+                    playbook=playbook_obj,  # 使用 playbook 对象替代旧的 signal_name 和 signal_cn_name
                     score_type=score_type,
                     score_value=int(score_value)
                 ))
-                
                 if score_type not in all_details_for_json:
                     all_details_for_json[score_type] = []
                 all_details_for_json[score_type].append({'name': cn_name, 'score': int(score_value)})
-
             if not score_details_df.empty and trade_time in score_details_df.index:
                 offensive_components = score_details_df.loc[trade_time]
                 active_offensive = offensive_components[offensive_components != 0]
                 for signal_name, score_value in active_offensive.items():
                     create_component(signal_name, score_value)
-
             if not risk_details_df.empty and trade_time in risk_details_df.index:
                 risk_components = risk_details_df.loc[trade_time]
                 active_risk = risk_components[risk_components > 0]
                 for signal_name, score_value in active_risk.items():
                     create_component(signal_name, score_value)
-            
             daily_score_obj.score_details_json = all_details_for_json
-
         # --- Part 3: 生成 StrategyDailyState (由 save_daily_states 控制) ---
         if save_daily_states:
             print(f"  [探针-报告层] 每日状态保存功能已开启，将为调试生成详细状态记录。")
             for trade_time, daily_score_obj in daily_score_map.items():
                 for state_name, state_series in self.strategy.atomic_states.items():
                     if state_series.get(trade_time, False):
+                        playbook_obj = self.playbooks_cache.get(signal_name)
+                        if not playbook_obj:
+                            print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{signal_name}' 的定义，跳过创建其每日状态。")
+                            continue
                         daily_states_to_create.append(StrategyDailyState(
                             daily_score=daily_score_obj,
-                            signal_name=state_name,
-                            signal_cn_name=score_type_map.get(state_name, {}).get('cn_name', state_name),
-                            signal_type=StrategyDailyState.SignalType.STATE
+                            playbook=playbook_obj,  # 使用 playbook 对象
+                            signal_type=signal_type
                         ))
                 for trigger_name, trigger_series in self.strategy.trigger_events.items():
                     if trigger_series.get(trade_time, False):

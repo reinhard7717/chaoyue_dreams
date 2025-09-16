@@ -207,6 +207,58 @@ class KplConceptConstituent(models.Model):
     def __str__(self):
         return f"{self.trade_time} - {self.name}({self.ts_code}) - {self.con_name}({self.con_code})"
 
+# 开盘啦榜单数据
+class KplLimitList(models.Model):
+    """
+    【新增】开盘啦榜单数据（涨停、跌停、炸板等）
+    这是捕捉市场短线情绪、识别龙头和梯队的核心数据。
+    """
+    stock = models.ForeignKey(
+        'StockInfo',
+        to_field='stock_code',
+        db_column='ts_code',
+        on_delete=models.CASCADE,
+        related_name="kpl_limit_list",
+        verbose_name=_("股票代码")
+    )
+    trade_date = models.DateField(verbose_name="交易日期", db_index=True)
+    name = models.CharField(max_length=64, verbose_name="股票名称")
+    tag = models.CharField(max_length=20, verbose_name="榜单类型", db_index=True, help_text="例如: 涨停, 跌停, 炸板")
+    
+    # 时间相关
+    lu_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="涨停时间")
+    ld_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="跌停时间")
+    open_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="开板时间")
+    last_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="最后涨停时间")
+
+    # 描述与题材
+    lu_desc = models.TextField(null=True, blank=True, verbose_name="涨停原因")
+    theme = models.TextField(null=True, blank=True, verbose_name="所属板块/题材")
+    
+    # 状态与量价核心指标
+    status = models.CharField(max_length=50, null=True, blank=True, verbose_name="连板状态", help_text="例如: 首板, 2连板")
+    pct_chg = models.FloatField(null=True, blank=True, verbose_name="涨跌幅(%)")
+    turnover_rate = models.FloatField(null=True, blank=True, verbose_name="换手率(%)")
+    amount = models.FloatField(null=True, blank=True, verbose_name="成交额(元)")
+    limit_order = models.FloatField(null=True, blank=True, verbose_name="封单额(元)")
+    lu_limit_order = models.FloatField(null=True, blank=True, verbose_name="最大封单额(元)")
+    free_float = models.FloatField(null=True, blank=True, verbose_name="实际流通盘(元)")
+
+    # 竞价相关
+    bid_change = models.FloatField(null=True, blank=True, verbose_name="竞价净额(元)")
+    bid_turnover = models.FloatField(null=True, blank=True, verbose_name="竞价换手率(%)")
+    bid_pct_chg = models.FloatField(null=True, blank=True, verbose_name="竞价涨幅(%)")
+
+    class Meta:
+        db_table = "kpl_limit_list"
+        verbose_name = "开盘啦榜单数据"
+        verbose_name_plural = "开盘啦榜单数据"
+        unique_together = ("stock", "trade_date", "tag") # 同一只股票同一天在同一个榜单上只应有一条记录
+        ordering = ['-trade_date', 'stock']
+
+    def __str__(self):
+        return f"{self.trade_date} - {self.name}({self.stock_id}) - {self.tag}"
+
 # 同花顺行业概念板块
 # 指数类型 N-概念指数 I-行业指数 R-地域指数 S-同花顺特色指数 ST-同花顺风格指数 TH-同花顺主题指数 BB-同花顺宽基指数
 class ThsIndex(models.Model):
@@ -246,7 +298,6 @@ class ThsIndexMember(models.Model):
         ths_index_name = self.ths_index.name if self.ths_index else "N/A"
         ths_index_code = self.ths_index.ts_code if self.ths_index else "N/A"
         return f"{ths_index_code}-{ths_index_name}-{self.stock}"
-
 
 # 同花顺板块指数行情
 class ThsIndexDaily(models.Model):

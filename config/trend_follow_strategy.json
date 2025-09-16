@@ -134,6 +134,12 @@
           "vol_ma_period": 55
         }
       },
+      "industry_context_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】行业背景分析参数",
+        "lookback_days": 20,
+        "description_lookback": "计算行业强度排名斜率和加速度时，回看的天数。"
+      },
       "price_volume_ma_comparison": {
         "enabled": true,
         "description": "【V4.0行为引擎新增】计算价格/成交量与各自均线的比率，为行为动态诊断提供静态输入。",
@@ -939,6 +945,22 @@
                 "value": 800,
                 "description": "【保险三】单日加速度奖励的最高上限，防止极端情况。"
             }
+        },
+        "industry_lifecycle_scoring_params": {
+          "enabled": true,
+          "description": "【V2.0 数值化版】行业生命周期评分与加权模块。",
+          "comment_sigmoid": "Sigmoid函数参数，用于将原始指标归一化到0-1之间。",
+          "slope_center": 0.01,
+          "slope_steepness": 200,
+          "accel_center": 0.001,
+          "accel_steepness": 1000,
+          "comment_weights": "定义各阶段分数在最终计算中的权重。",
+          "markup_weight": 1.0,
+          "preheat_weight": 0.8,
+          "stagnation_penalty_weight": 1.2,
+          "downtrend_penalty_weight": 1.5,
+          "bonus_multiplier": 400,
+          "penalty_multiplier": 600
         }
       },
       "trigger_event_params": {

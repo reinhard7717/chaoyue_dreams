@@ -987,9 +987,88 @@ class MarketFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
+    def set_kpl_list_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        """
+        将Tushare的kpl_list接口返回的单行数据，格式化为准备入库的字典。
+        """
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "tag": getattr(df_data, "tag", None),
+            "lu_time": getattr(df_data, "lu_time", None),
+            "ld_time": getattr(df_data, "ld_time", None),
+            "open_time": getattr(df_data, "open_time", None),
+            "last_time": getattr(df_data, "last_time", None),
+            "lu_desc": getattr(df_data, "lu_desc", None),
+            "theme": getattr(df_data, "theme", None),
+            "status": getattr(df_data, "status", None),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "limit_order": self._parse_number(getattr(df_data, "limit_order", None)),
+            "lu_limit_order": self._parse_number(getattr(df_data, "lu_limit_order", None)),
+            "free_float": self._parse_number(getattr(df_data, "free_float", None)),
+            "bid_change": self._parse_number(getattr(df_data, "bid_change", None)),
+            "bid_turnover": self._parse_number(getattr(df_data, "bid_turnover", None)),
+            "bid_pct_chg": self._parse_number(getattr(df_data, "bid_pct_chg", None)),
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
+    def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        """
+        将Tushare的limit_list_d接口返回的单行数据，格式化为准备入库的字典。
+        """
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "industry": getattr(df_data, "industry", None),
+            "name": getattr(df_data, "name", None),
+            "close": self._parse_number(getattr(df_data, "close", None)),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "amount": self._parse_number(getattr(df_data, "amount", None)),
+            "limit_amount": self._parse_number(getattr(df_data, "limit_amount", None)),
+            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
+            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
+            "turnover_ratio": self._parse_number(getattr(df_data, "turnover_ratio", None)),
+            "fd_amount": self._parse_number(getattr(df_data, "fd_amount", None)),
+            "first_time": getattr(df_data, "first_time", None), # 保持为字符串
+            "last_time": getattr(df_data, "last_time", None), # 保持为字符串
+            "open_times": self._parse_number(getattr(df_data, "open_times", None)),
+            "up_stat": getattr(df_data, "up_stat", None),
+            "limit_times": self._parse_number(getattr(df_data, "limit_times", None)),
+            "limit": getattr(df_data, "limit", None),
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
+    def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        """
+        将Tushare的limit_step接口返回的单行数据，格式化为准备入库的字典。
+        """
+        data_dict = {
+            "stock": stock,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "nums": self._parse_number(getattr(df_data, "nums", None)),
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
+    def set_limit_cpt_list_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
+        """
+        将Tushare的limit_cpt_list接口返回的单行数据，格式化为准备入库的字典。
+        """
+        data_dict = {
+            "ths_index": ths_index,
+            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
+            "name": getattr(df_data, "name", None),
+            "days": self._parse_number(getattr(df_data, "days", None)),
+            "up_stat": getattr(df_data, "up_stat", None),
+            "cons_nums": self._parse_number(getattr(df_data, "cons_nums", None)),
+            "up_nums": getattr(df_data, "up_nums", None),
+            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
+            "rank": getattr(df_data, "rank", None),
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
 
 
 

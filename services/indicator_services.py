@@ -384,7 +384,6 @@ class IndicatorService:
         此版本将调用重构后的核心数据准备函数。
         """
         # print(f"--- [数据准备V8.0-情报锻造中心] 开始为 {stock_code} 准备数据... ---")
-
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
@@ -404,17 +403,13 @@ class IndicatorService:
         # --- 步骤 7: 【上下文信息注入】 - 修正步骤编号 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
-        
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
-
         industry_params = self._find_params_recursively(config, 'industry_context_params')
         is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
-        
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         is_hm_enabled = hot_money_params.get('enabled', False) if hot_money_params else False
-
         if is_hm_enabled:
             # print("    - [配置信息] 检测到游资分析已启用，开始获取并处理游资信号...")
             hm_signals_df = await self._prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
@@ -424,21 +419,36 @@ class IndicatorService:
                     if col in df_daily.columns:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
                 # print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
-        
         all_dfs['D'] = df_daily
-
+        # ▼▼▼ 行业生命周期注入逻辑 ▼▼▼
+        industry_params = self._find_params_recursively(config, 'industry_context_params')
+        is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
         if is_industry_enabled:
-            # print(f"    - [配置信息] 检测到行业协同已启用，开始获取行业强度...")
-            current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
-            industry_rank_df = await self.calculate_industry_strength_rank(current_trade_date)
+            print(f"    - [配置信息] 检测到行业协同已启用，开始诊断行业生命周期...")
+            current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now(pytz.timezone('Asia/Shanghai')).date()
+            # 调用新的生命周期诊断函数
+            lookback_days = industry_params.get('lookback_days', 20)
+            industry_lifecycle_df = await self.analyze_industry_rotation(current_trade_date, lookback_days=lookback_days)
             stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
             stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
-            stock_industry_name = stock_industry_info.get('name') if stock_industry_info else '未知行业'
-            stock_industry_rank = 0.0
-            if not industry_rank_df.empty and stock_industry_code and stock_industry_code in industry_rank_df.index:
-                stock_industry_rank = industry_rank_df.loc[stock_industry_code, 'strength_rank']
-            all_dfs['D']['industry_strength_rank_D'] = stock_industry_rank
-            # print(f"    - [行业背景注入] 已将 'industry_strength_rank_D' 列注入日线数据。")
+            if not industry_lifecycle_df.empty and stock_industry_code and stock_industry_code in industry_lifecycle_df.index:
+                industry_data = industry_lifecycle_df.loc[stock_industry_code]
+                # 将行业数据作为新列添加到日线DataFrame的最后一行
+                # 注意：这里我们假设行业状态在一天内是固定的，所以直接赋值
+                latest_day_index = df_daily.index[-1]
+                df_daily.loc[latest_day_index, 'industry_rank_D'] = industry_data['latest_rank']
+                df_daily.loc[latest_day_index, 'industry_rank_slope_D'] = industry_data['rank_slope']
+                df_daily.loc[latest_day_index, 'industry_rank_accel_D'] = industry_data['rank_accel']
+                df_daily.loc[latest_day_index, 'industry_lifecycle_stage_D'] = industry_data['lifecycle_stage']
+                # 为了回测，需要向前填充这些状态
+                df_daily['industry_rank_D'] = df_daily['industry_rank_D'].ffill()
+                df_daily['industry_rank_slope_D'] = df_daily['industry_rank_slope_D'].ffill()
+                df_daily['industry_rank_accel_D'] = df_daily['industry_rank_accel_D'].ffill()
+                df_daily['industry_lifecycle_stage_D'] = df_daily['industry_lifecycle_stage_D'].ffill()
+                # print(f"    - [行业背景注入] 股票 {stock_code} 所属行业: {industry_data['industry_name']} ({stock_industry_code})")
+                print(f"      -> 最新状态: {industry_data['lifecycle_stage']}, 排名: {industry_data['latest_rank']:.2f}, 斜率: {industry_data['rank_slope']:.4f}")
+            else:
+                print(f"    - [行业背景注入] 未能获取股票 {stock_code} 的行业生命周期数据。")
         #  调用军械库清单生成器 ▼▼▼
         # self._log_final_data_columns(all_dfs)
         return all_dfs
@@ -1501,59 +1511,81 @@ class IndicatorService:
         # print(f"      - [相对强度] RS值: {latest['rs']:.2f}, RS_MA20: {latest['rs_ma20']:.2f}, 得分: {score:.2f}")
         return score
 
-    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 10, market_code: str = '000300.SH') -> pd.DataFrame:
+    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> pd.DataFrame:
         """
-        分析行业轮动，识别强度排名持续上升的板块。
-        这是一个高阶扫描器，用于发现潜在的市场新主线。
+        【V2.0 生命周期诊断版】分析行业轮动，并诊断每个行业的生命周期阶段。
+        - 核心升级: 不仅计算排名，还计算排名分数的斜率和加速度，并据此判断行业所处的生命周期。
+        - 返回值: DataFrame中新增 'rank_slope', 'rank_accel', 'lifecycle_stage' 列。
         """
-        print(f"\n--- [行业轮动分析] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
-        
+        print(f"\n--- [行业生命周期诊断 V2.0] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
         # 1. 获取过去N个交易日的日期列表 (需要一个交易日历工具)
         # 此处简化处理，实际应从交易日历服务获取
-        trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)]
-        
+        trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1] # 保证时间升序
         # 2. 并行计算每一天的行业排名
         tasks = [self.calculate_industry_strength_rank(td, market_code) for td in trade_dates]
         daily_rank_results = await asyncio.gather(*tasks)
-        
         # 3. 合并所有日期的排名数据
         all_ranks = []
         for i, df_rank in enumerate(daily_rank_results):
-            if not df_rank.empty:
+            if not df_rank.empty and 'strength_rank' in df_rank.columns:
                 df_rank['trade_date'] = trade_dates[i]
                 all_ranks.append(df_rank.reset_index())
-        
         if not all_ranks:
             print("    - [行业轮动分析] 未能获取任何历史排名数据，分析中止。")
             return pd.DataFrame()
-            
         rotation_df = pd.concat(all_ranks, ignore_index=True)
-        
-        # 4. 为每个行业计算其排名的时间序列趋势
-        def calculate_rank_momentum(group):
-            # 确保数据按时间升序排列
+        # 4. 为每个行业计算其排名的时间序列趋势（斜率和加速度）
+        def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
-            if len(group) < 3: # 数据点太少，无法计算趋势
-                return pd.Series({'rank_momentum': 0, 'latest_rank': group['strength_rank'].iloc[-1]})
-            
-            # 使用线性回归计算斜率来代表动量
-            # x轴是时间（天数），y轴是排名
-            x = np.arange(len(group))
-            y = group['strength_rank'].values
-            slope, _ = np.polyfit(x, y, 1)
-            
-            return pd.Series({'rank_momentum': slope, 'latest_rank': y[-1]})
-
-        # 按行业分组，计算动量
-        rotation_momentum = rotation_df.groupby('industry_code').apply(calculate_rank_momentum)
-        
+            if len(group) < 5: # 至少需要5个数据点来计算有意义的斜率和加速度
+                return pd.Series({
+                    'latest_rank': group['strength_rank'].iloc[-1],
+                    'rank_slope': 0.0,
+                    'rank_accel': 0.0
+                })
+            ranks = group['strength_rank'].values
+            # 计算斜率 (使用最近5天)
+            slope_lookback = 5
+            if len(ranks) >= slope_lookback:
+                slope = np.polyfit(np.arange(slope_lookback), ranks[-slope_lookback:], 1)[0]
+            else:
+                slope = 0.0
+            # 计算加速度 (基于斜率的变化)
+            if len(group) >= 10:
+                ranks_1 = group['strength_rank'].iloc[-10:-5].values
+                ranks_2 = group['strength_rank'].iloc[-5:].values
+                slope_1 = np.polyfit(np.arange(5), ranks_1, 1)[0]
+                slope_2 = np.polyfit(np.arange(5), ranks_2, 1)[0]
+                accel = slope_2 - slope_1
+            else:
+                accel = 0.0
+            return pd.Series({
+                'latest_rank': ranks[-1],
+                'rank_slope': slope,
+                'rank_accel': accel
+            })
+        lifecycle_metrics = rotation_df.groupby('industry_code').apply(calculate_lifecycle_metrics)
+        # 5. 根据指标判断生命周期阶段
+        def assign_lifecycle_stage(row):
+            rank = row['latest_rank']
+            slope = row['rank_slope']
+            accel = row['rank_accel']
+            if rank < 0.3 and slope > 0.005 and accel > 0:
+                return 'PREHEAT' # 底部预热
+            elif rank > 0.5 and slope > 0.01:
+                return 'MARKUP' # 主升加速
+            elif rank > 0.8 and slope < 0:
+                return 'STAGNATION' # 高位滞涨
+            elif rank < 0.4 and slope < -0.005:
+                return 'DOWNTREND' # 下跌通道
+            else:
+                return 'TRANSITION' # 过渡/震荡
+        lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
         # 合并行业名称
         industry_names = rotation_df[['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
-        final_report = pd.merge(rotation_momentum, industry_names, left_index=True, right_index=True)
-        
-        print("--- [行业轮动分析] 分析完成 ---")
-        # 按动量降序排序，动量为正且越大，说明排名上升越快
-        return final_report.sort_values('rank_momentum', ascending=False)
+        final_report = pd.merge(lifecycle_metrics, industry_names, left_index=True, right_index=True)
+        print("--- [行业生命周期诊断 V2.0] 分析完成 ---")
+        return final_report.sort_values('rank_slope', ascending=False)
 
     def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """

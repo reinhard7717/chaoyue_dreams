@@ -51,20 +51,17 @@ class TradingSignal(models.Model):
         SELL = 'SELL', '卖出信号'
         WARN = 'WARN', '风险预警'
         HOLD = 'HOLD', '无信号' # 或 '中性'
-
     id = models.BigAutoField(primary_key=True)
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='trading_signals')
     trade_time = models.DateTimeField(db_index=True, help_text="信号生成时的K线收盘时间 (UTC)")
     timeframe = models.CharField(max_length=10, db_index=True, help_text="信号所在的时间周期")
     strategy_name = models.CharField(max_length=100, db_index=True, help_text="产生信号的策略名称")
-    
     # --- 核心决策结果 ---
     signal_type = models.CharField(max_length=10, choices=SignalType.choices, default=SignalType.HOLD, db_index=True, help_text="最终信号类型")
     entry_score = models.FloatField(default=0.0, help_text="当日计算出的总进攻分")
     risk_score = models.FloatField(default=0.0, help_text="当日计算出的总风险分")
     final_score = models.FloatField(default=0.0, help_text="信号日的最终得分")
     veto_votes = models.IntegerField(default=0, help_text="当日收到的总否决票数")
-    
     # --- 关联的战法详情 ---
     playbooks = models.ManyToManyField(
         Playbook,
@@ -72,20 +69,16 @@ class TradingSignal(models.Model):
         related_name='trading_signals',
         help_text="构成此信号的所有战法/规则"
     )
-
     # --- 其他上下文信息 ---
     close_price = models.DecimalField(max_digits=10, decimal_places=3, help_text="信号日收盘价")
     health_change_summary = models.JSONField(default=dict, null=True, blank=True, help_text="当日的攻防健康度变化摘要")
-    
     created_at = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         db_table = "strategy_trading_signal"
         ordering = ['-trade_time', 'stock']
         unique_together = ('stock', 'trade_time', 'timeframe', 'strategy_name') # 确保每个股票每天每个策略只有一个信号记录
         verbose_name = "策略交易信号"
         verbose_name_plural = verbose_name
-
     def __str__(self):
         return f"[{self.strategy_name}/{self.timeframe}] {self.stock.stock_code} @ {self.trade_time.strftime('%Y-%m-%d')} -> {self.get_signal_type_display()}"
 
@@ -254,7 +247,9 @@ class StrategyDailyScore(models.Model):
 
 class StrategyScoreComponent(models.Model):
     """
-    【V1.0】策略分数构成 (公共知识库)
+    【V2.0 优化】策略分数构成 (公共知识库)
+    - 优化: 移除冗余的 signal_name 和 signal_cn_name 字段，改为使用 ForeignKey 关联到 Playbook 表。
+    - 优点: 大幅减少磁盘空间占用，保证数据一致性。
     """
     class ScoreType(models.TextChoices):
         POSITIONAL = 'positional', _('阵地分')
@@ -263,62 +258,78 @@ class StrategyScoreComponent(models.Model):
         TRIGGER = 'trigger', _('触发器分')
         RISK = 'risk', _('风险分')
         UNKNOWN = 'unknown', _('未知')
-
     daily_score = models.ForeignKey(
         StrategyDailyScore,
         on_delete=models.CASCADE,
         related_name='components',
         verbose_name='所属每日分数'
     )
-    signal_name = models.CharField(max_length=255, verbose_name='信号名称(代码)', db_index=True)
-    signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
+    # 添加到 Playbook 的外键关联，替代原来的 signal_name 和 signal_cn_name
+    playbook = models.ForeignKey(
+        Playbook,
+        on_delete=models.CASCADE,
+        related_name='score_components',
+        verbose_name='关联战法',
+        help_text='关联到具体的战法/规则定义'
+    )
+    # signal_name 和 signal_cn_name 字段已被移除，以减少数据冗余
     score_type = models.CharField(max_length=20, choices=ScoreType.choices, default=ScoreType.UNKNOWN, verbose_name='分数类型')
     score_value = models.IntegerField(verbose_name='贡献分数')
-
     class Meta:
         db_table = 'strategy_score_component'
         verbose_name = '策略分数构成'
         verbose_name_plural = verbose_name
+        # 更新唯一性约束，确保同一个每日分数下的同一个战法只有一个记录
+        unique_together = ('daily_score', 'playbook')
         indexes = [
             models.Index(fields=['daily_score', 'score_type']),
+            # 为新添加的外键 playbook 创建索引，以优化查询性能
+            models.Index(fields=['playbook']),
         ]
-
     def __str__(self):
-        return f"{self.daily_score} - {self.signal_name}: {self.score_value}"
+        # 更新 __str__ 方法以通过 playbook 关联获取名称
+        # 使用 self.playbook.name 替代原来的 self.signal_name
+        return f"{self.daily_score} - {self.playbook.name}: {self.score_value}"
 
 class StrategyDailyState(models.Model):
     """
-    【V1.0】策略每日状态 (全景沙盘)
+    【V2.0 优化】策略每日状态 (全景沙盘)
     - 职责: 记录每日激活的所有原子状态和触发器，是性能分析的数据基础。
+    - 优化: 移除冗余的 signal_name 和 signal_cn_name 字段，改为使用 ForeignKey 关联到 Playbook 表。
     """
     class SignalType(models.TextChoices):
         STATE = 'State', _('原子状态')
         TRIGGER = 'Trigger', _('触发事件')
         UNKNOWN = 'Unknown', _('未知')
-
     daily_score = models.ForeignKey(
         StrategyDailyScore,
         on_delete=models.CASCADE,
         related_name='atomic_states_and_triggers',
         verbose_name='所属每日分数'
     )
-    signal_name = models.CharField(max_length=255, verbose_name='信号名称(代码)', db_index=True)
-    signal_cn_name = models.CharField(max_length=255, verbose_name='信号中文名')
+    # 添加到 Playbook 的外键关联，替代原来的 signal_name 和 signal_cn_name
+    playbook = models.ForeignKey(
+        Playbook,
+        on_delete=models.CASCADE,
+        related_name='daily_states',
+        verbose_name='关联战法',
+        help_text='关联到具体的战法/规则定义'
+    )
+    # signal_name 和 signal_cn_name 字段已被移除
     signal_type = models.CharField(max_length=20, choices=SignalType.choices, default=SignalType.UNKNOWN, verbose_name='信号类型')
-
     class Meta:
         db_table = 'strategy_daily_state'
         verbose_name = '策略每日状态'
         verbose_name_plural = verbose_name
-        # 联合唯一索引确保一天一个信号只记录一次
-        unique_together = ('daily_score', 'signal_name')
+        # 更新联合唯一索引，确保一天一个信号只记录一次
+        unique_together = ('daily_score', 'playbook')
         indexes = [
-            models.Index(fields=['signal_name', 'signal_type']),
+            # 将原来的 (signal_name, signal_type) 索引更新为 (playbook, signal_type)
+            models.Index(fields=['playbook', 'signal_type']),
         ]
-
     def __str__(self):
-        return f"{self.daily_score} - {self.signal_name}"
-
+        # 更新 __str__ 方法以使用 playbook 关联
+        return f"{self.daily_score} - {self.playbook.name}"
 # 用于存储对原子信号进行性能分析后的最终结果。
 class AtomicSignalPerformance(models.Model):
     """

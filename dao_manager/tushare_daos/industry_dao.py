@@ -498,14 +498,18 @@ class IndustryDao(BaseDAO):
         ths_index_daily_dicts = []
         if df.empty:
             return {}
-        else:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                ths_index = await self.get_ths_index_by_code(row.ts_code)
-                if ths_index:
-                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index,df_data=row)
-                    ths_index_daily_dicts.append(ths_index_daily_dict)
+        df = df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
+        # 1. 批量获取所有需要的 ths_index 对象
+        all_index_codes = df['ts_code'].unique().tolist()
+        ths_index_map = await self.get_ths_indices_by_codes(all_index_codes)
+        # 2. 循环组装数据
+        for row in df.itertuples(index=False):
+            ths_index = ths_index_map.get(row.ts_code)
+            if ths_index:
+                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index, df_data=row)
+                ths_index_daily_dicts.append(ths_index_daily_dict)
+            else:
+                logger.warning(f"在处理日期 {trade_date_str} 的行情时，未在数据库中找到板块 {row.ts_code}。")
         if ths_index_daily_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
@@ -515,7 +519,7 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-    async def save_ths_index_daily_history(self, start_date: date, end_date: date = None) -> Dict:
+    async def _save_ths_index_daily_history_by_index(self, start_date: date, end_date: date = None) -> Dict:
         """
         接口：ths_daily
         描述：获取同花顺板块指数行情。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
@@ -565,6 +569,156 @@ class IndustryDao(BaseDAO):
                 data_list=ths_index_daily_dicts,
                 unique_fields=['ths_index', 'trade_time']
             )
+        return result
+
+    async def save_ths_index_daily_history(self, trade_dates: List[date]) -> Dict:
+        """
+        【V2.0 按天并行版】
+        描述：接收一个交易日列表，并为每一天调用按天获取行情的方法。适配并行任务框架。
+        """
+        if not trade_dates:
+            logger.warning("save_ths_index_daily_history 接收到的交易日列表为空，任务跳过。")
+            return {}
+        total_results = []
+        for trade_date in trade_dates:
+            try:
+                result = await self.save_ths_index_daily_by_trade_date(trade_date)
+                total_results.append(result)
+            except Exception as e:
+                logger.error(f"在 save_ths_index_daily_history 中处理日期 {trade_date} 时失败: {e}", exc_info=True)
+        # 此处可以对 total_results 进行汇总，但对于并行任务，单个日志已足够
+        return {"status": "completed", "processed_days": len(trade_dates)}
+
+    # ============== 开盘啦题材与榜单 ============== 
+    async def save_kpl_concept_list_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：kpl_concept
+        描述：获取并保存指定交易日的开盘啦题材库列表。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材库...")
+        try:
+            df = self.ts_pro.kpl_concept(trade_date=trade_date_str)
+        except Exception as e:
+            logger.error(f"调用Tushare接口 kpl_concept 失败: {e}", exc_info=True)
+            return {"status": "error", "message": f"API call failed: {e}"}
+        if df is None or df.empty:
+            logger.warning(f"Tushare接口 kpl_concept 未返回 {trade_date_str} 的数据。")
+            return {"status": "warning", "message": "API returned no data."}
+        df = df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
+        concept_dicts = [
+            self.data_format_process.set_kpl_concept_data(df_data=row)
+            for row in df.itertuples(index=False)
+        ]
+        if not concept_dicts:
+            return {}
+        result = await self._save_all_to_db_native_upsert(
+            model_class=KplConcept,
+            data_list=concept_dicts,
+            unique_fields=['trade_time', 'ts_code']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(concept_dicts)} 条开盘啦题材。")
+        return result
+
+    async def save_kpl_concept_members_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：kpl_concept_cons
+        描述：高效获取并保存指定交易日的所有开盘啦题材的成分股。
+        采用批量查询、内存映射、批量插入的优化策略。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材成分股...")
+        try:
+            df = self.ts_pro.kpl_concept_cons(trade_date=trade_date_str)
+        except Exception as e:
+            logger.error(f"调用Tushare接口 kpl_concept_cons 失败: {e}", exc_info=True)
+            return {"status": "error", "message": f"API call failed: {e}"}
+        if df is None or df.empty:
+            logger.warning(f"Tushare接口 kpl_concept_cons 未返回 {trade_date_str} 的数据。")
+            return {"status": "warning", "message": "API returned no data."}
+        df = df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
+        # 1. 收集所有需要的 concept_code 和 stock_code
+        all_concept_codes = df['ts_code'].unique().tolist()
+        all_stock_codes = df['con_code'].unique().tolist()
+        # 2. 一次性从数据库获取所有需要的 KplConcept 和 StockInfo 对象
+        concept_qs = KplConcept.objects.filter(ts_code__in=all_concept_codes, trade_time=trade_date_str)
+        concept_map = {c.ts_code: c async for c in concept_qs}
+        stock_qs = StockInfo.objects.filter(stock_code__in=all_stock_codes)
+        stock_map = {s.stock_code: s async for s in stock_qs}
+        # 3. 组装最终数据
+        members_to_save = []
+        for row in df.itertuples(index=False):
+            concept = concept_map.get(row.ts_code)
+            stock = stock_map.get(row.con_code)
+            if concept and stock:
+                member_dict = self.data_format_process.set_kpl_concept_member_data(
+                    kpl_concept=concept,
+                    stock=stock,
+                    df_data=row
+                )
+                members_to_save.append(member_dict)
+            else:
+                if not concept:
+                    logger.warning(f"未在数据库中找到日期为 {trade_date_str} 的题材 {row.ts_code}，成分股 {row.con_code} 将被忽略。")
+                if not stock:
+                    logger.warning(f"未在数据库中找到股票 {row.con_code}，成分股记录将被忽略。")
+        if not members_to_save:
+            return {}
+        # 4. 批量保存
+        result = await self._save_all_to_db_native_upsert(
+            model_class=KplConceptConstituent,
+            data_list=members_to_save,
+            unique_fields=['concept', 'stock', 'trade_time']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(members_to_save)} 条开盘啦题材成分股。")
+        return result
+
+    async def save_kpl_list_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：kpl_list
+        描述：获取并保存指定交易日的开盘啦所有榜单数据（涨停、跌停、炸板等）。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦榜单数据...")
+        # 定义要获取的榜单类型
+        tags_to_fetch = ['涨停', '跌停', '炸板', '自然涨停', '竞价']
+        all_list_items = []
+        for tag in tags_to_fetch:
+            try:
+                df = self.ts_pro.kpl_list(trade_date=trade_date_str, tag=tag)
+                if df is not None and not df.empty:
+                    all_list_items.append(df)
+                await asyncio.sleep(0.3) # API调用之间稍作停顿
+            except Exception as e:
+                logger.error(f"调用Tushare接口 kpl_list (tag={tag}) 失败: {e}", exc_info=True)
+                continue
+        if not all_list_items:
+            logger.warning(f"Tushare接口 kpl_list 未返回 {trade_date_str} 的任何榜单数据。")
+            return {"status": "warning", "message": "API returned no data for any tag."}
+        combined_df = pd.concat(all_list_items, ignore_index=True)
+        combined_df = combined_df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
+        # 批量获取股票信息
+        all_stock_codes = combined_df['ts_code'].unique().tolist()
+        stock_qs = StockInfo.objects.filter(stock_code__in=all_stock_codes)
+        stock_map = {s.stock_code: s async for s in stock_qs}
+        # 组装数据
+        items_to_save = []
+        for row in combined_df.itertuples(index=False):
+            stock = stock_map.get(row.ts_code)
+            if stock:
+                item_dict = self.data_format_process.set_kpl_list_data(stock=stock, df_data=row)
+                items_to_save.append(item_dict)
+            else:
+                logger.warning(f"未在数据库中找到股票 {row.ts_code}，榜单记录将被忽略。")
+        if not items_to_save:
+            return {}
+        # 批量保存
+        result = await self._save_all_to_db_native_upsert(
+            model_class=KplLimitList,
+            data_list=items_to_save,
+            unique_fields=['stock', 'trade_date', 'tag']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条开盘啦榜单数据。")
         return result
 
     # ============== 东方财富概念板块 ==============
@@ -745,7 +899,153 @@ class IndustryDao(BaseDAO):
             )
         return result
 
+    # ============== 市场情绪与涨跌停数据 ==============
 
+    async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：limit_list_ths
+        描述：获取并保存指定交易日的同花顺涨跌停榜单数据。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的同花顺涨跌停榜单...")
+        # 定义要获取的榜单类型
+        limit_types = ['涨停池', '连扳池', '冲刺涨停', '炸板池', '跌停池']
+        all_items_df = []
+        for l_type in limit_types:
+            try:
+                df = self.ts_pro.limit_list_ths(trade_date=trade_date_str, limit_type=l_type)
+                if df is not None and not df.empty:
+                    all_items_df.append(df)
+                await asyncio.sleep(0.2) # API调用之间稍作停顿
+            except Exception as e:
+                logger.error(f"调用Tushare接口 limit_list_ths (limit_type={l_type}) 失败: {e}", exc_info=True)
+                continue
+        if not all_items_df:
+            logger.warning(f"Tushare接口 limit_list_ths 未返回 {trade_date_str} 的任何榜单数据。")
+            return {}
+        combined_df = pd.concat(all_items_df, ignore_index=True)
+        combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # 批量获取股票信息
+        all_stock_codes = combined_df['ts_code'].unique().tolist()
+        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        # 组装数据
+        items_to_save = [
+            self.data_format_process.set_limit_list_ths_data(stock=stock_map.get(row.ts_code), df_data=row)
+            for row in combined_df.itertuples(index=False) if stock_map.get(row.ts_code)
+        ]
+        if not items_to_save:
+            return {}
+        # 批量保存
+        result = await self._save_all_to_db_native_upsert(
+            model_class=LimitListThs,
+            data_list=items_to_save,
+            unique_fields=['stock', 'trade_date', 'limit_type']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条同花顺涨跌停数据。")
+        return result
+
+    async def save_limit_list_d_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：limit_list_d
+        描述：获取并保存指定交易日的Tushare版A股涨跌停列表数据。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的Tushare涨跌停列表...")
+        limit_types = ['U', 'D', 'Z'] # 涨停, 跌停, 炸板
+        all_items_df = []
+        for l_type in limit_types:
+            try:
+                df = self.ts_pro.limit_list_d(trade_date=trade_date_str, limit_type=l_type)
+                if df is not None and not df.empty:
+                    all_items_df.append(df)
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.error(f"调用Tushare接口 limit_list_d (limit_type={l_type}) 失败: {e}", exc_info=True)
+                continue
+        if not all_items_df:
+            logger.warning(f"Tushare接口 limit_list_d 未返回 {trade_date_str} 的任何数据。")
+            return {}
+        combined_df = pd.concat(all_items_df, ignore_index=True)
+        combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
+        all_stock_codes = combined_df['ts_code'].unique().tolist()
+        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        items_to_save = [
+            self.data_format_process.set_limit_list_d_data(stock=stock_map.get(row.ts_code), df_data=row)
+            for row in combined_df.itertuples(index=False) if stock_map.get(row.ts_code)
+        ]
+        if not items_to_save:
+            return {}
+        result = await self._save_all_to_db_native_upsert(
+            model_class=LimitListD,
+            data_list=items_to_save,
+            unique_fields=['stock', 'trade_date', 'limit']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条Tushare涨跌停数据。")
+        return result
+
+    async def save_limit_step_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：limit_step
+        描述：获取并保存指定交易日的连板天梯数据。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的连板天梯数据...")
+        try:
+            df = self.ts_pro.limit_step(trade_date=trade_date_str)
+        except Exception as e:
+            logger.error(f"调用Tushare接口 limit_step 失败: {e}", exc_info=True)
+            return {}
+        if df is None or df.empty:
+            logger.warning(f"Tushare接口 limit_step 未返回 {trade_date_str} 的数据。")
+            return {}
+        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+        all_stock_codes = df['ts_code'].unique().tolist()
+        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_stock_codes)
+        items_to_save = [
+            self.data_format_process.set_limit_step_data(stock=stock_map.get(row.ts_code), df_data=row)
+            for row in df.itertuples(index=False) if stock_map.get(row.ts_code)
+        ]
+        if not items_to_save:
+            return {}
+        result = await self._save_all_to_db_native_upsert(
+            model_class=LimitStep,
+            data_list=items_to_save,
+            unique_fields=['stock', 'trade_date']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条连板天梯数据。")
+        return result
+
+    async def save_limit_cpt_list_by_date(self, trade_date: date) -> Dict:
+        """
+        接口：limit_cpt_list
+        描述：获取并保存指定交易日的最强板块统计数据。
+        """
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的最强板块统计...")
+        try:
+            df = self.ts_pro.limit_cpt_list(trade_date=trade_date_str)
+        except Exception as e:
+            logger.error(f"调用Tushare接口 limit_cpt_list 失败: {e}", exc_info=True)
+            return {}
+        if df is None or df.empty:
+            logger.warning(f"Tushare接口 limit_cpt_list 未返回 {trade_date_str} 的数据。")
+            return {}
+        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+        all_index_codes = df['ts_code'].unique().tolist()
+        index_map = await self.get_ths_indices_by_codes(all_index_codes)
+        items_to_save = [
+            self.data_format_process.set_limit_cpt_list_data(ths_index=index_map.get(row.ts_code), df_data=row)
+            for row in df.itertuples(index=False) if index_map.get(row.ts_code)
+        ]
+        if not items_to_save:
+            return {}
+        result = await self._save_all_to_db_native_upsert(
+            model_class=LimitCptList,
+            data_list=items_to_save,
+            unique_fields=['ths_index', 'trade_date']
+        )
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条最强板块数据。")
+        return result
 
 
 

@@ -11,15 +11,13 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V402.2 健壮性修复版】
-        - 核心修复 (本次修改):
-          - [健壮性] 在遍历计分项时，增加了对 "说明_" 前缀的判断和跳过逻辑。
-          - 这可以防止因配置文件中的说明性条目（非信号）而被错误地当作信号处理，从而引发潜在的 `KeyError` 或逻辑错误。
-        - 核心重构 (V402.1逻辑保留):
-          - 恢复了对S/A/B多级信号的评分能力，确保所有级别的有效信号都能被正确评估。
-        - 收益: 计分逻辑更完整、更合理，并且对配置文件的格式变化更具鲁棒性。
+        【V402.3 行业协同版】
+        - 核心升级 (本次修改):
+          - [新增] 引入了对行业生命周期数值化分数的消费逻辑。
+          - 根据行业所处的“预热期”和“主升浪”阶段的置信度分数，动态地为个股信号提供加权奖励。
+        - 收益: 实现了策略与宏观行业趋势的深度协同，能更智能地为处于顺风口的信号加分。
         """
-        # print("        -> [进攻方案评估中心 V402.2 健壮性修复版] 启动...")
+        # print("        -> [进攻方案评估中心 V402.3 行业协同版] 启动...") # 修改行: 更新版本号和日志
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -27,6 +25,7 @@ class OffensiveLayer:
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
         all_scores_components = []
+        default_series = pd.Series(0.0, index=df.index)
         # --- 步骤 2: 计算【第一层：环境与战备分】 ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
@@ -41,7 +40,6 @@ class OffensiveLayer:
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
         score_details_df['SCORE_SETUP'] = context_score
         all_scores_components.append(context_score)
-        # print(f"          -> [第一层] 环境与战备分计算完毕，基础分峰值: {context_score.max():.0f}")
         # --- 步骤 3: 计算【第二层：独立触发器加分】 ---
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
@@ -56,7 +54,6 @@ class OffensiveLayer:
                     score_details_df[f"TRIGGER_{trigger_name}"] = bonus_amount
         score_details_df['SCORE_TRIGGER'] = trigger_score
         all_scores_components.append(trigger_score)
-        # print(f"          -> [第二层] 独立触发器分完毕，加分峰值: {trigger_score.max():.0f}")
         # --- 步骤 4: 计算【第三层：剧本协同奖励分】 ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
@@ -71,12 +68,33 @@ class OffensiveLayer:
                     score_details_df[f"PLAYBOOK_{playbook_name}"] = bonus_amount
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
         all_scores_components.append(playbook_score)
-        # print(f"          -> [第三层] 剧本协同奖励分计算完毕，奖励峰值: {playbook_score.max():.0f}")
         # --- 步骤 5: 计算其他独立的加分模块 ---
         strategic_bonus_score, score_details_df = self._apply_strategic_context_bonuses(score_details_df)
         all_scores_components.append(strategic_bonus_score)
         contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
         all_scores_components.append(contextual_bonus_score)
+        # --- 应用行业生命周期奖惩分数 ---
+        industry_score = pd.Series(0.0, index=df.index)
+        industry_params = scoring_params.get('industry_lifecycle_scoring_params', {})
+        if get_param_value(industry_params.get('enabled'), True):
+            # 获取各阶段分数
+            score_markup = atomic_states.get('SCORE_INDUSTRY_MARKUP', default_series)
+            score_preheat = atomic_states.get('SCORE_INDUSTRY_PREHEAT', default_series)
+            # 获取权重和乘数
+            markup_weight = industry_params.get('markup_weight', 1.0)
+            preheat_weight = industry_params.get('preheat_weight', 0.8)
+            bonus_multiplier = industry_params.get('bonus_multiplier', 400)
+            # 计算总的正面行业加成 (这是一个0-1之间的加权分数)
+            positive_industry_factor = (score_markup * markup_weight + score_preheat * preheat_weight)
+            # 计算最终的奖励分数
+            industry_bonus = positive_industry_factor * bonus_multiplier
+            # 只有当有显著加分时才记录
+            if (industry_bonus > 1).any():
+                industry_score += industry_bonus
+                score_details_df["BONUS_INDUSTRY_LIFECYCLE"] = industry_bonus
+        all_scores_components.append(industry_score)
+        print(f"          -> [行业协同 V2.0] 行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
+
         # --- 应用“动态动能”加分 ---
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})

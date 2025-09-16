@@ -540,7 +540,7 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日同花顺指数数据': {
-        'task': 'tasks.tushare.industry_tasks.save_ths_index_today_task',
+        'task': 'tasks.tushare.industry_tasks.save_all_daily_industry_concept_data_task',
         'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },

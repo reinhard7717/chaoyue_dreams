@@ -232,10 +232,8 @@ class IndicatorDAO(BaseDAO):
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
         获取所有同花顺行业指数的基本信息。
-
-        Args:
+       Args:
             industry_type (str): 指数类型，默认为'行业'，也可以是'概念'。
-
         Returns:
             List[ThsIndex]: ThsIndex模型对象的列表。
         """
@@ -413,13 +411,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"批量查询股票每日基本面指标时出错: {e}")
             return []
-
-    @sync_to_async
-    def get_all_industries(self) -> List[ThsIndex]:
-        """获取所有同花顺行业/概念指数列表"""
-        # print("    [DAO] 正在获取所有行业列表...")
-        # 假设 type='N' 代表行业, 'C' 代表概念，根据你的实际情况调整
-        return list(ThsIndex.objects.filter(type='N'))
 
     @sync_to_async
     def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
