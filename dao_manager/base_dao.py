@@ -842,7 +842,7 @@ class BaseDAO(Generic[T]):
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
-        【V7 - 动态外键字段修复版】
+        【V8 - 修复字段移除问题版】
         准备单个模型实例的数据字典。
         核心功能：处理外键，将 'stock_code' 这样的字段或 {'stock': {'stock_code': ...}} 这样的结构，统一转换为实际的 'stock' 对象。
         """
@@ -852,16 +852,17 @@ class BaseDAO(Generic[T]):
                 fk_dict = prepared_data[fk_field_name]
                 code_value = fk_dict.get(code_field_name)
             elif code_field_name in prepared_data:
-                code_value = prepared_data.pop(code_field_name)
+                # 改为直接获取值，以保留 code_field_name (如 'index_code') 在数据中，
+                # 因为目标模型可能同时需要外键对象和代码字段本身。
+                code_value = prepared_data[code_field_name]
+                print(f"DEBUG: Preserving '{code_field_name}' in data dictionary. Value: '{code_value}'")
             if code_value is not None:
                 if code_value is None:
                     prepared_data[fk_field_name] = None
                     continue
                 fk_model = model_class._meta.get_field(fk_field_name).related_model
-                # 关键修改：调用 get_or_create_fk_instance 时，传入正确的 code_field_name，并移除了不再使用的 prepared_data 参数
                 fk_instance = await self.get_or_create_fk_instance(fk_model, code_field_name, code_value)
                 if fk_instance is None:
-                    # 增强错误信息，明确指出是哪个字段和值出了问题
                     error_msg = (
                         f"为外键字段 '{fk_field_name}' 准备实例失败！"
                         f"无法为代码 '{code_value}' (使用字段 '{code_field_name}') 找到或创建对应的 '{fk_model.__name__}' 实例。"
@@ -871,6 +872,7 @@ class BaseDAO(Generic[T]):
         # 使用 model_class._meta.fields 确保只清理模型中实际定义的字段。
         model_field_names = {f.name for f in model_class._meta.fields}
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
+        print(f"DEBUG: Final cleaned data for model instance: {cleaned_data.keys()}")
         return cleaned_data
 
     @staticmethod
