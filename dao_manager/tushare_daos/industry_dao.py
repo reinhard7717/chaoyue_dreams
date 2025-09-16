@@ -104,7 +104,6 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-
     # ============== 申万行业成分 ==============
     async def get_sw_industry_member(self, industry_code: str) -> List['SwIndustryMember']:
         """
@@ -120,19 +119,18 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_member(self) -> Dict:
         """
-        【V2.1 错误修复版】获取申万行业成分并保存
+        【V2.2 健壮性修复版】获取申万行业成分并保存
         修复与优化:
-        1.  【API调用错误】修复：使用正确的 Tushare API `index_member_all` 替代 `index_member`。
-        2.  【方法缺失错误】修复：移除对不存在的 `get_stocks_by_codes_map` 方法的调用，改用直接的异步ORM查询。
-        3.  【字段错误】修复：调整代码以处理 `index_member_all` API 返回的正确字段 (`ts_code`, `name`)。
-        4.  (保留) 消除N+1查询: 采用批量获取、内存映射的方式，极大提升性能。
+        1.  【数据不一致处理】新增逻辑：当发现成分股所属行业在数据库中不存在时，不再忽略，而是利用成分股数据中的层级信息，自动创建缺失的L1, L2, L3行业。
+        2.  (保留) 修复API调用错误、方法缺失错误、字段错误。
+        3.  (保留) 消除N+1查询，采用批量获取、内存映射的方式。
         """
         print("  - [DAO] 开始获取申万行业成分...")
         # --- 1. 初始化和准备 ---
         API_CALL_DELAY_SECONDS = 0.3
         final_result = {}
         all_raw_members = []
-        all_l3_codes = set()
+        all_l1_codes, all_l2_codes, all_l3_codes = set(), set(), set()
         all_stock_codes = set()
         # --- 2. 获取所有L1行业并循环调用API ---
         sw_l1_indexs = await self.get_swan_industry_l1_list()
@@ -151,6 +149,8 @@ class IndustryDao(BaseDAO):
                     df = df.replace([np.nan, 'nan', 'NaN', ''], None)
                     for row in df.itertuples(index=False):
                         all_raw_members.append(row)
+                        if row.l1_code: all_l1_codes.add(row.l1_code)
+                        if row.l2_code: all_l2_codes.add(row.l2_code)
                         if row.l3_code: all_l3_codes.add(row.l3_code)
                         if row.ts_code: all_stock_codes.add(row.ts_code)
                 await asyncio.sleep(API_CALL_DELAY_SECONDS)
@@ -159,28 +159,64 @@ class IndustryDao(BaseDAO):
                 continue
         logger.info(f"API数据获取完成，共 {len(all_raw_members)} 条成分记录。")
         # --- 3. 批量获取所有需要的外键对象 ---
-        print("    - 正在一次性获取所有涉及的申万三级行业和股票信息...")
-        sw_industry_qs = SwIndustry.objects.filter(index_code__in=list(all_l3_codes))
+        print("    - 正在一次性获取所有涉及的申万行业和股票信息...")
+        all_industry_codes = list(all_l1_codes | all_l2_codes | all_l3_codes)
+        sw_industry_qs = SwIndustry.objects.filter(index_code__in=all_industry_codes)
         sw_industry_map = {ind.index_code: ind async for ind in sw_industry_qs}
         stock_qs = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
         stock_map = {stock.stock_code: stock async for stock in stock_qs}
-        print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个三级行业和 {len(stock_map)} 个股票信息。")
-        # --- 4. 组装最终数据 ---
+        print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个行业和 {len(stock_map)} 个股票信息。")
+        # --- 4. 组装最终数据 (包含动态创建缺失行业的逻辑) ---
         industry_member_dicts = []
         for row in all_raw_members:
+            # 按层级检查并创建缺失的行业
+            try:
+                # 检查并创建L1
+                if row.l1_code and row.l1_code not in sw_industry_map:
+                    print(f"    - 发现新的L1行业，正在创建: {row.l1_name} ({row.l1_code})")
+                    l1_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
+                        index_code=row.l1_code,
+                        defaults={
+                            'industry_name': row.l1_name, 'level': 'L1', 'parent_code': '0', 'src': 'SW2021', 'industry_code': row.l1_code
+                        }
+                    )
+                    sw_industry_map[row.l1_code] = l1_obj
+                # 检查并创建L2
+                if row.l2_code and row.l2_code not in sw_industry_map:
+                    print(f"    - 发现新的L2行业，正在创建: {row.l2_name} ({row.l2_code})")
+                    l2_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
+                        index_code=row.l2_code,
+                        defaults={
+                            'industry_name': row.l2_name, 'level': 'L2', 'parent_code': row.l1_code, 'src': 'SW2021', 'industry_code': row.l2_code
+                        }
+                    )
+                    sw_industry_map[row.l2_code] = l2_obj
+                # 检查并创建L3
+                if row.l3_code and row.l3_code not in sw_industry_map:
+                    print(f"    - 发现新的L3行业，正在创建: {row.l3_name} ({row.l3_code})")
+                    l3_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
+                        index_code=row.l3_code,
+                        defaults={
+                            'industry_name': row.l3_name, 'level': 'L3', 'parent_code': row.l2_code, 'src': 'SW2021', 'industry_code': row.l3_code
+                        }
+                    )
+                    sw_industry_map[row.l3_code] = l3_obj
+            except Exception as e:
+                logger.error(f"动态创建申万行业时失败: {e}, 数据: {row}", exc_info=True)
+                continue
             swan_industry = sw_industry_map.get(row.l3_code)
-            # 使用 'ts_code' 从 stock_map 中获取股票对象
             stock = stock_map.get(row.ts_code)
+            # 修改判断条件，确保在动态创建后，行业和股票都存在
             if swan_industry and stock:
-                # API返回的字段已经是 ts_code 和 name，无需再转换
                 industry_member_dict = self.data_format_process.set_sw_industry_member_data(
                     sw_industry=swan_industry,
                     stock=stock,
-                    df_data=row # 直接传递 NamedTuple 对象
+                    df_data=row
                 )
                 industry_member_dicts.append(industry_member_dict)
             else:
-                if not swan_industry: logger.warning(f"未在DB中找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
+                # 这里的 warning 现在只会在股票不存在或行业创建失败时触发
+                if not swan_industry: logger.warning(f"动态创建后仍未找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
                 if not stock: logger.warning(f"未在DB中找到股票 {row.ts_code}，成分股记录将被忽略。")
         # --- 5. 批量保存 ---
         if industry_member_dicts:
