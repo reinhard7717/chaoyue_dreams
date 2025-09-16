@@ -270,7 +270,8 @@ class StrategyScoreComponent(models.Model):
         on_delete=models.CASCADE,
         related_name='score_components',
         verbose_name='关联战法',
-        help_text='关联到具体的战法/规则定义'
+        help_text='关联到具体的战法/规则定义',
+        null=True
     )
     # signal_name 和 signal_cn_name 字段已被移除，以减少数据冗余
     score_type = models.CharField(max_length=20, choices=ScoreType.choices, default=ScoreType.UNKNOWN, verbose_name='分数类型')
@@ -313,7 +314,8 @@ class StrategyDailyState(models.Model):
         on_delete=models.CASCADE,
         related_name='daily_states',
         verbose_name='关联战法',
-        help_text='关联到具体的战法/规则定义'
+        help_text='关联到具体的战法/规则定义',
+        null=True
     )
     # signal_name 和 signal_cn_name 字段已被移除
     signal_type = models.CharField(max_length=20, choices=SignalType.choices, default=SignalType.UNKNOWN, verbose_name='信号类型')
@@ -330,6 +332,7 @@ class StrategyDailyState(models.Model):
     def __str__(self):
         # 更新 __str__ 方法以使用 playbook 关联
         return f"{self.daily_score} - {self.playbook.name}"
+
 # 用于存储对原子信号进行性能分析后的最终结果。
 class AtomicSignalPerformance(models.Model):
     """
