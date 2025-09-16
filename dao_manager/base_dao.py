@@ -855,7 +855,7 @@ class BaseDAO(Generic[T]):
                 # 改为直接获取值，以保留 code_field_name (如 'index_code') 在数据中，
                 # 因为目标模型可能同时需要外键对象和代码字段本身。
                 code_value = prepared_data[code_field_name]
-                print(f"DEBUG: Preserving '{code_field_name}' in data dictionary. Value: '{code_value}'")
+                # print(f"DEBUG: Preserving '{code_field_name}' in data dictionary. Value: '{code_value}'")
             if code_value is not None:
                 if code_value is None:
                     prepared_data[fk_field_name] = None
@@ -872,7 +872,7 @@ class BaseDAO(Generic[T]):
         # 使用 model_class._meta.fields 确保只清理模型中实际定义的字段。
         model_field_names = {f.name for f in model_class._meta.fields}
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
-        print(f"DEBUG: Final cleaned data for model instance: {cleaned_data.keys()}")
+        # print(f"DEBUG: Final cleaned data for model instance: {cleaned_data.keys()}")
         return cleaned_data
 
     @staticmethod
@@ -886,12 +886,12 @@ class BaseDAO(Generic[T]):
         try:
             # 使用 Django ORM 的 get_or_create，它会原子性地尝试获取，如果不存在则创建。
             # 它返回一个元组 (instance, created_boolean)。
-            print(f"DEBUG: _get_or_create_fk_sync: fk_model={fk_model.__name__}, lookup_field='{lookup_field}', code_value='{code_value}'")
+            # print(f"DEBUG: _get_or_create_fk_sync: fk_model={fk_model.__name__}, lookup_field='{lookup_field}', code_value='{code_value}'")
             instance, created = fk_model.objects.get_or_create(
                 **{lookup_field: code_value},
             )
-            if created:
-                print(f"DEBUG: Created new {fk_model.__name__} instance for {lookup_field}={code_value}")
+            # if created:
+            #     print(f"DEBUG: Created new {fk_model.__name__} instance for {lookup_field}={code_value}")
             return instance
         except Exception as e:
             # 捕获可能的数据库错误或其他问题，并记录详细日志。
