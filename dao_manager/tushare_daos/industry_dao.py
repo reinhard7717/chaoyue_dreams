@@ -976,13 +976,14 @@ class IndustryDao(BaseDAO):
 
     async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
-        【V3.0 重构修复版】接口：dc_daily
+        【V3.1 错误修复版】接口：dc_daily
         描述：获取东方财富概念板块的日线行情数据。
         修复：
-        1.  【KeyError修复】完全重写数据处理逻辑，以匹配 `dc_daily` API的实际返回字段（OHLC等）。
-        2.  【分页逻辑】新增了 while 循环和 offset，以完整获取当日所有板块的行情数据。
-        3.  【模型匹配】确保数据格式化与重构后的 `DcIndexDaily` 模型完全对应。
-        4.  (保留) 保留了“按需创建新板块”的健壮性设计。
+        1.  【OperationalError修复】在数据字典送入原生SQL保存前，移除与外键db_column同名的冗余 'ts_code' 键，解决 "Unknown column" 错误。
+        2.  (保留) 【KeyError修复】完全重写数据处理逻辑，以匹配 `dc_daily` API的实际返回字段（OHLC等）。
+        3.  (保留) 【分页逻辑】新增了 while 循环和 offset，以完整获取当日所有板块的行情数据。
+        4.  (保留) 【模型匹配】确保数据格式化与重构后的 `DcIndexDaily` 模型完全对应。
+        5.  (保留) 保留了“按需创建新板块”的健壮性设计。
         """
         if trade_time is None:
             trade_time = datetime.today().date()
@@ -990,7 +991,7 @@ class IndustryDao(BaseDAO):
         print(f"    -> 开始获取 [东方财富板块行情] 数据, 日期: {trade_time_str}...")
         all_dfs = []
         offset = 0
-        limit = 2000 # dc_daily 的 limit 是 2000
+        limit = 2000
         max_offset = 100000
         while offset < max_offset:
             try:
@@ -1038,11 +1039,11 @@ class IndustryDao(BaseDAO):
             if not dc_index:
                 logger.warning(f"创建后仍未找到东方财富板块 {row.ts_code}，跳过此条日线数据。")
                 continue
-            # 关键修复：调用新的数据格式化方法，匹配 dc_daily API 和新模型
             daily_dict = self.data_format_process.set_dc_index_daily_data(
                 dc_index=dc_index,
                 df_data=row
             )
+            daily_dict.pop('ts_code', None)
             dc_index_daily_dicts.append(daily_dict)
         if not dc_index_daily_dicts:
             return {}
@@ -1054,7 +1055,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"    -- 完成 [东方财富板块行情] 数据获取，共 {len(dc_index_daily_dicts)} 条。")
         return result
-
     # ============== 东方财富板块成分 ==============
     async def get_dc_index_member(self, ts_code: str) -> List['DcIndexMember']:
         """
@@ -1223,7 +1223,6 @@ class IndustryDao(BaseDAO):
         return result
 
     # ============== 市场情绪与涨跌停数据 ==============
-
     async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
         """
         【V1.1 速率限制修复版】接口：limit_list_ths
