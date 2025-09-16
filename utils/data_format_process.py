@@ -722,7 +722,7 @@ class IndustryFormatProcess(BaseDAO):
     # 开盘啦题材库
     def set_kpl_concept_data(self, df_data: Any) -> Dict:
         data_dict = {
-            "trade_time": getattr(df_data, "trade_time", None),
+            "trade_time": getattr(df_data, "trade_date", None),
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
             "z_t_num": getattr(df_data, "z_t_num", None),
@@ -765,7 +765,6 @@ class IndustryFormatProcess(BaseDAO):
         if result.get("count") is None:
             result["count"] = 0
         return result
-
 
     # 同花顺概念板块成分
     def set_ths_index_member_data(self, ths_index: 'ThsIndex', stock: 'StockInfo', df_data: Any) -> Dict:

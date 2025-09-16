@@ -179,21 +179,21 @@ def save_all_historical_data_task(cache_manager=None, days_to_fetch: int = 30):
         logger.info(f"准备回补 {len(trade_dates)} 个交易日的数据。")
         # --- 步骤2: 静态数据更新 (这些数据不按天变化，只需执行一次) ---
         print("\n--- [静态数据更新] 开始处理不按天变化的元数据 ---")
-        try:
-            # 申万行业分类
-            await industry_dao.save_swan_industry_list()
-            print("  - 申万行业分类元数据更新完成。")
-            # 申万行业成分
-            await industry_dao.save_sw_industry_member()
-            print("  - 申万行业成分元数据更新完成。")
-            # 同花顺板块指数列表
-            await industry_dao.save_ths_index_list()
-            print("  - 同花顺板块指数元数据更新完成。")
-            # 同花顺板块成分
-            await industry_dao.save_ths_index_member()
-            print("  - 同花顺板块成分元数据更新完成。")
-        except Exception as e:
-            logger.error(f"[{task_name}] 更新静态元数据时发生错误: {e}", exc_info=True)
+        # try:
+        #     # 申万行业分类
+        #     await industry_dao.save_swan_industry_list()
+        #     print("  - 申万行业分类元数据更新完成。")
+        #     # 申万行业成分
+        #     await industry_dao.save_sw_industry_member()
+        #     print("  - 申万行业成分元数据更新完成。")
+        #     # 同花顺板块指数列表
+        #     await industry_dao.save_ths_index_list()
+        #     print("  - 同花顺板块指数元数据更新完成。")
+        #     # 同花顺板块成分
+        #     await industry_dao.save_ths_index_member()
+        #     print("  - 同花顺板块成分元数据更新完成。")
+        # except Exception as e:
+        #     logger.error(f"[{task_name}] 更新静态元数据时发生错误: {e}", exc_info=True)
         # --- 步骤3: 按天并行处理所有渠道的日度数据 ---
         for i, trade_date in enumerate(trade_dates):
             print(f"\n--- [进度 {i+1}/{len(trade_dates)}] 开始处理交易日: {trade_date.strftime('%Y-%m-%d')} 的所有数据 ---")

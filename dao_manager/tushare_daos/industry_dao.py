@@ -1173,7 +1173,7 @@ class IndustryDao(BaseDAO):
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         # 组装数据
         items_to_save = [
-            self.data_format_process.set_limit_list_ths_data(stock=stock_map.get(row.ts_code), df_data=row)
+            self.market_format_process.set_limit_step_data(stock=stock_map.get(row.ts_code), df_data=row)
             for row in combined_df.itertuples(index=False) if stock_map.get(row.ts_code)
         ]
         if not items_to_save:
@@ -1277,7 +1277,7 @@ class IndustryDao(BaseDAO):
         all_index_codes = df['ts_code'].unique().tolist()
         index_map = await self.get_ths_indices_by_codes(all_index_codes)
         items_to_save = [
-            self.data_format_process.set_limit_cpt_list_data(ths_index=index_map.get(row.ts_code), df_data=row)
+            self.market_format_process.set_limit_cpt_list_data(ths_index=index_map.get(row.ts_code), df_data=row)
             for row in df.itertuples(index=False) if index_map.get(row.ts_code)
         ]
         if not items_to_save:
