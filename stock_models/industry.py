@@ -18,7 +18,7 @@ class SwIndustry(models.Model):
     parent_code = models.CharField(max_length=16, db_index=True, verbose_name="父级代码")
     level = models.CharField(max_length=4, db_index=True, verbose_name="行业分级")  # L1/L2/L3
     industry_code = models.CharField(max_length=16, db_index=True, verbose_name="行业代码")
-    is_pub = models.CharField(max_length=4, verbose_name="是否发布指数")
+    is_pub = models.CharField(max_length=4, null=True, blank=True, verbose_name="是否发布指数")
     src = models.CharField(max_length=16, verbose_name="行业分类来源", default="SW2021")
 
     class Meta:

@@ -120,10 +120,12 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_member(self) -> Dict:
         """
-        【V2.0 重构修复版】获取申万行业成分并保存
+        【V2.1 错误修复版】获取申万行业成分并保存
         修复与优化:
-        1.  **修复唯一性约束错误**: 将 unique_fields 从错误的 ['industry_code', 'ts_code'] 修正为正确的 ['l3_industry', 'stock', 'in_date']。
-        2.  **消除N+1查询**: 采用批量获取、内存映射的方式，极大提升性能。
+        1.  【API调用错误】修复：使用正确的 Tushare API `index_member_all` 替代 `index_member`。
+        2.  【方法缺失错误】修复：移除对不存在的 `get_stocks_by_codes_map` 方法的调用，改用直接的异步ORM查询。
+        3.  【字段错误】修复：调整代码以处理 `index_member_all` API 返回的正确字段 (`ts_code`, `name`)。
+        4.  (保留) 消除N+1查询: 采用批量获取、内存映射的方式，极大提升性能。
         """
         print("  - [DAO] 开始获取申万行业成分...")
         # --- 1. 初始化和准备 ---
@@ -140,17 +142,17 @@ class IndustryDao(BaseDAO):
         for i, sw_l1_index in enumerate(sw_l1_indexs):
             print(f"    - 进度: {i+1}/{len(sw_l1_indexs)} | 获取L1行业 [{sw_l1_index.industry_name}] 的成分...")
             try:
-                df = self.ts_pro.index_member(
-                    index_code=sw_l1_index.index_code,
-                    is_new='Y', # 此处API参数is_new是正确的，表示获取最新成分
-                    fields="l1_code,l1_name,l2_code,l2_name,l3_code,l3_name,con_code,con_name,in_date,out_date,is_new"
+                df = self.ts_pro.index_member_all(
+                    l1_code=sw_l1_index.index_code,
+                    is_new='Y',
+                    fields="l1_code,l1_name,l2_code,l2_name,l3_code,l3_name,ts_code,name,in_date,out_date,is_new"
                 )
                 if df is not None and not df.empty:
                     df = df.replace([np.nan, 'nan', 'NaN', ''], None)
                     for row in df.itertuples(index=False):
                         all_raw_members.append(row)
                         if row.l3_code: all_l3_codes.add(row.l3_code)
-                        if row.con_code: all_stock_codes.add(row.con_code)
+                        if row.ts_code: all_stock_codes.add(row.ts_code)
                 await asyncio.sleep(API_CALL_DELAY_SECONDS)
             except Exception as e:
                 logger.error(f"获取申万行业 [{sw_l1_index.industry_name}] 成分时发生API错误: {e}", exc_info=True)
@@ -160,27 +162,26 @@ class IndustryDao(BaseDAO):
         print("    - 正在一次性获取所有涉及的申万三级行业和股票信息...")
         sw_industry_qs = SwIndustry.objects.filter(index_code__in=list(all_l3_codes))
         sw_industry_map = {ind.index_code: ind async for ind in sw_industry_qs}
-        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(list(all_stock_codes))
+        stock_qs = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
+        stock_map = {stock.stock_code: stock async for stock in stock_qs}
         print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个三级行业和 {len(stock_map)} 个股票信息。")
         # --- 4. 组装最终数据 ---
         industry_member_dicts = []
         for row in all_raw_members:
             swan_industry = sw_industry_map.get(row.l3_code)
-            stock = stock_map.get(row.con_code)
+            # 使用 'ts_code' 从 stock_map 中获取股票对象
+            stock = stock_map.get(row.ts_code)
             if swan_industry and stock:
-                # Tushare返回的字段是 con_code, con_name, 我们需要适配模型
-                row_dict = row._asdict()
-                row_dict['ts_code'] = row_dict.pop('con_code')
-                row_dict['name'] = row_dict.pop('con_name')
+                # API返回的字段已经是 ts_code 和 name，无需再转换
                 industry_member_dict = self.data_format_process.set_sw_industry_member_data(
-                    sw_industry=swan_industry, 
-                    stock=stock, 
-                    df_data=pd.Series(row_dict) # 转换为Series以兼容getattr
+                    sw_industry=swan_industry,
+                    stock=stock,
+                    df_data=row # 直接传递 NamedTuple 对象
                 )
                 industry_member_dicts.append(industry_member_dict)
             else:
-                if not swan_industry: logger.warning(f"未在DB中找到申万三级行业 {row.l3_code}，成分股 {row.con_code} 将被忽略。")
-                if not stock: logger.warning(f"未在DB中找到股票 {row.con_code}，成分股记录将被忽略。")
+                if not swan_industry: logger.warning(f"未在DB中找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
+                if not stock: logger.warning(f"未在DB中找到股票 {row.ts_code}，成分股记录将被忽略。")
         # --- 5. 批量保存 ---
         if industry_member_dicts:
             print(f"    - 准备保存 {len(industry_member_dicts)} 条申万行业成分数据...")
@@ -191,7 +192,7 @@ class IndustryDao(BaseDAO):
             )
             print(f"  - [DAO] 完成保存申万行业成分。结果: {final_result}")
         else:
-            logger.warning("没有可供保存的申万行业成分数据。")            
+            logger.warning("没有可供保存的申万行业成分数据。")
         return final_result
 
     # ============== 申万行业日线行情 ==============
@@ -207,24 +208,25 @@ class IndustryDao(BaseDAO):
         industry_daily_basic = await sync_to_async(lambda: SwIndustryDaily.objects.filter(ts_code=ts_code).all())()
         return industry_daily_basic
 
-    async def save_sw_industry_daily(self, trade_time: Any) -> Dict:
+    async def save_sw_industry_daily(self, trade_date: Any = None) -> Dict:
         """
         接口：sw_daily
         描述：获取申万行业日线行情（默认是申万2021版行情）
         限量：单次最大4000行数据，可通过指数代码和日期参数循环提取，5000积分可调取
+        修复:
+        1.  【方法签名错误】修复：将参数从 `trade_time` 修改为 `trade_date`，并设为关键字参数，以匹配调用方的传参方式。
         Returns:
             Dict: 保存结果
         """
         result = {}
         industry_daily_basic_dicts = []
-        if trade_time is None:
-            # 获取当前日期
-            trade_time = datetime.today()
-        # 转换为YYYYMMDD格式
-        trade_time_str = trade_time.strftime('%Y%m%d')
+        if trade_date is None:
+            trade_date = datetime.today()
+        trade_date_str = trade_date.strftime('%Y%m%d')
+        print(f"DEBUG: save_sw_industry_daily - trade_date_str: {trade_date_str}")
         # 拉取数据
         df = self.ts_pro.sw_daily(**{
-                "ts_code": "", "trade_date": trade_time_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
+                "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
                 "ts_code", "trade_date", "name", "open", "low", "high", "close", "change", "pct_change", "vol",
                 "amount", "pe", "pb", "float_mv", "total_mv", "weight"
@@ -233,7 +235,7 @@ class IndustryDao(BaseDAO):
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
                 index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
-                industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic,df_data=row)
+                industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic, df_data=row)
                 industry_daily_basic_dicts.append(industry_daily_basic_dict)
         if industry_daily_basic_dicts:
             # 保存到数据库
