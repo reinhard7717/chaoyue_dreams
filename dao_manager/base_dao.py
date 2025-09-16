@@ -906,7 +906,7 @@ class BaseDAO(Generic[T]):
         这个版本接收要查询的字段名(code_field_name)，使其更具通用性。
         """
         # 调试信息：打印即将用于查询的参数
-        print(f"DEBUG: get_or_create_fk_instance: fk_model={fk_model.__name__}, code_field_name='{code_field_name}', code_value='{code_value}'")
+        # print(f"DEBUG: get_or_create_fk_instance: fk_model={fk_model.__name__}, code_field_name='{code_field_name}', code_value='{code_value}'")
         # 关键修改：方法签名已更新为 (self, fk_model, code_field_name, code_value)，现在可以正确地将参数传递给下一层。
         return await self._get_or_create_fk_sync(fk_model, code_field_name, code_value)
 
