@@ -862,10 +862,9 @@ class IndustryDao(BaseDAO):
 
     async def save_dc_index_list_by_date(self, trade_date: date) -> Dict:
         """
-        【新增】接口：dc_index
+        【V1.1 修复版】接口：dc_index
         描述：获取东方财富每日的概念板块列表，并用此数据更新 DcIndex 主表。
-        核心功能：发现并创建新的概念板块。
-        优化：实现了分页逻辑，确保获取所有数据。
+        修复：修复了因错误处理数据导致 'ts_code' 为 NULL 的问题。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"    -> 开始获取 [东方财富板块列表] 数据, 日期: {trade_date_str}...")
@@ -894,22 +893,18 @@ class IndustryDao(BaseDAO):
             return {"status": "warning", "message": "API returned no data."}
         combined_df = pd.concat(all_df_rows, ignore_index=True)
         combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
-        # 提取板块元数据并去重
+        # 提取板块元数据并去重，结果是一个字典列表，可以直接用于保存
         unique_indices = combined_df[['ts_code', 'name']].drop_duplicates().to_dict('records')
         if not unique_indices:
             return {}
-        # 组装用于保存的数据
-        new_dc_indices_to_create = [
-            self.data_format_process.set_dc_index_data(df_data=row)
-            for row in unique_indices
-        ]
-        print(f"    - 发现 {len(new_dc_indices_to_create)} 个不重复的东方财富板块，准备进行更新/创建...")
+        print(f"    - 发现 {len(unique_indices)} 个不重复的东方财富板块，准备进行更新/创建...")
         result = await self._save_all_to_db_native_upsert(
             model_class=DcIndex,
-            data_list=new_dc_indices_to_create,
+            data_list=unique_indices,  # 修改行: 直接使用 unique_indices
             unique_fields=['ts_code']
         )
-        print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(new_dc_indices_to_create)} 条板块元数据。")
+        
+        print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(unique_indices)} 条板块元数据。") # 修改行: 更新日志输出变量
         return result
 
     # ============== 东方财富板块指数行情 ==============
