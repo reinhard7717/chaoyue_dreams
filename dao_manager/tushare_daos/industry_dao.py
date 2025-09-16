@@ -40,7 +40,7 @@ class IndustryDao(BaseDAO):
         """
         return_data = []
         # 从数据库获取
-        industry_list = await sync_to_async(lambda: list(SwIndustry.objects.filter(is_new='Y').all()))()
+        industry_list = await sync_to_async(lambda: list(SwIndustry.objects.all()))()
         if industry_list:
             for industry in industry_list:
                 return_data.append(industry)
@@ -54,7 +54,7 @@ class IndustryDao(BaseDAO):
         """
         return_data = []
         # 从数据库获取
-        industry_list = await sync_to_async(lambda: list(SwIndustry.objects.filter(is_new='Y', level="L1").all()))()
+        industry_list = await sync_to_async(lambda: list(SwIndustry.objects.filter(level="L1").all()))()
         if industry_list:
             for industry in industry_list:
                 return_data.append(industry)
@@ -104,6 +104,7 @@ class IndustryDao(BaseDAO):
             )
         return result
 
+
     # ============== 申万行业成分 ==============
     async def get_sw_industry_member(self, industry_code: str) -> List['SwIndustryMember']:
         """
@@ -119,39 +120,79 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_member(self) -> Dict:
         """
-        接口：index_member_all
-        描述：按三级分类提取申万行业成分，可提供某个分类的所有成分，也可按股票代码提取所属分类，参数灵活
-        限量：单次最大2000行，总量不限制
-        权限：用户需2000积分可调取，积分获取方法请参阅积分获取办法
-        Returns:
-            Dict: 保存结果
+        【V2.0 重构修复版】获取申万行业成分并保存
+        修复与优化:
+        1.  **修复唯一性约束错误**: 将 unique_fields 从错误的 ['industry_code', 'ts_code'] 修正为正确的 ['l3_industry', 'stock', 'in_date']。
+        2.  **消除N+1查询**: 采用批量获取、内存映射的方式，极大提升性能。
         """
-        result = {}
-        industry_member_dicts = []
-        # 获取所有申万一级行业
+        print("  - [DAO] 开始获取申万行业成分...")
+        # --- 1. 初始化和准备 ---
+        API_CALL_DELAY_SECONDS = 0.3
+        final_result = {}
+        all_raw_members = []
+        all_l3_codes = set()
+        all_stock_codes = set()
+        # --- 2. 获取所有L1行业并循环调用API ---
         sw_l1_indexs = await self.get_swan_industry_l1_list()
-        # 拉取数据
-        for sw_l1_index in sw_l1_indexs:
-            df = self.ts_pro.index_member_all(**{
-                "l1_code": sw_l1_index.index_code, "l2_code": "", "l3_code": "", "is_new": "", "ts_code": "", "src": "", "limit": "", "offset": ""
-                }, fields=[
-                    "l1_code", "l1_name", "l2_code", "l2_name", "l3_code", "l3_name", "ts_code", "name", "in_date", "out_date", "is_new"
-                ])
-            if df is not None:
-                df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-                for row in df.itertuples():
-                    swan_industry = await self.get_swan_industry_by_code(row.l3_code)
-                    stock = await self.stock_cache_get.stock_data_by_code(row.ts_code)
-                    industry_member_dict = self.data_format_process.set_sw_industry_member_data(sw_industry=swan_industry, stock=stock, df_data=row)
-                    industry_member_dicts.append(industry_member_dict)
+        if not sw_l1_indexs:
+            logger.warning("数据库中未找到任何申万L1行业信息，任务结束。")
+            return {"status": "warning", "message": "No SW L1 Index found."}
+        for i, sw_l1_index in enumerate(sw_l1_indexs):
+            print(f"    - 进度: {i+1}/{len(sw_l1_indexs)} | 获取L1行业 [{sw_l1_index.industry_name}] 的成分...")
+            try:
+                df = self.ts_pro.index_member(
+                    index_code=sw_l1_index.index_code,
+                    is_new='Y', # 此处API参数is_new是正确的，表示获取最新成分
+                    fields="l1_code,l1_name,l2_code,l2_name,l3_code,l3_name,con_code,con_name,in_date,out_date,is_new"
+                )
+                if df is not None and not df.empty:
+                    df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+                    for row in df.itertuples(index=False):
+                        all_raw_members.append(row)
+                        if row.l3_code: all_l3_codes.add(row.l3_code)
+                        if row.con_code: all_stock_codes.add(row.con_code)
+                await asyncio.sleep(API_CALL_DELAY_SECONDS)
+            except Exception as e:
+                logger.error(f"获取申万行业 [{sw_l1_index.industry_name}] 成分时发生API错误: {e}", exc_info=True)
+                continue
+        logger.info(f"API数据获取完成，共 {len(all_raw_members)} 条成分记录。")
+        # --- 3. 批量获取所有需要的外键对象 ---
+        print("    - 正在一次性获取所有涉及的申万三级行业和股票信息...")
+        sw_industry_qs = SwIndustry.objects.filter(index_code__in=list(all_l3_codes))
+        sw_industry_map = {ind.index_code: ind async for ind in sw_industry_qs}
+        stock_map = await self.stock_cache_get.get_stocks_by_codes_map(list(all_stock_codes))
+        print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个三级行业和 {len(stock_map)} 个股票信息。")
+        # --- 4. 组装最终数据 ---
+        industry_member_dicts = []
+        for row in all_raw_members:
+            swan_industry = sw_industry_map.get(row.l3_code)
+            stock = stock_map.get(row.con_code)
+            if swan_industry and stock:
+                # Tushare返回的字段是 con_code, con_name, 我们需要适配模型
+                row_dict = row._asdict()
+                row_dict['ts_code'] = row_dict.pop('con_code')
+                row_dict['name'] = row_dict.pop('con_name')
+                industry_member_dict = self.data_format_process.set_sw_industry_member_data(
+                    sw_industry=swan_industry, 
+                    stock=stock, 
+                    df_data=pd.Series(row_dict) # 转换为Series以兼容getattr
+                )
+                industry_member_dicts.append(industry_member_dict)
+            else:
+                if not swan_industry: logger.warning(f"未在DB中找到申万三级行业 {row.l3_code}，成分股 {row.con_code} 将被忽略。")
+                if not stock: logger.warning(f"未在DB中找到股票 {row.con_code}，成分股记录将被忽略。")
+        # --- 5. 批量保存 ---
         if industry_member_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
+            print(f"    - 准备保存 {len(industry_member_dicts)} 条申万行业成分数据...")
+            final_result = await self._save_all_to_db_native_upsert(
                 model_class=SwIndustryMember,
                 data_list=industry_member_dicts,
-                unique_fields=['industry_code', 'ts_code'] 
+                unique_fields=['l3_industry', 'stock', 'in_date']
             )
-        return result
+            print(f"  - [DAO] 完成保存申万行业成分。结果: {final_result}")
+        else:
+            logger.warning("没有可供保存的申万行业成分数据。")            
+        return final_result
 
     # ============== 申万行业日线行情 ==============
     async def get_sw_industry_daily(self, ts_code: str) -> List['SwIndustryDaily']:
