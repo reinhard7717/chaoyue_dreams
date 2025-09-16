@@ -811,49 +811,82 @@ class IndustryDao(BaseDAO):
             )
         return result
 
-    async def save_dc_index_daily_by_trade_time(self, trade_time: date=None) -> Dict:
+    async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
-        接口：ths_daily
+        【V2.0 重构修复版】接口：dc_daily (Tushare接口名是dc_index)
         描述：获取东方财富概念板块指数行情。
-        限量：单次最大3000行数据（5000积分），可根据指数代码、日期参数循环提取。
-        Args:
-        Returns:
-            Dict: 保存结果
+        修复：
+        1. 修复了因 set_dc_index_data 缺少 stock 参数导致的 TypeError。
+        2. 优化了数据处理流程，采用批量查询，避免循环内DB查询。
+        3. 明确了 DcIndex 和 DcIndexDaily 的创建和关联逻辑。
         """
         if trade_time is None:
-            # 获取当前日期
-            today = datetime.today()
-            # 转换为YYYYMMDD格式
-            trade_time_str = today.strftime('%Y%m%d')
-        else:
-            trade_time_str = trade_time.strftime('%Y%m%d')
-        result = {}
-        df = self.ts_pro.dc_index(**{
-                "ts_code": "", "name": "", "trade_date": trade_time_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-            }, fields=[
+            trade_time = datetime.today().date()
+        trade_time_str = trade_time.strftime('%Y%m%d')
+        print(f"    -> 开始获取 [东方财富板块行情] 数据, 日期: {trade_time_str}...")
+
+        try:
+            df = self.ts_pro.dc_daily(trade_date=trade_time_str, fields=[
                 "ts_code", "trade_date", "name", "leading", "leading_code", "pct_change", "leading_pct", "total_mv", "turnover_rate",
                 "up_num", "down_num"
             ])
-        dc_index_daily_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                dc_index = await self.get_dc_index_by_code(row.ts_code)
-                if dc_index is None:
-                    dc_index = self.data_format_process.set_dc_index_data(df_data=row)
-                    dc_index_model = DcIndex(**dc_index)
-                    # dc_index_model.exchange = "DC"
-                    await dc_index_model.save()
-                dc_index_daily_dict = self.data_format_process.set_dc_index_daily_data(dc_index=dc_index_model, df_data=row)
-                dc_index_daily_dicts.append(dc_index_daily_dict)
-                dc_index = self.get_dc_index_by_code(row.ts_code)
-        if dc_index_daily_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=DcIndexDaily,
-                data_list=dc_index_daily_dicts,
-                unique_fields=['index', 'trade_time']
+        except Exception as e:
+            logger.error(f"调用Tushare接口 dc_daily 失败: {e}", exc_info=True)
+            return {"status": "error", "message": f"API call failed: {e}"}
+        if df is None or df.empty:
+            logger.warning(f"Tushare接口 dc_daily 未返回 {trade_time_str} 的数据。")
+            return {"status": "warning", "message": "API returned no data."}
+        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # --- 批量获取和创建 ---
+        all_index_codes = df['ts_code'].unique().tolist()
+        all_leading_stock_codes = df['leading_code'].dropna().unique().tolist()
+        # 1. 批量获取已存在的 DcIndex 和 StockInfo
+        dc_index_map = await self.get_dc_indices_by_codes(all_index_codes)
+        leading_stock_map = await self.stock_cache_get.get_stocks_by_codes_map(all_leading_stock_codes)
+        # 2. 识别并创建新的 DcIndex
+        new_dc_indices_to_create = []
+        for row in df.itertuples(index=False):
+            if row.ts_code not in dc_index_map:
+                # 避免重复添加
+                if not any(d['ts_code'] == row.ts_code for d in new_dc_indices_to_create):
+                    index_dict = self.data_format_process.set_dc_index_data(df_data=row)
+                    new_dc_indices_to_create.append(index_dict)
+        if new_dc_indices_to_create:
+            print(f"    - 发现 {len(new_dc_indices_to_create)} 个新的东方财富板块，正在创建...")
+            await self._save_all_to_db_native_upsert(
+                model_class=DcIndex,
+                data_list=new_dc_indices_to_create,
+                unique_fields=['ts_code']
             )
+            # 重新获取一次，确保 dc_index_map 是最新的
+            dc_index_map.update(await self.get_dc_indices_by_codes([d['ts_code'] for d in new_dc_indices_to_create]))
+            print(f"    - 新板块创建完成。")
+        # --- 组装日线数据 ---
+        dc_index_daily_dicts = []
+        for row in df.itertuples(index=False):
+            dc_index = dc_index_map.get(row.ts_code)
+            leading_stock = leading_stock_map.get(row.leading_code)
+            if not dc_index:
+                logger.warning(f"创建后仍未找到东方财富板块 {row.ts_code}，跳过此条日线数据。")
+                continue
+            # 即使领涨股不存在，也应保存板块行情，只是领涨股字段为空
+            if not leading_stock:
+                logger.warning(f"未在数据库中找到领涨股 {row.leading_code}，板块 {row.ts_code} 的日线行情将保存，但领涨股信息为空。")
+            daily_dict = self.data_format_process.set_dc_index_daily_data(
+                dc_index=dc_index,
+                leading_stock=leading_stock,
+                df_data=row
+            )
+            dc_index_daily_dicts.append(daily_dict)
+        if not dc_index_daily_dicts:
+            return {}
+        # --- 批量保存日线数据 ---
+        result = await self._save_all_to_db_native_upsert(
+            model_class=DcIndexDaily,
+            data_list=dc_index_daily_dicts,
+            unique_fields=['dc_index', 'trade_time']
+        )
+        print(f"    -- 完成 [东方财富板块行情] 数据获取，共 {len(dc_index_daily_dicts)} 条。")
         return result
 
     # ============== 东方财富板块成分 ==============
@@ -888,14 +921,14 @@ class IndustryDao(BaseDAO):
             for row in df.itertuples():
                 dc_index = await self.get_dc_index_by_code(row.ts_code)
                 stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
-                dc_index_member_dict = self.data_format_process.set_dc_index_member_data(dc_index=dc_index, stock=stock, df_data=row)
+                dc_index_member_dict = self.data_format_process.set_dc_index_member_data(dc_index=dc_index, stock=stock, df_data=row) # 修改行: 调用修正后的方法名
                 dc_index_member_dicts.append(dc_index_member_dict)
         if dc_index_member_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
                 model_class=DcIndexMember,
                 data_list=dc_index_member_dicts,
-                unique_fields=['ts_code', 'con_code']
+                unique_fields=['dc_index', 'stock', 'trade_time']
             )
         return result
 

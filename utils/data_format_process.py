@@ -802,19 +802,19 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富概念板块
-    def set_dc_index_data(self, stock: 'StockInfo', df_data: Any) -> Dict:
+    def set_dc_index_data(self, df_data: Any) -> Dict:
         data_dict = {
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
-            "exchange": getattr(df_data, "exchange", None),
-            "type": getattr(df_data, "type", None),
+            "exchange": "DC",
+            "type": "C",
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块成分
-    def set_dc_member_data(self, dc_index: 'DcIndex', stock: 'StockInfo', df_data: Any) -> Dict:
+    def set_dc_index_member_data(self, dc_index: 'DcIndex', stock: 'StockInfo', df_data: Any) -> Dict:
         data_dict = {
-            "trade_time": getattr(df_data, "trade_time", None),
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
             "dc_index": dc_index,
             "stock": stock,
             "name": getattr(df_data, "name", None),
@@ -822,13 +822,13 @@ class IndustryFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 东方财富板块指数行情
-    def set_dc_index_daily_data(self, stock: 'StockInfo', dc_index: 'DcIndex', df_data: Any) -> Dict:
+    def set_dc_index_daily_data(self, dc_index: 'DcIndex', leading_stock: Optional['StockInfo'], df_data: Any) -> Dict:
         data_dict = {
             "dc_index": dc_index,
-            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
             "name": getattr(df_data, "name", None),
             "leading": getattr(df_data, "leading", None),
-            "stock": stock,
+            "stock": leading_stock,
             "pct_change": self._parse_number(getattr(df_data, "pct_change", None)),
             "leading_pct": self._parse_number(getattr(df_data, "leading_pct", None)),
             "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
