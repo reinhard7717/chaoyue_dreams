@@ -156,10 +156,10 @@ class CiDailySerializer(serializers.ModelSerializer):
         model = CiDaily
         fields = '__all__'
 
-class KplConceptSerializer(serializers.ModelSerializer):
+class KplConceptInfoSerializer(serializers.ModelSerializer):
     class Meta:
-        from stock_models.industry import KplConcept
-        model = KplConcept
+        from stock_models.industry import KplConceptInfo
+        model = KplConceptInfo
         fields = '__all__'
 
 class KplConceptConstituentSerializer(serializers.ModelSerializer):

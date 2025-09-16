@@ -151,46 +151,69 @@ class CiDaily(models.Model):
         verbose_name_plural = verbose_name
         unique_together = ('ts_code', 'trade_time')
 
-# 开盘啦题材库
-class KplConcept(models.Model):
+# 开盘啦题材字典 (主表)
+class KplConceptInfo(models.Model):
     """
-    开盘啦题材库
+    【V2.0 新增】开盘啦题材字典/主表
+    用于存储所有出现过的开盘啦题材的基本信息，确保每个题材有唯一的记录。
     """
     id = models.BigAutoField(primary_key=True)
-    trade_time = models.CharField(max_length=8, db_index=True, verbose_name="交易日期")  # YYYYMMDD
-    ts_code = models.CharField(max_length=16, db_index=True, unique=True, verbose_name="题材代码")    # xxxxxx.KP
+    ts_code = models.CharField(max_length=16, db_index=True, unique=True, verbose_name="题材代码")  # xxxxxx.KP
     name = models.CharField(max_length=64, verbose_name="题材名称")
+
+    class Meta:
+        db_table = "kpl_concept_info"
+        verbose_name = "开盘啦题材信息"
+        verbose_name_plural = "开盘啦题材信息"
+
+    def __str__(self):
+        return f"{self.name}({self.ts_code})"
+
+# 开盘啦题材每日快照 (原 KplConcept)
+class KplConceptDaily(models.Model):
+    """
+    【V2.0 重构】开盘啦题材每日快照 (原 KplConcept)
+    存储每个交易日题材的动态表现数据。
+    """
+    id = models.BigAutoField(primary_key=True)
+    concept_info = models.ForeignKey(
+        KplConceptInfo,
+        to_field='ts_code',
+        on_delete=models.CASCADE,
+        related_name='daily_snapshots',
+        verbose_name="关联题材信息"
+    )
+    trade_time = models.CharField(max_length=8, db_index=True, verbose_name="交易日期")  # YYYYMMDD
     z_t_num = models.IntegerField(null=True, blank=True, verbose_name="涨停数量")
     up_num = models.IntegerField(null=True, blank=True, verbose_name="排名上升位数")
 
     class Meta:
-        db_table = "kpl_concept"
-        verbose_name = "开盘啦题材"
-        verbose_name_plural = "开盘啦题材"
-        unique_together = ("trade_time", "ts_code")
+        db_table = "kpl_concept_daily"
+        verbose_name = "开盘啦题材每日快照"
+        verbose_name_plural = "开盘啦题材每日快照"
+        unique_together = ("concept_info", "trade_time")
 
     def __str__(self):
-        return f"{self.trade_time} - {self.name}({self.ts_code})"
+        return f"{self.trade_time} - {self.concept_info.name}({self.concept_info.ts_code})"
 
 # 开盘啦题材成分股
 class KplConceptConstituent(models.Model):
     """
-    开盘啦题材成分股
+    【V2.0 重构】开盘啦题材成分股
+    外键已修改为指向题材主表 KplConceptInfo。
     """
-    concept = models.ForeignKey(
-        KplConcept,
-        to_field='ts_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='ts_code', # 数据库字段名
+    concept_info = models.ForeignKey(
+        KplConceptInfo,
+        to_field='ts_code',
         on_delete=models.CASCADE,
         related_name='constituents',
-        verbose_name="所属题材"
+        verbose_name="所属题材",
+        null=True, blank=True,
     )
-    name = models.CharField(max_length=64, verbose_name="题材名称")
-    con_name = models.CharField(max_length=64, verbose_name="成分股名称")
     stock = models.ForeignKey(
         'StockInfo',
-        to_field='stock_code',  # 指定外键对应StockInfo的stock_code字段
-        db_column='con_code', # 数据库字段名
+        to_field='stock_code',
+        db_column='con_code',
         on_delete=models.CASCADE, blank=True, null=True,
         related_name="kpl_concept_constituent", verbose_name=_("成分股代码")
     )
@@ -202,10 +225,12 @@ class KplConceptConstituent(models.Model):
         db_table = "kpl_concept_constituent"
         verbose_name = "开盘啦题材成分股"
         verbose_name_plural = "开盘啦题材成分股"
-        unique_together = ("concept", "stock", "trade_time")
+        unique_together = ("concept_info", "stock", "trade_time") # 唯一约束修改
 
     def __str__(self):
-        return f"{self.trade_time} - {self.name}({self.ts_code}) - {self.con_name}({self.con_code})"
+        concept_name = self.concept_info.name if self.concept_info else "N/A"
+        stock_name = self.stock.stock_name if self.stock else "N/A"
+        return f"{self.trade_time} - {concept_name} - {stock_name}"
 
 # 开盘啦榜单数据
 class KplLimitList(models.Model):

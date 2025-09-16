@@ -15,7 +15,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.industry import KplConcept, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+from stock_models.industry import KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.cache_manager import CacheManager
@@ -674,86 +674,107 @@ class IndustryDao(BaseDAO):
     # ============== 开盘啦题材与榜单 ============== 
     async def save_kpl_concept_list_by_date(self, trade_date: date) -> Dict:
         """
-        接口：kpl_concept
-        描述：获取并保存指定交易日的开盘啦题材库列表。
+        【V2.0 重构】接口：kpl_concept
+        描述：获取开盘啦概念题材列表，并同时更新主表(KplConceptInfo)和每日快照表(KplConceptDaily)。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
-        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材库...")
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材列表...")
         try:
             df = self.ts_pro.kpl_concept(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 kpl_concept 失败: {e}", exc_info=True)
-            return {"status": "error", "message": f"API call failed: {e}"}
+            return {}
         if df is None or df.empty:
             logger.warning(f"Tushare接口 kpl_concept 未返回 {trade_date_str} 的数据。")
-            return {"status": "warning", "message": "API returned no data."}
-        df = df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
-        concept_dicts = [
-            self.data_format_process.set_kpl_concept_data(df_data=row)
+            return {}
+        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # 1. 更新/创建题材主表 (KplConceptInfo)
+        concept_info_list = [
+            self.data_format_process.set_kpl_concept_info_data(df_data=row)
             for row in df.itertuples(index=False)
         ]
-        if not concept_dicts:
+        await self._save_all_to_db_native_upsert(
+            model_class=KplConceptInfo,
+            data_list=concept_info_list,
+            unique_fields=['ts_code'],
+            update_fields=['name']
+        )
+        print(f"    - [DAO] 完成 {len(concept_info_list)} 条题材主数据更新。")
+        # 2. 准备并保存每日快照数据 (KplConceptDaily)
+        all_concept_codes = df['ts_code'].unique().tolist()
+        concept_map = await self.get_kpl_concepts_by_codes(all_concept_codes)
+        daily_items_to_save = [
+            self.data_format_process.set_kpl_concept_daily_data(
+                concept_info=concept_map.get(row.ts_code),
+                df_data=row
+            )
+            for row in df.itertuples(index=False) if concept_map.get(row.ts_code)
+        ]
+        if not daily_items_to_save:
             return {}
         result = await self._save_all_to_db_native_upsert(
-            model_class=KplConcept,
-            data_list=concept_dicts,
-            unique_fields=['trade_time', 'ts_code']
+            model_class=KplConceptDaily,
+            data_list=daily_items_to_save,
+            unique_fields=['concept_info', 'trade_time']
         )
-        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(concept_dicts)} 条开盘啦题材。")
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(daily_items_to_save)} 条题材每日快照。")
         return result
 
     async def save_kpl_concept_members_by_date(self, trade_date: date) -> Dict:
         """
-        接口：kpl_concept_cons
-        描述：高效获取并保存指定交易日的所有开盘啦题材的成分股。
-        采用批量查询、内存映射、批量插入的优化策略。
+        【V2.0 重构】接口：kpl_concept_cons
+        描述：获取并保存指定日期的开盘啦题材成分股。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
-        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材成分股...")
+        print(f"  - [DAO] 开始获取 {trade_date_str} 的开盘啦题材成分...")
         try:
+            # 按日期一次性获取所有成分
             df = self.ts_pro.kpl_concept_cons(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 kpl_concept_cons 失败: {e}", exc_info=True)
-            return {"status": "error", "message": f"API call failed: {e}"}
+            return {}
         if df is None or df.empty:
             logger.warning(f"Tushare接口 kpl_concept_cons 未返回 {trade_date_str} 的数据。")
-            return {"status": "warning", "message": "API returned no data."}
-        df = df.replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
-        # 1. 收集所有需要的 concept_code 和 stock_code
+            return {}
+        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+        # 批量获取所需的外键对象
         all_concept_codes = df['ts_code'].unique().tolist()
         all_stock_codes = df['con_code'].unique().tolist()
-        # 2. 一次性从数据库获取所有需要的 KplConcept 和 StockInfo 对象
-        concept_qs = KplConcept.objects.filter(ts_code__in=all_concept_codes, trade_time=trade_date_str)
-        concept_map = {c.ts_code: c async for c in concept_qs}
-        stock_qs = StockInfo.objects.filter(stock_code__in=all_stock_codes)
-        stock_map = {s.stock_code: s async for s in stock_qs}
-        # 3. 组装最终数据
-        members_to_save = []
+        concept_map = await self.get_kpl_concepts_by_codes(all_concept_codes)
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
+        items_to_save = []
         for row in df.itertuples(index=False):
-            concept = concept_map.get(row.ts_code)
+            concept_info = concept_map.get(row.ts_code)
             stock = stock_map.get(row.con_code)
-            if concept and stock:
-                member_dict = self.data_format_process.set_kpl_concept_member_data(
-                    kpl_concept=concept,
-                    stock=stock,
-                    df_data=row
+            if concept_info and stock:
+                items_to_save.append(
+                    self.data_format_process.set_kpl_concept_member_data(
+                        concept_info=concept_info,
+                        stock=stock,
+                        df_data=row
+                    )
                 )
-                members_to_save.append(member_dict)
             else:
-                if not concept:
-                    logger.warning(f"未在数据库中找到日期为 {trade_date_str} 的题材 {row.ts_code}，成分股 {row.con_code} 将被忽略。")
+                if not concept_info:
+                    logger.warning(f"未在主表中找到题材 {row.ts_code}，成分股 {row.con_code} 将被忽略。")
                 if not stock:
-                    logger.warning(f"未在数据库中找到股票 {row.con_code}，成分股记录将被忽略。")
-        if not members_to_save:
+                    logger.warning(f"未在主表中找到股票 {row.con_code}，其成分记录将被忽略。")
+        if not items_to_save:
             return {}
-        # 4. 批量保存
         result = await self._save_all_to_db_native_upsert(
             model_class=KplConceptConstituent,
-            data_list=members_to_save,
-            unique_fields=['concept', 'stock', 'trade_time']
+            data_list=items_to_save,
+            unique_fields=['concept_info', 'stock', 'trade_time']
         )
-        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(members_to_save)} 条开盘啦题材成分股。")
+        print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条题材成分数据。")
         return result
+
+    async def get_kpl_concepts_by_codes(self, codes: List[str]) -> Dict[str, KplConceptInfo]:
+        """【V2.0 新增】根据题材代码列表批量获取 KplConceptInfo 对象"""
+        if not codes:
+            return {}
+        instances = await self.filter_async(KplConceptInfo, ts_code__in=codes)
+        return {instance.ts_code: instance for instance in instances}
 
     async def save_kpl_list_by_date(self, trade_date: date) -> Dict:
         """

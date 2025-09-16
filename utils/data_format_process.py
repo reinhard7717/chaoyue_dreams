@@ -9,7 +9,7 @@ import math
 from django.db.models import Model
 from dao_manager.base_dao import BaseDAO
 from stock_models.index import IndexInfo
-from stock_models.industry import DcIndex, KplConcept, SwIndustry, ThsIndex
+from stock_models.industry import DcIndex, KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, SwIndustry, ThsIndex
 from stock_models.stock_basic import StockInfo
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
@@ -719,27 +719,35 @@ class IndustryFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    # 开盘啦题材库
-    def set_kpl_concept_data(self, df_data: Any) -> Dict:
+    # 开盘啦题材字典
+    def set_kpl_concept_info_data(self, df_data: Any) -> Dict:
+        """【V2.0 新增】用于格式化 KplConceptInfo 主表数据"""
         data_dict = {
-            "trade_time": getattr(df_data, "trade_date", None),
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
-            "z_t_num": getattr(df_data, "z_t_num", None),
-            "up_num": getattr(df_data, "up_num", None),
+        }
+        return {k: safe_value(v) for k, v in data_dict.items()}
+
+    # 开盘啦题材每日快照 (原 set_kpl_concept_data)
+    def set_kpl_concept_daily_data(self, concept_info: 'KplConceptInfo', df_data: Any) -> Dict:
+        """【V2.0 重构】用于格式化 KplConceptDaily 每日快照数据"""
+        data_dict = {
+            "concept_info": concept_info,
+            "trade_time": getattr(df_data, "trade_date", None), # API返回的是 trade_date
+            "z_t_num": self._parse_number(getattr(df_data, "z_t_num", None)),
+            "up_num": self._parse_number(getattr(df_data, "up_num", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     # 开盘啦题材成分股
-    def set_kpl_concept_member_data(self, kpl_concept: 'KplConcept', stock: 'StockInfo', df_data: Any) -> Dict:
+    def set_kpl_concept_member_data(self, concept_info: 'KplConceptInfo', stock: 'StockInfo', df_data: Any) -> Dict:
+        """【V2.0 重构】更新外键为 KplConceptInfo"""
         data_dict = {
-            "concept": kpl_concept,
+            "concept_info": concept_info, # 外键对象修改
             "stock": stock,
-            "name": getattr(df_data, "name", None),
-            "con_name": getattr(df_data, "con_name", None),
-            "trade_time": getattr(df_data, "trade_time", None),
+            "trade_time": getattr(df_data, "trade_date", None), # API返回的是 trade_date
             "desc": getattr(df_data, "desc", None),
-            "hot_num": getattr(df_data, "hot_num", None),
+            "hot_num": self._parse_number(getattr(df_data, "hot_num", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
