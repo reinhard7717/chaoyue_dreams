@@ -537,7 +537,6 @@ def save_month_data_yesterday_task(cache_manager=None):
     retry_backoff_max=300
 )
 @with_cache_manager
-# 修改函数签名，增加 start_date_str 和 end_date_str，并为 trade_date_str 设置默认值 None 以实现兼容
 def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, start_date_str: str = None, end_date_str: str = None, cache_manager=None):
     """
     【执行器】获取并保存【单个】股票在【指定日期或日期范围】的CYQ筹码分布数据。
@@ -549,12 +548,10 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, 
         """将所有异步逻辑封装在一个协程中"""
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
         stock_basic_dao = StockBasicInfoDao(cache_manager)
-        
         stock_obj = await stock_basic_dao.get_stock_by_code(stock_code)
         if not stock_obj:
             logger.warning(f"执行器[CYQ Chips]: 未找到股票 {stock_code} 的信息，任务终止。")
             return
-
         # 增加逻辑判断，以兼容单日和日期范围两种模式
         start_date, end_date = None, None
         if trade_date_str:
@@ -570,14 +567,12 @@ def save_single_stock_cyq_chips(stock_code: str, trade_date_str: str = None, *, 
         else:
             logger.error(f"执行器[CYQ Chips]错误: 必须提供 trade_date_str 或 (start_date_str 和 end_date_str)。stock={stock_code}")
             return
-
         # 调用DAO方法时，同时传入 start_date 和 end_date
         await stock_time_trade_dao.save_cyq_chips_for_stock(
             stock=stock_obj, 
             start_date=start_date,
             end_date=end_date # 传入结束日期
         )
-
     try:
         asyncio.run(_async_task())
     except Exception as e:
@@ -622,12 +617,10 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
         if not all_stock_codes:
             logger.warning(f"分发器：未能通过DAO获取到任何股票代码，{log_date_info} 的任务未分发。")
             return {"status": "skipped", "message": "no stocks found via DAO"}
-        
         stock_count = len(all_stock_codes)
         chunk_size_per_stock = getattr(settings, 'CYQ_TASK_CHUNK_SIZE', 190) 
         delay_between_chunks = getattr(settings, 'CYQ_TASK_CHUNK_DELAY', 60)
         print(f"分发器：获取到 {stock_count} 只股票，将以每批 {chunk_size_per_stock} 只、间隔 {delay_between_chunks} 秒的速率平滑分发...")
-        
         all_tasks = []
         for stock_code in all_stock_codes:
             # 调用执行器任务时，使用新的关键字参数传递日期范围
@@ -636,7 +629,6 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
                 start_date_str=final_start_date_str,
                 end_date_str=final_end_date_str
             ))
-        
         total_tasks = len(all_tasks)
         task_chunk_size = chunk_size_per_stock * 1
         batch_num = 0
@@ -647,12 +639,10 @@ def dispatch_cyq_tasks_for_date(self, trade_date_str: str = None, *, start_date_
             task_group.apply_async(countdown=countdown)
             print(f"  -> 第 {batch_num + 1} 批任务 (共 {len(chunk_of_tasks)} 个) 已调度，将在 {countdown} 秒后执行。")
             batch_num += 1
-        
         message = f"分发器：成功调度了 {stock_count} 只股票的CYQ任务 (共 {total_tasks} 个)，已分 {batch_num} 批平滑处理。"
         print(message)
         logger.info(message)
         return {"status": "dispatched_smoothly", "stock_count": stock_count, "chunk_count": batch_num}
-
     try:
         return async_to_sync(main)()
     except Exception as e:

@@ -55,7 +55,7 @@ class DistributedRateLimiter:
             logger.error(f"速率限制器 '{self.redis_key}' 执行出错: {e}", exc_info=True)
             return True
 
-# MODIFIED: 新增速率限制器工厂类
+# 速率限制器工厂类
 class RateLimiterFactory:
     """
     一个单例工厂，用于创建和管理多个具名的分布式速率限制器。
@@ -84,15 +84,12 @@ class RateLimiterFactory:
         with self._lock:
             if name not in self._limiters:
                 # print(f"DEBUG: 工厂正在为 '{name}' 查找配置并创建新的限流器实例...")
-                
                 # 从 settings.py 获取所有速率限制配置
                 all_configs = settings.API_RATE_LIMITS
                 # 获取特定名称的配置，如果找不到，则使用 'DEFAULT' 配置
                 config = all_configs.get(name, all_configs['DEFAULT'])
-                
                 max_calls = config['MAX_CALLS']
                 period = config['PERIOD']
-                
                 self._limiters[name] = DistributedRateLimiter(
                     key=name,
                     max_calls=max_calls,
@@ -101,21 +98,19 @@ class RateLimiterFactory:
                 )
             return self._limiters[name]
 
-# MODIFIED: 导出一个工厂的单例，而不是单个限流器实例
+# 导出一个工厂的单例，而不是单个限流器实例
 rate_limiter_factory = RateLimiterFactory()
 
 
 # ==============================================================================
-# MODIFIED: 新增速率限制装饰器 (依赖注入模式)
+# 新增速率限制装饰器 (依赖注入模式)
 # ==============================================================================
 def with_rate_limit(name: str):
     """
     一个装饰器工厂，用于为异步DAO方法注入一个配置好的分布式速率限制器。
-
     它会从 settings.API_RATE_LIMITS 中查找名为 `name` 的配置，
     创建或获取对应的限流器实例，并将其作为关键字参数 `limiter` 注入到
     被装饰的异步方法中。
-
     使用方法:
     @with_rate_limit(name='api_cyq_chips')
     async def my_dao_method(self, some_arg, *, limiter):
@@ -123,7 +118,6 @@ def with_rate_limit(name: str):
         while not await limiter.acquire():
             await asyncio.sleep(1)
         # ... 调用API ...
-
     :param name: 在 settings.API_RATE_LIMITS 中定义的API限流配置的键名。
     """
     def decorator(func):

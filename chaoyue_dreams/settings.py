@@ -253,16 +253,35 @@ API_RATE_LIMITS = {
     },
     # 为CYQ筹码接口定义专门的速率
     'api_cyq_chips': {
-        'MAX_CALLS': 200,
+        'MAX_CALLS': 280,
         'PERIOD': 60,
     },
     'api_cyq_perf': {
         'MAX_CALLS': 200,
         'PERIOD': 60,
     },
-    # 示例：为另一个财务数据接口定义不同的速率
-    'api_financial_data': {
-        'MAX_CALLS': 50,   # 假设这个接口更严格，每分钟50次
+    'api_dc_member': {
+        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'PERIOD': 60,
+    },
+    'api_limit_list_ths': {
+        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'PERIOD': 60,
+    },
+    'api_limit_list_d': {
+        'MAX_CALLS': 190, # 每分钟190次 (Tushare限制200)
+        'PERIOD': 60,
+    },
+    'api_limit_step': {
+        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'PERIOD': 60,
+    },
+    'api_limit_cpt_list': {
+        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'PERIOD': 60,
+    },
+    'api_ths_member': {
+        'MAX_CALLS': 190, # 每分钟190次 (Tushare限制200)
         'PERIOD': 60,
     },
     # 你可以在这里添加任意多的API接口速率配置

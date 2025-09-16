@@ -4,7 +4,6 @@ import asyncio
 from decimal import Decimal
 import logging
 import time
-from utils.rate_limiter import rate_limiter_factory
 from utils.rate_limiter import with_rate_limit
 from django.db.models import QuerySet
 from asgiref.sync import sync_to_async

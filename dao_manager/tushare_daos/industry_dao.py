@@ -394,15 +394,15 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        【重构修复版】获取同花顺概念板块成分列表并保存
-        修复点:
-        1.  **根本解决外键约束错误**: 通过修改底层的_save_all_to_db_native_upsert方法，正确处理to_field非主键的场景。
-        2.  (保留已有优化) 消除N+1查询, 修复逻辑Bug, 移除冗余查询, 批量保存, 异步优化。
+        【V1.2 分页获取版】获取同花顺概念板块成分列表并保存
+        修复：
+        1.  增加了分页逻辑，使用 offset 循环获取，确保能完整拉取成员超过6000的板块数据。
+        2.  (保留) 保留了对 Tushare API (ths_member) 的速率限制 (200次/分钟)。
         """
         # --- 1. 初始化和准备 ---
-        API_CALL_DELAY_SECONDS = 0.3
         final_result = {}
         data_to_save = []
+        limiter = rate_limiter_factory.get_limiter(name='api_ths_member')
         # --- 2. 获取所有概念板块信息 ---
         ths_index_list = await self.get_ths_index_list()
         if not ths_index_list:
@@ -414,43 +414,59 @@ class IndustryDao(BaseDAO):
         all_stock_codes = set()
         for i, ths_index in enumerate(ths_index_list):
             print(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
-            try:
-                # 明确指定需要的字段，减少不必要的数据传输
-                df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,name,weight,in_date,out_date,is_new")
-                if df is None or df.empty:
-                    # logger.warning(f"板块 [{ths_index.name}] 未返回任何成分股数据，跳过。")
-                    await asyncio.sleep(API_CALL_DELAY_SECONDS)
-                    continue
-                for row in df.itertuples(index=False):
-                    all_raw_members.append((ths_index, row))
-                    all_stock_codes.add(row.con_code)
-            except Exception as e:
-                logger.error(f"获取板块 [{ths_index.name}] 成分股时发生API错误: {e}", exc_info=True)
-            await asyncio.sleep(API_CALL_DELAY_SECONDS)
+            offset = 0
+            limit = 6000 # Tushare对该接口的单次最大返回行数
+            while True:
+                # 安全检查，防止超过Tushare 10万行的总限制
+                if offset >= 100000:
+                    logger.warning(f"板块 {ths_index.ts_code} 成分股获取已达10万行上限，停止获取。")
+                    break
+                try:
+                    # 在每次API调用前检查速率限制
+                    while not await limiter.acquire():
+                        print(f"PID[{os.getpid()}] API[api_ths_member] 速率超限，等待5秒后重试... (板块: {ths_index.ts_code}, offset: {offset})")
+                        await asyncio.sleep(5)
+                    # 使用 limit 和 offset 参数进行分页调用
+                    df = self.ts_pro.ths_member(
+                        ts_code=ths_index.ts_code, 
+                        fields="ts_code,con_code,name,weight,in_date,out_date,is_new",
+                        limit=limit,
+                        offset=offset
+                    )
+                    if df is None or df.empty:
+                        # 如果没有返回数据，说明该板块的成分已全部获取完毕
+                        break
+                    for row in df.itertuples(index=False):
+                        all_raw_members.append((ths_index, row))
+                        all_stock_codes.add(row.con_code)
+                    # 如果返回的行数小于请求的行数，说明是最后一页
+                    if len(df) < limit:
+                        break
+                    # 准备获取下一页
+                    offset += limit
+                except Exception as e:
+                    logger.error(f"获取板块 [{ths_index.name}] 成分股时(offset={offset})发生API错误: {e}", exc_info=True)
+                    break # 如果在分页获取中出错，则中断当前板块的获取，继续下一个板块
         logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
         # --- 4. (核心优化) 一次性从数据库获取所有需要的股票信息 ---
         print("正在一次性获取所有涉及的股票信息...")
         stock_queryset = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
         stock_map = {stock.stock_code: stock async for stock in stock_queryset}
         print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
-        # --- 5. 组装最终数据并批量保存 ---
+        # --- 5. 组装最终数据并批量保存 (此部分逻辑不变) ---
         print("开始组装最终数据并准备写入数据库...")
         for ths_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
             if not stock:
-                # logger.warning(f"在数据库中未找到股票代码为 {row_data.con_code} 的信息，该成分股将被忽略。")
                 continue
             cleaned_row_data = {field: getattr(row_data, field) for field in row_data._fields}
             df_temp = pd.Series(cleaned_row_data).replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
             api_data_dict = df_temp.to_dict()
-            # 【代码保留】这个步骤依然是好的实践，可以防止API返回的ts_code意外污染数据。
-            # 虽然根本问题在下游修复了，但保留此防御性编程措施没有坏处。
             api_data_dict.pop('ts_code', None)
-            # 现在传递给处理函数的数据是干净的，不包含冲突的外键信息
             ths_index_member_dict = self.data_format_process.set_ths_index_member_data(
-                ths_index=ths_index, # 这个是我们数据库里的对象，是“可信”的
+                ths_index=ths_index,
                 stock=stock,
-                df_data=api_data_dict # 这个是API数据，但已经移除了冲突键
+                df_data=api_data_dict
             )
             data_to_save.append(ths_index_member_dict)
             if len(data_to_save) >= BATCH_SAVE_SIZE:
@@ -1054,46 +1070,92 @@ class IndustryDao(BaseDAO):
 
     async def save_dc_index_member_by_ts_code(self, ts_code: str) -> Dict:
         """
-        接口：dc_member
-        描述：获取东方财富板块每日成分数据，可以根据概念板块代码和交易日期，获取历史成分
-        限量：单次最大获取5000条数据，可以通过日期和代码循环获取
-        权限：用户积累5000积分可调取，具体请参阅积分获取办法
-        Returns:
-            Dict: 保存结果
+        【V2.0 分页和性能优化版】接口：dc_member
+        描述：获取指定东方财富板块(ts_code)的【全部历史】成分数据。
+        修复：
+        1. 增加了分页逻辑，使用 offset 循环获取，确保能完整拉取历史数据。
+        2. 移除了 N+1 查询，通过批量获取股票信息大幅提升性能。
+        3. 集成了速率限制器，确保调用安全。
+        限量：单次最大获取8000条数据。
         """
-        result = {}
-        dc_index_member_dicts = []
-        df = self.ts_pro.dc_member(**{
-                "trade_date": "", "ts_code": ts_code, "con_code": "", "limit": "", "offset": ""
-            }, fields=[ "trade_date", "ts_code", "con_code", "name" ])
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                dc_index = await self.get_dc_index_by_code(row.ts_code)
-                stock = await self.stock_cache_get.stock_data_by_code(row.con_code)
-                dc_index_member_dict = self.data_format_process.set_dc_index_member_data(dc_index=dc_index, stock=stock, df_data=row) # 修改行: 调用修正后的方法名
-                dc_index_member_dicts.append(dc_index_member_dict)
-        if dc_index_member_dicts:
-            # 保存到数据库
+        print(f"  - [DAO] 开始获取板块 {ts_code} 的全部历史成分...")
+        # 1. 获取速率限制器和板块对象
+        limiter = rate_limiter_factory.get_limiter(name='api_dc_member')
+        dc_index = await self.get_dc_index_by_code(ts_code)
+        if not dc_index:
+            logger.error(f"无法在数据库中找到 ts_code={ts_code} 的东方财富板块，任务终止。")
+            return {}
+        # 2. 分页循环获取所有历史数据
+        all_dfs = []
+        offset = 0
+        limit = 8000
+        while True:
+            if offset >= 100000: # Tushare对某些接口有10万行的总数据量限制
+                logger.warning(f"板块 {ts_code} 历史成分获取已达10万行上限，停止获取。")
+                break
+            try:
+                # 在每次API调用前检查速率限制
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待5秒后重试... (板块: {ts_code}, offset: {offset})")
+                    await asyncio.sleep(5)
+                # API调用，不指定trade_date以获取全部历史
+                df = self.ts_pro.dc_member(
+                    ts_code=ts_code, 
+                    limit=limit, 
+                    offset=offset,
+                    fields=["trade_date", "ts_code", "con_code", "name"]
+                )
+            except Exception as e:
+                logger.error(f"获取板块 {ts_code} 历史成分时(offset={offset})失败: {e}", exc_info=True)
+                break
+            if df is None or df.empty:
+                break
+            all_dfs.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if not all_dfs:
+            logger.warning(f"未获取到板块 {ts_code} 的任何历史成分数据。")
+            return {}
+        # 3. 合并数据并批量处理
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df = combined_df.replace(['nan', 'NaN', ''], None).dropna(subset=['con_code', 'trade_date'])
+        # 4. 批量获取所有涉及的股票信息 (消除N+1查询)
+        all_stock_codes = combined_df['con_code'].unique().tolist()
+        print(f"  - [DAO] 批量获取 {len(all_stock_codes)} 个相关股票信息...")
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
+        # 5. 组装数据
+        members_to_save = []
+        for row in combined_df.itertuples():
+            stock = stock_map.get(row.con_code)
+            if stock:
+                member_dict = self.data_format_process.set_dc_index_member_data(dc_index=dc_index, stock=stock, df_data=row)
+                members_to_save.append(member_dict)
+        # 6. 批量保存
+        if members_to_save:
+            print(f"  - [DAO] 准备为板块 {ts_code} 保存 {len(members_to_save)} 条历史成分数据...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=DcIndexMember,
-                data_list=dc_index_member_dicts,
+                data_list=members_to_save,
                 unique_fields=['dc_index', 'stock', 'trade_time']
             )
-        return result
+            print(f"  - [DAO] 板块 {ts_code} 历史成分保存完成。")
+            return result
+        return {}
 
     async def save_dc_index_members_by_date(self, trade_date: date) -> Dict:
         """
-        【新增】接口：dc_member
+        【V1.2 limit更新版】接口：dc_member
         描述：按天获取所有东方财富板块的成分股。
-        优化：
-        1. 先获取所有板块，再循环调用API，逻辑清晰。
-        2. 对 dc_member 接口调用增加了分页逻辑，确保单个板块成分过多时也能完整获取。
-        3. 采用批量获取、批量保存的策略，提升数据库效率。
+        修复：
+        1. (保留) 增加了对 Tushare API 的速率限制。
+        2. 将 limit 更新为接口支持的最大值 8000。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"    -> 开始获取 [东方财富板块成分] 数据, 日期: {trade_date_str}...")
-        # 1. 获取所有已知的东方财富板块
+        # 1. 获取速率限制器实例
+        limiter = rate_limiter_factory.get_limiter(name='api_dc_member')
+        # 2. 获取所有已知的东方财富板块
         all_dc_indices = await self.get_dc_index_list()
         if not all_dc_indices:
             logger.warning("数据库中未找到任何东方财富板块，无法获取成分股。")
@@ -1101,36 +1163,41 @@ class IndustryDao(BaseDAO):
         print(f"    - 将为 {len(all_dc_indices)} 个板块获取成分股...")
         all_raw_members = []
         all_stock_codes = set()
-        # 2. 循环获取每个板块的成分
+        # 3. 循环获取每个板块的成分
         for i, dc_index in enumerate(all_dc_indices):
             print(f"      - 进度 {i+1}/{len(all_dc_indices)}: 获取板块 [{dc_index.name or dc_index.ts_code}] 成分...")
             offset = 0
-            limit = 5000
+            limit = 8000 # 修改行: 根据Tushare最新文档，dc_member单次最大可获取8000条
             while True:
+                if offset >= 100000:
+                    logger.warning(f"板块 {dc_index.ts_code} 成分股获取已达10万行上限，停止获取。")
+                    break
                 try:
+                    # 在每次API调用前检查速率限制
+                    while not await limiter.acquire():
+                        print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待5秒后重试... (板块: {dc_index.ts_code})")
+                        await asyncio.sleep(5)
                     df = self.ts_pro.dc_member(trade_date=trade_date_str, ts_code=dc_index.ts_code, limit=limit, offset=offset)
                     if df is None or df.empty:
                         break
-                    
                     for row in df.itertuples(index=False):
                         all_raw_members.append((dc_index, row))
                         all_stock_codes.add(row.con_code)
-
                     if len(df) < limit:
                         break
                     offset += limit
-                    await asyncio.sleep(0.2)
                 except Exception as e:
                     logger.error(f"获取板块 {dc_index.ts_code} 成分时(offset={offset})失败: {e}", exc_info=True)
-                    break # 单个板块出错，继续下一个
-
+                    if '次' in str(e):
+                        await asyncio.sleep(10)
+                    break 
         if not all_raw_members:
             logger.warning(f"未获取到 {trade_date_str} 的任何板块成分数据。")
             return {}
-        # 3. 批量获取股票信息
+        # 4. 批量获取股票信息
         print(f"    - 正在批量获取 {len(all_stock_codes)} 个股票的信息...")
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
-        # 4. 组装数据
+        # 5. 组装数据
         members_to_save = []
         for dc_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
@@ -1145,7 +1212,7 @@ class IndustryDao(BaseDAO):
                 logger.warning(f"未在DB中找到股票 {row_data.con_code}，板块 {dc_index.ts_code} 的此条成分记录将被忽略。")
         if not members_to_save:
             return {}
-        # 5. 批量保存
+        # 6. 批量保存
         print(f"    - 准备保存 {len(members_to_save)} 条东方财富板块成分数据...")
         result = await self._save_all_to_db_native_upsert(
             model_class=DcIndexMember,
@@ -1159,20 +1226,26 @@ class IndustryDao(BaseDAO):
 
     async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
         """
-        接口：limit_list_ths
+        【V1.1 速率限制修复版】接口：limit_list_ths
         描述：获取并保存指定交易日的同花顺涨跌停榜单数据。
+        修复：增加了对 Tushare API 的速率限制，确保代码健壮性。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"  - [DAO] 开始获取 {trade_date_str} 的同花顺涨跌停榜单...")
-        # 定义要获取的榜单类型
+        # 1. 获取速率限制器实例
+        limiter = rate_limiter_factory.get_limiter(name='api_limit_list_ths')
+        # 2. 定义要获取的榜单类型
         limit_types = ['涨停池', '连扳池', '冲刺涨停', '炸板池', '跌停池']
         all_items_df = []
         for l_type in limit_types:
             try:
+                # 在每次API调用前检查速率限制
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_limit_list_ths] 速率超限，等待5秒后重试... (类型: {l_type})")
+                    await asyncio.sleep(5)
                 df = self.ts_pro.limit_list_ths(trade_date=trade_date_str, limit_type=l_type)
                 if df is not None and not df.empty:
                     all_items_df.append(df)
-                await asyncio.sleep(0.2) # API调用之间稍作停顿
             except Exception as e:
                 logger.error(f"调用Tushare接口 limit_list_ths (limit_type={l_type}) 失败: {e}", exc_info=True)
                 continue
@@ -1202,19 +1275,25 @@ class IndustryDao(BaseDAO):
 
     async def save_limit_list_d_by_date(self, trade_date: date) -> Dict:
         """
-        接口：limit_list_d
+        【V1.1 速率限制修复版】接口：limit_list_d
         描述：获取并保存指定交易日的Tushare版A股涨跌停列表数据。
+        修复：增加了对 Tushare API 的速率限制 (200次/分钟)。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"  - [DAO] 开始获取 {trade_date_str} 的Tushare涨跌停列表...")
+        # 1. 获取速率限制器实例
+        limiter = rate_limiter_factory.get_limiter(name='api_limit_list_d')
         limit_types = ['U', 'D', 'Z'] # 涨停, 跌停, 炸板
         all_items_df = []
         for l_type in limit_types:
             try:
+                # 2. 在每次API调用前检查速率限制
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_limit_list_d] 速率超限，等待5秒后重试... (类型: {l_type})")
+                    await asyncio.sleep(5)
                 df = self.ts_pro.limit_list_d(trade_date=trade_date_str, limit_type=l_type)
                 if df is not None and not df.empty:
                     all_items_df.append(df)
-                await asyncio.sleep(0.2)
             except Exception as e:
                 logger.error(f"调用Tushare接口 limit_list_d (limit_type={l_type}) 失败: {e}", exc_info=True)
                 continue
@@ -1241,12 +1320,19 @@ class IndustryDao(BaseDAO):
 
     async def save_limit_step_by_date(self, trade_date: date) -> Dict:
         """
-        接口：limit_step
+        【V1.1 速率限制修复版】接口：limit_step
         描述：获取并保存指定交易日的连板天梯数据。
+        修复：增加了对 Tushare API 的速率限制 (500次/分钟)。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"  - [DAO] 开始获取 {trade_date_str} 的连板天梯数据...")
+        # 1. 获取速率限制器实例
+        limiter = rate_limiter_factory.get_limiter(name='api_limit_step')
         try:
+            # 2. 在API调用前检查速率限制
+            while not await limiter.acquire():
+                print(f"PID[{os.getpid()}] API[api_limit_step] 速率超限，等待5秒后重试...")
+                await asyncio.sleep(5)
             df = self.ts_pro.limit_step(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 limit_step 失败: {e}", exc_info=True)
@@ -1273,12 +1359,19 @@ class IndustryDao(BaseDAO):
 
     async def save_limit_cpt_list_by_date(self, trade_date: date) -> Dict:
         """
-        接口：limit_cpt_list
+        【V1.1 速率限制修复版】接口：limit_cpt_list
         描述：获取并保存指定交易日的最强板块统计数据。
+        修复：增加了对 Tushare API 的速率限制 (500次/分钟)。
         """
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"  - [DAO] 开始获取 {trade_date_str} 的最强板块统计...")
+        # 1. 获取速率限制器实例
+        limiter = rate_limiter_factory.get_limiter(name='api_limit_cpt_list')
         try:
+            # 2. 在API调用前检查速率限制
+            while not await limiter.acquire():
+                print(f"PID[{os.getpid()}] API[api_limit_cpt_list] 速率超限，等待5秒后重试...")
+                await asyncio.sleep(5)
             df = self.ts_pro.limit_cpt_list(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 limit_cpt_list 失败: {e}", exc_info=True)
@@ -1302,7 +1395,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条最强板块数据。")
         return result
-
 
 
 
