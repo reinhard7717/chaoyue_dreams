@@ -752,85 +752,89 @@ class BaseDAO(Generic[T]):
 
     def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):
         """
-        【V2.0 探针+健壮性修复版】
+        【V3.0 核心重构版】
         使用原生SQL `INSERT ... ON DUPLICATE KEY UPDATE` 执行批量更新或插入操作。
-        此方法直接与MySQL交互，性能较高。
+        此版本经过重构，解决了外键丢失和NaN值处理的问题。
+
+        - 核心逻辑:
+          1. 直接信任 data_list 中字典的 keys 作为数据库列名。
+          2. 在构建参数时，将所有 pd.isna() 为 True 的值（如 np.nan）转换成 None。
+          3. 智能地将模型层面的 unique_fields（如 'stock'）转换为数据库层面的列名（如 'stock_id'）。
+
         Args:
             model_class: Django模型类。
-            data_list (List[Dict]): 包含待处理数据的字典列表。
-            unique_fields (List[str]): 用于确定记录唯一性的字段列表 (对应数据库的UNIQUE KEY)。
-            update_fields (List[str], optional): 当记录已存在时需要更新的字段列表。
-                                                 如果为 None，则更新所有非唯一键字段。
+            data_list (List[Dict]): 包含待处理数据的字典列表。键应为数据库列名。
+            unique_fields (List[str]): 用于确定记录唯一性的【模型字段名】列表。
+            update_fields (List[str], optional): 需要更新的【模型字段名】列表。
+            **kwargs: 接收并忽略任何其他关键字参数。
+
         Returns:
             int: 受影响的总行数。
         """
+        # 修改行: 在方法开头初始化 total_affected_rows，防止 UnboundLocalError
         total_affected_rows = 0
+
         if not data_list:
             logger.info(f"模型 {model_class.__name__} 的数据列表为空，跳过批量保存。")
             return total_affected_rows
+
+        # ================== 修改开始: 全新的、更健壮的实现 ==================
+
         table_name = model_class._meta.db_table
-        model_fields = {f.name: f for f in model_class._meta.get_fields() if not f.is_relation or f.one_to_one or (f.many_to_one and f.related_model)}
-        # 确定所有需要插入的字段，包括外键的 _id 字段
-        all_fields = []
-        for item in data_list:
-            for key in item.keys():
-                if key not in all_fields:
-                    # 处理外键，确保我们使用的是数据库列名 (例如 'stock_id' 而不是 'stock')
-                    field_obj = model_fields.get(key)
-                    if field_obj and (field_obj.many_to_one or field_obj.one_to_one):
-                        db_column = field_obj.column
-                        if db_column not in all_fields:
-                            all_fields.append(db_column)
-                    elif key in model_fields and key not in all_fields:
-                         all_fields.append(key)
-        # 准备参数列表，并处理外键对象
+        
+        # 1. 直接从数据中获取所有数据库列名
+        # 假设列表中的所有字典结构一致
+        all_db_columns = list(data_list[0].keys())
+
+        # 2. 准备参数元组列表，并处理 nan -> None
         params_list_of_tuples = []
         for item in data_list:
             param_tuple = []
-            for field_name in all_fields:
-                # 找到原始的 item key (可能是 'stock' 或 'stock_id')
-                original_key = field_name
-                if field_name.endswith('_id'):
-                    # 尝试找到模型字段名，如 'stock'
-                    model_field_name = field_name[:-3]
-                    if model_field_name in item:
-                        original_key = model_field_name
-                value = item.get(original_key)
-                # 如果值是模型实例，获取其主键
-                if isinstance(value, models.Model):
-                    param_tuple.append(value.pk)
-                else:
-                    param_tuple.append(value)
+            for col in all_db_columns:
+                value = item.get(col)
+                # 关键修复：将 numpy.nan 或 pandas.NA 等转换为 None
+                if pd.isna(value):
+                    value = None
+                param_tuple.append(value)
             params_list_of_tuples.append(tuple(param_tuple))
-        # 确定需要更新的字段
+
+        # 3. 构建模型字段名到数据库列名的映射
+        field_to_column_map = {f.name: f.column for f in model_class._meta.get_fields()}
+        
+        # 4. 转换 unique_fields 和 update_fields 为数据库列名
+        unique_db_columns = {field_to_column_map.get(f, f) for f in unique_fields}
+
         if update_fields is None:
             # 默认更新所有非唯一键的字段
-            unique_db_columns = set()
-            for uf in unique_fields:
-                field_obj = model_fields.get(uf)
-                if field_obj:
-                    unique_db_columns.add(field_obj.column)
-            update_fields = [f for f in all_fields if f not in unique_db_columns]
-        # 构建SQL语句
-        field_list_str = ", ".join([f"`{f}`" for f in all_fields])
-        value_placeholders = ", ".join(["%s"] * len(all_fields))
-        if not update_fields:
+            update_db_columns = [col for col in all_db_columns if col not in unique_db_columns]
+        else:
+            update_db_columns = [field_to_column_map.get(f, f) for f in update_fields]
+
+        # 5. 构建SQL语句
+        field_list_str = ", ".join([f"`{f}`" for f in all_db_columns])
+        value_placeholders = ", ".join(["%s"] * len(all_db_columns))
+        
+        if not update_db_columns:
             # 如果没有更新字段，则只插入，忽略重复
             final_sql_template = f"INSERT IGNORE INTO `{table_name}` ({field_list_str}) VALUES ({value_placeholders})"
         else:
-            update_clause = ", ".join([f"`{f}` = VALUES(`{f}`)" for f in update_fields])
+            update_clause = ", ".join([f"`{f}` = VALUES(`{f}`)" for f in update_db_columns])
             final_sql_template = (
                 f"INSERT INTO `{table_name}` ({field_list_str}) VALUES ({value_placeholders}) "
                 f"ON DUPLICATE KEY UPDATE {update_clause}"
             )
+        
+        # ================== 修改结束 ==================
 
         with connection.cursor() as cursor:
             try:
                 if not params_list_of_tuples:
-                    return 0 # 再次检查，以防万一
+                    return 0
+                
                 total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
-            except (IntegrityError, OperationalError) as e:
-                # ================== 异常探针日志开始 ==================
+            
+            except (IntegrityError, OperationalError, ProgrammingError) as e: # 修改行: 增加了 ProgrammingError
+                # 异常探针日志，保持不变
                 print("="*50)
                 print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到数据库错误！")
                 print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
@@ -840,11 +844,10 @@ class BaseDAO(Generic[T]):
                 print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
                 print(f"FATAL DEBUG: 异常信息: {e}")
                 print("="*50)
-                # ================== 异常探针日志结束 ==================
                 logger.error(f"原生SQL批处理时遇到数据库错误 (在锁内): {e}")
-                # 异常发生，total_affected_rows 将保持为初始值 0
+
             except Exception as e:
-                # ================== 异常探针日志开始 ==================
+                # 异常探针日志，保持不变
                 print("="*50)
                 print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！")
                 print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
@@ -854,9 +857,8 @@ class BaseDAO(Generic[T]):
                 print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
                 print(f"FATAL DEBUG: 异常信息: {e}")
                 print("="*50)
-                # ================== 异常探针日志结束 ==================
                 logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}")
-                # 异常发生，total_affected_rows 将保持为初始值 0
+        
         return total_affected_rows
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
