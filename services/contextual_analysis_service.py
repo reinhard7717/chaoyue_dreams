@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from dao_manager.tushare_daos.fund_flow_dao import FundFlowDao
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
+from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
@@ -24,6 +25,7 @@ class ContextualAnalysisService:
     def __init__(self, cache_manager_instance: CacheManager):
         self.cache_manager = cache_manager_instance
         # 按需初始化DAO
+        self.indicator_dao = IndicatorDAO(cache_manager_instance)
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
         self.indicator_dao = IndexBasicDAO(cache_manager_instance) # 沿用旧名，但它现在是IndexBasicDAO
