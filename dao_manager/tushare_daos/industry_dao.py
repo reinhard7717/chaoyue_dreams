@@ -566,12 +566,18 @@ class IndustryDao(BaseDAO):
                 "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq"
             ])
         ths_index_daily_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
+        if df is not None and not df.empty:
+            df = df.replace(['nan', 'NaN', ''], None)
+            all_index_codes = df['ts_code'].unique().tolist()
+            ths_index_map = await self.get_ths_indices_by_codes(all_index_codes)
+            print(f"DEBUG: 批量获取到 {len(ths_index_map)} 个 ThsIndex 对象用于关联。")
             for row in df.itertuples():
-                index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
-                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(index=index_basic,df_data=row)
-                ths_index_daily_dicts.append(ths_index_daily_dict)
+                ths_index = ths_index_map.get(row.ts_code)
+                if ths_index:
+                    ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index, df_data=row)
+                    ths_index_daily_dicts.append(ths_index_daily_dict)
+                else:
+                    logger.warning(f"处理今日（{today_str}）行情时，未在数据库中找到板块 {row.ts_code}，该条记录将被跳过。")
         if ths_index_daily_dicts:
             # 保存到数据库
             result = await self._save_all_to_db_native_upsert(

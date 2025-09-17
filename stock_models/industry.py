@@ -328,6 +328,8 @@ class ThsIndexMember(models.Model):
 class ThsIndexDaily(models.Model):
     ths_index = models.ForeignKey(
         'ThsIndex',
+        to_field='ts_code',
+        db_column='ts_code',
         on_delete=models.CASCADE,
         related_name='daily_data',
         verbose_name="所属指数"
@@ -375,8 +377,9 @@ class DcIndex(models.Model):
 class DcIndexDaily(models.Model):
     dc_index = models.ForeignKey(
         'DcIndex',
-        on_delete=models.CASCADE,
+        db_column='ts_code',
         to_field='ts_code',
+        on_delete=models.CASCADE,
         related_name='daily_data',
         verbose_name="东方财富概念板块"
     )
