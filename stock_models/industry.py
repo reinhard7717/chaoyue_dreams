@@ -80,7 +80,7 @@ class SwIndustryDaily(models.Model):
         related_name='sw_daily',
         verbose_name="关联指数基础信息"
     )
-    trade_time = models.CharField(max_length=8, db_index=True, verbose_name="交易日期")
+    trade_time = models.DateField(db_index=True, verbose_name="交易日期")
     name = models.CharField(max_length=64, verbose_name="指数名称")
     open = models.FloatField(verbose_name="开盘点位")
     low = models.FloatField(verbose_name="最低点位")
@@ -183,7 +183,7 @@ class KplConceptDaily(models.Model):
         related_name='daily_snapshots',
         verbose_name="关联题材信息"
     )
-    trade_time = models.CharField(max_length=8, db_index=True, verbose_name="交易日期")  # YYYYMMDD
+    trade_time = models.DateField(db_index=True, verbose_name="交易日期")
     z_t_num = models.IntegerField(null=True, blank=True, verbose_name="涨停数量")
     up_num = models.IntegerField(null=True, blank=True, verbose_name="排名上升位数")
 
@@ -217,7 +217,7 @@ class KplConceptConstituent(models.Model):
         on_delete=models.CASCADE, blank=True, null=True,
         related_name="kpl_concept_constituent", verbose_name=_("成分股代码")
     )
-    trade_time = models.CharField(max_length=8, db_index=True, verbose_name="交易日期")  # YYYYMMDD
+    trade_time = models.DateField(db_index=True, verbose_name="交易日期")
     desc = models.TextField(null=True, blank=True, verbose_name="描述")
     hot_num = models.IntegerField(null=True, blank=True, verbose_name="人气值")
 

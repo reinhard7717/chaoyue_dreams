@@ -694,7 +694,7 @@ class IndustryFormatProcess(BaseDAO):
         """【V2.0 重构】用于格式化 KplConceptDaily 每日快照数据"""
         data_dict = {
             "concept_info": concept_info,
-            "trade_time": getattr(df_data, "trade_date", None), # API返回的是 trade_date
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
             "z_t_num": self._parse_number(getattr(df_data, "z_t_num", None)),
             "up_num": self._parse_number(getattr(df_data, "up_num", None)),
         }
@@ -706,7 +706,7 @@ class IndustryFormatProcess(BaseDAO):
         data_dict = {
             "concept_info": concept_info, # 外键对象修改
             "stock": stock,
-            "trade_time": getattr(df_data, "trade_date", None), # API返回的是 trade_date
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
             "desc": getattr(df_data, "desc", None),
             "hot_num": self._parse_number(getattr(df_data, "hot_num", None)),
         }
