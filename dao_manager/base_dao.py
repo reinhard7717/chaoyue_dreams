@@ -745,7 +745,7 @@ class BaseDAO(Generic[T]):
             return 0 # 返回0表示没有记录被处理
         return total_processed
 
-    def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None):
+    def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):
         """
         【V2.0 探针+健壮性修复版】
         使用原生SQL `INSERT ... ON DUPLICATE KEY UPDATE` 执行批量更新或插入操作。
