@@ -812,7 +812,37 @@ class BaseDAO(Generic[T]):
             try:
                 with transaction.atomic():
                     with connection.cursor() as cursor:
-                        total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+                        try:
+                            # 修改行: 在执行前添加详细的调试信息
+                            print("="*50)
+                            print(f"DEBUG: [base_dao] 即将执行批量 Upsert 操作...")
+                            print(f"DEBUG: 模型 (Model): {model_class.__name__}")
+                            print(f"DEBUG: SQL 模板: {final_sql_template}")
+                            if params_list_of_tuples:
+                                print(f"DEBUG: 待插入/更新的第一条数据 (元组): {params_list_of_tuples[0]}")
+                            else:
+                                print("DEBUG: 数据列表为空，不执行数据库操作。")
+                            print("="*50)
+                            # 修改行: 结束添加调试信息
+
+                            if not params_list_of_tuples:
+                                return 0
+                            
+                            total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+                            
+                        except Exception as e:
+                            # 修改行: 在捕获到未知异常时也打印调试信息
+                            print("="*50)
+                            print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！")
+                            print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
+                            print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
+                            if params_list_of_tuples:
+                                print(f"FATAL DEBUG: 待插入/更新的第一条数据 (元组): {params_list_of_tuples[0]}")
+                            print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
+                            print(f"FATAL DEBUG: 异常信息: {e}")
+                            print("="*50)
+                            # 修改行: 结束添加调试信息
+                            logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}")
                 return total_affected_rows
             except OperationalError as e:
                 if e.args[0] == 1213:
