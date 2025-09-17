@@ -220,7 +220,7 @@ class IndustryDao(BaseDAO):
             else:
                 # 这里的 warning 现在只会在股票不存在或行业创建失败时触发
                 if not swan_industry: logger.warning(f"动态创建后仍未找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
-                if not stock: logger.warning(f"未在DB中找到股票 {row.ts_code}，成分股记录将被忽略。")
+                # if not stock: logger.warning(f"未在DB中找到股票 {row.ts_code}，成分股记录将被忽略。")
         # --- 5. 批量保存 ---
         if industry_member_dicts:
             print(f"    - 准备保存 {len(industry_member_dicts)} 条申万行业成分数据...")
@@ -1172,8 +1172,8 @@ class IndustryDao(BaseDAO):
                     df_data=row_data
                 )
                 members_to_save.append(member_dict)
-            else:
-                logger.warning(f"未在DB中找到股票 {row_data.con_code}，板块 {dc_index.ts_code} 的此条成分记录将被忽略。")
+            # else:
+                # logger.warning(f"未在DB中找到股票 {row_data.con_code}，板块 {dc_index.ts_code} 的此条成分记录将被忽略。")
         if not members_to_save:
             return {}
         # 6. 批量保存
