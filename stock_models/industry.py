@@ -205,6 +205,7 @@ class KplConceptConstituent(models.Model):
     concept_info = models.ForeignKey(
         KplConceptInfo,
         to_field='ts_code',
+        db_column='ts_code',
         on_delete=models.CASCADE,
         related_name='constituents',
         verbose_name="所属题材",
@@ -225,7 +226,7 @@ class KplConceptConstituent(models.Model):
         db_table = "kpl_concept_constituent"
         verbose_name = "开盘啦题材成分股"
         verbose_name_plural = "开盘啦题材成分股"
-        unique_together = ("concept_info", "stock", "trade_time") # 唯一约束修改
+        unique_together = ("concept_info", "stock", "trade_time")
 
     def __str__(self):
         concept_name = self.concept_info.name if self.concept_info else "N/A"
