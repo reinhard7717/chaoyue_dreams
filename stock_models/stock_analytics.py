@@ -257,6 +257,8 @@ class StrategyScoreComponent(models.Model):
         COMPOSITE = 'composite', _('战法分')
         TRIGGER = 'trigger', _('触发器分')
         RISK = 'risk', _('风险分')
+        SUBTOTAL = 'subtotal', _('小计分')
+        PENALTY = 'penalty', _('惩罚项')
         UNKNOWN = 'unknown', _('未知')
     daily_score = models.ForeignKey(
         StrategyDailyScore,
