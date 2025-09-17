@@ -16,7 +16,12 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.industry import IndustryLifecycle, KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+from stock_models.industry import (
+    ConceptMaster, ConceptDaily,
+    IndustryLifecycle, KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, 
+    DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, 
+    ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+)
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.cache_manager import CacheManager
@@ -1462,23 +1467,64 @@ class IndustryDao(BaseDAO):
             }
         return None
 
+    # ============== 板块/概念主数据 (ConceptMaster) ============== # 新增区域
+    
+    async def get_all_concepts_by_source(self, source: str) -> List[ConceptMaster]:
+        """
+        【V3.0 新增】根据来源获取所有板块/概念主数据。
+        """
+        return await sync_to_async(list)(ConceptMaster.objects.filter(source=source))
+
+    async def get_concepts_by_codes(self, codes: List[str]) -> Dict[str, ConceptMaster]:
+        """
+        【V3.0 新增】根据代码列表批量获取 ConceptMaster 对象。
+        """
+        if not codes:
+            return {}
+        concepts = await sync_to_async(list)(ConceptMaster.objects.filter(code__in=codes))
+        return {concept.code: concept for concept in concepts}
+
+    # ============== 板块/概念日线行情 (ConceptDaily) ============== # 新增区域
+
+    async def get_concept_daily_for_range(self, concept_code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        【V3.0 新增】根据代码和日期范围获取通用板块日线行情。
+        """
+        qs = ConceptDaily.objects.filter(
+            concept__code=concept_code,
+            trade_date__gte=start_date,
+            trade_date__lte=end_date
+        ).order_by('trade_date')
+        
+        data = await sync_to_async(list)(qs.values('trade_date', 'open', 'high', 'low', 'close', 'turnover_rate'))
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame.from_records(data)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        df.set_index('trade_date', inplace=True)
+        return df
+
     # ============== 行业生命周期预计算 ==============
     async def save_industry_lifecycle(self, lifecycle_data: List[Dict]) -> Dict:
         """
-        【新增】批量保存行业生命周期预计算结果。
+        【V3.0 改造】批量保存行业生命周期预计算结果。
+        - 适配通用的 ConceptMaster 模型。
         """
         if not lifecycle_data:
             return {}
-        # 批量获取 ThsIndex 对象
-        all_industry_codes = [item['industry_code'] for item in lifecycle_data]
-        industry_map = await self.get_ths_indices_by_codes(all_industry_codes)
+        
+        all_concept_codes = [item['concept_code'] for item in lifecycle_data]
+        concept_map = await self.get_concepts_by_codes(all_concept_codes)
+
         records_to_save = []
         for item in lifecycle_data:
-            ths_index = industry_map.get(item['industry_code'])
-            if ths_index:
+            concept = concept_map.get(item['concept_code'])
+            if concept:
                 records_to_save.append({
-                    "ths_index": ths_index,
+                    "concept": concept, # 修改行
                     "trade_date": item['trade_date'],
+                    "source": concept.source, # 新增行: 冗余存储来源
                     "strength_rank": item.get('latest_rank'),
                     "rank_slope": item.get('rank_slope'),
                     "rank_accel": item.get('rank_accel'),
@@ -1488,42 +1534,265 @@ class IndustryDao(BaseDAO):
         return await self._save_all_to_db_native_upsert(
             model_class=IndustryLifecycle,
             data_list=records_to_save,
-            unique_fields=['ths_index', 'trade_date']
+            unique_fields=['concept', 'trade_date'] # 修改行
         )
 
     async def get_industry_lifecycle_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
-        【新增】根据股票代码，获取其所属行业在指定日期范围内的生命周期数据。
+        【V3.0 改造】根据股票代码，获取其所属的【所有】行业/概念在指定日期范围内的生命周期数据。
+        - 返回一个融合了所有相关板块得分的DataFrame。
         """
-        # 1. 获取股票所属行业
-        industry_info = await self.get_stock_ths_industry_info(stock_code)
-        if not industry_info or not industry_info.get('code'):
+        # 1. 获取股票所属的所有行业/概念 (这是一个需要您实现的、融合多源的DAO方法)
+        # 假设 get_stock_all_concepts 返回 [{'code': 'xxx', 'name': 'yyy', 'source': 'ths', 'weight': 0.8}, ...]
+        all_concepts = await self.get_stock_all_concepts(stock_code)
+        if not all_concepts:
             return pd.DataFrame()
-        industry_code = industry_info['code']
-        # 2. 查询预计算的行业生命周期数据
+            
+        all_concept_codes = [c['code'] for c in all_concepts]
+        
+        # 2. 一次性查询所有相关板块的预计算生命周期数据
         query = IndustryLifecycle.objects.filter(
-            ths_index__ts_code=industry_code,
+            concept__code__in=all_concept_codes,
             trade_date__gte=start_date,
             trade_date__lte=end_date
         ).order_by('trade_date')
+
         data = await sync_to_async(list)(query.values(
-            'trade_date', 'strength_rank', 'rank_slope', 'rank_accel', 'lifecycle_stage'
+            'trade_date', 'concept__code', 'strength_rank', 'rank_slope', 'rank_accel'
         ))()
+
         if not data:
             return pd.DataFrame()
+            
         df = pd.DataFrame.from_records(data)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
-        df = df.set_index('trade_date')
-        # 3. 重命名列以符合注入规范
-        df.rename(columns={
-            'strength_rank': 'industry_rank_D',
-            'rank_slope': 'industry_rank_slope_D',
-            'rank_accel': 'industry_rank_accel_D',
-            'lifecycle_stage': 'industry_lifecycle_stage_D'
-        }, inplace=True)
-        return df
+        
+        # 3. 数据透视与融合 (核心)
+        # 将长表转换为宽表，每个板块一列
+        pivot_df = df.pivot_table(index='trade_date', columns='concept__code', values=['strength_rank', 'rank_slope', 'rank_accel'])
+        
+        # 定义权重
+        source_weights = {'sw': 1.0, 'ths': 0.8, 'dc': 0.6, 'kpl': 0.4}
+        
+        # 计算加权平均
+        final_df = pd.DataFrame(index=pivot_df.index)
+        for metric in ['strength_rank', 'rank_slope', 'rank_accel']:
+            metric_df = pivot_df[metric]
+            weighted_sum = pd.Series(0.0, index=pivot_df.index)
+            total_weight = 0.0
+            
+            for concept_info in all_concepts:
+                code = concept_info['code']
+                source = concept_info['source']
+                weight = source_weights.get(source, 0.1) # 获取权重，默认为0.1
+                
+                if code in metric_df.columns:
+                    weighted_sum += metric_df[code].fillna(0) * weight
+                    total_weight += weight
+            
+            # 避免除以零
+            if total_weight > 0:
+                final_df[f'industry_{metric.replace("strength_", "")}_D'] = weighted_sum / total_weight
+            else:
+                final_df[f'industry_{metric.replace("strength_", "")}_D'] = 0.0
 
+        return final_df
 
+    # =================================================================
+    # ============ V3.0 多维概念融合分析 - 核心数据获取方法 ============
+    # =================================================================
+
+    async def get_stock_all_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """
+        【V3.0 生产级】获取一个股票所属的所有行业/概念及其来源。
+        - 核心特性: 异步并行、缓存优先、健壮容错、输出标准化。
+        - 数据源: 申万(sw), 中信(ci), 开盘啦(kpl), 同花顺(ths), 东方财富(dc)。
+        
+        Args:
+            stock_code (str): 股票代码。
+
+        Returns:
+            List[Dict[str, str]]: 一个包含该股票所有概念标签的列表，
+                                  每个元素是一个字典，格式为 {'code': '...', 'name': '...', 'source': '...'}.
+        """
+        # print(f"    - [多维概念融合DAO] 开始为 {stock_code} 并行获取所有概念标签...")
+        
+        # 1. 定义所有需要并行执行的查询任务
+        tasks = [
+            self._get_sw_concepts(stock_code),
+            self._get_ci_concepts(stock_code),
+            self._get_kpl_concepts(stock_code),
+            self._get_ths_concepts(stock_code),
+            self._get_dc_concepts(stock_code),
+        ]
+
+        # 2. 使用 asyncio.gather 并发执行所有任务
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 3. 汇总所有查询结果
+        all_concepts = []
+        for res in results:
+            if isinstance(res, Exception):
+                # 记录异常，但不中断整个流程
+                logger.error(f"在 get_stock_all_concepts 中获取某个数据源时失败: {res}", exc_info=False)
+                continue
+            if res:
+                all_concepts.extend(res)
+        
+        # 4. 去重并返回
+        # 使用元组作为集合元素进行去重，因为字典是不可哈希的
+        unique_concepts_tuples = { (c['code'], c['source']) for c in all_concepts }
+        
+        # 为了保持原始的name，我们需要一个映射
+        code_source_to_name_map = { (c['code'], c['source']): c['name'] for c in all_concepts }
+
+        final_concepts = [
+            {'code': code, 'name': code_source_to_name_map[(code, source)], 'source': source}
+            for code, source in unique_concepts_tuples
+        ]
+
+        # print(f"    - [多维概念融合DAO] 完成。为 {stock_code} 共获取到 {len(final_concepts)} 个唯一概念标签。")
+        return final_concepts
+
+    # --- 以下为各个数据源的私有查询辅助方法 ---
+
+    async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """获取申万行业概念"""
+        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'sw')
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        concepts = []
+        try:
+            # 申万行业通常只有一个最新的三级行业归属
+            # 使用 afilter 和 aselect_related 提高异步查询效率
+            memberships = SwIndustryMember.objects.filter(
+                stock__stock_code=stock_code, is_new='Y'
+            ).select_related('l1_industry', 'l2_industry', 'l3_industry')
+            
+            async for member in memberships:
+                if member.l1_industry:
+                    concepts.append({'code': member.l1_industry.index_code, 'name': member.l1_industry.industry_name, 'source': 'sw'})
+                if member.l2_industry:
+                    concepts.append({'code': member.l2_industry.index_code, 'name': member.l2_industry.industry_name, 'source': 'sw'})
+                if member.l3_industry:
+                    concepts.append({'code': member.l3_industry.index_code, 'name': member.l3_industry.industry_name, 'source': 'sw'})
+
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24) # 缓存24小时
+            return concepts
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的申万行业时出错: {e}", exc_info=True)
+            return []
+
+    async def _get_ci_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """获取中信行业概念"""
+        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'ci')
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        concepts = []
+        try:
+            # 中信行业同样只有一个最新的归属
+            memberships = CiIndexMember.objects.filter(stock__stock_code=stock_code, is_new='Y')
+            async for member in memberships:
+                if member.l1_code:
+                    concepts.append({'code': member.l1_code, 'name': member.l1_name, 'source': 'ci'})
+                if member.l2_code:
+                    concepts.append({'code': member.l2_code, 'name': member.l2_name, 'source': 'ci'})
+                if member.l3_code:
+                    concepts.append({'code': member.l3_code, 'name': member.l3_name, 'source': 'ci'})
+
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
+            return concepts
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的中信行业时出错: {e}", exc_info=True)
+            return []
+
+    async def _get_kpl_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """获取开盘啦题材概念"""
+        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'kpl')
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        concepts = []
+        try:
+            # 开盘啦题材是每日更新的，所以我们取最新的一个交易日
+            latest_date = await sync_to_async(KplConceptConstituent.objects.latest('trade_time').trade_time)()
+            if not latest_date:
+                return []
+
+            memberships = KplConceptConstituent.objects.filter(
+                stock__stock_code=stock_code, trade_time=latest_date
+            ).select_related('concept_info')
+            
+            async for member in memberships:
+                if member.concept_info:
+                    concepts.append({'code': member.concept_info.ts_code, 'name': member.concept_info.name, 'source': 'kpl'})
+            
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12) # 缓存12小时
+            return concepts
+        except KplConceptConstituent.DoesNotExist:
+            return [] # 如果模型为空，直接返回空列表
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的开盘啦题材时出错: {e}", exc_info=True)
+            return []
+
+    async def _get_ths_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """获取同花顺行业与概念"""
+        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'ths')
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        concepts = []
+        try:
+            # 同花顺一个股票可以属于多个概念
+            memberships = ThsIndexMember.objects.filter(
+                stock__stock_code=stock_code, is_new='Y'
+            ).select_related('ths_index')
+
+            async for member in memberships:
+                if member.ths_index:
+                    concepts.append({'code': member.ths_index.ts_code, 'name': member.ths_index.name, 'source': 'ths'})
+            
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
+            return concepts
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的同花顺概念时出错: {e}", exc_info=True)
+            return []
+
+    async def _get_dc_concepts(self, stock_code: str) -> List[Dict[str, str]]:
+        """获取东方财富概念"""
+        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'dc')
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        concepts = []
+        try:
+            # 东方财富概念也是每日更新的，取最新交易日
+            latest_date = await sync_to_async(DcIndexMember.objects.latest('trade_time').trade_time)()
+            if not latest_date:
+                return []
+
+            memberships = DcIndexMember.objects.filter(
+                stock__stock_code=stock_code, trade_time=latest_date
+            ).select_related('dc_index')
+
+            async for member in memberships:
+                if member.dc_index:
+                    concepts.append({'code': member.dc_index.ts_code, 'name': member.dc_index.name, 'source': 'dc'})
+            
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12)
+            return concepts
+        except DcIndexMember.DoesNotExist:
+            return []
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的东方财富概念时出错: {e}", exc_info=True)
+            return []
 
 
 

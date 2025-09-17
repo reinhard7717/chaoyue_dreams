@@ -433,21 +433,121 @@ class DcIndexMember(models.Model):
     def __str__(self):
         return f"{self.dc_index.ts_code} - {self.trade_time} - {self.stock.stock_code}"
 
-class IndustryLifecycle(models.Model): # 新增模型
+# 板块/概念主数据模型
+class ConceptMaster(models.Model):
+    """
+    【V3.0 新增】板块/概念主数据模型
+    - 核心职责: 作为所有不同来源（申万、同花顺、东方财富等）板块/概念的统一“户籍管理中心”。
+    - 设计思想: 将板块的静态信息与来源解耦，为下游的通用计算和融合分析提供统一接口。
+    """
+    id = models.BigAutoField(primary_key=True)
+    code = models.CharField(max_length=32, unique=True, db_index=True, verbose_name="板块/概念代码")
+    name = models.CharField(max_length=100, verbose_name="名称")
+    source = models.CharField(max_length=20, db_index=True, verbose_name="来源", help_text="例如: 'ths', 'sw', 'dc', 'kpl'")
+    type = models.CharField(max_length=20, null=True, blank=True, verbose_name="类型", help_text="例如: '行业', '概念', '地域'")
+
+    class Meta:
+        db_table = "concept_master"
+        verbose_name = "板块/概念主数据"
+        verbose_name_plural = verbose_name
+        ordering = ['source', 'name']
+
+    def __str__(self):
+        return f"[{self.source}] {self.name} ({self.code})"
+
+class ConceptMember(models.Model):
+    """
+    【V3.0 新增】板块/概念成分股统一模型
+    - 核心职责: 记录所有来源的板块/概念与其成分股在特定时间范围内的关系。
+    - 设计思想: 这是进行严格历史回测和深度板块分析（如上涨广度、龙头效应）的基石。
+    """
+    id = models.BigAutoField(primary_key=True)
+    concept = models.ForeignKey(
+        'ConceptMaster',
+        on_delete=models.CASCADE,
+        to_field='code',
+        db_column='concept_code',
+        related_name='members',
+        verbose_name="所属板块/概念"
+    )
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        to_field='stock_code',
+        db_column='stock_code',
+        related_name='concept_memberships',
+        verbose_name="成分股"
+    )
+    source = models.CharField(max_length=20, db_index=True, verbose_name="来源", help_text="例如: 'ths', 'sw', 'dc'")
+    
+    # 对于有明确纳入/剔除日期的来源 (如申万、同花顺)
+    in_date = models.DateField(verbose_name="纳入日期", db_index=True)
+    out_date = models.DateField(verbose_name="剔除日期", null=True, blank=True)
+    
+    # 对于每日快照的来源 (如东方财富)，trade_date 就是 in_date，out_date 为空
+    # is_new 字段可以被 in_date 和 out_date 的逻辑替代，故不再需要
+
+    class Meta:
+        db_table = "concept_member"
+        verbose_name = "板块/概念成分股"
+        verbose_name_plural = verbose_name
+        # 联合唯一约束，确保同一来源、同一板块、同一股票、同一纳入日期的记录是唯一的
+        unique_together = ('concept', 'stock', 'in_date', 'source')
+        ordering = ['-in_date', 'concept', 'stock']
+
+    def __str__(self):
+        return f"[{self.source}] {self.concept.name} -> {self.stock.stock_name} (自 {self.in_date})"
+
+class ConceptDaily(models.Model):
+    """
+    【V3.0 新增】板块/概念日线行情模型
+    - 核心职责: 存储所有板块/概念的标准化日线行情数据。
+    """
+    concept = models.ForeignKey(
+        ConceptMaster,
+        on_delete=models.CASCADE,
+        to_field='code',
+        db_column='concept_code',
+        related_name='daily_data',
+        verbose_name="关联板块/概念"
+    )
+    trade_date = models.DateField(verbose_name="交易日期", db_index=True)
+    open = models.FloatField(verbose_name="开盘点位", null=True, blank=True)
+    high = models.FloatField(verbose_name="最高点位", null=True, blank=True)
+    low = models.FloatField(verbose_name="最低点位", null=True, blank=True)
+    close = models.FloatField(verbose_name="收盘点位", null=True, blank=True)
+    pre_close = models.FloatField(verbose_name="昨收点位", null=True, blank=True)
+    change = models.FloatField(verbose_name="涨跌点位", null=True, blank=True)
+    pct_change = models.FloatField(verbose_name="涨跌幅(%)", null=True, blank=True)
+    vol = models.FloatField(verbose_name="成交量(手/万股)", null=True, blank=True)
+    amount = models.FloatField(verbose_name="成交额(元/万元)", null=True, blank=True)
+    turnover_rate = models.FloatField(verbose_name="换手率(%)", null=True, blank=True)
+
+    class Meta:
+        db_table = "concept_daily"
+        verbose_name = "板块/概念日线行情"
+        verbose_name_plural = verbose_name
+        unique_together = ('concept', 'trade_date')
+        ordering = ['-trade_date']
+
+class IndustryLifecycle(models.Model):
     """
     【新增】行业生命周期预计算结果
     - 核心职责: 存储每日计算出的各行业强度排名、趋势及所处生命周期阶段。
     - 数据来源: 由 ContextualAnalysisService.analyze_industry_rotation 方法每日计算并写入。
     """
-    ths_index = models.ForeignKey(
-        'ThsIndex',
+    concept = models.ForeignKey(
+        'ConceptMaster',
         on_delete=models.CASCADE,
-        to_field='ts_code',
-        db_column='industry_code',
+        to_field='code',
+        db_column='concept_code',
         related_name='lifecycle_data',
-        verbose_name="同花顺行业"
+        verbose_name="板块/概念",
+        null=True, # 关键修改：暂时允许为空
+        blank=True
     )
     trade_date = models.DateField(verbose_name="交易日期", db_index=True)
+    source = models.CharField(max_length=20, db_index=True, verbose_name="来源", help_text="冗余字段，便于查询")
     strength_rank = models.FloatField(verbose_name="强度排名(0-1)", null=True)
     rank_slope = models.FloatField(verbose_name="排名斜率", null=True)
     rank_accel = models.FloatField(verbose_name="排名加速度", null=True)
@@ -469,7 +569,7 @@ class IndustryLifecycle(models.Model): # 新增模型
         db_table = "industry_lifecycle"
         verbose_name = "行业生命周期"
         verbose_name_plural = "行业生命周期"
-        unique_together = ('ths_index', 'trade_date')
+        unique_together = ('concept', 'trade_date')
         ordering = ['-trade_date', 'strength_rank']
 
     def __str__(self):

@@ -14,6 +14,7 @@ from dao_manager.tushare_daos.indicator_dao import IndicatorDAO
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from utils.cache_manager import CacheManager
+from stock_models.industry import ConceptMaster, SwIndustry, ThsIndex, DcIndex, KplConceptInfo
 
 logger = logging.getLogger("services")
 
@@ -35,89 +36,95 @@ class ContextualAnalysisService:
 
     async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> Dict:
         """
-        【V3.0 预计算版】分析行业轮动，并将结果存入数据库。
-        - 核心升级: 不再返回DataFrame，而是调用DAO将计算结果持久化。
+        【V3.1 多源通用版】分析所有来源的板块轮动，并将结果存入数据库。
         """
-        print(f"\n--- [行业生命周期预计算 V3.0] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
-        trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1]
-        tasks = [self.calculate_industry_strength_rank(td, market_code) for td in trade_dates]
-        daily_rank_results = await asyncio.gather(*tasks)
-        all_ranks = []
-        for i, df_rank in enumerate(daily_rank_results):
-            if not df_rank.empty and 'strength_rank' in df_rank.columns:
-                df_rank['trade_date'] = trade_dates[i]
-                all_ranks.append(df_rank.reset_index())
-        if not all_ranks:
-            logger.warning("未能获取任何历史排名数据，行业轮动分析中止。")
-            return {"status": "skipped", "reason": "No historical rank data"}
-        rotation_df = pd.concat(all_ranks, ignore_index=True)
-        def calculate_lifecycle_metrics(group):
-            group = group.sort_values('trade_date')
-            if len(group) < 5:
-                return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
-            ranks = group['strength_rank'].values
-            slope = np.polyfit(np.arange(min(5, len(ranks))), ranks[-5:], 1)[0] if len(ranks) >= 2 else 0.0
-            accel = 0.0
-            if len(group) >= 10:
-                slope_1 = np.polyfit(np.arange(5), ranks[-10:-5], 1)[0]
-                slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
-                accel = slope_2 - slope_1
-            return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
-        lifecycle_metrics = rotation_df.groupby('industry_code').apply(calculate_lifecycle_metrics)
-        def assign_lifecycle_stage(row):
-            if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
-            if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
-            if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
-            if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
-            return 'TRANSITION'
-        lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
-        industry_names = rotation_df[['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
-        final_report = pd.merge(lifecycle_metrics, industry_names, left_index=True, right_index=True)
-        # 将计算结果持久化到数据库
-        # 只保存最新一天 (end_date) 的分析结果
-        latest_day_data = final_report.copy()
-        latest_day_data['trade_date'] = end_date
-        # 转换为适合DAO的字典列表
-        records_to_save = latest_day_data.reset_index().to_dict('records')
-        # 调用DAO进行保存
-        save_result = await self.industry_dao.save_industry_lifecycle(records_to_save)
-        print(f"--- [行业生命周期预计算 V3.0] 分析完成，已保存 {len(records_to_save)} 条行业状态到数据库。 ---")
-        return save_result
+        print(f"\n--- [行业生命周期预计算 V3.1] 开始分析截至 {end_date} 的所有来源板块轮动情况 ---")
+        
+        # 修改行: 定义要处理的所有来源
+        sources_to_process = ['sw', 'ths', 'dc'] 
+        
+        all_save_results = {}
 
-    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
+        for source in sources_to_process:
+            print(f"\n--- 正在处理来源: {source.upper()} ---")
+            # 1. 获取该来源的所有板块
+            all_concepts = await self.industry_dao.get_all_concepts_by_source(source)
+            if not all_concepts:
+                logger.warning(f"来源 '{source}' 未找到任何板块/概念，跳过。")
+                continue
+
+            # 2. 并行计算每日排名
+            trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1]
+            tasks = [self.calculate_strength_rank(td, market_code, source) for td in trade_dates]
+            daily_rank_results = await asyncio.gather(*tasks)
+            
+            # 3. 聚合与计算 (逻辑与之前类似，但现在是针对单个source)
+            all_ranks = []
+            for i, df_rank in enumerate(daily_rank_results):
+                if not df_rank.empty and 'strength_rank' in df_rank.columns:
+                    df_rank['trade_date'] = trade_dates[i]
+                    all_ranks.append(df_rank.reset_index().rename(columns={'index': 'concept_code'}))
+            
+            if not all_ranks:
+                logger.warning(f"来源 '{source}' 未能获取任何历史排名数据，轮动分析中止。")
+                continue
+                
+            rotation_df = pd.concat(all_ranks, ignore_index=True)
+            
+            # ... (calculate_lifecycle_metrics 和 assign_lifecycle_stage 逻辑不变) ...
+            def calculate_lifecycle_metrics(group):
+                group = group.sort_values('trade_date')
+                if len(group) < 5: return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
+                ranks = group['strength_rank'].values
+                slope = np.polyfit(np.arange(min(5, len(ranks))), ranks[-5:], 1)[0] if len(ranks) >= 2 else 0.0
+                accel = 0.0
+                if len(group) >= 10:
+                    slope_1 = np.polyfit(np.arange(5), ranks[-10:-5], 1)[0]
+                    slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
+                    accel = slope_2 - slope_1
+                return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
+            lifecycle_metrics = rotation_df.groupby('concept_code').apply(calculate_lifecycle_metrics)
+            def assign_lifecycle_stage(row):
+                if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
+                if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
+                if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
+                if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
+                return 'TRANSITION'
+            lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
+
+            # 4. 保存结果
+            latest_day_data = lifecycle_metrics.copy()
+            latest_day_data['trade_date'] = end_date
+            records_to_save = latest_day_data.reset_index().to_dict('records')
+            
+            save_result = await self.industry_dao.save_industry_lifecycle(records_to_save)
+            all_save_results[source] = save_result
+            print(f"--- 来源 {source.upper()} 处理完成，已保存 {len(records_to_save)} 条状态。 ---")
+
+        return all_save_results
+
+    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH', source: str = 'ths') -> pd.DataFrame:
         """
-        【V2.2 并行优化版】计算指定交易日所有行业的强度分及排名。
-        - 核心优化: 1. 将获取所有行业列表的操作移至循环外，避免重复查询。
-                      2. 增加对 `market_daily_df` 的预加载和切片，避免在循环中重复处理。
+        【V3.0 通用版】计算指定来源、指定交易日所有板块的强度分及排名。
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-        
-        # 将大盘数据获取和行业列表获取移到最前面，只执行一次
         market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
         if market_daily_df.empty:
             logger.warning(f"无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
-        
-        all_industries = await self.industry_dao.get_ths_index_list()
-        if not all_industries:
-            logger.warning("未找到任何行业，计算中止。")
+        all_concepts = await self.industry_dao.get_all_concepts_by_source(source)
+        if not all_concepts:
+            logger.warning(f"来源 '{source}' 未找到任何板块，计算中止。")
             return pd.DataFrame()
-
-        # 将循环改为并行任务列表
-        tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
+        tasks = [self._process_single_industry_strength(concept, trade_date, market_daily_df) for concept in all_concepts]
         results = await asyncio.gather(*tasks)
-        
         strength_data = [res for res in results if res is not None]
         if not strength_data:
             return pd.DataFrame()
-
         df = pd.DataFrame(strength_data)
-        # 增加对 strength_score 列的检查，避免在无数据时出错
         if 'strength_score' not in df.columns:
             return pd.DataFrame()
-            
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
-        return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
-
+        return df.sort_values('strength_rank', ascending=False).set_index('concept_code')
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
@@ -144,36 +151,36 @@ class ContextualAnalysisService:
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
         return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
 
-    async def _process_single_industry_strength(self, industry, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
+    async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V3.0 双引擎版】处理单个行业的强度计算，便于并行化。
+        【V3.1 通用版】处理单个板块/概念的强度计算。
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
         try:
-            tasks = {
-                "daily": self.industry_dao.get_ths_index_daily_for_range(industry.ts_code, start_date, trade_date),
-                "flow": self.fund_flow_dao.get_industry_fund_flow(industry.ts_code, start_date, trade_date),
-                "sentiment": self.industry_dao.get_limit_cpt_list_for_industry_and_date(industry.ts_code, trade_date)
-            }
-            results = await asyncio.gather(*tasks.values())
-            industry_daily_df, industry_fund_flow_df, industry_sentiment_data = results
+            concept_daily_df = await self.industry_dao.get_concept_daily_for_range(concept.code, start_date, trade_date)
+            
+            # 资金流和情绪数据暂时简化，后续可扩展为通用接口
+            # industry_fund_flow_df = ...
+            # industry_sentiment_data = ...
 
-            if industry_daily_df.empty:
+            if concept_daily_df.empty:
                 return None
 
-            momentum_score = self._calculate_momentum_score(industry_daily_df, trade_date)
-            fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date)
-            volume_score = await self._calculate_volume_profile_score(industry_daily_df)
-            rs_score = await self._calculate_relative_strength_score(industry_daily_df, market_daily_df)
-            sentiment_hotness_score = self._calculate_sentiment_hotness_score(industry_sentiment_data)
+            momentum_score = self._calculate_momentum_score(concept_daily_df, trade_date)
+            # fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date)
+            volume_score = await self._calculate_volume_profile_score(concept_daily_df)
+            rs_score = await self._calculate_relative_strength_score(concept_daily_df, market_daily_df)
+            # sentiment_hotness_score = self._calculate_sentiment_hotness_score(industry_sentiment_data)
 
             total_score = (
-                15 * momentum_score + 15 * fund_flow_score + 10 * volume_score + 
-                15 * rs_score + 45 * sentiment_hotness_score
+                30 * momentum_score + # 动量权重提高
+                20 * volume_score +   # 成交量权重提高
+                50 * rs_score         # 相对强度作为最核心的权重
+                # + 15 * fund_flow_score + 45 * sentiment_hotness_score # 暂时禁用
             )
-            return {'industry_code': industry.ts_code, 'industry_name': industry.name, 'strength_score': total_score}
+            return {'concept_code': concept.code, 'concept_name': concept.name, 'strength_score': total_score}
         except Exception as e:
-            logger.error(f"处理行业 {industry.name} 时发生错误: {e}", exc_info=True)
+            logger.error(f"处理板块 {concept.name} 时发生错误: {e}", exc_info=True)
             return None
 
     def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
