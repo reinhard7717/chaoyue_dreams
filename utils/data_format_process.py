@@ -934,15 +934,15 @@ class MarketFormatProcess(BaseDAO):
             "name": getattr(df_data, "name", None),
             "price": self._parse_number(getattr(df_data, "price", None)),
             "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
-            "open_num": self._parse_number(getattr(df_data, "open_num", None)),
+            "open_num": self._parse_number(getattr(df_data, "open_num", None)) or 0,
             "lu_desc": getattr(df_data, "lu_desc", None),
             "limit_type": getattr(df_data, "limit_type", None),
             "tag": getattr(df_data, "tag", None),
             "status": getattr(df_data, "status", None),
-            "first_lu_time": self._parse_datetime(getattr(df_data, "first_lu_time", None)),
-            "last_lu_time": self._parse_datetime(getattr(df_data, "last_lu_time", None)),
-            "first_ld_time": self._parse_datetime(getattr(df_data, "first_ld_time", None)),
-            "last_ld_time": self._parse_datetime(getattr(df_data, "last_ld_time", None)),
+            "first_lu_time": getattr(df_data, "first_lu_time", None), # 保持为字符串
+            "last_lu_time": getattr(df_data, "last_lu_time", None), # 保持为字符串
+            "first_ld_time": getattr(df_data, "first_ld_time", None), # 保持为字符串
+            "last_ld_time": getattr(df_data, "last_ld_time", None), # 保持为字符串
             "limit_order": self._parse_number(getattr(df_data, "limit_order", None)),
             "limit_amount": self._parse_number(getattr(df_data, "limit_amount", None)),
             "turnover": self._parse_number(getattr(df_data, "turnover", None)),
