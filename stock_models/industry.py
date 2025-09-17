@@ -159,7 +159,7 @@ class KplConceptInfo(models.Model):
     """
     id = models.BigAutoField(primary_key=True)
     ts_code = models.CharField(max_length=16, db_index=True, unique=True, verbose_name="题材代码")  # xxxxxx.KP
-    name = models.CharField(max_length=64, verbose_name="题材名称")
+    name = models.CharField(max_length=64, verbose_name="题材名称", null=True, blank=True, default='')
 
     class Meta:
         db_table = "kpl_concept_info"

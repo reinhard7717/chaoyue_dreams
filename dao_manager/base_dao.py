@@ -738,13 +738,11 @@ class BaseDAO(Generic[T]):
                             total_processed += processed_count
                     except Exception as e:
                         logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}", exc_info=True)
-                
                 logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
         except Exception as lock_error:
             # 处理获取锁时可能发生的错误（例如，等待锁超时或连接失败）
             logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
             return 0 # 返回0表示没有记录被处理
-            
         return total_processed
 
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
@@ -780,15 +778,8 @@ class BaseDAO(Generic[T]):
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
-
-        # --- 将所有 pandas Timestamp 对象转换为 Python 原生 datetime 对象 ---
-        # 这是解决问题的最终关键步骤。
-        # 找出所有日期时间类型的列 (包括带时区的)
         datetime_cols = df.select_dtypes(include=['datetime', 'datetimetz']).columns
         for col in datetime_cols:
-            # 使用 .dt.to_pydatetime() 将整个列高效地转换为原生 datetime 对象
-            # NaT (Not a Time) 会被自动转换成 None，这符合我们的预期
-            print(f"DEBUG: Converting pandas.Timestamp column '{col}' to native python datetime.") # 增加一个转换日志
             df[col] = df[col].dt.to_pydatetime()
         # --- 死锁预防：按唯一键排序 ---
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
@@ -815,7 +806,6 @@ class BaseDAO(Generic[T]):
         )
         df_filled = df.replace({np.nan: None})
         params_list_of_tuples = list(df_filled.itertuples(index=False, name=None))
-
         # --- 数据库执行阶段：增加死锁重试逻辑 ---
         max_retries = 3
         for attempt in range(max_retries):
