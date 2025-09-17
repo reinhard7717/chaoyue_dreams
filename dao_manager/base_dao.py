@@ -13,7 +13,7 @@ import random
 from django.db.utils import OperationalError
 from typing import Dict, List, Any, Optional, Type, Union, TypeVar, Generic # 类型提示
 from datetime import datetime, date
-from django.db import connection, models, IntegrityError # Django 模型
+from django.db import connection, models, IntegrityError, ProgrammingError # Django 模型
 from decimal import Decimal
 
 import numpy as np
@@ -623,131 +623,109 @@ class BaseDAO(Generic[T]):
             return []
 
     # ==================== 批量保存方法 ====================
-    async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=8000):
+    async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=10000):
         """
-        【V23 - 修复to_field版】的入口方法。
-        此方法作为上层调用接口，负责数据准备和分批。
+        【V4.0 - 流程重构版】的入口方法。
+        此版本彻底移除了中间的DataFrame转换，解决了因数据转换导致的列丢失问题。
         """
-        # 1. 初始检查和准备
+        # 1. 初始检查
         if not data_list:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
+        
         total_records = len(data_list)
-        failed_count = 0
-        # 2. 字段元数据分析
-        # 使用 model_class._meta.fields 替代 get_fields()，避免包含没有列的反向关系。
-        # .fields 只包含模型中定义的具体字段，更安全、更准确。
-        all_model_fields = {f.name for f in model_class._meta.fields}
-        unique_field_set = set(unique_fields)
-        for field_name in unique_fields:
-            if field_name.endswith('_id'):
-                unique_field_set.add(field_name[:-3])
-        pk_name = model_class._meta.pk.name
-        update_fields = [f for f in all_model_fields if f not in unique_field_set and f != pk_name]
-        fk_fields_map = {}
-        for f in model_class._meta.fields:
-            if isinstance(f, models.ForeignKey):
-                target_field_name = f.target_field.name
-                fk_fields_map[f.name] = target_field_name
-        # 3. 准备数据记录
-        prepared_data_list = []
-        failed_records = []
+        
+        # 2. 准备字段映射
+        # 这个映射包含了模型所有字段及其对应的数据库列名
+        field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
+        
+        # 3. 将包含对象的 data_list 转换为 SQL-ready 的字典列表
+        sql_ready_data_list = []
         for record in data_list:
-            try:
-                sanitized_record = self._sanitize_for_json(record)
-                instance_data = await self._prepare_model_instance(model_class, sanitized_record, fk_fields_map)
-                prepared_data_list.append(instance_data)
-            except Exception as e:
-                logger.error(f"在准备模型实例数据时出错: {e}, 记录: {record}", exc_info=True)
-                failed_records.append(record)
-        failed_count += len(failed_records)
-        if not prepared_data_list:
-            logger.warning("所有记录在准备阶段均失败，不执行数据库操作。")
-            return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": 0}
-        # 4. 将准备好的数据转换为DataFrame
-        df = pd.DataFrame(prepared_data_list)
-        # 5. 转换关系字段列
-        # 同样使用 model_class._meta.fields，因为外键（ForeignKey）也包含在 .fields 中。
-        for field in model_class._meta.fields:
-            if field.is_relation and not field.auto_created:
-                field_name = field.name
-                column_name = field.column # 修改行: 恢复为原始的 field.column，不再进行智能修正
-                if field_name in df.columns:
-                    # 这是解决外键约束错误的核心。
-                    # 之前: lambda x: x.pk (错误地假设总是关联主键)
-                    # 现在: lambda x: getattr(x, field.target_field.name)
-                    # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
-                    target_field_name = field.target_field.name
-                    df[column_name] = df[field_name].apply(
-                        lambda x: getattr(x, target_field_name) if pd.notna(x) else None
-                    )
-                    df = df.drop(columns=[field_name])
-        # 6. 调用下游异步批处理方法
+            sql_record = {}
+            for field_name, value in record.items():
+                # 检查这个key是否是模型的一个字段
+                field_obj = model_class._meta.get_field(field_name)
+                
+                # 如果值是一个模型实例 (代表外键)
+                if isinstance(value, models.Model):
+                    column_name = field_obj.column
+                    target_field_name = field_obj.target_field.name
+                    # 获取外键引用的值 (可能是pk，也可能是to_field指定的值)
+                    fk_value = getattr(value, target_field_name)
+                    sql_record[column_name] = fk_value
+                # 如果key是模型的字段，但值不是对象 (常规字段)
+                elif field_name in field_to_column_map:
+                    sql_record[field_to_column_map[field_name]] = value
+                # 如果key不是模型的字段，则忽略 (例如上游传入的临时辅助字段)
+                
+            sql_ready_data_list.append(sql_record)
+
+        if not sql_ready_data_list:
+            logger.warning("所有记录在准备阶段均失败或为空，不执行数据库操作。")
+            return {"尝试处理": total_records, "失败": total_records, "创建/更新成功": 0}
+
+        # 4. 确定需要更新的数据库列
+        # 从上游接收的 unique_fields 是模型字段名，需要转换为数据库列名
+        unique_db_columns = {field_to_column_map.get(f, f) for f in unique_fields}
+        # 从准备好的SQL数据中获取所有将要操作的列
+        all_db_columns_in_data = list(sql_ready_data_list[0].keys())
+        # 计算出需要UPDATE的列
+        update_db_columns = [col for col in all_db_columns_in_data if col not in unique_db_columns]
+
+        # 5. 调用下游异步批处理方法
         try:
+            # 注意：现在传递的是 sql_ready_data_list 和 update_db_columns
             success_count = await self.process_batch_async(
-                df=df,
                 model_class=model_class,
-                update_fields=update_fields,
-                unique_key_fields=unique_fields,
+                data_list=sql_ready_data_list,
+                unique_fields=unique_fields, # 底层仍然需要这个来识别唯一键
+                update_fields=update_db_columns, # 传递计算好的、以数据库列为准的更新列表
                 batch_size=batch_size
             )
         except Exception as e:
             logger.error(f"调用 process_batch_async 时发生未知错误: {e}", exc_info=True)
-            failed_count += len(df)
             success_count = 0
-        # 7. 返回结果
+            
+        # 6. 返回结果
+        failed_count = total_records - success_count
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
 
-    async def process_batch_async(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list, batch_size=8000):
+    async def process_batch_async(self, model_class, data_list: list, unique_fields: list, update_fields: list, batch_size=5000):
         """
-        【V26 - 参数适配修复版】的异步批处理调度器。
-        - 修复: 修正了调用底层同步方法时的参数不匹配问题。
-        - 策略:
-          1. 在处理任何批次前，通过 self.cache_manager 为当前目标表获取一个Redis分布式锁。
-          2. 这可以确保在同一时间内，只有一个进程/任务流可以向该表写入数据，从根本上消除并发写入导致的死锁。
-          3. 锁会在所有批次处理完毕或发生异常后自动释放。
+        【V4.0 - 流程重构版】的异步批处理调度器。
+        - 不再接收和处理DataFrame，直接处理SQL-ready的字典列表。
         """
-        if df.empty:
+        if not data_list:
             return 0
-        # 为目标表定义一个唯一的锁键
+            
         lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
-        # 通过 CacheManager 获取 Redis 客户端并加锁
+        
         try:
-            # 1. 确保 CacheManager 中的 Redis 客户端已初始化
             redis_client = await self.cache_manager._ensure_client()
-            # 2. 检查客户端是否成功获取
             if not redis_client:
-                logger.error(f"无法从 CacheManager 获取 Redis 客户端，跳过分布式锁。表: {model_class._meta.db_table}")
-                # 在这种关键失败情况下，可以选择抛出异常以停止操作，避免无保护的并发写入
                 raise ConnectionError("无法获取 Redis 客户端，数据库操作被中止以保证数据安全。")
-            # 3. 使用获取到的客户端执行加锁操作
-            # blocking_timeout 设置了获取锁的最长等待时间，防止无限等待
-            async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
-                for i in range(0, len(df), batch_size):
-                    batch_df = df.iloc[i:i + batch_size]
-                    try:
-                        # ================== 修改开始 ==================
-                        # 1. 将DataFrame批次转换为字典列表，以匹配 _process_batch_mysql_upsert_sync 的 data_list 参数
-                        batch_data_list = batch_df.to_dict('records')
 
-                        # 2. 使用正确的参数名调用同步方法
+            async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
+                # 直接对字典列表进行分批
+                for i in range(0, len(data_list), batch_size):
+                    batch_list = data_list[i:i + batch_size]
+                    try:
                         processed_count = await sync_to_async(self._process_batch_mysql_upsert_sync)(
                             model_class=model_class,
-                            data_list=batch_data_list,          # 修改行: 使用 data_list 参数
-                            unique_fields=unique_key_fields,    # 修改行: 使用 unique_fields 参数
-                            update_fields=update_fields
+                            data_list=batch_list,
+                            unique_fields=unique_fields,
+                            update_fields=update_fields # 直接透传已计算好的update_fields
                         )
-                        # ================== 修改结束 ==================
-
                         if processed_count is not None:
                             total_processed += processed_count
                     except Exception as e:
                         logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}", exc_info=True)
                 logger.info(f"异步批处理完成，共处理 {model_class._meta.db_table} 模型 - {total_processed} 条记录。")
         except Exception as lock_error:
-            # 处理获取锁时可能发生的错误（例如，等待锁超时或连接失败）
             logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
-            return 0 # 返回0表示没有记录被处理
+            return 0
+            
         return total_processed
 
     def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):
