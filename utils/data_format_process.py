@@ -635,7 +635,7 @@ class IndustryFormatProcess(BaseDAO):
             "parent_code": getattr(df_data, "parent_code", None),
             "level": getattr(df_data, "level", None),
             "industry_code": getattr(df_data, "industry_code", None),
-            "is_publish": getattr(df_data, "is_publish", None),
+            "is_pub": getattr(df_data, "is_pub", None),
             "src": getattr(df_data, "src", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
