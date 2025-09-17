@@ -56,12 +56,11 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V511.4 · 终极修复版】
+        【V511.5 · 健壮性修复版】
         - 核心修复 (本次修改):
-          - [逻辑解耦] 彻底将 StrategyScoreComponent (分数组件) 的创建逻辑从 save_daily_states 的判断中剥离。
-          - 新逻辑确保了无论 save_daily_states 开关状态如何，只要有分数，其对应的分数组件就一定会被创建并返回。
-          - 这保证了即使在生产模式下（save_daily_states=false），调试报告依然能获取到构成总分的详细条目。
-        - 收益: 完美解决了“生产模式下调试报告无明细”的问题，同时保留了节省空间的优势。
+          - [BUG修复] 在创建 StrategyScoreComponent 时，增加了对汇总分数名称的过滤。已知汇总分数（如 'SCORE_SETUP'）不应被视为独立的原子组件，此修改可避免为它们创建组件时因在Playbook缓存中找不到定义而产生的警告。
+          - [严重BUG修复] 彻底修正了 `if save_daily_states:` 代码块中创建 StrategyDailyState 的逻辑。原代码使用了错误的变量名，且未适配 V2.0 模型的 `playbook` 外键。新逻辑确保能正确查找 Playbook 对象并创建有效的 StrategyDailyState 实例，修复了潜在的数据保存崩溃问题。
+        - 收益: 根除了不必要的警告，修复了每日状态保存功能的严重BUG，使报告层数据生成更准确、健壮。
         """
         await self._ensure_playbooks_cached()
         signals_to_create = []
@@ -73,10 +72,8 @@ class ReportingLayer:
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
-        # 现在路径修复后，这里能拿到完整的信号字典
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
-       
         # --- Part 1: 生成 TradingSignal (逻辑不变) ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
         for trade_time, row in signal_days_df.iterrows():
@@ -111,20 +108,23 @@ class ReportingLayer:
                             playbook=playbook_obj,
                             contributed_score=score
                         ))
-        
         # --- Part 2 & 3: 生成 StrategyDailyScore, StrategyScoreComponent, StrategyDailyState ---
         daily_score_map = {}
+        # 定义不应被视为独立分数组件的汇总分数名称
+        summary_score_names = {
+            'SCORE_SETUP',
+            'SCORE_TRIGGER',
+            'SCORE_PLAYBOOK_SYNERGY'
+        }
         for trade_time, row in result_df.iterrows():
             # --- Part 2: 生成 StrategyDailyScore ---
             trade_action_value = row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value)
             if trade_action_value not in StrategyDailyScore.TradeActionType.values:
                 print(f"    -> [报告层-警告] 日期 {trade_time.date()} 的 trade_action '{trade_action_value}' 不在有效选项中，将使用默认值 'NO_SIGNAL'。")
                 trade_action_value = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
-            
             setup_score = score_details_df.get('SCORE_SETUP', pd.Series(0, index=result_df.index)).get(trade_time, 0)
             trigger_score = score_details_df.get('SCORE_TRIGGER', pd.Series(0, index=result_df.index)).get(trade_time, 0)
             playbook_synergy_score = score_details_df.get('SCORE_PLAYBOOK_SYNERGY', pd.Series(0, index=result_df.index)).get(trade_time, 0)
-
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
                 trade_date=trade_time.date(),
@@ -142,10 +142,8 @@ class ReportingLayer:
             if save_all_days or (row['signal_type'] != '无信号'):
                 daily_scores_to_create.append(daily_score_obj)
             daily_score_map[trade_time] = daily_score_obj
-
             # --- Part 2.1: 生成 StrategyScoreComponent (逻辑解耦，永远执行) ---
             all_details_for_json = {}
-            
             def create_component(signal_name, score_value):
                 nonlocal all_details_for_json
                 prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
@@ -154,9 +152,7 @@ class ReportingLayer:
                     if signal_name.startswith(prefix):
                         base_signal_name = signal_name[len(prefix):]
                         break
-                # 从战法缓存中获取 Playbook 对象实例
                 playbook_obj = self.playbooks_cache.get(base_signal_name)
-                # 如果在缓存中找不到对应的战法定义，则跳过此条，避免数据库出错
                 if not playbook_obj:
                     print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{base_signal_name}' 的定义，跳过创建其分数组件。")
                     return
@@ -167,7 +163,7 @@ class ReportingLayer:
                     score_type = 'penalty'
                 score_components_to_create.append(StrategyScoreComponent(
                     daily_score=daily_score_obj,
-                    playbook=playbook_obj,  # 使用 playbook 对象替代旧的 signal_name 和 signal_cn_name
+                    playbook=playbook_obj,
                     score_type=score_type,
                     score_value=int(score_value)
                 ))
@@ -178,6 +174,8 @@ class ReportingLayer:
                 offensive_components = score_details_df.loc[trade_time]
                 active_offensive = offensive_components[offensive_components != 0]
                 for signal_name, score_value in active_offensive.items():
+                    if signal_name in summary_score_names:
+                        continue
                     create_component(signal_name, score_value)
             if not risk_details_df.empty and trade_time in risk_details_df.index:
                 risk_components = risk_details_df.loc[trade_time]
@@ -189,29 +187,38 @@ class ReportingLayer:
         if save_daily_states:
             print(f"  [探针-报告层] 每日状态保存功能已开启，将为调试生成详细状态记录。")
             for trade_time, daily_score_obj in daily_score_map.items():
+                # 遍历原子状态 (atomic_states)
                 for state_name, state_series in self.strategy.atomic_states.items():
                     if state_series.get(trade_time, False):
-                        playbook_obj = self.playbooks_cache.get(signal_name)
+                        # 从缓存中查找对应的 Playbook 对象
+                        playbook_obj = self.playbooks_cache.get(state_name)
                         if not playbook_obj:
-                            print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{signal_name}' 的定义，跳过创建其每日状态。")
+                            # 打印警告并跳过，这通常表示配置缺失
+                            print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{state_name}' 的定义，跳过创建其每日状态。")
                             continue
+                        # 使用 Playbook 对象创建 StrategyDailyState 实例
                         daily_states_to_create.append(StrategyDailyState(
                             daily_score=daily_score_obj,
-                            playbook=playbook_obj,  # 使用 playbook 对象
-                            signal_type=signal_type
+                            playbook=playbook_obj,
+                            signal_type=StrategyDailyState.SignalType.STATE # 明确信号类型为原子状态
                         ))
+                # 遍历触发器事件 (trigger_events)
                 for trigger_name, trigger_series in self.strategy.trigger_events.items():
                     if trigger_series.get(trade_time, False):
+                        # 从缓存中查找对应的 Playbook 对象
+                        playbook_obj = self.playbooks_cache.get(trigger_name)
+                        if not playbook_obj:
+                            # 打印警告并跳过
+                            print(f"    -> [报告层-警告] 在Playbook缓存中未找到 '{trigger_name}' 的定义，跳过创建其每日状态。")
+                            continue
+                        # 使用 Playbook 对象创建 StrategyDailyState 实例
                         daily_states_to_create.append(StrategyDailyState(
                             daily_score=daily_score_obj,
-                            signal_name=trigger_name,
-                            signal_cn_name=score_type_map.get(trigger_name, {}).get('cn_name', trigger_name),
-                            signal_type=StrategyDailyState.SignalType.TRIGGER
+                            playbook=playbook_obj,
+                            signal_type=StrategyDailyState.SignalType.TRIGGER # 明确信号类型为触发事件
                         ))
         else:
-            # print(f"  [探针-报告层] 每日状态保存功能已关闭，跳过生成详细状态记录以节省空间。")
             pass
-        
         print(f"  [探针-报告层] 股票 {stock_code}: 准备返回 {len(signals_to_create)} 条交易信号, "
             f"{len(daily_scores_to_create)} 条每日分数, "
             f"{len(score_components_to_create)} 条分数组件, "
