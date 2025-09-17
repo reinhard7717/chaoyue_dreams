@@ -625,7 +625,7 @@ class BaseDAO(Generic[T]):
             return []
 
     # ==================== 批量保存方法 ====================
-    async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=5000):
+    async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=8000):
         """
         【V23 - 修复to_field版】的入口方法。
         此方法作为上层调用接口，负责数据准备和分批。
@@ -672,16 +672,12 @@ class BaseDAO(Generic[T]):
         for field in model_class._meta.fields:
             if field.is_relation and not field.auto_created:
                 field_name = field.name
-                column_name = field.column
-                # 这是一个智能修正，用于处理在模型中定义了 to_field 但忘记写 db_column 的情况。
-                # 如果Django生成的默认列名是 'field_name_id'，并且该字段设置了 to_field，
-                # 我们就假设实际的数据库列名就是 to_field 的值。
-                if isinstance(field, models.ForeignKey) and field.to_fields and column_name == f"{field_name}_id":
-                    # field.to_fields 是一个列表，我们取第一个作为推断的列名
-                    likely_column_name = field.to_fields[0]
-                    print(f"DEBUG: 检测到模型 {model_class.__name__} 的外键 '{field_name}' 可能缺少 db_column。将列名从 '{column_name}' 修正为 '{likely_column_name}'。")
-                    column_name = likely_column_name # 使用推断出的正确列名
+                column_name = field.column # 修改行: 恢复为原始的 field.column，不再进行智能修正
                 if field_name in df.columns:
+                    # 这是解决外键约束错误的核心。
+                    # 之前: lambda x: x.pk (错误地假设总是关联主键)
+                    # 现在: lambda x: getattr(x, field.target_field.name)
+                    # 这样可以正确地获取ForeignKey中to_field指定的字段值，例如从ThsIndex对象获取ts_code值。
                     target_field_name = field.target_field.name
                     df[column_name] = df[field_name].apply(
                         lambda x: getattr(x, target_field_name) if pd.notna(x) else None
