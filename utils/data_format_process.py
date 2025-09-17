@@ -951,30 +951,6 @@ class MarketFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    # 涨跌停列表
-    def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        data_dict = {
-            "stock": stock,
-            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
-            "industry": getattr(df_data, "industry", None),
-            "name": getattr(df_data, "name", None),
-            "close": self._parse_number(getattr(df_data, "close", None)),
-            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
-            "amount": self._parse_number(getattr(df_data, "amount", None)),
-            "limit_amount": self._parse_number(getattr(df_data, "limit_amount", None)),
-            "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
-            "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
-            "turnover_ratio": self._parse_number(getattr(df_data, "turnover_ratio", None)),
-            "fd_amount": self._parse_number(getattr(df_data, "fd_amount", None)),
-            "first_time": self._parse_datetime(getattr(df_data, "first_time", None)),
-            "last_time": self._parse_datetime(getattr(df_data, "last_time", None)),
-            "open_times": self._parse_datetime(getattr(df_data, "open_times", None)),
-            "up_stat": getattr(df_data, "up_stat", None),
-            "limit_times": self._parse_number(getattr(df_data, "limit_times", None)),
-            "limit": getattr(df_data, "limit", None),
-        }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 连板天梯
     def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -1028,6 +1004,7 @@ class MarketFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
+    # 涨跌停列表
     def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
         """
         将Tushare的limit_list_d接口返回的单行数据，格式化为准备入库的字典。

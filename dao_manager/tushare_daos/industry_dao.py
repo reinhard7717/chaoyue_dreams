@@ -424,7 +424,7 @@ class IndustryDao(BaseDAO):
         all_raw_members = []
         all_stock_codes = set()
         for i, ths_index in enumerate(ths_index_list):
-            print(f"进度: {i+1}/{len(ths_index_list)} | 正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
+            print(f"进度: {i+1}/{len(ths_index_list)} | [同花顺概念]正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
             offset = 0
             limit = 6000 # Tushare对该接口的单次最大返回行数
             while True:
@@ -456,7 +456,7 @@ class IndustryDao(BaseDAO):
                     # 准备获取下一页
                     offset += limit
                 except Exception as e:
-                    logger.error(f"获取板块 [{ths_index.name}] 成分股时(offset={offset})发生API错误: {e}", exc_info=True)
+                    logger.error(f"[同花顺概念]获取板块 [{ths_index.name}] 成分股时(offset={offset})发生API错误: {e}", exc_info=True)
                     break # 如果在分页获取中出错，则中断当前板块的获取，继续下一个板块
         logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
         # --- 4. (核心优化) 一次性从数据库获取所有需要的股票信息 ---
@@ -835,7 +835,7 @@ class IndustryDao(BaseDAO):
         for row in combined_df.itertuples(index=False):
             stock = stock_map.get(row.ts_code)
             if stock:
-                item_dict = self.data_format_process.set_kpl_list_data(stock=stock, df_data=row)
+                item_dict = self.market_format_process.set_kpl_list_data(stock=stock, df_data=row)
                 items_to_save.append(item_dict)
             else:
                 logger.warning(f"未在数据库中找到股票 {row.ts_code}，榜单记录将被忽略。")
@@ -1040,7 +1040,7 @@ class IndustryDao(BaseDAO):
         3. 集成了速率限制器，确保调用安全。
         限量：单次最大获取8000条数据。
         """
-        print(f"  - [DAO] 开始获取板块 {ts_code} 的全部历史成分...")
+        print(f"  - [DAO] [东方财富板块成分] 开始获取板块 {ts_code} 的全部历史成分...")
         # 1. 获取速率限制器和板块对象
         limiter = rate_limiter_factory.get_limiter(name='api_dc_member')
         dc_index = await self.get_dc_index_by_code(ts_code)
@@ -1068,7 +1068,7 @@ class IndustryDao(BaseDAO):
                     fields=["trade_date", "ts_code", "con_code", "name"]
                 )
             except Exception as e:
-                logger.error(f"获取板块 {ts_code} 历史成分时(offset={offset})失败: {e}", exc_info=True)
+                logger.error(f"[东方财富板块成分] 获取板块 {ts_code} 历史成分时(offset={offset})失败: {e}", exc_info=True)
                 break
             if df is None or df.empty:
                 break
@@ -1127,7 +1127,7 @@ class IndustryDao(BaseDAO):
         all_stock_codes = set()
         # 3. 循环获取每个板块的成分
         for i, dc_index in enumerate(all_dc_indices):
-            print(f"      - 进度 {i+1}/{len(all_dc_indices)}: 获取板块 [{dc_index.name or dc_index.ts_code}] 成分...")
+            print(f"      - 进度 {i+1}/{len(all_dc_indices)}: [东方财富板块成分] 获取板块 [{dc_index.name or dc_index.ts_code}] 成分...")
             offset = 0
             limit = 8000 # 修改行: 根据Tushare最新文档，dc_member单次最大可获取8000条
             while True:
@@ -1149,15 +1149,15 @@ class IndustryDao(BaseDAO):
                         break
                     offset += limit
                 except Exception as e:
-                    logger.error(f"获取板块 {dc_index.ts_code} 成分时(offset={offset})失败: {e}", exc_info=True)
+                    logger.error(f"[东方财富板块成分] 获取板块 {dc_index.ts_code} 成分时(offset={offset})失败: {e}", exc_info=True)
                     if '次' in str(e):
                         await asyncio.sleep(10)
                     break 
         if not all_raw_members:
-            logger.warning(f"未获取到 {trade_date_str} 的任何板块成分数据。")
+            logger.warning(f"未获取到 {trade_date_str} 的任何东方财富板块成分数据。")
             return {}
         # 4. 批量获取股票信息
-        print(f"    - 正在批量获取 {len(all_stock_codes)} 个股票的信息...")
+        print(f"    - [东方财富板块成分] 正在批量获取 {len(all_stock_codes)} 个股票的信息...")
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
         # 5. 组装数据
         members_to_save = []
@@ -1266,7 +1266,7 @@ class IndustryDao(BaseDAO):
         all_stock_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         items_to_save = [
-            self.data_format_process.set_limit_list_d_data(stock=stock_map.get(row.ts_code), df_data=row)
+            self.market_format_process.set_limit_list_d_data(stock=stock_map.get(row.ts_code), df_data=row)
             for row in combined_df.itertuples(index=False) if stock_map.get(row.ts_code)
         ]
         if not items_to_save:
@@ -1305,7 +1305,7 @@ class IndustryDao(BaseDAO):
         all_stock_codes = df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         items_to_save = [
-            self.data_format_process.set_limit_step_data(stock=stock_map.get(row.ts_code), df_data=row)
+            self.market_format_process.set_limit_step_data(stock=stock_map.get(row.ts_code), df_data=row)
             for row in df.itertuples(index=False) if stock_map.get(row.ts_code)
         ]
         if not items_to_save:
