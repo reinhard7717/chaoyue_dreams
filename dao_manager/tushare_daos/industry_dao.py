@@ -1496,7 +1496,7 @@ class IndustryDao(BaseDAO):
         【新增】根据股票代码，获取其所属行业在指定日期范围内的生命周期数据。
         """
         # 1. 获取股票所属行业
-        industry_info = await self.get_stock_industry_info(stock_code)
+        industry_info = await self.get_stock_ths_industry_info(stock_code)
         if not industry_info or not industry_info.get('code'):
             return pd.DataFrame()
         industry_code = industry_info['code']
