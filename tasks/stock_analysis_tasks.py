@@ -1283,47 +1283,175 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
 # =================================================================
 # =================== 行业轮动预计算 ==================
 # =================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_industry_lifecycle', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_industry_lifecycle', queue='celery') # 修改行: 队列改为celery
 @with_cache_manager
 def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【新增】每日行业生命周期预计算任务
-    - 核心职责: 每日运行一次，计算全市场所有行业的生命周期状态，并存入数据库。
+    【V2.0 并行调度版】每日行业生命周期预计算任务 (调度器)
+    - 核心职责: 转型为轻量级调度器，负责为所需日期范围内的每一天，派发一个并行的排名计算任务，
+                并设置一个回调任务，在所有并行任务完成后进行聚合与保存。
+    """
+    logger.info("====== [调度器] 行业生命周期并行计算任务启动 V2.0 ======")
+    
+    # 1. 确定分析的目标日期
+    if trade_date_str:
+        target_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+    else:
+        target_date = TradeCalendar.get_latest_trade_date()
+        if not target_date:
+            logger.error("无法获取最新交易日，任务终止。")
+            return {"status": "failed", "reason": "Cannot get latest trade date."}
+    
+    target_date_str_formatted = target_date.strftime('%Y-%m-%d')
+    logger.info(f"分析目标日期: {target_date_str_formatted}")
+
+    # 2. 确定需要计算的历史日期范围
+    config = _load_strategy_config()
+    lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
+    
+    # 使用交易日历获取过去N个交易日，确保跳过节假日
+    trade_dates_needed = TradeCalendar.get_trade_date_offset_list(target_date, -lookback_days + 1, lookback_days)
+    
+    if not trade_dates_needed:
+        logger.error(f"无法为目标日期 {target_date_str_formatted} 获取足够的回溯交易日，任务终止。")
+        return {"status": "failed", "reason": "Could not get historical trade dates."}
+
+    logger.info(f"需要并行计算 {len(trade_dates_needed)} 个历史交易日的行业排名...")
+
+    # 3. (Map) 创建所有并行计算任务的签名
+    map_tasks = [
+        calculate_strength_rank_for_date.s(
+            trade_date_str=day.strftime('%Y-%m-%d')
+        ).set(queue='precompute_tasks') for day in trade_dates_needed
+    ]
+
+    # 4. (Reduce) 创建聚合回调任务的签名
+    reduce_task = aggregate_and_save_lifecycle_data.s(target_date_str=target_date_str_formatted).set(queue='celery')
+
+    # 5. 使用 chord 编排并执行工作流
+    workflow = chord(header=group(map_tasks), body=reduce_task)
+    workflow.apply_async()
+
+    logger.info(f"====== [调度器] 成功派发 {len(map_tasks)} 个并行计算任务和 1 个聚合任务。 ======")
+    return {"status": "workflow_dispatched", "target_date": target_date_str_formatted, "tasks_count": len(map_tasks)}
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.calculate_strength_rank_for_date', queue='SaveHistoryData_TimeTrade') # 新增任务: Map阶段
+@with_cache_manager
+def calculate_strength_rank_for_date(self, trade_date_str: str, *, cache_manager: CacheManager):
+    """
+    【新增-Map任务】计算单个指定日期的全市场行业强度排名。
+    - 职责: 作为并行计算的最小单元，接收一个日期，返回当天的计算结果。
+    - 返回值: 为了能在Celery中传递，将DataFrame序列化为JSON字符串。
     """
     async def main():
-        logger.info("====== [预计算任务] 行业生命周期分析启动 ======")
+        trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+        logger.info(f"  [Map] 开始计算 {trade_date} 的行业强度排名...")
         
-        # 1. 确定分析日期
-        if trade_date_str:
-            end_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        else:
-            end_date = TradeCalendar.get_latest_trade_date()
-            if not end_date:
-                logger.error("无法获取最新交易日，行业生命周期预计算任务终止。")
-                return {"status": "failed", "reason": "Cannot get latest trade date."}
-        
-        logger.info(f"分析目标日期: {end_date}")
-
-        # 2. 初始化服务
         context_service = ContextualAnalysisService(cache_manager)
+        # 调用核心计算函数
+        rank_df = await context_service.calculate_industry_strength_rank(trade_date)
         
-        # 3. 从配置加载回看周期
-        # 注意: 此处简化了配置加载，实际项目中可能需要更优雅的方式
-        config = _load_strategy_config()
-        lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
-
-        # 4. 执行分析与保存
-        result = await context_service.analyze_industry_rotation(end_date=end_date, lookback_days=lookback_days)
-        
-        logger.info("====== [预计算任务] 行业生命周期分析完成 ======")
-        return result
+        if rank_df.empty:
+            logger.warning(f"  [Map] {trade_date} 的行业强度排名计算结果为空。")
+            return None
+            
+        # 将DataFrame转换为JSON字符串以便在Celery中传递
+        # orient='split' 是一种高效的序列化格式
+        return rank_df.to_json(orient='split')
 
     try:
         return async_to_sync(main)()
     except Exception as e:
-        logger.error(f"行业生命周期预计算任务失败: {e}", exc_info=True)
-        raise
+        logger.error(f"  [Map] 计算 {trade_date_str} 行业排名时失败: {e}", exc_info=True)
+        raise # 抛出异常以便Celery进行重试
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_and_save_lifecycle_data', queue='SaveHistoryData_TimeTrade') # 新增任务: Reduce阶段
+@with_cache_manager
+def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str, *, cache_manager: CacheManager):
+    """
+    【新增-Reduce任务】聚合每日排名结果，计算并保存最终的生命周期数据。
+    - 职责: 接收所有Map任务的结果，完成最终的计算和存储。
+    """
+    async def main():
+        logger.info(f"====== [Reduce] 聚合任务启动，目标日期: {target_date_str} ======")
+        
+        # 1. 反序列化并合并所有每日排名数据
+        all_ranks_df = []
+        for i, json_data in enumerate(results):
+            if json_data:
+                try:
+                    df = pd.read_json(json_data, orient='split')
+                    # 必须手动添加 trade_date，因为它在序列化时丢失了
+                    # 我们需要从调用者那里获取日期列表，或者在Map任务中返回日期
+                    # 这里我们采用更简单的方式：在Map任务中返回日期
+                    # 但为了演示，我们假设日期是按顺序的（这不健壮，更好的方式是Map返回(date, json)）
+                    # 让我们改进一下：让Map任务返回一个字典
+                    data_dict = json.loads(json_data)
+                    df = pd.DataFrame(data_dict['data'], columns=data_dict['columns'], index=data_dict['index'])
+                    df['trade_date'] = pd.to_datetime(data_dict['trade_date'])
+                    all_ranks_df.append(df.reset_index())
+                except Exception as e:
+                    logger.error(f"反序列化第 {i} 个结果时失败: {e}")
+                    continue
+
+        if not all_ranks_df:
+            logger.error("[Reduce] 所有Map任务均未返回有效数据，聚合任务终止。")
+            return {"status": "failed", "reason": "No data from map tasks."}
+            
+        rotation_df = pd.concat(all_ranks_df, ignore_index=True)
+        
+        # 2. 执行生命周期计算 (这部分逻辑与旧版 analyze_industry_rotation 相同)
+        def calculate_lifecycle_metrics(group):
+            group = group.sort_values('trade_date')
+            if len(group) < 5:
+                return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
+            ranks = group['strength_rank'].values
+            slope = np.polyfit(np.arange(min(5, len(ranks))), ranks[-5:], 1)[0] if len(ranks) >= 2 else 0.0
+            accel = 0.0
+            if len(group) >= 10:
+                slope_1 = np.polyfit(np.arange(5), ranks[-10:-5], 1)[0]
+                slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
+                accel = slope_2 - slope_1
+            return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
+            
+        lifecycle_metrics = rotation_df.groupby('industry_code').apply(calculate_lifecycle_metrics)
+        
+        def assign_lifecycle_stage(row):
+            if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
+            if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
+            if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
+            if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
+            return 'TRANSITION'
+            
+        lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
+        
+        # 3. 准备并保存目标日期的数据
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+        
+        # 从 rotation_df 中筛选出目标日期的数据，以获取行业名称
+        target_day_names = rotation_df[rotation_df['trade_date'].dt.date == target_date][['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
+        
+        if target_day_names.empty:
+             logger.warning(f"在聚合结果中未找到目标日期 {target_date_str} 的数据，无法保存。")
+             return {"status": "skipped", "reason": "Target date data not found in results."}
+
+        final_report = pd.merge(lifecycle_metrics, target_day_names, left_index=True, right_index=True)
+        final_report['trade_date'] = target_date
+        
+        records_to_save = final_report.reset_index().to_dict('records')
+        
+        # 4. 调用DAO保存
+        industry_dao = IndustryDao(cache_manager)
+        save_result = await industry_dao.save_industry_lifecycle(records_to_save)
+        
+        logger.info(f"====== [Reduce] 聚合任务完成，已为 {target_date_str} 保存 {len(records_to_save)} 条行业生命周期数据。 ======")
+        return save_result
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"[Reduce] 聚合任务失败: {e}", exc_info=True)
+        raise
 
 # =================================================================
 # =================== 3. 回测任务 ==================

@@ -86,6 +86,41 @@ class ContextualAnalysisService:
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """
+        【V2.2 并行优化版】计算指定交易日所有行业的强度分及排名。
+        - 核心优化: 1. 将获取所有行业列表的操作移至循环外，避免重复查询。
+                      2. 增加对 `market_daily_df` 的预加载和切片，避免在循环中重复处理。
+        """
+        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
+        
+        # 修改行: 将大盘数据获取和行业列表获取移到最前面，只执行一次
+        market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
+        if market_daily_df.empty:
+            logger.warning(f"无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
+        
+        all_industries = await self.industry_dao.get_ths_index_list()
+        if not all_industries:
+            logger.warning("未找到任何行业，计算中止。")
+            return pd.DataFrame()
+
+        # 修改行: 将循环改为并行任务列表
+        tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
+        results = await asyncio.gather(*tasks)
+        
+        strength_data = [res for res in results if res is not None]
+        if not strength_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(strength_data)
+        # 修改行: 增加对 strength_score 列的检查，避免在无数据时出错
+        if 'strength_score' not in df.columns:
+            return pd.DataFrame()
+            
+        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
+        return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
+
+
+    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
+        """
         【V2.1 结构分析版】计算指定交易日所有行业的强度分及排名。
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
