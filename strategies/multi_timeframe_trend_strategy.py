@@ -663,21 +663,19 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.5 · 诊断逻辑修复版】
+        【V320.6 · 模型适配修复版】
         - 核心修改 (本次修改):
-          - [逻辑修复] 修正了 `subtotal_signal_names` 的来源。旧代码试图从一个不存在的配置块中读取，现已硬编码为正确的子总分信号名列表 (`['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']`)，确保子总分项被正确过滤。
-          - [诊断增强] 放宽了“激活进攻项”的过滤条件。现在，即使一个分数组件的 `score_type` 因为信号字典不匹配而为 'unknown'，只要它不是风险项，也会被展示出来。这使得调试报告能暴露所有贡献分数的信号，帮助开发者快速定位信号字典缺失的问题。
-        - 收益: 解决了因过滤过严和信号名来源错误，导致调试报告中进攻项、惩罚项、风险项明细全部为空白的问题，恢复了调试功能。
+          - [BUG修复] 修正了对 StrategyScoreComponent 对象的属性访问。根据最新的模型定义，将所有对 `signal_name` 和 `signal_cn_name` 的访问分别修改为 `playbook.name` 和 `playbook.cn_name`。
+        - 收益: 解决了因数据库模型重构（移除 signal_name，使用 playbook 外键）而导致的 AttributeError 崩溃问题，使历史回溯调试功能恢复正常。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.5 诊断逻辑修复版)] ---") # 修改行：更新版本号
+        print(f"--- [历史回溯调试启动 (V320.6 模型适配修复版)] ---")
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
             all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
-            
             all_daily_scores_for_debug = all_daily_scores
             if all_score_components:
                 unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
@@ -686,17 +684,14 @@ class MultiTimeframeTrendStrategy:
             if not all_daily_scores_for_debug:
                 print("[信息] 核心策略未生成任何每日分数记录。")
                 return
-            
             daily_analysis_df = self.daily_analysis_df
             exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
-            
             signal_to_details_map = {}
             for detail in all_details:
                 signal_key = id(detail.signal)
                 if signal_key not in signal_to_details_map:
                     signal_to_details_map[signal_key] = []
                 signal_to_details_map[signal_key].append(detail)
-            
             daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug}
             daily_components_map = {}
             for comp in all_score_components:
@@ -704,7 +699,6 @@ class MultiTimeframeTrendStrategy:
                 if trade_date not in daily_components_map:
                     daily_components_map[trade_date] = []
                 daily_components_map[trade_date].append(comp)
-            
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
@@ -721,20 +715,16 @@ class MultiTimeframeTrendStrategy:
                     )
                 else:
                     print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
-            
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt_date = pd.to_datetime(start_date).date()
             end_dt_date = pd.to_datetime(end_date).date()
-            
             debug_period_daily_scores = [
                 ds for ds in all_daily_scores_for_debug
                 if start_dt_date <= ds.trade_date <= end_dt_date
             ]
-            
             if not debug_period_daily_scores:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
-            
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
             display_days = 10 # 定义要展示的最新天数
             if len(debug_period_daily_scores) > display_days:
@@ -742,9 +732,7 @@ class MultiTimeframeTrendStrategy:
                 # 对已排序的列表进行切片，只取最后10个元素
                 debug_period_daily_scores = debug_period_daily_scores[-display_days:]
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-
             subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']
-
             for daily_score_obj in debug_period_daily_scores:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
@@ -759,11 +747,9 @@ class MultiTimeframeTrendStrategy:
                     p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
                     final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
                     print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
-                    
                     all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
                     all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
                     print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
-                    
                     day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
                     if not day_exit_triggers.empty:
                         triggered_defenses = day_exit_triggers.iloc[0]
@@ -774,42 +760,27 @@ class MultiTimeframeTrendStrategy:
                             print("    - 触发的离场防线: 无")
                 else:
                     print("    - 未找到当日的详细分析数据。")
-
-                # print("  --- [终极诊断探针] 正在检查当日的分数组件... ---")
-                # if not related_components:
-                #     print("    - [探针结果] 警告：当日无任何分数组件 (related_components 列表为空)。这是导致明细不显示的核心原因。")
-                # else:
-                #     print(f"    - [探针结果] 发现 {len(related_components)} 个分数组件。原始数据如下:")
-                #     for i, comp in enumerate(related_components):
-                #         print(f"      {i+1}. 信号名: {comp.signal_name}, 中文名: {comp.signal_cn_name}, 类型: {comp.score_type}, 分数: {comp.score_value}")
-                # print("  --- [探针结束] ---")
-
                 # --- 放宽 offensive_components 的过滤条件 ---
-                # 旧的过滤条件过于严格，会因为 score_type 为 'unknown' 而过滤掉所有未在字典中定义的信号
-                # 新的逻辑是，只要不是明确的风险项，都视为进攻项，这样可以暴露所有加分项，便于调试
                 offensive_components = [
                     c for c in related_components
                     if c.score_type not in ['risk', 'critical_risk']
                     and c.score_value > 0
-                    and c.signal_name not in subtotal_signal_names
+                    and c.playbook.name not in subtotal_signal_names # 修改行: 将 c.signal_name 修改为 c.playbook.name
                 ]
-
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
                 penalty_components = [c for c in related_components if c.score_value < 0]
                 if penalty_components:
                     print("  --- 进攻项惩罚 (扣分项) ---")
                     for comp in sorted(penalty_components, key=lambda x: x.score_value):
-                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
-                
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 (贡献至风险惩罚分) ---")
                     for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.signal_cn_name} ({comp.score_value})")
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
