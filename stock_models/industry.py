@@ -433,3 +433,64 @@ class DcIndexMember(models.Model):
     def __str__(self):
         return f"{self.dc_index.ts_code} - {self.trade_time} - {self.stock.stock_code}"
 
+class IndustryLifecycle(models.Model): # 新增模型
+    """
+    【新增】行业生命周期预计算结果
+    - 核心职责: 存储每日计算出的各行业强度排名、趋势及所处生命周期阶段。
+    - 数据来源: 由 ContextualAnalysisService.analyze_industry_rotation 方法每日计算并写入。
+    """
+    ths_index = models.ForeignKey(
+        'ThsIndex',
+        on_delete=models.CASCADE,
+        to_field='ts_code',
+        db_column='industry_code',
+        related_name='lifecycle_data',
+        verbose_name="同花顺行业"
+    )
+    trade_date = models.DateField(verbose_name="交易日期", db_index=True)
+    strength_rank = models.FloatField(verbose_name="强度排名(0-1)", null=True)
+    rank_slope = models.FloatField(verbose_name="排名斜率", null=True)
+    rank_accel = models.FloatField(verbose_name="排名加速度", null=True)
+    lifecycle_stage = models.CharField(
+        max_length=20,
+        verbose_name="生命周期阶段",
+        choices=[
+            ('PREHEAT', '预热期'),
+            ('MARKUP', '主升段'),
+            ('STAGNATION', '滞涨期'),
+            ('DOWNTREND', '下跌段'),
+            ('TRANSITION', '过渡期'),
+        ],
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        db_table = "industry_lifecycle"
+        verbose_name = "行业生命周期"
+        verbose_name_plural = "行业生命周期"
+        unique_together = ('ths_index', 'trade_date')
+        ordering = ['-trade_date', 'strength_rank']
+
+    def __str__(self):
+        return f"{self.trade_date} - {self.ths_index.name} - {self.lifecycle_stage}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

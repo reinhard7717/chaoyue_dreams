@@ -33,11 +33,12 @@ class ContextualAnalysisService:
         self.momentum_lookback = 60
         self.fund_flow_lookback = 5
 
-    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> pd.DataFrame:
+    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> Dict:
         """
-        【V2.0 生命周期诊断版】分析行业轮动，并诊断每个行业的生命周期阶段。
+        【V3.0 预计算版】分析行业轮动，并将结果存入数据库。
+        - 核心升级: 不再返回DataFrame，而是调用DAO将计算结果持久化。
         """
-        print(f"\n--- [行业生命周期诊断 V2.0] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
+        print(f"\n--- [行业生命周期预计算 V3.0] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
         trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1]
         tasks = [self.calculate_industry_strength_rank(td, market_code) for td in trade_dates]
         daily_rank_results = await asyncio.gather(*tasks)
@@ -48,9 +49,8 @@ class ContextualAnalysisService:
                 all_ranks.append(df_rank.reset_index())
         if not all_ranks:
             logger.warning("未能获取任何历史排名数据，行业轮动分析中止。")
-            return pd.DataFrame()
+            return {"status": "skipped", "reason": "No historical rank data"}
         rotation_df = pd.concat(all_ranks, ignore_index=True)
-        
         def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
             if len(group) < 5:
@@ -63,21 +63,26 @@ class ContextualAnalysisService:
                 slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
                 accel = slope_2 - slope_1
             return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
-            
         lifecycle_metrics = rotation_df.groupby('industry_code').apply(calculate_lifecycle_metrics)
-        
         def assign_lifecycle_stage(row):
             if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
             if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
             if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
             if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
             return 'TRANSITION'
-            
         lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
         industry_names = rotation_df[['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
         final_report = pd.merge(lifecycle_metrics, industry_names, left_index=True, right_index=True)
-        print("--- [行业生命周期诊断 V2.0] 分析完成 ---")
-        return final_report.sort_values('rank_slope', ascending=False)
+        # 将计算结果持久化到数据库
+        # 只保存最新一天 (end_date) 的分析结果
+        latest_day_data = final_report.copy()
+        latest_day_data['trade_date'] = end_date
+        # 转换为适合DAO的字典列表
+        records_to_save = latest_day_data.reset_index().to_dict('records')
+        # 调用DAO进行保存
+        save_result = await self.industry_dao.save_industry_lifecycle(records_to_save)
+        print(f"--- [行业生命周期预计算 V3.0] 分析完成，已保存 {len(records_to_save)} 条行业状态到数据库。 ---")
+        return save_result
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
         """

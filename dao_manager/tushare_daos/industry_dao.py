@@ -16,7 +16,7 @@ from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
-from stock_models.industry import KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
+from stock_models.industry import IndustryLifecycle, KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
 from stock_models.stock_basic import StockInfo
 from utils.cache_get import StockInfoCacheGet
 from utils.cache_manager import CacheManager
@@ -530,7 +530,7 @@ class IndustryDao(BaseDAO):
             }
         return {}
 
-    async def get_ths_index_daily_for_range(self, ts_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame: # 新增方法
+    async def get_ths_index_daily_for_range(self, ts_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
         【新增】根据代码和日期范围获取同花顺板块指数行情。
         """
@@ -550,7 +550,7 @@ class IndustryDao(BaseDAO):
         df.set_index('trade_time', inplace=True)
         return df
 
-    async def get_stock_ths_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]: # 新增方法 (从 indicator_dao.py 迁移而来)
+    async def get_stock_ths_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]:
         """
         【新增】根据股票代码获取其当前所属的同花顺行业/概念板块信息。
         """
@@ -1405,9 +1405,8 @@ class IndustryDao(BaseDAO):
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条最强板块数据。")
         return result
 
-# ============== 市场情绪与涨跌停数据 (Getter方法) ==============
-
-    async def get_limit_list_d_for_range(self, start_date: date, end_date: date, stock_codes: Optional[List[str]] = None) -> pd.DataFrame: # 新增方法
+    # ============== 市场情绪与涨跌停数据 (Getter方法) ==============
+    async def get_limit_list_d_for_range(self, start_date: date, end_date: date, stock_codes: Optional[List[str]] = None) -> pd.DataFrame:
         """根据日期范围和股票代码列表，获取Tushare版涨跌停数据。"""
         query = LimitListD.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
         if stock_codes:
@@ -1422,7 +1421,7 @@ class IndustryDao(BaseDAO):
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
-    async def get_limit_step_for_range(self, start_date: date, end_date: date) -> pd.DataFrame: # 新增方法
+    async def get_limit_step_for_range(self, start_date: date, end_date: date) -> pd.DataFrame:
         """根据日期范围，获取连板天梯数据。"""
         query = LimitStep.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
         data = await sync_to_async(lambda: list(query.values(
@@ -1434,7 +1433,7 @@ class IndustryDao(BaseDAO):
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
-    async def get_limit_cpt_list_for_range(self, start_date: date, end_date: date, industry_codes: Optional[List[str]] = None) -> pd.DataFrame: # 新增方法
+    async def get_limit_cpt_list_for_range(self, start_date: date, end_date: date, industry_codes: Optional[List[str]] = None) -> pd.DataFrame:
         """根据日期范围和板块代码列表，获取最强板块统计数据。"""
         query = LimitCptList.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
         if industry_codes:
@@ -1448,7 +1447,7 @@ class IndustryDao(BaseDAO):
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
-    async def get_limit_cpt_list_for_industry_and_date(self, industry_code: str, trade_date: date) -> Optional[Dict]: # 新增方法
+    async def get_limit_cpt_list_for_industry_and_date(self, industry_code: str, trade_date: date) -> Optional[Dict]:
         """获取单个板块在指定日期的最强板块统计数据。"""
         record = await sync_to_async(
             LimitCptList.objects.filter(ths_index__ts_code=industry_code, trade_date=trade_date).first
@@ -1463,7 +1462,66 @@ class IndustryDao(BaseDAO):
             }
         return None
 
+    # ============== 行业生命周期预计算 ==============
+    async def save_industry_lifecycle(self, lifecycle_data: List[Dict]) -> Dict:
+        """
+        【新增】批量保存行业生命周期预计算结果。
+        """
+        if not lifecycle_data:
+            return {}
+        # 批量获取 ThsIndex 对象
+        all_industry_codes = [item['industry_code'] for item in lifecycle_data]
+        industry_map = await self.get_ths_indices_by_codes(all_industry_codes)
+        records_to_save = []
+        for item in lifecycle_data:
+            ths_index = industry_map.get(item['industry_code'])
+            if ths_index:
+                records_to_save.append({
+                    "ths_index": ths_index,
+                    "trade_date": item['trade_date'],
+                    "strength_rank": item.get('latest_rank'),
+                    "rank_slope": item.get('rank_slope'),
+                    "rank_accel": item.get('rank_accel'),
+                    "lifecycle_stage": item.get('lifecycle_stage'),
+                })
+        
+        return await self._save_all_to_db_native_upsert(
+            model_class=IndustryLifecycle,
+            data_list=records_to_save,
+            unique_fields=['ths_index', 'trade_date']
+        )
 
+    async def get_industry_lifecycle_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        【新增】根据股票代码，获取其所属行业在指定日期范围内的生命周期数据。
+        """
+        # 1. 获取股票所属行业
+        industry_info = await self.get_stock_industry_info(stock_code)
+        if not industry_info or not industry_info.get('code'):
+            return pd.DataFrame()
+        industry_code = industry_info['code']
+        # 2. 查询预计算的行业生命周期数据
+        query = IndustryLifecycle.objects.filter(
+            ths_index__ts_code=industry_code,
+            trade_date__gte=start_date,
+            trade_date__lte=end_date
+        ).order_by('trade_date')
+        data = await sync_to_async(list)(query.values(
+            'trade_date', 'strength_rank', 'rank_slope', 'rank_accel', 'lifecycle_stage'
+        ))()
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame.from_records(data)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        df = df.set_index('trade_date')
+        # 3. 重命名列以符合注入规范
+        df.rename(columns={
+            'strength_rank': 'industry_rank_D',
+            'rank_slope': 'industry_rank_slope_D',
+            'rank_accel': 'industry_rank_accel_D',
+            'lifecycle_stage': 'industry_lifecycle_stage_D'
+        }, inplace=True)
+        return df
 
 
 

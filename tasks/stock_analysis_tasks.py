@@ -27,6 +27,7 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
 from stock_models.index import TradeCalendar
+from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
 from services.chip_score_calculator import calculate_chip_health_score
 from stock_models.stock_basic import StockInfo
@@ -1277,6 +1278,52 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
         logger.error(f"数据迁移调度过程中发生严重错误: {e}", exc_info=True)
         self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
         raise
+
+
+# =================================================================
+# =================== 行业轮动预计算 ==================
+# =================================================================
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_industry_lifecycle', queue='precompute_tasks')
+@with_cache_manager
+def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_manager: CacheManager):
+    """
+    【新增】每日行业生命周期预计算任务
+    - 核心职责: 每日运行一次，计算全市场所有行业的生命周期状态，并存入数据库。
+    """
+    async def main():
+        logger.info("====== [预计算任务] 行业生命周期分析启动 ======")
+        
+        # 1. 确定分析日期
+        if trade_date_str:
+            end_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+        else:
+            end_date = TradeCalendar.get_latest_trade_date()
+            if not end_date:
+                logger.error("无法获取最新交易日，行业生命周期预计算任务终止。")
+                return {"status": "failed", "reason": "Cannot get latest trade date."}
+        
+        logger.info(f"分析目标日期: {end_date}")
+
+        # 2. 初始化服务
+        context_service = ContextualAnalysisService(cache_manager)
+        
+        # 3. 从配置加载回看周期
+        # 注意: 此处简化了配置加载，实际项目中可能需要更优雅的方式
+        config = _load_strategy_config()
+        lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
+
+        # 4. 执行分析与保存
+        result = await context_service.analyze_industry_rotation(end_date=end_date, lookback_days=lookback_days)
+        
+        logger.info("====== [预计算任务] 行业生命周期分析完成 ======")
+        return result
+
+    try:
+        return async_to_sync(main)()
+    except Exception as e:
+        logger.error(f"行业生命周期预计算任务失败: {e}", exc_info=True)
+        raise
+
 
 # =================================================================
 # =================== 3. 回测任务 ==================

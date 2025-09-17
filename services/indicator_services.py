@@ -410,8 +410,6 @@ class IndicatorService:
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
-        industry_params = self._find_params_recursively(config, 'industry_context_params')
-        is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
         # 注入游资信号
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         if hot_money_params and hot_money_params.get('enabled', False):
@@ -433,21 +431,18 @@ class IndicatorService:
         # 注入行业生命周期数据
         industry_params = self._find_params_recursively(config, 'industry_context_params')
         if industry_params and industry_params.get('enabled', False):
-            current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now(pytz.timezone('Asia/Shanghai')).date()
-            lookback_days = industry_params.get('lookback_days', 20)
-            industry_lifecycle_df = await self.context_service.analyze_industry_rotation(current_trade_date, lookback_days=lookback_days)
-            # 调用 industry_dao 中的方法，职责更清晰
-            stock_industry_info = await self.industry_dao.get_stock_industry_info(stock_code)
-            stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
-            if not industry_lifecycle_df.empty and stock_industry_code and stock_industry_code in industry_lifecycle_df.index:
-                industry_data = industry_lifecycle_df.loc[stock_industry_code]
-                latest_day_index = df_daily.index[-1]
-                # 统一添加 industry_ 前缀，避免潜在的列名冲突
-                for col, val in industry_data.items():
-                    if col in ['latest_rank', 'rank_slope', 'rank_accel', 'lifecycle_stage']:
-                        new_col_name = f"industry_{col}_D"
-                        df_daily.loc[latest_day_index, new_col_name] = val
-                        df_daily[new_col_name] = df_daily[new_col_name].ffill()
+            # 不再调用 context_service.analyze_industry_rotation
+            # 而是直接从DAO查询预计算结果
+            industry_lifecycle_df = await self.industry_dao.get_industry_lifecycle_for_stock(stock_code, start_date, end_date)
+            if not industry_lifecycle_df.empty:
+                # 将查询到的行业数据合并到日线DataFrame中
+                df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
+                # 向前填充，确保每个交易日都有行业状态
+                for col in industry_lifecycle_df.columns:
+                    df_daily[col] = df_daily[col].ffill()
+                print(f"    - [行业背景注入] 成功注入预计算的行业生命周期数据。")
+            else:
+                print(f"    - [行业背景注入] 未能获取股票 {stock_code} 的预计算行业生命周期数据。")
         # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
