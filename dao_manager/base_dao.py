@@ -699,9 +699,10 @@ class BaseDAO(Generic[T]):
         # 7. 返回结果
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
 
-    async def process_batch_async(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list, batch_size=1000):
+    async def process_batch_async(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list, batch_size=8000):
         """
-        【V25 - 分布式锁版】的异步批处理调度器。
+        【V26 - 参数适配修复版】的异步批处理调度器。
+        - 修复: 修正了调用底层同步方法时的参数不匹配问题。
         - 策略:
           1. 在处理任何批次前，通过 self.cache_manager 为当前目标表获取一个Redis分布式锁。
           2. 这可以确保在同一时间内，只有一个进程/任务流可以向该表写入数据，从根本上消除并发写入导致的死锁。
@@ -727,13 +728,19 @@ class BaseDAO(Generic[T]):
                 for i in range(0, len(df), batch_size):
                     batch_df = df.iloc[i:i + batch_size]
                     try:
-                        # 内部的 _process_batch_mysql_upsert_sync 仍然保留排序和重试逻辑，作为双重保险
+                        # ================== 修改开始 ==================
+                        # 1. 将DataFrame批次转换为字典列表，以匹配 _process_batch_mysql_upsert_sync 的 data_list 参数
+                        batch_data_list = batch_df.to_dict('records')
+
+                        # 2. 使用正确的参数名调用同步方法
                         processed_count = await sync_to_async(self._process_batch_mysql_upsert_sync)(
-                            df=batch_df,
                             model_class=model_class,
-                            update_fields=update_fields,
-                            unique_key_fields=unique_key_fields
+                            data_list=batch_data_list,          # 修改行: 使用 data_list 参数
+                            unique_fields=unique_key_fields,    # 修改行: 使用 unique_fields 参数
+                            update_fields=update_fields
                         )
+                        # ================== 修改结束 ==================
+
                         if processed_count is not None:
                             total_processed += processed_count
                     except Exception as e:
