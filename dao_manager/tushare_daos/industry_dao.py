@@ -799,7 +799,7 @@ class IndustryDao(BaseDAO):
         """【V2.0 新增】根据题材代码列表批量获取 KplConceptInfo 对象"""
         if not codes:
             return {}
-        instances = await self.filter_async(KplConceptInfo, ts_code__in=codes)
+        instances = await sync_to_async(list)(KplConceptInfo.objects.filter(ts_code__in=codes))
         return {instance.ts_code: instance for instance in instances}
 
     async def save_kpl_list_by_date(self, trade_date: date) -> Dict:

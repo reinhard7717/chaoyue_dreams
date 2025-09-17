@@ -33,9 +33,11 @@ def safe_value(val):
     # 处理 decimal.Decimal
     if isinstance(val, decimal.Decimal):
         return float(val)
-    # 处理 datetime/date
-    if isinstance(val, (datetime.datetime, datetime.date)):
-        return val.isoformat()
+    # 修改行：注释掉对 datetime/date 的处理。
+    # 数据库批量插入方法需要的是原生的 datetime/date 对象，而不是它们的字符串表示。
+    # 字符串化应在其他需要序列化（如API响应）的场景下进行。
+    # if isinstance(val, (datetime.datetime, datetime.date)):
+    #     return val.isoformat()
     return val
 
 class UserDataFormatProcess(BaseDAO):
@@ -699,6 +701,8 @@ class IndustryFormatProcess(BaseDAO):
 
     # 申万行业日线行情
     def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
+        trade_time_obj = self._parse_datetime(getattr(df_data, "trade_date", None))
+        print(f"DEBUG: [set_sw_industry_daily_data] Code: {getattr(df_data, 'ts_code', 'N/A')}, trade_time type: {type(trade_time_obj)}, value: {trade_time_obj}")
         data_dict = {
             "index": index,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
@@ -935,7 +939,7 @@ class MarketFormatProcess(BaseDAO):
             "price": self._parse_number(getattr(df_data, "price", None)),
             "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
             "open_num": self._parse_number(getattr(df_data, "open_num", None)) or 0,
-            "lu_desc": getattr(df_data, "lu_desc", None),
+            "lu_desc": getattr(df_data, "lu_desc", None) or '',
             "limit_type": getattr(df_data, "limit_type", None),
             "tag": getattr(df_data, "tag", None),
             "status": getattr(df_data, "status", None),
@@ -1027,7 +1031,7 @@ class MarketFormatProcess(BaseDAO):
             "last_time": getattr(df_data, "last_time", None), # 保持为字符串
             "open_times": self._parse_number(getattr(df_data, "open_times", None)),
             "up_stat": getattr(df_data, "up_stat", None),
-            "limit_times": self._parse_number(getattr(df_data, "limit_times", None)),
+            "limit_times": self._parse_number(getattr(df_data, "limit_times", None)) or 0,
             "limit": getattr(df_data, "limit", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
