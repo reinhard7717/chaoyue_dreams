@@ -28,7 +28,6 @@ class ContextualAnalysisService:
         self.indicator_dao = IndicatorDAO(cache_manager_instance)
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
-        self.indicator_dao = IndexBasicDAO(cache_manager_instance) # 沿用旧名，但它现在是IndexBasicDAO
         self.stock_trade_dao = StockTimeTradeDAO(cache_manager_instance)
         
         self.momentum_lookback = 60
