@@ -137,7 +137,7 @@
       "industry_context_params": {
         "enabled": true,
         "description": "【V1.0 新增】行业背景分析参数",
-        "lookback_days": 20,
+        "lookback_days": 21,
         "description_lookback": "计算行业强度排名斜率和加速度时，回看的天数。"
       },
       "price_volume_ma_comparison": {

@@ -429,26 +429,25 @@ class IndicatorService:
                     fill_value = 0 if 'score' in col or 'rank' in col or 'ups' in col else False
                     df_daily[col] = df_daily[col].fillna(fill_value)
         # 注入行业生命周期数据
-        industry_params = self._find_params_recursively(config, 'industry_context_params')
+        four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
+        industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
-            print(f"    - [行业背景注入] 开始从预计算结果中查询行业生命周期数据...")
-            # 不再调用 context_service.analyze_industry_rotation
-            # 而是直接从DAO查询预计算结果
+            print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，开始注入预计算数据...")
+            # 调用DAO查询预计算结果
             industry_lifecycle_df = await self.industry_dao.get_industry_lifecycle_for_stock(stock_code, start_date, end_date)
             if not industry_lifecycle_df.empty:
-                # 将查询到的行业数据合并到日线DataFrame中
                 # 使用 left join，以 df_daily 的索引为准
                 df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
                 # 向前填充，确保每个交易日都有行业状态
                 for col in industry_lifecycle_df.columns:
-                    # 对 object/category 类型（如 lifecycle_stage）的列特殊处理
                     if df_daily[col].dtype == 'object' or isinstance(df_daily[col].dtype, pd.CategoricalDtype):
                         df_daily[col] = df_daily[col].ffill()
                     else: # 对数值类型的列（rank, slope, accel）填充0
                         df_daily[col] = df_daily[col].ffill().fillna(0)
                 print(f"    - [行业背景注入] 成功注入预计算的行业生命周期数据。")
             else:
-                print(f"    - [行业背景注入] 未能获取股票 {stock_code} 的预计算行业生命周期数据。")
+                print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的预计算行业生命周期数据。")
+
         # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
