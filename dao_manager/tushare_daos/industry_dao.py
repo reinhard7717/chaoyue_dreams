@@ -1,4 +1,5 @@
 # dao_manager\tushare_daos\industry_dao.py
+import os
 import asyncio
 import logging
 from time import sleep
@@ -723,7 +724,6 @@ class IndustryDao(BaseDAO):
             model_class=KplConceptInfo,
             data_list=concept_info_list,
             unique_fields=['ts_code'],
-            update_fields=['name']
         )
         print(f"    - [DAO] 完成 {len(concept_info_list)} 条题材主数据更新。")
         # 2. 准备并保存每日快照数据 (KplConceptDaily)
@@ -991,7 +991,6 @@ class IndustryDao(BaseDAO):
                 model_class=DcIndex,
                 data_list=new_indices_to_create,
                 unique_fields=['ts_code'],
-                update_fields=['name'] # 如果已存在，可以尝试更新name
             )
             dc_index_map.update(await self.get_dc_indices_by_codes([d['ts_code'] for d in new_indices_to_create]))
             print(f"    - 新板块创建完成。")
