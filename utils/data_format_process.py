@@ -701,7 +701,7 @@ class IndustryFormatProcess(BaseDAO):
     def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
         data_dict = {
             "index": index,
-            "trade_time": self._parse_datetime(getattr(df_data, "trade_time", None)),
+            "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
             "name": getattr(df_data, "name", None),
             "open": self._parse_number(getattr(df_data, "open", None)),
             "high": self._parse_number(getattr(df_data, "high", None)),
