@@ -288,7 +288,10 @@ class IntelligenceLayer:
         """
         scores = {}
         # default_score = pd.Series(0.0, index=df.index)
-        params = get_params_block(self.strategy, 'industry_lifecycle_scoring_params', {})
+        # 1. 首先获取包含所有计分逻辑的 'four_layer_scoring_params' 块
+        four_layer_params = get_params_block(self.strategy, 'four_layer_scoring_params', {})
+        # 2. 然后从该块中安全地获取本模块专属的参数
+        params = four_layer_params.get('industry_lifecycle_scoring_params', {})
         if not params.get('enabled', False):
             print("    - [行业生命周期评分-警告] 模块在配置中被禁用。")
             return {}

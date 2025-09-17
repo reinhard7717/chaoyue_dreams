@@ -1283,7 +1283,7 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
 # =================================================================
 # =================== 行业轮动预计算 ==================
 # =================================================================
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_industry_lifecycle', queue='celery') # 修改行: 队列改为celery
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_industry_lifecycle', queue='celery') # 队列改为celery
 @with_cache_manager
 def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_manager: CacheManager):
     """

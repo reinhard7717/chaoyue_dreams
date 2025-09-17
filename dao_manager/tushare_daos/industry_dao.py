@@ -971,11 +971,11 @@ class IndustryDao(BaseDAO):
         print(f"    - 发现 {len(unique_indices)} 个不重复的东方财富板块，准备进行更新/创建...")
         result = await self._save_all_to_db_native_upsert(
             model_class=DcIndex,
-            data_list=unique_indices,  # 修改行: 直接使用 unique_indices
+            data_list=unique_indices,  # 直接使用 unique_indices
             unique_fields=['ts_code']
         )
         
-        print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(unique_indices)} 条板块元数据。") # 修改行: 更新日志输出变量
+        print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(unique_indices)} 条板块元数据。") # 更新日志输出变量
         return result
 
     # ============== 东方财富板块指数行情 ==============
@@ -1177,7 +1177,7 @@ class IndustryDao(BaseDAO):
         for i, dc_index in enumerate(all_dc_indices):
             print(f"      - 进度 {i+1}/{len(all_dc_indices)}: [东方财富板块成分] 获取板块 [{dc_index.name or dc_index.ts_code}] 成分...")
             offset = 0
-            limit = 8000 # 修改行: 根据Tushare最新文档，dc_member单次最大可获取8000条
+            limit = 8000 # 根据Tushare最新文档，dc_member单次最大可获取8000条
             while True:
                 if offset >= 100000:
                     logger.warning(f"板块 {dc_index.ts_code} 成分股获取已达10万行上限，停止获取。")

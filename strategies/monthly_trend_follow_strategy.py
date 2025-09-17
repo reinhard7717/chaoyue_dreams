@@ -63,7 +63,7 @@ class MonthlyTrendFollowStrategy:
         washout_signal_threshold = self.params.get('final_washout_params', {}).get('score_threshold', 1)
         df.loc[:, 'signal_final_washout'] = df['washout_score'] >= washout_signal_threshold
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-        # 修改行: 实施方案三，放宽吸筹前提条件
+        # 实施方案三，放宽吸筹前提条件
         # 原逻辑: was_accumulating = df['signal_monthly_accumulation'].shift(1).fillna(False)
         # 新逻辑: 不再要求紧邻的上一个月必须吸筹，而是检查过去约3个月（60个交易日）内是否出现过吸筹信号。
         # 这种方式可以捕捉到“吸筹后盘整一两个月再突破”的股票，显著增加信号数量。
@@ -84,7 +84,7 @@ class MonthlyTrendFollowStrategy:
         # print("\n---【策略逻辑链调试】---")
         # print(f"【步骤1】月线吸筹信号总数: {df['signal_monthly_accumulation'].sum()}")
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-        # 修改行: 更新调试信息的文本以匹配新的逻辑
+        # 更新调试信息的文本以匹配新的逻辑
         # print(f"【步骤1.5】'近期有吸筹'(was_accumulating)信号总数: {was_accumulating.sum()}")
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         # print(f"【步骤2】月线突破信号总数: {df['signal_monthly_breakout'].sum()}")

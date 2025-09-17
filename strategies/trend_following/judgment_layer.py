@@ -130,10 +130,10 @@ class JudgmentLayer:
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 全面使用新版S级数值化信号 ---
         # 获取动态看涨共振S级分数，代表“纯粹的进攻”
-        # 修改行: 修正了信号名称，从 SCORE_FV_OFFENSIVE_RESONANCE_S 改为 SCORE_DYN_BULLISH_RESONANCE_S
+        # 修正了信号名称，从 SCORE_FV_OFFENSIVE_RESONANCE_S 改为 SCORE_DYN_BULLISH_RESONANCE_S
         offensive_resonance_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S', default_score)
         # 获取动态看跌共振S级分数，代表“高位滞涨/出货”风险
-        # 修改行: 修正了信号名称，从 SCORE_FV_RISK_EXPANSION_S 改为 SCORE_DYN_BEARISH_RESONANCE_S
+        # 修正了信号名称，从 SCORE_FV_RISK_EXPANSION_S 改为 SCORE_DYN_BEARISH_RESONANCE_S
         risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE_S', default_score)
         # 定义基于数值化分数的战术状态
         # 当进攻共振分数很高时，采取强攻姿态

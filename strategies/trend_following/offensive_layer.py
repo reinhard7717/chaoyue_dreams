@@ -17,7 +17,7 @@ class OffensiveLayer:
           - 根据行业所处的“预热期”和“主升浪”阶段的置信度分数，动态地为个股信号提供加权奖励。
         - 收益: 实现了策略与宏观行业趋势的深度协同，能更智能地为处于顺风口的信号加分。
         """
-        # print("        -> [进攻方案评估中心 V402.3 行业协同版] 启动...") # 修改行: 更新版本号和日志
+        # print("        -> [进攻方案评估中心 V402.3 行业协同版] 启动...") # 更新版本号和日志
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)

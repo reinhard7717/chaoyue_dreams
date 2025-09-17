@@ -92,7 +92,7 @@ class ContextualAnalysisService:
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
         
-        # 修改行: 将大盘数据获取和行业列表获取移到最前面，只执行一次
+        # 将大盘数据获取和行业列表获取移到最前面，只执行一次
         market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
         if market_daily_df.empty:
             logger.warning(f"无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
@@ -102,7 +102,7 @@ class ContextualAnalysisService:
             logger.warning("未找到任何行业，计算中止。")
             return pd.DataFrame()
 
-        # 修改行: 将循环改为并行任务列表
+        # 将循环改为并行任务列表
         tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
         results = await asyncio.gather(*tasks)
         
@@ -111,7 +111,7 @@ class ContextualAnalysisService:
             return pd.DataFrame()
 
         df = pd.DataFrame(strength_data)
-        # 修改行: 增加对 strength_score 列的检查，避免在无数据时出错
+        # 增加对 strength_score 列的检查，避免在无数据时出错
         if 'strength_score' not in df.columns:
             return pd.DataFrame()
             

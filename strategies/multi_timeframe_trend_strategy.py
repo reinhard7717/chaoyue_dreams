@@ -765,22 +765,22 @@ class MultiTimeframeTrendStrategy:
                     c for c in related_components
                     if c.score_type not in ['risk', 'critical_risk']
                     and c.score_value > 0
-                    and c.playbook.name not in subtotal_signal_names # 修改行: 将 c.signal_name 修改为 c.playbook.name
+                    and c.playbook.name not in subtotal_signal_names # 将 c.signal_name 修改为 c.playbook.name
                 ]
                 if offensive_components:
                     print("  --- 激活进攻项 (加分项) ---")
                     for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
                 penalty_components = [c for c in related_components if c.score_value < 0]
                 if penalty_components:
                     print("  --- 进攻项惩罚 (扣分项) ---")
                     for comp in sorted(penalty_components, key=lambda x: x.score_value):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
                 risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
                 if risk_components:
                     print("  --- 激活风险项 (贡献至风险惩罚分) ---")
                     for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 修改行: 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
