@@ -478,12 +478,23 @@
         "periods": [1, 5, 13, 21, 55],
         "norm_window": 120
       },
+      "smart_money_params": {
+        "enabled": true,
+        "description": "【新增】聪明钱（游资+机构）协同分析参数",
+        "hm_coordination_threshold": 3,
+        "description_hm": "定义多少家游资同时净买入算作“协同攻击”"
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
         "contextual_setup_scoring": {
           "说明": "【第一层：环境与战备分】对高质量的元融合信号和战备状态进行独立计分，构筑开仓的'地基'。",
           "positive_signals": {
+            "说明_聪明钱": "--- S级聪明钱协同信号 ---",
+            "SMART_MONEY_SYNERGY_BUY_D": 400,
+            "SMART_MONEY_HM_COORDINATED_ATTACK_D": 250,
+            "SMART_MONEY_HM_NET_BUY_D": 100,
+            "SMART_MONEY_INST_NET_BUY_D": 150,
             "说明_王牌战备": "--- S++级战备状态 ---",
             "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS": 800,
             "说明_认知层机会": "--- S/A级认知与融合机会 ---",

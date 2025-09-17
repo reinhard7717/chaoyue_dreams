@@ -59,7 +59,7 @@ def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.d
     【无绑定版】
     通用子任务：执行FundFlowDao中的指定异步方法来保存当日数据。
     """
-    # [代码已修复] 使用 current_task.request.id 获取任务ID
+    # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
     fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"子任务启动: {task_id} - {method_name}")
@@ -80,7 +80,7 @@ def save_fund_flow_daily_data_today():
     【无绑定版】
     调度器任务（编排者）：负责并行分派获取当日三种渠道资金流数据的子任务。
     """
-    # [代码已修复] 使用 current_task.request.id 获取任务ID
+    # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
     logger.info(f"任务启动: {task_id} (编排者模式) - 准备分派并行子任务")
     print(f"调试信息：主任务 {task_id} 启动，准备分派当日资金流数据获取任务组。")
@@ -114,7 +114,7 @@ def save_hm_detail_data_today(cache_manager=None):
     【无绑定版】
     Celery任务：获取并保存【当天】的游资每日明细数据。
     """
-    # [代码已修复] 使用 current_task.request.id 获取任务ID
+    # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
     dao = FundFlowDao(cache_manager)
     print(f"开始执行Celery任务: 保存【当天】的游资每日明细数据。 save_hm_detail_data_today, Task ID: {task_id}")
@@ -132,7 +132,7 @@ def execute_fund_flow_dao_method(method_name: str, trade_date: str, cache_manage
     【无绑定版】
     通用执行者子任务：执行FundFlowDao中的指定异步方法。
     """
-    # [代码已修复] 使用 current_task.request.id 获取任务ID
+    # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
     fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"通用子任务启动: {task_id} - {method_name}")
@@ -152,7 +152,7 @@ def save_fund_flow_daily_data_yesterday():
     【无绑定版】
     调度器任务（编排者）：负责并行分派获取【昨日】三种渠道资金流数据的子任务。
     """
-    # [代码已修复] 使用 current_task.request.id 获取任务ID
+    # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
     logger.info(f"任务启动: {task_id} (编排者模式) - 准备分派并行子任务")
     print(f"调试信息：主任务 {task_id} 启动，准备分派【昨日】资金流数据获取任务组。")

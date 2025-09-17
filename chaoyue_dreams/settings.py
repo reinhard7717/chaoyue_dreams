@@ -543,6 +543,11 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
+    '每天运行一次: 今日全渠道板块指数行情数据': {
+        'task': 'tasks.tushare.industry_tasks.save_all_daily_industry_concept_data_task',
+        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'SaveHistoryData_TimeTrade'}
+    },
     '每天运行一次: 今日周K线数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_week_data_today_task',
         'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
@@ -558,14 +563,9 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
-    '每天运行一次: 今日同花顺指数数据': {
-        'task': 'tasks.tushare.industry_tasks.save_all_daily_industry_concept_data_task',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
-        'options': {'queue': 'SaveHistoryData_TimeTrade'}
-    },
     '每天运行一次: 今日股票基本信息数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task',
-        'schedule': crontab(minute=25, hour=17, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=25, hour=18, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日资金流数据': {

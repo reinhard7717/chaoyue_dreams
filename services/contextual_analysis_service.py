@@ -250,3 +250,78 @@ class ContextualAnalysisService:
                 hottest_industry_daily = hottest_industry_daily.set_index('trade_date')
                 signals_df['industry_hotness_rank_D'] = hottest_industry_daily['rank']
         return signals_df
+
+    async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame: # 新增方法
+        """
+        【新增】聪明钱信号引擎
+        - 核心职责: 融合游资(HmDetail)和龙虎榜(TopList, TopInst)数据，生成协同与背离信号。
+        """
+        print("    - [聪明钱引擎] 开始准备游资与机构协同信号...")
+        
+        # 1. 并发获取所有需要的原始数据
+        tasks = {
+            "hm_detail": self.fund_flow_dao.get_hm_detail_data(start_date, end_date, stock_codes=[stock_code]),
+            "top_list": self.fund_flow_dao.get_top_list_data(start_date, end_date, stock_codes=[stock_code]),
+            "top_inst": self.fund_flow_dao.get_top_inst_data(start_date, end_date, stock_codes=[stock_code])
+        }
+        results = await asyncio.gather(*tasks.values())
+        hm_df, top_list_df, top_inst_df = results
+
+        # 创建一个以日期为索引的空DataFrame用于存储所有信号
+        date_range_index = pd.date_range(start=start_date, end=end_date, freq='D', tz='UTC')
+        signals_df = pd.DataFrame(index=date_range_index)
+
+        # 2. 处理游资信号 (Hot Money)
+        if not hm_df.empty:
+            hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'], utc=True)
+            # 按天聚合游资行为
+            hm_daily_summary = hm_df.groupby('trade_date').agg(
+                hm_net_amount=('net_amount', 'sum'),
+                hm_buyer_count=('hm_name', lambda x: x[hm_df.loc[x.index, 'net_amount'] > 0].nunique())
+            )
+            signals_df = signals_df.merge(hm_daily_summary, left_index=True, right_index=True, how='left')
+            
+            # 信号1: 游资净买入
+            signals_df['SMART_MONEY_HM_NET_BUY_D'] = signals_df['hm_net_amount'] > 0
+            # 信号2: 游资协同攻击
+            coordination_threshold = params.get('hm_coordination_threshold', 3)
+            signals_df['SMART_MONEY_HM_COORDINATED_ATTACK_D'] = signals_df['hm_buyer_count'] >= coordination_threshold
+
+        # 3. 处理机构信号 (Institution)
+        if not top_inst_df.empty:
+            top_inst_df['trade_date'] = pd.to_datetime(top_inst_df['trade_date'], utc=True)
+            # 按天聚合机构净买入额
+            inst_daily_summary = top_inst_df.groupby('trade_date').agg(inst_net_buy=('net_buy', 'sum'))
+            signals_df = signals_df.merge(inst_daily_summary, left_index=True, right_index=True, how='left')
+            
+            # 信号3: 机构净买入
+            signals_df['SMART_MONEY_INST_NET_BUY_D'] = signals_df['inst_net_buy'] > 0
+
+        # 4. 处理协同与背离信号
+        # 信号4: 游资与机构协同买入 (最强看涨信号之一)
+        signals_df['SMART_MONEY_SYNERGY_BUY_D'] = signals_df.get('SMART_MONEY_HM_NET_BUY_D', False) & signals_df.get('SMART_MONEY_INST_NET_BUY_D', False)
+        
+        # 信号5: 游资买、机构卖 (短期情绪高涨，但中期价值不被认可，潜在风险)
+        signals_df['SMART_MONEY_DIVERGENCE_HM_BUY_INST_SELL_D'] = signals_df.get('SMART_MONEY_HM_NET_BUY_D', False) & ~signals_df.get('SMART_MONEY_INST_NET_BUY_D', False)
+
+        # 清理辅助列，只保留最终的布尔信号
+        final_cols = [col for col in signals_df.columns if col.startswith('SMART_MONEY_')]
+        final_signals_df = signals_df[final_cols].fillna(False).astype(bool)
+
+        print(f"    - [聪明钱引擎] 信号生成完毕。")
+        return final_signals_df
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

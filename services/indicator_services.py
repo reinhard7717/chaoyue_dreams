@@ -436,23 +436,32 @@ class IndicatorService:
             current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now(pytz.timezone('Asia/Shanghai')).date()
             lookback_days = industry_params.get('lookback_days', 20)
             industry_lifecycle_df = await self.context_service.analyze_industry_rotation(current_trade_date, lookback_days=lookback_days)
-            
-            # 修改行: 调用 industry_dao 中的方法，职责更清晰
+            # 调用 industry_dao 中的方法，职责更清晰
             stock_industry_info = await self.industry_dao.get_stock_industry_info(stock_code)
-            
             stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
             if not industry_lifecycle_df.empty and stock_industry_code and stock_industry_code in industry_lifecycle_df.index:
                 industry_data = industry_lifecycle_df.loc[stock_industry_code]
                 latest_day_index = df_daily.index[-1]
-                # 修改行: 统一添加 industry_ 前缀，避免潜在的列名冲突
+                # 统一添加 industry_ 前缀，避免潜在的列名冲突
                 for col, val in industry_data.items():
                     if col in ['latest_rank', 'rank_slope', 'rank_accel', 'lifecycle_stage']:
                         new_col_name = f"industry_{col}_D"
                         df_daily.loc[latest_day_index, new_col_name] = val
                         df_daily[new_col_name] = df_daily[new_col_name].ffill()
+        # 注入聪明钱信号
+        smart_money_params = self._find_params_recursively(config, 'smart_money_params')
+        if smart_money_params and smart_money_params.get('enabled', False):
+            print(f"    - [配置信息] 检测到聪明钱分析已启用，开始生成协同信号...")
+            smart_money_signals_df = await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
+            if not smart_money_signals_df.empty:
+                smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
+                df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
+                for col in smart_money_signals_df.columns:
+                    df_daily[col] = df_daily[col].fillna(False).astype(bool)
+                print(f"    - [聪明钱注入] 已将游资与机构协同信号注入日线数据。")
         all_dfs['D'] = df_daily
         #  调用军械库清单生成器 ▼▼▼
-        # self._log_final_data_columns(all_dfs)
+        self._log_final_data_columns(all_dfs)
         return all_dfs
 
     async def _prepare_base_data_and_indicators(

@@ -192,7 +192,6 @@ class FundFlowDao(BaseDAO):
         return
 
     # ============== 个股日级资金流向数据 - 同花顺 ==============
-
     async def get_fund_flow_ths_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
         【新增】获取单个股票的历史日级资金流向数据 (同花顺)
@@ -347,7 +346,6 @@ class FundFlowDao(BaseDAO):
         return
 
     # ============== 日级资金流向数据 - 东方财富 ==============
-
     async def get_fund_flow_dc_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
         【新增】获取单个股票的历史日级资金流向数据 (东方财富)
@@ -973,6 +971,35 @@ class FundFlowDao(BaseDAO):
         logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
 
+    async def get_top_list_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
+        """
+        【新增】根据日期范围和股票代码列表，获取龙虎榜每日明细数据。
+        """
+        qs = TopList.objects.filter(trade_date__range=(start_date, end_date))
+        if stock_codes:
+            qs = qs.filter(stock__stock_code__in=stock_codes)
+        
+        # 使用select_related优化查询
+        qs = qs.select_related('stock')
+        
+        # 定义需要返回的字段
+        fields_to_get = [
+            'trade_date',
+            'stock__stock_code',
+            'net_amount', # 龙虎榜净买入额
+            'l_buy',      # 龙虎榜总买入
+            'l_sell'      # 龙虎榜总卖出
+        ]
+        
+        data_list = [item async for item in qs.values(*fields_to_get)]
+        
+        if not data_list:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data_list)
+        df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
+        return df
+
     # ============== 龙虎榜机构明细 ==============
     async def save_today_lhb_inst_data(self) -> Dict:
         """
@@ -1088,6 +1115,31 @@ class FundFlowDao(BaseDAO):
             logger.error(f"保存龙虎榜机构明细时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")
             raise
+
+    async def get_top_inst_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
+        """
+        【新增】根据日期范围和股票代码列表，获取龙虎榜机构明细数据。
+        """
+        qs = TopInst.objects.filter(trade_date__range=(start_date, end_date))
+        if stock_codes:
+            qs = qs.filter(stock__stock_code__in=stock_codes)
+            
+        qs = qs.select_related('stock')
+        
+        fields_to_get = [
+            'trade_date',
+            'stock__stock_code',
+            'net_buy' # 机构净买入额
+        ]
+        
+        data_list = [item async for item in qs.values(*fields_to_get)]
+        
+        if not data_list:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data_list)
+        df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
+        return df
 
     # ============== 游资每日明细 ==============
     async def save_hm_detail_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
