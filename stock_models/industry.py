@@ -364,12 +364,10 @@ class DcIndex(models.Model):
     name = models.CharField(max_length=50, verbose_name="概念名称", null=True, blank=True)
     exchange = models.CharField(max_length=10, verbose_name="交易所", null=True, blank=True)
     type = models.CharField(max_length=10, verbose_name="指数类型", null=True, blank=True)
-
     class Meta:
         db_table = "dc_index"
         verbose_name = "东方财富概念板块"
         verbose_name_plural = verbose_name
-    
     def __str__(self):
         return f"{self.ts_code}-{self.name}"
 
@@ -379,7 +377,6 @@ class DcIndexDaily(models.Model):
         'DcIndex',
         on_delete=models.CASCADE,
         to_field='ts_code',
-        db_column='ts_code',
         related_name='daily_data',
         verbose_name="东方财富概念板块"
     )
@@ -409,7 +406,6 @@ class DcIndexMember(models.Model):
     trade_time = models.DateField(verbose_name="交易日期", db_index=True)
     dc_index = models.ForeignKey(
         'DcIndex',
-        db_column='ts_code',
         to_field='ts_code',
         on_delete=models.CASCADE,
         related_name="dc_member",

@@ -216,6 +216,39 @@ class IndexBasicDAO(BaseDAO):
             return index_info
         return None
 
+    async def get_or_create_index(self, ts_code: str, defaults: Dict = None) -> IndexInfo:
+        """
+        获取或创建一条指数信息记录。
+        这是一个非常实用的辅助方法，用于确保外键关联的数据存在。
+        Args:
+            ts_code (str): 指数代码，用于查询或创建。
+            defaults (Dict, optional): 创建新记录时使用的默认值字典。
+        Returns:
+            IndexInfo: 获取到的或新创建的 IndexInfo 对象。
+        """
+        # 尝试从数据库获取
+        index_info = await self.get_index_by_code(ts_code)
+        if index_info:
+            return index_info
+        # 如果不存在，则创建
+        logger.info(f"数据库中未找到指数 {ts_code}，将根据提供的数据进行创建...")
+        # 准备创建数据
+        create_data = defaults or {}
+        create_data['index_code'] = ts_code # 确保 index_code 存在
+        # 使用 Django ORM 的 get_or_create 异步版本
+        # aget_or_create 返回一个元组 (object, created_boolean)
+        index_info, created = await IndexInfo.objects.aget_or_create(
+            index_code=ts_code,
+            defaults=create_data
+        )
+        if created:
+            logger.info(f"成功创建了新的指数记录: {index_info}")
+        else:
+            # 理论上，在我们的逻辑中，如果 get_index_by_code 没找到，这里应该总是 created=True
+            # 但为了健壮性，处理并发场景下可能出现的 race condition
+            logger.info(f"在尝试创建时，发现指数 {ts_code} 已存在 (可能由并发操作创建)。")
+        return index_info
+
     async def get_indexs_by_publisher(self, publisher: str="中证指数有限公司") -> Optional[list]:
         """
         获得指数信息

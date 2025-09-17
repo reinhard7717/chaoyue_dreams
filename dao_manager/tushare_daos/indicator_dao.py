@@ -239,9 +239,7 @@ class IndicatorDAO(BaseDAO):
         """
         print(f"    [DAO] Fetching all industries with type: {industry_type}...")
         # 使用 Django ORM 的异步接口 afilter 和 alist
-        industries = await self.sync_to_async_iterable(
-            ThsIndex.objects.filter(type=industry_type)
-        )
+        industries = await sync_to_async(list)(ThsIndex.objects.filter(type=industry_type))
         print(f"    [DAO] Found {len(industries)} industries.")
         return industries
 
@@ -250,11 +248,9 @@ class IndicatorDAO(BaseDAO):
         获取一批股票在指定交易日的收盘价和前收盘价。
         注意：这个方法需要一个日线行情表，这里假设它叫 `StockDailyData`。
         如果你的个股日线行情表是别的名字，请修改 `StockDailyData`。
-
         Args:
             stock_codes (List[str]): 股票代码列表。
             trade_date (date): 交易日期。
-
         Returns:
             pd.DataFrame: 包含 'stock_code', 'close', 'pre_close' 的DataFrame。
         """
@@ -263,18 +259,13 @@ class IndicatorDAO(BaseDAO):
             stock__stock_code__in=stock_codes,
             trade_time=trade_date
         )
-
-        data = await self.sync_to_async_iterable(
-            query_set.values(
-                stock_code=F('stock__stock_code'), # 通过外键获取股票代码
-                close=F('close'),
-                pre_close=F('pre_close')
-            )
-        )
-
+        data = await sync_to_async(list)(query_set.values(
+            stock_code=F('stock__stock_code'),
+            close=F('close'),
+            pre_close=F('pre_close')
+        ))
         if not data:
             return pd.DataFrame()
-            
         df = pd.DataFrame(list(data))
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
         return df
@@ -300,8 +291,6 @@ class IndicatorDAO(BaseDAO):
                 stock__stock_code=stock_code,
                 out_date__isnull=True
             ).afirst()
-            # ▲▲▲ 核心逻辑结束 ▲▲▲
-
             if membership and membership.ths_index:
                 # 如果找到了有效的成员关系，并且其关联的指数也存在
                 industry_info = {

@@ -8,7 +8,7 @@ from django.db.models.functions import RowNumber
 from asgiref.sync import sync_to_async
 from typing import Any, List, Dict, Optional
 from datetime import date, datetime
-
+from utils.rate_limiter import rate_limiter_factory
 import numpy as np
 import pandas as pd
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -249,13 +249,11 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_daily(self, trade_date: Any = None) -> Dict:
         """
-        接口：sw_daily
-        描述：获取申万行业日线行情（默认是申万2021版行情）
-        限量：单次最大4000行数据，可通过指数代码和日期参数循环提取，5000积分可调取
+        【V1.2 按需创建版】接口：sw_daily
+        描述：获取申万行业日线行情。
         修复:
-        1.  【方法签名错误】修复：将参数从 `trade_time` 修改为 `trade_date`，并设为关键字参数，以匹配调用方的传参方式。
-        Returns:
-            Dict: 保存结果
+        1.  【数据完整性】当发现行情数据对应的指数在主表(IndexInfo)中不存在时，自动创建该指数记录，而不是跳过。
+        2.  (保留) 修复了因 trade_date 为空值引发的数据库 IntegrityError。
         """
         result = {}
         industry_daily_basic_dicts = []
@@ -263,7 +261,6 @@ class IndustryDao(BaseDAO):
             trade_date = datetime.today()
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"DEBUG: save_sw_industry_daily - trade_date_str: {trade_date_str}")
-        # 拉取数据
         df = self.ts_pro.sw_daily(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
@@ -271,13 +268,26 @@ class IndustryDao(BaseDAO):
                 "amount", "pe", "pb", "float_mv", "total_mv", "weight"
             ])
         if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                index_basic = await self.index_info_dao.get_index_by_code(row.ts_code)
+            df = df.replace(['nan', 'NaN', ''], None)
+            for row in df.itertuples(index=False):
+                # 检查关键字段 trade_date 是否为空
+                if not row.trade_date:
+                    logger.warning(f"API返回的申万行业行情数据中存在 trade_date 为空的记录，已跳过。涉及代码: {row.ts_code or '未知'}")
+                    continue
+                # 从行情数据中提取可用于创建新指数的信息
+                defaults_for_create = {
+                    'name': row.name,
+                    'market': 'SW', # 我们可以根据业务逻辑给一个默认值
+                    'publisher': '申万指数' # 同上
+                }
+                index_basic = await self.index_info_dao.get_or_create_index(
+                    ts_code=row.ts_code,
+                    defaults=defaults_for_create
+                )
+                # 经过上一步，index_basic 保证是一个有效的 IndexInfo 对象
                 industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic, df_data=row)
                 industry_daily_basic_dicts.append(industry_daily_basic_dict)
         if industry_daily_basic_dicts:
-            # 保存到数据库
             result = await self._save_all_to_db_native_upsert(
                 model_class=SwIndustryDaily,
                 data_list=industry_daily_basic_dicts,
@@ -933,57 +943,10 @@ class IndustryDao(BaseDAO):
         dc_index_daily_basic = await sync_to_async(lambda: DcIndexDaily.objects.filter(ts_code=ts_code).all())()
         return dc_index_daily_basic
 
-    async def save_dc_index_daily_today(self) -> Dict:
-        """
-        接口：ths_daily
-        描述：获取东方财富概念板块指数行情。
-        限量：单次最大3000行数据（5000积分），可根据指数代码、日期参数循环提取。
-        Args:
-        Returns:
-            Dict: 保存结果
-        """
-        # 获取当前日期
-        today = datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        result = {}
-        df = self.ts_pro.dc_index(**{
-                "ts_code": "", "name": "", "trade_date": today_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-            }, fields=[
-                "ts_code", "trade_date", "name", "leading", "leading_code", "pct_change", "leading_pct", "total_mv", "turnover_rate",
-                "up_num", "down_num"
-            ])
-        dc_index_daily_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                dc_index = await self.get_dc_index_by_code(row.ts_code)
-                if dc_index is None:
-                    dc_index = self.data_format_process.set_dc_index_data(df_data=row)
-                    dc_index_model = DcIndex(**dc_index)
-                    await dc_index_model.save()
-                dc_index_daily_dict = self.data_format_process.set_dc_index_daily_data(dc_index=dc_index_model, df_data=row)
-                dc_index_daily_dicts.append(dc_index_daily_dict)
-                dc_index = self.get_dc_index_by_code(row.ts_code)
-        if dc_index_daily_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=DcIndexDaily,
-                data_list=dc_index_daily_dicts,
-                unique_fields=['index', 'trade_time']
-            )
-        return result
-
     async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
         【V3.1 错误修复版】接口：dc_daily
         描述：获取东方财富概念板块的日线行情数据。
-        修复：
-        1.  【OperationalError修复】在数据字典送入原生SQL保存前，移除与外键db_column同名的冗余 'ts_code' 键，解决 "Unknown column" 错误。
-        2.  (保留) 【KeyError修复】完全重写数据处理逻辑，以匹配 `dc_daily` API的实际返回字段（OHLC等）。
-        3.  (保留) 【分页逻辑】新增了 while 循环和 offset，以完整获取当日所有板块的行情数据。
-        4.  (保留) 【模型匹配】确保数据格式化与重构后的 `DcIndexDaily` 模型完全对应。
-        5.  (保留) 保留了“按需创建新板块”的健壮性设计。
         """
         if trade_time is None:
             trade_time = datetime.today().date()
@@ -1043,7 +1006,6 @@ class IndustryDao(BaseDAO):
                 dc_index=dc_index,
                 df_data=row
             )
-            daily_dict.pop('ts_code', None)
             dc_index_daily_dicts.append(daily_dict)
         if not dc_index_daily_dicts:
             return {}
@@ -1055,6 +1017,7 @@ class IndustryDao(BaseDAO):
         )
         print(f"    -- 完成 [东方财富板块行情] 数据获取，共 {len(dc_index_daily_dicts)} 条。")
         return result
+
     # ============== 东方财富板块成分 ==============
     async def get_dc_index_member(self, ts_code: str) -> List['DcIndexMember']:
         """
