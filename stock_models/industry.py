@@ -82,18 +82,18 @@ class SwIndustryDaily(models.Model):
     )
     trade_time = models.DateField(db_index=True, verbose_name="交易日期")
     name = models.CharField(max_length=64, verbose_name="指数名称")
-    open = models.FloatField(verbose_name="开盘点位")
-    low = models.FloatField(verbose_name="最低点位")
-    high = models.FloatField(verbose_name="最高点位")
-    close = models.FloatField(verbose_name="收盘点位")
-    change = models.FloatField(verbose_name="涨跌点位")
-    pct_change = models.FloatField(verbose_name="涨跌幅")
-    vol = models.FloatField(verbose_name="成交量（万股）")
-    amount = models.FloatField(verbose_name="成交额（万元）")
-    pe = models.FloatField(verbose_name="市盈率")
-    pb = models.FloatField(verbose_name="市净率")
-    float_mv = models.FloatField(verbose_name="流通市值（万元）")
-    total_mv = models.FloatField(verbose_name="总市值（万元）")
+    open = models.FloatField(verbose_name="开盘点位", null=True, blank=True)
+    low = models.FloatField(verbose_name="最低点位", null=True, blank=True)
+    high = models.FloatField(verbose_name="最高点位", null=True, blank=True)
+    close = models.FloatField(verbose_name="收盘点位", null=True, blank=True)
+    change = models.FloatField(verbose_name="涨跌点位", null=True, blank=True)
+    pct_change = models.FloatField(verbose_name="涨跌幅", null=True, blank=True)
+    vol = models.FloatField(verbose_name="成交量（万股）", null=True, blank=True)
+    amount = models.FloatField(verbose_name="成交额（万元）", null=True, blank=True)
+    pe = models.FloatField(verbose_name="市盈率", null=True, blank=True)
+    pb = models.FloatField(verbose_name="市净率", null=True, blank=True)
+    float_mv = models.FloatField(verbose_name="流通市值（万元）", null=True, blank=True)
+    total_mv = models.FloatField(verbose_name="总市值（万元）", null=True, blank=True)
     weight = models.FloatField(verbose_name="权重", blank=True, null=True)
 
     class Meta:
@@ -103,7 +103,8 @@ class SwIndustryDaily(models.Model):
         unique_together = ("index", "trade_time")
 
     def __str__(self):
-        return f"{self.trade_time} - {self.name}({self.ts_code})"
+        index_code = self.index.index_code if self.index else self.ts_code
+        return f"{self.trade_time} - {self.name}({index_code})"
 
 # 中信行业成分
 class CiIndexMember(models.Model):
