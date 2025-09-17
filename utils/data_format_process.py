@@ -717,7 +717,8 @@ class IndustryFormatProcess(BaseDAO):
             "total_mv": self._parse_number(getattr(df_data, "total_mv", None)),
             "weight": self._parse_number(getattr(df_data, "weight", None)),
         }
-        return {k: safe_value(v) for k, v in data_dict.items()}
+        # return {k: safe_value(v) for k, v in data_dict.items()}
+        return data_dict
 
     # 开盘啦题材字典
     def set_kpl_concept_info_data(self, df_data: Any) -> Dict:
