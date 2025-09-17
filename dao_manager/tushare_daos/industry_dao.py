@@ -261,7 +261,7 @@ class IndustryDao(BaseDAO):
         if trade_date is None:
             trade_date = datetime.today()
         trade_date_str = trade_date.strftime('%Y%m%d')
-        print(f"DEBUG: save_sw_industry_daily - trade_date_str: {trade_date_str}")
+        # print(f"DEBUG: save_sw_industry_daily - trade_date_str: {trade_date_str}") # 暂时注释掉普通调试
         df = self.ts_pro.sw_daily(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
             }, fields=[
@@ -271,30 +271,53 @@ class IndustryDao(BaseDAO):
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)
             for row in df.itertuples(index=False):
-                # 检查关键字段 trade_date 是否为空
                 if not row.trade_date:
                     logger.warning(f"API返回的申万行业行情数据中存在 trade_date 为空的记录，已跳过。涉及代码: {row.ts_code or '未知'}")
                     continue
-                # 从行情数据中提取可用于创建新指数的信息
                 defaults_for_create = {
                     'name': row.name,
-                    'market': 'SW', # 我们可以根据业务逻辑给一个默认值
-                    'publisher': '申万指数' # 同上
+                    'market': 'SW',
+                    'publisher': '申万指数'
                 }
                 index_basic = await self.index_info_dao.get_or_create_index(
                     ts_code=row.ts_code,
                     defaults=defaults_for_create
                 )
-                # 经过上一步，index_basic 保证是一个有效的 IndexInfo 对象
                 industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic, df_data=row)
                 industry_daily_basic_dicts.append(industry_daily_basic_dict)
+        
         if industry_daily_basic_dicts:
+            # --- 新增：智能调试代码 ---
+            # 在将数据送入数据库前，进行一次预检，找出可能导致错误的具体数据。
+            problematic_items = []
+            for item in industry_daily_basic_dicts:
+                trade_time_val = item.get('trade_time')
+                # 检查 trade_time 是否是字符串类型，这是导致 "Data too long" 错误的直接原因
+                if isinstance(trade_time_val, str):
+                    problematic_items.append(item)
+            
+            # 如果找到了问题数据，就只打印这些有问题的数据，然后让程序继续执行以重现错误
+            if problematic_items:
+                print("="*50)
+                print("!!! [智能调试] 发现 'trade_time' 字段为字符串的错误数据，这很可能导致数据库写入失败。")
+                print(f"!!! 涉及模型: sw_industry_daily, 发现 {len(problematic_items)} 条问题数据。")
+                # 为了日志清晰，只打印前5条问题数据
+                for i, bad_item in enumerate(problematic_items[:5]):
+                    print(f"--- 问题数据 #{i+1} ---")
+                    # 打印出完整的问题字典，以便分析其来源和内容
+                    print(bad_item)
+                if len(problematic_items) > 5:
+                    print(f"...及另外 {len(problematic_items) - 5} 条问题数据。")
+                print("="*50)
+            # --- 智能调试代码结束 ---
+
             result = await self._save_all_to_db_native_upsert(
                 model_class=SwIndustryDaily,
                 data_list=industry_daily_basic_dicts,
                 unique_fields=['index', 'trade_time']
             )
         return result
+
 
     # ============== 同花顺概念和行业指数 ==============
     async def get_ths_index_list(self) -> List['ThsIndex']:

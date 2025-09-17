@@ -701,8 +701,6 @@ class IndustryFormatProcess(BaseDAO):
 
     # 申万行业日线行情
     def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
-        trade_time_obj = self._parse_datetime(getattr(df_data, "trade_date", None))
-        print(f"DEBUG: [set_sw_industry_daily_data] Code: {getattr(df_data, 'ts_code', 'N/A')}, trade_time type: {type(trade_time_obj)}, value: {trade_time_obj}")
         data_dict = {
             "index": index,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", None)),
