@@ -616,48 +616,6 @@ class FundFlowFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
     
-    def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        """
-        将Tushare的limit_list_ths接口返回的单行数据，格式化为准备入库的字典。
-        此方法参照 set_fund_flow_data 的健壮性设计。
-        :param stock: 关联的股票信息StockInfo对象。
-        :param df_data: Tushare接口返回的DataFrame中的一行数据 (通常是NamedTuple)。
-        :return: 一个可以用于创建或更新LimitListThs模型实例的字典。
-        """
-        # 1. 构建一个字典，键名与LimitListThs模型的字段名完全对应
-        #    使用 getattr(df_data, 'field_name', None) 来安全地获取每个字段的值
-        data_dict = {
-            "stock": stock,  # 关联的StockInfo实例
-            # 使用辅助函数处理日期，确保格式正确
-            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
-            "name": getattr(df_data, "name", None),
-            "price": getattr(df_data, "price", None),
-            "pct_chg": getattr(df_data, "pct_chg", None),
-            "open_num": getattr(df_data, "open_num", None),
-            "lu_desc": getattr(df_data, "lu_desc", None),
-            "limit_type": getattr(df_data, "limit_type", None),
-            "tag": getattr(df_data, "tag", None),
-            "status": getattr(df_data, "status", None),
-            "first_lu_time": getattr(df_data, "first_lu_time", None),
-            "last_lu_time": getattr(df_data, "last_lu_time", None),
-            "first_ld_time": getattr(df_data, "first_ld_time", None),
-            "last_ld_time": getattr(df_data, "last_ld_time", None),
-            "limit_order": getattr(df_data, "limit_order", None),
-            "limit_amount": getattr(df_data, "limit_amount", None),
-            "turnover_rate": getattr(df_data, "turnover_rate", None),
-            "free_float": getattr(df_data, "free_float", None),
-            "lu_limit_order": getattr(df_data, "lu_limit_order", None),
-            "limit_up_suc_rate": getattr(df_data, "limit_up_suc_rate", None),
-            "turnover": getattr(df_data, "turnover", None),
-            "rise_rate": getattr(df_data, "rise_rate", None),
-            "sum_float": getattr(df_data, "sum_float", None),
-            "market_type": getattr(df_data, "market_type", None),
-        }
-
-        # 2. 使用与 set_fund_flow_data 相同的最终清洗流程
-        #    确保所有值（特别是None和NaN）都经过处理，变为数据库友好的格式
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
 class IndustryFormatProcess(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         """
@@ -939,7 +897,7 @@ class MarketFormatProcess(BaseDAO):
             "open_num": self._parse_number(getattr(df_data, "open_num", None)) or 0,
             "lu_desc": getattr(df_data, "lu_desc", None) or '',
             "limit_type": getattr(df_data, "limit_type", None),
-            "tag": getattr(df_data, "tag", None),
+            "tag": getattr(df_data, "tag", None) or '',
             "status": getattr(df_data, "status", None),
             "first_lu_time": getattr(df_data, "first_lu_time", None), # 保持为字符串
             "last_lu_time": getattr(df_data, "last_lu_time", None), # 保持为字符串
@@ -1028,38 +986,9 @@ class MarketFormatProcess(BaseDAO):
             "first_time": getattr(df_data, "first_time", None), # 保持为字符串
             "last_time": getattr(df_data, "last_time", None), # 保持为字符串
             "open_times": self._parse_number(getattr(df_data, "open_times", None)),
-            "up_stat": getattr(df_data, "up_stat", None),
+            "up_stat": getattr(df_data, "up_stat", None) or '',
             "limit_times": self._parse_number(getattr(df_data, "limit_times", None)) or 0,
             "limit": getattr(df_data, "limit", None),
-        }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
-        """
-        将Tushare的limit_step接口返回的单行数据，格式化为准备入库的字典。
-        """
-        data_dict = {
-            "stock": stock,
-            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
-            "name": getattr(df_data, "name", None),
-            "nums": self._parse_number(getattr(df_data, "nums", None)),
-        }
-        return {k: safe_value(v) for k, v in data_dict.items()}
-
-    def set_limit_cpt_list_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
-        """
-        将Tushare的limit_cpt_list接口返回的单行数据，格式化为准备入库的字典。
-        """
-        data_dict = {
-            "ths_index": ths_index,
-            "trade_date": self._parse_datetime(getattr(df_data, "trade_date", None)),
-            "name": getattr(df_data, "name", None),
-            "days": self._parse_number(getattr(df_data, "days", None)),
-            "up_stat": getattr(df_data, "up_stat", None),
-            "cons_nums": self._parse_number(getattr(df_data, "cons_nums", None)),
-            "up_nums": getattr(df_data, "up_nums", None),
-            "pct_chg": self._parse_number(getattr(df_data, "pct_chg", None)),
-            "rank": getattr(df_data, "rank", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
