@@ -530,6 +530,52 @@ class IndustryDao(BaseDAO):
             }
         return {}
 
+    async def get_ths_index_daily_for_range(self, ts_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame: # 新增方法
+        """
+        【新增】根据代码和日期范围获取同花顺板块指数行情。
+        """
+        qs = ThsIndexDaily.objects.filter(
+            ths_index__ts_code=ts_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        ).order_by('trade_time')
+        
+        # 使用 avalues 异步获取数据
+        data = await sync_to_async(list)(qs.values())
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame.from_records(data)
+        df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+        df.set_index('trade_time', inplace=True)
+        return df
+
+    async def get_stock_ths_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]: # 新增方法 (从 indicator_dao.py 迁移而来)
+        """
+        【新增】根据股票代码获取其当前所属的同花顺行业/概念板块信息。
+        """
+        print(f"      - [DAO查询] 正在查询股票 {stock_code} 的所属行业...")
+        try:
+            # 筛选 is_new='Y' 表示当前最新的成分关系
+            membership = await ThsIndexMember.objects.select_related('ths_index').filter(
+                stock__stock_code=stock_code,
+                is_new='Y'
+            ).afirst()
+
+            if membership and membership.ths_index:
+                industry_info = {
+                    'code': membership.ths_index.ts_code,
+                    'name': membership.ths_index.name
+                }
+                print(f"      - [DAO查询] 成功找到 {stock_code} 所属行业: {industry_info['name']} ({industry_info['code']})")
+                return industry_info
+            else:
+                print(f"      - [DAO查询] 未能找到 {stock_code} 的当前所属行业。")
+                return None
+        except Exception as e:
+            logger.error(f"查询股票 {stock_code} 的行业信息时发生数据库错误: {e}", exc_info=True)
+            return None
+
     # 一次性获取所有ths_codes的最后limit条数据
     async def get_latest_n_per_ths_code_async(self, ths_codes, limit: int = 333):
         qs = ThsIndexDaily.objects.filter(
@@ -1359,7 +1405,63 @@ class IndustryDao(BaseDAO):
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条最强板块数据。")
         return result
 
+# ============== 市场情绪与涨跌停数据 (Getter方法) ==============
 
+    async def get_limit_list_d_for_range(self, start_date: date, end_date: date, stock_codes: Optional[List[str]] = None) -> pd.DataFrame: # 新增方法
+        """根据日期范围和股票代码列表，获取Tushare版涨跌停数据。"""
+        query = LimitListD.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
+        if stock_codes:
+            query = query.filter(stock__stock_code__in=stock_codes)
+        # 使用 avalues 异步获取数据并转换为 DataFrame
+        data = await sync_to_async(lambda: list(query.values(
+            'trade_date', 'stock__stock_code', 'limit', 'limit_times', 'open_times'
+        )))()
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data).rename(columns={'stock__stock_code': 'stock_code'})
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        return df
+
+    async def get_limit_step_for_range(self, start_date: date, end_date: date) -> pd.DataFrame: # 新增方法
+        """根据日期范围，获取连板天梯数据。"""
+        query = LimitStep.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
+        data = await sync_to_async(lambda: list(query.values(
+            'trade_date', 'stock__stock_code', 'nums'
+        )))()
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data).rename(columns={'stock__stock_code': 'stock_code'})
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        return df
+
+    async def get_limit_cpt_list_for_range(self, start_date: date, end_date: date, industry_codes: Optional[List[str]] = None) -> pd.DataFrame: # 新增方法
+        """根据日期范围和板块代码列表，获取最强板块统计数据。"""
+        query = LimitCptList.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
+        if industry_codes:
+            query = query.filter(ths_index__ts_code__in=industry_codes)
+        data = await sync_to_async(lambda: list(query.values(
+            'trade_date', 'ths_index__ts_code', 'rank', 'up_stat', 'cons_nums', 'up_nums', 'pct_chg'
+        )))()
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data).rename(columns={'ths_index__ts_code': 'industry_code'})
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        return df
+
+    async def get_limit_cpt_list_for_industry_and_date(self, industry_code: str, trade_date: date) -> Optional[Dict]: # 新增方法
+        """获取单个板块在指定日期的最强板块统计数据。"""
+        record = await sync_to_async(
+            LimitCptList.objects.filter(ths_index__ts_code=industry_code, trade_date=trade_date).first
+        )()
+        if record:
+            return {
+                'rank': int(record.rank),
+                'up_stat': record.up_stat,
+                'cons_nums': record.cons_nums,
+                'up_nums': int(record.up_nums),
+                'pct_chg': record.pct_chg
+            }
+        return None
 
 
 

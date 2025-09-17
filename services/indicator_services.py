@@ -13,6 +13,9 @@ import numpy as np
 import pandas as pd
 from typing import List, Optional, Set, Union, Dict
 import pandas_ta as ta
+from .feature_engineering_service import FeatureEngineeringService
+from .contextual_analysis_service import ContextualAnalysisService
+
 from .indicator_calculate_services import IndicatorCalculator
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -52,10 +55,11 @@ class IndicatorService:
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.strategies_dao = StrategiesDAO(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
+        
+        # 专业服务层
         self.calculator = IndicatorCalculator()
-
-        self.momentum_lookback = 60 # 动量计算回看周期
-        self.fund_flow_lookback = 5   # 资金流计算回看周期
+        self.feature_service = FeatureEngineeringService() # 实例化特征工程师
+        self.context_service = ContextualAnalysisService(cache_manager_instance) # 实例化情报分析师
         
         try:
             global ta
@@ -389,17 +393,17 @@ class IndicatorService:
         if not all_dfs:
             return {}
         # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
-        all_dfs = await self._calculate_meta_features(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # --- 步骤 3: 【VPA效率指标计算】 - 修正顺序，提前计算 ---
         # 解释：高级模式识别依赖VPA效率指标，因此必须先计算VPA。
-        all_dfs = await self._calculate_vpa_features(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
         # --- 步骤 4: 【高级模式识别】 - 移至VPA计算之后 ---
-        all_dfs = await self._calculate_pattern_recognition_signals(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
         # --- 步骤 5: 【斜率计算】 - 修正步骤编号 ---
         # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
-        all_dfs = await self._calculate_all_slopes(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         # --- 步骤 6: 【加速度计算】 - 修正步骤编号 ---
-        all_dfs = await self._calculate_all_accelerations(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
         # --- 步骤 7: 【上下文信息注入】 - 修正步骤编号 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
@@ -408,47 +412,45 @@ class IndicatorService:
         end_date = df_daily.index.max().date()
         industry_params = self._find_params_recursively(config, 'industry_context_params')
         is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
+        # 注入游资信号
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
-        is_hm_enabled = hot_money_params.get('enabled', False) if hot_money_params else False
-        if is_hm_enabled:
-            # print("    - [配置信息] 检测到游资分析已启用，开始获取并处理游资信号...")
-            hm_signals_df = await self._prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
+        if hot_money_params and hot_money_params.get('enabled', False):
+            hm_signals_df = await self.context_service.prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
             if not hm_signals_df.empty:
                 df_daily = df_daily.merge(hm_signals_df, left_index=True, right_index=True, how='left')
-                for col in hm_signals_df.columns:
-                    if col in df_daily.columns:
-                        df_daily[col] = df_daily[col].fillna(False).astype(bool)
+                for col in hm_signals_df.columns: df_daily[col] = df_daily[col].fillna(False).astype(bool)
                 # print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
-        all_dfs['D'] = df_daily
-        # ▼▼▼ 行业生命周期注入逻辑 ▼▼▼
+        # 注入市场情绪信号
+        sentiment_params = self._find_params_recursively(config, 'market_sentiment_params')
+        if sentiment_params and sentiment_params.get('enabled', False):
+            sentiment_signals_df = await self.context_service.prepare_market_sentiment_signals(stock_code, start_date, end_date, sentiment_params)
+            if not sentiment_signals_df.empty:
+                sentiment_signals_df.index = pd.to_datetime(sentiment_signals_df.index, utc=True)
+                df_daily = df_daily.merge(sentiment_signals_df, left_index=True, right_index=True, how='left')
+                for col in sentiment_signals_df.columns:
+                    fill_value = 0 if 'score' in col or 'rank' in col or 'ups' in col else False
+                    df_daily[col] = df_daily[col].fillna(fill_value)
+        # 注入行业生命周期数据
         industry_params = self._find_params_recursively(config, 'industry_context_params')
-        is_industry_enabled = industry_params.get('enabled', False) if industry_params else False
-        if is_industry_enabled:
-            print(f"    - [配置信息] 检测到行业协同已启用，开始诊断行业生命周期...")
+        if industry_params and industry_params.get('enabled', False):
             current_trade_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now(pytz.timezone('Asia/Shanghai')).date()
-            # 调用新的生命周期诊断函数
             lookback_days = industry_params.get('lookback_days', 20)
-            industry_lifecycle_df = await self.analyze_industry_rotation(current_trade_date, lookback_days=lookback_days)
-            stock_industry_info = await self.indicator_dao.get_stock_industry_info(stock_code)
+            industry_lifecycle_df = await self.context_service.analyze_industry_rotation(current_trade_date, lookback_days=lookback_days)
+            
+            # 修改行: 调用 industry_dao 中的方法，职责更清晰
+            stock_industry_info = await self.industry_dao.get_stock_industry_info(stock_code)
+            
             stock_industry_code = stock_industry_info.get('code') if stock_industry_info else None
             if not industry_lifecycle_df.empty and stock_industry_code and stock_industry_code in industry_lifecycle_df.index:
                 industry_data = industry_lifecycle_df.loc[stock_industry_code]
-                # 将行业数据作为新列添加到日线DataFrame的最后一行
-                # 注意：这里我们假设行业状态在一天内是固定的，所以直接赋值
                 latest_day_index = df_daily.index[-1]
-                df_daily.loc[latest_day_index, 'industry_rank_D'] = industry_data['latest_rank']
-                df_daily.loc[latest_day_index, 'industry_rank_slope_D'] = industry_data['rank_slope']
-                df_daily.loc[latest_day_index, 'industry_rank_accel_D'] = industry_data['rank_accel']
-                df_daily.loc[latest_day_index, 'industry_lifecycle_stage_D'] = industry_data['lifecycle_stage']
-                # 为了回测，需要向前填充这些状态
-                df_daily['industry_rank_D'] = df_daily['industry_rank_D'].ffill()
-                df_daily['industry_rank_slope_D'] = df_daily['industry_rank_slope_D'].ffill()
-                df_daily['industry_rank_accel_D'] = df_daily['industry_rank_accel_D'].ffill()
-                df_daily['industry_lifecycle_stage_D'] = df_daily['industry_lifecycle_stage_D'].ffill()
-                # print(f"    - [行业背景注入] 股票 {stock_code} 所属行业: {industry_data['industry_name']} ({stock_industry_code})")
-                print(f"      -> 最新状态: {industry_data['lifecycle_stage']}, 排名: {industry_data['latest_rank']:.2f}, 斜率: {industry_data['rank_slope']:.4f}")
-            else:
-                print(f"    - [行业背景注入] 未能获取股票 {stock_code} 的行业生命周期数据。")
+                # 修改行: 统一添加 industry_ 前缀，避免潜在的列名冲突
+                for col, val in industry_data.items():
+                    if col in ['latest_rank', 'rank_slope', 'rank_accel', 'lifecycle_stage']:
+                        new_col_name = f"industry_{col}_D"
+                        df_daily.loc[latest_day_index, new_col_name] = val
+                        df_daily[new_col_name] = df_daily[new_col_name].ffill()
+        all_dfs['D'] = df_daily
         #  调用军械库清单生成器 ▼▼▼
         # self._log_final_data_columns(all_dfs)
         return all_dfs
@@ -687,26 +689,6 @@ class IndicatorService:
         # 返回最终处理好的数据字典
         return processed_dfs
 
-    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算资金流分"""
-        if df.empty or trade_date not in df.index:
-            return 0.0
-            
-        # 截取近期数据
-        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
-        if recent_df.empty:
-            return 0.0
-            
-        # 条件1: 近期累计净流入
-        net_inflow_sum = recent_df['net_amount'].sum()
-        
-        # 条件2: 净流入天数占比
-        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
-        
-        # 综合打分
-        score = (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
-        return score
-
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
         【V8.0 新增】高级指标合成室
@@ -763,61 +745,6 @@ class IndicatorService:
         # print("      -> [高级指标合成室] 合成完成。")
         return synthetic_indicators
 
-    # ▼▼▼ 新增一个专门生成游资信号的函数 ▼▼▼
-    async def _prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
-        """
-        根据游资明细数据，生成一系列与日线数据对齐的原子信号。
-        这些信号将被合并到日线DataFrame中。
-
-        Args:
-            stock_code (str): 股票代码。
-            start_date (date): 数据查询的开始日期。
-            end_date (date): 数据查询的结束日期。
-            params (dict): 从配置文件中读取的 hot_money_params。
-
-        Returns:
-            pd.DataFrame: 一个包含多个布尔信号列的DataFrame，索引为日期。
-        """
-        print("    - [游资信号引擎] 开始准备游资原子信号...")
-        
-        # 从DAO获取原始游资数据
-        hm_df = await self.fund_flow_dao.get_hm_detail_data(start_date, end_date, stock_codes=[stock_code])
-
-        if hm_df.empty:
-            print("    - [游资信号引擎] 无游资数据，返回空DataFrame。")
-            return pd.DataFrame()
-
-        hm_df['trade_date'] = pd.to_datetime(hm_df['trade_date'], utc=True)
-        
-        # 按交易日期聚合，计算每日的游资行为
-        daily_summary = {}
-
-        # --- 信号1: 当日有任意游资净买入 (HM_ACTIVE_ANY_D) ---
-        any_buy_dates = hm_df[hm_df['net_amount'] > 0]['trade_date'].unique()
-        daily_summary['HM_ACTIVE_ANY_D'] = pd.Series(True, index=any_buy_dates)
-        
-        # --- 信号2: 当日有顶级游资净买入 (HM_ACTIVE_TOP_TIER_D) ---
-        top_tier_list = params.get('top_tier_list', [])
-        top_tier_df = hm_df[hm_df['hm_name'].isin(top_tier_list)]
-        top_tier_buy_dates = top_tier_df[top_tier_df['net_amount'] > 0]['trade_date'].unique()
-        daily_summary['HM_ACTIVE_TOP_TIER_D'] = pd.Series(True, index=top_tier_buy_dates)
-
-        # --- 信号3: 游资协同攻击 (HM_COORDINATED_ATTACK_D) ---
-        coordination_threshold = params.get('coordination_threshold', 3)
-        # 按天分组，计算当天净买入的独立游资家数
-        buyers_count_daily = hm_df[hm_df['net_amount'] > 0].groupby('trade_date')['hm_name'].nunique()
-        coordinated_dates = buyers_count_daily[buyers_count_daily >= coordination_threshold].index
-        daily_summary['HM_COORDINATED_ATTACK_D'] = pd.Series(True, index=coordinated_dates)
-
-        # 将所有信号合并成一个DataFrame
-        signals_df = pd.DataFrame(daily_summary)
-        
-        print(f"      -> '任意游资活跃'信号: {daily_summary['HM_ACTIVE_ANY_D'].sum()} 天")
-        print(f"      -> '顶级游资活跃'信号: {daily_summary['HM_ACTIVE_TOP_TIER_D'].sum()} 天")
-        print(f"      -> '游资协同攻击'信号: {daily_summary['HM_COORDINATED_ATTACK_D'].sum()} 天")
-        
-        return signals_df
-
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
         """
         解析指标配置，获取指定时间周期所需的最大计算周期。
@@ -838,90 +765,6 @@ class IndicatorService:
                 elif isinstance(periods, (int, float)): flat_periods.append(periods)
                 if flat_periods: max_period = max(max_period, max(flat_periods))
         return int(max_period * 1.2) if max_period > 0 else 1
-
-    async def _calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V2.0 多因子共振版】高级模式识别信号生产线
-        - 核心职责: 基于波动率、趋势、资金流、筹码结构等多维度指标的共振，精确识别市场关键阶段。
-        - 优化逻辑:
-          - is_consolidation_D: 综合 BBW、ATR、ADX、均线粘合度进行判断。
-          - is_breakthrough_D: 要求在盘整后发生，并有VPA效率和主力资金共识的确认。
-          - is_accumulation_D: 核心是识别“价平量增”和“主力买、散户卖”的资金流背离特征。
-          - is_distribution_D: 识别“高位滞涨派发”和“盘整期阴跌派发”两种典型场景。
-        """
-        # print("    - [高级模式识别生产线 V2.0] 启动...")
-        timeframe = 'D'
-        if timeframe not in all_dfs:
-            return all_dfs
-        df = all_dfs[timeframe]
-        # --- 1. 军备检查 (升级版) ---
-        # 检查计算所需的依赖列是否都存在
-        required_cols = [
-            'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D',
-            'BBW_21_2.0_D', 'ATR_14_D', 'MA_CONV_CV_SHORT_D', 'CMF_21_D',
-            'VPA_EFFICIENCY_D', 'main_force_net_flow_consensus_D',
-            'flow_divergence_mf_vs_retail_D', 'concentration_90pct_D',
-            'winner_profit_margin_D', 'dynamic_consolidation_high_D', 'dynamic_consolidation_low_D'
-        ]
-        # 注意: ADX 来自 DMI 计算，这里假设它已存在。如果不存在，需要确保 calculate_dmi 被调用。
-        # 为了健壮性，我们动态检查 ADX
-        adx_col = next((col for col in df.columns if col.startswith('ADX_')), None)
-        if adx_col:
-            required_cols.append(adx_col)
-        else:
-            print("      -> [警告] 未找到 ADX 列，盘整识别的准确性会受影响。")
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            print(f"      -> [严重警告] 高级模式识别生产线缺少关键数据: {missing}，模块已跳过！")
-            return all_dfs
-        # --- 2. 计算 is_consolidation_D (盘整期) ---
-        # 条件1: 波动率收缩 (布林带宽度或ATR处于近期低位)
-        bbw_quantile = df['BBW_21_2.0_D'].rolling(window=60, min_periods=20).quantile(0.20)
-        atr_quantile = df['ATR_14_D'].rolling(window=60, min_periods=20).quantile(0.20)
-        cond_low_volatility = (df['BBW_21_2.0_D'] < bbw_quantile) | (df['ATR_14_D'] < atr_quantile)
-        # 条件2: 趋势不明朗 (ADX低于25 或 均线高度粘合)
-        cond_no_trend = (df[adx_col] < 25) if adx_col else pd.Series(True, index=df.index) # 如果没有ADX，则放宽条件
-        cond_ma_converged = df['MA_CONV_CV_SHORT_D'] < 0.01 # 均线离散度小于1%
-        is_consolidation = cond_low_volatility & (cond_no_trend | cond_ma_converged)
-        df['is_consolidation_D'] = is_consolidation
-        # --- 3. 计算 is_breakthrough_D (向上突破) & is_breakdown_D (向下跌破) ---
-        # 突破条件
-        was_consolidating = df['is_consolidation_D'].shift(1).fillna(False)
-        price_break_box = df['close_D'] > df['dynamic_consolidation_high_D'].shift(1)
-        volume_confirms = df['volume_D'] > df['VOL_MA_21_D'] * 1.2 # 成交量放大20%
-        vpa_confirms = df['VPA_EFFICIENCY_D'] > 0.5 # 资金攻击效率较高
-        money_flow_confirms = (df['CMF_21_D'] > 0.05) & (df['main_force_net_flow_consensus_D'] > 0)
-        is_breakthrough = was_consolidating & price_break_box & volume_confirms & vpa_confirms & money_flow_confirms
-        df['is_breakthrough_D'] = is_breakthrough
-        # 跌破条件
-        price_breakdown_box = df['close_D'] < df['dynamic_consolidation_low_D'].shift(1)
-        is_breakdown = was_consolidating & price_breakdown_box & volume_confirms
-        df['is_breakdown_D'] = is_breakdown
-        # --- 4. 计算 is_accumulation_D (吸筹期) & is_distribution_D (派发期) ---
-        # 吸筹 = 盘整期 + 主力买散户卖 + 筹码集中度上升
-        cond_accumulation_flow = (df['flow_divergence_mf_vs_retail_D'] > 0.1).rolling(window=3).sum() == 3
-        concentration_slope = df['concentration_90pct_D'].diff()
-        cond_concentration_increase = (concentration_slope > 0).rolling(window=5).sum() >= 3 # 近5天有3天以上筹码在集中
-        df['is_accumulation_D'] = is_consolidation & (cond_accumulation_flow | cond_concentration_increase)
-        # 派发场景1: 高位滞涨派发 (天量不涨或微涨)
-        high_volume = df['volume_D'] > df['VOL_MA_21_D'] * 2.0 # 成交量超过2倍均量
-        stagnant_price = df['pct_change_D'].abs() < 0.01 # 涨跌幅小于1%
-        high_winner_margin = df['winner_profit_margin_D'] > 30 # 获利盘丰厚
-        low_vpa_efficiency = df['VPA_EFFICIENCY_D'] < 0.1
-        dist_at_top = high_volume & (stagnant_price | low_vpa_efficiency) & high_winner_margin
-        # 派发场景2: 盘整期派发 (主力卖散户买)
-        cond_distribution_flow = (df['flow_divergence_mf_vs_retail_D'] < -0.1).rolling(window=3).sum() == 3
-        dist_in_consolidation = is_consolidation & cond_distribution_flow
-        df['is_distribution_D'] = dist_at_top | dist_in_consolidation
-        # --- 5. 确保所有列都为布尔型 ---
-        pattern_cols = ['is_consolidation_D', 'is_breakthrough_D', 'is_breakdown_D', 'is_accumulation_D', 'is_distribution_D']
-        for col in pattern_cols:
-            if col in df.columns:
-                df[col] = df[col].fillna(False).astype(bool)
-                # print(f"      -> 信号 '{col}' 已生成，共激活 {df[col].sum()} 天。")
-        all_dfs[timeframe] = df
-        print("    - [高级模式识别生产线 V2.0] 所有模式信号生产完成。")
-        return all_dfs
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
@@ -1047,340 +890,6 @@ class IndicatorService:
         final_df = df_for_calc.rename(columns=rename_map)
         return final_df
 
-    async def _calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V3.0 混合计算版】
-        - 核心升级: 实现智能跳过逻辑。在计算斜率前，会检查目标列是否已存在。
-                    如果列已存在（意味着它是由预计算任务加载并适配的），则跳过计算。
-                    这使得本方法能无缝处理“预计算的筹码斜率”和“即时计算的其他指标斜率”。
-        """
-        # print("    - [斜率中心 V3.0 混合计算版] 启动...")
-        slope_params = config.get('feature_engineering_params', {}).get('slope_params', {})
-        if not slope_params.get('enabled', False):
-            return all_dfs
-        series_to_slope = slope_params.get('series_to_slope', {})
-        if not series_to_slope:
-            return all_dfs
-        for col_pattern, lookbacks in series_to_slope.items():
-            if "说明" in col_pattern: continue
-            try:
-                timeframe = col_pattern.split('_')[-1]
-                if timeframe.upper() not in ['D', 'W', 'M'] and not timeframe.isdigit():
-                    timeframe = 'D' # 默认日线
-            except IndexError:
-                continue
-            if timeframe not in all_dfs or all_dfs[timeframe] is None:
-                continue
-            df = all_dfs[timeframe]
-            if col_pattern not in df.columns:
-                # print(f"      -> [跳过] 基础指标 '{col_pattern}' 在周期 '{timeframe}' 的DataFrame中不存在。")
-                continue
-            source_series = df[col_pattern].astype(float)
-            for lookback in lookbacks:
-                slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
-                # 智能检查逻辑：如果斜率列已存在，则跳过计算
-                if slope_col_name in df.columns:
-                    # print(f"      -> [跳过] 斜率 '{slope_col_name}' 已存在 (来自预计算).")
-                    continue
-                # print(f"      -> [即时计算] 正在生成斜率: '{slope_col_name}'...")
-                min_p = max(2, lookback // 2)
-                linreg_result = df.ta.linreg(close=source_series, length=lookback, min_periods=min_p, slope=True, intercept=False, r=False)
-                slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
-                df[slope_col_name] = slope_series.fillna(0)
-            all_dfs[timeframe] = df
-
-        # print("    - [斜率中心 V3.0] 所有斜率计算完成。")
-        return all_dfs
-
-    async def _calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: Dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V2.0 混合计算版】
-        - 核心升级: 与斜率计算类似，增加了智能跳过逻辑。
-                    如果目标加速度列已存在（来自预计算），则跳过，否则进行即时计算。
-        """
-        accel_params = config.get('feature_engineering_params', {}).get('accel_params', {})
-        if not accel_params.get('enabled', False):
-            return all_dfs
-        series_to_accel = accel_params.get('series_to_accel', {})
-        if not series_to_accel:
-            return all_dfs
-        # print("    - [加速度引擎 V2.0 混合计算版] 启动...")
-        for base_col_name, periods in series_to_accel.items():
-            if "说明" in base_col_name: continue
-            timeframe = base_col_name.split('_')[-1]
-            if timeframe not in all_dfs or all_dfs[timeframe] is None:
-                continue
-            df = all_dfs[timeframe]
-            for period in periods:
-                slope_col_name = f'SLOPE_{period}_{base_col_name}'
-                if slope_col_name not in df.columns:
-                    # print(f"      -> [跳过] 无法计算加速度，源斜率列 '{slope_col_name}' 不存在。")
-                    continue
-                accel_col_name = f'ACCEL_{period}_{base_col_name}'
-                # 智能检查逻辑：如果加速度列已存在，则跳过计算
-                if accel_col_name in df.columns:
-                    # print(f"      -> [跳过] 加速度 '{accel_col_name}' 已存在 (来自预计算).")
-                    continue
-                # print(f"      -> [即时计算] 正在生成加速度: '{accel_col_name}'...")
-                source_series = df[slope_col_name]
-                min_p = max(2, period // 2)
-                accel_linreg_result = df.ta.linreg(close=source_series, length=period, min_periods=min_p, slope=True, intercept=False, r=False)
-                accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
-                df[accel_col_name] = accel_series.fillna(0)
-        # print("    - [加速度引擎 V2.0] 计算完成。")
-        return all_dfs
-
-    async def _calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V1.0 新增】VPA效率指标生产线
-        - 核心职责: 计算全新的自定义指标 VPA_EFFICIENCY_D (资金攻击效率)。
-        - 计算公式: 当日涨幅 / (当日成交量 / 21日均量)
-        - 意义: 衡量每一单位的相对成交量，能换来多大的价格涨幅。
-                 数值极低时，是典型的“天量滞涨”危险信号。
-        """
-        # print("    - [VPA效率生产线 V1.0 @ IndicatorService] 启动...")
-        timeframe = 'D' # VPA效率是一个日线级别的概念
-        if timeframe not in all_dfs:
-            return all_dfs
-        df = all_dfs[timeframe]
-        # --- 1. 军备检查 ---
-        required_cols = ['pct_change_D', 'volume_D', 'VOL_MA_21_D']
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            print(f"      -> [严重警告] VPA效率生产线缺少关键数据: {missing}，模块已跳过！")
-            return all_dfs
-        # --- 2. 计算相对成交量倍数 ---
-        volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
-        # --- 3. 计算VPA效率 ---
-        vpa_efficiency = df['pct_change_D'] / volume_ratio.replace(0, np.nan)
-        df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
-        all_dfs[timeframe] = df
-        # print("    - [VPA效率生产线 V1.0 @ IndicatorService] “资金攻击效率”指标生产完成。")
-        return all_dfs
-
-    async def _calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V2.1 健壮性修复版】元特征计算车间
-        - 核心修正: 强制确保传递给滚窗计算的输入是一个Series，而不是单列DataFrame，
-                    从根源上解决 "Cannot set a DataFrame" 的 ValueError。
-        """
-        # print("    - [元特征车间 V2.1] 启动，正在计算赫斯特指数、CV等复杂特征...")
-        timeframe = 'D'
-        if timeframe not in all_dfs:
-            return all_dfs
-        df = all_dfs[timeframe]
-        suffix = f"_{timeframe}"
-        # --- 1. 计算赫斯特指数 (Hurst Exponent) ---
-        hurst_window = 120
-        hurst_col = f'hurst_{hurst_window}d{suffix}'
-        close_col_suffixed = f'close{suffix}'
-        if close_col_suffixed in df.columns and hurst_col not in df.columns:
-            try:
-                # 强制确保 source_series 是一个 Series
-                source_series = df[close_col_suffixed]
-                if isinstance(source_series, pd.DataFrame):
-                    source_series = source_series.iloc[:, 0]
-                close_series_for_hurst = source_series.dropna()
-                if len(close_series_for_hurst) < hurst_window:
-                    print(f"      -> [警告] 数据量不足以计算{hurst_window}周期的赫斯特指数，跳过。")
-                    df[hurst_col] = np.nan
-                else:
-                    hurst_values = close_series_for_hurst.rolling(hurst_window).apply(hurst_exponent, raw=True)
-                    df[hurst_col] = hurst_values.reindex(df.index)
-            except Exception as e:
-                print(f"      -> [严重警告] 赫斯特指数计算过程中发生未知错误: {e}")
-                df[hurst_col] = np.nan
-        # --- 2. 计算价格变异系数 (Price CV) ---
-        cv_window = 60
-        cv_col = f'price_cv_{cv_window}d{suffix}'
-        if close_col_suffixed in df.columns and cv_col not in df.columns:
-            # 强制确保 source_series 是一个 Series
-            source_series = df[close_col_suffixed]
-            if isinstance(source_series, pd.DataFrame):
-                source_series = source_series.iloc[:, 0]
-            price_mean = source_series.rolling(cv_window).mean()
-            price_std = source_series.rolling(cv_window).std()
-            df[cv_col] = price_std / (price_mean + 1e-9)
-        # --- 3. 计算日线结构势能 (Energy Ratio) ---
-        energy_col = f'energy_ratio{suffix}'
-        support_col = f'support_below{suffix}'
-        pressure_col = f'pressure_above{suffix}'
-        if support_col in df.columns and pressure_col in df.columns and energy_col not in df.columns:
-            df[energy_col] = df[support_col] / (df[pressure_col] + 1e-6)
-        all_dfs[timeframe] = df
-        return all_dfs
-
-    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
-        """
-        【V2.0 结构分析版】计算指定交易日所有行业的强度分及排名。
-        综合了价量趋势、资金流向、龙头效应、板块协同性和涨停梯队。
-        """
-        # print(f"--- [IndustryService V2.1] 开始计算 {trade_date} 的行业结构化强度 (对比基准: {market_code}) ---")
-        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-        market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
-        if market_daily_df.empty:
-            print(f"    - 严重警告: 无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
-        
-        # 1. 获取所有行业列表
-        all_industries = await self.indicator_dao.get_all_industries()
-        if not all_industries:
-            print("    - 警告: 未找到任何行业，计算中止。")
-            return pd.DataFrame()
-
-        strength_data = []
-        # 使用 asyncio.gather 并行处理所有行业
-        tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
-        results = await asyncio.gather(*tasks)
-        
-        # 过滤掉计算失败的结果
-        strength_data = [res for res in results if res is not None]
-
-        if not strength_data:
-            print("--- [IndustryService V2.0] 计算完成，未找到有效的行业数据。 ---")
-            return pd.DataFrame()
-
-        # 5. 归一化排名
-        df = pd.DataFrame(strength_data)
-        # strength_score 已经是0-100分，可以直接用。rank(pct=True)是相对排名。
-        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True) 
-        
-        # print(f"--- [IndustryService V2.0] {trade_date} 的行业结构化强度计算完成。 ---")
-        return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
-
-    async def _process_single_industry_strength(self, industry, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
-        """
-        处理单个行业的强度计算，便于并行化。
-        """
-        # print(f"  - 正在处理行业: {industry.name} ({industry.ts_code})")
-
-        # 2. 并行获取该行业所需的所有数据
-        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-
-        try:
-            # 使用 asyncio.gather 获取一个行业的所有数据
-            data_tasks = {
-                "daily": self.indicator_dao.get_industry_daily_data(industry.ts_code, start_date, trade_date),
-                "flow": self.fund_flow_dao.get_industry_fund_flow(industry.ts_code, start_date, trade_date)
-            }
-            data_results = await asyncio.gather(*data_tasks.values())
-            
-            industry_daily_df = data_results[0]
-            industry_fund_flow_df = data_results[1]
-
-            if industry_daily_df.empty:
-                # print(f"    - 跳过 {industry.name}: 无有效的日线行情数据。")
-                return None
-
-            # 3. 计算各项基础得分 (0-1分制)
-            momentum_score = self._calculate_momentum_score(industry_daily_df, trade_date) # 沿用旧方法
-            fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date) # 沿用旧方法
-            volume_score = await self._calculate_volume_profile_score(industry_daily_df)
-            rs_score = await self._calculate_relative_strength_score(industry_daily_df, market_daily_df)
-
-            # 4. 【核心升级】计算结构化得分 (0-1分制)
-            leader_score = await self._calculate_leader_score(industry.ts_code, trade_date)
-            cohesion_score = await self._calculate_cohesion_score(industry.ts_code, trade_date)
-            echelon_score = await self._calculate_limit_up_echelon_score(industry.ts_code, trade_date)
-
-            # 5. 加权合成总分 (总分100分)
-            # 权重分配：结构 > 资金 > 趋势
-            # 涨停梯队是最高优先级信号，给予一票否决权的权重
-            total_score = (
-                10 * momentum_score +          # 趋势基础分
-                15 * fund_flow_score +         # 资金跟随分
-                10 * volume_score +            # 成交活跃分
-                15 * rs_score +                # 相对强度分
-                15 * leader_score +            # 龙头效应分
-                15 * cohesion_score +          # 板块协同分
-                30 * echelon_score             # 【核心】涨停梯队分
-            )
-            # echelon_score 的权重可以更高，比如40，其他相应降低，以体现其重要性
-
-            return {
-                'industry_code': industry.ts_code,
-                'industry_name': industry.name,
-                'strength_score': total_score
-            }
-        except Exception as e:
-            print(f"    - 处理行业 {industry.name} 时发生错误: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
-        """
-        【V1.1 健壮性修正版】计算行业成交活跃度得分。
-        - 修正了在数据量不足时 rolling 操作返回 NaN 的问题。
-        - 增加了对计算结果的 NaN 值检查，避免程序异常。
-        """
-        # ▼▼▼ 增加数据长度检查，如果数据太少则直接返回0分 ▼▼▼
-        # 解释: 至少需要5天数据才能计算5日均线，否则分析无意义。
-        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
-            # print(f"      - [成交活跃度] 数据不足 (行数: {len(industry_daily_df)})，无法计算得分。")
-            return 0.0
-
-        df = industry_daily_df.copy()
-
-        # 1. 计算短期爆发强度：当日换手率在过去60个交易日中的百分位排名
-        # 解释: 设置 min_periods=20 确保即使数据不足60天，只要超过20天也能计算出排名。
-        turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
-        
-        # 2. 计算中期趋势：5日均线是否上穿20日均线
-        # 解释: 设置 min_periods=1 确保均线计算从一开始就有值。
-        df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
-        df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
-        
-        # 判断金叉发生在最近3天内
-        was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
-        is_above = df['turnover_ma5'] > df['turnover_ma20']
-        is_cross_today = was_below & is_above
-        is_recent_cross_series = is_cross_today.rolling(3, min_periods=1).sum()
-        is_recent_cross = is_recent_cross_series.iloc[-1] > 0 if not is_recent_cross_series.empty else False
-
-        # 3. 综合评分
-        score = 0.0
-        # ▼▼▼ 增加对 turnover_rank_60d 的 NaN 检查 ▼▼▼
-        # 解释: 在进行比较和评分前，必须确保值不是 NaN。
-        if pd.notna(turnover_rank_60d):
-            # 如果短期爆发力极强 (排名前10%)，给予高分
-            if turnover_rank_60d > 0.9:
-                score += 0.6
-        
-        # 如果中期趋势向好 (近期金叉)，给予加分
-        if is_recent_cross:
-            score += 0.4
-            
-        # ▼▼▼ 格式化输出前也进行 NaN 检查，使日志更清晰 ▼▼▼
-        # rank_str = f"{turnover_rank_60d:.2%}" if pd.notna(turnover_rank_60d) else "N/A"
-        # print(f"      - [成交活跃度] 当日换手率排名: {rank_str}, 近期均线金叉: {is_recent_cross}, 得分: {score:.2f}")
-        
-        return score
-
-    def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算动量分"""
-        if df.empty or trade_date not in df.index:
-            return 0.0
-        
-        # 计算均线
-        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
-        
-        today = df.loc[trade_date]
-        
-        # 条件1: 价格高于关键均线
-        price_above_ema20 = 1 if today['close'] > today['ema20'] else 0
-        price_above_ema60 = 1 if today['close'] > today['ema60'] else 0
-        
-        # 条件2: 均线多头排列
-        ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
-        
-        # 条件3: 近期涨幅
-        pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
-        
-        # 综合打分
-        score = (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
-        return score
-
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """计算内部强度分"""
         members = await self.indicator_dao.get_industry_members(industry_code)
@@ -1482,110 +991,6 @@ class IndicatorService:
             
         # print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
         return score
-
-    async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
-        """
-        计算行业相对大盘的强度得分。
-        """
-        if industry_daily_df.empty or market_daily_df.empty:
-            return 0.0
-
-        # 合并行业与大盘数据
-        df = pd.merge(industry_daily_df[['close']], market_daily_df, left_index=True, right_index=True, how='inner')
-        if df.empty:
-            return 0.0
-            
-        # 1. 计算RS（相对强度）曲线
-        df['rs'] = df['close'] / df['market_close']
-        
-        # 2. 计算RS的20日均线，用于判断短期趋势
-        df['rs_ma20'] = df['rs'].rolling(20).mean()
-        
-        # 3. 评分逻辑
-        latest = df.iloc[-1]
-        score = 0.0
-        # 如果RS值在均线之上，说明短期强势
-        if latest['rs'] > latest['rs_ma20']:
-            score = 1.0
-        
-        # print(f"      - [相对强度] RS值: {latest['rs']:.2f}, RS_MA20: {latest['rs_ma20']:.2f}, 得分: {score:.2f}")
-        return score
-
-    async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> pd.DataFrame:
-        """
-        【V2.0 生命周期诊断版】分析行业轮动，并诊断每个行业的生命周期阶段。
-        - 核心升级: 不仅计算排名，还计算排名分数的斜率和加速度，并据此判断行业所处的生命周期。
-        - 返回值: DataFrame中新增 'rank_slope', 'rank_accel', 'lifecycle_stage' 列。
-        """
-        print(f"\n--- [行业生命周期诊断 V2.0] 开始分析截至 {end_date} 的过去 {lookback_days} 天行业轮动情况 ---")
-        # 1. 获取过去N个交易日的日期列表 (需要一个交易日历工具)
-        # 此处简化处理，实际应从交易日历服务获取
-        trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1] # 保证时间升序
-        # 2. 并行计算每一天的行业排名
-        tasks = [self.calculate_industry_strength_rank(td, market_code) for td in trade_dates]
-        daily_rank_results = await asyncio.gather(*tasks)
-        # 3. 合并所有日期的排名数据
-        all_ranks = []
-        for i, df_rank in enumerate(daily_rank_results):
-            if not df_rank.empty and 'strength_rank' in df_rank.columns:
-                df_rank['trade_date'] = trade_dates[i]
-                all_ranks.append(df_rank.reset_index())
-        if not all_ranks:
-            print("    - [行业轮动分析] 未能获取任何历史排名数据，分析中止。")
-            return pd.DataFrame()
-        rotation_df = pd.concat(all_ranks, ignore_index=True)
-        # 4. 为每个行业计算其排名的时间序列趋势（斜率和加速度）
-        def calculate_lifecycle_metrics(group):
-            group = group.sort_values('trade_date')
-            if len(group) < 5: # 至少需要5个数据点来计算有意义的斜率和加速度
-                return pd.Series({
-                    'latest_rank': group['strength_rank'].iloc[-1],
-                    'rank_slope': 0.0,
-                    'rank_accel': 0.0
-                })
-            ranks = group['strength_rank'].values
-            # 计算斜率 (使用最近5天)
-            slope_lookback = 5
-            if len(ranks) >= slope_lookback:
-                slope = np.polyfit(np.arange(slope_lookback), ranks[-slope_lookback:], 1)[0]
-            else:
-                slope = 0.0
-            # 计算加速度 (基于斜率的变化)
-            if len(group) >= 10:
-                ranks_1 = group['strength_rank'].iloc[-10:-5].values
-                ranks_2 = group['strength_rank'].iloc[-5:].values
-                slope_1 = np.polyfit(np.arange(5), ranks_1, 1)[0]
-                slope_2 = np.polyfit(np.arange(5), ranks_2, 1)[0]
-                accel = slope_2 - slope_1
-            else:
-                accel = 0.0
-            return pd.Series({
-                'latest_rank': ranks[-1],
-                'rank_slope': slope,
-                'rank_accel': accel
-            })
-        lifecycle_metrics = rotation_df.groupby('industry_code').apply(calculate_lifecycle_metrics)
-        # 5. 根据指标判断生命周期阶段
-        def assign_lifecycle_stage(row):
-            rank = row['latest_rank']
-            slope = row['rank_slope']
-            accel = row['rank_accel']
-            if rank < 0.3 and slope > 0.005 and accel > 0:
-                return 'PREHEAT' # 底部预热
-            elif rank > 0.5 and slope > 0.01:
-                return 'MARKUP' # 主升加速
-            elif rank > 0.8 and slope < 0:
-                return 'STAGNATION' # 高位滞涨
-            elif rank < 0.4 and slope < -0.005:
-                return 'DOWNTREND' # 下跌通道
-            else:
-                return 'TRANSITION' # 过渡/震荡
-        lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
-        # 合并行业名称
-        industry_names = rotation_df[['industry_code', 'industry_name']].drop_duplicates().set_index('industry_code')
-        final_report = pd.merge(lifecycle_metrics, industry_names, left_index=True, right_index=True)
-        print("--- [行业生命周期诊断 V2.0] 分析完成 ---")
-        return final_report.sort_values('rank_slope', ascending=False)
 
     def calculate_relative_strength(self, df: pd.DataFrame, stock_close_col: str, benchmark_codes: List[str], periods: List[int], time_level: str) -> pd.DataFrame:
         """

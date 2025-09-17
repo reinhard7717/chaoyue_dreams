@@ -261,11 +261,11 @@ API_RATE_LIMITS = {
         'PERIOD': 60,
     },
     'api_dc_member': {
-        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'MAX_CALLS': 490, # 每分钟480次 (Tushare限制500)
         'PERIOD': 60,
     },
     'api_limit_list_ths': {
-        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'MAX_CALLS': 490, # 每分钟480次 (Tushare限制500)
         'PERIOD': 60,
     },
     'api_limit_list_d': {
@@ -273,11 +273,11 @@ API_RATE_LIMITS = {
         'PERIOD': 60,
     },
     'api_limit_step': {
-        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'MAX_CALLS': 490, # 每分钟480次 (Tushare限制500)
         'PERIOD': 60,
     },
     'api_limit_cpt_list': {
-        'MAX_CALLS': 480, # 每分钟480次 (Tushare限制500)
+        'MAX_CALLS': 490, # 每分钟480次 (Tushare限制500)
         'PERIOD': 60,
     },
     'api_ths_member': {

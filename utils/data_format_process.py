@@ -33,11 +33,6 @@ def safe_value(val):
     # 处理 decimal.Decimal
     if isinstance(val, decimal.Decimal):
         return float(val)
-    # 修改行：注释掉对 datetime/date 的处理。
-    # 数据库批量插入方法需要的是原生的 datetime/date 对象，而不是它们的字符串表示。
-    # 字符串化应在其他需要序列化（如API响应）的场景下进行。
-    # if isinstance(val, (datetime.datetime, datetime.date)):
-    #     return val.isoformat()
     return val
 
 class UserDataFormatProcess(BaseDAO):
