@@ -92,7 +92,6 @@ class IndustryDao(BaseDAO):
             "index_code": "", "level": "", "src": "", "parent_code": "", "limit": "", "offset": ""
         }, fields=[ "index_code", "industry_name", "level", "industry_code", "is_pub", "parent_code", "src" ])
         industry_dicts = []
-        
         if df is not None:
             df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
             for row in df.itertuples():
@@ -285,32 +284,6 @@ class IndustryDao(BaseDAO):
                 )
                 industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic, df_data=row)
                 industry_daily_basic_dicts.append(industry_daily_basic_dict)
-        
-        if industry_daily_basic_dicts:
-            # --- 新增：智能调试代码 ---
-            # 在将数据送入数据库前，进行一次预检，找出可能导致错误的具体数据。
-            problematic_items = []
-            for item in industry_daily_basic_dicts:
-                trade_time_val = item.get('trade_time')
-                # 检查 trade_time 是否是字符串类型，这是导致 "Data too long" 错误的直接原因
-                if isinstance(trade_time_val, str):
-                    problematic_items.append(item)
-            
-            # 如果找到了问题数据，就只打印这些有问题的数据，然后让程序继续执行以重现错误
-            if problematic_items:
-                print("="*50)
-                print("!!! [智能调试] 发现 'trade_time' 字段为字符串的错误数据，这很可能导致数据库写入失败。")
-                print(f"!!! 涉及模型: sw_industry_daily, 发现 {len(problematic_items)} 条问题数据。")
-                # 为了日志清晰，只打印前5条问题数据
-                for i, bad_item in enumerate(problematic_items[:5]):
-                    print(f"--- 问题数据 #{i+1} ---")
-                    # 打印出完整的问题字典，以便分析其来源和内容
-                    print(bad_item)
-                if len(problematic_items) > 5:
-                    print(f"...及另外 {len(problematic_items) - 5} 条问题数据。")
-                print("="*50)
-            # --- 智能调试代码结束 ---
-
             result = await self._save_all_to_db_native_upsert(
                 model_class=SwIndustryDaily,
                 data_list=industry_daily_basic_dicts,

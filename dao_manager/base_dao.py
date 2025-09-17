@@ -749,9 +749,9 @@ class BaseDAO(Generic[T]):
 
     def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
         """
-        【V26 - 终极修复 datetime 问题】
-        - 修复: 将 df.to_numpy() 替换为更类型安全的 itertuples()，防止 datetime 对象被转为 numpy.datetime64 导致数据库驱动格式化字符串过长。
-        - 调试: 增加了一个只针对特定模型的、在执行前打印数据类型的调试块。
+        【V27 - 最终修复 pandas.Timestamp 问题】
+        - 修复: 在将 DataFrame 转换为元组前，强制将所有 pandas.Timestamp 列转换为 Python 原生 datetime 对象，
+                使用 .dt.to_pydatetime()，从根本上解决数据库驱动的兼容性问题。
         """
         if df.empty:
             return 0
@@ -780,6 +780,16 @@ class BaseDAO(Generic[T]):
                 df[col_name] = df[col_name].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
                 )
+
+        # --- 将所有 pandas Timestamp 对象转换为 Python 原生 datetime 对象 ---
+        # 这是解决问题的最终关键步骤。
+        # 找出所有日期时间类型的列 (包括带时区的)
+        datetime_cols = df.select_dtypes(include=['datetime', 'datetimetz']).columns
+        for col in datetime_cols:
+            # 使用 .dt.to_pydatetime() 将整个列高效地转换为原生 datetime 对象
+            # NaT (Not a Time) 会被自动转换成 None，这符合我们的预期
+            print(f"DEBUG: Converting pandas.Timestamp column '{col}' to native python datetime.") # 增加一个转换日志
+            df[col] = df[col].dt.to_pydatetime()
         # --- 死锁预防：按唯一键排序 ---
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
         unique_columns = [field_to_column_map.get(f, f) for f in unique_key_fields]
@@ -803,24 +813,9 @@ class BaseDAO(Generic[T]):
             f"VALUES {placeholders_sql} "
             f"ON DUPLICATE KEY UPDATE {update_sql}"
         )
-        
-        # 修改行：将 df.to_numpy() 替换为 df.itertuples()，以保留 Python 原生对象类型
-        # 这是解决问题的核心修复。itertuples 避免了将 datetime 转为 numpy.datetime64。
         df_filled = df.replace({np.nan: None})
         params_list_of_tuples = list(df_filled.itertuples(index=False, name=None))
 
-        # --- 新增：终极调试代码 ---
-        # 这个调试块只在处理 sw_industry_daily 模型时触发
-        if table_name == 'sw_industry_daily' and params_list_of_tuples:
-            print("="*50)
-            print(f"!!! [终极调试] 即将送入数据库的第一行数据类型检查 (模型: {table_name})")
-            first_row_tuple = params_list_of_tuples[0]
-            columns = df.columns
-            for col_name, value in zip(columns, first_row_tuple):
-                # 重点关注 trade_time 字段
-                marker = ">>>>>" if 'time' in col_name else ""
-                print(f"{marker}  列名: {col_name:<20} | 类型: {str(type(value)):<30} | 值: {value}")
-            print("="*50)
         # --- 数据库执行阶段：增加死锁重试逻辑 ---
         max_retries = 3
         for attempt in range(max_retries):
