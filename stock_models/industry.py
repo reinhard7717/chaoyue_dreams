@@ -81,7 +81,7 @@ class SwIndustryDaily(models.Model):
         verbose_name="关联指数基础信息"
     )
     trade_time = models.DateField(db_index=True, verbose_name="交易日期")
-    name = models.CharField(max_length=64, verbose_name="指数名称")
+    name = models.CharField(max_length=64, verbose_name="成分股票名称", null=True, blank=True)
     open = models.FloatField(verbose_name="开盘点位", null=True, blank=True)
     low = models.FloatField(verbose_name="最低点位", null=True, blank=True)
     high = models.FloatField(verbose_name="最高点位", null=True, blank=True)
@@ -121,7 +121,7 @@ class CiIndexMember(models.Model):
         on_delete=models.CASCADE, blank=True, null=True,
         related_name="ci_index_member", verbose_name=_("股票")
     )
-    name = models.CharField(max_length=50, verbose_name="成分股票名称")
+    name = models.CharField(max_length=50, verbose_name="成分股票名称", null=True, blank=True)
     in_date = models.DateField(verbose_name=_("纳入日期"), null=True, blank=True)
     out_date = models.DateField(verbose_name=_("剔除日期"), null=True, blank=True)
     is_new = models.CharField(max_length=2, verbose_name="是否最新")
@@ -249,7 +249,7 @@ class KplLimitList(models.Model):
         verbose_name=_("股票代码")
     )
     trade_date = models.DateField(verbose_name="交易日期", db_index=True)
-    name = models.CharField(max_length=64, verbose_name="股票名称")
+    name = models.CharField(max_length=64, verbose_name="股票名称", null=True, blank=True)
     tag = models.CharField(max_length=20, verbose_name="榜单类型", db_index=True, help_text="例如: 涨停, 跌停, 炸板")
     
     # 时间相关

@@ -745,103 +745,114 @@ class BaseDAO(Generic[T]):
             return 0 # 返回0表示没有记录被处理
         return total_processed
 
-    def _process_batch_mysql_upsert_sync(self, df: pd.DataFrame, model_class, update_fields: list, unique_key_fields: list) -> int:
+    def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None):
         """
-        【V27 - 最终修复 pandas.Timestamp 问题】
-        - 修复: 在将 DataFrame 转换为元组前，强制将所有 pandas.Timestamp 列转换为 Python 原生 datetime 对象，
-                使用 .dt.to_pydatetime()，从根本上解决数据库驱动的兼容性问题。
+        【V2.0 探针+健壮性修复版】
+        使用原生SQL `INSERT ... ON DUPLICATE KEY UPDATE` 执行批量更新或插入操作。
+        此方法直接与MySQL交互，性能较高。
+        Args:
+            model_class: Django模型类。
+            data_list (List[Dict]): 包含待处理数据的字典列表。
+            unique_fields (List[str]): 用于确定记录唯一性的字段列表 (对应数据库的UNIQUE KEY)。
+            update_fields (List[str], optional): 当记录已存在时需要更新的字段列表。
+                                                 如果为 None，则更新所有非唯一键字段。
+        Returns:
+            int: 受影响的总行数。
         """
-        if df.empty:
-            return 0
-        df = df.copy()
+        total_affected_rows = 0
+        if not data_list:
+            logger.info(f"模型 {model_class.__name__} 的数据列表为空，跳过批量保存。")
+            return total_affected_rows
         table_name = model_class._meta.db_table
-        now = timezone.now()
-        auto_now_fields = []
-        # --- 数据准备阶段 (与之前版本相同) ---
-        for field in model_class._meta.fields:
-            if hasattr(field, 'auto_now_add') and field.auto_now_add and field.column not in df.columns:
-                df[field.column] = now
-            if hasattr(field, 'auto_now') and field.auto_now:
-                auto_now_fields.append(field.column)
-                df[field.column] = now
-        for field in model_class._meta.fields:
-            if field.default is not models.NOT_PROVIDED:
-                default_value = field.get_default()
-                if field.column not in df.columns:
-                    df[field.column] = default_value
-                elif df[field.column].isnull().any():
-                    if default_value is not None:
-                        df[field.column].fillna(default_value, inplace=True)
-        json_field_names = [f.column for f in model_class._meta.fields if isinstance(f, models.JSONField)]
-        for col_name in json_field_names:
-            if col_name in df.columns:
-                df[col_name] = df[col_name].apply(
-                    lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x
-                )
-        datetime_cols = df.select_dtypes(include=['datetime', 'datetimetz']).columns
-        for col in datetime_cols:
-            df[col] = df[col].dt.to_pydatetime()
-        # --- 死锁预防：按唯一键排序 ---
-        field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
-        unique_columns = [field_to_column_map.get(f, f) for f in unique_key_fields]
-        if all(col in df.columns for col in unique_columns):
-            df.sort_values(by=unique_columns, inplace=True)
-        # --- SQL构建阶段 (与之前版本相同) ---
-        all_columns = list(df.columns)
-        cols_sql = ", ".join([f"`{col}`" for col in all_columns])
-        placeholders_sql = f"({', '.join(['%s'] * len(all_columns))})"
-        update_columns_set = set()
-        for field_name in update_fields:
-            column_name = field_to_column_map.get(field_name, field_name)
-            update_columns_set.add(column_name)
-        update_columns_set.update(auto_now_fields)
-        if not update_columns_set:
-            update_sql = f"`{model_class._meta.pk.column}` = `{model_class._meta.pk.column}`"
-        else:
-            update_sql = ", ".join([f"`{col}` = VALUES(`{col}`)" for col in update_columns_set])
-        final_sql_template = (
-            f"INSERT INTO `{table_name}` ({cols_sql}) "
-            f"VALUES {placeholders_sql} "
-            f"ON DUPLICATE KEY UPDATE {update_sql}"
-        )
-        df_filled = df.replace({np.nan: None})
-        params_list_of_tuples = list(df_filled.itertuples(index=False, name=None))
-        # --- 数据库执行阶段：增加死锁重试逻辑 ---
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                with transaction.atomic():
-                    with connection.cursor() as cursor:
-                        try:
-                            if not params_list_of_tuples:
-                                return 0
-                            total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
-                        except Exception as e:
-                            # 修改行: 在捕获到未知异常时也打印调试信息
-                            print("="*50)
-                            print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！")
-                            print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
-                            print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
-                            if params_list_of_tuples:
-                                print(f"FATAL DEBUG: 待插入/更新的第一条数据 (元组): {params_list_of_tuples[0]}")
-                            print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
-                            print(f"FATAL DEBUG: 异常信息: {e}")
-                            print("="*50)
-                            # 修改行: 结束添加调试信息
-                            logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}")
-                return total_affected_rows
-            except OperationalError as e:
-                if e.args[0] == 1213:
-                    if attempt == max_retries - 1:
-                        logger.error(f"执行批量Upsert时发生死锁，已达到最大重试次数 {max_retries}。SQL: {final_sql_template[:500]}...", exc_info=True)
-                        raise
-                    wait_time = (0.1 + random.uniform(0, 0.2)) * (attempt + 1)
-                    logger.warning(f"捕获到数据库死锁，将在 {wait_time:.2f} 秒后进行第 {attempt + 1}/{max_retries} 次重试...")
-                    time.sleep(wait_time)
+        model_fields = {f.name: f for f in model_class._meta.get_fields() if not f.is_relation or f.one_to_one or (f.many_to_one and f.related_model)}
+        # 确定所有需要插入的字段，包括外键的 _id 字段
+        all_fields = []
+        for item in data_list:
+            for key in item.keys():
+                if key not in all_fields:
+                    # 处理外键，确保我们使用的是数据库列名 (例如 'stock_id' 而不是 'stock')
+                    field_obj = model_fields.get(key)
+                    if field_obj and (field_obj.many_to_one or field_obj.one_to_one):
+                        db_column = field_obj.column
+                        if db_column not in all_fields:
+                            all_fields.append(db_column)
+                    elif key in model_fields and key not in all_fields:
+                         all_fields.append(key)
+        # 准备参数列表，并处理外键对象
+        params_list_of_tuples = []
+        for item in data_list:
+            param_tuple = []
+            for field_name in all_fields:
+                # 找到原始的 item key (可能是 'stock' 或 'stock_id')
+                original_key = field_name
+                if field_name.endswith('_id'):
+                    # 尝试找到模型字段名，如 'stock'
+                    model_field_name = field_name[:-3]
+                    if model_field_name in item:
+                        original_key = model_field_name
+                value = item.get(original_key)
+                # 如果值是模型实例，获取其主键
+                if isinstance(value, models.Model):
+                    param_tuple.append(value.pk)
                 else:
-                    logger.error(f"执行批量Upsert (executemany) 时发生非死锁数据库错误。SQL: {final_sql_template[:500]}... Error: {e}", exc_info=True)
-                    raise
-        return 0
+                    param_tuple.append(value)
+            params_list_of_tuples.append(tuple(param_tuple))
+        # 确定需要更新的字段
+        if update_fields is None:
+            # 默认更新所有非唯一键的字段
+            unique_db_columns = set()
+            for uf in unique_fields:
+                field_obj = model_fields.get(uf)
+                if field_obj:
+                    unique_db_columns.add(field_obj.column)
+            update_fields = [f for f in all_fields if f not in unique_db_columns]
+        # 构建SQL语句
+        field_list_str = ", ".join([f"`{f}`" for f in all_fields])
+        value_placeholders = ", ".join(["%s"] * len(all_fields))
+        if not update_fields:
+            # 如果没有更新字段，则只插入，忽略重复
+            final_sql_template = f"INSERT IGNORE INTO `{table_name}` ({field_list_str}) VALUES ({value_placeholders})"
+        else:
+            update_clause = ", ".join([f"`{f}` = VALUES(`{f}`)" for f in update_fields])
+            final_sql_template = (
+                f"INSERT INTO `{table_name}` ({field_list_str}) VALUES ({value_placeholders}) "
+                f"ON DUPLICATE KEY UPDATE {update_clause}"
+            )
+
+        with connection.cursor() as cursor:
+            try:
+                if not params_list_of_tuples:
+                    return 0 # 再次检查，以防万一
+                total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+            except (IntegrityError, OperationalError) as e:
+                # ================== 异常探针日志开始 ==================
+                print("="*50)
+                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到数据库错误！")
+                print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
+                print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
+                if params_list_of_tuples:
+                    print(f"FATAL DEBUG: 待插入/更新的第一条数据 (元组): {params_list_of_tuples[0]}")
+                print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
+                print(f"FATAL DEBUG: 异常信息: {e}")
+                print("="*50)
+                # ================== 异常探针日志结束 ==================
+                logger.error(f"原生SQL批处理时遇到数据库错误 (在锁内): {e}")
+                # 异常发生，total_affected_rows 将保持为初始值 0
+            except Exception as e:
+                # ================== 异常探针日志开始 ==================
+                print("="*50)
+                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！")
+                print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
+                print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
+                if params_list_of_tuples:
+                    print(f"FATAL DEBUG: 待插入/更新的第一条数据 (元组): {params_list_of_tuples[0]}")
+                print(f"FATAL DEBUG: 异常类型: {type(e).__name__}")
+                print(f"FATAL DEBUG: 异常信息: {e}")
+                print("="*50)
+                # ================== 异常探针日志结束 ==================
+                logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}")
+                # 异常发生，total_affected_rows 将保持为初始值 0
+        return total_affected_rows
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
