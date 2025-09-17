@@ -898,7 +898,7 @@ class MarketFormatProcess(BaseDAO):
             "lu_desc": getattr(df_data, "lu_desc", None) or '',
             "limit_type": getattr(df_data, "limit_type", None),
             "tag": getattr(df_data, "tag", None) or '',
-            "status": getattr(df_data, "status", None),
+            "status": getattr(df_data, "status", None) or '',
             "first_lu_time": getattr(df_data, "first_lu_time", None), # 保持为字符串
             "last_lu_time": getattr(df_data, "last_lu_time", None), # 保持为字符串
             "first_ld_time": getattr(df_data, "first_ld_time", None), # 保持为字符串
