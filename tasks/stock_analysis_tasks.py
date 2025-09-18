@@ -24,6 +24,7 @@ from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
+from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
 from stock_models.index import TradeCalendar
