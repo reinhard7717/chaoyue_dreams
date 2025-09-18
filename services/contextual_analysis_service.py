@@ -126,31 +126,6 @@ class ContextualAnalysisService:
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
         return df.sort_values('strength_rank', ascending=False).set_index('concept_code')
 
-    async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH') -> pd.DataFrame:
-        """
-        【V2.1 结构分析版】计算指定交易日所有行业的强度分及排名。
-        """
-        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-        market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
-        if market_daily_df.empty:
-            logger.warning(f"无法获取大盘基准 {market_code} 数据，相对强度分析将跳过。")
-        
-        all_industries = await self.industry_dao.get_ths_index_list() # 假设使用同花顺行业
-        if not all_industries:
-            logger.warning("未找到任何行业，计算中止。")
-            return pd.DataFrame()
-
-        tasks = [self._process_single_industry_strength(industry, trade_date, market_daily_df) for industry in all_industries]
-        results = await asyncio.gather(*tasks)
-        
-        strength_data = [res for res in results if res is not None]
-        if not strength_data:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(strength_data)
-        df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
-        return df.sort_values('strength_rank', ascending=False).set_index('industry_code')
-
     async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
         """
         【V3.1 通用版】处理单个板块/概念的强度计算。
