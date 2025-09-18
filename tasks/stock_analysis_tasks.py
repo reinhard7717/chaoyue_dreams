@@ -1372,11 +1372,11 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
 @with_cache_manager
 def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str, source: str, *, cache_manager: CacheManager):
     """
-    【V3.0-Reduce任务】聚合每日排名结果，计算并保存最终的生命周期数据。
+    【V3.1-Reduce任务-修复版】聚合每日排名结果，计算并保存最终的生命周期数据。
+    修复: 移除 .reset_index() 调用，因为上游任务现在直接返回包含 'concept_code' 列的DataFrame。
     """
     async def main():
         logger.info(f"====== [Reduce] 聚合任务启动，目标日期: {target_date_str}, 来源: {source.upper()} ======")
-        
         # 1. 反序列化并合并所有每日排名数据
         all_ranks_df = []
         for i, result_dict in enumerate(results):
@@ -1384,17 +1384,15 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
                 try:
                     df = pd.read_json(result_dict['rank_data_json'], orient='split')
                     df['trade_date'] = pd.to_datetime(result_dict['trade_date'])
-                    all_ranks_df.append(df.reset_index())
+                    # 修改行: 直接追加DataFrame，不再需要 .reset_index()
+                    all_ranks_df.append(df)
                 except Exception as e:
                     logger.error(f"[Reduce] 反序列化第 {i} 个结果时失败: {e}")
                     continue
-
         if not all_ranks_df:
             logger.error(f"[Reduce] 来源 '{source.upper()}' 的所有Map任务均未返回有效数据，聚合任务终止。")
             return {"status": "failed", "reason": "No data from map tasks."}
-            
         rotation_df = pd.concat(all_ranks_df, ignore_index=True)
-        
         # 2. 执行生命周期计算
         def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
@@ -1407,32 +1405,26 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
                 slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
                 accel = slope_2 - slope_1
             return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
-            
-        # 修改行: groupby 的键应为 concept_code
+        # 此处 groupby 现在可以正常工作
         lifecycle_metrics = rotation_df.groupby('concept_code').apply(calculate_lifecycle_metrics)
-        
         def assign_lifecycle_stage(row):
             if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
             if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
             if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
             if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
             return 'TRANSITION'
-            
         lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
-        
         # 3. 准备并保存目标日期的数据
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
         latest_day_data = lifecycle_metrics.copy()
         latest_day_data['trade_date'] = target_date
+        # 此处 reset_index() 是正确的，它会将 groupby 的 key (concept_code) 从索引变回列
         records_to_save = latest_day_data.reset_index().to_dict('records')
-        
         # 4. 调用DAO保存
         industry_dao = IndustryDao(cache_manager)
         save_result = await industry_dao.save_industry_lifecycle(records_to_save)
-        
         logger.info(f"====== [Reduce] 聚合任务完成，已为 {target_date_str} (来源: {source.upper()}) 保存 {len(records_to_save)} 条行业生命周期数据。 ======")
         return save_result
-
     try:
         return async_to_sync(main)()
     except Exception as e:
