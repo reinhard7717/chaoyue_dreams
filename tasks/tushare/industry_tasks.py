@@ -152,32 +152,22 @@ def save_all_daily_industry_concept_data_task(cache_manager=None):
         logger.info(final_message)
         return final_message
 
-# 历史数据回补任务：全面获取所有渠道的历史数据
-@celery_app.task(name='tasks.tushare.industry_tasks.save_all_historical_data_task', queue='SaveHistoryData_TimeTrade')
+# =================================================================
+# =================== 静态数据更新任务 (新任务) ==================
+# =================================================================
+@celery_app.task(name='tasks.tushare.industry_tasks.update_static_industry_data_task', queue='celery')
 @with_cache_manager
-def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
+def update_static_industry_data_task(cache_manager=None):
     """
-    【V2.0 综合并行版】
-    Celery调度器任务：一次性获取并保存所有渠道过去N天的历史数据。
-    - 核心升级:
-      - 将原同花顺历史任务扩展为覆盖所有渠道的综合历史回补任务。
-      - 采用按天并行处理的模式，极大提升数据回补效率。
-    - 健壮性增强: 为每个渠道的单日数据获取添加了独立的异常捕获。
-    - :param days_to_fetch: 需要回补的交易日天数，默认为30天。
+    【V1.0 新增】独立任务：更新所有不按天变化的行业/概念静态元数据。
+    - 职责: 负责更新行业分类、成分股等基础信息。
+    - 建议: 此任务不需要每天运行，可以按周或按需手动触发。
     """
-    task_name = 'save_all_historical_data_task'
-    logger.info(f"开始执行【全面获取所有渠道的历史数据】任务: {task_name}，回补天数: {days_to_fetch}")
+    task_name = 'update_static_industry_data_task'
+    logger.info(f"开始执行【静态行业元数据更新】任务: {task_name}")
     industry_dao = IndustryDao(cache_manager)
-    index_dao = IndexBasicDAO(cache_manager)
+
     async def main():
-        # --- 步骤1: 获取需要回补的交易日列表 ---
-        trade_dates = await index_dao.get_last_n_trade_cal_open(n=days_to_fetch)
-        if not trade_dates:
-            logger.warning("未能获取到任何交易日，历史数据回补任务终止。")
-            return
-        print(f"准备回补以下 {len(trade_dates)} 个交易日的数据: { [d.strftime('%Y-%m-%d') for d in trade_dates] }")
-        logger.info(f"准备回补 {len(trade_dates)} 个交易日的数据。")
-        # --- 步骤2: 静态数据更新 (这些数据不按天变化，只需执行一次) ---
         print("\n--- [静态数据更新] 开始处理不按天变化的元数据 ---")
         try:
             # 申万行业分类
@@ -194,47 +184,113 @@ def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
             print("  - 同花顺板块成分元数据更新完成。")
         except Exception as e:
             logger.error(f"[{task_name}] 更新静态元数据时发生错误: {e}", exc_info=True)
-        # --- 步骤3: 按天并行处理所有渠道的日度数据 ---
-        for i, trade_date in enumerate(trade_dates):
-            print(f"\n--- [进度 {i+1}/{len(trade_dates)}] 开始处理交易日: {trade_date.strftime('%Y-%m-%d')} 的所有数据 ---")
-            # 为当前交易日创建一组并发任务
-            tasks = []
-            # 申万
-            tasks.append(run_safely(industry_dao.save_sw_industry_daily, "申万行业行情", trade_date=trade_date))
-            # 同花顺
-            tasks.append(run_safely(industry_dao.save_ths_index_daily_by_trade_date, "同花顺板块行情", trade_date=trade_date))
-            # 开盘啦
-            tasks.append(run_safely(industry_dao.save_kpl_concept_list_by_date, "开盘啦题材库", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_kpl_concept_members_by_date, "开盘啦题材成分", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_kpl_list_by_date, "开盘啦榜单", trade_date=trade_date))
-            # 东方财富
-            tasks.append(run_safely(industry_dao.save_dc_index_list_by_date, "东方财富板块列表", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_dc_index_daily_by_trade_time, "东方财富板块行情", trade_time=trade_date))
-            tasks.append(run_safely(industry_dao.save_dc_index_members_by_date, "东方财富板块成分", trade_date=trade_date))
-            # 市场情绪
-            tasks.append(run_safely(industry_dao.save_limit_list_ths_by_date, "同花顺涨跌停榜单", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_limit_list_d_by_date, "Tushare涨跌停列表", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_limit_step_by_date, "连板天梯", trade_date=trade_date))
-            tasks.append(run_safely(industry_dao.save_limit_cpt_list_by_date, "最强板块统计", trade_date=trade_date))
-            # 并发执行当天的所有任务
-            await asyncio.gather(*tasks)
-    async def run_safely(coro, name, **kwargs):
-        """一个安全的协程运行器，用于捕获单个任务的异常"""
-        trade_date_str = kwargs.get('trade_date', kwargs.get('trade_time', 'N/A'))
-        if isinstance(trade_date_str, datetime.date):
-            trade_date_str = trade_date_str.strftime('%Y-%m-%d')
-        try:
-            print(f"    -> 开始获取 [{name}] 数据...")
-            await coro(**kwargs)
-            print(f"    -- 完成 [{name}] 数据获取。")
-        except Exception as e:
-            logger.error(f"在处理日期 {trade_date_str} 的 [{name}] 数据时发生错误: {e}", exc_info=True)
-            print(f"    !! 失败 [{name}] 数据获取失败: {e}")
+            raise # 抛出异常以便Celery监控
+
     async_to_sync(main)()
-    final_message = f"【全面获取所有渠道的历史数据】任务: {task_name} 全部交易日处理完毕。"
+    final_message = f"【静态行业元数据更新】任务: {task_name} 执行完毕。"
     logger.info(final_message)
     return final_message
 
+# =================================================================
+# =================== 历史数据回补 (调度器 + 执行器) ==================
+# =================================================================
+
+# --- 任务2: 执行器 (Worker Task) ---
+@celery_app.task(name='tasks.tushare.industry_tasks.process_single_day_historical_data', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def process_single_day_historical_data_task(trade_date_str: str, cache_manager=None):
+    """
+    【V1.0 新增-执行器】处理单个交易日的所有渠道历史数据。
+    - 职责: 作为并行计算的最小单元，接收一个日期，完成该日所有数据的获取和保存。
+    """
+    task_name = 'process_single_day_historical_data_task'
+    logger.info(f"--- [执行器] 开始处理交易日: {trade_date_str} 的所有数据 ---")
+    industry_dao = IndustryDao(cache_manager)
+    trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+
+    async def main():
+        # 辅助函数，用于安全运行单个协程
+        async def run_safely(coro, name, **kwargs):
+            try:
+                print(f"    -> ({trade_date_str}) 开始获取 [{name}] 数据...")
+                await coro(**kwargs)
+                print(f"    -- ({trade_date_str}) 完成 [{name}] 数据获取。")
+            except Exception as e:
+                logger.error(f"在处理日期 {trade_date_str} 的 [{name}] 数据时发生错误: {e}", exc_info=True)
+                print(f"    !! ({trade_date_str}) 失败 [{name}] 数据获取失败: {e}")
+
+        # 为当前交易日创建一组并发任务
+        tasks = [
+            # 申万
+            run_safely(industry_dao.save_sw_industry_daily, "申万行业行情", trade_date=trade_date),
+            # 同花顺
+            run_safely(industry_dao.save_ths_index_daily_by_trade_date, "同花顺板块行情", trade_date=trade_date),
+            # 开盘啦
+            run_safely(industry_dao.save_kpl_concept_list_by_date, "开盘啦题材库", trade_date=trade_date),
+            run_safely(industry_dao.save_kpl_concept_members_by_date, "开盘啦题材成分", trade_date=trade_date),
+            run_safely(industry_dao.save_kpl_list_by_date, "开盘啦榜单", trade_date=trade_date),
+            # 东方财富
+            run_safely(industry_dao.save_dc_index_list_by_date, "东方财富板块列表", trade_date=trade_date),
+            run_safely(industry_dao.save_dc_index_daily_by_trade_time, "东方财富板块行情", trade_time=trade_date),
+            run_safely(industry_dao.save_dc_index_members_by_date, "东方财富板块成分", trade_date=trade_date),
+            # 市场情绪
+            run_safely(industry_dao.save_limit_list_ths_by_date, "同花顺涨跌停榜单", trade_date=trade_date),
+            run_safely(industry_dao.save_limit_list_d_by_date, "Tushare涨跌停列表", trade_date=trade_date),
+            run_safely(industry_dao.save_limit_step_by_date, "连板天梯", trade_date=trade_date),
+            run_safely(industry_dao.save_limit_cpt_list_by_date, "最强板块统计", trade_date=trade_date)
+        ]
+        # 并发执行当天的所有任务
+        await asyncio.gather(*tasks)
+
+    try:
+        async_to_sync(main)()
+        final_message = f"--- [执行器] 交易日 {trade_date_str} 的所有数据处理完毕。 ---"
+        logger.info(final_message)
+        return final_message
+    except Exception as e:
+        logger.error(f"--- [执行器] 处理交易日 {trade_date_str} 时发生顶层错误: {e}", exc_info=True)
+        raise # 抛出异常，让Celery知道此任务失败
+
+# --- 任务1: 调度器 (Dispatcher Task) ---
+@celery_app.task(name='tasks.tushare.industry_tasks.save_all_historical_data_task', queue='celery') # 调度器使用主队列
+@with_cache_manager
+def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
+    """
+    【V3.0 调度-执行并行版】
+    Celery调度器任务：为过去N天的每个交易日，派发一个并行的处理任务。
+    - 职责: 仅负责调度，不执行具体的数据获取。
+    """
+    task_name = 'save_all_historical_data_task'
+    logger.info(f"--- [调度器] 启动【全面历史数据回补】任务: {task_name}，回补天数: {days_to_fetch} ---")
+    index_dao = IndexBasicDAO(cache_manager)
+
+    async def main():
+        # --- 步骤1: 获取需要回补的交易日列表 ---
+        trade_dates = await index_dao.get_last_n_trade_cal_open(n=days_to_fetch)
+        if not trade_dates:
+            logger.warning("未能获取到任何交易日，历史数据回补任务终止。")
+            return
+        
+        date_list_str = [d.strftime('%Y-%m-%d') for d in trade_dates]
+        print(f"--- [调度器] 准备为以下 {len(trade_dates)} 个交易日派发并行任务: {date_list_str}")
+        logger.info(f"--- [调度器] 准备为 {len(trade_dates)} 个交易日派发并行任务。")
+
+        # --- 步骤2: 创建所有“单日任务”的签名 ---
+        # .s() 方法创建了一个任务签名(signature)，它是一个包含任务名称和参数的对象，可以被传递和组合。
+        worker_tasks = [
+            process_single_day_historical_data_task.s(trade_date.strftime('%Y-%m-%d'))
+            for trade_date in trade_dates
+        ]
+
+        # --- 步骤3: 使用 group 将所有任务签名组合成一个并行组，并异步执行 ---
+        # group(...) 创建一个任务组，当它被调用时，其内部的所有任务会同时发送到消息队列。
+        task_group = group(worker_tasks)
+        task_group.apply_async() # 异步执行任务组
+
+    async_to_sync(main)()
+    final_message = f"--- [调度器] 任务: {task_name} 已成功派发 {days_to_fetch} 个单日处理任务到队列。 ---"
+    logger.info(final_message)
+    return final_message
 
 
 
