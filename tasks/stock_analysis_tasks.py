@@ -1292,7 +1292,6 @@ def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_man
     - 修复: 修正了获取历史回溯日期范围的逻辑错误。
     """
     logger.info("====== [调度器 V3.1] 行业生命周期多源并行计算任务启动 ======")
-    
     # 1. 确定分析的目标日期
     if trade_date_str:
         target_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
@@ -1301,49 +1300,39 @@ def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_man
         if not target_date:
             logger.error("无法获取最新交易日，任务终止。")
             return {"status": "failed", "reason": "Cannot get latest trade date."}
-    
     target_date_str_formatted = target_date.strftime('%Y-%m-%d')
     logger.info(f"分析目标日期: {target_date_str_formatted}")
-
     # 2. 确定需要计算的历史日期范围
     config = _load_strategy_config()
     lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
     print(f"DEBUG: 调用 TradeCalendar.get_latest_n_trade_dates, 参数: n={lookback_days}, reference_date={target_date}")
     trade_dates_needed = TradeCalendar.get_latest_n_trade_dates(lookback_days, target_date)
-    
     if not trade_dates_needed or len(trade_dates_needed) < lookback_days:
         # 增加对获取到的日期数量的检查，确保数据完整性
         logger.error(f"无法为目标日期 {target_date_str_formatted} 获取足够的回溯交易日 (需要 {lookback_days} 天，实际获取 {len(trade_dates_needed) if trade_dates_needed else 0} 天)，任务终止。")
         return {"status": "failed", "reason": "Could not get enough historical trade dates."}
-
     # --- 为每个数据源启动一个工作流 ---
     sources_to_process = ['sw', 'ths', 'dc']
     dispatched_workflows = []
-
     for source in sources_to_process:
         logger.info(f"\n--- [调度器] 正在为来源 '{source.upper()}' 派发工作流 ---")
-        
         # 3. (Map) 创建该来源的并行计算任务签名
         map_tasks = [
             calculate_strength_rank_for_date.s(
                 trade_date_str=day.strftime('%Y-%m-%d'),
                 source=source  # 传递 source 参数
-            ).set(queue='precompute_tasks') for day in trade_dates_needed
+            ).set(queue='SaveHistoryData_TimeTrade') for day in trade_dates_needed
         ]
-
         # 4. (Reduce) 创建该来源的聚合回调任务签名
         reduce_task = aggregate_and_save_lifecycle_data.s(
             target_date_str=target_date_str_formatted,
             source=source  # 传递 source 参数
         ).set(queue='celery')
-
         # 5. 使用 chord 编排并执行工作流
         workflow = chord(header=group(map_tasks), body=reduce_task)
         workflow.apply_async()
-        
         dispatched_workflows.append(source)
         logger.info(f"--- [调度器] 来源 '{source.upper()}' 的工作流已成功派发。 ---")
-
     logger.info(f"====== [调度器] 所有工作流派发完成，涉及来源: {dispatched_workflows} ======")
     return {"status": "workflows_dispatched", "target_date": target_date_str_formatted, "sources": dispatched_workflows}
 
