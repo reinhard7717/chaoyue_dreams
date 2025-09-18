@@ -179,6 +179,7 @@ class IndustryDao(BaseDAO):
         print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个行业和 {len(stock_map)} 个股票信息。")
         # --- 4. 组装最终数据 (包含动态创建缺失行业的逻辑) ---
         industry_member_dicts = []
+        concept_member_sync_list = []
         for row in all_raw_members:
             # 按层级检查并创建缺失的行业
             try:
@@ -225,6 +226,16 @@ class IndustryDao(BaseDAO):
                     df_data=row
                 )
                 industry_member_dicts.append(industry_member_dict)
+                for level in ['l1', 'l2', 'l3']:
+                    concept_code = getattr(row, f'{level}_code', None)
+                    if concept_code:
+                        concept_member_sync_list.append({
+                            'concept_code': concept_code,
+                            'stock_id': stock.id,
+                            'source': 'sw',
+                            'in_date': self.data_format_process._parse_datetime(row.in_date),
+                            'out_date': self.data_format_process._parse_datetime(row.out_date)
+                        })
             else:
                 # 这里的 warning 现在只会在股票不存在或行业创建失败时触发
                 if not swan_industry: logger.warning(f"动态创建后仍未找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
@@ -238,6 +249,8 @@ class IndustryDao(BaseDAO):
                 unique_fields=['l3_industry', 'stock', 'in_date']
             )
             print(f"  - [DAO] 完成保存申万行业成分。结果: {final_result}")
+            # --- 新增: 步骤6: 同步到 ConceptMember ---
+            await self._sync_to_concept_member(concept_member_sync_list, 'sw')
         else:
             logger.warning("没有可供保存的申万行业成分数据。")
         return final_result
@@ -490,6 +503,7 @@ class IndustryDao(BaseDAO):
         print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
         # --- 5. 组装最终数据并批量保存 (此部分逻辑不变) ---
         print("开始组装最终数据并准备写入数据库...")
+        concept_member_sync_list = []
         for ths_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
             if not stock:
@@ -504,6 +518,14 @@ class IndustryDao(BaseDAO):
                 df_data=api_data_dict
             )
             data_to_save.append(ths_index_member_dict)
+            # --- 新增: 准备同步到 ConceptMember 的数据 ---
+            concept_member_sync_list.append({
+                'concept_code': ths_index.ts_code,
+                'stock_id': stock.id,
+                'source': 'ths',
+                'in_date': self.data_format_process._parse_datetime(row_data.in_date),
+                'out_date': self.data_format_process._parse_datetime(row_data.out_date)
+            })
             if len(data_to_save) >= BATCH_SAVE_SIZE:
                 print(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
                 final_result = await self._save_all_to_db_native_upsert(
@@ -521,6 +543,8 @@ class IndustryDao(BaseDAO):
                 unique_fields=['ths_index', 'stock']
             )
             print(f"最后的批量写入完成。")
+            # --- 新增: 步骤6: 同步到 ConceptMember ---
+            await self._sync_to_concept_member(concept_member_sync_list, 'ths')
         logger.info("同花顺概念板块成分保存任务全部完成。")
         return final_result
 
@@ -918,6 +942,7 @@ class IndustryDao(BaseDAO):
         concept_map = await self.get_kpl_concepts_by_codes(all_concept_codes)
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         items_to_save = []
+        concept_member_sync_list = []
         for row in df.itertuples(index=False):
             concept_info = concept_map.get(row.ts_code)
             stock = stock_map.get(row.con_code)
@@ -929,6 +954,15 @@ class IndustryDao(BaseDAO):
                         df_data=row
                     )
                 )
+                # --- 新增: 准备同步到 ConceptMember 的数据 ---
+                # 开盘啦是每日快照，in_date是当天，out_date是None
+                concept_member_sync_list.append({
+                    'concept_code': concept_info.ts_code,
+                    'stock_id': stock.id,
+                    'source': 'kpl',
+                    'in_date': self.data_format_process._parse_datetime(row.trade_date),
+                    'out_date': None
+                })
             else:
                 if not concept_info:
                     logger.warning(f"未在主表中找到题材 {row.ts_code}，成分股 {row.con_code} 将被忽略。")
@@ -942,6 +976,7 @@ class IndustryDao(BaseDAO):
             unique_fields=['concept_info', 'stock', 'trade_time']
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条题材成分数据。")
+        await self._sync_to_concept_member(concept_member_sync_list, 'kpl')
         return result
 
     async def get_kpl_concepts_by_codes(self, codes: List[str]) -> Dict[str, KplConceptInfo]:
@@ -1350,6 +1385,7 @@ class IndustryDao(BaseDAO):
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
         # 5. 组装数据
         members_to_save = []
+        concept_member_sync_list = []
         for dc_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
             if stock:
@@ -1359,6 +1395,15 @@ class IndustryDao(BaseDAO):
                     df_data=row_data
                 )
                 members_to_save.append(member_dict)
+                # --- 新增: 准备同步到 ConceptMember 的数据 ---
+                # 东方财富是每日快照，in_date是当天，out_date是None
+                concept_member_sync_list.append({
+                    'concept_code': dc_index.ts_code,
+                    'stock_id': stock.id,
+                    'source': 'dc',
+                    'in_date': self.data_format_process._parse_datetime(row_data.trade_date),
+                    'out_date': None
+                })
             # else:
                 # logger.warning(f"未在DB中找到股票 {row_data.con_code}，板块 {dc_index.ts_code} 的此条成分记录将被忽略。")
         if not members_to_save:
@@ -1371,7 +1416,42 @@ class IndustryDao(BaseDAO):
             unique_fields=['trade_time', 'dc_index', 'stock']
         )
         print(f"    -- 完成 [东方财富板块成分] 数据获取，共保存 {len(members_to_save)} 条。")
+        # --- 新增: 步骤7: 同步到 ConceptMember ---
+        await self._sync_to_concept_member(concept_member_sync_list, 'dc')
         return result
+
+    async def _sync_to_concept_member(self, sync_list: List[Dict], source: str):
+        """
+        【新增】将格式化后的成分股数据同步到统一的 ConceptMember 表。
+        """
+        if not sync_list:
+            return
+
+        print(f"    -> [同步任务] 开始同步 {len(sync_list)} 条 [{source.upper()}] 成分股数据到 [ConceptMember]...")
+        
+        # 1. 批量获取所有需要的 ConceptMaster 对象
+        all_concept_codes = {item['concept_code'] for item in sync_list}
+        concept_map = await self.get_concepts_by_codes(list(all_concept_codes))
+
+        # 2. 组装最终数据，将 concept_code 替换为 concept_id
+        final_data_to_save = []
+        for item in sync_list:
+            concept_master = concept_map.get(item['concept_code'])
+            if concept_master:
+                item['concept_id'] = concept_master.id
+                item.pop('concept_code') # 移除临时的 code 字段
+                final_data_to_save.append(item)
+            else:
+                logger.warning(f"同步到 ConceptMember 时未找到代码为 {item['concept_code']} 的主概念记录，已跳过。")
+
+        # 3. 批量保存
+        if final_data_to_save:
+            await self._save_all_to_db_native_upsert(
+                model_class=ConceptMember,
+                data_list=final_data_to_save,
+                unique_fields=['concept', 'stock', 'in_date', 'source']
+            )
+            print(f"    -- [同步任务] 完成，成功处理 {len(final_data_to_save)} 条 [{source.upper()}] 成分股数据。")
 
     # ============== 市场情绪与涨跌停数据 ==============
     async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
