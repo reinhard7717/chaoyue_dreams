@@ -1347,7 +1347,7 @@ def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_man
     logger.info(f"====== [调度器] 所有工作流派发完成，涉及来源: {dispatched_workflows} ======")
     return {"status": "workflows_dispatched", "target_date": target_date_str_formatted, "sources": dispatched_workflows}
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.calculate_strength_rank_for_date', queue='precompute_tasks') # 队列修改为 precompute_tasks
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.calculate_strength_rank_for_date', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, cache_manager: CacheManager):
     """
@@ -1379,7 +1379,7 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
         logger.error(f"  [Map] 计算 {trade_date_str} (来源: {source}) 排名时失败: {e}", exc_info=True)
         raise
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_and_save_lifecycle_data', queue='celery') # 队列改为 celery
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_and_save_lifecycle_data', queue='celery')
 @with_cache_manager
 def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str, source: str, *, cache_manager: CacheManager):
     """
