@@ -1675,63 +1675,43 @@ class IndustryDao(BaseDAO):
 
     async def get_industry_lifecycle_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
-        【V3.0 改造】根据股票代码，获取其所属的【所有】行业/概念在指定日期范围内的生命周期数据。
-        - 返回一个融合了所有相关板块得分的DataFrame。
+        【V3.1 修复版】根据股票代码，获取其所属的【所有】行业/概念在指定日期范围内的生命周期数据。
+        - 修复: 修正了 'coroutine' object is not callable 错误。
         """
-        # 1. 获取股票所属的所有行业/概念 (这是一个需要您实现的、融合多源的DAO方法)
-        # 假设 get_stock_all_concepts 返回 [{'code': 'xxx', 'name': 'yyy', 'source': 'ths', 'weight': 0.8}, ...]
         all_concepts = await self.get_stock_all_concepts(stock_code)
         if not all_concepts:
             return pd.DataFrame()
-            
         all_concept_codes = [c['code'] for c in all_concepts]
-        
-        # 2. 一次性查询所有相关板块的预计算生命周期数据
         query = IndustryLifecycle.objects.filter(
             concept__code__in=all_concept_codes,
             trade_date__gte=start_date,
             trade_date__lte=end_date
         ).order_by('trade_date')
-
         data = await sync_to_async(list)(query.values(
             'trade_date', 'concept__code', 'strength_rank', 'rank_slope', 'rank_accel'
-        ))()
-
+        ))
         if not data:
             return pd.DataFrame()
-            
         df = pd.DataFrame.from_records(data)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
-        
-        # 3. 数据透视与融合 (核心)
-        # 将长表转换为宽表，每个板块一列
         pivot_df = df.pivot_table(index='trade_date', columns='concept__code', values=['strength_rank', 'rank_slope', 'rank_accel'])
-        
-        # 定义权重
         source_weights = {'sw': 1.0, 'ths': 0.8, 'dc': 0.6, 'kpl': 0.4}
-        
-        # 计算加权平均
         final_df = pd.DataFrame(index=pivot_df.index)
         for metric in ['strength_rank', 'rank_slope', 'rank_accel']:
             metric_df = pivot_df[metric]
             weighted_sum = pd.Series(0.0, index=pivot_df.index)
             total_weight = 0.0
-            
             for concept_info in all_concepts:
                 code = concept_info['code']
                 source = concept_info['source']
-                weight = source_weights.get(source, 0.1) # 获取权重，默认为0.1
-                
+                weight = source_weights.get(source, 0.1)
                 if code in metric_df.columns:
                     weighted_sum += metric_df[code].fillna(0) * weight
                     total_weight += weight
-            
-            # 避免除以零
             if total_weight > 0:
                 final_df[f'industry_{metric.replace("strength_", "")}_D'] = weighted_sum / total_weight
             else:
                 final_df[f'industry_{metric.replace("strength_", "")}_D'] = 0.0
-
         return final_df
 
     # =================================================================
@@ -1793,27 +1773,31 @@ class IndustryDao(BaseDAO):
     # --- 以下为各个数据源的私有查询辅助方法 ---
 
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
-        """【V1.1 修复版】获取申万行业概念，修复了 select_related 和对象访问逻辑。"""
+        """【V1.2 终极修复版】获取申万行业概念，修复 FieldError，并使用内存映射优化性能。"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'sw')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
         concepts = []
         try:
+            # 步骤1: 获取该股票所属的L3行业成员关系
             memberships = SwIndustryMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
-            ).select_related('l3_industry__parent__parent', 'stock')
+            ).select_related('l3_industry') # 仅预加载直接关联的L3行业
+            # 步骤2: 一次性获取所有申万行业数据到内存字典中，以供快速查找
+            all_sw_industries_qs = await sync_to_async(list)(SwIndustry.objects.all())
+            sw_industry_map = {ind.index_code: ind for ind in all_sw_industries_qs}
             async for member in memberships:
                 l3 = member.l3_industry
-                if l3:
+                if l3 and l3.index_code in sw_industry_map:
                     concepts.append({'code': l3.index_code, 'name': l3.industry_name, 'source': 'sw'})
-                    l2 = l3.parent
+                    # 步骤3: 在内存中查找父级行业
+                    l2 = sw_industry_map.get(l3.parent_code)
                     if l2:
                         concepts.append({'code': l2.index_code, 'name': l2.industry_name, 'source': 'sw'})
-                        l1 = l2.parent
+                        l1 = sw_industry_map.get(l2.parent_code)
                         if l1:
                             concepts.append({'code': l1.index_code, 'name': l1.industry_name, 'source': 'sw'})
-
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:
