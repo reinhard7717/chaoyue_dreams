@@ -362,48 +362,49 @@ class ContextualAnalysisService:
 
     async def analyze_kpl_theme_hotness(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
-        【V1.0 新增】KPL题材热度分析引擎
-        - 核心职责: 根据开盘啦的题材数据，为个股生成每日的“题材热度分”。
-        - 数据来源: KplConceptConstituent, KplConceptDaily
+        【V1.1 修复版】KPL题材热度分析引擎
+        - 修复: 解决了因 'trade_date' 列数据类型不匹配导致的 pd.merge 失败问题。
+        - 优化: 改为使用 set_index 和 join 进行合并，更健壮、更高效。
         """
         print(f"    - [KPL热度引擎] 开始为 {stock_code} 分析题材热度...")
-        
         # 1. 获取股票在指定日期范围内所属的所有KPL题材
         stock_themes_df = await self.industry_dao.get_kpl_themes_for_stock(stock_code, start_date, end_date)
         if stock_themes_df.empty:
             print(f"    - [KPL热度引擎] {stock_code} 在指定日期内未归属任何KPL题材。")
             return pd.DataFrame()
-
         # 2. 获取这些题材在对应日期的热度指标 (涨停数, 排名上升数)
         all_theme_codes = stock_themes_df['concept_code'].unique().tolist()
         themes_hotness_df = await self.industry_dao.get_kpl_themes_hotness(all_theme_codes, start_date, end_date)
         if themes_hotness_df.empty:
             print(f"    - [KPL热度引擎] 未能获取到相关题材的热度数据。")
             return pd.DataFrame()
-
-        # 3. 将股票所属题材与题材热度数据合并
-        merged_df = pd.merge(stock_themes_df, themes_hotness_df, on=['trade_date', 'concept_code'], how='left')
-
-        # 4. 计算每日的综合热度分
+        # 3. 将两个DataFrame的 'trade_date' 和 'concept_code' 都设置成索引
+        #    由于 'trade_date' 已经是 datetime64[ns, UTC] 类型，set_index 会保持类型一致
+        try:
+            stock_themes_df.set_index(['trade_date', 'concept_code'], inplace=True)
+            themes_hotness_df.set_index(['trade_date', 'concept_code'], inplace=True)
+        except KeyError as e:
+            print(f"    - [KPL热度引擎-严重错误] set_index失败，列不存在: {e}")
+            print("      stock_themes_df columns:", stock_themes_df.columns)
+            print("      themes_hotness_df columns:", themes_hotness_df.columns)
+            return pd.DataFrame()
+        # 4. 使用 join (基于索引合并) 代替 merge
+        merged_df = stock_themes_df.join(themes_hotness_df, how='left')
+        # 5. 计算每日的综合热度分
         # 按天聚合，如果一天属于多个热门题材，分数会累加
-        daily_hotness = merged_df.groupby('trade_date').apply(
+        # .groupby(level='trade_date') 表示按索引的第一层'trade_date'进行分组
+        daily_hotness = merged_df.groupby(level='trade_date').apply(
             lambda x: (x['z_t_num'].fillna(0) * params.get('zt_num_weight', 0.7) + 
                        x['up_num'].fillna(0) * params.get('up_num_weight', 0.3)).sum()
         )
-        
         if daily_hotness.empty:
             return pd.DataFrame()
-
-        # 5. 归一化和格式化输出
-        # 将分数归一化到 0-1 区间，这里使用一个简单的 clip 方法
-        max_score = params.get('max_score_clip', 10.0) # 设置一个分数上限，防止极端值影响
+        # 6. 归一化和格式化输出
+        max_score = params.get('max_score_clip', 10.0)
         normalized_score = (daily_hotness / max_score).clip(0, 1)
-        
         result_df = pd.DataFrame(normalized_score, columns=['THEME_HOTNESS_SCORE_D'])
-        
         print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
         return result_df
-
 
 
 
