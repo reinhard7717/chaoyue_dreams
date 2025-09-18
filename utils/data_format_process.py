@@ -810,6 +810,114 @@ class IndustryFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
+    # --- 新增区域: ConceptDaily 适配器 ---
+
+    def adapt_to_concept_daily(self, source: str, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """
+        【V3.0 总适配器】根据来源调用相应的具体适配器。
+        """
+        if source == 'sw':
+            return self._adapt_sw_daily(daily_dict, concept_master)
+        elif source == 'ths':
+            return self._adapt_ths_daily(daily_dict, concept_master)
+        elif source == 'dc':
+            return self._adapt_dc_daily(daily_dict, concept_master)
+        elif source == 'ci':
+            return self._adapt_ci_daily(daily_dict, concept_master)
+        else:
+            # 提供一个通用后备，以防未来增加新来源
+            return self._adapt_generic_daily(daily_dict, concept_master)
+
+    def _adapt_ths_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """将 ThsIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
+        return ConceptDaily(
+            concept=concept_master,
+            trade_date=daily_dict.get('trade_time'),
+            open=daily_dict.get('open'),
+            high=daily_dict.get('high'),
+            low=daily_dict.get('low'),
+            close=daily_dict.get('close'),
+            pre_close=daily_dict.get('pre_close'),
+            pct_change=daily_dict.get('pct_change'),
+            vol=daily_dict.get('vol'),  # 同花顺单位是'手'
+            amount=daily_dict.get('amount'), # 同花顺单位是'千元'
+            turnover_rate=daily_dict.get('turnover_rate')
+        )
+
+    def _adapt_sw_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """将 SwIndustryDaily 的数据字典适配到 ConceptDaily 模型实例。"""
+        # 单位转换：申万成交量是“万股”，成交额是“万元”
+        vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
+        amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
+        
+        return ConceptDaily(
+            concept=concept_master,
+            trade_date=daily_dict.get('trade_time'),
+            open=daily_dict.get('open'),
+            high=daily_dict.get('high'),
+            low=daily_dict.get('low'),
+            close=daily_dict.get('close'),
+            pre_close=None, # 申万API不提供昨收
+            pct_change=daily_dict.get('pct_change'),
+            vol=vol_standard,
+            amount=amount_standard,
+            turnover_rate=None # 申万API不提供换手率
+        )
+
+    def _adapt_dc_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """将 DcIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
+        # 东方财富单位：成交量是'手'，成交额是'千元'，与我们的目标单位一致
+        return ConceptDaily(
+            concept=concept_master,
+            trade_date=daily_dict.get('trade_time'),
+            open=daily_dict.get('open'),
+            high=daily_dict.get('high'),
+            low=daily_dict.get('low'),
+            close=daily_dict.get('close'),
+            pre_close=None, # 东方财富API不提供昨收
+            pct_change=daily_dict.get('pct_change'),
+            vol=daily_dict.get('vol'),
+            amount=daily_dict.get('amount'),
+            turnover_rate=daily_dict.get('turnover_rate')
+        )
+
+    def _adapt_ci_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """将 CiDaily 的数据字典适配到 ConceptDaily 模型实例。"""
+        # 中信单位：成交量是'万股'，成交额是'万元'
+        vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
+        amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
+
+        return ConceptDaily(
+            concept=concept_master,
+            trade_date=daily_dict.get('trade_time'),
+            open=daily_dict.get('open'),
+            high=daily_dict.get('high'),
+            low=daily_dict.get('low'),
+            close=daily_dict.get('close'),
+            pre_close=daily_dict.get('pre_close'),
+            pct_change=daily_dict.get('pct_change'),
+            vol=vol_standard,
+            amount=amount_standard,
+            turnover_rate=None # 中信API不提供换手率
+        )
+
+    def _adapt_generic_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
+        """一个通用的、尽力而为的后备适配器。"""
+        return ConceptDaily(
+            concept=concept_master,
+            trade_date=daily_dict.get('trade_time') or daily_dict.get('trade_date'),
+            open=daily_dict.get('open'),
+            high=daily_dict.get('high'),
+            low=daily_dict.get('low'),
+            close=daily_dict.get('close'),
+            pre_close=daily_dict.get('pre_close'),
+            pct_change=daily_dict.get('pct_change') or daily_dict.get('pct_chg'),
+            vol=daily_dict.get('vol'),
+            amount=daily_dict.get('amount'),
+            turnover_rate=daily_dict.get('turnover_rate') or daily_dict.get('turnover_ratio')
+        )
+
+
 class MarketFormatProcess(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         """
@@ -990,112 +1098,6 @@ class MarketFormatProcess(BaseDAO):
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
 
-    # --- 新增区域: ConceptDaily 适配器 ---
-
-    def adapt_to_concept_daily(self, source: str, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """
-        【V3.0 总适配器】根据来源调用相应的具体适配器。
-        """
-        if source == 'sw':
-            return self._adapt_sw_daily(daily_dict, concept_master)
-        elif source == 'ths':
-            return self._adapt_ths_daily(daily_dict, concept_master)
-        elif source == 'dc':
-            return self._adapt_dc_daily(daily_dict, concept_master)
-        elif source == 'ci':
-            return self._adapt_ci_daily(daily_dict, concept_master)
-        else:
-            # 提供一个通用后备，以防未来增加新来源
-            return self._adapt_generic_daily(daily_dict, concept_master)
-
-    def _adapt_ths_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """将 ThsIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
-        return ConceptDaily(
-            concept=concept_master,
-            trade_date=daily_dict.get('trade_time'),
-            open=daily_dict.get('open'),
-            high=daily_dict.get('high'),
-            low=daily_dict.get('low'),
-            close=daily_dict.get('close'),
-            pre_close=daily_dict.get('pre_close'),
-            pct_change=daily_dict.get('pct_change'),
-            vol=daily_dict.get('vol'),  # 同花顺单位是'手'
-            amount=daily_dict.get('amount'), # 同花顺单位是'千元'
-            turnover_rate=daily_dict.get('turnover_rate')
-        )
-
-    def _adapt_sw_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """将 SwIndustryDaily 的数据字典适配到 ConceptDaily 模型实例。"""
-        # 单位转换：申万成交量是“万股”，成交额是“万元”
-        vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
-        amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
-        
-        return ConceptDaily(
-            concept=concept_master,
-            trade_date=daily_dict.get('trade_time'),
-            open=daily_dict.get('open'),
-            high=daily_dict.get('high'),
-            low=daily_dict.get('low'),
-            close=daily_dict.get('close'),
-            pre_close=None, # 申万API不提供昨收
-            pct_change=daily_dict.get('pct_change'),
-            vol=vol_standard,
-            amount=amount_standard,
-            turnover_rate=None # 申万API不提供换手率
-        )
-
-    def _adapt_dc_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """将 DcIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
-        # 东方财富单位：成交量是'手'，成交额是'千元'，与我们的目标单位一致
-        return ConceptDaily(
-            concept=concept_master,
-            trade_date=daily_dict.get('trade_time'),
-            open=daily_dict.get('open'),
-            high=daily_dict.get('high'),
-            low=daily_dict.get('low'),
-            close=daily_dict.get('close'),
-            pre_close=None, # 东方财富API不提供昨收
-            pct_change=daily_dict.get('pct_change'),
-            vol=daily_dict.get('vol'),
-            amount=daily_dict.get('amount'),
-            turnover_rate=daily_dict.get('turnover_rate')
-        )
-
-    def _adapt_ci_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """将 CiDaily 的数据字典适配到 ConceptDaily 模型实例。"""
-        # 中信单位：成交量是'万股'，成交额是'万元'
-        vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
-        amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
-
-        return ConceptDaily(
-            concept=concept_master,
-            trade_date=daily_dict.get('trade_time'),
-            open=daily_dict.get('open'),
-            high=daily_dict.get('high'),
-            low=daily_dict.get('low'),
-            close=daily_dict.get('close'),
-            pre_close=daily_dict.get('pre_close'),
-            pct_change=daily_dict.get('pct_change'),
-            vol=vol_standard,
-            amount=amount_standard,
-            turnover_rate=None # 中信API不提供换手率
-        )
-
-    def _adapt_generic_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
-        """一个通用的、尽力而为的后备适配器。"""
-        return ConceptDaily(
-            concept=concept_master,
-            trade_date=daily_dict.get('trade_time') or daily_dict.get('trade_date'),
-            open=daily_dict.get('open'),
-            high=daily_dict.get('high'),
-            low=daily_dict.get('low'),
-            close=daily_dict.get('close'),
-            pre_close=daily_dict.get('pre_close'),
-            pct_change=daily_dict.get('pct_change') or daily_dict.get('pct_chg'),
-            vol=daily_dict.get('vol'),
-            amount=daily_dict.get('amount'),
-            turnover_rate=daily_dict.get('turnover_rate') or daily_dict.get('turnover_ratio')
-        )
 
 
 
