@@ -155,7 +155,7 @@ def save_all_daily_industry_concept_data_task(cache_manager=None):
 # 历史数据回补任务：全面获取所有渠道的历史数据
 @celery_app.task(name='tasks.tushare.industry_tasks.save_all_historical_data_task', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def save_all_historical_data_task(cache_manager=None, days_to_fetch: int = 30):
+def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
     """
     【V2.0 综合并行版】
     Celery调度器任务：一次性获取并保存所有渠道过去N天的历史数据。
