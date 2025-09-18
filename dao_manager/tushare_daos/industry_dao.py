@@ -459,8 +459,8 @@ class IndustryDao(BaseDAO):
                 try:
                     # 在每次API调用前检查速率限制
                     while not await limiter.acquire():
-                        print(f"PID[{os.getpid()}] API[api_ths_member] 速率超限，等待10秒后重试... (板块: {ths_index.ts_code}, offset: {offset})")
-                        await asyncio.sleep(10)
+                        print(f"PID[{os.getpid()}] API[api_ths_member] 速率超限，等待20秒后重试... (板块: {ths_index.ts_code}, offset: {offset})")
+                        await asyncio.sleep(20)
                     # 使用 limit 和 offset 参数进行分页调用
                     df = self.ts_pro.ths_member(
                         ts_code=ths_index.ts_code, 
@@ -1247,8 +1247,8 @@ class IndustryDao(BaseDAO):
             try:
                 # 在每次API调用前检查速率限制
                 while not await limiter.acquire():
-                    print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待10秒后重试... (板块: {ts_code}, offset: {offset})")
-                    await asyncio.sleep(10)
+                    print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待20秒后重试... (板块: {ts_code}, offset: {offset})")
+                    await asyncio.sleep(20)
                 # API调用，不指定trade_date以获取全部历史
                 df = self.ts_pro.dc_member(
                     ts_code=ts_code, 
@@ -1326,8 +1326,8 @@ class IndustryDao(BaseDAO):
                 try:
                     # 在每次API调用前检查速率限制
                     while not await limiter.acquire():
-                        print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待10秒后重试... (板块: {dc_index.ts_code})")
-                        await asyncio.sleep(10)
+                        print(f"PID[{os.getpid()}] API[api_dc_member] 速率超限，等待20秒后重试... (板块: {dc_index.ts_code})")
+                        await asyncio.sleep(20)
                     df = self.ts_pro.dc_member(trade_date=trade_date_str, ts_code=dc_index.ts_code, limit=limit, offset=offset)
                     if df is None or df.empty:
                         break
@@ -1391,8 +1391,8 @@ class IndustryDao(BaseDAO):
             try:
                 # 在每次API调用前检查速率限制
                 while not await limiter.acquire():
-                    print(f"PID[{os.getpid()}] API[api_limit_list_ths] 速率超限，等待10秒后重试... (类型: {l_type})")
-                    await asyncio.sleep(10)
+                    print(f"PID[{os.getpid()}] API[api_limit_list_ths] 速率超限，等待20秒后重试... (类型: {l_type})")
+                    await asyncio.sleep(20)
                 df = self.ts_pro.limit_list_ths(trade_date=trade_date_str, limit_type=l_type)
                 if df is not None and not df.empty:
                     all_items_df.append(df)
@@ -1439,8 +1439,8 @@ class IndustryDao(BaseDAO):
             try:
                 # 2. 在每次API调用前检查速率限制
                 while not await limiter.acquire():
-                    print(f"PID[{os.getpid()}] API[api_limit_list_d] 速率超限，等待10秒后重试... (类型: {l_type})")
-                    await asyncio.sleep(10)
+                    print(f"PID[{os.getpid()}] API[api_limit_list_d] 速率超限，等待20秒后重试... (类型: {l_type})")
+                    await asyncio.sleep(20)
                 df = self.ts_pro.limit_list_d(trade_date=trade_date_str, limit_type=l_type)
                 if df is not None and not df.empty:
                     all_items_df.append(df)
@@ -1481,8 +1481,8 @@ class IndustryDao(BaseDAO):
         try:
             # 2. 在API调用前检查速率限制
             while not await limiter.acquire():
-                print(f"PID[{os.getpid()}] API[api_limit_step] 速率超限，等待10秒后重试...")
-                await asyncio.sleep(10)
+                print(f"PID[{os.getpid()}] API[api_limit_step] 速率超限，等待20秒后重试...")
+                await asyncio.sleep(20)
             df = self.ts_pro.limit_step(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 limit_step 失败: {e}", exc_info=True)
@@ -1520,8 +1520,8 @@ class IndustryDao(BaseDAO):
         try:
             # 2. 在API调用前检查速率限制
             while not await limiter.acquire():
-                print(f"PID[{os.getpid()}] API[api_limit_cpt_list] 速率超限，等待10秒后重试...")
-                await asyncio.sleep(10)
+                print(f"PID[{os.getpid()}] API[api_limit_cpt_list] 速率超限，等待20秒后重试...")
+                await asyncio.sleep(20)
             df = self.ts_pro.limit_cpt_list(trade_date=trade_date_str)
         except Exception as e:
             logger.error(f"调用Tushare接口 limit_cpt_list 失败: {e}", exc_info=True)
