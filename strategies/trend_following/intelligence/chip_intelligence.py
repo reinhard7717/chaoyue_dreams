@@ -80,7 +80,7 @@ class ChipIntelligence:
             'pressure_risk':      [('pressure_above_D', False), ('turnover_from_winners_ratio_D', False)],
             'chip_fault':         [('chip_fault_strength_D', True), ('chip_fault_vacuum_percent_D', False)],
         }
-        # --- 1. 军备检查 (逻辑不变) ---
+        # --- 1. 军备检查 ---
         required_cols = set()
         all_potential_cols = set(df.columns)
         for p in periods:
@@ -171,7 +171,7 @@ class ChipIntelligence:
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
             
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
-        # --- 6. 交叉协同剧本诊断 (逻辑不变) ---
+        # --- 6. 交叉协同剧本诊断 ---
         ph = pillar_overall_health_d
         playbook_scores = {}
         playbook_scores['SCORE_CHIP_PLAYBOOK_WASHOUT'] = (ph['control_structure'] * ph['pressure_risk'] * ph['structural_stability'] * (1 - ph['holder_sentiment'])).astype(np.float32)
@@ -181,7 +181,7 @@ class ChipIntelligence:
         cost_slope_score = self._normalize_score(df.get('SLOPE_5_peak_cost_D'), norm_window, ascending=True)
         playbook_scores['SCORE_CHIP_PLAYBOOK_ABSORPTION'] = ((1 - ph['holder_sentiment']) * control_slope_score * cost_slope_score).astype(np.float32)
         states.update(playbook_scores)
-        # --- 7. 终极信号合成 (逻辑不变) ---
+        # --- 7. 终极信号合成 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
@@ -204,7 +204,7 @@ class ChipIntelligence:
         states['SCORE_CHIP_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # --- 8. 导出七维支柱的最终健康分 (逻辑不变) ---
+        # --- 8. 导出七维支柱的最终健康分 ---
         for pillar_name, health_score in pillar_overall_health_d.items():
             signal_name = f"SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH"
             states[signal_name] = health_score.astype(np.float32)

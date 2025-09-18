@@ -147,13 +147,13 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
 
         records_tuple = None # 初始化为 None
         if latest_only:
-            # run_for_latest_signal 返回四元组 (逻辑不变)
+            # run_for_latest_signal 返回四元组
             records_tuple = await strategy_orchestrator.run_for_latest_signal(
                 stock_code=stock_code,
                 trade_time=analysis_end_time
             )
         else:
-            # run_for_stock 返回四元组 (逻辑不变)
+            # run_for_stock 返回四元组
             records_tuple = await strategy_orchestrator.run_for_stock(
                 stock_code=stock_code,
                 trade_time=analysis_end_time,
@@ -170,7 +170,7 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
         save_count = await strategies_dao.save_strategy_signals(records_tuple)
         logger.info(f"[{stock_code}] 成功保存 {save_count} 条记录 (包括信号和每日分数)。")
         
-        # 这部分逻辑可以保持，因为它只关心 TradingSignal (逻辑不变)
+        # 这部分逻辑可以保持，因为它只关心 TradingSignal
         if save_count > 0 and records_tuple[0]:
             unique_signal_types = set()
             for signal_obj in records_tuple[0]:
@@ -1287,12 +1287,13 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
 @with_cache_manager
 def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V3.0 多源并行调度版】每日行业生命周期预计算任务 (调度器)
+    【V3.1 修复版】每日行业生命周期预计算任务 (调度器)
     - 核心升级: 为每个数据源 ('sw', 'ths', 'dc') 创建一个独立的并行计算工作流。
+    - 修复: 修正了获取历史回溯日期范围的逻辑错误。
     """
-    logger.info("====== [调度器 V3.0] 行业生命周期多源并行计算任务启动 ======")
+    logger.info("====== [调度器 V3.1] 行业生命周期多源并行计算任务启动 ======")
     
-    # 1. 确定分析的目标日期 (逻辑不变)
+    # 1. 确定分析的目标日期
     if trade_date_str:
         target_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
     else:
@@ -1304,16 +1305,21 @@ def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_man
     target_date_str_formatted = target_date.strftime('%Y-%m-%d')
     logger.info(f"分析目标日期: {target_date_str_formatted}")
 
-    # 2. 确定需要计算的历史日期范围 (逻辑不变)
+    # 2. 确定需要计算的历史日期范围
     config = _load_strategy_config()
     lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
-    trade_dates_needed = TradeCalendar.get_trade_date_offset_list(target_date, -lookback_days + 1, lookback_days)
     
-    if not trade_dates_needed:
-        logger.error(f"无法为目标日期 {target_date_str_formatted} 获取足够的回溯交易日，任务终止。")
-        return {"status": "failed", "reason": "Could not get historical trade dates."}
+    # end_offset 应为0，表示获取从 (target_date - lookback_days + 1) 到 target_date 的所有交易日。
+    # 原来的 lookback_days 会错误地尝试获取未来的交易日。
+    print(f"DEBUG: 获取交易日列表，参数: target_date={target_date}, start_offset={-lookback_days + 1}, end_offset=0")
+    trade_dates_needed = TradeCalendar.get_trade_date_offset_list(target_date, -lookback_days + 1, 0)
+    
+    if not trade_dates_needed or len(trade_dates_needed) < lookback_days:
+        # 增加对获取到的日期数量的检查，确保数据完整性
+        logger.error(f"无法为目标日期 {target_date_str_formatted} 获取足够的回溯交易日 (需要 {lookback_days} 天，实际获取 {len(trade_dates_needed) if trade_dates_needed else 0} 天)，任务终止。")
+        return {"status": "failed", "reason": "Could not get enough historical trade dates."}
 
-    # --- 核心修改: 为每个数据源启动一个工作流 ---
+    # --- 为每个数据源启动一个工作流 ---
     sources_to_process = ['sw', 'ths', 'dc']
     dispatched_workflows = []
 
@@ -1403,7 +1409,7 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
             
         rotation_df = pd.concat(all_ranks_df, ignore_index=True)
         
-        # 2. 执行生命周期计算 (逻辑不变)
+        # 2. 执行生命周期计算
         def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
             if len(group) < 5: return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
@@ -1882,7 +1888,7 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
     ]
     report_df_for_log = report_df_for_log[final_columns]
     
-    # --- 步骤 7: 打印到日志 (逻辑不变) ---
+    # --- 步骤 7: 打印到日志 ---
     logger.info("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
     report_df_for_print = report_df_for_log.copy()
     report_df_for_print.columns = ['信号名称', '类型', '总触发', '总成功', '胜率(%)', '平均最大涨幅(%)', '平均最大回撤(%)', '平均退出天数']

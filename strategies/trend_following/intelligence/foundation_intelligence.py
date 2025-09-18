@@ -317,7 +317,7 @@ class FoundationIntelligence:
             print(f"          -> [数据需求] 请确保数据工程层已为 RSI_13_D 计算了 1日和5日的斜率与加速度。")
             return states
 
-        # --- 2. 基础静态诊断 (逻辑不变) ---
+        # --- 2. 基础静态诊断 ---
         rsi_col = 'RSI_13_D'
         overbought_threshold = get_param_value(p.get('rsi_overbought_start'), 70)
         score_overbought = (df[rsi_col] - overbought_threshold) / (100 - overbought_threshold)
@@ -433,7 +433,7 @@ class FoundationIntelligence:
         # 使用最高置信度的S级扩张分作为环境判断
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * is_tipping_point_top).astype(np.float32)
 
-        # --- 6. 市场政权与数值化评分 (逻辑不变) ---
+        # --- 6. 市场政权与数值化评分 ---
         hurst_score = self._normalize_score(df['hurst_120d_D'])
         states['SCORE_TRENDING_REGIME'] = hurst_score
         states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = states['SCORE_VOL_COMPRESSION_S'] * hurst_score
@@ -572,7 +572,7 @@ class FoundationIntelligence:
         states['SCORE_CMF_TOP_REVERSAL_A'] = top_trigger_a
         states['SCORE_CMF_TOP_REVERSAL_S'] = (top_trigger_a * (1 - score_cmf_mom_short)).astype(np.float32)
 
-        # --- 3. ATR 绝对波幅状态与临界点信号 (逻辑不变) ---
+        # --- 3. ATR 绝对波幅状态与临界点信号 ---
         atr = df['ATR_14_D']
         score_atr_compression = self._normalize_score(atr, ascending=False)
         score_atr_expansion = self._normalize_score(atr, ascending=True)
@@ -647,7 +647,7 @@ class FoundationIntelligence:
         states['SCORE_MACD_TOP_REVERSAL_A'] = top_trigger_a
         states['SCORE_MACD_TOP_REVERSAL_S'] = (top_trigger_a * (1 - score_mom_short)).astype(np.float32)
 
-        # --- 3. 成交量动态分析 (逻辑不变) ---
+        # --- 3. 成交量动态分析 ---
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
         score_price_up_strength = self._normalize_score(candle_body_up)

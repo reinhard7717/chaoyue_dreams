@@ -388,7 +388,7 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
     
     logger.info(f"根据 {num_days} 个交易日计算出日期范围: {start_date_str} 到 {end_date_str}")
 
-    # 2. 一次性获取所有股票代码 (逻辑不变)
+    # 2. 一次性获取所有股票代码
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     try:
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
@@ -401,7 +401,7 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
         logger.error(f"获取股票列表时发生错误: {e}")
         return {"status": "failed", "message": f"获取股票列表失败: {e}"}
 
-    # 3. 按股票批次处理数据 (逻辑不变)
+    # 3. 按股票批次处理数据
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     results_summary = {}
     total_batches = ceil(len(all_stock_codes) / stock_batch_size)

@@ -272,7 +272,7 @@ class IndustryDao(BaseDAO):
         """
         【V3.0 统一模型版】获取申万行业日线行情，并同步到 ConceptDaily。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 (逻辑不变) ---
+        # --- 步骤1: 从API获取数据并存入原始表 ---
         result = {}
         industry_daily_basic_dicts = []
         if trade_date is None:
@@ -689,7 +689,7 @@ class IndustryDao(BaseDAO):
         """
         【V3.0 统一模型版】获取同花顺板块日线行情，并同步到 ConceptDaily。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 (逻辑不变) ---
+        # --- 步骤1: 从API获取数据并存入原始表 ---
         trade_date_str = trade_date.strftime('%Y%m%d')
         result = {}
         print(f"  -> [同花顺日线] 开始获取 {trade_date_str} 的数据...")
@@ -1168,7 +1168,7 @@ class IndustryDao(BaseDAO):
         """
         【V3.2 统一模型版】获取东方财富板块日线行情，并同步到 ConceptDaily。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 (逻辑不变) ---
+        # --- 步骤1: 从API获取数据并存入原始表 ---
         if trade_time is None:
             trade_time = datetime.today().date()
         trade_time_str = trade_time.strftime('%Y%m%d')

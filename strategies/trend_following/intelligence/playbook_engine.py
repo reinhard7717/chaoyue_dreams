@@ -156,7 +156,7 @@ class PlaybookEngine:
             'normal_squeeze_a': get_param_value(p_triggers.get('normal_squeeze_a_threshold'), 0.5),
             'prime_chip_ignition_s_plus_plus': get_param_value(p_triggers.get('prime_chip_ignition_s_plus_plus_threshold'), 0.7),
         }
-        # --- 2. 定义基础触发器 (逻辑不变) ---
+        # --- 2. 定义基础触发器 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
         is_green = df['close_D'] > df['open_D']
         is_strong_rally = df['pct_change_D'] > get_param_value(p_dominant.get('min_pct_change'), 0.03)

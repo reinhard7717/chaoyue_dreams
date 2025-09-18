@@ -333,11 +333,11 @@ class CognitiveIntelligence:
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 战术 1: 缺口回补支撑机会 (逻辑不变) ---
+        # --- 战术 1: 缺口回补支撑机会 ---
         gap_support_strength_score = atomic.get('SCORE_GAP_SUPPORT_ACTIVE', default_score)
         healthy_pullback_score = atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score)
         states['COGNITIVE_SCORE_OPP_GAP_SUPPORT_PULLBACK'] = (gap_support_strength_score * healthy_pullback_score).astype(np.float32)
-        # --- 战术 2: 斐波那契关键位反弹确认机会 (逻辑不变) ---
+        # --- 战术 2: 斐波那契关键位反弹确认机会 ---
         fib_rebound_score = self._fuse_multi_level_scores(df, 'FIB_REBOUND')
         bottom_reversal_confirmation = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score)
         states['COGNITIVE_SCORE_OPP_FIB_REBOUND_CONFIRMED'] = (fib_rebound_score * bottom_reversal_confirmation).astype(np.float32)
@@ -374,11 +374,11 @@ class CognitiveIntelligence:
         bottom_reversal_potential = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
         high_level_zone_context = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
         oversold_context = atomic.get('SCORE_RSI_OVERSOLD_EXTENT', default_score)
-        # --- 2. 计算“上升趋势可持续性”评分 (逻辑不变) ---
+        # --- 2. 计算“上升趋势可持续性”评分 ---
         states['COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP'] = (trend_quality * (1 - top_reversal_potential)).astype(np.float32)
-        # --- 3. 计算“上升趋势衰竭”风险评分 (逻辑不变) ---
+        # --- 3. 计算“上升趋势衰竭”风险评分 ---
         states['COGNITIVE_SCORE_TREND_FATIGUE_RISK'] = (top_reversal_potential * high_level_zone_context).astype(np.float32)
-        # --- 4. 计算“下跌趋势衰竭”机会评分 (逻辑不变) ---
+        # --- 4. 计算“下跌趋势衰竭”机会评分 ---
         states['COGNITIVE_SCORE_TREND_FATIGUE_OPP'] = (bottom_reversal_potential * oversold_context).astype(np.float32)
         # --- 5. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
@@ -741,9 +741,9 @@ class CognitiveIntelligence:
         exhaustion_divergence_score = self._get_atomic_score(df, 'SCORE_MTF_TOP_DIVERGENCE_S', 0.0)
         # 将旧的、特定的行为背离信号，替换为新的、通用的顶部反转融合分
         engine_divergence_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        # --- 2. 定义触发的战场环境分数 (逻辑不变) ---
+        # --- 2. 定义触发的战场环境分数 ---
         danger_zone_score = atomic.get('COGNITIVE_SCORE_RISK_HIGH_LEVEL_ZONE', default_score)
-        # --- 3. 最终裁定 (逻辑不变) ---
+        # --- 3. 最终裁定 ---
         max_divergence_score = np.maximum.reduce([oscillator_divergence_score, price_momentum_divergence_score.values, exhaustion_divergence_score.values, engine_divergence_score.values])
         final_risk_score = danger_zone_score * pd.Series(max_divergence_score, index=df.index)
         states['COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S'] = final_risk_score.astype(np.float32)
@@ -990,7 +990,7 @@ class CognitiveIntelligence:
         distributing_action_score = states.get('SCORE_ACTION_RISK_DECEPTIVE_RALLY', default_score)
         states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] = (danger_zone_score * distributing_action_score).astype(np.float32)
         states['RISK_S_PLUS_CONFIRMED_DISTRIBUTION'] = states['SCORE_S_PLUS_CONFIRMED_DISTRIBUTION'] > 0.5
-        # --- 3. 定义其他行为状态 (逻辑不变) ---
+        # --- 3. 定义其他行为状态 ---
         is_rallying = df['pct_change_D'] > 0.02
         is_strategic_distribution = atomic.get('CONTEXT_CHIP_STRATEGIC_DISTRIBUTION', default_series)
         states['RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S'] = is_rallying & is_strategic_distribution

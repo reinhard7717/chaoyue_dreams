@@ -444,7 +444,7 @@ class StrategiesDAO(BaseDAO):
         if not signals and not daily_scores:
             print("调试信息: [DAO-V507.0] 传入的信号和每日分数均为空，不执行任何操作。")
             return 0
-        # --- Part A & B: 数据清洗 (逻辑不变) ---
+        # --- Part A & B: 数据清洗 ---
         cleaned_signals = []
         if signals:
             numeric_fields = ['entry_score', 'risk_score', 'close_price']
@@ -471,7 +471,7 @@ class StrategiesDAO(BaseDAO):
             """这个同步函数将所有数据库操作包裹在一个事务中。"""
             try:
                 with transaction.atomic():
-                    # --- Section 1 & 2: 处理 TradingSignal 和 StrategyDailyScore (逻辑不变) ---
+                    # --- Section 1 & 2: 处理 TradingSignal 和 StrategyDailyScore ---
                     if cleaned_signals:
                         signal_lookup_keys = [
                             Q(stock_id=s.stock_id, trade_time=s.trade_time, timeframe=s.timeframe, strategy_name=s.strategy_name)

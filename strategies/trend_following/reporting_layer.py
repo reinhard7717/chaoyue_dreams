@@ -74,7 +74,7 @@ class ReportingLayer:
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         scoring_params = params.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
         score_type_map = scoring_params.get('score_type_map', {})
-        # --- Part 1: 生成 TradingSignal (逻辑不变) ---
+        # --- Part 1: 生成 TradingSignal ---
         signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
         for trade_time, row in signal_days_df.iterrows():
             signal_type_map_enum = {
