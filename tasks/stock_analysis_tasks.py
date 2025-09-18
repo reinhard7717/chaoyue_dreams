@@ -1308,11 +1308,8 @@ def precompute_industry_lifecycle(self, trade_date_str: str = None, *, cache_man
     # 2. 确定需要计算的历史日期范围
     config = _load_strategy_config()
     lookback_days = config.get('feature_engineering_params', {}).get('industry_context_params', {}).get('lookback_days', 21)
-    
-    # end_offset 应为0，表示获取从 (target_date - lookback_days + 1) 到 target_date 的所有交易日。
-    # 原来的 lookback_days 会错误地尝试获取未来的交易日。
-    print(f"DEBUG: 获取交易日列表，参数: target_date={target_date}, start_offset={-lookback_days + 1}, end_offset=0")
-    trade_dates_needed = TradeCalendar.get_trade_date_offset_list(target_date, -lookback_days + 1, 0)
+    print(f"DEBUG: 调用 TradeCalendar.get_latest_n_trade_dates, 参数: n={lookback_days}, reference_date={target_date}")
+    trade_dates_needed = TradeCalendar.get_latest_n_trade_dates(lookback_days, target_date)
     
     if not trade_dates_needed or len(trade_dates_needed) < lookback_days:
         # 增加对获取到的日期数量的检查，确保数据完整性
