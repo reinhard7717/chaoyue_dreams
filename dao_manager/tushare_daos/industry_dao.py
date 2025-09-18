@@ -1690,11 +1690,27 @@ class IndustryDao(BaseDAO):
         data = await sync_to_async(list)(query.values(
             'trade_date', 'concept__code', 'strength_rank', 'rank_slope', 'rank_accel'
         ))
+        # --- 探针 3: 检查从 IndustryLifecycle 表查询到的原始数据 ---
         if not data:
+            print(f"  - [探针-结果] 从 IndustryLifecycle 表查询结果为空，无法继续。")
+            print(f"--- [探针] 退出 get_industry_lifecycle_for_stock ---\n")
             return pd.DataFrame()
+        
+        print(f"  - [探针-步骤2] 成功从数据库查询到 {len(data)} 条原始生命周期数据。")
         df = pd.DataFrame.from_records(data)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        
+        # --- 探针 4: 检查数据透视前的 DataFrame ---
+        print(f"  - [探针-步骤3] 准备进行数据透视的DataFrame (前5行):")
+        print(df.head().to_string())
+
+        # 3. 数据透视与融合 (核心)
         pivot_df = df.pivot_table(index='trade_date', columns='concept__code', values=['strength_rank', 'rank_slope', 'rank_accel'])
+        
+        # --- 探针 5: 检查数据透视后的 DataFrame ---
+        print(f"  - [探针-步骤4] 数据透视后的DataFrame (前5行):")
+        print(pivot_df.head().to_string())
+
         source_weights = {'sw': 1.0, 'ths': 0.8, 'dc': 0.6, 'kpl': 0.4}
         final_df = pd.DataFrame(index=pivot_df.index)
         for metric in ['strength_rank', 'rank_slope', 'rank_accel']:
