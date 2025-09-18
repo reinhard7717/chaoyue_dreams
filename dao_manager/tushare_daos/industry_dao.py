@@ -963,6 +963,7 @@ class IndustryDao(BaseDAO):
         
         df = pd.DataFrame.from_records(data)
         df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         print(f"    - [DAO-KPL] 成功获取 {len(df)} 条题材归属记录。")
         return df
 
@@ -981,6 +982,7 @@ class IndustryDao(BaseDAO):
             return pd.DataFrame()
         df = pd.DataFrame.from_records(data)
         df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
     async def save_kpl_list_by_date(self, trade_date: date) -> Dict:

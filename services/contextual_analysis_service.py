@@ -378,17 +378,14 @@ class ContextualAnalysisService:
         if themes_hotness_df.empty:
             print(f"    - [KPL热度引擎] 未能获取到相关题材的热度数据。")
             return pd.DataFrame()
-        # 3. 将两个DataFrame的 'trade_date' 列都转换为 tz-naive 的 datetime 类型
-        stock_themes_df['trade_date'] = pd.to_datetime(stock_themes_df['trade_date'])
-        themes_hotness_df['trade_date'] = pd.to_datetime(themes_hotness_df['trade_date'])
-        # 4. 将 'trade_date' 和 'concept_code' 设置为索引
+        # 3. 将 'trade_date' 和 'concept_code' 设置为索引
         try:
             stock_themes_df.set_index(['trade_date', 'concept_code'], inplace=True)
             themes_hotness_df.set_index(['trade_date', 'concept_code'], inplace=True)
         except KeyError as e:
             print(f"    - [KPL热度引擎-严重错误] set_index失败，列不存在: {e}")
             return pd.DataFrame()
-        # 5. 使用 join (基于索引合并)
+        # 4. 使用 join (基于索引合并)
         merged_df = stock_themes_df.join(themes_hotness_df, how='left')
         # 6. 计算每日的综合热度分
         daily_hotness = merged_df.groupby(level='trade_date').apply(
