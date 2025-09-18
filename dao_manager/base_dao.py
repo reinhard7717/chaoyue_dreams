@@ -730,13 +730,14 @@ class BaseDAO(Generic[T]):
 
     def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):
         """
-        【V3.1 字段获取修复版】
+        【V3.2 死锁重试修复版】
         使用原生SQL `INSERT ... ON DUPLICATE KEY UPDATE` 执行批量更新或插入操作。
-        此版本修复了因使用 get_fields() 导致的 'ManyToOneRel' 错误。
+        此版本新增了对数据库死锁 (error 1213) 的自动重试机制。
         - 核心逻辑:
-          1. 直接信任 data_list 中字典的 keys 作为数据库列名。
+          1. 信任 data_list 中字典的 keys 作为数据库列名。
           2. 在构建参数时，将所有 pd.isna() 为 True 的值（如 np.nan）转换成 None。
           3. 智能地将模型层面的 unique_fields（如 'stock'）转换为数据库层面的列名（如 'stock_id'）。
+          4. 【新增】当捕获到 OperationalError 且错误码为 1213 时，进行最多3次重试，并采用指数退避+抖动策略。
         Args:
             model_class: Django模型类。
             data_list (List[Dict]): 包含待处理数据的字典列表。键应为数据库列名。
@@ -762,7 +763,6 @@ class BaseDAO(Generic[T]):
                 param_tuple.append(value)
             params_list_of_tuples.append(tuple(param_tuple))
 
-        # 关键修复：使用 .fields 代替 .get_fields() 来排除没有 .column 属性的反向关系
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
         unique_db_columns = {field_to_column_map.get(f, f) for f in unique_fields}
         if update_fields is None:
@@ -779,14 +779,27 @@ class BaseDAO(Generic[T]):
                 f"INSERT INTO `{table_name}` ({field_list_str}) VALUES ({value_placeholders}) "
                 f"ON DUPLICATE KEY UPDATE {update_clause}"
             )
-        with connection.cursor() as cursor:
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                if not params_list_of_tuples:
-                    return 0
-                total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+                with connection.cursor() as cursor:
+                    if not params_list_of_tuples:
+                        return 0
+                    total_affected_rows = cursor.executemany(final_sql_template, params_list_of_tuples)
+                return total_affected_rows
             except (IntegrityError, OperationalError, ProgrammingError) as e:
+                if isinstance(e, OperationalError) and e.args[0] == 1213:
+                    if attempt < max_retries - 1:
+                        sleep_time = (0.1 * (2 ** attempt)) + random.uniform(0.05, 0.1)
+                        print(f"DEBUG: 捕获到数据库死锁 (1213)，正在进行第 {attempt + 2}/{max_retries} 次重试... 等待 {sleep_time:.2f} 秒。模型: {model_class.__name__}")
+                        logger.warning(
+                            f"捕获到数据库死锁 (1213)，正在进行第 {attempt + 2}/{max_retries} 次重试... "
+                            f"等待 {sleep_time:.2f} 秒。模型: {model_class.__name__}"
+                        )
+                        time.sleep(sleep_time)
+                        continue
                 print("="*50)
-                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到数据库错误！")
+                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到数据库错误！ (尝试 {attempt + 1}/{max_retries})")
                 print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
                 print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
                 if params_list_of_tuples:
@@ -795,9 +808,10 @@ class BaseDAO(Generic[T]):
                 print(f"FATAL DEBUG: 异常信息: {e}")
                 print("="*50)
                 logger.error(f"原生SQL批处理时遇到数据库错误 (在锁内): {e}")
+                return 0
             except Exception as e:
                 print("="*50)
-                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！")
+                print(f"FATAL DEBUG: [base_dao] 批量 Upsert 时捕获到未知异常！ (尝试 {attempt + 1}/{max_retries})")
                 print(f"FATAL DEBUG: 模型 (Model): {model_class.__name__}")
                 print(f"FATAL DEBUG: SQL 模板: {final_sql_template}")
                 if params_list_of_tuples:
@@ -806,7 +820,9 @@ class BaseDAO(Generic[T]):
                 print(f"FATAL DEBUG: 异常信息: {e}")
                 print("="*50)
                 logger.error(f"原生SQL批处理时遇到意外错误 (在锁内): {e}")
-        return total_affected_rows
+                return 0
+        logger.error(f"模型 {model_class.__name__} 的批量 Upsert 在 {max_retries} 次尝试后均失败。")
+        return 0
 
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
