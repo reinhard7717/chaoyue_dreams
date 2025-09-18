@@ -959,7 +959,8 @@ class IndustryDao(BaseDAO):
         if not data:
             return pd.DataFrame()
         df = pd.DataFrame.from_records(data)
-        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
+        df['trade_time'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
     async def get_kpl_themes_hotness(self, concept_codes: List[str], start_date: date, end_date: date) -> pd.DataFrame:
@@ -976,6 +977,7 @@ class IndustryDao(BaseDAO):
         if not data:
             return pd.DataFrame()
         df = pd.DataFrame.from_records(data)
+        df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
 
