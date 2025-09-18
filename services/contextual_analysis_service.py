@@ -378,32 +378,31 @@ class ContextualAnalysisService:
         if themes_hotness_df.empty:
             print(f"    - [KPL热度引擎] 未能获取到相关题材的热度数据。")
             return pd.DataFrame()
-        # 3. 将两个DataFrame的 'trade_date' 和 'concept_code' 都设置成索引
-        #    由于 'trade_date' 已经是 datetime64[ns, UTC] 类型，set_index 会保持类型一致
+        # 3. 将两个DataFrame的 'trade_date' 列都转换为 tz-naive 的 datetime 类型
+        stock_themes_df['trade_date'] = pd.to_datetime(stock_themes_df['trade_date'])
+        themes_hotness_df['trade_date'] = pd.to_datetime(themes_hotness_df['trade_date'])
+        # 4. 将 'trade_date' 和 'concept_code' 设置为索引
         try:
             stock_themes_df.set_index(['trade_date', 'concept_code'], inplace=True)
             themes_hotness_df.set_index(['trade_date', 'concept_code'], inplace=True)
         except KeyError as e:
             print(f"    - [KPL热度引擎-严重错误] set_index失败，列不存在: {e}")
-            print("      stock_themes_df columns:", stock_themes_df.columns)
-            print("      themes_hotness_df columns:", themes_hotness_df.columns)
             return pd.DataFrame()
-        # 4. 使用 join (基于索引合并) 代替 merge
+        # 5. 使用 join (基于索引合并)
         merged_df = stock_themes_df.join(themes_hotness_df, how='left')
-        # 5. 计算每日的综合热度分
-        # 按天聚合，如果一天属于多个热门题材，分数会累加
-        # .groupby(level='trade_date') 表示按索引的第一层'trade_date'进行分组
+        # 6. 计算每日的综合热度分
         daily_hotness = merged_df.groupby(level='trade_date').apply(
             lambda x: (x['z_t_num'].fillna(0) * params.get('zt_num_weight', 0.7) + 
                        x['up_num'].fillna(0) * params.get('up_num_weight', 0.3)).sum()
         )
         if daily_hotness.empty:
             return pd.DataFrame()
-        # 6. 归一化和格式化输出
+        # 7. 归一化和格式化输出
         max_score = params.get('max_score_clip', 10.0)
         normalized_score = (daily_hotness / max_score).clip(0, 1)
         result_df = pd.DataFrame(normalized_score, columns=['THEME_HOTNESS_SCORE_D'])
         print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
+        return result_df
         return result_df
 
 
