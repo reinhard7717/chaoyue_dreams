@@ -560,6 +560,19 @@ class StockCashKey(CashKey):
             date=date_str
         )
 
+    def stock_concepts(self, stock_code: str, source: str) -> str:
+        """
+        【V1.0 新增】生成单个股票特定来源的概念/行业列表的缓存键。
+        例如: st:stock:000001.SZ:concepts:source:sw
+        """
+        return self.generate_key(
+            cache_type=cc.TYPE_STATIC,
+            entity_type=cc.ENTITY_STOCK,
+            entity_id=stock_code,
+            subtype=cc.SUBTYPE_CONCEPTS,
+            params={'source': source}
+        )
+
 class StrategyCashKey(CashKey):
     def __init__(self):
         self.cache_manager = None  # 修改: 改为 None，等待异步初始化

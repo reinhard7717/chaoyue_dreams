@@ -13,6 +13,8 @@ from utils.rate_limiter import rate_limiter_factory
 import numpy as np
 import pandas as pd
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
+from utils.cash_key import StockCashKey # 导入 StockCashKey
+from utils import cache_constants as cc # 导入 cache_constants
 from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitStep
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
@@ -39,6 +41,7 @@ class IndustryDao(BaseDAO):
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.stock_basic_info_dao = StockBasicInfoDao(self.cache_manager)
         self.market_format_process = MarketFormatProcess(self.cache_manager)
+        self.cache_key_stock = StockCashKey()
 
     # ============== 申万行业分类 ==============
     async def get_swan_industry_list(self) -> List['SwIndustry']:
@@ -1791,15 +1794,12 @@ class IndustryDao(BaseDAO):
 
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取申万行业概念"""
-        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'sw')
+        cache_key = self.cache_key_stock.stock_concepts(stock_code, 'sw')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
-
         concepts = []
         try:
-            # 申万行业通常只有一个最新的三级行业归属
-            # 使用 afilter 和 aselect_related 提高异步查询效率
             memberships = SwIndustryMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
             ).select_related('l1_industry', 'l2_industry', 'l3_industry')
@@ -1812,22 +1812,22 @@ class IndustryDao(BaseDAO):
                 if member.l3_industry:
                     concepts.append({'code': member.l3_industry.index_code, 'name': member.l3_industry.industry_name, 'source': 'sw'})
 
-            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24) # 缓存24小时
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的申万行业时出错: {e}", exc_info=True)
             return []
-
+ 
     async def _get_ci_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取中信行业概念"""
-        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'ci')
+        cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ci')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
-
         concepts = []
         try:
-            # 中信行业同样只有一个最新的归属
+            # 假设中信行业模型为 CiIndexMember，请根据实际情况调整
+            from stock_models.industry import CiIndexMember # 确保导入
             memberships = CiIndexMember.objects.filter(stock__stock_code=stock_code, is_new='Y')
             async for member in memberships:
                 if member.l1_code:
@@ -1842,17 +1842,16 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的中信行业时出错: {e}", exc_info=True)
             return []
-
+ 
     async def _get_kpl_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取开盘啦题材概念"""
-        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'kpl')
+        cache_key = self.cache_key_stock.stock_concepts(stock_code, 'kpl')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
 
         concepts = []
         try:
-            # 开盘啦题材是每日更新的，所以我们取最新的一个交易日
             latest_date = await sync_to_async(KplConceptConstituent.objects.latest('trade_time').trade_time)()
             if not latest_date:
                 return []
@@ -1865,24 +1864,23 @@ class IndustryDao(BaseDAO):
                 if member.concept_info:
                     concepts.append({'code': member.concept_info.ts_code, 'name': member.concept_info.name, 'source': 'kpl'})
             
-            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12) # 缓存12小时
+            await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12)
             return concepts
         except KplConceptConstituent.DoesNotExist:
-            return [] # 如果模型为空，直接返回空列表
+            return []
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的开盘啦题材时出错: {e}", exc_info=True)
             return []
-
+ 
     async def _get_ths_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取同花顺行业与概念"""
-        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'ths')
+        cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ths')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
 
         concepts = []
         try:
-            # 同花顺一个股票可以属于多个概念
             memberships = ThsIndexMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
             ).select_related('ths_index')
@@ -1896,17 +1894,16 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的同花顺概念时出错: {e}", exc_info=True)
             return []
-
+ 
     async def _get_dc_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取东方财富概念"""
-        cache_key = CacheKeys.get_stock_concepts_key(stock_code, 'dc')
+        cache_key = self.cache_key_stock.stock_concepts(stock_code, 'dc')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
 
         concepts = []
         try:
-            # 东方财富概念也是每日更新的，取最新交易日
             latest_date = await sync_to_async(DcIndexMember.objects.latest('trade_time').trade_time)()
             if not latest_date:
                 return []
@@ -1926,7 +1923,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的东方财富概念时出错: {e}", exc_info=True)
             return []
-
 
 
 

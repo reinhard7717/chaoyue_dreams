@@ -42,7 +42,7 @@ SUBTYPE_TIME_DEAL = 'time_deal'
 SUBTYPE_LEVEL5 = 'level5'
 SUBTYPE_KLINE_MINUTE = 'kline_minute'
 SUBTYPE_STRATEGY_TREND_FOLLOWING = 'trend_following'
-
+SUBTYPE_CONCEPTS = 'concepts'
 
 # ... 其他子类型或固定标识符
 
