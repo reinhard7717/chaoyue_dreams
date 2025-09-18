@@ -105,8 +105,8 @@ class ContextualAnalysisService:
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH', source: str = 'ths') -> pd.DataFrame:
         """
-        【V3.1 修复版】计算指定来源、指定交易日所有板块的强度分及排名。
-        修复: 不再将 concept_code 设置为索引，而是作为普通列返回，以避免下游任务的 KeyError。
+        【V3.2 终极修复版】计算指定来源、指定交易日所有板块的强度分及排名。
+        修复: 彻底确保 concept_code 始终作为普通列返回，永远不作为索引，以杜绝下游任务的 KeyError。
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
         market_daily_df = await self.indicator_dao.get_market_index_daily_data(market_code, start_date, trade_date)
@@ -125,6 +125,7 @@ class ContextualAnalysisService:
         if 'strength_score' not in df.columns:
             return pd.DataFrame()
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
+        # 修改行: 确保返回的 DataFrame 中 'concept_code' 是一个列，而不是索引。
         return df.sort_values('strength_rank', ascending=False)
 
     async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
