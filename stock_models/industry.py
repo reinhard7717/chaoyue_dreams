@@ -543,8 +543,6 @@ class IndustryLifecycle(models.Model):
         db_column='concept_code',
         related_name='lifecycle_data',
         verbose_name="板块/概念",
-        null=True, # 关键修改：暂时允许为空
-        blank=True
     )
     trade_date = models.DateField(verbose_name="交易日期", db_index=True)
     source = models.CharField(max_length=20, db_index=True, verbose_name="来源", help_text="冗余字段，便于查询")
