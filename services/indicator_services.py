@@ -452,7 +452,7 @@ class IndicatorService:
         if kpl_params and kpl_params.get('enabled', False):
             print(f"    - [KPL题材热度注入] 检测到KPL题材分析已启用，开始注入热度分...")
             # 调用 contextual_analysis_service 的新方法
-            kpl_hotness_df = await self.contextual_service.analyze_kpl_theme_hotness(
+            kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
                 stock_code, start_date, end_date, kpl_params
             )
             if not kpl_hotness_df.empty:
