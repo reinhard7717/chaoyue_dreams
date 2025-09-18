@@ -1793,7 +1793,7 @@ class IndustryDao(BaseDAO):
     # --- 以下为各个数据源的私有查询辅助方法 ---
 
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
-        """获取申万行业概念"""
+        """【V1.1 修复版】获取申万行业概念，修复了 select_related 和对象访问逻辑。"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'sw')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
@@ -1802,22 +1802,24 @@ class IndustryDao(BaseDAO):
         try:
             memberships = SwIndustryMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
-            ).select_related('l1_industry', 'l2_industry', 'l3_industry')
-            
+            ).select_related('l3_industry__parent__parent', 'stock')
             async for member in memberships:
-                if member.l1_industry:
-                    concepts.append({'code': member.l1_industry.index_code, 'name': member.l1_industry.industry_name, 'source': 'sw'})
-                if member.l2_industry:
-                    concepts.append({'code': member.l2_industry.index_code, 'name': member.l2_industry.industry_name, 'source': 'sw'})
-                if member.l3_industry:
-                    concepts.append({'code': member.l3_industry.index_code, 'name': member.l3_industry.industry_name, 'source': 'sw'})
+                l3 = member.l3_industry
+                if l3:
+                    concepts.append({'code': l3.index_code, 'name': l3.industry_name, 'source': 'sw'})
+                    l2 = l3.parent
+                    if l2:
+                        concepts.append({'code': l2.index_code, 'name': l2.industry_name, 'source': 'sw'})
+                        l1 = l2.parent
+                        if l1:
+                            concepts.append({'code': l1.index_code, 'name': l1.industry_name, 'source': 'sw'})
 
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的申万行业时出错: {e}", exc_info=True)
             return []
- 
+
     async def _get_ci_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取中信行业概念"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ci')
@@ -1844,26 +1846,25 @@ class IndustryDao(BaseDAO):
             return []
  
     async def _get_kpl_concepts(self, stock_code: str) -> List[Dict[str, str]]:
-        """获取开盘啦题材概念"""
+        """【V1.1 修复版】获取开盘啦题材概念，修复了 SynchronousOnlyOperation 错误。"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'kpl')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
-
         concepts = []
         try:
-            latest_date = await sync_to_async(KplConceptConstituent.objects.latest('trade_time').trade_time)()
-            if not latest_date:
+            latest_date_obj = await sync_to_async(
+                lambda: KplConceptConstituent.objects.latest('trade_time')
+            )()
+            if not latest_date_obj:
                 return []
-
+            latest_date = latest_date_obj.trade_time
             memberships = KplConceptConstituent.objects.filter(
                 stock__stock_code=stock_code, trade_time=latest_date
             ).select_related('concept_info')
-            
             async for member in memberships:
                 if member.concept_info:
                     concepts.append({'code': member.concept_info.ts_code, 'name': member.concept_info.name, 'source': 'kpl'})
-            
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12)
             return concepts
         except KplConceptConstituent.DoesNotExist:
@@ -1871,7 +1872,7 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的开盘啦题材时出错: {e}", exc_info=True)
             return []
- 
+
     async def _get_ths_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取同花顺行业与概念"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ths')
@@ -1896,26 +1897,25 @@ class IndustryDao(BaseDAO):
             return []
  
     async def _get_dc_concepts(self, stock_code: str) -> List[Dict[str, str]]:
-        """获取东方财富概念"""
+        """【V1.1 修复版】获取东方财富概念，修复了 SynchronousOnlyOperation 错误。"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'dc')
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
-
         concepts = []
         try:
-            latest_date = await sync_to_async(DcIndexMember.objects.latest('trade_time').trade_time)()
-            if not latest_date:
+            latest_date_obj = await sync_to_async(
+                lambda: DcIndexMember.objects.latest('trade_time')
+            )()
+            if not latest_date_obj:
                 return []
-
+            latest_date = latest_date_obj.trade_time
             memberships = DcIndexMember.objects.filter(
                 stock__stock_code=stock_code, trade_time=latest_date
             ).select_related('dc_index')
-
             async for member in memberships:
                 if member.dc_index:
                     concepts.append({'code': member.dc_index.ts_code, 'name': member.dc_index.name, 'source': 'dc'})
-            
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 12)
             return concepts
         except DcIndexMember.DoesNotExist:
@@ -1923,7 +1923,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的东方财富概念时出错: {e}", exc_info=True)
             return []
-
 
 
 
