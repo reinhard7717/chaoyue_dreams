@@ -147,6 +147,18 @@
         "periods": [1, 5, 13, 21, 55],
         "price_source": "close_D",
         "volume_source": "volume_D"
+      },
+      "kpl_theme_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】KPL题材热度分析引擎参数",
+        "zt_num_weight": 0.7,
+        "description_zt_num": "题材内涨停家数的权重",
+        "up_num_weight": 0.3,
+        "description_up_num": "题材排名上升位数的权重",
+        "max_score_clip": 10.0,
+        "description_max_score": "用于归一化的分数上限，防止极端值影响",
+        "score_threshold": 0.5,
+        "description_score_threshold": "在IntelligenceLayer中，判断热度是否有效的阈值"
       }
     },
     "slope_params": {

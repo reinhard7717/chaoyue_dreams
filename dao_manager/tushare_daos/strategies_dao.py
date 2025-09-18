@@ -160,66 +160,6 @@ class StrategiesDAO(BaseDAO):
         success_count = result_stats.get("创建/更新成功", 0)
         return success_count
 
-    # --- 【终极性能优化】使用窗口函数替换所有逻辑 ---
-    @sync_to_async
-    def get_latest_monthly_trend_reports(self):
-        """
-        【终极优化版】使用窗口函数高效获取每只股票最新的月线趋势策略报告。
-        此方法是解决此类问题的行业标准，性能最高。
-
-        :return: 一个Django QuerySet，包含最新的报告对象，按买入评分降序排列。
-        """
-        # print("开始执行【窗口函数版】get_latest_monthly_trend_reports 查询...")
-
-        # 1. 定义窗口函数
-        #    - PARTITION BY stock_id: 将数据按股票ID分组
-        #    - ORDER BY trade_time DESC: 在每个分组内，按交易时间倒序排列
-        #    - RowNumber(): 为排序后的每一行分配一个行号（最新的为1）
-        window = Window(
-            expression=RowNumber(),
-            partition_by=[F('stock_id')],
-            order_by=F('trade_time').desc()
-        )
-
-        # 2. 使用 annotate 创建一个包含行号的子查询
-        #    Django 会将此转换为一个子查询或 CTE (Common Table Expression)
-        #    SQL 等价于: SELECT *, ROW_NUMBER() OVER(...) as rn FROM ...
-        ranked_reports = MonthlyTrendStrategyReport.objects.annotate(
-            row_number=window
-        )
-
-        # 3. 从子查询中筛选出我们想要的行 (rn=1)
-        #    注意: Django ORM 要求对窗口函数的结果进行筛选时，必须通过 .filter() 作用于 annotate() 之后
-        #    为了让数据库能直接处理，我们把它包装成一个子查询
-        latest_ids = ranked_reports.filter(row_number=1).values('id')
-
-        # 4. 获取最终的完整报告对象
-        #    使用 __in 查询，这比之前的复杂 OR 条件要快得多
-        latest_reports_queryset = MonthlyTrendStrategyReport.objects.filter(
-            id__in=latest_ids
-        ).select_related('stock').order_by('-buy_score', '-trade_time')
-
-        # 调试信息：使用 .explain() 可以看到数据库的执行计划，是性能调试的利器
-        # print("数据库的执行计划:")
-        # print(latest_reports_queryset.explain(analyze=True))
-        
-        # print(f"窗口函数查询完成，准备返回结果。")
-
-        # 返回 .values() 以便在视图中直接使用
-        return latest_reports_queryset.values(
-            'stock__stock_code',
-            'stock__stock_name',
-            'trade_time',
-            'close_D',
-            'signal_type',
-            'buy_score',
-            'analysis_text',
-            'signal_breakout_trigger',
-            'signal_pullback_entry',
-            'signal_continuation_entry',
-            'signal_take_profit'
-        )
-
     @sync_to_async
     def get_latest_monthly_trend_reports_by_stock_codes(self, stock_codes):
         """

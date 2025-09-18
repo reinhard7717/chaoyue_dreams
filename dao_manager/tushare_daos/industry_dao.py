@@ -948,6 +948,37 @@ class IndustryDao(BaseDAO):
         instances = await sync_to_async(list)(KplConceptInfo.objects.filter(ts_code__in=codes))
         return {instance.ts_code: instance for instance in instances}
 
+    async def get_kpl_themes_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """【新增】获取股票在指定日期范围内所属的KPL题材列表"""
+        query = KplConceptConstituent.objects.filter(
+            stock__stock_code=stock_code,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        )
+        data = await sync_to_async(list)(query.values('trade_time', concept_code=F('concept_info__ts_code')))
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame.from_records(data)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        return df
+
+    async def get_kpl_themes_hotness(self, concept_codes: List[str], start_date: date, end_date: date) -> pd.DataFrame:
+        """【新增】获取一批KPL题材在指定日期范围内的热度指标"""
+        query = KplConceptDaily.objects.filter(
+            concept_info__ts_code__in=concept_codes,
+            trade_time__gte=start_date,
+            trade_time__lte=end_date
+        )
+        data = await sync_to_async(list)(query.values(
+            'trade_time', 'z_t_num', 'up_num',
+            concept_code=F('concept_info__ts_code')
+        ))
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame.from_records(data)
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+        return df
+
     async def save_kpl_list_by_date(self, trade_date: date) -> Dict:
         """
         接口：kpl_list

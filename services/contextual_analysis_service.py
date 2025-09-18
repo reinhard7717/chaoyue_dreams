@@ -360,6 +360,50 @@ class ContextualAnalysisService:
         print(f"    - [聪明钱引擎] 信号生成完毕。")
         return final_signals_df
 
+    async def analyze_kpl_theme_hotness(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
+        """
+        【V1.0 新增】KPL题材热度分析引擎
+        - 核心职责: 根据开盘啦的题材数据，为个股生成每日的“题材热度分”。
+        - 数据来源: KplConceptConstituent, KplConceptDaily
+        """
+        print(f"    - [KPL热度引擎] 开始为 {stock_code} 分析题材热度...")
+        
+        # 1. 获取股票在指定日期范围内所属的所有KPL题材
+        stock_themes_df = await self.industry_dao.get_kpl_themes_for_stock(stock_code, start_date, end_date)
+        if stock_themes_df.empty:
+            print(f"    - [KPL热度引擎] {stock_code} 在指定日期内未归属任何KPL题材。")
+            return pd.DataFrame()
+
+        # 2. 获取这些题材在对应日期的热度指标 (涨停数, 排名上升数)
+        all_theme_codes = stock_themes_df['concept_code'].unique().tolist()
+        themes_hotness_df = await self.industry_dao.get_kpl_themes_hotness(all_theme_codes, start_date, end_date)
+        if themes_hotness_df.empty:
+            print(f"    - [KPL热度引擎] 未能获取到相关题材的热度数据。")
+            return pd.DataFrame()
+
+        # 3. 将股票所属题材与题材热度数据合并
+        merged_df = pd.merge(stock_themes_df, themes_hotness_df, on=['trade_date', 'concept_code'], how='left')
+
+        # 4. 计算每日的综合热度分
+        # 按天聚合，如果一天属于多个热门题材，分数会累加
+        daily_hotness = merged_df.groupby('trade_date').apply(
+            lambda x: (x['z_t_num'].fillna(0) * params.get('zt_num_weight', 0.7) + 
+                       x['up_num'].fillna(0) * params.get('up_num_weight', 0.3)).sum()
+        )
+        
+        if daily_hotness.empty:
+            return pd.DataFrame()
+
+        # 5. 归一化和格式化输出
+        # 将分数归一化到 0-1 区间，这里使用一个简单的 clip 方法
+        max_score = params.get('max_score_clip', 10.0) # 设置一个分数上限，防止极端值影响
+        normalized_score = (daily_hotness / max_score).clip(0, 1)
+        
+        result_df = pd.DataFrame(normalized_score, columns=['THEME_HOTNESS_SCORE_D'])
+        
+        print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
+        return result_df
+
 
 
 

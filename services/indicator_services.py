@@ -447,7 +447,24 @@ class IndicatorService:
                 print(f"    - [行业背景注入] 成功注入预计算的行业生命周期数据。")
             else:
                 print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的预计算行业生命周期数据。")
-
+        # --- 注入KPL题材热度信号 ---
+        kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
+        if kpl_params and kpl_params.get('enabled', False):
+            print(f"    - [KPL题材热度注入] 检测到KPL题材分析已启用，开始注入热度分...")
+            # 调用 contextual_analysis_service 的新方法
+            kpl_hotness_df = await self.contextual_service.analyze_kpl_theme_hotness(
+                stock_code, start_date, end_date, kpl_params
+            )
+            if not kpl_hotness_df.empty:
+                # 使用 left join，以 df_daily 的索引为准
+                df_daily = df_daily.merge(kpl_hotness_df, left_index=True, right_index=True, how='left')
+                # 默认用0填充没有热度的日期
+                df_daily['THEME_HOTNESS_SCORE_D'].fillna(0, inplace=True)
+                print(f"    - [KPL题材热度注入] 成功注入KPL题材热度分。")
+            else:
+                # 即使没有数据，也要确保列存在，值为0
+                df_daily['THEME_HOTNESS_SCORE_D'] = 0.0
+                print(f"    - [KPL题材热度注入] 未能获取到 {stock_code} 的KPL题材热度数据，该项得分将为0。")
         # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):

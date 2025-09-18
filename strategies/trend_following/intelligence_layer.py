@@ -105,6 +105,8 @@ class IntelligenceLayer:
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         # ▼▼▼ 调用行业生命周期诊断 ▼▼▼
         self.strategy.atomic_states.update(self._score_industry_lifecycle_context(df))
+        # ▼▼▼ 调用KPL题材热度评分 ▼▼▼
+        self.strategy.atomic_states.update(self._score_kpl_theme_hotness(df))
         # FoundationIntelligence 现在返回字典，需要更新到 atomic_states
         foundation_states = self.foundation_intel.run_foundation_analysis_command()
         self.strategy.atomic_states.update(foundation_states)
@@ -336,7 +338,29 @@ class IntelligenceLayer:
         print(f"    - [行业生命周期评分 V2.0] 完成。已生成4个行业阶段数值化分数。")
         return scores
 
-
+    def _score_kpl_theme_hotness(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【新增】KPL题材热度评分模块
+        - 核心职责: 将注入的题材热度原始分转换为最终的策略评分。
+        """
+        scores = {}
+        # 1. 统一从 feature_engineering_params 获取参数
+        fe_params = get_params_block(self.strategy, 'feature_engineering_params', {})
+        params = fe_params.get('kpl_theme_params', {})
+        if not params.get('enabled', False):
+            return {}
+        required_col = 'THEME_HOTNESS_SCORE_D'
+        if required_col not in df.columns:
+            print(f"    - [KPL题材热度评分-警告] 缺少依赖列: {required_col}，模块已跳过。")
+            return {}
+        hotness_score = df[required_col]
+        threshold = params.get('score_threshold', 0.5)
+        # 示例逻辑：当热度分超过阈值时，我们认为它是一个有效的看涨信号
+        # 分数直接使用归一化后的热度分，但只有超过阈值才有效
+        final_score = hotness_score.where(hotness_score >= threshold, 0)
+        scores['SCORE_THEME_HOTNESS'] = final_score.fillna(0.0)
+        # print(f"    - [KPL题材热度评分] 完成。")
+        return scores
 
 
 

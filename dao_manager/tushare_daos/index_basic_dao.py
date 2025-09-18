@@ -106,7 +106,7 @@ class IndexBasicDAO(BaseDAO):
         """
         if not trade_date:
             trade_date = datetime.date.today()
-        # print(f"基准日期为: {trade_date}")  # 调试信息
+        # print(f"基准日期为: {trade_date}") 
         trade_date_str = trade_date.strftime('%Y%m%d')
         trade_days_raw = await sync_to_async(
             lambda: list(
@@ -116,7 +116,7 @@ class IndexBasicDAO(BaseDAO):
                 ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
             )
         )()
-        # print(f"查询到的开盘日数量: {len(trade_days_raw)}")  # 调试信息
+        # print(f"查询到的开盘日数量: {len(trade_days_raw)}") 
         # 兼容字符串和datetime.date类型
         trade_days = []
         for day in trade_days_raw:
@@ -215,6 +215,19 @@ class IndexBasicDAO(BaseDAO):
             await self.index_cache_set.index_info(index_code, index_data_dict)
             return index_info
         return None
+
+    async def get_indices_by_codes(self, index_codes: List[str]) -> Dict[str, 'IndexInfo']:
+        """
+        【V1.0 新增】根据指数代码列表，一次性从数据库获取所有IndexInfo对象，并返回一个 code -> object 的映射字典。
+        """
+        if not index_codes:
+            return {}
+        # print(f"    - [IndexBasicDAO] 正在批量获取 {len(index_codes)} 个指数的信息...")
+        # 使用 Django ORM 的异步接口 afilter 和异步推导式
+        indices_qs = IndexInfo.objects.filter(index_code__in=index_codes)
+        index_map = {index.index_code: index async for index in indices_qs}
+        # print(f"    - [IndexBasicDAO] 成功获取并映射了 {len(index_map)} 个指数对象。")
+        return index_map
 
     async def get_or_create_index(self, ts_code: str, defaults: Dict = None) -> IndexInfo:
         """

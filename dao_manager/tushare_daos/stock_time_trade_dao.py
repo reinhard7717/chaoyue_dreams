@@ -1632,7 +1632,7 @@ class StockTimeTradeDAO(BaseDAO):
                         # 使用 aiolimiter 作为异步上下文管理器来包裹API调用
                         # 这是更专业、高效和健壮的限流方式
                         async with self.limiter:
-                            print(f"正在请求 {stock.stock_code} 的数据, offset={offset}...") # 调试信息
+                            print(f"正在请求 {stock.stock_code} 的数据, offset={offset}...")
                             df = self.ts_pro.cyq_chips(**{
                                 "ts_code": stock.stock_code, "trade_date": trade_date_str,
                                 "start_date": start_date_str, "end_date": current_end_date_str,
