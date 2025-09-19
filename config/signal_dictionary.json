@@ -55,6 +55,7 @@
         "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": { "cn_name": "【认知S】多域反转共振", "category": "认知层-机会", "type": "positional", "description": "多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。" },
         "COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S": { "cn_name": "【认知S风险】多域顶部共振", "category": "认知层-风险", "type": "risk", "description": "多个核心领域的顶部反转信号形成共振，是最高级别的顶部风险信号。" },
         "说明_cognitive_synthesis": "--- 认知层-合成机会与风险 (S/A级) ---",
+        "SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S": { "cn_name": "【认知S】伪装散户吸筹", "category": "认知层-机会", "type": "dynamic", "description": "四维交叉验证信号：融合'散户资金流入'、'筹码持续集中'、'价格波动压制'和'VPA效率低下'四大特征，高置信度识别主力通过分单进行隐蔽吸筹的行为。" },
         "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A": { "cn_name": "【认知A】早期动能点火", "category": "认知层-机会", "type": "dynamic", "description": "融合多个温和的早期动能信号，捕捉“万事俱备，东风初起”的精确时点，避免追高。" },
         "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": { "cn_name": "【认知】趋势可持续", "category": "认知层-环境", "type": "context", "description": "综合评估趋势质量与顶部反转风险，量化当前上升趋势的健康度与可持续性。" },
         "COGNITIVE_SCORE_CHIP_FUND_FLOW_ACCUMULATION_S": { "cn_name": "【认知S】筹码资金协同", "category": "认知层-机会", "type": "dynamic", "description": "筹码层与资金流层的核心看涨信号形成共振，确认主力资金正在吸筹。" },

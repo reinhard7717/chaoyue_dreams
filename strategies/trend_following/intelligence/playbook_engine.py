@@ -25,7 +25,12 @@ class PlaybookEngine:
         - 收益: 极大地丰富了策略的战术武器库，能够捕捉更多样、更高置信度的交易机会。
         """
         return [
-            # ▼▼▼ 修改: 全面重构和扩充剧本库 ▼▼▼
+            # “筹码共振-价格滞后”潜伏突破剧本
+            {
+                'name': 'PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S',
+                'trigger': ['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'],
+                'comment': 'S级(王牌潜伏) - [筹码共振-价格滞后] 在筹码高度共振、价格被压制的战备状态后，由温和点火信号确认的黄金突破口。'
+            },
             # --- S++级 王牌剧本 (Ace Playbooks) ---
             {
                 'name': 'PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS',
@@ -155,6 +160,7 @@ class PlaybookEngine:
             'breakout_eve_s': get_param_value(p_triggers.get('breakout_eve_s_threshold'), 0.6),
             'normal_squeeze_a': get_param_value(p_triggers.get('normal_squeeze_a_threshold'), 0.5),
             'prime_chip_ignition_s_plus_plus': get_param_value(p_triggers.get('prime_chip_ignition_s_plus_plus_threshold'), 0.7),
+            'chip_resonance_price_lag_s': get_param_value(p_triggers.get('chip_resonance_price_lag_s_threshold'), 0.5),
         }
         # --- 2. 定义基础触发器 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
@@ -192,6 +198,12 @@ class PlaybookEngine:
         setup_normal_squeeze = vol_compression_score > 0.5
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
+        # 定义“筹码共振-价格滞后”剧本的专属触发器
+        # 这个触发器直接实现了“昨日战备就绪，今日点火触发”的剧本逻辑
+        was_setup_yesterday = atomic.get('SETUP_CHIP_RESONANCE_READY_S', default_series).shift(1).fillna(False)
+        is_triggered_today = atomic.get('TRIGGER_GENTLE_PRICE_LIFT_A', default_series)
+        # 最终的布尔触发信号
+        triggers['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = was_setup_yesterday & is_triggered_today
         # --- 4. 定义“持续点火”确认触发器 (逻辑增强) ---
         # 4.1 定义基础点火事件
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']

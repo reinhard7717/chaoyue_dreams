@@ -174,17 +174,6 @@ class CognitiveIntelligence:
         trigger_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
         states['SCORE_TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score
         states['TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score > 0.4 # 布尔信号用于逻辑判断
-        # --- 3. 生成最终的“战术剧本”信号 ---
-        # 剧本逻辑: 昨日战备就绪，今日点火触发
-        was_setup_yesterday = states['SETUP_CHIP_RESONANCE_READY_S'].shift(1).fillna(False)
-        is_triggered_today = states['TRIGGER_GENTLE_PRICE_LIFT_A']
-        playbook_signal = was_setup_yesterday & is_triggered_today
-        states['PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = playbook_signal
-        # 生成数值化剧本分，用于计分系统
-        playbook_score = (setup_score.shift(1).fillna(0.0) * trigger_score).astype(np.float32)
-        states['SCORE_PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = playbook_score
-        if playbook_signal.any():
-            print(f"          -> [S级战术剧本] 侦测到 {playbook_signal.sum()} 次“筹码共振-价格滞后”的黄金突破机会！")
             
         print("        -> [筹码共振-价格滞后剧本 V1.0] 计算完毕。")
         return states
@@ -1664,6 +1653,9 @@ class CognitiveIntelligence:
         states.update(chip_price_lag_states)
         industry_synergy_states = self.synthesize_industry_synergy_signals(df)
         states.update(industry_synergy_states)
+        # 调用“伪装散户吸筹”诊断引擎
+        deceptive_flow_states = self.diagnose_deceptive_retail_flow(df)
+        states.update(deceptive_flow_states)
         # --- 1. 汇总所有S级的“机会”类认知分数 ---
         bullish_scores = [
             atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score).values,
@@ -1692,3 +1684,64 @@ class CognitiveIntelligence:
         print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。") # 修改: 更新版本号
         return df
 
+    def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 VPA增强版】伪装散户吸筹诊断引擎 (主力分单行为识别)
+        - 架构归属: 从 ChipIntelligence 迁移至 CognitiveIntelligence，因为它融合了筹码、资金、价格、量价四大维度。
+        - 核心增强: 新增对 VPA 效率的判断，形成四维交叉验证，极大提升信号置信度。
+        - 核心逻辑:
+          1. 资金流表象: 散户资金持续净流入。
+          2. 筹码结构结果: 筹码持续集中。
+          3. 价格环境: 股价波动被压制。
+          4. 量价效率佐证 (VPA): 成交量很大，但价格波动很小，证明交易未用于推升价格。
+        - 产出: SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S - 一个高置信度的、识别主力隐蔽吸筹的S级认知信号。
+        """
+        print("        -> [伪装散户吸筹诊断引擎 V2.0 VPA增强版] 启动...")
+        states = {}
+        p = get_params_block(self.strategy, 'deceptive_flow_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'retail_net_flow_consensus_D',      # 资金流表象
+            'SLOPE_5_concentration_90pct_D',    # 筹码结构结果
+            'SLOPE_5_close_D',                  # 价格环境
+            'VPA_EFFICIENCY_D'                  # 量价效率佐证 (VPA)
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 伪装散户吸筹诊断引擎缺少关键数据: {missing_cols}，模块已跳过！")
+            return states
+
+        # --- 2. 核心要素数值化 (归一化) ---
+        norm_window = get_param_value(p.get('norm_window'), 120)
+
+        # 条件1: 散户资金持续净流入 (值越大，分数越高)
+        retail_inflow_score = self._normalize_score(df['retail_net_flow_consensus_D'].clip(lower=0), norm_window, ascending=True)
+
+        # 条件2: 筹码集中度持续提升 (斜率为负且越小，分数越高)
+        chip_concentration_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
+
+        # 条件3: 价格波动被压制 (价格斜率的绝对值越小，分数越高)
+        price_suppression_score = self._normalize_score(df['SLOPE_5_close_D'].abs(), norm_window, ascending=False)
+
+        # 新增条件4: VPA效率低下 (VPA效率值越小，分数越高)
+        vpa_inefficiency_score = self._normalize_score(df['VPA_EFFICIENCY_D'], norm_window, ascending=False)
+
+        # --- 3. 融合生成最终信号 ---
+        # 四维交叉验证，只有当四个条件同时满足时，分数才会高
+        final_score = (
+            retail_inflow_score *
+            chip_concentration_score *
+            price_suppression_score *
+            vpa_inefficiency_score
+        ).astype(np.float32)
+        
+        states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S'] = final_score
+
+        if (final_score > 0.85).any():
+             print(f"          -> [S级认知信号] 侦测到 {(final_score > 0.85).sum()} 次高度疑似“伪装散户吸筹”的博弈行为！")
+
+        print("        -> [伪装散户吸筹诊断引擎 V2.0] 计算完毕。")
+        return states
