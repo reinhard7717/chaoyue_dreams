@@ -958,7 +958,7 @@ class IndustryDao(BaseDAO):
                 # 开盘啦是每日快照，in_date是当天，out_date是None
                 concept_member_sync_list.append({
                     'concept_code': concept_info.ts_code,
-                    'stock_id': stock.stock_code,
+                    'stock': stock,
                     'source': 'kpl',
                     'in_date': self.data_format_process._parse_datetime(row.trade_date),
                     'out_date': None
@@ -1438,7 +1438,7 @@ class IndustryDao(BaseDAO):
         for item in sync_list:
             concept_master = concept_map.get(item['concept_code'])
             if concept_master:
-                item['concept_id'] = concept_master.id
+                item['concept'] = concept_master
                 item.pop('concept_code') # 移除临时的 code 字段
                 final_data_to_save.append(item)
             else:
