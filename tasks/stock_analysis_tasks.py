@@ -32,7 +32,7 @@ from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
 from services.chip_score_calculator import calculate_chip_health_score
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
+from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 
@@ -675,6 +675,7 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
         "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
+        "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_date=fetch_start_date),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
@@ -684,6 +685,8 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     cyq_chips_df = data_dfs.get("cyq_chips")
     if cyq_chips_df is None or cyq_chips_df.empty:
         raise ValueError("[审计失败] 核心数据源 'cyq_chips' 为空或加载失败！任务无法继续。")
+    if data_dfs.get("cyq_perf") is None or data_dfs.get("cyq_perf").empty:
+        raise ValueError("[审计失败] 关键数据源 'cyq_perf' 为空或加载失败！任务无法继续。")
     # 检查其他关键数据源是否完全为空
     if data_dfs.get("daily_data") is None or data_dfs.get("daily_data").empty:
         raise ValueError("[审计失败] 关键数据源 'daily_data' 为空或加载失败！任务无法继续。")
@@ -739,8 +742,14 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
     daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
     daily_basic_data = daily_basic_data.drop(columns=['float_share'])
+    cyq_perf_data = data_dfs['cyq_perf']
+    cyq_perf_data['trade_time'] = pd.to_datetime(cyq_perf_data['trade_time']).dt.date
+    # 核心合并逻辑
     merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
     merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
+    merged_df = pd.merge(merged_df, cyq_perf_data, on='trade_time', how='inner')
+    if merged_df.empty:
+        raise ValueError("数据源在进行内连接(inner join)后结果为空，请检查各数据源的日期是否存在交集。")
     if merged_df.empty:
         raise ValueError("数据源在进行内连接(inner join)后结果为空，请检查各数据源的日期是否存在交集。")
     merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
@@ -763,7 +772,7 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
-        context_data['weight_avg_cost'] = 0
+        # context_data['weight_avg_cost'] = 0
         calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
         daily_metrics = calculator.calculate_all_metrics()
         if daily_metrics:

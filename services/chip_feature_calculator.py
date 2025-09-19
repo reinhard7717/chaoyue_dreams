@@ -26,25 +26,30 @@ class ChipFeatureCalculator:
                 # print(f"    -> [数据清洗] 注意：检测到筹码分布总和为 {percent_sum:.2f}，不等于100。正在执行强制归一化...")
                 self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
         
-        for key in ['total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close']:
+        cyq_perf_fields = [
+            'total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close',
+            'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg', 'winner_rate'
+        ]
+        for key in cyq_perf_fields:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V11.1 逻辑修正版】
-        - 修正: 移除了对已废弃的 fund_flow_metrics 的调用。
-        - 修正: 将 chip_health_score 的计算剥离，因为它依赖于后计算的斜率指标。
+        【V13.0 cyq_perf 数据源升维版】
+        - 修改: 调用重构后的 _get_summary_metrics_from_context 和 _calculate_concentration_from_perf 方法。
         """
         # --- 0. 前置检查 ---
-        if self.df.empty or not all(k in self.ctx for k in ['weight_avg_cost', 'close_price', 'total_chip_volume']):
+        # 修改: 检查 cyq_perf 提供的关键字段
+        if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
 
         # --- 1. 基础指标计算 ---
-        summary_info = self._calculate_summary_metrics()
-        self.ctx.update(summary_info)
+        # 修改: 调用新的方法
+        summary_info = self._get_summary_metrics_from_context()
+        self.ctx.update(summary_info) # 必须先更新上下文，后续计算会用到
         peaks_info = self._calculate_peaks()
-        concentration_info = self._calculate_concentration()
+        concentration_info = self._calculate_concentration_from_perf() # 修改: 调用新方法
         winner_structure_info = self._calculate_winner_structure()
         holder_costs_info = self._calculate_holder_costs()
         pressure_support_info = self._calculate_pressure_support()
@@ -89,22 +94,14 @@ class ChipFeatureCalculator:
         # --- 5. 返回清理后的最终结果 ---
         return all_metrics
 
-    def _calculate_summary_metrics(self) -> dict:
+    def _get_summary_metrics_from_context(self) -> dict:
         """
-        【V12.0 新增】摘要指标自主计算模块
-        基于原始筹码分布，计算加权平均成本和总获利盘。
+        【V13.0 重构】直接从上下文中提取由 cyq_perf 提供的高阶指标。
+        - 替代了原有的 _calculate_summary_metrics 方法。
         """
-        normalized_percent = self.df['percent'] / 100.0
-        # 1. 计算加权平均成本 (weight_avg_cost)
-        weight_avg_cost = np.average(self.df['price'], weights=normalized_percent)
-
-        # 2. 计算总获利盘 (total_winner_rate)
-        close_price = self.ctx.get('close_price')
-        if close_price:
-            winners_df = self.df[self.df['price'] < close_price]
-            total_winner_rate = winners_df['percent'].sum()
-        else:
-            total_winner_rate = 0.0
+        # 直接从 self.ctx 获取由 cyq_perf 提供的、更准确的指标
+        weight_avg_cost = self.ctx.get('weight_avg')
+        total_winner_rate = self.ctx.get('winner_rate')
 
         return {
             'weight_avg_cost': weight_avg_cost,
@@ -184,51 +181,40 @@ class ChipFeatureCalculator:
             
         return result
 
-    def _calculate_concentration(self) -> dict:
-        # 筹码集中度计算：此部分逻辑一直正确，无需修改
-        self.df['cumulative_percent'] = self.df['percent'].cumsum()
-        
-        def get_concentration_range_vectorized(target_pct: float) -> tuple:
-            cum_percent_vals = self.df['cumulative_percent'].values
-            price_vals = self.df['price'].values
-            
-            start_cum_vals = np.roll(cum_percent_vals, 1)
-            start_cum_vals[0] = 0
-            target_cum_vals = start_cum_vals + target_pct
+    def _calculate_concentration_from_perf(self) -> dict:
+        """
+        【V13.0 重构】直接基于 cyq_perf 提供的成本分位数计算筹码集中度。
+        - 替代了原有的 _calculate_concentration 方法。
+        - 效率和准确性都得到极大提升。
+        """
+        # 从上下文中获取 cyq_perf 提供的成本分位数
+        cost_95pct = self.ctx.get('cost_95pct')
+        cost_5pct = self.ctx.get('cost_5pct')
+        cost_85pct = self.ctx.get('cost_85pct')
+        cost_15pct = self.ctx.get('cost_15pct')
+        weight_avg_cost = self.ctx.get('weight_avg_cost') # 使用已经从 context 更新的平均成本
 
-            end_indices = np.searchsorted(cum_percent_vals, target_cum_vals, side='right')
-
-            valid_mask = end_indices < len(price_vals)
-            if not np.any(valid_mask):
-                return float('inf'), (None, None)
-            
-            start_indices_valid = np.arange(len(price_vals))[valid_mask]
-            end_indices_valid = end_indices[valid_mask]
-
-            widths = price_vals[end_indices_valid] - price_vals[start_indices_valid]
-            
-            min_width_idx = np.argmin(widths)
-            
-            min_width = widths[min_width_idx]
-            best_start_price = price_vals[start_indices_valid[min_width_idx]]
-            best_end_price = price_vals[end_indices_valid[min_width_idx]]
-            
-            return min_width, (best_start_price, best_end_price)
-
-        width_90, _ = get_concentration_range_vectorized(90.0)
-        width_70, range_70 = get_concentration_range_vectorized(70.0)
-        
-        self.ctx['cost_range_70pct'] = range_70
-
+        # 检查所有需要的数据是否存在
+        if not all([cost_95pct, cost_5pct, cost_85pct, cost_15pct, weight_avg_cost]) or weight_avg_cost <= 0:
+            return {
+                'concentration_90pct': None,
+                'concentration_70pct': None,
+            }
+        # 计算90%筹码的区间宽度
+        width_90 = cost_95pct - cost_5pct
+        # 计算70%筹码的区间宽度
+        width_70 = cost_85pct - cost_15pct
+        # 更新上下文中的70%成本区间，供下游使用
+        self.ctx['cost_range_70pct'] = (cost_15pct, cost_85pct)
         return {
-            'concentration_90pct': width_90 / self.ctx['weight_avg_cost'] if width_90 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
-            'concentration_70pct': width_70 / self.ctx['weight_avg_cost'] if width_70 != float('inf') and self.ctx['weight_avg_cost'] > 0 else None,
+            'concentration_90pct': width_90 / weight_avg_cost,
+            'concentration_70pct': width_70 / weight_avg_cost,
         }
 
     def _calculate_winner_structure(self) -> dict:
         """
-        【V12.0 简化版】
-        - 核心简化: 不再计算 total_winner_rate，因为它已在 _calculate_summary_metrics 中计算。
+        【V13.0 简化版】
+        - 核心简化: 不再计算 total_winner_rate，因为它已在 _get_summary_metrics_from_context 中从上下文获取。
         """
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
@@ -262,8 +248,8 @@ class ChipFeatureCalculator:
             'loser_rate_long_term': long_term_loser_rate,   
             'total_loser_rate': total_loser_rate,           
         }
-    
-    def _calculate_holder_costs(self) -> dict: # 整个方法
+
+    def _calculate_holder_costs(self) -> dict:
         """
         【V1.0 新增】计算长/短期持仓者平均成本
         - 核心逻辑: 以20日前收盘价为界，划分长期与短期持仓者，并分别计算其加权平均成本。

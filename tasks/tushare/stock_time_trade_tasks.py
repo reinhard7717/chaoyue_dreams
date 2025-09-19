@@ -556,12 +556,12 @@ def save_single_stock_cyq_perf(stock_code: str, trade_date_str: str = None, *, s
             # 兼容旧的单日模式
             start_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
             end_date = start_date # 单日查询时，开始和结束日期相同
-            print(f"调试: 执行器[CYQ Perf]接收到单日参数: stock={stock_code}, date={start_date}")
+            # print(f"调试: 执行器[CYQ Perf]接收到单日参数: stock={stock_code}, date={start_date}")
         elif start_date_str and end_date_str:
             # 新的日期范围模式
             start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
             end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
-            print(f"调试: 执行器[CYQ Perf]接收到日期范围参数: stock={stock_code}, start={start_date}, end={end_date}")
+            # print(f"调试: 执行器[CYQ Perf]接收到日期范围参数: stock={stock_code}, start={start_date}, end={end_date}")
         else:
             logger.error(f"执行器[CYQ Perf]错误: 必须提供 trade_date_str 或 (start_date_str 和 end_date_str)。stock={stock_code}")
             return
