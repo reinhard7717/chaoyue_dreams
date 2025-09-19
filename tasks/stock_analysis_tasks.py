@@ -550,12 +550,16 @@ def _polyfit_slope(series: pd.Series) -> float:
 
 def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
     """
-    【修改 V3.0 - 采用 pandas_ta 库】
-    - 核心修改: 放弃自定义的 rolling().apply() + polyfit 实现，
+    【修改 V3.1 - 增加健壮性】
+    - 核心修改: 增加了对 pandas_ta.linreg 返回 None 的防御性检查。
+                在极少数情况下（例如输入数据全是NaN或存在其他问题），linreg 可能会返回 None，
+                导致 'NoneType' object has no attribute 'iloc' 错误。
+                此修改通过捕获 None 返回值并返回一个全为 NaN 的 Series 来防止程序崩溃。
+    - 历史修改 (V3.0): 放弃自定义的 rolling().apply() + polyfit 实现，
                 直接调用 pandas_ta.linreg() 函数计算斜率。
                 这与 indicator_services.py 的实现保持一致，更加健壮和高效。
     - 收益:
-        1. 健壮性: pandas_ta 内部能优雅处理 window < 2 的情况，返回 NaN 而非崩溃。
+        1. 健壮性: 能处理 linreg 返回 None 的偶发性边缘情况，防止任务失败。
         2. 性能: pandas_ta 通常比自定义的 apply 函数性能更好。
         3. 一致性: 统一了项目中斜率的计算标准。
     """
@@ -573,6 +577,12 @@ def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
     # slope=True: 明确要求返回斜率序列
     # intercept=False, r=False: 不需要截距和R²值，提升性能
     linreg_result = ta.linreg(close=series, length=window, min_periods=min_p, slope=True, intercept=False, r=False)
+    # 增加对 linreg_result 为 None 的防御性检查
+    if linreg_result is None:
+        # 在极少数情况下，如果 linreg 计算失败返回 None，则打印调试信息并返回一个充满 NaN 的序列，以防止程序崩溃
+        print(f"DEBUG: pandas_ta.linreg 返回了 None。输入序列长度: {len(series)}, 窗口: {window}。将返回全为 NaN 的序列。")
+        # 返回与输入序列索引一致的 NaN 序列
+        return pd.Series(np.nan, index=series.index)
     # ta.linreg 返回的是一个DataFrame，我们只需要斜率那一列（通常是第一列或唯一一列）
     # 如果结果是Series，直接使用；如果是DataFrame，取第一列
     slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
