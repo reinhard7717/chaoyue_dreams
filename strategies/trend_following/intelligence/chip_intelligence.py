@@ -17,7 +17,7 @@ class ChipIntelligence:
 
     def _normalize_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
         """
-        【新增】将一个 Series 归一化到 0-1 区间。
+        将一个 Series 归一化到 0-1 区间。
         使用滚动窗口的百分位排名 (rank) 来实现。
         :param series: 输入的 pandas Series。
         :param window: 滚动窗口大小。

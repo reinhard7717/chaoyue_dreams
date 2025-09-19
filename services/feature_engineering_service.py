@@ -12,7 +12,7 @@ logger = logging.getLogger("services")
 
 class FeatureEngineeringService:
     """
-    【新增】特征工程服务
+    特征工程服务
     - 核心职责: 专注于从基础数据（OHLCV和简单指标）中衍生出更高级的技术特征。
                 它负责所有与K线本身形态、趋势、波动率相关的深度计算。
     """

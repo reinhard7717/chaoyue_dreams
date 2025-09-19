@@ -352,7 +352,7 @@
         },
         "save_daily_states": {
           "value": false,
-          "description": "【新增】是否保存每日的原子状态和触发器记录。true: 保存，用于深度调试，但会产生大量数据；false: 不保存，用于生产环境，节省空间。"
+          "description": "是否保存每日的原子状态和触发器记录。true: 保存，用于深度调试，但会产生大量数据；false: 不保存，用于生产环境，节省空间。"
         }
       },
       "fibonacci_support_params": {
@@ -492,7 +492,7 @@
       },
       "smart_money_params": {
         "enabled": true,
-        "description": "【新增】聪明钱（游资+机构）协同分析参数",
+        "description": "聪明钱（游资+机构）协同分析参数",
         "hm_coordination_threshold": 3,
         "description_hm": "定义多少家游资同时净买入算作“协同攻击”"
       },

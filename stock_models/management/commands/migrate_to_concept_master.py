@@ -18,7 +18,7 @@ class Command(BaseCommand):
             with transaction.atomic():
                 # 在同步事务块内部，运行我们的异步主逻辑
                 asyncio.run(self.async_main())
-            # --- 修改行结束 ---
+            
             
             self.stdout.write(self.style.SUCCESS("\n====== 数据迁移成功！所有操作已提交。 ======"))
 

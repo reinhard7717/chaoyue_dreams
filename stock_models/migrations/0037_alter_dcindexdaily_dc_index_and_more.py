@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # 新增行: 开始手动SQL操作
+        # 开始手动SQL操作
         # 在Django执行AlterField之前，我们手动将数据库列名更改为Django历史记录所期望的名称。
         # 这解决了数据库实际状态与Django迁移历史之间的不一致。
         migrations.RunSQL(
@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
             "ALTER TABLE `ths_index_daily` CHANGE `ts_code` `ths_index_id` VARCHAR(20);",
             "ALTER TABLE `ths_index_daily` CHANGE `ths_index_id` `ts_code` VARCHAR(20);"
         ),
-        # 新增行: 结束手动SQL操作
+        # 结束手动SQL操作
 
         # Django自动生成的AlterField操作现在可以正常执行了
         migrations.AlterField(

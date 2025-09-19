@@ -40,7 +40,7 @@ class FundFlowDao(BaseDAO):
     # ============== 日级资金流向数据 ==============
     async def get_fund_flow_daily_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
-        【新增】获取单个股票的历史日级资金流向数据 (Tushare moneyflow 接口)
+        获取单个股票的历史日级资金流向数据 (Tushare moneyflow 接口)
         :param stock_code: 股票代码
         :param trade_date: 查询的截止日期
         :param limit: 返回的数据条数
@@ -194,7 +194,7 @@ class FundFlowDao(BaseDAO):
     # ============== 个股日级资金流向数据 - 同花顺 ==============
     async def get_fund_flow_ths_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
-        【新增】获取单个股票的历史日级资金流向数据 (同花顺)
+        获取单个股票的历史日级资金流向数据 (同花顺)
         :param stock_code: 股票代码
         :param trade_date: 查询的截止日期
         :param limit: 返回的数据条数
@@ -348,7 +348,7 @@ class FundFlowDao(BaseDAO):
     # ============== 日级资金流向数据 - 东方财富 ==============
     async def get_fund_flow_dc_data(self, stock_code: str, trade_date: date, limit: int) -> pd.DataFrame:
         """
-        【新增】获取单个股票的历史日级资金流向数据 (东方财富)
+        获取单个股票的历史日级资金流向数据 (东方财富)
         :param stock_code: 股票代码
         :param trade_date: 查询的截止日期
         :param limit: 返回的数据条数
@@ -502,7 +502,7 @@ class FundFlowDao(BaseDAO):
     # ============== 资金流向高级指标 ==============
     async def get_advanced_fund_flow_metrics_data(self, stock_code: str, trade_date: datetime.date, limit: int) -> pd.DataFrame:
         """
-        【新增】从 AdvancedFundFlowMetrics 模型获取预计算的高级资金指标。
+        从 AdvancedFundFlowMetrics 模型获取预计算的高级资金指标。
         """
         # 动态获取对应市场的模型
         model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
@@ -973,7 +973,7 @@ class FundFlowDao(BaseDAO):
 
     async def get_top_list_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
         """
-        【新增】根据日期范围和股票代码列表，获取龙虎榜每日明细数据。
+        根据日期范围和股票代码列表，获取龙虎榜每日明细数据。
         """
         qs = TopList.objects.filter(trade_date__range=(start_date, end_date))
         if stock_codes:
@@ -1118,7 +1118,7 @@ class FundFlowDao(BaseDAO):
 
     async def get_top_inst_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
         """
-        【新增】根据日期范围和股票代码列表，获取龙虎榜机构明细数据。
+        根据日期范围和股票代码列表，获取龙虎榜机构明细数据。
         """
         qs = TopInst.objects.filter(trade_date__range=(start_date, end_date))
         if stock_codes:

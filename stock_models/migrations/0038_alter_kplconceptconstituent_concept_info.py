@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # 新增行: 开始手动SQL操作
+        # 开始手动SQL操作
         # 在Django执行AlterField之前，我们手动将数据库列名'ts_code'更改为Django历史记录所期望的'concept_info_id'。
         # 这解决了数据库实际状态与Django迁移历史之间的不一致。
         # 注意：这里的类型VARCHAR(20)需要与您数据库中ts_code列的实际类型和长度匹配。
@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
             # 反向操作，用于回滚迁移
             "ALTER TABLE `kpl_concept_constituent` CHANGE `concept_info_id` `ts_code` VARCHAR(20);"
         ),
-        # 新增行: 结束手动SQL操作
+        # 结束手动SQL操作
 
         # Django自动生成的AlterField操作现在可以正常执行了。
         # 它会找到 'concept_info_id' 列，然后根据新的模型定义（db_column='ts_code'）再把它改回 'ts_code'，并添加正确的外键约束。

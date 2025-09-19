@@ -789,7 +789,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
         return final_metrics_df
     # print(f"[{stock_code}] [衍生指标计算] 开始自动化三阶段衍生计算...")
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-    # 【新增】解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
+    # 解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
     # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
     # pandas_ta等数值计算库无法处理Decimal类型，因此在计算前必须将所有数值列统一转换为float64。
     # print(f"[{stock_code}] DEBUG: 衍生计算前，开始将DataFrame中的object/Decimal类型列转换为float64...") # 【代码修改】调整了消息文本
@@ -1383,11 +1383,13 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
 @with_cache_manager
 def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str, source: str, *, cache_manager: CacheManager):
     """
-    【V3.1-Reduce任务-修复版】聚合每日排名结果，计算并保存最终的生命周期数据。
-    修复: 移除 .reset_index() 调用，因为上游任务现在直接返回包含 'concept_code' 列的DataFrame。
+    【V3.2-Reduce任务-深度分析版】聚合每日排名结果，计算并保存最终的生命周期数据。
+    - 核心升级: 1. 聚合了新增的 breadth_score 和 leader_score。
+                 2. 引入了使用新维度的生命周期判定逻辑。
+                 3. 将所有新维度数据保存到数据库。
     """
     async def main():
-        logger.info(f"====== [Reduce] 聚合任务启动，目标日期: {target_date_str}, 来源: {source.upper()} ======")
+        logger.info(f"====== [Reduce V3.2] 聚合任务启动，目标日期: {target_date_str}, 来源: {source.upper()} ======")
         # 1. 反序列化并合并所有每日排名数据
         all_ranks_df = []
         for i, result_dict in enumerate(results):
@@ -1395,7 +1397,6 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
                 try:
                     df = pd.read_json(result_dict['rank_data_json'], orient='split')
                     df['trade_date'] = pd.to_datetime(result_dict['trade_date'])
-                    # 修改行: 直接追加DataFrame，不再需要 .reset_index()
                     all_ranks_df.append(df)
                 except Exception as e:
                     logger.error(f"[Reduce] 反序列化第 {i} 个结果时失败: {e}")
@@ -1404,10 +1405,21 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
             logger.error(f"[Reduce] 来源 '{source.upper()}' 的所有Map任务均未返回有效数据，聚合任务终止。")
             return {"status": "failed", "reason": "No data from map tasks."}
         rotation_df = pd.concat(all_ranks_df, ignore_index=True)
+        print(f"DEBUG: [Reduce] 合并后的 rotation_df 行数: {len(rotation_df)}, 列: {rotation_df.columns.tolist()}")
+
         # 2. 执行生命周期计算
         def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
-            if len(group) < 5: return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
+            # 即使数据不足，也要返回最新一天的广度和龙头分
+            if len(group) < 5:
+                latest_row = group.iloc[-1]
+                return pd.Series({
+                    'latest_rank': latest_row['strength_rank'],
+                    'rank_slope': 0.0,
+                    'rank_accel': 0.0,
+                    'latest_breadth': latest_row.get('breadth_score', 0.0), # 新增
+                    'latest_leader': latest_row.get('leader_score', 0.0)   # 新增
+                })
             ranks = group['strength_rank'].values
             slope = np.polyfit(np.arange(min(5, len(ranks))), ranks[-5:], 1)[0] if len(ranks) >= 2 else 0.0
             accel = 0.0
@@ -1415,22 +1427,53 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
                 slope_1 = np.polyfit(np.arange(5), ranks[-10:-5], 1)[0]
                 slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
                 accel = slope_2 - slope_1
-            return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
-        # 此处 groupby 现在可以正常工作
+            latest_row = group.iloc[-1]
+            return pd.Series({
+                'latest_rank': ranks[-1],
+                'rank_slope': slope,
+                'rank_accel': accel,
+                'latest_breadth': latest_row.get('breadth_score', 0.0), # 新增
+                'latest_leader': latest_row.get('leader_score', 0.0)   # 新增
+            })
         lifecycle_metrics = rotation_df.groupby('concept_code').apply(calculate_lifecycle_metrics)
         def assign_lifecycle_stage(row):
-            if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
-            if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
+            # 定义“初升期” (PREHEAT): 排名低位 + 排名趋势和加速度向上 + 出现龙头效应
+            is_preheat = (
+                row['latest_rank'] < 0.4 and
+                row['rank_slope'] > 0.008 and
+                row['rank_accel'] > 0.001 and
+                row['latest_leader'] > 0.2 # 关键条件：必须出现首板或更强的龙头
+            )
+            if is_preheat:
+                return 'PREHEAT'
+            # 定义“主升段” (MARKUP): 排名靠前 + 趋势强劲 + 广度健康
+            is_markup = (
+                row['latest_rank'] > 0.6 and
+                row['rank_slope'] > 0.01 and
+                row['latest_breadth'] > 0.5 # 关键条件：板块内至少一半个股上涨
+            )
+            if is_markup:
+                return 'MARKUP'
+            # 沿用旧的滞涨和下跌定义
             if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
             if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
             return 'TRANSITION'
         lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
+
         # 3. 准备并保存目标日期的数据
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
         latest_day_data = lifecycle_metrics.copy()
         latest_day_data['trade_date'] = target_date
-        # 此处 reset_index() 是正确的，它会将 groupby 的 key (concept_code) 从索引变回列
+
+        # 确保 IndustryLifecycle 模型已添加 breadth_score 和 leader_score 字段
+        latest_day_data.rename(columns={
+            'latest_rank': 'strength_rank',
+            'latest_breadth': 'breadth_score',
+            'latest_leader': 'leader_score'
+        }, inplace=True)
+
         records_to_save = latest_day_data.reset_index().to_dict('records')
+
         # 4. 调用DAO保存
         industry_dao = IndustryDao(cache_manager)
         save_result = await industry_dao.save_industry_lifecycle(records_to_save)

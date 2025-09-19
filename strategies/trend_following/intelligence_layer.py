@@ -279,52 +279,57 @@ class IntelligenceLayer:
         # print(f"            -> [日线长周期筹码战略诊断] 已生成 {len(states)} 个战略级原子状态。")
         return states
 
-    def _score_industry_lifecycle_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 新增方法
+    def _score_industry_lifecycle_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 数值化仪表盘版】行业生命周期上下文评分模块
+        【V2.1 龙头/广度增强版】行业生命周期上下文评分模块
         - 核心升级: 废弃了简陋的布尔信号，采用数值化评分体系，为每个生命周期阶段输出0-1的置信度分数。
+                    在“预热期”评分中融入“龙头效应分”，在“主升段”评分中融入“内部广度分”。
         - 评分逻辑:
           - 使用Sigmoid函数对关键指标（排名、斜率、加速度）进行归一化，使其具有可比性。
           - 通过组合这些归一化后的组件，计算出每个阶段的最终分数。
         - 收益: 极大地提升了行业分析的细腻度和策略整合的灵活性，从机制上解决了“追高”问题。
         """
         scores = {}
-        # default_score = pd.Series(0.0, index=df.index)
-        # 1. 首先获取包含所有计分逻辑的 'four_layer_scoring_params' 块
         four_layer_params = get_params_block(self.strategy, 'four_layer_scoring_params', {})
-        # 2. 然后从该块中安全地获取本模块专属的参数
         params = four_layer_params.get('industry_lifecycle_scoring_params', {})
         if not params.get('enabled', False):
             print("    - [行业生命周期评分-警告] 模块在配置中被禁用。")
             return {}
-        # 检查依赖列
-        required_cols = ['industry_rank_D', 'industry_rank_slope_D', 'industry_rank_accel_D']
-        if not all(col in df.columns for col in required_cols):
-            print(f"    - [行业生命周期评分-警告] 缺少依赖列: {[c for c in required_cols if c not in df.columns]}，模块已跳过。")
-            return {}
-        # 定义Sigmoid归一化函数
+        # 检查依赖列，现在包括广度和龙头分
+        required_cols = [
+            'industry_rank_D', 'industry_rank_slope_D', 'industry_rank_accel_D',
+            'industry_breadth_score_D', 'industry_leader_score_D'
+        ]
+        # 检查并处理缺失列
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            print(f"    - [行业生命周期评分-警告] 缺少依赖列: {missing_cols}，将使用0填充。")
+            for col in missing_cols:
+                df[col] = 0.0
         def _sigmoid(x, center, steepness):
             return 1 / (1 + np.exp(-steepness * (x - center)))
         # 1. 获取原始数据并归一化
         rank = df['industry_rank_D']
         slope = df['industry_rank_slope_D']
         accel = df['industry_rank_accel_D']
+        breadth_score = df['industry_breadth_score_D']
+        leader_score = df['industry_leader_score_D']
         # 归一化排名 (0-1)
         rank_comp = rank.clip(0, 1)
         # 归一化斜率 (使用Sigmoid)
         slope_center = params.get('slope_center', 0.01)
         slope_steepness = params.get('slope_steepness', 200)
         pos_slope_comp = _sigmoid(slope, slope_center, slope_steepness)
-        neg_slope_comp = _sigmoid(-slope, slope_center, slope_steepness) # 用于计算负向分数
+        neg_slope_comp = _sigmoid(-slope, slope_center, slope_steepness)
         # 归一化加速度 (使用Sigmoid)
         accel_center = params.get('accel_center', 0.001)
         accel_steepness = params.get('accel_steepness', 1000)
         pos_accel_comp = _sigmoid(accel, accel_center, accel_steepness)
-        # 2. 计算各阶段分数
-        # 主升浪 (MARKUP): 高排名 + 强正斜率
-        score_markup = rank_comp * pos_slope_comp
-        # 预热期 (PREHEAT): 低排名 + 正斜率 + 正加速度
-        score_preheat = (1 - rank_comp) * pos_slope_comp * pos_accel_comp
+        # 2. 计算各阶段分数 (融入新维度)
+        # 主升浪 (MARKUP): 高排名 + 强正斜率 + 健康广度
+        score_markup = rank_comp * pos_slope_comp * breadth_score.clip(0, 1)
+        # 预热期 (PREHEAT): 低排名 + 正斜率 + 正加速度 + 龙头效应
+        score_preheat = (1 - rank_comp) * pos_slope_comp * pos_accel_comp * leader_score.clip(0, 1)
         # 高位滞涨 (STAGNATION): 高排名 + 负斜率
         score_stagnation = rank_comp * neg_slope_comp
         # 下跌通道 (DOWNTREND): 低排名 + 强负斜率
@@ -334,13 +339,12 @@ class IntelligenceLayer:
         scores['SCORE_INDUSTRY_PREHEAT'] = score_preheat.fillna(0.0)
         scores['SCORE_INDUSTRY_STAGNATION'] = score_stagnation.fillna(0.0)
         scores['SCORE_INDUSTRY_DOWNTREND'] = score_downtrend.fillna(0.0)
-
-        print(f"    - [行业生命周期评分 V2.0] 完成。已生成4个行业阶段数值化分数。")
+        print(f"    - [行业生命周期评分 V2.1] 完成。已生成4个(含龙头/广度)行业阶段数值化分数。")
         return scores
 
     def _score_kpl_theme_hotness(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【新增】KPL题材热度评分模块
+        KPL题材热度评分模块
         - 核心职责: 将注入的题材热度原始分转换为最终的策略评分。
         """
         scores = {}

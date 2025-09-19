@@ -1,7 +1,7 @@
 # 文件: stock_data/management/commands/migrate_to_concept_member.py
 
 import asyncio
-from datetime import datetime, date  # 修改行: 直接导入 date 类型
+from datetime import datetime, date  # 直接导入 date 类型
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from stock_models.industry import (
@@ -72,7 +72,7 @@ class Command(BaseCommand):
         """健壮的日期解析函数，处理字符串、date对象和None值"""
         if not date_val:
             return None
-        # 修改行: 直接使用导入的 date 类型进行比较
+        # 直接使用导入的 date 类型进行比较
         if isinstance(date_val, date):
             return date_val
         if isinstance(date_val, str):

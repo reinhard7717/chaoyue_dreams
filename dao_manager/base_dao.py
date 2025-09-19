@@ -737,7 +737,7 @@ class BaseDAO(Generic[T]):
           1. 信任 data_list 中字典的 keys 作为数据库列名。
           2. 在构建参数时，将所有 pd.isna() 为 True 的值（如 np.nan）转换成 None。
           3. 智能地将模型层面的 unique_fields（如 'stock'）转换为数据库层面的列名（如 'stock_id'）。
-          4. 【新增】当捕获到 OperationalError 且错误码为 1213 时，进行最多3次重试，并采用指数退避+抖动策略。
+          4. 当捕获到 OperationalError 且错误码为 1213 时，进行最多3次重试，并采用指数退避+抖动策略。
         Args:
             model_class: Django模型类。
             data_list (List[Dict]): 包含待处理数据的字典列表。键应为数据库列名。

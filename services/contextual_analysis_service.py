@@ -20,7 +20,7 @@ logger = logging.getLogger("services")
 
 class ContextualAnalysisService:
     """
-    【新增】上下文分析服务
+    上下文分析服务
     - 核心职责: 专注于分析超越个股K线之外的宏观与中观信息，为策略提供“大局观”和“战场情报”。
     """
     def __init__(self, cache_manager_instance: CacheManager):
@@ -36,45 +36,43 @@ class ContextualAnalysisService:
 
     async def analyze_industry_rotation(self, end_date: datetime.date, lookback_days: int = 21, market_code: str = '000300.SH') -> Dict:
         """
-        【V3.1 多源通用版】分析所有来源的板块轮动，并将结果存入数据库。
+        【V3.2 深度分析版】分析所有来源的板块轮动，并将结果存入数据库。
+        - 核心升级: 1. 在生命周期判断中，融入了内部广度和龙头效应，使判断更精准。
+                    2. 将新维度的数据一并存入 IndustryLifecycle 表，深化数据应用。
         """
-        print(f"\n--- [行业生命周期预计算 V3.1] 开始分析截至 {end_date} 的所有来源板块轮动情况 ---")
-        
-        # 修改行: 定义要处理的所有来源
+        print(f"\n--- [行业生命周期预计算 V3.2] 开始分析截至 {end_date} 的所有来源板块轮动情况 ---")
         sources_to_process = ['sw', 'ths', 'dc'] 
-        
         all_save_results = {}
-
         for source in sources_to_process:
             print(f"\n--- 正在处理来源: {source.upper()} ---")
-            # 1. 获取该来源的所有板块
             all_concepts = await self.industry_dao.get_all_concepts_by_source(source)
             if not all_concepts:
                 logger.warning(f"来源 '{source}' 未找到任何板块/概念，跳过。")
                 continue
-
-            # 2. 并行计算每日排名
             trade_dates = [end_date - datetime.timedelta(days=i) for i in range(lookback_days)][::-1]
-            tasks = [self.calculate_strength_rank(td, market_code, source) for td in trade_dates]
+            tasks = [self.calculate_industry_strength_rank(td, market_code, source) for td in trade_dates]
             daily_rank_results = await asyncio.gather(*tasks)
-            
-            # 3. 聚合与计算 (逻辑与之前类似，但现在是针对单个source)
             all_ranks = []
             for i, df_rank in enumerate(daily_rank_results):
                 if not df_rank.empty and 'strength_rank' in df_rank.columns:
                     df_rank['trade_date'] = trade_dates[i]
-                    all_ranks.append(df_rank.reset_index().rename(columns={'index': 'concept_code'}))
-            
+                    all_ranks.append(df_rank)
             if not all_ranks:
                 logger.warning(f"来源 '{source}' 未能获取任何历史排名数据，轮动分析中止。")
                 continue
-                
             rotation_df = pd.concat(all_ranks, ignore_index=True)
-            
-            # ... (calculate_lifecycle_metrics 和 assign_lifecycle_stage 逻辑不变) ...
             def calculate_lifecycle_metrics(group):
+                """为每个板块分组计算其最新的排名、斜率、加速度以及广度和龙头分数"""
                 group = group.sort_values('trade_date')
-                if len(group) < 5: return pd.Series({'latest_rank': group['strength_rank'].iloc[-1], 'rank_slope': 0.0, 'rank_accel': 0.0})
+                if len(group) < 5: 
+                    latest_row = group.iloc[-1]
+                    return pd.Series({
+                        'latest_rank': latest_row['strength_rank'], 
+                        'rank_slope': 0.0, 
+                        'rank_accel': 0.0,
+                        'latest_breadth': latest_row.get('breadth_score', 0.0),
+                        'latest_leader': latest_row.get('leader_score', 0.0)
+                    })
                 ranks = group['strength_rank'].values
                 slope = np.polyfit(np.arange(min(5, len(ranks))), ranks[-5:], 1)[0] if len(ranks) >= 2 else 0.0
                 accel = 0.0
@@ -82,26 +80,137 @@ class ContextualAnalysisService:
                     slope_1 = np.polyfit(np.arange(5), ranks[-10:-5], 1)[0]
                     slope_2 = np.polyfit(np.arange(5), ranks[-5:], 1)[0]
                     accel = slope_2 - slope_1
-                return pd.Series({'latest_rank': ranks[-1], 'rank_slope': slope, 'rank_accel': accel})
+                latest_row = group.iloc[-1]
+                return pd.Series({
+                    'latest_rank': ranks[-1], 
+                    'rank_slope': slope, 
+                    'rank_accel': accel,
+                    'latest_breadth': latest_row.get('breadth_score', 0.0),
+                    'latest_leader': latest_row.get('leader_score', 0.0)
+                })
             lifecycle_metrics = rotation_df.groupby('concept_code').apply(calculate_lifecycle_metrics)
             def assign_lifecycle_stage(row):
-                if row['latest_rank'] < 0.3 and row['rank_slope'] > 0.005 and row['rank_accel'] > 0: return 'PREHEAT'
-                if row['latest_rank'] > 0.5 and row['rank_slope'] > 0.01: return 'MARKUP'
+                """
+                【V2.0 龙头效应增强版】生命周期阶段判定
+                - 核心升级: 在“预热期”的判定中，加入了“龙头效应”作为关键确认信号。
+                            在“主升段”的判定中，加入了“内部广度”作为健康度指标。
+                """
+                # 定义“预热期” (PREHEAT): 排名低位 + 排名趋势和加速度向上 + 出现龙头效应
+                is_preheat = (
+                    row['latest_rank'] < 0.4 and 
+                    row['rank_slope'] > 0.008 and 
+                    row['rank_accel'] > 0.001 and
+                    row['latest_leader'] > 0.2 # 关键条件：必须出现首板或更强的龙头
+                )
+                if is_preheat:
+                    return 'PREHEAT'
+                # 定义“主升段” (MARKUP): 排名靠前 + 趋势强劲 + 广度健康
+                is_markup = (
+                    row['latest_rank'] > 0.6 and 
+                    row['rank_slope'] > 0.01 and
+                    row['latest_breadth'] > 0.5 # 关键条件：板块内至少一半个股上涨
+                )
+                if is_markup:
+                    return 'MARKUP'
+                # 沿用旧的滞涨和下跌定义
                 if row['latest_rank'] > 0.8 and row['rank_slope'] < 0: return 'STAGNATION'
                 if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
                 return 'TRANSITION'
-            lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
 
-            # 4. 保存结果
+            lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
             latest_day_data = lifecycle_metrics.copy()
             latest_day_data['trade_date'] = end_date
+            # 重命名列以匹配 IndustryLifecycle 模型字段
+            latest_day_data.rename(columns={
+                'latest_rank': 'strength_rank',
+                'latest_breadth': 'breadth_score',
+                'latest_leader': 'leader_score'
+            }, inplace=True)
             records_to_save = latest_day_data.reset_index().to_dict('records')
-            
             save_result = await self.industry_dao.save_industry_lifecycle(records_to_save)
             all_save_results[source] = save_result
             print(f"--- 来源 {source.upper()} 处理完成，已保存 {len(records_to_save)} 条状态。 ---")
-
         return all_save_results
+
+    async def find_industry_leaders(self, concept_code: str, trade_date: datetime.date, top_n: int = 5) -> pd.DataFrame:
+        """
+        寻找指定板块在指定日期的龙头股。
+        - 核心逻辑: 结合KPL榜单数据，对板块内的涨停股进行综合评分，找出龙头和梯队。
+        - 评分维度: 涨停时间、封单额、连板状态、换手率等。
+        - 使用方法: 在策略的选股或决策阶段，当发现某个板块处于'PREHEAT'或'MARKUP'阶段时，可调用此方法来定位核心介入标的。
+        """
+        print(f"\n--- [龙头挖掘] 开始为板块 {concept_code} 在 {trade_date} 寻找龙头股 ---")
+        
+        # 1. 获取板块成分股
+        members = await self.industry_dao.get_concept_members_on_date(concept_code, trade_date)
+        if not members:
+            print(f"    - [龙头挖掘] 未找到板块 {concept_code} 在 {trade_date} 的成分股。")
+            return pd.DataFrame()
+        
+        member_codes = [m.stock.stock_code for m in members]
+        
+        # 2. 获取成分股中的涨停股信息
+        limit_up_df = await self.industry_dao.get_limit_list_for_stocks(member_codes, trade_date, tag='涨停')
+        
+        if limit_up_df.empty:
+            print(f"    - [龙头挖掘] 板块 {concept_code} 内当日无涨停股。")
+            return pd.DataFrame()
+            
+        print(f"    - [龙头挖掘] 在板块内发现 {len(limit_up_df)} 只涨停股，开始评分...")
+        
+        df = limit_up_df.copy()
+        
+        # 3. 计算龙头分数
+        # 评分项1: 涨停时间 (越早越好)
+        # 将 '09:30:00' 格式的时间字符串转换为可排序的数值
+        df['lu_time_val'] = pd.to_datetime(df['lu_time'], format='%H:%M:%S', errors='coerce').astype('int64')
+        # 对时间进行排名打分 (百分位排名，越小越好，所以用 1 - rank)
+        df['score_time'] = 1 - df['lu_time_val'].rank(pct=True)
+        
+        # 评分项2: 封单额 (越大越好)
+        # 使用封单额占流通市值的比例，更具可比性
+        df['limit_order_ratio'] = df['limit_order'] / df['free_float'].replace(0, np.nan)
+        df['score_limit_order'] = df['limit_order_ratio'].rank(pct=True)
+        
+        # 评分项3: 连板状态 (越高越好)
+        def status_to_score(status):
+            if pd.isna(status): return 0
+            if '首板' in status: return 0.2
+            if '2连板' in status: return 0.5
+            if '3连板' in status: return 0.7
+            if '4连板' in status: return 0.8
+            if '5连板' in status or '6连板' in status: return 0.9
+            # 动态解析更高连板数
+            try:
+                num_str = ''.join(filter(str.isdigit, status))
+                if num_str and int(num_str) >= 7:
+                    return 1.0
+            except:
+                pass
+            return 0
+        df['score_status'] = df['status'].apply(status_to_score)
+        
+        # 评分项4: 换手率 (适中为佳，这里简化为越高分越高，代表活跃)
+        df['score_turnover'] = df['turnover_rate'].rank(pct=True)
+        
+        # 4. 计算总分
+        weights = {'time': 0.30, 'limit_order': 0.30, 'status': 0.35, 'turnover': 0.05}
+        df['leader_score'] = (
+            df['score_time'].fillna(0) * weights['time'] +
+            df['score_limit_order'].fillna(0) * weights['limit_order'] +
+            df['score_status'].fillna(0) * weights['status'] +
+            df['score_turnover'].fillna(0) * weights['turnover']
+        )
+        # 5. 排序并返回结果
+        result_cols = ['stock_id', 'name', 'leader_score', 'status', 'lu_time', 'limit_order', 'turnover_rate']
+        # 重命名 stock_id 为 stock_code 以便与其它地方统一
+        if 'stock_id' in df.columns:
+            df.rename(columns={'stock_id': 'stock_code'}, inplace=True)
+            result_cols[0] = 'stock_code'
+        final_df = df.sort_values('leader_score', ascending=False).head(top_n)
+        print(f"--- [龙头挖掘] 完成，龙头梯队如下: ---")
+        print(final_df[result_cols])
+        return final_df[result_cols]
 
     async def calculate_industry_strength_rank(self, trade_date: datetime.date, market_code: str = '000905.SH', source: str = 'ths') -> pd.DataFrame:
         """
@@ -125,37 +234,41 @@ class ContextualAnalysisService:
         if 'strength_score' not in df.columns:
             return pd.DataFrame()
         df['strength_rank'] = df['strength_score'].rank(pct=True, ascending=True)
-        # 修改行: 确保返回的 DataFrame 中 'concept_code' 是一个列，而不是索引。
+        # 确保返回的 DataFrame 中 'concept_code' 是一个列，而不是索引。
         return df.sort_values('strength_rank', ascending=False)
 
     async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
         """
-        【V3.1 通用版】处理单个板块/概念的强度计算。
+        【V3.2 深度分析版】处理单个板块/概念的强度计算。
+        - 核心升级: 增加了内部广度(breadth_score)和龙头效应(leader_score)两个维度，更贴合A股市场。
         """
         start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
         try:
             concept_daily_df = await self.industry_dao.get_concept_daily_for_range(concept.code, start_date, trade_date)
-            
-            # 资金流和情绪数据暂时简化，后续可扩展为通用接口
-            # industry_fund_flow_df = ...
-            # industry_sentiment_data = ...
-
             if concept_daily_df.empty:
                 return None
-
             momentum_score = self._calculate_momentum_score(concept_daily_df, trade_date)
-            # fund_flow_score = self._calculate_fund_flow_score(industry_fund_flow_df, trade_date)
             volume_score = await self._calculate_volume_profile_score(concept_daily_df)
             rs_score = await self._calculate_relative_strength_score(concept_daily_df, market_daily_df)
-            # sentiment_hotness_score = self._calculate_sentiment_hotness_score(industry_sentiment_data)
-
+            # --- 计算内部结构分数 ---
+            breadth_score = await self._calculate_internal_breadth_score(concept, trade_date)
+            leader_score = await self._calculate_leader_effect_score(concept, trade_date)
+            # --- 调整权重，加入新维度 ---
             total_score = (
-                30 * momentum_score + # 动量权重提高
-                20 * volume_score +   # 成交量权重提高
-                50 * rs_score         # 相对强度作为最核心的权重
-                # + 15 * fund_flow_score + 45 * sentiment_hotness_score # 暂时禁用
+                25 * momentum_score +   # 外部动量权重
+                15 * volume_score +    # 成交活跃度权重
+                30 * rs_score +        # 相对大盘强度权重
+                15 * breadth_score +   # 内部上涨广度权重 (新增)
+                15 * leader_score      # 龙头效应权重 (新增)
             )
-            return {'concept_code': concept.code, 'concept_name': concept.name, 'strength_score': total_score}
+            # --- 在返回结果中增加新维度的分数，供下游使用 ---
+            return {
+                'concept_code': concept.code, 
+                'concept_name': concept.name, 
+                'strength_score': total_score,
+                'breadth_score': breadth_score, # 新增透传字段
+                'leader_score': leader_score   # 新增透传字段
+            }
         except Exception as e:
             logger.error(f"处理板块 {concept.name} 时发生错误: {e}", exc_info=True)
             return None
@@ -279,7 +392,7 @@ class ContextualAnalysisService:
 
     async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame: # 新增方法
         """
-        【新增】聪明钱信号引擎
+        聪明钱信号引擎
         - 核心职责: 融合游资(HmDetail)和龙虎榜(TopList, TopInst)数据，生成协同与背离信号。
         """
         print("    - [聪明钱引擎] 开始准备游资与机构协同信号...")
@@ -379,7 +492,68 @@ class ContextualAnalysisService:
         return result_df
         return result_df
 
+    async def _calculate_internal_breadth_score(self, concept: ConceptMaster, trade_date: datetime.date) -> float:
+        """
+        计算行业内部上涨广度得分。
+        - 核心逻辑: 统计板块内上涨家数占比，量化板块的普涨程度。这是判断行业上涨健康度的关键。
+        - 返回值: 0-1之间的分数，越高代表上涨广度越好。
+        """
+        print(f"      - [广度分析] 开始计算板块 '{concept.name}' 在 {trade_date} 的内部广度...")
+        # 1. 获取指定日期的板块成分股
+        members = await self.industry_dao.get_concept_members_on_date(concept.code, trade_date)
+        if not members:
+            print(f"      - [广度分析] 未找到板块 '{concept.name}' 在 {trade_date} 的成分股。")
+            return 0.0
+        member_codes = [m.stock.stock_code for m in members]
+        # 2. 批量获取成分股当日行情
+        # 假设 stock_trade_dao 中有 get_stocks_daily_for_date 方法
+        daily_data_df = await self.stock_trade_dao.get_stocks_daily_for_date(member_codes, trade_date)
+        if daily_data_df.empty:
+            print(f"      - [广度分析] 未能获取板块 '{concept.name}' 成分股的日线数据。")
+            return 0.0
+        # 3. 计算上涨家数占比
+        up_count = (daily_data_df['pct_change'] > 0).sum()
+        total_count = len(daily_data_df)
+        breadth_ratio = up_count / total_count if total_count > 0 else 0.0
+        # 4. 将广度占比（0-1）直接作为分数返回，更具解释性
+        score = breadth_ratio
+        print(f"      - [广度分析] 板块 '{concept.name}' 上涨家数/总数: {up_count}/{total_count}, 广度得分: {score:.2f}")
+        return score
 
+    async def _calculate_leader_effect_score(self, concept: ConceptMaster, trade_date: datetime.date) -> float:
+        """
+        计算龙头效应得分。
+        - 核心逻辑: 检测板块内是否有涨停股，特别是连板股，作为龙头效应的标志。这是A股市场极强的信号。
+        - 返回值: 0-1之间的分数，越高代表龙头效应越强。
+        """
+        print(f"      - [龙头分析] 开始检测板块 '{concept.name}' 在 {trade_date} 的龙头效应...")
+        # 1. 获取指定日期的板块成分股
+        members = await self.industry_dao.get_concept_members_on_date(concept.code, trade_date)
+        if not members:
+            return 0.0
+        member_codes = [m.stock.stock_code for m in members]
+        # 2. 从 KplLimitList 中查询成分股的涨停信息
+        limit_up_df = await self.industry_dao.get_limit_list_for_stocks(member_codes, trade_date, tag='涨停')
+        if limit_up_df.empty:
+            print(f"      - [龙头分析] 板块 '{concept.name}' 内无涨停股。")
+            return 0.0
+        # 3. 根据涨停数量和质量进行评分
+        score = 0.0
+        limit_up_count = len(limit_up_df)
+        # 检查是否存在连板股 ('2连板', '3连板'...)
+        consecutive_boards_df = limit_up_df[limit_up_df['status'].str.contains('连板', na=False)]
+        if not consecutive_boards_df.empty:
+            score += 0.6  # 存在连板股，是强烈的龙头信号
+        elif limit_up_count > 0:
+            score += 0.3  # 存在首板股，是潜在的启动信号
+        # 根据涨停家数形成梯队效应加分
+        if limit_up_count >= 3:
+            score += 0.4  # 形成涨停梯队，板块效应强
+        elif limit_up_count >= 2:
+            score += 0.2
+        final_score = min(score, 1.0)
+        print(f"      - [龙头分析] 板块 '{concept.name}' 发现 {limit_up_count} 家涨停股, 龙头效应得分: {final_score:.2f}")
+        return final_score
 
 
 

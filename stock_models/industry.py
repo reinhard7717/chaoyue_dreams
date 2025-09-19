@@ -237,7 +237,7 @@ class KplConceptConstituent(models.Model):
 # 开盘啦榜单数据
 class KplLimitList(models.Model):
     """
-    【新增】开盘啦榜单数据（涨停、跌停、炸板等）
+    开盘啦榜单数据（涨停、跌停、炸板等）
     这是捕捉市场短线情绪、识别龙头和梯队的核心数据。
     """
     stock = models.ForeignKey(
@@ -532,7 +532,7 @@ class ConceptDaily(models.Model):
 
 class IndustryLifecycle(models.Model):
     """
-    【新增】行业生命周期预计算结果
+    行业生命周期预计算结果
     - 核心职责: 存储每日计算出的各行业强度排名、趋势及所处生命周期阶段。
     - 数据来源: 由 ContextualAnalysisService.analyze_industry_rotation 方法每日计算并写入。
     """
@@ -562,6 +562,8 @@ class IndustryLifecycle(models.Model):
         null=True,
         blank=True
     )
+    breadth_score = models.FloatField(verbose_name="内部广度分(0-1)", null=True)
+    leader_score = models.FloatField(verbose_name="龙头效应分(0-1)", null=True)
 
     class Meta:
         db_table = "industry_lifecycle"
@@ -571,7 +573,8 @@ class IndustryLifecycle(models.Model):
         ordering = ['-trade_date', 'strength_rank']
 
     def __str__(self):
-        return f"{self.trade_date} - {self.ths_index.name} - {self.lifecycle_stage}"
+        concept_name = self.concept.name if self.concept else "N/A"
+        return f"{self.trade_date} - {concept_name} - {self.lifecycle_stage}"
 
 
 

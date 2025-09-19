@@ -584,7 +584,7 @@ class IndustryDao(BaseDAO):
 
     async def get_ths_index_daily_for_range(self, ts_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
-        【新增】根据代码和日期范围获取同花顺板块指数行情。
+        根据代码和日期范围获取同花顺板块指数行情。
         """
         qs = ThsIndexDaily.objects.filter(
             ths_index__ts_code=ts_code,
@@ -604,7 +604,7 @@ class IndustryDao(BaseDAO):
 
     async def get_stock_ths_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]:
         """
-        【新增】根据股票代码获取其当前所属的同花顺行业/概念板块信息。
+        根据股票代码获取其当前所属的同花顺行业/概念板块信息。
         """
         print(f"      - [DAO查询] 正在查询股票 {stock_code} 的所属行业...")
         try:
@@ -867,7 +867,7 @@ class IndustryDao(BaseDAO):
                     await ConceptDaily.objects.abulk_create(batch, ignore_conflicts=True)
                     print(f"     ...已同步 {i + len(batch)} / {len(concept_daily_to_save)} 条记录。")
             print("     ...历史数据同步完成。")
-        # --- 修改行结束 ---
+        
 
         return {"status": "completed", "processed_days": len(trade_dates)}
 
@@ -1006,7 +1006,7 @@ class IndustryDao(BaseDAO):
         return df
 
     async def get_kpl_themes_hotness(self, concept_codes: List[str], start_date: date, end_date: date) -> pd.DataFrame:
-        """【新增】获取一批KPL题材在指定日期范围内的热度指标"""
+        """获取一批KPL题材在指定日期范围内的热度指标"""
         query = KplConceptDaily.objects.filter(
             concept_info__ts_code__in=concept_codes,
             trade_time__gte=start_date,
@@ -1422,7 +1422,7 @@ class IndustryDao(BaseDAO):
 
     async def _sync_to_concept_member(self, sync_list: List[Dict], source: str):
         """
-        【新增】将格式化后的成分股数据同步到统一的 ConceptMember 表。
+        将格式化后的成分股数据同步到统一的 ConceptMember 表。
         """
         if not sync_list:
             return
@@ -1683,7 +1683,7 @@ class IndustryDao(BaseDAO):
             }
         return None
 
-    # ============== 板块/概念主数据 (ConceptMaster) ============== # 新增区域
+    # ============== 板块/概念主数据 (ConceptMaster) ==============
     
     async def get_all_concepts_by_source(self, source: str) -> List[ConceptMaster]:
         """
@@ -1700,7 +1700,51 @@ class IndustryDao(BaseDAO):
         concepts = await sync_to_async(list)(ConceptMaster.objects.filter(code__in=codes))
         return {concept.code: concept for concept in concepts}
 
-    # ============== 板块/概念日线行情 (ConceptDaily) ============== # 新增区域
+    async def get_concept_members_on_date(self, concept_code: str, trade_date: date) -> List[ConceptMember]:
+        """
+        获取指定板块在指定日期的所有有效成分股。
+        - 核心逻辑: 查找在 trade_date 当天，in_date <= trade_date 且 (out_date is NULL or out_date > trade_date) 的成分股。
+        """
+        # Q 对象可以构建复杂的查询条件
+        # 这个查询逻辑对两种数据源都有效：
+        # 1. 对于有明确纳入/剔除日期的来源(如申万)，它会正确判断时间区间。
+        # 2. 对于每日快照的来源(如东方财富)，其 in_date 就是 trade_date，out_date 为空，同样满足条件。
+        query = Q(concept__code=concept_code) & \
+                Q(in_date__lte=trade_date) & \
+                (Q(out_date__isnull=True) | Q(out_date__gt=trade_date))
+        
+        # 异步执行查询
+        members = await sync_to_async(list)(
+            ConceptMember.objects.filter(query).select_related('stock')
+        )
+        return members
+
+    async def get_limit_list_for_stocks(self, stock_codes: List[str], trade_date: date, tag: str) -> pd.DataFrame:
+        """
+        根据股票代码列表和日期，获取KPL榜单数据。
+        - 返回一个DataFrame，便于后续分析。
+        """
+        if not stock_codes:
+            return pd.DataFrame()
+
+        # 异步查询 KplLimitList
+        query = KplLimitList.objects.filter(
+            stock__stock_code__in=stock_codes,
+            trade_date=trade_date,
+            tag=tag
+        )
+        
+        # 使用 avalues 异步获取数据，只选择需要的列
+        data = await sync_to_async(list)(query.values(
+            'stock_id', 'name', 'lu_time', 'status', 'turnover_rate', 'limit_order', 'free_float'
+        ))
+        
+        if not data:
+            return pd.DataFrame()
+
+        return pd.DataFrame.from_records(data)
+
+    # ============== 板块/概念日线行情 (ConceptDaily) ==============
 
     async def get_concept_daily_for_range(self, concept_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
@@ -1729,28 +1773,27 @@ class IndustryDao(BaseDAO):
         """
         if not lifecycle_data:
             return {}
-        
         all_concept_codes = [item['concept_code'] for item in lifecycle_data]
         concept_map = await self.get_concepts_by_codes(all_concept_codes)
-
         records_to_save = []
         for item in lifecycle_data:
             concept = concept_map.get(item['concept_code'])
             if concept:
                 records_to_save.append({
-                    "concept": concept, # 修改行
+                    "concept": concept,
                     "trade_date": item['trade_date'],
-                    "source": concept.source, # 新增行: 冗余存储来源
-                    "strength_rank": item.get('latest_rank'),
+                    "source": concept.source,
+                    "strength_rank": item.get('strength_rank'),
                     "rank_slope": item.get('rank_slope'),
                     "rank_accel": item.get('rank_accel'),
                     "lifecycle_stage": item.get('lifecycle_stage'),
+                    "breadth_score": item.get('breadth_score'),
+                    "leader_score": item.get('leader_score')
                 })
-        
         return await self._save_all_to_db_native_upsert(
             model_class=IndustryLifecycle,
             data_list=records_to_save,
-            unique_fields=['concept', 'trade_date'] # 修改行
+            unique_fields=['concept', 'trade_date']
         )
 
     async def get_industry_lifecycle_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
