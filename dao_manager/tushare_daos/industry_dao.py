@@ -19,7 +19,7 @@ from stock_models.market import LimitCptList, LimitListD, LimitListThs, LimitSte
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from stock_models.industry import (
-    ConceptMaster, ConceptDaily,
+    ConceptMaster, ConceptDaily, ConceptMember,
     IndustryLifecycle, KplConceptInfo, KplConceptDaily, KplConceptConstituent, KplLimitList, 
     DcIndexDaily, DcIndexMember, SwIndustry, SwIndustryDaily, SwIndustryMember, 
     ThsIndex, ThsIndexMember, ThsIndexDaily, DcIndex
