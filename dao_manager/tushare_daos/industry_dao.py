@@ -231,7 +231,7 @@ class IndustryDao(BaseDAO):
                     if concept_code:
                         concept_member_sync_list.append({
                             'concept_code': concept_code,
-                            'stock_id': stock.id,
+                            'stock_id': stock.stock_code,
                             'source': 'sw',
                             'in_date': self.data_format_process._parse_datetime(row.in_date),
                             'out_date': self.data_format_process._parse_datetime(row.out_date)
@@ -521,7 +521,7 @@ class IndustryDao(BaseDAO):
             # --- 新增: 准备同步到 ConceptMember 的数据 ---
             concept_member_sync_list.append({
                 'concept_code': ths_index.ts_code,
-                'stock_id': stock.id,
+                'stock_id': stock.stock_code,
                 'source': 'ths',
                 'in_date': self.data_format_process._parse_datetime(row_data.in_date),
                 'out_date': self.data_format_process._parse_datetime(row_data.out_date)
@@ -1399,7 +1399,7 @@ class IndustryDao(BaseDAO):
                 # 东方财富是每日快照，in_date是当天，out_date是None
                 concept_member_sync_list.append({
                     'concept_code': dc_index.ts_code,
-                    'stock_id': stock.id,
+                    'stock_id': stock.stock_code,
                     'source': 'dc',
                     'in_date': self.data_format_process._parse_datetime(row_data.trade_date),
                     'out_date': None
