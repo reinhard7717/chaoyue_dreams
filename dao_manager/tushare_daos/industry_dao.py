@@ -1758,6 +1758,9 @@ class IndustryDao(BaseDAO):
         【V3.2 查询逻辑修复版】根据股票代码，获取其所属的【所有】行业/概念在指定日期范围内的生命周期数据。
         - 修复: 修正了对 to_field 外键的查询逻辑，从 concept__code__in 改为 concept__in，解决了无法查到数据的问题。
         """
+        # 新增行: 植入入口探针
+        print(f"--- [探针-DAO入口] 进入 get_industry_lifecycle_for_stock ---")
+        print(f"  - [探针-DAO] 接收到参数: stock_code={stock_code}, start_date={start_date}, end_date={end_date}")
         all_concepts = await self.get_stock_all_concepts(stock_code)
         if not all_concepts:
             return pd.DataFrame()
@@ -1767,6 +1770,11 @@ class IndustryDao(BaseDAO):
             trade_date__gte=start_date,
             trade_date__lte=end_date
         ).order_by('trade_date')
+        # 新增行: 植入探针，打印即将执行的SQL查询
+        try:
+            print(f"  - [探针-DAO] 即将执行的SQL查询(近似): \n{query.query}\n")
+        except Exception as e:
+            print(f"  - [探针-DAO] 打印SQL查询时出错: {e}")
         data = await sync_to_async(list)(query.values(
             'trade_date', 'concept', 'strength_rank', 'rank_slope', 'rank_accel'
         ))

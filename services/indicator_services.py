@@ -433,6 +433,11 @@ class IndicatorService:
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
             print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，开始注入预计算数据...")
+            # 新增行: 植入探针，检查传递给DAO的日期范围
+            print(f"--- [探针-上游] 即将调用 get_industry_lifecycle_for_stock ---")
+            print(f"  - [探针-上游] 股票代码 (stock_code): {stock_code}")
+            print(f"  - [探针-上游] 开始日期 (start_date): {start_date} (类型: {type(start_date)})")
+            print(f"  - [探针-上游] 结束日期 (end_date): {end_date} (类型: {type(end_date)})")
             # 调用DAO查询预计算结果
             industry_lifecycle_df = await self.industry_dao.get_industry_lifecycle_for_stock(stock_code, start_date, end_date)
             if not industry_lifecycle_df.empty:
