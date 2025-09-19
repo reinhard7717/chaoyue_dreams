@@ -72,6 +72,123 @@ class CognitiveIntelligence:
         """
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
 
+    def _normalize_score(self, series: pd.Series, window: int = 120, ascending: bool = True, default=0.5) -> pd.Series:
+        """
+        【新增】辅助函数：将一个Series进行滚动窗口排名归一化，生成0-1分。
+        - 从其他情报模块迁移而来，保持架构一致性。
+        :param series: 原始数据Series。
+        :param window: 归一化滚动窗口。
+        :param ascending: 归一化方向，True表示值越大分数越高。
+        :param default: 填充NaN的默认值。
+        :return: 归一化后的0-1分数Series。
+        """
+        if series is None or series.empty:
+            # 如果输入为空，根据情况返回一个填充了默认值的Series
+            # 假设 self.strategy.df_indicators.index 是可用的主索引
+            return pd.Series(default, index=self.strategy.df_indicators.index)
+        min_periods = max(1, window // 5)
+        rank = series.rolling(window=window, min_periods=min_periods).rank(pct=True)
+        score = rank if ascending else 1 - rank
+        return score.fillna(default).astype(np.float32)
+
+    def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】早期动能点火诊断模块 (东风初起)
+        - 核心目标: 识别“万事俱备”之后，动能“刚刚启动”的精确时点，避免追高。
+        - 核心逻辑: 融合多个“早期”和“温和”的动能信号，如波动率拐点、MACD低位金叉、
+                      价格温和放量等，形成一个综合的“早期点火分”。
+        - 产出信号:
+          - `COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A`: A级早期动能点火信号，可用于替代或补充
+                                                         现有激进的动能信号。
+        """
+        print("        -> [早期动能点火诊断模块 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 提取多个“早期”或“温和”的动能信号 ---
+        # 信号1: 波动率拐点 (从压缩到扩张的转折点)
+        vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
+        # 信号2: MACD低位金叉 (趋势反转的早期信号)
+        # 使用B级和A级信号，避免在高位金叉时介入
+        macd_reversal_score = np.maximum(
+            atomic.get('SCORE_MACD_BOTTOM_REVERSAL_B', default_score).values,
+            atomic.get('SCORE_MACD_BOTTOM_REVERSAL_A', default_score).values
+        )
+        macd_reversal_series = pd.Series(macd_reversal_score, index=df.index)
+        # 信号3: 价格温和上涨 (涨幅在1%到4%之间，避免涨停)
+        pct_change = df['pct_change_D']
+        # 使用三角形函数对涨幅进行评分，在2.5%附近得分最高，在0%和5%附近为0
+        gentle_rally_score = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
+        # 信号4: 成交量温和放大 (相对于21日均量放大1.2到2.5倍)
+        volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
+        # 使用梯形函数评分
+        vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2) # 从1.2到1.8线性增长
+        vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8) # 从1.8到3.0线性下降
+        gentle_volume_score = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
+        # 信号5: 价格正向加速度 (确认开始启动)
+        price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
+        # --- 2. 融合生成“早期动能点火”分数 ---
+        # 采用几何平均值融合，要求多个信号同时存在
+        # 将Series转换为NumPy数组进行计算
+        score_components = [
+            vol_tipping_point_score.values,
+            macd_reversal_series.values,
+            gentle_rally_score.values,
+            gentle_volume_score.values,
+            price_accel_score.values
+        ]
+        # 为避免0值导致整个结果为0，给每个分量加上一个极小值
+        epsilon = 1e-9
+        prod_scores = np.prod([arr + epsilon for arr in score_components], axis=0)
+        final_score_arr = prod_scores**(1.0 / len(score_components))
+        final_score = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
+        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
+        print(f"        -> [早期动能点火诊断模块 V1.0] 计算完毕。")
+        return states
+
+    def synthesize_chip_price_lag_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】“筹码共振-价格滞后”战术剧本
+        - 核心目标: 捕捉“万事俱备，只欠东风”的黄金买点。
+        - 战备状态 (Setup): 筹码高度共振 + 价格动能被压制 + 波动率压缩。
+        - 点火触发 (Trigger): 价格出现温和的启动迹象。
+        - 剧本逻辑: 昨日战备就绪，今日点火触发。
+        """
+        print("        -> [筹码共振-价格滞后剧本 V1.0] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 定义“战备状态”评分 (Setup Score) ---
+        # 战备条件1: 筹码高度共振 (使用S级或S+级信号)
+        chip_resonance_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
+        # 战备条件2: 价格动能被压制 (5日价格斜率处于历史低位)
+        price_momentum_suppressed_score = self._normalize_score(df['SLOPE_5_close_D'], ascending=False)
+        # 战备条件3: 波动率压缩 (使用S级压缩信号)
+        volatility_compression_score = atomic.get('SCORE_VOL_COMPRESSION_S', default_score)
+        # 融合生成战备分
+        setup_score = (chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score).astype(np.float32)
+        states['SCORE_SETUP_CHIP_RESONANCE_READY_S'] = setup_score
+        states['SETUP_CHIP_RESONANCE_READY_S'] = setup_score > 0.6 # 布尔信号用于逻辑判断
+        # --- 2. 定义“点火触发”评分 (Trigger Score) ---
+        # 直接复用“早期动能点火”的逻辑，因为它完美符合“温和启动”的定义
+        trigger_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
+        states['SCORE_TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score
+        states['TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score > 0.4 # 布尔信号用于逻辑判断
+        # --- 3. 生成最终的“战术剧本”信号 ---
+        # 剧本逻辑: 昨日战备就绪，今日点火触发
+        was_setup_yesterday = states['SETUP_CHIP_RESONANCE_READY_S'].shift(1).fillna(False)
+        is_triggered_today = states['TRIGGER_GENTLE_PRICE_LIFT_A']
+        playbook_signal = was_setup_yesterday & is_triggered_today
+        states['PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = playbook_signal
+        # 生成数值化剧本分，用于计分系统
+        playbook_score = (setup_score.shift(1).fillna(0.0) * trigger_score).astype(np.float32)
+        states['SCORE_PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = playbook_score
+        if playbook_signal.any():
+            print(f"          -> [S级战术剧本] 侦测到 {playbook_signal.sum()} 次“筹码共振-价格滞后”的黄金突破机会！")
+            
+        print("        -> [筹码共振-价格滞后剧本 V1.0] 计算完毕。")
+        return states
+
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.1 性能优化版】风险元融合模块
@@ -1452,7 +1569,7 @@ class CognitiveIntelligence:
         # 战备分(昨日):
         # 将对已废弃信号的引用，升级为消费融合后的多层次分数
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # ▼▼▼ 新增: 将融合后的分数发布为原子状态 ▼▼▼
+        # ▼▼▼ 将融合后的分数发布为原子状态 ▼▼▼
         states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = vol_compression_score.astype(np.float32)
         # ▲▲▲ 新增结束 ▲▲▲
         setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
@@ -1485,17 +1602,68 @@ class CognitiveIntelligence:
         states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = (score_a > 0.5) & ~states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
         return states
 
-    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+    def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 数值化升级版】顶层认知总分合成模块
-        - 核心职责: 融合所有顶层的、跨领域的认知机会分与风险分。
-        - 本次升级: [修复] 将对“完美风暴”信号的引用从布尔型升级为数值化评分，
-                    确保最终总分能正确反映其强度。
+        【V1.0 新增】行业-个股协同元融合引擎
+        - 核心职责: 将行业生命周期状态与个股的关键认知信号进行交叉验证，生成更高维度的战术信号。
+        - 核心逻辑:
+          - 协同进攻 = 行业景气周期 (预热/主升) * 个股进攻信号 (点火/突破)
+          - 协同风险 = 行业衰退周期 (滞涨/下跌) * 个股风险信号 (崩溃/派发)
+        - 收益: 创造出具备“戴维斯双击”效应的超高质量信号，极大提升策略的胜率和赔率。
         """
-        # print("        -> [顶层认知总分合成模块 V1.1 数值化升级版] 启动...")
+        print("        -> [行业-个股协同元融合引擎 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 获取上游的行业与个股核心信号 ---
+        # 行业景气信号 (加权融合)
+        score_markup = atomic.get('SCORE_INDUSTRY_MARKUP', default_score)
+        score_preheat = atomic.get('SCORE_INDUSTRY_PREHEAT', default_score)
+        industry_bullish_score = np.maximum(score_markup, score_preheat) # 取两者中的最大值作为行业看涨强度
+        # 行业衰退信号 (加权融合)
+        score_stagnation = atomic.get('SCORE_INDUSTRY_STAGNATION', default_score)
+        score_downtrend = atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
+        industry_bearish_score = np.maximum(score_stagnation, score_downtrend) # 取两者中的最大值作为行业看跌强度
+        # 个股进攻信号
+        stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
+        stock_breakout_score = self._fuse_multi_level_scores(df, 'VOL_BREAKOUT')
+        stock_bullish_score = np.maximum(stock_ignition_score, stock_breakout_score) # 取两者最大值作为个股进攻强度
+        # 个股风险信号
+        stock_breakdown_score = atomic.get('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', default_score)
+        stock_distribution_score = atomic.get('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', default_score)
+        stock_bearish_score = np.maximum(stock_breakdown_score, stock_distribution_score) # 取两者最大值作为个股风险强度
+        # --- 2. 生成“协同进攻”元融合信号 ---
+        # 逻辑: 行业景气 * 个股进攻 = 协同进攻强度
+        synergy_offense_score = pd.Series(industry_bullish_score, index=df.index) * pd.Series(stock_bullish_score, index=df.index)
+        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S'] = synergy_offense_score.astype(np.float32)
+        # --- 3. 生成“协同风险”元融合信号 ---
+        # 逻辑: 行业衰退 * 个股风险 = 协同风险强度
+        synergy_risk_score = pd.Series(industry_bearish_score, index=df.index) * pd.Series(stock_bearish_score, index=df.index)
+        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK_S'] = synergy_risk_score.astype(np.float32)
+        print(f"        -> [行业-个股协同元融合引擎 V1.0] 完成，生成了2个S级协同信号。")
+        return states
+
+    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.2 逻辑修正版】顶层认知总分合成模块
+        - 核心职责: 融合所有顶层的、跨领域的认知机会分与风险分。
+        - 本次升级:
+          - [逻辑修正] 新增对“早期动能点火”信号的合成与调用，以解决追高问题。
+          - [BUG修复] 将对“完美风暴”信号的引用从布尔型升级为数值化评分，
+                    确保最终总分能正确反映其强度。
+        """
+        print("        -> [顶层认知总分合成模块 V1.2 逻辑修正版] 启动...")
+        states = {}
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 合成“早期动能点火”信号 ---
+        early_momentum_states = self.synthesize_early_momentum_ignition(df) # 调用早期动能诊断模块
+        states.update(early_momentum_states) # 将新信号加入states
+        # 调用“筹码共振-价格滞后”剧本诊断模块
+        chip_price_lag_states = self.synthesize_chip_price_lag_playbook(df)
+        states.update(chip_price_lag_states)
+        industry_synergy_states = self.synthesize_industry_synergy_signals(df)
+        states.update(industry_synergy_states)
         # --- 1. 汇总所有S级的“机会”类认知分数 ---
         bullish_scores = [
             atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score).values,
@@ -1504,6 +1672,7 @@ class CognitiveIntelligence:
             atomic.get('COGNITIVE_SCORE_BEARISH_EXHAUSTION_OPP_S', default_score).values,
             atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score).values,
             atomic.get('COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS', default_score).values,
+            states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S', default_score).values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
@@ -1515,10 +1684,11 @@ class CognitiveIntelligence:
         # 注意：COGNITIVE_FUSED_RISK_SCORE 是加权后的分数，可能超过1，这里需要归一化或直接使用
         # 暂时直接使用，下游计分系统需要能处理大于1的风险分
         cognitive_bearish_score_series = states.get('COGNITIVE_FUSED_RISK_SCORE', default_score)
-        states['COGNITIVE_BEARISH_SCORE'] = cognitive_bearish_score_series
+        industry_synergy_risk_score = states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK_S', default_score)
+        final_bearish_score = np.maximum(cognitive_bearish_score_series.values, industry_synergy_risk_score.values)
+        states['COGNITIVE_BEARISH_SCORE'] = pd.Series(final_bearish_score, index=df.index, dtype=np.float32)
         # --- 4. 更新原子状态库 ---
         self.strategy.atomic_states.update(states)
-        # print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。")
+        print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。") # 修改: 更新版本号
         return df
-
 

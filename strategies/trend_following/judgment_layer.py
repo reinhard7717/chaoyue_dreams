@@ -206,16 +206,16 @@ class JudgmentLayer:
         df['risk_penalty_score'] += get_clipped_score('SCORE_STRUCTURE_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_FOUNDATION_BEARISH_RESONANCE_S') * 150
         # --- 风险18: 行业生命周期风险 (权重由配置决定) ---
-        industry_params = get_params_block(self.strategy, 'industry_lifecycle_scoring_params', {})
+        industry_params = get_params_block(self.strategy, 'four_layer_scoring_params', {}).get('industry_lifecycle_scoring_params', {})
         if industry_params.get('enabled', False):
             penalty_multiplier = industry_params.get('penalty_multiplier', 600)
-            # 获取滞涨和下跌阶段的分数
+            # 获取滞涨和下跌阶段的数值化置信度分数
             score_stagnation = get_clipped_score('SCORE_INDUSTRY_STAGNATION')
             score_downtrend = get_clipped_score('SCORE_INDUSTRY_DOWNTREND')
             # 获取惩罚权重
             stagnation_weight = industry_params.get('stagnation_penalty_weight', 1.2)
             downtrend_weight = industry_params.get('downtrend_penalty_weight', 1.5)
-            # 计算惩罚分并加入总风险
+            # 计算惩罚分，与置信度成正比
             stagnation_penalty = score_stagnation * stagnation_weight * penalty_multiplier
             downtrend_penalty = score_downtrend * downtrend_weight * penalty_multiplier
             df['risk_penalty_score'] += stagnation_penalty

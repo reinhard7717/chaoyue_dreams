@@ -1796,47 +1796,47 @@ class IndustryDao(BaseDAO):
             unique_fields=['concept', 'trade_date']
         )
 
-    async def get_industry_lifecycle_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
+    async def get_raw_lifecycle_data_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
-        【V3.2 查询逻辑修复版】根据股票代码，获取其所属的【所有】行业/概念在指定日期范围内的生命周期数据。
-        - 修复: 修正了对 to_field 外键的查询逻辑，从 concept__code__in 改为 concept__in，解决了无法查到数据的问题。
+        【V6.0 职责净化版】根据股票代码，仅获取其所属的所有行业/概念在指定日期范围内的【原始】生命周期数据。
+        - 核心重构: 移除了所有计算和融合逻辑，此方法现在只负责从数据库查询并返回原始数据。
+                      所有计算逻辑已移至 ContextualAnalysisService。
+        - 返回: 一个包含原始生命周期数据的长格式 DataFrame。
         """
+        print(f"    - [DAO-查询] 正在为 {stock_code} 获取原始行业生命周期数据...")
+        # 1. 获取股票所属的所有概念
         all_concepts = await self.get_stock_all_concepts(stock_code)
         if not all_concepts:
+            print(f"    - [DAO-查询] 未找到 {stock_code} 的任何行业/概念归属。")
             return pd.DataFrame()
         all_concept_codes = [c['code'] for c in all_concepts]
+        # 2. 批量查询这些概念的生命周期数据
         query = IndustryLifecycle.objects.filter(
-            concept__in=all_concept_codes,
+            concept__code__in=all_concept_codes,
             trade_date__gte=start_date,
             trade_date__lte=end_date
-        ).order_by('trade_date')
+        ).select_related('concept').order_by('trade_date')
+        # 直接返回查询结果，不做任何处理
         data = await sync_to_async(list)(query.values(
-            'trade_date', 'concept', 'strength_rank', 'rank_slope', 'rank_accel'
+            'trade_date', 
+            'concept__code', 
+            'concept__source',
+            'strength_rank', 
+            'rank_slope', 
+            'rank_accel', 
+            'lifecycle_stage', 
+            'breadth_score', 
+            'leader_score'
         ))
+        if not data:
+            print(f"    - [DAO-查询] 未查询到 {stock_code} 相关概念的生命周期数据。")
+            return pd.DataFrame()
         df = pd.DataFrame.from_records(data)
-        df.rename(columns={'concept': 'concept__code'}, inplace=True)
-        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
-        # 3. 数据透视与融合 (核心)
-        pivot_df = df.pivot_table(index='trade_date', columns='concept__code', values=['strength_rank', 'rank_slope', 'rank_accel'])
-        source_weights = {'sw': 1.0, 'ths': 0.8, 'dc': 0.6, 'kpl': 0.4}
-        final_df = pd.DataFrame(index=pivot_df.index)
-        for metric in ['strength_rank', 'rank_slope', 'rank_accel']:
-            metric_df = pivot_df[metric]
-            weighted_sum = pd.Series(0.0, index=pivot_df.index)
-            total_weight = 0.0
-            for concept_info in all_concepts:
-                code = concept_info['code']
-                source = concept_info['source']
-                weight = source_weights.get(source, 0.1)
-                if code in metric_df.columns:
-                    weighted_sum += metric_df[code].fillna(0) * weight
-                    total_weight += weight
-            if total_weight > 0:
-                final_df[f'industry_{metric.replace("strength_", "")}_D'] = weighted_sum / total_weight
-            else:
-                final_df[f'industry_{metric.replace("strength_", "")}_D'] = 0.0
-        return final_df
-
+        # 重命名以保持一致性
+        df.rename(columns={'concept__code': 'concept_code', 'concept__source': 'source'}, inplace=True)
+        print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
+        return df
+    
     # =================================================================
     # ============ V3.0 多维概念融合分析 - 核心数据获取方法 ============
     # =================================================================
@@ -1892,8 +1892,6 @@ class IndustryDao(BaseDAO):
 
         # print(f"    - [多维概念融合DAO] 完成。为 {stock_code} 共获取到 {len(final_concepts)} 个唯一概念标签。")
         return final_concepts
-
-    # --- 以下为各个数据源的私有查询辅助方法 ---
 
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """【V1.2 终极修复版】获取申万行业概念，修复 FieldError，并使用内存映射优化性能。"""

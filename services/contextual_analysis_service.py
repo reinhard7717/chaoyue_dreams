@@ -237,104 +237,86 @@ class ContextualAnalysisService:
         # 确保返回的 DataFrame 中 'concept_code' 是一个列，而不是索引。
         return df.sort_values('strength_rank', ascending=False)
 
-    async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
+    async def prepare_fused_industry_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
-        【V3.2 深度分析版】处理单个板块/概念的强度计算。
-        - 核心升级: 增加了内部广度(breadth_score)和龙头效应(leader_score)两个维度，更贴合A股市场。
+        【V1.0 新增】行业背景融合引擎
+        - 核心职责: 作为业务逻辑层，负责获取股票的多维行业归属及其原始生命周期数据，
+                    然后根据配置进行加权融合，最终生成统一的、数值化的行业背景信号。
+        - 架构: 此方法体现了正确的关注点分离，计算逻辑位于Service层，数据获取委托给DAO层。
         """
-        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
-        try:
-            concept_daily_df = await self.industry_dao.get_concept_daily_for_range(concept.code, start_date, trade_date)
-            if concept_daily_df.empty:
-                return None
-            momentum_score = self._calculate_momentum_score(concept_daily_df, trade_date)
-            volume_score = await self._calculate_volume_profile_score(concept_daily_df)
-            rs_score = await self._calculate_relative_strength_score(concept_daily_df, market_daily_df)
-            # --- 计算内部结构分数 ---
-            breadth_score = await self._calculate_internal_breadth_score(concept, trade_date)
-            leader_score = await self._calculate_leader_effect_score(concept, trade_date)
-            # --- 调整权重，加入新维度 ---
-            total_score = (
-                25 * momentum_score +   # 外部动量权重
-                15 * volume_score +    # 成交活跃度权重
-                30 * rs_score +        # 相对大盘强度权重
-                15 * breadth_score +   # 内部上涨广度权重 (新增)
-                15 * leader_score      # 龙头效应权重 (新增)
+        print(f"    - [行业背景融合引擎 V1.0] 启动，为 {stock_code} 生成数值化融合行业背景...")
+        
+        # 1. 从配置中获取来源权重
+        source_weights = params.get('source_weights', {})
+
+        # 2. 从DAO获取原始数据
+        raw_lifecycle_df = await self.industry_dao.get_raw_lifecycle_data_for_stock(stock_code, start_date, end_date)
+        
+        if raw_lifecycle_df.empty:
+            print(f"    - [行业背景融合引擎] 未获取到原始数据，无法进行融合。")
+            return pd.DataFrame()
+
+        df = raw_lifecycle_df
+        df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
+
+        # 3. 数据透视与融合 (核心计算逻辑)
+        pivot_df = df.pivot_table(
+            index='trade_date', 
+            columns='concept_code', 
+            values=['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
+        )
+        
+        final_df = pd.DataFrame(index=pivot_df.index)
+
+        # 4. 对数值型指标进行加权平均
+        numeric_metrics = ['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
+        for metric in numeric_metrics:
+            metric_df = pivot_df.get(metric)
+            if metric_df is None or metric_df.empty:
+                continue
+
+            weighted_sum = pd.Series(0.0, index=pivot_df.index)
+            total_weight = pd.Series(0.0, index=pivot_df.index)
+            
+            # 使用原始数据中的 concept_code 和 source 进行迭代
+            for concept_code, group in df.groupby('concept_code'):
+                source = group['source'].iloc[0]
+                weight = source_weights.get(source, 0.1)
+                
+                if concept_code in metric_df.columns:
+                    valid_days = metric_df[concept_code].notna()
+                    weighted_sum.loc[valid_days] += metric_df.loc[valid_days, concept_code] * weight
+                    total_weight.loc[valid_days] += weight
+
+            final_df[f'industry_{metric}_D'] = (weighted_sum / total_weight.replace(0, np.nan)).fillna(0)
+
+        # 5. 对分类型指标(lifecycle_stage)进行处理，生成数值化分数
+        stage_df = df.pivot_table(index='trade_date', columns='concept_code', values='lifecycle_stage', aggfunc='first')
+        
+        # 获取所有出现过的概念及其权重
+        concept_weights_map = {
+            row['concept_code']: source_weights.get(row['source'], 0.1)
+            for _, row in df[['concept_code', 'source']].drop_duplicates().iterrows()
+        }
+        
+        # 计算每日活跃概念的总权重
+        daily_total_weight = stage_df.notna().apply(
+            lambda row: sum(concept_weights_map.get(col, 0) for col in row.index[row]),
+            axis=1
+        )
+
+        # 为每个阶段计算加权置信度分数
+        stages = ['PREHEAT', 'MARKUP', 'STAGNATION', 'DOWNTREND']
+        for stage in stages:
+            stage_weight_sum = (stage_df == stage).apply(
+                lambda row: sum(concept_weights_map.get(col, 0) for col in row.index[row]),
+                axis=1
             )
-            # --- 在返回结果中增加新维度的分数，供下游使用 ---
-            return {
-                'concept_code': concept.code, 
-                'concept_name': concept.name, 
-                'strength_score': total_score,
-                'breadth_score': breadth_score, # 新增透传字段
-                'leader_score': leader_score   # 新增透传字段
-            }
-        except Exception as e:
-            logger.error(f"处理板块 {concept.name} 时发生错误: {e}", exc_info=True)
-            return None
+            stage_score = (stage_weight_sum / daily_total_weight.replace(0, np.nan)).fillna(0)
+            final_df[f'industry_{stage.lower()}_score_D'] = stage_score
 
-    def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算动量分"""
-        if df.empty or trade_date not in df.index: return 0.0
-        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
-        today = df.loc[trade_date]
-        price_above_ema20 = 1 if today['close'] > today['ema20'] else 0
-        price_above_ema60 = 1 if today['close'] > today['ema60'] else 0
-        ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
-        pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
-        return (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
-
-    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
-        """计算资金流分"""
-        if df.empty or trade_date not in df.index: return 0.0
-        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
-        if recent_df.empty: return 0.0
-        net_inflow_sum = recent_df['net_amount'].sum()
-        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
-        return (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
-
-    async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
-        """计算行业成交活跃度得分。"""
-        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
-            return 0.0
-        df = industry_daily_df.copy()
-        turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
-        df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
-        df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
-        was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
-        is_above = df['turnover_ma5'] > df['turnover_ma20']
-        is_recent_cross = (was_below & is_above).rolling(3, min_periods=1).sum().iloc[-1] > 0
-        score = 0.0
-        if pd.notna(turnover_rank_60d) and turnover_rank_60d > 0.9: score += 0.6
-        if is_recent_cross: score += 0.4
-        return score
-
-    async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
-        """计算行业相对大盘的强度得分。"""
-        if industry_daily_df.empty or market_daily_df.empty: return 0.0
-        df = pd.merge(industry_daily_df[['close']], market_daily_df, left_index=True, right_index=True, how='inner')
-        if df.empty: return 0.0
-        df['rs'] = df['close'] / df['market_close']
-        df['rs_ma20'] = df['rs'].rolling(20).mean()
-        latest = df.iloc[-1]
-        return 1.0 if latest['rs'] > latest['rs_ma20'] else 0.0
-
-    def _calculate_sentiment_hotness_score(self, sentiment_data: Optional[Dict]) -> float:
-        """根据最强板块统计数据，计算板块的情绪热度分。"""
-        if not sentiment_data: return 0.0
-        score = 0.0
-        rank = sentiment_data.get('rank', 100)
-        if rank <= 5: score += 0.5
-        elif rank <= 20: score += 0.3
-        elif rank <= 50: score += 0.1
-        cons_nums = sentiment_data.get('cons_nums', 0)
-        if cons_nums >= 3: score += 0.3
-        elif cons_nums >= 1: score += 0.15
-        up_nums = sentiment_data.get('up_nums', 0)
-        if up_nums >= 5: score += 0.2
-        elif up_nums >= 2: score += 0.1
-        return min(score, 1.0)
+        print(f"    - [行业背景融合引擎 V1.0] 完成。已为 {stock_code} 生成 {len(final_df)} 天的数值化融合行业背景。")
+        return final_df
 
     async def prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:
         """根据游资明细数据，生成一系列与日线数据对齐的原子信号。"""
@@ -390,7 +372,7 @@ class ContextualAnalysisService:
                 signals_df['industry_hotness_rank_D'] = hottest_industry_daily['rank']
         return signals_df
 
-    async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame: # 新增方法
+    async def prepare_smart_money_signals(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
         """
         聪明钱信号引擎
         - 核心职责: 融合游资(HmDetail)和龙虎榜(TopList, TopInst)数据，生成协同与背离信号。
@@ -491,6 +473,105 @@ class ContextualAnalysisService:
         print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
         return result_df
         return result_df
+
+    async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:
+        """
+        【V3.2 深度分析版】处理单个板块/概念的强度计算。
+        - 核心升级: 增加了内部广度(breadth_score)和龙头效应(leader_score)两个维度，更贴合A股市场。
+        """
+        start_date = trade_date - datetime.timedelta(days=self.momentum_lookback + 30)
+        try:
+            concept_daily_df = await self.industry_dao.get_concept_daily_for_range(concept.code, start_date, trade_date)
+            if concept_daily_df.empty:
+                return None
+            momentum_score = self._calculate_momentum_score(concept_daily_df, trade_date)
+            volume_score = await self._calculate_volume_profile_score(concept_daily_df)
+            rs_score = await self._calculate_relative_strength_score(concept_daily_df, market_daily_df)
+            # --- 计算内部结构分数 ---
+            breadth_score = await self._calculate_internal_breadth_score(concept, trade_date)
+            leader_score = await self._calculate_leader_effect_score(concept, trade_date)
+            # --- 调整权重，加入新维度 ---
+            total_score = (
+                25 * momentum_score +   # 外部动量权重
+                15 * volume_score +    # 成交活跃度权重
+                30 * rs_score +        # 相对大盘强度权重
+                15 * breadth_score +   # 内部上涨广度权重 (新增)
+                15 * leader_score      # 龙头效应权重 (新增)
+            )
+            # --- 在返回结果中增加新维度的分数，供下游使用 ---
+            return {
+                'concept_code': concept.code, 
+                'concept_name': concept.name, 
+                'strength_score': total_score,
+                'breadth_score': breadth_score,
+                'leader_score': leader_score
+            }
+        except Exception as e:
+            logger.error(f"处理板块 {concept.name} 时发生错误: {e}", exc_info=True)
+            return None
+
+    def _calculate_momentum_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
+        """计算动量分"""
+        if df.empty or trade_date not in df.index: return 0.0
+        df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['ema60'] = df['close'].ewm(span=60, adjust=False).mean()
+        today = df.loc[trade_date]
+        price_above_ema20 = 1 if today['close'] > today['ema20'] else 0
+        price_above_ema60 = 1 if today['close'] > today['ema60'] else 0
+        ema_bullish = 1 if today['ema20'] > today['ema60'] else 0
+        pct_change_5d = (today['close'] / df['close'].shift(5).loc[trade_date]) - 1 if len(df) > 5 else 0
+        return (price_above_ema20 * 2 + price_above_ema60 * 1 + ema_bullish * 2 + (pct_change_5d * 10))
+
+    def _calculate_fund_flow_score(self, df: pd.DataFrame, trade_date: datetime.date) -> float:
+        """计算资金流分"""
+        if df.empty or trade_date not in df.index: return 0.0
+        recent_df = df.loc[:trade_date].tail(self.fund_flow_lookback)
+        if recent_df.empty: return 0.0
+        net_inflow_sum = recent_df['net_amount'].sum()
+        inflow_days_ratio = (recent_df['net_amount'] > 0).sum() / len(recent_df)
+        return (net_inflow_sum * 0.1 + inflow_days_ratio * 5)
+
+    async def _calculate_volume_profile_score(self, industry_daily_df: pd.DataFrame) -> float:
+        """计算行业成交活跃度得分。"""
+        if industry_daily_df.empty or 'turnover_rate' not in industry_daily_df.columns or len(industry_daily_df) < 5:
+            return 0.0
+        df = industry_daily_df.copy()
+        turnover_rank_60d = df['turnover_rate'].rolling(60, min_periods=20).rank(pct=True).iloc[-1]
+        df['turnover_ma5'] = df['turnover_rate'].rolling(5, min_periods=1).mean()
+        df['turnover_ma20'] = df['turnover_rate'].rolling(20, min_periods=1).mean()
+        was_below = df['turnover_ma5'].shift(1) < df['turnover_ma20'].shift(1)
+        is_above = df['turnover_ma5'] > df['turnover_ma20']
+        is_recent_cross = (was_below & is_above).rolling(3, min_periods=1).sum().iloc[-1] > 0
+        score = 0.0
+        if pd.notna(turnover_rank_60d) and turnover_rank_60d > 0.9: score += 0.6
+        if is_recent_cross: score += 0.4
+        return score
+
+    async def _calculate_relative_strength_score(self, industry_daily_df: pd.DataFrame, market_daily_df: pd.DataFrame) -> float:
+        """计算行业相对大盘的强度得分。"""
+        if industry_daily_df.empty or market_daily_df.empty: return 0.0
+        df = pd.merge(industry_daily_df[['close']], market_daily_df, left_index=True, right_index=True, how='inner')
+        if df.empty: return 0.0
+        df['rs'] = df['close'] / df['market_close']
+        df['rs_ma20'] = df['rs'].rolling(20).mean()
+        latest = df.iloc[-1]
+        return 1.0 if latest['rs'] > latest['rs_ma20'] else 0.0
+
+    def _calculate_sentiment_hotness_score(self, sentiment_data: Optional[Dict]) -> float:
+        """根据最强板块统计数据，计算板块的情绪热度分。"""
+        if not sentiment_data: return 0.0
+        score = 0.0
+        rank = sentiment_data.get('rank', 100)
+        if rank <= 5: score += 0.5
+        elif rank <= 20: score += 0.3
+        elif rank <= 50: score += 0.1
+        cons_nums = sentiment_data.get('cons_nums', 0)
+        if cons_nums >= 3: score += 0.3
+        elif cons_nums >= 1: score += 0.15
+        up_nums = sentiment_data.get('up_nums', 0)
+        if up_nums >= 5: score += 0.2
+        elif up_nums >= 2: score += 0.1
+        return min(score, 1.0)
 
     async def _calculate_internal_breadth_score(self, concept: ConceptMaster, trade_date: datetime.date) -> float:
         """

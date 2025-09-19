@@ -77,24 +77,23 @@ class OffensiveLayer:
         industry_score = pd.Series(0.0, index=df.index)
         industry_params = scoring_params.get('industry_lifecycle_scoring_params', {})
         if get_param_value(industry_params.get('enabled'), True):
-            # 获取各阶段分数
+            # 获取各阶段的数值化置信度分数
             score_markup = atomic_states.get('SCORE_INDUSTRY_MARKUP', default_series)
             score_preheat = atomic_states.get('SCORE_INDUSTRY_PREHEAT', default_series)
             # 获取权重和乘数
             markup_weight = industry_params.get('markup_weight', 1.0)
             preheat_weight = industry_params.get('preheat_weight', 0.8)
             bonus_multiplier = industry_params.get('bonus_multiplier', 400)
-            # 计算总的正面行业加成 (这是一个0-1之间的加权分数)
+            # 计算总的正面行业加成因子 (这是一个0-1之间的加权分数)
             positive_industry_factor = (score_markup * markup_weight + score_preheat * preheat_weight)
-            # 计算最终的奖励分数
+            # 计算最终的奖励分数，与置信度成正比
             industry_bonus = positive_industry_factor * bonus_multiplier
             # 只有当有显著加分时才记录
             if (industry_bonus > 1).any():
                 industry_score += industry_bonus
                 score_details_df["BONUS_INDUSTRY_LIFECYCLE"] = industry_bonus
         all_scores_components.append(industry_score)
-        print(f"          -> [行业协同 V2.0] 行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
-
+        print(f"          -> [行业协同 V2.1] 数值化行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
         # --- 应用“动态动能”加分 ---
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})

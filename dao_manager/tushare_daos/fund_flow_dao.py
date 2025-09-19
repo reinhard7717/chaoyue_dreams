@@ -971,7 +971,7 @@ class FundFlowDao(BaseDAO):
         logger.info(f"{trade_date} 的龙虎榜每日明细保存完成。")
         return result
 
-    async def get_top_list_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
+    async def get_top_list_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame:
         """
         根据日期范围和股票代码列表，获取龙虎榜每日明细数据。
         """
@@ -1116,7 +1116,7 @@ class FundFlowDao(BaseDAO):
             print(f"调试: 发生异常: {e}")
             raise
 
-    async def get_top_inst_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame: # 新增方法
+    async def get_top_inst_data(self, start_date: date, end_date: date, stock_codes: list[str] = None) -> pd.DataFrame:
         """
         根据日期范围和股票代码列表，获取龙虎榜机构明细数据。
         """

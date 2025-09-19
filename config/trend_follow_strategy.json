@@ -616,6 +616,8 @@
         "playbook_synergy_scoring": {
           "说明": "【第三层：剧本协同奖励分】当'战备'与'触发'完美结合时，给予额外的协同奖励分。",
           "positive_signals": {
+            "说明_潜伏剧本": "--- S级潜伏突破剧本 ---",
+            "SCORE_PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S": 580, "说明_新增": "为“筹码共振-价格滞后”这一高胜率潜伏剧本赋予高分。",
             "说明_筹码剧本": "--- 筹码博弈剧本分，作为强力催化剂 ---",
             "SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT": 550,
             "SCORE_CHIP_PLAYBOOK_WASHOUT": 450,
@@ -666,23 +668,25 @@
         "dynamic_scoring": {
           "说明": "【动能分】作为催化剂和加分项，分数权重次之。此部分保持不变，作为独立的加分模块。",
           "min_positional_score_for_dynamic": {
-            "value": 150, "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
+            "value": 400, "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
           },
           "positive_signals": {
+            "说明_早期动能": "--- A级早期动能信号 (核心加分项) ---",
+            "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A": 350, "说明_COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A": "早期动能点火信号，奖励“东风初起”的黄金时刻。",
             "说明_独立原子动能": "--- 独立的、非共识的原子动能信号 ---",
-            "DYN_AGGRESSIVE_OFFENSE_A": 250,
+            "DYN_AGGRESSIVE_OFFENSE_A": 100,
             "MECHANICS_ENERGY_ADVANTAGE": 80,
             "DYN_TREND_HEALTHY_ACCELERATING": 120,
             "CHIP_DYN_S_ACCEL_CONCENTRATING": 120,
             "MECHANICS_CHIP_ACCUMULATION_MOMENTUM": 150,
             "CHIP_DYN_HEALTH_IMPROVING": 100,
             "CHIP_DYN_WINNER_PROFIT_MARGIN_RISING": 80,
-            "OPP_DYN_MARKET_ENGINE_IGNITION_A": 280,
-            "OPP_DYN_LONG_CYCLE_INFLECTION_A": 260,
-            "OPP_MTF_RSI_BULLISH_ALIGNMENT_A": 240,
+            "OPP_DYN_MARKET_ENGINE_IGNITION_A": 120,
+            "OPP_DYN_LONG_CYCLE_INFLECTION_A": 160,
+            "OPP_MTF_RSI_BULLISH_ALIGNMENT_A": 140,
             "DYN_PRICE_VOLUME_RESONANCE_B": 150,
-            "COGNITIVE_SCORE_SYNERGISTIC_OFFENSE_S": 200,
-            "SCORE_VOL_PRICE_IGNITION_UP": 150
+            "COGNITIVE_SCORE_SYNERGISTIC_OFFENSE_S": 150,
+            "SCORE_VOL_PRICE_IGNITION_UP": 70
           }
         },
         "trend_stage_scoring_params": {

@@ -432,21 +432,21 @@ class IndicatorService:
         four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
-            print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，开始注入预计算数据...")
-            # 调用DAO查询预计算结果
-            industry_lifecycle_df = await self.industry_dao.get_industry_lifecycle_for_stock(stock_code, start_date, end_date)
+            print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，调用上下文服务进行数据融合...")
+            # 调用 ContextualAnalysisService 的融合引擎
+            industry_lifecycle_df = await self.context_service.prepare_fused_industry_signals(
+                stock_code, start_date, end_date, industry_params
+            )
             if not industry_lifecycle_df.empty:
                 # 使用 left join，以 df_daily 的索引为准
                 df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
                 # 向前填充，确保每个交易日都有行业状态
                 for col in industry_lifecycle_df.columns:
-                    if df_daily[col].dtype == 'object' or isinstance(df_daily[col].dtype, pd.CategoricalDtype):
-                        df_daily[col] = df_daily[col].ffill()
-                    else: # 对数值类型的列（rank, slope, accel）填充0
-                        df_daily[col] = df_daily[col].ffill().fillna(0)
-                print(f"    - [行业背景注入] 成功注入预计算的行业生命周期数据。")
+                    # 对所有新注入的列进行填充
+                    df_daily[col] = df_daily[col].ffill().fillna(0)
+                print(f"    - [行业背景注入] 成功注入融合后的行业生命周期数据。")
             else:
-                print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的预计算行业生命周期数据。")
+                print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的融合行业生命周期数据。")
         # --- 注入KPL题材热度信号 ---
         kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
         if kpl_params and kpl_params.get('enabled', False):

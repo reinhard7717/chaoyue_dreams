@@ -1420,9 +1420,8 @@ class StockTimeTradeDAO(BaseDAO):
         # 从数据库中获取数据
         stock_daily_basic_list = StockDailyBasic.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
         return stock_daily_basic_list
-        
-    #  =============== A股筹码及胜率 ===============
 
+    #  =============== A股筹码及胜率 ===============
     # 每日筹码及胜率
     async def save_all_cyq_perf_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
