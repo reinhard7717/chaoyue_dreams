@@ -579,7 +579,7 @@ class ContextualAnalysisService:
         - 核心逻辑: 统计板块内上涨家数占比，量化板块的普涨程度。这是判断行业上涨健康度的关键。
         - 返回值: 0-1之间的分数，越高代表上涨广度越好。
         """
-        print(f"      - [广度分析] 开始计算板块 '{concept.name}' 在 {trade_date} 的内部广度...")
+        # print(f"      - [广度分析] 开始计算板块 '{concept.name}' 在 {trade_date} 的内部广度...")
         # 1. 获取指定日期的板块成分股
         members = await self.industry_dao.get_concept_members_on_date(concept.code, trade_date)
         if not members:

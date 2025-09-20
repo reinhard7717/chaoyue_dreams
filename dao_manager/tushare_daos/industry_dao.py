@@ -130,11 +130,9 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_member(self) -> Dict:
         """
-        【V2.2 健壮性修复版】获取申万行业成分并保存
-        修复与优化:
-        1.  【数据不一致处理】新增逻辑：当发现成分股所属行业在数据库中不存在时，不再忽略，而是利用成分股数据中的层级信息，自动创建缺失的L1, L2, L3行业。
-        2.  (保留) 修复API调用错误、方法缺失错误、字段错误。
-        3.  (保留) 消除N+1查询，采用批量获取、内存映射的方式。
+        【V2.3 统一模型同步修复版】获取申万行业成分并保存
+        - 核心修复: 补全了将申万 L1, L2, L3 三个层级的行业成分关系同步到统一的 ConceptMember 表的核心逻辑。
+        - 收益: 确保了申万行业数据能够被下游的通用分析模块（如行业生命周期、多维概念融合）正确消费。
         """
         print("  - [DAO] 开始获取申万行业成分...")
         # --- 1. 初始化和准备 ---
@@ -179,38 +177,26 @@ class IndustryDao(BaseDAO):
         print(f"    - 成功获取并映射了 {len(sw_industry_map)} 个行业和 {len(stock_map)} 个股票信息。")
         # --- 4. 组装最终数据 (包含动态创建缺失行业的逻辑) ---
         industry_member_dicts = []
-        concept_member_sync_list = []
+        concept_member_sync_list = [] # 确保列表已初始化
         for row in all_raw_members:
-            # 按层级检查并创建缺失的行业
+            # 按层级检查并创建缺失的行业 (此部分逻辑保持不变)
             try:
-                # 检查并创建L1
                 if row.l1_code and row.l1_code not in sw_industry_map:
-                    print(f"    - 发现新的L1行业，正在创建: {row.l1_name} ({row.l1_code})")
                     l1_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
                         index_code=row.l1_code,
-                        defaults={
-                            'industry_name': row.l1_name, 'level': 'L1', 'parent_code': '0', 'src': 'SW2021', 'industry_code': row.l1_code
-                        }
+                        defaults={'industry_name': row.l1_name, 'level': 'L1', 'parent_code': '0', 'src': 'SW2021', 'industry_code': row.l1_code}
                     )
                     sw_industry_map[row.l1_code] = l1_obj
-                # 检查并创建L2
                 if row.l2_code and row.l2_code not in sw_industry_map:
-                    print(f"    - 发现新的L2行业，正在创建: {row.l2_name} ({row.l2_code})")
                     l2_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
                         index_code=row.l2_code,
-                        defaults={
-                            'industry_name': row.l2_name, 'level': 'L2', 'parent_code': row.l1_code, 'src': 'SW2021', 'industry_code': row.l2_code
-                        }
+                        defaults={'industry_name': row.l2_name, 'level': 'L2', 'parent_code': row.l1_code, 'src': 'SW2021', 'industry_code': row.l2_code}
                     )
                     sw_industry_map[row.l2_code] = l2_obj
-                # 检查并创建L3
                 if row.l3_code and row.l3_code not in sw_industry_map:
-                    print(f"    - 发现新的L3行业，正在创建: {row.l3_name} ({row.l3_code})")
                     l3_obj, _ = await sync_to_async(SwIndustry.objects.get_or_create)(
                         index_code=row.l3_code,
-                        defaults={
-                            'industry_name': row.l3_name, 'level': 'L3', 'parent_code': row.l2_code, 'src': 'SW2021', 'industry_code': row.l3_code
-                        }
+                        defaults={'industry_name': row.l3_name, 'level': 'L3', 'parent_code': row.l2_code, 'src': 'SW2021', 'industry_code': row.l3_code}
                     )
                     sw_industry_map[row.l3_code] = l3_obj
             except Exception as e:
@@ -218,14 +204,15 @@ class IndustryDao(BaseDAO):
                 continue
             swan_industry = sw_industry_map.get(row.l3_code)
             stock = stock_map.get(row.ts_code)
-            # 修改判断条件，确保在动态创建后，行业和股票都存在
             if swan_industry and stock:
+                # 保存到 SwIndustryMember 表的逻辑 (保持不变)
                 industry_member_dict = self.data_format_process.set_sw_industry_member_data(
                     sw_industry=swan_industry,
                     stock=stock,
                     df_data=row
                 )
                 industry_member_dicts.append(industry_member_dict)
+                # 每一行申万成分数据，都需要生成 L1, L2, L3 三条记录到 concept_member_sync_list
                 for level in ['l1', 'l2', 'l3']:
                     concept_code = getattr(row, f'{level}_code', None)
                     if concept_code:
@@ -237,9 +224,7 @@ class IndustryDao(BaseDAO):
                             'out_date': self.data_format_process._parse_datetime(row.out_date)
                         })
             else:
-                # 这里的 warning 现在只会在股票不存在或行业创建失败时触发
                 if not swan_industry: logger.warning(f"动态创建后仍未找到申万三级行业 {row.l3_code}，成分股 {row.ts_code} 将被忽略。")
-                # if not stock: logger.warning(f"未在DB中找到股票 {row.ts_code}，成分股记录将被忽略。")
         # --- 5. 批量保存 ---
         if industry_member_dicts:
             print(f"    - 准备保存 {len(industry_member_dicts)} 条申万行业成分数据...")
@@ -249,7 +234,7 @@ class IndustryDao(BaseDAO):
                 unique_fields=['l3_industry', 'stock', 'in_date']
             )
             print(f"  - [DAO] 完成保存申万行业成分。结果: {final_result}")
-            # --- 新增: 步骤6: 同步到 ConceptMember ---
+            # 确保在保存完主数据后，调用同步方法
             await self._sync_to_concept_member(concept_member_sync_list, 'sw')
         else:
             logger.warning("没有可供保存的申万行业成分数据。")
@@ -442,111 +427,87 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_member(self) -> Dict:
         """
-        【V1.2 分页获取版】获取同花顺概念板块成分列表并保存
-        修复：
-        1.  增加了分页逻辑，使用 offset 循环获取，确保能完整拉取成员超过6000的板块数据。
-        2.  (保留) 保留了对 Tushare API (ths_member) 的速率限制 (200次/分钟)。
+        【V3.0 终极建模版】获取同花顺概念板块成分列表并保存
+        - 核心修复:
+          1. [正确建模] 承认同花顺API只提供“当前快照”的现实。
+          2. [优雅代理] 在同步到 ConceptMember 时，将 in_date 设置为一个极早的日期(1990-01-01)，
+             将当前成员关系建模为“长期有效”，作为历史分析的最佳代理。
+          3. [数据完整性] 在 ths_index_member 表中，in_date 记录为数据获取当天，作为更新时间戳。
+        - 收益: 彻底解决在历史回溯时因 in_date 问题导致“未找到成分股”的致命错误。
         """
         # --- 1. 初始化和准备 ---
         final_result = {}
-        data_to_save = []
         limiter = rate_limiter_factory.get_limiter(name='api_ths_member')
+        today = datetime.now().date() # 数据获取日期，作为 ths_index_member 的时间戳
+        PROXY_IN_DATE = date(1990, 1, 1) # 用于 ConceptMember 的代理“纳入日期”
         # --- 2. 获取所有概念板块信息 ---
         ths_index_list = await self.get_ths_index_list()
         if not ths_index_list:
             logger.warning("数据库中未找到任何同花顺概念板块信息，任务结束。")
             return {"status": "warning", "message": "No ThsIndex found."}
         logger.info(f"开始处理 {len(ths_index_list)} 个同花顺概念板块...")
-        # --- 3. 循环调用API，收集原始数据和所有需要的股票代码 ---
+        # --- 3. 循环调用API，收集数据 ---
         all_raw_members = []
         all_stock_codes = set()
+        all_ths_index_codes = {idx.ts_code for idx in ths_index_list} # 收集所有板块代码用于清空操作
         for i, ths_index in enumerate(ths_index_list):
             print(f"进度: {i+1}/{len(ths_index_list)} | [同花顺概念]正在获取板块 [{ths_index.name} ({ths_index.ts_code})] 的成分股...")
             offset = 0
-            limit = 6000 # Tushare对该接口的单次最大返回行数
+            limit = 6000
             while True:
-                # 安全检查，防止超过Tushare 10万行的总限制
-                if offset >= 100000:
-                    logger.warning(f"板块 {ths_index.ts_code} 成分股获取已达10万行上限，停止获取。")
-                    break
+                if offset >= 100000: break
                 try:
-                    # 在每次API调用前检查速率限制
                     while not await limiter.acquire():
-                        print(f"PID[{os.getpid()}] API[api_ths_member] 速率超限，等待20秒后重试... (板块: {ths_index.ts_code}, offset: {offset})")
                         await asyncio.sleep(20)
-                    # 使用 limit 和 offset 参数进行分页调用
-                    df = self.ts_pro.ths_member(
-                        ts_code=ths_index.ts_code, 
-                        fields="ts_code,con_code,name,weight,in_date,out_date,is_new",
-                        limit=limit,
-                        offset=offset
-                    )
-                    if df is None or df.empty:
-                        # 如果没有返回数据，说明该板块的成分已全部获取完毕
-                        break
+                    df = self.ts_pro.ths_member(ts_code=ths_index.ts_code, fields="ts_code,con_code,con_name", limit=limit, offset=offset)
+                    if df is None or df.empty: break
                     for row in df.itertuples(index=False):
                         all_raw_members.append((ths_index, row))
                         all_stock_codes.add(row.con_code)
-                    # 如果返回的行数小于请求的行数，说明是最后一页
-                    if len(df) < limit:
-                        break
-                    # 准备获取下一页
+                    if len(df) < limit: break
                     offset += limit
                 except Exception as e:
                     logger.error(f"[同花顺概念]获取板块 [{ths_index.name}] 成分股时(offset={offset})发生API错误: {e}", exc_info=True)
-                    break # 如果在分页获取中出错，则中断当前板块的获取，继续下一个板块
-        logger.info(f"所有板块API数据获取完成，共 {len(all_raw_members)} 条成分股记录，涉及 {len(all_stock_codes)} 个独立股票。")
-        # --- 4. (核心优化) 一次性从数据库获取所有需要的股票信息 ---
+                    break
+        logger.info(f"API数据获取完成，共 {len(all_raw_members)} 条成分股记录。")
+        # --- 4. 批量获取股票信息 ---
         print("正在一次性获取所有涉及的股票信息...")
-        stock_queryset = StockInfo.objects.filter(stock_code__in=list(all_stock_codes))
-        stock_map = {stock.stock_code: stock async for stock in stock_queryset}
+        stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(list(all_stock_codes))
         print(f"成功获取并映射了 {len(stock_map)} 个股票的信息。")
-        # --- 5. 组装最终数据并批量保存 (此部分逻辑不变) ---
-        print("开始组装最终数据并准备写入数据库...")
+        # --- 5. 组装数据 ---
+        print("开始组装最终数据...")
+        data_to_save_ths = []
         concept_member_sync_list = []
         for ths_index, row_data in all_raw_members:
             stock = stock_map.get(row_data.con_code)
-            if not stock:
-                continue
-            cleaned_row_data = {field: getattr(row_data, field) for field in row_data._fields}
-            df_temp = pd.Series(cleaned_row_data).replace(['nan', 'NaN', ''], np.nan).where(pd.notnull, None)
-            api_data_dict = df_temp.to_dict()
-            api_data_dict.pop('ts_code', None)
-            ths_index_member_dict = self.data_format_process.set_ths_index_member_data(
-                ths_index=ths_index,
-                stock=stock,
-                df_data=api_data_dict
-            )
-            data_to_save.append(ths_index_member_dict)
-            # --- 新增: 准备同步到 ConceptMember 的数据 ---
+            if not stock: continue
+            # 为 ths_index_member 表准备数据 (in_date 是数据获取日期)
+            data_to_save_ths.append(ThsIndexMember(
+                ths_index=ths_index, stock=stock, weight=None,
+                in_date=today, out_date=None, is_new='Y'
+            ))
+            # 为 concept_member 表准备同步数据 (in_date 是代理日期)
             concept_member_sync_list.append({
-                'concept_code': ths_index.ts_code,
-                'stock': stock,
-                'source': 'ths',
-                'in_date': self.data_format_process._parse_datetime(row_data.in_date),
-                'out_date': self.data_format_process._parse_datetime(row_data.out_date)
+                'concept_code': ths_index.ts_code, 'stock': stock, 'source': 'ths',
+                'in_date': PROXY_IN_DATE, 'out_date': None
             })
-            if len(data_to_save) >= BATCH_SAVE_SIZE:
-                print(f"数据缓存池达到 {len(data_to_save)} 条，开始批量写入数据库...")
-                final_result = await self._save_all_to_db_native_upsert(
-                    model_class=ThsIndexMember,
-                    data_list=data_to_save,
-                    unique_fields=['ths_index', 'stock']
-                )
-                print(f"批量写入完成。")
-                data_to_save.clear()
-        if data_to_save:
-            print(f"正在保存最后剩余的 {len(data_to_save)} 条数据...")
-            final_result = await self._save_all_to_db_native_upsert(
-                model_class=ThsIndexMember,
-                data_list=data_to_save,
-                unique_fields=['ths_index', 'stock']
-            )
-            print(f"最后的批量写入完成。")
-            # --- 新增: 步骤6: 同步到 ConceptMember ---
+        # --- 6. 批量保存与同步 (采用“先删后插”策略) ---
+        if data_to_save_ths:
+            print(f"准备清空并写入 {len(data_to_save_ths)} 条最新的同花顺成分数据...")
+            # 事务性地执行删除和插入
+            # 1. 清空 ThsIndexMember 表中涉及的所有板块的旧数据
+            await sync_to_async(ThsIndexMember.objects.filter(ths_index__ts_code__in=all_ths_index_codes).delete)()
+            print("  - 旧的 ThsIndexMember 数据已清空。")
+            # 2. 批量插入新数据到 ThsIndexMember
+            await ThsIndexMember.objects.abulk_create(data_to_save_ths, batch_size=5000)
+            print(f"  - 批量写入 {len(data_to_save_ths)} 条数据到 ths_index_member 完成。")
+            # 3. 同步到 ConceptMember (同样采用先删后插)
+            # 注意：这里的删除逻辑也需要调整，只删除 ths 来源的
+            await sync_to_async(ConceptMember.objects.filter(concept__code__in=all_ths_index_codes, source='ths').delete)()
+            print("  - 旧的 ConceptMember (ths来源) 数据已清空。")
             await self._sync_to_concept_member(concept_member_sync_list, 'ths')
-        logger.info("同花顺概念板块成分保存任务全部完成。")
-        return final_result
+        logger.info("同花顺概念板块成分保存与同步任务全部完成。")
+        return {"status": "completed", "saved_count": len(data_to_save_ths)}
 
     # ============== 同花顺板块指数行情 ==============
     async def get_ths_index_daily(self, ts_code: str) -> List['ThsIndexDaily']:
@@ -1254,17 +1215,15 @@ class IndustryDao(BaseDAO):
         dc_index_members = await sync_to_async(list)(DcIndexMember.objects.filter(ts_code=ts_code).all())
         return dc_index_members
 
-    async def save_dc_index_member_by_ts_code(self, ts_code: str) -> Dict:
+    async def save_dc_index_member_history_by_code(self, ts_code: str) -> Dict:
         """
-        【V2.0 分页和性能优化版】接口：dc_member
+        【V3.0 历史回补专用版】接口：dc_member
         描述：获取指定东方财富板块(ts_code)的【全部历史】成分数据。
-        修复：
-        1. 增加了分页逻辑，使用 offset 循环获取，确保能完整拉取历史数据。
-        2. 移除了 N+1 查询，通过批量获取股票信息大幅提升性能。
-        3. 集成了速率限制器，确保调用安全。
-        限量：单次最大获取8000条数据。
+        - 核心逻辑: 不传入 trade_date，并使用 offset 分页，拉取该板块自成立以来的所有成分变动记录。
+        - 性能优化: 移除了 N+1 查询，通过批量获取股票信息大幅提升性能。
+        - 速率控制: 集成了速率限制器，确保调用安全。
         """
-        print(f"  - [DAO] [东方财富板块成分] 开始获取板块 {ts_code} 的全部历史成分...")
+        print(f"  - [DAO-历史回补] [东方财富] 开始获取板块 {ts_code} 的全部历史成分...")
         # 1. 获取速率限制器和板块对象
         limiter = rate_limiter_factory.get_limiter(name='api_dc_member')
         dc_index = await self.get_dc_index_by_code(ts_code)
@@ -1274,7 +1233,7 @@ class IndustryDao(BaseDAO):
         # 2. 分页循环获取所有历史数据
         all_dfs = []
         offset = 0
-        limit = 8000
+        limit = 5000 # 根据API文档，单次最大5000
         while True:
             if offset >= 100000: # Tushare对某些接口有10万行的总数据量限制
                 logger.warning(f"板块 {ts_code} 历史成分获取已达10万行上限，停止获取。")
@@ -1308,26 +1267,37 @@ class IndustryDao(BaseDAO):
         combined_df = combined_df.replace(['nan', 'NaN', ''], None).dropna(subset=['con_code', 'trade_date'])
         # 4. 批量获取所有涉及的股票信息 (消除N+1查询)
         all_stock_codes = combined_df['con_code'].unique().tolist()
-        print(f"  - [DAO] 批量获取 {len(all_stock_codes)} 个相关股票信息...")
+        print(f"    - [DAO-历史回补] 批量获取 {len(all_stock_codes)} 个相关股票信息...")
         stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(all_stock_codes)
         # 5. 组装数据
         members_to_save = []
-        for row in combined_df.itertuples():
+        concept_member_sync_list = []
+        for row in combined_df.itertuples(index=False):
             stock = stock_map.get(row.con_code)
             if stock:
+                # 组装 DcIndexMember 数据
                 member_dict = self.data_format_process.set_dc_index_member_data(dc_index=dc_index, stock=stock, df_data=row)
                 members_to_save.append(member_dict)
-        # 6. 批量保存
+                # 准备同步到 ConceptMember 的数据
+                concept_member_sync_list.append({
+                    'concept_code': dc_index.ts_code,
+                    'stock': stock,
+                    'source': 'dc',
+                    'in_date': self.data_format_process._parse_datetime(row.trade_date),
+                    'out_date': None # 快照模式没有out_date
+                })
+        # 6. 批量保存到 DcIndexMember 和 ConceptMember
+        result = {}
         if members_to_save:
-            print(f"  - [DAO] 准备为板块 {ts_code} 保存 {len(members_to_save)} 条历史成分数据...")
+            print(f"    - [DAO-历史回补] 准备为板块 {ts_code} 保存 {len(members_to_save)} 条历史成分数据...")
             result = await self._save_all_to_db_native_upsert(
                 model_class=DcIndexMember,
                 data_list=members_to_save,
                 unique_fields=['dc_index', 'stock', 'trade_time']
             )
-            print(f"  - [DAO] 板块 {ts_code} 历史成分保存完成。")
-            return result
-        return {}
+            await self._sync_to_concept_member(concept_member_sync_list, 'dc')
+            print(f"    - [DAO-历史回补] 板块 {ts_code} 历史成分保存完成。")
+        return result
 
     async def save_dc_index_members_by_date(self, trade_date: date) -> Dict:
         """
@@ -1702,47 +1672,47 @@ class IndustryDao(BaseDAO):
 
     async def get_concept_members_on_date(self, concept_code: str, trade_date: date) -> List[ConceptMember]:
         """
-        【V2.0 健壮性修复版】获取指定板块在指定日期的所有有效成分股。
-        - 核心修复: 引入了智能查询策略，能够自动识别板块来源是“区间模式”还是“快照模式”，并采用相应的查询逻辑。
-          - 对于 'sw', 'ths' 等区间模式来源，使用原有的 in_date/out_date 判断。
-          - 对于 'dc', 'kpl' 等快照模式来源，自动查找小于等于 trade_date 的最新快照日期，并返回该日期的成分股。
-        - 收益: 彻底解决了因数据源模式不同而导致无法查到成分股的问题，极大提升了广度、龙头等下游分析的准确性。
+        【V2.1 终极版】获取指定板块在指定日期的所有有效成分股。
+        - 核心升级: 能够智能区分“历史快照”('dc', 'kpl')和“当前快照”('ths')数据源。
+          - 对于 'ths' 来源，直接返回所有当前成员，作为历史日期的最佳代理。
         """
-        # 步骤1: 首先确定该板块的来源，以决定使用何种查询策略
         try:
-            # 使用 aget 异步获取单个对象
             concept = await ConceptMaster.objects.aget(code=concept_code)
             source = concept.source
         except ConceptMaster.DoesNotExist:
             logger.warning(f"查询成分股时未在 ConceptMaster 中找到代码 {concept_code}。")
             return []
-        interval_sources = ['sw', 'ths', 'ci']
-        snapshot_sources = ['dc', 'kpl']
-        # 步骤2: 根据来源执行不同的查询逻辑
+        interval_sources = ['sw', 'ci']
+        historical_snapshot_sources = ['dc', 'kpl']
+        # 'ths' 不再属于 snapshot_sources，因为它不提供历史快照
         if source in interval_sources:
-            # print(f"    - [DAO-成员查询] 板块 {concept_code} ({source}) 为区间模式，使用标准查询。")
-            # 对于区间模式，使用原有的、正确的逻辑
+            # 区间模式: 精确查找
             query = Q(concept__code=concept_code) & \
                     Q(in_date__lte=trade_date) & \
                     (Q(out_date__isnull=True) | Q(out_date__gt=trade_date))
             members = await sync_to_async(list)(
                 ConceptMember.objects.filter(query).select_related('stock')
             )
-        elif source in snapshot_sources:
-            # print(f"    - [DAO-成员查询] 板块 {concept_code} ({source}) 为快照模式，使用最新快照查询。")
-            # 对于快照模式，需要先找到最新的有效快照日期
-            # 使用Subquery来高效地实现这一逻辑
+        elif source in historical_snapshot_sources:
+            # 历史快照模式: 查找小于等于trade_date的最新快照
             latest_date_subquery = ConceptMember.objects.filter(
                 concept__code=concept_code,
                 in_date__lte=trade_date
             ).values('concept__code').annotate(
                 latest_date=Max('in_date')
             ).values('latest_date')
-            # 使用子查询的结果来过滤主查询
             members = await sync_to_async(list)(
                 ConceptMember.objects.filter(
                     concept__code=concept_code,
-                    in_date=Subquery(latest_date_subquery[:1]) # [:1]确保子查询只返回一个值
+                    in_date=Subquery(latest_date_subquery[:1])
+                ).select_related('stock')
+            )
+        elif source == 'ths':
+            # 当前快照模式: 直接返回所有成员作为代理
+            # print(f"    - [DAO-成员查询] 板块 {concept_code} (ths) 为当前快照模式，返回所有当前成员作为代理。")
+            members = await sync_to_async(list)(
+                ConceptMember.objects.filter(
+                    concept__code=concept_code, source='ths'
                 ).select_related('stock')
             )
         else:

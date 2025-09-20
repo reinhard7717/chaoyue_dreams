@@ -192,6 +192,42 @@ def update_static_industry_data_task(cache_manager=None):
     logger.info(final_message)
     return final_message
 
+@celery_app.task(name='tasks.tushare.industry_tasks.backfill_dc_member_history_task', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def backfill_dc_member_history_task(cache_manager=None):
+    """
+    【V1.0 新增】历史回补任务：获取所有东方财富板块的全部历史成分股。
+    - 职责: 遍历所有已知的东方财富板块，并为每个板块调用历史成分获取方法。
+    - 建议: 此任务非常耗时且消耗API积分，应按需手动触发或低频（如每月）调度。
+    """
+    task_name = 'backfill_dc_member_history_task'
+    logger.info(f"--- [历史回补] 启动【东方财富板块历史成分】任务: {task_name} ---")
+    industry_dao = IndustryDao(cache_manager)
+
+    async def main():
+        # 1. 获取所有东方财富板块列表
+        all_dc_indices = await industry_dao.get_dc_index_list()
+        if not all_dc_indices:
+            logger.warning("数据库中未找到任何东方财富板块，历史成分回补任务终止。")
+            return
+
+        print(f"--- [历史回补] 将为 {len(all_dc_indices)} 个东方财富板块回补全部历史成分...")
+        
+        # 2. 串行遍历每个板块，调用历史回补方法
+        # 注意：这里使用串行是为了更好地控制API请求频率和日志输出。如果需要极致速度，可以改为并发。
+        for i, dc_index in enumerate(all_dc_indices):
+            print(f"\n--- 进度 {i+1}/{len(all_dc_indices)}: 开始处理板块 [{dc_index.name or dc_index.ts_code}] ---")
+            try:
+                await industry_dao.save_dc_index_member_history_by_code(ts_code=dc_index.ts_code)
+            except Exception as e:
+                logger.error(f"回补板块 {dc_index.ts_code} 历史成分时发生错误: {e}", exc_info=True)
+                continue # 单个板块失败不影响下一个
+
+    async_to_sync(main)()
+    final_message = f"--- [历史回补] 任务: {task_name} 执行完毕。 ---"
+    logger.info(final_message)
+    return final_message
+
 # =================================================================
 # =================== 历史数据回补 (调度器 + 执行器) ==================
 # =================================================================
