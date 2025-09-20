@@ -1702,21 +1702,52 @@ class IndustryDao(BaseDAO):
 
     async def get_concept_members_on_date(self, concept_code: str, trade_date: date) -> List[ConceptMember]:
         """
-        获取指定板块在指定日期的所有有效成分股。
-        - 核心逻辑: 查找在 trade_date 当天，in_date <= trade_date 且 (out_date is NULL or out_date > trade_date) 的成分股。
+        【V2.0 健壮性修复版】获取指定板块在指定日期的所有有效成分股。
+        - 核心修复: 引入了智能查询策略，能够自动识别板块来源是“区间模式”还是“快照模式”，并采用相应的查询逻辑。
+          - 对于 'sw', 'ths' 等区间模式来源，使用原有的 in_date/out_date 判断。
+          - 对于 'dc', 'kpl' 等快照模式来源，自动查找小于等于 trade_date 的最新快照日期，并返回该日期的成分股。
+        - 收益: 彻底解决了因数据源模式不同而导致无法查到成分股的问题，极大提升了广度、龙头等下游分析的准确性。
         """
-        # Q 对象可以构建复杂的查询条件
-        # 这个查询逻辑对两种数据源都有效：
-        # 1. 对于有明确纳入/剔除日期的来源(如申万)，它会正确判断时间区间。
-        # 2. 对于每日快照的来源(如东方财富)，其 in_date 就是 trade_date，out_date 为空，同样满足条件。
-        query = Q(concept__code=concept_code) & \
-                Q(in_date__lte=trade_date) & \
-                (Q(out_date__isnull=True) | Q(out_date__gt=trade_date))
-        
-        # 异步执行查询
-        members = await sync_to_async(list)(
-            ConceptMember.objects.filter(query).select_related('stock')
-        )
+        # 步骤1: 首先确定该板块的来源，以决定使用何种查询策略
+        try:
+            # 使用 aget 异步获取单个对象
+            concept = await ConceptMaster.objects.aget(code=concept_code)
+            source = concept.source
+        except ConceptMaster.DoesNotExist:
+            logger.warning(f"查询成分股时未在 ConceptMaster 中找到代码 {concept_code}。")
+            return []
+        interval_sources = ['sw', 'ths', 'ci']
+        snapshot_sources = ['dc', 'kpl']
+        # 步骤2: 根据来源执行不同的查询逻辑
+        if source in interval_sources:
+            # print(f"    - [DAO-成员查询] 板块 {concept_code} ({source}) 为区间模式，使用标准查询。")
+            # 对于区间模式，使用原有的、正确的逻辑
+            query = Q(concept__code=concept_code) & \
+                    Q(in_date__lte=trade_date) & \
+                    (Q(out_date__isnull=True) | Q(out_date__gt=trade_date))
+            members = await sync_to_async(list)(
+                ConceptMember.objects.filter(query).select_related('stock')
+            )
+        elif source in snapshot_sources:
+            # print(f"    - [DAO-成员查询] 板块 {concept_code} ({source}) 为快照模式，使用最新快照查询。")
+            # 对于快照模式，需要先找到最新的有效快照日期
+            # 使用Subquery来高效地实现这一逻辑
+            latest_date_subquery = ConceptMember.objects.filter(
+                concept__code=concept_code,
+                in_date__lte=trade_date
+            ).values('concept__code').annotate(
+                latest_date=Max('in_date')
+            ).values('latest_date')
+            # 使用子查询的结果来过滤主查询
+            members = await sync_to_async(list)(
+                ConceptMember.objects.filter(
+                    concept__code=concept_code,
+                    in_date=Subquery(latest_date_subquery[:1]) # [:1]确保子查询只返回一个值
+                ).select_related('stock')
+            )
+        else:
+            logger.warning(f"未知的概念来源 '{source}' (板块代码: {concept_code})，无法确定成分股查询策略。")
+            return []
         return members
 
     async def get_limit_list_for_stocks(self, stock_codes: List[str], trade_date: date, tag: str) -> pd.DataFrame:
