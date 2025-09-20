@@ -4,7 +4,7 @@ import asyncio
 import logging
 from time import sleep
 import time
-from django.db.models import F, Window
+from django.db.models import Q, F, Window
 from django.db.models.functions import RowNumber
 from asgiref.sync import sync_to_async
 from typing import Any, List, Dict, Optional
