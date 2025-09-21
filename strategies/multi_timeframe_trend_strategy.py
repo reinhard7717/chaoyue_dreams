@@ -331,13 +331,13 @@ class MultiTimeframeTrendStrategy:
             vote_details.append("【元决策审查】投出 1 票 (原因: 风险抬头)")
             calculated_veto_votes += 1
 
-        print(f"\n    [审计结果] 独立审计计算出的总否决票数为: {calculated_veto_votes}")
-        if vote_details:
-            print("    [投票详情]:")
-            for detail in vote_details:
-                print(f"      - {detail}")
-        else:
-            print("    - [信息] 沙盘推演未发现任何部门投出否决票。")
+        # print(f"\n    [审计结果] 独立审计计算出的总否决票数为: {calculated_veto_votes}")
+        # if vote_details:
+        #     print("    [投票详情]:")
+        #     for detail in vote_details:
+        #         print(f"      - {detail}")
+        # else:
+        #     print("    - [信息] 沙盘推演未发现任何部门投出否决票。")
 
         # --- 2. 核心决策依据 ---
         print("\n  --- 2. 核心决策依据 ---")
