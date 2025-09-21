@@ -900,7 +900,7 @@ class CognitiveIntelligence:
         shrinking_volume_score = self._get_atomic_score(df, 'SCORE_VOL_WEAKENING_DROP', 0.0) 
         # 相位分数在-1(波谷)到+1(波峰)之间。我们希望在接近波谷时分数高。
         # (1 - phase) / 2 将其映射到 0(波峰) 到 1(波谷)
-        cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0)) / 2.0
+        cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0).fillna(0.0)) / 2.0 
         winner_holding_tight_score = 1.0 - self._fuse_multi_level_scores(df, 'TOP_REVERSAL') # 获利盘稳定度应由顶部反转风险评估
         chip_stable_score = 1.0 - self._fuse_multi_level_scores(df, 'FALLING_RESONANCE') # 适配新的终极下跌共振信号
         healthy_pullback_score = (
