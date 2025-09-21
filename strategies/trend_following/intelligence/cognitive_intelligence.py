@@ -377,7 +377,7 @@ class CognitiveIntelligence:
         ascent_structure_score = atomic.get('COGNITIVE_SCORE_ACCUMULATION_BREAKOUT_S', default_score)
         yearly_high = df['high_D'].rolling(250, min_periods=60).max()
         yearly_low = df['low_D'].rolling(250, min_periods=60).min()
-        price_range = (yearly_high - yearly_low).replace(0, np.nan)
+        price_range = (yearly_high - yearly_low).replace(0, 1e-9) # 使用一个极小值代替np.nan
         price_position_score = 1 - ((df['close_D'] - yearly_low) / price_range)
         price_position_score = price_position_score.clip(0, 1).fillna(0.5)
         early_stage_score = pd.Series(
