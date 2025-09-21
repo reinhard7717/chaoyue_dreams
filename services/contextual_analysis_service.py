@@ -62,7 +62,7 @@ class ContextualAnalysisService:
                 logger.warning(f"来源 '{source}' 未能获取任何历史排名数据，轮动分析中止。")
                 continue
             rotation_df = pd.concat(all_ranks, ignore_index=True)
-            # 新增-修改-优化: 在分组前对关键列进行排序，可以提高后续 groupby 操作的性能。
+            # 在分组前对关键列进行排序，可以提高后续 groupby 操作的性能。
             rotation_df.sort_values(['concept_code', 'trade_date'], inplace=True)
             def calculate_lifecycle_metrics(group):
                 """为每个板块分组计算其最新的排名、斜率、加速度以及广度和龙头分数"""
@@ -93,7 +93,7 @@ class ContextualAnalysisService:
                 })
             # 修改-优化: 使用 sort=False 配合预排序，进一步提升性能
             lifecycle_metrics = rotation_df.groupby('concept_code', sort=False).apply(calculate_lifecycle_metrics)
-            # 新增-修改-优化: 使用numpy.select进行向量化判断，取代原有的 apply(axis=1) 行级操作，大幅提升计算效率。
+            # 使用numpy.select进行向量化判断，取代原有的 apply(axis=1) 行级操作，大幅提升计算效率。
             conditions = [
                 # 条件1: 预热期 (PREHEAT)
                 (lifecycle_metrics['latest_rank'] < 0.4) & (lifecycle_metrics['rank_slope'] > 0.008) & (lifecycle_metrics['rank_accel'] > 0.001) & (lifecycle_metrics['latest_leader'] > 0.2),
@@ -149,7 +149,7 @@ class ContextualAnalysisService:
         df['limit_order_ratio'] = df['limit_order'] / df['free_float'].replace(0, np.nan)
         df['score_limit_order'] = df['limit_order_ratio'].rank(pct=True)
         # 评分项3: 连板状态 (越高越好)
-        # 新增-修改-优化: 使用向量化操作替代 apply，提升评分效率
+        # 使用向量化操作替代 apply，提升评分效率
         status_series = df['status'].astype(str) # 确保为字符串类型以使用 .str 访问器
         scores = pd.Series(0.0, index=df.index) # 初始化分数为0.0，确保浮点数类型
         scores.loc[status_series.str.contains('首板', na=False)] = 0.2
@@ -232,7 +232,7 @@ class ContextualAnalysisService:
             values=['strength_rank', 'rank_slope', 'rank_accel', 'breadth_score', 'leader_score']
         )
         final_df = pd.DataFrame(index=pivot_df.index)
-        # 新增-修改-优化: 建立 concept_code 到其来源权重的映射，为后续向量化计算做准备
+        # 建立 concept_code 到其来源权重的映射，为后续向量化计算做准备
         concept_source_map = df[['concept_code', 'source']].drop_duplicates().set_index('concept_code')['source']
         concept_weight_map = concept_source_map.map(source_weights).fillna(0.1)
         # 4. 对数值型指标进行加权平均 (向量化优化)
@@ -241,26 +241,26 @@ class ContextualAnalysisService:
             metric_df = pivot_df.get(metric)
             if metric_df is None or metric_df.empty:
                 continue
-            # 新增-修改-优化: 创建与 metric_df 列对齐的权重Series
+            # 创建与 metric_df 列对齐的权重Series
             weights = metric_df.columns.to_series().map(concept_weight_map)
-            # 新增-修改-优化: 向量化计算加权值。直接用DataFrame乘以Series(权重)，pandas会自动按列广播
+            # 向量化计算加权值。直接用DataFrame乘以Series(权重)，pandas会自动按列广播
             weighted_values = metric_df.mul(weights, axis=1)
-            # 新增-修改-优化: 向量化计算每日的加权总和
+            # 向量化计算每日的加权总和
             weighted_sum = weighted_values.sum(axis=1)
-            # 新增-修改-优化: 向量化计算每日的有效总权重。首先得到一个布尔矩阵(非空为True)，然后乘以权重，再求和
+            # 向量化计算每日的有效总权重。首先得到一个布尔矩阵(非空为True)，然后乘以权重，再求和
             total_weight = metric_df.notna().mul(weights, axis=1).sum(axis=1)
             final_df[f'industry_{metric}_D'] = (weighted_sum / total_weight.replace(0, np.nan)).fillna(0)
         # 5. 对分类型指标(lifecycle_stage)进行处理，生成数值化分数 (向量化优化)
         stage_df = df.pivot_table(index='trade_date', columns='concept_code', values='lifecycle_stage', aggfunc='first')
-        # 新增-修改-优化: 创建与 stage_df 列对齐的权重Series
+        # 创建与 stage_df 列对齐的权重Series
         aligned_weights = stage_df.columns.to_series().map(concept_weight_map)
-        # 新增-修改-优化: 使用矩阵乘法 (.dot product) 高效计算每日活跃概念的总权重
+        # 使用矩阵乘法 (.dot product) 高效计算每日活跃概念的总权重
         # stage_df.notna() 是一个布尔矩阵，.dot(aligned_weights) 等价于对每行中为True的列，查找其权重并求和
         daily_total_weight = stage_df.notna().dot(aligned_weights)
-        # 新增-修改-优化: 为每个阶段计算加权置信度分数 (向量化)
+        # 为每个阶段计算加权置信度分数 (向量化)
         stages = ['PREHEAT', 'MARKUP', 'STAGNATION', 'DOWNTREND']
         for stage in stages:
-            # 新增-修改-优化: 使用矩阵乘法高效计算每个阶段的加权和
+            # 使用矩阵乘法高效计算每个阶段的加权和
             # (stage_df == stage) 是一个布尔矩阵，.dot(aligned_weights) 计算每日属于该阶段的板块的权重之和
             stage_weight_sum = (stage_df == stage).dot(aligned_weights)
             stage_score = (stage_weight_sum / daily_total_weight.replace(0, np.nan)).fillna(0)
@@ -411,12 +411,12 @@ class ContextualAnalysisService:
         # 4. 使用 join (基于索引合并)
         merged_df = stock_themes_df.join(themes_hotness_df, how='left')
         # 6. 计算每日的综合热度分 (向量化优化)
-        # 新增-修改-优化: 先计算每个题材的热度分，生成一个新列
+        # 先计算每个题材的热度分，生成一个新列
         zt_weight = params.get('zt_num_weight', 0.7)
         up_weight = params.get('up_num_weight', 0.3)
         merged_df['daily_theme_hotness'] = (merged_df['z_t_num'].fillna(0) * zt_weight + 
                                             merged_df['up_num'].fillna(0) * up_weight)
-        # 新增-修改-优化: 然后按日期分组对新列求和，这比 groupby.apply 更高效
+        # 然后按日期分组对新列求和，这比 groupby.apply 更高效
         daily_hotness = merged_df.groupby(level='trade_date')['daily_theme_hotness'].sum()
         if daily_hotness.empty:
             return pd.DataFrame()

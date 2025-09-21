@@ -51,31 +51,47 @@ class StockRealtimeDAO(BaseDAO):
     # --- 写操作 (Write Operation) ---
     async def save_realtime_tick_in_bulk(self, stock_codes: List[str], trade_date: str) -> bool:
         """
-        【核心】并发获取、清洗、并持久化（DB+Cache）多支股票的当日实时逐笔数据。
-        
+        【V2.0 向量化重构版】并发获取、清洗、并持久化（DB+Cache）多支股票的当日实时逐笔数据。
+        - 核心优化: 彻底移除了原有的双重 for 循环，采用 Pandas 向量化操作 (explode, map, merge)
+                      来准备数据库载荷 (db_payload)。这极大地提升了处理海量逐笔数据时的性能。
         Returns:
             bool: 操作是否整体成功。
         """
         if not stock_codes:
             return True
-
         # 1. 并发获取原始数据
         tick_data_map = await self._fetch_raw_ticks_in_bulk(stock_codes, trade_date)
         if not tick_data_map:
             logger.warning("未能获取到任何股票的实时逐笔数据。")
             return False
-
-        # 2. 准备数据以便存入数据库
-        db_payload = []
-        stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(list(tick_data_map.keys()))
-        for stock_code, df_ticks in tick_data_map.items():
-            stock_obj = stocks_dict.get(stock_code)
-            if stock_obj:
-                for _, row in df_ticks.iterrows():
-                    record = row.to_dict()
-                    record['stock'] = stock_obj
-                    db_payload.append(record)
+        # --- 开始向量化处理以准备数据库载荷 ---
+        # 2.1. 将所有股票的DataFrame合并成一个大的DataFrame，并保留股票代码作为一列
+        # 将字典转换为 (stock_code, DataFrame) 的元组列表
+        df_list_with_codes = [(code, df.reset_index()) for code, df in tick_data_map.items()]
+        # 创建一个包含所有数据的长格式DataFrame
+        if not df_list_with_codes:
+            return False
         
+        all_ticks_df = pd.concat(
+            [df.assign(stock_code=code) for code, df in df_list_with_codes],
+            ignore_index=True
+        )
+        # 2.2. 批量获取所有需要的股票对象
+        all_stock_codes_in_df = all_ticks_df['stock_code'].unique().tolist()
+        stocks_map = await self.stock_basic_dao.get_stocks_by_codes(all_stock_codes_in_df)
+        # 2.3. 向量化映射：将股票对象映射到DataFrame的新列'stock'中
+        all_ticks_df['stock'] = all_ticks_df['stock_code'].map(stocks_map)
+        # 2.4. 过滤掉无法关联到股票对象的行，并选择最终需要的列
+        all_ticks_df.dropna(subset=['stock'], inplace=True)
+        if all_ticks_df.empty:
+            logger.warning("所有逐笔数据都无法关联到股票对象，无数据可保存。")
+            return False
+        
+        final_cols = ['stock', 'trade_time', 'price', 'volume', 'amount', 'type']
+        db_payload_df = all_ticks_df[final_cols]
+        # 2.5. 将处理好的DataFrame转换为字典列表，作为数据库载荷
+        db_payload = db_payload_df.to_dict('records')
+        # --- 向量化处理结束，原有的双重for循环已被完全移除 ---
         # 3. 并发执行数据库和缓存的持久化任务
         try:
             tasks = [
@@ -85,7 +101,6 @@ class StockRealtimeDAO(BaseDAO):
                 self.cache_set.batch_append_real_ticks(tick_data_map)
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
             # 检查任务执行结果
             success = True
             if isinstance(results[0], Exception):
@@ -94,7 +109,6 @@ class StockRealtimeDAO(BaseDAO):
             if not results[1] or isinstance(results[1], Exception):
                 logger.error(f"批量保存逐笔数据到缓存失败: {results[1]}", exc_info=isinstance(results[1], Exception) and results[1] or None)
                 success = False
-            
             return success
         except Exception as e:
             logger.error(f"save_realtime_tick_in_bulk 发生严重异常: {e}", exc_info=True)

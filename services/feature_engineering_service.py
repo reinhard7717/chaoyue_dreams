@@ -164,7 +164,7 @@ class FeatureEngineeringService:
                 # 兼容源数据可能为DataFrame的情况
                 if isinstance(source_series, pd.DataFrame):
                     source_series = source_series.iloc[:, 0]
-                # 新增-修改-优化: 优化Hurst计算逻辑
+                # 优化Hurst计算逻辑
                 # 先检查数据量是否足够进行至少一次计算
                 if len(source_series.dropna()) >= hurst_window:
                     # 直接在原始Series上进行滚动计算，避免了创建中间Series(.dropna())和昂贵的reindex操作

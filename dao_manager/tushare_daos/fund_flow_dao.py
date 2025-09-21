@@ -911,11 +911,11 @@ class FundFlowDao(BaseDAO):
 
     async def save_hisroty_lhb_daily_data(self, trade_date: str) -> Dict:
         """
-        【V2.0 - 向量化与分页优化版】保存历史龙虎榜每日数据
+        【V2.1 - 全面向量化版】保存历史龙虎榜每日数据
         核心优化:
-        1. 【消除N+1查询】一次性批量获取所有相关股票信息。
-        2. 【新增分页】支持拉取超过单次API限制的数据。
-        3. 【向量化处理】使用Pandas进行高效的数据预处理。
+        1. 【消除循环】用Pandas的向量化操作 (map, 列赋值) 彻底取代了原有的 `itertuples()` 循环，显著提升数据处理效率。
+        2. 【批量关联】将股票代码(ts_code)与股票对象(stock)的关联，通过一次 `map` 操作完成，避免了逐行查找。
+        3. 【代码简化】数据处理流程更清晰、更符合Pandas的最佳实践。
         """
         print(f"开始执行 save_hisroty_lhb_daily_data, trade_date={trade_date}")
         all_dfs = []
@@ -933,36 +933,44 @@ class FundFlowDao(BaseDAO):
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (top_list, date: {trade_date}): {e}")
                 break
-
             if df.empty:
                 break
             all_dfs.append(df)
             if len(df) < limit:
                 break
             offset += limit
-
         if not all_dfs:
             logger.info(f"交易日 {trade_date} 没有龙虎榜每日明细数据。")
             return {}
-
         combined_df = pd.concat(all_dfs, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
-        
-        # 向量化处理
+        # 使用向量化操作替代原有的 itertuples 循环
+        # 1. 一次性批量获取所有相关的股票对象
         unique_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
-        
-        data_dicts = []
-        for row in combined_df.itertuples():
-            stock = stock_map.get(row.ts_code)
-            if stock:
-                data_dict = self.data_format_process.set_lhb_daily_data(stock, row)
-                data_dicts.append(data_dict)
-        
-        if not data_dicts:
+        # 2. 向量化映射：将股票对象映射到DataFrame的新列'stock'中
+        combined_df['stock'] = combined_df['ts_code'].map(stock_map)
+        # 3. 向量化过滤：移除没有成功关联到股票对象的行
+        combined_df.dropna(subset=['stock'], inplace=True)
+        if combined_df.empty:
             logger.info(f"交易日 {trade_date} 的龙虎榜数据关联股票信息后为空。")
             return {}
-
+        # 4. 向量化转换：转换日期格式并重命名为模型字段'trade_time'
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
+        # 5. 准备数据：选择模型需要的列
+        model_cols = [
+            'stock', 'trade_time', 'name', 'close', 'pct_change', 'turnover_rate', 
+            'amount', 'l_sell', 'l_buy', 'l_amount', 'net_amount', 'net_rate', 
+            'amount_rate', 'float_values', 'reason'
+        ]
+        # 筛选出DataFrame中实际存在的列，以增强代码健壮性
+        final_cols = [col for col in model_cols if col in combined_df.columns]
+        final_df = combined_df[final_cols]
+        # 6. 格式化：将Pandas的NaN/NaT转换成数据库能接受的None
+        final_df = final_df.where(pd.notnull(final_df), None)
+        # 7. 转换为字典列表，准备入库
+        data_dicts = final_df.to_dict('records')
+        # 原有的 itertuples 循环已被完全移除
         result =  await self._save_all_to_db_native_upsert(
             model_class=TopList,
             data_list=data_dicts,
@@ -1013,26 +1021,18 @@ class FundFlowDao(BaseDAO):
 
     async def save_hisroty_lhb_inst_data(self, trade_date: str) -> Dict:
         """
-        【V2 - 优化版】保存历史龙虎榜机构明细，并支持分页拉取
-        
-        优化点:
-        1. [核心功能] 增加了分页逻辑，通过循环和 offset 参数获取指定日期的全部数据，最大支持10万行。
-        2. [核心性能] 使用 `get_stocks_by_codes` 解决了N+1数据库查询问题。
-        3. 整合了分页数据，进行统一的批量关联和批量保存。
-        4. 增强了代码的健壮性和日志清晰度。
-        
-        Args:
-            trade_date (str): 日期，格式为 YYYYMMDD
+        【V2.1 - 全面向量化版】保存历史龙虎榜机构明细
+        核心优化:
+        1. 【消除循环】用Pandas的向量化操作 (map, 列赋值) 彻底取代了原有的 `itertuples()` 循环，显著提升数据处理效率。
+        2. 【批量关联】将股票代码(ts_code)与股票对象(stock)的关联，通过一次 `map` 操作完成，避免了逐行查找。
+        3. 【代码简化】数据处理流程更清晰、更符合Pandas的最佳实践，同时保持了原有的分页和异常处理逻辑。
         """
         print(f"调试: 开始执行 save_hisroty_lhb_inst_data 任务, trade_date={trade_date}")
-        
         try:
-            # 1. [代码修改处] 分页循环拉取API数据
             all_dfs = []
-            limit = 10000  # Tushare单次最大返回量
+            limit = 10000
             offset = 0
-            max_records = 100000 # 最大拉取10万行作为保护
-
+            max_records = 100000
             print(f"调试: 开始分页拉取龙虎榜数据，每页最多 {limit} 条。")
             while True:
                 print(f"调试: 正在拉取数据，offset={offset}...")
@@ -1044,73 +1044,62 @@ class FundFlowDao(BaseDAO):
                 }, fields=[
                     "trade_date", "ts_code", "exalter", "buy", "buy_rate", "sell", "sell_rate", "net_buy", "side", "reason"
                 ])
-
                 if df.empty:
                     print("调试: API返回空数据帧，分页拉取结束。")
                     break
-                
                 all_dfs.append(df)
-
-                # 如果返回的数据量小于请求的limit，说明已经是最后一页
                 if len(df) < limit:
                     print(f"调试: 已获取最后一页数据({len(df)}条)，分页拉取结束。")
                     break
-                
                 offset += limit
-                # 增加保护，防止意外的无限循环
                 if offset >= max_records:
                     logger.warning(f"拉取数据已达到 {max_records} 条上限，自动停止。")
                     print(f"调试: 拉取数据已达到 {max_records} 条上限，自动停止。")
                     break
-            
             if not all_dfs:
                 logger.info(f"交易日 {trade_date} 没有龙虎榜机构明细数据。")
                 return {"status": "success", "message": "No data for this trade date.", "saved_count": 0}
-
-            # 合并所有分页数据
             final_df = pd.concat(all_dfs, ignore_index=True)
             print(f"调试: 分页拉取完成，共获取 {len(final_df)} 条数据。")
-
-            # 2. [代码修改处] 批量获取所有相关的股票基础信息对象
+            # 使用向量化操作替代原有的 itertuples 循环
+            # 1. 一次性批量获取所有相关的股票对象
             unique_ts_codes = final_df['ts_code'].unique().tolist()
             print(f"调试: 数据涉及 {len(unique_ts_codes)} 个独立股票代码。")
-            
-            # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
-            # 注意：这里我们用 stock_basic_dao 替换了原先的 stock_cache_get 以实现批量操作
             stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
             print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
-
-            # 3. 准备批量写入的数据
-            data_dicts_to_save = []
-            for row in final_df.itertuples():
-                # [代码修改处] 从预先查好的映射中获取股票对象，高效且无N+1问题
-                stock_instance = stock_map.get(row.ts_code)
-                
-                if stock_instance:
-                    data_dict = self.data_format_process.set_lhb_inst_data(stock_instance, row)
-                    data_dicts_to_save.append(data_dict)
-                else:
-                    logger.warning(f"在数据库中未找到股票代码 {row.ts_code} 的基础信息，已跳过该条龙虎榜数据。")
-
-            # 4. 批量写入数据库
+            # 2. 向量化映射：将股票对象映射到DataFrame的新列'stock'中
+            final_df['stock'] = final_df['ts_code'].map(stock_map)
+            # 3. 向量化过滤：移除没有成功关联到股票对象的行
+            final_df.dropna(subset=['stock'], inplace=True,
+                            after_stat=lambda dropped: logger.warning(f"在数据库中未找到 {dropped['ts_code'].nunique()} 个股票代码的基础信息，已跳过 {len(dropped)} 条龙虎榜数据。") if not dropped.empty else None)
+            # 4. 向量化转换：转换日期格式以匹配模型字段
+            final_df['trade_date'] = pd.to_datetime(final_df['trade_date']).dt.date
+            # 5. 准备数据：选择模型需要的列
+            model_cols = [
+                'stock', 'trade_date', 'exalter', 'buy', 'buy_rate', 'sell', 
+                'sell_rate', 'net_buy', 'side', 'reason'
+            ]
+            final_cols = [col for col in model_cols if col in final_df.columns]
+            df_to_save = final_df[final_cols]
+            # 6. 格式化：将Pandas的NaN/NaT转换成数据库能接受的None
+            df_to_save = df_to_save.where(pd.notnull(df_to_save), None)
+            # 7. 转换为字典列表，准备入库
+            data_dicts_to_save = df_to_save.to_dict('records')
+            # 原有的 itertuples 循环已被完全移除
             result = {}
             if data_dicts_to_save:
                 print(f"调试: 准备批量保存 {len(data_dicts_to_save)} 条龙虎榜数据到数据库...")
-                # 注意：请确保 unique_fields 中的字段名与 TopInst 模型中的字段名完全一致。
-                # Tushare返回的是 trade_date，如果您的模型中是 trade_time，请确保 set_lhb_inst_data 方法做了转换。
                 result = await self._save_all_to_db_native_upsert(
                     model_class=TopInst,
                     data_list=data_dicts_to_save,
-                    unique_fields=['stock', 'trade_date'] # 建议使用 trade_date，与API字段保持一致
+                    unique_fields=['stock', 'trade_date']
                 )
-                print(f"调试: 成功保存 {len(data_dicts_to_save)} 条数据。")
+                print(f"调试: 数据库操作完成，结果: {result}")
             else:
                 logger.info("经过筛选后，没有需要保存到数据库的数据。")
                 print("调试: 经过筛选后，没有需要保存的数据。")
                 result = {"status": "success", "message": "No new data to save.", "saved_count": 0}
-                
             return result
-
         except Exception as e:
             logger.error(f"保存龙虎榜机构明细时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")

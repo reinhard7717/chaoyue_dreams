@@ -201,7 +201,7 @@ class WeeklyContextEngine:
 
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """定义战场关键参照物"""
-        # 新增-修改-优化: 增加对核心OHLC列的依赖检查，从根源上防止KeyError崩溃。
+        # 增加对核心OHLC列的依赖检查，从根源上防止KeyError崩溃。
         required_cols = ['high_W', 'low_W', 'close_W']
         if not self._check_dependencies(df, required_cols, log_details=True):
             # 如果缺少关键列，则将输出列填充为NaN并返回，实现优雅降级。
@@ -219,7 +219,7 @@ class WeeklyContextEngine:
 
     def _analyze_candlestick_psychology(self, df: pd.DataFrame) -> pd.DataFrame:
         """解读周线K线心理学"""
-        # 新增-修改-优化: 增加依赖检查，确保K线形态识别所需的基础OHLC列存在。
+        # 增加依赖检查，确保K线形态识别所需的基础OHLC列存在。
         required_cols = ['open_W', 'high_W', 'low_W', 'close_W']
         if not self._check_dependencies(df, required_cols, log_details=True):
             # 如果缺少列，则将输出的心理学信号填充为False。
@@ -252,7 +252,7 @@ class WeeklyContextEngine:
 
     def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """标定动态风险控制线"""
-        # 新增-修改-优化: 将 close_W 也加入依赖检查，并使用统一的检查函数，优化日志。
+        # 将 close_W 也加入依赖检查，并使用统一的检查函数，优化日志。
         atr_col = 'ATR_14_W'
         required_cols = [atr_col, 'close_W']
         if not self._check_dependencies(df, required_cols, log_details=True):
@@ -355,7 +355,7 @@ class WeeklyContextEngine:
         检测价格与RSI指标的背离，提供极具价值的前瞻性信号。
         实现方式采用滚动窗口对比，避免了寻找精确波峰/波谷的数学陷阱，更贴近实战。
         """
-        # 新增-修改-优化: 增加对 high_W 和 low_W 的依赖检查，并确保在失败时输出列存在。
+        # 增加对 high_W 和 low_W 的依赖检查，并确保在失败时输出列存在。
         rsi_col = 'RSI_13_W'
         required_cols = [rsi_col, 'high_W', 'low_W']
         if not self._check_dependencies(df, required_cols, log_details=True):

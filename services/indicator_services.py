@@ -489,16 +489,16 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.8 双向对齐终极版】
-        - 核心修正: 在合并前，强制将主数据和所有补充数据的DatetimeIndex都标准化到午夜(normalize)。
-                    这确保了无论原始数据的时间戳是收盘时刻还是午夜，都能实现精确的日期对齐，
-                    从根本上杜绝了因时间部分不一致导致的合并失败和数据错位风险。
-        - 解决方案: 仅对多来源且存在同名列的资金流数据（fund_flow_*）添加来源后缀，确保所有资金流数据被完整保留。
-                   对于其他补充数据（如daily_basic），则沿用“移除冲突列”的策略，以保护主OHLCV数据的权威性。
+        【V8.9 性能优化版】
+        - 核心优化: 重构了补充数据的合并逻辑。之前是在循环中反复调用 `pd.merge`，每次合并都会创建新的DataFrame，
+                    存在性能开销。新版将所有待合并的补充DataFrame预处理后存入列表，最后通过一次 `df.join()` 
+                    操作完成所有合并。这减少了中间对象的创建，提高了数据合并阶段的执行效率和内存使用效率。
+        - 逻辑一致性: 保持了原有的列冲突处理（资金流加后缀，其他去重）和数据填充（ffill）逻辑不变，
+                      确保业务结果与之前版本完全一致。
         - 优化: 对整个方法进行了代码审查，并添加了详尽的中文注释，解释了每一步的逻辑。
         """
         # 更新版本号和日志信息
-        print(f"--- [数据准备V8.8] 开始为 {stock_code} 准备基础数据与指标 ---")
+        print(f"--- [数据准备V8.9] 开始为 {stock_code} 准备基础数据与指标 ---")
         # --- 步骤 1: 解析配置，确定需要计算的时间周期 ---
         # 从策略配置文件中，找出所有需要生成指标的时间周期（如 'D', 'W', 'M'）
         required_tfs = self._discover_required_timeframes_from_config(config)
@@ -613,45 +613,51 @@ class IndicatorService:
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
-        # print(f"    - [数据流追踪] 步骤1: 原始日线数据已加载，行数: {len(raw_dfs['D'])}")
-        # --- 步骤 8: 【核心逻辑】合并所有日级别数据 ---
+        # --- 步骤 8: 【核心逻辑-性能优化】合并所有日级别数据 ---
         # 将所有补充数据合并到主日线DataFrame中，形成一个包含所有信息的“大师版”日线数据
         df_daily_master = raw_dfs['D']
         # 日期对齐修复：在合并前，将主数据的索引标准化到午夜，消除时间部分差异。
         df_daily_master.index = df_daily_master.index.normalize()
+        # 准备一个列表来收集所有经过预处理、可以安全合并的补充数据
+        processed_supp_dfs_to_join = []
+        # 准备一个列表来收集所有新添加的列名，以便后续统一进行前向填充
+        all_new_cols = []
         for tag, df_supp in supplemental_dfs.items():
             # 标准化补充数据的索引为UTC时区，以便与主数据对齐
             df_supp_std = self._standardize_df_index_to_utc(df_supp)
-            if df_supp_std is not None and not df_supp_std.empty:
-                # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
-                df_supp_std.index = df_supp_std.index.normalize()
-                # 当处理高级筹码或高级资金流数据时，调用列名适配器
-                if tag in ['advanced_chips', 'advanced_fund_flow']:
-                    # print(f"    - [数据适配层] 检测到预计算数据源 '{tag}'，正在启动列名适配器...")
-                    df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
-                # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
-                if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
-                    suffix = f"_{tag}"
-                    df_supp_std = df_supp_std.add_suffix(suffix)
-                    # print(f"    - [数据合并] 为资金流数据源 '{tag}' 的所有列添加后缀 '{suffix}'。")
-                else:
-                    # 对于其他补充数据（如daily_basic），采用移除冲突列的保守策略，以保证OHLCV数据的权威性
-                    conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
-                    if not conflicting_cols.empty:
-                        # print(f"    - [数据合并] 在 '{tag}' 数据中发现冲突列: {list(conflicting_cols)}，将从补充数据中移除。")
-                        df_supp_std = df_supp_std.drop(columns=conflicting_cols)
-                # 获取处理后真正要被合并的新列名
-                new_cols_to_merge = df_supp_std.columns
-                if new_cols_to_merge.empty:
-                    # print(f"    - [数据合并] '{tag}' 数据在处理后无新列可合并，跳过。")
-                    continue
-                # 使用 'left' join 将处理后的补充数据合并到主日线数据中
-                df_daily_master = pd.merge(df_daily_master, df_supp_std, left_index=True, right_index=True, how='left')
-                # 对新合并的列进行前向填充（ffill），处理因节假日等原因造成的缺失值
-                df_daily_master[list(new_cols_to_merge)] = df_daily_master[list(new_cols_to_merge)].ffill()
+            if df_supp_std is None or df_supp_std.empty:
+                continue
+            # 日期对齐修复：同样将补充数据的索引标准化到午夜，确保双向对齐。
+            df_supp_std.index = df_supp_std.index.normalize()
+            # 当处理高级筹码或高级资金流数据时，调用列名适配器
+            if tag in ['advanced_chips', 'advanced_fund_flow']:
+                df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
+            # 仅对 fund_flow_dao 相关的数据源添加后缀，因为它们之间存在大量同名列，需要区分来源
+            if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
+                suffix = f"_{tag}"
+                df_supp_std = df_supp_std.add_suffix(suffix)
+            else:
+                # 对于其他补充数据（如daily_basic），采用移除冲突列的保守策略，以保证OHLCV数据的权威性
+                conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
+                if not conflicting_cols.empty:
+                    df_supp_std = df_supp_std.drop(columns=conflicting_cols)
+            # 如果处理后还有可合并的列，则将其加入待合并列表
+            if not df_supp_std.columns.empty:
+                processed_supp_dfs_to_join.append(df_supp_std) # 将处理好的DataFrame添加到列表中
+                all_new_cols.extend(df_supp_std.columns) # 收集新列的名称
+        # 执行一次性的高效合并操作
+        if processed_supp_dfs_to_join:
+            # 使用 'join' 方法一次性合并所有补充数据，它基于索引进行左连接，效率高于循环merge
+            df_daily_master = df_daily_master.join(processed_supp_dfs_to_join, how='left')
+            # 对所有新合并的列进行一次性的前向填充（ffill），处理因节假日等原因造成的缺失值
+            # 使用set去重，然后转为list，以防万一有重复的列名
+            unique_new_cols = list(set(all_new_cols))
+            # 确保这些列确实存在于合并后的DataFrame中
+            cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
+            if cols_to_ffill:
+                df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
-        # print(f"    - [数据流追踪] 步骤2: 所有日级别数据已合并，主日线现有列数: {len(df_daily_master.columns)}")
         # --- 步骤 9: 执行重采样，生成周线和月线数据 ---
         if resample_map:
             df_daily = raw_dfs['D'] # 现在 df_daily 是包含所有信息的“大师版”
@@ -689,7 +695,6 @@ class IndicatorService:
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
                         raw_dfs[target_tf] = df_resampled
-                        # print(f"      -> 合成完成，生成 {len(df_resampled)} 条 '{target_tf}' 周期记录，列数: {len(df_resampled.columns)}")
         # --- 步骤 10: 并发计算所有时间周期的技术指标 ---
         processed_dfs: Dict[str, pd.DataFrame] = {}
         calc_tasks = []
@@ -717,26 +722,28 @@ class IndicatorService:
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V8.1 健壮性修复版】高级指标合成室
+        【V8.2 健壮性修复与调试增强版】高级指标合成室
         专门用于从日线数据中，为周线数据合成那些依赖日内过程的复杂指标。
         - 核心修复: 增加了对 `ta.rma` 返回值为 None 的检查。当周线数据不足以计算RSI时，
                     程序不再崩溃，而是将周线RSI列填充为NaN，显著提高了对短历史数据股票的处理能力。
+        - 调试增强: 根据用户要求，在RSI计算失败时，增加 `print` 调试信息输出。
         """
         # print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
         synthetic_indicators = pd.DataFrame(index=df_weekly.index)
         # --- 1. 合成周线CMF (Chaikin Money Flow) ---
-        # 步骤1.1: 在日线上计算每日的“资金流成交量” (Money Flow Volume)
+        # 步骤1.1: 在日线上计算每日的“资金流乘数” (Money Flow Multiplier)
         mfm = ((df_daily['close'] - df_daily['low']) - (df_daily['high'] - df_daily['close'])) / (df_daily['high'] - df_daily['low'])
-        mfm = mfm.fillna(0)
+        mfm = mfm.fillna(0) # 用0填充NaN值
+        # 步骤1.2: 计算每日的“资金流成交量” (Money Flow Volume)
         daily_mfv = mfm * df_daily['volume']
-        # 步骤1.2: 将“日资金流成交量”和“日成交量”按周进行求和
+        # 步骤1.3: 将“日资金流成交量”和“日成交量”按周进行求和
         weekly_mfv_sum = daily_mfv.resample('W-FRI').sum()
         weekly_volume_sum = df_daily['volume'].resample('W-FRI').sum()
-        # 步骤1.3: 在周线级别上，计算最终的21周CMF
+        # 步骤1.4: 在周线级别上，计算最终的21周CMF
         cmf_period = 21
         cmf_numerator = weekly_mfv_sum.rolling(window=cmf_period).sum()
         cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
-        # 避免除以零
+        # 避免除以零的错误
         synthetic_indicators['CMF_21_W'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
         # --- 2. 合成周线RSI (Relative Strength Index) ---
         # 步骤2.1: 在日线上计算每日的价格变动
@@ -752,18 +759,18 @@ class IndicatorService:
         # 使用 pandas_ta 的 rma (Wilder's Moving Average) 来计算平均增益和平均损失，这是计算RSI的标准方法
         avg_gain = ta.rma(weekly_gain_sum, length=rsi_period)
         avg_loss = ta.rma(weekly_loss_sum, length=rsi_period)
-        # 新增-修改-优化: 增加对None值的健壮性检查，防止因数据不足导致程序崩溃
+        # 增加对None值的健壮性检查，防止因数据不足导致程序崩溃
         if avg_gain is None or avg_loss is None:
-            print(f"调试信息: 合成周线RSI失败，因为 avg_gain 或 avg_loss 为 None。通常是由于周线数据不足 {rsi_period} 条所致。")
-            logger.warning(f"合成周线RSI失败：平均增益或平均损失计算结果为None，可能因数据不足。将填充NaN。")
+            print(f"调试信息: 合成周线RSI失败，因为 avg_gain 或 avg_loss 为 None。通常是由于周线数据不足 {rsi_period} 条所致。") # 增加调试信息输出
             # 确保即使计算失败，列也存在，值为NaN，保证下游数据结构一致性
             synthetic_indicators['RSI_13_W'] = np.nan
         else:
             # 步骤2.5: 计算相对强度(RS) - 现在这部分代码是安全的
-            rs = avg_gain / (avg_loss + 1e-9) # 加上一个极小值防止除以零
+            # 加上一个极小值防止除以零
+            rs = avg_gain / (avg_loss + 1e-9) 
             # 步骤2.6: 计算RSI
             rsi = 100 - (100 / (1 + rs))
-            # 将结果添加到DataFrame中，注意不要加后缀
+            # 将结果添加到DataFrame中
             synthetic_indicators['RSI_13_W'] = rsi
         # print("      -> [高级指标合成室] 合成完成。")
         return synthetic_indicators

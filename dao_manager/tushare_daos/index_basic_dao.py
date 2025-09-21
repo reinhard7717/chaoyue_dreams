@@ -156,33 +156,34 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_trade_cal(self) -> Dict:
         """
-        保存交易日历到数据库
-        接口：trade_cal
-        描述：获取交易日历数据，默认提取的是上交所交易日历。
-        权限：用户需要1000积分可以调取，具体请参阅积分获取办法
-        Returns:
-            Dict: 保存结果
+        【V2.0 向量化优化版】保存交易日历到数据库
+        - 核心优化: 使用Pandas向量化操作替代 `itertuples()` 循环，大幅提升数据处理效率。
         """
-        result = {}
         # 拉取数据
         df = self.ts_pro.trade_cal(**{
             "exchange": "", "cal_date": "", "start_date": "", "end_date": "", "is_open": "", "limit": "", "offset": ""
         }, fields=[
             "exchange", "cal_date", "is_open", "pretrade_date"
         ])
-        trade_cal_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                trade_cal_dict = self.data_format_process.set_trade_calendar_data(row)
-                trade_cal_dicts.append(trade_cal_dict)
-        if trade_cal_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=TradeCalendar,
-                data_list=trade_cal_dicts,
-                unique_fields=['exchange', 'cal_date']
-            )
+        if df is None or df.empty:
+            return {}
+        # --- 向量化数据处理 ---
+        # 1. 统一处理空值
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        # 2. 向量化转换日期列，无效日期会转换为NaT(Not a Time)
+        df['cal_date'] = pd.to_datetime(df['cal_date'], format='%Y%m%d').dt.date
+        df['pretrade_date'] = pd.to_datetime(df['pretrade_date'], format='%Y%m%d', errors='coerce').dt.date
+        # 3. 将Pandas的NaT/NaN转换成数据库能接受的None，并直接生成字典列表
+        trade_cal_dicts = df.where(pd.notnull(df), None).to_dict('records')
+        # --- 原有的 itertuples() 循环已被移除 ---
+        if not trade_cal_dicts:
+            return {}
+        # 保存到数据库
+        result = await self._save_all_to_db_native_upsert(
+            model_class=TradeCalendar,
+            data_list=trade_cal_dicts,
+            unique_fields=['exchange', 'cal_date']
+        )
         return result
 
     # ============== 指数基本信息 ==============
@@ -289,15 +290,14 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_indexs(self) -> Dict:
         """
-        保存指数信息到数据库
-        接口：index_basic，可以通过数据工具调试和查看数据。
-        描述：获取指数基础信息。
+        【V2.0 向量化优化版】保存指数信息到数据库
+        - 核心优化: 使用Pandas向量化操作替代 `itertuples()` 循环，提升数据处理效率。
         """
         result = {}
         # 拉取数据
         all_dfs = []
         offset = 0
-        limit = 8000  # tushare pro接口最大limit一般为8000
+        limit = 8000
         while True:
             df = self.ts_pro.index_basic(**{
                 "ts_code": "", "market": "", "publisher": "", "category": "", "name": "", "limit": limit, "offset": offset
@@ -309,21 +309,30 @@ class IndexBasicDAO(BaseDAO):
             if len(df) < limit:
                 break
             offset += limit
-        # 合并所有df
         result_df = pd.concat(all_dfs, ignore_index=True)
-        
-        index_dicts = []
-        if result_df is not None:
-            result_df = result_df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            result_df = result_df.where(pd.notnull(result_df), None)          # 再把所有np.nan变成None
-            for row in result_df.itertuples():
-                index_dict = self.data_format_process.set_index_info_data(row)
-                index_dicts.append(index_dict)
-                await self.index_cache_set.index_info(row.ts_code, index_dict)
-            await self.index_cache_set.all_indexes(index_dicts)
+        if result_df is None or result_df.empty:
+            return {}
+        # --- 向量化数据处理 ---
+        # 1. 统一处理空值
+        result_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        # 2. 向量化转换所有日期列
+        date_cols = ['base_date', 'list_date', 'exp_date']
+        for col in date_cols:
+            if col in result_df.columns:
+                result_df[col] = pd.to_datetime(result_df[col], format='%Y%m%d', errors='coerce').dt.date
+        # 3. 向量化重命名列以匹配模型字段
+        result_df.rename(columns={'ts_code': 'index_code'}, inplace=True)
+        # 4. 将Pandas的NaT/NaN转换成None，并生成字典列表
+        index_dicts = result_df.where(pd.notnull(result_df), None).to_dict('records')
+        # --- 原有的 itertuples() 循环已被移除 ---
+        # 缓存操作
+        for index_dict in index_dicts:
+            if index_dict.get('index_code'):
+                await self.index_cache_set.index_info(index_dict['index_code'], index_dict)
+        await self.index_cache_set.all_indexes(index_dicts)
         if index_dicts:
             # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
+            result = await self._save_all_to_db_native_upsert(
                 model_class=IndexInfo,
                 data_list=index_dicts,
                 unique_fields=['index_code']
@@ -342,35 +351,53 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_weight_monthly(self) -> Dict:
         """
-        保存指数成分到数据库
-        接口：index_weight
-        描述：获取各类指数成分和权重，月度数据 ，建议输入参数里开始日期和结束日分别输入当月第一天和最后一天的日期。
-        来源：指数公司网站公开数据
-        积分：用户需要至少2000积分才可以调取，具体请参阅积分获取办法
+        【V2.0 向量化与N+1优化版】保存指数成分到数据库
+        - 核心优化:
+          1. 【消除N+1查询】一次性批量获取所有指数信息，避免在循环中查询数据库。
+          2. 【向量化处理】使用Pandas的向量化操作替代 `itertuples()` 循环，大幅提升效率。
+          3. 【逻辑修正】使用正确的外键对象和字段作为唯一性约束，提升数据库操作性能。
         """
-        result = {}
         first_day, last_day = self.get_month_first_last_day()
         # 拉取数据
         df = self.ts_pro.index_weight(**{
-            "index_code": "", "trade_date": "", "start_date": first_day.strftime('%Y%m%d'), "end_date": last_day.strftime('%Y%m%d'), "ts_code": "", "limit": "", "offset": ""
-        }, fields=[ "index_code", "con_code", "trade_date", "weight" ])
-        index_weight_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                index_info = await self.get_index_by_code(row.index_code)
-                index_weight_dict = self.data_format_process.set_index_weight_data(index_info=index_info,api_data=row)
-                if index_weight_dict.get('index_code') is None:
-                    print(f"row: {row}, index_info: {index_info}, index_weight_dict: {index_weight_dict}")
-                index_weight_dicts.append(index_weight_dict)
-        if index_weight_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexWeight,
-                data_list=index_weight_dicts,
-                unique_fields=['index_code', 'trade_date']
-            )
+            "index_code": "", "trade_date": "", "start_date": first_day.strftime('%Y%m%d'), "end_date": last_day.strftime('%Y%m%d'), "limit": "", "offset": ""
+        }, fields=["index_code", "con_code", "trade_date", "weight"])
+        if df is None or df.empty:
+            return {}
+        # --- 数据清洗与预处理 ---
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        df.dropna(subset=['index_code', 'con_code', 'trade_date'], inplace=True)
+        if df.empty:
+            return {}
+        # --- N+1查询优化 ---
+        unique_index_codes = df['index_code'].unique().tolist()
+        index_info_map = await self.get_indices_by_codes(unique_index_codes)
+        # --- 向量化处理 ---
+        # 1. 将指数对象映射到DataFrame的新列'index'中
+        df['index'] = df['index_code'].map(index_info_map)
+        # 2. 过滤掉无法关联到指数对象的行
+        df.dropna(subset=['index'], inplace=True)
+        if df.empty:
+            logger.warning("所有指数成分数据都无法关联到已知的指数信息，任务终止。")
+            return {}
+        # 3. 向量化转换日期和重命名列
+        df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+        df.rename(columns={'con_code': 'stock_code'}, inplace=True)
+        # 4. 选择模型需要的最终列
+        final_cols = ['index', 'stock_code', 'trade_time', 'weight']
+        df_final = df[final_cols]
+        # 5. 将NaN转为None，并生成字典列表
+        index_weight_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
+        # --- 原有的 itertuples() 循环和N+1查询已被移除 ---
+        if not index_weight_dicts:
+            return {}
+        # 保存到数据库
+        # 逻辑修正：使用 'index', 'stock_code', 'trade_time' 作为联合唯一键，更高效且符合ORM规范
+        result = await self._save_all_to_db_native_upsert(
+            model_class=IndexWeight,
+            data_list=index_weight_dicts,
+            unique_fields=['index', 'stock_code', 'trade_time']
+        )
         return result
 
     async def save_index_weight_history_by_index_code(self, index_code) -> Dict:
@@ -423,108 +450,76 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
-        【优化版】保存指数每日指标到数据库
-        接口：index_daily
-        描述：获取指定指数列表或全部指数的每日行情数据并保存。
-        
-        优化点:
-        1.  **消除N+1查询**: 在循环前一次性获取所有需要的IndexInfo对象，存入字典中快速查找，避免循环查询数据库。
-        2.  **代码结构优化**: 将常量提取出来，提高可读性和可维护性。
-        3.  **日志改进**: 使用更详细的日志记录代替部分print，便于追踪。
-        4.  **输入处理**: 优化了当 index_codes 未提供时的处理逻辑，直接调用高效的 get_all_index_codes 方法。
+        【V2.0 向量化内循环优化版】保存指数每日指标到数据库
+        - 核心优化:
+          1. 【向量化内循环】将分页获取数据后的 `itertuples()` 循环替换为Pandas向量化操作。
+          2. 【逻辑修正】使用正确的外键对象作为唯一性约束字段。
+          3. 保留了原有的批量获取指数信息和分批入库的优点。
         """
-        # --- 1. 定义常量和初始化 ---
-        BATCH_SAVE_SIZE = 100000  # 每10万条数据保存一次
-        API_REQUEST_LIMIT = 8000  # Tushare API单次请求最大行数
-        API_CALL_DELAY_SECONDS = 0.5 # Tushare API调用间隔，避免频率超限
-        
-        today = datetime.date.today() # 代码修改处: 使用 date 对象，与 start_date/end_date 类型统一
-        
-        # --- 2. 获取并准备指数代码和信息 ---
+        BATCH_SAVE_SIZE = 100000
+        API_REQUEST_LIMIT = 8000
+        API_CALL_DELAY_SECONDS = 0.5
+        today = datetime.date.today()
         if not index_codes:
             logger.info("未提供指数代码列表，将获取所有指数代码。")
-            index_codes = await self.get_all_index_codes() # 代码修改处: 调用您新增的高效方法
-        
+            index_codes = await self.get_all_index_codes()
         if not index_codes:
             logger.warning("数据库中无任何指数信息，任务提前结束。")
             return {"status": "warning", "message": "No index codes found."}
-
-        # 代码修改处: (核心优化) 一次性查询所有需要的 IndexInfo 对象
         logger.info(f"准备处理 {len(index_codes)} 个指数。正在一次性从数据库获取其详细信息...")
-        index_info_queryset = IndexInfo.objects.filter(index_code__in=index_codes)
-        # 代码修改处: 将查询结果构建成字典以便O(1)复杂度快速查找
-        index_info_map = {info.index_code: info async for info in index_info_queryset}
+        index_info_map = await self.get_indices_by_codes(index_codes)
         logger.info(f"成功获取并映射了 {len(index_info_map)} 个指数的详细信息。")
-
-        # --- 3. 循环处理每个指数 ---
         index_daily_dicts = []
         final_result = None
-        
         for i, index_code in enumerate(index_codes):
-            index_info = index_info_map.get(index_code) # 代码修改处: 从字典中快速获取，无DB查询
+            index_info = index_info_map.get(index_code)
             if not index_info:
                 logger.warning(f"跳过处理: 在数据库中未找到代码为 {index_code} 的指数信息。")
                 continue
-
-            # 确定查询的起止日期
             start_date_str = start_date.strftime('%Y%m%d') if start_date else index_info.list_date
             end_date_str = end_date.strftime('%Y%m%d') if end_date else today.strftime('%Y%m%d')
-            
             offset = 0
             while True:
-                # Tushare的offset有10万的上限，这里做一个保护
                 if offset >= 100000:
                     logger.warning(f"Tushare API offset达到10万上限，已停止为指数 {index_code} 继续拉取更早的数据。")
                     break
-                
-                # 调用Tushare API
                 df = self.ts_pro.index_daily(
-                    ts_code=index_code, 
-                    start_date=start_date_str, 
-                    end_date=end_date_str, 
-                    limit=API_REQUEST_LIMIT, 
-                    offset=offset
+                    ts_code=index_code, start_date=start_date_str, end_date=end_date_str,
+                    limit=API_REQUEST_LIMIT, offset=offset
                 )
-                
                 if df is not None and not df.empty:
                     logger.info(f"进度: {i+1}/{len(index_codes)} | 指数: {index_code} | 日期: {start_date_str}-{end_date_str} | 本次获取: {len(df)}条 | 累计待存: {len(index_daily_dicts) + len(df)}条")
-                    
-                    # 数据清洗和格式化
+                    # --- 向量化内循环处理 ---
                     df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-                    df.where(pd.notnull(df), None, inplace=True)
-                    for row in df.itertuples(index=False):
-                        index_daily_dict = self.data_format_process.set_index_daily_data(index_info=index_info, api_data=row)
-                        index_daily_dicts.append(index_daily_dict)
-                    
-                    # --- 4. 批量保存数据 ---
+                    df['index'] = index_info
+                    df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+                    df.rename(columns={'pct_chg': 'pct_change', 'ts_code': 'index_code'}, inplace=True)
+                    model_cols = ['index', 'index_code', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+                    df_final = df[[col for col in model_cols if col in df.columns]]
+                    new_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
+                    index_daily_dicts.extend(new_dicts)
+                    # --- 原有的 itertuples() 循环已被移除 ---
                     if len(index_daily_dicts) >= BATCH_SAVE_SIZE:
                         logger.info(f"数据缓存池达到 {len(index_daily_dicts)} 条，开始批量写入数据库...")
                         final_result = await self._save_all_to_db_native_upsert(
                             model_class=IndexDaily,
                             data_list=index_daily_dicts,
-                            unique_fields=['index_code', 'trade_time']
+                            unique_fields=['index', 'trade_time'] # 逻辑修正
                         )
                         logger.info(f"批量写入完成。结果: {final_result}")
                         index_daily_dicts.clear()
-                
-                # API调用延迟
-                await asyncio.sleep(API_CALL_DELAY_SECONDS) # 代码修改处: 使用 asyncio.sleep 替代 time.sleep
-                
+                await asyncio.sleep(API_CALL_DELAY_SECONDS)
                 if df is None or len(df) < API_REQUEST_LIMIT:
-                    break # 如果返回数据为空或小于limit，说明已获取完所有数据
-                
+                    break
                 offset += API_REQUEST_LIMIT
-
-        # --- 5. 保存循环结束后剩余的数据 ---
         if index_daily_dicts:
             logger.info(f"所有指数处理完毕，正在保存最后剩余的 {len(index_daily_dicts)} 条数据...")
             final_result = await self._save_all_to_db_native_upsert(
                 model_class=IndexDaily,
                 data_list=index_daily_dicts,
-                unique_fields=['index_code', 'trade_time']
+                unique_fields=['index', 'trade_time'] # 逻辑修正
             )
             logger.info(f"最后的批量写入完成。结果: {final_result}")
-
         logger.info("指数每日指标历史数据保存任务全部完成。")
         return final_result
 
@@ -541,137 +536,145 @@ class IndexBasicDAO(BaseDAO):
 
     async def save_index_daily_basic_today(self) -> Dict:
         """
-        接口：index_dailybasic，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日指标数据
-        数据来源：Tushare社区统计计算
-        数据历史：从2004年1月开始提供
-        数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
+        【V2.0 优化版】保存当天的大盘指数每日指标。
+        - 核心优化: 调用可复用的 `_save_index_daily_basic_by_date` 辅助方法，实现高效的向量化处理和N+1查询消除。
         """
-        # 获取当前日期
-        today = datetime.datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        index_dailybasic_dicts = []
-        df = self.ts_pro.index_dailybasic(**{
-            "trade_date": today_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
-        }, fields=[
-            "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-            "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-        ])
-        if not df.empty:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                index_info = await self.get_index_by_code(row.ts_code)
-                # print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
-                index_dailybasic_dicts.append(index_dailybasic_dict)
-        if index_dailybasic_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDailyBasic,
-                data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
-            return result
-        else:
-            return None
+        # 直接调用重构后的辅助方法
+        today = datetime.date.today()
+        return await self._save_index_daily_basic_by_date(today)
 
     async def save_index_daily_basic_yesterday(self) -> Dict:
         """
-        接口：index_dailybasic，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日指标数据
-        数据来源：Tushare社区统计计算
-        数据历史：从2004年1月开始提供
-        数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
+        【V2.0 优化版】保存昨天的大盘指数每日指标。
+        - 核心优化: 调用可复用的 `_save_index_daily_basic_by_date` 辅助方法，实现高效的向量化处理和N+1查询消除。
         """
-        # 获取当前日期
-        today = datetime.datetime.today()
-        yesterday = today - datetime.timedelta(days=1)  # 用timedelta减去1天，得到昨天的日期时间
-        # 转换为YYYYMMDD格式
-        day_str = yesterday.strftime('%Y%m%d')
-        index_dailybasic_dicts = []
+        # 直接调用重构后的辅助方法
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        return await self._save_index_daily_basic_by_date(yesterday)
+
+    async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
+        """
+        【V2.0 向量化内循环优化版】保存历史大盘指数每日指标
+        - 核心优化:
+          1. 【向量化内循环】将分页获取数据后的 `itertuples()` 循环替换为Pandas向量化操作。
+          2. 【逻辑修正】使用正确的外键对象作为唯一性约束字段。
+        """
+        today = datetime.date.today()
+        # 注意：此接口只提供部分大盘指数，直接获取所有指数可能导致不必要的API调用。
+        # Tushare文档建议直接调用，它会返回所有可用的指数数据。
+        # 因此，我们不再循环获取指数列表，而是直接进行一次范围查询。
+        start_date_str = start_date.strftime('%Y%m%d') if start_date else '20040101' # 数据最早从2004年开始
+        end_date_str = end_date.strftime('%Y%m%d') if end_date else today.strftime('%Y%m%d')
+        all_dfs = []
+        offset = 0
+        limit = 8000
+        while True:
+            if offset >= 100000:
+                logger.warning(f"大盘指数每日指标 offset已达10万，停止拉取。")
+                break
+            df = self.ts_pro.index_dailybasic(**{
+                "ts_code": "", "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
+            }, fields=[
+                "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
+                "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
+            ])
+            if df is None or df.empty:
+                break
+            all_dfs.append(df)
+            await asyncio.sleep(0.3) # 使用异步sleep
+            if len(df) < limit:
+                break
+            offset += limit
+        if not all_dfs:
+            return {}
+        # --- 向量化处理 ---
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
+        combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        combined_df.dropna(subset=['ts_code'], inplace=True)
+        if combined_df.empty:
+            return {}
+        # --- N+1查询优化 ---
+        unique_ts_codes = combined_df['ts_code'].unique().tolist()
+        index_info_map = await self.get_indices_by_codes(unique_ts_codes)
+        # --- 向量化处理 ---
+        combined_df['index'] = combined_df['ts_code'].map(index_info_map)
+        combined_df.dropna(subset=['index'], inplace=True)
+        if combined_df.empty:
+            return {}
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], format='%Y%m%d').dt.date
+        model_cols = ['index', 'trade_time', 'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share', 'turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
+        final_df = combined_df[[col for col in model_cols if col in combined_df.columns]]
+        data_list = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        if not data_list:
+            return {}
+        # --- 批量保存 ---
+        result = await self._save_all_to_db_native_upsert(
+            model_class=IndexDailyBasic,
+            data_list=data_list,
+            unique_fields=['index', 'trade_time'] # 逻辑修正
+        )
+        print(f"保存大盘指数每日指标历史数据完成。")
+        return result
+
+    async def _save_index_daily_basic_by_date(self, target_date: datetime.date) -> Optional[Dict]:
+        """
+        【V1.0 新增辅助方法】根据指定日期，获取并保存大盘指数每日指标。
+        - 核心优化:
+          1. 【消除N+1查询】一次性批量获取所有指数信息，避免在循环中查询数据库。
+          2. 【向量化处理】使用Pandas的向量化操作替代 itertuples() 循环，大幅提升效率。
+          3. 【逻辑修正】使用正确的外键对象作为唯一性约束字段。
+        Args:
+            target_date (datetime.date): 目标日期
+        Returns:
+            Optional[Dict]: 保存结果或None
+        """
+        # 将日期转换为Tushare API要求的YYYYMMDD格式字符串
+        date_str = target_date.strftime('%Y%m%d')
+        # 调用API获取数据
         df = self.ts_pro.index_dailybasic(**{
-            "trade_date": day_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
+            "trade_date": date_str, "ts_code": "", "start_date": "", "end_date": "", "limit": "", "offset": ""
         }, fields=[
             "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
             "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
         ])
-        if not df.empty:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                index_info = await self.get_index_by_code(row.ts_code)
-                # print(f"index_info: {index_info}, type {type(index_info)}")  # 添加日志输出以检查 index_info 的内容和类型
-                index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index_info, api_data=row)
-                index_dailybasic_dicts.append(index_dailybasic_dict)
-        if index_dailybasic_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDailyBasic,
-                data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
-            return result
-        else:
+        if df is None or df.empty:
+            logger.info(f"日期 {date_str} 没有大盘指数每日指标数据。")
             return None
-
-    async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
-        """
-        接口：index_dailybasic，可以通过数据工具调试和查看数据。
-        描述：目前只提供上证综指，深证成指，上证50，中证500，中小板指，创业板指的每日指标数据
-        数据来源：Tushare社区统计计算
-        数据历史：从2004年1月开始提供
-        数据权限：用户需要至少400积分才可以调取，具体请参阅积分获取办法
-        """
-        # 获取当前日期
-        today = datetime.datetime.today()
-        # 转换为YYYYMMDD格式
-        today_str = today.strftime('%Y%m%d')
-        indexs = await self.get_index_list()
-        index_dailybasic_dicts = []
-        for index in indexs:
-            start_date_str = index.list_date
-            end_date_str = today_str
-            if start_date is not None:
-                start_date_str = start_date.strftime('%Y%m%d')
-            if end_date is not None:
-                end_date_str = end_date.strftime('%Y%m%d')
-            # 拉取数据
-            offset = 0
-            limit = 6000  # tushare pro接口最大limit一般为8000
-            while True:
-                if offset >= 100000:
-                    logger.warning(f"大盘指数每日指标 offset已达10万，停止拉取。")
-                    break
-                # 拉取数据
-                df = self.ts_pro.index_daily(**{
-                    "trade_date": "", "ts_code": index.index_code, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
-                }, fields=[
-                    "ts_code", "trade_date", "total_mv", "float_mv", "total_share", "float_share", "free_share",
-                    "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"
-                ])
-                if not df.empty:
-                    df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-                    df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-                    for row in df.itertuples():
-                        index_dailybasic_dict = self.data_format_process.set_index_daily_basic_data(index_info=index, api_data=row)
-                        index_dailybasic_dicts.append(index_dailybasic_dict)
-                # print(f"index: {index.index_code}, len: {len(index_dailybasic_dicts)}")
-                time.sleep(0.3)
-                if len(df) < limit:
-                    break
-                offset += limit
-        if index_dailybasic_dicts:
-            # 保存到数据库
-            result =  await self._save_all_to_db_native_upsert(
-                model_class=IndexDailyBasic,
-                data_list=index_dailybasic_dicts,
-                unique_fields=['index_code', 'trade_time']
-            )
-            print(f"保存 {index.index_code} 大盘指数每日指标, freq=Day")
+        # --- 数据清洗与预处理 ---
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        df.dropna(subset=['ts_code'], inplace=True)
+        if df.empty:
+            return None
+        # --- N+1查询优化 ---
+        # 1. 一次性获取所有需要的指数代码
+        unique_ts_codes = df['ts_code'].unique().tolist()
+        # 2. 一次性从数据库查询所有指数对象
+        index_info_map = await self.get_indices_by_codes(unique_ts_codes)
+        # --- 向量化处理 ---
+        # 3. 将指数对象映射到DataFrame的新列'index'中
+        df['index'] = df['ts_code'].map(index_info_map)
+        # 4. 过滤掉无法关联到指数对象的行
+        df.dropna(subset=['index'], inplace=True)
+        if df.empty:
+            return None
+        # 5. 向量化转换日期格式
+        df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+        # 6. 选择模型需要的列
+        model_cols = ['index', 'trade_time', 'total_mv', 'float_mv', 'total_share', 'float_share', 'free_share', 'turnover_rate', 'turnover_rate_f', 'pe', 'pe_ttm', 'pb']
+        final_df = df[[col for col in model_cols if col in df.columns]]
+        # 7. 将NaN转为None，并生成字典列表
+        data_list = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        if not data_list:
+            return None
+        # --- 批量保存 ---
+        # 逻辑修正：使用 'index' 对象作为唯一键，更高效且符合ORM规范
+        result = await self._save_all_to_db_native_upsert(
+            model_class=IndexDailyBasic,
+            data_list=data_list,
+            unique_fields=['index', 'trade_time']
+        )
         return result
-
 
 
 

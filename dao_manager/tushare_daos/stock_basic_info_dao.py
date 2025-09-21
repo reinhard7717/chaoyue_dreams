@@ -203,36 +203,48 @@ class StockBasicInfoDao(BaseDAO):
 
     async def save_stocks(self) -> Dict:
         """
-        通过tushare获取股票数据并保存到数据库
+        【V2.0 向量化优化版】通过tushare获取股票数据并保存到数据库
+        - 核心优化: 使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        from stock_models.stock_basic import StockInfo
-        stock_dicts = []
-        cache_dicts = []
+        # 从Tushare API获取所有股票基本信息
         df = self.ts_pro.stock_basic(**{
             "ts_code": "", "name": "", "exchange": "", "market": "", "is_hs": "", "list_status": "", "limit": "", "offset": ""
         }, fields=[
             "ts_code", "symbol", "name", "area", "industry", "cnspell", "market", "list_date", "act_name", "act_ent_type",
             "fullname", "enname", "exchange", "curr_type", "list_status", "delist_date", "is_hs"
         ])
-        # logger.info(f"save_stocks: {df.columns}")
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                # logger.info(f"save_stocks: {row}")
-                stock_dict = self.data_format_process.set_stock_info_data(row)
-                cache_dict = self.data_format_process.set_stock_info_basic_data(row)
-                await self.stock_cache_set.stock_basic_info(row.ts_code, cache_dict)
-                stock_dicts.append(stock_dict)
-                cache_dicts.append(cache_dict)
-            await self.stock_cache_set.all_stocks(cache_dicts)
-        if stock_dicts is not None:
+        if df is None or df.empty:
+            return {}
+        # --- 开始向量化处理 ---
+        # 1. 数据清洗：将各种空值表示统一为None
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        df = df.where(pd.notnull(df), None)
+        # 2. 向量化转换日期列
+        df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce').dt.date
+        df['delist_date'] = pd.to_datetime(df['delist_date'], format='%Y%m%d', errors='coerce').dt.date
+        # 3. 向量化重命名列以匹配模型字段
+        df.rename(columns={'ts_code': 'stock_code', 'name': 'stock_name'}, inplace=True)
+        # 4. 准备用于数据库和缓存的数据
+        # 数据库需要所有列
+        stock_dicts = df.to_dict('records')
+        # 缓存只需要部分基础列
+        cache_cols = ['stock_code', 'stock_name', 'list_status', 'list_date', 'delist_date', 'exchange', 'market', 'is_hs', 'industry']
+        cache_df = df[[col for col in cache_cols if col in df.columns]]
+        cache_dicts = cache_df.to_dict('records')
+        # --- 向量化处理结束，原有的itertuples()循环已被移除 ---
+        # 5. 并发执行缓存写入任务
+        cache_tasks = [self.stock_cache_set.stock_basic_info(d['stock_code'], d) for d in cache_dicts if d.get('stock_code')]
+        await asyncio.gather(*cache_tasks)
+        await self.stock_cache_set.all_stocks(cache_dicts)
+        # 6. 批量保存到数据库
+        if stock_dicts:
             result = await self._save_all_to_db_native_upsert(
-                    model_class=StockInfo,
-                    data_list=stock_dicts,
-                    unique_fields=['stock_code'] # ORM 能处理 stock 实例
-                )
-        return result
+                model_class=StockInfo,
+                data_list=stock_dicts,
+                unique_fields=['stock_code']
+            )
+            return result
+        return {}
 
     async def save_company_info(self) -> Dict:
         """
@@ -317,30 +329,49 @@ class StockBasicInfoDao(BaseDAO):
 
     async def save_hs_const(self) -> Dict:
         """
-        通过tushare获取沪深港通成分股信息并保存到数据库
+        【V2.0 向量化与N+1优化版】通过tushare获取沪深港通成分股信息并保存到数据库
+        - 核心优化:
+          1. 【消除N+1查询】通过一次性批量获取所有 `StockInfo` 对象，彻底解决了原先在循环中频繁查询数据库的性能瓶颈。
+          2. 【向量化处理】使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        #获取沪股通成分
+        # 获取沪股通和深股通成分
         df_sh = self.ts_pro.hs_const(hs_type='SH')
-        #获取深股通成分
         df_sz = self.ts_pro.hs_const(hs_type='SZ')
         # 纵向合并
         df = pd.concat([df_sh, df_sz], ignore_index=True)
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            stock_dicts = []
-            for row in df.itertuples():
-                stock = await self.get_stock_by_code(row.ts_code)
-                if stock:
-                    hs_const = self.data_format_process.set_hs_const_data(stock, row)
-                    stock_dicts.append(hs_const)
-            if stock_dicts is not None:
-                result = await self._save_all_to_db_native_upsert(
-                        model_class=HSConst,
-                        data_list=stock_dicts,
-                        unique_fields=['stock_code'] # ORM 能处理 stock 实例
-                    )
-        return result
+        if df is None or df.empty:
+            return {}
+        # --- 开始向量化处理 ---
+        # 1. 数据清洗
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        df.dropna(subset=['ts_code'], inplace=True)
+        if df.empty:
+            return {}
+        # 2. 批量获取关联的StockInfo对象 (消除N+1查询)
+        unique_ts_codes = df['ts_code'].unique().tolist()
+        stock_map = await self.get_stocks_by_codes(unique_ts_codes)
+        # 3. 向量化映射、转换和选择
+        df['stock'] = df['ts_code'].map(stock_map)
+        df.dropna(subset=['stock'], inplace=True)
+        if df.empty:
+            logger.warning("所有沪深港通成分股都无法关联到已知的股票信息，任务终止。")
+            return {}
+        df['in_date'] = pd.to_datetime(df['in_date'], format='%Y%m%d', errors='coerce').dt.date
+        df['out_date'] = pd.to_datetime(df['out_date'], format='%Y%m%d', errors='coerce').dt.date
+        df.rename(columns={'hs_type': 'hs_type_code'}, inplace=True)
+        final_df = df[['stock', 'in_date', 'out_date', 'is_new', 'hs_type_code']]
+        # 4. 转换为字典列表
+        stock_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        # --- 向量化处理结束，原有的itertuples()循环和N+1查询已被移除 ---
+        if stock_dicts:
+            # 批量保存到数据库
+            result = await self._save_all_to_db_native_upsert(
+                model_class=HSConst,
+                data_list=stock_dicts,
+                unique_fields=['stock'] # 优化：直接使用stock对象作为唯一键
+            )
+            return result
+        return {}
 
 
 

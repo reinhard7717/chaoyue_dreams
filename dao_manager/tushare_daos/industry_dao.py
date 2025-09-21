@@ -88,31 +88,46 @@ class IndustryDao(BaseDAO):
 
     async def save_swan_industry_list(self) -> Dict:
         """
-        接口：index_classify
-        描述：获取申万行业分类，可以获取申万2014年版本（28个一级分类，104个二级分类，227个三级分类）和2021年本版（31个一级分类，134个二级分类，346个三级分类）列表信息
-        权限：用户需2000积分可以调取，具体请参阅积分获取办法
-        Returns:
-            Dict: 保存结果
+        【V2.0 向量化与N+1优化版】保存申万行业分类列表
+        - 核心优化:
+          1. 【消除N+1查询】通过一次性批量获取所有 `IndexInfo` 对象，彻底解决了原先在循环中频繁查询数据库的性能瓶颈。
+          2. 【向量化处理】使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        result = {}
         # 拉取数据
         df = self.ts_pro.index_classify(**{
             "index_code": "", "level": "", "src": "", "parent_code": "", "limit": "", "offset": ""
-        }, fields=[ "index_code", "industry_name", "level", "industry_code", "is_pub", "parent_code", "src" ])
-        industry_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], None)  # 先把字符串nan等变成None
-            for row in df.itertuples():
-                index_basic = await self.index_info_dao.get_index_by_code(row.index_code)
-                industry_dict = self.data_format_process.set_sw_industry_data(index=index_basic,df_data=row)
-                industry_dicts.append(industry_dict)
-        if industry_dicts:
-            # 保存到数据库
-            result = await self._save_all_to_db_native_upsert(
-                model_class=SwIndustry,
-                data_list=industry_dicts,
-                unique_fields=['index_code', 'src']
-            )
+        }, fields=["index_code", "industry_name", "level", "industry_code", "is_pub", "parent_code", "src"])
+        if df is None or df.empty:
+            return {}
+        # --- 开始向量化处理 ---
+        # 1. 数据清洗
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        df.dropna(subset=['index_code'], inplace=True)
+        if df.empty:
+            return {}
+        # 2. 批量获取关联对象 (消除N+1查询)
+        unique_index_codes = df['index_code'].unique().tolist()
+        index_map = await self.index_info_dao.get_indices_by_codes(unique_index_codes)
+        # 3. 向量化映射与过滤
+        df['index'] = df['index_code'].map(index_map)
+        df.dropna(subset=['index'], inplace=True)
+        if df.empty:
+            logger.warning("所有申万行业数据都无法关联到已知的指数信息，任务终止。")
+            return {}
+        # 4. 向量化重命名与列选择
+        df.rename(columns={'industry_name': 'name'}, inplace=True)
+        final_df = df[['index', 'name', 'level', 'parent_code', 'src']]
+        # 5. 转换为字典列表，并将NaN转为None
+        industry_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        # --- 向量化处理结束，原有的itertuples()循环已被移除 ---
+        if not industry_dicts:
+            return {}
+        # 保存到数据库
+        result = await self._save_all_to_db_native_upsert(
+            model_class=SwIndustry,
+            data_list=industry_dicts,
+            unique_fields=['index', 'src'] # 优化：直接使用index对象作为唯一键
+        )
         return result
 
     # ============== 申万行业成分 ==============
@@ -255,67 +270,79 @@ class IndustryDao(BaseDAO):
 
     async def save_sw_industry_daily(self, trade_date: Any = None) -> Dict:
         """
-        【V3.0 统一模型版】获取申万行业日线行情，并同步到 ConceptDaily。
+        【V3.1 向量化与N+1优化版】获取申万行业日线行情，并同步到 ConceptDaily。
+        - 核心优化:
+          1. 【消除N+1查询】对于API返回的、数据库中不存在的新指数，采用批量创建模式，避免了在循环中逐个创建。
+          2. 【向量化处理】使用Pandas的向量化操作替代了 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 ---
-        result = {}
-        industry_daily_basic_dicts = []
         if trade_date is None:
-            trade_date = datetime.today().date() # 确保是date对象
-        else:
-            # 如果传入的是datetime对象，转换为date对象
-            if isinstance(trade_date, datetime):
-                trade_date = trade_date.date()
+            trade_date = datetime.today().date()
+        elif isinstance(trade_date, datetime):
+            trade_date = trade_date.date()
         trade_date_str = trade_date.strftime('%Y%m%d')
         print(f"  -> [申万日线] 开始获取 {trade_date_str} 的数据...")
         try:
-            df = self.ts_pro.sw_daily(**{
-                    "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-                }, fields=[
-                    "ts_code", "trade_date", "name", "open", "low", "high", "close", "change", "pct_change", "vol",
-                    "amount", "pe", "pb", "float_mv", "total_mv", "weight"
-                ])
+            df = self.ts_pro.sw_daily(trade_date=trade_date_str, fields=[
+                "ts_code", "trade_date", "name", "open", "low", "high", "close", "change", "pct_change", "vol",
+                "amount", "pe", "pb", "float_mv", "total_mv", "weight"
+            ])
         except Exception as e:
             logger.error(f"调用Tushare接口 sw_daily 失败: {e}", exc_info=True)
             return {"status": "error", "message": f"API call failed: {e}"}
-        if df is not None and not df.empty:
-            df = df.replace([np.nan, 'nan', 'NaN', ''], None)
-            # 批量获取关联的 IndexInfo 对象
-            all_index_codes = df['ts_code'].unique().tolist()
+        if df is None or df.empty:
+            return {}
+        # --- 开始向量化处理 ---
+        df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+        df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+        if df.empty:
+            return {}
+        # 1. 批量获取已存在的指数信息
+        all_index_codes = df['ts_code'].unique().tolist()
+        index_map = await self.index_info_dao.get_indices_by_codes(all_index_codes)
+        # 2. 识别并批量创建缺失的指数信息 (消除N+1)
+        missing_codes_df = df[~df['ts_code'].isin(index_map.keys())][['ts_code', 'name']].drop_duplicates()
+        if not missing_codes_df.empty:
+            print(f"     ...发现 {len(missing_codes_df)} 个新的申万指数，将进行批量创建...")
+            new_indices_to_create = [
+                {'index_code': row['ts_code'], 'name': row['name'], 'market': 'SW', 'publisher': '申万指数'}
+                for _, row in missing_codes_df.iterrows()
+            ]
+            await self._save_all_to_db_native_upsert(
+                model_class=IndexInfo, data_list=new_indices_to_create, unique_fields=['index_code']
+            )
+            # 重新获取完整的指数映射
             index_map = await self.index_info_dao.get_indices_by_codes(all_index_codes)
-            for row in df.itertuples(index=False):
-                if not row.trade_date:
-                    logger.warning(f"API返回的申万行业行情数据中存在 trade_date 为空的记录，已跳过。涉及代码: {row.ts_code or '未知'}")
-                    continue
-                index_basic = index_map.get(row.ts_code)
-                if not index_basic:
-                    # 如果IndexInfo不存在，按需创建
-                    defaults_for_create = {'name': row.name, 'market': 'SW', 'publisher': '申万指数'}
-                    index_basic = await self.index_info_dao.get_or_create_index(ts_code=row.ts_code, defaults=defaults_for_create)
-                industry_daily_basic_dict = self.data_format_process.set_sw_industry_daily_data(index=index_basic, df_data=row)
-                industry_daily_basic_dicts.append(industry_daily_basic_dict)
-            if industry_daily_basic_dicts:
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=SwIndustryDaily,
-                    data_list=industry_daily_basic_dicts,
-                    unique_fields=['index', 'trade_time']
-                )
-                print(f"     ...成功保存 {len(industry_daily_basic_dicts)} 条记录到 [SwIndustryDaily] 表。")
-                # --- 步骤2: 同步到 ConceptDaily ---
-                print(f"     -> [同步任务] 开始同步 {trade_date_str} 的申万日线行情到 ConceptDaily...")
-                # 批量获取对应的 ConceptMaster 对象
-                concept_map = await self.get_concepts_by_codes(all_index_codes)
-                concept_daily_to_save = []
-                for item in industry_daily_basic_dicts:
-                    # item['index'] 是一个 IndexInfo 对象
-                    concept_master = concept_map.get(item['index'].index_code)
-                    if concept_master:
-                        # 调用适配器
-                        concept_daily_instance = self.data_format_process.adapt_to_concept_daily('sw', item, concept_master)
-                        concept_daily_to_save.append(concept_daily_instance)
-                if concept_daily_to_save:
-                    await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
-                    print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
+        # 3. 向量化映射、转换和选择
+        df['index'] = df['ts_code'].map(index_map)
+        df.dropna(subset=['index'], inplace=True)
+        if df.empty: return {}
+        df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+        numeric_cols = ['open', 'low', 'high', 'close', 'change', 'pct_change', 'vol', 'amount', 'pe', 'pb', 'float_mv', 'total_mv', 'weight']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        model_cols = ['index', 'trade_time', 'name'] + numeric_cols
+        final_df = df[[col for col in model_cols if col in df.columns]]
+        industry_daily_basic_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        # --- 向量化处理结束 ---
+        result = {}
+        if industry_daily_basic_dicts:
+            result = await self._save_all_to_db_native_upsert(
+                model_class=SwIndustryDaily,
+                data_list=industry_daily_basic_dicts,
+                unique_fields=['index', 'trade_time']
+            )
+            print(f"     ...成功保存 {len(industry_daily_basic_dicts)} 条记录到 [SwIndustryDaily] 表。")
+            # --- 后续同步逻辑保持不变 ---
+            print(f"     -> [同步任务] 开始同步 {trade_date_str} 的申万日线行情到 ConceptDaily...")
+            concept_map = await self.get_concepts_by_codes(all_index_codes)
+            concept_daily_to_save = [
+                self.data_format_process.adapt_to_concept_daily('sw', item, concept_map.get(item['index'].index_code))
+                for item in industry_daily_basic_dicts if concept_map.get(item['index'].index_code)
+            ]
+            if concept_daily_to_save:
+                await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
+                print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
         return result
 
     # ============== 同花顺概念和行业指数 ==============
@@ -357,37 +384,37 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_list(self) -> Dict:
         """
-        接口：ths_index
-        描述：获取同花顺板块指数。注：数据版权归属同花顺，如做商业用途，请主动联系同花顺，如需帮助请联系微信：waditu_a
-        限量：本接口需获得5000积分，单次最大5000，一次可提取全部数据，请勿循环提取。
-        Returns:
-            Dict: 保存结果
+        【V2.0 向量化优化版】保存同花顺板块指数列表
+        - 核心优化: 使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        result = {}
         # 拉取数据
         df = self.ts_pro.ths_index(**{
-                "ts_code": "", "exchange": "", "type": "", "name": "", "limit": "", "offset": ""
-            }, fields=[ "ts_code", "name", "count", "exchange", "list_date", "type" ])
-        industry_dicts = []
-        if df is not None:
-            df = df.replace(['nan', 'NaN', ''], np.nan)  # 先把字符串nan等变成np.nan
-            df = df.where(pd.notnull(df), None)          # 再把所有np.nan变成None
-            for row in df.itertuples():
-                if row.count is None:
-                    logger.info(f"count为0: {row}")
-                industry_dict = self.data_format_process.set_ths_index_data(df_data=row)
-                industry_dicts.append(industry_dict)
-        if industry_dicts:
-            try:
-                # 保存到数据库
-                result = await self._save_all_to_db_native_upsert(
-                    model_class=ThsIndex,
-                    data_list=industry_dicts,
-                    unique_fields=['ts_code']
-                )
-            except Exception as e:
-                logger.error("同花顺概念和行业指数保存失败。", exc_info=True)
-        return result
+            "ts_code": "", "exchange": "", "type": "", "name": "", "limit": "", "offset": ""
+        }, fields=["ts_code", "name", "count", "exchange", "list_date", "type"])
+        if df is None or df.empty:
+            return {}
+        # --- 开始向量化处理 ---
+        # 1. 数据清洗
+        df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+        # 2. 向量化类型转换
+        df['count'] = pd.to_numeric(df['count'], errors='coerce').astype('Int64') # 使用可空整数类型
+        df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce').dt.date
+        # 3. 转换为字典列表，并将Pandas的NA/NaT值转为Python的None
+        industry_dicts = df.where(pd.notnull(df), None).to_dict('records')
+        # --- 向量化处理结束，原有的itertuples()循环已被移除 ---
+        if not industry_dicts:
+            return {}
+        try:
+            # 保存到数据库
+            result = await self._save_all_to_db_native_upsert(
+                model_class=ThsIndex,
+                data_list=industry_dicts,
+                unique_fields=['ts_code']
+            )
+            return result
+        except Exception as e:
+            logger.error("同花顺概念和行业指数保存失败。", exc_info=True)
+            return {}
 
     # ============== 同花顺概念板块成分 ==============
     async def get_ths_index_member(self, ts_code: str) -> List['ThsIndexMember']:
@@ -648,42 +675,43 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_daily_by_trade_date(self, trade_date: date) -> Dict:
         """
-        【V3.0 统一模型版】获取同花顺板块日线行情，并同步到 ConceptDaily。
+        【V3.1 向量化优化版】获取同花顺板块日线行情，并同步到 ConceptDaily。
+        - 核心优化: 使用Pandas的向量化操作替代了 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 ---
         trade_date_str = trade_date.strftime('%Y%m%d')
-        result = {}
         print(f"  -> [同花顺日线] 开始获取 {trade_date_str} 的数据...")
-
         try:
-            df = self.ts_pro.ths_daily(**{
-                    "ts_code": "", "trade_date": trade_date_str, "start_date": "", "end_date": "", "limit": "", "offset": ""
-                }, fields=[
-                    "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
-                    "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq", "amount" # 确保 amount 字段被请求
-                ])
+            df = self.ts_pro.ths_daily(trade_date=trade_date_str, fields=[
+                "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "avg_price", "change", "pct_change",
+                "vol", "turnover_rate", "total_mv", "float_mv", "pe_ttm", "pb_mrq", "amount"
+            ])
         except Exception as e:
             logger.error(f"调用Tushare接口 ths_daily 失败: {e}", exc_info=True)
             return {"status": "error", "message": f"API call failed: {e}"}
-
-        if df.empty:
+        if df is None or df.empty:
             logger.warning(f"Tushare接口 ths_daily 未返回 {trade_date_str} 的数据。")
             return {}
-            
-        df = df.replace([np.nan, 'nan', 'NaN', ''], None)
-        
+        # --- 开始向量化处理 ---
+        df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+        df.dropna(subset=['ts_code'], inplace=True)
+        if df.empty: return {}
+        # 1. 批量获取关联对象
         all_index_codes = df['ts_code'].unique().tolist()
         ths_index_map = await self.get_ths_indices_by_codes(all_index_codes)
-        
-        ths_index_daily_dicts = []
-        for row in df.itertuples(index=False):
-            ths_index = ths_index_map.get(row.ts_code)
-            if ths_index:
-                ths_index_daily_dict = self.data_format_process.set_ths_index_daily_data(ths_index=ths_index, df_data=row)
-                ths_index_daily_dicts.append(ths_index_daily_dict)
-            else:
-                logger.warning(f"在处理日期 {trade_date_str} 的同花顺行情时，未在数据库中找到板块 {row.ts_code}。")
-
+        # 2. 向量化映射、转换和选择
+        df['ths_index'] = df['ts_code'].map(ths_index_map)
+        df.dropna(subset=['ths_index'], inplace=True)
+        if df.empty: return {}
+        df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+        numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'avg_price', 'change', 'pct_change', 'vol', 'turnover_rate', 'total_mv', 'float_mv', 'pe_ttm', 'pb_mrq', 'amount']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        model_cols = ['ths_index', 'trade_time'] + numeric_cols
+        final_df = df[[col for col in model_cols if col in df.columns]]
+        ths_index_daily_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        # --- 向量化处理结束 ---
+        result = {}
         if ths_index_daily_dicts:
             result = await self._save_all_to_db_native_upsert(
                 model_class=ThsIndexDaily,
@@ -691,18 +719,13 @@ class IndustryDao(BaseDAO):
                 unique_fields=['ths_index', 'trade_time']
             )
             print(f"     ...成功保存 {len(ths_index_daily_dicts)} 条记录到 [ThsIndexDaily] 表。")
-
-            # --- 步骤2: 同步到 ConceptDaily ---
+            # --- 后续同步逻辑保持不变 ---
             print(f"     -> [同步任务] 开始同步 {trade_date_str} 的同花顺日线行情到 ConceptDaily...")
             concept_map = await self.get_concepts_by_codes(all_index_codes)
-            
-            concept_daily_to_save = []
-            for item in ths_index_daily_dicts:
-                concept_master = concept_map.get(item['ths_index'].ts_code)
-                if concept_master:
-                    concept_daily_instance = self.data_format_process.adapt_to_concept_daily('ths', item, concept_master)
-                    concept_daily_to_save.append(concept_daily_instance)
-            
+            concept_daily_to_save = [
+                self.data_format_process.adapt_to_concept_daily('ths', item, concept_map.get(item['ths_index'].ts_code))
+                for item in ths_index_daily_dicts if concept_map.get(item['ths_index'].ts_code)
+            ]
             if concept_daily_to_save:
                 await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
                 print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
@@ -762,18 +785,15 @@ class IndustryDao(BaseDAO):
 
     async def save_ths_index_daily_history(self, trade_dates: List[date]) -> Dict:
         """
-        【V3.0 统一模型版】按天并行获取同花顺历史行情，并同步到 ConceptDaily。
+        【V3.1 向量化内循环优化版】按天并行获取同花顺历史行情，并同步到 ConceptDaily。
+        - 核心优化: 将内层的 `itertuples()` 循环替换为Pandas向量化操作，在处理每一天的数据时获得更高的效率。
         """
         if not trade_dates:
             logger.warning("save_ths_index_daily_history 接收到的交易日列表为空，任务跳过。")
             return {}
-        
         print(f"开始为 {len(trade_dates)} 个交易日补全同花顺历史行情...")
-        # 对于历史补全，我们可以将所有天的API结果汇总后，再一次性同步，效率更高
         all_days_ths_daily_dicts = []
-
         for trade_date in trade_dates:
-            # --- 步骤1: 获取单日数据并存入原始表 ---
             trade_date_str = trade_date.strftime('%Y%m%d')
             print(f"  -> [同花顺历史日线] 正在处理日期: {trade_date_str}")
             try:
@@ -784,52 +804,49 @@ class IndustryDao(BaseDAO):
             except Exception as e:
                 logger.error(f"获取 {trade_date_str} 同花顺历史行情时API失败: {e}", exc_info=True)
                 continue
-
             if df is None or df.empty:
                 continue
-            
-            df = df.replace([np.nan, 'nan', 'NaN', ''], None)
+            # --- 开始向量化处理内循环 ---
+            df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+            df.dropna(subset=['ts_code'], inplace=True)
+            if df.empty: continue
             all_index_codes = df['ts_code'].unique().tolist()
             ths_index_map = await self.get_ths_indices_by_codes(all_index_codes)
-            
-            daily_dicts = []
-            for row in df.itertuples(index=False):
-                ths_index = ths_index_map.get(row.ts_code)
-                if ths_index:
-                    daily_dicts.append(self.data_format_process.set_ths_index_daily_data(ths_index=ths_index, df_data=row))
-            
+            df['ths_index'] = df['ts_code'].map(ths_index_map)
+            df.dropna(subset=['ths_index'], inplace=True)
+            if df.empty: continue
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'avg_price', 'change', 'pct_change', 'vol', 'turnover_rate', 'total_mv', 'float_mv', 'pe_ttm', 'pb_mrq', 'amount']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            model_cols = ['ths_index', 'trade_time'] + numeric_cols
+            final_df = df[[col for col in model_cols if col in df.columns]]
+            daily_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+            # --- 向量化处理结束 ---
             if daily_dicts:
                 await self._save_all_to_db_native_upsert(
                     model_class=ThsIndexDaily,
                     data_list=daily_dicts,
                     unique_fields=['ths_index', 'trade_time']
                 )
-                all_days_ths_daily_dicts.extend(daily_dicts) # 收集用于同步
-
-        # --- 步骤2: 任务结束后，统一同步所有数据到 ConceptDaily ---
+                all_days_ths_daily_dicts.extend(daily_dicts)
+        # --- 后续的统一同步逻辑保持不变 ---
         if all_days_ths_daily_dicts:
             print(f"\n  -> [同步任务] 所有日期处理完毕，开始将 {len(all_days_ths_daily_dicts)} 条历史行情统一同步到 ConceptDaily...")
-            
             all_concept_codes = {item['ths_index'].ts_code for item in all_days_ths_daily_dicts}
             concept_map = await self.get_concepts_by_codes(list(all_concept_codes))
-            
-            concept_daily_to_save = []
-            for item in all_days_ths_daily_dicts:
-                concept_master = concept_map.get(item['ths_index'].ts_code)
-                if concept_master:
-                    instance = self.data_format_process.adapt_to_concept_daily('ths', item, concept_master)
-                    concept_daily_to_save.append(instance)
-            
+            concept_daily_to_save = [
+                self.data_format_process.adapt_to_concept_daily('ths', item, concept_map.get(item['ths_index'].ts_code))
+                for item in all_days_ths_daily_dicts if concept_map.get(item['ths_index'].ts_code)
+            ]
             if concept_daily_to_save:
-                # 对于大量历史数据，分批创建以降低内存压力
                 BATCH_SIZE = 5000
                 for i in range(0, len(concept_daily_to_save), BATCH_SIZE):
                     batch = concept_daily_to_save[i:i + BATCH_SIZE]
                     await ConceptDaily.objects.abulk_create(batch, ignore_conflicts=True)
                     print(f"     ...已同步 {i + len(batch)} / {len(concept_daily_to_save)} 条记录。")
             print("     ...历史数据同步完成。")
-        
-
         return {"status": "completed", "processed_days": len(trade_dates)}
 
     # ============== 开盘啦题材与榜单 ============== 
@@ -1127,14 +1144,13 @@ class IndustryDao(BaseDAO):
 
     async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
-        【V3.2 统一模型版】获取东方财富板块日线行情，并同步到 ConceptDaily。
+        【V3.3 向量化优化版】获取东方财富板块日线行情，并同步到 ConceptDaily。
+        - 核心优化: 使用Pandas的向量化操作替代了 `itertuples()` 循环，大幅提升了数据处理效率。
         """
-        # --- 步骤1: 从API获取数据并存入原始表 ---
         if trade_time is None:
             trade_time = datetime.today().date()
         trade_time_str = trade_time.strftime('%Y%m%d')
         print(f"  -> [东方财富日线] 开始获取 {trade_time_str} 的数据...")
-        
         all_dfs = []
         offset = 0
         limit = 2000
@@ -1142,40 +1158,42 @@ class IndustryDao(BaseDAO):
         while offset < max_offset:
             try:
                 df = self.ts_pro.dc_daily(trade_date=trade_time_str, limit=limit, offset=offset)
-                if df is None or df.empty:
-                    break
+                if df is None or df.empty: break
                 all_dfs.append(df)
-                if len(df) < limit:
-                    break
+                if len(df) < limit: break
                 offset += limit
                 await asyncio.sleep(0.2)
             except Exception as e:
                 logger.error(f"调用Tushare接口 dc_daily (offset={offset}) 失败: {e}", exc_info=True)
                 break
-        
         if not all_dfs:
             logger.warning(f"Tushare接口 dc_daily 未返回 {trade_time_str} 的数据。")
             return {}
-            
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        combined_df = combined_df.replace([np.nan, 'nan', 'NaN', ''], None)
-        
+        # --- 开始向量化处理 ---
+        combined_df.replace([np.nan, 'nan', 'NaN', ''], None, inplace=True)
+        combined_df.dropna(subset=['ts_code'], inplace=True)
+        if combined_df.empty: return {}
+        # 1. 批量获取/创建关联对象
         all_index_codes = combined_df['ts_code'].unique().tolist()
         dc_index_map = await self.get_dc_indices_by_codes(all_index_codes)
-        
-        # 按需创建 DcIndex
         new_indices_to_create = [{'ts_code': code, 'name': code} for code in all_index_codes if code not in dc_index_map]
         if new_indices_to_create:
             await self._save_all_to_db_native_upsert(model_class=DcIndex, data_list=new_indices_to_create, unique_fields=['ts_code'])
             dc_index_map.update(await self.get_dc_indices_by_codes([d['ts_code'] for d in new_indices_to_create]))
-
-        dc_index_daily_dicts = []
-        for row in combined_df.itertuples(index=False):
-            dc_index = dc_index_map.get(row.ts_code)
-            if dc_index:
-                daily_dict = self.data_format_process.set_dc_index_daily_data(dc_index=dc_index, df_data=row)
-                dc_index_daily_dicts.append(daily_dict)
-        
+        # 2. 向量化映射、转换和选择
+        combined_df['dc_index'] = combined_df['ts_code'].map(dc_index_map)
+        combined_df.dropna(subset=['dc_index'], inplace=True)
+        if combined_df.empty: return {}
+        combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date'], format='%Y%m%d').dt.date
+        numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+        for col in numeric_cols:
+            if col in combined_df.columns:
+                combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
+        model_cols = ['dc_index', 'trade_time'] + numeric_cols
+        final_df = combined_df[[col for col in model_cols if col in combined_df.columns]]
+        dc_index_daily_dicts = final_df.where(pd.notnull(final_df), None).to_dict('records')
+        # --- 向量化处理结束 ---
         result = {}
         if dc_index_daily_dicts:
             result = await self._save_all_to_db_native_upsert(
@@ -1184,22 +1202,16 @@ class IndustryDao(BaseDAO):
                 unique_fields=['dc_index', 'trade_time']
             )
             print(f"     ...成功保存 {len(dc_index_daily_dicts)} 条记录到 [DcIndexDaily] 表。")
-
-            # --- 步骤2: 同步到 ConceptDaily ---
+            # --- 后续同步逻辑保持不变 ---
             print(f"     -> [同步任务] 开始同步 {trade_time_str} 的东方财富日线行情到 ConceptDaily...")
             concept_map = await self.get_concepts_by_codes(all_index_codes)
-            
-            concept_daily_to_save = []
-            for item in dc_index_daily_dicts:
-                concept_master = concept_map.get(item['dc_index'].ts_code)
-                if concept_master:
-                    concept_daily_instance = self.data_format_process.adapt_to_concept_daily('dc', item, concept_master)
-                    concept_daily_to_save.append(concept_daily_instance)
-            
+            concept_daily_to_save = [
+                self.data_format_process.adapt_to_concept_daily('dc', item, concept_map.get(item['dc_index'].ts_code))
+                for item in dc_index_daily_dicts if concept_map.get(item['dc_index'].ts_code)
+            ]
             if concept_daily_to_save:
                 await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
                 print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
-
         return result
 
     # ============== 东方财富板块成分 ==============

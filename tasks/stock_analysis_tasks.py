@@ -1074,7 +1074,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
     # 定义一个安全的除法分母处理函数，以处理 Series 或标量（如 int）
     safe_denom = lambda v: v.replace(0, np.nan) if isinstance(v, pd.Series) else (np.nan if v == 0 else v)
-    # 新增行: 定义一个安全的 NaN 填充函数，兼容 Series 和标量
+    # 定义一个安全的 NaN 填充函数，兼容 Series 和标量
     fill_na_safe = lambda val, fill_val: val.fillna(fill_val) if isinstance(val, pd.Series) else (fill_val if pd.isna(val) else val)
     # 2. 主动买盘压力
     # 注意：这些原始字段仅在 tushare 数据源中存在

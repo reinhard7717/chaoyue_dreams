@@ -59,7 +59,7 @@ class JudgmentLayer:
             if long_df.empty:
                 return pd.Series(dtype=object)
 
-            # 新增-修改-优化: 动态获取由 reset_index() 生成的日期列的名称。
+            # 动态获取由 reset_index() 生成的日期列的名称。
             # 这使得代码不再依赖于 'index' 这个不确定的默认名称，从而修复了KeyError。
             date_col_name = long_df.columns[0]
             # print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
@@ -77,7 +77,7 @@ class JudgmentLayer:
             long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
             
             # 5. 按日期分组并聚合为列表
-            # 新增-修改-优化: 使用动态获取的日期列名进行分组。
+            # 使用动态获取的日期列名进行分组。
             return long_df.groupby(date_col_name)['summary_str'].apply(list)
 
         # --- 调用向量化辅助函数处理进攻和风险信号 ---

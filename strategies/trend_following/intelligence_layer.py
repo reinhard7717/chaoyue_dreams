@@ -104,7 +104,7 @@ class IntelligenceLayer:
         df = self.chip_intel.diagnose_chip_holder_behavior_scores(df)
         df = self.chip_intel.diagnose_fused_behavioral_chip_scores(df)
         df = self.chip_intel.diagnose_cross_validation_signals(df)
-        # 新增-修改-优化: 在此阶段直接调用“真实吸筹”诊断，确保其产出的智能信号可被后续模块消费。
+        # 在此阶段直接调用“真实吸筹”诊断，确保其产出的智能信号可被后续模块消费。
         true_concentration_states = self.chip_intel._diagnose_true_concentration(df)
         self.strategy.atomic_states.update(true_concentration_states)
         # 将新生成的分数也合并回主DataFrame
@@ -143,7 +143,7 @@ class IntelligenceLayer:
         for col, series in prime_scores.items():
             df[col] = series
             self.strategy.atomic_states[col] = series
-        # 新增-修改-优化: 将此调用移至其依赖项计算完毕之后，确保能正确执行。
+        # 将此调用移至其依赖项计算完毕之后，确保能正确执行。
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         # 认知层链式调用 (已是高效实现)
         df = self.cognitive_intel.synthesize_trend_quality_score(df)

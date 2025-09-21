@@ -54,7 +54,7 @@ class IndicatorCalculator:
         - 指标含义: ATRR = ATR / Close，衡量波幅相对于价格的百分比，提供标准化的波动率度量。
         - 优化: 将同步的计算逻辑通过 asyncio.to_thread 移至工作线程执行，避免阻塞事件循环。
         """
-        # 新增-修改-优化: 将所有前置检查放在同步函数外部，快速失败。
+        # 将所有前置检查放在同步函数外部，快速失败。
         required_cols = [high_col, low_col, close_col]
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None
@@ -62,7 +62,7 @@ class IndicatorCalculator:
             return None
         
         try:
-            # 新增-修改-优化: 定义一个同步函数来封装所有计算逻辑。
+            # 定义一个同步函数来封装所有计算逻辑。
             def _sync_atrr():
                 # 1. 使用 pandas-ta 高效计算 ATR
                 atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
@@ -76,7 +76,7 @@ class IndicatorCalculator:
                 # 3. 将结果Series转换为DataFrame并返回
                 return atrr_series.to_frame(name=f'ATRr_{period}')
 
-            # 新增-修改-优化: 在独立的线程中异步执行同步计算函数。
+            # 在独立的线程中异步执行同步计算函数。
             return await asyncio.to_thread(_sync_atrr)
         except Exception as e:
             logger.error(f"计算 ATRR (周期 {period}) 出错: {e}", exc_info=True)
@@ -146,7 +146,7 @@ class IndicatorCalculator:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的布林带。")
             return None
         try:
-            # 新增-修改-优化: 定义清晰的同步计算函数。
+            # 定义清晰的同步计算函数。
             def _sync_bbands_calculation():
                 # 使用 ta.bbands() 直接调用，返回一个新的DataFrame
                 bbands_df = ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
@@ -175,7 +175,7 @@ class IndicatorCalculator:
                 
                 return result_df if not result_df.empty else None
 
-            # 新增-修改-优化: 在线程中执行定义好的同步函数。
+            # 在线程中执行定义好的同步函数。
             return await asyncio.to_thread(_sync_bbands_calculation)
         except Exception as e:
             logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
@@ -260,7 +260,7 @@ class IndicatorCalculator:
             logger.warning(f"计算 CMF (周期 {period}) 失败：数据长度 {len(df)} 小于周期 {period}。")
             return None
         try:
-            # 新增-修改-优化: 定义同步计算函数。
+            # 定义同步计算函数。
             def _sync_cmf():
                 # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
                 cmf_series = ta.cmf(
@@ -277,7 +277,7 @@ class IndicatorCalculator:
                 # 将返回的 Series 转换为 DataFrame，以便上层服务进行合并
                 return cmf_series.to_frame()
 
-            # 新增-修改-优化: 在独立的线程中异步执行。
+            # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_cmf)
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
@@ -901,7 +901,7 @@ class IndicatorCalculator:
         - 核心修复: 保持对 dynamic_bbw_threshold 的 bfill()，并对箱体高低点列中残余的NaN进行填充，根除NaN。
         - 优化: 将整个复杂的同步计算过程封装并移入工作线程执行，防止长时间阻塞事件循环。
         """
-        # 新增-修改-优化: 将所有前置检查放在同步函数外部，快速失败。
+        # 将所有前置检查放在同步函数外部，快速失败。
         boll_period = params.get('boll_period', 21)
         boll_std = params.get('boll_std', 2.0)
         roc_period = params.get('roc_period', 12)
@@ -916,7 +916,7 @@ class IndicatorCalculator:
             return None
         
         try:
-            # 新增-修改-优化: 定义一个同步函数来封装所有复杂的计算逻辑。
+            # 定义一个同步函数来封装所有复杂的计算逻辑。
             def _sync_consolidation_calc():
                 # 1. 参数获取
                 bbw_quantile = params.get('bbw_quantile', 0.25)
@@ -959,7 +959,7 @@ class IndicatorCalculator:
                 result_df['dynamic_consolidation_duration'] = result_df.get('dynamic_consolidation_duration', pd.Series(index=df.index)).fillna(0)
                 return result_df
 
-            # 新增-修改-优化: 在独立的线程中异步执行整个计算过程。
+            # 在独立的线程中异步执行整个计算过程。
             return await asyncio.to_thread(_sync_consolidation_calc)
         except Exception as e:
             logger.error(f"计算 Consolidation Period 时发生未知错误: {e}", exc_info=True)
@@ -1072,7 +1072,7 @@ class IndicatorCalculator:
             return None
         
         try:
-            # 新增-修改-优化: 定义同步计算函数。
+            # 定义同步计算函数。
             def _sync_ma_convergence():
                 result_df = pd.DataFrame(index=df.index)
                 for conv_config in params.get('configs', []):
@@ -1093,7 +1093,7 @@ class IndicatorCalculator:
                         logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
                 return result_df if not result_df.empty else None
 
-            # 新增-修改-优化: 在独立的线程中异步执行。
+            # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_ma_convergence)
         except Exception as e:
             logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
@@ -1109,7 +1109,7 @@ class IndicatorCalculator:
             return None
         
         try:
-            # 新增-修改-优化: 定义同步计算函数。
+            # 定义同步计算函数。
             def _sync_pv_ma_comparison():
                 periods = params.get('periods', [])
                 apply_on_list = params.get('apply_on', [])
@@ -1145,7 +1145,7 @@ class IndicatorCalculator:
                         logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
                 return result_df if not result_df.empty else None
 
-            # 新增-修改-优化: 在独立的线程中异步执行。
+            # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_pv_ma_comparison)
         except Exception as e:
             logger.error(f"计算价格/成交量与均线比率时发生未知错误: {e}", exc_info=True)

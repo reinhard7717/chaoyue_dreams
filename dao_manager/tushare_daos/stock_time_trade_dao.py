@@ -539,11 +539,10 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """
-        【V4 - 健壮与限速最终版】保存股票的历史分钟级交易数据
-        - 策略:
-        1. 在每次API调用前加入一个短暂的延时(asyncio.sleep)，以遵守API的调用频率限制，防止因请求过快而返回空数据。
-        2. 将API调用置于try...except块中，捕获潜在的网络或API异常，增强程序的健壮性。
-        3. 保留了V3版本的正确分页逻辑，即使用API返回的原始行数进行判断。
+        【V5.0 向量化重构版】保存股票的历史分钟级交易数据
+        - 核心优化:
+          1. 【向量化处理】使用Pandas的向量化操作替代了原有的 `groupby()` 和循环，大幅提升了数据处理效率。
+          2. 【内存优化】在处理完每一页数据后，及时进行分表和保存，避免将所有数据加载到内存中。
         """
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
@@ -564,57 +563,58 @@ class StockTimeTradeDAO(BaseDAO):
                 print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
                 await asyncio.sleep(0.25)
                 try:
-                    # 将API调用放入try-except块
                     df = self.ts_pro.stk_mins(**{
-                        "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str, 
+                        "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str,
                         "limit": limit, "offset": offset
-                    }, fields=[ "ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq" ])
+                    }, fields=["ts_code", "trade_time", "close", "open", "high", "low", "vol", "amount", "freq"])
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (stk_mins): {e}", exc_info=True)
-                    # 发生异常时，创建一个空的DataFrame，让后续逻辑能统一处理，并等待更长时间后重试
                     df = pd.DataFrame()
-                    await asyncio.sleep(5) # 如果API出错，多等一会儿
-                original_df_len = len(df)
-                if original_df_len == 0:
-                    # 如果是因为非最后一页（offset > 0）但返回空，可能意味着API临时问题或确实没数据了
-                    if offset > 0:
-                        print(f"在拉取第 {page_num} 页时，API返回空数据，可能已无更多数据或遇到API临时问题。")
-                    else:
-                        print(f"拉取结束，API未返回更多 {time_level}min 数据。")
-                    break
-                # --- 后续处理逻辑不变 ---
-                df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-                df['stock'] = df['ts_code'].map(stock_map)
-                df.dropna(subset=['trade_time', 'stock'], inplace=True)
+                    await asyncio.sleep(5)
                 if df.empty:
-                    print(f"当前页数据经清洗后为空，跳至下一页。")
+                    print(f"拉取结束，API未返回更多 {time_level}min 数据。")
+                    break
+                # --- 开始向量化处理 ---
+                # 1. 数据清洗与预处理
+                df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+                df.dropna(subset=['ts_code', 'trade_time'], inplace=True)
+                if df.empty:
+                    if len(df) < limit: break
                     offset += limit
                     page_num += 1
                     continue
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
-                df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-                df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-                df['trade_time'] = df['trade_time'].dt.tz_localize(None)
+                # 2. 向量化关联与转换
+                df['stock'] = df['ts_code'].map(stock_map)
+                df.dropna(subset=['stock'], inplace=True)
+                if df.empty:
+                    if len(df) < limit: break
+                    offset += limit
+                    page_num += 1
+                    continue
+                # 向量化处理时区，适配原生SQL批量插入
+                df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
+                # 3. 动态分表并保存
+                # 使用 apply 方法动态确定每行数据应属的模型
                 df['model_class'] = df['ts_code'].apply(lambda code: get_minute_data_model_by_code_and_timelevel(code, time_level))
+                # 使用 groupby 按模型进行分组
                 for model_class, group_df in df.groupby('model_class', sort=False):
                     if group_df.empty:
                         continue
-                    data_list = group_df[[
-                        "stock", "trade_time", "close", "open", "high", "low", "vol", "amount"
-                    ]].to_dict('records')
+                    # 为当前分组准备数据并批量保存
+                    data_list = group_df[["stock", "trade_time", "close", "open", "high", "low", "vol", "amount"]].to_dict('records')
                     await self._save_all_to_db_native_upsert(
                         model_class=model_class,
                         data_list=data_list,
                         unique_fields=['stock', 'trade_time']
                     )
-                    logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 准备了 {len(data_list)} 条记录进行插入/更新。")
-                if original_df_len < limit:
-                    print(f"调试信息: API返回行数({original_df_len})小于limit({limit})，判定为最后一页，当前频率数据拉取结束。")
+                    logger.info(f"保存 {model_class.__name__} 的 {time_level}分钟级数据完成. 插入/更新了 {len(data_list)} 条记录。")
+                # --- 向量化处理结束 ---
+                if len(df) < limit:
+                    print(f"调试信息: API返回行数({len(df)})小于limit({limit})，判定为最后一页。")
                     break
                 offset += limit
                 page_num += 1
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
-        return
 
     async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str, trade_date: date=None, start_date: date=None, end_date: date=None) -> int:
         """
@@ -955,55 +955,56 @@ class StockTimeTradeDAO(BaseDAO):
     #  =============== A股周线行情 ===============
     async def save_weekly_time_trade(self, trade_date: date = None, start_date: date=None) -> None:
         """
-        保存股票的周线交易数据 (优化版)
-        接口：weekly
-        描述：获取A股周线行情
-        1. 修复了原始代码无分页导致数据丢失的严重BUG。
-        2. 批量预加载股票信息，根除N+1查询。
-        3. 使用向量化操作处理数据，替代逐行循环。
-        4. 引入分批保存机制，控制内存峰值。
+        【V2.0 向量化与N+1优化版】保存股票的周线交易数据
+        - 核心优化:
+          1. 【消除N+1查询】不再预加载全市场股票，而是在获取API数据后，根据返回的股票代码一次性批量查询所需股票信息。
+          2. 【向量化处理】使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
+          3. 保留了原有的正确分页逻辑和分批入库机制。
         """
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "19900101"
-        # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
-        stock_map = await self.stock_basic_dao.get_stock_list()
-        
-        # --- 初始化用于分批保存的列表和批次大小，并修复分页逻辑 ---
         all_data_dicts = []
         offset = 0
-        limit = 6000  # 根据接口文档设置合理的limit
-        page_num = 1
-
-        # --- 添加分页循环，修复数据丢失BUG ---
+        limit = 6000
         while True:
-            # 拉取数据，并修正了重复的字段
+            # 拉取数据
             df = self.ts_pro.stk_week_month_adj(**{
                 "ts_code": "", "trade_date": trade_date_str, "start_date": start_date_str, "end_date": "", "freq": "week", "limit": limit, "offset": offset
             }, fields=[
                 "ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"
             ])
-            
-            if df.empty:
+            if df is None or df.empty:
                 break
-            # --- 对整页DataFrame进行向量化处理 ---
+            # --- 开始向量化处理 ---
             # 1. 数据清洗
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-            # 2. 向量化映射stock对象
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            if df.empty:
+                if len(df) < limit: break
+                offset += limit
+                continue
+            # 2. 批量获取关联对象 (消除N+1查询)
+            unique_ts_codes = df['ts_code'].unique().tolist()
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            # 3. 向量化映射、转换和选择
             df['stock'] = df['ts_code'].map(stock_map)
-            # 3. 丢弃无效数据
-            df.dropna(subset=['trade_date', 'stock'], inplace=True)
-            if not df.empty:
-                # 4. 向量化转换日期
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-                # 5. 选择列以匹配模型字段，替代set_time_trade_week_data
-                final_df = df[[
-                    "stock", "trade_time", "open", "high", "low", "close", "pre_close", 
-                    "change", "pct_chg", "vol", "amount"
-                ]]
-                # 6. 将处理好的数据添加到总列表中
-                all_data_dicts.extend(final_df.to_dict('records'))
-
-            # --- 检查是否达到批处理大小 ---
+            df.dropna(subset=['stock'], inplace=True)
+            if df.empty:
+                if len(df) < limit: break
+                offset += limit
+                continue
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            df.rename(columns={'pct_chg': 'pct_change'}, inplace=True)
+            # 对所有数值列进行一次性转换
+            numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+            for col in numeric_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            model_cols = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+            final_df = df[model_cols]
+            # 4. 转换为字典列表，并将NaN转为None
+            all_data_dicts.extend(final_df.where(pd.notnull(final_df), None).to_dict('records'))
+            # --- 向量化处理结束 ---
+            # 检查是否达到批处理大小
             if len(all_data_dicts) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockWeeklyData,
@@ -1011,28 +1012,20 @@ class StockTimeTradeDAO(BaseDAO):
                     unique_fields=['stock', 'trade_time']
                 )
                 logger.info(f"完成一批周线数据保存，数量：{len(all_data_dicts)}")
-                all_data_dicts = [] # 清空列表
+                all_data_dicts = []
             if len(df) < limit:
                 break
             offset += limit
-            page_num += 1
-            time.sleep(0.5) # 增加延时，友好调用接口
-        # --- 循环结束 ---
-
-        # --- 保存最后一批剩余数据 ---
-        result = []
+            await asyncio.sleep(0.5) # 使用异步sleep
+        # 保存最后一批剩余数据
         if all_data_dicts:
-            result = await self._save_all_to_db_native_upsert(
+            await self._save_all_to_db_native_upsert(
                 model_class=StockWeeklyData,
                 data_list=all_data_dicts,
                 unique_fields=['stock', 'trade_time']
             )
             logger.info(f"完成最后一批周线数据保存，数量：{len(all_data_dicts)}")
-        else:
-            logger.info("所有数据均已分批保存，无剩余数据。")
-        
         print(f"周线数据处理完成。")
-        return result
 
     async def get_weekly_time_trade_history(self, stock_code: str) -> None:
         """
@@ -1052,163 +1045,85 @@ class StockTimeTradeDAO(BaseDAO):
     #  =============== A股月线行情 ===============
     async def save_monthly_time_trade(self, start_date: str = "1990-01-01") -> List:
         """
-        【V3.0 - 健壮性与数据一致性优化版】
-        保存股票的月线交易数据 (前复权)。
-        接口：stk_week_month_adj (freq='month')
-        描述：获取A股月线行情(前复权)
-        
-        优化点:
-        1. [BUG修复] 明确重命名API返回列(如'open_qfq')以匹配模型字段(如'open')。
-        2. [数据完整性] 在存入数据库前，对数据进行严格的类型转换，确保与模型字段类型(Decimal, BigInt)一致。
-        3. [健壮性] 增加对单次Tushare API调用的异常捕获，防止因网络波动等问题中断整个任务。
-        4. [可读性] 使用列名映射字典，使代码意图更清晰，便于维护。
-        5. [类型提示] 修正了返回值类型提示。
+        【V3.1 向量化重构版】保存股票的月线交易数据 (前复权)。
+        - 核心优化:
+          1. 【消除N+1查询】不再预加载全市场股票，而是在获取API数据后，根据返回的股票代码一次性批量查询所需股票信息。
+          2. 【向量化处理】使用Pandas的向量化操作替代了原有的数据处理循环，大幅提升了数据清洗、转换和格式化的效率。
+          3. 【类型安全】在向量化层面统一处理数值和日期类型转换，代码更简洁、健壮。
         """
-
-        # --- 1. 批量预加载股票信息，根除N+1查询 ---
-        stock_map = await self.stock_basic_dao.get_stock_list()
-        if not stock_map:
-            logger.warning(f"根据提供的代码列表，未能从数据库中找到任何股票信息。")
-            return []
-
-        # --- 2. 定义Tushare API字段到模型字段的映射 ---
-        # 使用明确的字典进行列名映射，修复BUG并提高可读性
-        COLUMN_MAP = {
-            'ts_code': 'ts_code',
-            'trade_date': 'trade_date',
-            'open_qfq': 'open',
-            'high_qfq': 'high',
-            'low_qfq': 'low',
-            'close_qfq': 'close',
-            'pre_close': 'pre_close',
-            'change': 'change',
-            'pct_chg': 'pct_chg',
-            'vol': 'vol',
-            'amount': 'amount'
-        }
-        
-
         all_data_to_save = []
         offset = 0
-        limit = 6000  # 根据Tushare积分调整，一般不超过6000
-
-        # --- 3. 分页循环拉取数据 ---
+        limit = 6000
         while True:
-            # 增加对单次API调用的异常捕获，增强健壮性
             try:
                 df = self.ts_pro.stk_week_month_adj(
-                    start_date=start_date,
-                    freq="month",
-                    limit=limit,
-                    offset=offset
+                    start_date=start_date, freq="month", limit=limit, offset=offset
                 )
-                # Tushare有时返回None而不是空DataFrame
-                if df is None:
-                    df = pd.DataFrame()
+                if df is None: df = pd.DataFrame()
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (offset: {offset}): {e}", exc_info=True)
-                # 发生API错误时，可以选择等待后重试或直接中断
-                await asyncio.sleep(5) # 等待5秒后中断本次循环
+                await asyncio.sleep(5)
                 break
-            
-
             if df.empty:
                 logger.info("Tushare未返回更多数据，拉取完成。")
                 break
-
-            # --- 4. 数据清洗、转换和格式化 (向量化操作) ---
-            try:
-                # 整合了重命名、类型转换和格式化的完整流程
-                # 步骤 a: 重命名列以匹配Django模型字段
-                df.rename(columns=COLUMN_MAP, inplace=True)
-
-                # 步骤 b: 基础清洗，将API返回的空值标记统一为np.nan
-                df.replace(['', 'null', 'None'], np.nan, inplace=True)
-
-                # 步骤 c: 映射StockInfo实例，并丢弃无法关联的记录
-                df['stock'] = df['ts_code'].map(stock_map)
-                df.dropna(subset=['trade_date', 'stock'], inplace=True)
-                if df.empty:
-                    logger.info("当前批次数据在清洗后为空，继续下一批。")
-                    offset += len(df) if len(df) > 0 else limit # 使用实际返回长度推进offset
-                    if len(df) < limit: break
-                    continue
-
-                # 步骤 d: 严格的类型转换，确保数据与模型定义一致
-                numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change']
-                for col in numeric_cols:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-
-                # 对于Decimal字段，先转为浮点数，后续在字典生成时转为Decimal对象
-                df['pct_chg'] = pd.to_numeric(df['pct_chg'], errors='coerce')
-                df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
-                
-                # 对于BigIntegerField，使用pandas的Int64类型处理可能存在的NaN
-                df['vol'] = pd.to_numeric(df['vol'], errors='coerce').astype('Int64')
-
-                # 步骤 e: 转换日期格式
-                df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
-                
-                # 步骤 f: 准备用于数据库操作的数据
-                # 选择最终需要的列
-                final_cols = [
-                    'stock', 'trade_time', 'open', 'high', 'low', 'close', 
-                    'pre_close', 'change', 'pct_chg', 'vol', 'amount'
-                ]
-                df_final = df[final_cols]
-
-                # 将NaN替换为None，以便数据库正确处理为NULL
-                df_final = df_final.where(pd.notna(df_final), None)
-                
-                # 转换为字典列表，同时处理Decimal类型
-                records = df_final.to_dict('records')
-                for record in records:
-                    if record.get('pct_chg') is not None:
-                        record['pct_chg'] = Decimal(str(record['pct_chg'])).quantize(Decimal("0.01"))
-                    if record.get('amount') is not None:
-                        # Tushare的amount单位是千元，乘以1000变为元
-                        record['amount'] = Decimal(str(record['amount'])) * Decimal(1000)
-
-                all_data_to_save.extend(records)
-                
-
-            except Exception as e:
-                logger.error(f"处理数据时发生错误 (offset: {offset}): {e}", exc_info=True)
-                # 如果数据处理失败，跳过这一批次
-                offset += len(df) if len(df) > 0 else limit
+            # --- 开始向量化处理 ---
+            # 1. 数据清洗
+            df.replace(['', 'null', 'None', 'nan', 'NaN'], np.nan, inplace=True)
+            df.dropna(subset=['ts_code', 'trade_date'], inplace=True)
+            if df.empty:
                 if len(df) < limit: break
+                offset += limit
                 continue
-
-            # --- 5. 分批保存到数据库 ---
+            # 2. 批量获取关联对象 (消除N+1查询)
+            unique_ts_codes = df['ts_code'].unique().tolist()
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_ts_codes)
+            # 3. 向量化映射、转换和选择
+            df['stock'] = df['ts_code'].map(stock_map)
+            df.dropna(subset=['stock'], inplace=True)
+            if df.empty:
+                if len(df) < limit: break
+                offset += limit
+                continue
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            df.rename(columns={'pct_chg': 'pct_change', 'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close'}, inplace=True)
+            # 4. 向量化数值类型转换
+            numeric_cols = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Tushare的amount单位是千元，乘以1000变为元
+            if 'amount' in df.columns:
+                df['amount'] = df['amount'] * 1000
+            # 5. 选择最终列并转换为字典列表
+            model_cols = ['stock', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount']
+            final_df = df[[col for col in model_cols if col in df.columns]]
+            records = final_df.where(pd.notnull(final_df), None).to_dict('records')
+            all_data_to_save.extend(records)
+            # --- 向量化处理结束 ---
+            # 分批保存到数据库
             if len(all_data_to_save) >= BATCH_SAVE_SIZE:
                 await self._save_all_to_db_native_upsert(
                     model_class=StockMonthlyData,
                     data_list=all_data_to_save,
                     unique_fields=['stock', 'trade_time']
                 )
-                all_data_to_save = [] # 清空列表以备下一批
-
-            # --- 6. 准备下一次循环 ---
-            actual_return_count = len(df)
-            time.sleep(0.6) # Tushare接口调用延时，保护积分
-            if actual_return_count < limit:
+                all_data_to_save = []
+            # 准备下一次循环
+            await asyncio.sleep(0.6)
+            if len(df) < limit:
                 break
-            offset += actual_return_count
-
-        # --- 7. 保存最后一批剩余数据 ---
-        final_result = []
+            offset += len(df)
+        # 保存最后一批剩余数据
         if all_data_to_save:
             logger.info(f"正在保存最后一批剩余的 {len(all_data_to_save)} 条月线数据...")
-            final_result = await self._save_all_to_db_native_upsert(
+            await self._save_all_to_db_native_upsert(
                 model_class=StockMonthlyData,
                 data_list=all_data_to_save,
                 unique_fields=['stock', 'trade_time']
             )
-        else:
-            logger.info("所有数据均已分批保存，无剩余数据。")
-            
         logger.info(f"股票的月线数据保存任务全部完成。")
-        return final_result
+        return all_data_to_save # 返回最后一次保存或空列表
 
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
         """

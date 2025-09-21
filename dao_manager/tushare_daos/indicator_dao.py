@@ -32,7 +32,10 @@ logger = logging.getLogger("dao")
 
 def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
     """
-    生成A股应有的K线标准结束时间点，基于实际交易日历。
+    【V2.0 向量化优化版】生成A股应有的K线标准结束时间点，基于实际交易日历。
+    - 核心优化: 对分钟级别('5', '15', '30', '60')的时间点生成逻辑进行了完全向量化重构。
+                通过Pandas和NumPy的广播机制，替代了原有的Python for循环，
+                一次性计算出所有交易日的所有分钟K线时间点，大幅提升了执行效率。
     Args:
         trade_days: list of datetime.date，实际交易日列表 (naive date)
         time_level: 'd', 'w', 'm', '5', '15', '30', '60'
@@ -40,8 +43,7 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
         list of pd.Timestamp (Asia/Shanghai)，按时间升序排列
     """
     times = []
-    default_tz = timezone.get_default_timezone() # 获取默认时区 (Asia/Shanghai)
-
+    default_tz = timezone.get_default_timezone() # 获取Django项目配置的默认时区 (通常是 Asia/Shanghai)
     if time_level.lower() == 'd':
         for day in trade_days:
             # 日线数据的时间点通常设为当日开始（午夜 00:00:00），并标记为默认时区
@@ -71,64 +73,41 @@ def get_china_a_stock_kline_times(trade_days: list, time_level: str) -> list:
         # 按照日期排序，转换为时区感知的 Timestamp
         for day in sorted(month_map.values()):
             times.append(pd.Timestamp(datetime.datetime.combine(day, datetime.time(0, 0)), tz=default_tz))
+    # 开始向量化处理分钟级别逻辑
     elif time_level in ['5', '15', '30', '60']:
         freq = int(time_level)
-        times = [] # 清空 times 列表，重新生成分钟线时间点
-        for day in trade_days:
-             # A股上午交易时间段 K线标准结束时间点
-             # 5min: 9:35, 9:40, ..., 11:30
-             # 15min: 9:45, 10:00, ..., 11:30
-             # 30min: 10:00, 10:30, ..., 11:30
-             # 60min: 10:30, 11:30
-             # 根据频率确定上午开始时间
-             if freq == 5:
-                 morning_start_str = '09:35:00'
-             elif freq == 15:
-                 morning_start_str = '09:45:00'
-             elif freq == 30:
-                 morning_start_str = '10:00:00'
-             elif freq == 60:
-                 morning_start_str = '10:30:00'
-             else: # Should not happen based on outer if
-                 continue # or raise error
-
-             # A股下午交易时间段 K线标准结束时间点
-             # 5min: 13:05, 13:10, ..., 15:00
-             # 15min: 13:15, 13:30, ..., 15:00
-             # 30min: 13:30, 14:00, ..., 15:00
-             # 60min: 14:00, 15:00
-              # 根据频率确定下午开始时间
-             if freq == 5:
-                 afternoon_start_str = '13:05:00'
-             elif freq == 15:
-                 afternoon_start_str = '13:15:00'
-             elif freq == 30:
-                 afternoon_start_str = '13:30:00'
-             elif freq == 60:
-                 afternoon_start_str = '14:00:00'
-             else: # Should not happen
-                 continue # or raise error
-
-             morning_end_str = '11:30:00'
-             afternoon_end_str = '15:00:00'
-
-             try:
-                # 生成上午时间序列
-                morning_times = pd.date_range(start=f'{day} {morning_start_str}', end=f'{day} {morning_end_str}', freq=f'{freq}T', tz=default_tz)
-                # 生成下午时间序列
-                afternoon_times = pd.date_range(start=f'{day} {afternoon_start_str}', end=f'{day} {afternoon_end_str}', freq=f'{freq}T', tz=default_tz)
-                times.extend(morning_times)
-                times.extend(afternoon_times)
-             except Exception as e:
-                  logger.error(f"生成 {day} 的 {freq} 分钟K线标准时间点出错: {e}", exc_info=True)
-                  continue # 跳过当前日期
-
+        if not trade_days:
+            return []
+        # 根据频率确定上午和下午的开始时间
+        morning_start_map = {'5': '09:35:00', '15': '09:45:00', '30': '10:00:00', '60': '10:30:00'}
+        afternoon_start_map = {'5': '13:05:00', '15': '13:15:00', '30': '13:30:00', '60': '14:00:00'}
+        morning_start_str = morning_start_map.get(time_level)
+        afternoon_start_str = afternoon_start_map.get(time_level)
+        morning_end_str = '11:30:00'
+        afternoon_end_str = '15:00:00'
+        # 1. 将交易日列表转换为Pandas的DatetimeIndex，这是向量化操作的基础
+        trade_dates_ts = pd.to_datetime(trade_days)
+        # 2. 生成一天内的标准时间点（不带日期），并合并
+        morning_times_of_day = pd.date_range(start=f'1970-01-01 {morning_start_str}', end=f'1970-01-01 {morning_end_str}', freq=f'{freq}T').time
+        afternoon_times_of_day = pd.date_range(start=f'1970-01-01 {afternoon_start_str}', end=f'1970-01-01 {afternoon_end_str}', freq=f'{freq}T').time
+        all_times_of_day = np.union1d(morning_times_of_day, afternoon_times_of_day)
+        # 3. 将时间点转换为TimedeltaIndex，以便与日期进行向量化加法
+        all_timedeltas = pd.to_timedelta([t.strftime('%H:%M:%S') for t in all_times_of_day])
+        # 4. 核心向量化操作：通过NumPy的广播机制，将每个交易日与所有日内时间点相加，生成所有时间戳
+        # trade_dates_ts.values[:, np.newaxis] 将日期数组变为 (N, 1) 的形状
+        # all_timedeltas.values 是 (M,) 的形状
+        # 两者相加会广播成 (N, M) 的结果，然后用 flatten() 展平成一维数组
+        all_timestamps_naive = (trade_dates_ts.values[:, np.newaxis] + all_timedeltas.values).flatten()
+        # 5. 转换为Pandas的DatetimeIndex并设置时区
+        times_index = pd.to_datetime(all_timestamps_naive, errors='coerce').dropna()
+        times_index_aware = times_index.tz_localize(default_tz)
+        # 6. 转换为列表并返回
+        return times_index_aware.to_list()
+    # 结束向量化处理分钟级别逻辑
     else:
         raise ValueError(f"不支持的K线类型: {time_level}")
     # 确保时间点是唯一的并排序
-    # pandas.date_range 应该已经返回有序的 Timestamp
-    # 如果有跨天的数据需要 extend，sorted 是必要的
-    return sorted(list(set(times))) # 使用 set 去重并排序
+    return sorted(list(set(times)))
 
 
 class IndicatorDAO(BaseDAO):
@@ -245,8 +224,7 @@ class IndicatorDAO(BaseDAO):
     async def get_stocks_daily_close(self, stock_codes: List[str], trade_date: datetime.date) -> pd.DataFrame:
         """
         获取一批股票在指定交易日的收盘价和前收盘价。
-        注意：这个方法需要一个日线行情表，这里假设它叫 `StockDailyData`。
-        如果你的个股日线行情表是别的名字，请修改 `StockDailyData`。
+        - 核心优化: 简化了DataFrame的创建过程，避免了不必要的数据复制。
         Args:
             stock_codes (List[str]): 股票代码列表。
             trade_date (date): 交易日期。
@@ -258,6 +236,7 @@ class IndicatorDAO(BaseDAO):
             stock__stock_code__in=stock_codes,
             trade_time=trade_date
         )
+        # 使用 sync_to_async(list) 执行查询，结果 data 已经是 List[Dict] 类型
         data = await sync_to_async(list)(query_set.values(
             stock_code=F('stock__stock_code'),
             close=F('close'),
@@ -265,7 +244,8 @@ class IndicatorDAO(BaseDAO):
         ))
         if not data:
             return pd.DataFrame()
-        df = pd.DataFrame(list(data))
+        # 直接使用 data 创建DataFrame，无需再次调用 list()，避免了不必要的列表拷贝
+        df = pd.DataFrame(data)
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
         return df
 

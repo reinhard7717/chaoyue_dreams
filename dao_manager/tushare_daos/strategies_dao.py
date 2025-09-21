@@ -55,8 +55,9 @@ class StrategiesDAO(BaseDAO):
     # --- 一个更通用的、基于字典列表的保存方法 ---
     async def save_monthly_trend_strategy_reports(self, reports_data: List[Dict[str, Any]]) -> int:
         """
-        【最终版DAO方法】根据标准化的字典列表，批量创建或更新月线趋势策略报告。
-        此方法取代了旧的、基于DataFrame的 save_..._by_trade_date 方法。
+        【V2.0 N+1查询优化版】根据标准化的字典列表，批量创建或更新月线趋势策略报告。
+        - 核心优化: 彻底解决了N+1查询问题。通过一次性批量获取所有需要的StockInfo对象，
+                      将原先在循环中的N次数据库查询优化为1次，大幅提升了性能。
         Args:
             reports_data (List[Dict[str, Any]]): 
                 一个字典列表，每个字典都由策略的 _prepare_db_record 方法生成，
@@ -66,27 +67,31 @@ class StrategiesDAO(BaseDAO):
         """
         if not reports_data:
             return 0
-
-        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
+        # --- 新增-修改-优化: 开始批量预取数据以解决N+1查询问题 ---
+        # 1. 从所有报告中提取出所有不重复的股票代码
+        all_stock_codes = list(set(report.get("stock_code") for report in reports_data if report.get("stock_code")))
+        if not all_stock_codes:
+            print("调试信息: [DAO] 所有报告数据均缺少 'stock_code'，无法继续。")
+            return 0
+        # 2. 一次性从数据库批量获取所有需要的StockInfo对象，并构建一个高效的查找字典
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_stock_codes)
+        print(f"调试信息: [DAO] 批量预获取了 {len(stock_map)} 个股票对象。")
+        # --- 批量预取结束 ---
         data_list_for_db = []
-
+        # 3. 遍历报告数据，此时从内存中的字典获取股票对象，而非查询数据库
         for report_dict in reports_data:
-            # 从传入的字典中获取股票代码
             stock_code = report_dict.get("stock_code")
             if not stock_code:
-                print(f"调试信息: [DAO] 报告字典缺少 'stock_code'，跳过此条记录: {report_dict}")
                 continue
-            # 异步获取StockInfo对象
-            stock_instance = await self.stock_basic_dao.get_stock_by_code(stock_code)
+            # 新增-修改-优化: 从预先获取的 stock_map 中高效查找，避免了数据库查询
+            stock_instance = stock_map.get(stock_code)
             if not stock_instance:
-                print(f"调试信息: [DAO] 在数据库中未找到股票: {stock_code}，跳过此条记录。")
+                print(f"调试信息: [DAO] 在预获取的股票映射中未找到: {stock_code}，跳过此条记录。")
                 continue
-            # 构造用于数据库操作的最终字典
-            # 核心逻辑：用获取到的 stock_instance 替换掉原来的 stock_code
+            # 构造用于数据库操作的最终字典 (后续逻辑保持不变)
             db_ready_dict = report_dict.copy()
             db_ready_dict['stock'] = stock_instance
-            del db_ready_dict['stock_code'] # 删除临时的stock_code键
-            # Django ORM 在处理 None 值时比 np.nan 更健壮，这里做一个转换确保万无一失
+            del db_ready_dict['stock_code']
             for key, value in db_ready_dict.items():
                 if pd.isna(value):
                     db_ready_dict[key] = None
@@ -95,68 +100,66 @@ class StrategiesDAO(BaseDAO):
             print("调试信息: [DAO] 所有记录都因数据问题被跳过，未执行数据库操作。")
             return 0
         # 调用底层的批量更新/插入方法
-        # 注意：这里的 unique_fields 必须是模型中 unique_together 定义的字段名
         result_stats = await self._save_all_to_db_native_upsert(
             model_class=MonthlyTrendStrategyReport,
             data_list=data_list_for_db,
             unique_fields=['stock', 'trade_time']
         )
-        # 返回成功处理的记录数
         success_count = result_stats.get("创建/更新成功", 0)
         print(f"调试信息: [DAO] 批量保存完成。尝试: {len(reports_data)}, 成功: {success_count}")
         return success_count
 
     async def save_trend_follow_strategy_reports(self, reports_data: List[Dict[str, Any]]) -> int:
         """
-        【新增DAO方法】根据标准化的字典列表，批量创建或更新趋势跟踪策略报告。
-        此方法由 TrendFollowStrategy 的 prepare_db_records 方法生成的数据驱动。
-
+        【V2.0 N+1查询优化版】根据标准化的字典列表，批量创建或更新趋势跟踪策略报告。
+        - 核心优化: 彻底解决了N+1查询问题。通过一次性批量获取所有需要的StockInfo对象，
+                      将原先在循环中的N次数据库查询优化为1次，大幅提升了性能。
         Args:
             reports_data (List[Dict[str, Any]]): 
                 一个字典列表，每个字典都包含了所有需要存入数据库的字段。
-
         Returns:
             int: 成功创建或更新的记录数量。
         """
         if not reports_data:
             return 0
-
-        # MODIFIED: 替换为使用 self.stock_basic_dao 而不是创建新实例
+        # --- 新增-修改-优化: 开始批量预取数据以解决N+1查询问题 ---
+        # 1. 从所有报告中提取出所有不重复的股票代码
+        all_stock_codes = list(set(report.get("stock_code") for report in reports_data if report.get("stock_code")))
+        if not all_stock_codes:
+            print("调试信息: [DAO-TrendFollow] 所有报告数据均缺少 'stock_code'，无法继续。")
+            return 0
+        # 2. 一次性从数据库批量获取所有需要的StockInfo对象，并构建一个高效的查找字典
+        stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_stock_codes)
+        print(f"调试信息: [DAO-TrendFollow] 批量预获取了 {len(stock_map)} 个股票对象。")
+        # --- 批量预取结束 ---
         data_list_for_db = []
-
+        # 3. 遍历报告数据，此时从内存中的字典获取股票对象
         for report_dict in reports_data:
             stock_code = report_dict.get("stock_code")
             if not stock_code:
-                print(f"调试信息: [DAO-TrendFollow] 报告字典缺少 'stock_code'，跳过: {report_dict}")
                 continue
-            
-            stock_instance = await self.stock_basic_dao.get_stock_by_code(stock_code)
+            # 新增-修改-优化: 从预先获取的 stock_map 中高效查找，避免了数据库查询
+            stock_instance = stock_map.get(stock_code)
             if not stock_instance:
-                print(f"调试信息: [DAO-TrendFollow] 在数据库中未找到股票: {stock_code}，跳过。")
+                print(f"调试信息: [DAO-TrendFollow] 在预获取的股票映射中未找到: {stock_code}，跳过。")
                 continue
-            
+            # 构造用于数据库操作的最终字典 (后续逻辑保持不变)
             db_ready_dict = report_dict.copy()
             db_ready_dict['stock'] = stock_instance
             del db_ready_dict['stock_code']
-
             for key, value in db_ready_dict.items():
                 if pd.isna(value):
                     db_ready_dict[key] = None
-            
             data_list_for_db.append(db_ready_dict)
-
         if not data_list_for_db:
             print("调试信息: [DAO-TrendFollow] 所有记录都因数据问题被跳过，未执行数据库操作。")
             return 0
-
         # 调用底层的批量更新/插入方法
-        # 注意：这里的 unique_fields 必须是模型中 unique_together 定义的字段名
         result_stats = await self._save_all_to_db_native_upsert(
-            model_class=TrendFollowStrategyReport, # 使用新模型
+            model_class=TrendFollowStrategyReport,
             data_list=data_list_for_db,
-            unique_fields=['stock', 'trade_time'] # 使用新模型的唯一约束
+            unique_fields=['stock', 'trade_time']
         )
-        
         success_count = result_stats.get("创建/更新成功", 0)
         return success_count
 
