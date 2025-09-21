@@ -1022,7 +1022,8 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
         if df.empty: return df
         for col in df.columns:
-            if 'amount' in col or 'net' in col:
+            # 增加对 'trade_count' 列的转换，并确保所有可能为 Decimal 的列都被转换为 float
+            if 'amount' in col or 'net' in col or 'trade_count' in col:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         if source == 'tushare':
             df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
@@ -1054,6 +1055,8 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     df_daily = data_dfs['daily']
     if not df_daily.empty:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
+        # 在合并前，强制将 'amount' 列转换为数值类型(float)，以避免 Decimal 类型问题
+        df_daily['amount'] = pd.to_numeric(df_daily['amount'], errors='coerce')
         merged_df = merged_df.join(df_daily.set_index('trade_time')['amount'])
     # print(f"[{stock_info.stock_code}] [资金流-数据加载] 多源数据加载与合并完成。")
     return merged_df
