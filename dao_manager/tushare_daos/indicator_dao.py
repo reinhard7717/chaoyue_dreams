@@ -163,10 +163,9 @@ class IndicatorDAO(BaseDAO):
             return None
         try:
             ModelClass: Optional[Type[models.Model]] = None
-            # 【修改开始】使用 model_helpers 中的辅助函数
+            # 使用 model_helpers 中的辅助函数
             if time_level_str == "d":
                 ModelClass = get_daily_data_model_by_code(stock_code)
-            # 【修改结束】
             elif time_level_str == "w": ModelClass = StockWeeklyData
             elif time_level_str == "m": ModelClass = StockMonthlyData
             else: # 分钟线模型选择

@@ -11,13 +11,14 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V402.3 行业协同版】
+        【V402.4 反过热修正版】
         - 核心升级 (本次修改):
-          - [新增] 引入了对行业生命周期数值化分数的消费逻辑。
-          - 根据行业所处的“预热期”和“主升浪”阶段的置信度分数，动态地为个股信号提供加权奖励。
-        - 收益: 实现了策略与宏观行业趋势的深度协同，能更智能地为处于顺风口的信号加分。
+          - [新增] 增加了“反过热惩罚机制”。在计算“底部反转”类信号的分数时，会检查当前价格相比近期低点（21日内最低价）的涨幅。
+          - 如果涨幅超过预设阈值（例如15%），则该“底部反转”信号的分数将被线性衰减，涨幅越大，分数越低，直至为零。
+          - 增加了调试信息，当惩罚被激活时，会打印出相关信息。
+        - 收益: 从根本上解决了策略在阶段性顶部误判为“底部反转”并给出高分的问题，有效抑制了追高风险，使“底部反转”信号回归其应有的逻辑。
         """
-        # print("        -> [进攻方案评估中心 V402.3 行业协同版] 启动...") # 更新版本号和日志
+        # print("        -> [进攻方案评估中心 V402.4 反过热修正版] 启动...") # 更新版本号和日志
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -26,6 +27,15 @@ class OffensiveLayer:
             return pd.Series(0.0, index=df.index), score_details_df
         all_scores_components = []
         default_series = pd.Series(0.0, index=df.index)
+        # --- 为反过热机制准备数据 ---
+        # 计算21日内的最低价，作为判断是否脱离底部的基准
+        df['LOW_21_D'] = df['low_D'].rolling(21).min()
+        # 计算当前收盘价相比21日最低价的涨幅
+        run_up_pct = (df['close_D'] - df['LOW_21_D']) / df['LOW_21_D']
+        # 定义底部反转信号被认为是“过热”的最大允许涨幅阈值
+        max_run_up_pct_for_bottom_reversal = 0.15 # 核心参数：从近期低点上涨超过15%后，底部反转信号将开始衰减
+        # 计算惩罚乘数，涨幅在0%到15%之间时，乘数从1线性下降到0
+        bottom_reversal_penalty_multiplier = (1 - run_up_pct / max_run_up_pct_for_bottom_reversal).clip(lower=0, upper=1)
         # --- 步骤 2: 计算【第一层：环境与战备分】 ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
@@ -36,6 +46,22 @@ class OffensiveLayer:
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
                     bonus_amount = signal_series.fillna(0).astype(float) * score
+                    # --- 应用反过热惩罚机制 ---
+                    # 检查信号名是否包含“底部反转”
+                    if "BOTTOM_REVERSAL" in signal_name:
+                        original_bonus = bonus_amount.copy() # 备份原始分数用于调试
+                        # 将惩罚乘数应用到奖励分数上
+                        bonus_amount *= bottom_reversal_penalty_multiplier
+                        # 调试信息：当惩罚发生时打印
+                        penalty_applied_mask = (original_bonus > 0) & (bonus_amount < original_bonus)
+                        if penalty_applied_mask.any():
+                            today = self.strategy.current_date_str
+                            penalty_day_mask = penalty_applied_mask & (penalty_applied_mask.index == pd.to_datetime(today))
+                            if penalty_day_mask.any():
+                                idx = penalty_day_mask.idxmax()
+                                print(f"      [调试] 日期: {today}, 信号: {signal_name}, 触发反过热惩罚。近期涨幅: {run_up_pct.loc[idx]:.2%}, "
+                                      f"分数衰减乘数: {bottom_reversal_penalty_multiplier.loc[idx]:.2f}, "
+                                      f"原始分: {original_bonus.loc[idx]:.0f}, 修正分: {bonus_amount.loc[idx]:.0f}")
                     context_score += bonus_amount
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
         score_details_df['SCORE_SETUP'] = context_score
@@ -93,7 +119,7 @@ class OffensiveLayer:
                 industry_score += industry_bonus
                 score_details_df["BONUS_INDUSTRY_LIFECYCLE"] = industry_bonus
         all_scores_components.append(industry_score)
-        print(f"          -> [行业协同 V2.1] 数值化行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
+        # print(f"          -> [行业协同 V2.1] 数值化行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
         # --- 应用“动态动能”加分 ---
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})

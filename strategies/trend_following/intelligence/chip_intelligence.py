@@ -52,26 +52,43 @@ class ChipIntelligence:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
         # 直接调用全新的七维交叉协同引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
+        # --- 调用“真实吸筹”诊断引擎 ---
+        true_concentration_states = self._diagnose_true_concentration(df)
+        ultimate_chip_states.update(true_concentration_states)
+        # --- 调用“恐慌盘投降反转”诊断引擎 ---
+        capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
+        ultimate_chip_states.update(capitulation_reversal_states)
         # print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
         return ultimate_chip_states, {}
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V332.2 性能优化版】七维交叉协同终极筹码信号引擎
+        【V332.4 基因改造版】七维交叉协同终极筹码信号引擎
         - 核心升级 (本次修改):
-          - [性能优化] 重构了方法内所有使用 `pd.concat` 进行聚合计算的逻辑。
-          - [新范式] 改为使用 `np.array` 将Series列表直接转换为NumPy二维数组，并在底层数组上通过 `np.prod` 或 `np.mean` 进行高效聚合。
-          - [鲁棒性修复] (V332.1逻辑保留) 修复了对布尔型信号 `is_multi_peak_D` 的处理逻辑，并增加了对周线数据缺失的检查。
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，不再使用“创可贴”式的反过热因子。
+          - [新增] 明确定义了“底部上下文分数”和“顶部上下文分数”，基于价格在长期（55日）区间的位置进行量化。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
         - 收益:
-          - 通过避免创建多个大型临时DataFrame，显著降低了内存峰值占用，并大幅提升了计算速度，在处理大规模数据时效果尤为明显。
-          - 修复了潜在的逻辑错误，使模型运行更稳定、结果更精确。
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。信号的定义与其名称在逻辑上完全自洽。
         """
-        # print("        -> [终极筹码信号诊断模块 V332.2 性能优化版] 启动...")
+        # print("        -> [终极筹码信号诊断模块 V332.4 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        
+        # --- 定义“位置上下文”分数，替代“反过热因子” ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        # 价格在55日区间内的位置分 (0=最低点, 1=最高点)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        # “底部上下文”分数：价格位置越低，分数越高
+        bottom_context_score = 1 - price_position_in_range
+        # “顶部上下文”分数：价格位置越高，分数越高
+        top_context_score = price_position_in_range
         pillars = {
             'cost_structure':   [('peak_cost_D', True), ('cost_divergence_D', True)],
             'control_structure':  [('concentration_90pct_D', False), ('peak_control_ratio_D', True)],
@@ -111,19 +128,15 @@ class ChipIntelligence:
                         accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
                         factor_health = (static_score * slope_score * accel_score)**(1/3)
                     factor_health_scores.append(factor_health)
-                # 使用NumPy进行高效聚合，避免创建临时DataFrame
                 if factor_health_scores:
-                    # 将Series列表转换为NumPy数组，然后计算几何平均值
                     stacked_scores = np.array([s.values for s in factor_health_scores])
                     geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(factor_health_scores))
                     pillar_period_health_d[pillar_name][p] = pd.Series(geo_mean_values, index=df.index)
                 else:
-                    pillar_period_health_d[pillar_name][p] = pd.Series(0.5, index=df.index) # 如果没有因子，则返回中性分
-                
+                    pillar_period_health_d[pillar_name][p] = pd.Series(0.5, index=df.index)
         # --- 3. 计算各支柱的“全面共识健康度” (日线) ---
         pillar_overall_health_d = {}
         for pillar_name in pillars:
-            # 使用NumPy进行高效聚合
             series_list = list(pillar_period_health_d[pillar_name].values())
             if series_list:
                 stacked_scores = np.array([s.values for s in series_list])
@@ -131,7 +144,6 @@ class ChipIntelligence:
                 pillar_overall_health_d[pillar_name] = pd.Series(mean_values, index=df.index)
             else:
                 pillar_overall_health_d[pillar_name] = pd.Series(0.5, index=df.index)
-            
         # --- 4. 计算第七支柱: 跨周期协同 (MTF Synergy) ---
         mtf_synergy_scores = []
         for pillar_name, factors in pillars.items():
@@ -146,18 +158,14 @@ class ChipIntelligence:
                 else:
                     pass
             if factor_synergy_scores:
-                # 使用NumPy进行高效聚合
                 stacked_scores = np.array([s.values for s in factor_synergy_scores])
                 mean_values = np.mean(stacked_scores, axis=0)
                 pillar_synergy_score = pd.Series(mean_values, index=df.index)
-                
                 mtf_synergy_scores.append(pillar_synergy_score)
         if mtf_synergy_scores:
-            # 使用NumPy进行高效聚合
             stacked_scores = np.array([s.values for s in mtf_synergy_scores])
             mean_values = np.mean(stacked_scores, axis=0)
             pillar_overall_health_d['mtf_synergy'] = pd.Series(mean_values, index=df.index)
-            
         else:
             pillar_overall_health_d['mtf_synergy'] = pd.Series(0.5, index=df.index)
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
@@ -165,11 +173,9 @@ class ChipIntelligence:
         for p in periods:
             health_scores_for_period = [pillar_period_health_d[key][p] for key in pillars]
             health_scores_for_period.append(pillar_overall_health_d['mtf_synergy'])
-            # 使用NumPy进行高效聚合
             stacked_scores = np.array([s.values for s in health_scores_for_period])
             geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_scores_for_period))
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
-            
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 6. 交叉协同剧本诊断 ---
         ph = pillar_overall_health_d
@@ -196,14 +202,17 @@ class ChipIntelligence:
         states['SCORE_CHIP_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_CHIP_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_CHIP_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_CHIP_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_CHIP_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_CHIP_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        # --- 重构反转信号逻辑 ---
+        # 底部反转 = 底部上下文 * 短期看涨力量 * 长期看跌惯性
+        states['SCORE_CHIP_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
+        # 顶部反转 = 顶部上下文 * 短期看跌力量 * 长期看涨惯性
+        states['SCORE_CHIP_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
         # --- 8. 导出七维支柱的最终健康分 ---
         for pillar_name, health_score in pillar_overall_health_d.items():
             signal_name = f"SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH"
@@ -981,4 +990,96 @@ class ChipIntelligence:
         # 将结果包装回一个带有原始索引的pandas Series
         return pd.Series(max_values, index=valid_series[0].index)
 
+    def _diagnose_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
+        - 核心逻辑: 捕捉市场深度超卖后，套牢盘集中“割肉”的时刻，这往往是卖压衰竭、趋势反转的前兆。
+          - 上下文（Setup）: 市场整体处于深度套牢状态 (`total_loser_rate` 很高)。
+          - 触发器（Trigger）: “割肉盘”成交占比 (`turnover_from_losers_ratio`) 及其加速度同时飙升。
+        - 产出: SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL - 一个高置信度的底部反转剧本信号。
+        """
+        states = {}
+        norm_window = 120
+        
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'total_loser_rate_D',
+            'turnover_from_losers_ratio_D',
+            'ACCEL_5_turnover_from_losers_ratio_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 恐慌盘投降反转诊断引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
 
+        # --- 2. 核心要素数值化 ---
+        # 上下文：市场整体套牢比例越高，分数越高
+        capitulation_context_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
+
+        # 触发器1：当日割肉盘占比越高，分数越高
+        loser_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+
+        # 触发器2：割肉盘占比的加速度越大，分数越高
+        loser_turnover_accel_score = self._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, ascending=True)
+
+        # --- 3. 最终裁决 ---
+        # 最终分数 = 上下文 * 触发器1 * 触发器2
+        final_score = (
+            capitulation_context_score *
+            loser_turnover_score *
+            loser_turnover_accel_score
+        ).astype(np.float32)
+        
+        states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
+        
+        return states
+
+    def _diagnose_true_concentration(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】真实吸筹 vs 虚假集中（顶部派发）诊断引擎
+        - 核心逻辑: 通过交叉验证筹码内部结构指标，区分“价格集中”背后的真实意图。
+          - 真实吸筹 = 价格集中 + 获利盘稳定 + 市场情绪冷静 + 主力控盘度上升
+          - 虚假集中 = 价格集中 + 获利盘涌出 + 市场情绪亢奋 + 主力控盘度下降
+        - 产出: 两个互斥的、高置信度的S级筹码认知信号。
+        """
+        states = {}
+        norm_window = 120
+        
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'SLOPE_21_concentration_90pct_D',
+            'winner_profit_margin_D',
+            'turnover_from_winners_ratio_D',
+            'SLOPE_21_peak_control_ratio_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 真实吸筹诊断引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
+
+        # --- 2. 核心要素数值化 ---
+        raw_concentration_score = self._normalize_score(df['SLOPE_21_concentration_90pct_D'], norm_window, ascending=False)
+        low_profit_margin_score = self._normalize_score(df['winner_profit_margin_D'], norm_window, ascending=False)
+        high_profit_margin_score = 1 - low_profit_margin_score
+        low_winner_turnover_score = self._normalize_score(df['turnover_from_winners_ratio_D'], norm_window, ascending=False)
+        high_winner_turnover_score = 1 - low_winner_turnover_score
+        increasing_control_score = self._normalize_score(df['SLOPE_21_peak_control_ratio_D'], norm_window, ascending=True)
+        decreasing_control_score = 1 - increasing_control_score
+
+        # --- 3. 最终裁决 ---
+        true_accumulation_score = (
+            raw_concentration_score *
+            low_profit_margin_score *
+            low_winner_turnover_score *
+            increasing_control_score
+        ).astype(np.float32)
+        states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score
+        false_accumulation_risk = (
+            raw_concentration_score *
+            high_profit_margin_score *
+            high_winner_turnover_score *
+            decreasing_control_score
+        ).astype(np.float32)
+        states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk
+        
+        return states

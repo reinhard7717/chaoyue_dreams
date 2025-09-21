@@ -46,25 +46,29 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 逻辑修复版】终极结构信号诊断模块
-        - 核心修复 (本次修改):
-          - [BUG修复] 修复了在计算顶部反转信号时，因拼写错误（将 `overall_bullish_health` 错写为 `bullish_health`）而导致的 `NameError`。
-        - 核心升级 (V1.1逻辑保留):
-          - [性能优化] 在融合四大支柱健康度时，将原有的 `pd.concat(...).prod()` 逻辑重构为使用 `np.stack` 和 `np.prod`，显著提升了计算效率和内存使用效率。
-        - 核心范式 (V1.0逻辑保留):
-          - 1. 四大支柱: 将结构情报提炼为均线、力学、MTF、形态四大支柱。
-          - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
-          - 3. 多维共识融合: 将四大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
-          - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
+        【V1.3 基因改造版】终极结构信号诊断模块
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，引入了基于价格位置的“上下文”判断。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
         - 收益:
-          - 修复了导致程序崩溃的严重BUG。
-          - 保持了V1.1版本带来的显著性能提升。
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。
         """
-        # print("        -> [终极结构信号诊断模块 V1.2 逻辑修复版] 启动...")
+        # print("        -> [终极结构信号诊断模块 V1.3 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
+            
+        # --- 定义“位置上下文”分数 ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        bottom_context_score = 1 - price_position_in_range
+        top_context_score = price_position_in_range
+        
+
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
@@ -99,18 +103,20 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
+        
         # --- 6. 反转信号合成 ---
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # 修改开始: 修复拼写错误，将 `bullish_health` 改为 `overall_bullish_health`
-        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
-        # 修改结束
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极结构信号诊断模块 V1.2] 分析完毕，生成 {len(states)} 个终极信号。")
+        # --- 重构反转信号逻辑 ---
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        
+        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        
+        
         return states
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
@@ -179,9 +185,9 @@ class StructuralIntelligence:
         weekly_slope_cols = [col for col in df.columns if 'SLOPE' in col and col.endswith('_W')]
         weekly_accel_cols = [col for col in df.columns if 'ACCEL' in col and col.endswith('_W')]
         # 辅助函数，用于将多列Series高效地平均为一个Series
-        # 修改开始: 修复类型提示错误，将 `List[str]` 改为 `list[str]`
+        # 修复类型提示错误，将 `List[str]` 改为 `list[str]`
         def get_weekly_avg_score(cols: list[str]) -> pd.Series:
-        # 修改结束
+        
             if not cols:
                 return pd.Series(0.5, index=df.index, dtype=np.float32)
             # 1. 获取所有归一化分数的NumPy数组列表

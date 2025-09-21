@@ -469,7 +469,7 @@ class RealtimeStrategy:
             intraday_score += score
             reasons.append(f"剧本[{playbook_name}]: +{score}")
         
-        # 2. 特征加减分 (分层判定) # 修改开始
+        # 2. 特征加减分 (分层判定)
         for feature_config_name, config in self.tiered_feature_scoring.items():
             metric_name = config['metric']
             direction = config['direction']
@@ -517,7 +517,7 @@ class RealtimeStrategy:
                 intraday_score += score_added
                 reasons.append(f"特征[{metric_name} - {reason_detail}]: {'+' if score_added > 0 else ''}{score_added}")
 
-        # 3. 特征加减分 (固定判定) # 修改开始
+        # 3. 特征加减分 (固定判定)
         for feature_name, score in self.fixed_feature_scoring.items():
             # 对于固定特征，我们检查其值是否为1.0 (表示True)
             if all_intraday_features.get(feature_name, 0.0) > 0.5:
@@ -541,7 +541,7 @@ class RealtimeStrategy:
             intraday_score -= penalty
             reasons.append(f"日线风险信号惩罚: -{penalty:.0f}")
 
-        # 5. 确定最终评级 # 修改开始
+        # 5. 确定最终评级
         final_rating = "NEUTRAL" # 默认中性
         
         strong_buy_thresh = self.rating_thresholds.get("STRONG_BUY", 150)

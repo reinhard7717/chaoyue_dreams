@@ -60,30 +60,31 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 终极行为信号诊断模块】
-        - 核心范式:
-          - 1. 深度交叉验证: 对每一时间周期，都计算一个融合了“价位、价动能、价加速、量缩、量动能、量加速”六个维度的“完美健康度”分数。
-          - 2. 信号组件化: 将不同周期的“完美健康度”组合成“短期力量”、“中期趋势”和“长期惯性”，使信号构建过程更透明。
-          - 3. 精炼共振信号 (逻辑与ChipIntelligence V3.2对齐):
-             - B级: 短期(5D)趋势健康。
-             - A级: 短期(5D)与中期(21D)趋势共振健康。
-             - S级: 短期力量(1D*5D)与中期趋势(13D*21D)共振健康。
-             - S+级: S级信号得到长期惯性(55D)的确认，形成全周期共振。
-          - 4. 精炼反转信号 (逻辑与ChipIntelligence V3.2对齐):
-             - B级: 出现1日反转健康度，对抗21日中期不健康趋势。
-             - A级: 形成5日反转健康度，对抗21日中期不健康趋势。
-             - S级: 形成短期看涨合力(1D*5D)，对抗55日长期不健康惯性。
-             - S+级: 形成短期看涨合力(1D*5D)，对抗中长期联合不健康惯性(21D*55D)。
-        - 数据需求:
-          - `price_vs_ma_{p}_D`, `volume_vs_ma_{p}_D`
-          - `SLOPE_{p}_close_D`, `ACCEL_{p}_close_D`
-          - `SLOPE_{p}_volume_D`, `ACCEL_{p}_volume_D`
+        【V1.2 基因改造版】终极行为信号诊断模块
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，不再使用“创可贴”式的反过热因子。
+          - [新增] 明确定义了“底部上下文分数”和“顶部上下文分数”，基于价格在长期（55日）区间的位置进行量化。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
+        - 收益:
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。信号的定义与其名称在逻辑上完全自洽。
         """
-        # print("        -> [终极行为信号诊断模块 V1.0] 启动...")
+        # print("        -> [终极行为信号诊断模块 V1.2 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
+        # --- 定义“位置上下文”分数，替代“反过热因子” ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        # 价格在55日区间内的位置分 (0=最低点, 1=最高点)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        # “底部上下文”分数：价格位置越低，分数越高
+        bottom_context_score = 1 - price_position_in_range
+        # “顶部上下文”分数：价格位置越高，分数越高
+        top_context_score = price_position_in_range
+
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         required_cols = set()
@@ -128,15 +129,18 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
         # --- 6. 反转信号合成 ---
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = (bullish_health[1] * bearish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (bullish_health[5] * bearish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = (bearish_health[1] * bullish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极行为信号诊断模块 V1.0] 分析完毕，生成 {len(states)} 个终极信号。")
+        # --- 重构反转信号逻辑 ---
+        # 底部反转 = 底部上下文 * 短期看涨力量 * 长期看跌惯性
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = (bottom_context_score * bullish_health[1] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (bottom_context_score * bullish_health[5] * bearish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
+        # 顶部反转 = 顶部上下文 * 短期看跌力量 * 长期看涨惯性
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = (top_context_score * bearish_health[1] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (top_context_score * bearish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
+        
         return states
 
     def diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

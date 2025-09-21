@@ -1072,7 +1072,7 @@ class StockTimeTradeDAO(BaseDAO):
             return []
 
         # --- 2. 定义Tushare API字段到模型字段的映射 ---
-        # 修改开始：使用明确的字典进行列名映射，修复BUG并提高可读性
+        # 使用明确的字典进行列名映射，修复BUG并提高可读性
         COLUMN_MAP = {
             'ts_code': 'ts_code',
             'trade_date': 'trade_date',
@@ -1094,7 +1094,7 @@ class StockTimeTradeDAO(BaseDAO):
 
         # --- 3. 分页循环拉取数据 ---
         while True:
-            # 修改开始：增加对单次API调用的异常捕获，增强健壮性
+            # 增加对单次API调用的异常捕获，增强健壮性
             try:
                 df = self.ts_pro.stk_week_month_adj(
                     start_date=start_date,
@@ -1118,7 +1118,7 @@ class StockTimeTradeDAO(BaseDAO):
 
             # --- 4. 数据清洗、转换和格式化 (向量化操作) ---
             try:
-                # 修改开始：整合了重命名、类型转换和格式化的完整流程
+                # 整合了重命名、类型转换和格式化的完整流程
                 # 步骤 a: 重命名列以匹配Django模型字段
                 df.rename(columns=COLUMN_MAP, inplace=True)
 

@@ -17,15 +17,26 @@ class PlaybookEngine:
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
-        【V5.0 剧本库扩充版】剧本蓝图知识库
-        - 核心重构 (本次修改):
-          - [剧本扩充] 基于现有的高质量认知层信号，新增了7个全新的、更贴近实战的战法剧本。
-          - [逻辑归类] 将所有剧本按照 S++/S+/S/A 的级别进行分类，结构更清晰。
-          - [命名统一] 统一了剧本和触发器的命名规范。
-        - 收益: 极大地丰富了策略的战术武器库，能够捕捉更多样、更高置信度的交易机会。
+        【V6.0 智能信号剧本版】剧本蓝图知识库
+        - 核心升级 (本次修改):
+          - [王牌剧本] 新增 `PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS` 剧本，专门捕捉经过多维度交叉验证的“真实吸筹”后的突破机会。
+          - [逆向剧本] 新增 `PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS` 剧本，用于执行“恐慌盘投降反转”这一高胜率左侧交易。
+          - [剧本优化] 将“筹码共振-价格滞后”剧本的触发器升级为消费更可靠的“真实吸筹”信号。
+        - 收益: 策略的战术库更加强大和智能，能够执行基于更深层次市场理解的交易决策。
         """
         return [
-            # “筹码共振-价格滞后”潜伏突破剧本
+            # --- 基于“真实吸筹”的王牌剧本 ---
+            {
+                'name': 'PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS',
+                'trigger': ['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'],
+                'comment': 'S++级(王牌) - [真实吸筹突破] 在确认的“真实吸筹”阶段后，由多域点火共振确认的突破，是最高置信度的买点之一。'
+            },
+            {
+                'name': 'PLAYBOOK_CONVICTION_BREAKOUT_S_PLUS',
+                'trigger': ['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'],
+                'comment': 'S++级(王牌) - [信念突破] 由资金流情报部门直接确认的、核心主力带头、买盘形成碾压的最高质量突破。'
+            },
+            # --- 优化“筹码共振-价格滞后”剧本 ---
             {
                 'name': 'PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S',
                 'trigger': ['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'],
@@ -70,6 +81,12 @@ class PlaybookEngine:
                 'comment': 'S级 - [突破前夜] 在平台和波动率双重压缩的突破前夜，由最高级别的点火共振信号确认。'
             },
             # --- A+级 优势战术剧本 (Advantaged Tactical Playbooks) ---
+            # --- 基于“恐慌盘投降”的逆向剧本 ---
+            {
+                'name': 'PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS',
+                'trigger': ['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'],
+                'comment': 'A+级(逆向) - [恐慌盘投降反转] 捕捉市场极度悲观，套牢盘集中割肉后的高胜率V型反转机会。'
+            },
             {
                 'name': 'PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS',
                 'trigger': ['TRIGGER_WASHOUT_ABSORPTION_REVERSAL_A_PLUS'],
@@ -101,7 +118,6 @@ class PlaybookEngine:
                 'trigger': ['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'],
                 'comment': 'A级 - [常规压缩突破] 在常规波动率压缩后，由任意压缩突破信号确认。'
             },
-            # ▲▲▲ 修改结束 ▲▲▲
         ]
 
     def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
@@ -131,14 +147,11 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 信号源修复版】战术触发事件定义中心
-        - 核心重构 (V5.0):
-          - [触发器扩充] 为所有新剧本定义了对应的触发器。
-          - [阈值管理] 为所有新触发器增加了可配置的阈值。
-        - 核心修复 (本次修改):
-          - [信号修复] 修复了“常规压缩突破”触发器中对 `SCORE_SQUEEZE_BREAKOUT_OPP_S`
-                        这个不存在信号的引用，替换为消费正确的 `COGNITIVE_SCORE_VOL_BREAKOUT_S` 信号。
-        - 收益: 确保了“常规压缩突破”剧本的触发逻辑能够正常工作。
+        【V6.0 智能信号触发版】战术触发事件定义中心
+        - 核心升级 (本次修改):
+          - [新增触发器] 为新剧本 `PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS` 和 `PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS` 定义了专属触发器。
+          - [触发器升级] 将 `TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S` 的战备条件判断，从消费旧的、模糊的共振信号，升级为消费新的、高置信度的 `SCORE_CHIP_TRUE_ACCUMULATION` 信号。
+        - 收益: 剧本的触发逻辑现在完全基于我们最新、最可靠的底层智能信号，决策质量更高。
         """
         triggers = {}
         atomic = self.strategy.atomic_states
@@ -161,6 +174,9 @@ class PlaybookEngine:
             'normal_squeeze_a': get_param_value(p_triggers.get('normal_squeeze_a_threshold'), 0.5),
             'prime_chip_ignition_s_plus_plus': get_param_value(p_triggers.get('prime_chip_ignition_s_plus_plus_threshold'), 0.7),
             'chip_resonance_price_lag_s': get_param_value(p_triggers.get('chip_resonance_price_lag_s_threshold'), 0.5),
+            'conviction_breakout_s_plus': get_param_value(p_triggers.get('conviction_breakout_s_plus_threshold'), 0.7),
+            'true_accumulation_breakout_s_plus': get_param_value(p_triggers.get('true_accumulation_breakout_s_plus_threshold'), 0.6),
+            'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
         }
         # --- 2. 定义基础触发器 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
@@ -172,21 +188,46 @@ class PlaybookEngine:
         recovery_ratio = get_param_value(p_dominant.get('recovery_ratio'), 0.5)
         is_power_recovered = today_body_size >= (yesterday_body_size * recovery_ratio)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = is_green & is_strong_rally & (~was_yesterday_red | is_power_recovered)
-        # --- 3. 定义元融合与战术场景触发器 (部分保留，部分新增) ---
+        
+        # --- 3. 定义元融合与战术场景触发器 ---
+        
+        # --- 为新剧本定义触发器 ---
+        # 触发器: 真实吸筹突破 (S++)
+        # 逻辑: 昨日处于“真实吸筹”状态，今日由“多域点火共振”确认
+        was_true_accumulation_yesterday = atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > thresholds['true_accumulation_breakout_s_plus']
+        ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
+        is_ignition_today = ignition_score > thresholds['ignition_s']
+        triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = was_true_accumulation_yesterday & is_ignition_today
+
+        # 触发器: 恐慌盘投降反转 (A+)
+        # 逻辑: “恐慌盘投降”剧本分数达标，并且由“显性反转K线”确认
+        capitulation_score = atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score)
+        is_capitulation_reversal = capitulation_score > thresholds['capitulation_reversal_a_plus']
+        triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = is_capitulation_reversal & triggers['TRIGGER_DOMINANT_REVERSAL']
+        # 触发器: 信念突破 (S++)
+        # 逻辑: 直接消费资金流层生成的“信念突破”剧本分数
+        conviction_breakout_score = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score)
+        triggers['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'] = conviction_breakout_score > thresholds['conviction_breakout_s_plus']
+
+        # --- 更新“筹码共振-价格滞后”剧本的触发器逻辑 ---
+        # 战备条件：昨日处于“真实吸筹”且“价格被压制”的状态
+        was_true_accumulation_yesterday_for_lag = atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > 0.5
+        price_momentum_suppressed_score = (1 - self.strategy.df_indicators['SLOPE_5_close_D'].rolling(120).rank(pct=True)).fillna(0.5)
+        was_price_suppressed_yesterday = price_momentum_suppressed_score.shift(1).fillna(0.0) > 0.8
+        was_setup_yesterday_for_lag = was_true_accumulation_yesterday_for_lag & was_price_suppressed_yesterday
+        # 点火条件：今日出现温和启动迹象
+        is_gentle_lift_today = atomic.get('TRIGGER_GENTLE_PRICE_LIFT_A', default_series)
+        triggers['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = was_setup_yesterday_for_lag & is_gentle_lift_today
+
         triggers['TRIGGER_BOTTOM_REVERSAL_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score) > thresholds['bottom_reversal_s']
         triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & triggers['TRIGGER_DOMINANT_REVERSAL']
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
         triggers['TRIGGER_SHAKEOUT_REVERSAL_A'] = atomic.get('COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A', default_score) > thresholds['shakeout_reversal_a']
         triggers['TRIGGER_CONSOLIDATION_BREAKOUT_A'] = atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score) > thresholds['consolidation_breakout_a']
-        # 剧本: 洗盘吸筹后反转
         triggers['TRIGGER_WASHOUT_ABSORPTION_REVERSAL_A_PLUS'] = atomic.get('COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL', default_score) > thresholds['washout_reversal_a_plus']
-        # 剧本: 核心庄家点火
         triggers['TRIGGER_CORE_HOLDER_IGNITION_S_PLUS'] = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-        # 剧本: 主升浪点火
         is_in_main_uptrend = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
-        ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
         triggers['TRIGGER_UPTREND_IGNITION_RESONANCE_S'] = is_in_main_uptrend & (ignition_score > thresholds['ignition_s'])
-        # 剧本: 压缩突破系列
         vol_compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score)
         platform_quality_score = atomic.get('SCORE_PLATFORM_QUALITY_S', default_score)
         squeeze_breakout_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_S', default_score)
@@ -198,17 +239,10 @@ class PlaybookEngine:
         setup_normal_squeeze = vol_compression_score > 0.5
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
-        # 定义“筹码共振-价格滞后”剧本的专属触发器
-        # 这个触发器直接实现了“昨日战备就绪，今日点火触发”的剧本逻辑
-        was_setup_yesterday = atomic.get('SETUP_CHIP_RESONANCE_READY_S', default_series).shift(1).fillna(False)
-        is_triggered_today = atomic.get('TRIGGER_GENTLE_PRICE_LIFT_A', default_series)
-        # 最终的布尔触发信号
-        triggers['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = was_setup_yesterday & is_triggered_today
-        # --- 4. 定义“持续点火”确认触发器 (逻辑增强) ---
-        # 4.1 定义基础点火事件
+        
+        # --- 4. 定义“持续点火”确认触发器 (逻辑不变) ---
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']
         initial_chip_ignition = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > thresholds['chip_ignition_s']
-        # 4.2 定义失效条件：在观察期内出现重大风险
         invalidation_risk_score = np.maximum.reduce([
             atomic.get('COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S', default_score).values,
             atomic.get('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', default_score).values,
@@ -216,14 +250,12 @@ class PlaybookEngine:
         ])
         invalidation_risk_series = pd.Series(invalidation_risk_score, index=df.index)
         risk_remained_low = invalidation_risk_series.rolling(window=3, min_periods=1).max() < thresholds['invalidation_risk']
-        # 4.3 定义“持续点火” - 多域点火
-        # 检查过去N天内是否有过点火，并且今天不再是首次点火日
         had_recent_ignition = initial_ignition.rolling(window=3, min_periods=1).max().astype(bool)
         is_sustained_day = had_recent_ignition & ~initial_ignition
         triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS'] = is_sustained_day & risk_remained_low
-        # 4.4 定义“持续点火” - 黄金筹码点火
         setup_prime_chip = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > 0.7
         triggers['TRIGGER_PRIME_CHIP_IGNITION_S_PLUS_PLUS'] = setup_prime_chip & triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS']
+        
         # --- 5. 最终安全检查 ---
         for key in list(triggers.keys()):
             if key in triggers and isinstance(triggers[key], pd.Series):

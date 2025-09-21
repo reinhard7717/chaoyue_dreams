@@ -42,24 +42,29 @@ class FoundationIntelligence:
 
     def diagnose_ultimate_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 逻辑修复版】终极基础层信号诊断模块
-        - 核心修复 (本次修改):
-          - [BUG修复] 修复了在计算看跌信号组件时，因拼写错误（将 `overall_bearish_health` 错写为 `bearish_health`）而导致的 `NameError`。
-          - [BUG修复] 修复了在计算顶部反转信号时，因拼写错误（将 `overall_bullish_health` 错写为 `bullish_health`）而导致的潜在 `NameError`。
-        - 核心升级 (V1.1逻辑保留):
-          - [性能优化] 重构了核心计算逻辑，采用“批量预处理 + NumPy原生计算”范式，避免了在循环中生成大量中间Series，大幅降低了内存峰值和计算开销。
-        - 核心范式 (V1.0逻辑保留):
-          - 1. 四大支柱: 将基础层情报提炼为EMA(趋势)、RSI(动能)、MACD(强度)、CMF(量能)四大支柱。
-          - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
-          - 3. 多维共识融合: 将四大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
-          - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
-        - 收益: 修复了导致程序崩溃的严重BUG，同时保持了V1.1版本带来的显著性能提升。
+        【V1.3 基因改造版】终极基础层信号诊断模块
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，引入了基于价格位置的“上下文”判断。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
+        - 收益:
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。
         """
-        # print("        -> [终极基础层信号诊断模块 V1.2 逻辑修复版] 启动...")
+        # print("        -> [终极基础层信号诊断模块 V1.3 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
+            
+        # --- 定义“位置上下文”分数 ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        bottom_context_score = 1 - price_position_in_range
+        top_context_score = price_position_in_range
+        
+
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         required_cols = set()
@@ -103,9 +108,7 @@ class FoundationIntelligence:
         bullish_long_inertia = overall_bullish_health[55]
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
-        # 修改开始: 修复拼写错误，将 `bearish_health` 改为 `overall_bearish_health`
         bearish_long_inertia = overall_bearish_health[55]
-        # 修改结束
         # --- 5. 共振信号合成 ---
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
         states['SCORE_FOUNDATION_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
@@ -115,18 +118,20 @@ class FoundationIntelligence:
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
+        
         # --- 6. 反转信号合成 ---
-        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # 修改开始: 修复拼写错误，将 `bullish_health` 改为 `overall_bullish_health`
-        states['SCORE_FOUNDATION_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_FOUNDATION_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
-        # 修改结束
-        states['SCORE_FOUNDATION_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极基础层信号诊断模块 V1.2] 分析完毕，生成 {len(states)} 个终极信号。")
+        # --- 重构反转信号逻辑 ---
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        
+        states['SCORE_FOUNDATION_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        
+        
         return states
 
     def diagnose_ema_synergy(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

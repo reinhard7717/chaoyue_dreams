@@ -44,12 +44,11 @@ class Command(BaseCommand):
         deleted_count, _ = await ConceptMember.objects.all().adelete()
         self.stdout.write(f"  - 已清空 ConceptMember 表，删除 {deleted_count} 条旧记录。")
 
-        # 修改开始: 预加载 ConceptMaster 和 StockInfo 的映射关系
+        # 预加载 ConceptMaster 和 StockInfo 的映射关系
         # 预加载 ConceptMaster 的 code -> id 映射
         self.stdout.write("  - 正在预加载 ConceptMaster 的映射关系...")
         concept_map = {c.code: c.id async for c in ConceptMaster.objects.all()}
         self.stdout.write(f"     ...完成，加载了 {len(concept_map)} 个概念。")
-        # 修改结束
 
         self.stdout.write("  - 开始并行处理所有数据源...")
         tasks = [
@@ -114,7 +113,7 @@ class Command(BaseCommand):
         self.stdout.write(f"     ...完成，处理 {count} 条申万行业成分记录。")
         return count
 
-    # 修改开始: 彻底重构 migrate_ths_members
+    # 彻底重构 migrate_ths_members
     async def migrate_ths_members(self, concept_map):
         """
         【V2.0 终极版】迁移同花顺板块成分
@@ -152,7 +151,7 @@ class Command(BaseCommand):
 
         self.stdout.write(f"     ...完成，处理 {count} 条同花顺板块成分记录。")
         return count
-    # 修改结束
+    
 
     async def migrate_dc_members(self, concept_map):
         """迁移东方财富板块成分"""

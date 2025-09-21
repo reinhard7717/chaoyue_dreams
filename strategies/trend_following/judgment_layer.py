@@ -58,13 +58,13 @@ class JudgmentLayer:
                 active_offense_signals = score_details_df.loc[idx]
                 active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
                 for signal, score in active_offense_signals.items():
-                    # --- 新增开始：使用健壮的前缀剥离逻辑 ---
+                    # --- 使用健壮的前缀剥离逻辑 ---
                     base_signal_name = signal
                     for prefix in prefixes_to_strip:
                         if signal.startswith(prefix):
                             base_signal_name = signal[len(prefix):]
                             break
-                    # --- 新增结束 ---
+                    
                     
                     # 修改行：使用正确的基础信号名进行查找
                     cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)

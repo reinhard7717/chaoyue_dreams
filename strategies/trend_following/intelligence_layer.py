@@ -232,50 +232,42 @@ class IntelligenceLayer:
 
     def _diagnose_long_term_daily_chip_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        日线长周期筹码战略上下文诊断模块
-        - 核心职责: 直接从日线数据中读取长周期筹码指标，并将其转化为原子状态。
-                    这些状态将作为战略层面的上下文，影响日线策略的决策。
+        【V3.0 智能信号消费版】日线长周期筹码战略上下文诊断模块
+        - 核心升级 (本次修改):
+          - [逻辑升级] 不再使用简单的斜率来判断筹码集中，而是直接消费由 `chip_intelligence` 模块生成的、
+                        经过多维度交叉验证的 `SCORE_CHIP_TRUE_ACCUMULATION` (真实吸筹分)。
+          - [风险规避] 同样消费 `SCORE_CHIP_FALSE_ACCUMULATION_RISK` (虚假集中风险分)，并将其转化为
+                        `CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D` 信号，用于风险惩罚。
+        - 收益:
+          - 彻底解决了将顶部派发误判为筹码集中的问题，信号的可靠性实现了质的飞跃。
         """
         states = {}
-        default_series = pd.Series(False, index=df.index)
+        atomic_states = self.strategy.atomic_states # 获取原子状态字典
+        default_score = pd.Series(0.0, index=df.index)
 
-        # 检查所需的长周期筹码斜率/加速度列
-        required_cols = [
-            'SLOPE_21_concentration_90pct_D',
-            'ACCEL_21_concentration_90pct_D',
-            'SLOPE_21_chip_health_score_D'
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"            -> [警告] 日线长周期筹码战略诊断缺少数据: {missing_cols}，模块已跳过。")
-            # 临时填充NaN，确保后续代码不报错，但信号将为False
-            for col in missing_cols:
-                df[col] = np.nan # Ensure column exists to prevent KeyError later
+        # --- 1. 消费“真实吸筹分” ---
+        # 直接使用 chip_intelligence 生成的高质量信号
+        # 将判断依据从简单的斜率改为消费智能信号
+        true_accumulation_score = atomic_states.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score)
+        # 当真实吸筹分数高于一个阈值（例如0.5）时，我们才认为这是一个有效的“筹码集中”信号
+        states['CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D'] = true_accumulation_score > 0.5
+        # “加速集中”可以定义为真实吸筹分的斜率为正
+        true_accumulation_slope = true_accumulation_score.diff().fillna(0)
+        states['CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D'] = (true_accumulation_score > 0.5) & (true_accumulation_slope > 0)
 
-        # --- 1. 长期筹码集中度趋势 ---
-        # 21日筹码集中度斜率 < 0 表示长期集中
-        is_long_term_concentrating = df.get('SLOPE_21_concentration_90pct_D', default_series) < 0
-        states['CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D'] = is_long_term_concentrating
+        # --- 2. 消费“虚假集中风险分” ---
+        # 将虚假集中风险分转化为发散信号，用于风险惩罚
+        # 将发散的判断依据从简单的斜率改为消费智能风险信号
+        false_accumulation_risk_score = atomic_states.get('SCORE_CHIP_FALSE_ACCUMULATION_RISK', default_score)
+        states['CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D'] = false_accumulation_risk_score > 0.5
+        false_accumulation_risk_slope = false_accumulation_risk_score.diff().fillna(0)
+        states['CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D'] = (false_accumulation_risk_score > 0.5) & (false_accumulation_risk_slope > 0)
 
-        # 21日筹码集中度斜率 > 0 表示长期发散
-        is_long_term_diverging = df.get('SLOPE_21_concentration_90pct_D', default_series) > 0
-        states['CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D'] = is_long_term_diverging
-
-        # --- 2. 长期筹码集中度加速度 ---
-        # 21日筹码集中度加速度 < 0 表示长期集中加速
-        is_long_term_accel_concentrating = df.get('ACCEL_21_concentration_90pct_D', default_series) < 0
-        states['CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D'] = is_long_term_accel_concentrating
-
-        # 21日筹码集中度加速度 > 0 表示长期发散加速
-        is_long_term_accel_diverging = df.get('ACCEL_21_concentration_90pct_D', default_series) > 0
-        states['CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D'] = is_long_term_accel_diverging
-
-        # --- 3. 长期筹码健康度趋势 ---
-        # 21日筹码健康分斜率 > 0 表示长期健康度改善
-        is_long_term_health_improving = df.get('SLOPE_21_chip_health_score_D', default_series) > 0
+        # --- 3. 长期筹码健康度趋势 (逻辑保持不变) ---
+        is_long_term_health_improving = df.get('SLOPE_21_chip_health_score_D', pd.Series(False, index=df.index)) > 0
         states['CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D'] = is_long_term_health_improving
 
-        # print(f"            -> [日线长周期筹码战略诊断] 已生成 {len(states)} 个战略级原子状态。")
+        # print(f"            -> [日线长周期筹码战略诊断 V3.0] 已生成 {len(states)} 个基于智能信号的战略状态。") # 修改: 更新版本号
         return states
 
     def _score_industry_lifecycle_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -221,7 +221,7 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         stock_count = len(all_codes)
         logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
         
-        # --- 代码修改开始：将 start_date_str 参数透传给子任务 ---
+        # --- 代码将 start_date_str 参数透传给子任务 ---
         # 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
         analysis_tasks = [
             run_multi_timeframe_strategy.s(
@@ -971,6 +971,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
+
+# =================================================================
+# =================== 3. 高级资金特征任务 ==================
+# =================================================================
+
 async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     """【资金流辅助函数 V1.0】初始化任务上下文。"""
     # print(f"[{stock_code}] [资金流-初始化] 正在准备任务上下文...")
@@ -1062,6 +1067,34 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['retail_net_flow_consensus'] = df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
+    # 1. 主力与超大单分歧度 (大单净流入)
+    df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
+    # 2. 主动买盘压力
+    # 注意：这些原始字段仅在 tushare 数据源中存在
+    main_force_buy = df.get('main_force_active_buy_tushare', 0)
+    retail_sell = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
+    df['active_buy_pressure'] = (main_force_buy / retail_sell.replace(0, np.nan)).fillna(0.5)
+    # 3. 散户恐慌指数
+    retail_sell_amount = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
+    retail_buy_amount = df.get('buy_sm_amount', 0) + df.get('buy_md_amount', 0)
+    df['retail_panic_index'] = (retail_sell_amount / retail_buy_amount.replace(0, np.nan)).fillna(1.0)
+    # 4. 主力锁仓买入比
+    buy_elg = df.get('buy_elg_amount', 0)
+    sell_elg = df.get('sell_elg_amount', 0)
+    df['main_force_conviction_buy_ratio'] = (buy_elg / (buy_elg + sell_elg).replace(0, np.nan)).fillna(0.5)
+    # 5. 交易集中度指数
+    total_elg_trade = df.get('buy_elg_amount', 0) + df.get('sell_elg_amount', 0)
+    total_trade_amount = df.get('amount', 0) # 'amount' 是从日线行情数据中合并过来的总成交额
+    df['trade_concentration_index'] = (total_elg_trade / total_trade_amount.replace(0, np.nan)).fillna(0.0)
+    # 6. 平均每笔成交金额 (元)
+    # 'amount' 单位是万元, 'trade_count' 是笔数。需要转换单位。
+    total_turnover_yuan = df.get('amount', 0) * 10000
+    trade_count = df.get('trade_count', 0)
+    df['avg_order_value'] = (total_turnover_yuan / trade_count.replace(0, np.nan)).fillna(0)
+    # 7. 主力信念比率
+    buy_lg = df.get('buy_lg_amount', 0) # 大单买入额
+    df['main_force_conviction_ratio'] = (buy_elg / buy_lg.replace(0, np.nan)).fillna(0)
+    
     total_active_flow = df['main_force_active_buy_tushare'] + df['main_force_active_sell_tushare']
     df['main_force_flow_intensity_ratio'] = (df['main_force_active_buy_tushare'] / total_active_flow.replace(0, np.nan)).fillna(0.5)
     if 'amount' in df.columns:

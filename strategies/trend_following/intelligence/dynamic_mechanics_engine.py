@@ -44,21 +44,29 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 性能优化版】终极动态力学信号诊断模块
+        【V3.2 基因改造版】终极动态力学信号诊断模块
         - 核心升级 (本次修改):
-          - [性能优化] 在计算各周期“完美动态力学健康度”时，重构了计算逻辑。
-          - [新范式] 改为使用 `np.stack` 将各维度健康度得分的NumPy数组堆叠起来，然后使用 `np.prod` 沿轴计算几何平均值。
-        - 核心重构 (V3.0逻辑保留):
-          - [维度扩展] 采用七维（价、量、波、效、力的性质、动能、惯性）超完备力学模型。
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，引入了基于价格位置的“上下文”判断。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
         - 收益:
-          - 通过避免在循环中创建多个大型临时Pandas Series，显著降低了内存流转（churn）并提升了计算速度。
-          - 引擎对市场动态的刻画更全面、更立体，信号置信度和可靠性高。
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。
         """
-        # print("        -> [终极动态力学信号诊断模块 V3.1 性能优化版] 启动...")
+        # print("        -> [终极动态力学信号诊断模块 V3.2 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
+            
+        # --- 定义“位置上下文”分数 ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        bottom_context_score = 1 - price_position_in_range
+        top_context_score = price_position_in_range
+        
+
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         metrics = [
@@ -102,7 +110,6 @@ class DynamicMechanicsEngine:
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美动态力学健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
-        # 预先将静态Series转换为NumPy数组，以提高循环内性能
         price_static_arr = price_static.values
         volume_static_arr = volume_static.values
         volatility_static_arr = volatility_static.values
@@ -110,21 +117,17 @@ class DynamicMechanicsEngine:
         force_quality_static_arr = force_quality_static.values
         kinetic_energy_static_arr = kinetic_energy_static.values
         inertia_static_arr = inertia_static.values
-        
         for p in periods:
-            # 直接在NumPy数组上进行计算，避免生成中间Pandas Series
-            # 为每个维度计算周期健康度数组
             price_health_arr = (price_static_arr * price_mom[p].values * price_accel[p].values)**(1/3)
             volume_health_arr = (volume_static_arr * volume_mom[p].values * volume_accel[p].values)**(1/3)
             if p in volatility_mom:
                  volatility_health_arr = (volatility_static_arr * volatility_mom[p].values * volatility_accel[p].values)**(1/3)
             else:
-                 volatility_health_arr = volatility_static_arr # 直接使用静态数组
+                 volatility_health_arr = volatility_static_arr
             efficiency_health_arr = (efficiency_static_arr * efficiency_mom[p].values * efficiency_accel[p].values)**(1/3)
             force_quality_health_arr = (force_quality_static_arr * force_quality_mom[p].values * force_quality_accel[p].values)**(1/3)
             kinetic_energy_health_arr = (kinetic_energy_static_arr * kinetic_energy_mom[p].values * kinetic_energy_accel[p].values)**(1/3)
             inertia_health_arr = (inertia_static_arr * inertia_mom[p].values * inertia_accel[p].values)**(1/3)
-            # 将所有维度的健康度数组堆叠成一个2D NumPy数组
             health_components_arr = np.stack([
                 price_health_arr,
                 volume_health_arr,
@@ -134,11 +137,8 @@ class DynamicMechanicsEngine:
                 kinetic_energy_health_arr,
                 inertia_health_arr
             ], axis=0)
-            # 沿0轴（维度轴）计算所有分数的乘积，然后开7次方根，得到最终的几何平均值
             final_health_arr = np.prod(health_components_arr, axis=0)**(1/7)
-            # 将最终的NumPy结果数组包装回带索引的Pandas Series
             bullish_health[p] = pd.Series(final_health_arr, index=df.index, dtype=np.float32)
-            
         bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
         # --- 4. 定义信号组件 (此部分逻辑不变) ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
@@ -156,16 +156,20 @@ class DynamicMechanicsEngine:
         states['SCORE_DYN_BEARISH_RESONANCE_A'] = (bearish_health[5] * bearish_health[21]).astype(np.float32)
         states['SCORE_DYN_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_DYN_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_DYN_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        # --- 6. 反转信号合成 (此部分逻辑不变) ---
-        states['SCORE_DYN_BOTTOM_REVERSAL_B'] = (bullish_health[1] * bearish_health[21]).astype(np.float32)
-        states['SCORE_DYN_BOTTOM_REVERSAL_A'] = (bullish_health[5] * bearish_health[21]).astype(np.float32)
-        states['SCORE_DYN_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_B'] = (bearish_health[1] * bullish_health[21]).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_A'] = (bearish_health[5] * bullish_health[21]).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极动态力学信号诊断模块 V3.1] 分析完毕，生成 {len(states)} 个终极信号。")
+        
+        # --- 6. 反转信号合成 ---
+        # --- 重构反转信号逻辑 ---
+        states['SCORE_DYN_BOTTOM_REVERSAL_B'] = (bottom_context_score * bullish_health[1] * bearish_health[21]).astype(np.float32)
+        states['SCORE_DYN_BOTTOM_REVERSAL_A'] = (bottom_context_score * bullish_health[5] * bearish_health[21]).astype(np.float32)
+        states['SCORE_DYN_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        
+        states['SCORE_DYN_TOP_REVERSAL_B'] = (top_context_score * bearish_health[1] * bullish_health[21]).astype(np.float32)
+        states['SCORE_DYN_TOP_REVERSAL_A'] = (top_context_score * bearish_health[5] * bullish_health[21]).astype(np.float32)
+        states['SCORE_DYN_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bullish_medium_trend * bullish_long_inertia).astype(np.float32)
+        
+        
         return states
 
 

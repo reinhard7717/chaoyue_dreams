@@ -45,30 +45,46 @@ class FundFlowIntelligence:
             return {}
         # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
         ultimate_ff_states = self.diagnose_ultimate_fund_flow_signals(df)
+        # --- 调用“资金-价格背离”诊断引擎 ---
+        divergence_risk_states = self._diagnose_flow_price_divergence(df)
+        ultimate_ff_states.update(divergence_risk_states)
+        
+        stealth_accumulation_states = self._diagnose_stealth_accumulation(df)
+        ultimate_ff_states.update(stealth_accumulation_states)
+
+        conviction_breakout_states = self._diagnose_high_conviction_breakout(df)
+        ultimate_ff_states.update(conviction_breakout_states)
+
+        top_distribution_states = self._diagnose_top_distribution_risk(df)
+        ultimate_ff_states.update(top_distribution_states)
         # print(f"      -> [资金流情报分析总指挥 V19.0] 分析完毕，共生成 {len(ultimate_ff_states)} 个终极资金流信号。")
         return ultimate_ff_states
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 逻辑修复版】终极资金流信号诊断模块
-        - 核心修复 (本次修改):
-          - [BUG修复] 修复了在计算看跌信号组件时，因拼写错误（将 `overall_bearish_health` 错写为 `bearish_bearish_health`）而导致的 `NameError`。
-        - 核心升级 (V1.1逻辑保留):
-          - [性能优化] 重构了核心计算逻辑，采用“批量预处理 + NumPy原生计算”范式，避免了在循环中生成大量中间Series，大幅降低了内存峰值和计算开销。
-        - 核心范式 (V1.0逻辑保留):
-          - 1. 六大支柱: 将资金流情报提炼为聚合流、结构流、冲突流、量能流、核心流、强度流六大支柱。
-          - 2. 深度交叉验证: 对每一支柱，在每一时间周期上进行“静态 x 动态(斜率) x 加速”三维交叉验证。
-          - 3. 多维共识融合: 将六大支柱在同一周期的“健康分”进行几何平均，形成“全面共识健康度”。
-          - 4. 终极信号合成: 基于“全面共识健康度”，构建标准的S+/S/A/B四级共振与反转信号。
+        【V1.3 基因改造版】终极资金流信号诊断模块
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，引入了基于价格位置的“上下文”判断。
+          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
+          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
         - 收益:
-          - 修复了导致程序崩溃的严重BUG。
-          - 保持了V1.1版本带来的显著性能提升。
+          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。
         """
-        # print("        -> [终极资金流信号诊断模块 V1.2 逻辑修复版] 启动...")
+        # print("        -> [终极资金流信号诊断模块 V1.3 基因改造版] 启动...") # 修改: 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
+            
+        # --- 定义“位置上下文”分数 ---
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, np.nan)
+        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        bottom_context_score = 1 - price_position_in_range
+        top_context_score = price_position_in_range
+        
+
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
@@ -78,11 +94,21 @@ class FundFlowIntelligence:
             'conflict': 'flow_divergence_mf_vs_retail',
             'cmf': 'CMF_21',
             'xl_order': 'net_xl_amount_consensus',
-            'intensity': 'main_force_flow_intensity_ratio'
+            'intensity': 'main_force_flow_intensity_ratio',
+            'internal_divergence': 'main_force_vs_xl_divergence', # 主力内部分歧，越小越好
+            'buy_pressure': 'active_buy_pressure', # 主动买盘压力，越大越好
+            'retail_sentiment': 'retail_panic_index', # 散户恐慌指数，越小越好（代表散户在买）
+            'main_force_conviction': 'main_force_conviction_buy_ratio', # 主力信念，越大越好
+            'trade_dominance': 'trade_concentration_index', # 交易主导权，越大越好
+            'granularity': 'avg_order_value', # 新增：交易颗粒度，越大越好
+            'conviction_ratio': 'main_force_conviction_ratio', # 新增：主力信念比率，越大越好
         }
         pillar_types = {
             'uses_sum': ['fund_flow', 'structure', 'xl_order'],
-            'uses_daily': ['conflict', 'intensity', 'cmf']
+            'uses_daily': [
+                'conflict', 'cmf', 'intensity', 'internal_divergence', 'buy_pressure', 'retail_sentiment', 'main_force_conviction',
+                'trade_dominance', 'granularity', 'conviction_ratio'
+            ]
         }
         required_cols = set()
         for p in periods:
@@ -156,16 +182,19 @@ class FundFlowIntelligence:
         states['SCORE_FF_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FF_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FF_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
+        
         # --- 6. 反转信号合成 ---
-        states['SCORE_FF_BOTTOM_REVERSAL_B'] = (overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_FF_BOTTOM_REVERSAL_A'] = (overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_FF_BOTTOM_REVERSAL_S'] = (bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FF_BOTTOM_REVERSAL_S_PLUS'] = (bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_B'] = (overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_A'] = (overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_S'] = (bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_FF_TOP_REVERSAL_S_PLUS'] = (bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        # print(f"        -> [终极资金流信号诊断模块 V1.2] 分析完毕，生成 {len(states)} 个终极信号。")
+        # --- 重构反转信号逻辑 ---
+        states['SCORE_FF_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_FF_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
+        states['SCORE_FF_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
+        states['SCORE_FF_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
+        
+        states['SCORE_FF_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FF_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
+        states['SCORE_FF_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
+        states['SCORE_FF_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        
         return states
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, target_index: pd.Index, ascending: bool = True) -> pd.Series:
@@ -647,9 +676,109 @@ class FundFlowIntelligence:
         print("               - [强度]卖出意愿拐点信号已生成")
         return df
 
+    def _diagnose_flow_price_divergence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】资金-价格背离风险诊断引擎
+        - 核心逻辑: 识别“主力资金强劲流入，但价格反应疲软”的顶背离风险。
+          - 风险 = 强资金流入 * 弱价格行为 * 低量价效率
+        - 产出: SCORE_FF_PRICE_DIVERGENCE_RISK - 一个高置信度的资金流顶背离风险信号。
+        """
+        states = {}
+        norm_window = 120
+        
+        # --- 1. 军备检查 ---
+        required_cols = [
+            'SLOPE_5_main_force_net_flow_consensus_D',
+            'ACCEL_5_main_force_net_flow_consensus_D',
+            'SLOPE_5_close_D',
+            'VPA_EFFICIENCY_D'
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"          -> [严重警告] 资金-价格背离诊断引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
 
+        # --- 2. 核心要素数值化 ---
+        # 条件1: 强资金流入 (主力净流入的5日斜率和加速度都处于高位)
+        strong_inflow_momentum = self._normalize_score(df['SLOPE_5_main_force_net_flow_consensus_D'], norm_window, df.index, ascending=True)
+        strong_inflow_accel = self._normalize_score(df['ACCEL_5_main_force_net_flow_consensus_D'], norm_window, df.index, ascending=True)
+        strong_inflow_score = strong_inflow_momentum * strong_inflow_accel
 
+        # 条件2: 弱价格行为 (收盘价的5日斜率处于低位)
+        weak_price_action_score = self._normalize_score(df['SLOPE_5_close_D'], norm_window, df.index, ascending=False)
 
+        # 条件3: 低量价效率 (VPA效率值处于低位)
+        low_vpa_efficiency_score = self._normalize_score(df['VPA_EFFICIENCY_D'], norm_window, df.index, ascending=False)
+
+        # --- 3. 最终裁决 ---
+        # 最终风险分 = 三个条件同时满足的强度
+        final_risk_score = (
+            strong_inflow_score *
+            weak_price_action_score *
+            low_vpa_efficiency_score
+        ).astype(np.float32)
+        
+        states['SCORE_FF_PRICE_DIVERGENCE_RISK'] = final_risk_score
+        
+        return states
+
+    def _diagnose_stealth_accumulation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """隐蔽吸筹剧本诊断引擎"""
+        states = {}
+        norm_window = 120
+        required_cols = ['avg_order_value', 'trade_concentration_index', 'retail_panic_index', 'SLOPE_5_close_D']
+        if any(col not in df.columns for col in required_cols): return states
+
+        # 条件1: 交易颗粒度增大 (大单在进场)
+        rising_avg_order_value = self._normalize_score(df['avg_order_value'], norm_window, df.index, ascending=True)
+        # 条件2: 交易主导权提升 (主力成交占比提升)
+        rising_trade_concentration = self._normalize_score(df['trade_concentration_index'], norm_window, df.index, ascending=True)
+        # 条件3: 散户情绪稳定或悲观 (没有抢筹)
+        stable_retail_sentiment = self._normalize_score(df['retail_panic_index'], norm_window, df.index, ascending=True) # panic_index越高(卖的人多)越好
+        # 条件4: 价格被刻意压制 (股价横盘或微跌)
+        suppressed_price = self._normalize_score(df['SLOPE_5_close_D'].abs(), norm_window, df.index, ascending=False)
+
+        score = (rising_avg_order_value * rising_trade_concentration * stable_retail_sentiment * suppressed_price).astype(np.float32)
+        states['SCORE_FF_PLAYBOOK_STEALTH_ACCUMULATION'] = score
+        return states
+
+    def _diagnose_high_conviction_breakout(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """信念突破剧本诊断引擎"""
+        states = {}
+        norm_window = 120
+        required_cols = ['active_buy_pressure', 'main_force_conviction_ratio', 'pct_change_D']
+        if any(col not in df.columns for col in required_cols): return states
+
+        # 条件1: 主动买盘形成碾压 (买方急迫)
+        spiking_buy_pressure = self._normalize_score(df['active_buy_pressure'], norm_window, df.index, ascending=True)
+        # 条件2: 核心主力带头冲锋 (将军上阵)
+        high_conviction_ratio = self._normalize_score(df['main_force_conviction_ratio'], norm_window, df.index, ascending=True)
+        # 条件3: 价格本身是突破形态 (涨幅>2%)
+        is_breakout_day = (df['pct_change_D'] > 0.02).astype(float)
+
+        score = (spiking_buy_pressure * high_conviction_ratio * is_breakout_day).astype(np.float32)
+        states['SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT'] = score
+        return states
+
+    def _diagnose_top_distribution_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """高位派发风险诊断引擎"""
+        states = {}
+        norm_window = 120
+        required_cols = ['avg_order_value', 'main_force_vs_xl_divergence', 'retail_panic_index', 'CONTEXT_RISK_HIGH_LEVEL_ZONE']
+        if any(col not in df.columns for col in required_cols) and any(col not in self.strategy.atomic_states for col in required_cols if col.startswith('CONTEXT')): return states
+
+        # 条件1: 交易颗粒度减小 (大单离场，散户接管)
+        falling_avg_order_value = self._normalize_score(df['avg_order_value'], norm_window, df.index, ascending=False)
+        # 条件2: 主力内部分歧加剧 (核心主力卖，次级主力买)
+        rising_internal_divergence = self._normalize_score(df['main_force_vs_xl_divergence'], norm_window, df.index, ascending=True)
+        # 条件3: 散户情绪亢奋 (疯狂买入)
+        frenzied_retail_sentiment = self._normalize_score(df['retail_panic_index'], norm_window, df.index, ascending=False) # panic_index越低(买的人多)风险越高
+        # 上下文: 必须处于高位危险区
+        is_in_danger_zone = self.strategy.atomic_states.get('CONTEXT_RISK_HIGH_LEVEL_ZONE', pd.Series(False, index=df.index)).astype(float)
+
+        score = (falling_avg_order_value * rising_internal_divergence * frenzied_retail_sentiment * is_in_danger_zone).astype(np.float32)
+        states['SCORE_FF_RISK_TOP_DISTRIBUTION'] = score
+        return states
 
 
 

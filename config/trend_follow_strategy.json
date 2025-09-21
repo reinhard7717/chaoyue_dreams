@@ -496,6 +496,24 @@
         "hm_coordination_threshold": 3,
         "description_hm": "定义多少家游资同时净买入算作“协同攻击”"
       },
+      "reversal_resonance_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】多域反转共振融合算法参数",
+        "bottom_resonance_weights": {
+          "description": "底部反转时，各领域信号的权重。总和不必为1。",
+          "mechanics": 0.3,
+          "chip": 0.3,
+          "foundation": 0.2,
+          "behavior": 0.2
+        },
+        "top_resonance_weights": {
+          "description": "顶部反转时，各领域信号的权重。",
+          "mechanics": 0.3,
+          "chip": 0.3,
+          "foundation": 0.2,
+          "behavior": 0.2
+        }
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
@@ -513,6 +531,8 @@
             "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": 600,
             "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S": 580,
             "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": 750,
+            "COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE": 550,
+            "COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING": 600,
             "COGNITIVE_FUSION_BULLISH_RESONANCE_S": 400,
             "COGNITIVE_FUSION_BOTTOM_REVERSAL_S": 380,
             "COGNITIVE_SCORE_IGNITION_RESONANCE_S": 420,
@@ -542,6 +562,8 @@
             "SCORE_BOARD_EARTH_HEAVEN": 400,
             "SCORE_SQUEEZE_SHAKEOUT": 220,
             "说明_筹码层机会": "--- S/A/B级筹码层机会 ---",
+            "SCORE_CHIP_TRUE_ACCUMULATION": 500,
+            "SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL": 450,
             "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": 400,
             "SCORE_CHIP_BULLISH_RESONANCE_S": 320,
             "SCORE_CHIP_BULLISH_RESONANCE_A": 240,
@@ -646,10 +668,12 @@
             "说明_回踩剧本": "--- 回踩确认剧本 ---",
             "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": 450,
             "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 250,
+            "说明_深度博弈剧本": "--- 深度资金博弈剧本 ---",
+            "SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT": 750,
+            "SCORE_FF_PLAYBOOK_STEALTH_ACCUMULATION": 650,
             "说明_新增回踩剧本": "--- 回踩确认剧本 ---",
             "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680,
             "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 350
-
           }
         },
         "positional_momentum_params": {
@@ -735,7 +759,9 @@
             "SCORE_RISK_PRICE_DEVIATION_S": 15,
             "SCORE_RISK_STRUCTURAL_FAULT_S": 20,
             "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 15,
-            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13
+            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13,
+            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": 22,
+            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": 20
           }
         },
         "positional_acceleration_scoring": {
@@ -766,9 +792,15 @@
             "chip_sentiment_risk": { "SCORE_CHIP_PILLAR_HOLDER_SENTIMENT_HEALTH": {"weight": 1.0, "inverse": true} },
             "chip_stability_risk": { "SCORE_CHIP_PILLAR_STRUCTURAL_STABILITY_HEALTH": {"weight": 1.0, "inverse": true} },
             "chip_pressure_risk": { "SCORE_CHIP_PILLAR_PRESSURE_RISK_HEALTH": {"weight": 1.0, "inverse": true} },
-            "chip_playbook_risk": { "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": {"weight": 1.5, "inverse": false} },
+            "chip_playbook_risk": {
+                "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": {"weight": 1.5, "inverse": false},
+                "SCORE_CHIP_FALSE_ACCUMULATION_RISK": {"weight": 1.8, "inverse": false, "description": "虚假集中(顶部派发)风险，权重更高"}
+            },
             "behavioral_risk": { "BEHAVIOR_TOP_REVERSAL": {"weight": 1.0, "inverse": false, "fuse": true} },
-            "fund_flow_risk": { "FF_BEARISH_RESONANCE": {"weight": 1.0, "inverse": false, "fuse": true} },
+            "fund_flow_risk": { 
+                "FF_BEARISH_RESONANCE": {"weight": 1.0, "inverse": false, "fuse": true},
+                "SCORE_FF_RISK_TOP_DISTRIBUTION": {"weight": 1.8, "inverse": false, "description": "高位派发风险，权重极高"}
+            },
             "structural_risk": { "STRUCTURE_BEARISH_RESONANCE": {"weight": 1.0, "inverse": false, "fuse": true} }
           },
           "dynamic_weighting_params": {

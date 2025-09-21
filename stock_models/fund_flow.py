@@ -752,11 +752,18 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_xl_amount_consensus': '共识-超大单净流入(万元)',
         'flow_divergence_mf_vs_retail': '资金分歧度(主力-散户)',
         'main_force_flow_intensity_ratio': '主力资金流强度比率',
+        'main_force_vs_xl_divergence': '主力与超大单分歧度(万元)',
+        'active_buy_pressure': '主动买盘压力比率',
+        'retail_panic_index': '散户恐慌指数',
+        'main_force_conviction_buy_ratio': '主力锁仓买入比',
+        'trade_concentration_index': '交易集中度指数',
+        'avg_order_value': '平均每笔成交金额(元)',
+        'main_force_conviction_ratio': '主力信念比率',
     }
     
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
-        if 'ratio' in name:
+        if 'ratio' in name or 'pressure' in name or 'index' in name:
             vars()[name] = models.DecimalField(max_digits=10, decimal_places=6, verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
