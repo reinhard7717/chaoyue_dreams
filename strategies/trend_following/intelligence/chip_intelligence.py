@@ -235,7 +235,7 @@ class ChipIntelligence:
              - S+级: 形成短期反转合力(1D*5D)，对抗中长期联合惯性(21D*55D)。
         - A股实战考量: V3.2的信号体系更贴近交易员的思维模式，清晰地划分了“观察(B) -> 建仓(A) -> 加仓(S) -> 持有(S+)”的决策过程，为不同风险偏好的策略提供了更精细的输入。
         """
-        print("        -> [交叉验证诊断模块 V3.2 信号逻辑精炼版] 启动...")
+        # print("        -> [交叉验证诊断模块 V3.2 信号逻辑精炼版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'cross_validation_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -267,7 +267,7 @@ class ChipIntelligence:
 
         # --- 3. 深度交叉验证与周期共振分计算 ---
         period_validated_resonance = {'BULLISH': {}, 'BEARISH': {}}
-        print("        -> 开始计算所有周期的深度交叉验证共振分...") # 修改: 简化打印信息
+        # print("        -> 开始计算所有周期的深度交叉验证共振分...") # 修改: 简化打印信息
         for group_name, factors in SIGNAL_GROUPS.items():
             for period in periods:
                 current_period_resonance = pd.Series(1.0, index=df.index)
@@ -289,7 +289,7 @@ class ChipIntelligence:
                     current_period_resonance *= validated_factor_score
                 
                 period_validated_resonance[group_name][period] = current_period_resonance
-        print("        -> 所有周期的深度交叉验证共振分计算完毕。") # 修改: 简化打印信息
+        # print("        -> 所有周期的深度交叉验证共振分计算完毕。") # 修改: 简化打印信息
 
         # --- 4. 基于“周期共振分”构建 B/A/S/S+ 四级信号 ---
         bullish_scores = period_validated_resonance['BULLISH']
@@ -366,7 +366,7 @@ class ChipIntelligence:
         - 核心升级 (V1.1): 优化 `CHIP_SCORE_RISK_WORSENING_TURN` 评分逻辑，增加“短期趋势已向下”
                              的前置条件，使信号判断更严格，更能捕捉真实的加速恶化风险。
         """
-        print("        -> [复合筹码评分模块 V1.1 逻辑增强版] 启动，正在合成顶层原子评分...") 
+        # print("        -> [复合筹码评分模块 V1.1 逻辑增强版] 启动，正在合成顶层原子评分...") 
         new_scores = {}
         atomic = self.strategy.atomic_states
         # 将默认值从0.5改为0.0，因为在乘法融合中，缺失信号应视为中性(不贡献分数)，而非平均水平。
@@ -434,7 +434,7 @@ class ChipIntelligence:
         - 核心升级(V1.1): 新增“亢奋上涨预警”评分，用于识别市场过热的宏观状态。
         - 收益: 为下游所有模块提供了最关键的宏观背景判断。
         """
-        print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 启动...")
+        # print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_strategic_context_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -555,7 +555,7 @@ class ChipIntelligence:
           - A级 (高质量共振): 在B级基础上，乘以静态健康分，确保共振发生在健康结构之上。
           - S级 (加速的共振): 在A级基础上，乘以三大维度的短期“加速度”，捕捉正在加速的共振趋势。
         """
-        print("        -> [筹码信号量化评分模块 V6.0 终极共振版] 启动...") 
+        # print("        -> [筹码信号量化评分模块 V6.0 终极共振版] 启动...") 
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_feature_params')
         if not get_param_value(p.get('enabled'), True):
@@ -648,7 +648,7 @@ class ChipIntelligence:
           - A级 (高质量共振): B级共振必须发生在“静态健康的结构”之上。
           - S级 (加速的共振): A级共振必须伴随“短期改善的加速”。
         """
-        print("        -> [高级筹码动态评分模块 V4.0 终极共振统一版] 启动...") 
+        # print("        -> [高级筹码动态评分模块 V4.0 终极共振统一版] 启动...") 
         new_scores = {}
         p = get_params_block(self.strategy, 'advanced_chip_dynamics_params')
         if not get_param_value(p.get('enabled'), True):
@@ -744,7 +744,7 @@ class ChipIntelligence:
           - A级 (高质量共振): B级共振必须发生在“静态已很集中”的结构之上。
           - S级 (加速的共振): A级共振必须伴随“短期净集中的加速”。
         """
-        print("        -> [筹码内部结构评分模块 V4.0 终极共振统一版] 启动...") 
+        # print("        -> [筹码内部结构评分模块 V4.0 终极共振统一版] 启动...") 
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_internal_structure_params')
         if not get_param_value(p.get('enabled'), True):
@@ -823,7 +823,7 @@ class ChipIntelligence:
           - A级 (高质量共振): B级共振必须发生在“静态成本结构健康”的背景下。
           - S级 (加速的共振): A级共振必须伴随“短期收敛的加速”。
         """
-        print("        -> [持仓者行为评分模块 V4.0 终极共振统一版] 启动...") 
+        # print("        -> [持仓者行为评分模块 V4.0 终极共振统一版] 启动...") 
         new_scores = {}
         p = get_params_block(self.strategy, 'chip_holder_behavior_params')
         if not get_param_value(p.get('enabled'), True):
@@ -882,16 +882,19 @@ class ChipIntelligence:
         print("        -> [持仓者行为评分模块 V4.0 终极共振统一版] 计算完毕。") 
         return df
 
+# 文件: strategies/trend_following/intelligence/chip_intelligence.py
+
     def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.1 鲁棒性增强版】行为与筹码融合评分模块
         - 核心重构 (V2.1): 将所有动态指标的计算周期从1日提升至5日，以过滤市场噪音，使对“洗盘吸筹”和
                           “诱多派发”两大核心战术场景的判断基于更稳健的短期趋势，而非单日异动，更符合A股实战。
+        - 核心修复 (本次修改): 修复了 `drop_score` 计算中未处理 `pct_change_D` 首日 NaN 值的问题，从根源上防止了 NaN 信号污染。
         - 核心逻辑:
           - 洗盘吸筹: 融合价格下跌、恐慌盘涌出、获利盘稳定、5日筹码集中趋势及加速度。
           - 诱多派发: 融合价格上涨与5日筹码集中度、健康度的趋势及加速度，捕捉“价涨质跌”的核心背离。
         """
-        print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 启动...") 
+        # print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 启动...")
         new_scores = {}
         p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -900,7 +903,7 @@ class ChipIntelligence:
         # 将所有动态指标周期从1日提升至5日，增强鲁棒性
         required_cols = [
             'pct_change_D', 'turnover_from_losers_ratio_D',
-            'turnover_from_winners_ratio_D', 
+            'turnover_from_winners_ratio_D',
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
             'SLOPE_5_chip_health_score_D', 'ACCEL_5_chip_health_score_D'
         ]
@@ -915,7 +918,8 @@ class ChipIntelligence:
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
         # --- 3. 计算“洗盘吸筹”融合分 (Washout Absorption Opportunity) ---
         # 3.1 核心要素 (使用5日动态指标)
-        drop_score = (1 - (df['pct_change_D'] - (-0.045)).abs() / 0.025).clip(0, 1)
+        # 代码修改：对 pct_change_D 增加 .fillna(0.0) 以处理首日NaN，并在链式操作末尾增加 .fillna(0.0) 保证鲁棒性。
+        drop_score = (1 - (df['pct_change_D'].fillna(0.0) - (-0.045)).abs() / 0.025).clip(0, 1).fillna(0.0)
         losers_capitulating_score = normalize(df['turnover_from_losers_ratio_D'], ascending=True)
         winners_holding_score = normalize(df['turnover_from_winners_ratio_D'], ascending=False)
         chip_improving_momentum = normalize(df['SLOPE_5_concentration_90pct_D'], ascending=False)
@@ -946,7 +950,7 @@ class ChipIntelligence:
         new_scores['CHIP_SCORE_FUSED_DECEPTIVE_RALLY'] = new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_A']
         # --- 6. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 计算完毕。") 
+        print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 计算完毕。")
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:

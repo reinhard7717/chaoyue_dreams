@@ -124,19 +124,19 @@ class IntelligenceLayer:
         self.mechanics_engine.run_dynamic_analysis_command()
         df = self.pattern_recognizer.identify_all(df)
         # --- 阶段二: 结构层情报诊断与合成 ---
-        print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
+        # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
         self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df))
         # --- 阶段三: 行为层情报诊断与合成 ---
-        print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
+        # print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
         self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
         self.strategy.atomic_states.update(self.cyclical_intel.run_cyclical_analysis_command(df))
         # --- 阶段四: 筹码层情报诊断与合成 ---
-        print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
+        # print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         self.strategy.trigger_events.update(chip_triggers)
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
-        print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
+        # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
         # 消费 chip_intel 生成的 prime opportunity 分数
         prime_states, prime_scores = self.chip_intel.synthesize_prime_chip_opportunity(df)
         self.strategy.atomic_states.update(prime_states)

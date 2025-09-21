@@ -62,7 +62,7 @@ class JudgmentLayer:
             # 新增-修改-优化: 动态获取由 reset_index() 生成的日期列的名称。
             # 这使得代码不再依赖于 'index' 这个不确定的默认名称，从而修复了KeyError。
             date_col_name = long_df.columns[0]
-            print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
+            # print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
 
             # 2. 向量化剥离前缀
             long_df['base_signal'] = long_df['signal']
