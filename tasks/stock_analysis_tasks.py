@@ -1069,34 +1069,36 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
     # 1. 主力与超大单分歧度 (大单净流入)
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
+    # 新增行: 定义一个安全的除法分母处理函数，以处理 Series 或标量（如 int）
+    # 该函数将0替换为nan以避免除零错误，同时兼容不同数据类型
+    safe_denom = lambda v: v.replace(0, np.nan) if isinstance(v, pd.Series) else (np.nan if v == 0 else v)
     # 2. 主动买盘压力
     # 注意：这些原始字段仅在 tushare 数据源中存在
     main_force_buy = df.get('main_force_active_buy_tushare', 0)
     retail_sell = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
-    df['active_buy_pressure'] = (main_force_buy / retail_sell.replace(0, np.nan)).fillna(0.5)
+    df['active_buy_pressure'] = (main_force_buy / safe_denom(retail_sell)).fillna(0.5)
     # 3. 散户恐慌指数
     retail_sell_amount = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
     retail_buy_amount = df.get('buy_sm_amount', 0) + df.get('buy_md_amount', 0)
-    df['retail_panic_index'] = (retail_sell_amount / retail_buy_amount.replace(0, np.nan)).fillna(1.0)
+    df['retail_panic_index'] = (retail_sell_amount / safe_denom(retail_buy_amount)).fillna(1.0)
     # 4. 主力锁仓买入比
     buy_elg = df.get('buy_elg_amount', 0)
     sell_elg = df.get('sell_elg_amount', 0)
-    df['main_force_conviction_buy_ratio'] = (buy_elg / (buy_elg + sell_elg).replace(0, np.nan)).fillna(0.5)
+    df['main_force_conviction_buy_ratio'] = (buy_elg / safe_denom(buy_elg + sell_elg)).fillna(0.5)
     # 5. 交易集中度指数
     total_elg_trade = df.get('buy_elg_amount', 0) + df.get('sell_elg_amount', 0)
     total_trade_amount = df.get('amount', 0) # 'amount' 是从日线行情数据中合并过来的总成交额
-    df['trade_concentration_index'] = (total_elg_trade / total_trade_amount.replace(0, np.nan)).fillna(0.0)
+    df['trade_concentration_index'] = (total_elg_trade / safe_denom(total_trade_amount)).fillna(0.0)
     # 6. 平均每笔成交金额 (元)
     # 'amount' 单位是万元, 'trade_count' 是笔数。需要转换单位。
     total_turnover_yuan = df.get('amount', 0) * 10000
     trade_count = df.get('trade_count', 0)
-    df['avg_order_value'] = (total_turnover_yuan / trade_count.replace(0, np.nan)).fillna(0)
+    df['avg_order_value'] = (total_turnover_yuan / safe_denom(trade_count)).fillna(0)
     # 7. 主力信念比率
     buy_lg = df.get('buy_lg_amount', 0) # 大单买入额
-    df['main_force_conviction_ratio'] = (buy_elg / buy_lg.replace(0, np.nan)).fillna(0)
-    
+    df['main_force_conviction_ratio'] = (buy_elg / safe_denom(buy_lg)).fillna(0)
     total_active_flow = df['main_force_active_buy_tushare'] + df['main_force_active_sell_tushare']
-    df['main_force_flow_intensity_ratio'] = (df['main_force_active_buy_tushare'] / total_active_flow.replace(0, np.nan)).fillna(0.5)
+    df['main_force_flow_intensity_ratio'] = (df['main_force_active_buy_tushare'] / safe_denom(total_active_flow)).fillna(0.5) # 修改行: 为保持一致性和健壮性，同样使用 safe_denom
     if 'amount' in df.columns:
         df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] / df['amount'].astype(float)) * 100
     # print(f"[{stock_code}] [资金流-共识计算] 共识指标计算完成。")
