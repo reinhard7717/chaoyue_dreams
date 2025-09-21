@@ -36,11 +36,11 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.2 · 向量化性能重构版】生成人类可读的信号摘要。
-        - 核心优化 (本次修改):
-          - [性能重构] 彻底移除了原有的双重 for 循环，改为完全向量化的Pandas操作。
-          - [效率提升] 通过 `melt` 将宽表转为长表，然后进行一次性的过滤、映射和字符串格式化，最后通过 `groupby().apply()` 高效地聚合每日摘要。这比逐行迭代快几个数量级。
-        - 业务逻辑: 保持与V2.1版本完全一致，仅重构实现方式。
+        【V2.3 · 健壮性修复版】生成人类可读的信号摘要。
+        - 核心修复 (本次修改):
+          - [健壮性] 修复了因 `reset_index()` 行为不确定而导致的 `KeyError: 'index'` 崩溃问题。
+          - [解决方案] 不再硬编码 `groupby('index')`，而是通过 `long_df.columns[0]` 动态获取由 `reset_index()` 生成的日期列的实际名称，确保无论原始索引是否有名称，代码都能正确分组。
+        - 业务逻辑: 保持与V2.2版本完全一致，仅修复实现上的bug。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
@@ -53,10 +53,16 @@ class JudgmentLayer:
                 return pd.Series(dtype=object)
             
             # 1. 宽表转长表，并过滤无效分数
+            # ignore_index=False 保留原始索引，reset_index() 将其转换为列
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             long_df = long_df[long_df['score'] > 0].copy()
             if long_df.empty:
                 return pd.Series(dtype=object)
+
+            # 新增-修改-优化: 动态获取由 reset_index() 生成的日期列的名称。
+            # 这使得代码不再依赖于 'index' 这个不确定的默认名称，从而修复了KeyError。
+            date_col_name = long_df.columns[0]
+            print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
 
             # 2. 向量化剥离前缀
             long_df['base_signal'] = long_df['signal']
@@ -71,9 +77,10 @@ class JudgmentLayer:
             long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
             
             # 5. 按日期分组并聚合为列表
-            return long_df.groupby('index')['summary_str'].apply(list)
+            # 新增-修改-优化: 使用动态获取的日期列名进行分组。
+            return long_df.groupby(date_col_name)['summary_str'].apply(list)
 
-        # --- 代码修改：调用向量化辅助函数处理进攻和风险信号 ---
+        # --- 调用向量化辅助函数处理进攻和风险信号 ---
         offense_summaries = process_details_df(score_details_df, prefixes_to_strip)
         risk_summaries = process_details_df(risk_details_df, []) # 风险信号通常没有前缀
 

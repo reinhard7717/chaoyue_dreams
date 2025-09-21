@@ -84,19 +84,18 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V403.2 性能优化版】情报层总入口。
-        - 核心优化 (本次修改):
-          - [性能优化] 将 `chip_intelligence` 和 `cognitive_intelligence` 中返回DataFrame的方法调用，整合到主数据流 `df` 的链式调用中，进一步减少了对 `self.strategy.df_indicators` 的反复赋值。
-          - [内存优化] 确保所有中间计算都作用于局部变量 `df`，直到所有计算完成后才进行最终赋值，减少了内存拷贝和对象创建。
-        - 业务逻辑: 保持与V403.1版本完全一致，仅优化数据流和执行效率。
+        【V403.3 依赖修复版】情报层总入口。
+        - 核心修复 (本次修改):
+          - [依赖修复] 调整了模块的调用顺序，确保 `_diagnose_long_term_daily_chip_context` 在其依赖的智能信号（如 `SCORE_CHIP_TRUE_ACCUMULATION`）计算完毕后才执行，解决了“缺少上游智能信号”的警告。
+          - [逻辑梳理] 将 `_diagnose_true_concentration` 的调用从 `chip_intel` 内部移至 `intelligence_layer` 的主流程中，使依赖关系更清晰。
+        - 业务逻辑: 保持与V403.2版本完全一致，仅修复执行流程。
         """
-        # print("--- [情报层总指挥官 V403.2 性能优化版] 开始执行所有诊断模块... ---") # 代码修改：更新版本号
+        print("--- [情报层总指挥官 V403.3 依赖修复版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         # --- 阶段一: 基础层与原子情报诊断 ---
-        # print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
-        # 代码修改：将返回DataFrame的方法调用整合到链式调用中
+        print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
         df = self.chip_intel.diagnose_composite_scores(df)
         df = self.chip_intel.diagnose_strategic_context_scores(df)
         df = self.chip_intel.diagnose_quantitative_chip_scores(df)
@@ -105,6 +104,13 @@ class IntelligenceLayer:
         df = self.chip_intel.diagnose_chip_holder_behavior_scores(df)
         df = self.chip_intel.diagnose_fused_behavioral_chip_scores(df)
         df = self.chip_intel.diagnose_cross_validation_signals(df)
+        # 新增-修改-优化: 在此阶段直接调用“真实吸筹”诊断，确保其产出的智能信号可被后续模块消费。
+        true_concentration_states = self.chip_intel._diagnose_true_concentration(df)
+        self.strategy.atomic_states.update(true_concentration_states)
+        # 将新生成的分数也合并回主DataFrame
+        for col, series in true_concentration_states.items():
+            if col not in df.columns:
+                df[col] = series
         # 更新原子状态，因为后续模块可能依赖这些新分数
         new_chip_cols = set(df.columns) - set(self.strategy.df_indicators.columns)
         for col in new_chip_cols:
@@ -118,26 +124,26 @@ class IntelligenceLayer:
         self.mechanics_engine.run_dynamic_analysis_command()
         df = self.pattern_recognizer.identify_all(df)
         # --- 阶段二: 结构层情报诊断与合成 ---
-        # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
+        print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
         self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df))
         # --- 阶段三: 行为层情报诊断与合成 ---
-        # print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
+        print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
         self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
         self.strategy.atomic_states.update(self.cyclical_intel.run_cyclical_analysis_command(df))
         # --- 阶段四: 筹码层情报诊断与合成 ---
-        # print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
+        print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
         self.strategy.atomic_states.update(chip_states)
         self.strategy.trigger_events.update(chip_triggers)
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
-        # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
+        print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
         # 消费 chip_intel 生成的 prime opportunity 分数
         prime_states, prime_scores = self.chip_intel.synthesize_prime_chip_opportunity(df)
         self.strategy.atomic_states.update(prime_states)
         for col, series in prime_scores.items():
             df[col] = series
             self.strategy.atomic_states[col] = series
-        # 消费 chip_intel 生成的 long term context
+        # 新增-修改-优化: 将此调用移至其依赖项计算完毕之后，确保能正确执行。
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
         # 认知层链式调用 (已是高效实现)
         df = self.cognitive_intel.synthesize_trend_quality_score(df)
@@ -188,7 +194,7 @@ class IntelligenceLayer:
                 print("--- [探针结束] ---\n")
         # 在所有计算完成后，一次性更新策略实例的DataFrame
         self.strategy.df_indicators = df
-        # print("--- [情报层总指挥官 V403.2] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
+        print("--- [情报层总指挥官 V403.3] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

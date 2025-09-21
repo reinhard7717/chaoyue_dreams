@@ -41,24 +41,20 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V332.0 七维交叉协同终极版】筹码情报最高司令部
+        【V332.1 依赖解耦版】筹码情报最高司令部
         - 核心重构 (本次修改):
-          - [认知再升维] 引入“七维交叉协同引擎”，在六维支柱基础上增加“跨周期协同”维度。
-          - [分析新范式] 引入“交叉协同剧本”分析，识别“强庄洗盘”、“真空突破”等高级市场博弈模式。
-        - 收益: 模型从“独立维度评估”进化到“多维互动博弈分析”，实现了对市场复杂叙事的深度解读。
+          - [依赖解耦] 移除了对 `_diagnose_true_concentration` 的内部调用。该诊断逻辑已被提升至 `IntelligenceLayer` 主流程中，以解决模块间的依赖顺序问题。
+        - 业务逻辑: 保持与V332.0版本完全一致，仅调整内部调用结构。
         """
-        # print("        -> [筹码情报最高司令部 V332.0 七维交叉协同终极版] 启动...")
+        print("        -> [筹码情报最高司令部 V332.1 依赖解耦版] 启动...")
         if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
             df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
         # 直接调用全新的七维交叉协同引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
-        # --- 调用“真实吸筹”诊断引擎 ---
-        true_concentration_states = self._diagnose_true_concentration(df)
-        ultimate_chip_states.update(true_concentration_states)
         # --- 调用“恐慌盘投降反转”诊断引擎 ---
         capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
         ultimate_chip_states.update(capitulation_reversal_states)
-        # print(f"        -> [筹码情报最高司令部 V332.0] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
+        print(f"        -> [筹码情报最高司令部 V332.1] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
         return ultimate_chip_states, {}
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

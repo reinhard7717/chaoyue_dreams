@@ -201,6 +201,14 @@ class WeeklyContextEngine:
 
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """定义战场关键参照物"""
+        # 新增-修改-优化: 增加对核心OHLC列的依赖检查，从根源上防止KeyError崩溃。
+        required_cols = ['high_W', 'low_W', 'close_W']
+        if not self._check_dependencies(df, required_cols, log_details=True):
+            # 如果缺少关键列，则将输出列填充为NaN并返回，实现优雅降级。
+            df['ref_dist_from_52w_high_W'] = np.nan
+            df['ref_support_level_W'] = np.nan
+            return df
+
         # 1. 52周高点
         high_52w = df['high_W'].rolling(52, min_periods=20).max()
         df['ref_dist_from_52w_high_W'] = (df['close_W'] - high_52w) / high_52w
@@ -211,6 +219,14 @@ class WeeklyContextEngine:
 
     def _analyze_candlestick_psychology(self, df: pd.DataFrame) -> pd.DataFrame:
         """解读周线K线心理学"""
+        # 新增-修改-优化: 增加依赖检查，确保K线形态识别所需的基础OHLC列存在。
+        required_cols = ['open_W', 'high_W', 'low_W', 'close_W']
+        if not self._check_dependencies(df, required_cols, log_details=True):
+            # 如果缺少列，则将输出的心理学信号填充为False。
+            df['psych_reversal_bullish_W'] = False
+            df['psych_rejection_bearish_W'] = False
+            return df
+
         # 复用日线策略的K线形态识别器
         df_with_patterns = self.pattern_recognizer.identify_all(df, suffix='_W')
         # 提取关键的心理学信号
@@ -236,9 +252,11 @@ class WeeklyContextEngine:
 
     def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """标定动态风险控制线"""
+        # 新增-修改-优化: 将 close_W 也加入依赖检查，并使用统一的检查函数，优化日志。
         atr_col = 'ATR_14_W'
-        if atr_col not in df.columns:
-            print(f"    - [风险线-警告] 缺少 {atr_col} 列，无法计算动态风险线。")
+        required_cols = [atr_col, 'close_W']
+        if not self._check_dependencies(df, required_cols, log_details=True):
+            logger.warning(f"    - [风险线-警告] 缺少 {required_cols} 列，无法计算动态风险线。")
             df['risk_volatility_stop_W'] = np.nan
             return df
         # 定义风险线为：收盘价下方 2 倍 ATR
@@ -337,9 +355,13 @@ class WeeklyContextEngine:
         检测价格与RSI指标的背离，提供极具价值的前瞻性信号。
         实现方式采用滚动窗口对比，避免了寻找精确波峰/波谷的数学陷阱，更贴近实战。
         """
+        # 新增-修改-优化: 增加对 high_W 和 low_W 的依赖检查，并确保在失败时输出列存在。
         rsi_col = 'RSI_13_W'
-        if rsi_col not in df.columns:
-            logger.warning("    - [背离检测-警告] 缺少RSI列，无法进行背离检测。")
+        required_cols = [rsi_col, 'high_W', 'low_W']
+        if not self._check_dependencies(df, required_cols, log_details=True):
+            logger.warning("    - [背离检测-警告] 缺少RSI或OHLC列，无法进行背离检测。")
+            df['risk_bearish_divergence_W'] = False
+            df['opp_bullish_divergence_W'] = False
             return df
         
         N = self.params.get('divergence_lookback_weeks', 26) # 观察窗口配置化
