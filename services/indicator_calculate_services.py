@@ -50,9 +50,11 @@ class IndicatorCalculator:
 
     async def calculate_atrr(self, df: pd.DataFrame, period: int = 14, high_col: str = 'high', low_col: str = 'low', close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
-        计算 ATRR (Average True Range Ratio)。
-        ATRR = ATR / Close
+        【V1.1 异步优化版】计算 ATRR (平均真实波幅率)。
+        - 指标含义: ATRR = ATR / Close，衡量波幅相对于价格的百分比，提供标准化的波动率度量。
+        - 优化: 将同步的计算逻辑通过 asyncio.to_thread 移至工作线程执行，避免阻塞事件循环。
         """
+        # 新增-修改-优化: 将所有前置检查放在同步函数外部，快速失败。
         required_cols = [high_col, low_col, close_col]
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None
@@ -60,17 +62,22 @@ class IndicatorCalculator:
             return None
         
         try:
-            # 1. 计算 ATR
-            atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
-            if atr_series is None or atr_series.empty:
-                return None
-            
-            # 2. 计算 ATRR
-            close_prices = df[close_col].replace(0, np.nan) # 避免除以零
-            atrr_series = atr_series / close_prices
-            
-            # 3. 返回DataFrame
-            return pd.DataFrame({f'ATRr_{period}': atrr_series}, index=df.index)
+            # 新增-修改-优化: 定义一个同步函数来封装所有计算逻辑。
+            def _sync_atrr():
+                # 1. 使用 pandas-ta 高效计算 ATR
+                atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
+                if atr_series is None or atr_series.empty:
+                    return None
+                
+                # 2. 计算 ATRR，并处理收盘价为0的情况以避免除零错误
+                close_prices = df[close_col].replace(0, np.nan)
+                atrr_series = atr_series / close_prices
+                
+                # 3. 将结果Series转换为DataFrame并返回
+                return atrr_series.to_frame(name=f'ATRr_{period}')
+
+            # 新增-修改-优化: 在独立的线程中异步执行同步计算函数。
+            return await asyncio.to_thread(_sync_atrr)
         except Exception as e:
             logger.error(f"计算 ATRR (周期 {period}) 出错: {e}", exc_info=True)
             return None
@@ -128,8 +135,9 @@ class IndicatorCalculator:
 
     async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V1.1 标准化版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)
+        【V1.2 代码简化版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)。
         - 核心修正: 对 pandas-ta 返回的 BBB% (带宽百分比) 列进行标准化，将其除以 100，转换为标准比率。
+        - 优化: 移除了原代码中冗余的lambda表达式，使异步调用更清晰。
         """
         if df is None or df.empty or close_col not in df.columns:
             logger.warning(f"计算布林带缺少必要列: {close_col}。")
@@ -138,31 +146,37 @@ class IndicatorCalculator:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的布林带。")
             return None
         try:
-            def _sync_bbands():
+            # 新增-修改-优化: 定义清晰的同步计算函数。
+            def _sync_bbands_calculation():
                 # 使用 ta.bbands() 直接调用，返回一个新的DataFrame
-                return ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
+                bbands_df = ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
+                if bbands_df is None or bbands_df.empty:
+                    return None
+                
+                # 标准化带宽百分比列
+                bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
+                if bbw_source_col in bbands_df.columns:
+                    bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
+                
+                # 构建列名映射，以实现标准化命名
+                rename_map = {
+                    f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
+                    f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}{suffix}',
+                    f'BBU_{period}_{std_dev:.1f}': f'BBU_{period}_{std_dev:.1f}{suffix}',
+                    bbw_source_col: f'BBW_{period}_{std_dev:.1f}{suffix}',
+                    f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
+                }
+                
+                result_df = bbands_df.rename(columns=rename_map)
+                
+                # 筛选出我们需要的列，确保返回结果的纯净性
+                final_columns = list(rename_map.values())
+                result_df = result_df[[col for col in final_columns if col in result_df.columns]]
+                
+                return result_df if not result_df.empty else None
 
-            bbands_df = await asyncio.to_thread(lambda: ta.bbands(close=df[close_col], length=period, std=std_dev, append=False))
-            if bbands_df is None or bbands_df.empty: return None
-
-            bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
-            if bbw_source_col in bbands_df.columns:
-                bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
-            rename_map = {
-                f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
-                f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}{suffix}',
-                f'BBU_{period}_{std_dev:.1f}': f'BBU_{period}_{std_dev:.1f}{suffix}',
-                bbw_source_col: f'BBW_{period}_{std_dev:.1f}{suffix}',
-                f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
-            }
-            
-            result_df = bbands_df.rename(columns=rename_map)
-            
-            # 筛选出我们需要的列
-            final_columns = list(rename_map.values())
-            result_df = result_df[[col for col in final_columns if col in result_df.columns]]
-            
-            return result_df if not result_df.empty else None
+            # 新增-修改-优化: 在线程中执行定义好的同步函数。
+            return await asyncio.to_thread(_sync_bbands_calculation)
         except Exception as e:
             logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
             return None
@@ -234,9 +248,9 @@ class IndicatorCalculator:
 
     async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
         """
-        【V2 修正版】计算 CMF (蔡金货币流量)。
-        - 修正了列名问题，确保与上层合并逻辑兼容。
-        - 简化了异步实现，使其更直接、更健壮。
+        【V2.1 异步优化版】计算 CMF (蔡金货币流量)。
+        - 指标含义: 衡量资金流入和流出的压力。CMF > 0 通常表示买方压力，CMF < 0 表示卖方压力。
+        - 优化: 将同步的 pandas-ta 计算移至工作线程执行，避免阻塞事件循环。
         """
         required_cols = [high_col, low_col, close_col, volume_col]
         if df is None or df.empty or not all(col in df.columns for col in required_cols):
@@ -246,21 +260,25 @@ class IndicatorCalculator:
             logger.warning(f"计算 CMF (周期 {period}) 失败：数据长度 {len(df)} 小于周期 {period}。")
             return None
         try:
-            # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
-            # 我们不需要手动创建 DataFrame 或重命名列
-            cmf_series = ta.cmf(
-                high=df[high_col], 
-                low=df[low_col], 
-                close=df[close_col], 
-                volume=df[volume_col], 
-                length=period, 
-                append=False # 确保不修改原始df
-            )
-            if cmf_series is None or cmf_series.empty:
-                logger.warning(f"计算 CMF (周期 {period}) 返回了空结果。")
-                return None
-            # 将返回的 Series 转换为 DataFrame，后续的合并逻辑会处理它
-            return cmf_series.to_frame()
+            # 新增-修改-优化: 定义同步计算函数。
+            def _sync_cmf():
+                # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
+                cmf_series = ta.cmf(
+                    high=df[high_col], 
+                    low=df[low_col], 
+                    close=df[close_col], 
+                    volume=df[volume_col], 
+                    length=period, 
+                    append=False # 确保不修改原始df
+                )
+                if cmf_series is None or cmf_series.empty:
+                    logger.warning(f"计算 CMF (周期 {period}) 返回了空结果。")
+                    return None
+                # 将返回的 Series 转换为 DataFrame，以便上层服务进行合并
+                return cmf_series.to_frame()
+
+            # 新增-修改-优化: 在独立的线程中异步执行。
+            return await asyncio.to_thread(_sync_cmf)
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
             return None
@@ -879,73 +897,73 @@ class IndicatorCalculator:
 
     async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict) -> Optional[pd.DataFrame]:
         """
-        【V2.2 NaN根除版】根据多因子共振识别盘整期。
-        - 核心修复1: 保持对 dynamic_bbw_threshold 的 bfill()，解决动态阈值NaN问题。
-        - 核心修复2: 在所有计算和ffill之后，对箱体高低点列中残余的NaN（通常在数据开头）
-                    用当期的high/low进行填充，从根源上消除NaN，确保下游策略总能获得有效数值。
+        【V2.3 异步优化版】根据多因子共振识别盘整期。
+        - 核心修复: 保持对 dynamic_bbw_threshold 的 bfill()，并对箱体高低点列中残余的NaN进行填充，根除NaN。
+        - 优化: 将整个复杂的同步计算过程封装并移入工作线程执行，防止长时间阻塞事件循环。
         """
-        # 1. 参数获取 (无变化)
+        # 新增-修改-优化: 将所有前置检查放在同步函数外部，快速失败。
         boll_period = params.get('boll_period', 21)
         boll_std = params.get('boll_std', 2.0)
-        bbw_quantile = params.get('bbw_quantile', 0.25)
         roc_period = params.get('roc_period', 12)
-        roc_threshold = params.get('roc_threshold', 5.0)
         vol_ma_period = params.get('vol_ma_period', 55)
-        min_expanding_periods = boll_period * 2
-        # 2. 依赖列名 (无变化)
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}"
         roc_col = f"ROC_{roc_period}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}"
-        # 3. 依赖检查 (无变化)
         required_cols = [bbw_col, roc_col, vol_ma_col, 'high', 'low', 'volume']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [依赖错误] V2.2箱体计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
+            print(f"    - [依赖错误] V2.3箱体计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
             return None
-        # 4. 初始化结果DataFrame (无变化)
-        result_df = pd.DataFrame(index=df.index)
-        output_cols = [
-            'is_consolidating', 'dynamic_bbw_threshold', 'dynamic_consolidation_high',
-            'dynamic_consolidation_low', 'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
-        ]
-        for col in output_cols:
-            result_df[col] = np.nan if col not in ['is_consolidating'] else False
-        # 5. 核心逻辑 (无变化)
-        dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
-        dynamic_bbw_threshold.bfill(inplace=True)
-        result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold
-        cond_volatility = df[bbw_col] < result_df['dynamic_bbw_threshold']
-        cond_trend = df[roc_col].abs() < roc_threshold
-        cond_volume = df['volume'] < df[vol_ma_col]
-        is_consolidating = cond_volatility & cond_trend & cond_volume
-        result_df['is_consolidating'] = is_consolidating
-        if is_consolidating.any():
-            # 6. 计算箱体指标 (无变化)
-            consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
-            consolidating_df = df[is_consolidating].copy()
-            grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
-            consolidation_high = grouped['high'].transform('max')
-            consolidation_low = grouped['low'].transform('min')
-            consolidation_avg_vol = grouped['volume'].transform('mean')
-            consolidation_duration = grouped['high'].transform('size')
-            # 7. 填充结果 (无变化)
-            result_df['dynamic_consolidation_high'].update(consolidation_high)
-            result_df['dynamic_consolidation_low'].update(consolidation_low)
-            result_df['dynamic_consolidation_avg_vol'].update(consolidation_avg_vol)
-            result_df['dynamic_consolidation_duration'].update(consolidation_duration)
-            fill_cols = [
-                'dynamic_consolidation_high', 'dynamic_consolidation_low',
-                'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
-            ]
-            result_df[fill_cols] = result_df[fill_cols].ffill()
-        # 解释: 对于序列开头从未形成过箱体的部分，其 high/low 值为 NaN。
-        # 我们用当期自己的 high/low 来填充，确保下游策略总能获得有效的数值进行比较。
-        result_df['dynamic_consolidation_high'].fillna(df['high'], inplace=True)
-        result_df['dynamic_consolidation_low'].fillna(df['low'], inplace=True)
-        # 对于成交量和持续时间，用0填充是合理的默认值
-        result_df['dynamic_consolidation_avg_vol'].fillna(0, inplace=True)
-        result_df['dynamic_consolidation_duration'].fillna(0, inplace=True)
-        return result_df
+        
+        try:
+            # 新增-修改-优化: 定义一个同步函数来封装所有复杂的计算逻辑。
+            def _sync_consolidation_calc():
+                # 1. 参数获取
+                bbw_quantile = params.get('bbw_quantile', 0.25)
+                roc_threshold = params.get('roc_threshold', 5.0)
+                min_expanding_periods = boll_period * 2
+                # 2. 初始化结果DataFrame
+                result_df = pd.DataFrame(index=df.index)
+                # 3. 核心逻辑: 判断盘整状态
+                dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
+                dynamic_bbw_threshold.bfill(inplace=True)
+                result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold
+                cond_volatility = df[bbw_col] < result_df['dynamic_bbw_threshold']
+                cond_trend = df[roc_col].abs() < roc_threshold
+                cond_volume = df['volume'] < df[vol_ma_col]
+                is_consolidating = cond_volatility & cond_trend & cond_volume
+                result_df['is_consolidating'] = is_consolidating
+                # 4. 计算箱体指标
+                if is_consolidating.any():
+                    consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
+                    consolidating_df = df[is_consolidating].copy()
+                    grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
+                    consolidation_high = grouped['high'].transform('max')
+                    consolidation_low = grouped['low'].transform('min')
+                    consolidation_avg_vol = grouped['volume'].transform('mean')
+                    consolidation_duration = grouped['high'].transform('size')
+                    # 5. 填充结果
+                    result_df['dynamic_consolidation_high'] = consolidation_high
+                    result_df['dynamic_consolidation_low'] = consolidation_low
+                    result_df['dynamic_consolidation_avg_vol'] = consolidation_avg_vol
+                    result_df['dynamic_consolidation_duration'] = consolidation_duration
+                    fill_cols = [
+                        'dynamic_consolidation_high', 'dynamic_consolidation_low',
+                        'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
+                    ]
+                    result_df[fill_cols] = result_df[fill_cols].ffill()
+                # 6. 根除NaN: 对所有可能为空的列进行填充，确保下游策略的健壮性
+                result_df['dynamic_consolidation_high'] = result_df.get('dynamic_consolidation_high', pd.Series(index=df.index)).fillna(df['high'])
+                result_df['dynamic_consolidation_low'] = result_df.get('dynamic_consolidation_low', pd.Series(index=df.index)).fillna(df['low'])
+                result_df['dynamic_consolidation_avg_vol'] = result_df.get('dynamic_consolidation_avg_vol', pd.Series(index=df.index)).fillna(0)
+                result_df['dynamic_consolidation_duration'] = result_df.get('dynamic_consolidation_duration', pd.Series(index=df.index)).fillna(0)
+                return result_df
+
+            # 新增-修改-优化: 在独立的线程中异步执行整个计算过程。
+            return await asyncio.to_thread(_sync_consolidation_calc)
+        except Exception as e:
+            logger.error(f"计算 Consolidation Period 时发生未知错误: {e}", exc_info=True)
+            return None
 
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
@@ -1046,95 +1064,92 @@ class IndicatorCalculator:
 
     async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.0 新增】计算均线粘合度 (MA Convergence)。
-        使用变异系数 (Coefficient of Variation) 来量化。
+        【V1.1 异步优化版】计算均线粘合度 (MA Convergence)。
+        - 指标含义: 使用变异系数 (Coefficient of Variation) 来量化多条均线的离散程度。值越小，代表均线粘合度越高。
+        - 优化: 将同步计算逻辑移至工作线程执行，避免阻塞。
         """
-        # 此为全新的指标计算函数，将逻辑从IndicatorService中迁移至此。
         if not params.get('enabled', False):
             return None
-        result_df = pd.DataFrame(index=df.index)
-        for conv_config in params.get('configs', []):
-            try:
-                periods = conv_config.get('periods', [])
-                output_col = conv_config.get('output_column_name')
-                # 计算器工作在无后缀的命名空间
-                ma_cols = [f"EMA_{p}" for p in periods]
-                if all(col in df.columns for col in ma_cols):
-                    ma_df = df[ma_cols]
-                    ma_std = ma_df.std(axis=1)
-                    ma_mean = ma_df.mean(axis=1)
-                    convergence_cv = ma_std / (ma_mean + 1e-9)
-                    # 输出的列名也应该是无后缀的
-                    result_df[output_col.removesuffix('_D')] = convergence_cv
-                else:
-                    missing = [col for col in ma_cols if col not in df.columns]
-                    logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
-            except Exception as e:
-                logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
-        return result_df if not result_df.empty else None
+        
+        try:
+            # 新增-修改-优化: 定义同步计算函数。
+            def _sync_ma_convergence():
+                result_df = pd.DataFrame(index=df.index)
+                for conv_config in params.get('configs', []):
+                    periods = conv_config.get('periods', [])
+                    output_col = conv_config.get('output_column_name')
+                    # 计算器工作在无后缀的命名空间
+                    ma_cols = [f"EMA_{p}" for p in periods]
+                    if all(col in df.columns for col in ma_cols):
+                        ma_df = df[ma_cols]
+                        ma_std = ma_df.std(axis=1)
+                        ma_mean = ma_df.mean(axis=1)
+                        # 计算变异系数，并处理均值为0的情况
+                        convergence_cv = ma_std / (ma_mean + 1e-9)
+                        # 输出的列名也应该是无后缀的
+                        result_df[output_col.removesuffix('_D')] = convergence_cv
+                    else:
+                        missing = [col for col in ma_cols if col not in df.columns]
+                        logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
+                return result_df if not result_df.empty else None
+
+            # 新增-修改-优化: 在独立的线程中异步执行。
+            return await asyncio.to_thread(_sync_ma_convergence)
+        except Exception as e:
+            logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
+            return None
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.5 无后缀环境适配版】计算价格/成交量与各自均线的比率。
-        - 核心修正: 适配 V110.8 版的指标计算流程。该流程在无后缀的 DataFrame 上进行计算。
-                    本函数现在会从配置中读取带后缀的源列名（如 'close_D'），并根据 'apply_on'
-                    字段动态移除后缀（如移除 '_D' 得到 'close'），以正确地在无后缀 DataFrame 中查找数据。
+        【V1.6 异步优化版】计算价格/成交量与各自均线的比率。
+        - 指标含义: 量化当前价格或成交量偏离其移动平均线的程度，可用于判断超买/超卖或放量/缩量状态。
+        - 优化: 将同步计算逻辑移至工作线程执行，避免阻塞。
         """
         if not params.get('enabled', False):
             return None
-        periods = params.get('periods', [])
-        # ▼▼▼ 动态移除列名后缀以适配无后缀计算环境 ▼▼▼
-        # 从 'apply_on' 字段推断出当前的时间周期，例如 'D'
-        # 这是因为调用此函数的上层服务 (_calculate_indicators_for_timescale) 会根据 apply_on 来决定是否调用
-        apply_on_list = params.get('apply_on', [])
-        if not apply_on_list:
-            logger.warning("计算价比/量比失败：配置中缺少 'apply_on' 字段。")
+        
+        try:
+            # 新增-修改-优化: 定义同步计算函数。
+            def _sync_pv_ma_comparison():
+                periods = params.get('periods', [])
+                apply_on_list = params.get('apply_on', [])
+                if not apply_on_list:
+                    logger.warning("计算价比/量比失败：配置中缺少 'apply_on' 字段。")
+                    return None
+                timeframe_key = apply_on_list[0]
+                suffix_to_remove = f"_{timeframe_key}"
+                price_source_with_suffix = params.get('price_source')
+                volume_source_with_suffix = params.get('volume_source')
+                if not all([periods, price_source_with_suffix, volume_source_with_suffix]):
+                    logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
+                    return None
+                price_source_col = price_source_with_suffix.removesuffix(suffix_to_remove)
+                volume_source_col = volume_source_with_suffix.removesuffix(suffix_to_remove)
+                result_df = pd.DataFrame(index=df.index)
+                for p in periods:
+                    # --- 计算价格与均线比 ---
+                    price_ma_col = price_source_col if p == 1 else f'EMA_{p}'
+                    if price_source_col in df.columns and price_ma_col in df.columns:
+                        price_ma_series = df[price_ma_col].replace(0, np.nan)
+                        ratio = df[price_source_col] / price_ma_series
+                        result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
+                    else:
+                        logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
+                    # --- 计算成交量与均量比 ---
+                    vol_ma_col = volume_source_col if p == 1 else f'VOL_MA_{p}'
+                    if volume_source_col in df.columns and vol_ma_col in df.columns:
+                        vol_ma_series = df[vol_ma_col].replace(0, np.nan)
+                        ratio = df[volume_source_col] / vol_ma_series
+                        result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
+                    else:
+                        logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
+                return result_df if not result_df.empty else None
+
+            # 新增-修改-优化: 在独立的线程中异步执行。
+            return await asyncio.to_thread(_sync_pv_ma_comparison)
+        except Exception as e:
+            logger.error(f"计算价格/成交量与均线比率时发生未知错误: {e}", exc_info=True)
             return None
-        # 我们假设 apply_on 列表中的第一个元素就是当前的时间框架标识
-        timeframe_key = apply_on_list[0]
-        suffix_to_remove = f"_{timeframe_key}"
-        # 从配置中获取带后缀的原始列名
-        price_source_with_suffix = params.get('price_source')
-        volume_source_with_suffix = params.get('volume_source')
-        if not all([periods, price_source_with_suffix, volume_source_with_suffix]):
-            logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
-            return None
-        # 移除后缀，得到在当前计算环境中有效的列名 (e.g., 'close_D' -> 'close')
-        price_source_col = price_source_with_suffix.removesuffix(suffix_to_remove)
-        volume_source_col = volume_source_with_suffix.removesuffix(suffix_to_remove)
-        result_df = pd.DataFrame(index=df.index)
-        for p in periods:
-            # --- 计算价格与均线比 ---
-            if p == 1:
-                # 当周期为1时，均线就是其本身
-                price_ma_col = price_source_col
-            else:
-                # 其他周期，使用预先计算好的EMA均线（无后缀）
-                price_ma_col = f'EMA_{p}'
-            if price_source_col in df.columns and price_ma_col in df.columns:
-                price_ma_series = df[price_ma_col].replace(0, np.nan)
-                ratio = df[price_source_col] / price_ma_series
-                result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
-            else:
-                # ▼▼▼ 修改: 更新日志输出，反映修正后的列名 ▼▼▼
-                logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
-                # ▲▲▲ 修改结束 ▲▲▲
-            # --- 计算成交量与均量比 ---
-            if p == 1:
-                # 当周期为1时，均量就是其本身
-                vol_ma_col = volume_source_col
-            else:
-                # 其他周期，使用预先计算好的VOL_MA均量（无后缀）
-                vol_ma_col = f'VOL_MA_{p}'
-            if volume_source_col in df.columns and vol_ma_col in df.columns:
-                vol_ma_series = df[vol_ma_col].replace(0, np.nan)
-                ratio = df[volume_source_col] / vol_ma_series
-                result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
-            else:
-                # ▼▼▼ 修改: 更新日志输出，反映修正后的列名 ▼▼▼
-                logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
-                # ▲▲▲ 修改结束 ▲▲▲
-        return result_df if not result_df.empty else None
 
 
 

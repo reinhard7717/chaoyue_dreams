@@ -717,37 +717,27 @@ class IndicatorService:
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V8.0 新增】高级指标合成室
+        【V8.1 健壮性修复版】高级指标合成室
         专门用于从日线数据中，为周线数据合成那些依赖日内过程的复杂指标。
-        
-        Args:
-            df_daily (pd.DataFrame): 完整的日线数据源。
-            df_weekly (pd.DataFrame): 已经通过resample聚合好的周线OHLCV数据。
-
-        Returns:
-            pd.DataFrame: 一个包含新合成的周线指标列的DataFrame，其索引与df_weekly对齐。
+        - 核心修复: 增加了对 `ta.rma` 返回值为 None 的检查。当周线数据不足以计算RSI时，
+                    程序不再崩溃，而是将周线RSI列填充为NaN，显著提高了对短历史数据股票的处理能力。
         """
         # print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
         synthetic_indicators = pd.DataFrame(index=df_weekly.index)
-
         # --- 1. 合成周线CMF (Chaikin Money Flow) ---
         # 步骤1.1: 在日线上计算每日的“资金流成交量” (Money Flow Volume)
         mfm = ((df_daily['close'] - df_daily['low']) - (df_daily['high'] - df_daily['close'])) / (df_daily['high'] - df_daily['low'])
         mfm = mfm.fillna(0)
         daily_mfv = mfm * df_daily['volume']
-
         # 步骤1.2: 将“日资金流成交量”和“日成交量”按周进行求和
         weekly_mfv_sum = daily_mfv.resample('W-FRI').sum()
         weekly_volume_sum = df_daily['volume'].resample('W-FRI').sum()
-
         # 步骤1.3: 在周线级别上，计算最终的21周CMF
         cmf_period = 21
         cmf_numerator = weekly_mfv_sum.rolling(window=cmf_period).sum()
         cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
-        
         # 避免除以零
         synthetic_indicators['CMF_21_W'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
-        
         # --- 2. 合成周线RSI (Relative Strength Index) ---
         # 步骤2.1: 在日线上计算每日的价格变动
         delta = df_daily['close'].diff()
@@ -762,12 +752,19 @@ class IndicatorService:
         # 使用 pandas_ta 的 rma (Wilder's Moving Average) 来计算平均增益和平均损失，这是计算RSI的标准方法
         avg_gain = ta.rma(weekly_gain_sum, length=rsi_period)
         avg_loss = ta.rma(weekly_loss_sum, length=rsi_period)
-        # 步骤2.5: 计算相对强度(RS)
-        rs = avg_gain / (avg_loss + 1e-9) # 加上一个极小值防止除以零
-        # 步骤2.6: 计算RSI
-        rsi = 100 - (100 / (1 + rs))
-        # 将结果添加到DataFrame中，注意不要加后缀
-        synthetic_indicators['RSI_13_W'] = rsi
+        # 新增-修改-优化: 增加对None值的健壮性检查，防止因数据不足导致程序崩溃
+        if avg_gain is None or avg_loss is None:
+            print(f"调试信息: 合成周线RSI失败，因为 avg_gain 或 avg_loss 为 None。通常是由于周线数据不足 {rsi_period} 条所致。")
+            logger.warning(f"合成周线RSI失败：平均增益或平均损失计算结果为None，可能因数据不足。将填充NaN。")
+            # 确保即使计算失败，列也存在，值为NaN，保证下游数据结构一致性
+            synthetic_indicators['RSI_13_W'] = np.nan
+        else:
+            # 步骤2.5: 计算相对强度(RS) - 现在这部分代码是安全的
+            rs = avg_gain / (avg_loss + 1e-9) # 加上一个极小值防止除以零
+            # 步骤2.6: 计算RSI
+            rsi = 100 - (100 / (1 + rs))
+            # 将结果添加到DataFrame中，注意不要加后缀
+            synthetic_indicators['RSI_13_W'] = rsi
         # print("      -> [高级指标合成室] 合成完成。")
         return synthetic_indicators
 
