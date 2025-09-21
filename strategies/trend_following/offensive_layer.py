@@ -54,8 +54,8 @@ class OffensiveLayer:
                         bonus_amount *= bottom_reversal_penalty_multiplier
                         # 调试信息：当惩罚发生时打印
                         penalty_applied_mask = (original_bonus > 0) & (bonus_amount < original_bonus)
-                        if penalty_applied_mask.any():
-                            today = self.strategy.current_date_str
+                        if penalty_applied_mask.any() and hasattr(self.strategy, 'current_date_str') and self.strategy.current_date_str:
+                            today = self.strategy.current_date_str # 现在可以安全地访问
                             penalty_day_mask = penalty_applied_mask & (penalty_applied_mask.index == pd.to_datetime(today))
                             if penalty_day_mask.any():
                                 idx = penalty_day_mask.idxmax()

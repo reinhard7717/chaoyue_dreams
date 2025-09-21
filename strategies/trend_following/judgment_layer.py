@@ -205,6 +205,9 @@ class JudgmentLayer:
         df['risk_penalty_score'] += get_clipped_score('SCORE_FF_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_STRUCTURE_BEARISH_RESONANCE_S') * 150
         df['risk_penalty_score'] += get_clipped_score('SCORE_FOUNDATION_BEARISH_RESONANCE_S') * 150
+        # --- 风险6: 微观结构风险 (权重: 250-280) ---
+        df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL') * 280
+        df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING') * 250
         # --- 风险18: 行业生命周期风险 (权重由配置决定) ---
         industry_params = get_params_block(self.strategy, 'four_layer_scoring_params', {}).get('industry_lifecycle_scoring_params', {})
         if industry_params.get('enabled', False):

@@ -55,6 +55,7 @@ class TrendFollowStrategy:
         self.params = params
         if df is None or df.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        self.current_date_str = start_date_str
         df_for_calculation = df
         # 确保数据类型正确，并将其存入实例属性，供所有子模块访问
         self.df_indicators = ensure_numeric_types(df_for_calculation)

@@ -143,10 +143,11 @@ class WarningLayer:
         # print(f"          -> 已获取融合风险总分，最大值: {total_risk_score.max():.2f}")
         # --- 2. 获取各维度的风险分，用于动态诊断 ---
         # 从 atomic_states 中筛选出所有 FUSED_RISK_SCORE_ 开头的维度风险分
+        risk_prefixes = ('FUSED_RISK_SCORE_', 'SCORE_FF_RISK_', 'COGNITIVE_SCORE_RISK_')
         risk_details_cols = {
             key: atomic_states[key]
             for key in atomic_states
-            if key.startswith('FUSED_RISK_SCORE_')
+            if key.startswith(risk_prefixes)
         }
         risk_details_df = pd.DataFrame(risk_details_cols)
         # print(f"          -> 已获取 {len(risk_details_cols)} 个维度的风险分，用于动态分析。")

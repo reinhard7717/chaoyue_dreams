@@ -110,11 +110,10 @@ class IntelligenceLayer:
         # FoundationIntelligence 现在返回字典，需要更新到 atomic_states
         foundation_states = self.foundation_intel.run_foundation_analysis_command()
         self.strategy.atomic_states.update(foundation_states)
-        
-        # 新增开始: 修复了对 fund_flow_intel 和 mechanics_engine 的调用，使其产出能被后续模块消费
+
         self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
         self.mechanics_engine.run_dynamic_analysis_command()
-        # 新增结束
+
         df = self.pattern_recognizer.identify_all(df)
         # --- 阶段二: 结构层情报诊断与合成 ---
         # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
