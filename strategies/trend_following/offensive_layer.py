@@ -31,7 +31,7 @@ class OffensiveLayer:
         df['LOW_21_D'] = df['low_D'].rolling(21).min()
         run_up_pct = (df['close_D'] - df['LOW_21_D']) / df['LOW_21_D']
         max_run_up_pct_for_bottom_reversal = 0.15
-        bottom_reversal_penalty_multiplier = (1 - run_up_pct / max_run_up_pct_for_bottom_reversal).clip(lower=0, upper=1)
+        bottom_reversal_penalty_multiplier = (1 - run_up_pct / max_run_up_pct_for_bottom_reversal).clip(lower=0, upper=1).fillna(1.0)
 
         # --- 步骤 2: 计算【第一层：环境与战备分】 ---
         context_params = scoring_params.get('contextual_setup_scoring', {})

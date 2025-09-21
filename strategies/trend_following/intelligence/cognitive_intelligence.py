@@ -896,7 +896,7 @@ class CognitiveIntelligence:
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
         constructive_context_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         # --- 2. 合成“健康回踩”分数 (Healthy Pullback Score) ---
-        gentle_drop_score = (1 - (df['pct_change_D'].abs() / 0.05)).clip(0, 1)
+        gentle_drop_score = (1 - (df['pct_change_D'].abs() / 0.05)).clip(0, 1).fillna(0.0)
         shrinking_volume_score = self._get_atomic_score(df, 'SCORE_VOL_WEAKENING_DROP', 0.0) 
         # 相位分数在-1(波谷)到+1(波峰)之间。我们希望在接近波谷时分数高。
         # (1 - phase) / 2 将其映射到 0(波峰) 到 1(波谷)
@@ -911,7 +911,7 @@ class CognitiveIntelligence:
         )
         states['COGNITIVE_SCORE_PULLBACK_HEALTHY_S'] = healthy_pullback_score.astype(np.float32)
         # --- 3. 合成“打压式回踩”分数 (Suppressive Pullback Score) ---
-        significant_drop_score = (df['pct_change_D'].abs() / 0.07).clip(0, 1)
+        significant_drop_score = (df['pct_change_D'].abs() / 0.07).clip(0, 1).fillna(0.0)
         # 此处应消费行为层的恐慌抛售信号，而非筹码层的
         panic_selling_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
         suppressive_pullback_score = (
