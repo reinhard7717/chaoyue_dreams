@@ -599,40 +599,42 @@ class StrategiesDAO(BaseDAO):
         limit: int
     ) -> pd.DataFrame:
         """
-        【V200.0 分表适配版】
-        - 核心升级: 适配 AdvancedChipMetrics 模型分表，通过 get_advanced_chip_metrics_model_by_code 动态选择查询的数据表。
-        - 兼容性: 保持了原有的函数签名和返回类型，对调用方透明。
-        - 健壮性: 移除了所有用于调试的“超级探针”代码，恢复到最高效、最健壮的
-                    生产状态。保留了直接获取所有字段的逻辑，以确保数据链路的
-                    长期稳定性和免维护性。
+        【V201.0 字段精确选择版】
+        - 核心修复: 解决了因 `queryset.values()` 获取全部字段（包括'id', 'stock_id'）而导致的
+                      下游 `DataFrame.join` 操作列名冲突的严重错误。
+        - 解决方案: 不再使用无参数的 `.values()`，而是动态获取模型的所有非关系字段名，并从中
+                      排除 'id' 和 'stock_id'，从而精确地只查询业务需要的字段。
+        - 收益: 彻底根除 `Indexes have overlapping values` 异常，同时减少了不必要的数据传输，
+                  提升了查询效率和代码的健壮性。
         """
         # 1. 根据股票代码动态获取对应的分表模型
         MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-
-        # 2. 使用动态获取的模型构建基础查询集，替换了原有的 AdvancedChipMetrics.objects
+        # 2. 使用动态获取的模型构建基础查询集
         queryset = MetricsModel.objects.filter(stock__stock_code=stock_code)
-
-        # 3. 应用日期过滤器 
+        # 3. 应用日期过滤器
         if trade_time_dt and pd.notna(trade_time_dt):
             end_date = trade_time_dt.date()
             queryset = queryset.filter(trade_time__lte=end_date)
-
-        # 4. 排序并限制数量 
+        # 4. 排序并限制数量
         queryset = queryset.order_by('-trade_time')[:limit]
         
-        # 5. 直接获取所有字段，不再使用脆弱的 field_names 列表 
-        data_records = [item async for item in queryset.values()]
+        # --- 新增-修改-优化: 开始精确选择字段 ---
+        # 5.1 动态获取模型的所有非关系字段名
+        all_model_fields = [f.name for f in MetricsModel._meta.get_fields() if not f.is_relation]
+        # 5.2 从字段列表中排除 'id' 和 'stock_id'，避免冲突
+        fields_to_fetch = [field for field in all_model_fields if field not in ['id', 'stock_id']]
+        # 5.3 使用明确的字段列表进行查询
+        data_records = [item async for item in queryset.values(*fields_to_fetch)]
+        # --- 精确选择字段结束 ---
 
-        # 6. 如果无数据，返回空DataFrame 
+        # 6. 如果无数据，返回空DataFrame
         if not data_records:
             return pd.DataFrame()
-
-        # 7. 转换为DataFrame并进行标准化处理 
+        # 7. 转换为DataFrame并进行标准化处理
         df = pd.DataFrame.from_records(data_records)
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
-
         return df
 
     async def get_daily_buy_signals(self, trade_date: date) -> List['TrendFollowStrategySignalLog']:
