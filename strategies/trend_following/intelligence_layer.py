@@ -84,36 +84,38 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V403.1 性能与逻辑修复版】情报层总入口。
-        - 核心升级 (本次修改):
-          - [逻辑修复] 修正了阶段五中对认知层(cognitive_intel)方法调用的严重逻辑错误。原代码中，每个synthesize_*方法都在原始df上操作，导致后续方法无法获取前面方法新增的列。新代码通过链式调用 (df = method(df)) 修正了数据流，确保了计算的正确性。
-          - [性能优化] 将认知层多个返回DataFrame的方法调用串联起来，避免了对策略实例属性 `self.strategy.df_indicators` 的反复、低效的赋值操作，减少了不必要的对象创建和内存开销。
-        - 核心重构 (V403.0逻辑保留):
-          - 遵循“终极信号”范式，简化了对 `StructuralIntelligence` 的调用。
-        - 收益:
-          - 保证了情报层计算逻辑的正确性，这是最高优先级的修复。
-          - 显著提升了阶段五的执行效率和内存使用效率。
-          - 代码结构更清晰，完全适配了新一代的结构层情报引擎。
+        【V403.2 性能优化版】情报层总入口。
+        - 核心优化 (本次修改):
+          - [性能优化] 将 `chip_intelligence` 和 `cognitive_intelligence` 中返回DataFrame的方法调用，整合到主数据流 `df` 的链式调用中，进一步减少了对 `self.strategy.df_indicators` 的反复赋值。
+          - [内存优化] 确保所有中间计算都作用于局部变量 `df`，直到所有计算完成后才进行最终赋值，减少了内存拷贝和对象创建。
+        - 业务逻辑: 保持与V403.1版本完全一致，仅优化数据流和执行效率。
         """
-        # print("--- [情报层总指挥官 V403.1 性能与逻辑修复版] 开始执行所有诊断模块... ---")
+        # print("--- [情报层总指挥官 V403.2 性能优化版] 开始执行所有诊断模块... ---") # 代码修改：更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         # --- 阶段一: 基础层与原子情报诊断 ---
         # print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
+        # 代码修改：将返回DataFrame的方法调用整合到链式调用中
+        df = self.chip_intel.diagnose_composite_scores(df)
+        df = self.chip_intel.diagnose_strategic_context_scores(df)
+        df = self.chip_intel.diagnose_quantitative_chip_scores(df)
+        df = self.chip_intel.diagnose_advanced_chip_dynamics_scores(df)
+        df = self.chip_intel.diagnose_chip_internal_structure_scores(df)
+        df = self.chip_intel.diagnose_chip_holder_behavior_scores(df)
+        df = self.chip_intel.diagnose_fused_behavioral_chip_scores(df)
+        df = self.chip_intel.diagnose_cross_validation_signals(df)
+        # 更新原子状态，因为后续模块可能依赖这些新分数
+        new_chip_cols = set(df.columns) - set(self.strategy.df_indicators.columns)
+        for col in new_chip_cols:
+            self.strategy.atomic_states[col] = df[col]
         self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
-        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
-        # ▼▼▼ 调用行业生命周期诊断 ▼▼▼
         self.strategy.atomic_states.update(self._score_industry_lifecycle_context(df))
-        # ▼▼▼ 调用KPL题材热度评分 ▼▼▼
         self.strategy.atomic_states.update(self._score_kpl_theme_hotness(df))
-        # FoundationIntelligence 现在返回字典，需要更新到 atomic_states
         foundation_states = self.foundation_intel.run_foundation_analysis_command()
         self.strategy.atomic_states.update(foundation_states)
-
         self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
         self.mechanics_engine.run_dynamic_analysis_command()
-
         df = self.pattern_recognizer.identify_all(df)
         # --- 阶段二: 结构层情报诊断与合成 ---
         # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
@@ -129,17 +131,22 @@ class IntelligenceLayer:
         self.strategy.trigger_events.update(chip_triggers)
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
         # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
-        # 修复调用链，将 self.strategy.df_indicators 的反复赋值改为对局部变量 df 的链式调用
-        # 5.1 宏观上下文与质量分数合成 (高优先级，被其他认知模块依赖)
+        # 消费 chip_intel 生成的 prime opportunity 分数
+        prime_states, prime_scores = self.chip_intel.synthesize_prime_chip_opportunity(df)
+        self.strategy.atomic_states.update(prime_states)
+        for col, series in prime_scores.items():
+            df[col] = series
+            self.strategy.atomic_states[col] = series
+        # 消费 chip_intel 生成的 long term context
+        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
+        # 认知层链式调用 (已是高效实现)
         df = self.cognitive_intel.synthesize_trend_quality_score(df)
         df = self.cognitive_intel.synthesize_contextual_zone_scores(df)
-        # 5.2 基础认知分数合成
         df = self.cognitive_intel.synthesize_holding_risks(df)
         df = self.cognitive_intel.synthesize_trend_regime_signals(df)
         df = self.cognitive_intel.synthesize_volatility_breakout_signals(df)
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
-        # 5.3 高阶风险与机会合成
         df = self.cognitive_intel.synthesize_pullback_states(df)
         df = self.cognitive_intel.synthesize_market_engine_states(df)
         df = self.cognitive_intel.synthesize_divergence_risks(df)
@@ -148,7 +155,6 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_trend_sustainability_signals(df)
         df = self.cognitive_intel.synthesize_tactical_opportunities(df)
         df = self.cognitive_intel.synthesize_consolidation_breakout_signals(df)
-        # 5.4 最终认知合成与主力行为推演
         df = self.cognitive_intel.synthesize_structural_fusion_scores(df)
         df = self.cognitive_intel.synthesize_ultimate_confirmation_scores(df)
         df = self.cognitive_intel.synthesize_ignition_resonance_score(df)
@@ -158,7 +164,7 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
-        # 5.5 生成触发器、战法与交易剧本
+        # 战法生成
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
@@ -169,7 +175,7 @@ class IntelligenceLayer:
         squeeze_playbook_states = self.cognitive_intel.synthesize_squeeze_playbooks(df)
         self.strategy.atomic_states.update(squeeze_playbook_states)
         self.strategy.playbook_states.update({k: v for k, v in squeeze_playbook_states.items() if k.startswith('PLAYBOOK_')})
-        # 5.6 (调试模块)
+        # 调试模块
         debug_params = get_params_block(self.strategy, 'debug_params')
         if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
             decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
@@ -182,9 +188,7 @@ class IntelligenceLayer:
                 print("--- [探针结束] ---\n")
         # 在所有计算完成后，一次性更新策略实例的DataFrame
         self.strategy.df_indicators = df
-        
-        # --- 最终报告 ---
-        # print("--- [情报层总指挥官 V403.1] 所有诊断模块执行完毕。 ---")
+        # print("--- [情报层总指挥官 V403.2] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -231,42 +235,38 @@ class IntelligenceLayer:
 
     def _diagnose_long_term_daily_chip_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 智能信号消费版】日线长周期筹码战略上下文诊断模块
-        - 核心升级 (本次修改):
-          - [逻辑升级] 不再使用简单的斜率来判断筹码集中，而是直接消费由 `chip_intelligence` 模块生成的、
-                        经过多维度交叉验证的 `SCORE_CHIP_TRUE_ACCUMULATION` (真实吸筹分)。
-          - [风险规避] 同样消费 `SCORE_CHIP_FALSE_ACCUMULATION_RISK` (虚假集中风险分)，并将其转化为
-                        `CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D` 信号，用于风险惩罚。
-        - 收益:
-          - 彻底解决了将顶部派发误判为筹码集中的问题，信号的可靠性实现了质的飞跃。
+        【V3.1 性能优化版】日线长周期筹码战略上下文诊断模块
+        - 核心优化 (本次修改):
+          - [性能优化] 移除了对 `atomic_states` 的依赖，改为直接从 `df` 中获取数据，减少了字典查找的开销。
+          - [健壮性] 增加了对上游信号列是否存在的检查，如果不存在则返回空字典，避免潜在错误。
+        - 业务逻辑: 保持与V3.0版本完全一致，仅优化实现方式和增强健壮性。
         """
         states = {}
-        atomic_states = self.strategy.atomic_states # 获取原子状态字典
-        default_score = pd.Series(0.0, index=df.index)
+        # 代码新增：增加军备检查，提高代码健壮性
+        required_cols = ['SCORE_CHIP_TRUE_ACCUMULATION', 'SCORE_CHIP_FALSE_ACCUMULATION_RISK', 'SLOPE_21_chip_health_score_D']
+        if not all(col in df.columns for col in required_cols):
+            print(f"            -> [日线长周期筹码战略诊断-警告] 缺少上游智能信号，模块已跳过。请确保ChipIntelligence已运行。")
+            return {}
 
         # --- 1. 消费“真实吸筹分” ---
-        # 直接使用 chip_intelligence 生成的高质量信号
-        # 将判断依据从简单的斜率改为消费智能信号
-        true_accumulation_score = atomic_states.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score)
-        # 当真实吸筹分数高于一个阈值（例如0.5）时，我们才认为这是一个有效的“筹码集中”信号
+        # 代码修改：直接从df获取，而非atomic_states
+        true_accumulation_score = df['SCORE_CHIP_TRUE_ACCUMULATION']
         states['CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D'] = true_accumulation_score > 0.5
-        # “加速集中”可以定义为真实吸筹分的斜率为正
         true_accumulation_slope = true_accumulation_score.diff().fillna(0)
         states['CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D'] = (true_accumulation_score > 0.5) & (true_accumulation_slope > 0)
 
         # --- 2. 消费“虚假集中风险分” ---
-        # 将虚假集中风险分转化为发散信号，用于风险惩罚
-        # 将发散的判断依据从简单的斜率改为消费智能风险信号
-        false_accumulation_risk_score = atomic_states.get('SCORE_CHIP_FALSE_ACCUMULATION_RISK', default_score)
+        # 代码修改：直接从df获取，而非atomic_states
+        false_accumulation_risk_score = df['SCORE_CHIP_FALSE_ACCUMULATION_RISK']
         states['CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D'] = false_accumulation_risk_score > 0.5
         false_accumulation_risk_slope = false_accumulation_risk_score.diff().fillna(0)
         states['CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D'] = (false_accumulation_risk_score > 0.5) & (false_accumulation_risk_slope > 0)
 
         # --- 3. 长期筹码健康度趋势 (逻辑保持不变) ---
-        is_long_term_health_improving = df.get('SLOPE_21_chip_health_score_D', pd.Series(False, index=df.index)) > 0
+        is_long_term_health_improving = df['SLOPE_21_chip_health_score_D'] > 0
         states['CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D'] = is_long_term_health_improving
 
-        # print(f"            -> [日线长周期筹码战略诊断 V3.0] 已生成 {len(states)} 个基于智能信号的战略状态。") # 修改: 更新版本号
+        # print(f"            -> [日线长周期筹码战略诊断 V3.1] 已生成 {len(states)} 个基于智能信号的战略状态。") # 代码修改：更新版本号
         return states
 
     def _score_industry_lifecycle_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

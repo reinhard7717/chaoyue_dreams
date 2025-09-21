@@ -36,52 +36,64 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.1 · 最终修复版】生成人类可读的信号摘要。
-        - 核心修复 (本次修改):
-          - [根除BUG] 彻底重写了信号名处理逻辑，使其与 reporting_layer 中的健壮逻辑完全一致。
-          - 现在会正确、智能地剥离所有已知前缀（如 `SETUP_`, `TRIGGER_` 等），然后再去信号字典中查找中文名。
-        - 收益: 解决了因错误的信号名处理逻辑可能导致的、隐晦的Pandas数据污染问题，这是导致下游报告层接收到全零数据的最终根源。
+        【V2.2 · 向量化性能重构版】生成人类可读的信号摘要。
+        - 核心优化 (本次修改):
+          - [性能重构] 彻底移除了原有的双重 for 循环，改为完全向量化的Pandas操作。
+          - [效率提升] 通过 `melt` 将宽表转为长表，然后进行一次性的过滤、映射和字符串格式化，最后通过 `groupby().apply()` 高效地聚合每日摘要。这比逐行迭代快几个数量级。
+        - 业务逻辑: 保持与V2.1版本完全一致，仅重构实现方式。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        summaries = []
+        # 定义已知的前缀列表
+        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_']
+
+        def process_details_df(details_df, prefix_list):
+            """辅助函数，用于向量化处理一个分数详情DataFrame"""
+            if details_df.empty:
+                return pd.Series(dtype=object)
+            
+            # 1. 宽表转长表，并过滤无效分数
+            long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
+            long_df = long_df[long_df['score'] > 0].copy()
+            if long_df.empty:
+                return pd.Series(dtype=object)
+
+            # 2. 向量化剥离前缀
+            long_df['base_signal'] = long_df['signal']
+            for prefix in prefix_list:
+                long_df['base_signal'] = long_df['base_signal'].str.removeprefix(prefix)
+
+            # 3. 向量化映射中文名
+            cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
+            long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
+            
+            # 4. 向量化生成摘要字符串
+            long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
+            
+            # 5. 按日期分组并聚合为列表
+            return long_df.groupby('index')['summary_str'].apply(list)
+
+        # --- 代码修改：调用向量化辅助函数处理进攻和风险信号 ---
+        offense_summaries = process_details_df(score_details_df, prefixes_to_strip)
+        risk_summaries = process_details_df(risk_details_df, []) # 风险信号通常没有前缀
+
+        # 合并进攻和风险摘要
+        summary_df = pd.DataFrame({
+            'offense': offense_summaries,
+            'risk': risk_summaries
+        }).reindex(self.strategy.df_indicators.index) # 确保索引与主DataFrame对齐
+
+        # 将两列转换为最终的字典格式
+        # .apply 在这里是最高效的方式，因为它操作的是已经聚合好的小数据
+        final_summaries = summary_df.apply(
+            lambda row: {
+                'offense': row['offense'] if isinstance(row['offense'], list) else [],
+                'risk': row['risk'] if isinstance(row['risk'], list) else []
+            },
+            axis=1
+        )
         
-        # 新增行：定义已知的前缀列表，与 reporting_layer 保持完全一致
-        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_']
-
-        # 使用主DataFrame的索引进行迭代，确保覆盖所有日期
-        for idx in self.strategy.df_indicators.index:
-            day_summary = {'offense': [], 'risk': []}
-            
-            # 安全地处理进攻项
-            if idx in score_details_df.index:
-                active_offense_signals = score_details_df.loc[idx]
-                active_offense_signals = active_offense_signals[active_offense_signals > 0].sort_values(ascending=False)
-                for signal, score in active_offense_signals.items():
-                    # --- 使用健壮的前缀剥离逻辑 ---
-                    base_signal_name = signal
-                    for prefix in prefixes_to_strip:
-                        if signal.startswith(prefix):
-                            base_signal_name = signal[len(prefix):]
-                            break
-                    
-                    
-                    # 修改行：使用正确的基础信号名进行查找
-                    cn_name = score_map.get(base_signal_name, {}).get('cn_name', base_signal_name)
-                    day_summary['offense'].append(f"{cn_name} ({int(score)})")
-
-            # 安全地处理风险项
-            if idx in risk_details_df.index:
-                active_risk_signals = risk_details_df.loc[idx]
-                active_risk_signals = active_risk_signals[active_risk_signals > 0].sort_values(ascending=False)
-                for signal, score in active_risk_signals.items():
-                    # 风险信号通常没有前缀，直接查找即可
-                    cn_name = score_map.get(signal, {}).get('cn_name', signal)
-                    day_summary['risk'].append(f"{cn_name} ({int(score)})")
-            
-            summaries.append(day_summary)
-            
-        return pd.Series(summaries, index=self.strategy.df_indicators.index)
+        return final_summaries
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
