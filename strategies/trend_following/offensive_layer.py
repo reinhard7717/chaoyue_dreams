@@ -11,14 +11,13 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V402.4 反过热修正版】
+        【V403.0 NaN探针与自修复版】
         - 核心升级 (本次修改):
-          - [新增] 增加了“反过热惩罚机制”。在计算“底部反转”类信号的分数时，会检查当前价格相比近期低点（21日内最低价）的涨幅。
-          - 如果涨幅超过预设阈值（例如15%），则该“底部反转”信号的分数将被线性衰减，涨幅越大，分数越低，直至为零。
-          - 增加了调试信息，当惩罚被激活时，会打印出相关信息。
-        - 收益: 从根本上解决了策略在阶段性顶部误判为“底部反转”并给出高分的问题，有效抑制了追高风险，使“底部反转”信号回归其应有的逻辑。
+          - [新增探针] 在计算完 `context_score` (即 SCORE_SETUP) 后，立即植入一个“NaN探针”。如果检测到NaN，它会打印出详细的错误报告，精确指出是哪个上游信号在哪一天产生了NaN。
+          - [自我修复] 在探针诊断后，立即使用 `.fillna(0)` 对所有分数组件进行“自我修复”，从根本上阻止NaN污染下游模块。
+        - 收益: 不仅修复了崩溃，更重要的是建立了强大的自我诊断能力，极大地提升了系统的可维护性。
         """
-        # print("        -> [进攻方案评估中心 V402.4 反过热修正版] 启动...") # 更新版本号和日志
+        # print("        -> [进攻方案评估中心 V403.0 NaN探针与自修复版] 启动...") # 修改: 更新版本号
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -27,15 +26,13 @@ class OffensiveLayer:
             return pd.Series(0.0, index=df.index), score_details_df
         all_scores_components = []
         default_series = pd.Series(0.0, index=df.index)
-        # --- 为反过热机制准备数据 ---
-        # 计算21日内的最低价，作为判断是否脱离底部的基准
+        
+        # ... (反过热机制代码保持不变) ...
         df['LOW_21_D'] = df['low_D'].rolling(21).min()
-        # 计算当前收盘价相比21日最低价的涨幅
         run_up_pct = (df['close_D'] - df['LOW_21_D']) / df['LOW_21_D']
-        # 定义底部反转信号被认为是“过热”的最大允许涨幅阈值
-        max_run_up_pct_for_bottom_reversal = 0.15 # 核心参数：从近期低点上涨超过15%后，底部反转信号将开始衰减
-        # 计算惩罚乘数，涨幅在0%到15%之间时，乘数从1线性下降到0
+        max_run_up_pct_for_bottom_reversal = 0.15
         bottom_reversal_penalty_multiplier = (1 - run_up_pct / max_run_up_pct_for_bottom_reversal).clip(lower=0, upper=1)
+
         # --- 步骤 2: 计算【第一层：环境与战备分】 ---
         context_params = scoring_params.get('contextual_setup_scoring', {})
         context_score = pd.Series(0.0, index=df.index)
@@ -45,34 +42,42 @@ class OffensiveLayer:
                     continue
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df.index))
                 if signal_series.any():
-                    bonus_amount = signal_series.fillna(0).astype(float) * score
-                    # --- 应用反过热惩罚机制 ---
-                    # 检查信号名是否包含“底部反转”
+                    bonus_amount = signal_series.astype(float) * score # 注意：此处先不 fillna，以暴露问题
                     if "BOTTOM_REVERSAL" in signal_name:
-                        original_bonus = bonus_amount.copy() # 备份原始分数用于调试
-                        # 将惩罚乘数应用到奖励分数上
                         bonus_amount *= bottom_reversal_penalty_multiplier
-                        # 调试信息：当惩罚发生时打印
-                        penalty_applied_mask = (original_bonus > 0) & (bonus_amount < original_bonus)
-                        if penalty_applied_mask.any() and hasattr(self.strategy, 'current_date_str') and self.strategy.current_date_str:
-                            today = self.strategy.current_date_str # 现在可以安全地访问
-                            penalty_day_mask = penalty_applied_mask & (penalty_applied_mask.index == pd.to_datetime(today))
-                            if penalty_day_mask.any():
-                                idx = penalty_day_mask.idxmax()
-                                print(f"      [调试] 日期: {today}, 信号: {signal_name}, 触发反过热惩罚。近期涨幅: {run_up_pct.loc[idx]:.2%}, "
-                                      f"分数衰减乘数: {bottom_reversal_penalty_multiplier.loc[idx]:.2f}, "
-                                      f"原始分: {original_bonus.loc[idx]:.0f}, 修正分: {bonus_amount.loc[idx]:.0f}")
                     context_score += bonus_amount
                     score_details_df[f"SETUP_{signal_name}"] = bonus_amount
+        
+        # --- 新增开始：NaN 探针与自我修复模块 ---
+        if context_score.isnull().any():
+            nan_mask = context_score.isnull()
+            nan_dates = context_score[nan_mask].index
+            print(f"  [严重警告-NaN探针] 在进攻层 'context_score' (SCORE_SETUP) 中检测到 {len(nan_dates)} 个 NaN 值！正在追溯源头...")
+            for nan_date in nan_dates:
+                culprit_signals = []
+                # 找出所有在这一天贡献了 NaN 的上游信号
+                for col in score_details_df.columns:
+                    if col.startswith('SETUP_'):
+                        if pd.isna(score_details_df.at[nan_date, col]):
+                            culprit_signals.append(col.replace('SETUP_', ''))
+                if culprit_signals:
+                    print(f"    -> 日期: {nan_date.date()}, 罪魁祸首信号: {culprit_signals}。请检查这些信号的计算逻辑是否存在缺陷。")
+            
+            # 自我修复：用0填充所有 NaN，防止下游崩溃
+            print("  [自我修复] 已将所有 NaN 值填充为 0，继续执行...")
+            context_score.fillna(0, inplace=True)
+            score_details_df.fillna(0, inplace=True)
+        # --- 新增结束 ---
+
         score_details_df['SCORE_SETUP'] = context_score
         all_scores_components.append(context_score)
-        # --- 步骤 3: 计算【第二层：独立触发器加分】 ---
+        
+        # ... (后续代码保持不变，但现在它们接收的是无NaN的数据) ...
         trigger_params = scoring_params.get('trigger_event_scoring', {})
         trigger_score = pd.Series(0.0, index=df.index)
         if get_param_value(trigger_params.get('enabled'), True):
             for trigger_name, score in trigger_params.get('positive_signals', {}).items():
-                if trigger_name.startswith("说明"):
-                    continue
+                if trigger_name.startswith("说明"): continue
                 trigger_series = trigger_events.get(trigger_name, pd.Series(False, index=df.index))
                 if trigger_series.any():
                     bonus_amount = trigger_series.fillna(0).astype(float) * score
@@ -80,13 +85,12 @@ class OffensiveLayer:
                     score_details_df[f"TRIGGER_{trigger_name}"] = bonus_amount
         score_details_df['SCORE_TRIGGER'] = trigger_score
         all_scores_components.append(trigger_score)
-        # --- 步骤 4: 计算【第三层：剧本协同奖励分】 ---
+        
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score = pd.Series(0.0, index=df.index)
         if get_param_value(playbook_params.get('enabled'), True):
             for playbook_name, score in playbook_params.get('positive_signals', {}).items():
-                if playbook_name.startswith("说明"):
-                    continue
+                if playbook_name.startswith("说明"): continue
                 playbook_series = self.strategy.playbook_states.get(playbook_name, pd.Series(False, index=df.index))
                 if playbook_series.any():
                     bonus_amount = playbook_series.fillna(0).astype(float) * score
@@ -94,51 +98,44 @@ class OffensiveLayer:
                     score_details_df[f"PLAYBOOK_{playbook_name}"] = bonus_amount
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
         all_scores_components.append(playbook_score)
-        # --- 步骤 5: 计算其他独立的加分模块 ---
+        
         strategic_bonus_score, score_details_df = self._apply_strategic_context_bonuses(score_details_df)
         all_scores_components.append(strategic_bonus_score)
         contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
         all_scores_components.append(contextual_bonus_score)
-        # --- 应用行业生命周期奖惩分数 ---
+        
         industry_score = pd.Series(0.0, index=df.index)
         industry_params = scoring_params.get('industry_lifecycle_scoring_params', {})
         if get_param_value(industry_params.get('enabled'), True):
-            # 获取各阶段的数值化置信度分数
             score_markup = atomic_states.get('SCORE_INDUSTRY_MARKUP', default_series)
             score_preheat = atomic_states.get('SCORE_INDUSTRY_PREHEAT', default_series)
-            # 获取权重和乘数
             markup_weight = industry_params.get('markup_weight', 1.0)
             preheat_weight = industry_params.get('preheat_weight', 0.8)
             bonus_multiplier = industry_params.get('bonus_multiplier', 400)
-            # 计算总的正面行业加成因子 (这是一个0-1之间的加权分数)
             positive_industry_factor = (score_markup * markup_weight + score_preheat * preheat_weight)
-            # 计算最终的奖励分数，与置信度成正比
             industry_bonus = positive_industry_factor * bonus_multiplier
-            # 只有当有显著加分时才记录
             if (industry_bonus > 1).any():
                 industry_score += industry_bonus
                 score_details_df["BONUS_INDUSTRY_LIFECYCLE"] = industry_bonus
         all_scores_components.append(industry_score)
-        # print(f"          -> [行业协同 V2.1] 数值化行业生命周期奖励分计算完毕，奖励峰值: {industry_score.max():.0f}")
-        # --- 应用“动态动能”加分 ---
+        
         dynamic_score = pd.Series(0.0, index=df.index)
         dynamic_params = scoring_params.get('dynamic_scoring', {})
         if get_param_value(dynamic_params.get('enabled'), True):
             min_setup_score = get_param_value(dynamic_params.get('min_positional_score_for_dynamic'), 150)
             can_add_dynamic_score = context_score >= min_setup_score
             for signal_name, score in dynamic_params.get('positive_signals', {}).items():
-                if signal_name.startswith("说明"):
-                    continue
+                if signal_name.startswith("说明"): continue
                 signal_series = atomic_states.get(signal_name, pd.Series(0.0, index=df.index))
                 if (signal_series > 0).any():
                     bonus_amount = signal_series.fillna(0.0) * score * can_add_dynamic_score.astype(float)
                     dynamic_score += bonus_amount
                     score_details_df[f"DYN_{signal_name}"] = bonus_amount
         all_scores_components.append(dynamic_score)
+        
         # --- 步骤 6: 合成总进攻分 ---
         entry_score = sum(all_scores_components).fillna(0).astype(int)
-        # print(f"        -> [进攻方案评估中心] 最终合成完毕，总进攻分峰值: {entry_score.max():.0f}")
-        return entry_score, score_details_df
+        return entry_score, score_details_df.fillna(0) # 返回前再次确认填充，确保万无一失
 
     def _apply_strategic_context_bonuses(self, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
