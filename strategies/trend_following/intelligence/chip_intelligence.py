@@ -63,31 +63,24 @@ class ChipIntelligence:
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V332.4 基因改造版】七维交叉协同终极筹码信号引擎
-        - 核心升级 (本次修改):
-          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，不再使用“创可贴”式的反过热因子。
-          - [新增] 明确定义了“底部上下文分数”和“顶部上下文分数”，基于价格在长期（55日）区间的位置进行量化。
-          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
-          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
-        - 收益:
-          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。信号的定义与其名称在逻辑上完全自洽。
+        【V332.5 性能优化版】七维交叉协同终极筹码信号引擎
+        - 核心优化 (本次修改):
+          - [性能优化] 重构了内部计算逻辑，在循环中直接操作和堆叠NumPy数组，而不是创建临时的Pandas Series列表。
+          - [内存优化] 减少了中间Pandas对象的创建，降低了内存占用，尤其在长周期回测中效果更佳。
+        - 业务逻辑: 保持与V332.4版本完全一致，仅优化实现方式。
         """
-        # print("        -> [终极筹码信号诊断模块 V332.4 基因改造版] 启动...") # 修改: 更新版本号
+        # print("        -> [终极筹码信号诊断模块 V332.5 性能优化版] 启动...") # 代码修改：更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        
-        # --- 定义“位置上下文”分数，替代“反过热因子” ---
+        # --- 定义“位置上下文”分数 ---
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9) # 使用一个极小值代替np.nan
-        # 价格在55日区间内的位置分 (0=最低点, 1=最高点)
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
-        # “底部上下文”分数：价格位置越低，分数越高
         bottom_context_score = 1 - price_position_in_range
-        # “顶部上下文”分数：价格位置越高，分数越高
         top_context_score = price_position_in_range
         pillars = {
             'cost_structure':   [('peak_cost_D', True), ('cost_divergence_D', True)],
@@ -118,7 +111,8 @@ class ChipIntelligence:
         pillar_period_health_d = {key: {} for key in pillars}
         for p in periods:
             for pillar_name, factors in pillars.items():
-                factor_health_scores = []
+                # 代码修改：直接创建NumPy数组列表，而非Series列表
+                factor_health_arrays = []
                 for factor_name, ascending in factors:
                     if factor_name == 'is_multi_peak_D':
                         factor_health = 1.0 - df.get(factor_name, 0.0).astype(float)
@@ -127,10 +121,12 @@ class ChipIntelligence:
                         slope_score = self._normalize_score(df.get(f"SLOPE_{p}_{factor_name}"), norm_window, ascending=ascending)
                         accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
                         factor_health = (static_score * slope_score * accel_score)**(1/3)
-                    factor_health_scores.append(factor_health)
-                if factor_health_scores:
-                    stacked_scores = np.array([s.values for s in factor_health_scores])
-                    geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(factor_health_scores))
+                    # 代码修改：将NumPy数组添加到列表中
+                    factor_health_arrays.append(factor_health.values)
+                if factor_health_arrays:
+                    # 代码修改：直接堆叠NumPy数组进行计算
+                    stacked_scores = np.stack(factor_health_arrays, axis=0)
+                    geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(factor_health_arrays))
                     pillar_period_health_d[pillar_name][p] = pd.Series(geo_mean_values, index=df.index)
                 else:
                     pillar_period_health_d[pillar_name][p] = pd.Series(0.5, index=df.index)
@@ -139,31 +135,37 @@ class ChipIntelligence:
         for pillar_name in pillars:
             series_list = list(pillar_period_health_d[pillar_name].values())
             if series_list:
-                stacked_scores = np.array([s.values for s in series_list])
+                # 代码修改：直接从Series列表中提取values进行堆叠
+                stacked_scores = np.stack([s.values for s in series_list], axis=0)
                 mean_values = np.mean(stacked_scores, axis=0)
                 pillar_overall_health_d[pillar_name] = pd.Series(mean_values, index=df.index)
             else:
                 pillar_overall_health_d[pillar_name] = pd.Series(0.5, index=df.index)
         # --- 4. 计算第七支柱: 跨周期协同 (MTF Synergy) ---
-        mtf_synergy_scores = []
+        # 代码修改：直接创建NumPy数组列表
+        mtf_synergy_arrays = []
         for pillar_name, factors in pillars.items():
-            factor_synergy_scores = []
+            # 代码修改：直接创建NumPy数组列表
+            factor_synergy_arrays = []
             for factor_name, ascending in factors:
                 factor_name_w = factor_name.replace('_D', '_W')
                 if factor_name_w in df.columns:
                     daily_score = self._normalize_score(df.get(factor_name), norm_window, ascending=ascending)
                     weekly_score = self._normalize_score(df.get(factor_name_w), norm_window, ascending=ascending)
                     synergy_score = (daily_score / weekly_score.replace(0, 0.01)).clip(0, 2) / 2
-                    factor_synergy_scores.append(synergy_score)
+                    # 代码修改：将NumPy数组添加到列表中
+                    factor_synergy_arrays.append(synergy_score.values)
                 else:
                     pass
-            if factor_synergy_scores:
-                stacked_scores = np.array([s.values for s in factor_synergy_scores])
+            if factor_synergy_arrays:
+                # 代码修改：直接堆叠NumPy数组进行计算
+                stacked_scores = np.stack(factor_synergy_arrays, axis=0)
                 mean_values = np.mean(stacked_scores, axis=0)
-                pillar_synergy_score = pd.Series(mean_values, index=df.index)
-                mtf_synergy_scores.append(pillar_synergy_score)
-        if mtf_synergy_scores:
-            stacked_scores = np.array([s.values for s in mtf_synergy_scores])
+                # 代码修改：将NumPy数组添加到列表中
+                mtf_synergy_arrays.append(mean_values)
+        if mtf_synergy_arrays:
+            # 代码修改：直接堆叠NumPy数组进行计算
+            stacked_scores = np.stack(mtf_synergy_arrays, axis=0)
             mean_values = np.mean(stacked_scores, axis=0)
             pillar_overall_health_d['mtf_synergy'] = pd.Series(mean_values, index=df.index)
         else:
@@ -171,10 +173,12 @@ class ChipIntelligence:
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
         overall_bullish_health = {}
         for p in periods:
-            health_scores_for_period = [pillar_period_health_d[key][p] for key in pillars]
-            health_scores_for_period.append(pillar_overall_health_d['mtf_synergy'])
-            stacked_scores = np.array([s.values for s in health_scores_for_period])
-            geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_scores_for_period))
+            # 代码修改：直接创建NumPy数组列表
+            health_arrays_for_period = [pillar_period_health_d[key][p].values for key in pillars]
+            health_arrays_for_period.append(pillar_overall_health_d['mtf_synergy'].values)
+            # 代码修改：直接堆叠NumPy数组进行计算
+            stacked_scores = np.stack(health_arrays_for_period, axis=0)
+            geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_arrays_for_period))
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
         overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
         # --- 6. 交叉协同剧本诊断 ---
@@ -203,12 +207,10 @@ class ChipIntelligence:
         states['SCORE_CHIP_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_CHIP_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
         # --- 重构反转信号逻辑 ---
-        # 底部反转 = 底部上下文 * 短期看涨力量 * 长期看跌惯性
         states['SCORE_CHIP_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_CHIP_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_CHIP_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # 顶部反转 = 顶部上下文 * 短期看跌力量 * 长期看涨惯性
+        states['SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)

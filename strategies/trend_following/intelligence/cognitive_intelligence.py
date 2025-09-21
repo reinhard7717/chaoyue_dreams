@@ -101,7 +101,7 @@ class CognitiveIntelligence:
           - `COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A`: A级早期动能点火信号，可用于替代或补充
                                                          现有激进的动能信号。
         """
-        print("        -> [早期动能点火诊断模块 V1.0] 启动...")
+        # print("        -> [早期动能点火诊断模块 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -154,7 +154,7 @@ class CognitiveIntelligence:
         - 点火触发 (Trigger): 价格出现温和的启动迹象。
         - 剧本逻辑: 昨日战备就绪，今日点火触发。
         """
-        print("        -> [筹码共振-价格滞后剧本 V1.0] 启动...")
+        # print("        -> [筹码共振-价格滞后剧本 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1248,78 +1248,52 @@ class CognitiveIntelligence:
 
     def _diagnose_lock_chip_rally_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 信号源适配版】锁筹拉升S级战法诊断模块
-        - 核心升级: [信号适配] 将对筹码维度信号的消费，适配为消费由 ChipIntelligence.diagnose_cross_validation_signals
-                    生成的、更高质量的 'RISING_RESONANCE' 和 'FALLING_RESONANCE' 终极信号。
+        【V2.5 向量化性能重构版】锁筹拉升S级战法诊断模块
+        - 核心优化 (本次修改):
+          - [性能重构] 彻底移除了原有的Python for循环状态机，重构为完全向量化的Pandas/NumPy逻辑。
+          - [效率提升] 通过`cumsum`和`groupby`等向量化操作，一次性计算所有时间点的状态，避免了逐日迭代，极大提升了长周期回测的计算效率。
+        - 业务逻辑: 保持与V2.4版本完全一致的“容错巡航”状态机逻辑，仅重构实现方式。
         """
-        # print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.4 信号源适配版)”...")
+        # print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.5 向量化性能重构版)”...") # 代码修改：更新版本号
         states = {}
         atomic = self.strategy.atomic_states
         default_series = pd.Series(False, index=df.index)
-        # --- 1. 获取参数  ---
+        # --- 1. 获取参数 ---
         p = get_params_block(self.strategy, 'lock_chip_rally_params', {})
         require_concentration = get_param_value(p.get('require_continuous_concentration'), True)
         terminate_on_stalling = get_param_value(p.get('terminate_on_health_stalling'), True)
-        # 为数值化分数定义阈值
         divergence_threshold = get_param_value(p.get('divergence_threshold'), 0.7)
         concentration_threshold = get_param_value(p.get('concentration_threshold'), 0.6)
-        # --- 2. 定义“点火”事件  ---
+        # --- 2. 定义“点火”事件 ---
         ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-        # --- 3. 定义“硬性熄火”条件  ---
-        # 使用融合后的数值分代替废弃的 CHIP_DYN_OBJECTIVE_DIVERGING
-        is_diverging = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE') > divergence_threshold # 适配新的终极下跌共振信号
+        # --- 3. 定义“硬性熄火”条件 ---
+        is_diverging = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE') > divergence_threshold
         is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
-        is_ma_broken = self._get_atomic_score(df, 'SCORE_MA_HEALTH', 1.0) < 0.4 # 修复失效的 MA_STATE_STABLE_BULLISH 信号，升级为基于均线健康分的判断
+        is_ma_broken = self._get_atomic_score(df, 'SCORE_MA_HEALTH', 1.0) < 0.4
         is_health_stalling = atomic.get('COGNITIVE_HOLD_RISK_HEALTH_STALLING', default_series)
         hard_termination_condition = is_diverging | is_late_stage | is_ma_broken
         if terminate_on_stalling:
             hard_termination_condition |= is_health_stalling
-        # --- 4. 定义“软性巡航”条件  ---
-        # 使用融合后的数值分代替废弃的 CHIP_DYN_CONCENTRATING
-        is_cruise_condition_met = self._fuse_multi_level_scores(df, 'RISING_RESONANCE') > concentration_threshold if require_concentration else pd.Series(True, index=df.index) # 适配新的终极上升共振信号
-        # --- 5. 构建带“容错机制”的状态机  ---
-        n = len(df)
-        # 步骤5.1: 将所有需要在循环中访问的Pandas Series一次性转换为NumPy数组
-        hard_term_arr = hard_termination_condition.to_numpy(dtype=bool)
-        cruise_cond_arr = is_cruise_condition_met.to_numpy(dtype=bool)
-        ignition_arr = ignition_event.to_numpy(dtype=bool)
-        # 步骤5.2: 初始化一个NumPy数组来存储状态结果
-        rally_state_arr = np.full(n, False, dtype=bool)
-        # 步骤5.3: 在高性能的NumPy循环中执行状态机逻辑
-        cruise_warning_active = False # 引入“健康预警”状态标志
-        for i in range(1, n):
-            # 检查硬性熄火条件，这是最高优先级
-            if hard_term_arr[i]:
-                rally_state_arr[i] = False
-                cruise_warning_active = False
-                continue
-            # 如果昨天处于巡航状态
-            if rally_state_arr[i-1]:
-                # 检查软性巡航条件
-                if cruise_cond_arr[i]:
-                    # 条件满足，继续健康巡航，并解除预警
-                    rally_state_arr[i] = True
-                    cruise_warning_active = False
-                else:
-                    # 条件不满足，检查是否已在预警状态
-                    if cruise_warning_active:
-                        # 已经预警过一次，这是连续第二次失败，终止巡航
-                        rally_state_arr[i] = False
-                        cruise_warning_active = False
-                    else:
-                        # 这是第一次失败，进入预警状态，但巡航继续
-                        rally_state_arr[i] = True
-                        cruise_warning_active = True
-            # 如果今天有点火信号，则开启巡航
-            elif ignition_arr[i]:
-                rally_state_arr[i] = True
-                cruise_warning_active = False # 新的巡航开始时，总是健康的
-        # 步骤5.4: 将计算结果转换回Pandas Series
-        is_in_rally_state = pd.Series(rally_state_arr, index=df.index)
+        # --- 4. 定义“软性巡航”条件 ---
+        is_cruise_condition_met = self._fuse_multi_level_scores(df, 'RISING_RESONANCE') > concentration_threshold if require_concentration else pd.Series(True, index=df.index)
+        # --- 5. 【代码新增】构建向量化状态机 ---
+        # 5.1 定义巡航失败事件：不满足软性巡航条件
+        cruise_failure = ~is_cruise_condition_met
+        # 5.2 定义“双重巡航失败”事件，这是导致巡航终止的条件之一
+        double_cruise_failure = cruise_failure & cruise_failure.shift(1).fillna(False)
+        # 5.3 定义所有可能导致巡航终止的“杀手”事件
+        rally_killer = hard_termination_condition | double_cruise_failure
+        # 5.4 使用cumsum为每个由“杀手”事件分割的区间创建一个唯一的ID
+        rally_block_id = rally_killer.cumsum()
+        # 5.5 在每个巡航区间内，检查是否存在点火事件
+        # groupby(rally_block_id) 将数据按巡航区间分组
+        # .cumsum() > 0 会在点火事件发生后，将该区间内后续所有行的值置为True
+        has_ignition_in_block = ignition_event.groupby(rally_block_id).cumsum() > 0
+        # 5.6 最终状态：在某个巡航区间内已经点火，并且当前不是“杀手”事件发生日
+        is_in_rally_state = has_ignition_in_block & ~rally_killer
+        # 最终信号需要再次被硬终止条件过滤，确保万无一失
         final_tactic_signal = is_in_rally_state & ~hard_termination_condition
         states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
-        # if final_tactic_signal.any():
-            # print(f"          -> [S级持仓确认] 侦测到 {final_tactic_signal.sum()} 天处于“健康锁筹拉升”巡航状态！")
         return states
 
     def synthesize_dynamic_offense_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1633,7 +1607,7 @@ class CognitiveIntelligence:
           - 协同风险 = 行业衰退周期 (滞涨/下跌) * 个股风险信号 (崩溃/派发)
         - 收益: 创造出具备“戴维斯双击”效应的超高质量信号，极大提升策略的胜率和赔率。
         """
-        print("        -> [行业-个股协同元融合引擎 V1.0] 启动...")
+        # print("        -> [行业-个股协同元融合引擎 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1674,7 +1648,7 @@ class CognitiveIntelligence:
           - [BUG修复] 将对“完美风暴”信号的引用从布尔型升级为数值化评分，
                     确保最终总分能正确反映其强度。
         """
-        print("        -> [顶层认知总分合成模块 V1.2 逻辑修正版] 启动...")
+        # print("        -> [顶层认知总分合成模块 V1.2 逻辑修正版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1742,12 +1716,11 @@ class CognitiveIntelligence:
           4. 量价效率佐证 (VPA): 成交量很大，但价格波动很小，证明交易未用于推升价格。
         - 产出: SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S - 一个高置信度的、识别主力隐蔽吸筹的S级认知信号。
         """
-        print("        -> [伪装散户吸筹诊断引擎 V2.0 VPA增强版] 启动...")
+        # print("        -> [伪装散户吸筹诊断引擎 V2.0 VPA增强版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'deceptive_flow_params', {})
         if not get_param_value(p.get('enabled'), True):
             return states
-
         # --- 1. 军备检查 ---
         required_cols = [
             'retail_net_flow_consensus_D',      # 资金流表象
@@ -1759,22 +1732,16 @@ class CognitiveIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 伪装散户吸筹诊断引擎缺少关键数据: {missing_cols}，模块已跳过！")
             return states
-
         # --- 2. 核心要素数值化 (归一化) ---
         norm_window = get_param_value(p.get('norm_window'), 120)
-
         # 条件1: 散户资金持续净流入 (值越大，分数越高)
         retail_inflow_score = self._normalize_score(df['retail_net_flow_consensus_D'].clip(lower=0), norm_window, ascending=True)
-
         # 条件2: 筹码集中度持续提升 (斜率为负且越小，分数越高)
         chip_concentration_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
-
         # 条件3: 价格波动被压制 (价格斜率的绝对值越小，分数越高)
         price_suppression_score = self._normalize_score(df['SLOPE_5_close_D'].abs(), norm_window, ascending=False)
-
         # 新增条件4: VPA效率低下 (VPA效率值越小，分数越高)
         vpa_inefficiency_score = self._normalize_score(df['VPA_EFFICIENCY_D'], norm_window, ascending=False)
-
         # --- 3. 融合生成最终信号 ---
         # 四维交叉验证，只有当四个条件同时满足时，分数才会高
         final_score = (
@@ -1783,12 +1750,9 @@ class CognitiveIntelligence:
             price_suppression_score *
             vpa_inefficiency_score
         ).astype(np.float32)
-        
         states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S'] = final_score
-
         if (final_score > 0.85).any():
              print(f"          -> [S级认知信号] 侦测到 {(final_score > 0.85).sum()} 次高度疑似“伪装散户吸筹”的博弈行为！")
-
         print("        -> [伪装散户吸筹诊断引擎 V2.0] 计算完毕。")
         return states
 
