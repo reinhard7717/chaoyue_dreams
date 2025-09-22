@@ -83,16 +83,14 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.5 · 智能翻译版】生成人类可读的信号摘要。
+        【V2.6 · 翻译官逻辑修复版】生成人类可读的信号摘要。
         - 核心修复 (本次修改):
-          - [智能识别] 增加了对汇总分数（如 SCORE_REVERSAL_OFFENSE）的特殊处理逻辑。
-          - 在剥离前缀前，会先判断信号名是否为汇总分数，如果是，则直接查找字典，不再进行剥离。
-        - 收益: 彻底解决了因信号名包含前缀关键字而被错误剥离，导致报告层找不到定义的根本问题。
+          - [智能识别] 进一步增强了 get_base_signal 辅助函数，增加了对 'TRIGGER_' 和 'PLAYBOOK_' 前缀的特殊处理。
+        - 收益: 彻底解决了因触发器和剧本信号名被错误剥离，导致报告层找不到其定义的根本问题。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        # --- 修改开始：定义汇总分数白名单和新的前缀列表 ---
         # 定义所有汇总分数的名称，这些名称不应被剥离前缀
         summary_score_cols = [
             'SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY',
@@ -100,7 +98,6 @@ class JudgmentLayer:
         ]
         # 定义需要剥离的前缀列表
         prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
-        # --- 修改结束 ---
 
         def process_details_df(details_df, prefix_list):
             """辅助函数，用于向量化处理一个分数详情DataFrame"""
@@ -114,11 +111,14 @@ class JudgmentLayer:
 
             date_col_name = long_df.columns[0]
             
-            # --- 修改开始：实现智能剥离逻辑 ---
             def get_base_signal(signal_name):
-                # 如果信号名在汇总分白名单中，直接返回原名
-                if signal_name in summary_score_cols:
+                # --- 新增开始：增加对TRIGGER和PLAYBOOK的特殊处理 ---
+                # 如果是汇总分、触发器或剧本，直接返回原名，因为它们在字典中的键就是全名
+                if (signal_name in summary_score_cols or 
+                    signal_name.startswith('TRIGGER_') or 
+                    signal_name.startswith('PLAYBOOK_')):
                     return signal_name
+                # --- 新增结束 ---
                 
                 # 否则，正常进行前缀剥离
                 base_name = signal_name
@@ -129,7 +129,6 @@ class JudgmentLayer:
 
             # 应用这个智能剥离函数
             long_df['base_signal'] = long_df['signal'].apply(get_base_signal)
-            # --- 修改结束 ---
 
             # 向量化映射中文名
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
