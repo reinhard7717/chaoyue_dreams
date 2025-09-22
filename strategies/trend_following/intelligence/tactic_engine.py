@@ -45,7 +45,7 @@ class TacticEngine:
             return pd.Series(0.5, index=df.index)
         return (total_score / total_weight).clip(0, 1)
 
-    def run_tactic_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
         【新增方法】战术引擎总指挥
         - 核心职责: 按顺序调用本模块内的所有战术合成方法，并汇总其产出的所有信号。
@@ -58,8 +58,7 @@ class TacticEngine:
         all_states.update(self.synthesize_prime_tactic(df))
         
         # _diagnose_pullback_tactics_matrix 内部有自己的增强器，可以独立运行
-        enhancements = {} # 此处enhancements暂时不用，但保留接口
-        all_states.update(self._diagnose_pullback_tactics_matrix(df, enhancements))
+        all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         
         all_states.update(self.synthesize_squeeze_playbooks(df))
         all_states.update(self.synthesize_post_reversal_resonance_tactic(df))

@@ -1251,27 +1251,36 @@ class CognitiveIntelligence:
         print(f"        -> [行业-个股协同元融合引擎 V1.0] 完成，生成了2个S级协同信号。")
         return states
 
-    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+    def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.1 均值回归扩充版】顶层认知总分合成模块
+        【V2.2 架构修复版】顶层认知总分合成模块
         - 核心重构 (本次修改):
           - [架构调整] 本方法现在作为总指挥，按逻辑顺序调用新拆分出的 `MicroBehaviorEngine` 和 `TacticEngine`。
           - [职责净化] 移除了对具体微观行为和战术的直接计算，这些逻辑已下沉到新的子引擎中。
           - [流程优化] 确保子引擎生成的信号能被后续的认知融合模块正确消费。
           - [战术扩充] 新增对“均值回归”策略信号的合成调用。
+          - [依赖注入] 接收 `pullback_enhancements` 并传递给战术引擎，修复数据流。
+          - [代码内聚] 将回踩战术的调试日志逻辑移入此方法。
         """
-        print("        -> [顶层认知总分合成模块 V2.1 均值回归扩充版] 启动...") # 代码修改：更新版本号
+        # 代码修改：更新方法签名和版本号
+        print("        -> [顶层认知总分合成模块 V2.2 架构修复版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+
         # --- 步骤 1: 调用微观行为引擎，生成深层行为模式信号 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         states.update(micro_behavior_states)
         self.strategy.atomic_states.update(micro_behavior_states) # 关键：立即更新原子状态库，供后续模块使用
+
         # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
-        tactic_states = self.tactic_engine.run_tactic_synthesis(df)
+        # 代码修改：将 pullback_enhancements 传递给战术引擎
+        tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         states.update(tactic_states)
         self.strategy.atomic_states.update(tactic_states) # 关键：再次更新原子状态库
+        # 代码新增：将战术引擎产出的剧本状态也更新到策略实例中
+        self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
+
         # --- 步骤 3: 执行本模块剩余的核心认知融合任务 ---
         # 注意：这些方法现在可以消费由子引擎生成的、更丰富的信号
         industry_synergy_states = self.synthesize_industry_synergy_signals(df)
@@ -1296,6 +1305,7 @@ class CognitiveIntelligence:
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
+
         # --- 步骤 5: 调用风险元融合模块，并汇总所有“风险”类认知分数 ---
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         states.update(fused_risk_states)
@@ -1304,6 +1314,7 @@ class CognitiveIntelligence:
         microstructure_conviction_risk_score = states.get('COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING', default_score)
         microstructure_power_shift_risk_score = states.get('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', default_score)
         euphoric_risk_score = states.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', default_score)
+        
         final_bearish_score = np.maximum.reduce([
             cognitive_bearish_score_series.values,
             industry_synergy_risk_score.values,
@@ -1312,9 +1323,23 @@ class CognitiveIntelligence:
             euphoric_risk_score.values
         ])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(final_bearish_score, index=df.index, dtype=np.float32)
-        # --- 步骤 6: 更新原子状态库并返回 ---
+
+        # --- 步骤 6: 移动调试日志逻辑到此 ---
+        # 代码新增：将调试日志逻辑从 IntelligenceLayer 移入，保持内聚
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
+            decision_log_df = self._create_pullback_decision_log(df, pullback_enhancements)
+            final_tactic_days = decision_log_df.filter(like='FINAL_').any(axis=1)
+            if final_tactic_days.any():
+                print("\n--- [回踩战术决策日志探针] ---")
+                display_cols = [col for col in decision_log_df.columns if 'POTENTIAL_' in col or 'FINAL_' in col]
+                print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
+                print(decision_log_df.loc[final_tactic_days, display_cols])
+                print("--- [探针结束] ---\n")
+
+        # --- 步骤 7: 更新原子状态库并返回 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [顶层认知总分合成模块 V2.1] 模块化重构完成。") # 代码修改：更新版本号
+        print("        -> [顶层认知总分合成模块 V2.2] 模块化重构完成。") # 代码修改：更新版本号
         return df
 
     def synthesize_mean_reversion_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

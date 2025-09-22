@@ -84,13 +84,13 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V403.3 依赖修复版】情报层总入口。
+        【V404.0 架构修复版】情报层总入口。
         - 核心修复 (本次修改):
-          - [依赖修复] 调整了模块的调用顺序，确保 `_diagnose_long_term_daily_chip_context` 在其依赖的智能信号（如 `SCORE_CHIP_TRUE_ACCUMULATION`）计算完毕后才执行，解决了“缺少上游智能信号”的警告。
-          - [逻辑梳理] 将 `_diagnose_true_concentration` 的调用从 `chip_intel` 内部移至 `intelligence_layer` 的主流程中，使依赖关系更清晰。
-        - 业务逻辑: 保持与V403.2版本完全一致，仅修复执行流程。
+          - [架构修复] 移除了对已迁移到 `TacticEngine` 的战术方法的冗余、错误调用，从根源上解决了 `AttributeError`。
+          - [依赖修复] 修复了 `pullback_enhancements` 数据流中断的问题，确保其能被正确传递给认知层。
+          - [代码内聚] 将回踩战术的调试日志逻辑移至 `CognitiveIntelligence` 模块，使代码结构更清晰。
         """
-        print("--- [情报层总指挥官 V403.3 依赖修复版] 开始执行所有诊断模块... ---")
+        print("--- [情报层总指挥官 V404.0 架构修复版] 开始执行所有诊断模块... ---") # 代码修改：更新版本号和说明
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -145,6 +145,10 @@ class IntelligenceLayer:
             self.strategy.atomic_states[col] = series
         # 将此调用移至其依赖项计算完毕之后，确保能正确执行。
         self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
+        
+        # 代码新增：在调用认知层之前，计算其所需的回踩增强矩阵
+        pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
+
         # 认知层链式调用 (已是高效实现)
         df = self.cognitive_intel.synthesize_trend_quality_score(df)
         df = self.cognitive_intel.synthesize_contextual_zone_scores(df)
@@ -167,34 +171,21 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_breakdown_resonance_score(df)
         df = self.cognitive_intel.synthesize_reversal_resonance_scores(df)
         df = self.cognitive_intel.synthesize_perfect_storm_signals(df)
-        df = self.cognitive_intel.synthesize_cognitive_scores(df)
+        
+        # 代码修改：将对 synthesize_cognitive_scores 的调用移至所有依赖项计算完毕后，并传入 pullback_enhancements
+        df = self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements)
+        
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
         self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
         # 战法生成
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_advanced_tactics(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_prime_tactic(df))
-        pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
-        self.strategy.atomic_states.update(self.cognitive_intel._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
+        
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
-        squeeze_playbook_states = self.cognitive_intel.synthesize_squeeze_playbooks(df)
-        self.strategy.atomic_states.update(squeeze_playbook_states)
-        self.strategy.playbook_states.update({k: v for k, v in squeeze_playbook_states.items() if k.startswith('PLAYBOOK_')})
-        # 调试模块
-        debug_params = get_params_block(self.strategy, 'debug_params')
-        if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
-            decision_log_df = self.cognitive_intel._create_pullback_decision_log(df, pullback_enhancements)
-            final_tactic_days = decision_log_df.filter(like='FINAL_').any(axis=1)
-            if final_tactic_days.any():
-                print("\n--- [回踩战术决策日志探针] ---")
-                display_cols = [col for col in decision_log_df.columns if 'POTENTIAL_' in col or 'FINAL_' in col]
-                print("决策日志 (POTENTIAL: 潜在机会, FINAL: 最终决策):")
-                print(decision_log_df.loc[final_tactic_days, display_cols])
-                print("--- [探针结束] ---\n")
+        
         # 在所有计算完成后，一次性更新策略实例的DataFrame
         self.strategy.df_indicators = df
-        print("--- [情报层总指挥官 V403.3] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V404.0] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
