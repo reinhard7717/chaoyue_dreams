@@ -185,7 +185,11 @@
         "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
         "hurst_120d_D": [5],
         "price_cv_60d_D": [5],
-        "energy_ratio_D": [5]
+        "energy_ratio_D": [5],
+        "concentration_90pct_D": [5, 21],
+        "peak_cost_D": [5],
+        "turnover_from_winners_ratio_D": [5],
+        "peak_control_ratio_D": [21]
       }
     },
     "accel_params": {
@@ -205,7 +209,10 @@
         "ATR_14_D": [1, 5, 13, 21, 55],
         "ADX_14_D": [1, 5, 13, 21, 55],
         "MACDh_13_34_8_D": [1, 5, 13, 21, 55],
-        "EMA_21_W": [5]
+        "EMA_21_W": [5],
+        "concentration_90pct_D": [5],
+        "peak_cost_D": [5],
+        "turnover_from_winners_ratio_D": [5]
       }
     }
   },
