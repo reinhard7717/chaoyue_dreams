@@ -340,3 +340,32 @@ class TacticEngine:
         if (final_tactic_score > 0.5).any():
             print(f"  [探针-逆向共振] 侦测到 {(final_tactic_score > 0.5).sum()} 次“大反转后期·共振初起”机会！")
         return states
+
+    def _normalize_score(self, series: pd.Series, window: int = 120, ascending: bool = True, default=0.5) -> pd.Series:
+        """
+        辅助函数：将一个Series进行滚动窗口排名归一化，生成0-1分。
+        - 从其他情报模块迁移而来，保持架构一致性。
+        :param series: 原始数据Series。
+        :param window: 归一化滚动窗口。
+        :param ascending: 归一化方向，True表示值越大分数越高。
+        :param default: 填充NaN的默认值。
+        :return: 归一化后的0-1分数Series。
+        """
+        if series is None or series.empty:
+            # 如果输入为空，根据情况返回一个填充了默认值的Series
+            # 假设 self.strategy.df_indicators.index 是可用的主索引
+            return pd.Series(default, index=self.strategy.df_indicators.index)
+        min_periods = max(1, window // 5)
+        rank = series.rolling(window=window, min_periods=min_periods).rank(pct=True)
+        score = rank if ascending else 1 - rank
+        return score.fillna(default).astype(np.float32)
+
+
+
+
+
+
+
+
+
+
