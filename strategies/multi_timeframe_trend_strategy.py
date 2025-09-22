@@ -738,17 +738,18 @@ class MultiTimeframeTrendStrategy:
             # 在finally块中返回结果，确保无论如何都有返回值
             return analysis_results
 
-
     def _deploy_field_coroner_probe(self, probe_date: str):
         """
-        【V1.0 新增】首席法医官探针
-        - 核心职责: 针对特定日期，对“王牌信号”的生成链路进行深度、逐级的解剖，
-                    打印出所有前置、中间和最终的信号值，以定位问题根源。
+        【V1.1 逻辑重演版】首席法医官探针
+        - 核心升级 (本次修改):
+          - [逻辑重演] 探针不再假设内部变量存在于atomic_states，而是根据源函数逻辑主动重演计算，以获取真实的中间值。
+          - [深度解剖] 新增对“真实吸筹”信号的下一层级解剖，追踪到最原始的因子分数。
+        - 收益: 能够100%还原信号生成链路，精确锁定任何环节的问题。
         """
-        print("\n" + "="*35 + f" [首席法医官探针 V1.0] 正在解剖 {probe_date} " + "="*35)
+        # 代码修改：更新版本号和说明
+        print("\n" + "="*35 + f" [首席法医官探针 V1.1] 正在解剖 {probe_date} " + "="*35)
         
         try:
-            # 确保所有需要的数据都已准备好
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据 (daily_analysis_df 或 atomic_states) 不存在。调查终止。")
                 return
@@ -758,20 +759,49 @@ class MultiTimeframeTrendStrategy:
             probe_ts = pd.to_datetime(probe_date)
             
             # 辅助函数，用于安全地获取并打印信号值
-            def probe_signal(signal_name, indent=2):
+            def probe_signal(signal_name, indent=2, source_dict=None):
+                # 代码新增：允许指定源字典
+                source = source_dict if source_dict is not None else atomic
                 prefix = " " * indent
-                if signal_name not in atomic:
-                    print(f"{prefix}❌ [信号缺失] {signal_name}")
+                if signal_name not in source:
+                    print(f"{prefix}❌ [信号/变量缺失] {signal_name}")
                     return 0.0
                 
-                value = atomic[signal_name].get(probe_ts, 0.0)
+                value = source[signal_name].get(probe_ts, 0.0)
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
+
+            # --- 0. 探针内部计算，重演源函数逻辑 ---
+            # 代码新增：重演 synthesize_reversal_reliability_score 的内部计算
+            internal_vars = {}
+            row = df.loc[probe_ts:probe_ts]
+            if not row.empty:
+                # 重演第一幕：深度价值区
+                price_pos_yearly = self.tactical_engine.micro_behavior_engine._normalize_score(df['close_D'], window=250, ascending=True, default=0.5)
+                internal_vars['deep_bottom_context_score (内部计算)'] = 1.0 - price_pos_yearly
+                rsi_w_series = df.get('RSI_13_W', pd.Series(50, index=df.index))
+                internal_vars['rsi_w_oversold_score (内部计算)'] = self.tactical_engine.micro_behavior_engine._normalize_score(rsi_w_series, window=52, ascending=False, default=0.5)
+                
+                # 重演第三幕：企稳点火
+                norm_window = 120 # 假设与源函数一致
+                internal_vars['downtrend_stabilizing_score (内部计算)'] = self.tactical_engine.micro_behavior_engine._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
+            
+            # 代码新增：重演 diagnose_accumulation_playbooks 的内部计算
+            if not row.empty:
+                norm_window = 120 # 假设与源函数一致
+                _normalize = self.tactical_engine.micro_behavior_engine._normalize_score # 借用一下
+                internal_vars['conc_slope_score (内部)'] = _normalize(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
+                internal_vars['conc_accel_score (内部)'] = _normalize(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
+                internal_vars['concentration_improving_score (内部)'] = internal_vars['conc_slope_score (内部)'] * internal_vars['conc_accel_score (内部)']
+                internal_vars['cost_rising_score (内部)'] = _normalize(df['SLOPE_5_peak_cost_D'], norm_window, ascending=True)
+                internal_vars['winner_holding_score (内部)'] = _normalize(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
+                internal_vars['cost_falling_score (内部)'] = _normalize(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
+                internal_vars['loser_capitulating_score (内部)'] = _normalize(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
 
             # --- 1. 顶层王牌信号解剖 ---
             print("\n--- [第一层解剖]: 王牌信号 (COGNITIVE_SCORE_REVERSAL_RELIABILITY) ---")
             final_score = probe_signal("COGNITIVE_SCORE_REVERSAL_RELIABILITY", indent=2)
-            print("  -> 它的分数由以下三部分相乘得到 (新版为 核心 * (1 + 加成)):")
+            print("  -> 它的分数由 (股东换血 * 企稳点火) * (1 + 深度价值区) 得到:")
             
             # --- 2. 三大要素解剖 ---
             print("\n--- [第二层解剖]: 三大核心要素 ---")
@@ -787,7 +817,8 @@ class MultiTimeframeTrendStrategy:
             print("\n  [要素2: 企稳点火 (SCORE_IGNITION_CONFIRMATION)]")
             ignition_score = probe_signal("SCORE_IGNITION_CONFIRMATION", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
-            probe_signal("downtrend_stabilizing_score (内部计算)", indent=6) # 这是一个内部变量，我们假设它存在
+            # 代码修改：从 internal_vars 中探测内部变量
+            probe_signal("downtrend_stabilizing_score (内部计算)", indent=6, source_dict=internal_vars)
             probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=6)
             probe_signal("COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A", indent=6)
 
@@ -795,8 +826,9 @@ class MultiTimeframeTrendStrategy:
             print("\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)]")
             background_score = probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
-            probe_signal("deep_bottom_context_score (内部计算)", indent=6)
-            probe_signal("rsi_w_oversold_score (内部计算)", indent=6)
+            # 代码修改：从 internal_vars 中探测内部变量
+            probe_signal("deep_bottom_context_score (内部计算)", indent=6, source_dict=internal_vars)
+            probe_signal("rsi_w_oversold_score (内部计算)", indent=6, source_dict=internal_vars)
 
             # --- 3. 真实吸筹信号深度解剖 ---
             print("\n--- [第三层解剖]: 真实吸筹 (SCORE_CHIP_TRUE_ACCUMULATION) ---")
@@ -805,17 +837,18 @@ class MultiTimeframeTrendStrategy:
             rally_score = probe_signal("SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION", indent=4)
             suppress_score = probe_signal("SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION", indent=4)
             
-            if rally_score > 0:
-                print("    -> 解剖“拉升吸筹”:")
-                probe_signal("concentration_improving_score (内部)", indent=6)
-                probe_signal("cost_rising_score (内部)", indent=6)
-                probe_signal("winner_holding_score (内部)", indent=6)
+            # 代码修改：增加对拉升/打压吸筹的下一层解剖
+            if rally_score >= 0: # 即使为0也解剖
+                print("    -> 解剖“拉升吸筹” (值为三者相乘):")
+                probe_signal("concentration_improving_score (内部)", indent=6, source_dict=internal_vars)
+                probe_signal("cost_rising_score (内部)", indent=6, source_dict=internal_vars)
+                probe_signal("winner_holding_score (内部)", indent=6, source_dict=internal_vars)
 
-            if suppress_score > 0:
-                print("    -> 解剖“打压吸筹”:")
-                probe_signal("concentration_improving_score (内部)", indent=6)
-                probe_signal("cost_falling_score (内部)", indent=6)
-                probe_signal("loser_capitulating_score (内部)", indent=6)
+            if suppress_score >= 0: # 即使为0也解剖
+                print("    -> 解剖“打压吸筹” (值为三者相乘):")
+                probe_signal("concentration_improving_score (内部)", indent=6, source_dict=internal_vars)
+                probe_signal("cost_falling_score (内部)", indent=6, source_dict=internal_vars)
+                probe_signal("loser_capitulating_score (内部)", indent=6, source_dict=internal_vars)
 
             print("\n" + "="*35 + " [法医官探针] 解剖完毕 " + "="*35 + "\n")
 

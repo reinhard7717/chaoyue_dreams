@@ -88,84 +88,69 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 风险对称版】主力吸筹模式与风险诊断引擎
-        - 核心升级 (本次修改): 新增了对“虚假集中风险”的诊断，与“真实吸筹”形成对称。
-                          该风险信号用于识别“价涨量增但筹码发散”的诱多派发现象。
-        - 核心重构 (V4.0): 废弃了模糊的“真实吸筹”概念，升级为两个独立的、互斥的战术剧本，
-                          分别精确刻画“拉升吸筹(空中加油)”和“打压吸筹(底部挖坑)”两种核心模式。
-        - 核心逻辑:
-          - 剧本1: 拉升吸筹 = 筹码集中加速 + 成本抬升 + 获利盘稳定
-          - 剧本2: 打压吸筹 = 筹码集中加速 + 成本下降/横盘 + 恐慌盘涌出
-          - 风险1: 虚假集中风险 = 筹码发散加速 + 成本抬升 + 获利盘派发
-        - 收益: 实现了对吸筹行为正反两面的完整刻画，为下游模块提供了关键的风险输入。
+        【V4.2 一线探针版】主力吸筹模式与风险诊断引擎
+        - 核心升级 (本次修改):
+          - [一线探针] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
+                        当指定日期时，它会打印出所有用于计算吸筹分数的、最原始的归一化因子得分，
+                        从而能精确地定位到导致最终分数为零的“罪魁祸首”。
         """
-        # 代码修改：更新版本号和打印信息
-        print("        -> [主力吸筹与风险诊断引擎 V4.1 风险对称版] 启动...")
+        # 代码修改：更新版本号和说明
+        print("        -> [主力吸筹与风险诊断引擎 V4.2 一线探针版] 启动...")
         states = {}
         norm_window = 120
-        # --- 1. 军备检查：检查所有需要的斜率和加速度指标 ---
         required_cols = [
             'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D',
-            'SLOPE_5_turnover_from_winners_ratio_D',
+            'SLOPE_5_peak_cost_D', 'SLOPE_5_turnover_from_winners_ratio_D',
             'turnover_from_losers_ratio_D',
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            # 代码修改：更新版本号
-            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.1缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.2缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
+        
         # --- 2. 核心要素数值化 ---
-        # 要素1: 筹码集中趋势 (由趋势和加速度共同定义)
         conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
         conc_accel_score = self._normalize_score(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
         concentration_improving_score = (conc_slope_score * conc_accel_score)
-        # 要素2: 成本动态
         cost_rising_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=True)
         cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
-        # 要素3: 持仓者行为
         winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
         loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        
         # --- 3. 剧本与风险合成 ---
-        # 剧本1: 拉升吸筹 (空中加油)
-        rally_accumulation_score = (
-            concentration_improving_score *
-            cost_rising_score *
-            winner_holding_score
-        ).astype(np.float32)
+        rally_accumulation_score = (concentration_improving_score * cost_rising_score * winner_holding_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
-        # 剧本2: 打压吸筹 (底部挖坑)
-        suppress_accumulation_score = (
-            concentration_improving_score *
-            cost_falling_score *
-            loser_capitulating_score
-        ).astype(np.float32)
+        suppress_accumulation_score = (concentration_improving_score * cost_falling_score * loser_capitulating_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
-        # 代码新增：合成“虚假集中风险”信号，以解决下游模块依赖缺失的问题
-        # 新增要素: 筹码发散趋势
+        
         concentration_worsening_score = (1 - conc_slope_score) * (1 - conc_accel_score)
-        # 新增要素: 获利盘派发
         winner_distributing_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=True)
-        # 风险1: 虚假集中风险 (诱多派发)
-        # 逻辑: 价格在上涨，但筹码在发散，且获利盘在派发，是典型的顶部派发特征
-        false_accumulation_risk_score = (
-            concentration_worsening_score *
-            cost_rising_score *
-            winner_distributing_score
-        ).astype(np.float32)
+        false_accumulation_risk_score = (concentration_worsening_score * cost_rising_score * winner_distributing_score).astype(np.float32)
         states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk_score
-        # --- 4. 为了兼容性，创建一个融合的“真实吸筹”信号 ---
-        # 真实吸筹 = MAX(拉升吸筹, 打压吸筹)
+        
         true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
-        # 增加探针
-        # if (rally_accumulation_score > 0.6).any():
-        #     print(f"          -> [探针-拉升吸筹] 侦测到 {(rally_accumulation_score > 0.6).sum()} 天。")
-        # if (suppress_accumulation_score > 0.6).any():
-        #     print(f"          -> [探针-打压吸筹] 侦测到 {(suppress_accumulation_score > 0.6).sum()} 天。")
-        # # 代码新增：为新增的风险信号增加探针
-        # if (false_accumulation_risk_score > 0.7).any():
-        #     print(f"          -> [探针-虚假集中风险] 侦测到 {(false_accumulation_risk_score > 0.7).sum()} 天。")
+
+        # 代码新增：植入“一线法医探针”
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: 主力吸筹诊断 @ {probe_date_str}] ---")
+                print(f"          - 因子: 筹码集中改善分 (斜率分 * 加速度分) = {concentration_improving_score.get(probe_ts, -1):.4f} ({conc_slope_score.get(probe_ts, -1):.4f} * {conc_accel_score.get(probe_ts, -1):.4f})")
+                print(f"          - 拉升吸筹因子:")
+                print(f"            - 成本抬升分: {cost_rising_score.get(probe_ts, -1):.4f}")
+                print(f"            - 获利盘稳定分: {winner_holding_score.get(probe_ts, -1):.4f}")
+                print(f"          - 打压吸筹因子:")
+                print(f"            - 成本下降分: {cost_falling_score.get(probe_ts, -1):.4f}")
+                print(f"            - 恐慌盘涌出分: {loser_capitulating_score.get(probe_ts, -1):.4f}")
+                print(f"          - 最终剧本分:")
+                print(f"            - 拉升吸筹剧本分: {rally_accumulation_score.get(probe_ts, -1):.4f}")
+                print(f"            - 打压吸筹剧本分: {suppress_accumulation_score.get(probe_ts, -1):.4f}")
+                print(f"            - 真实吸筹分(最大值): {true_accumulation_score.get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------\n")
+
         return states
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

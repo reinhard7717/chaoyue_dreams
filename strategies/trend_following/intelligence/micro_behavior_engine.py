@@ -217,15 +217,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 逻辑升维版】高质量战备可靠性诊断引擎 (原: 反转可靠性)
-        - 核心重构 (本次修改): 彻底重构了信号的融合逻辑。不再使用“三幕剧”的严格乘积，因为这会导致非底部机会被错误地过滤掉。
-                          新的逻辑将“股东换血”和“企稳点火”作为核心基础分，而将“深度价值区”作为一个强大的场景加成项。
-        - 核心逻辑: 可靠性分 = (核心逻辑: 股东换血 × 企稳点火) × (场景加成: 1 + 深度价值区得分)
-        - 收益: 极大扩展了此王牌信号的适用范围，使其能同时评估“底部反转”和“趋势中继蓄势”两种最重要的战机，
-                从根本上解决了策略对非底部拉升机会的“认知盲区”。
+        【V2.2 一线探针版】高质量战备可靠性诊断引擎
+        - 核心升级 (本次修改):
+          - [一线探针] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
+                        当指定日期时，它会打印出“股东换血”、“企稳点火”、“深度价值区”三大核心要素的得分，
+                        以及最终的核心逻辑分和加成后的分数，实现对计算过程的完全透视。
         """
         # 代码修改：更新版本号和说明
-        print("        -> [高质量战备可靠性诊断引擎 V2.1 逻辑升维版] 启动...")
+        print("        -> [高质量战备可靠性诊断引擎 V2.2 一线探针版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -235,16 +234,13 @@ class MicroBehaviorEngine:
         norm_window = get_param_value(p.get('norm_window'), 120)
 
         # --- 第一幕：背景设定 (The Setup) - 深度价值区 ---
-        # 逻辑不变，但它现在作为“加成项”
         price_pos_yearly = self._normalize_score(df['close_D'], window=250, ascending=True, default=0.5)
         deep_bottom_context_score = 1.0 - price_pos_yearly
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
         background_score = (deep_bottom_context_score * rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
-        # print(f"          - [第一幕-深度价值区(加成项)] 完成, 平均分: {background_score.mean():.2f}") # 暂时注释掉，避免过多打印
 
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
-        # 逻辑不变，这是核心基础分的一部分
         shareholder_turnover_score = np.maximum.reduce([
             atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
             atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
@@ -252,36 +248,34 @@ class MicroBehaviorEngine:
         ])
         shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
-        # print(f"          - [第二幕-股东换血(核心)] 完成, 平均分: {shareholder_quality_score.mean():.2f}")
 
         # --- 第三幕：转折点火 (The Ignition) - 共振初起 ---
-        # 逻辑不变，这是核心基础分的另一部分
         downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        ignition_confirmation_score = (
-            downtrend_stabilizing_score * vol_compression_score * early_ignition_score
-        ).astype(np.float32)
+        ignition_confirmation_score = (downtrend_stabilizing_score * vol_compression_score * early_ignition_score).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
-        # print(f"          - [第三幕-企稳点火(核心)] 完成, 平均分: {ignition_confirmation_score.mean():.2f}")
 
         # --- 最终剧本触发逻辑 (全新融合范式) ---
-        # 核心逻辑分 = 股东换血分 * 企稳点火分
-        core_logic_score = (
-            states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] *
-            states['SCORE_IGNITION_CONFIRMATION']
-        )
-        
-        # 最终可靠性分 = 核心逻辑分 * (1 + 场景加成)
-        # 这里的 “* 1.0” 是加成系数，可以配置，代表底部场景能让分数翻倍
+        core_logic_score = (states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] * states['SCORE_IGNITION_CONFIRMATION'])
         final_reliability_score = (core_logic_score * (1.0 + states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] * 1.0)).astype(np.float32)
         
-        # 同时输出两个信号名，以兼容进攻层和剧本引擎
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
         states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
-        # if (final_reliability_score > 0.1).any():
-        #     print(f"  [探针-高质量战备] 侦测到 {(final_reliability_score > 0.1).sum()} 次高可靠性战备机会！最高分: {final_reliability_score.max():.3f}")
+        # 代码新增：植入“一线法医探针”
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
+                print(f"          - 要素1 (股东换血) 得分: {shareholder_quality_score.get(probe_ts, -1):.4f}")
+                print(f"          - 要素2 (企稳点火) 得分: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
+                print(f"          - 要素3 (深度价值区/加成项) 得分: {background_score.get(probe_ts, -1):.4f}")
+                print(f"          - 核心逻辑分 (要素1 * 要素2): {core_logic_score.get(probe_ts, -1):.4f}")
+                print(f"          - 最终可靠性分 (核心逻辑分 * (1 + 加成)): {final_reliability_score.get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------------\n")
         
         return states
 
