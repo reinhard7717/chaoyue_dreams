@@ -83,10 +83,10 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.6 · 翻译官逻辑修复版】生成人类可读的信号摘要。
+        【V2.7 · 健壮性修复版】生成人类可读的信号摘要。
         - 核心修复 (本次修改):
-          - [智能识别] 进一步增强了 get_base_signal 辅助函数，增加了对 'TRIGGER_' 和 'PLAYBOOK_' 前缀的特殊处理。
-        - 收益: 彻底解决了因触发器和剧本信号名被错误剥离，导致报告层找不到其定义的根本问题。
+          - [健壮性] 在构建中文名映射字典(cn_name_map)时，增加了对值类型的检查 (isinstance(v, dict))。
+        - 收益: 彻底解决了因信号字典中包含说明性字符串条目（如 "说明_..."）而导致的 AttributeError 崩溃问题。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
@@ -112,13 +112,11 @@ class JudgmentLayer:
             date_col_name = long_df.columns[0]
             
             def get_base_signal(signal_name):
-                # --- 修改开始：增加对TRIGGER和PLAYBOOK的特殊处理 ---
                 # 如果是汇总分、触发器或剧本，直接返回原名，因为它们在字典中的键就是全名
                 if (signal_name in summary_score_cols or 
                     signal_name.startswith('TRIGGER_') or 
                     signal_name.startswith('PLAYBOOK_')):
                     return signal_name
-                # --- 修改结束 ---
                 
                 # 否则，正常进行前缀剥离
                 base_name = signal_name
@@ -130,8 +128,11 @@ class JudgmentLayer:
             # 应用这个智能剥离函数
             long_df['base_signal'] = long_df['signal'].apply(get_base_signal)
 
-            # 向量化映射中文名
-            cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
+            # --- 修改开始：在字典推导式中增加类型检查 ---
+            # 向量化映射中文名，只处理值为字典的条目，忽略说明性字符串
+            cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
+            # --- 修改结束 ---
+            
             long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
             
             # 调试信息：打印出所有未能成功映射的信号
