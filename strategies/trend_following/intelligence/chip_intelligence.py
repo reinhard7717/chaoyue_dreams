@@ -1077,7 +1077,7 @@ class ChipIntelligence:
         ).astype(np.float32)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score
         false_accumulation_risk = (
-            raw_concentration_score *
+            (1 - raw_concentration_score) * # 关键修正：当筹码集中度恶化(分数低)时，风险因子才高
             high_profit_margin_score *
             high_winner_turnover_score *
             decreasing_control_score
