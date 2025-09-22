@@ -9,8 +9,8 @@ from .utils import get_params_block, get_param_value
 class WarningLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-        scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
-        self.risk_metadata = scoring_params.get('score_type_map', {})
+        trend_follow_params = get_params_block(self.strategy, 'trend_follow', {})
+        self.risk_metadata = trend_follow_params.get('score_type_map', {})
 
     # 持仓健康诊断大脑
     def _diagnose_risk_momentum(self, total_risk_score_series: pd.Series) -> pd.Series:

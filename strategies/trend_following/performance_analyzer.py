@@ -59,7 +59,8 @@ class PerformanceAnalyzer:
             
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
-        score_map = self.scoring_params.get('score_type_map', {})
+        trend_follow_params = self.strategy.unified_config.get('strategy_params', {}).get('trend_follow', {})
+        score_map = trend_follow_params.get('score_type_map', {})
 
         for signal_name, event_series in all_events_to_analyze.items():
             event_dates = event_series.index[event_series]
@@ -171,7 +172,8 @@ class PerformanceAnalyzer:
         if not trade_outcomes:
             return []
         outcomes_df = pd.DataFrame(trade_outcomes)
-        score_map = self.scoring_params.get('score_type_map', {})
+        trend_follow_params = self.strategy.unified_config.get('strategy_params', {}).get('trend_follow', {})
+        score_map = trend_follow_params.get('score_type_map', {})
         
         signal_groups = outcomes_df.groupby('signal_name')
 

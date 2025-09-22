@@ -68,7 +68,9 @@ class ReportingLayer:
         daily_scores_to_create = []
         score_components_to_create = []
         daily_states_to_create = []
-        strategy_info = params.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
+        trend_follow_params = params.get('strategy_params', {}).get('trend_follow', {})
+        strategy_info = trend_follow_params.get('strategy_info', {})
+        score_type_map = trend_follow_params.get('score_type_map', {})
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')

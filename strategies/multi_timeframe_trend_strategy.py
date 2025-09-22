@@ -73,12 +73,12 @@ class MultiTimeframeTrendStrategy:
                 with open(dict_path, 'r', encoding='utf-8') as f:
                     signal_dict_data = json.load(f)
                 if 'score_type_map' in signal_dict_data:
-                    # 定位到四层计分参数块
-                    scoring_params = main_config.get('strategy_params', {}).get('trend_follow', {}).get('four_layer_scoring_params', {})
-                    # 将信号字典合并进去
-                    scoring_params['score_type_map'] = signal_dict_data['score_type_map']
+                    # 定位到 trend_follow 参数块
+                    trend_follow_params = main_config.get('strategy_params', {}).get('trend_follow', {})
+                    # 将信号字典直接合并到 trend_follow 参数块下
+                    trend_follow_params['score_type_map'] = signal_dict_data['score_type_map']
                     # 再把它放回主配置中
-                    main_config['strategy_params']['trend_follow']['four_layer_scoring_params'] = scoring_params
+                    main_config['strategy_params']['trend_follow'] = trend_follow_params
                     # print("  -> [配置加载器] 信号字典已成功合并到 'four_layer_scoring_params' 中。")
                 else:
                     logger.warning(f"信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
