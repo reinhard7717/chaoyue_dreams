@@ -179,6 +179,70 @@ class CognitiveIntelligence:
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
         return states
 
+    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+        """
+        【V2.1 数值化信号升级版】黄金筹码机会元融合模块
+        - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
+                      “维度内置信度加权”和“维度间重要性加权”两步，融合成一个顶层的、
+                      能精细度量机会“成色”的元分数。
+        - 核心升级: 将原先生成的布尔型机会信号 'CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'，
+                      升级为数值型信号 'SIGNAL_PRIME_CHIP_OPPORTUNITY_S'。
+                      新信号的值为“元分数”与一个固定阈值的差值，直接反映机会的强度。
+        - 收益: 实现了从“信号有无”到“机会质量”的升维，为决策提供了更平滑、更鲁棒的依据。
+        """
+        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 启动...")
+        states = {}
+        new_scores = {}
+        atomic = self.strategy.atomic_states
+        p_module = get_params_block(self.strategy, 'prime_chip_opportunity_params_v2', {})
+        if not get_param_value(p_module.get('enabled'), True):
+            return states, new_scores
+        # --- 1. 加载参数：维度权重与置信度权重 ---
+        dim_weights = get_param_value(p_module.get('dimension_weights'), {
+            'structure_health': 0.35, 'core_holder': 0.30, 'net_support': 0.20, 'cost_structure': 0.15
+        })
+        conf_weights = get_param_value(p_module.get('confidence_weights'), {
+            'S': 1.0, 'A': 0.6, 'B': 0.3
+        })
+        total_conf_weight = sum(conf_weights.values())
+        # --- 2. 军备检查：获取所有S/A/B三级评分 ---
+        score_map = {
+            'structure_health': ['SCORE_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_STRUCTURE_BULLISH_RESONANCE_B'],
+            'core_holder': ['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_A', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_B'],
+            'net_support': [None, 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_A', 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_B'], # Net Support 没有S级
+            'cost_structure': ['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_B']
+        }
+        all_required_scores = [s for group in score_map.values() for s in group if s]
+        missing_scores = [s for s in all_required_scores if s not in atomic]
+        if missing_scores:
+            print(f"          -> [警告] synthesize_prime_chip_opportunity黄金机会融合模块缺少上游分数: {missing_scores}，模块已跳过。")
+            return states, new_scores
+        # --- 3. 维度内融合：计算每个维度的综合强度分 ---
+        fused_dimension_scores = {}
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        for dim_name, (s_score_name, a_score_name, b_score_name) in score_map.items():
+            s_score = atomic.get(s_score_name, default_series) if s_score_name else default_series
+            a_score = atomic.get(a_score_name, default_series) if a_score_name else default_series
+            b_score = atomic.get(b_score_name, default_series) if b_score_name else default_series
+            # 置信度加权求和，并归一化
+            fused_score = (s_score * conf_weights['S'] + a_score * conf_weights['A'] + b_score * conf_weights['B']) / total_conf_weight
+            fused_dimension_scores[dim_name] = fused_score
+        # --- 4. 维度间融合：计算最终的“黄金机会”元分数 ---
+        final_prime_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        for dim_name, weight in dim_weights.items():
+            final_prime_score += fused_dimension_scores[dim_name] * weight
+        new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] = final_prime_score.clip(0, 1)
+        # --- 5. 基于元分数，生成数值化机会信号 ---
+        # 获取用于生成信号的阈值参数，原参数名 'prime_score_threshold_for_bool' 已优化
+        threshold = get_param_value(p_module.get('prime_score_threshold'), 0.7)
+        # 计算数值化信号：元分数 - 阈值。正值代表机会，值越大机会越强
+        prime_opportunity_numerical_signal = new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] - threshold
+        # 使用新的命名规范 SIGNAL_...，并将其添加到 states 字典中，替换原布尔信号
+        states['SIGNAL_PRIME_CHIP_OPPORTUNITY_S'] = prime_opportunity_numerical_signal.astype(np.float32)
+        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 计算完毕。")
+        return states, new_scores
+
+
     def synthesize_market_engine_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.2 性能优化版】市场引擎状态融合模块

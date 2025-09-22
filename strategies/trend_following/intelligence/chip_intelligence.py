@@ -41,20 +41,20 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V405.0 统一出口版】筹码情报最高司令部
+        【V406.0 架构净化版】筹码情报最高司令部
         - 核心重构 (本次修改):
-          - [架构统一] 新增此方法作为筹码情报的唯一出口，整合了所有内部诊断和合成流程。
-          - [流程保障] 严格定义了内部方法的执行顺序，确保了从底层到顶层信号的正确生成，
-                        从根本上解决了因 IntelligenceLayer 调用顺序错误导致的信号丢失问题。
-        - 业务逻辑: 保持所有子模块的逻辑不变，仅重构调用流程。
+          - [架构净化] 移除了对 synthesize_prime_chip_opportunity 的调用。该方法是一个跨维度的“元融合”模块，
+                        其职责是融合多个筹码子维度的信号，因此它已被提升至更高阶的 CognitiveIntelligence 模块中，
+                        以从根本上解决跨模块依赖问题。
+        - 收益: ChipIntelligence 的职责更加纯粹，只负责生成领域内的基础和复合筹码信号，不再处理跨维度融合。
         """
-        # 代码新增：实现统一出口方法
-        print("        -> [筹码情报最高司令部 V405.0 统一出口版] 启动...")
+        # 代码修改：更新版本号和说明
+        print("        -> [筹码情报最高司令部 V406.0 架构净化版] 启动...")
         
-        # 步骤 1: 执行所有独立的诊断和评分模块，生成基础和中间层信号
-        # 注意：这些方法现在返回 df，我们需要将新列合并到 states 中
         all_chip_states = {}
         
+        # 步骤 1: 执行所有独立的诊断和评分模块，生成所有纯筹码维度的信号
+        # 注意：这些方法返回的是更新后的df，我们需要从中提取新信号
         df = self.diagnose_composite_scores(df)
         df = self.diagnose_strategic_context_scores(df)
         df = self.diagnose_quantitative_chip_scores(df)
@@ -64,33 +64,26 @@ class ChipIntelligence:
         df = self.diagnose_fused_behavioral_chip_scores(df)
         df = self.diagnose_cross_validation_signals(df)
         
-        # 将所有新生成的分数更新到 all_chip_states
-        # 这是一个临时的解决方案，更好的方式是让每个方法返回字典
-        # 但为了最小化改动，我们暂时从df中提取
+        # 这是一个临时措施，用于从df中提取所有新生成的列
         for col in df.columns:
             if col not in self.strategy.df_indicators.columns and col not in all_chip_states:
                  all_chip_states[col] = df[col]
 
         # 步骤 2: 执行依赖于第一步结果的诊断模块
-        # 现在可以安全地调用 diagnose_accumulation_playbooks
         accumulation_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_states)
 
-        # 步骤 3: 执行更顶层的融合模块
-        prime_states, prime_scores = self.synthesize_prime_chip_opportunity(df)
-        all_chip_states.update(prime_states)
-        all_chip_states.update(prime_scores)
-
-        # 步骤 4: 执行终极信号引擎
+        # 步骤 3: 执行终极信号引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
         all_chip_states.update(ultimate_chip_states)
 
-        # 步骤 5: 执行独立的剧本诊断
+        # 步骤 4: 执行独立的剧本诊断
         capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
         all_chip_states.update(capitulation_reversal_states)
 
-        print(f"        -> [筹码情报最高司令部 V405.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
-        # 统一返回所有筹码信号，触发器部分暂时为空
+        # 代码修改：移除了对 synthesize_prime_chip_opportunity 的调用
+        
+        print(f"        -> [筹码情报最高司令部 V406.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
         return all_chip_states, {}
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -599,69 +592,6 @@ class ChipIntelligence:
         df = df.assign(**new_scores)
         print("        -> [战略级筹码上下文评分模块 V1.1 评分扩展版] 计算完毕。")
         return df
-
-    def synthesize_prime_chip_opportunity(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
-        """
-        【V2.1 数值化信号升级版】黄金筹码机会元融合模块
-        - 核心职责: 将多个独立的、描述筹码结构健康度的S/A/B三级数值评分，通过
-                      “维度内置信度加权”和“维度间重要性加权”两步，融合成一个顶层的、
-                      能精细度量机会“成色”的元分数。
-        - 核心升级: 将原先生成的布尔型机会信号 'CHIP_STRUCTURE_PRIME_OPPORTUNITY_S'，
-                      升级为数值型信号 'SIGNAL_PRIME_CHIP_OPPORTUNITY_S'。
-                      新信号的值为“元分数”与一个固定阈值的差值，直接反映机会的强度。
-        - 收益: 实现了从“信号有无”到“机会质量”的升维，为决策提供了更平滑、更鲁棒的依据。
-        """
-        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 启动...")
-        states = {}
-        new_scores = {}
-        atomic = self.strategy.atomic_states
-        p_module = get_params_block(self.strategy, 'prime_chip_opportunity_params_v2', {})
-        if not get_param_value(p_module.get('enabled'), True):
-            return states, new_scores
-        # --- 1. 加载参数：维度权重与置信度权重 ---
-        dim_weights = get_param_value(p_module.get('dimension_weights'), {
-            'structure_health': 0.35, 'core_holder': 0.30, 'net_support': 0.20, 'cost_structure': 0.15
-        })
-        conf_weights = get_param_value(p_module.get('confidence_weights'), {
-            'S': 1.0, 'A': 0.6, 'B': 0.3
-        })
-        total_conf_weight = sum(conf_weights.values())
-        # --- 2. 军备检查：获取所有S/A/B三级评分 ---
-        score_map = {
-            'structure_health': ['SCORE_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_STRUCTURE_BULLISH_RESONANCE_B'],
-            'core_holder': ['SCORE_CORE_HOLDER_BULLISH_RESONANCE_S', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_A', 'SCORE_CORE_HOLDER_BULLISH_RESONANCE_B'],
-            'net_support': [None, 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_A', 'SCORE_NET_SUPPORT_BULLISH_RESONANCE_B'], # Net Support 没有S级
-            'cost_structure': ['SCORE_COST_STRUCTURE_BULLISH_RESONANCE_S', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_A', 'SCORE_COST_STRUCTURE_BULLISH_RESONANCE_B']
-        }
-        all_required_scores = [s for group in score_map.values() for s in group if s]
-        missing_scores = [s for s in all_required_scores if s not in atomic]
-        if missing_scores:
-            print(f"          -> [警告] synthesize_prime_chip_opportunity黄金机会融合模块缺少上游分数: {missing_scores}，模块已跳过。")
-            return states, new_scores
-        # --- 3. 维度内融合：计算每个维度的综合强度分 ---
-        fused_dimension_scores = {}
-        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        for dim_name, (s_score_name, a_score_name, b_score_name) in score_map.items():
-            s_score = atomic.get(s_score_name, default_series) if s_score_name else default_series
-            a_score = atomic.get(a_score_name, default_series) if a_score_name else default_series
-            b_score = atomic.get(b_score_name, default_series) if b_score_name else default_series
-            # 置信度加权求和，并归一化
-            fused_score = (s_score * conf_weights['S'] + a_score * conf_weights['A'] + b_score * conf_weights['B']) / total_conf_weight
-            fused_dimension_scores[dim_name] = fused_score
-        # --- 4. 维度间融合：计算最终的“黄金机会”元分数 ---
-        final_prime_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        for dim_name, weight in dim_weights.items():
-            final_prime_score += fused_dimension_scores[dim_name] * weight
-        new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] = final_prime_score.clip(0, 1)
-        # --- 5. 基于元分数，生成数值化机会信号 ---
-        # 获取用于生成信号的阈值参数，原参数名 'prime_score_threshold_for_bool' 已优化
-        threshold = get_param_value(p_module.get('prime_score_threshold'), 0.7)
-        # 计算数值化信号：元分数 - 阈值。正值代表机会，值越大机会越强
-        prime_opportunity_numerical_signal = new_scores['CHIP_SCORE_PRIME_OPPORTUNITY_S'] - threshold
-        # 使用新的命名规范 SIGNAL_...，并将其添加到 states 字典中，替换原布尔信号
-        states['SIGNAL_PRIME_CHIP_OPPORTUNITY_S'] = prime_opportunity_numerical_signal.astype(np.float32)
-        print("        -> [黄金筹码机会元融合模块 V2.1 数值化信号升级版] 计算完毕。")
-        return states, new_scores
 
     def diagnose_quantitative_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
