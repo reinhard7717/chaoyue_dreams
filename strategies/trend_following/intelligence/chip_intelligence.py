@@ -41,21 +41,139 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V332.1 依赖解耦版】筹码情报最高司令部
+        【V405.0 统一出口版】筹码情报最高司令部
         - 核心重构 (本次修改):
-          - [依赖解耦] 移除了对 `_diagnose_true_concentration` 的内部调用。该诊断逻辑已被提升至 `IntelligenceLayer` 主流程中，以解决模块间的依赖顺序问题。
-        - 业务逻辑: 保持与V332.0版本完全一致，仅调整内部调用结构。
+          - [架构统一] 新增此方法作为筹码情报的唯一出口，整合了所有内部诊断和合成流程。
+          - [流程保障] 严格定义了内部方法的执行顺序，确保了从底层到顶层信号的正确生成，
+                        从根本上解决了因 IntelligenceLayer 调用顺序错误导致的信号丢失问题。
+        - 业务逻辑: 保持所有子模块的逻辑不变，仅重构调用流程。
         """
-        print("        -> [筹码情报最高司令部 V332.1 依赖解耦版] 启动...")
-        if 'avg_cost_short_term_D' in df.columns and 'avg_cost_long_term_D' in df.columns:
-            df['cost_divergence_D'] = df['avg_cost_short_term_D'] - df['avg_cost_long_term_D']
-        # 直接调用全新的七维交叉协同引擎
+        # 代码新增：实现统一出口方法
+        print("        -> [筹码情报最高司令部 V405.0 统一出口版] 启动...")
+        
+        # 步骤 1: 执行所有独立的诊断和评分模块，生成基础和中间层信号
+        # 注意：这些方法现在返回 df，我们需要将新列合并到 states 中
+        all_chip_states = {}
+        
+        df = self.diagnose_composite_scores(df)
+        df = self.diagnose_strategic_context_scores(df)
+        df = self.diagnose_quantitative_chip_scores(df)
+        df = self.diagnose_advanced_chip_dynamics_scores(df)
+        df = self.diagnose_chip_internal_structure_scores(df)
+        df = self.diagnose_chip_holder_behavior_scores(df)
+        df = self.diagnose_fused_behavioral_chip_scores(df)
+        df = self.diagnose_cross_validation_signals(df)
+        
+        # 将所有新生成的分数更新到 all_chip_states
+        # 这是一个临时的解决方案，更好的方式是让每个方法返回字典
+        # 但为了最小化改动，我们暂时从df中提取
+        for col in df.columns:
+            if col not in self.strategy.df_indicators.columns and col not in all_chip_states:
+                 all_chip_states[col] = df[col]
+
+        # 步骤 2: 执行依赖于第一步结果的诊断模块
+        # 现在可以安全地调用 diagnose_accumulation_playbooks
+        accumulation_states = self.diagnose_accumulation_playbooks(df)
+        all_chip_states.update(accumulation_states)
+
+        # 步骤 3: 执行更顶层的融合模块
+        prime_states, prime_scores = self.synthesize_prime_chip_opportunity(df)
+        all_chip_states.update(prime_states)
+        all_chip_states.update(prime_scores)
+
+        # 步骤 4: 执行终极信号引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
-        # --- 调用“恐慌盘投降反转”诊断引擎 ---
+        all_chip_states.update(ultimate_chip_states)
+
+        # 步骤 5: 执行独立的剧本诊断
         capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
-        ultimate_chip_states.update(capitulation_reversal_states)
-        print(f"        -> [筹码情报最高司令部 V332.1] 分析完毕，共生成 {len(ultimate_chip_states)} 个终极筹码信号。")
-        return ultimate_chip_states, {}
+        all_chip_states.update(capitulation_reversal_states)
+
+        print(f"        -> [筹码情报最高司令部 V405.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
+        # 统一返回所有筹码信号，触发器部分暂时为空
+        return all_chip_states, {}
+
+    def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V4.1 风险对称版】主力吸筹模式与风险诊断引擎
+        - 核心升级 (本次修改): 新增了对“虚假集中风险”的诊断，与“真实吸筹”形成对称。
+                          该风险信号用于识别“价涨量增但筹码发散”的诱多派发现象。
+        - 核心重构 (V4.0): 废弃了模糊的“真实吸筹”概念，升级为两个独立的、互斥的战术剧本，
+                          分别精确刻画“拉升吸筹(空中加油)”和“打压吸筹(底部挖坑)”两种核心模式。
+        - 核心逻辑:
+          - 剧本1: 拉升吸筹 = 筹码集中加速 + 成本抬升 + 获利盘稳定
+          - 剧本2: 打压吸筹 = 筹码集中加速 + 成本下降/横盘 + 恐慌盘涌出
+          - 风险1: 虚假集中风险 = 筹码发散加速 + 成本抬升 + 获利盘派发
+        - 收益: 实现了对吸筹行为正反两面的完整刻画，为下游模块提供了关键的风险输入。
+        """
+        # 代码修改：更新版本号和打印信息
+        print("        -> [主力吸筹与风险诊断引擎 V4.1 风险对称版] 启动...")
+        states = {}
+        norm_window = 120
+        # --- 1. 军备检查：检查所有需要的斜率和加速度指标 ---
+        required_cols = [
+            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
+            'SLOPE_5_peak_cost_D',
+            'SLOPE_5_turnover_from_winners_ratio_D',
+            'turnover_from_losers_ratio_D',
+        ]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            # 代码修改：更新版本号
+            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.1缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            return states
+        # --- 2. 核心要素数值化 ---
+        # 要素1: 筹码集中趋势 (由趋势和加速度共同定义)
+        conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
+        conc_accel_score = self._normalize_score(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
+        concentration_improving_score = (conc_slope_score * conc_accel_score)
+        # 要素2: 成本动态
+        cost_rising_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=True)
+        cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
+        # 要素3: 持仓者行为
+        winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
+        loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        # --- 3. 剧本与风险合成 ---
+        # 剧本1: 拉升吸筹 (空中加油)
+        rally_accumulation_score = (
+            concentration_improving_score *
+            cost_rising_score *
+            winner_holding_score
+        ).astype(np.float32)
+        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
+        # 剧本2: 打压吸筹 (底部挖坑)
+        suppress_accumulation_score = (
+            concentration_improving_score *
+            cost_falling_score *
+            loser_capitulating_score
+        ).astype(np.float32)
+        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
+        # 代码新增：合成“虚假集中风险”信号，以解决下游模块依赖缺失的问题
+        # 新增要素: 筹码发散趋势
+        concentration_worsening_score = (1 - conc_slope_score) * (1 - conc_accel_score)
+        # 新增要素: 获利盘派发
+        winner_distributing_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=True)
+        # 风险1: 虚假集中风险 (诱多派发)
+        # 逻辑: 价格在上涨，但筹码在发散，且获利盘在派发，是典型的顶部派发特征
+        false_accumulation_risk_score = (
+            concentration_worsening_score *
+            cost_rising_score *
+            winner_distributing_score
+        ).astype(np.float32)
+        states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk_score
+        # --- 4. 为了兼容性，创建一个融合的“真实吸筹”信号 ---
+        # 真实吸筹 = MAX(拉升吸筹, 打压吸筹)
+        true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
+        states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
+        # 增加探针
+        # if (rally_accumulation_score > 0.6).any():
+        #     print(f"          -> [探针-拉升吸筹] 侦测到 {(rally_accumulation_score > 0.6).sum()} 天。")
+        # if (suppress_accumulation_score > 0.6).any():
+        #     print(f"          -> [探针-打压吸筹] 侦测到 {(suppress_accumulation_score > 0.6).sum()} 天。")
+        # # 代码新增：为新增的风险信号增加探针
+        # if (false_accumulation_risk_score > 0.7).any():
+        #     print(f"          -> [探针-虚假集中风险] 侦测到 {(false_accumulation_risk_score > 0.7).sum()} 天。")
+        return states
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -1036,154 +1154,14 @@ class ChipIntelligence:
         
         return states
 
-    def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V4.1 风险对称版】主力吸筹模式与风险诊断引擎
-        - 核心升级 (本次修改): 新增了对“虚假集中风险”的诊断，与“真实吸筹”形成对称。
-                          该风险信号用于识别“价涨量增但筹码发散”的诱多派发现象。
-        - 核心重构 (V4.0): 废弃了模糊的“真实吸筹”概念，升级为两个独立的、互斥的战术剧本，
-                          分别精确刻画“拉升吸筹(空中加油)”和“打压吸筹(底部挖坑)”两种核心模式。
-        - 核心逻辑:
-          - 剧本1: 拉升吸筹 = 筹码集中加速 + 成本抬升 + 获利盘稳定
-          - 剧本2: 打压吸筹 = 筹码集中加速 + 成本下降/横盘 + 恐慌盘涌出
-          - 风险1: 虚假集中风险 = 筹码发散加速 + 成本抬升 + 获利盘派发
-        - 收益: 实现了对吸筹行为正反两面的完整刻画，为下游模块提供了关键的风险输入。
-        """
-        # 代码修改：更新版本号和打印信息
-        print("        -> [主力吸筹与风险诊断引擎 V4.1 风险对称版] 启动...")
-        states = {}
-        norm_window = 120
-        # --- 1. 军备检查：检查所有需要的斜率和加速度指标 ---
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D',
-            'SLOPE_5_turnover_from_winners_ratio_D',
-            'turnover_from_losers_ratio_D',
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            # 代码修改：更新版本号
-            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.1缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
-            return states
-        # --- 2. 核心要素数值化 ---
-        # 要素1: 筹码集中趋势 (由趋势和加速度共同定义)
-        conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
-        conc_accel_score = self._normalize_score(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
-        concentration_improving_score = (conc_slope_score * conc_accel_score)
-        # 要素2: 成本动态
-        cost_rising_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=True)
-        cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
-        # 要素3: 持仓者行为
-        winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
-        loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
-        # --- 3. 剧本与风险合成 ---
-        # 剧本1: 拉升吸筹 (空中加油)
-        rally_accumulation_score = (
-            concentration_improving_score *
-            cost_rising_score *
-            winner_holding_score
-        ).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
-        # 剧本2: 打压吸筹 (底部挖坑)
-        suppress_accumulation_score = (
-            concentration_improving_score *
-            cost_falling_score *
-            loser_capitulating_score
-        ).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
-        # 代码新增：合成“虚假集中风险”信号，以解决下游模块依赖缺失的问题
-        # 新增要素: 筹码发散趋势
-        concentration_worsening_score = (1 - conc_slope_score) * (1 - conc_accel_score)
-        # 新增要素: 获利盘派发
-        winner_distributing_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=True)
-        # 风险1: 虚假集中风险 (诱多派发)
-        # 逻辑: 价格在上涨，但筹码在发散，且获利盘在派发，是典型的顶部派发特征
-        false_accumulation_risk_score = (
-            concentration_worsening_score *
-            cost_rising_score *
-            winner_distributing_score
-        ).astype(np.float32)
-        states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk_score
-        # --- 4. 为了兼容性，创建一个融合的“真实吸筹”信号 ---
-        # 真实吸筹 = MAX(拉升吸筹, 打压吸筹)
-        true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
-        states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
-        # 增加探针
-        if (rally_accumulation_score > 0.6).any():
-            print(f"          -> [探针-拉升吸筹] 侦测到 {(rally_accumulation_score > 0.6).sum()} 天。")
-        if (suppress_accumulation_score > 0.6).any():
-            print(f"          -> [探针-打压吸筹] 侦测到 {(suppress_accumulation_score > 0.6).sum()} 天。")
-        # 代码新增：为新增的风险信号增加探针
-        if (false_accumulation_risk_score > 0.7).any():
-            print(f"          -> [探针-虚假集中风险] 侦测到 {(false_accumulation_risk_score > 0.7).sum()} 天。")
-        return states
 
-        """
-        【V4.0 剧本升维版】主力吸筹模式诊断引擎
-        - 核心重构 (本次修改): 废弃了模糊的“真实吸筹”概念，升级为两个独立的、互斥的战术剧本，
-                          分别精确刻画“拉升吸筹(空中加油)”和“打压吸筹(底部挖坑)”两种核心模式。
-                          同时，引入“加速度”指标来解决趋势判断的滞后性问题。
-        - 核心逻辑:
-          - 剧本1: 拉升吸筹 = 筹码集中加速 + 成本抬升 + 获利盘稳定
-          - 剧本2: 打压吸筹 = 筹码集中加速 + 成本下降/横盘 + 恐慌盘涌出
-        - 收益: 模型现在能同时识别两种最关键的吸筹行为，极大提升了信号的覆盖面和灵敏度。
-        """
-        print("        -> [主力吸筹诊断引擎 V4.0 剧本升维版] 启动...")
-        states = {}
-        norm_window = 120
-        
-        # --- 1. 军备检查：检查所有需要的斜率和加速度指标 ---
-        required_cols = [
-            'SLOPE_5_concentration_90pct_D', 'ACCEL_5_concentration_90pct_D',
-            'SLOPE_5_peak_cost_D',
-            'SLOPE_5_turnover_from_winners_ratio_D',
-            'turnover_from_losers_ratio_D',
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.0缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
-            return states
 
-        # --- 2. 核心要素数值化 ---
-        # 要素1: 筹码集中趋势 (由趋势和加速度共同定义)
-        conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
-        conc_accel_score = self._normalize_score(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
-        concentration_improving_score = (conc_slope_score * conc_accel_score)
 
-        # 要素2: 成本动态
-        cost_rising_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=True)
-        cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
 
-        # 要素3: 持仓者行为
-        winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
-        loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
 
-        # --- 3. 剧本合成 ---
-        # 剧本1: 拉升吸筹 (空中加油)
-        rally_accumulation_score = (
-            concentration_improving_score *
-            cost_rising_score *
-            winner_holding_score
-        ).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
 
-        # 剧本2: 打压吸筹 (底部挖坑)
-        suppress_accumulation_score = (
-            concentration_improving_score *
-            cost_falling_score *
-            loser_capitulating_score
-        ).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
 
-        # --- 4. 为了兼容性，创建一个融合的“真实吸筹”信号 ---
-        # 真实吸筹 = MAX(拉升吸筹, 打压吸筹)
-        true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
-        states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
 
-        # 增加探针
-        if (rally_accumulation_score > 0.6).any():
-            print(f"          -> [探针-拉升吸筹] 侦测到 {(rally_accumulation_score > 0.6).sum()} 天。")
-        if (suppress_accumulation_score > 0.6).any():
-            print(f"          -> [探针-打压吸筹] 侦测到 {(suppress_accumulation_score > 0.6).sum()} 天。")
-        
-        return states
+
+
+
