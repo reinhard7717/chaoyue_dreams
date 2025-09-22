@@ -65,7 +65,7 @@ class ChipIntelligence:
           - [内存优化] 减少了中间Pandas对象的创建，降低了内存占用，尤其在长周期回测中效果更佳。
         - 业务逻辑: 保持与V332.4版本完全一致，仅优化实现方式。
         """
-        # print("        -> [终极筹码信号诊断模块 V332.5 性能优化版] 启动...") # 代码修改：更新版本号
+        # print("        -> [终极筹码信号诊断模块 V332.5 性能优化版] 启动...") # 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -107,7 +107,7 @@ class ChipIntelligence:
         pillar_period_health_d = {key: {} for key in pillars}
         for p in periods:
             for pillar_name, factors in pillars.items():
-                # 代码修改：直接创建NumPy数组列表，而非Series列表
+                # 直接创建NumPy数组列表，而非Series列表
                 factor_health_arrays = []
                 for factor_name, ascending in factors:
                     if factor_name == 'is_multi_peak_D':
@@ -117,10 +117,10 @@ class ChipIntelligence:
                         slope_score = self._normalize_score(df.get(f"SLOPE_{p}_{factor_name}"), norm_window, ascending=ascending)
                         accel_score = self._normalize_score(df.get(f"ACCEL_{p}_{factor_name}"), norm_window, ascending=ascending)
                         factor_health = (static_score * slope_score * accel_score)**(1/3)
-                    # 代码修改：将NumPy数组添加到列表中
+                    # 将NumPy数组添加到列表中
                     factor_health_arrays.append(factor_health.values)
                 if factor_health_arrays:
-                    # 代码修改：直接堆叠NumPy数组进行计算
+                    # 直接堆叠NumPy数组进行计算
                     stacked_scores = np.stack(factor_health_arrays, axis=0)
                     geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(factor_health_arrays))
                     pillar_period_health_d[pillar_name][p] = pd.Series(geo_mean_values, index=df.index)
@@ -131,17 +131,17 @@ class ChipIntelligence:
         for pillar_name in pillars:
             series_list = list(pillar_period_health_d[pillar_name].values())
             if series_list:
-                # 代码修改：直接从Series列表中提取values进行堆叠
+                # 直接从Series列表中提取values进行堆叠
                 stacked_scores = np.stack([s.values for s in series_list], axis=0)
                 mean_values = np.mean(stacked_scores, axis=0)
                 pillar_overall_health_d[pillar_name] = pd.Series(mean_values, index=df.index)
             else:
                 pillar_overall_health_d[pillar_name] = pd.Series(0.5, index=df.index)
         # --- 4. 计算第七支柱: 跨周期协同 (MTF Synergy) ---
-        # 代码修改：直接创建NumPy数组列表
+        # 直接创建NumPy数组列表
         mtf_synergy_arrays = []
         for pillar_name, factors in pillars.items():
-            # 代码修改：直接创建NumPy数组列表
+            # 直接创建NumPy数组列表
             factor_synergy_arrays = []
             for factor_name, ascending in factors:
                 factor_name_w = factor_name.replace('_D', '_W')
@@ -149,18 +149,18 @@ class ChipIntelligence:
                     daily_score = self._normalize_score(df.get(factor_name), norm_window, ascending=ascending)
                     weekly_score = self._normalize_score(df.get(factor_name_w), norm_window, ascending=ascending)
                     synergy_score = (daily_score / weekly_score.replace(0, 0.01)).clip(0, 2) / 2
-                    # 代码修改：将NumPy数组添加到列表中
+                    # 将NumPy数组添加到列表中
                     factor_synergy_arrays.append(synergy_score.values)
                 else:
                     pass
             if factor_synergy_arrays:
-                # 代码修改：直接堆叠NumPy数组进行计算
+                # 直接堆叠NumPy数组进行计算
                 stacked_scores = np.stack(factor_synergy_arrays, axis=0)
                 mean_values = np.mean(stacked_scores, axis=0)
-                # 代码修改：将NumPy数组添加到列表中
+                # 将NumPy数组添加到列表中
                 mtf_synergy_arrays.append(mean_values)
         if mtf_synergy_arrays:
-            # 代码修改：直接堆叠NumPy数组进行计算
+            # 直接堆叠NumPy数组进行计算
             stacked_scores = np.stack(mtf_synergy_arrays, axis=0)
             mean_values = np.mean(stacked_scores, axis=0)
             pillar_overall_health_d['mtf_synergy'] = pd.Series(mean_values, index=df.index)
@@ -169,10 +169,10 @@ class ChipIntelligence:
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
         overall_bullish_health = {}
         for p in periods:
-            # 代码修改：直接创建NumPy数组列表
+            # 直接创建NumPy数组列表
             health_arrays_for_period = [pillar_period_health_d[key][p].values for key in pillars]
             health_arrays_for_period.append(pillar_overall_health_d['mtf_synergy'].values)
-            # 代码修改：直接堆叠NumPy数组进行计算
+            # 直接堆叠NumPy数组进行计算
             stacked_scores = np.stack(health_arrays_for_period, axis=0)
             geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_arrays_for_period))
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
@@ -918,7 +918,7 @@ class ChipIntelligence:
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
         # --- 3. 计算“洗盘吸筹”融合分 (Washout Absorption Opportunity) ---
         # 3.1 核心要素 (使用5日动态指标)
-        # 代码修改：对 pct_change_D 增加 .fillna(0.0) 以处理首日NaN，并在链式操作末尾增加 .fillna(0.0) 保证鲁棒性。
+        # 对 pct_change_D 增加 .fillna(0.0) 以处理首日NaN，并在链式操作末尾增加 .fillna(0.0) 保证鲁棒性。
         drop_score = (1 - (df['pct_change_D'].fillna(0.0) - (-0.045)).abs() / 0.025).clip(0, 1).fillna(0.0)
         losers_capitulating_score = normalize(df['turnover_from_losers_ratio_D'], ascending=True)
         winners_holding_score = normalize(df['turnover_from_winners_ratio_D'], ascending=False)
@@ -1038,15 +1038,17 @@ class ChipIntelligence:
 
     def _diagnose_true_concentration(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】真实吸筹 vs 虚假集中（顶部派发）诊断引擎
-        - 核心逻辑: 通过交叉验证筹码内部结构指标，区分“价格集中”背后的真实意图。
-          - 真实吸筹 = 价格集中 + 获利盘稳定 + 市场情绪冷静 + 主力控盘度上升
-          - 虚假集中 = 价格集中 + 获利盘涌出 + 市场情绪亢奋 + 主力控盘度下降
+        【V1.2 认知升维版】真实吸筹 vs 虚假集中（顶部派发）诊断引擎
+        - 核心修正 (本次修改): 彻底修正了“真实吸筹”的计算逻辑。移除了对“低获利盘”的苛刻要求，
+                          使其能正确识别“空中加油”式的中继吸筹，解决了在健康拉升中因获利盘增加而
+                          错误压制“真实吸筹”信号的根本性逻辑缺陷。
+        - 核心逻辑:
+          - 真实吸筹 = 筹码集中 + 获利盘稳定 + 主力控盘度上升 (新)
+          - 虚假集中 = 筹码发散 + 获利盘涌出 + 市场情绪亢奋 + 主力控盘度下降 (旧逻辑保持不变)
         - 产出: 两个互斥的、高置信度的S级筹码认知信号。
         """
         states = {}
         norm_window = 120
-        
         # --- 1. 军备检查 ---
         required_cols = [
             'SLOPE_21_concentration_90pct_D',
@@ -1058,26 +1060,25 @@ class ChipIntelligence:
         if missing_cols:
             print(f"          -> [严重警告] 真实吸筹诊断引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-
         # --- 2. 核心要素数值化 ---
         raw_concentration_score = self._normalize_score(df['SLOPE_21_concentration_90pct_D'], norm_window, ascending=False)
-        low_profit_margin_score = self._normalize_score(df['winner_profit_margin_D'], norm_window, ascending=False)
-        high_profit_margin_score = 1 - low_profit_margin_score
+        high_profit_margin_score = self._normalize_score(df['winner_profit_margin_D'], norm_window, ascending=True) # 仅为风险计算保留
         low_winner_turnover_score = self._normalize_score(df['turnover_from_winners_ratio_D'], norm_window, ascending=False)
         high_winner_turnover_score = 1 - low_winner_turnover_score
         increasing_control_score = self._normalize_score(df['SLOPE_21_peak_control_ratio_D'], norm_window, ascending=True)
         decreasing_control_score = 1 - increasing_control_score
-
         # --- 3. 最终裁决 ---
+        # 在“真实吸筹”的计算中，移除 low_profit_margin_score 因子
         true_accumulation_score = (
             raw_concentration_score *
-            low_profit_margin_score *
             low_winner_turnover_score *
             increasing_control_score
         ).astype(np.float32)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score
+        
+        # 在“虚假集中风险”的计算中，保持原有逻辑，但使用 high_profit_margin_score 的新定义
         false_accumulation_risk = (
-            (1 - raw_concentration_score) * # 关键修正：当筹码集中度恶化(分数低)时，风险因子才高
+            (1 - raw_concentration_score) * 
             high_profit_margin_score *
             high_winner_turnover_score *
             decreasing_control_score
@@ -1086,8 +1087,8 @@ class ChipIntelligence:
         
         # 增加探针，用于观察修正后的信号
         if (true_accumulation_score > 0.6).any():
-            print(f"          -> [探针-真实吸筹] 侦测到 {(true_accumulation_score > 0.6).sum()} 天真实吸筹行为。")
+            print(f"          -> [探针-真实吸筹 V1.2] 侦测到 {(true_accumulation_score > 0.6).sum()} 天真实吸筹行为。")
         if (false_accumulation_risk > 0.6).any():
-            print(f"          -> [探针-虚假集中] 侦测到 {(false_accumulation_risk > 0.6).sum()} 天虚假集中(派发)风险。")
-        
+            print(f"          -> [探针-虚假集中 V1.2] 侦测到 {(false_accumulation_risk > 0.6).sum()} 天虚假集中(派发)风险。")
+
         return states
