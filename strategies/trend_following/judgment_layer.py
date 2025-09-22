@@ -83,53 +83,75 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.3 · 健壮性修复版】生成人类可读的信号摘要。
+        【V2.5 · 智能翻译版】生成人类可读的信号摘要。
         - 核心修复 (本次修改):
-          - [健壮性] 修复了因 `reset_index()` 行为不确定而导致的 `KeyError: 'index'` 崩溃问题。
-          - [解决方案] 不再硬编码 `groupby('index')`，而是通过 `long_df.columns[0]` 动态获取由 `reset_index()` 生成的日期列的实际名称，确保无论原始索引是否有名称，代码都能正确分组。
-        - 业务逻辑: 保持与V2.2版本完全一致，仅修复实现上的bug。
+          - [智能识别] 增加了对汇总分数（如 SCORE_REVERSAL_OFFENSE）的特殊处理逻辑。
+          - 在剥离前缀前，会先判断信号名是否为汇总分数，如果是，则直接查找字典，不再进行剥离。
+        - 收益: 彻底解决了因信号名包含前缀关键字而被错误剥离，导致报告层找不到定义的根本问题。
         """
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        # 定义已知的前缀列表
+        
+        # --- 修改开始：定义汇总分数白名单和新的前缀列表 ---
+        # 定义所有汇总分数的名称，这些名称不应被剥离前缀
+        summary_score_cols = [
+            'SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY',
+            'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE'
+        ]
+        # 定义需要剥离的前缀列表
         prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
+        # --- 修改结束 ---
 
         def process_details_df(details_df, prefix_list):
             """辅助函数，用于向量化处理一个分数详情DataFrame"""
             if details_df.empty:
                 return pd.Series(dtype=object)
-            # 1. 宽表转长表，并过滤无效分数
-            # ignore_index=False 保留原始索引，reset_index() 将其转换为列
+            
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             long_df = long_df[long_df['score'] > 0].copy()
             if long_df.empty:
                 return pd.Series(dtype=object)
-            # 动态获取由 reset_index() 生成的日期列的名称。
-            # 这使得代码不再依赖于 'index' 这个不确定的默认名称，从而修复了KeyError。
+
             date_col_name = long_df.columns[0]
-            # print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
-            # 2. 向量化剥离前缀
-            long_df['base_signal'] = long_df['signal']
-            for prefix in prefix_list:
-                long_df['base_signal'] = long_df['base_signal'].str.removeprefix(prefix)
-            # 3. 向量化映射中文名
+            
+            # --- 修改开始：实现智能剥离逻辑 ---
+            def get_base_signal(signal_name):
+                # 如果信号名在汇总分白名单中，直接返回原名
+                if signal_name in summary_score_cols:
+                    return signal_name
+                
+                # 否则，正常进行前缀剥离
+                base_name = signal_name
+                for prefix in prefix_list:
+                    # 使用 removeprefix 确保只从开头剥离
+                    base_name = base_name.removeprefix(prefix)
+                return base_name
+
+            # 应用这个智能剥离函数
+            long_df['base_signal'] = long_df['signal'].apply(get_base_signal)
+            # --- 修改结束 ---
+
+            # 向量化映射中文名
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
             long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
-            # 4. 向量化生成摘要字符串
+            
+            # 向量化生成摘要字符串
             long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
-            # 5. 按日期分组并聚合为列表
-            # 使用动态获取的日期列名进行分组。
+            
+            # 按日期分组并聚合为列表
             return long_df.groupby(date_col_name)['summary_str'].apply(list)
+
         # --- 调用向量化辅助函数处理进攻和风险信号 ---
         offense_summaries = process_details_df(score_details_df, prefixes_to_strip)
         risk_summaries = process_details_df(risk_details_df, []) # 风险信号通常没有前缀
+
         # 合并进攻和风险摘要
         summary_df = pd.DataFrame({
             'offense': offense_summaries,
             'risk': risk_summaries
-        }).reindex(self.strategy.df_indicators.index) # 确保索引与主DataFrame对齐
+        }).reindex(self.strategy.df_indicators.index)
+
         # 将两列转换为最终的字典格式
-        # .apply 在这里是最高效的方式，因为它操作的是已经聚合好的小数据
         final_summaries = summary_df.apply(
             lambda row: {
                 'offense': row['offense'] if isinstance(row['offense'], list) else [],
@@ -137,6 +159,7 @@ class JudgmentLayer:
             },
             axis=1
         )
+        
         return final_summaries
 
     def _get_dynamic_combat_action(self) -> pd.Series:
