@@ -740,16 +740,15 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, probe_date: str):
         """
-        【V1.2 时区修复版】首席法医官探针
-        - 核心升级 (V1.1):
-          - [逻辑重演] 探针不再假设内部变量存在于atomic_states，而是根据源函数逻辑主动重演计算，以获取真实的中间值。
-          - [深度解剖] 新增对“真实吸筹”信号的下一层级解剖，追踪到最原始的因子分数。
-        - 核心修复 (V1.2 - 本次修改):
-          - [时区对齐] 修复了因探针日期(tz-naive)与DataFrame索引(tz-aware)时区不匹配而导致的TypeError。
-        - 收益: 确保探针在任何时区设置下都能稳定运行。
+        【V1.3 调用路径修复版】首席法医官探针
+        - 核心修复 (本次修改):
+          - [路径修复] 修正了探针内部重演计算逻辑时，对 `micro_behavior_engine` 和 `_normalize_score` 的错误调用路径。
+                        现在探针会通过 `self.tactical_engine.intelligence_layer.cognitive_intel.micro_behavior_engine`
+                        来访问正确的模块实例，确保了探针逻辑与实际执行逻辑一致。
+        - 收益: 彻底解决了因调用路径错误导致的 AttributeError，使探针能够正常运行。
         """
         # 代码修改：更新版本号和说明
-        print("\n" + "="*35 + f" [首席法医官探针 V1.2] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [首席法医官探针 V1.3] 正在解剖 {probe_date} " + "="*35)
         
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
@@ -759,17 +758,13 @@ class MultiTimeframeTrendStrategy:
             df = self.daily_analysis_df
             atomic = self.tactical_engine.atomic_states
             
-            # 代码修改：创建 probe_ts 后，立即进行时区对齐
             probe_ts_naive = pd.to_datetime(probe_date)
             if df.index.tz is not None:
-                # 如果DataFrame的索引有时区，则将探针时间戳本地化为相同的时区
                 probe_ts = probe_ts_naive.tz_localize(df.index.tz)
                 print(f"  [探针时区对齐] DataFrame索引时区为'{df.index.tz}'，已将探针时间戳本地化。")
             else:
-                # 如果DataFrame的索引没有时区，则直接使用天真的时间戳
                 probe_ts = probe_ts_naive
             
-            # 辅助函数，用于安全地获取并打印信号值
             def probe_signal(signal_name, indent=2, source_dict=None):
                 source = source_dict if source_dict is not None else atomic
                 prefix = " " * indent
@@ -777,30 +772,31 @@ class MultiTimeframeTrendStrategy:
                     print(f"{prefix}❌ [信号/变量缺失] {signal_name}")
                     return 0.0
                 
-                # 使用已经对齐时区的 probe_ts 进行索引
                 value = source[signal_name].get(probe_ts, 0.0)
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
 
             # --- 0. 探针内部计算，重演源函数逻辑 ---
             internal_vars = {}
-            # 使用已经对齐时区的 probe_ts 进行切片
             row = df.loc[probe_ts:probe_ts]
             if not row.empty:
+                # 代码修改：修正 _normalize_score 的调用路径
+                # 借用一个通用的 _normalize_score 实例，例如 chip_intel 下的
+                _normalize = self.tactical_engine.intelligence_layer.chip_intel._normalize_score
+                
                 # 重演第一幕：深度价值区
-                price_pos_yearly = self.tactical_engine.micro_behavior_engine._normalize_score(df['close_D'], window=250, ascending=True, default=0.5)
+                price_pos_yearly = _normalize(df['close_D'], window=250, ascending=True, default=0.5)
                 internal_vars['deep_bottom_context_score (内部计算)'] = 1.0 - price_pos_yearly
                 rsi_w_series = df.get('RSI_13_W', pd.Series(50, index=df.index))
-                internal_vars['rsi_w_oversold_score (内部计算)'] = self.tactical_engine.micro_behavior_engine._normalize_score(rsi_w_series, window=52, ascending=False, default=0.5)
+                internal_vars['rsi_w_oversold_score (内部计算)'] = _normalize(rsi_w_series, window=52, ascending=False, default=0.5)
                 
                 # 重演第三幕：企稳点火
                 norm_window = 120 # 假设与源函数一致
-                internal_vars['downtrend_stabilizing_score (内部计算)'] = self.tactical_engine.micro_behavior_engine._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
+                internal_vars['downtrend_stabilizing_score (内部计算)'] = _normalize(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
             
-            # 代码新增：重演 diagnose_accumulation_playbooks 的内部计算
             if not row.empty:
                 norm_window = 120 # 假设与源函数一致
-                _normalize = self.tactical_engine.micro_behavior_engine._normalize_score # 借用一下
+                _normalize = self.tactical_engine.intelligence_layer.chip_intel._normalize_score # 再次借用
                 internal_vars['conc_slope_score (内部)'] = _normalize(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
                 internal_vars['conc_accel_score (内部)'] = _normalize(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
                 internal_vars['concentration_improving_score (内部)'] = internal_vars['conc_slope_score (内部)'] * internal_vars['conc_accel_score (内部)']
@@ -828,7 +824,6 @@ class MultiTimeframeTrendStrategy:
             print("\n  [要素2: 企稳点火 (SCORE_IGNITION_CONFIRMATION)]")
             ignition_score = probe_signal("SCORE_IGNITION_CONFIRMATION", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
-            # 代码修改：从 internal_vars 中探测内部变量
             probe_signal("downtrend_stabilizing_score (内部计算)", indent=6, source_dict=internal_vars)
             probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=6)
             probe_signal("COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A", indent=6)
@@ -837,7 +832,6 @@ class MultiTimeframeTrendStrategy:
             print("\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)]")
             background_score = probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
-            # 代码修改：从 internal_vars 中探测内部变量
             probe_signal("deep_bottom_context_score (内部计算)", indent=6, source_dict=internal_vars)
             probe_signal("rsi_w_oversold_score (内部计算)", indent=6, source_dict=internal_vars)
 
@@ -848,7 +842,6 @@ class MultiTimeframeTrendStrategy:
             rally_score = probe_signal("SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION", indent=4)
             suppress_score = probe_signal("SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION", indent=4)
             
-            # 代码修改：增加对拉升/打压吸筹的下一层解剖
             if rally_score >= 0: # 即使为0也解剖
                 print("    -> 解剖“拉升吸筹” (值为三者相乘):")
                 probe_signal("concentration_improving_score (内部)", indent=6, source_dict=internal_vars)
