@@ -1867,14 +1867,14 @@ class CognitiveIntelligence:
         
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
         
-        # 打印探针信息
-        if (final_risk_score > 0.7).any():
-            high_risk_days = final_risk_score[final_risk_score > 0.7]
-            for date, score in high_risk_days.items():
-                print(f"  [探针-亢奋风险] 日期: {date.date()}, 侦测到亢奋加速风险! "
-                      f"综合风险分: {score:.2f}, 乖离分: {bias_score.loc[date]:.2f}, "
-                      f"量能分: {volume_spike_score.loc[date]:.2f}, 波动分: {volatility_score.loc[date]:.2f}, "
-                      f"上影线分: {upthrust_score.loc[date]:.2f}")
+        # # 打印探针信息
+        # if (final_risk_score > 0.7).any():
+        #     high_risk_days = final_risk_score[final_risk_score > 0.7]
+        #     for date, score in high_risk_days.items():
+        #         print(f"  [探针-亢奋风险] 日期: {date.date()}, 侦测到亢奋加速风险! "
+        #               f"综合风险分: {score:.2f}, 乖离分: {bias_score.loc[date]:.2f}, "
+        #               f"量能分: {volume_spike_score.loc[date]:.2f}, 波动分: {volatility_score.loc[date]:.2f}, "
+        #               f"上影线分: {upthrust_score.loc[date]:.2f}")
 
         return states
 
