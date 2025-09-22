@@ -455,7 +455,11 @@ class IndicatorService:
             kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
                 stock_code, start_date, end_date, kpl_params
             )
+            # 新增代码: 增加调试信息，检查返回的DataFrame状态
+            print(f"    - [KPL题材热度注入-调试] 收到KPL热度DataFrame，行数: {len(kpl_hotness_df)}，索引类型: {type(kpl_hotness_df.index)}")
             if not kpl_hotness_df.empty:
+                # 修改代码: 在合并前，强制将kpl_hotness_df的索引转换为带UTC时区的DatetimeIndex，以匹配df_daily
+                kpl_hotness_df.index = pd.to_datetime(kpl_hotness_df.index, utc=True)
                 # 使用 left join，以 df_daily 的索引为准
                 df_daily = df_daily.merge(kpl_hotness_df, left_index=True, right_index=True, how='left')
                 # 默认用0填充没有热度的日期
