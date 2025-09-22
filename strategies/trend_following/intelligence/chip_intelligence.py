@@ -15,29 +15,33 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def _normalize_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
+    def _normalize_score(self, series: pd.Series, window: int, ascending: bool = True, default: float = 0.5) -> pd.Series:
         """
-        将一个 Series 归一化到 0-1 区间。
-        使用滚动窗口的百分位排名 (rank) 来实现。
-        :param series: 输入的 pandas Series。
-        :param window: 滚动窗口大小。
-        :param ascending: 排序方向。True表示值越大分数越高，False反之。
-        :return: 归一化后的 pandas Series。
+        【V1.1 统一签名版】将一个 Series 归一化到 0-1 区间。
+        - 核心升级 (本次修改):
+          - [统一签名] 新增了 `default` 参数，使其与项目中其他 `_normalize_score` 方法的签名保持一致。
+          - [健壮性] 优化了空 Series 的处理逻辑，确保在任何情况下都能返回一个带有正确索引和默认值的 Series。
+        - 收益: 解决了因函数签名不一致导致的 TypeError，提升了代码的健壮性和可维护性。
         """
         # 检查输入是否有效
         if series is None or series.empty:
-            # 如果输入为空，根据情况返回一个填充了中性值0.5的Series
-            return pd.Series(0.5, index=series.index if series is not None else None)
+            # 如果输入为空，返回一个填充了指定默认值的Series
+            # 优先使用 series 的索引，如果 series 为 None，则回退到主 df 的索引
+            index = series.index if series is not None else self.strategy.df_indicators.index
+            return pd.Series(default, index=index)
+        
         # 使用滚动窗口计算百分位排名，min_periods保证在数据初期也能尽快产出分数
         min_periods = window // 4
         rank_pct = series.rolling(window, min_periods=min_periods).rank(pct=True)
+        
         # 根据排序方向调整分数
         if ascending:
             score = rank_pct
         else:
             score = 1.0 - rank_pct
-        # 用中性值0.5填充因窗口期不足而产生的NaN
-        return score.fillna(0.5)
+            
+        # 用指定的默认值填充因窗口期不足而产生的NaN
+        return score.fillna(default)
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
