@@ -2,7 +2,7 @@
 # 顶层认知合成模块
 import pandas as pd
 import numpy as np
-from typing import Dict
+from typing import Dict, Tuple
 from enum import Enum
 from strategies.trend_following.utils import get_params_block, get_param_value
 from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
