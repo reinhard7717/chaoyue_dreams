@@ -661,132 +661,6 @@ class MultiTimeframeTrendStrategy:
         
         return "\n".join(report_parts)
 
-    async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
-        """
-        【V320.6 · 模型适配修复版】
-        - 核心修改 (本次修改):
-          - [BUG修复] 修正了对 StrategyScoreComponent 对象的属性访问。根据最新的模型定义，将所有对 `signal_name` 和 `signal_cn_name` 的访问分别修改为 `playbook.name` 和 `playbook.cn_name`。
-        - 收益: 解决了因数据库模型重构（移除 signal_name，使用 playbook 外键）而导致的 AttributeError 崩溃问题，使历史回溯调试功能恢复正常。
-        """
-        print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.6 模型适配修复版)] ---")
-        print(f"    -> 股票代码: {stock_code}")
-        print(f"    -> 回测时段: {start_date} to {end_date}")
-        print("=" * 80)
-        try:
-            # 步骤 1: 正常执行核心流程，生成所有数据
-            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
-            all_daily_scores_for_debug = all_daily_scores
-            if all_score_components:
-                unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
-                all_daily_scores_for_debug = list(unique_scores_from_components.values())
-
-            if not all_daily_scores_for_debug:
-                print("[信息] 核心策略未生成任何每日分数记录。")
-                return
-            daily_analysis_df = self.daily_analysis_df
-            exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
-            signal_to_details_map = {}
-            for detail in all_details:
-                signal_key = id(detail.signal)
-                if signal_key not in signal_to_details_map:
-                    signal_to_details_map[signal_key] = []
-                signal_to_details_map[signal_key].append(detail)
-            daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug}
-            daily_components_map = {}
-            for comp in all_score_components:
-                trade_date = comp.daily_score.trade_date
-                if trade_date not in daily_components_map:
-                    daily_components_map[trade_date] = []
-                daily_components_map[trade_date].append(comp)
-            debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            probe_date = get_param_value(debug_params.get('probe_date'))
-            if probe_date:
-                print(f"\n    --- [总司令部] 接到密令！正在对 {probe_date} 的战况进行深度解剖... ---")
-                last_df = self.daily_analysis_df
-                last_score_details = getattr(self.tactical_engine, '_last_score_details_df', pd.DataFrame())
-                last_risk_details = getattr(self.tactical_engine, '_last_risk_details_df', pd.DataFrame())
-                if last_df is not None and not last_df.empty:
-                    self._deploy_field_coroner_probe(
-                        df=last_df,
-                        probe_date=probe_date,
-                        score_details=last_score_details,
-                        risk_details=last_risk_details
-                    )
-                else:
-                    print("    -> [探针错误] 未能获取到有效的分析数据帧，无法部署探针。")
-            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
-            start_dt_date = pd.to_datetime(start_date).date()
-            end_dt_date = pd.to_datetime(end_date).date()
-            debug_period_daily_scores = [
-                ds for ds in all_daily_scores_for_debug
-                if start_dt_date <= ds.trade_date <= end_dt_date
-            ]
-            if not debug_period_daily_scores:
-                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
-                return
-            debug_period_daily_scores.sort(key=lambda x: x.trade_date)
-            display_days = 10 # 定义要展示的最新天数
-            if len(debug_period_daily_scores) > display_days:
-                print(f"\n[信息] 回测周期内共有 {len(debug_period_daily_scores)} 天数据，将仅展示最新的 {display_days} 天详细报告。")
-                # 对已排序的列表进行切片，只取最后10个元素
-                debug_period_daily_scores = debug_period_daily_scores[-display_days:]
-            print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY']
-            for daily_score_obj in debug_period_daily_scores:
-                trade_date = daily_score_obj.trade_date
-                time_str = trade_date.strftime('%Y-%m-%d')
-                related_components = daily_components_map.get(trade_date, [])
-                day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
-                final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
-                risk_penalty_score_val = day_analysis_row.iloc[0].get('risk_penalty_score', 'N/A') if not day_analysis_row.empty else 'N/A'
-                print(f"\n{time_str} [周期: D] [进攻分: {daily_score_obj.offensive_score:<7.0f}] [风险惩罚分: {risk_penalty_score_val:<7.0f}] [最终得分: {final_score_val:<7.0f}] [最终信号: {daily_score_obj.signal_type}]")
-                print("  --- 决策摘要 ---")
-                if not day_analysis_row.empty:
-                    print(f"    - 决策公式: (进攻分 {daily_score_obj.offensive_score:.0f}) - (风险惩罚分 {risk_penalty_score_val:.0f}) = (最终得分 {final_score_val:.0f})")
-                    p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
-                    final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
-                    print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
-                    all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
-                    all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
-                    print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
-                    day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
-                    if not day_exit_triggers.empty:
-                        triggered_defenses = day_exit_triggers.iloc[0]
-                        active_triggers = [col.replace('EXIT_', '') for col, is_triggered in triggered_defenses.items() if is_triggered]
-                        if active_triggers:
-                            print(f"    - 触发的离场防线: {', '.join(active_triggers)}")
-                        else:
-                            print("    - 触发的离场防线: 无")
-                else:
-                    print("    - 未找到当日的详细分析数据。")
-                # --- 放宽 offensive_components 的过滤条件 ---
-                offensive_components = [
-                    c for c in related_components
-                    if c.score_type not in ['risk', 'critical_risk']
-                    and c.score_value > 0
-                    and c.playbook.name not in subtotal_signal_names # 将 c.signal_name 修改为 c.playbook.name
-                ]
-                if offensive_components:
-                    print("  --- 激活进攻项 (加分项) ---")
-                    for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
-                penalty_components = [c for c in related_components if c.score_value < 0]
-                if penalty_components:
-                    print("  --- 进攻项惩罚 (扣分项) ---")
-                    for comp in sorted(penalty_components, key=lambda x: x.score_value):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
-                risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
-                if risk_components:
-                    print("  --- 激活风险项 (贡献至风险惩罚分) ---")
-                    for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
-                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})") # 将 comp.signal_cn_name 修改为 comp.playbook.cn_name
-            print(f"\n--- [历史回溯调试完成] ---")
-        except Exception as e:
-            print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
-            import traceback
-            traceback.print_exc()
-
     # NEW: 新增的性能分析专属方法
     async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
@@ -863,3 +737,208 @@ class MultiTimeframeTrendStrategy:
             print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
             # 在finally块中返回结果，确保无论如何都有返回值
             return analysis_results
+
+
+    def _deploy_field_coroner_probe(self, probe_date: str):
+        """
+        【V1.0 新增】首席法医官探针
+        - 核心职责: 针对特定日期，对“王牌信号”的生成链路进行深度、逐级的解剖，
+                    打印出所有前置、中间和最终的信号值，以定位问题根源。
+        """
+        print("\n" + "="*35 + f" [首席法医官探针 V1.0] 正在解剖 {probe_date} " + "="*35)
+        
+        try:
+            # 确保所有需要的数据都已准备好
+            if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
+                print("  [错误] 探针所需的核心分析数据 (daily_analysis_df 或 atomic_states) 不存在。调查终止。")
+                return
+
+            df = self.daily_analysis_df
+            atomic = self.tactical_engine.atomic_states
+            probe_ts = pd.to_datetime(probe_date)
+            
+            # 辅助函数，用于安全地获取并打印信号值
+            def probe_signal(signal_name, indent=2):
+                prefix = " " * indent
+                if signal_name not in atomic:
+                    print(f"{prefix}❌ [信号缺失] {signal_name}")
+                    return 0.0
+                
+                value = atomic[signal_name].get(probe_ts, 0.0)
+                print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
+                return value
+
+            # --- 1. 顶层王牌信号解剖 ---
+            print("\n--- [第一层解剖]: 王牌信号 (COGNITIVE_SCORE_REVERSAL_RELIABILITY) ---")
+            final_score = probe_signal("COGNITIVE_SCORE_REVERSAL_RELIABILITY", indent=2)
+            print("  -> 它的分数由以下三部分相乘得到 (新版为 核心 * (1 + 加成)):")
+            
+            # --- 2. 三大要素解剖 ---
+            print("\n--- [第二层解剖]: 三大核心要素 ---")
+            # 要素1: 股东换血 (核心)
+            print("  [要素1: 股东换血 (SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT)]")
+            shareholder_score = probe_signal("SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT", indent=4)
+            print("    -> 它的分数是以下信号的最大值:")
+            probe_signal("SCORE_CHIP_TRUE_ACCUMULATION", indent=6)
+            probe_signal("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", indent=6)
+            probe_signal("COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING", indent=6)
+
+            # 要素2: 企稳点火 (核心)
+            print("\n  [要素2: 企稳点火 (SCORE_IGNITION_CONFIRMATION)]")
+            ignition_score = probe_signal("SCORE_IGNITION_CONFIRMATION", indent=4)
+            print("    -> 它的分数由以下信号相乘得到:")
+            probe_signal("downtrend_stabilizing_score (内部计算)", indent=6) # 这是一个内部变量，我们假设它存在
+            probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=6)
+            probe_signal("COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A", indent=6)
+
+            # 要素3: 深度价值区 (加成项)
+            print("\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)]")
+            background_score = probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
+            print("    -> 它的分数由以下信号相乘得到:")
+            probe_signal("deep_bottom_context_score (内部计算)", indent=6)
+            probe_signal("rsi_w_oversold_score (内部计算)", indent=6)
+
+            # --- 3. 真实吸筹信号深度解剖 ---
+            print("\n--- [第三层解剖]: 真实吸筹 (SCORE_CHIP_TRUE_ACCUMULATION) ---")
+            true_accumulation_score = probe_signal("SCORE_CHIP_TRUE_ACCUMULATION", indent=2)
+            print("  -> 它的分数是 拉升吸筹 和 打压吸筹 的最大值:")
+            rally_score = probe_signal("SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION", indent=4)
+            suppress_score = probe_signal("SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION", indent=4)
+            
+            if rally_score > 0:
+                print("    -> 解剖“拉升吸筹”:")
+                probe_signal("concentration_improving_score (内部)", indent=6)
+                probe_signal("cost_rising_score (内部)", indent=6)
+                probe_signal("winner_holding_score (内部)", indent=6)
+
+            if suppress_score > 0:
+                print("    -> 解剖“打压吸筹”:")
+                probe_signal("concentration_improving_score (内部)", indent=6)
+                probe_signal("cost_falling_score (内部)", indent=6)
+                probe_signal("loser_capitulating_score (内部)", indent=6)
+
+            print("\n" + "="*35 + " [法医官探针] 解剖完毕 " + "="*35 + "\n")
+
+        except Exception as e:
+            print(f"  [探针错误] 在执行探针时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+            print("=" * 95)
+
+    async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
+        """
+        【V320.7 · 法医探针集成版】
+        - 核心修改 (本次修改):
+          - [探针集成] 在 `debug_params` 中检查 `probe_date`，如果存在，则调用新增的 `_deploy_field_coroner_probe` 探针。
+        """
+        print("=" * 80)
+        print(f"--- [历史回溯调试启动 (V320.7 法医探针集成版)] ---") # 代码修改：更新版本号
+        print(f"    -> 股票代码: {stock_code}")
+        print(f"    -> 回测时段: {start_date} to {end_date}")
+        print("=" * 80)
+        try:
+            # 步骤 1: 正常执行核心流程，生成所有数据
+            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
+            
+            # 代码新增：检查并部署法医探针
+            debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            probe_date = get_param_value(debug_params.get('probe_date'))
+            if probe_date:
+                self._deploy_field_coroner_probe(probe_date=probe_date)
+
+            # ... (后续的报告打印逻辑保持不变) ...
+            all_daily_scores_for_debug = all_daily_scores
+            if all_score_components:
+                unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
+                all_daily_scores_for_debug = list(unique_scores_from_components.values())
+
+            if not all_daily_scores_for_debug:
+                print("[信息] 核心策略未生成任何每日分数记录。")
+                return
+            daily_analysis_df = self.daily_analysis_df
+            exit_triggers_df = self.tactical_engine.exit_triggers if hasattr(self.tactical_engine, 'exit_triggers') else pd.DataFrame()
+            signal_to_details_map = {}
+            for detail in all_details:
+                signal_key = id(detail.signal)
+                if signal_key not in signal_to_details_map:
+                    signal_to_details_map[signal_key] = []
+                signal_to_details_map[signal_key].append(detail)
+            daily_score_map = {score.trade_date: score for score in all_daily_scores_for_debug}
+            daily_components_map = {}
+            for comp in all_score_components:
+                trade_date = comp.daily_score.trade_date
+                if trade_date not in daily_components_map:
+                    daily_components_map[trade_date] = []
+                daily_components_map[trade_date].append(comp)
+            
+            print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
+            start_dt_date = pd.to_datetime(start_date).date()
+            end_dt_date = pd.to_datetime(end_date).date()
+            debug_period_daily_scores = [
+                ds for ds in all_daily_scores_for_debug
+                if start_dt_date <= ds.trade_date <= end_dt_date
+            ]
+            if not debug_period_daily_scores:
+                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
+                return
+            debug_period_daily_scores.sort(key=lambda x: x.trade_date)
+            display_days = 10 # 定义要展示的最新天数
+            if len(debug_period_daily_scores) > display_days:
+                print(f"\n[信息] 回测周期内共有 {len(debug_period_daily_scores)} 天数据，将仅展示最新的 {display_days} 天详细报告。")
+                # 对已排序的列表进行切片，只取最后10个元素
+                debug_period_daily_scores = debug_period_daily_scores[-display_days:]
+            print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
+            subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE']
+            for daily_score_obj in debug_period_daily_scores:
+                trade_date = daily_score_obj.trade_date
+                time_str = trade_date.strftime('%Y-%m-%d')
+                related_components = daily_components_map.get(trade_date, [])
+                day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
+                final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
+                risk_penalty_score_val = day_analysis_row.iloc[0].get('risk_penalty_score', 'N/A') if not day_analysis_row.empty else 'N/A'
+                print(f"\n{time_str} [周期: D] [进攻分: {daily_score_obj.offensive_score:<7.0f}] [风险惩罚分: {risk_penalty_score_val:<7.0f}] [最终得分: {final_score_val:<7.0f}] [最终信号: {daily_score_obj.signal_type}]")
+                print("  --- 决策摘要 ---")
+                if not day_analysis_row.empty:
+                    print(f"    - 决策公式: (进攻分 {daily_score_obj.offensive_score:.0f}) - (风险惩罚分 {risk_penalty_score_val:.0f}) = (最终得分 {final_score_val:.0f})")
+                    p_judge = get_params_block(self.tactical_engine, 'four_layer_scoring_params').get('judgment_params', {})
+                    final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
+                    print(f"    - 决策阈值: 最终得分 > {final_score_threshold}")
+                    all_positive_scores = sum(c.score_value for c in related_components if c.score_value > 0 and c.score_type not in ['risk', 'critical_risk'])
+                    all_penalties = sum(c.score_value for c in related_components if c.score_value < 0)
+                    print(f"    - 进攻分构成: (所有加分项 {all_positive_scores:.0f}) + (所有惩罚项 {all_penalties:.0f}) = {daily_score_obj.offensive_score:.0f}")
+                    day_exit_triggers = exit_triggers_df.loc[exit_triggers_df.index.date == trade_date]
+                    if not day_exit_triggers.empty:
+                        triggered_defenses = day_exit_triggers.iloc[0]
+                        active_triggers = [col.replace('EXIT_', '') for col, is_triggered in triggered_defenses.items() if is_triggered]
+                        if active_triggers:
+                            print(f"    - 触发的离场防线: {', '.join(active_triggers)}")
+                        else:
+                            print("    - 触发的离场防线: 无")
+                else:
+                    print("    - 未找到当日的详细分析数据。")
+                offensive_components = [
+                    c for c in related_components
+                    if c.score_type not in ['risk', 'critical_risk']
+                    and c.score_value > 0
+                    and c.playbook.name not in subtotal_signal_names
+                ]
+                if offensive_components:
+                    print("  --- 激活进攻项 (加分项) ---")
+                    for comp in sorted(offensive_components, key=lambda x: x.score_value, reverse=True):
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})")
+                penalty_components = [c for c in related_components if c.score_value < 0]
+                if penalty_components:
+                    print("  --- 进攻项惩罚 (扣分项) ---")
+                    for comp in sorted(penalty_components, key=lambda x: x.score_value):
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})")
+                risk_components = [c for c in related_components if c.score_type in ['risk', 'critical_risk'] and c.score_value > 0]
+                if risk_components:
+                    print("  --- 激活风险项 (贡献至风险惩罚分) ---")
+                    for comp in sorted(risk_components, key=lambda x: x.score_value, reverse=True):
+                        print(f"    - {comp.playbook.cn_name} ({comp.score_value})")
+            print(f"\n--- [历史回溯调试完成] ---")
+        except Exception as e:
+            print(f"[严重错误] 在执行历史回溯调试时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+

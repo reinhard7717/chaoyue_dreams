@@ -241,7 +241,7 @@ class MicroBehaviorEngine:
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
         background_score = (deep_bottom_context_score * rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
-        print(f"          - [第一幕-深度价值区(加成项)] 完成, 平均分: {background_score.mean():.2f}")
+        # print(f"          - [第一幕-深度价值区(加成项)] 完成, 平均分: {background_score.mean():.2f}") # 暂时注释掉，避免过多打印
 
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
         # 逻辑不变，这是核心基础分的一部分
@@ -252,7 +252,7 @@ class MicroBehaviorEngine:
         ])
         shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
-        print(f"          - [第二幕-股东换血(核心)] 完成, 平均分: {shareholder_quality_score.mean():.2f}")
+        # print(f"          - [第二幕-股东换血(核心)] 完成, 平均分: {shareholder_quality_score.mean():.2f}")
 
         # --- 第三幕：转折点火 (The Ignition) - 共振初起 ---
         # 逻辑不变，这是核心基础分的另一部分
@@ -263,7 +263,7 @@ class MicroBehaviorEngine:
             downtrend_stabilizing_score * vol_compression_score * early_ignition_score
         ).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
-        print(f"          - [第三幕-企稳点火(核心)] 完成, 平均分: {ignition_confirmation_score.mean():.2f}")
+        # print(f"          - [第三幕-企稳点火(核心)] 完成, 平均分: {ignition_confirmation_score.mean():.2f}")
 
         # --- 最终剧本触发逻辑 (全新融合范式) ---
         # 核心逻辑分 = 股东换血分 * 企稳点火分
@@ -280,8 +280,8 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
         states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
-        if (final_reliability_score > 0.1).any():
-            print(f"  [探针-高质量战备] 侦测到 {(final_reliability_score > 0.1).sum()} 次高可靠性战备机会！最高分: {final_reliability_score.max():.3f}")
+        # if (final_reliability_score > 0.1).any():
+        #     print(f"  [探针-高质量战备] 侦测到 {(final_reliability_score > 0.1).sum()} 次高可靠性战备机会！最高分: {final_reliability_score.max():.3f}")
         
         return states
 
