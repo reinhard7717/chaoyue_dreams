@@ -84,67 +84,101 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V404.0 架构修复版】情报层总入口。
+        【V404.1 信号流修复版】情报层总入口。
         - 核心修复 (本次修改):
-          - [架构修复] 移除了对已迁移到 `TacticEngine` 的战术方法的冗余、错误调用，从根源上解决了 `AttributeError`。
-          - [依赖修复] 修复了 `pullback_enhancements` 数据流中断的问题，确保其能被正确传递给认知层。
-          - [代码内聚] 将回踩战术的调试日志逻辑移至 `CognitiveIntelligence` 模块，使代码结构更清晰。
+          - [信号流修复] 简化并修正了原子状态的更新逻辑，移除了导致信号“断链”的冗余覆盖代码。
+                        确保了 `diagnose_accumulation_playbooks` 生成的核心信号能够被下游模块正确消费。
         """
-        print("--- [情报层总指挥官 V404.0 架构修复版] 开始执行所有诊断模块... ---") # 代码修改：更新版本号和说明
+        # 代码修改：更新版本号和说明
+        print("--- [情报层总指挥官 V404.1 信号流修复版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
+        
         # --- 阶段一: 基础层与原子情报诊断 ---
         print("    - [阶段 1/5] 正在执行基础层与原子情报诊断...")
+        
+        # 定义一个辅助函数来统一更新 df 和 atomic_states
+        def update_states(new_states: Dict):
+            self.strategy.atomic_states.update(new_states)
+            for col, series in new_states.items():
+                if col not in df.columns:
+                    df[col] = series
+
+        # 链式调用，但每次都用辅助函数更新状态
+        # 注意：这些方法本身也会返回修改后的df，但我们不再依赖它，而是依赖统一的更新函数
         df = self.chip_intel.diagnose_composite_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_strategic_context_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_quantitative_chip_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_advanced_chip_dynamics_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_chip_internal_structure_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_chip_holder_behavior_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_fused_behavioral_chip_scores(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         df = self.chip_intel.diagnose_cross_validation_signals(df)
+        update_states({col: df[col] for col in df.columns if col not in self.strategy.atomic_states})
+
         # 在此阶段直接调用“真实吸筹”诊断，确保其产出的智能信号可被后续模块消费。
+        # 代码修改：使用新的诊断方法，并用辅助函数更新
         accumulation_playbook_states = self.chip_intel.diagnose_accumulation_playbooks(df)
-        self.strategy.atomic_states.update(accumulation_playbook_states)
-        # 将新生成的分数也合并回主DataFrame
-        for col, series in accumulation_playbook_states.items():
-            if col not in df.columns:
-                df[col] = series
-        # 更新原子状态，因为后续模块可能依赖这些新分数
-        new_chip_cols = set(df.columns) - set(self.strategy.df_indicators.columns)
-        for col in new_chip_cols:
-            self.strategy.atomic_states[col] = df[col]
-        self.strategy.atomic_states.update(self._diagnose_strategic_context(df))
-        self.strategy.atomic_states.update(self._score_industry_lifecycle_context(df))
-        self.strategy.atomic_states.update(self._score_kpl_theme_hotness(df))
+        update_states(accumulation_playbook_states)
+        
+        # 代码修改：移除有问题的 new_chip_cols 更新逻辑
+        # new_chip_cols = set(df.columns) - set(self.strategy.df_indicators.columns)
+        # for col in new_chip_cols:
+        #     self.strategy.atomic_states[col] = df[col]
+
+        # 现在，下游模块可以安全地消费已更新的 df 和 atomic_states
+        update_states(self._diagnose_strategic_context(df))
+        update_states(self._score_industry_lifecycle_context(df))
+        update_states(self._score_kpl_theme_hotness(df))
+        
         foundation_states = self.foundation_intel.run_foundation_analysis_command()
-        self.strategy.atomic_states.update(foundation_states)
-        self.strategy.atomic_states.update(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        self.mechanics_engine.run_dynamic_analysis_command()
+        update_states(foundation_states)
+        
+        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
+        
+        self.mechanics_engine.run_dynamic_analysis_command() # 这个方法直接更新 atomic_states
+        
         df = self.pattern_recognizer.identify_all(df)
+        
         # --- 阶段二: 结构层情报诊断与合成 ---
         # print("    - [阶段 2/5] 正在执行结构层情报诊断与合成...")
-        self.strategy.atomic_states.update(self.structural_intel.diagnose_structural_states(df))
+        update_states(self.structural_intel.diagnose_structural_states(df))
+        
         # --- 阶段三: 行为层情报诊断与合成 ---
         # print("    - [阶段 3/5] 正在执行行为层情报诊断与合成...")
-        self.strategy.atomic_states.update(self.behavioral_intel.run_behavioral_analysis_command(df))
-        self.strategy.atomic_states.update(self.cyclical_intel.run_cyclical_analysis_command(df))
+        update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
+        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
+        
         # --- 阶段四: 筹码层情报诊断与合成 ---
         # print("    - [阶段 4/5] 正在执行筹码层情报诊断与合成...")
         chip_states, chip_triggers = self.chip_intel.run_chip_intelligence_command(df)
-        self.strategy.atomic_states.update(chip_states)
+        update_states(chip_states)
         self.strategy.trigger_events.update(chip_triggers)
+        
         # --- 阶段五: 认知层元融合、主力推演与战法生成 ---
         # print("    - [阶段 5/5] 正在执行认知层元融合、主力推演与战法生成...")
-        # 消费 chip_intel 生成的 prime opportunity 分数
         prime_states, prime_scores = self.chip_intel.synthesize_prime_chip_opportunity(df)
-        self.strategy.atomic_states.update(prime_states)
-        for col, series in prime_scores.items():
-            df[col] = series
-            self.strategy.atomic_states[col] = series
+        update_states(prime_states)
+        update_states(prime_scores) # prime_scores 也需要更新
+        
         # 将此调用移至其依赖项计算完毕之后，确保能正确执行。
-        self.strategy.atomic_states.update(self._diagnose_long_term_daily_chip_context(df))
+        # 代码修改：现在可以安全调用了
+        update_states(self._diagnose_long_term_daily_chip_context(df))
         
         # 代码新增：在调用认知层之前，计算其所需的回踩增强矩阵
         pullback_enhancements = self.behavioral_intel._diagnose_pullback_enhancement_matrix(df)
@@ -155,13 +189,13 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_holding_risks(df)
         df = self.cognitive_intel.synthesize_trend_regime_signals(df)
         df = self.cognitive_intel.synthesize_volatility_breakout_signals(df)
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_dynamic_offense_states(df))
+        update_states(self.cognitive_intel.synthesize_chip_fund_flow_synergy(df))
+        update_states(self.cognitive_intel.synthesize_dynamic_offense_states(df))
         df = self.cognitive_intel.synthesize_pullback_states(df)
         df = self.cognitive_intel.synthesize_market_engine_states(df)
         df = self.cognitive_intel.synthesize_divergence_risks(df)
         df = self.cognitive_intel.synthesize_opportunity_risk_scores(df)
-        self.strategy.atomic_states.update(self.cognitive_intel.synthesize_topping_behaviors(df))
+        update_states(self.cognitive_intel.synthesize_topping_behaviors(df))
         df = self.cognitive_intel.synthesize_trend_sustainability_signals(df)
         df = self.cognitive_intel.synthesize_tactical_opportunities(df)
         df = self.cognitive_intel.synthesize_consolidation_breakout_signals(df)
@@ -172,11 +206,11 @@ class IntelligenceLayer:
         df = self.cognitive_intel.synthesize_reversal_resonance_scores(df)
         df = self.cognitive_intel.synthesize_perfect_storm_signals(df)
         
-        # 代码修改：将对 synthesize_cognitive_scores 的调用移至所有依赖项计算完毕后，并传入 pullback_enhancements
         df = self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements)
         
-        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_trend_stage_score(df))
-        self.strategy.atomic_states.update(self.cognitive_intel.diagnose_market_structure_states(df))
+        update_states(self.cognitive_intel.diagnose_trend_stage_score(df))
+        update_states(self.cognitive_intel.diagnose_market_structure_states(df))
+        
         # 战法生成
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
@@ -185,7 +219,7 @@ class IntelligenceLayer:
         
         # 在所有计算完成后，一次性更新策略实例的DataFrame
         self.strategy.df_indicators = df
-        print("--- [情报层总指挥官 V404.0] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
+        print("--- [情报层总指挥官 V404.1] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
