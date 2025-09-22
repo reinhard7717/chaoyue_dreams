@@ -203,78 +203,84 @@ class OffensiveLayer:
         
         return diagnostics
 
-    def _calculate_weighted_score(self, signals_config: Dict, score_details_df: pd.DataFrame, prefix: str, special_multipliers: Dict = None) -> Tuple[pd.Series, pd.DataFrame]:
+    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V403.3 数据净化版】向量化加权分数计算辅助函数
+        【V2.6 · 翻译官逻辑修复版】生成人类可读的信号摘要。
         - 核心修复 (本次修改):
-          - [数据净化] 修正了向 score_details_df 中写入列名的逻辑。现在写入的是原始信号名 (signal_name)，而不是带前缀的内部名称。
-        - 收益: 从根源上解决了下游模块无法识别带前缀信号名的问题，确保了 score_details_df 在整个系统中的格式一致性和可用性。
+          - [智能识别] 进一步增强了 get_base_signal 辅助函数，增加了对 'TRIGGER_' 和 'PLAYBOOK_' 前缀的特殊处理。
+        - 收益: 彻底解决了因触发器和剧本信号名被错误剥离，导致报告层找不到其定义的根本问题。
         """
-        atomic_states = self.strategy.atomic_states
-        df_index = self.strategy.df_indicators.index
-        default_series = pd.Series(0.0, index=df_index)
+        # 加载信号与中文名的映射字典
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        signal_names = []
-        score_weights = []
-        signal_series_list = []
+        # 定义所有汇总分数的名称，这些名称不应被剥离前缀
+        summary_score_cols = [
+            'SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY',
+            'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE'
+        ]
+        # 定义需要剥离的前缀列表
+        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
 
-        # 步骤1: 收集所有有效的信号和权重
-        for signal_name, score in signals_config.items():
-            if signal_name.startswith("说明"):
-                continue
+        def process_details_df(details_df, prefix_list):
+            """辅助函数，用于向量化处理一个分数详情DataFrame"""
+            if details_df.empty:
+                return pd.Series(dtype=object)
             
-            score_value = 0
-            if isinstance(score, dict):
-                score_value = score.get('score', 0)
-            elif isinstance(score, (int, float)):
-                score_value = score
+            long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
+            long_df = long_df[long_df['score'] > 0].copy()
+            if long_df.empty:
+                return pd.Series(dtype=object)
 
-            # 根据信号来源获取Series
-            if prefix == 'TRIGGER_':
-                signal_series = self.strategy.trigger_events.get(signal_name, pd.Series(False, index=df_index))
-            elif prefix == 'PLAYBOOK_':
-                signal_series = self.strategy.playbook_states.get(signal_name, pd.Series(False, index=df_index))
-            else: # 默认为反转或共振信号
-                signal_series = atomic_states.get(signal_name, pd.Series(False, index=df_index))
-
-            signal_names.append(signal_name)
-            score_weights.append(score_value)
-            signal_series_list.append(signal_series.astype(float))
-
-        if not signal_series_list:
-            return default_series, score_details_df
-
-        # 步骤2: 将Series列表转换为2D NumPy数组
-        signals_array = np.stack([s.values for s in signal_series_list], axis=0)
-        
-        # 步骤3: 应用特殊乘数
-        weights_array = np.array(score_weights, dtype=np.float32).reshape(-1, 1)
-        if special_multipliers:
-            for multiplier_key, multiplier_series in special_multipliers.items():
-                for i, name in enumerate(signal_names):
-                    if multiplier_key in name:
-                        signals_array[i, :] *= multiplier_series.values
-
-        # 步骤4: 向量化计算每个信号的贡献分数
-        bonus_amounts_array = signals_array * weights_array
-        
-        # 步骤5: 计算总分
-        total_score_array = np.sum(bonus_amounts_array, axis=0)
-        total_score_series = pd.Series(total_score_array, index=df_index)
-
-        # 步骤6: 更新score_details_df (用于调试)
-        for i, signal_name in enumerate(signal_names):
-            if np.any(bonus_amounts_array[i] > 0):
-                # --- 修改开始：写入原始信号名，而不是带前缀的名称 ---
-                # 确保 score_details_df 中的列名是全系统可识别的标准名称
-                # 如果一个信号在多个计分引擎中都贡献了分数，这里会累加
-                if signal_name not in score_details_df.columns:
-                    score_details_df[signal_name] = 0.0
-                score_details_df[signal_name] += bonus_amounts_array[i]
+            date_col_name = long_df.columns[0]
+            
+            def get_base_signal(signal_name):
+                # --- 修改开始：增加对TRIGGER和PLAYBOOK的特殊处理 ---
+                # 如果是汇总分、触发器或剧本，直接返回原名，因为它们在字典中的键就是全名
+                if (signal_name in summary_score_cols or 
+                    signal_name.startswith('TRIGGER_') or 
+                    signal_name.startswith('PLAYBOOK_')):
+                    return signal_name
                 # --- 修改结束 ---
-        
-        return total_score_series, score_details_df
+                
+                # 否则，正常进行前缀剥离
+                base_name = signal_name
+                for prefix in prefix_list:
+                    base_name = base_name.removeprefix(prefix)
+                return base_name
 
+            # 应用这个智能剥离函数
+            long_df['base_signal'] = long_df['signal'].apply(get_base_signal)
+
+            # 向量化映射中文名
+            cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
+            long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
+            
+            # 向量化生成摘要字符串
+            long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
+            
+            # 按日期分组并聚合为列表
+            return long_df.groupby(date_col_name)['summary_str'].apply(list)
+
+        # --- 调用向量化辅助函数处理进攻和风险信号 ---
+        offense_summaries = process_details_df(score_details_df, prefixes_to_strip)
+        risk_summaries = process_details_df(risk_details_df, []) # 风险信号通常没有前缀
+
+        # 合并进攻和风险摘要
+        summary_df = pd.DataFrame({
+            'offense': offense_summaries,
+            'risk': risk_summaries
+        }).reindex(self.strategy.df_indicators.index)
+
+        # 将两列转换为最终的字典格式
+        final_summaries = summary_df.apply(
+            lambda row: {
+                'offense': row['offense'] if isinstance(row['offense'], list) else [],
+                'risk': row['risk'] if isinstance(row['risk'], list) else []
+            },
+            axis=1
+        )
+        
+        return final_summaries
 
 
 
