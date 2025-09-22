@@ -1084,4 +1084,10 @@ class ChipIntelligence:
         ).astype(np.float32)
         states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk
         
+        # 增加探针，用于观察修正后的信号
+        if (true_accumulation_score > 0.6).any():
+            print(f"          -> [探针-真实吸筹] 侦测到 {(true_accumulation_score > 0.6).sum()} 天真实吸筹行为。")
+        if (false_accumulation_risk > 0.6).any():
+            print(f"          -> [探针-虚假集中] 侦测到 {(false_accumulation_risk > 0.6).sum()} 天虚假集中(派发)风险。")
+        
         return states
