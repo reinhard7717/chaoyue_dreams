@@ -14,16 +14,41 @@ class PlaybookEngine:
         self.strategy = strategy_instance
         self.playbook_blueprints = self._get_playbook_blueprints()
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
+    def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+        """
+        【V4.0 逻辑简化版】剧本状态生成引擎
+        - 核心重构 (本次修改):
+          - [逻辑简化] 移除了复杂的“战场环境(Contextual Setups)”定义。
+          - 由于新的剧本蓝图直接依赖于高质量的触发器，这些触发器本身已经内含了对环境的判断，
+            因此不再需要在此处进行重复的环境检查。
+        - 收益: 引擎职责更纯粹，只负责根据蓝图执行“触发”逻辑，代码更简洁、高效。
+        """
+        df = self.strategy.df_indicators
+        if df.empty:
+            return {}, {}
+        playbook_states = {}
+        default_series = pd.Series(False, index=df.index)
+        # --- 步骤 1: 循环执行剧本蓝图 ---
+        for blueprint in self.playbook_blueprints:
+            playbook_name = blueprint['name']
+            # 组合 Trigger 条件 (OR logic)
+            trigger_conditions = pd.Series(False, index=df.index)
+            for trigger_name in blueprint.get('trigger', []):
+                trigger_conditions |= trigger_events.get(trigger_name, default_series)
+            playbook_states[playbook_name] = trigger_conditions
+        # setup_scores 在这个新架构下不再需要，返回空字典
+        return {}, playbook_states
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
-        【V6.0 智能信号剧本版】剧本蓝图知识库
+        【V6.1 均值回归扩充版】剧本蓝图知识库
         - 核心升级 (本次修改):
           - [王牌剧本] 新增 `PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS` 剧本，专门捕捉经过多维度交叉验证的“真实吸筹”后的突破机会。
           - [逆向剧本] 新增 `PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS` 剧本，用于执行“恐慌盘投降反转”这一高胜率左侧交易。
           - [剧本优化] 将“筹码共振-价格滞后”剧本的触发器升级为消费更可靠的“真实吸筹”信号。
-        - 收益: 策略的战术库更加强大和智能，能够执行基于更深层次市场理解的交易决策。
+          - [战术扩充] 新增 `PLAYBOOK_MEAN_REVERSION_GRID_A` 剧本，用于执行震荡市的网格交易。
         """
+        # 代码修改：更新版本号和说明
         return [
             # --- 基于“真实吸筹”的王牌剧本 ---
             {
@@ -99,6 +124,12 @@ class PlaybookEngine:
                 'comment': 'A+级 - [洗盘吸筹反转] 在确认的“洗盘吸筹”行为后，由“显性反转K线”确认V型反转。'
             },
             # --- A级 战术剧本 (Tactical Playbooks) ---
+            # 代码新增：新增均值回归网格剧本
+            {
+                'name': 'PLAYBOOK_MEAN_REVERSION_GRID_A',
+                'trigger': ['TRIGGER_MEAN_REVERSION_GRID_BUY_A'],
+                'comment': 'A级 - [均值回归网格] 在震荡市中，于价格触及统计下轨时买入。'
+            },
             {
                 'name': 'PLAYBOOK_HEALTHY_PULLBACK_A',
                 'trigger': ['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'],
@@ -126,39 +157,15 @@ class PlaybookEngine:
             },
         ]
 
-    def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
-        """
-        【V4.0 逻辑简化版】剧本状态生成引擎
-        - 核心重构 (本次修改):
-          - [逻辑简化] 移除了复杂的“战场环境(Contextual Setups)”定义。
-          - 由于新的剧本蓝图直接依赖于高质量的触发器，这些触发器本身已经内含了对环境的判断，
-            因此不再需要在此处进行重复的环境检查。
-        - 收益: 引擎职责更纯粹，只负责根据蓝图执行“触发”逻辑，代码更简洁、高效。
-        """
-        df = self.strategy.df_indicators
-        if df.empty:
-            return {}, {}
-        playbook_states = {}
-        default_series = pd.Series(False, index=df.index)
-        # --- 步骤 1: 循环执行剧本蓝图 ---
-        for blueprint in self.playbook_blueprints:
-            playbook_name = blueprint['name']
-            # 组合 Trigger 条件 (OR logic)
-            trigger_conditions = pd.Series(False, index=df.index)
-            for trigger_name in blueprint.get('trigger', []):
-                trigger_conditions |= trigger_events.get(trigger_name, default_series)
-            playbook_states[playbook_name] = trigger_conditions
-        # setup_scores 在这个新架构下不再需要，返回空字典
-        return {}, playbook_states
-
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 智能信号触发版】战术触发事件定义中心
+        【V6.1 均值回归扩充版】战术触发事件定义中心
         - 核心升级 (本次修改):
           - [新增触发器] 为新剧本 `PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS` 和 `PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS` 定义了专属触发器。
           - [触发器升级] 将 `TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S` 的战备条件判断，从消费旧的、模糊的共振信号，升级为消费新的、高置信度的 `SCORE_CHIP_TRUE_ACCUMULATION` 信号。
-        - 收益: 剧本的触发逻辑现在完全基于我们最新、最可靠的底层智能信号，决策质量更高。
+          - [战术扩充] 新增 `TRIGGER_MEAN_REVERSION_GRID_BUY_A` 触发器。
         """
+        # 代码修改：更新版本号和说明
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -184,6 +191,8 @@ class PlaybookEngine:
             'true_accumulation_breakout_s_plus': get_param_value(p_triggers.get('true_accumulation_breakout_s_plus_threshold'), 0.6),
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
             'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
+            # 代码新增：新增均值回归触发器阈值
+            'mean_reversion_grid_buy_a': get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8),
         }
         # --- 2. 定义基础触发器 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
@@ -194,9 +203,7 @@ class PlaybookEngine:
         was_yesterday_red = df['close_D'].shift(1) < df['open_D'].shift(1)
         recovery_ratio = get_param_value(p_dominant.get('recovery_ratio'), 0.5)
         is_power_recovered = today_body_size >= (yesterday_body_size * recovery_ratio)
-        
         base_reversal_condition = is_green & is_strong_rally & (~was_yesterday_red | is_power_recovered)
-        
         if get_param_value(p_dominant.get('position_filter_enabled'), True):
             lookback = get_param_value(p_dominant.get('position_lookback_days'), 60)
             max_percentile = get_param_value(p_dominant.get('max_position_percentile'), 0.5)
@@ -208,7 +215,6 @@ class PlaybookEngine:
             triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_condition & is_in_bottom_zone
         else:
             triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_condition
-        
         # --- 3. 定义元融合与战术场景触发器 ---
         # --- 为新剧本定义触发器 ---
         # 触发器: 真实吸筹突破 (S++)
@@ -217,7 +223,6 @@ class PlaybookEngine:
         ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
         is_ignition_today = ignition_score > thresholds['ignition_s']
         triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = was_true_accumulation_yesterday & is_ignition_today
-
         # 触发器: 恐慌盘投降反转 (A+)
         # 逻辑: “恐慌盘投降”剧本分数达标，并且由“显性反转K线”确认
         capitulation_score = atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score)
@@ -230,7 +235,9 @@ class PlaybookEngine:
         # 触发器: 大反转后期·共振初起
         post_reversal_score = atomic.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score)
         triggers['TRIGGER_POST_REVERSAL_RESONANCE_S_PLUS'] = post_reversal_score > thresholds['post_reversal_resonance_s_plus']
-
+        # 代码新增：新增均值回归触发器
+        mean_reversion_score = atomic.get('SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A', default_score)
+        triggers['TRIGGER_MEAN_REVERSION_GRID_BUY_A'] = mean_reversion_score > thresholds['mean_reversion_grid_buy_a']
         # --- 更新“筹码共振-价格滞后”剧本的触发器逻辑 ---
         # 战备条件：昨日处于“真实吸筹”且“价格被压制”的状态
         was_true_accumulation_yesterday_for_lag = atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > 0.5
@@ -240,7 +247,6 @@ class PlaybookEngine:
         # 点火条件：今日出现温和启动迹象
         is_gentle_lift_today = atomic.get('TRIGGER_GENTLE_PRICE_LIFT_A', default_series)
         triggers['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = was_setup_yesterday_for_lag & is_gentle_lift_today
-
         triggers['TRIGGER_BOTTOM_REVERSAL_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score) > thresholds['bottom_reversal_s']
         triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & triggers['TRIGGER_DOMINANT_REVERSAL']
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
@@ -261,7 +267,6 @@ class PlaybookEngine:
         setup_normal_squeeze = vol_compression_score > 0.5
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
-        
         # --- 4. 定义“持续点火”确认触发器 ---
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']
         initial_chip_ignition = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > thresholds['chip_ignition_s']
@@ -277,7 +282,6 @@ class PlaybookEngine:
         triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS'] = is_sustained_day & risk_remained_low
         setup_prime_chip = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > 0.7
         triggers['TRIGGER_PRIME_CHIP_IGNITION_S_PLUS_PLUS'] = setup_prime_chip & triggers['TRIGGER_SUSTAINED_IGNITION_S_PLUS']
-        
         # --- 5. 最终安全检查 ---
         for key in list(triggers.keys()):
             if key in triggers and isinstance(triggers[key], pd.Series):

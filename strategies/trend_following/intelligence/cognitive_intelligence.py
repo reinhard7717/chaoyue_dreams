@@ -5,6 +5,8 @@ import numpy as np
 from typing import Dict
 from enum import Enum
 from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
+from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 
 class MainForceState(Enum):
     """
@@ -24,6 +26,8 @@ class CognitiveIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
+        self.micro_behavior_engine = MicroBehaviorEngine(strategy_instance)
+        self.tactic_engine = TacticEngine(strategy_instance)
 
     def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
         """
@@ -90,93 +94,6 @@ class CognitiveIntelligence:
         rank = series.rolling(window=window, min_periods=min_periods).rank(pct=True)
         score = rank if ascending else 1 - rank
         return score.fillna(default).astype(np.float32)
-
-    def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】早期动能点火诊断模块 (东风初起)
-        - 核心目标: 识别“万事俱备”之后，动能“刚刚启动”的精确时点，避免追高。
-        - 核心逻辑: 融合多个“早期”和“温和”的动能信号，如波动率拐点、MACD低位金叉、
-                      价格温和放量等，形成一个综合的“早期点火分”。
-        - 产出信号:
-          - `COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A`: A级早期动能点火信号，可用于替代或补充
-                                                         现有激进的动能信号。
-        """
-        # print("        -> [早期动能点火诊断模块 V1.0] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取多个“早期”或“温和”的动能信号 ---
-        # 信号1: 波动率拐点 (从压缩到扩张的转折点)
-        vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
-        # 信号2: MACD低位金叉 (趋势反转的早期信号)
-        # 使用B级和A级信号，避免在高位金叉时介入
-        macd_reversal_score = np.maximum(
-            atomic.get('SCORE_MACD_BOTTOM_REVERSAL_B', default_score).values,
-            atomic.get('SCORE_MACD_BOTTOM_REVERSAL_A', default_score).values
-        )
-        macd_reversal_series = pd.Series(macd_reversal_score, index=df.index)
-        # 信号3: 价格温和上涨 (涨幅在1%到4%之间，避免涨停)
-        pct_change = df['pct_change_D']
-        # 使用三角形函数对涨幅进行评分，在2.5%附近得分最高，在0%和5%附近为0
-        gentle_rally_score = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
-        # 信号4: 成交量温和放大 (相对于21日均量放大1.2到2.5倍)
-        volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
-        # 使用梯形函数评分
-        vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2) # 从1.2到1.8线性增长
-        vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8) # 从1.8到3.0线性下降
-        gentle_volume_score = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
-        # 信号5: 价格正向加速度 (确认开始启动)
-        price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
-        # --- 2. 融合生成“早期动能点火”分数 ---
-        # 采用几何平均值融合，要求多个信号同时存在
-        # 将Series转换为NumPy数组进行计算
-        score_components = [
-            vol_tipping_point_score.values,
-            macd_reversal_series.values,
-            gentle_rally_score.values,
-            gentle_volume_score.values,
-            price_accel_score.values
-        ]
-        # 为避免0值导致整个结果为0，给每个分量加上一个极小值
-        epsilon = 1e-9
-        prod_scores = np.prod([arr + epsilon for arr in score_components], axis=0)
-        final_score_arr = prod_scores**(1.0 / len(score_components))
-        final_score = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
-        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
-        print(f"        -> [早期动能点火诊断模块 V1.0] 计算完毕。")
-        return states
-
-    def synthesize_chip_price_lag_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】“筹码共振-价格滞后”战术剧本
-        - 核心目标: 捕捉“万事俱备，只欠东风”的黄金买点。
-        - 战备状态 (Setup): 筹码高度共振 + 价格动能被压制 + 波动率压缩。
-        - 点火触发 (Trigger): 价格出现温和的启动迹象。
-        - 剧本逻辑: 昨日战备就绪，今日点火触发。
-        """
-        # print("        -> [筹码共振-价格滞后剧本 V1.0] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 定义“战备状态”评分 (Setup Score) ---
-        # 战备条件1: 筹码高度共振 (使用S级或S+级信号)
-        chip_resonance_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
-        # 战备条件2: 价格动能被压制 (5日价格斜率处于历史低位)
-        price_momentum_suppressed_score = self._normalize_score(df['SLOPE_5_close_D'], ascending=False)
-        # 战备条件3: 波动率压缩 (使用S级压缩信号)
-        volatility_compression_score = atomic.get('SCORE_VOL_COMPRESSION_S', default_score)
-        # 融合生成战备分
-        setup_score = (chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score).astype(np.float32)
-        states['SCORE_SETUP_CHIP_RESONANCE_READY_S'] = setup_score
-        states['SETUP_CHIP_RESONANCE_READY_S'] = setup_score > 0.6 # 布尔信号用于逻辑判断
-        # --- 2. 定义“点火触发”评分 (Trigger Score) ---
-        # 直接复用“早期动能点火”的逻辑，因为它完美符合“温和启动”的定义
-        trigger_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        states['SCORE_TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score
-        states['TRIGGER_GENTLE_PRICE_LIFT_A'] = trigger_score > 0.4 # 布尔信号用于逻辑判断
-            
-        print("        -> [筹码共振-价格滞后剧本 V1.0] 计算完毕。")
-        return states
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -736,8 +653,6 @@ class CognitiveIntelligence:
         # print("        -> [终极确认融合模块 V1.2] 计算完毕。")
         return df
 
-# 文件: strategies/trend_following/intelligence/cognitive_intelligence.py
-
     def synthesize_ignition_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V2.0 王牌信号增强版】多域点火共振分数合成模块
@@ -1206,96 +1121,6 @@ class CognitiveIntelligence:
         # print("        -> [完美风暴信号合成模块 V1.1 数值化升级版] 计算完毕。") 
         return df
 
-    def _diagnose_lock_chip_reconcentration_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.5 信号源修复版】锁仓再集中S+战法诊断模块
-        - 核心重构: (V2.0) 将战法的“准备状态”从有缺陷的A级信号，升级为经过战场环境过滤的
-                      S级“筹码结构黄金机会”信号。
-        - 本次升级: 【数值化】将原有的布尔逻辑升级为“战备分 * 点火分”的数值化评分体系。
-        - 核心修复 (V2.5): 修复了对 `SCORE_DYN_OVERALL_BULLISH_MOMENTUM_S` 这个不存在信号的引用，
-                        替换为消费由 `DynamicMechanicsEngine` 生成的、逻辑最相近的
-                        `SCORE_DYN_BULLISH_RESONANCE_S` 终极信号。
-        """
-        # print("        -> [S+战法诊断] 正在扫描“锁仓再集中(V2.3 王牌重铸数值化增强版)”...") 
-        states = {}
-        atomic = self.strategy.atomic_states
-        triggers = self.strategy.trigger_events
-        default_series = pd.Series(False, index=df.index)
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 定义“准备状态”评分 (Setup Score) ---
-        setup_score = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score)
-        # --- 2. 定义“点火事件”评分 (Ignition Score) ---
-        trigger_chip_ignition_score = triggers.get('TRIGGER_CHIP_IGNITION', default_series).astype(float)
-        energy_release_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S', default_score) 
-        cost_accel_score = atomic.get('SCORE_PLATFORM_COST_ACCEL', default_score)
-        squeeze_breakout_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_S', default_score) 
-        ignition_trigger_score_arr = np.maximum.reduce([
-            trigger_chip_ignition_score.values,
-            energy_release_score.values, 
-            cost_accel_score.values,
-            squeeze_breakout_score.values 
-        ])
-        ignition_trigger_score = pd.Series(ignition_trigger_score_arr, index=df.index)
-        # --- 3. 最终裁定：昨日“准备就绪”(分) * 今日“点火”(分) = 最终战法分 ---
-        was_setup_yesterday_score = setup_score.shift(1).fillna(0.0)
-        final_tactic_score = (was_setup_yesterday_score * ignition_trigger_score).astype(np.float32)
-        states['COGNITIVE_SCORE_LOCK_CHIP_RECONCENTRATION_S_PLUS'] = final_tactic_score
-        final_tactic_signal = final_tactic_score > 0.5
-        states['TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS'] = final_tactic_signal
-        if final_tactic_signal.any():
-            print(f"          -> [S+级战法确认] 侦测到 {final_tactic_signal.sum()} 次“锁仓再集中”的最终拉升信号！")
-        return states
-
-    def _diagnose_lock_chip_rally_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.5 向量化性能重构版】锁筹拉升S级战法诊断模块
-        - 核心优化 (本次修改):
-          - [性能重构] 彻底移除了原有的Python for循环状态机，重构为完全向量化的Pandas/NumPy逻辑。
-          - [效率提升] 通过`cumsum`和`groupby`等向量化操作，一次性计算所有时间点的状态，避免了逐日迭代，极大提升了长周期回测的计算效率。
-        - 业务逻辑: 保持与V2.4版本完全一致的“容错巡航”状态机逻辑，仅重构实现方式。
-        """
-        # print("        -> [S级战法诊断] 正在扫描“锁筹拉升(V2.5 向量化性能重构版)”...") # 代码修改：更新版本号
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-        # --- 1. 获取参数 ---
-        p = get_params_block(self.strategy, 'lock_chip_rally_params', {})
-        require_concentration = get_param_value(p.get('require_continuous_concentration'), True)
-        terminate_on_stalling = get_param_value(p.get('terminate_on_health_stalling'), True)
-        divergence_threshold = get_param_value(p.get('divergence_threshold'), 0.7)
-        concentration_threshold = get_param_value(p.get('concentration_threshold'), 0.6)
-        # --- 2. 定义“点火”事件 ---
-        ignition_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-        # --- 3. 定义“硬性熄火”条件 ---
-        is_diverging = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE') > divergence_threshold
-        is_late_stage = atomic.get('CONTEXT_TREND_STAGE_LATE', default_series)
-        is_ma_broken = self._get_atomic_score(df, 'SCORE_MA_HEALTH', 1.0) < 0.4
-        is_health_stalling = atomic.get('COGNITIVE_HOLD_RISK_HEALTH_STALLING', default_series)
-        hard_termination_condition = is_diverging | is_late_stage | is_ma_broken
-        if terminate_on_stalling:
-            hard_termination_condition |= is_health_stalling
-        # --- 4. 定义“软性巡航”条件 ---
-        is_cruise_condition_met = self._fuse_multi_level_scores(df, 'RISING_RESONANCE') > concentration_threshold if require_concentration else pd.Series(True, index=df.index)
-        # --- 5. 【代码新增】构建向量化状态机 ---
-        # 5.1 定义巡航失败事件：不满足软性巡航条件
-        cruise_failure = ~is_cruise_condition_met
-        # 5.2 定义“双重巡航失败”事件，这是导致巡航终止的条件之一
-        double_cruise_failure = cruise_failure & cruise_failure.shift(1).fillna(False)
-        # 5.3 定义所有可能导致巡航终止的“杀手”事件
-        rally_killer = hard_termination_condition | double_cruise_failure
-        # 5.4 使用cumsum为每个由“杀手”事件分割的区间创建一个唯一的ID
-        rally_block_id = rally_killer.cumsum()
-        # 5.5 在每个巡航区间内，检查是否存在点火事件
-        # groupby(rally_block_id) 将数据按巡航区间分组
-        # .cumsum() > 0 会在点火事件发生后，将该区间内后续所有行的值置为True
-        has_ignition_in_block = ignition_event.groupby(rally_block_id).cumsum() > 0
-        # 5.6 最终状态：在某个巡航区间内已经点火，并且当前不是“杀手”事件发生日
-        is_in_rally_state = has_ignition_in_block & ~rally_killer
-        # 最终信号需要再次被硬终止条件过滤，确保万无一失
-        final_tactic_signal = is_in_rally_state & ~hard_termination_condition
-        states['TACTIC_LOCK_CHIP_RALLY_S'] = final_tactic_signal
-        return states
-
     def synthesize_dynamic_offense_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 信号源适配版】协同进攻动能合成模块
@@ -1330,129 +1155,6 @@ class CognitiveIntelligence:
         is_synergistic_offense = synergistic_offense_score > offense_threshold
         final_signal = is_synergistic_offense & is_in_safe_stage
         states['DYN_AGGRESSIVE_OFFENSE_A'] = final_signal
-        return states
-
-    def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.4 融合函数升级版】终极战法合成模块
-        - 核心职责: (原有注释)
-        - 本次升级 (V2.4): 
-          - [逻辑深化] 使用新增的 `_fuse_multi_level_scores` 辅助函数来融合S/A/B三级
-                        波动率压缩信号，使得对“极致压缩”的判断更平滑、更鲁棒。
-        - 收益: 战法对市场状态的感知更精确，避免了因S级信号的微小波动而错失机会。
-        """
-        # print("        -> [终极战法合成模块 V2.4 融合函数升级版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_series = pd.Series(False, index=df.index)
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 定义S级“黄金阵地” (Prime Setup) ---
-        is_prime_chip_structure = self._get_atomic_score(df, 'CHIP_SCORE_PRIME_OPPORTUNITY_S', 0.0) > 0.7
-        # 使用新的融合函数来生成“极致压缩”的判断条件
-        fused_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        is_extreme_squeeze = fused_compression_score > 0.9
-        has_energy_advantage = self._fuse_multi_level_scores(df, 'MECHANICS_BULLISH_RESONANCE') > 0.7
-        condition_sum = (
-            is_prime_chip_structure.astype(int) +
-            is_extreme_squeeze.astype(int) +
-            has_energy_advantage.astype(int)
-        )
-        setup_s_plus_plus = (condition_sum == 3)
-        states['SETUP_PRIME_STRUCTURE_S_PLUS_PLUS'] = setup_s_plus_plus
-        setup_s_plus = (condition_sum == 2)
-        states['SETUP_PRIME_STRUCTURE_S_PLUS'] = setup_s_plus
-        # --- 2. 获取S级“突破冲锋号” ---
-        ignition_resonance_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
-        trigger_prime_breakout_s = ignition_resonance_score > 0.6
-        # --- 3. 定义战略环境过滤器 ---
-        is_in_early_stage_today = atomic.get('CONTEXT_TREND_STAGE_EARLY', default_series)
-        # --- 4. 【终极裁定】生成王牌战法 (已注入战略智慧) ---
-        is_triggered_today = trigger_prime_breakout_s
-        was_setup_s_plus_plus_yesterday = setup_s_plus_plus.shift(1).fillna(False)
-        final_tactic_s_plus_plus = was_setup_s_plus_plus_yesterday & is_triggered_today & is_in_early_stage_today
-        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'] = final_tactic_s_plus_plus
-        was_setup_s_plus_yesterday = setup_s_plus.shift(1).fillna(False)
-        final_tactic_s_plus = was_setup_s_plus_yesterday & is_triggered_today & is_in_early_stage_today & ~final_tactic_s_plus_plus
-        states['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS'] = final_tactic_s_plus
-        # if final_tactic_s_plus_plus.any():
-        #     print(f"          -> [S++级王牌战法] 侦测到 {final_tactic_s_plus_plus.sum()} 次“终极结构突破”机会！")
-        # if final_tactic_s_plus.any():
-        #     print(f"          -> [S+级王牌战法] 侦测到 {final_tactic_s_plus.sum()} 次“次级结构突破”机会！")
-        return states
-
-    def _diagnose_pullback_tactics_matrix(self, df: pd.DataFrame, enhancements: Dict) -> Dict[str, pd.Series]:
-        """
-        【V7.4 信号源修复版】回踩战术诊断模块
-        - 核心升级: 为 S+ 级“巡航回踩确认”战法增加了“非上涨末期”的前置条件。
-        - 本次升级: [信号修复] 修复了对“蓄势突破”信号的引用。原信号 `STRUCTURAL_OPP_ACCUMULATION_BREAKOUT_S` 已失效，
-                      现已更新为消费逻辑最相近的 `STRUCTURE_MAIN_UPTREND_WAVE_S` 信号，以恢复对“初升浪”阶段的正确判断。
-        """
-        # print("        -> [回踩战术矩阵 V7.3 信号源更新版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        triggers = self.strategy.trigger_events
-        default_series = pd.Series(False, index=df.index)
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取核心情报  ---
-        # 战场环境
-        lookback_window = 15
-        ascent_start_event = atomic.get('STRUCTURE_MAIN_UPTREND_WAVE_S', default_series)
-        cruise_start_event = atomic.get('TACTIC_LOCK_CHIP_RECONCENTRATION_S_PLUS', default_series)
-        is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-        is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-        # 获取回踩分数阈值
-        p_pullback = get_params_block(self.strategy, 'pullback_tactics_params', {})
-        healthy_threshold = get_param_value(p_pullback.get('healthy_pullback_score_threshold'), 0.3)
-        suppressive_threshold = get_param_value(p_pullback.get('suppressive_pullback_score_threshold'), 0.3)
-        # 回踩性质 (昨日) - 使用数值分和阈值判断
-        was_healthy_pullback = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > healthy_threshold)
-        was_suppressive_pullback = (atomic.get('COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE_S', default_score).shift(1).fillna(0.0) > suppressive_threshold)
-        # 统一确认信号 (今日)
-        is_reversal_confirmed = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series)
-        #：获取“上涨末期”上下文状态
-        late_stage_score = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
-        # 从配置中读取此战法能容忍的最高风险分数
-        p_trend_stage = get_params_block(self.strategy, 'trend_stage_params', {})
-        max_score_for_pullback = get_param_value(p_trend_stage.get('pullback_s_plus_max_late_stage_score'), 50)
-        # 定义是否处于安全区域
-        is_in_safe_stage = late_stage_score < max_score_for_pullback
-        # --- 2. 【新范式】按优先级生成唯一的战术信号  ---
-        # 优先级 1 (S+++ 王牌): 巡航期 + 打压回踩(昨日) + 显性反转(今日) -> 经典的“黄金坑”V型反转
-        s_triple_plus_signal = is_in_cruise_window & was_suppressive_pullback & is_reversal_confirmed
-        states['TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS'] = s_triple_plus_signal
-        # 优先级 2 (S+): 巡航期 + 健康回踩(昨日) + 显性反转(今日) + 【非上涨末期】
-        s_plus_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & is_in_safe_stage & ~s_triple_plus_signal
-        states['TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS'] = s_plus_signal
-        # 优先级 3 (A+): 初升浪期 + 打压回踩(昨日) + 显性反转(今日)
-        a_plus_signal = is_in_ascent_window & was_suppressive_pullback & is_reversal_confirmed & ~is_in_cruise_window
-        states['TACTIC_ASCENT_PIT_REVERSAL_A_PLUS'] = a_plus_signal
-        # 优先级 4 (A): 初升浪期 + 健康回踩(昨日) + 显性反转(今日)
-        a_signal = is_in_ascent_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_cruise_window & ~a_plus_signal
-        states['TACTIC_ASCENT_PULLBACK_REVERSAL_A'] = a_signal
-        # --- 3. 打印日志 (适配新战法名称)  ---
-        tactic_name_map = {
-            "CRUISE_PIT_REVERSAL": "巡航黄金坑V反(王牌)",
-            "CRUISE_PULLBACK_REVERSAL": "巡航常规回踩确认",
-            "ASCENT_PIT_REVERSAL": "初升浪黄金坑V反",
-            "ASCENT_PULLBACK_REVERSAL": "初升浪常规回踩确认"
-        }
-        grade_map = {
-            "S_TRIPLE_PLUS": "S+++", "S_PLUS": "S+", "A_PLUS": "A+", "A": "A"
-        }
-        for name, series in states.items():
-            if series.any():
-                matched_grade_key = ""
-                for grade_key in sorted(grade_map.keys(), key=len, reverse=True):
-                    if name.endswith(f"_{grade_key}"):
-                        matched_grade_key = grade_key
-                        break
-                if matched_grade_key:
-                    tactic_key_part = name.replace("TACTIC_", "").replace(f"_{matched_grade_key}", "")
-                    cn_tactic = tactic_name_map.get(tactic_key_part, tactic_key_part)
-                    cn_grade = grade_map.get(matched_grade_key, "")
-                    print(f"          -> [{cn_grade}级战法] 侦测到 {series.sum()} 次“{cn_tactic}”机会！")
-                else:
-                    print(f"          -> [战法确认] 侦测到 {series.sum()} 次“{name}”机会！")
         return states
 
     def _create_pullback_decision_log(self, df: pd.DataFrame, enhancements: Dict) -> pd.DataFrame:
@@ -1508,96 +1210,6 @@ class CognitiveIntelligence:
         log_data['FINAL_A'] = final_a
         return pd.DataFrame(log_data)
 
-    def synthesize_advanced_tactics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.4 逻辑修复版】高级战法合成模块
-        - 核心职责: 合成那些需要复杂时序逻辑的高级战法。
-        - 本次升级: [修复] 新增对 `_diagnose_lock_chip_rally_tactic` 的调用，
-                    修复了“锁筹拉升”战法从未被执行的逻辑缺陷。
-        """
-        # print("        -> [高级战法合成模块 V1.4 逻辑修复版] 启动...") 
-        states = {}
-        # --- 战法1: 【战法S+】断层新生·主升浪 ---
-        states.update(self._diagnose_lock_chip_reconcentration_tactic(df))
-        states.update(self._diagnose_lock_chip_rally_tactic(df))
-        # --- 战法2: 【战法S+】断层新生·主升浪 (原战法1) ---
-        atomic = self.strategy.atomic_states
-        triggers = self.strategy.trigger_events
-        default_series = pd.Series(False, index=df.index)
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
-        total_weight = sum(weights.values())
-        # 更新对辅助函数的调用
-        capitulation_s = self._get_atomic_score(df, 'SCORE_CAPITULATION_BOTTOM_RESONANCE_S', 0.0)
-        capitulation_a = self._get_atomic_score(df, 'SCORE_CAPITULATION_BOTTOM_REVERSAL_A', 0.0)
-        capitulation_b = self._get_atomic_score(df, 'SCORE_CAPITULATION_BOTTOM_REVERSAL_B', 0.0)
-        fault_event_score = (capitulation_s * weights['S'] + capitulation_a * weights['A'] + capitulation_b * weights['B']) / total_weight
-        confirmation_trigger_score_arr = np.maximum(
-            triggers.get('TRIGGER_DOMINANT_REVERSAL', default_series).astype(float).values,
-            triggers.get('TRIGGER_CHIP_IGNITION', default_series).astype(float).values
-        )
-        confirmation_trigger_score = pd.Series(confirmation_trigger_score_arr, index=df.index)
-        main_uptrend_score = atomic.get('SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S', default_score)
-        fault_window_score = fault_event_score.rolling(window=3, min_periods=1).max()
-        final_tactic_score = (fault_window_score * confirmation_trigger_score * main_uptrend_score).astype(np.float32)
-        states['COGNITIVE_SCORE_FAULT_REBIRTH_ASCENT_S_PLUS'] = final_tactic_score
-        p_advanced = get_params_block(self.strategy, 'advanced_tactics_params', {})
-        final_signal_threshold = get_param_value(p_advanced.get('fault_rebirth_threshold'), 0.4)
-        final_signal = final_tactic_score > final_signal_threshold
-        states['TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS'] = final_signal
-        if final_signal.any():
-            print(f"          -> [S+级战法重构版] 侦测到 {final_signal.sum()} 次“断层新生·主升浪”机会！")
-        return states
-
-    def synthesize_squeeze_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.5 信号发布增强版】压缩突破战术剧本合成模块
-        - 本次升级 (V1.5):
-          - [信号发布] 将内部使用的 `vol_compression_score` 正式发布为
-                        `COGNITIVE_SCORE_VOL_COMPRESSION_FUSED` 原子状态，供其他模块消费。
-        - 收益: 解决了 PlaybookEngine 跨模块调用的架构问题，修复了因此引发的 AttributeError。
-        """
-        # print("        -> [压缩突破战术剧本合成模块 V1.5 信号发布增强版] 启动...")
-        states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 剧本1: S+级 - 极致压缩·暴力突破 (数值化) ---
-        # 战备分(昨日):
-        # 将对已废弃信号的引用，升级为消费融合后的多层次分数
-        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # ▼▼▼ 将融合后的分数发布为原子状态 ▼▼▼
-        states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = vol_compression_score.astype(np.float32)
-        # ▲▲▲ 新增结束 ▲▲▲
-        setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
-        # 确认分(今日):
-        trigger_explosive_breakout_score = atomic.get('SCORE_SQUEEZE_BREAKOUT_OPP_S', default_score)
-        # 最终剧本分:
-        score_s_plus = (setup_extreme_squeeze_score * trigger_explosive_breakout_score).astype(np.float32)
-        states['SCORE_PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = score_s_plus 
-        states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = score_s_plus > 0.7
-        # --- 剧本2: S级 - 突破前夜·决战冲锋 (数值化) ---
-        # 战备分(昨日):
-        platform_quality_score = atomic.get('SCORE_PLATFORM_QUALITY_S', default_score)
-        breakout_eve_score = (platform_quality_score * vol_compression_score)
-        setup_breakout_eve_score = breakout_eve_score.shift(1).fillna(0.0)
-        # 确认分(今日):
-        trigger_prime_breakout_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
-        # 最终剧本分:
-        score_s = (setup_breakout_eve_score * trigger_prime_breakout_score).astype(np.float32)
-        states['SCORE_PLAYBOOK_BREAKOUT_EVE_S'] = score_s
-        states['PLAYBOOK_BREAKOUT_EVE_S'] = score_s > 0.6
-        # --- 剧本3: A级 - 常规压缩·确认突破 (数值化) ---
-        # 战备分(昨日):
-        setup_normal_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
-        # 确认分(今日):
-        trigger_grinding_advance_score = atomic.get('COGNITIVE_SCORE_VOL_BREAKOUT_A', default_score)
-        trigger_any_breakout_score = np.maximum(trigger_explosive_breakout_score.values, trigger_grinding_advance_score.values) # 确保在numpy层面操作
-        # 最终剧本分 (注意：需要排除掉更高级别的S+剧本，保证信号互斥)
-        score_a = (setup_normal_squeeze_score * pd.Series(trigger_any_breakout_score, index=df.index)).astype(np.float32)
-        states['SCORE_PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = score_a
-        states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = (score_a > 0.5) & ~states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
-        return states
-
     def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.0 新增】行业-个股协同元融合引擎
@@ -1641,41 +1253,35 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 逻辑修正版】顶层认知总分合成模块
-        - 核心职责: 融合所有顶层的、跨领域的认知机会分与风险分。
-        - 本次升级:
-          - [逻辑修正] 新增对“早期动能点火”信号的合成与调用，以解决追高问题。
-          - [BUG修复] 将对“完美风暴”信号的引用从布尔型升级为数值化评分，
-                    确保最终总分能正确反映其强度。
+        【V2.1 均值回归扩充版】顶层认知总分合成模块
+        - 核心重构 (本次修改):
+          - [架构调整] 本方法现在作为总指挥，按逻辑顺序调用新拆分出的 `MicroBehaviorEngine` 和 `TacticEngine`。
+          - [职责净化] 移除了对具体微观行为和战术的直接计算，这些逻辑已下沉到新的子引擎中。
+          - [流程优化] 确保子引擎生成的信号能被后续的认知融合模块正确消费。
+          - [战术扩充] 新增对“均值回归”策略信号的合成调用。
         """
-        # print("        -> [顶层认知总分合成模块 V1.2 逻辑修正版] 启动...")
+        print("        -> [顶层认知总分合成模块 V2.1 均值回归扩充版] 启动...") # 代码修改：更新版本号
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 合成“早期动能点火”信号 ---
-        early_momentum_states = self.synthesize_early_momentum_ignition(df) # 调用早期动能诊断模块
-        states.update(early_momentum_states) # 将新信号加入states
-        # 调用“筹码共振-价格滞后”剧本诊断模块
-        chip_price_lag_states = self.synthesize_chip_price_lag_playbook(df)
-        states.update(chip_price_lag_states)
+        # --- 步骤 1: 调用微观行为引擎，生成深层行为模式信号 ---
+        micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
+        states.update(micro_behavior_states)
+        self.strategy.atomic_states.update(micro_behavior_states) # 关键：立即更新原子状态库，供后续模块使用
+        # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
+        tactic_states = self.tactic_engine.run_tactic_synthesis(df)
+        states.update(tactic_states)
+        self.strategy.atomic_states.update(tactic_states) # 关键：再次更新原子状态库
+        # --- 步骤 3: 执行本模块剩余的核心认知融合任务 ---
+        # 注意：这些方法现在可以消费由子引擎生成的、更丰富的信号
         industry_synergy_states = self.synthesize_industry_synergy_signals(df)
         states.update(industry_synergy_states)
-        # 调用“伪装散户吸筹”诊断引擎
-        deceptive_flow_states = self.diagnose_deceptive_retail_flow(df)
-        states.update(deceptive_flow_states)
-        # --- 运行微观结构动态诊断引擎 ---
-        microstructure_dynamic_states = self.synthesize_microstructure_dynamics(df)
-        states.update(microstructure_dynamic_states)
-        # --- 调用亢奋加速风险诊断引擎 ---
-        euphoric_risk_states = self.synthesize_euphoric_acceleration_risk(df)
-        states.update(euphoric_risk_states)
-        # --- 调用“大反转后期·共振初起”战术诊断引擎 ---
-        post_reversal_states = self.synthesize_post_reversal_resonance_tactic(df)
-        states.update(post_reversal_states)
-        # --- 调用“反转可靠性”诊断引擎 ---
-        reversal_reliability_states = self.synthesize_reversal_reliability_score(df)
-        states.update(reversal_reliability_states)
-        # --- 1. 汇总所有S级的“机会”类认知分数 ---
+        self.strategy.atomic_states.update(industry_synergy_states)
+        # 代码新增：调用新增的均值回归信号合成模块
+        mean_reversion_states = self.synthesize_mean_reversion_signals(df)
+        states.update(mean_reversion_states)
+        self.strategy.atomic_states.update(mean_reversion_states)
+        # --- 步骤 4: 汇总所有S级的“机会”类认知分数 ---
         bullish_scores = [
             atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score).values,
             atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score).values,
@@ -1685,302 +1291,64 @@ class CognitiveIntelligence:
             atomic.get('COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS', default_score).values,
             states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S', default_score).values,
             states.get('COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE', default_score).values,
-            states.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values, # “主力信念加强”机会信号
-            states.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score).values, # 逆向共振机会分
+            states.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values,
+            states.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score).values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-        # --- 2. 调用风险元融合模块 ---
+        # --- 步骤 5: 调用风险元融合模块，并汇总所有“风险”类认知分数 ---
         fused_risk_states = self.synthesize_fused_risk_scores(df)
-        states.update(fused_risk_states) # 将所有融合后的风险分（包括各维度分和总分）加入states
-        # --- 3. 更新顶层认知熊市总分 ---
-        # 直接使用融合后的风险总分作为顶层熊市分
-        # 注意：COGNITIVE_FUSED_RISK_SCORE 是加权后的分数，可能超过1，这里需要归一化或直接使用
-        # 暂时直接使用，下游计分系统需要能处理大于1的风险分
+        states.update(fused_risk_states)
         cognitive_bearish_score_series = states.get('COGNITIVE_FUSED_RISK_SCORE', default_score)
         industry_synergy_risk_score = states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK_S', default_score)
         microstructure_conviction_risk_score = states.get('COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING', default_score)
-        # “主导权向散户转移”风险信号
         microstructure_power_shift_risk_score = states.get('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', default_score)
-        # --- 将亢奋风险分加入最终风险总分的计算 ---
         euphoric_risk_score = states.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', default_score)
         final_bearish_score = np.maximum.reduce([
-            cognitive_bearish_score_series.values, 
+            cognitive_bearish_score_series.values,
             industry_synergy_risk_score.values,
             microstructure_conviction_risk_score.values,
             microstructure_power_shift_risk_score.values,
             euphoric_risk_score.values
         ])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(final_bearish_score, index=df.index, dtype=np.float32)
-        # --- 4. 更新原子状态库 ---
+        # --- 步骤 6: 更新原子状态库并返回 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [顶层认知总分合成模块 V1.2 风险源升级版] 计算完毕。") # 修改: 更新版本号
+        print("        -> [顶层认知总分合成模块 V2.1] 模块化重构完成。") # 代码修改：更新版本号
         return df
 
-    def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_mean_reversion_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 VPA增强版】伪装散户吸筹诊断引擎 (主力分单行为识别)
-        - 架构归属: 从 ChipIntelligence 迁移至 CognitiveIntelligence，因为它融合了筹码、资金、价格、量价四大维度。
-        - 核心增强: 新增对 VPA 效率的判断，形成四维交叉验证，极大提升信号置信度。
-        - 核心逻辑:
-          1. 资金流表象: 散户资金持续净流入。
-          2. 筹码结构结果: 筹码持续集中。
-          3. 价格环境: 股价波动被压制。
-          4. 量价效率佐证 (VPA): 成交量很大，但价格波动很小，证明交易未用于推升价格。
-        - 产出: SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S - 一个高置信度的、识别主力隐蔽吸筹的S级认知信号。
+        【V1.0 新增】均值回归网格交易策略信号合成模块
+        - 核心目标: 在识别出的震荡市中，捕捉价格触及统计下轨的买入机会。
+        - 核心逻辑: 机会分 = 震荡市环境 * 价格触及布林带下轨程度
+        - 产出信号: SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A - 一个A级的网格交易买入机会分。
         """
-        # print("        -> [伪装散户吸筹诊断引擎 V2.0 VPA增强版] 启动...")
+        print("        -> [均值回归信号合成模块 V1.0] 启动...")
         states = {}
-        p = get_params_block(self.strategy, 'deceptive_flow_params', {})
+        p = get_params_block(self.strategy, 'mean_reversion_grid_params', {})
         if not get_param_value(p.get('enabled'), True):
             return states
-        # --- 1. 军备检查 ---
-        required_cols = [
-            'retail_net_flow_consensus_D',      # 资金流表象
-            'SLOPE_5_concentration_90pct_D',    # 筹码结构结果
-            'SLOPE_5_close_D',                  # 价格环境
-            'VPA_EFFICIENCY_D'                  # 量价效率佐证 (VPA)
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"          -> [严重警告] 伪装散户吸筹诊断引擎缺少关键数据: {missing_cols}，模块已跳过！")
-            return states
-        # --- 2. 核心要素数值化 (归一化) ---
-        norm_window = get_param_value(p.get('norm_window'), 120)
-        # 条件1: 散户资金持续净流入 (值越大，分数越高)
-        retail_inflow_score = self._normalize_score(df['retail_net_flow_consensus_D'].clip(lower=0), norm_window, ascending=True)
-        # 条件2: 筹码集中度持续提升 (斜率为负且越小，分数越高)
-        chip_concentration_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
-        # 条件3: 价格波动被压制 (价格斜率的绝对值越小，分数越高)
-        price_suppression_score = self._normalize_score(df['SLOPE_5_close_D'].abs(), norm_window, ascending=False)
-        # 新增条件4: VPA效率低下 (VPA效率值越小，分数越高)
-        vpa_inefficiency_score = self._normalize_score(df['VPA_EFFICIENCY_D'], norm_window, ascending=False)
-        # --- 3. 融合生成最终信号 ---
-        # 四维交叉验证，只有当四个条件同时满足时，分数才会高
-        final_score = (
-            retail_inflow_score *
-            chip_concentration_score *
-            price_suppression_score *
-            vpa_inefficiency_score
-        ).astype(np.float32)
-        states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S'] = final_score
-        if (final_score > 0.85).any():
-             print(f"          -> [S级认知信号] 侦测到 {(final_score > 0.85).sum()} 次高度疑似“伪装散户吸筹”的博弈行为！")
-        print("        -> [伪装散户吸筹诊断引擎 V2.0] 计算完毕。")
+        # 1. 定义震荡市环境 (Context)
+        cyclical_regime_threshold = get_param_value(p.get('cyclical_regime_threshold'), 0.4)
+        trending_regime_threshold = get_param_value(p.get('trending_regime_threshold'), 0.45)
+        
+        is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > cyclical_regime_threshold
+        is_not_trending_regime = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT') < trending_regime_threshold
+        context_is_ranging_market = (is_cyclical_regime & is_not_trending_regime).astype(float)
+        states['CONTEXT_RANGING_MARKET'] = context_is_ranging_market.astype(np.float32)
+        # 2. 定义买入机会 (Buy Opportunity)
+        # BBP (布林带百分比) 是一个很好的指标。BBP < 0 意味着收盘价低于下轨。
+        bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index))
+        # 当价格低(BBP低)时，分数高。(1 - bbp) 将 [0, 1] 映射到 [1, 0]。我们将其裁剪以处理带外的价格。
+        buy_opportunity_score = (1 - bbp.clip(0, 1)).astype(np.float32)
+        states['SCORE_OPP_MEAN_REVERSION_BUY'] = buy_opportunity_score
+        # 3. 融合生成最终剧本分数
+        final_playbook_score = context_is_ranging_market * buy_opportunity_score
+        states['SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A'] = final_playbook_score.astype(np.float32)
+        print(f"          - [均值回归] 完成, 识别到 {(final_playbook_score > 0.5).sum()} 个潜在网格买点。")
         return states
 
-    def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.0 完全对称版】市场微观结构动态诊断引擎
-        - 核心升级 (本次修改):
-          - [对称实现] 补全了所有机会和风险的镜像信号，现在能同时诊断四种状态：
-            1. 机会：主导权向主力转移
-            2. 风险：主导权向散户转移 (新增)
-            3. 机会：主力信念在加强 (新增)
-            4. 风险：主力信念在瓦解
-        - 收益: 实现了对市场微观结构变化的完全对称、无死角的监控。
-        """
-        # print("        -> [市场微观结构动态诊断引擎 V2.0 完全对称版] 启动...") # 修改: 更新版本号
-        states = {}
-        norm_window = 120
-
-        # --- 1. 诊断“市场主导权”的转移方向 ---
-        # 机会: 主导权向主力转移 (交易颗粒度和集中度加速提升)
-        granularity_momentum_up = self._normalize_score(df.get('SLOPE_5_avg_order_value_D'), norm_window, ascending=True)
-        granularity_accel_up = self._normalize_score(df.get('ACCEL_5_avg_order_value_D'), norm_window, ascending=True)
-        dominance_momentum_up = self._normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), norm_window, ascending=True)
-        dominance_accel_up = self._normalize_score(df.get('ACCEL_5_trade_concentration_index_D'), norm_window, ascending=True)
-        power_shift_to_main_force_score = (
-            granularity_momentum_up * granularity_accel_up *
-            dominance_momentum_up * dominance_accel_up
-        ).astype(np.float32)
-        states['COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE'] = power_shift_to_main_force_score
-        # --- 风险的镜像信号 ---
-        # 风险: 主导权向散户转移 (交易颗粒度和集中度加速下降)
-        granularity_momentum_down = self._normalize_score(df.get('SLOPE_5_avg_order_value_D'), norm_window, ascending=False)
-        granularity_accel_down = self._normalize_score(df.get('ACCEL_5_avg_order_value_D'), norm_window, ascending=False)
-        dominance_momentum_down = self._normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), norm_window, ascending=False)
-        dominance_accel_down = self._normalize_score(df.get('ACCEL_5_trade_concentration_index_D'), norm_window, ascending=False)
-        power_shift_to_retail_risk = (
-            granularity_momentum_down * granularity_accel_down *
-            dominance_momentum_down * dominance_accel_down
-        ).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
-
-        # --- 2. 诊断“主力信念”的动态变化 ---
-        # 风险: 主力信念在瓦解 (信念比率加速下降)
-        conviction_momentum_weakening = self._normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), norm_window, ascending=False)
-        conviction_accel_weakening = self._normalize_score(df.get('ACCEL_5_main_force_conviction_ratio_D'), norm_window, ascending=False)
-        conviction_weakening_risk = (conviction_momentum_weakening * conviction_accel_weakening).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
-        # --- 机会的镜像信号 ---
-        # 机会: 主力信念在加强 (信念比率加速上升)
-        conviction_momentum_strengthening = self._normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), norm_window, ascending=True)
-        conviction_accel_strengthening = self._normalize_score(df.get('ACCEL_5_main_force_conviction_ratio_D'), norm_window, ascending=True)
-        conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_accel_strengthening).astype(np.float32)
-        states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
-
-        # print("        -> [市场微观结构动态诊断引擎 V2.0] 计算完毕。") # 修改: 更新版本号
-        return states
-
-    def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】亢奋加速风险诊断引擎 (Euphoric Acceleration Risk)
-        - 核心目标: 识别趋势末端的“高潮式”加速上涨，这是最危险的诱多陷阱。
-        - 核心逻辑: 风险 = 高乖离度 * 天量成交 * 巨幅振动 * 冲高回落
-        - 产出信号: COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION - 一个S级的顶层风险信号。
-        """
-        states = {}
-        p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
-        if not get_param_value(p_risk.get('enabled'), True):
-            return states
-
-        norm_window = get_param_value(p_risk.get('norm_window'), 120)
-        
-        # --- 1. 价格位置风险 (高乖离度) ---
-        # 使用 BIAS 指标量化价格与21日均线的偏离程度
-        bias_score = self._normalize_score(df['BIAS_21_D'].abs(), norm_window, ascending=True)
-
-        # --- 2. 成交量能级风险 (天量) ---
-        # 使用成交量与其60日均值的比率
-        volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
-        volume_spike_score = self._normalize_score(volume_ratio, norm_window, ascending=True)
-
-        # --- 3. 波动率风险 (巨幅振动) ---
-        # 使用 ATR 与收盘价的比率来衡量相对波动
-        atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
-        volatility_score = self._normalize_score(atr_ratio, norm_window, ascending=True)
-
-        # --- 4. K线形态风险 (冲高回落) ---
-        # 上影线占总振幅的比例
-        total_range = (df['high_D'] - df['low_D']).replace(0, 1e-9)
-        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
-        upper_shadow_ratio = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
-        # 直接使用上影线比例作为分数
-        upthrust_score = upper_shadow_ratio
-
-        # --- 5. 融合生成最终风险分 ---
-        # 几何平均值，要求所有风险同时存在
-        final_risk_score = (
-            bias_score * volume_spike_score * volatility_score * upthrust_score
-        )**(1/4)
-        
-        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
-        
-        # # 打印探针信息
-        # if (final_risk_score > 0.7).any():
-        #     high_risk_days = final_risk_score[final_risk_score > 0.7]
-        #     for date, score in high_risk_days.items():
-        #         print(f"  [探针-亢奋风险] 日期: {date.date()}, 侦测到亢奋加速风险! "
-        #               f"综合风险分: {score:.2f}, 乖离分: {bias_score.loc[date]:.2f}, "
-        #               f"量能分: {volume_spike_score.loc[date]:.2f}, 波动分: {volatility_score.loc[date]:.2f}, "
-        #               f"上影线分: {upthrust_score.loc[date]:.2f}")
-
-        return states
-
-    def synthesize_post_reversal_resonance_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】“大反转后期·共振初起”战术诊断引擎
-        - 核心目标: 捕捉股价深度下跌后，主力完成吸筹，趋势即将反转的“右侧确认”买点。
-        - 核心逻辑: 融合“深度价值区”、“股东换血”、“共振初起”三大核心要素。
-        - 产出信号: COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS - 一个高置信度的逆向交易机会分。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'post_reversal_resonance_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return states
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 第一幕：背景设定 - 深度价值区 (Deep Bottom Context) ---
-        # 价格位置分 (越低越好)
-        price_position_in_range = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RANGE', 1.0)
-        deep_bottom_context_score = 1.0 - price_position_in_range
-        # --- 第二幕：矛盾冲突 - 股东换血 (Shareholder Quality Improvement) ---
-        # 融合“真实吸筹”、“恐慌盘投降”、“主力信念加强”
-        shareholder_quality_score = np.maximum.reduce([
-            atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
-            atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
-            atomic.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values
-        ])
-        shareholder_quality_series = pd.Series(shareholder_quality_score, index=df.index)
-        # --- 第三幕：转折点火 - 共振初起 (Ignition Confirmation) ---
-        # 融合“下跌趋势企稳”、“波动率压缩”、“早期动能点火”
-        # 下跌趋势企稳 (55日均线斜率趋于平缓)
-        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), ascending=False)
-        # 波动率压缩
-        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # 早期动能点火
-        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        ignition_confirmation_score = (
-            downtrend_stabilizing_score * vol_compression_score * early_ignition_score
-        )
-        # --- 最终裁决：三幕剧同时上演 ---
-        final_tactic_score = (
-            deep_bottom_context_score *
-            shareholder_quality_series *
-            ignition_confirmation_score
-        ).astype(np.float32)
-        states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_tactic_score
-        if (final_tactic_score > 0.5).any():
-            print(f"  [探针-逆向共振] 侦测到 {(final_tactic_score > 0.5).sum()} 次“大反转后期·共振初起”机会！")
-        return states
-
-    def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 新增】反转可靠性诊断引擎 (Reversal Reliability Engine)
-        - 核心目标: 识别高可靠性的、从下跌到上涨的趋势转折点，避免在下跌中继中错误介入。
-        - 核心逻辑: 融合“深度价值区”、“股东优质换手”、“趋势企稳点火”三大核心要素。
-        - 产出信号: COGNITIVE_SCORE_REVERSAL_RELIABILITY - 一个S级的、代表反转可靠度的综合分数。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'reversal_reliability_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return states
-
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        norm_window = get_param_value(p.get('norm_window'), 120)
-
-        # --- 第一幕：深度价值区 (Deep Downtrend Context) ---
-        price_pos_yearly = self._normalize_score(df['close_D'], window=250, ascending=True)
-        deep_downtrend_score = 1.0 - price_pos_yearly # 价格在年内位置越低，分数越高
-        states['SCORE_CONTEXT_DEEP_DOWNTREND'] = deep_downtrend_score.astype(np.float32)
-
-        # --- 第二幕：股东优质换手 (Shareholder Quality Turnover) ---
-        # 融合“真实吸筹”、“恐慌盘投降”、“主力信念加强”
-        shareholder_turnover_score = np.maximum.reduce([
-            atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
-            atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
-            atomic.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values
-        ])
-        states['SCORE_SHAREHOLDER_TURNOVER'] = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
-
-        # --- 第三幕：趋势企稳与点火 (Stabilization & Ignition) ---
-        # 下跌趋势企稳 (55日均线斜率趋于平缓)
-        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False)
-        # 波动率由扩张转为压缩 (BBW斜率从正转负)
-        vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_TOP_RISK', default_score) # 注意：这里消费的是“扩张结束”的信号
-        # 早期动能点火
-        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        
-        stabilization_ignition_score = (
-            downtrend_stabilizing_score * vol_tipping_point_score * early_ignition_score
-        )
-        states['SCORE_STABILIZATION_IGNITION'] = stabilization_ignition_score.astype(np.float32)
-
-        # --- 最终裁决：三幕剧同时上演 ---
-        final_reliability_score = (
-            states['SCORE_CONTEXT_DEEP_DOWNTREND'] *
-            states['SCORE_SHAREHOLDER_TURNOVER'] *
-            states['SCORE_STABILIZATION_IGNITION']
-        ).astype(np.float32)
-
-        states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
-        
-        if (final_reliability_score > 0.3).any():
-            print(f"  [探针-反转可靠性] 侦测到 {(final_reliability_score > 0.3).sum()} 次高可靠性反转机会！")
-
-        return states
 
 
 

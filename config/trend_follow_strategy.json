@@ -591,6 +591,7 @@
             "PLAYBOOK_BOTTOM_REVERSAL_S": 400,
             "PLAYBOOK_BREAKOUT_EVE_S": 480,
             "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": 300,
+            "PLAYBOOK_MEAN_REVERSION_GRID_A": 280,
             "PLAYBOOK_HEALTHY_PULLBACK_A": 250,
             "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": 200,
             "PLAYBOOK_SHAKEOUT_REVERSAL_A": 200,
@@ -629,6 +630,18 @@
           }
         }
       },
+      "mean_reversion_grid_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】均值回归网格交易策略参数。",
+        "cyclical_regime_threshold": {
+          "value": 0.4,
+          "description": "FFT周期政权分数必须高于此阈值，才认为是震荡市。"
+        },
+        "trending_regime_threshold": {
+          "value": 0.45,
+          "description": "FFT趋势政权分数必须低于此阈值，才认为是震荡市。"
+        }
+      },
       "trigger_event_params": {
         "enabled": true,
         "说明": "【V234.0 最终净化版】触发事件引擎的参数配置。",
@@ -638,6 +651,7 @@
         "extreme_squeeze_s_plus": { "value": 0.7, "description": "【S+级】极致压缩突破剧本的触发阈值" },
         "breakout_eve_s": { "value": 0.6, "description": "【S级】突破前夜剧本的触发阈值" },
         "normal_squeeze_a": { "value": 0.5, "description": "【A级】常规压缩突破剧本的触发阈值" },
+        "mean_reversion_grid_buy_a_threshold": { "value": 0.8, "description": "【A级】均值回归网格买入剧本的触发阈值" },
         "prime_chip_ignition_s_plus_plus": { "value": 0.7, "description": "【S++级】黄金筹码持续点火剧本的触发阈值" },
         "reversal_confirmation_candle": {
           "enabled": true,

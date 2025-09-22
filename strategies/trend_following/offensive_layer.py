@@ -19,15 +19,12 @@ class OffensiveLayer:
           - [共振降权] “共振进攻分”的分数权重被全面下调，作为趋势中段的辅助加分项，而非决策主力。
         - 收益: 策略的核心逻辑与“买在分歧，卖在一致”的A股实战哲学深度对齐，旨在捕捉更安全、赔率更高的反转初期机会。
         """
-        print("        -> [进攻方案评估中心 V500.0 反转优先版] 启动...") # 修改: 更新版本号
+        # print("        -> [进攻方案评估中心 V500.0 反转优先版] 启动...") # 修改: 更新版本号
         df = self.strategy.df_indicators
-        atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
         scoring_params = get_params_block(self.strategy, 'four_layer_scoring_params')
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
-        
-        default_series = pd.Series(0.0, index=df.index)
         
         # --- 步骤 1: 【新增】计算“反转进攻分” (Reversal Offense Score) ---
         reversal_params = scoring_params.get('reversal_offense_scoring', {})
@@ -36,7 +33,6 @@ class OffensiveLayer:
             score_details_df,
             'REVERSAL_'
         )
-        
         # --- 步骤 2: 计算“共振进攻分” (Resonance Offense Score) ---
         # 注意：这里的权重已在配置文件中全面下调
         resonance_params = scoring_params.get('resonance_offense_scoring', {})
