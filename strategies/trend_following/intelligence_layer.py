@@ -105,10 +105,10 @@ class IntelligenceLayer:
         df = self.chip_intel.diagnose_fused_behavioral_chip_scores(df)
         df = self.chip_intel.diagnose_cross_validation_signals(df)
         # 在此阶段直接调用“真实吸筹”诊断，确保其产出的智能信号可被后续模块消费。
-        true_concentration_states = self.chip_intel._diagnose_true_concentration(df)
-        self.strategy.atomic_states.update(true_concentration_states)
+        accumulation_playbook_states = self.chip_intel.diagnose_accumulation_playbooks(df)
+        self.strategy.atomic_states.update(accumulation_playbook_states)
         # 将新生成的分数也合并回主DataFrame
-        for col, series in true_concentration_states.items():
+        for col, series in accumulation_playbook_states.items():
             if col not in df.columns:
                 df[col] = series
         # 更新原子状态，因为后续模块可能依赖这些新分数
