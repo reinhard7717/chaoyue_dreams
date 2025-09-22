@@ -282,79 +282,79 @@ class OffensiveLayer:
         
         return final_summaries
 
-def _calculate_weighted_score(self, signals_config: Dict, score_details_df: pd.DataFrame, prefix: str, special_multipliers: Dict = None) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        【V403.3 数据净化版】向量化加权分数计算辅助函数
-        - 核心修复 (本次修改):
-          - [数据净化] 修正了向 score_details_df 中写入列名的逻辑。现在写入的是原始信号名 (signal_name)，而不是带前缀的内部名称。
-        - 收益: 从根源上解决了下游模块无法识别带前缀信号名的问题，确保了 score_details_df 在整个系统中的格式一致性和可用性。
-        """
-        atomic_states = self.strategy.atomic_states
-        df_index = self.strategy.df_indicators.index
-        default_series = pd.Series(0.0, index=df_index)
-        
-        signal_names = []
-        score_weights = []
-        signal_series_list = []
-
-        # 步骤1: 收集所有有效的信号和权重
-        for signal_name, score in signals_config.items():
-            if signal_name.startswith("说明"):
-                continue
+    def _calculate_weighted_score(self, signals_config: Dict, score_details_df: pd.DataFrame, prefix: str, special_multipliers: Dict = None) -> Tuple[pd.Series, pd.DataFrame]:
+            """
+            【V403.3 数据净化版】向量化加权分数计算辅助函数
+            - 核心修复 (本次修改):
+            - [数据净化] 修正了向 score_details_df 中写入列名的逻辑。现在写入的是原始信号名 (signal_name)，而不是带前缀的内部名称。
+            - 收益: 从根源上解决了下游模块无法识别带前缀信号名的问题，确保了 score_details_df 在整个系统中的格式一致性和可用性。
+            """
+            atomic_states = self.strategy.atomic_states
+            df_index = self.strategy.df_indicators.index
+            default_series = pd.Series(0.0, index=df_index)
             
-            score_value = 0
-            if isinstance(score, dict):
-                # 如果值是一个字典，从中提取 'score' 键的值
-                score_value = score.get('score', 0)
-            elif isinstance(score, (int, float)):
-                # 如果值直接是数字，直接使用（兼容旧配置）
-                score_value = score
+            signal_names = []
+            score_weights = []
+            signal_series_list = []
 
-            # 根据信号来源获取Series
-            if prefix == 'TRIGGER_':
-                signal_series = self.strategy.trigger_events.get(signal_name, pd.Series(False, index=df_index))
-            elif prefix == 'PLAYBOOK_':
-                signal_series = self.strategy.playbook_states.get(signal_name, pd.Series(False, index=df_index))
-            else: # 默认为反转或共振信号
-                signal_series = atomic_states.get(signal_name, pd.Series(False, index=df_index))
+            # 步骤1: 收集所有有效的信号和权重
+            for signal_name, score in signals_config.items():
+                if signal_name.startswith("说明"):
+                    continue
+                
+                score_value = 0
+                if isinstance(score, dict):
+                    # 如果值是一个字典，从中提取 'score' 键的值
+                    score_value = score.get('score', 0)
+                elif isinstance(score, (int, float)):
+                    # 如果值直接是数字，直接使用（兼容旧配置）
+                    score_value = score
 
-            signal_names.append(signal_name)
-            score_weights.append(score_value)
-            signal_series_list.append(signal_series.astype(float))
+                # 根据信号来源获取Series
+                if prefix == 'TRIGGER_':
+                    signal_series = self.strategy.trigger_events.get(signal_name, pd.Series(False, index=df_index))
+                elif prefix == 'PLAYBOOK_':
+                    signal_series = self.strategy.playbook_states.get(signal_name, pd.Series(False, index=df_index))
+                else: # 默认为反转或共振信号
+                    signal_series = atomic_states.get(signal_name, pd.Series(False, index=df_index))
 
-        if not signal_series_list:
-            return default_series, score_details_df
+                signal_names.append(signal_name)
+                score_weights.append(score_value)
+                signal_series_list.append(signal_series.astype(float))
 
-        # 步骤2: 将Series列表转换为2D NumPy数组
-        signals_array = np.stack([s.values for s in signal_series_list], axis=0)
-        
-        # 步骤3: 应用特殊乘数（如底部反转惩罚）
-        weights_array = np.array(score_weights, dtype=np.float32).reshape(-1, 1)
-        if special_multipliers:
-            for multiplier_key, multiplier_series in special_multipliers.items():
-                for i, name in enumerate(signal_names):
-                    if multiplier_key in name:
-                        # 直接在NumPy层面应用乘数
-                        signals_array[i, :] *= multiplier_series.values
+            if not signal_series_list:
+                return default_series, score_details_df
 
-        # 步骤4: 向量化计算每个信号的贡献分数
-        bonus_amounts_array = signals_array * weights_array
-        
-        # 步骤5: 计算总分
-        total_score_array = np.sum(bonus_amounts_array, axis=0)
-        total_score_series = pd.Series(total_score_array, index=df_index)
+            # 步骤2: 将Series列表转换为2D NumPy数组
+            signals_array = np.stack([s.values for s in signal_series_list], axis=0)
+            
+            # 步骤3: 应用特殊乘数（如底部反转惩罚）
+            weights_array = np.array(score_weights, dtype=np.float32).reshape(-1, 1)
+            if special_multipliers:
+                for multiplier_key, multiplier_series in special_multipliers.items():
+                    for i, name in enumerate(signal_names):
+                        if multiplier_key in name:
+                            # 直接在NumPy层面应用乘数
+                            signals_array[i, :] *= multiplier_series.values
 
-        # 步骤6: 更新score_details_df (用于调试)
-        for i, signal_name in enumerate(signal_names):
-            # 只记录有贡献的信号，避免DataFrame过于稀疏
-            if np.any(bonus_amounts_array[i] > 0):
-                # 确保 score_details_df 中的列名是全系统可识别的标准名称
-                # 如果一个信号在多个计分引擎中都贡献了分数，这里会累加
-                if signal_name not in score_details_df.columns:
-                    score_details_df[signal_name] = 0.0
-                score_details_df[signal_name] += bonus_amounts_array[i]
-        
-        return total_score_series, score_details_df
+            # 步骤4: 向量化计算每个信号的贡献分数
+            bonus_amounts_array = signals_array * weights_array
+            
+            # 步骤5: 计算总分
+            total_score_array = np.sum(bonus_amounts_array, axis=0)
+            total_score_series = pd.Series(total_score_array, index=df_index)
+
+            # 步骤6: 更新score_details_df (用于调试)
+            for i, signal_name in enumerate(signal_names):
+                # 只记录有贡献的信号，避免DataFrame过于稀疏
+                if np.any(bonus_amounts_array[i] > 0):
+                    # 确保 score_details_df 中的列名是全系统可识别的标准名称
+                    # 如果一个信号在多个计分引擎中都贡献了分数，这里会累加
+                    if signal_name not in score_details_df.columns:
+                        score_details_df[signal_name] = 0.0
+                    score_details_df[signal_name] += bonus_amounts_array[i]
+            
+            return total_score_series, score_details_df
 
 
 
