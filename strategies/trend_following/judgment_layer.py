@@ -92,7 +92,7 @@ class JudgmentLayer:
         # 加载信号与中文名的映射字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         # 定义已知的前缀列表
-        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_']
+        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
 
         def process_details_df(details_df, prefix_list):
             """辅助函数，用于向量化处理一个分数详情DataFrame"""

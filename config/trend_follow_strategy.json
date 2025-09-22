@@ -531,14 +531,17 @@
       },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V500.0 反转优先版】计分体系。进攻逻辑被拆分为'反转'和'共振'两大引擎。",
-        
+        "说明": "【V500.0 反转优先版】计分体系。进攻逻辑被拆分为'反转'和'共振'两大引擎，并以反转为绝对核心。",
+
         "reversal_offense_scoring": {
           "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重，作为策略的核心进攻火力。",
           "positive_signals": {
             "说明_核心反转信号": "--- S++级核心反转信号 ---",
-            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": 1500, "说明_COGNITIVE_SCORE_REVERSAL_RELIABILITY": "【王牌信号】反转可靠性总分，直接乘以一个巨大权重，作为反转进攻的核心。",
-            
+            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": {
+              "score": 1500,
+              "description": "【王牌信号】反转可靠性总分，直接乘以一个巨大权重，作为反转进攻的核心。"
+            },
+
             "说明_辅助反转信号": "--- S/A级辅助反转信号 ---",
             "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": 400,
             "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": 500,
@@ -546,7 +549,8 @@
             "SCORE_CHIP_BOTTOM_REVERSAL_S": 250,
             "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S": 250,
             "SCORE_DYN_BOTTOM_REVERSAL_S": 250,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S": 200
+            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S": 200,
+            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S": 250
           }
         },
 
@@ -575,7 +579,26 @@
             "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": 720,
             "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": 650,
             "SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT": 750,
-            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680
+            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680,
+            "PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS": 500,
+            "PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS": 500,
+            "PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS": 450,
+            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 520,
+            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 600,
+            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 550,
+            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 500,
+            "PLAYBOOK_IGNITION_RESONANCE_S": 400,
+            "PLAYBOOK_BOTTOM_REVERSAL_S": 400,
+            "PLAYBOOK_BREAKOUT_EVE_S": 480,
+            "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": 300,
+            "PLAYBOOK_HEALTHY_PULLBACK_A": 250,
+            "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": 200,
+            "PLAYBOOK_SHAKEOUT_REVERSAL_A": 200,
+            "PLAYBOOK_CONSOLIDATION_BREAKOUT_A": 200,
+            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 220,
+            "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": 450,
+            "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 250,
+            "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 350
           }
         },
         
@@ -588,10 +611,22 @@
 
         "judgment_params": {
           "enabled": true,
-          "description": "【V3.0 风险优先版】",
-          "final_score_threshold": 400, "说明": "最终买入阈值可以适当提高，因为反转信号的基础分很高。",
-          "euphoria_attenuation_multiplier": 2.0,
-          "euphoria_veto_threshold": 0.85
+          "description": "【V3.0 风险优先版】引入风险对冲和一票否决机制。",
+          "final_score_threshold": {
+            "value": 400,
+            "description": "经过风险对冲后，买入信号所需的最低最终得分。由于反转信号基础分很高，此阈值可适当提高。"
+          },
+          "euphoria_attenuation_multiplier": {
+            "value": 2.0,
+            "description": "亢奋风险对进攻分的衰减乘数。最终进攻分 = 原始进攻分 * (1 - 亢奋风险分 * 此乘数)。值越高，衰减越剧烈。"
+          },
+          "euphoria_veto_threshold": {
+            "value": 0.85,
+            "description": "亢奋风险的一票否决阈值。当亢奋风险分超过此值时，动态战术动作将强制设为'AVOID'，禁止任何买入。"
+          },
+          "risk_overflow_threshold": {
+            "value": 500, "description": "总风险分超过此阈值，直接触发卖出信号（三道防线之二：风险溢出）。"
+          }
         }
       },
       "trigger_event_params": {
