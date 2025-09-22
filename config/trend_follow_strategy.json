@@ -362,6 +362,16 @@
         "trend_health_score_source": "SCORE_MA_HEALTH",
         "description_detail": "trend_health_score_source 定义了用于评估趋势背景质量的数值化信号源"
       },
+      "euphoric_risk_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】亢奋加速风险诊断引擎参数。",
+        "norm_window": 120,
+        "description_detail": "用于内部指标归一化的滚动窗口。"
+      },
+      "post_reversal_resonance_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】大反转后期·共振初起战术诊断引擎参数。"
+      },
       "lock_chip_rally_params": {
         "enabled": true,
         "description": "【V2.1 新增】锁筹拉升(巡航)战法的精细化控制参数。",
@@ -514,512 +524,74 @@
           "behavior": 0.2
         }
       },
+      "reversal_reliability_params": {
+        "enabled": true,
+        "description": "【V1.0 新增】反转可靠性诊断引擎参数。",
+        "norm_window": 120
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V338.0 战术剧本版】计分体系。进攻逻辑已全部移至此处。",
-        "contextual_setup_scoring": {
-          "说明": "【第一层：环境与战备分】对高质量的元融合信号和战备状态进行独立计分，构筑开仓的'地基'。",
+        "说明": "【V500.0 反转优先版】计分体系。进攻逻辑被拆分为'反转'和'共振'两大引擎。",
+        
+        "reversal_offense_scoring": {
+          "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重，作为策略的核心进攻火力。",
           "positive_signals": {
-            "说明_聪明钱": "--- S级聪明钱协同信号 ---",
-            "SMART_MONEY_SYNERGY_BUY_D": 400,
-            "SMART_MONEY_HM_COORDINATED_ATTACK_D": 250,
-            "SMART_MONEY_HM_NET_BUY_D": 100,
-            "SMART_MONEY_INST_NET_BUY_D": 150,
-            "说明_王牌战备": "--- S++级战备状态 ---",
-            "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS": 800,
-            "说明_认知层机会": "--- S/A级认知与融合机会 ---",
-            "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": 600,
-            "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S": 580,
-            "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": 750,
-            "COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE": 620,
-            "COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING": 700,
-            "COGNITIVE_FUSION_BULLISH_RESONANCE_S": 400,
-            "COGNITIVE_FUSION_BOTTOM_REVERSAL_S": 380,
-            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": 420,
+            "说明_核心反转信号": "--- S++级核心反转信号 ---",
+            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": 1500, "说明_COGNITIVE_SCORE_REVERSAL_RELIABILITY": "【王牌信号】反转可靠性总分，直接乘以一个巨大权重，作为反转进攻的核心。",
+            
+            "说明_辅助反转信号": "--- S/A级辅助反转信号 ---",
             "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": 400,
-            "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": 480,
-            "COGNITIVE_SCORE_CHIP_FUND_FLOW_ACCUMULATION_S": 300,
-            "COGNITIVE_SCORE_TREND_REGIME_IGNITION_S": 350,
-            "COGNITIVE_SCORE_VOL_BREAKOUT_S": 320,
-            "COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S": 350,
-            "COGNITIVE_SCORE_BEARISH_EXHAUSTION_OPP_S": 320,
-            "COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A": 200,
-            "COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A": 180,
-            "COGNITIVE_SCORE_OPP_GAP_SUPPORT_PULLBACK": 180,
-            "COGNITIVE_SCORE_OPP_FIB_REBOUND_CONFIRMED": 220,
-            "COGNITIVE_SCORE_OPP_PURE_MOMENTUM": 250,
-            "COGNITIVE_SCORE_TREND_FATIGUE_OPP": 280,
-            "COGNITIVE_SCORE_OPP_BOTTOM_REVERSAL": 300,
-            "说明_行为层机会": "--- S/A/B级行为层机会 ---",
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": 450,
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S": 400,
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_A": 300,
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_B": 200,
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS": 420,
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S": 380,
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_A": 280,
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_B": 180,
-            "SCORE_BOARD_EARTH_HEAVEN": 400,
-            "SCORE_SQUEEZE_SHAKEOUT": 220,
-            "说明_筹码层机会": "--- S/A/B级筹码层机会 ---",
-            "SCORE_CHIP_TRUE_ACCUMULATION": 500,
-            "SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL": 450,
-            "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": 400,
-            "SCORE_CHIP_BULLISH_RESONANCE_S": 320,
-            "SCORE_CHIP_BULLISH_RESONANCE_A": 240,
-            "SCORE_CHIP_BULLISH_RESONANCE_B": 150,
-            "SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS": 380,
-            "SCORE_CHIP_BOTTOM_REVERSAL_S": 300,
-            "SCORE_CHIP_BOTTOM_REVERSAL_A": 220,
-            "SCORE_CHIP_BOTTOM_REVERSAL_B": 140,
-            "SCORE_CHIP_PILLAR_CONTROL_STRUCTURE_HEALTH": 200,
-            "SCORE_CHIP_PILLAR_COST_STRUCTURE_HEALTH": 180,
-            "SCORE_CHIP_PILLAR_STRUCTURAL_STABILITY_HEALTH": 150,
-            "SCORE_CHIP_PILLAR_MTF_SYNERGY_HEALTH": 150,
-            "说明_资金流层机会": "--- S/A/B级资金流层机会 ---",
-            "SCORE_FF_BULLISH_RESONANCE_S_PLUS": 400,
-            "SCORE_FF_BULLISH_RESONANCE_S": 320,
-            "SCORE_FF_BULLISH_RESONANCE_A": 240,
-            "SCORE_FF_BULLISH_RESONANCE_B": 150,
-            "SCORE_FF_BOTTOM_REVERSAL_S_PLUS": 380,
-            "SCORE_FF_BOTTOM_REVERSAL_S": 300,
-            "SCORE_FF_BOTTOM_REVERSAL_A": 220,
-            "SCORE_FF_BOTTOM_REVERSAL_B": 140,
-            "说明_基础层机会": "--- S/A/B级基础层机会 ---",
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": 400,
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_S": 320,
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_A": 240,
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_B": 150,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS": 380,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S": 300,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_A": 220,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_B": 140,
-            "说明_力学层机会": "--- S/A/B级力学层机会 ---",
-            "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": 450,
-            "SCORE_DYN_BULLISH_RESONANCE_S": 400,
-            "SCORE_DYN_BULLISH_RESONANCE_A": 300,
-            "SCORE_DYN_BULLISH_RESONANCE_B": 200,
-            "SCORE_DYN_BOTTOM_REVERSAL_S_PLUS": 420,
-            "SCORE_DYN_BOTTOM_REVERSAL_S": 380,
-            "SCORE_DYN_BOTTOM_REVERSAL_A": 280,
-            "SCORE_DYN_BOTTOM_REVERSAL_B": 180,
-            "说明_结构层机会": "--- S/A/B级结构层机会 ---",
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": 400,
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_S": 320,
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_A": 240,
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_B": 150,
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS": 380,
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S": 300,
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_A": 220,
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_B": 140,
-            "SCORE_STRUCTURAL_ACCUMULATION_BREAKOUT_S": 380,
-            "SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S": 200,
-            "SCORE_STRUCTURE_FORTRESS_UPTREND_S_PLUS": 350,
-            "SCORE_SETUP_PRIME_STRUCTURE_S": 220,
-            "SCORE_FIB_REBOUND_S": 280,
-            "SCORE_FIB_REBOUND_A": 200,
-            "SCORE_FIB_REBOUND_B": 150,
-            "SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT_OPP_A": 180
+            "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": 500,
+            "SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL": 350,
+            "SCORE_CHIP_BOTTOM_REVERSAL_S": 250,
+            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S": 250,
+            "SCORE_DYN_BOTTOM_REVERSAL_S": 250,
+            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S": 200
           }
         },
-        "trigger_event_scoring": {
-          "说明": "【第二层：独立触发器加分】对强力触发事件本身进行加分，作为点火的催化剂。",
+
+        "resonance_offense_scoring": {
+          "说明": "【第二引擎：共振进攻分】全面下调共振信号的权重，使其回归“趋势中段助推器”的辅助角色，而非决策主力。",
           "positive_signals": {
-            "TRIGGER_SUSTAINED_IGNITION_S_PLUS": 400,
-            "TRIGGER_SUSTAINED_CHIP_IGNITION_S_PLUS": 350,
-            "TRIGGER_BOTTOM_REVERSAL_RESONANCE_S": 300,
-            "TRIGGER_DOMINANT_REVERSAL": 150,
-            "TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S": 150,
-            "TRIGGER_CLASSIC_PATTERN_BREAKOUT_S": 100,
-            "TRIGGER_SHAKEOUT_REVERSAL_A": 100,
-            "TRIGGER_CONSOLIDATION_BREAKOUT_A": 100
+            "说明_认知层共振": "--- 认知层共振信号 (权重已下调) ---",
+            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": 250,
+            "COGNITIVE_FUSION_BULLISH_RESONANCE_S": 200,
+            "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": 300,
+            "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": 150,
+            
+            "说明_各情报层共振": "--- 各情报层S+级共振信号 (权重已下调) ---",
+            "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": 180,
+            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": 180,
+            "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": 180,
+            "SCORE_FF_BULLISH_RESONANCE_S_PLUS": 180,
+            "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": 180,
+            "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": 150
           }
         },
+
         "playbook_synergy_scoring": {
-          "说明": "【第三层：剧本协同奖励分】当'战备'与'触发'完美结合时，给予额外的协同奖励分。",
+          "说明": "【剧本协同分】剧本权重保持不变，作为独立的战术加分项。",
           "positive_signals": {
-            "说明_潜伏剧本": "--- S级潜伏突破剧本 ---",
-            "SCORE_PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S": 580, "说明_新增": "为“筹码共振-价格滞后”这一高胜率潜伏剧本赋予高分。",
-            "说明_筹码剧本": "--- 筹码博弈剧本分，作为强力催化剂 ---",
-            "SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT": 550,
-            "SCORE_CHIP_PLAYBOOK_WASHOUT": 450,
-            "SCORE_CHIP_PLAYBOOK_ABSORPTION": 420,
-            "说明_王牌剧本": "--- S++/S+级王牌战法与剧本 ---",
-            "PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS": 500,
-            "PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS": 500,
-            "PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS": 450,
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 520,
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 600,
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 550,
-            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 500,
-            "说明_核心剧本": "--- S级核心战法与剧本 ---",
-            "PLAYBOOK_IGNITION_RESONANCE_S": 400,
-            "PLAYBOOK_BOTTOM_REVERSAL_S": 400,
-            "PLAYBOOK_BREAKOUT_EVE_S": 480,
-            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": 420,
-            "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": 400,
-            "说明_优势剧本": "--- A+/A级优势与战术剧本 ---",
-            "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": 300,
-            "PLAYBOOK_HEALTHY_PULLBACK_A": 250,
-            "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": 200,
-            "PLAYBOOK_SHAKEOUT_REVERSAL_A": 200,
-            "PLAYBOOK_CONSOLIDATION_BREAKOUT_A": 200,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 220,
-            "说明_回踩剧本": "--- 回踩确认剧本 ---",
-            "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": 450,
-            "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 250,
-            "说明_深度博弈剧本": "--- 深度资金博弈剧本 ---",
+            "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": 720,
+            "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": 650,
             "SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT": 750,
-            "SCORE_FF_PLAYBOOK_STEALTH_ACCUMULATION": 650,
-            "说明_新增回踩剧本": "--- 回踩确认剧本 ---",
-            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680,
-            "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 350
+            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680
           }
         },
-        "positional_momentum_params": {
-          "enabled": true,
-          "description": "【V500.0 新增】阵地优势动能诊断参数。用于识别阵地分本身的加速，是捕捉主升浪起点的核心。",
-          "min_acceleration_threshold": {
-            "value": 50,
-            "description": "阵地分的二阶导数（加速度）必须大于此值，才被认为是有效的“阵地优势加速”。单位是分数/天^2。"
-          }
-        },
-        "squeeze_shakeout_params": {
-          "说明": "【V506.4 新增】压缩区洗盘机会诊断参数",
-          "drop_threshold": -0.03,
-          "winner_inactive_threshold": 60.0
-        },
-        "dynamic_scoring": {
-          "说明": "【动能分】作为催化剂和加分项，分数权重次之。此部分保持不变，作为独立的加分模块。",
-          "min_positional_score_for_dynamic": {
-            "value": 400, "description": "【精英制胜核心】激活下方任何'动能分'所需的最低'地基分'。这确保了动能信号只作为'催化剂'而非'主力'。"
-          },
+        
+        "trigger_event_scoring": {
+          "说明": "【触发器加分】触发器作为点火信号，权重保持不变。",
           "positive_signals": {
-            "说明_早期动能": "--- A级早期动能信号 (核心加分项) ---",
-            "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A": 350, "说明_COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A": "早期动能点火信号，奖励“东风初起”的黄金时刻。",
-            "说明_独立原子动能": "--- 独立的、非共识的原子动能信号 ---",
-            "DYN_AGGRESSIVE_OFFENSE_A": 100,
-            "MECHANICS_ENERGY_ADVANTAGE": 80,
-            "DYN_TREND_HEALTHY_ACCELERATING": 120,
-            "CHIP_DYN_S_ACCEL_CONCENTRATING": 120,
-            "MECHANICS_CHIP_ACCUMULATION_MOMENTUM": 150,
-            "CHIP_DYN_HEALTH_IMPROVING": 100,
-            "CHIP_DYN_WINNER_PROFIT_MARGIN_RISING": 80,
-            "OPP_DYN_MARKET_ENGINE_IGNITION_A": 120,
-            "OPP_DYN_LONG_CYCLE_INFLECTION_A": 160,
-            "OPP_MTF_RSI_BULLISH_ALIGNMENT_A": 140,
-            "DYN_PRICE_VOLUME_RESONANCE_B": 150,
-            "COGNITIVE_SCORE_SYNERGISTIC_OFFENSE_S": 150,
-            "SCORE_VOL_PRICE_IGNITION_UP": 70
+            "TRIGGER_DOMINANT_REVERSAL": 150
           }
         },
-        "trend_stage_scoring_params": {
-          "enabled": true,
-          "description": "【V401.13 风险归因重构版】上涨末期风险评分权重。全面废弃旧信号，引入各情报层终极风险信号，实现精确归因。",
-          "weights": {
-            "说明_基础层风险": "--- 基础层风险 ---",
-            "SCORE_BIAS_OVERBOUGHT_EXTENT": 10,
-            "SCORE_MACD_BEARISH_CONFLUENCE_RISK": 10,
-            "SCORE_VOL_PRICE_PANIC_DOWN_RISK": 15,
-            "SCORE_VOL_EXPANSION_LEVEL": 13,
-            "说明_行为层风险": "--- 行为层风险 ---",
-            "SCORE_BEHAVIOR_PANIC_SELLING_RISK_S": 13,
-            "SCORE_BEHAVIOR_ENGINE_STALLING_RISK_S": 13,
-            "SCORE_BEHAVIOR_PANIC_SELLING_S": 13,
-            "SCORE_BEHAVIOR_ENGINE_STALLING_S": 13,
-            "说明_筹码层风险": "--- 筹码层风险 ---",
-            "SCORE_CHIP_BEARISH_RESONANCE_S": 18,
-            "SCORE_CHIP_TOP_REVERSAL_S": 15,
-            "CHIP_SCORE_FUSED_DECEPTIVE_RALLY": 18,
-            "SCORE_DIVERGENCE_STAGNATION_main_force_net_flow_consensus_5D": 15,
-            "SCORE_DIVERGENCE_EXHAUSTION_main_force_net_flow_consensus_5D": 15,
-            "SCORE_DIVERGENCE_STAGNATION_chip_health_score_5D": 15,
-            "SCORE_DIVERGENCE_EXHAUSTION_chip_health_score_5D": 15,
-            "SCORE_DIVERGENCE_STAGNATION_concentration_90pct_5D": 15,
-            "SCORE_DIVERGENCE_EXHAUSTION_concentration_90pct_D": 15,
-            "说明_结构层风险": "--- 结构层风险 ---",
-            "SCORE_STRUCTURE_BEARISH_RESONANCE_S": 18,
-            "SCORE_STRUCTURE_TOP_REVERSAL_S": 18,
-            "SCORE_MTF_PROFIT_CUSHION_EROSION_RISK_S": 13,
-            "SCORE_MTF_STRUCTURAL_WEAKNESS_RISK_S": 18,
-            "SCORE_MTF_BEARISH_RESONANCE_S": 18,
-            "说明_力学层风险": "--- 力学层风险 ---",
-            "SCORE_DYN_BEARISH_RESONANCE_S": 15,
-            "SCORE_DYN_TOP_REVERSAL_S": 18,
-            "SCORE_DYN_EXHAUSTION_DIVERGENCE_RISK_S": 15,
-            "说明_资金流风险": "--- 资金流风险 ---",
-            "SCORE_FF_BEARISH_RESONANCE_S": 18,
-            "SCORE_FF_TOP_REVERSAL_S": 15,
-            "说明_认知层风险": "--- 认知层风险(最高权重) ---",
-            "COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION": 20,
-            "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S": 25,
-            "COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S": 23,
-            "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S": 23,
-            "COGNITIVE_SCORE_TREND_FATIGUE_RISK": 15,
-            "SCORE_RISK_PRICE_DEVIATION_S": 15,
-            "SCORE_RISK_STRUCTURAL_FAULT_S": 20,
-            "COGNITIVE_SCORE_MULTI_DIMENSIONAL_DIVERGENCE_S": 15,
-            "COGNITIVE_SCORE_HOLD_RISK_HEALTH_STALLING": 13,
-            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": 22,
-            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": 20
-          }
-        },
-        "positional_acceleration_scoring": {
-          "enabled": true,
-          "description": "【V501.0 涡轮增压引擎】阵地优势加速度计分模块。这是策略的核心加分项，用于奖励基本盘正在加速改善的黄金机会。",
-          "score_multiplier": {
-            "value": 2.0,
-            "description": "阵地加速度的分数乘数。最终奖励分 = 阵地加速度 * 此乘数。例如，加速度为100，乘数为2.0，则奖励200分。"
-          },
-          "min_acceleration_for_bonus": {
-            "value": 50,
-            "description": "触发此项奖励所需的最小阵地加速度。用于过滤掉无意义的微小波动。"
-          }
-        },
-        "composite_scoring": {
-          "说明": "【战法分】作为锦上添花的强力共振信号。此部分保持不变，作为独立的复合规则计分。",
-          "rules": [
-            { "name": "TACTIC_EXHAUSTION_REVERSAL_S_PLUS", "score": 650, "all_of": ["OPP_BEHAVIOR_SELLING_EXHAUSTION_A", "TRIGGER_DOMINANT_REVERSAL"], "none_of": ["RISK_CHIP_STRUCTURE_CRITICAL_FAILURE"] },
-            { "name": "TACTIC_EARTH_HEAVEN_REVERSAL_S_PLUS", "score": 800, "all_of": ["BOARD_EVENT_EARTH_HEAVEN", "CHIP_DYN_CONCENTRATING"], "none_of": [] }
-          ]
-        },
-        "fused_risk_scoring": {
-          "enabled": true,
-          "description": "【V3.0 筹码认知升维版】风险元融合模块配置。",
-          "risk_categories": {
-            "说明": "【V3.0 重构】风险维度与筹码支柱和剧本一一对应，实现精确归因。",
-            "chip_control_risk": { "SCORE_CHIP_PILLAR_CONTROL_STRUCTURE_HEALTH": {"weight": 1.0, "inverse": true} },
-            "chip_sentiment_risk": { "SCORE_CHIP_PILLAR_HOLDER_SENTIMENT_HEALTH": {"weight": 1.0, "inverse": true} },
-            "chip_stability_risk": { "SCORE_CHIP_PILLAR_STRUCTURAL_STABILITY_HEALTH": {"weight": 1.0, "inverse": true} },
-            "chip_pressure_risk": { "SCORE_CHIP_PILLAR_PRESSURE_RISK_HEALTH": {"weight": 1.0, "inverse": true} },
-            "chip_playbook_risk": {
-                "SCORE_CHIP_PLAYBOOK_DISTRIBUTION": {"weight": 1.5, "inverse": false},
-                "SCORE_CHIP_FALSE_ACCUMULATION_RISK": {"weight": 1.8, "inverse": false, "description": "虚假集中(顶部派发)风险，权重更高"}
-            },
-            "behavioral_risk": { "BEHAVIOR_TOP_REVERSAL": {"weight": 1.0, "inverse": false, "fuse": true} },
-            "fund_flow_risk": { 
-                "FF_BEARISH_RESONANCE": {"weight": 1.0, "inverse": false, "fuse": true},
-                "SCORE_FF_RISK_TOP_DISTRIBUTION": {"weight": 1.8, "inverse": false, "description": "高位派发风险，权重极高"}
-            },
-            "structural_risk": { "STRUCTURE_BEARISH_RESONANCE": {"weight": 1.0, "inverse": false, "fuse": true} }
-          },
-          "dynamic_weighting_params": {
-            "enabled": true,
-            "description": "【动态风险加权】根据市场阶段动态调整各风险维度的权重。",
-            "base_weights": {
-              "chip_control_risk": 0.2,
-              "chip_sentiment_risk": 0.15,
-              "chip_stability_risk": 0.1,
-              "chip_pressure_risk": 0.1,
-              "chip_playbook_risk": 0.2,
-              "behavioral_risk": 0.1,
-              "fund_flow_risk": 0.05,
-              "structural_risk": 0.1
-            },
-            "context_adjustments": {
-              "description": "不同市场阶段的权重调整系数。",
-              "CONTEXT_TREND_STAGE_EARLY": {
-                "behavioral_risk": 0.5, "description": "上涨初期，洗盘等行为风险权重减半"
-              },
-              "CONTEXT_TREND_STAGE_LATE": {
-                "chip_risk": 1.5, "exhaustion_divergence_risk": 1.5, "description": "上涨末期，筹码和衰竭风险权重x1.5"
-              }
-            }
-          },
-          "resonance_penalty_params": {
-            "enabled": true,
-            "description": "【风险共振惩罚】当多个核心维度同时出现高风险时，施加额外惩罚。",
-            "core_risk_dimensions": ["structural_risk", "chip_risk", "behavioral_risk"],
-            "min_dimensions_for_resonance": 2,
-            "risk_score_threshold": 150,
-            "penalty_multiplier": 1.2,
-            "description_detail": "当核心维度中至少有2个的风险分超过150时，总风险分乘以1.2"
-          },
-          "intra_dimension_fusion_params": {
-            "enabled": true,
-            "description": "【维度内主次融合】融合维度内的主要和次要风险。",
-            "secondary_risk_discount_factor": 0.3,
-            "description_detail": "维度风险分 = 主要风险分 + 次要风险分 * 0.3"
-          }
-        },
-        "trend_quality_params": {
-          "enabled": true,
-          "description": "【V2.0 筹码支柱加权版】趋势质量融合评分模块配置。",
-          "domain_weights": {
-            "behavior": 0.15,
-            "chip": 0.35,
-            "fund_flow": 0.15,
-            "structural": 0.15,
-            "mechanics": 0.10,
-            "regime": 0.10
-          },
-          "chip_pillar_weights": {
-            "说明": "【V2.0 新增】定义各筹码支柱对趋势质量的贡献权重。",
-            "cost_structure": 0.25,
-            "control_structure": 0.30,
-            "holder_sentiment": 0.10,
-            "structural_stability": 0.15,
-            "pressure_risk": 0.05,
-            "chip_fault": 0.10,
-            "mtf_synergy": 0.05
-          }
-        },
-        "critical_exit_params": {
-          "enabled": true,
-          "description": "致命离场模块 (ExitLayer)。只关注最高级别的、需要立即行动的风险信号。",
-          "signals": {
-            "说明_S_PLUS": "--- S+级风险 (操纵与背叛) ---",
-            "RISK_HIGH_VOL_DIVERGENT_RALLY_S": 950,
-            "RISK_STATIC_DYN_COLLAPSE_S": 925,
-            "RISK_BEHAVIOR_PANIC_FLEEING_S": 900,
-            "RISK_BEHAVIOR_DECEPTIVE_RALLY_LONG_TERM_S": 850,
-            "RISK_STATIC_HIGH_ALTITUDE_MULTI_DIVERGENCE_S": 825,
-            "SCENARIO_HIGH_ALTITUDE_EVACUATION_S": 800,
-            "RISK_BEHAVIOR_WINNERS_FLEEING_S_PLUS": 750,
-            "BEHAVIOR_DECEPTIVE_RALLY_S": 750,
-            "RISK_PEAK_BATTLE_DISTRIBUTION_A": 650,
-            "BEHAVIOR_DECEPTIVE_RALLY_A": 600,
-            "说明_S": "--- S级风险 (结构性崩塌) ---",
-            "RISK_BEHAVIOR_WINNERS_FLEEING_A": 600,
-            "RISK_S_PLUS_CONFIRMED_DISTRIBUTION": 600,
-            "RISK_CHIP_PRICE_DIVERGENCE": 550,
-            "RISK_CONTEXT_LONG_TERM_DISTRIBUTION": 500,
-            "RISK_DYN_MARKET_ENGINE_STALLING_S": 975,
-            "RISK_DYN_PANIC_SELLING_ACCELERATING_S": 960,
-            "RISK_DYN_STRUCTURAL_WEAKNESS_RALLY_S": 950,
-            "RISK_MTF_RSI_BEARISH_DIVERGENCE_S": 940,
-            "RISK_STRUCTURE_OVEREXTENDED_LONG_TERM_S": 930,
-            "RISK_STRUCTURE_MTF_OVEREXTENDED_RESONANCE_S": 970,
-            "说明_新增": "--- 【V83.0 新增】将原硬编码的致命风险统一纳入配置 ---",
-            "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE": 600, "说明_新增1": "S级系统性风险，筹码结构严重失效，必须离场。",
-            "SCORE_STRUCTURE_TOPPING_DANGER_S": 500, "说明_新增2": "S级顶部危险结构形成，大概率是阶段性顶部。",
-            "说明_A_PLUS": "--- A+级风险 (分形与衰竭) ---",
-            "FRACTAL_RISK_TOP_DIVERGENCE": 400,
-            "FRACTAL_EVENT_TREND_EXHAUSTION": 250,
-            "说明_STRATEGIC": "--- 战略级风险 (周线) ---",
-            "CONTEXT_STRATEGIC_TOPPING_RISK_W": 400, "说明_新增3": "周线级别的战略顶部风险，必须规避。",
-            "CONTEXT_PSYCH_REJECTION_BEARISH_W": 200,
-            "CRITICAL_RISK_CHIP_LONG_TERM_DIVERGENCE_D": 750,
-            "CRITICAL_RISK_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D": 1000,
-            "RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S": 875
-          }
-        },
-        "trigger_events": {
-          "说明": "触发器计分部分。",
-          "scoring": {
-            "TRIGGER_PRIME_BREAKOUT_S": 150,
-            "TRIGGER_DOMINANT_REVERSAL": 50,
-            "FRACTAL_OPP_SQUEEZE_BREAKOUT_CONFIRMED": 200,
-            "FRACTAL_EVENT_TREND_FORMING": 100,
-            "KLINE_SHARP_DROP": 30
-          }
-        },
-        "strategic_context_scoring": {
-          "enabled": true,
-          "description": "【V1.0 新增】周线战略背景加分模块。用于奖励处于战略顺风期的日线信号。",
-          "bullish_bonus": {
-            "value": 200,
-            "description": "当周线战略分数 >= 5 时，提供的基础顺风奖励分。"
-          },
-          "ignition_bonus": {
-            "value": 100,
-            "description": "当周线处于'点火期'时，提供的额外奖励分。"
-          },
-          "trend_health_bonus": {
-            "value": 250,
-            "description": "【V4.0新增】当周线趋势被诊断为'健康强劲'时，提供的最高级别顺风奖励。"
-          },
-          "breakout_eve_bonus": {
-            "value": 150,
-            "description": "【V4.0新增】当股价处于52周高点附近（突破前夜）时，提供的机会奖励。"
-          },
-          "reversal_confirm_bonus": {
-            "value": 120,
-            "description": "【V4.0新增】当日线信号得到周线看涨K线反转形态确认时，提供的共振奖励。"
-          },
-          "long_term_chip_accumulation_bonus": {
-            "value": 150,
-            "description": "当长期日线筹码处于集中状态时，提供的战略加分。"
-          },
-          "long_term_chip_accel_accumulation_bonus": {
-            "value": 200,
-            "description": "当长期日线筹码处于加速集中状态时，提供的额外战略加分。"
-          },
-          "long_term_chip_health_improving_bonus": {
-            "value": 100,
-            "description": "当长期日线筹码健康度改善时，提供的战略加分。"
-          },
-          "long_term_chip_divergence_penalty": {
-            "value": -200,
-            "description": "当长期日线筹码处于发散状态时，施加的战略惩罚。"
-          },
-          "long_term_chip_accel_divergence_penalty": {
-            "value": -300,
-            "description": "当长期日线筹码处于加速发散状态时，施加的额外战略惩罚。"
-          }
-        },
-        "chip_context_scoring": {
-          "enabled": true,
-          "description": "【V1.0 新增】日线长周期(55日)筹码战略背景加分模块。用于奖励处于宏观战略顺风期的日线信号。",
-          "strategic_gathering_bonus": {
-            "value": 300,
-            "description": "当股票处于长达一个季度的“战略吸筹期”时，提供的强大顺风奖励分。"
-          }
-        },
+
         "judgment_params": {
           "enabled": true,
-          "description": "【V2.0 决策层】引入净得分和风险惩罚机制，大幅提升信号质量。",
-          "net_score_threshold_no_veto": {
-            "value": 800,
-            "description": "在没有任何否决票的情况下，买入信号所需的最低【净得分】(entry_score - risk_score)。"
-          },
-          "net_score_threshold_with_veto": {
-            "value": 1200,
-            "description": "在存在任何否决票的情况下，买入信号所需的最低【净得分】。门槛更高，用于惩罚风险。"
-          },
-          "risk_overflow_threshold": {
-            "value": 500, "description": "总风险分超过此阈值，直接触发卖出信号（三道防线之二：风险溢出）。"
-          },
-          "profit_protector": {
-            "enabled": false,
-            "max_drawdown_pct": 0.15
-          }
-        },
-        "positional_acceleration_hybrid_params": {
-            "enabled": false,
-            "description": "【V1.0 混合奖励模型】为阵地优势加速提供带“三重保险”和“奖励上限”的动态奖励。",
-            "min_base_score": {
-                "value": 400,
-                "description": "【保险一】触发奖励所需的前一日最低阵地分。"
-            },
-            "min_score_increase": {
-                "value": 150,
-                "description": "【保险二】触发奖励所需的单日最小阵地分增量。"
-            },
-            "score_multiplier": {
-                "value": 1.5,
-                "description": "加速度的奖励乘数。最终奖励分 = 加速度 * 此乘数。"
-            },
-            "max_bonus_score": {
-                "value": 800,
-                "description": "【保险三】单日加速度奖励的最高上限，防止极端情况。"
-            }
-        },
-        "industry_lifecycle_scoring_params": {
-          "enabled": true,
-          "description": "【V2.0 数值化版】行业生命周期评分与加权模块。",
-          "comment_sigmoid": "Sigmoid函数参数，用于将原始指标归一化到0-1之间。",
-          "slope_center": 0.01,
-          "slope_steepness": 200,
-          "accel_center": 0.001,
-          "accel_steepness": 1000,
-          "comment_weights": "定义各阶段分数在最终计算中的权重。",
-          "markup_weight": 1.0,
-          "preheat_weight": 0.8,
-          "stagnation_penalty_weight": 1.2,
-          "downtrend_penalty_weight": 1.5,
-          "bonus_multiplier": 400,
-          "penalty_multiplier": 600
+          "description": "【V3.0 风险优先版】",
+          "final_score_threshold": 400, "说明": "最终买入阈值可以适当提高，因为反转信号的基础分很高。",
+          "euphoria_attenuation_multiplier": 2.0,
+          "euphoria_veto_threshold": 0.85
         }
       },
       "trigger_event_params": {
@@ -1039,11 +611,27 @@
             "说明": "反转确认阳线的最小日涨幅。"
           }
         },
+        "post_reversal_resonance_s_plus_threshold": {
+          "value": 0.65,
+          "description": "【S++级】“大反转后期·共振初起”战术的触发阈值。"
+        },
         "dominant_reversal_candle": {
           "enabled": true,
           "recovery_ratio": {
             "value": 0.5,
             "说明": "显性反转阳线要求收复前一日阴线实体的最小比例。"
+          },
+          "position_filter_enabled": {
+            "value": true,
+            "description": "是否启用位置过滤器。启用后，只有在价格处于近期下半区时，此触发器才有效。"
+          },
+          "position_lookback_days": {
+            "value": 60,
+            "description": "计算价格位置分的回看周期（天）。"
+          },
+          "max_position_percentile": {
+            "value": 0.5,
+            "description": "价格位置分必须低于此分位数，触发器才有效。0.5代表必须在60日区间的下半区。"
           }
         },
         "breakout_candle": {

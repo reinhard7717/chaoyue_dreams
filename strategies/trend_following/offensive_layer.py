@@ -11,13 +11,15 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V403.1 向量化性能重构版】
-        - 核心优化 (本次修改):
-          - [性能重构] 彻底移除了所有用于计算分数的 for 循环，改为调用新增的、完全向量化的 `_calculate_weighted_score` 辅助函数。
-          - [效率提升] 将多个循环合并为少数几次高性能的NumPy矩阵运算，显著提升了计算效率，降低了内存分配开销。
-        - 业务逻辑: 保持与V403.0版本完全一致，仅重构实现方式。
+        【V500.0 哲学升维版 - 反转优先】
+        - 核心重构 (本次修改):
+          - [战略转移] 彻底重构计分体系，从“重视共振”转向“重视反转”。
+          - [双核驱动] 将进攻分拆分为“反转进攻分”和“共振进攻分”两个独立的引擎。
+          - [反转优先] “反转进攻分”由全新的“反转可靠性”超级信号驱动，并赋予极高权重。
+          - [共振降权] “共振进攻分”的分数权重被全面下调，作为趋势中段的辅助加分项，而非决策主力。
+        - 收益: 策略的核心逻辑与“买在分歧，卖在一致”的A股实战哲学深度对齐，旨在捕捉更安全、赔率更高的反转初期机会。
         """
-        # print("        -> [进攻方案评估中心 V403.1 向量化性能重构版] 启动...") # 代码修改：更新版本号
+        print("        -> [进攻方案评估中心 V500.0 反转优先版] 启动...") # 修改: 更新版本号
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         score_details_df = pd.DataFrame(index=df.index)
@@ -25,106 +27,50 @@ class OffensiveLayer:
         if not get_param_value(scoring_params.get('enabled'), True):
             return pd.Series(0.0, index=df.index), score_details_df
         
-        all_scores_components = []
         default_series = pd.Series(0.0, index=df.index)
         
-        # --- 步骤 1: 预计算特殊惩罚/奖励因子 ---
-        df['LOW_21_D'] = df['low_D'].rolling(21).min()
-        run_up_pct = (df['close_D'] - df['LOW_21_D']) / df['LOW_21_D']
-        max_run_up_pct_for_bottom_reversal = 0.15
-        bottom_reversal_penalty_multiplier = (1 - run_up_pct / max_run_up_pct_for_bottom_reversal).clip(lower=0, upper=1).fillna(1.0)
-        special_multipliers = {"BOTTOM_REVERSAL": bottom_reversal_penalty_multiplier}
-
-        # --- 步骤 2: 【代码修改】向量化计算第一层：环境与战备分 ---
-        context_params = scoring_params.get('contextual_setup_scoring', {})
-        context_score, score_details_df = self._calculate_weighted_score(
-            context_params.get('positive_signals', {}),
+        # --- 步骤 1: 【新增】计算“反转进攻分” (Reversal Offense Score) ---
+        reversal_params = scoring_params.get('reversal_offense_scoring', {})
+        reversal_score, score_details_df = self._calculate_weighted_score(
+            reversal_params.get('positive_signals', {}),
             score_details_df,
-            'SETUP_',
-            special_multipliers
+            'REVERSAL_'
         )
         
-        # --- NaN 探针与自我修复模块 (逻辑保持不变) ---
-        if context_score.isnull().any():
-            nan_mask = context_score.isnull()
-            nan_dates = context_score[nan_mask].index
-            print(f"  [严重警告-NaN探针] 在进攻层 'context_score' (SCORE_SETUP) 中检测到 {len(nan_dates)} 个 NaN 值！正在追溯源头...")
-            for nan_date in nan_dates:
-                culprit_signals = []
-                for col in score_details_df.columns:
-                    if col.startswith('SETUP_'):
-                        if pd.isna(score_details_df.at[nan_date, col]):
-                            culprit_signals.append(col.replace('SETUP_', ''))
-                if culprit_signals:
-                    print(f"    -> 日期: {nan_date.date()}, 罪魁祸首信号: {culprit_signals}。请检查这些信号的计算逻辑是否存在缺陷。")
-            print("  [自我修复] 已将所有 NaN 值填充为 0，继续执行...")
-            context_score.fillna(0, inplace=True)
-            score_details_df.fillna(0, inplace=True)
-
-        score_details_df['SCORE_SETUP'] = context_score
-        all_scores_components.append(context_score)
-        
-        # --- 步骤 3: 【代码修改】向量化计算第二层：触发器事件分 ---
-        trigger_params = scoring_params.get('trigger_event_scoring', {})
-        trigger_score, score_details_df = self._calculate_weighted_score(
-            trigger_params.get('positive_signals', {}),
+        # --- 步骤 2: 计算“共振进攻分” (Resonance Offense Score) ---
+        # 注意：这里的权重已在配置文件中全面下调
+        resonance_params = scoring_params.get('resonance_offense_scoring', {})
+        resonance_score, score_details_df = self._calculate_weighted_score(
+            resonance_params.get('positive_signals', {}),
             score_details_df,
-            'TRIGGER_'
+            'RESONANCE_'
         )
-        score_details_df['SCORE_TRIGGER'] = trigger_score
-        all_scores_components.append(trigger_score)
-        
-        # --- 步骤 4: 【代码修改】向量化计算第三层：剧本协同分 ---
+
+        # --- 步骤 3: 计算剧本、触发器等其他分数 (逻辑简化) ---
         playbook_params = scoring_params.get('playbook_synergy_scoring', {})
         playbook_score, score_details_df = self._calculate_weighted_score(
             playbook_params.get('positive_signals', {}),
             score_details_df,
             'PLAYBOOK_'
         )
+        
+        trigger_params = scoring_params.get('trigger_event_scoring', {})
+        trigger_score, score_details_df = self._calculate_weighted_score(
+            trigger_params.get('positive_signals', {}),
+            score_details_df,
+            'TRIGGER_'
+        )
+
+        # --- 步骤 4: 合成总进攻分 ---
+        # 总分 = 反转分 + 共振分 + 剧本分 + 触发器分
+        entry_score = (reversal_score + resonance_score + playbook_score + trigger_score).fillna(0).astype(int)
+        
+        # --- 记录各部分汇总分，便于调试 ---
+        score_details_df['SCORE_REVERSAL_OFFENSE'] = reversal_score
+        score_details_df['SCORE_RESONANCE_OFFENSE'] = resonance_score
         score_details_df['SCORE_PLAYBOOK_SYNERGY'] = playbook_score
-        all_scores_components.append(playbook_score)
-        
-        # --- 步骤 5: 计算其他奖励分 (这些模块已部分优化，保持现状) ---
-        strategic_bonus_score, score_details_df = self._apply_strategic_context_bonuses(score_details_df)
-        all_scores_components.append(strategic_bonus_score)
-        contextual_bonus_score, score_details_df = self._apply_contextual_bonus_score(score_details_df)
-        all_scores_components.append(contextual_bonus_score)
-        
-        # 行业分计算已是向量化，保持不变
-        industry_score = pd.Series(0.0, index=df.index)
-        industry_params = scoring_params.get('industry_lifecycle_scoring_params', {})
-        if get_param_value(industry_params.get('enabled'), True):
-            score_markup = atomic_states.get('SCORE_INDUSTRY_MARKUP', default_series)
-            score_preheat = atomic_states.get('SCORE_INDUSTRY_PREHEAT', default_series)
-            markup_weight = industry_params.get('markup_weight', 1.0)
-            preheat_weight = industry_params.get('preheat_weight', 0.8)
-            bonus_multiplier = industry_params.get('bonus_multiplier', 400)
-            positive_industry_factor = (score_markup * markup_weight + score_preheat * preheat_weight)
-            industry_bonus = positive_industry_factor * bonus_multiplier
-            if (industry_bonus > 1).any():
-                industry_score += industry_bonus
-                score_details_df["BONUS_INDUSTRY_LIFECYCLE"] = industry_bonus
-        all_scores_components.append(industry_score)
-        
-        # 【代码修改】向量化计算动态奖励分
-        dynamic_score = pd.Series(0.0, index=df.index)
-        dynamic_params = scoring_params.get('dynamic_scoring', {})
-        if get_param_value(dynamic_params.get('enabled'), True):
-            min_setup_score = get_param_value(dynamic_params.get('min_positional_score_for_dynamic'), 150)
-            can_add_dynamic_score = (context_score >= min_setup_score).astype(float)
-            
-            dyn_signals_config = dynamic_params.get('positive_signals', {})
-            dyn_score, score_details_df = self._calculate_weighted_score(
-                dyn_signals_config,
-                score_details_df,
-                'DYN_'
-            )
-            # 将动态奖励分与条件相乘
-            dynamic_score = dyn_score * can_add_dynamic_score
-        all_scores_components.append(dynamic_score)
-        
-        # --- 步骤 6: 合成总进攻分 ---
-        entry_score = sum(all_scores_components).fillna(0).astype(int)
+        score_details_df['SCORE_TRIGGER'] = trigger_score
+
         return entry_score, score_details_df.fillna(0)
 
     def _apply_strategic_context_bonuses(self, score_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:

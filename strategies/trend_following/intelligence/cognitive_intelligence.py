@@ -1666,6 +1666,15 @@ class CognitiveIntelligence:
         # --- 运行微观结构动态诊断引擎 ---
         microstructure_dynamic_states = self.synthesize_microstructure_dynamics(df)
         states.update(microstructure_dynamic_states)
+        # --- 调用亢奋加速风险诊断引擎 ---
+        euphoric_risk_states = self.synthesize_euphoric_acceleration_risk(df)
+        states.update(euphoric_risk_states)
+        # --- 调用“大反转后期·共振初起”战术诊断引擎 ---
+        post_reversal_states = self.synthesize_post_reversal_resonance_tactic(df)
+        states.update(post_reversal_states)
+        # --- 调用“反转可靠性”诊断引擎 ---
+        reversal_reliability_states = self.synthesize_reversal_reliability_score(df)
+        states.update(reversal_reliability_states)
         # --- 1. 汇总所有S级的“机会”类认知分数 ---
         bullish_scores = [
             atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score).values,
@@ -1677,6 +1686,7 @@ class CognitiveIntelligence:
             states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S', default_score).values,
             states.get('COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE', default_score).values,
             states.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values, # “主力信念加强”机会信号
+            states.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score).values, # 逆向共振机会分
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
@@ -1692,11 +1702,14 @@ class CognitiveIntelligence:
         microstructure_conviction_risk_score = states.get('COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING', default_score)
         # “主导权向散户转移”风险信号
         microstructure_power_shift_risk_score = states.get('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', default_score)
+        # --- 将亢奋风险分加入最终风险总分的计算 ---
+        euphoric_risk_score = states.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', default_score)
         final_bearish_score = np.maximum.reduce([
             cognitive_bearish_score_series.values, 
             industry_synergy_risk_score.values,
             microstructure_conviction_risk_score.values,
-            microstructure_power_shift_risk_score.values
+            microstructure_power_shift_risk_score.values,
+            euphoric_risk_score.values
         ])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(final_bearish_score, index=df.index, dtype=np.float32)
         # --- 4. 更新原子状态库 ---
@@ -1810,9 +1823,164 @@ class CognitiveIntelligence:
         # print("        -> [市场微观结构动态诊断引擎 V2.0] 计算完毕。") # 修改: 更新版本号
         return states
 
+    def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】亢奋加速风险诊断引擎 (Euphoric Acceleration Risk)
+        - 核心目标: 识别趋势末端的“高潮式”加速上涨，这是最危险的诱多陷阱。
+        - 核心逻辑: 风险 = 高乖离度 * 天量成交 * 巨幅振动 * 冲高回落
+        - 产出信号: COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION - 一个S级的顶层风险信号。
+        """
+        states = {}
+        p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
+        if not get_param_value(p_risk.get('enabled'), True):
+            return states
 
+        norm_window = get_param_value(p_risk.get('norm_window'), 120)
+        
+        # --- 1. 价格位置风险 (高乖离度) ---
+        # 使用 BIAS 指标量化价格与21日均线的偏离程度
+        bias_score = self._normalize_score(df['BIAS_21_D'].abs(), norm_window, ascending=True)
 
+        # --- 2. 成交量能级风险 (天量) ---
+        # 使用成交量与其60日均值的比率
+        volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
+        volume_spike_score = self._normalize_score(volume_ratio, norm_window, ascending=True)
 
+        # --- 3. 波动率风险 (巨幅振动) ---
+        # 使用 ATR 与收盘价的比率来衡量相对波动
+        atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
+        volatility_score = self._normalize_score(atr_ratio, norm_window, ascending=True)
+
+        # --- 4. K线形态风险 (冲高回落) ---
+        # 上影线占总振幅的比例
+        total_range = (df['high_D'] - df['low_D']).replace(0, 1e-9)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
+        upper_shadow_ratio = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
+        # 直接使用上影线比例作为分数
+        upthrust_score = upper_shadow_ratio
+
+        # --- 5. 融合生成最终风险分 ---
+        # 几何平均值，要求所有风险同时存在
+        final_risk_score = (
+            bias_score * volume_spike_score * volatility_score * upthrust_score
+        )**(1/4)
+        
+        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
+        
+        # 打印探针信息
+        if (final_risk_score > 0.7).any():
+            high_risk_days = final_risk_score[final_risk_score > 0.7]
+            for date, score in high_risk_days.items():
+                print(f"  [探针-亢奋风险] 日期: {date.date()}, 侦测到亢奋加速风险! "
+                      f"综合风险分: {score:.2f}, 乖离分: {bias_score.loc[date]:.2f}, "
+                      f"量能分: {volume_spike_score.loc[date]:.2f}, 波动分: {volatility_score.loc[date]:.2f}, "
+                      f"上影线分: {upthrust_score.loc[date]:.2f}")
+
+        return states
+
+    def synthesize_post_reversal_resonance_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】“大反转后期·共振初起”战术诊断引擎
+        - 核心目标: 捕捉股价深度下跌后，主力完成吸筹，趋势即将反转的“右侧确认”买点。
+        - 核心逻辑: 融合“深度价值区”、“股东换血”、“共振初起”三大核心要素。
+        - 产出信号: COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS - 一个高置信度的逆向交易机会分。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'post_reversal_resonance_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 第一幕：背景设定 - 深度价值区 (Deep Bottom Context) ---
+        # 价格位置分 (越低越好)
+        price_position_in_range = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RANGE', 1.0)
+        deep_bottom_context_score = 1.0 - price_position_in_range
+        # --- 第二幕：矛盾冲突 - 股东换血 (Shareholder Quality Improvement) ---
+        # 融合“真实吸筹”、“恐慌盘投降”、“主力信念加强”
+        shareholder_quality_score = np.maximum.reduce([
+            atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
+            atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
+            atomic.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values
+        ])
+        shareholder_quality_series = pd.Series(shareholder_quality_score, index=df.index)
+        # --- 第三幕：转折点火 - 共振初起 (Ignition Confirmation) ---
+        # 融合“下跌趋势企稳”、“波动率压缩”、“早期动能点火”
+        # 下跌趋势企稳 (55日均线斜率趋于平缓)
+        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), ascending=False)
+        # 波动率压缩
+        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        # 早期动能点火
+        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
+        ignition_confirmation_score = (
+            downtrend_stabilizing_score * vol_compression_score * early_ignition_score
+        )
+        # --- 最终裁决：三幕剧同时上演 ---
+        final_tactic_score = (
+            deep_bottom_context_score *
+            shareholder_quality_series *
+            ignition_confirmation_score
+        ).astype(np.float32)
+        states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_tactic_score
+        if (final_tactic_score > 0.5).any():
+            print(f"  [探针-逆向共振] 侦测到 {(final_tactic_score > 0.5).sum()} 次“大反转后期·共振初起”机会！")
+        return states
+
+    def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】反转可靠性诊断引擎 (Reversal Reliability Engine)
+        - 核心目标: 识别高可靠性的、从下跌到上涨的趋势转折点，避免在下跌中继中错误介入。
+        - 核心逻辑: 融合“深度价值区”、“股东优质换手”、“趋势企稳点火”三大核心要素。
+        - 产出信号: COGNITIVE_SCORE_REVERSAL_RELIABILITY - 一个S级的、代表反转可靠度的综合分数。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'reversal_reliability_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        norm_window = get_param_value(p.get('norm_window'), 120)
+
+        # --- 第一幕：深度价值区 (Deep Downtrend Context) ---
+        price_pos_yearly = self._normalize_score(df['close_D'], window=250, ascending=True)
+        deep_downtrend_score = 1.0 - price_pos_yearly # 价格在年内位置越低，分数越高
+        states['SCORE_CONTEXT_DEEP_DOWNTREND'] = deep_downtrend_score.astype(np.float32)
+
+        # --- 第二幕：股东优质换手 (Shareholder Quality Turnover) ---
+        # 融合“真实吸筹”、“恐慌盘投降”、“主力信念加强”
+        shareholder_turnover_score = np.maximum.reduce([
+            atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
+            atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
+            atomic.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values
+        ])
+        states['SCORE_SHAREHOLDER_TURNOVER'] = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
+
+        # --- 第三幕：趋势企稳与点火 (Stabilization & Ignition) ---
+        # 下跌趋势企稳 (55日均线斜率趋于平缓)
+        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False)
+        # 波动率由扩张转为压缩 (BBW斜率从正转负)
+        vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_TOP_RISK', default_score) # 注意：这里消费的是“扩张结束”的信号
+        # 早期动能点火
+        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
+        
+        stabilization_ignition_score = (
+            downtrend_stabilizing_score * vol_tipping_point_score * early_ignition_score
+        )
+        states['SCORE_STABILIZATION_IGNITION'] = stabilization_ignition_score.astype(np.float32)
+
+        # --- 最终裁决：三幕剧同时上演 ---
+        final_reliability_score = (
+            states['SCORE_CONTEXT_DEEP_DOWNTREND'] *
+            states['SCORE_SHAREHOLDER_TURNOVER'] *
+            states['SCORE_STABILIZATION_IGNITION']
+        ).astype(np.float32)
+
+        states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
+        
+        if (final_reliability_score > 0.3).any():
+            print(f"  [探针-反转可靠性] 侦测到 {(final_reliability_score > 0.3).sum()} 次高可靠性反转机会！")
+
+        return states
 
 
 

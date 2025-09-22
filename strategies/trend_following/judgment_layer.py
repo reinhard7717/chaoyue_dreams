@@ -8,6 +8,53 @@ class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
+    def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
+        """
+        【V503.0 风险优先版】
+        - 核心架构升级: 引入“风险对冲”和“一票否决”机制，打破线性的分数加减模型。
+        - 决策逻辑升级:
+          1. 【风险对冲】: 最终得分 = 进攻分 * (1 - 亢奋风险衰减因子) - 其他风险惩罚分。
+          2. 【一票否决】: 当亢奋风险超过临界值时，动态战术动作强制设为'AVOID'。
+        - 收益: 从根本上解决了“亢奋共振”陷阱，使策略在市场顶部具备强大的自我保护能力。
+        """
+        # print("    --- [最高作战指挥部 V503.0 风险优先版] 启动... ---") # 修改: 更新版本号
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        
+        # --- 步骤 1: 计算风险惩罚分 ---
+        df['risk_penalty_score'] = 0.0
+        self._calculate_risk_penalty_score()
+
+        # --- 步骤 2: 获取亢奋风险并计算衰减因子 ---
+        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
+        
+        # 衰减因子：当亢奋风险为0时，衰减为0；当亢奋风险为1时，衰减为1。
+        # 增加一个乘数，比如2.0，让衰减更剧烈。
+        attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
+
+        # --- 步骤 3: 获取动态战术动作，并应用“一票否决” ---
+        df['dynamic_action'] = self._get_dynamic_combat_action()
+        # 一票否决：当亢奋风险超过临界值时，强制规避
+        euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
+        df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
+
+        # --- 步骤 4: 计算最终得分 (应用风险对冲) ---
+        df['final_score'] = df['entry_score'] * (1 - attenuation_factor) - df['risk_penalty_score']
+        
+        # --- 步骤 5: 最终决策 ---
+        final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
+        is_score_sufficient = df['final_score'] > final_score_threshold
+        not_avoid = df['dynamic_action'] != 'AVOID'
+        final_buy_condition = is_score_sufficient & not_avoid
+        
+        df['signal_type'] = '无信号'
+        df.loc[final_buy_condition, 'signal_type'] = '买入信号'
+        
+        # --- 步骤 6: 生成报告与清理 ---
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
+        self._finalize_signals()
+
     def _evaluate_holding_health(self, score_details_df: pd.DataFrame, risk_score_df: pd.DataFrame):
         """
         【V400.0 健康报告总汇版】【代码优化】
@@ -51,45 +98,36 @@ class JudgmentLayer:
             """辅助函数，用于向量化处理一个分数详情DataFrame"""
             if details_df.empty:
                 return pd.Series(dtype=object)
-            
             # 1. 宽表转长表，并过滤无效分数
             # ignore_index=False 保留原始索引，reset_index() 将其转换为列
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             long_df = long_df[long_df['score'] > 0].copy()
             if long_df.empty:
                 return pd.Series(dtype=object)
-
             # 动态获取由 reset_index() 生成的日期列的名称。
             # 这使得代码不再依赖于 'index' 这个不确定的默认名称，从而修复了KeyError。
             date_col_name = long_df.columns[0]
             # print(f"调试信息: process_details_df 中动态获取的日期列名为: '{date_col_name}'")
-
             # 2. 向量化剥离前缀
             long_df['base_signal'] = long_df['signal']
             for prefix in prefix_list:
                 long_df['base_signal'] = long_df['base_signal'].str.removeprefix(prefix)
-
             # 3. 向量化映射中文名
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
             long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
-            
             # 4. 向量化生成摘要字符串
             long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
-            
             # 5. 按日期分组并聚合为列表
             # 使用动态获取的日期列名进行分组。
             return long_df.groupby(date_col_name)['summary_str'].apply(list)
-
         # --- 调用向量化辅助函数处理进攻和风险信号 ---
         offense_summaries = process_details_df(score_details_df, prefixes_to_strip)
         risk_summaries = process_details_df(risk_details_df, []) # 风险信号通常没有前缀
-
         # 合并进攻和风险摘要
         summary_df = pd.DataFrame({
             'offense': offense_summaries,
             'risk': risk_summaries
         }).reindex(self.strategy.df_indicators.index) # 确保索引与主DataFrame对齐
-
         # 将两列转换为最终的字典格式
         # .apply 在这里是最高效的方式，因为它操作的是已经聚合好的小数据
         final_summaries = summary_df.apply(
@@ -99,39 +137,7 @@ class JudgmentLayer:
             },
             axis=1
         )
-        
         return final_summaries
-
-    def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
-        """
-        【V502.1 职责净化版】
-        - 核心架构升级: 废除“否决票”机制，采用“风险惩罚分”模型。
-        - 决策逻辑简化: 最终决策逻辑简化为 `最终得分 = 进攻分 - 风险惩罚分`。
-        - 职责净化: 移除了对 `_generate_exit_triggers` 的调用，硬性离场决策完全交由上层模块处理。
-        """
-        # print("    --- [最高作战指挥部 V502.1 职责净化版] 启动... ---")
-        df = self.strategy.df_indicators
-        
-        df['risk_penalty_score'] = 0.0
-        self._calculate_risk_penalty_score()
-
-        df['signal_type'] = '无信号'
-        df['dynamic_action'] = 'HOLD'
-        self._evaluate_holding_health(score_details_df, risk_details_df)
-        df['dynamic_action'] = self._get_dynamic_combat_action()
-        # --- 买入决策核心逻辑 (纯数值化) ---
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 300)
-        df['final_score'] = df['entry_score'] - df['risk_penalty_score']
-        is_score_sufficient = df['final_score'] > final_score_threshold
-        not_avoid = df['dynamic_action'] != 'AVOID'
-        final_buy_condition = (
-            is_score_sufficient &
-            not_avoid
-        )
-        df.loc[final_buy_condition, 'signal_type'] = '买入信号'
-        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
-        self._finalize_signals()
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
@@ -227,6 +233,8 @@ class JudgmentLayer:
         # --- 风险6: 微观结构风险 (权重: 250-280) ---
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL') * 280
         df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING') * 250
+        # --- 风险7: 亢奋加速风险 (权重: 350) ---
+        df['risk_penalty_score'] += get_clipped_score('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION') * 350
         # --- 风险18: 行业生命周期风险 (权重由配置决定) ---
         industry_params = get_params_block(self.strategy, 'four_layer_scoring_params', {}).get('industry_lifecycle_scoring_params', {})
         if industry_params.get('enabled', False):

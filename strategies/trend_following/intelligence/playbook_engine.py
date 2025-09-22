@@ -36,6 +36,12 @@ class PlaybookEngine:
                 'trigger': ['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'],
                 'comment': 'S++级(王牌) - [信念突破] 由资金流情报部门直接确认的、核心主力带头、买盘形成碾压的最高质量突破。'
             },
+            # 大反转后期·共振初起 (逆向王牌)
+            {
+                'name': 'PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS',
+                'trigger': ['TRIGGER_POST_REVERSAL_RESONANCE_S_PLUS'],
+                'comment': 'S++级(逆向王牌) - [大反转后期·共振初起] 在股价深度下跌、主力完成吸筹后，由趋势企稳和早期动能确认的、最安全的左侧转右侧买点。'
+            },
             # --- 优化“筹码共振-价格滞后”剧本 ---
             {
                 'name': 'PLAYBOOK_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S',
@@ -177,6 +183,7 @@ class PlaybookEngine:
             'conviction_breakout_s_plus': get_param_value(p_triggers.get('conviction_breakout_s_plus_threshold'), 0.7),
             'true_accumulation_breakout_s_plus': get_param_value(p_triggers.get('true_accumulation_breakout_s_plus_threshold'), 0.6),
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
+            'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
         }
         # --- 2. 定义基础触发器 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
@@ -187,10 +194,22 @@ class PlaybookEngine:
         was_yesterday_red = df['close_D'].shift(1) < df['open_D'].shift(1)
         recovery_ratio = get_param_value(p_dominant.get('recovery_ratio'), 0.5)
         is_power_recovered = today_body_size >= (yesterday_body_size * recovery_ratio)
-        triggers['TRIGGER_DOMINANT_REVERSAL'] = is_green & is_strong_rally & (~was_yesterday_red | is_power_recovered)
+        
+        base_reversal_condition = is_green & is_strong_rally & (~was_yesterday_red | is_power_recovered)
+        
+        if get_param_value(p_dominant.get('position_filter_enabled'), True):
+            lookback = get_param_value(p_dominant.get('position_lookback_days'), 60)
+            max_percentile = get_param_value(p_dominant.get('max_position_percentile'), 0.5)
+            rolling_high = df['high_D'].rolling(lookback).max()
+            rolling_low = df['low_D'].rolling(lookback).min()
+            price_range = (rolling_high - rolling_low).replace(0, 1e-9)
+            price_position = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
+            is_in_bottom_zone = price_position < max_percentile
+            triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_condition & is_in_bottom_zone
+        else:
+            triggers['TRIGGER_DOMINANT_REVERSAL'] = base_reversal_condition
         
         # --- 3. 定义元融合与战术场景触发器 ---
-        
         # --- 为新剧本定义触发器 ---
         # 触发器: 真实吸筹突破 (S++)
         # 逻辑: 昨日处于“真实吸筹”状态，今日由“多域点火共振”确认
@@ -208,6 +227,9 @@ class PlaybookEngine:
         # 逻辑: 直接消费资金流层生成的“信念突破”剧本分数
         conviction_breakout_score = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score)
         triggers['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'] = conviction_breakout_score > thresholds['conviction_breakout_s_plus']
+        # 触发器: 大反转后期·共振初起
+        post_reversal_score = atomic.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score)
+        triggers['TRIGGER_POST_REVERSAL_RESONANCE_S_PLUS'] = post_reversal_score > thresholds['post_reversal_resonance_s_plus']
 
         # --- 更新“筹码共振-价格滞后”剧本的触发器逻辑 ---
         # 战备条件：昨日处于“真实吸筹”且“价格被压制”的状态
@@ -240,7 +262,7 @@ class PlaybookEngine:
         any_breakout_trigger = np.maximum(squeeze_breakout_score, vol_breakout_a_score) > thresholds['normal_squeeze_a']
         triggers['TRIGGER_NORMAL_SQUEEZE_BREAKOUT_A'] = setup_normal_squeeze.shift(1).fillna(False) & any_breakout_trigger & ~triggers['TRIGGER_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
         
-        # --- 4. 定义“持续点火”确认触发器 (逻辑不变) ---
+        # --- 4. 定义“持续点火”确认触发器 ---
         initial_ignition = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s']
         initial_chip_ignition = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score) > thresholds['chip_ignition_s']
         invalidation_risk_score = np.maximum.reduce([
