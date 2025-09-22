@@ -740,14 +740,16 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, probe_date: str):
         """
-        【V1.1 逻辑重演版】首席法医官探针
-        - 核心升级 (本次修改):
+        【V1.2 时区修复版】首席法医官探针
+        - 核心升级 (V1.1):
           - [逻辑重演] 探针不再假设内部变量存在于atomic_states，而是根据源函数逻辑主动重演计算，以获取真实的中间值。
           - [深度解剖] 新增对“真实吸筹”信号的下一层级解剖，追踪到最原始的因子分数。
-        - 收益: 能够100%还原信号生成链路，精确锁定任何环节的问题。
+        - 核心修复 (V1.2 - 本次修改):
+          - [时区对齐] 修复了因探针日期(tz-naive)与DataFrame索引(tz-aware)时区不匹配而导致的TypeError。
+        - 收益: 确保探针在任何时区设置下都能稳定运行。
         """
         # 代码修改：更新版本号和说明
-        print("\n" + "="*35 + f" [首席法医官探针 V1.1] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [首席法医官探针 V1.2] 正在解剖 {probe_date} " + "="*35)
         
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
@@ -756,24 +758,33 @@ class MultiTimeframeTrendStrategy:
 
             df = self.daily_analysis_df
             atomic = self.tactical_engine.atomic_states
-            probe_ts = pd.to_datetime(probe_date)
+            
+            # 代码修改：创建 probe_ts 后，立即进行时区对齐
+            probe_ts_naive = pd.to_datetime(probe_date)
+            if df.index.tz is not None:
+                # 如果DataFrame的索引有时区，则将探针时间戳本地化为相同的时区
+                probe_ts = probe_ts_naive.tz_localize(df.index.tz)
+                print(f"  [探针时区对齐] DataFrame索引时区为'{df.index.tz}'，已将探针时间戳本地化。")
+            else:
+                # 如果DataFrame的索引没有时区，则直接使用天真的时间戳
+                probe_ts = probe_ts_naive
             
             # 辅助函数，用于安全地获取并打印信号值
             def probe_signal(signal_name, indent=2, source_dict=None):
-                # 代码新增：允许指定源字典
                 source = source_dict if source_dict is not None else atomic
                 prefix = " " * indent
                 if signal_name not in source:
                     print(f"{prefix}❌ [信号/变量缺失] {signal_name}")
                     return 0.0
                 
+                # 使用已经对齐时区的 probe_ts 进行索引
                 value = source[signal_name].get(probe_ts, 0.0)
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
 
             # --- 0. 探针内部计算，重演源函数逻辑 ---
-            # 代码新增：重演 synthesize_reversal_reliability_score 的内部计算
             internal_vars = {}
+            # 使用已经对齐时区的 probe_ts 进行切片
             row = df.loc[probe_ts:probe_ts]
             if not row.empty:
                 # 重演第一幕：深度价值区
