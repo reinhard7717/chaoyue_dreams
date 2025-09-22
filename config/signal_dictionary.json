@@ -18,6 +18,9 @@
         "SCORE_SETUP": { "cn_name": "【汇总】环境战备分", "category": "内部计分", "type": "subtotal", "description": "第一层：环境与战备分的汇总得分。" },
         "SCORE_TRIGGER": { "cn_name": "【汇总】独立触发器分", "category": "内部计分", "type": "subtotal", "description": "第二层：独立触发器加分的汇总得分。" },
         "SCORE_PLAYBOOK_SYNERGY": { "cn_name": "【汇总】剧本协同分", "category": "内部计分", "type": "subtotal", "description": "第三层：剧本协同奖励分的汇总得分。" },
+
+        "SCORE_REVERSAL_OFFENSE": { "cn_name": "【汇总】反转进攻分", "category": "内部计分", "type": "subtotal", "description": "基于高可靠性反转信号计算的核心进攻分数。" },
+        "SCORE_RESONANCE_OFFENSE": { "cn_name": "【汇总】共振进攻分", "category": "内部计分", "type": "subtotal", "description": "基于趋势共振信号计算的辅助进攻分数。" },
         
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "说明_cognitive_fused_risk": "--- 认知层-融合风险 ---",
