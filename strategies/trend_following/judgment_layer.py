@@ -97,7 +97,7 @@ class JudgmentLayer:
             'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE'
         ]
         # 定义需要剥离的前缀列表
-        prefixes_to_strip = ['SETUP_', 'TRIGGER_', 'PLAYBOOK_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
+        prefixes_to_strip = ['SETUP_', 'DYN_', 'STRATEGIC_', 'BONUS_', 'REVERSAL_', 'RESONANCE_']
 
         def process_details_df(details_df, prefix_list):
             """辅助函数，用于向量化处理一个分数详情DataFrame"""
@@ -112,13 +112,13 @@ class JudgmentLayer:
             date_col_name = long_df.columns[0]
             
             def get_base_signal(signal_name):
-                # --- 新增开始：增加对TRIGGER和PLAYBOOK的特殊处理 ---
+                # --- 修改开始：增加对TRIGGER和PLAYBOOK的特殊处理 ---
                 # 如果是汇总分、触发器或剧本，直接返回原名，因为它们在字典中的键就是全名
                 if (signal_name in summary_score_cols or 
                     signal_name.startswith('TRIGGER_') or 
                     signal_name.startswith('PLAYBOOK_')):
                     return signal_name
-                # --- 新增结束 ---
+                # --- 修改结束 ---
                 
                 # 否则，正常进行前缀剥离
                 base_name = signal_name
@@ -134,6 +134,11 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items()}
             long_df['cn_name'] = long_df['base_signal'].map(cn_name_map).fillna(long_df['base_signal'])
             
+            # 调试信息：打印出所有未能成功映射的信号
+            unmapped_signals = long_df[long_df['cn_name'] == long_df['base_signal']]['base_signal'].unique()
+            if len(unmapped_signals) > 0:
+                print(f"    -> [报告层-调试] 以下信号在 signal_dictionary.json 中未找到定义: {list(unmapped_signals)}")
+
             # 向量化生成摘要字符串
             long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
             

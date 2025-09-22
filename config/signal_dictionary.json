@@ -92,6 +92,8 @@
         "COGNITIVE_SCORE_TREND_QUALITY": { "cn_name": "【认知】趋势质量分", "category": "认知层-环境", "type": "context", "description": "融合七大维度（行为、筹码、资金流、结构、力学、Hurst、FFT）健康度，综合评估当前趋势的质量与可持续性。" },
         "COGNITIVE_SCORE_CONTEXT_LATE_STAGE": { "cn_name": "【认知】上涨末期风险分", "category": "认知层-风险", "type": "risk", "description": "融合多个顶部风险指标，量化当前是否处于上涨趋势的末期阶段。" },
         "说明_playbook_tactic": "--- 战法与剧本信号 (Playbooks & Tactics) ---",
+        "说明_trigger_signals": "--- 独立触发器信号 ---",
+        "TRIGGER_DOMINANT_REVERSAL": { "cn_name": "【触发器】显性反转", "category": "触发器-机会", "type": "trigger", "description": "由强力反转K线确认的、具备主导性的反转信号。" },
         "说明_playbook_ace": "--- S++/S+级王牌战法与剧本 ---",
         "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": { "cn_name": "【剧本S++】大反转后期共振", "category": "战法-机会", "type": "playbook", "description": "执行“大反转后期·共振初起”这一最高级别的逆向交易剧本。" },
         "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": { "cn_name": "【剧本S++】真实吸筹突破", "category": "战法-机会", "type": "playbook", "description": "在确认的“真实吸筹”阶段后，由多域点火共振确认的突破，是最高置信度的买点之一。" },
