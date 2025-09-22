@@ -205,14 +205,10 @@ class OffensiveLayer:
 
     def _calculate_weighted_score(self, signals_config: Dict, score_details_df: pd.DataFrame, prefix: str, special_multipliers: Dict = None) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V403.1 新增】向量化加权分数计算辅助函数
-        - 核心职责: 替代原有的for循环，通过向量化操作一次性计算一个层级的总分。
-        - 性能优势: 避免了在循环中反复创建和累加Pandas Series的巨大开销，将计算复杂度从 O(N*M) 降低到 O(N)，其中N是信号数量，M是数据长度。
-        - 实现方式:
-          1. 将所有信号的Series和权重值分别提取出来。
-          2. 将信号Series列表转换为一个2D NumPy数组。
-          3. 使用NumPy广播机制，将信号数组与权重数组高效相乘。
-          4. 对结果沿信号维度求和，得到最终的总分Series。
+        【V403.2 健壮性修复版】向量化加权分数计算辅助函数
+        - 核心修复 (本次修改):
+          - [健壮性] 增加了对配置项值的类型检查。现在函数能正确解析新版配置中 "SIGNAL": {"score": 100, "description": "..."} 的字典结构，也能兼容旧版的 "SIGNAL": 100 数字结构。
+        - 收益: 修复了因配置结构升级导致的 TypeError，使计分引擎能够正确运行。
         """
         atomic_states = self.strategy.atomic_states
         df_index = self.strategy.df_indicators.index
@@ -226,17 +222,23 @@ class OffensiveLayer:
         for signal_name, score in signals_config.items():
             if signal_name.startswith("说明"):
                 continue
-            
+            score_value = 0
+            if isinstance(score, dict):
+                # 如果值是一个字典，从中提取 'score' 键的值
+                score_value = score.get('score', 0)
+            elif isinstance(score, (int, float)):
+                # 如果值直接是数字，直接使用（兼容旧配置）
+                score_value = score
             # 根据信号来源获取Series
             if prefix == 'TRIGGER_':
                 signal_series = self.strategy.trigger_events.get(signal_name, pd.Series(False, index=df_index))
             elif prefix == 'PLAYBOOK_':
                 signal_series = self.strategy.playbook_states.get(signal_name, pd.Series(False, index=df_index))
-            else: # 默认为SETUP
+            else: # 默认为反转或共振信号
                 signal_series = atomic_states.get(signal_name, pd.Series(False, index=df_index))
 
             signal_names.append(signal_name)
-            score_weights.append(score)
+            score_weights.append(score_value) # 修改：使用解析后的 score_value
             signal_series_list.append(signal_series.astype(float))
 
         if not signal_series_list:
