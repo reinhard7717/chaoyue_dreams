@@ -71,33 +71,46 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】早期动能点火诊断模块 (东风初起)
-        - 核心目标: 识别“万事俱备”之后，动能“刚刚启动”的精确时点，避免追高。
-        - 核心逻辑: 融合多个“早期”和“温和”的动能信号，如波动率拐点、MACD低位金叉、
-                      价格温和放量等，形成一个综合的“早期点火分”。
-        - 产出信号:
-          - `COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A`: A级早期动能点火信号，可用于替代或补充
-                                                         现有激进的动能信号。
+        【V1.2 类型修复版】早期动能点火诊断模块 (东风初起)
+        - 核心修复 (本次修改):
+          - [类型统一] 确保了方法内部计算的所有中间分数（如macd_reversal_score, gentle_rally_score等）
+                        都被正确地转换为带有索引的 Pandas Series，而不仅仅是 NumPy 数组。
+        - 收益: 解决了因在 NumPy 数组上调用 Series 方法而导致的 AttributeError，并增强了代码的健壮性。
         """
+        # 代码修改：更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        
+        # --- 1. 计算所有原始因子 ---
         vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
-        macd_reversal_score = np.maximum(
+        
+        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
+        macd_reversal_score_arr = np.maximum(
             atomic.get('SCORE_MACD_BOTTOM_REVERSAL_B', default_score).values,
             atomic.get('SCORE_MACD_BOTTOM_REVERSAL_A', default_score).values
         )
-        macd_reversal_series = pd.Series(macd_reversal_score, index=df.index)
+        macd_reversal_score = pd.Series(macd_reversal_score_arr, index=df.index)
+        
         pct_change = df['pct_change_D']
-        gentle_rally_score = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
+        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
+        gentle_rally_score_arr = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
+        gentle_rally_score = pd.Series(gentle_rally_score_arr, index=df.index)
+
         volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
         vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2)
         vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8)
-        gentle_volume_score = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
+        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
+        gentle_volume_score_arr = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
+        gentle_volume_score = pd.Series(gentle_volume_score_arr, index=df.index)
+        
         price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
+        
+        # --- 2. 融合计算最终分数 ---
+        # 现在所有组件都是 Pandas Series，可以直接提取 .values
         score_components = [
             vol_tipping_point_score.values,
-            macd_reversal_series.values,
+            macd_reversal_score.values,
             gentle_rally_score.values,
             gentle_volume_score.values,
             price_accel_score.values
@@ -107,7 +120,9 @@ class MicroBehaviorEngine:
         final_score_arr = prod_scores**(1.0 / len(score_components))
         final_score = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
         states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
-        # 代码新增：植入“一线法医探针”
+
+        # --- 探针部分 ---
+        # 现在探针可以安全地在所有 Series 上调用 .get() 方法
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:
@@ -124,6 +139,7 @@ class MicroBehaviorEngine:
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}")
                 print(f"          - 最终融合分 (几何平均): {final_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
+
         return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
