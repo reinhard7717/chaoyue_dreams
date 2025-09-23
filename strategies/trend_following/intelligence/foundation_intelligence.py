@@ -438,12 +438,12 @@ class FoundationIntelligence:
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
         # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
         is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
-        # [修改行] 修复TypeError：将关键字参数 'duration' 修改为 'window'
-        persistent_bottom_state = create_persistent_state(is_tipping_point_bottom_event, window=3)
+        # [修改行] 修复TypeError：移除关键字参数，直接传递位置参数。
+        persistent_bottom_state = create_persistent_state(is_tipping_point_bottom_event, 3)
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
         is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
-        # [修改行] 修复TypeError：将关键字参数 'duration' 修改为 'window'
-        persistent_top_state = create_persistent_state(is_tipping_point_top_event, window=3)
+        # [修改行] 修复TypeError：移除关键字参数，直接传递位置参数。
+        persistent_top_state = create_persistent_state(is_tipping_point_top_event, 3)
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
         # 代码新增：植入“波动率活检探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
