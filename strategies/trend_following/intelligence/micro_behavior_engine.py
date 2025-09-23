@@ -71,11 +71,10 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 类型修复版】早期动能点火诊断模块 (东风初起)
-        - 核心修复 (本次修改):
-          - [类型统一] 确保了方法内部计算的所有中间分数（如macd_reversal_score, gentle_rally_score等）
-                        都被正确地转换为带有索引的 Pandas Series，而不仅仅是 NumPy 数组。
-        - 收益: 解决了因在 NumPy 数组上调用 Series 方法而导致的 AttributeError，并增强了代码的健壮性。
+        【V1.3 深度活检版】早期动能点火诊断模块 (东风初起)
+        - 核心升级 (本次修改):
+          - [深度活检] 探针现在额外打印出“温和放量分”的核心中间变量 `volume_ratio`，
+                        以便快速判断成交量是否在预设的“黄金区间”内。
         """
         # 代码修改：更新版本号和说明
         states = {}
@@ -85,7 +84,6 @@ class MicroBehaviorEngine:
         # --- 1. 计算所有原始因子 ---
         vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
         
-        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
         macd_reversal_score_arr = np.maximum(
             atomic.get('SCORE_MACD_BOTTOM_REVERSAL_B', default_score).values,
             atomic.get('SCORE_MACD_BOTTOM_REVERSAL_A', default_score).values
@@ -93,21 +91,18 @@ class MicroBehaviorEngine:
         macd_reversal_score = pd.Series(macd_reversal_score_arr, index=df.index)
         
         pct_change = df['pct_change_D']
-        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
         gentle_rally_score_arr = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
         gentle_rally_score = pd.Series(gentle_rally_score_arr, index=df.index)
 
         volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
         vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2)
         vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8)
-        # 代码修改：将 NumPy 数组立即转换为 Pandas Series
         gentle_volume_score_arr = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
         gentle_volume_score = pd.Series(gentle_volume_score_arr, index=df.index)
         
         price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
         
         # --- 2. 融合计算最终分数 ---
-        # 现在所有组件都是 Pandas Series，可以直接提取 .values
         score_components = [
             vol_tipping_point_score.values,
             macd_reversal_score.values,
@@ -122,7 +117,6 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
 
         # --- 探针部分 ---
-        # 现在探针可以安全地在所有 Series 上调用 .get() 方法
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:
@@ -135,7 +129,8 @@ class MicroBehaviorEngine:
                 print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f}")
                 print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f}")
                 print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f}")
-                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}")
+                # 代码新增：打印“温和放量分”的核心中间变量
+                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}  <-- [活检] 当日成交量/21日均量 = {volume_ratio.get(probe_ts, -1):.2f} (黄金区间: 1.2-3.0)")
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}")
                 print(f"          - 最终融合分 (几何平均): {final_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
