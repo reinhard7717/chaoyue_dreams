@@ -61,7 +61,6 @@ class TacticEngine:
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         
         all_states.update(self.synthesize_squeeze_playbooks(df))
-        all_states.update(self.synthesize_post_reversal_resonance_tactic(df))
         print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
 
@@ -301,59 +300,6 @@ class TacticEngine:
         score_a = (setup_normal_squeeze_score * pd.Series(trigger_any_breakout_score, index=df.index)).astype(np.float32)
         states['SCORE_PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = score_a
         states['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'] = (score_a > 0.5) & ~states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS']
-        return states
-
-    def synthesize_post_reversal_resonance_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.1 信号发布增强版】“大反转后期·共振初起”战术诊断引擎
-        - 核心升级 (本次修改):
-          - [信号发布] 将内部计算的“企稳点火分”(`ignition_confirmation_score`)
-                        正式发布为 `SCORE_IGNITION_CONFIRMATION` 原子状态。
-        - 收益: 彻底解决了“幽灵信号”问题。确保了该核心组件能被上层认知模块和
-                法医官探针正确消费，从而点亮最终的王牌反转信号。
-        """
-        # 更新版本号和说明
-        states = {}
-        p = get_params_block(self.strategy, 'post_reversal_resonance_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return states
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
-        # --- 1. 提取三大核心要素 ---
-        # 要素1: 深度价值区
-        price_position_in_range = self._get_atomic_score(df, 'SCORE_PRICE_POSITION_IN_RANGE', 1.0)
-        deep_bottom_context_score = 1.0 - price_position_in_range
-        
-        # 要素2: 股东换血
-        shareholder_quality_score = np.maximum.reduce([
-            atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
-            atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score).values,
-            atomic.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values
-        ])
-        shareholder_quality_series = pd.Series(shareholder_quality_score, index=df.index)
-        
-        # 要素3: 企稳点火
-        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), ascending=False)
-        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        ignition_confirmation_score = (
-            downtrend_stabilizing_score * vol_compression_score * early_ignition_score
-        )
-        
-        # 将“企稳点火分”正式发布为原子状态，解决幽灵信号问题
-        states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score.astype(np.float32)
-
-        # --- 2. 融合三大要素，生成最终战术分 ---
-        final_tactic_score = (
-            deep_bottom_context_score *
-            shareholder_quality_series *
-            ignition_confirmation_score
-        ).astype(np.float32)
-        states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_tactic_score
-        
-        if (final_tactic_score > 0.5).any():
-            print(f"  [探针-逆向共振] 侦测到 {(final_tactic_score > 0.5).sum()} 次“大反转后期·共振初起”机会！")
         return states
 
     def _normalize_score(self, series: pd.Series, window: int = 120, ascending: bool = True, default=0.5) -> pd.Series:

@@ -311,7 +311,8 @@ class MicroBehaviorEngine:
         ).astype(np.float32)
         
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
-        states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
+        # 代码修改：删除对被废弃信号的赋值
+        # states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
         # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
@@ -333,7 +334,6 @@ class MicroBehaviorEngine:
                 print(f"          ----------------------------------------------------------\n")
         
         return states
-
 
 
 
