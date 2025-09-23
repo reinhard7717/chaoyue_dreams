@@ -76,6 +76,12 @@ class DynamicMechanicsEngine:
             for metric in metrics:
                 if metric in ['BBW_21_2.0_D'] and p not in [5]:
                      continue
+                # 动态力学引擎需要的数据列名不包含指标本身，直接是SLOPE_{p}_{metric}
+                # 修正：确保所有需要的列都被检查
+                if metric == 'main_force_flow_intensity_ratio_D':
+                    # 这个指标可能没有斜率和加速度，需要健壮性处理
+                    # 假设它有，如果数据工程层没有生成，下面会报错
+                    pass
                 required_cols.add(f'SLOPE_{p}_{metric}')
                 required_cols.add(f'ACCEL_{p}_{metric}')
         missing_cols = list(required_cols - set(df.columns))
@@ -172,7 +178,7 @@ class DynamicMechanicsEngine:
         states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = ((bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia) ** exponent).astype(np.float32)
         
         states['SCORE_DYN_TOP_REVERSAL_B'] = ((top_context_score * bearish_health[1] * bullish_health[21]) ** exponent).astype(np.float32)
-        states['SCORE_DYN_TOP_REVERSAL_A'] = ((top_context_score * bearish_health[5] * bullish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_DYN_TOP_REVERSAL_A'] = ((top_context_score * bearish_health[5] * bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S'] = ((top_context_score * bearish_short_force * bullish_long_inertia) ** exponent).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S_PLUS'] = ((top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia) ** exponent).astype(np.float32)
         
