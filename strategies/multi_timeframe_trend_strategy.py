@@ -782,7 +782,7 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
-            display_days = 10 # 定义要展示的最新天数
+            display_days = 15 # 定义要展示的最新天数
             if len(debug_period_daily_scores) > display_days:
                 print(f"\n[信息] 回测周期内共有 {len(debug_period_daily_scores)} 天数据，将仅展示最新的 {display_days} 天详细报告。")
                 # 对已排序的列表进行切片，只取最后10个元素
