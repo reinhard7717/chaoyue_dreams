@@ -92,14 +92,14 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.2 一线探针版】主力吸筹模式与风险诊断引擎
+        【V4.3 探针适配版】主力吸筹模式与风险诊断引擎
         - 核心升级 (本次修改):
-          - [一线探针] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
-                        当指定日期时，它会打印出所有用于计算吸筹分数的、最原始的归一化因子得分，
-                        从而能精确地定位到导致最终分数为零的“罪魁祸首”。
+          - [信号发布] 将内部计算的所有吸筹因子分数（如集中度改善分、成本抬升分等）正式发布到 `atomic_states` 中，
+                        以供“首席法医官探针”直接消费。
+        - 收益: 为探针提供了无需重计算的、100%真实的原始数据源，确保了调试信息的绝对准确性。
         """
-        # 更新版本号和说明
-        print("        -> [主力吸筹与风险诊断引擎 V4.2 一线探针版] 启动...")
+        # [修改行] 更新版本号和说明
+        print("        -> [主力吸筹与风险诊断引擎 V4.3 探针适配版] 启动...")
         states = {}
         norm_window = 120
         required_cols = [
@@ -109,9 +109,8 @@ class ChipIntelligence:
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.2缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.3缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
-        
         # --- 2. 核心要素数值化 ---
         conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
         conc_accel_score = self._normalize_score(df['ACCEL_5_concentration_90pct_D'], norm_window, ascending=False)
@@ -120,21 +119,23 @@ class ChipIntelligence:
         cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
         winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
         loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
-        
+        # [新增行] 将所有内部因子发布到 states，供探针消费
+        states['INTERNAL_SCORE_CONCENTRATION_IMPROVING'] = concentration_improving_score.astype(np.float32)
+        states['INTERNAL_SCORE_COST_RISING'] = cost_rising_score.astype(np.float32)
+        states['INTERNAL_SCORE_WINNER_HOLDING'] = winner_holding_score.astype(np.float32)
+        states['INTERNAL_SCORE_COST_FALLING'] = cost_falling_score.astype(np.float32)
+        states['INTERNAL_SCORE_LOSER_CAPITULATING'] = loser_capitulating_score.astype(np.float32)
         # --- 3. 剧本与风险合成 ---
         rally_accumulation_score = (concentration_improving_score * cost_rising_score * winner_holding_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
         suppress_accumulation_score = (concentration_improving_score * cost_falling_score * loser_capitulating_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
-        
         concentration_worsening_score = (1 - conc_slope_score) * (1 - conc_accel_score)
         winner_distributing_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=True)
         false_accumulation_risk_score = (concentration_worsening_score * cost_rising_score * winner_distributing_score).astype(np.float32)
         states['SCORE_CHIP_FALSE_ACCUMULATION_RISK'] = false_accumulation_risk_score
-        
         true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
-
         # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
@@ -154,7 +155,6 @@ class ChipIntelligence:
                 print(f"            - 打压吸筹剧本分: {suppress_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"            - 真实吸筹分(最大值): {true_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------\n")
-
         return states
 
     def diagnose_ultimate_chip_signals_v3(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

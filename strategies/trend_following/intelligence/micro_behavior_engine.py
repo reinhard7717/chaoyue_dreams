@@ -251,16 +251,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 双重算法革命版】高质量战备可靠性诊断引擎
+        【V4.1 探针适配版】高质量战备可靠性诊断引擎
         - 核心升级 (本次修改):
-          - [双重算法革命] 对信号链中的两层核心融合逻辑，全部从“连环乘法”升级为“加权平均共识”模型。
-            1. “企稳点火分”的计算升级为加权平均。
-            2. 最终“王牌信号”的计算也升级为加权平均。
-        - 收益: 彻底根除了信号在传递过程中被指数级削弱的系统性缺陷，使得最终的王牌信号
-                能够更真实、更稳定地反映多维度的市场共识强度。
+          - [信号发布] 将内部计算的 `deep_bottom_context_score`, `rsi_w_oversold_score`, `downtrend_stabilizing_score`
+                        等关键组件分数，正式发布到 `atomic_states` 中，以供“首席法医官探针”直接消费。
+        - 收益: 为探针提供了无需重计算的、100%真实的原始数据源，确保了调试信息的绝对准确性。
         """
-        # 代码修改：确保此方法使用最新的双重加权算法
-        print("        -> [高质量战备可靠性诊断引擎 V4.0 双重算法革命版] 启动...")
+        # [修改行] 更新版本号和说明
+        print("        -> [高质量战备可靠性诊断引擎 V4.1 探针适配版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -268,14 +266,15 @@ class MicroBehaviorEngine:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         norm_window = get_param_value(p.get('norm_window'), 120)
-
         # --- 第一幕：背景设定 (The Setup) - 深度价值区 ---
         price_pos_yearly = self._normalize_score(df['close_D'], window=250, ascending=True, default=0.5)
         deep_bottom_context_score = 1.0 - price_pos_yearly
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
         background_score = (deep_bottom_context_score * rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
-
+        # [新增行] 将内部组件发布到 states，供探针消费
+        states['INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT'] = deep_bottom_context_score.astype(np.float32)
+        states['INTERNAL_SCORE_RSI_W_OVERSOLD'] = rsi_w_oversold_score.astype(np.float32)
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
         shareholder_turnover_score = np.maximum.reduce([
             atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
@@ -284,13 +283,13 @@ class MicroBehaviorEngine:
         ])
         shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
-
         # --- 第三幕：转折点火 (The Ignition) - 共振初起 ---
         downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        
-        # 代码修改：[算法升级 1] 将“企稳点火分”的计算从乘法升级为加权平均
+        # [新增行] 将内部组件发布到 states，供探针消费
+        states['INTERNAL_SCORE_DOWNTREND_STABILIZING'] = downtrend_stabilizing_score.astype(np.float32)
+        # [算法升级 1] 将“企稳点火分”的计算从乘法升级为加权平均
         ignition_weights = {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2}
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
@@ -298,18 +297,15 @@ class MicroBehaviorEngine:
             downtrend_stabilizing_score * ignition_weights['stabilizing']
         ).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
-
         # --- 最终剧本触发逻辑 (全新加权共识范式) ---
-        # 代码修改：[算法升级 2] 将最终可靠性分的计算也从乘法升级为加权平均
+        # [算法升级 2] 将最终可靠性分的计算也从乘法升级为加权平均
         reliability_weights = {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2}
         final_reliability_score = (
             shareholder_quality_score * reliability_weights['shareholder'] +
             ignition_confirmation_score * reliability_weights['ignition'] +
             background_score * reliability_weights['context']
         ).astype(np.float32)
-        
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
-        
         # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
@@ -327,7 +323,6 @@ class MicroBehaviorEngine:
                 print(f"          - 要素3 (深度价值区) 得分: {background_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['context']})")
                 print(f"          - 最终可靠性分 (加权平均): {final_reliability_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
-        
         return states
 
 
