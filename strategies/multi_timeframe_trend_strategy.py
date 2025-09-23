@@ -686,15 +686,14 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_capitulation_probe(self, probe_date: str):
         """
-        【V1.1 深度解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
-        - 核心升级 (本次修改):
-          - [深度解剖] 探针现在不仅显示原始指标值，还调用 `_normalize_score` 函数
-                        来计算并显示每个原始值对应的“归一化分数”。
-          - [逻辑同步] 探针的最终验算逻辑与 `_diagnose_capitulation_reversal` V1.1 版完全同步，
-                        采用“核心分 * (1 + 上下文奖励)”的新范式。
-        - 收益: 实现了从原始数据到最终分数的全链路透明化，极大提升了信号的可诊断性。
+        【V2.0 战术剧本解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
+        - 核心重构 (本次修改):
+          - [范式同步] 探针逻辑与 `chip_intelligence` V2.0 版完全同步，从解剖“融合公式”升级为解剖“战备-点火”战术剧本。
+          - [时序解剖] 探针现在能分别解剖“今日的点火分”和“昨日的战备分”，并展示各自的构成因子。
+          - [闭环验证] 最终验算环节采用 `昨日战备分 * 今日点火分` 的新公式，确保与信号生成逻辑一致。
+        - 收益: 实现了对“战备-点火”模型全链路、跨时间的透明化诊断。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V1.1 · 深度解剖版] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.0 · 战术剧本解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -710,60 +709,73 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # 修复了对 chip_intelligence 的错误引用，应为 chip_intel
             chip_intel = self.tactical_engine.intelligence_layer.chip_intel
             p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
             norm_window = get_param_value(p.get('norm_window'), 120)
-            bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5)
+            
+            # [代码修改] 探针逻辑完全重构，以匹配“战备-点火”模型
+            
+            # 辅助函数：安全获取原子分
+            def get_atomic_score(signal_name, date, default=0.0):
+                if signal_name not in atomic: return default
+                return atomic[signal_name].get(date, default)
 
-            # 辅助函数，用于安全地获取和打印原子分数
-            def probe_atomic_score(signal_name, indent=2):
-                prefix = " " * indent
-                if signal_name not in atomic:
-                    print(f"{prefix}❌ [信号缺失] {signal_name}")
-                    return 0.0
-                value = atomic[signal_name].get(probe_ts, 0.0)
-                print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
-                return value
-
-            # 增强的辅助函数，同时获取原始值和归一化分
-            def probe_metric_and_norm_score(metric_name, ascending, indent=4):
-                prefix = " " * indent
-                if metric_name not in df.columns:
-                    print(f"{prefix}❌ [指标缺失] {metric_name}")
-                    return 0.0, 0.0
-                raw_value = df.at[probe_ts, metric_name]
-                norm_score = chip_intel._normalize_score(df[metric_name], norm_window, ascending).get(probe_ts, 0.0)
-                print(f"{prefix}➡️ 原始值: {metric_name:<45} = {raw_value:.4f}")
-                print(f"{prefix} स्कोर 归一化分: {'':<42} = {norm_score:.4f}")
-                return raw_value, norm_score
-
+            # --- [第一层解剖]: 最终剧本分数 ---
             print("\n--- [第一层解剖]: 最终剧本分数 ---")
-            final_score = probe_atomic_score("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", indent=2)
-            print(f"  -> 它的分数由 [核心分 * (1 + 上下文分 * {bonus_factor})] 得到:")
+            final_score = get_atomic_score("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", probe_ts)
+            print(f"  ✅ SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL = {final_score:.4f}")
+            print(f"  -> 它的分数由 [昨日战备分 * 今日点火分] 得到:")
 
-            print("\n--- [第二层解剖]: 核心构成因子 ---")
+            # --- [第二层解剖]: 今日“点火”分 (Trigger) ---
+            print("\n--- [第二层解剖]: 今日“点火”分 (Trigger) ---")
+            trigger_score_today = get_atomic_score("SCORE_TRIGGER_CAPITULATION_FIRE", probe_ts)
+            print(f"  ✅ SCORE_TRIGGER_CAPITULATION_FIRE @ {probe_date} = {trigger_score_today:.4f}")
+            
+            # 解剖点火分的构成
+            turnover_raw = df.at[probe_ts, 'turnover_from_losers_ratio_D']
+            k = get_param_value(p.get('logistic_k', 0.1))
+            x0 = get_param_value(p.get('logistic_x0', 50.0))
+            relative_turnover_score = chip_intel._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, True).get(probe_ts, 0.0)
+            absolute_turnover_score = 1 / (1 + np.exp(-k * (turnover_raw - x0)))
+            turnover_score_calc = np.maximum(relative_turnover_score, absolute_turnover_score)
+            
+            accel_raw = df.at[probe_ts, 'ACCEL_5_turnover_from_losers_ratio_D']
+            accel_score_calc = chip_intel._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, True).get(probe_ts, 0.0)
+            
+            print(f"    - 因子1: 割肉盘占比 (原始值={turnover_raw:.2f}%) -> 相对分({relative_turnover_score:.4f}) vs 绝对分({absolute_turnover_score:.4f}) -> 最终行为分 = {turnover_score_calc:.4f}")
+            print(f"    - 因子2: 割肉盘加速 (原始值={accel_raw:.4f}) -> 加速分 = {accel_score_calc:.4f}")
+            trigger_score_calc = turnover_score_calc * accel_score_calc
+            print(f"    - [验算] 点火分 = {turnover_score_calc:.4f} * {accel_score_calc:.4f} = {trigger_score_calc:.4f} ({'一致' if np.isclose(trigger_score_calc, trigger_score_today) else '不一致'})")
 
-            # 因子1: 上下文 - 市场整体套牢比例
-            print("  [因子1: 上下文分 (奖励项)]")
-            _, context_score = probe_metric_and_norm_score("total_loser_rate_D", ascending=True)
+            # --- [第三层解剖]: 昨日“战备”分 (Setup) ---
+            yesterday_ts = probe_ts - pd.Timedelta(days=1)
+            yesterday_str = yesterday_ts.strftime('%Y-%m-%d')
+            print(f"\n--- [第三层解剖]: 昨日“战备”分 (Setup) ---")
+            if yesterday_ts not in df.index:
+                print(f"  [错误] 无法找到昨日({yesterday_str})数据，无法解剖战备分。")
+                setup_score_yesterday = 0.0
+            else:
+                setup_score_yesterday = get_atomic_score("SCORE_SETUP_CAPITULATION_READY", yesterday_ts)
+                print(f"  ✅ SCORE_SETUP_CAPITULATION_READY @ {yesterday_str} = {setup_score_yesterday:.4f}")
 
-            # 因子2: 行为 - 当日割肉盘占比
-            print("\n  [因子2: 行为分 (核心项)]")
-            _, turnover_score = probe_metric_and_norm_score("turnover_from_losers_ratio_D", ascending=True)
+                # 解剖战备分的构成
+                loser_rate_raw = df.at[yesterday_ts, 'total_loser_rate_D']
+                loser_rate_score_calc = chip_intel._normalize_score(df['total_loser_rate_D'], norm_window, True).get(yesterday_ts, 0.0)
+                
+                price_raw = df.at[yesterday_ts, 'close_D']
+                price_pos_score_calc = chip_intel._normalize_score(df['close_D'], 250, False).get(yesterday_ts, 0.0)
 
-            # 因子3: 加速 - 割肉盘占比5日加速度
-            print("\n  [因子3: 加速分 (核心项)]")
-            _, accel_score = probe_metric_and_norm_score("ACCEL_5_turnover_from_losers_ratio_D", ascending=True)
+                print(f"    - 因子1: 深度套牢 (原始值={loser_rate_raw:.2f}%) -> 套牢分 = {loser_rate_score_calc:.4f}")
+                print(f"    - 因子2: 长期低位 (原始值={price_raw:.2f}) -> 位置分 = {price_pos_score_calc:.4f}")
+                setup_score_calc = loser_rate_score_calc * price_pos_score_calc
+                print(f"    - [验算] 战备分 = {loser_rate_score_calc:.4f} * {price_pos_score_calc:.4f} = {setup_score_calc:.4f} ({'一致' if np.isclose(setup_score_calc, setup_score_yesterday) else '不一致'})")
 
-            # 增加最终验算环节
-            print("\n--- [第三层解剖]: 探针验算 ---")
-            core_score_calc = turnover_score * accel_score
-            final_score_calc = core_score_calc * (1 + context_score * bonus_factor)
-            print(f"  - 核心分 (行为分 * 加速分) = {turnover_score:.4f} * {accel_score:.4f} = {core_score_calc:.4f}")
-            print(f"  - 最终分 (核心分 * (1 + 上下文分 * 奖励系数)) = {core_score_calc:.4f} * (1 + {context_score:.4f} * {bonus_factor}) = {final_score_calc:.4f}")
+            # --- [第四层解剖]: 最终验算 ---
+            print("\n--- [第四层解剖]: 最终验算 ---")
+            final_score_calc = setup_score_yesterday * trigger_score_today
+            print(f"  - 最终剧本分 = 昨日战备分 * 今日点火分")
+            print(f"              = {setup_score_yesterday:.4f} * {trigger_score_today:.4f} = {final_score_calc:.4f}")
             print(f"  - [结论] 验算结果 ({final_score_calc:.4f}) 与实际信号值 ({final_score:.4f}) {'一致' if np.isclose(final_score_calc, final_score) else '不一致'}")
-
 
             print("\n" + "="*35 + " [恐慌盘投降探针] 解剖完毕 " + "="*35 + "\n")
 
