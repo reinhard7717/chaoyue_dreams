@@ -87,12 +87,10 @@ class StructuralIntelligence:
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        
         # [代码修改] 修正此处的变量名，从 bearish_health 改为 overall_bearish_health
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-        
         # --- 定义原始信号 (Raw Signals) ---
         raw_bullish_s = (bullish_short_force * bullish_medium_trend)
         raw_bullish_s_plus = (raw_bullish_s * bullish_long_inertia)
